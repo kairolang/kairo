@@ -2,7 +2,8 @@
 // below is its loops and nothing else: the generator's frame is elided (no
 // allocation), the adapter structs are never stored (no alloca), and the
 // `fn` callbacks are the named functions, inlined (no call of any kind,
-// direct or through a pointer). A chain with no `filter` is vectorized.
+// direct or through a pointer, other than an `llvm.` intrinsic of a
+// vectorized loop).
 
 import std::iter::*
 
@@ -37,11 +38,11 @@ fn main() -> i32 {
 }
 
 // CHECK-LABEL: define {{.*}}11chain_slice
-// CHECK-NOT: {{(call|invoke) }}
+// CHECK-NOT: {{(call|invoke) [^@]*@[^l]}}
 // CHECK-NOT: alloca
 // CHECK: {{^}}}
 // CHECK-LABEL: define {{.*}}12chain_vector
-// CHECK-NOT: {{(call|invoke) }}
+// CHECK-NOT: {{(call|invoke) [^@]*@[^l]}}
 // CHECK-NOT: alloca
 // CHECK: {{^}}}
 // CHECK-LABEL: define {{.*}}13chain_counted

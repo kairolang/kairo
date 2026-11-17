@@ -3,8 +3,9 @@
 // would write by hand (`_loop`).
 //
 // The slice's own `iter()` is a generator, which reads forward only and
-// does not know its length. The rev.take_while.count row therefore runs
-// over `Ends`, a pointer-pair iterator declared here.
+// does not know its length: the first row runs over it. The rows that need
+// the length or the back end (`take`, `rev`, `collect`) run over
+// `iter_slice_`, std::iter's pointer-pair source.
 import self::support::*
 import std::iter::*
 ffi "c++" import "bench.h"
@@ -15,42 +16,6 @@ fn input(n: u64) -> [i32] {
     var v: [i32]
     for var i: u64 = 0; i < n; i += 1 { v.push((rng.below(2001) as i32) - 1000) }
     return v
-}
-
-/// The elements of a slice by pointer, from either end.
-class Ends {
-    var lo: unsafe *const i32
-    var hi: unsafe *const i32
-
-    pub inline fn Ends(self, const s: [const i32;]) {
-        unsafe {
-            self.lo = &null
-            self.hi = &null
-            if s.size() != 0 {
-                self.lo = &s[0] as unsafe *const i32
-                self.hi = self.lo + s.size()
-            }
-        }
-    }
-}
-
-extend Ends impl DoubleEnded {
-    type Item = *const i32
-    inline fn next(self) -> (*const i32)? {
-        unsafe {
-            if self.lo == self.hi { return null }
-            var unsafe *p = self.lo
-            self.lo = p + 1
-            return p as *const i32
-        }
-    }
-    inline fn next_back(self) -> (*const i32)? {
-        unsafe {
-            if self.lo == self.hi { return null }
-            self.hi = self.hi - 1
-            return self.hi as *const i32
-        }
-    }
 }
 
 fn triple(x: i32) -> i32 = x * 3
@@ -64,15 +29,15 @@ fn map_filter_sum(const v: [const i32;]) -> u64 {
 }
 
 fn enumerate_take(const v: [const i32;]) -> u64 {
-    return iter(v.iter()).enumerate().take(v.size() / 2).fold<i64>(0, weigh) as u64
+    return iter_slice_(v).enumerate().take(v.size() / 2).fold<i64>(0, weigh) as u64
 }
 
 fn rev_take_while_count(const v: [const i32;]) -> u64 {
-    return iter(Ends(v)).rev().take_while(not_sentinel).count() as u64
+    return iter_slice_(v).rev().take_while(not_sentinel).count() as u64
 }
 
 fn collect_map(const v: [const i32;]) -> u64 {
-    var out = iter(v.iter()).copied().map<i32>(triple).collect<[i32]>()
+    var out = iter_slice_(v).copied().map<i32>(triple).collect<[i32]>()
     unsafe { bench_sink_ptr(&out[0] as unsafe *const void) }
     return out.size() as u64 + ((out[v.size() - 1] as i64) as u64)
 }

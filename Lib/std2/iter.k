@@ -509,6 +509,1242 @@ extend <U impl Copyable> Copied<U> impl Iterator {
     }
 }
 
+/// The elements of a slice by pointer, from either end, with their count.
+/// Reached through `iter_slice_`, which is not part of the public surface.
+pub class <T> SliceIter {
+    priv var lo: unsafe *const T
+    priv var hi: unsafe *const T
+}
+
+priv inline fn <T> span_len(lo: unsafe *const T, hi: unsafe *const T) -> usize {
+    unsafe {
+        return ((hi as usize) - (lo as usize)) / sizeof T
+    }
+}
+
+extend <T> SliceIter<T> impl DoubleEnded {
+    type Item = *const T
+    inline fn next(self) -> (*const T)? {
+        unsafe {
+            if self.lo == self.hi {
+                return null
+            }
+
+            var unsafe *p = self.lo
+            self.lo = p + 1
+            return p as *const T
+        }
+    }
+    inline fn next_back(self) -> (*const T)? {
+        unsafe {
+            if self.lo == self.hi {
+                return null
+            }
+
+            self.hi = self.hi - 1
+            return self.hi as *const T
+        }
+    }
+}
+
+extend <T> SliceIter<T> impl ExactSize {
+    inline fn remaining(const self) -> usize {
+        return span_len<T>(self.lo, self.hi)
+    }
+}
+
+/// `SliceIter` yielding copies of the elements.
+pub class <T impl Copyable> SliceCopied {
+    priv var lo: unsafe *const T
+    priv var hi: unsafe *const T
+}
+
+extend <T impl Copyable> SliceCopied<T> impl DoubleEnded {
+    type Item = T
+    inline fn next(self) -> T? {
+        unsafe {
+            if self.lo == self.hi {
+                return null
+            }
+
+            var unsafe *p = self.lo
+            self.lo = p + 1
+            return (*p).copy()
+        }
+    }
+    inline fn next_back(self) -> T? {
+        unsafe {
+            if self.lo == self.hi {
+                return null
+            }
+
+            self.hi = self.hi - 1
+            return (*self.hi).copy()
+        }
+    }
+}
+
+extend <T impl Copyable> SliceCopied<T> impl ExactSize {
+    inline fn remaining(const self) -> usize {
+        return span_len<T>(self.lo, self.hi)
+    }
+}
+
+/// A chain over the elements of `s`, by pointer. Unlike `iter(s.iter())` the
+/// source knows its length and reads from either end, so `rev()` applies, a
+/// `take(n)` is a counted loop and `collect()` sizes its target once.
+///
+/// The trailing underscore marks it as outside the public surface: it stands
+/// in until `Slice::iter()` itself returns a source of this kind.
+pub inline fn <T> iter_slice_(const s: [const T;]) -> Iter<SliceIter<T>> {
+    var n = s.size()
+    unsafe {
+        var lo: unsafe *const T = &null
+        if n != 0 {
+            lo = &s[0] as unsafe *const T
+        }
+
+        return Iter<SliceIter<T>> { it: SliceIter<T> { lo: lo, hi: lo + n } }
+    }
+}
+
+// --- internal iteration -----------------------------------------------------
+//
+// A consumer does not call `next` in a loop. It builds a sink, an object
+// with one member that takes an item and says whether it wants another, and
+// hands it to `Drive<I>::run`. Each adapter's `run` wraps the sink it is
+// given in a sink of its own (a `Map` applies its function and passes the
+// result on; a `Filter` passes on what its predicate holds for) and runs its
+// inner iterator with that. The loop is written once, in the source, with the
+// whole chain inlined into its body: a `filter` is a conditional inside one
+// loop and not a loop of its own.
+//
+// `Drive<I>` is chosen per chain type by partial specialization. A generic
+// body is checked against its bounds alone, so `Iter<I impl Iterator>` cannot
+// ask its `I` for anything but `next`; the specialization for an adapter is
+// what knows it. An iterator with no specialization (a generator, a user's
+// class) gets the primary, whose `run` is the `next` loop.
+//
+// COMPILER-WORKAROUND(partial-bound): a partial specialization cannot carry
+// a bound or a conformance clause, and its members get none from a member
+// clause, so each partial is empty and derives a helper class that has the
+// bounds and the members.
+//
+// COMPILER-WORKAROUND(sink-in-class): a sink conforms to `Sink` in its class
+// body. A conformance written as `extend X<..> impl Sink<T>` has no witness
+// in the unit that uses the chain.
+
+/// Takes the items of a run. `put` moves the item out of `x` or leaves it to
+/// its owner, and returns false to end the run.
+///
+/// COMPILER-WORKAROUND(interface-by-value): the item comes by reference. A
+/// requirement that takes it by value is checked by copying it, which a
+/// move-only item does not allow.
+priv interface <T> Sink {
+    fn put(self, @inout x: T) -> bool
+}
+
+/// How many items are left: at least `lo`, and exactly `lo` when `exact`.
+/// Only sources and adapters of this file set `exact`, so it is safe to size
+/// raw storage by it.
+priv class Bound {
+    var lo:    usize
+    var exact: bool
+}
+
+priv inline fn least(a: usize, b: usize) -> usize {
+    return if a < b => a else => b
+}
+
+priv class <I impl Iterator> Drive {
+    /// Feeds `s` until the iterator ends or `s` refuses more. True when it
+    /// was not `s` that ended the run: the iterator has nothing left, and a
+    /// chain goes on to its next part. After false the iterator is where a
+    /// `next` loop that stopped at the same item leaves it, and may be run
+    /// or pulled again.
+    static inline fn <S impl Sink<I::Item>> run(it: *I, s: *S) -> bool {
+        loop {
+            var x = it->next()
+            if !x? {
+                return true
+            }
+
+            var v = move(unwrap!(x))
+            if !s->put(&v) {
+                return false
+            }
+        }
+    }
+
+    static inline fn bound(it: *const I) -> Bound {
+        return Bound { lo: 0, exact: false }
+    }
+
+    /// Makes the iterator end after at most `n` more items, when that takes
+    /// no pass over them and skips no callback. False when it cannot.
+    static inline fn limit(it: *I, n: usize) -> bool {
+        return false
+    }
+}
+
+/// `Drive` from the back.
+priv class <I impl DoubleEnded> DriveBack {
+    static inline fn <S impl Sink<I::Item>> run(it: *I, s: *S) -> bool {
+        loop {
+            var x = it->next_back()
+            if !x? {
+                return true
+            }
+
+            var v = move(unwrap!(x))
+            if !s->put(&v) {
+                return false
+            }
+        }
+    }
+
+    /// Keeps at most the last `n` items.
+    static inline fn limit(it: *I, n: usize) -> bool {
+        return false
+    }
+}
+
+// --- sources ----------------------------------------------------------------
+
+priv class <T> SliceDrive {
+    static inline fn <S impl Sink<*const T>> run(it: *SliceIter<T>, s: *S) -> bool {
+        unsafe {
+            var unsafe *p = it->lo
+            var unsafe *e = it->hi
+            while p != e {
+                var q = p as *const T
+                p = p + 1
+                if !s->put(&q) {
+                    it->lo = p
+                    return false
+                }
+            }
+
+            it->lo = p
+            return true
+        }
+    }
+
+    static inline fn bound(it: *const SliceIter<T>) -> Bound {
+        return Bound { lo: span_len<T>(it->lo, it->hi), exact: true }
+    }
+
+    static inline fn limit(it: *SliceIter<T>, n: usize) -> bool {
+        unsafe {
+            if span_len<T>(it->lo, it->hi) > n {
+                it->hi = it->lo + n
+            }
+        }
+
+        return true
+    }
+}
+
+class <T> Drive<SliceIter<T>> derives SliceDrive<T> { }
+
+priv class <T> SliceBackDrive {
+    static inline fn <S impl Sink<*const T>> run(it: *SliceIter<T>, s: *S) -> bool {
+        unsafe {
+            var unsafe *b = it->lo
+            var unsafe *p = it->hi
+            while p != b {
+                p = p - 1
+                var q = p as *const T
+                if !s->put(&q) {
+                    it->hi = p
+                    return false
+                }
+            }
+
+            it->hi = p
+            return true
+        }
+    }
+
+    static inline fn limit(it: *SliceIter<T>, n: usize) -> bool {
+        unsafe {
+            if span_len<T>(it->lo, it->hi) > n {
+                it->lo = it->hi - n
+            }
+        }
+
+        return true
+    }
+}
+
+class <T> DriveBack<SliceIter<T>> derives SliceBackDrive<T> { }
+
+priv class <T impl Copyable> SliceCopiedDrive {
+    static inline fn <S impl Sink<T>> run(it: *SliceCopied<T>, s: *S) -> bool {
+        unsafe {
+            var unsafe *p = it->lo
+            var unsafe *e = it->hi
+            while p != e {
+                var x = (*p).copy()
+                p = p + 1
+                if !s->put(&x) {
+                    it->lo = p
+                    return false
+                }
+            }
+
+            it->lo = p
+            return true
+        }
+    }
+
+    static inline fn bound(it: *const SliceCopied<T>) -> Bound {
+        return Bound { lo: span_len<T>(it->lo, it->hi), exact: true }
+    }
+
+    static inline fn limit(it: *SliceCopied<T>, n: usize) -> bool {
+        unsafe {
+            if span_len<T>(it->lo, it->hi) > n {
+                it->hi = it->lo + n
+            }
+        }
+
+        return true
+    }
+}
+
+class <T> Drive<SliceCopied<T>> derives SliceCopiedDrive<T> { }
+
+priv class <T impl Copyable> SliceCopiedBackDrive {
+    static inline fn <S impl Sink<T>> run(it: *SliceCopied<T>, s: *S) -> bool {
+        unsafe {
+            var unsafe *b = it->lo
+            var unsafe *p = it->hi
+            while p != b {
+                p = p - 1
+                var x = (*p).copy()
+                if !s->put(&x) {
+                    it->hi = p
+                    return false
+                }
+            }
+
+            it->hi = p
+            return true
+        }
+    }
+
+    static inline fn limit(it: *SliceCopied<T>, n: usize) -> bool {
+        unsafe {
+            if span_len<T>(it->lo, it->hi) > n {
+                it->lo = it->hi - n
+            }
+        }
+
+        return true
+    }
+}
+
+class <T> DriveBack<SliceCopied<T>> derives SliceCopiedBackDrive<T> { }
+
+// --- adapters ---------------------------------------------------------------
+
+priv class <I impl Iterator> IterDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *Iter<I>, s: *S) -> bool {
+        return Drive<I>::run<S>(&it->it, s)
+    }
+
+    static inline fn bound(it: *const Iter<I>) -> Bound {
+        return Drive<I>::bound(&it->it)
+    }
+
+    static inline fn limit(it: *Iter<I>, n: usize) -> bool {
+        return Drive<I>::limit(&it->it, n)
+    }
+}
+
+class <I> Drive<Iter<I>> derives IterDrive<I> { }
+
+priv class <T, U, S impl Sink<U>> MapSink impl Sink<T> {
+    var f:    *const (fn(T) -> U)
+    var next: *S
+
+    inline fn put(self, @inout x: T) -> bool {
+        var y = (*self.f)(move(x))
+        return self.next->put(&y)
+    }
+}
+
+priv class <I impl Iterator, U> MapDrive {
+    static inline fn <S impl Sink<U>> run(it: *Map<I, U>, s: *S) -> bool {
+        var ms = MapSink<I::Item, U, S> { f: &it->f, next: s }
+        return Drive<I>::run<MapSink<I::Item, U, S>>(&it->it, &ms)
+    }
+
+    static inline fn bound(it: *const Map<I, U>) -> Bound {
+        return Drive<I>::bound(&it->it)
+    }
+
+    static inline fn limit(it: *Map<I, U>, n: usize) -> bool {
+        return Drive<I>::limit(&it->it, n)
+    }
+}
+
+class <I, U> Drive<Map<I, U>> derives MapDrive<I, U> { }
+
+priv class <I impl DoubleEnded, U> MapBackDrive {
+    static inline fn <S impl Sink<U>> run(it: *Map<I, U>, s: *S) -> bool {
+        var ms = MapSink<I::Item, U, S> { f: &it->f, next: s }
+        return DriveBack<I>::run<MapSink<I::Item, U, S>>(&it->it, &ms)
+    }
+
+    static inline fn limit(it: *Map<I, U>, n: usize) -> bool {
+        return DriveBack<I>::limit(&it->it, n)
+    }
+}
+
+class <I, U> DriveBack<Map<I, U>> derives MapBackDrive<I, U> { }
+
+priv class <T, S impl Sink<T>> FilterSink impl Sink<T> {
+    var f:    *const (fn(*const T) -> bool)
+    var next: *S
+
+    inline fn put(self, @inout x: T) -> bool {
+        if (*self.f)(&x) {
+            return self.next->put(&x)
+        }
+
+        return true
+    }
+}
+
+priv class <I impl Iterator> FilterDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *Filter<I>, s: *S) -> bool {
+        var fs = FilterSink<I::Item, S> { f: &it->f, next: s }
+        return Drive<I>::run<FilterSink<I::Item, S>>(&it->it, &fs)
+    }
+
+    static inline fn bound(it: *const Filter<I>) -> Bound {
+        return Bound { lo: 0, exact: false }
+    }
+
+    static inline fn limit(it: *Filter<I>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <I> Drive<Filter<I>> derives FilterDrive<I> { }
+
+priv class <I impl DoubleEnded> FilterBackDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *Filter<I>, s: *S) -> bool {
+        var fs = FilterSink<I::Item, S> { f: &it->f, next: s }
+        return DriveBack<I>::run<FilterSink<I::Item, S>>(&it->it, &fs)
+    }
+
+    static inline fn limit(it: *Filter<I>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <I> DriveBack<Filter<I>> derives FilterBackDrive<I> { }
+
+priv class <T, U, S impl Sink<U>> FilterMapSink impl Sink<T> {
+    var f:    *const (fn(T) -> U?)
+    var next: *S
+
+    inline fn put(self, @inout x: T) -> bool {
+        var y = (*self.f)(move(x))
+        if y? {
+            var v = move(unwrap!(y))
+            return self.next->put(&v)
+        }
+
+        return true
+    }
+}
+
+priv class <I impl Iterator, U> FilterMapDrive {
+    static inline fn <S impl Sink<U>> run(it: *FilterMap<I, U>, s: *S) -> bool {
+        var fs = FilterMapSink<I::Item, U, S> { f: &it->f, next: s }
+        return Drive<I>::run<FilterMapSink<I::Item, U, S>>(&it->it, &fs)
+    }
+
+    static inline fn bound(it: *const FilterMap<I, U>) -> Bound {
+        return Bound { lo: 0, exact: false }
+    }
+
+    static inline fn limit(it: *FilterMap<I, U>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <I, U> Drive<FilterMap<I, U>> derives FilterMapDrive<I, U> { }
+
+/// Runs each sub-iterator to its end before the next outer item is taken. A
+/// sub-iterator the run stops in goes to `cur`, where `next` finds it.
+priv class <T, J impl Iterator, S impl Sink<J::Item>> FlatMapSink impl Sink<T> {
+    var f:    *const (fn(T) -> J)
+    var cur:  *(J?)
+    var next: *S
+
+    inline fn put(self, @inout x: T) -> bool {
+        var sub = (*self.f)(move(x))
+        if !Drive<J>::run<S>(&sub, self.next) {
+            *self.cur = move(sub)
+            return false
+        }
+
+        return true
+    }
+}
+
+priv class <I impl Iterator, J impl Iterator> FlatMapDrive {
+    static inline fn <S impl Sink<J::Item>> run(it: *FlatMap<I, J>, s: *S) -> bool {
+        if it->cur? {
+            var c = move(unwrap!(it->cur))
+            it->cur = null
+            if !Drive<J>::run<S>(&c, s) {
+                it->cur = move(c)
+                return false
+            }
+        }
+
+        var fs = FlatMapSink<I::Item, J, S> { f: &it->f, cur: &it->cur, next: s }
+        return Drive<I>::run<FlatMapSink<I::Item, J, S>>(&it->it, &fs)
+    }
+
+    static inline fn bound(it: *const FlatMap<I, J>) -> Bound {
+        return Bound { lo: 0, exact: false }
+    }
+
+    static inline fn limit(it: *FlatMap<I, J>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <I, J> Drive<FlatMap<I, J>> derives FlatMapDrive<I, J> { }
+
+priv class <T, S impl Sink<(usize, T)>> EnumerateSink impl Sink<T> {
+    var i:    usize
+    var next: *S
+
+    inline fn put(self, @inout x: T) -> bool {
+        var i = self.i
+        self.i = i + 1
+        var e = (i, move(x))
+        return self.next->put(&e)
+    }
+}
+
+priv class <I impl Iterator> EnumerateDrive {
+    static inline fn <S impl Sink<(usize, I::Item)>> run(it: *Enumerate<I>, s: *S) -> bool {
+        var es = EnumerateSink<I::Item, S> { i: it->i, next: s }
+        var ended = Drive<I>::run<EnumerateSink<I::Item, S>>(&it->it, &es)
+        it->i = es.i
+        return ended
+    }
+
+    static inline fn bound(it: *const Enumerate<I>) -> Bound {
+        return Drive<I>::bound(&it->it)
+    }
+
+    static inline fn limit(it: *Enumerate<I>, n: usize) -> bool {
+        return Drive<I>::limit(&it->it, n)
+    }
+}
+
+class <I> Drive<Enumerate<I>> derives EnumerateDrive<I> { }
+
+/// `a` is run; `b` is pulled once per item of `a`. `refused` tells a run the
+/// next sink ended from one `b` ended.
+priv class <T, J impl Iterator, S impl Sink<(T, J::Item)>> ZipSink impl Sink<T> {
+    var b:       *J
+    var next:    *S
+    var refused: bool
+
+    inline fn put(self, @inout x: T) -> bool {
+        var y = self.b->next()
+        if !y? {
+            return false
+        }
+
+        var e = (move(x), move(unwrap!(y)))
+        if !self.next->put(&e) {
+            self.refused = true
+            return false
+        }
+
+        return true
+    }
+}
+
+priv class <I impl Iterator, J impl Iterator> ZipDrive {
+    static inline fn <S impl Sink<(I::Item, J::Item)>> run(it: *Zip<I, J>, s: *S) -> bool {
+        var zs = ZipSink<I::Item, J, S> { b: &it->b, next: s, refused: false }
+        Drive<I>::run<ZipSink<I::Item, J, S>>(&it->a, &zs)
+        return !zs.refused
+    }
+
+    static inline fn bound(it: *const Zip<I, J>) -> Bound {
+        var x = Drive<I>::bound(&it->a)
+        var y = Drive<J>::bound(&it->b)
+        return Bound { lo: least(x.lo, y.lo), exact: x.exact && y.exact }
+    }
+
+    /// `a` is pulled first, so its end is the pair's end.
+    static inline fn limit(it: *Zip<I, J>, n: usize) -> bool {
+        return Drive<I>::limit(&it->a, n)
+    }
+}
+
+class <I, J> Drive<Zip<I, J>> derives ZipDrive<I, J> { }
+
+priv class <I impl Iterator, J impl Iterator> ChainDrive requires __builtin_is_same<J::Item, I::Item>() {
+    static inline fn <S impl Sink<I::Item>> run(it: *Chain<I, J>, s: *S) -> bool {
+        if it->a? {
+            // The block ends `a` before `b` is run.
+            {
+                var a = move(unwrap!(it->a))
+                it->a = null
+                if !Drive<I>::run<S>(&a, s) {
+                    it->a = move(a)
+                    return false
+                }
+            }
+        }
+
+        return Drive<J>::run<S>(&it->b, s)
+    }
+
+    static inline fn bound(it: *const Chain<I, J>) -> Bound {
+        var y = Drive<J>::bound(&it->b)
+        if !it->a? {
+            return y
+        }
+
+        unsafe {
+            var x = Drive<I>::bound(
+                held_value(
+                    &it->a as unsafe *const u8,
+                    sizeof(I?),
+                    sizeof(I),
+                    alignof(I),
+                ) as unsafe *const I as *const I,
+            )
+            var lo = x.lo + y.lo
+            if lo < x.lo {
+                return Bound { lo: x.lo, exact: false }
+            }
+
+            return Bound { lo: lo, exact: x.exact && y.exact }
+        }
+    }
+
+    static inline fn limit(it: *Chain<I, J>, n: usize) -> bool {
+        return false
+    }
+}
+
+// COMPILER-WORKAROUND(partial-forward-decl): a partial over a class declared
+// with `requires` (`Chain`) is declared ahead of that class in the emitted
+// C++. A clause of its own, always true, keeps it in source order.
+class <I, J> Drive<Chain<I, J>> derives ChainDrive<I, J> requires sizeof usize != 0 { }
+
+priv class <I impl DoubleEnded, J impl DoubleEnded> ChainBackDrive requires __builtin_is_same<J::Item, I::Item>() {
+    static inline fn <S impl Sink<I::Item>> run(it: *Chain<I, J>, s: *S) -> bool {
+        if !DriveBack<J>::run<S>(&it->b, s) {
+            return false
+        }
+
+        if it->a? {
+            var a = move(unwrap!(it->a))
+            it->a = null
+            if !DriveBack<I>::run<S>(&a, s) {
+                it->a = move(a)
+                return false
+            }
+        }
+
+        return true
+    }
+
+    static inline fn limit(it: *Chain<I, J>, n: usize) -> bool {
+        return false
+    }
+}
+
+// COMPILER-WORKAROUND(partial-forward-decl): as for `Drive<Chain<I, J>>`.
+class <I, J> DriveBack<Chain<I, J>> derives ChainBackDrive<I, J> requires sizeof usize != 0 { }
+
+/// `n` is how many more items are passed on; the run ends with the item
+/// that brings it to zero, so nothing is pulled after it.
+priv class <T, S impl Sink<T>> TakeSink impl Sink<T> {
+    var n:       usize
+    var next:    *S
+    var refused: bool
+
+    inline fn put(self, @inout x: T) -> bool {
+        self.n -= 1
+        if !self.next->put(&x) {
+            self.refused = true
+            return false
+        }
+
+        return self.n != 0
+    }
+}
+
+priv class <I impl Iterator> TakeDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *Take<I>, s: *S) -> bool {
+        if it->n == 0 {
+            return true
+        }
+
+        // A source that can end itself after `n` items leaves one loop with
+        // one exit, where the counting sink adds a second.
+        if Drive<I>::limit(&it->it, it->n) {
+            return Drive<I>::run<S>(&it->it, s)
+        }
+
+        var ts = TakeSink<I::Item, S> { n: it->n, next: s, refused: false }
+        Drive<I>::run<TakeSink<I::Item, S>>(&it->it, &ts)
+        it->n = ts.n
+        return !ts.refused
+    }
+
+    static inline fn bound(it: *const Take<I>) -> Bound {
+        var x = Drive<I>::bound(&it->it)
+        return Bound { lo: least(x.lo, it->n), exact: x.exact || x.lo >= it->n }
+    }
+
+    static inline fn limit(it: *Take<I>, n: usize) -> bool {
+        it->n = least(it->n, n)
+        return true
+    }
+}
+
+class <I> Drive<Take<I>> derives TakeDrive<I> { }
+
+/// Discards `n` items, `n` not zero, and ends the run with the last of them.
+priv class <T> DiscardSink impl Sink<T> {
+    var n: usize
+
+    inline fn put(self, @inout x: T) -> bool {
+        self.n -= 1
+        return self.n != 0
+    }
+}
+
+priv class <I impl Iterator> SkipDrive {
+    /// The items to discard are a run of their own, so the run that follows
+    /// carries no count.
+    static inline fn <S impl Sink<I::Item>> run(it: *Skip<I>, s: *S) -> bool {
+        if it->n != 0 {
+            var ds = DiscardSink<I::Item> { n: it->n }
+            it->n = 0
+            if Drive<I>::run<DiscardSink<I::Item>>(&it->it, &ds) {
+                return true
+            }
+        }
+
+        return Drive<I>::run<S>(&it->it, s)
+    }
+
+    static inline fn bound(it: *const Skip<I>) -> Bound {
+        var x = Drive<I>::bound(&it->it)
+        return Bound { lo: if x.lo > it->n => x.lo - it->n else => 0, exact: x.exact }
+    }
+
+    static inline fn limit(it: *Skip<I>, n: usize) -> bool {
+        var m = it->n + n
+        if m < n {
+            return false
+        }
+
+        return Drive<I>::limit(&it->it, m)
+    }
+}
+
+class <I> Drive<Skip<I>> derives SkipDrive<I> { }
+
+priv class <T, S impl Sink<T>> TakeWhileSink impl Sink<T> {
+    var f:       *const (fn(*const T) -> bool)
+    var next:    *S
+    var refused: bool
+
+    inline fn put(self, @inout x: T) -> bool {
+        if !(*self.f)(&x) {
+            return false
+        }
+
+        if !self.next->put(&x) {
+            self.refused = true
+            return false
+        }
+
+        return true
+    }
+}
+
+priv class <I impl Iterator> TakeWhileDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *TakeWhile<I>, s: *S) -> bool {
+        if it->done {
+            return true
+        }
+
+        var ts = TakeWhileSink<I::Item, S> { f: &it->f, next: s, refused: false }
+        Drive<I>::run<TakeWhileSink<I::Item, S>>(&it->it, &ts)
+        if ts.refused {
+            return false
+        }
+
+        it->done = true
+        return true
+    }
+
+    static inline fn bound(it: *const TakeWhile<I>) -> Bound {
+        return Bound { lo: 0, exact: false }
+    }
+
+    static inline fn limit(it: *TakeWhile<I>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <I> Drive<TakeWhile<I>> derives TakeWhileDrive<I> { }
+
+/// Ends the run with the first item the predicate refuses, and keeps it.
+priv class <T> SkipWhileSink impl Sink<T> {
+    var f:     *const (fn(*const T) -> bool)
+    var first: T?
+
+    inline fn put(self, @inout x: T) -> bool {
+        if (*self.f)(&x) {
+            return true
+        }
+
+        self.first = move(x)
+        return false
+    }
+}
+
+priv class <I impl Iterator> SkipWhileDrive {
+    /// The skipping is a run of its own, so the run that follows carries no
+    /// test.
+    static inline fn <S impl Sink<I::Item>> run(it: *SkipWhile<I>, s: *S) -> bool {
+        if !it->done {
+            var ws = SkipWhileSink<I::Item> { f: &it->f, first: null }
+            if Drive<I>::run<SkipWhileSink<I::Item>>(&it->it, &ws) {
+                return true
+            }
+
+            it->done = true
+            var v = move(unwrap!(ws.first))
+            if !s->put(&v) {
+                return false
+            }
+        }
+
+        return Drive<I>::run<S>(&it->it, s)
+    }
+
+    static inline fn bound(it: *const SkipWhile<I>) -> Bound {
+        return Bound { lo: 0, exact: false }
+    }
+
+    static inline fn limit(it: *SkipWhile<I>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <I> Drive<SkipWhile<I>> derives SkipWhileDrive<I> { }
+
+/// `k` is how many items are discarded before the next one passed on.
+priv class <T, S impl Sink<T>> StepBySink impl Sink<T> {
+    var k:    usize
+    var step: usize
+    var next: *S
+
+    inline fn put(self, @inout x: T) -> bool {
+        if self.k != 0 {
+            self.k -= 1
+            return true
+        }
+
+        self.k = self.step - 1
+        return self.next->put(&x)
+    }
+}
+
+priv class <I impl Iterator> StepByDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *StepBy<I>, s: *S) -> bool {
+        var k = if it->first => 0 as usize else => it->step - 1
+        it->first = false
+        var ss = StepBySink<I::Item, S> { k: k, step: it->step, next: s }
+        return Drive<I>::run<StepBySink<I::Item, S>>(&it->it, &ss)
+    }
+
+    static inline fn bound(it: *const StepBy<I>) -> Bound {
+        var x = Drive<I>::bound(&it->it)
+        var n = x.lo / it->step
+        if it->first && x.lo % it->step != 0 {
+            n += 1
+        }
+
+        return Bound { lo: n, exact: x.exact }
+    }
+
+    static inline fn limit(it: *StepBy<I>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <I> Drive<StepBy<I>> derives StepByDrive<I> { }
+
+@no_warn(S055W)
+priv class <I impl Iterator> PeekableDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *Peekable<I>, s: *S) -> bool {
+        if it->peeked? {
+            if !unwrap!(it->peeked)? {
+                return true
+            }
+
+            var v: I::Item? = move(unwrap!(it->peeked))
+            it->peeked = null
+            var w = move(unwrap!(v))
+            if !s->put(&w) {
+                return false
+            }
+        }
+
+        return Drive<I>::run<S>(&it->it, s)
+    }
+
+    static inline fn bound(it: *const Peekable<I>) -> Bound {
+        if it->peeked? {
+            return Bound { lo: 0, exact: false }
+        }
+
+        return Drive<I>::bound(&it->it)
+    }
+
+    static inline fn limit(it: *Peekable<I>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <I> Drive<Peekable<I>> derives PeekableDrive<I> { }
+
+priv class <I impl DoubleEnded> RevDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *Rev<I>, s: *S) -> bool {
+        return DriveBack<I>::run<S>(&it->it, s)
+    }
+
+    static inline fn bound(it: *const Rev<I>) -> Bound {
+        return Drive<I>::bound(&it->it)
+    }
+
+    static inline fn limit(it: *Rev<I>, n: usize) -> bool {
+        return DriveBack<I>::limit(&it->it, n)
+    }
+}
+
+class <I> Drive<Rev<I>> derives RevDrive<I> { }
+
+priv class <I impl DoubleEnded> RevBackDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *Rev<I>, s: *S) -> bool {
+        return Drive<I>::run<S>(&it->it, s)
+    }
+
+    static inline fn limit(it: *Rev<I>, n: usize) -> bool {
+        return Drive<I>::limit(&it->it, n)
+    }
+}
+
+class <I> DriveBack<Rev<I>> derives RevBackDrive<I> { }
+
+priv class <U impl Copyable, S impl Sink<U>> CopiedSink impl Sink<*const U> {
+    var next: *S
+
+    inline fn put(self, @inout p: *const U) -> bool {
+        var x = (*p).copy()
+        return self.next->put(&x)
+    }
+}
+
+priv class <U impl Copyable> CopiedDrive {
+    static inline fn <S impl Sink<U>> run(it: *Copied<U>, s: *S) -> bool {
+        var cs = CopiedSink<U, S> { next: s }
+        return Drive<Yield<*const U>>::run<CopiedSink<U, S>>(&it->it, &cs)
+    }
+
+    static inline fn bound(it: *const Copied<U>) -> Bound {
+        return Bound { lo: 0, exact: false }
+    }
+
+    static inline fn limit(it: *Copied<U>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <U> Drive<Copied<U>> derives CopiedDrive<U> { }
+
+// --- consumers --------------------------------------------------------------
+
+priv class <A, T> FoldSink impl Sink<T> {
+    var acc: A
+    var f:   *const (fn(A, T) -> A)
+
+    inline fn put(self, @inout x: T) -> bool {
+        self.acc = (*self.f)(move(self.acc), move(x))
+        return true
+    }
+}
+
+priv class <T> CountSink impl Sink<T> {
+    var n: usize
+
+    inline fn put(self, @inout x: T) -> bool {
+        self.n += 1
+        return true
+    }
+}
+
+priv class <T> LastSink impl Sink<T> {
+    var best: T?
+
+    inline fn put(self, @inout x: T) -> bool {
+        self.best = move(x)
+        return true
+    }
+}
+
+priv class <T> NthSink impl Sink<T> {
+    var k:   usize
+    var out: T?
+
+    inline fn put(self, @inout x: T) -> bool {
+        if self.k == 0 {
+            self.out = move(x)
+            return false
+        }
+
+        self.k -= 1
+        return true
+    }
+}
+
+priv class <T> FindSink impl Sink<T> {
+    var f:   *const (fn(*const T) -> bool)
+    var out: T?
+
+    inline fn put(self, @inout x: T) -> bool {
+        if (*self.f)(&x) {
+            self.out = move(x)
+            return false
+        }
+
+        return true
+    }
+}
+
+/// `i` counts the items the predicate refused; `hit` is set by the first it
+/// holds for (`position`, `any`).
+priv class <T> TestSink impl Sink<T> {
+    var f:   *const (fn(*const T) -> bool)
+    var i:   usize
+    var hit: bool
+
+    inline fn put(self, @inout x: T) -> bool {
+        if (*self.f)(&x) {
+            self.hit = true
+            return false
+        }
+
+        self.i += 1
+        return true
+    }
+}
+
+/// `ok` is cleared by the first item the predicate refuses (`all`).
+priv class <T> AllSink impl Sink<T> {
+    var f:  *const (fn(*const T) -> bool)
+    var ok: bool
+
+    inline fn put(self, @inout x: T) -> bool {
+        if !(*self.f)(&x) {
+            self.ok = false
+            return false
+        }
+
+        return true
+    }
+}
+
+priv class <T> EachSink impl Sink<T> {
+    var f: *const (fn(T))
+
+    inline fn put(self, @inout x: T) -> bool {
+        (*self.f)(move(x))
+        return true
+    }
+}
+
+priv class <T> PartitionSink impl Sink<T> {
+    var f:   *const (fn(*const T) -> bool)
+    var yes: [T]
+    var no:  [T]
+
+    inline fn put(self, @inout x: T) -> bool {
+        if (*self.f)(&x) {
+            self.yes.push(move(x))
+        } else {
+            self.no.push(move(x))
+        }
+
+        return true
+    }
+}
+
+priv class <T, K impl Hash> GroupSink impl Sink<T> {
+    var key: *const (fn(*const T) -> K)
+    var m:   {K: [T]}
+
+    inline fn put(self, @inout x: T) -> bool {
+        var k = (*self.key)(&x)
+        var empty: [T]
+        self.m.get_or_insert(move(k), move(empty))->push(move(x))
+        return true
+    }
+}
+
+/// A vector whose raw slots are written directly. Deriving `Vector` is what
+/// reaches its buffer and its length from this module.
+priv class <T> VectorFill derives Vector<T> {
+    inline fn VectorFill(self, v: Vector<T>) {
+        Vector<T>::Vector(self, move(v))
+    }
+
+    inline fn slots(self) -> unsafe *T {
+        return self.base_()
+    }
+
+    /// The first `n` slots hold values.
+    inline fn filled(self, n: usize) {
+        self.set_len_(n)
+    }
+
+    inline fn room(const self) -> usize {
+        return self.cap_()
+    }
+
+    /// Appends `*x` to a vector whose first `n` slots hold values and which
+    /// has no room left: the vector grows by its own rule. Out of line, so
+    /// that a loop that pushes carries one call for it.
+    @cold_path @no_inline fn grow_put(self, n: usize, x: *T) {
+        self.set_len_(n)
+        var v: *Vector<T> = &self
+        v->push(move(*x))
+    }
+
+    inline fn finish(self) -> Vector<T> {
+        return Vector<T>(move(self))
+    }
+}
+
+/// Writes each item into the next raw slot at `at`. There is no capacity
+/// test: the run is one whose exact length the slots were allocated for.
+priv class <T> FillSink impl Sink<T> {
+    var at: unsafe *T
+    var n:  usize
+
+    inline fn put(self, @inout x: T) -> bool {
+        unsafe {
+            __builtin_construct_at<T>((self.at + self.n) as unsafe *u8, move(x))
+        }
+
+        self.n += 1
+        return true
+    }
+}
+
+/// Writes each item into the next raw slot while there is room, and ends
+/// the run at the first item there is no room for, which it keeps. The
+/// vector grows between two runs and not inside one, so the loop carries no
+/// call and reads nothing from the vector.
+priv class <T> RoomSink impl Sink<T> {
+    var at:   unsafe *T
+    var n:    usize
+    var room: usize
+    var over: T?
+
+    inline fn put(self, @inout x: T) -> bool {
+        @unlikely
+        if self.n == self.room {
+            self.over = move(x)
+            return false
+        }
+
+        unsafe {
+            __builtin_construct_at<T>((self.at + self.n) as unsafe *u8, move(x))
+        }
+
+        self.n += 1
+        return true
+    }
+}
+
+/// A vector is built in place by a run: one allocation and a store per item
+/// when the chain's length is exact, and otherwise one reservation for the
+/// chain's lower bound and growth when that is used up.
+priv class <I impl Iterator> CollectVector {
+    static inline fn run(it: *I) -> Vector<I::Item> {
+        var b = Drive<I>::bound(it)
+        var w = VectorFill<I::Item>(Vector<I::Item>::with_capacity(b.lo))
+        if b.exact {
+            var fs = FillSink<I::Item> { at: w.slots(), n: 0 }
+            Drive<I>::run<FillSink<I::Item>>(it, &fs)
+            w.filled(fs.n)
+        } else {
+            var rs = RoomSink<I::Item> { at: w.slots(), n: 0, room: w.room(), over: null }
+            while !Drive<I>::run<RoomSink<I::Item>>(it, &rs) {
+                var x = move(unwrap!(rs.over))
+                rs.over = null
+                w.grow_put(rs.n, &x)
+                rs.n   += 1
+                rs.at   = w.slots()
+                rs.room = w.room()
+            }
+
+            w.filled(rs.n)
+        }
+
+        return w.finish()
+    }
+}
+
+priv inline fn <I impl Iterator, C> collect_vector(it: *I) -> C requires __builtin_is_same<C, Vector<I::Item>>() {
+    return CollectVector<I>::run(it)
+}
+
+/// Builds the target of `collect`: a vector by a run, any other target by
+/// its `from_iter`, with the chain's lower bound as the hint.
+///
+/// COMPILER-WORKAROUND(partial-forward-decl): the vector is told apart by an
+/// `eval if`. A partial over `Vector<T>` is declared ahead of `Vector` in
+/// the emitted C++ of this module.
+///
+/// The chain comes by pointer: each move of it on the way to the loop is a
+/// constructor and a destructor the loop's function has to carry.
+priv inline fn <I impl Iterator, C impl FromIterator<I::Item>> collect_into(it: *I) -> C {
+    eval if __builtin_is_same<C, Vector<I::Item>>() {
+        return collect_vector<I, C>(it)
+    } else {
+        var b = Drive<I>::bound(it)
+        return C::from_iter(move(*it), b.lo)
+    }
+}
+
 extend <I impl Iterator> Iter<I> impl Iterator {
     type Item = I::Item
     inline fn next(self) -> I::Item? {
@@ -574,29 +1810,25 @@ extend <I impl Iterator> Iter<I> {
         return Iter<Peekable<I>> { it: Peekable<I> { it: move(self.it), peeked: null } }
     }
 
-    /// The target is built with no size hint.
+    /// The target's `from_iter` gets the chain with a lower bound on its
+    /// length as the hint. A vector is built here instead: with one
+    /// allocation and no capacity test when the chain's length is exact (a
+    /// slice source under adapters that keep or cut the length).
     ///
-    /// COMPILER-WORKAROUND(conditional-conformance): the overload that
-    /// passes `remaining()` for an `ExactSize` chain is not declared. Two
-    /// extends declaring `collect` under different bounds are ambiguous at
-    /// every call, and a clause that asks `I impl ExactSize` is answered
-    /// true for every adapter that conforms conditionally (`Map<I, U>` over
-    /// any `I`), which then fails in the emitted C++. A caller that knows
-    /// the length passes it to `C::from_iter(chain, n)`.
+    /// COMPILER-WORKAROUND(overload-across-extends): the overload for an
+    /// `ExactSize` chain is not declared. Two extends declaring `collect`
+    /// under different bounds are ambiguous at every call, and the unit
+    /// that calls `remaining` on a wrapped adapter is given no `ExactSize`
+    /// witness for it. The length reaches the target through the chain's
+    /// own bound, which needs no conformance.
     pub inline fn <C impl FromIterator<I::Item>> collect(self) -> C {
-        return C::from_iter(move(self.it), 0)
+        return collect_into<I, C>(&self.it)
     }
 
     pub inline fn <A> fold(self, init: A, f: fn(A, I::Item) -> A) -> A {
-        var acc = move(init)
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return move(acc)
-            }
-
-            acc = f(move(acc), move(unwrap!(x)))
-        }
+        var s = FoldSink<A, I::Item> { acc: move(init), f: &f }
+        Drive<I>::run<FoldSink<A, I::Item>>(&self.it, &s)
+        return move(s.acc)
     }
 
     /// Null when there is no item; the one item when there is one.
@@ -606,163 +1838,80 @@ extend <I impl Iterator> Iter<I> {
             return null
         }
 
-        var acc = move(unwrap!(first))
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return move(acc)
-            }
-
-            acc = f(move(acc), move(unwrap!(x)))
-        }
+        var s = FoldSink<I::Item, I::Item> { acc: move(unwrap!(first)), f: &f }
+        Drive<I>::run<FoldSink<I::Item, I::Item>>(&self.it, &s)
+        return move(s.acc)
     }
 
     /// Runs the whole chain: an adapter's callback may be observed, so the
     /// count is never read from a length.
     pub inline fn count(self) -> usize {
-        var n: usize = 0
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return n
-            }
-
-            n += 1
-        }
+        var s = CountSink<I::Item> { n: 0 }
+        Drive<I>::run<CountSink<I::Item>>(&self.it, &s)
+        return s.n
     }
 
     pub inline fn last(self) -> I::Item? {
-        var best: I::Item? = null
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return move(best)
-            }
-
-            best = move(x)
-        }
+        var s = LastSink<I::Item> { best: null }
+        Drive<I>::run<LastSink<I::Item>>(&self.it, &s)
+        return move(s.best)
     }
 
     /// Item `n`, counting from zero; the items before it are dropped.
     pub inline fn nth(self, n: usize) -> I::Item? {
-        var k = n
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return null
-            }
-
-            if k == 0 {
-                return move(x)
-            }
-
-            k -= 1
-        }
+        var s = NthSink<I::Item> { k: n, out: null }
+        Drive<I>::run<NthSink<I::Item>>(&self.it, &s)
+        return move(s.out)
     }
 
     pub inline fn find(self, f: fn(*const I::Item) -> bool) -> I::Item? {
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return null
-            }
-
-            var v = move(unwrap!(x))
-            if f(&v) {
-                return move(v)
-            }
-        }
+        var s = FindSink<I::Item> { f: &f, out: null }
+        Drive<I>::run<FindSink<I::Item>>(&self.it, &s)
+        return move(s.out)
     }
 
     pub inline fn position(self, f: fn(*const I::Item) -> bool) -> usize? {
-        var i: usize = 0
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return null
-            }
-
-            var v = move(unwrap!(x))
-            if f(&v) {
-                return i
-            }
-
-            i += 1
+        var s = TestSink<I::Item> { f: &f, i: 0, hit: false }
+        Drive<I>::run<TestSink<I::Item>>(&self.it, &s)
+        if s.hit {
+            return s.i
         }
+
+        return null
     }
 
     pub inline fn any(self, f: fn(*const I::Item) -> bool) -> bool {
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return false
-            }
-
-            var v = move(unwrap!(x))
-            if f(&v) {
-                return true
-            }
-        }
+        var s = TestSink<I::Item> { f: &f, i: 0, hit: false }
+        Drive<I>::run<TestSink<I::Item>>(&self.it, &s)
+        return s.hit
     }
 
     pub inline fn all(self, f: fn(*const I::Item) -> bool) -> bool {
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return true
-            }
-
-            var v = move(unwrap!(x))
-            if !f(&v) {
-                return false
-            }
-        }
+        var s = AllSink<I::Item> { f: &f, ok: true }
+        Drive<I>::run<AllSink<I::Item>>(&self.it, &s)
+        return s.ok
     }
 
     pub inline fn for_each(self, f: fn(I::Item)) {
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return
-            }
-
-            f(move(unwrap!(x)))
-        }
+        var s = EachSink<I::Item> { f: &f }
+        Drive<I>::run<EachSink<I::Item>>(&self.it, &s)
     }
 
     /// The items the predicate holds for, then the others, each in order.
     pub fn partition(self, f: fn(*const I::Item) -> bool) -> ([I::Item], [I::Item]) {
         var yes: [I::Item]
         var no:  [I::Item]
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return (move(yes), move(no))
-            }
-
-            var v = move(unwrap!(x))
-            if f(&v) {
-                yes.push(move(v))
-            } else {
-                no.push(move(v))
-            }
-        }
+        var s = PartitionSink<I::Item> { f: &f, yes: move(yes), no: move(no) }
+        Drive<I>::run<PartitionSink<I::Item>>(&self.it, &s)
+        return (move(s.yes), move(s.no))
     }
 
     /// Keys in order of first appearance; each group in the order pulled.
     pub fn <K impl Hash> group_by(self, key: fn(*const I::Item) -> K) -> {K: [I::Item]} {
         var m: {K: [I::Item]}
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return move(m)
-            }
-
-            var v = move(unwrap!(x))
-            var k = key(&v)
-            var empty: [I::Item]
-            m.get_or_insert(move(k), move(empty))->push(move(v))
-        }
+        var s = GroupSink<I::Item, K> { key: &key, m: move(m) }
+        Drive<I>::run<GroupSink<I::Item, K>>(&self.it, &s)
+        return move(s.m)
     }
 }
 
@@ -793,6 +1942,36 @@ extend <U impl Copyable> Iter<Yield<*const U>> {
     }
 }
 
+extend <U impl Copyable> Iter<SliceIter<U>> {
+    pub inline fn copied(self) -> Iter<SliceCopied<U>> {
+        return Iter<SliceCopied<U>> { it: SliceCopied<U> { lo: self.it.lo, hi: self.it.hi } }
+    }
+}
+
+priv class <T impl Ord> MinSink impl Sink<T> {
+    var best: T
+
+    inline fn put(self, @inout x: T) -> bool {
+        if (x <=> self.best) == Ordering::Less {
+            self.best = move(x)
+        }
+
+        return true
+    }
+}
+
+priv class <T impl Ord> MaxSink impl Sink<T> {
+    var best: T
+
+    inline fn put(self, @inout x: T) -> bool {
+        if (x <=> self.best) != Ordering::Less {
+            self.best = move(x)
+        }
+
+        return true
+    }
+}
+
 extend <I impl Iterator> Iter<I> requires I::Item impl Ord {
     /// The first of several equal smallest items.
     pub inline fn min(self) -> I::Item? {
@@ -801,18 +1980,9 @@ extend <I impl Iterator> Iter<I> requires I::Item impl Ord {
             return null
         }
 
-        var best = move(unwrap!(first))
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return move(best)
-            }
-
-            var v = move(unwrap!(x))
-            if (v <=> best) == Ordering::Less {
-                best = move(v)
-            }
-        }
+        var s = MinSink<I::Item> { best: move(unwrap!(first)) }
+        Drive<I>::run<MinSink<I::Item>>(&self.it, &s)
+        return move(s.best)
     }
 
     /// The last of several equal largest items.
@@ -822,25 +1992,25 @@ extend <I impl Iterator> Iter<I> requires I::Item impl Ord {
             return null
         }
 
-        var best = move(unwrap!(first))
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return move(best)
-            }
-
-            var v = move(unwrap!(x))
-            if (v <=> best) != Ordering::Less {
-                best = move(v)
-            }
-        }
+        var s = MaxSink<I::Item> { best: move(unwrap!(first)) }
+        Drive<I>::run<MaxSink<I::Item>>(&self.it, &s)
+        return move(s.best)
     }
 
     /// Stable: equal items keep the order they were pulled in.
     pub fn sorted(self) -> [I::Item] {
-        var v: [I::Item] = Vector<I::Item>::from_iter(move(self.it), 0)
+        var v: [I::Item] = CollectVector<I>::run(&self.it)
         v.sort()
         return move(v)
+    }
+}
+
+priv class <T impl Hash> CountsSink impl Sink<T> {
+    var m: {T: usize}
+
+    inline fn put(self, @inout x: T) -> bool {
+        *self.m.get_or_insert(move(x), 0) += 1
+        return true
     }
 }
 
@@ -848,14 +2018,9 @@ extend <I impl Iterator> Iter<I> requires I::Item impl Hash {
     /// How many times each item appears, keyed in order of first appearance.
     pub fn counts(self) -> {I::Item: usize} {
         var m: {I::Item: usize}
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return move(m)
-            }
-
-            *m.get_or_insert(move(unwrap!(x)), 0) += 1
-        }
+        var s = CountsSink<I::Item> { m: move(m) }
+        Drive<I>::run<CountsSink<I::Item>>(&self.it, &s)
+        return move(s.m)
     }
 }
 
@@ -871,37 +2036,45 @@ priv inline fn <T impl Append> append_item(const x: T, @inout out: string) {
     x.append_to(&out)
 }
 
+priv class <T impl Add> SumSink impl Sink<T> {
+    var acc: T
+
+    inline fn put(self, @inout x: T) -> bool {
+        self.acc = self.acc + x
+        return true
+    }
+}
+
 extend <I impl Iterator> Iter<I> requires I::Item impl Add && I::Item impl Default {
     /// `make_default()` when there is no item.
     pub inline fn sum(self) -> I::Item {
-        var acc = default_of<I::Item>()
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return move(acc)
-            }
+        var s = SumSink<I::Item> { acc: default_of<I::Item>() }
+        Drive<I>::run<SumSink<I::Item>>(&self.it, &s)
+        return move(s.acc)
+    }
+}
 
-            acc = acc + unwrap!(x)
+priv class <T impl Append> JoinSink impl Sink<T> {
+    var out:   string
+    var sep:   *const string
+    var first: bool
+
+    inline fn put(self, @inout x: T) -> bool {
+        if !self.first {
+            self.out.push_str(*self.sep)
         }
+
+        self.first = false
+        append_item<T>(x, &self.out)
+        return true
     }
 }
 
 extend <I impl Iterator> Iter<I> requires I::Item impl Append {
     pub fn join(self, const sep: string = "") -> string {    // one buffer for the whole result
         var out: string
-        var first = true
-        loop {
-            var x = self.it.next()
-            if !x? {
-                return move(out)
-            }
-
-            if !first {
-                out.push_str(sep)
-            }
-
-            first = false
-            append_item<I::Item>(unwrap!(x), &out)
-        }
+        var s = JoinSink<I::Item> { out: move(out), sep: &sep, first: true }
+        Drive<I>::run<JoinSink<I::Item>>(&self.it, &s)
+        return move(s.out)
     }
 }
