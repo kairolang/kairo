@@ -440,6 +440,16 @@ pub class SemaContext {
     /// moved-from local is not destroyed. CopyMoveLowering moves each onto
     /// its cast (TypeCastExpr::disarms).
     pub var disarm_sites: llvm::DenseMap<u64, u64>
+    /// The vector, set and map literals (`*Expr` as u64) whose elements
+    /// cannot be copied, so each is moved in through
+    /// TypeUtil::literal_build. One writer, MoveCheck, which records the
+    /// move of each element alongside; one reader, ListLiteralLowering.
+    pub var built_literals: llvm::DenseSet<u64>
+    /// Of built_literals, those that fill the local they initialize
+    /// (TypeUtil::literal_fills). Every other one is built in a local of
+    /// its own and moved out of the expression, and MoveCheck has checked
+    /// that its container can be.
+    pub var filled_literals: llvm::DenseSet<u64>
     /// AssocTypes whose bounds this TU is computing right now
     /// (Substitution::bound_ifaces): the cycle guard, kept per TU because
     /// the canonical node it guards is shared with TUs typed on other

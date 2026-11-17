@@ -320,6 +320,12 @@ pub class EmitWitness {
                 return true
             }
 
+            // The requirement as its own witness: the primary's member
+            // forwards to a member the conformer does not have.
+            if decl_is_requirement(unsafe (w as unsafe *Decl)) {
+                return true
+            }
+
             var unsafe *ms_sub = if (subs[i] != &null) => (subs[i]) else => subst
             if self._member_sig(w, &null, "") != self._member_sig(
                 m,
@@ -931,14 +937,22 @@ pub class EmitWitness {
             // witness): a pointer's is its address -- HashMap mixes every
             // hash before it indexes, so an identity hash is enough -- and an
             // imported C++ type's is `std::hash<X>`.
-            if !self._is_hash_slot(m) {
+            // The Copyable lang item's `copy` on a COPY type with no `copy`
+            // of its own (ConformanceChecking::_is_copyable_slot): the
+            // result is built from the receiver by its copy constructor,
+            // once, in the caller's storage.
+            if self._is_lang_slot(m, WellKnownType::Copyable) {
+                return "*" + LowerTargets::witness_receiver_name()
+            }
+
+            if !self._is_lang_slot(m, WellKnownType::Hash) {
                 self._ice(
                     Speller::at(unsafe (m as unsafe *Decl)),
                     "EmitWitness: requirement `" + decl_name(
                         (m->semantic_dc)->owner_decl(),
                     ) + "::" + decl_name(
                         unsafe (m as unsafe *Decl),
-                    ) + "` stands as its own witness and is not the Hash lang item's `hash`; ConformanceChecking::_native_implementation admits no other named requirement",
+                    ) + "` stands as its own witness and is neither the Hash lang item's `hash` nor the Copyable lang item's `copy`; ConformanceChecking admits no other named requirement",
                 )
             }
 
@@ -1003,9 +1017,10 @@ pub class EmitWitness {
         )
     }
 
-    /// Requirement \p m is the Hash lang item's `hash`: the one named
-    /// requirement whose native form _target spells.
-    priv fn _is_hash_slot(self, m: unsafe *FunctionDecl) -> bool {
+    /// Requirement \p m is declared by lang item \p k's interface: the Hash
+    /// lang item's `hash` and the Copyable lang item's `copy` are the named
+    /// requirements whose native form _target spells.
+    priv fn _is_lang_slot(self, m: unsafe *FunctionDecl, k: WellKnownType) -> bool {
         if m->is_operator || m->semantic_dc == &null {
             return false
         }
@@ -1015,7 +1030,7 @@ pub class EmitWitness {
             return false
         }
 
-        var unsafe *hd    = gs->well_known()->get(WellKnownType::Hash)
+        var unsafe *hd    = gs->well_known()->get(k)
         var unsafe *owner = (m->semantic_dc)->owner_decl()
         return hd != &null && owner != &null && Speller::rep(owner) == Speller::rep(hd)
     }

@@ -2349,8 +2349,13 @@ pub class <T: type> CallTyping {
             //, and its extension's parameters deduce from it.
             recv = if (self.dyn()->cb.binds_nullable_member(step)) => (receiver)
                    else => self.dyn()->tu.strip_nullable(receiver)
+            // `p.copy()` on a pointer (ChainBinding::binds_lang_copy) copies
+            // the pointer: Self is the pointer type, not what it points at.
             var pt = self.dyn()->tu.pointee(recv)
-            if pt != &null {
+            var own_ptr = step != &null
+                && step->access_kind == ChainExpr::AccessKind::Dot
+                && self.dyn()->cb.binds_lang_copy(step)
+            if pt != &null && !own_ptr {
                 recv = pt
             }
         }

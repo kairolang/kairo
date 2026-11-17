@@ -8,9 +8,9 @@
 //     moved from, and the type has no copy. Only the const case is touched:
 //     a non-const `self` field is moved out silently today (not covered
 //     here).
-// (c) a vector, set or map literal of move-only elements: the container
-//     copies each element out of the literal's backing array, which the
-//     library cannot do for such a type yet (an open gap).
+// (c) a map literal of move-only elements: the map copies each element
+//     out of the literal's backing array, which the library cannot do for
+//     such a type yet. A vector literal moves its elements in: accepted.
 
 class M {
     pub var v: i32 = 0
@@ -47,6 +47,4 @@ fn main() -> i32 {
 // CHECK: move_only_late_copies.k:31:41: note [I900N]: 'self.t' is const, so the transfer out of the function cannot move it, and moving is the only transfer its type has
 // CHECK: move_only_late_copies.k:37:13: error [SC182E]: cannot copy a value of type 'M': it declares a move constructor and no copy constructor
 // CHECK: move_only_late_copies.k:37:13: note [I900N]: '+' is derived from 'op +=': it copies its left operand 'a', applies '+=' to the copy and yields it; write 'a += ...' to change it in place
-// CHECK: move_only_late_copies.k:39:20: error [SC182E]: a vector literal of 'Tok' elements cannot be built yet: the vector copies each element out of the literal, and 'Tok' cannot be copied (it declares a move constructor and no copy constructor)
-// CHECK: move_only_late_copies.k:39:20: note [I900N]: build the vector empty and add each element instead
 // CHECK: move_only_late_copies.k:40:25: error [SC182E]: a map literal of 'Tok' elements cannot be built yet

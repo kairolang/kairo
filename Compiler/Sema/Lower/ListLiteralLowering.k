@@ -43,6 +43,26 @@
 ///     namespace, which several files of one module share, and a bare
 ///     per-file counter there would be a duplicate symbol at link time.
 ///
+///   \par Elements that cannot be copied
+///     The backing array is copied out of, so a vector, set or map literal
+///     whose elements cannot be copied is built another way, through the
+///     members TypeUtil::literal_build names (MoveCheck marks each such
+///     literal, SemaContext::built_literals, and records the move of every
+///     element):
+///
+///       var v: [T] = [a, b]   ->  var v: [T] = Vector();
+///                                 v.reserve(2); v.push(a); v.push(b);
+///       f([a, b])             ->  f(({ var __kairo_litK: [T] = Vector();
+///                                      __kairo_litK.reserve(2);
+///                                      __kairo_litK.push(a); __kairo_litK.push(b);
+///                                      __kairo_litK as T&&; }))
+///
+///     A set adds with `insert(e)`, a map with `insert(k, v)`. The first
+///     form (SemaContext::filled_literals) transfers no container; the
+///     second moves it out of the statement expression. An element is the
+///     argument of its own call, so a temporary is built in the parameter
+///     and a named value is moved into it: nothing is copied.
+///
 ///   \par Postcondition
 ///     No ListLiteralExpr, SetLiteralExpr or MapLiteralExpr reaches codegen,
 ///     poisoned ones excepted (the gate stops those). A set literal is
@@ -64,6 +84,7 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContextKind
 import AST::Kind::ExprKind::to_string
 import AST::LangItems::{
@@ -111,7 +132,10 @@ import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
 }
-import Sema::Type::TypeUtil::TypeUtil
+import Sema::Type::TypeUtil::{
+    LiteralBuild,
+    TypeUtil,
+}
 
 pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     pub var  sc: unsafe *SemaContext
@@ -139,9 +163,14 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     /// Namespace-scope backings minted under _ns_owner, in run order.
     priv var _ns_pending: cxx::std::vector<unsafe *Decl>
 
+    /// The statements that fill the local of the DeclStmt being rewritten,
+    /// in order. Drained, after that DeclStmt, by the window it opened.
+    priv var _fill: cxx::std::vector<unsafe *Stmt>
+
     /// What _open_window saved.
     struct Window {
         var mark:   usize
+        var fill:   usize
         var window: bool
         var scalar: bool
         var owner:  unsafe *VariableDecl
@@ -205,6 +234,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     priv fn _open_window(self) -> Self::Window {
         var w = Self::Window{}
         w.mark            = self._pending.size()
+        w.fill            = self._fill.size()
         w.window          = self._window
         w.scalar          = self._scalar_slot
         w.owner           = self._ns_owner
@@ -216,7 +246,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         return w
     }
 
-    /// The backings minted under \p w, then \p body.
+    /// The backings minted under \p w, then \p body, then what fills its local.
     priv fn _close_window(self,
                           w:    Self::Window,
                           body: cxx::std::vector<unsafe *Stmt>) -> cxx::std::vector<unsafe *Stmt> {
@@ -234,8 +264,16 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             out.push_back(body[i])
         }
 
+        for var i: usize = w.fill; i < self._fill.size(); ++i {
+            out.push_back(self._fill[i])
+        }
+
         while self._pending.size() > w.mark {
             self._pending.pop_back()
+        }
+
+        while self._fill.size() > w.fill {
+            self._fill.pop_back()
         }
 
         return out
@@ -343,6 +381,14 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             )
         }
 
+        if self._built(unsafe (n as unsafe *Expr)) {
+            return self._build(
+                unsafe (n as unsafe *Expr),
+                WellKnownType::Vector,
+                self._exprs(unsafe &n->elements),
+            )
+        }
+
         if n->owner_ctor == &null {
             kairo::std::ice_fail(
                 "ListLiteralLowering: vector literal with no constructor bound; LiteralTyping must bind it",
@@ -403,6 +449,14 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             )
         }
 
+        if self._built(unsafe (n as unsafe *Expr)) {
+            return self._build(
+                unsafe (n as unsafe *Expr),
+                WellKnownType::HashSet,
+                self._exprs(unsafe &n->elements),
+            )
+        }
+
         var elems = self.list_builder<unsafe *Expr>()
         for var i: usize = 0; i < n->elements.size(); ++i {
             elems.push(n->elements[i])
@@ -439,6 +493,23 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         ) {
             kairo::std::ice_fail(
                 "ListLiteralLowering: a map literal whose type is not a HashMap; LiteralTyping::type_map_literal invariant violation",
+            )
+        }
+
+        if self._built(unsafe (n as unsafe *Expr)) {
+            var keys = cxx::std::vector<unsafe *Expr>()
+            var vals = cxx::std::vector<unsafe *Expr>()
+            for var i: usize = 0; i < n->entries.size(); ++i {
+                keys.push_back(n->entries.get(i)->key)
+                vals.push_back(n->entries.get(i)->value)
+            }
+
+            return self._build(
+                unsafe (n as unsafe *Expr),
+                WellKnownType::HashMap,
+                vals,
+                keys,
+                kt,
             )
         }
 
@@ -542,6 +613,198 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         }
 
         return self._ctor_call(at, ctor, to_string(k), unsafe &args, ty)
+    }
+
+    /// # elements that cannot be copied
+
+    /// MoveCheck marked \p n as built through TypeUtil::literal_build.
+    priv fn _built(self, n: unsafe *Expr) -> bool {
+        return self.sc->built_literals.count(n as usize as u64) != 0
+    }
+
+    /// The literal \p n, a lang record \p k, built element by element:
+    /// \p vals are the elements, and for a map \p keys are their keys, of
+    /// type \p kt. In the local \p n initializes when MoveCheck marked it
+    /// so and its DeclStmt sits in a statement list; else in a local of a
+    /// statement expression, moved out as its value.
+    priv fn _build(self,
+                   n:          unsafe *Expr,
+                   k:          WellKnownType,
+                   const vals: cxx::std::vector<unsafe *Expr>,
+                   const keys: cxx::std::vector<unsafe *Expr> = cxx::std::vector<unsafe *Expr>(),
+                   kt:         unsafe *Type = &null) -> unsafe *Expr {
+        var lb = self.tu.literal_build(k)
+        if lb.add == &null {
+            kairo::std::ice_fail(
+                f"ListLiteralLowering: {to_string(k)} has no by-value member to build a literal through; MoveCheck refuses the literal",
+            )
+        }
+
+        var        none = self.list_builder<unsafe *Expr>()
+        var unsafe *ty  = canon_unqual(n->type_)
+        var unsafe *empty = self._ctor_call(
+            n->range,
+            lb.ctor,
+            to_string(k),
+            unsafe &none,
+            ty,
+        )
+
+        var fills = self.sc->filled_literals.count(n as usize as u64) != 0
+            && self._window
+            && self._local_owner != &null
+        if fills {
+            var into = cxx::std::vector<unsafe *Stmt>()
+            self._fill_calls(
+                n,
+                lb,
+                self._local_owner,
+                keys,
+                vals,
+                kt,
+                unsafe &into,
+            )
+
+            for var i: usize = 0; i < into.size(); ++i {
+                self._fill.push_back(into[i])
+            }
+
+            return empty
+        }
+
+        var stmts = self.list_builder<unsafe *Stmt>()
+        var unsafe *vd = self.synth.bind(
+            n->range,
+            "lit",
+            ty,
+            empty,
+            unsafe &stmts,
+        )
+
+        var into = cxx::std::vector<unsafe *Stmt>()
+        self._fill_calls(n, lb, vd, keys, vals, kt, unsafe &into)
+        for var i: usize = 0; i < into.size(); ++i {
+            stmts.push(into[i])
+        }
+
+        stmts.push(
+            self._expr_stmt(
+                self.synth.rref(
+                    n->range,
+                    self.synth.use_of(vd, n->range, Expr::ValueCategory::LValue),
+                    ty,
+                ),
+            ),
+        )
+
+        return self.synth.stmt_expr(n, &stmts, ty)
+    }
+
+    /// `vd.reserve(N)`, then one `add` per element, onto \p out. A map's
+    /// key is evaluated before its value: when both have an effect the key
+    /// is bound first, the two being arguments of one call.
+    priv fn _fill_calls(self,
+                        n:          unsafe *Expr,
+                        lb:         LiteralBuild,
+                        vd:         unsafe *VariableDecl,
+                        const keys: cxx::std::vector<unsafe *Expr>,
+                        const vals: cxx::std::vector<unsafe *Expr>,
+                        kt:         unsafe *Type,
+                        out:        unsafe *cxx::std::vector<unsafe *Stmt>) {
+        var unsafe *unit = self.sc->builtin(BuiltinKind::Void)
+        if lb.reserve != &null {
+            var args = self.list_builder<unsafe *Expr>()
+            args.push(
+                self._cast(
+                    n->range,
+                    self.synth.int_literal(
+                        n->range,
+                        vals.size() as u64,
+                        BuiltinKind::USize,
+                    ),
+                    self.sc->builtin(BuiltinKind::USize),
+                ),
+            )
+
+            out->push_back(
+                self._expr_stmt(
+                    self.synth.member_call(
+                        n->range,
+                        self.synth.use_of(
+                            vd,
+                            n->range,
+                            Expr::ValueCategory::LValue,
+                        ),
+                        lb.reserve,
+                        &args,
+                        unit,
+                    ),
+                ),
+            )
+        }
+
+        for var i: usize = 0; i < vals.size(); ++i {
+            var unsafe *v = vals[i]
+            var args                      = self.list_builder<unsafe *Expr>()
+            var kd:  unsafe *VariableDecl = &null
+            if keys.size() > 0 {
+                var unsafe *key = keys[i]
+                if !self.synth.pure_read(key) && !self.synth.pure_read(v) {
+                    kd = self.synth.local(key->range, "key", kt, key)
+                    key = self.synth.rref(
+                        key->range,
+                        self.synth.use_of(
+                            kd,
+                            key->range,
+                            Expr::ValueCategory::LValue,
+                        ),
+                        kt,
+                    )
+                }
+
+                args.push(key)
+            }
+
+            args.push(v)
+            var unsafe *add = self._expr_stmt(
+                self.synth.member_call(
+                    v->range,
+                    self.synth.use_of(vd, v->range, Expr::ValueCategory::LValue),
+                    lb.add,
+                    &args,
+                    unit,
+                ),
+            )
+
+            if kd == &null {
+                out->push_back(add)
+                continue
+            }
+
+            // The bound key lives for its own entry only.
+            var unsafe *blk = CompoundStmt::create(self.ctx, v->range)
+            var        body = self.list_builder<unsafe *Stmt>()
+            body.push(
+                unsafe (DeclStmt::create(self.ctx, kd->range, unsafe (kd as unsafe *Decl)) as unsafe *Stmt),
+            )
+
+            body.push(add)
+            body.freeze_into(&blk->body)
+            out->push_back(unsafe (blk as unsafe *Stmt))
+        }
+    }
+
+    priv fn _exprs(self, l: unsafe *FrozenList<unsafe *Expr>) -> cxx::std::vector<unsafe *Expr> {
+        var out = cxx::std::vector<unsafe *Expr>()
+        for var i: usize = 0; i < l->size(); ++i {
+            out.push_back((*l)[i])
+        }
+
+        return out
+    }
+
+    priv fn _expr_stmt(self, e: unsafe *Expr) -> unsafe *Stmt {
+        return unsafe (Statements::ExpressionStmt::create(self.ctx, e->range, e) as unsafe *Stmt)
     }
 
     /// # pieces

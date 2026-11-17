@@ -394,6 +394,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         if e->kind != ExprKind::CallExpr {
             self._check_fn_value(e)
+            self._check_copy_value(e)
             return true
         }
 
@@ -404,6 +405,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         self._check_qualified(c)
+        self._check_copy_call(c)
         self._check_member_requires(c)
         return true
     }
@@ -1735,6 +1737,116 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         c->witness_row = row
+    }
+
+    /// `x.copy()` bound to the Copyable lang item's `copy` with x of a
+    /// CONCRETE type (ChainBinding::_copyable_member binds it for any type
+    /// with no member `copy`): x's type must be COPY, and the call carries
+    /// its row as a qualified call does. A bounded x is its bound's.
+    priv fn _check_copy_call(self, c: unsafe *CallExpr) {
+        var unsafe *ch = dyn_cast<ChainExpr>(self.tu.strip_parens(c->callee))
+        var unsafe *x  = self._lang_copy_receiver(ch)
+        if x == &null {
+            return
+        }
+
+        self._copy_callees.push_back(ch)
+        var empty = cxx::std::vector<unsafe *Type>()
+        var unsafe *iface = self.sc->types->record(
+            NameLookup::representative(
+                self.sc->well_known->get(WellKnownType::Copyable),
+            ),
+            unsafe &empty,
+        )
+
+        var unsafe *row = self.conforms(x, iface)
+        if row == &null || !row->ok {
+            self._report(c->range, &null, x, iface, row)
+            c->poison()
+            return
+        }
+
+        c->witness_row = row
+    }
+
+    /// The `x.copy` chains _check_copy_call saw as a call's callee: any
+    /// other is the method named as a value.
+    priv var _copy_callees: cxx::std::vector<unsafe *ChainExpr>
+
+    /// `x.copy` with no call, x of a concrete type with no member `copy`:
+    /// there is no method to name, only the copy constructor a call runs.
+    /// A call is visited before its callee, so a callee is known by then.
+    priv fn _check_copy_value(self, e: unsafe *Expr) {
+        var unsafe *ch = dyn_cast<ChainExpr>(e)
+        var unsafe *x  = self._lang_copy_receiver(ch)
+        if x == &null {
+            return
+        }
+
+        for var i: usize = 0; i < self._copy_callees.size(); ++i {
+            if self._copy_callees[i] == ch {
+                return
+            }
+        }
+
+        var xs = self.tu.str(x)
+        var b = self.sc->diag->report(
+            DiagID::SC001E,
+            ch->range.start,
+            f"'copy' on a '{xs}' is its copy constructor, which is not a value; call it, as 'x.copy()'",
+        )
+
+        b.first(ch->range)
+        b.emit()
+        ch->poison()
+    }
+
+    /// The concrete type of x in a chain `x.copy` / `p->copy` whose last
+    /// step is bound to the Copyable lang item's `copy`; null for any other
+    /// chain and for a dependent x, whose `copy` is a bound's.
+    priv fn _lang_copy_receiver(self, ch: unsafe *ChainExpr) -> unsafe *Type {
+        if ch == &null || ch->is_poisoned() || ch->steps.size() == 0 {
+            return &null
+        }
+
+        var        k   = ch->steps.size()
+        var unsafe *st = ch->steps.get(k - 1)
+        if st->access_kind == ChainExpr::AccessKind::ColonColon {
+            return &null
+        }
+
+        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(st->resolved_decl)
+        if f == &null || !f->is_method() || !self._owned_by_interface(f) {
+            return &null
+        }
+
+        if !self._is_lang(
+            (f->semantic_dc)->owner_decl(),
+            WellKnownType::Copyable,
+        ) {
+            return &null
+        }
+
+        var unsafe *rt = if (k == 1) => (if (ch->base != &null) => (ch->base->type_) else => &null)
+                         else => ch->steps.get(k - 2)->resolved_type
+        if rt == &null {
+            return &null
+        }
+
+        var unsafe *x = self._object(rt)
+        if x != &null && st->access_kind == ChainExpr::AccessKind::Arrow {
+            x = self._object(self.tu.pointee(x))
+        }
+
+        if x == &null
+            || isa<GenericParamType>(x)
+            || isa<AssocType>(x)
+            || x->is_dependent()
+            || x->is_instantiation_dependent() {
+            return &null
+        }
+
+        return x
     }
 
     /// `I<A>::m(c, ...)` with c a bounded parameter: the bound the call goes
@@ -5015,6 +5127,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
         }
 
+        // The Copyable lang item's `copy` on a type with no member of that
+        // name at all: a `copy` of another shape stays the type's own
+        // (`x.copy()` binds to it), so it is not replaced here either.
+        if cands.size() == 0 && self._hidden == &null && self._is_copyable_slot(x, idecl, m) {
+            return m
+        }
+
         return self._native_implementation(x, iface, idecl, m)
     }
 
@@ -5225,6 +5344,67 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return rd != &null && decl_is_imported(NameLookup::representative(rd))
     }
 
+    /// The Copyable lang item's `fn copy(const self) -> Self` on a COPY
+    /// type: met by the copy constructor, which the witness runs
+    /// (`return *self`), so every COPY type is duplicated through the one
+    /// bound with no `copy` written. The requirement stands as the witness,
+    /// as the Hash lang item's `hash` does on a pointer.
+    priv fn _is_copyable_slot(self,
+                              x:     unsafe *Type,
+                              idecl: unsafe *Declarations::InterfaceDecl,
+                              m:     unsafe *Declarations::FunctionDecl) -> bool {
+        if !self._is_copy_requirement(idecl, m) {
+            return false
+        }
+
+        var unsafe *c = self._canon(x)
+        return c != &null && self._is_copy_type(c)
+    }
+
+    /// Requirement \p m of \p idecl is the Copyable lang item's `copy`.
+    priv fn _is_copy_requirement(self,
+                                 idecl: unsafe *Declarations::InterfaceDecl,
+                                 m:     unsafe *Declarations::FunctionDecl) -> bool {
+        if m == &null || idecl == &null || m->is_operator {
+            return false
+        }
+
+        if !self._is_lang(
+            unsafe (idecl as unsafe *Decl),
+            WellKnownType::Copyable,
+        ) {
+            return false
+        }
+
+        return m->is_method()
+            && m->is_const()
+            && self._arity(m) == 0
+            && m->generic_params.size() == 0
+            && self.tu.decl_name(unsafe (m as unsafe *Decl)) == "copy"
+    }
+
+    /// \p c is a COPY type a value of which can be made from another: its
+    /// lifecycle category is Copy and its copy constructor is not dropped
+    /// at this instance. An array is not one: it is no value, and is built
+    /// from a list literal only.
+    priv fn _is_copy_type(self, c: unsafe *Type) -> bool {
+        if isa<FixedArrayType>(c) {
+            return false
+        }
+
+        // An open category would silently mean "no" for a concrete type
+        // (Asked too early, ClassLifecycle).
+        var f = lifecycle_of(self.sc)->facts_of_type_concrete(
+            c,
+            "ConformanceChecking::_is_copy_type",
+        )
+
+        // A declared `@copy` whose `requires` fails at this instance is
+        // dropped from it in C++ (`[Mv]`), and its one transfer constructor
+        // was that copy: the instance is neither COPY nor MOVE.
+        return f.category == LifecycleCategory::Copy && self.dropped_copy(c).ctor == &null
+    }
+
     /// What supplies associated-type requirement \p ta of \p iface on
     /// \p x: \p x's alias of that name, or \p ta itself when an explicit
     /// conformance takes its default; null when nothing does (structural
@@ -5404,7 +5584,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         // A declared `@copy` whose `requires` fails at this instance is
         // dropped from it in C++ (`[Mv]`), and its one transfer constructor
-        // was that copy: the instance is neither COPY nor MOVE.
+        // was that copy: the instance is neither COPY nor MOVE
+        // (_is_copy_type reads the same two facts).
         if ok && f.category == LifecycleCategory::Copy && self.dropped_copy(c).ctor != &null {
             ok = false
         }
@@ -6188,9 +6369,17 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         if req != &null {
             d.note(req->range.start, req_note)->child_first(req->range)
-            var dc = if (req->transfer != Declarations::TransferKind::NotTransfer) => (self.dropped_copy(
-                         x,
-                     ))
+            var copy_req = self._is_copy_requirement(
+                cast<Declarations::InterfaceDecl>(row->iface_decl),
+                req,
+            )
+
+            if copy_req {
+                self._note_not_copyable(unsafe &d, at, x, xs, is)
+            }
+
+            var dc = if (req->transfer != Declarations::TransferKind::NotTransfer
+                         || copy_req) => (self.dropped_copy(x))
                      else => DroppedCopy{}
             if dc.ctor != &null {
                 var es = if (dc.element != &null) => (self.tu.str(dc.element)) else => "its element"
@@ -6230,6 +6419,48 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         d.emit()
+    }
+
+    /// Why \p x does not meet the Copyable lang item, on \p d: it has a
+    /// `copy` of another shape, which stands in place of its copy
+    /// constructor; or it is an array; or it is not a COPY type, and then
+    /// the method to declare is named.
+    priv fn _note_not_copyable(self,
+                               d:        unsafe *DiagBuilder,
+                               at:       SourceRange,
+                               x:        unsafe *Type,
+                               const xs: string,
+                               const is: string) {
+        var        cands = cxx::std::vector<unsafe *Decl>()
+        var unsafe *imms = self.sc->ctx->get_imm_table()
+        self.ml.lookup(
+            x,
+            DeclName::ident(imms->intern_ident_copy("copy")),
+            unsafe &cands,
+        )
+
+        if cands.size() > 0 {
+            d->note(
+                cands[0]->range.start,
+                f"'{xs}' declares this 'copy', so its copy constructor does not stand in for one: '{is}' needs 'fn copy(const self) -> Self'",
+            )->child_first(decl_name_tok(cands[0]).range)
+            return
+        }
+
+        var unsafe *c = self._canon(x)
+        if c != &null && isa<FixedArrayType>(c) {
+            d->note(
+                at.start,
+                "an array is not copyable: view it through a slice, or copy its elements",
+            )
+
+            return
+        }
+
+        d->note(
+            at.start,
+            f"'{xs}' is not a COPY type, so it has no implicit 'copy': declare 'fn copy(const self) -> Self' on it",
+        )
     }
 
     /// Detached \p row found an implementation of (\p xs, \p is) that this

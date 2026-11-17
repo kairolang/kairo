@@ -146,6 +146,12 @@ pub enum WellKnownType derives u8 {
     /// to. An imported C++ type meets its `hash` requirement through
     /// `std::hash<T>` with no Kairo code (ConformanceChecking::_native_implementation).
     Hash,
+    /// `interface Copyable` (base/copy.k): `fn copy(const self) -> Self`. A
+    /// COPY type with no `copy` of its own meets it through its copy
+    /// constructor (ConformanceChecking::_is_copyable_slot), and `x.copy()`
+    /// on one binds to the requirement (ChainBinding::_copyable_member). A
+    /// builtin tree that does not declare it leaves the rule off.
+    Copyable,
     /// `type __builtin_c_wchar` / `__builtin_c_char16` / `__builtin_c_char8`
     /// (base/c_char.k): the aliases TypeResolve gives BuiltinKind::CWChar /
     /// CChar16 / CChar8 (C++'s wchar_t / char16_t / char8_t), as CChar for
@@ -263,6 +269,8 @@ pub fn to_string(k: WellKnownType) -> string {
             return "destroy"
         } case WellKnownType::Hash {
             return "Hash"
+        } case WellKnownType::Copyable {
+            return "Copyable"
         } case WellKnownType::CWChar {
             return "__builtin_c_wchar"
         } case WellKnownType::CChar16 {

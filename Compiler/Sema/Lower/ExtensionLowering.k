@@ -307,8 +307,16 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
             )
         }
 
-        n->witness_self  = me
-        n->witness_iface = self._declaring_iface(me, f)
+        // A concrete receiver is the Copyable lang item's `copy` on a type
+        // with no `copy` of its own, whose row ConformanceChecking put on
+        // the call (_check_copy_call); any other receiver is a bound's.
+        n->witness_self = me
+        if n->witness_row != &null {
+            n->witness_iface = n->witness_row->iface
+        } else {
+            n->witness_iface = self._declaring_iface(me, f)
+        }
+
         var args = self.list_builder<unsafe *Expr>()
         args.push(self._witness_receiver(obj, f, via_ptr))
         for var i: usize = 0; i < n->args.size(); ++i {
@@ -500,8 +508,9 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
     /// callee \p f (InterfaceComposition). An inherited requirement goes
     /// through the BOUND's witness -- `Stream_witness<T>::read` -- since every
     /// interface's list holds what it derives. Self must be a generic
-    /// parameter: a concrete receiver is bound to the implementing decl,
-    /// never to a requirement. Self is a dependent head -- a bounded
+    /// parameter: a concrete receiver is bound to the implementing decl, or
+    /// carries its row (_through_witness) and is not asked here. Self is a
+    /// dependent head -- a bounded
     /// parameter, or an associated type (`x.show()` on `x: T::Item` is
     /// `Display_witness<typename Store_witness<T>::Item>`) -- and its bounds
     /// are Substitution::bound_ifaces', the one list every reader shares.

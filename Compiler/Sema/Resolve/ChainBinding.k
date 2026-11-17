@@ -1132,12 +1132,24 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             var arrow = st->access_kind == ChainExpr::AccessKind::Arrow
                 || st->access_kind == ChainExpr::AccessKind::QuestionArrow
             var unsafe *pre = self._peel_maybe(self.ml.peel_ref(a.ty), st)
+            // `p.copy()` copies the pointer itself: a pointer has no member
+            // a `.` could otherwise name, and `p->copy()` is the pointee's.
+            var pcopy = cxx::std::vector<unsafe *Decl>()
+            if !arrow
+                && pre != &null
+                && isa<PointerType>(pre)
+                && self._copyable_member(st, pre, spelled, name, unsafe &pcopy) {
+                return self._commit(st, loc, unsafe &pcopy, &null, &null, pre)
+            }
+
             if arrow && !isa<PointerType>(pre) {
                 self._err(
                     DiagID::R027E,
                     at,
                     "'->' requires a pointer on its left; use '.' for a value",
                 )
+            } else if !arrow && isa<PointerType>(pre) && self._copy_of_dependent(pre, spelled) {
+                self._err(DiagID::R025E, at, self._copy_of_dependent_text(pre))
             } else if !arrow && isa<PointerType>(pre) {
                 self._err(
                     DiagID::R027E,
@@ -1174,6 +1186,19 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
         var cands = cxx::std::vector<unsafe *Decl>()
         self.ml.lookup(ty, name, unsafe &cands)
+        if cands.empty() {
+            self._copyable_member(st, ty, spelled, name, unsafe &cands)
+        }
+
+        if cands.empty() && self._copy_of_dependent(ty, spelled) {
+            self._err(DiagID::R025E, at, self._copy_of_dependent_text(ty))
+            st->name->poison()
+            self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
+            var r = Anchor()
+            r.kind = AnchorKind::Errored
+            return r
+        }
+
         if cands.empty() {
             var tn = self._type_name_str(ty)
             self._err_member_miss(
@@ -1248,6 +1273,88 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         return ty
+    }
+
+    /// `x.copy()` where \p ty, the type of `x`, has no member `copy`: the
+    /// Copyable lang item's requirement goes in \p out, which a COPY type
+    /// meets through its copy constructor. Bound for every concrete type;
+    /// whether \p ty is COPY is ConformanceChecking's to say at the call
+    /// (_check_copy_call), once the lifecycle facts are known, and its error
+    /// names what the type lacks. Not for a dependent type, whose category
+    /// is its instance's: a bounded parameter reads `copy` off its bound.
+    /// Not through `?.`, which ExtensionLowering takes no requirement call
+    /// through. Nothing without the lang item.
+    priv fn _copyable_member(self,
+                             st:            unsafe *ChainExpr::Step,
+                             ty:            unsafe *Type,
+                             const spelled: string,
+                             name:          DeclName,
+                             out:           unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+        if spelled != "copy"
+            || ty == &null
+            || ty->is_dependent()
+            || ty->is_instantiation_dependent() {
+            return false
+        }
+
+        if st->access_kind != ChainExpr::AccessKind::Dot
+            && st->access_kind != ChainExpr::AccessKind::Arrow {
+            return false
+        }
+
+        var unsafe *cd = self.sc->well_known->get(WellKnownType::Copyable)
+        if cd == &null || !isa<Declarations::InterfaceDecl>(cd) {
+            return false
+        }
+
+        var unsafe *tc = canon_unqual(ty)
+        if tc != &null
+            && isa<RecordType>(tc)
+            && isa<Declarations::InterfaceDecl>(cast<RecordType>(tc)->decl) {
+            return false
+        }
+
+        var empty = cxx::std::vector<unsafe *Type>()
+        return self.ml.lookup(
+            self.sc->types->record(
+                NameLookup::representative(cd),
+                unsafe &empty,
+            ),
+            name,
+            out,
+        )
+    }
+
+    /// `.copy()` on a \p ty that depends on a type parameter and has no
+    /// member `copy`, with the Copyable lang item declared: the one miss
+    /// _copyable_member leaves, which has its own message.
+    priv fn _copy_of_dependent(self, ty: unsafe *Type, const spelled: string) -> bool {
+        return spelled == "copy"
+            && ty != &null
+            && (ty->is_dependent() || ty->is_instantiation_dependent())
+            && self.sc->well_known->get(WellKnownType::Copyable) != &null
+    }
+
+    priv fn _copy_of_dependent_text(self, ty: unsafe *Type) -> string {
+        var tn = TypeUtil(self.sc).str(ty)
+        return f"no member named 'copy' in '{tn}': '.copy()' through a copy constructor is not available on a type that depends on a type parameter; write 'copy(x)', whose bound each instance checks"
+    }
+
+    /// \p st is bound to the Copyable lang item's `copy`: on a bounded
+    /// parameter through its bound, on any other type by _copyable_member.
+    /// CallTyping asks: `p.copy()` on a pointer has the pointer as `Self`.
+    fn binds_lang_copy(self, st: unsafe *ChainExpr::Step) -> bool {
+        if st == &null || st->resolved_decl == &null || st->resolved_decl->semantic_dc == &null {
+            return false
+        }
+
+        var unsafe *cd = self.sc->well_known->get(WellKnownType::Copyable)
+        if cd == &null {
+            return false
+        }
+
+        var unsafe *owner = (st->resolved_decl->semantic_dc)->owner_decl()
+        return owner != &null && NameLookup::representative(owner) == NameLookup::representative(cd)
     }
 
     /// \p st is bound to a member an `extend T?` declares: a member of the

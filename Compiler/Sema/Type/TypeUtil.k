@@ -21,6 +21,7 @@ import AST::ASTSupport::{
     FrozenList,
     create_empty_frozen_list,
 }
+import AST::Context::DeclContext::DeclContextKind
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_fields,       decl_generic_params, decl_is_imported,     decl_is_instance,   decl_methods,
@@ -44,6 +45,7 @@ import AST::LangItems::{
     WellKnownType,
     to_string,
 }
+import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -71,7 +73,10 @@ import AST::Node::PrimaryExpressions::{
 import AST::Node::Statements::IterYield
 import AST::Node::Types
 import AST::OperatorFacts::OperatorFacts
-import AST::ParamMode::param_mode_prefix
+import AST::ParamMode::{
+    ParamMode,
+    param_mode_prefix,
+}
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Token::TokenKind::TokenKind
@@ -82,6 +87,21 @@ pub struct PointerShape {
     var depth:        u32          = 0
     var outer_unsafe: bool         = false
     var leaf:         unsafe *Type = &null
+}
+
+/// The members a vector, set or map literal is built through when its
+/// elements cannot be copied (TypeUtil::literal_build): the record's default
+/// constructor, `reserve(n)` once, then one `add` per element -- `push(e)`
+/// on a Vector, `insert(e)` on a HashSet, `insert(k, v)` on a HashMap. `add`
+/// takes each operand by value, so the element is moved into the container;
+/// it is null when the record declares no such member (one that takes the
+/// element `const` copies it) or no default constructor, and the literal
+/// cannot be built. `reserve` is null when the record has none, and is then
+/// left out.
+pub struct LiteralBuild {
+    var ctor:    unsafe *Decl = &null
+    var reserve: unsafe *Decl = &null
+    var add:     unsafe *Decl = &null
 }
 
 /// Every leaf of requires clause \p e, in clause order: the operands of
@@ -1780,6 +1800,111 @@ pub class TypeUtil {
         }
 
         return &null
+    }
+
+    /// How a literal of lang record \p k (Vector, HashSet, HashMap) is built
+    /// from elements that cannot be copied. The one place that names the
+    /// members: MoveCheck asks whether the build exists, ListLiteralLowering
+    /// mints the calls.
+    fn literal_build(self, k: WellKnownType) -> LiteralBuild {
+        var        out = LiteralBuild{}
+        var unsafe *d  = self.sc->well_known->get(k)
+        if d == &null {
+            return out
+        }
+
+        var        map   = k == WellKnownType::HashMap
+        var unsafe *body = self.pattern_of(NameLookup::representative(d))
+        out.ctor = self.lang_ctor(k, 0, false)
+        if out.ctor == &null {
+            return out
+        }
+
+        out.reserve = self._by_value_method(body, "reserve", 1)
+        out.add = self._by_value_method(
+            body,
+            if (k == WellKnownType::Vector) => ("push") else => "insert",
+            if (map) => (2 as usize) else => 1 as usize,
+        )
+
+        return out
+    }
+
+    /// The public method \p name of record \p rd with \p nparams parameters
+    /// after `self`, each taken by value: not `const`, which borrows the
+    /// argument and leaves the callee to copy it, and not `@inout`.
+    priv fn _by_value_method(self,
+                             rd:         unsafe *Decl,
+                             const name: string,
+                             nparams:    usize) -> unsafe *Decl {
+        var ms = decl_methods(rd)
+        for var i: usize = 0; i < ms.size(); ++i {
+            var unsafe *m = ms[i]
+            if m == &null || m->is_operator || !m->is_method() || m->is_const() {
+                continue
+            }
+
+            if m->visibility == VisibilityKind::Private
+                || m->visibility == VisibilityKind::Protected
+                || m->generic_params.size() != 0
+                || self.decl_name(unsafe (m as unsafe *Decl)) != name {
+                continue
+            }
+
+            var n: usize = 0
+            var ok       = true
+            for var p: usize = 0; p < m->params.size(); ++p {
+                var unsafe *pd = m->params[p]
+                if pd == &null || pd->is_self {
+                    continue
+                }
+
+                n += 1
+                if pd->is_const || pd->is_pack || pd->mode == ParamMode::Inout {
+                    ok = false
+                }
+            }
+
+            if ok && n == nparams {
+                return unsafe (m as unsafe *Decl)
+            }
+        }
+
+        return &null
+    }
+
+    /// The literal \p lit is the whole initializer of the local \p vd, of
+    /// \p vd's own type, and \p vd can be written after its declaration: a
+    /// literal built by LiteralBuild then fills \p vd itself, and no
+    /// container is transferred out of the literal. A `const` local cannot be
+    /// written, a `static` one is initialized once, and a namespace-scope
+    /// variable has no statement to fill it in.
+    fn literal_fills(self, vd: unsafe *Declarations::VariableDecl, lit: unsafe *Expr) -> bool {
+        if vd == &null
+            || lit == &null
+            || vd->init == &null
+            || vd->type_ == &null
+            || lit->type_ == &null {
+            return false
+        }
+
+        if vd->is_const()
+            || vd->is_static()
+            || vd->is_thread
+            || self.strip_parens(vd->init) != lit {
+            return false
+        }
+
+        var unsafe *dc = vd->semantic_dc
+        if dc != &null
+            && (dc->dc_kind == DeclContextKind::TranslationUnit
+                || dc->dc_kind == DeclContextKind::Module) {
+            return false
+        }
+
+        var unsafe *vt = if (vd->type_->canonical != &null) => (vd->type_->canonical)
+                         else => vd->type_
+        return canon_has_const(vt) == false && canon_unqual(vt) == canon_unqual(lit->type_)
     }
 
     /// # qualifiers

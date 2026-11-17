@@ -154,7 +154,10 @@ import AST::ExprFacts::{
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::StmtKind::StmtKind
 import AST::Kind::TypeKind::TypeKind
-import AST::LangItems::LangAttrs
+import AST::LangItems::{
+    LangAttrs,
+    WellKnownType,
+}
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
     Decl,
@@ -859,8 +862,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// the local can split its marks (_link_target); `_link` is what it
     /// marked, filled by _call once `_link_got` is that call.
     priv var _link_call: unsafe *Expressions::CallExpr = &null
-    priv var _link_got:  unsafe *Expressions::CallExpr = &null
-    priv var _link:      CondLink
+    /// The variable whose initializer is being walked: a literal that is
+    /// that whole initializer fills it (TypeUtil::literal_fills).
+    priv var _init_owner: unsafe *VariableDecl = &null
+    /// The tuple literal that is the scrutinee of the match being walked.
+    priv var _unbuilt_tuple: unsafe *Expr                  = &null
+    priv var _link_got:      unsafe *Expressions::CallExpr = &null
+    priv var _link:          CondLink
     /// The expression body of the function being walked, until
     /// dispatch_expr meets it and walks it as the body's return (_return).
     priv var _ret_expr: unsafe *Expr = &null
@@ -2445,14 +2453,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         var unsafe *saved_lc = self._link_call
+        var unsafe *saved_io = self._init_owner
         var unsafe *target   = self._link_target(n)
-        self._link_call = target
+        self._link_call  = target
+        self._init_owner = n
         var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_variable_decl(
             self,
             n,
         )
 
-        self._link_call = saved_lc
+        self._link_call  = saved_lc
+        self._init_owner = saved_io
         if n->init != &null {
             self._transfer(
                 n->init,
@@ -2848,7 +2859,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             } case ExprKind::MatchExpr {
                 var unsafe *m = cast<Expressions::MatchExpr>(e)
                 if m->scrutinee != &null {
+                    var unsafe *saved_ut = self._unbuilt_tuple
+                    self._unbuilt_tuple = self._tu.strip_parens(m->scrutinee)
                     self.dispatch_expr(m->scrutinee)
+                    self._unbuilt_tuple = saved_ut
                 }
 
                 self._arms_start()
@@ -3906,9 +3920,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var rref = p != &null && self._rref_param(p)
         // A Kairo `const x: T` is a reference to the caller's object for the
         // whole call (Doc: Functions, Parameter passing modes): a MOVE
-        // argument is borrowed, not moved, and stays live.
-        if !rref && p != &null && p->is_const && !p->is_pack && moves_on_pass(self.sc, e->type_) {
-            return
+        // argument is borrowed, not moved, and stays live. So is one of a
+        // dependent type, which a MOVE instance must be free to read again.
+        if !rref && p != &null && p->is_const && !p->is_pack {
+            var unsafe *at = canon_unqual(e->type_)
+            if moves_on_pass(self.sc, e->type_)
+                || at != &null && (at->is_dependent() || at->is_instantiation_dependent()) {
+                return
+            }
         }
 
         // A C++ `T&&` binds an xvalue (`std::move(x)`), and a Kairo `const x: T`
@@ -4716,62 +4735,287 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
     }
 
-    /// A vector, set or map literal is built from a backing array, which the
-    /// container's constructor COPIES out of (ListLiteralLowering), so its
-    /// elements must be copyable. A literal of move-only elements cannot be
-    /// built yet (how move-only literals lower is the library's
-    /// design): refused here, naming the element type, not in clang.
-    fn visit_list_literal_expr(self, n: *Expressions::ListLiteralExpr) -> bool {
-        if n->elements.size() > 0 && n->type_ != &null && self._tu.is_vector_like(n->type_) {
-            self._literal_elems(
+    /// # literals
+
+    /// A fixed array, or a slice's backing array, is initialized element by
+    /// element, so a MOVE element is moved in. A vector's elements go the
+    /// way _owner_literal decides.
+    fn traverse_list_literal_expr(self,
+                                  n: *Expressions::ListLiteralExpr) -> *Expressions::ListLiteralExpr {
+        var vec = n->elements.size() > 0 && n->type_ != &null && self._tu.is_vector_like(n->type_)
+        var moved = vec
+            && self._owner_literal(
                 unsafe (n as unsafe *Expr),
-                self._tu.container_elem(n->type_),
+                WellKnownType::Vector,
                 "vector",
-            )
-        }
-
-        return true
-    }
-
-    /// A tuple literal copies each lvalue element into the tuple.
-    fn visit_tuple_literal_expr(self, n: *Expressions::TupleLiteralExpr) -> bool {
-        for var i: usize = 0; i < n->elements.size(); ++i {
-            self._deprecated_copy_place(n->elements[i], "into the tuple")
-        }
-
-        return true
-    }
-
-    fn visit_set_literal_expr(self, n: *Expressions::SetLiteralExpr) -> bool {
-        if n->elements.size() > 0 && n->type_ != &null && self._tu.is_set_like(n->type_) {
-            self._literal_elems(
-                unsafe (n as unsafe *Expr),
                 self._tu.container_elem(n->type_),
-                "set",
+                &null,
             )
+
+        for var i: usize = 0; i < n->elements.size(); ++i {
+            if self.stop {
+                break
+            }
+
+            var unsafe *el = n->elements[i]
+            self.dispatch_expr(el)
+            if moved {
+                self._move_elem(el, "vector literal")
+            } else if !vec && el != &null && moves_on_pass(self.sc, el->type_) {
+                self._move_elem(el, "array")
+            }
         }
 
-        return true
+        return n
     }
 
-    fn visit_map_literal_expr(self, n: *Expressions::MapLiteralExpr) -> bool {
-        if n->entries.size() == 0 || n->type_ == &null {
-            return true
+    /// A tuple literal is its record's initializer: each MOVE element is
+    /// moved into its field, and an lvalue of a COPY type is copied there.
+    /// A tuple that is a match's scrutinee is never built (MatchLowering
+    /// binds each element as its own column), so nothing leaves its
+    /// elements.
+    fn traverse_tuple_literal_expr(self,
+                                   n: *Expressions::TupleLiteralExpr) -> *Expressions::TupleLiteralExpr {
+        var built = unsafe (n as unsafe *Expr) != self._unbuilt_tuple
+        for var i: usize = 0; i < n->elements.size(); ++i {
+            if self.stop {
+                break
+            }
+
+            var unsafe *el = n->elements[i]
+            self.dispatch_expr(el)
+            if !built || el == &null {
+                continue
+            }
+
+            if moves_on_pass(self.sc, el->type_) {
+                self._move_elem(el, "tuple")
+            } else {
+                self._deprecated_copy_place(el, "into the tuple")
+            }
         }
 
+        return n
+    }
+
+    fn traverse_set_literal_expr(self,
+                                 n: *Expressions::SetLiteralExpr) -> *Expressions::SetLiteralExpr {
+        var moved = n->elements.size() > 0
+            && n->type_ != &null
+            && self._tu.is_set_like(n->type_)
+            && self._owner_literal(
+                unsafe (n as unsafe *Expr),
+                WellKnownType::HashSet,
+                "set",
+                self._tu.container_elem(n->type_),
+                &null,
+            )
+
+        for var i: usize = 0; i < n->elements.size(); ++i {
+            if self.stop {
+                break
+            }
+
+            self.dispatch_expr(n->elements[i])
+            if moved {
+                self._move_elem(n->elements[i], "set literal")
+            }
+        }
+
+        return n
+    }
+
+    fn traverse_map_literal_expr(self,
+                                 n: *Expressions::MapLiteralExpr) -> *Expressions::MapLiteralExpr {
         var kt: unsafe *Type = &null
         var vt: unsafe *Type = &null
-        if !self._tu.map_key_value(n->type_, unsafe &kt, unsafe &vt) {
+        var moved = n->entries.size() > 0
+            && n->type_ != &null
+            && self._tu.map_key_value(n->type_, unsafe &kt, unsafe &vt)
+            && self._owner_literal(
+                unsafe (n as unsafe *Expr),
+                WellKnownType::HashMap,
+                "map",
+                kt,
+                vt,
+            )
+
+        for var i: usize = 0; i < n->entries.size(); ++i {
+            if self.stop {
+                break
+            }
+
+            var unsafe *en = n->entries.get(i)
+            self.dispatch_expr(en->key)
+            if moved {
+                self._move_elem(en->key, "map literal")
+            }
+
+            if self.stop {
+                break
+            }
+
+            self.dispatch_expr(en->value)
+            if moved {
+                self._move_elem(en->value, "map literal")
+            }
+        }
+
+        return n
+    }
+
+    /// How the non-empty vector, set or map literal \p e (a lang record
+    /// \p k of \p a elements, a map of \p a keys and \p b values) takes
+    /// its elements. True when it is built by TypeUtil::literal_build and
+    /// each element is moved in, which the caller records element by
+    /// element. False when the container copies the elements out of a
+    /// backing array (ListLiteralLowering), which elements that cannot be
+    /// copied do not allow: reported here, naming the element type, not in
+    /// clang.
+    ///
+    /// A literal that fills the local it initializes transfers no container
+    /// (TypeUtil::literal_fills). Any other is built in a local of its own
+    /// and moved out of the expression, so its container must be a MOVE
+    /// type.
+    priv fn _owner_literal(self,
+                           e:          unsafe *Expr,
+                           k:          WellKnownType,
+                           const what: string,
+                           a:          unsafe *Type,
+                           b:          unsafe *Type) -> bool {
+        if e->is_poisoned() {
+            return false
+        }
+
+        var by_move = !self._why_no_copy(a).empty() || b != &null && !self._why_no_copy(b).empty()
+        if !by_move || self._tu.literal_build(k).add == &null {
+            if !self._literal_elems(e, a, what) && b != &null {
+                self._literal_elems(e, b, what)
+            }
+
+            return false
+        }
+
+        if self._tu.literal_fills(self._init_owner, e) {
+            self.sc->built_literals.insert(e as usize as u64)
+            self.sc->filled_literals.insert(e as usize as u64)
             return true
         }
 
-        if !self._literal_elems(unsafe (n as unsafe *Expr), kt, "map") {
-            self._literal_elems(unsafe (n as unsafe *Expr), vt, "map")
+        var why = if (moves_on_pass(self.sc, e->type_)) => ("") else => self._why_no_copy(e->type_)
+        if why.empty() {
+            self.sc->built_literals.insert(e as usize as u64)
+            return true
         }
 
-        return true
+        var ts = self._tu.str(self._tu.as_value(e->type_))
+        var r = self.sc->diag->report(
+            DiagID::SC182E,
+            e->range.start,
+            f"a {what} literal of elements that cannot be copied is built in place, so here it can only initialize a 'var' of type '{ts}': '{ts}' cannot be moved out of the expression, and it cannot be copied ({why})",
+        )
+
+        r.first(e->range)
+        r.note(
+            e->range.start,
+            f"declare a 'var' of type '{ts}' with this literal as its whole initializer, and use the variable here",
+        )
+
+        r.emit()
+        e->poison()
+        self.n_errored += 1
+        return false
     }
 
+    /// Why a value of type \p t cannot be copied, or "" when it can (an
+    /// Unknown included): the record's own facts, or a declared `@copy`
+    /// whose `requires` the instance does not meet (_dropped_copy_place).
+    priv fn _why_no_copy(self, t: unsafe *Type) -> string {
+        var tf               = LifecycleFacts()
+        var rd: unsafe *Decl = &null
+        var unsafe *facts = self._uncopyable_facts(t, unsafe &tf, unsafe &rd)
+        if facts != &null {
+            return facts->why_not_copyable
+        }
+
+        var unsafe *c = self._tu.as_value(t)
+        if c == &null
+            || rd == &null
+            || c->is_dependent()
+            || decl_is_imported(rd)
+            || !self._has_constrained_copy(rd) {
+            return ""
+        }
+
+        var dc = ConformanceChecking(self.sc).dropped_copy(c)
+        if dc.ctor == &null {
+            return ""
+        }
+
+        if dc.element == &null {
+            return "its copy constructor's requirements do not hold for it"
+        }
+
+        var es = self._tu.str(dc.element)
+        return f"copying it copies each '{es}', and '{es}' cannot be copied"
+    }
+
+    /// The element \p e of a literal (\p what) that takes its elements by
+    /// move: a transfer into it. A const element cannot be moved from, and
+    /// only an explicit copy can stand in its place.
+    priv fn _move_elem(self, e: unsafe *Expr, const what: string) {
+        if e == &null || e->is_poisoned() {
+            return
+        }
+
+        var unsafe *x = self._tu.strip_parens(e)
+        if x == &null
+            || x->value_category != Expr::ValueCategory::LValue
+            || !moves_on_pass(self.sc, e->type_)
+            || !(self._const_place(x) || self._const_root(e) || place_has_const_root(x)) {
+            self._transfer(e, f"into the {what}")
+            return
+        }
+
+        var ts   = self._tu.str(self._tu.as_value(e->type_))
+        var name = self._spelled(x)
+        var b = self.sc->diag->report(
+            DiagID::SC182E,
+            e->range.start,
+            f"'{name}' is const, so it cannot be moved into the {what}, and a '{ts}' is never copied implicitly: only an explicit copy, '{name}.copy()', can be an element here",
+        )
+
+        b.first(e->range)
+        if self._copies_itself(e) {
+            b.note(
+                e->range.end,
+                f"'{ts}' has a 'copy' method: write '{name}.copy()' to put a copy of '{name}' in the {what}",
+            )->child_fix(
+                SourceRange(e->range.end, e->range.end),
+                ".copy()",
+                "copy it explicitly",
+            )
+        } else {
+            b.note(
+                e->range.start,
+                f"'{ts}' declares no public 'fn copy(const self) -> Self'",
+            )
+        }
+
+        var pl = self._place(e)
+        if pl.d != &null {
+            b.note(pl.d->range.start, "declared const here")->child_first(
+                pl.d->range,
+            )
+        }
+
+        b.emit()
+        e->poison()
+        self.n_errored += 1
+    }
+
+    /// The copy-out build of a vector, set or map literal: SC182E when
+    /// \p elem cannot be copied (true), else the deprecated-copy warning.
     priv fn _literal_elems(self, e: unsafe *Expr, elem: unsafe *Type, const what: string) -> bool {
         if elem == &null || e->is_poisoned() {
             return false
@@ -5568,9 +5812,6 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self.n_errored += 1
     }
 
-    /// The type of \p e is a record with a public `fn copy(const self) -> Self`:
-    /// the one requirement of std's CopiesItself, read off the record so the
-    /// answer does not depend on std::utility being imported.
     /// _deprecated_copy for a transfer of the lvalue \p e: a temporary is
     /// built in place and copies nothing.
     priv fn _deprecated_copy_place(self, e: unsafe *Expr, const how: string) {
@@ -5675,6 +5916,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         b.emit()
     }
 
+    /// The type of \p e is a record with a public `fn copy(const self) -> Self`
+    /// of its own: the method `.copy()` runs there, read off the record so
+    /// the answer needs no import. A COPY type with no such method also
+    /// takes `.copy()` (the Copyable lang item), but that is its copy
+    /// constructor again, which an implicit copy already runs: no `.copy()`
+    /// is offered for it.
     priv fn _copies_itself(self, e: unsafe *Expr) -> bool {
         if e->type_ == &null {
             return false
@@ -5791,9 +6038,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             mp.at,
         )
 
-        // The moved type makes its own copies (`fn copy(const self) -> Self`,
-        // what std's CopiesItself requires): the move may have been meant
-        // as one.
+        // The moved type makes its own copies (`fn copy(const self) -> Self`):
+        // the move may have been meant as one.
         if mp.site != &null && self._copies_itself(mp.site) {
             b.note(
                 mp.site->range.end,
