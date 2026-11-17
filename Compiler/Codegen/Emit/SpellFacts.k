@@ -263,24 +263,24 @@ extend Speller {
     fn wrap_carrier(self, t: unsafe *Type) -> string {
         var w = Speller::int_width(t)
         if w <= (32 as u32) {
-            return builtin_info(BuiltinKind::U32)->cxx
+            return builtin_info(BuiltinKind::U32)->cxx.copy()
         }
 
         if w <= (64 as u32) {
-            return builtin_info(BuiltinKind::U64)->cxx
+            return builtin_info(BuiltinKind::U64)->cxx.copy()
         }
 
         if w <= (128 as u32) {
-            return builtin_info(BuiltinKind::U128)->cxx
+            return builtin_info(BuiltinKind::U128)->cxx.copy()
         }
 
         // `_BitInt` widths: their own unsigned twin. `unsigned __int128`
         // here truncated a u256 / u512 sum to its low 128 bits.
         if w <= (256 as u32) {
-            return builtin_info(BuiltinKind::U256)->cxx
+            return builtin_info(BuiltinKind::U256)->cxx.copy()
         }
 
-        return builtin_info(BuiltinKind::U512)->cxx
+        return builtin_info(BuiltinKind::U512)->cxx.copy()
     }
 
     /// R, the register width a shift on integer \p t is computed in: 32 for
@@ -315,18 +315,18 @@ extend Speller {
         }
 
         if r == (64 as u32) {
-            return builtin_info(BuiltinKind::I64)->cxx
+            return builtin_info(BuiltinKind::I64)->cxx.copy()
         }
 
         if r == (128 as u32) {
-            return builtin_info(BuiltinKind::I128)->cxx
+            return builtin_info(BuiltinKind::I128)->cxx.copy()
         }
 
         if r == (256 as u32) {
-            return builtin_info(BuiltinKind::I256)->cxx
+            return builtin_info(BuiltinKind::I256)->cxx.copy()
         }
 
-        return builtin_info(BuiltinKind::I512)->cxx
+        return builtin_info(BuiltinKind::I512)->cxx.copy()
     }
 
     /// cxx_vis with the default applied: what C++ will see.

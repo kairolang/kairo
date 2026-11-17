@@ -1658,7 +1658,7 @@ pub class ImmediateTable {
                 self.synth_names = kairo::std::create<ArenaList<string>>(64)
             }
 
-            stored = self.synth_names->push(s)
+            stored = self.synth_names->push(s.copy())
         }
 
         var unsafe *r = unsafe (stored->raw() as kairo::std::ConstPtr<u8>)
@@ -1688,7 +1688,7 @@ pub class ImmediateTable {
         var        idx   = self.create<Immediate::StringData>()
         var unsafe *data = self.get<Immediate::StringData>(idx)
 
-        var unsafe *stored = self.synth_names->push(s)
+        var unsafe *stored = self.synth_names->push(s.copy())
         data->owned_ptr   = unsafe (stored->raw() as kairo::std::ConstPtr<u8>)
         data->owned_len   = (stored->size() as u32)
         data->prefix_kind = FlagSet<Immediate::TextPrefixKind, u8>()

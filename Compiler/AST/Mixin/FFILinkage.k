@@ -179,8 +179,8 @@ pub class <T> FFILinkage {
                     origin_fid:     u32) {
         self.ffi_linkage  = LinkageKind::Cpp
         self.clang_decl   = clang_decl
-        self.usr          = usr
-        self.cxx_spelling = spelling
+        self.usr          = usr.copy()
+        self.cxx_spelling = spelling.copy()
         self.origin_set   = origin_set
         self.origin_fid   = origin_fid
     }

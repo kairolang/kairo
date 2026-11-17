@@ -902,8 +902,8 @@ pub class ClangBackend {
     pub fn sysroot_words(self, is_c: bool, sp: ClangSpelling) -> cxx::std::vector<string> {
         var o   = cxx::std::vector<string>()
         var cc1 = sp == ClangSpelling::CC1
-        var sr  = self._cfg.sysroot
-        var rd  = self._cfg.resource_dir
+        var sr  = self._cfg.sysroot.copy()
+        var rd  = self._cfg.resource_dir.copy()
         o.push_back(if (cc1) => ("-nostdsysteminc") else => "-nostdlibinc")
         o.push_back("-nostdinc++")
         if !rd.empty() {
@@ -966,8 +966,8 @@ pub class ClangBackend {
                           is_c:         bool,
                           @inout kinds: cxx::std::vector<u8>) -> cxx::std::vector<string> {
         var o  = cxx::std::vector<string>()
-        var sr = self._cfg.sysroot
-        var rd = self._cfg.resource_dir
+        var sr = self._cfg.sysroot.copy()
+        var rd = self._cfg.resource_dir.copy()
         kinds.clear()
         var declared = !self._cfg.include_dirs.empty() || !self._cfg.cxx_include_dirs.empty()
         if !is_c {
@@ -1031,12 +1031,12 @@ pub class ClangBackend {
 
     /// The effective target triple every compile in this build uses.
     pub fn triple(self) -> string {
-        return self._cfg.triple
+        return self._cfg.triple.copy()
     }
 
     /// The sysroot's clang_triple, "" when its SYSROOT.toml has none.
     pub fn sysroot_clang_triple(self) -> string {
-        return self._cfg.clang_triple
+        return self._cfg.clang_triple.copy()
     }
 
     /// The triple clang's words carry: the sysroot's own clang_triple when
@@ -1045,10 +1045,10 @@ pub class ClangBackend {
     /// wasm32-unknown-wasi names the compiler-rt dir, and clang wants wasip1.
     priv fn _clang_triple(self) -> string {
         if !self._cfg.clang_triple.empty() {
-            return FlagTranslator::clang_triple(self._cfg.clang_triple)
+            return FlagTranslator::clang_triple(self._cfg.clang_triple.copy())
         }
 
-        return FlagTranslator::clang_triple(self._cfg.triple)
+        return FlagTranslator::clang_triple(self._cfg.triple.copy())
     }
 
     /// Whether host env search paths are dropped from driver lines.

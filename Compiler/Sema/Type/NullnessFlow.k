@@ -1384,7 +1384,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
     fn run(self, body: unsafe *Stmt, update: unsafe *Expr, const label: string) -> NullScanState {
         self._init()
         var l = NullScanLoop{}
-        l.label = label
+        l.label = label.copy()
         self.loops.push_back(l)
         if body != &null {
             self.scan_stmt(body)
@@ -2000,7 +2000,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
     }
 
     priv fn _take_label(self) -> string {
-        var l = self.pending
+        var l = self.pending.copy()
         self.pending = ""
         return l
     }
@@ -2144,13 +2144,13 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
                     self.scan_stmt(f->init)
                 }
 
-                self.pending = lbl
+                self.pending = lbl.copy()
                 self._nested(f->cond, f->body, f->update, true)
             } case StmtKind::RangedForStmt {
                 var unsafe *f  = cast<Statements::RangedForStmt>(s)
                 var        lbl = self._take_label()
                 self.scan_expr(f->iterable)
-                self.pending = lbl
+                self.pending = lbl.copy()
                 self._nested(&null, f->body, &null, true)
             } case StmtKind::MatchStmt {
                 var unsafe *m = cast<Statements::MatchStmt>(s)
@@ -3229,7 +3229,7 @@ pub class NullnessFlow {
 
     /// The next loop statement is labeled \p name (`outer: while ...`).
     fn label_next(self, const name: string) {
-        self._label = name
+        self._label = name.copy()
     }
 
     /// The head of a loop over \p body, with \p update (a `for`'s) run on
@@ -3242,7 +3242,7 @@ pub class NullnessFlow {
     /// proves `x` at the top of the body whatever the body does to it.
     fn loop_enter(self, body: unsafe *Stmt, update: unsafe *Expr) {
         var l = NullLoop{}
-        l.label     = self._label
+        l.label     = self._label.copy()
         self._label = ""
         if !self.env.dead {
             var scan = NullLoopScan()
@@ -3665,7 +3665,7 @@ pub class NullnessFlow {
             msg = f"'{nm}' is always null here"
         }
 
-        var b = self.sc->diag->report(DiagID::SC265E, r.start, msg)
+        var b = self.sc->diag->report(DiagID::SC265E, r.start, msg.copy())
         b.first(r)
         if trap != &null {
             b.insert(trap->open_at, "(", "put the use on the checked path")

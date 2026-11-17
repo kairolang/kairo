@@ -497,7 +497,7 @@ extend InterfaceEmitter {
                 continue
             }
 
-            var n = out[i]
+            var n = out[i].copy()
             while true {
                 var hit = false
                 for var k: usize = 0; k < taken.size(); ++k {
@@ -514,7 +514,7 @@ extend InterfaceEmitter {
                 n += "_"
             }
 
-            out[i] = n
+            out[i] = n.copy()
             taken.push_back(n)
         }
 

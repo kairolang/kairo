@@ -169,8 +169,8 @@ pub fn _fx_row(@inout rows:   cxx::std::vector<RevRow>,
                const kairo_v: string,
                shape:         RevShape) {
     var r = RevRow()
-    r.clang = clang
-    r.kairo = kairo_v
+    r.clang = clang.copy()
+    r.kairo = kairo_v.copy()
     r.shape = shape
     rows.push_back(r)
 }
@@ -463,8 +463,8 @@ pub class FlagTranslator {
                                     float_control:      bool,
                                     @inout open:        cxx::std::vector<string>,
                                     @inout close:       cxx::std::vector<string>) {
-        var contract       = cxx_contract
-        var kairo_contract = "off"        // kairo_fp_cc1's pin
+        var contract       = cxx_contract.copy()
+        var kairo_contract = "off"               // kairo_fp_cc1's pin
         var fast           = false
         for *w in user_cc1 {
             if w->starts_with("-ffp-contract=") {
@@ -473,7 +473,7 @@ pub class FlagTranslator {
                     w->size() - 14,
                 )
 
-                kairo_contract = contract
+                kairo_contract = contract.copy()
             }
 
             if *w == "-ffast-math" {
@@ -726,7 +726,7 @@ pub class FlagTranslator {
         /// --stack-protector is the one setting behind clang's three
         /// spellings (-fstack-protector, -strong, -all); -f[no-]stack-
         /// protector is its basic|none shorthand, and the explicit level wins.
-        var sp_level = cgo.stack_protector
+        var sp_level = cgo.stack_protector.copy()
         if sp_level.empty() {
             if cgo.f_stack_protector == 1 {
                 sp_level = "basic"
@@ -981,7 +981,7 @@ pub class FlagTranslator {
         // for it (it reads SOURCE_DATE_EPOCH from the environment).
         var epoch = ""
         if !cgo.source_date_epoch.empty() {
-            epoch = cgo.source_date_epoch
+            epoch = cgo.source_date_epoch.copy()
         } else if cgo.no_timestamps {
             epoch = "0"
         }
@@ -1266,9 +1266,15 @@ pub class FlagTranslator {
         var cgo = inv.codegen
         var tgt = inv.target
         if clang_tri.empty() {
-            _fx_push(&o, "--target=" + FlagTranslator::clang_triple(triple))
+            _fx_push(
+                &o,
+                "--target=" + FlagTranslator::clang_triple(triple.copy()),
+            )
         } else {
-            _fx_push(&o, "--target=" + FlagTranslator::clang_triple(clang_tri))
+            _fx_push(
+                &o,
+                "--target=" + FlagTranslator::clang_triple(clang_tri.copy()),
+            )
         }
 
         for var a: string in FlagTranslator::march_driver(&tgt) {
@@ -1528,7 +1534,7 @@ pub class FlagTranslator {
         )
 
         if missing_cnt > 0 {
-            var w = argv[missing_idx as usize]
+            var w = argv[missing_idx as usize].copy()
             (error) = f"clang option '{w}' is missing its value"
             return false
         }

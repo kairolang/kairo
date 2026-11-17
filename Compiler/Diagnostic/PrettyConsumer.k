@@ -540,7 +540,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
         var unsafe *first_diag = group.diags[0]
         var        line_text   = sm->get_full_line(first_diag->loc)
-        var        lang        = self.snippet_lang(group.filename)
+        var        lang        = self.snippet_lang(group.filename.copy())
 
         var spans: cxx::std::vector<CaretSpan>
 
@@ -578,14 +578,14 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 span.style = label.style
                 self._place_span(&span, line_text, label.range, sm)
 
-                var ltext: string = label.text
+                var ltext: string = label.text.copy()
                 if (ltext.length() == 0) && (!emitted_any) {
-                    ltext = default_text
+                    ltext = default_text.copy()
                 }
 
                 emitted_any = true
 
-                span.text = ltext
+                span.text = ltext.copy()
                 spans.push_back(span)
             }
 
@@ -600,7 +600,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 at.end   = diag->loc
                 self._place_span(&span, line_text, at, sm)
 
-                span.text = default_text
+                span.text = default_text.copy()
                 spans.push_back(span)
             }
         }
@@ -642,17 +642,17 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         // (render_fixed_line slices the text with them), and the same edit in
         // terminal cells for the '-'/'+' markers on the caret row.
         var fix_start_col:  usize  = 0
-        var fix_mid_len:    usize  = 0         ///< removed span bytes
+        var fix_mid_len:    usize  = 0                ///< removed span bytes
         var fix_start_cell: usize  = 0
-        var fix_mid_cells:  usize  = 0         ///< removed span width ('-' markers)
-        var fix_ins_cells:  usize  = 0         ///< inserted text width ('+' markers)
-        var shown_text:     string = line_text ///< the primary line as printed
+        var fix_mid_cells:  usize  = 0                ///< removed span width ('-' markers)
+        var fix_ins_cells:  usize  = 0                ///< inserted text width ('+' markers)
+        var shown_text:     string = line_text.copy() ///< the primary line as printed
         if has_primary_fix {
             var fb = self._byte_span(primary_fix.range, line_text.length(), sm)
             fix_start_col = fb.start_col
             var f_end_col = fb.end_col
             fix_mid_len = f_end_col - fix_start_col
-            var rep = primary_fix.replacement
+            var rep = primary_fix.replacement.copy()
 
             fix_start_cell = self._cells(line_text, fix_start_col)
             fix_mid_cells  = self._cells(line_text, f_end_col) - fix_start_cell
@@ -685,7 +685,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 fixed.push_back(line_text[i])
             }
 
-            shown_text = fixed
+            shown_text = fixed.copy()
         }
 
         // Per-column severity map (for overlap coloring on the caret row)
@@ -732,9 +732,9 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                     line_text,
                     fix_start_col,
                     fix_mid_len,
-                    primary_fix.replacement,
+                    primary_fix.replacement.copy(),
                     color,
-                    lang,
+                    lang.copy(),
                 ) + NL
             } else {
                 out += prefix + renderer.highlight_snippet(text, lang) + NL
@@ -772,13 +772,13 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 var mc: usize = fix_start_cell
                 for var c: usize = 0; c < fix_mid_cells; ++c {
                     row_glyph[mc] = ('-' as u8)
-                    row_color[mc] = self.RED
+                    row_color[mc] = self.RED.copy()
                     mc += 1
                 }
 
                 for var c: usize = 0; c < fix_ins_cells; ++c {
                     row_glyph[mc] = ('+' as u8)
-                    row_color[mc] = self.GREEN
+                    row_color[mc] = self.GREEN.copy()
                     mc += 1
                 }
             }
@@ -796,7 +796,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 var mark = string()
                 mark.push_back(row_glyph[c])
                 if color {
-                    var mcol = row_color[c]
+                    var mcol = row_color[c].copy()
                     caret_row += f"{mcol}{mark}{self.RESET}"
                 } else {
                     caret_row += mark
@@ -850,7 +850,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                     row += self._blank(shown_text, col, msg_anchor)
                 }
 
-                var msg = active_spans[ri].text
+                var msg = active_spans[ri].text.copy()
                 row += if color => (f"{self.RESET}{msg}") else => msg
 
                 out += conn_gutter + row + NL
@@ -973,8 +973,8 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             out += self.render_labels(
                 &temp_labels,
                 sm,
-                indent,
-                sev_col,
+                indent.copy(),
+                sev_col.copy(),
                 color,
                 left_pad,
             )
@@ -1377,21 +1377,21 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     priv fn severity_color(self, sev: DiagSeverity) -> string {
         match sev {
             case DiagSeverity::Fatal {
-                return self.BOLD_RED
+                return self.BOLD_RED.copy()
             } case DiagSeverity::Error {
-                return self.RED
+                return self.RED.copy()
             } case DiagSeverity::Warning {
-                return self.YELLOW
+                return self.YELLOW.copy()
             } case DiagSeverity::Note {
-                return self.CYAN
+                return self.CYAN.copy()
             } case DiagSeverity::Remark {
-                return self.BLUE
+                return self.BLUE.copy()
             } case DiagSeverity::Debug {
-                return self.MAGENTA
+                return self.MAGENTA.copy()
             } case DiagSeverity::Verbose {
-                return self.DIM
+                return self.DIM.copy()
             } case DiagSeverity::Ignored {
-                return self.DIM
+                return self.DIM.copy()
             } default {
                 return ""
             }

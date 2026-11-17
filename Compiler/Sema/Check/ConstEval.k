@@ -587,7 +587,7 @@ pub class ConstEval {
     /// later failure that has one still records.
     priv fn _record(self, at: unsafe *Expr, const why: string, d: unsafe *Decl) {
         self.bad      = at
-        self.bad_why  = why
+        self.bad_why  = why.copy()
         self.bad_decl = d
         self._failure = if (at != &null) => (EvalFailure::Explained) else => EvalFailure::None
     }

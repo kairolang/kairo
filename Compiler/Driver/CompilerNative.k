@@ -177,7 +177,7 @@ extend CompilerInstance {
             cache = ""
         }
 
-        self._rt_cache = cache
+        self._rt_cache = cache.copy()
         var fp = ""
         if !cache.empty() {
             fp = kairo::std::from_std_string<string>(
@@ -591,11 +591,11 @@ extend CompilerInstance {
                 // clang's own answer to a header input: a precompiled header,
                 // named after the whole file (foo.h -> foo.h.pch) so foo.h
                 // and foo.c never collide. Never linked.
-                var pch = single
+                var pch = single.copy()
                 // A linking run's object dir may be a temporary one it
                 // deletes; the .pch is an output the user asked for, so it is
                 // kept: --cache-dir if given, else the working directory.
-                var pdir = dir
+                var pdir = dir.copy()
                 if self._obj_tmp {
                     pdir = "."
                 }
@@ -617,7 +617,7 @@ extend CompilerInstance {
             }
 
             for var i: usize = 0; i < kinds.size(); ++i {
-                var out = single
+                var out = single.copy()
                 if out.empty() {
                     out = dir + "/" + Path(k->path).stem() + exts[i]
                 }
@@ -670,7 +670,7 @@ extend CompilerInstance {
 
         // A trailing '/' would make parent_path answer "a/builtin" for
         // "a/builtin/"; strip it so both spellings name Lib/.
-        return Path::parent_of(LinkText::strip_slash(broot))
+        return Path::parent_of(LinkText::strip_slash(broot.copy()))
     }
 
     /// \brief the runtime's C/C++ sources: every one directly in

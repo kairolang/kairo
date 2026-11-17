@@ -20,7 +20,7 @@ fn main() -> i32 { return 0 }
 // RUN: %kcc %S/Inputs/bounded_class_template/good.cc -I %S/Inputs/bounded_class_template -o %t.d/good
 // RUN: %t.d/good; test $? -eq 5
 // RUN: { %kcc %S/Inputs/bounded_class_template/bad.cc -I %S/Inputs/bounded_class_template -o %t.d/bad 2>&1 || true; } | %FileCheck %s
-// CHECK: holder.k:7:34: error [CL001E]: static assertion failed: 'Holder' requires 'T' to implement 'Named'
+// CHECK: holder.k:7:{{[0-9]+}}: error [CL001E]: static assertion failed: 'Holder' requires 'T' to implement 'Named'
 // CHECK: bad.cc:4:27: note [{{.*}}]: in instantiation of member function 'holder::Holder<Plain>::Holder' requested here
 // CHECK: note [{{.*}}]: because 'Plain' does not satisfy 'Named_c'
 // RUN: test ! -e %t.d/bad

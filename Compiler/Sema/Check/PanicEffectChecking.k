@@ -1240,7 +1240,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                        const msg: string,
                        inferred:  unsafe *cxx::std::vector<unsafe *Type>) {
         var at = if (pr.is_valid()) => (pr) else => fallback
-        var b  = self.sc->diag->report(DiagID::SC218E, at.start, msg)
+        var b  = self.sc->diag->report(DiagID::SC218E, at.start, msg.copy())
         b.first(at, "write the set: 'panic(E1, E2)'")
         if inferred != &null {
             self._write_set_fix(&b, pr, inferred)
@@ -1442,7 +1442,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             msg = f"{names} {verb2} not in the panic set of '{sn}', which this {verb}; {what}'s set must be a subset of it"
         }
 
-        var d = self.sc->diag->report(DiagID::SC208E, at.start, msg)
+        var d = self.sc->diag->report(DiagID::SC208E, at.start, msg.copy())
         d.first(at)
         var sat = if (sup->panic_range.is_valid()) => (sup->panic_range)
                   else => self._name_range(sup)
@@ -2388,7 +2388,12 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             head = f"unhandled panic: {what} {names}, and '{self._fn_name(f)}' is not marked 'panic'"
         }
 
-        var b = self.sc->diag->report(DiagID::SC221E, s->range.start, head)
+        var b = self.sc->diag->report(
+            DiagID::SC221E,
+            s->range.start,
+            head.copy(),
+        )
+
         b.first(s->range, self._site_label(s, names))
         self._origin_note(&b, s)
         // Propagate: mark the body `panic` (never main, a script or a default).

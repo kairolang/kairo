@@ -283,42 +283,42 @@ pub class TokenPrinter {
         var s = self._sgr
 
         if kind == TokenKind::AtComment {
-            return s.comment
+            return s.comment.copy()
         }
 
         if kind == TokenKind::LitIdentifier {
-            return s.ident
+            return s.ident.copy()
         }
 
         if kind == TokenKind::TkWhitespace {
-            return s.range
+            return s.range.copy()
         }
 
         if is_keyword(kind) {
-            return s.kw
+            return s.kw.copy()
         }
 
         if is_literal(kind) {
-            return s.lit
+            return s.lit.copy()
         }
 
         if is_builtin(kind) {
-            return s.ty
+            return s.ty.copy()
         }
 
         if is_annotation(kind) { // primitive types are annotations
-            return s.ty
+            return s.ty.copy()
         }
 
         if is_operator(kind) {
-            return s.opr
+            return s.opr.copy()
         }
 
         if is_punctuator(kind) {
-            return s.opr
+            return s.opr.copy()
         }
 
-        return s.kind // fallback
+        return s.kind.copy() // fallback
     }
 
     // sentinel display text comes from Token::TokenText::sentinel_text

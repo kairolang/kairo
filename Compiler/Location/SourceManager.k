@@ -1166,9 +1166,9 @@ pub fn Test() -> i32 {
     var file0_str = "hello world\nline two\n"
     var file1_str = "module Foo {\n    macro mac! { 10 }\n}\n"
 
-    var nd0 = file0_str
+    var nd0 = file0_str.copy()
     data0 = kairo::std::to_std_string(nd0)
-    var nd1 = file1_str
+    var nd1 = file1_str.copy()
     data1 = kairo::std::to_std_string(nd1)
 
     var fid0 = sm->load_virtual(

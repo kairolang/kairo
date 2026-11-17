@@ -208,7 +208,7 @@ pub class GenericArgs {
             var at = if (a->ty != &null) => (a->ty->range) else => a->name_range
             var msg = if (gp->is_const_param) => (f"'{nm}' is a generic value parameter; it takes a compile-time value, not a type")
                       else => f"'{nm}' is a type parameter; it takes a type, not a value"
-            var b = self.sc->diag->report(DiagID::R060E, at.start, msg)
+            var b = self.sc->diag->report(DiagID::R060E, at.start, msg.copy())
             b.first(at)
             b.note(
                 DiagCode(DiagID::R060N),

@@ -39,7 +39,7 @@ pub class StringTable {
         }
 
         var id = self.items.size() as u32
-        self.items.push_back(s)
+        self.items.push_back(s.copy())
         self.index.try_emplace(kairo::sref(s), id)
         return id
     }
@@ -55,7 +55,7 @@ pub class StringTable {
             return ""
         }
 
-        return self.items[id as usize]
+        return self.items[id as usize].copy()
     }
 
     pub fn has(const self, id: u32) -> bool {

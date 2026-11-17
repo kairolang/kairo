@@ -48,8 +48,21 @@
 ///     X chose, and is bound to a local when it is a prvalue -- C++'s
 ///     `auto&& __range`, which extends a temporary to the end of the loop.
 ///
+///     Every temporary the header creates lives until the loop ends: the
+///     receiver of the iterated call, its arguments, and what those are built
+///     from. A generator borrows its receiver and its `const` parameters for
+///     the whole loop, so `for l in make().lines()` and `for p in s.split(';')`
+///     read them on every `resume`. The hidden local that takes a header
+///     expression is marked (VariableDecl::header_scope) unless the
+///     expression is a pure path, and SequenceLowering binds each temporary
+///     of a marked initializer to a local of the loop's block, declared
+///     ahead of it (SequenceLowering::_lift_header).
+///
 ///   \par Binders
-///     One binder. Plain `x` is a copy of the element; `*x` is its address,
+///     One binder. Plain `x` is a copy of the element, except over a
+///     generator value (a call of a `-> yield T` function, a `Yield<T>`):
+///     the generator gives each value up when it is resumed, so a MOVE
+///     value is moved into `x` (_given). `*x` is the element's address,
 ///     except over a range, where it is the address of a per-iteration copy:
 ///     the counter itself is not the user's to write. `_` binds nothing.
 ///
@@ -114,8 +127,9 @@ import AST::Node::Declarations::{
     VariableDecl,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr, BinaryOperatorExpr, CallExpr, CastMode, ClosureExpr, ParenExpr, RangeExpr,
-    SubscriptExpr,      UnaryOperatorExpr,
+    AssignOperatorExpr, BinaryOperatorExpr, CallExpr,  CastMode,      ClosureExpr,
+    ListLiteralExpr,    ParenExpr,          RangeExpr, SubscriptExpr, TypeCastExpr,
+    UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -137,6 +151,7 @@ import AST::Visitor::ASTWriter::{
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Location::SourceRange::SourceRange
+import Sema::Check::ClassLifecycle::moves_on_pass
 import Sema::Check::ConstEval::ConstEval
 import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
@@ -284,6 +299,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
     /// for` there is an ordinary loop (Compiler/Spec/Eval.md#evalusagechecking), so its bounds may be the
     /// function's parameters.
     priv var _in_eval_fn: u32 = 0
+    /// The binder being written takes a generator's own value (_given).
+    priv var _give: bool = false
 
     fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
         if n->is_eval() {
@@ -448,7 +465,9 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         self._prove_binder_shifts(n, r)
         var unsafe *lo = self._local(pre, at, "lo", t, r->begin)
         var unsafe *hi = self._local(pre, at, "hi", t, r->end)
-        var unsafe *i  = self._local(pre, at, "i", t, self._use(lo, at))
+        self._header(lo, r->begin)
+        self._header(hi, r->end)
+        var unsafe *i = self._local(pre, at, "i", t, self._use(lo, at))
 
         var body = self.list_builder<unsafe *Stmt>()
         self._bind(n, unsafe &body, at, self._use(i, at), false)
@@ -599,6 +618,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         }
 
         var unsafe *r = self._local(pre, at, "rng", rt, n->iterable)
+        self._header(r, n->iterable)
         var unsafe *i = self._local(
             pre,
             at,
@@ -765,9 +785,11 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                 self.synth.addr_of(n->iterable),
             )
 
+            self._header(pa, n->iterable)
             base = self._deref(self._use(pa, at), arr)
         } else {
             var unsafe *seq = self._local(pre, at, "seq", arr, n->iterable)
+            self._header(seq, n->iterable)
             base = self._use(seq, at)
         }
 
@@ -850,6 +872,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         var unsafe *ptr = self.sc->types->pointer(pe)
 
         var unsafe *s = self._local(pre, at, "seq", st, n->iterable)
+        self._header(s, n->iterable)
         self.synth.mark_extended(n->iterable)
 
         var unsafe *data = self._slice_member(
@@ -941,6 +964,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             } else {
                 it = self._local(pre, at, "it", gen_ty, src)
             }
+
+            self._header(it, src)
         } else {
             var recv: unsafe *Expr = n->iterable
             if !recv->is_lvalue() {
@@ -952,6 +977,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                     recv,
                 )
 
+                self._header(tmp, recv)
                 recv = self._use(tmp, at)
             }
 
@@ -991,6 +1017,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                 && !opf->is_const()
                 && self._reads_through_const(n)
             it = self._local(pre, at, "it", gen_ty, call)
+            // An lvalue receiver is read in place, inside this call.
+            self._header(it, recv)
         }
 
         var unsafe *next_d = self._lang_member(
@@ -1043,7 +1071,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         } else if n->iter_yield == IterYield::Tuple {
             self._bind_tuple_yield(n, unsafe &body, at, got)
         } else {
+            // A generator's own value, made for this step: the binder
+            // takes it. A record's `op in` is asked for its elements,
+            // which stay the record's.
+            self._give = n->iter_op == &null
             self._bind(n, unsafe &body, at, got, true)
+            self._give = false
         }
 
         body.push(n->body)
@@ -1087,6 +1120,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             addr->type_          = self.sc->types->pointer(obj, false)
             addr->value_category = Expr::ValueCategory::RValue
             rng = self._local(pre, at, "rng", addr->type_, addr)
+            self._header(rng, n->iterable)
             // The place's constness is C++'s to deduce: a field read through a
             // `const self` has a non-const Kairo type but a const address, and
             // its begin()/end() are the const overloads, so a spelled `T*` or
@@ -1096,6 +1130,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             endv->auto_copy = true
         } else {
             rng = self._local(pre, at, "seq", canon_unqual(obj), n->iterable)
+            self._header(rng, n->iterable)
         }
 
         itv->init = self._cxx_call(
@@ -1382,7 +1417,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
         var as_ptr = b->shorthand.has(BindingShorthand::Pointer) && b->type_ == &null
         if !as_ptr {
-            vd->init = place
+            vd->init = if (self._give) => (self._given(place, vd->type_)) else => place
         } else if stable {
             vd->init = self.synth.addr_of(place)
         } else {
@@ -1400,6 +1435,36 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         body->push(
             unsafe (DeclStmt::create(self.ctx, b->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
         )
+    }
+
+    /// \p place, a value a generator yielded, as the initializer of a plain
+    /// binder of type \p bt. The generator gives each value up when it is
+    /// resumed, so a MOVE value is moved into the binder (C++ would copy the
+    /// lvalue, and a MOVE record has no copy constructor). A value of a
+    /// generic parameter's type moves at the instances that cannot copy it
+    /// and is copied at every other (TypeCastExpr::instance_move); a COPY
+    /// value is copied, as the binder of every other loop is.
+    priv fn _given(self, place: unsafe *Expr, bt: unsafe *Type) -> unsafe *Expr {
+        var unsafe *t = canon_unqual(place->type_)
+        if t == &null || bt == &null || canon_unqual(bt) != t {
+            return place
+        }
+
+        var dep = place->type_->is_dependent() || place->type_->is_instantiation_dependent()
+        if !dep && !moves_on_pass(self.sc, t) {
+            return place
+        }
+
+        var unsafe *c = self.synth.cast_to(
+            place->range,
+            place,
+            self.sc->types->cxx_rref(t),
+            CastMode::Default,
+        )
+
+        c->value_category                    = Expr::ValueCategory::XValue
+        cast<TypeCastExpr>(c)->instance_move = dep
+        return c
     }
 
     /// The loop over \p n's `op in (self)` would bind the same binders
@@ -1469,6 +1534,33 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         )
 
         return vd
+    }
+
+    /// \p vd takes \p src, an expression of the loop's header: when \p src
+    /// can create a temporary, \p vd is marked for SequenceLowering to keep
+    /// every one alive until the loop ends (VariableDecl::header_scope). A
+    /// pure path, and a list of them, creates none.
+    priv fn _header(self, vd: unsafe *VariableDecl, src: unsafe *Expr) {
+        var unsafe *x = self.tu.strip_parens(src)
+        if x == &null || LowerSynth::pure(x) {
+            return
+        }
+
+        var unsafe *l = dyn_cast<ListLiteralExpr>(x)
+        if l != &null {
+            var plain = true
+            for var i: usize = 0; i < l->elements.size(); ++i {
+                if !LowerSynth::pure(l->elements[i]) {
+                    plain = false
+                }
+            }
+
+            if plain {
+                return
+            }
+        }
+
+        vd->header_scope = true
     }
 
     priv fn _use(self, vd: unsafe *VariableDecl, at: SourceRange) -> unsafe *Expr {

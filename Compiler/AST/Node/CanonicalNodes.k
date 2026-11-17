@@ -525,8 +525,8 @@ pub class BuiltinInfo {
                    fp:       FloatLayout) {
         self.kind     = kind
         self.tk       = tk
-        self.spelling = spelling
-        self.cxx      = cxx_v
+        self.spelling = spelling.copy()
+        self.cxx      = cxx_v.copy()
         self.bits     = bits
         self.flags    = flags
         self.fp       = fp
@@ -1437,11 +1437,11 @@ pub class BuiltinType derives Type {
     }
 
     pub fn spelling(self) -> string {
-        return self.info()->spelling
+        return self.info()->spelling.copy()
     }
 
     pub fn cxx_emission(self) -> string {
-        return self.info()->cxx
+        return self.info()->cxx.copy()
     }
 
     fn is_integer(self) -> bool {

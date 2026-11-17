@@ -187,7 +187,7 @@ pub class ModuleRecords {
         self._t_start = now_ns()
         var args = ""
         for var i: usize = 1; i < words.size(); ++i {
-            var w = words[i]
+            var w = words[i].copy()
             if w == "--incremental-sema"
                 || w == "--incr-verify"
                 || w == "--print-incr-status"
@@ -329,7 +329,7 @@ pub class ModuleRecords {
         var nmods: usize = 0
         var missed       = false
         for var i: usize = 0; i < self._lines.size(); ++i {
-            var l = self._lines[i]
+            var l = self._lines[i].copy()
             if l.starts_with("file ") || l.starts_with("exe ") || l.starts_with("obj ") {
                 var why = self._check_file(i)
                 if !why.empty() {
@@ -349,7 +349,7 @@ pub class ModuleRecords {
                         continue
                     }
 
-                    self.plan_all = why
+                    self.plan_all = why.copy()
                     return false
                 }
 
@@ -391,7 +391,7 @@ pub class ModuleRecords {
             return false
         }
 
-        self.old_diag = tail
+        self.old_diag = tail.copy()
         self.hit      = true
         self.status   = f"hit, {nmods} modules"
         return true
@@ -472,7 +472,7 @@ pub class ModuleRecords {
             }
 
             seen.insert(kairo::sref(p))
-            all.push_back(SourceRead { path: p, hash: "" })
+            all.push_back(SourceRead { path: p.copy(), hash: "" })
         }
 
         llvm::sort(
@@ -484,7 +484,7 @@ pub class ModuleRecords {
         var dirs     = llvm::StringSet<llvm::MallocAllocator>()
         var dir_list = cxx::std::vector<string>()
         for *e in all {
-            var p = e->path
+            var p = e->path.copy()
             m += self._file_line("file", p, e->hash)
             if p.ends_with(".k") {
                 self._dirs_of(p, unsafe &dirs, unsafe &dir_list)
@@ -504,7 +504,7 @@ pub class ModuleRecords {
         // and object keys). The manifest names each with I(m) and its O
         // keys, which --incr-verify compares.
         for var i: usize = 0; i < self.mod_names.size(); ++i {
-            var name = self.mod_names[i]
+            var name = self.mod_names[i].copy()
             var ks   = self._object_keys(name)
 
             var rec = "{\"version\": 1, \"module\": " + json_string(
@@ -563,7 +563,7 @@ pub class ModuleRecords {
         }
 
         if plain {
-            return row
+            return row.copy()
         }
 
         return json_string(name) + rest
@@ -575,7 +575,7 @@ pub class ModuleRecords {
     priv static fn _row_name(const row: string) -> string {
         var last = row.rfind("\t")
         if last == usize::MAX || last == 0 {
-            return row
+            return row.copy()
         }
 
         var keys = row.subslice(0, last).rfind("\t")
@@ -606,7 +606,7 @@ pub class ModuleRecords {
     pub fn new_mods(self) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         for var i: usize = 0; i < self.mod_names.size(); ++i {
-            var name = self.mod_names[i]
+            var name = self.mod_names[i].copy()
             var ks   = self._object_keys(name)
 
             out.push_back(name + "\t" + ks + "\t" + self.mod_hash[i])
@@ -662,7 +662,7 @@ pub class ModuleRecords {
             return kind + " 0 0 missing " + p + "\n"
         }
 
-        var h = read_hash
+        var h = read_hash.copy()
         if h.empty() {
             h = ModuleRecords::_hash_file(p)
         }
@@ -677,7 +677,7 @@ pub class ModuleRecords {
 
     /// "" when the file of manifest line \p i is unchanged; else the reason.
     priv fn _check_file(self, i: usize) -> string {
-        var l    = self._lines[i]
+        var l    = self._lines[i].copy()
         var kind = ModuleRecords::_field(l, 0)
         var smt  = parse_decimal(ModuleRecords::_field(l, 1))
         var ssz  = parse_decimal(ModuleRecords::_field(l, 2))
@@ -747,7 +747,7 @@ pub class ModuleRecords {
         var best = ""
         for var r: string in self.roots {
             if p.size() > r.size() + 1 && p.starts_with(r + "/") && r.size() > best.size() {
-                best = r
+                best = r.copy()
             }
         }
 
@@ -768,7 +768,7 @@ pub class ModuleRecords {
         }
 
         for var r: string in self.roots {
-            var d = r
+            var d = r.copy()
             ModuleRecords::_add_dir(d, set, list)
             for var s: string in segs {
                 d = d + "/" + s

@@ -162,7 +162,7 @@ pub class DriverIncludeSource derives KairoIncludeSource {
             unsafe &self.include_lines,
             unsafe &self._seen,
         ) {
-            self.error = em.error
+            self.error = em.error.copy()
             return false
         }
 

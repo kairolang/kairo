@@ -311,7 +311,7 @@ pub class EmitSink {
             // An emitter's own unanchored span is left alone: ending it here
             // would anchor the rest of it.
             if !attr_open && !self.is_unanchored() {
-                var gnu    = is_ident_start(c) && self._attr_word_at(text, i)
+                var gnu = is_ident_start(c) && self._attr_word_at(text.copy(), i)
                 var square = c == ('[' as u8) && i + 1 < n && text[i + 1] == ('[' as u8)
                 if gnu || square {
                     self.unanchored(true)
@@ -545,7 +545,7 @@ pub class EmitSink {
             if k == clang::tok::unknown {
                 self.ice_at(
                     at,
-                    f"EmitSink::spell: unexpected byte {self._byte(c)} at offset {i} in C++ fragment ({n} bytes): [{self._bytes(text)}]",
+                    f"EmitSink::spell: unexpected byte {self._byte(c)} at offset {i} in C++ fragment ({n} bytes): [{self._bytes(text.copy())}]",
                 )
             }
 

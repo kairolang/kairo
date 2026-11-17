@@ -53,7 +53,7 @@ pub class FlagValue {
     static fn from_string(const s: string) -> FlagValue {
         var v = FlagValue()
         v.kind = FlagKind::String
-        v._s   = s
+        v._s   = s.copy()
         return v
     }
 
@@ -74,7 +74,7 @@ pub class FlagValue {
     static fn from_file(const s: string) -> FlagValue {
         var v = FlagValue()
         v.kind = FlagKind::Path
-        v._s   = s
+        v._s   = s.copy()
         return v
     }
 
@@ -103,7 +103,7 @@ pub class FlagValue {
     }
 
     fn as_string(self) -> string {
-        return self._s
+        return self._s.copy()
     }
 
     fn as_i32(self) -> i32 {
@@ -125,7 +125,7 @@ pub class FlagValue {
     }
 
     fn set_string(self, const s: string) {
-        self._s     = s
+        self._s     = s.copy()
         self.is_set = true
     }
 
@@ -178,11 +178,11 @@ pub class FlagDef {
                     const help:   string,
                     dfl:          bool) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
-        d.short_   = short_
-        d.long_    = long_
+        d.key      = key.copy()
+        d.short_   = short_.copy()
+        d.long_    = long_.copy()
         d.kind     = FlagKind::Bool
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::from_bool(dfl)
         return d
     }
@@ -193,11 +193,11 @@ pub class FlagDef {
                    const long_:  string,
                    const help:   string) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
-        d.short_   = short_
-        d.long_    = long_
+        d.key      = key.copy()
+        d.short_   = short_.copy()
+        d.long_    = long_.copy()
         d.kind     = FlagKind::String
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::required(FlagKind::String)
         return d
     }
@@ -209,11 +209,11 @@ pub class FlagDef {
                     const help:   string,
                     const dfl:    string) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
-        d.short_   = short_
-        d.long_    = long_
+        d.key      = key.copy()
+        d.short_   = short_.copy()
+        d.long_    = long_.copy()
         d.kind     = FlagKind::String
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::from_string(dfl)
         return d
     }
@@ -227,15 +227,15 @@ pub class FlagDef {
                     choices:      cxx::std::vector<string>,
                     const bare:   string) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
-        d.short_   = short_
-        d.long_    = long_
+        d.key      = key.copy()
+        d.short_   = short_.copy()
+        d.long_    = long_.copy()
         d.kind     = FlagKind::String
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::from_string(dfl)
         d.choices  = choices
         d.has_bare = true
-        d.bare_    = bare
+        d.bare_    = bare.copy()
         return d
     }
 
@@ -245,11 +245,11 @@ pub class FlagDef {
                    const help:   string,
                    dfl:          i32) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
-        d.short_   = short_
-        d.long_    = long_
+        d.key      = key.copy()
+        d.short_   = short_.copy()
+        d.long_    = long_.copy()
         d.kind     = FlagKind::I32
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::from_i32(dfl)
         return d
     }
@@ -262,11 +262,11 @@ pub class FlagDef {
                     min:          i32,
                     max:          i32) -> FlagDef {
         var d = FlagDef{}
-        d.key        = key
-        d.short_     = short_
-        d.long_      = long_
+        d.key        = key.copy()
+        d.short_     = short_.copy()
+        d.long_      = long_.copy()
         d.kind       = FlagKind::I32
-        d.help       = help
+        d.help       = help.copy()
         d.default_   = FlagValue::from_i32(dfl)
         d.has_bounds = true
         d.min_i      = min
@@ -280,11 +280,11 @@ pub class FlagDef {
                    const help:   string,
                    dfl:          f64) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
-        d.short_   = short_
-        d.long_    = long_
+        d.key      = key.copy()
+        d.short_   = short_.copy()
+        d.long_    = long_.copy()
         d.kind     = FlagKind::F64
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::from_f64(dfl)
         return d
     }
@@ -297,11 +297,11 @@ pub class FlagDef {
                     min:          f64,
                     max:          f64) -> FlagDef {
         var d = FlagDef{}
-        d.key        = key
-        d.short_     = short_
-        d.long_      = long_
+        d.key        = key.copy()
+        d.short_     = short_.copy()
+        d.long_      = long_.copy()
         d.kind       = FlagKind::F64
-        d.help       = help
+        d.help       = help.copy()
         d.default_   = FlagValue::from_f64(dfl)
         d.has_bounds = true
         d.min_f      = min
@@ -315,11 +315,11 @@ pub class FlagDef {
                     const long_:  string,
                     const help:   string) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
-        d.short_   = short_
-        d.long_    = long_
+        d.key      = key.copy()
+        d.short_   = short_.copy()
+        d.long_    = long_.copy()
         d.kind     = FlagKind::Path
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::required(FlagKind::Path)
         return d
     }
@@ -330,11 +330,11 @@ pub class FlagDef {
                     const long_:  string,
                     const help:   string) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
-        d.short_   = short_
-        d.long_    = long_
+        d.key      = key.copy()
+        d.short_   = short_.copy()
+        d.long_    = long_.copy()
         d.kind     = FlagKind::StringList
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::empty_list(FlagKind::StringList)
         return d
     }
@@ -354,9 +354,9 @@ pub class FlagDef {
     /// positional file arguments (required - at least one)
     static fn files_(const key: string, const help: string) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
+        d.key      = key.copy()
         d.kind     = FlagKind::PathList
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::required(FlagKind::PathList)
         return d
     }
@@ -366,11 +366,11 @@ pub class FlagDef {
     ///        query via ParsedArgs::get_feature(key) -> -1 (unset), 0 (off), 1 (on)
     static fn feature_(const key: string, const help: string) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
+        d.key      = key.copy()
         d.short_   = ""
         d.long_    = ""                         // matched by _find_feature, not _find
         d.kind     = FlagKind::Feature
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::unset_feature()
         return d
     }
@@ -382,7 +382,7 @@ pub class FlagDef {
         var d = FlagDef{}
         d.key      = f"c:{key}"
         d.kind     = FlagKind::Bool
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::from_bool(dfl)
         return d
     }
@@ -391,7 +391,7 @@ pub class FlagDef {
         var d = FlagDef{}
         d.key      = f"c:{key}"
         d.kind     = FlagKind::String
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::required(FlagKind::String)
         return d
     }
@@ -400,7 +400,7 @@ pub class FlagDef {
         var d = FlagDef{}
         d.key      = f"c:{key}"
         d.kind     = FlagKind::String
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::from_string(dfl)
         return d
     }
@@ -409,7 +409,7 @@ pub class FlagDef {
         var d = FlagDef{}
         d.key      = f"c:{key}"
         d.kind     = FlagKind::I32
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::from_i32(dfl)
         return d
     }
@@ -422,7 +422,7 @@ pub class FlagDef {
         var d = FlagDef{}
         d.key        = f"c:{key}"
         d.kind       = FlagKind::I32
-        d.help       = help
+        d.help       = help.copy()
         d.default_   = FlagValue::from_i32(dfl)
         d.has_bounds = true
         d.min_i      = min
@@ -438,7 +438,7 @@ pub class FlagDef {
         var d = FlagDef{}
         d.key        = f"c:{key}"
         d.kind       = FlagKind::F64
-        d.help       = help
+        d.help       = help.copy()
         d.default_   = FlagValue::from_f64(dfl)
         d.has_bounds = true
         d.min_f      = min
@@ -450,9 +450,9 @@ pub class FlagDef {
     /// positional file arguments (optional - zero or more)
     static fn files_opt(const key: string, const help: string) -> FlagDef {
         var d = FlagDef{}
-        d.key      = key
+        d.key      = key.copy()
         d.kind     = FlagKind::PathList
-        d.help     = help
+        d.help     = help.copy()
         d.default_ = FlagValue::empty_list(FlagKind::PathList)
         return d
     }

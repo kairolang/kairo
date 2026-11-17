@@ -269,7 +269,7 @@ extend EmitPlan {
 
         var fresh = ExtScope()
         fresh.ns   = ns
-        fresh.name = name
+        fresh.name = name.copy()
         var unsafe *c = canon_unqual(x->target->canonical)
         if isa<RecordType>(c) {
             fresh.target = self.layout_decl(cast<RecordType>(c)->decl)

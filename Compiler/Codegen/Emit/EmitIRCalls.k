@@ -942,7 +942,7 @@ extend EmitIR {
 
             var s = self._spell.qual_name(d)
             if i == 0 {
-                name = s
+                name = s.copy()
             } else if s != name {
                 return ""
             }
@@ -994,7 +994,7 @@ extend EmitIR {
 
             var s = self._spell.qual_name(d)
             if i == 0 {
-                name = s
+                name = s.copy()
             } else if s != name {
                 return ""
             }
@@ -1262,7 +1262,7 @@ extend EmitIR {
             return ""
         }
 
-        return f->cxx_param_spellings[k]
+        return f->cxx_param_spellings[k].copy()
     }
 
     /// Element \p k of a type pack's run. Under an instance a forwarding

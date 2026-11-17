@@ -62,7 +62,7 @@ import AST::Node::Declarations::{
     FunctionDecl,
 }
 import AST::Node::Expressions::{
-    BinaryOperatorExpr, IfExpr,           ListLiteralExpr,   ListStorage, MapLiteralExpr,
+    BinaryOperatorExpr, IfExpr,           ListLiteralExpr,   ListStorage, MapLiteralExpr, RangeExpr,
     SetLiteralExpr,     TupleLiteralExpr, UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -91,6 +91,8 @@ import Sema::Type::OverloadResolution::{
     ListShape,
     LitKind,
     OvlOutcome,
+    RANGE_HAS_BEGIN,
+    RANGE_HAS_END,
 }
 import Sema::Type::Substitution::Substitution
 import Support::UTF8View::UTF8View
@@ -374,6 +376,66 @@ pub class <T: type> LiteralTyping {
             kids.push_back(sh)
         }
 
+        a->elems_lo = self.dyn()->ovl.list_shapes.size()
+        a->elems_n  = kids.size()
+        for var i: usize = 0; i < kids.size(); ++i {
+            self.dyn()->ovl.list_shapes.push_back(kids[i])
+        }
+
+        return true
+    }
+
+    /// A range literal whose bounds are untyped integer literals (`1..3`,
+    /// `2..`, `..=4`, `..`) in ARGUMENT position is ranked by shape and typed
+    /// after selection, as one integer literal is (§5): it takes the element
+    /// type of the range its parameter asks for, where typed on its own it
+    /// is a `Range<i32>` that no `Range<usize>` accepts. A range with a
+    /// typed bound has that bound's type and is no shape. `lit_bits` holds
+    /// which bounds are written (RANGE_HAS_BEGIN, RANGE_HAS_END) and the
+    /// element range their shapes, in that order.
+    fn range_literal_shape(self, e_in: *Expr, a: *ArgInfo) -> bool {
+        var e = self.dyn()->tu.strip_parens(e_in)
+        if e == &null || !isa<RangeExpr>(e) {
+            return false
+        }
+
+        var n = cast<RangeExpr>(e)
+        if n->type_ != &null || n->is_poisoned() || n->as_index {
+            return false
+        }
+
+        var kids      = cxx::std::vector<ListShape>()
+        var form: u32 = 0
+        var ends      = cxx::std::vector<*Expr>()
+        ends.push_back(n->begin)
+        ends.push_back(n->end)
+        for var i: usize = 0; i < ends.size(); ++i {
+            if ends[i] == &null {
+                continue
+            }
+
+            var el = ArgInfo()
+            if !self.literal_shape(ends[i], &el) && !self.literal_expr_shape(ends[i], &el) {
+                return false
+            }
+
+            if el.lit != LitKind::Int {
+                return false
+            }
+
+            var sh = ListShape()
+            sh.lit      = el.lit
+            sh.lit_lo   = el.lit_lo
+            sh.lit_hi   = el.lit_hi
+            sh.lit_big  = el.lit_big
+            sh.lit_bits = el.lit_bits
+            sh.lit_neg  = el.lit_neg
+            kids.push_back(sh)
+            form |= if (i == 0) => (RANGE_HAS_BEGIN) else => RANGE_HAS_END
+        }
+
+        a->lit      = LitKind::Range
+        a->lit_bits = form
         a->elems_lo = self.dyn()->ovl.list_shapes.size()
         a->elems_n  = kids.size()
         for var i: usize = 0; i < kids.size(); ++i {
@@ -897,7 +959,7 @@ pub class <T: type> LiteralTyping {
                 self._segment_end(last),
             )
 
-            w.fix(at, joined, "join the segments into one literal")
+            w.fix(at, joined.copy(), "join the segments into one literal")
         } else {
             w.fix(
                 "write the string as one literal, with the suffix after its closing quote",
@@ -1464,7 +1526,7 @@ pub class <T: type> LiteralTyping {
                          out:        unsafe *(unsafe *Decl),
                          inst:       unsafe *(unsafe *InstanceEntry)) -> bool {
         var cands = cxx::std::vector<unsafe *Decl>()
-        var imm   = self.dyn()->sc->imm_table()->intern_ident_copy(name)
+        var imm   = self.dyn()->sc->imm_table()->intern_ident_copy(name.copy())
         self.dyn()->ml.lookup(recv, DeclName::ident(imm), &cands)
         if cands.size() == 0 {
             return false
@@ -1475,7 +1537,7 @@ pub class <T: type> LiteralTyping {
             args,
             true,
             at->range,
-            name,
+            name.copy(),
             recv,
         )
 
@@ -1921,7 +1983,7 @@ pub class <T: type> LiteralTyping {
 
     /// A lang record's method by NAME, spelled into that record's own TU.
     priv fn _lang_method(self, k: WellKnownType, const name: string) -> unsafe *Decl {
-        return self.dyn()->tu.lang_member(k, name, true)
+        return self.dyn()->tu.lang_member(k, name.copy(), true)
     }
 
     /// # format specs

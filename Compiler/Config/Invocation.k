@@ -128,7 +128,7 @@ pub class CompilerInvocation {
     /// The -x language of input \p i, "" when none was given.
     pub fn input_lang(self, i: usize) -> string {
         if i < self.input_langs.size() {
-            return self.input_langs[i]
+            return self.input_langs[i].copy()
         }
 
         return ""

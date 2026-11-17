@@ -81,11 +81,11 @@ pub class DiagCode {
     }
 
     fn brief(self) -> string {
-        return self._meta.brief
+        return self._meta.brief.copy()
     }
 
     fn group(self) -> string {
-        return self._meta.group
+        return self._meta.group.copy()
     }
 
     /// # Conversions
@@ -140,14 +140,14 @@ pub class DiagCode {
 ///          is tried; gen_diag.py rejects two codes that share category,
 ///          number and severity, so at most one of them is registered.
 pub fn diag_from_code(const text: string) -> DiagID {
-    var id = diag_from_string(text)
+    var id = diag_from_string(text.copy())
     if !diag_explain(id).empty() {
         return id
     }
 
     // [category letters][digits][one severity letter]; anything else is not
     // a code, and the exact match above was its only chance.
-    var r        = text
+    var r        = text.copy()
     var n        = r.size()
     var i: usize = 0
     while i < n && r[i] >= ('A' as u8) && r[i] <= ('Z' as u8) {

@@ -126,15 +126,15 @@ pub class CodegenContext {
 
         if ctx->ci != &null {
             self.opts.warn_unproven_shift = ctx->ci->diag.Wshift_count_unproven
-            self.opts.target_triple       = ctx->ci->target.effective_triple
-            self.opts.exe_link            = !ctx->ci->linker.shared && !ctx->ci->linker.compile_only
-            self.opts.elf                 = ctx->ci->target.object_format_kind == ObjectFormat::Elf
-            self.opts.tls_model           = ctx->ci->codegen.tls_model
-            self.opts.check_assume        = ctx->ci->codegen.opt_level == 0
-            var tt = ctx->ci->target.effective_triple
+            self.opts.target_triple = ctx->ci->target.effective_triple.copy()
+            self.opts.exe_link      = !ctx->ci->linker.shared && !ctx->ci->linker.compile_only
+            self.opts.elf           = ctx->ci->target.object_format_kind == ObjectFormat::Elf
+            self.opts.tls_model     = ctx->ci->codegen.tls_model.copy()
+            self.opts.check_assume  = ctx->ci->codegen.opt_level == 0
+            var tt = ctx->ci->target.effective_triple.copy()
             self.opts.x32 = tt.starts_with("x86_64") && tt.ends_with("x32")
             self.opts.agree_no_adl = ctx->ci->codegen.test_sema_agreement_no_adl
-            var sw = ctx->ci->codegen.test_sema_agreement_swap
+            var sw = ctx->ci->codegen.test_sema_agreement_swap.copy()
             for var i: usize = 0; i < sw.size(); ++i {
                 if sw[i] == (':' as u8) {
                     self.opts.agree_swap_from = sw.subslice(0, i)

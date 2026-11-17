@@ -268,8 +268,8 @@ pub class InterfaceEmitter {
         kinds.push_back(BuiltinKind::F32)
         kinds.push_back(BuiltinKind::F64)
 
-        var sz  = builtin_info(BuiltinKind::USize)->cxx
-        var byt = builtin_info(BuiltinKind::U8)->cxx
+        var sz  = builtin_info(BuiltinKind::USize)->cxx.copy()
+        var byt = builtin_info(BuiltinKind::U8)->cxx.copy()
         var out = "template <class B, class T> inline void " + LowerTargets::fmt_dyn() + "(B& b, T&& v, const " + byt + "* n, " + sz + " nl, unsigned long long s) {" + " using U = __remove_cvref(T); using S = __remove_cvref(decltype(b.finish()));"
         out += " if constexpr (__is_same(U, char)) b.put_u8(static_cast<" + byt + ">(v), s);"
         for var i: usize = 0; i < kinds.size(); ++i {

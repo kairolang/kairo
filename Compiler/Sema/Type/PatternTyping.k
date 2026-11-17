@@ -696,7 +696,7 @@ pub class <T: type> PatternTyping {
                     }
 
                     rd    = unsafe (v as unsafe *Decl)
-                    owner = nm
+                    owner = nm.copy()
                 } else if vd != &null && (vd->is_const() || vd->is_eval()) {
                     if has_parens || subs.size() > 0 {
                         self.dyn()->sc->diag->report(

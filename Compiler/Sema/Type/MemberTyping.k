@@ -1072,7 +1072,7 @@ pub class <T: type> MemberTyping {
             &args,
             true,
             n->range,
-            label,
+            label.copy(),
             obj,
         )
 
@@ -1511,7 +1511,7 @@ pub class <T: type> MemberTyping {
                     only = "only the setter form of 'op []=' is declared"
                 }
 
-                b.note(DiagCode(DiagID::SC279N), d->range.start, only)->child_first(
+                b.note(DiagCode(DiagID::SC279N), d->range.start, only.copy())->child_first(
                     d->range,
                 )
             }
@@ -1558,7 +1558,7 @@ pub class <T: type> MemberTyping {
         var b = self.dyn()->sc->diag->report(
             DiagID::SC071E,
             n->range.start,
-            msg,
+            msg.copy(),
         )
 
         b.first(n->range)

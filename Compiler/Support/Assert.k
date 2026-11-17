@@ -24,7 +24,7 @@ pub class Assert {
 
     /// we can count the number of tests run by checking passes + fails
     pub fn Assert(self, const n: string) {
-        self.name        = n
+        self.name        = n.copy()
         self.overhead_ns = self.measure_timer_overhead()
     }
 
@@ -129,7 +129,7 @@ pub class Assert {
     pub fn <T: type> equal(self, const m: string, e: T, c: fn () -> T, iters: usize = 1) {
         var res      = self.time_and_run<T>(c, iters)
         var v        = res.0
-        var time_str = res.1
+        var time_str = res.1.copy()
 
         if e == v {
             self.test_success(m, time_str)
@@ -142,7 +142,7 @@ pub class Assert {
     fn <T: type> not_equal(self, const m: string, e: T, c: fn () -> T, iters: usize = 1) {
         var res      = self.time_and_run<T>(c, iters)
         var v        = res.0
-        var time_str = res.1
+        var time_str = res.1.copy()
 
         if e != v {
             self.test_success(m, time_str)

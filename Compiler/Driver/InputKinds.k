@@ -183,13 +183,13 @@ pub fn _is_versioned_so(const path: string) -> bool {
 ///        `ir`, `c++-header`, ...).
 pub fn classify_input(const path: string, const xlang: string) -> InputKind {
     var k = InputKind()
-    k.path = path
-    var lang = xlang
+    k.path = path.copy()
+    var lang = xlang.copy()
     if lang == "none" {
         lang = ""
     }
 
-    k.forced = lang
+    k.forced = lang.copy()
     var ext = input_ext(path)
 
     if lang == "kairo" || lang == "k" {

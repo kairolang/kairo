@@ -3,8 +3,8 @@
 // - a field of a `const` parameter (a const place cannot be moved from);
 // - an element of a C++ container reached through its `T&` (`cv[0]`):
 //   MoveCheck never moves out of a reference, so the transfer is a copy;
-// - a plain `for` binder over a container or a generator of them: the
-//   binder is a copy of each element (`*x` binds its address instead).
+// - a plain `for` binder over a container: a copy of each element (`*x`
+//   binds its address). Over a generator's own values it is a move: no error.
 // - `v[0] = v[1]` of a builtin vector: it would move one element out into
 //   another, and whether a move out of `x[i]` is allowed is not decided;
 //   clang rejected it, and it is refused rather than becoming a silent move.
@@ -78,6 +78,5 @@ fn main() -> i32 {
 // CHECK: move_only_copy_shapes.k:48:9: error [SC182E]: cannot copy a value of type 'Tok'
 // CHECK: move_only_copy_shapes.k:48:9: note [I900N]: the loop binder 't' is a copy of each element; bind '*t' for the element's address instead
 // CHECK: move_only_copy_shapes.k:52:9: error [SC182E]: cannot copy a value of type 'Tok'
-// CHECK: move_only_copy_shapes.k:56:9: error [SC182E]: cannot copy a value of type 'Tok'
 // CHECK: move_only_copy_shapes.k:66:12: error [SC182E]: cannot copy a value of type 'Tok'
 // CHECK: move_only_copy_shapes.k:66:12: note [I900N]: 'v[1]' is an element of a container, and moving an element out into another element is not supported; swap them, or move through a local

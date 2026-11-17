@@ -455,7 +455,7 @@ pub class ImportResolution {
 
         var prev_name = self.sc->ctx->get_spelling(id->path_segments[start - 1])
         var first                          = true
-        var last_name                      = prev_name
+        var last_name                      = prev_name.copy()
         var cell:     unsafe *OverloadCell = &null
 
         for var i: usize = start; i < id->path_segments.size(); ++i {
@@ -476,12 +476,12 @@ pub class ImportResolution {
                 return
             }
 
-            prev_name = name
-            last_name = name
+            prev_name = name.copy()
+            last_name = name.copy()
             first     = false
         }
 
-        var visible = last_name
+        var visible = last_name.copy()
         if id->has_alias {
             visible = self.sc->ctx->get_spelling(id->alias)
         }
@@ -684,7 +684,7 @@ pub class ImportResolution {
                     break
                 }
 
-                prev_name = nm
+                prev_name = nm.copy()
                 first     = false
             }
 
@@ -1201,7 +1201,7 @@ pub class ImportResolution {
             }
 
             // Distinct decls of one entity (no shared registry): same USR.
-            var u = cast<VariableDecl>(t.decl)->usr
+            var u = cast<VariableDecl>(t.decl)->usr.copy()
             if u.size() > 0 && u == cast<VariableDecl>(o.decl)->usr {
                 return true
             }

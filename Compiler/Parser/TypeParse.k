@@ -850,7 +850,7 @@ pub class <T: type> TypeParse {
                 DiagID::S055E,
                 range.start,
                 f"tuple arity exceeds the maximum of {cap} (got {vals.size()})",
-            ).first(range)->fix(range | endr, "remove", hint)->strike(
+            ).first(range)->fix(range | endr, "remove", hint.copy())->strike(
                 SourceRange::from_bounds(range.end, full_range.end),
             )->emit()
 

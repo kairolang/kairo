@@ -111,7 +111,7 @@ pub class TokenSource {
     /// the lexer mid-file and no token to point at, so without a name the user
     /// cannot tell WHICH file (often a builtin/std one) blew a per-file limit.
     fn set_file_name(self, const name: string) {
-        self._file_name = name
+        self._file_name = name.copy()
     }
 
     /// Keep AtComment in the stream (--preserve-comments). Call before the

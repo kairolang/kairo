@@ -650,7 +650,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         // The parameter's own class is built at compile time, so its
         // constructors are `eval`; a field's class needs only to be
         // structural (the builtin string's are constexpr).
-        var on = tn
+        var on = tn.copy()
         for var i: usize = 0; depth == (0 as u32) && i < methods->size(); ++i {
             var unsafe *m = (*methods)[i]
             if m == &null || m->is_operator || m->is_implicit {
@@ -2055,7 +2055,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     }
 
     priv fn _err(self, at: SourceRange, const msg: string) {
-        var b = self.sc->diag->report(DiagID::SC194E, at.start, msg)
+        var b = self.sc->diag->report(DiagID::SC194E, at.start, msg.copy())
         b.first(at)
         b.emit()
     }

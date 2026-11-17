@@ -959,7 +959,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
                 continue
             }
 
-            var step = (*p)[depth]
+            var step = (*p)[depth].copy()
             var dup  = false
             for var k: usize = 0; k < done.size(); ++k {
                 if done[k] == step {

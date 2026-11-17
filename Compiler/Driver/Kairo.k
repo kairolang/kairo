@@ -133,7 +133,7 @@ pub fn _scan_timing_flags(argc:      i32,
 /// \details --stats-file. The report engine takes any FILE*; the Kairo
 ///          wrapper (time_print) only knows stderr, hence the direct call.
 pub fn _time_print_to(const path: string) -> bool {
-    var        p  = path
+    var        p  = path.copy()
     var        ok = false
     var unsafe *f = cxx::std::fopen(p.c_str(), r"wb")
     if f != &null {

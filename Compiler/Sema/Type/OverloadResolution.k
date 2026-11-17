@@ -83,7 +83,10 @@ import AST::DeclFacts::{
     param_is_type_pack,
     param_type_pack_param,
 }
-import AST::LangItems::LangAttrs
+import AST::LangItems::{
+    LangAttrs,
+    WellKnownType,
+}
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -152,7 +155,14 @@ pub enum LitKind derives u8 {
     NullPtr, ///< `&null`: fits any pointer or nullable pointer.
     List,    ///< `[...]`: ranked by shape through ArgInfo::elems.
     Variant, ///< `.V`: fits a parameter whose enum has a variant named lit_name.
+    /// `a..b` over untyped integer literals: fits the range record of its
+    /// form at any integer its bounds fit (LiteralTyping::range_literal_shape).
+    Range,
 }
+
+/// LitKind::Range: the bounds a range literal writes, in ArgInfo::lit_bits.
+pub const RANGE_HAS_BEGIN: u32 = 1
+pub const RANGE_HAS_END:   u32 = 2
 
 /// A C++ non-const `T&` parameter IS `@inout x: T` (c-cpp-calling.mdx,
 /// functions-parameter-modes.mdx; decided 2026-11-08): the argument is marked
@@ -3381,8 +3391,8 @@ pub class OverloadResolution {
                 c->reason = f"cannot convert argument of type '{got}' to parameter '{pn}' of type '{self.tu.str(shown)}'"
                 if uvia != "" {
                     var tn = self.tu.str(uto)
-                    c->uconv_to  = tn
-                    c->uconv_via = uvia
+                    c->uconv_to  = tn.copy()
+                    c->uconv_via = uvia.copy()
                     c->fix_at    = a->range.end
                     c->fix_open  = a->range.start
                     c->fix_text  = f" as {tn}"
@@ -3753,6 +3763,16 @@ pub class OverloadResolution {
 
         if a->lit != LitKind::None {
             if pt->is_dependent() {
+                // `fn <T> f(x: T, r: Range<T>)` with `f(n, 0..4)`: an
+                // argument before it deduced T, and the range takes that
+                // element type as it takes a concrete parameter's.
+                if a->lit == LitKind::Range {
+                    var unsafe *sp = c->ded.substitute(pt)
+                    if sp != &null && !sp->is_dependent() {
+                        return self._rank_literal_arg(a, sp)
+                    }
+                }
+
                 // `fn <T> f(x: T)` with `f(10)`: T := the literal's default.
                 var unsafe *def = self._literal_default(a, pt)
                 if self._forwards_cstr(c->f, a, pt) {
@@ -3941,6 +3961,8 @@ pub class OverloadResolution {
                        else => ImplicitRank::None
             } case LitKind::List {
                 return self._rank_list(a, pt)
+            } case LitKind::Range {
+                return self._rank_range(a, pt)
             } case LitKind::Variant {
                 // `.V` TAKES the parameter's enum when it has a variant of
                 // that name (§5, as a literal takes its type); it converts to
@@ -4049,6 +4071,76 @@ pub class OverloadResolution {
         return worst
     }
 
+    /// The lang record a range literal of form \p form builds.
+    priv fn _range_record(self, form: u32) -> WellKnownType {
+        if (form & RANGE_HAS_END) == 0 {
+            return WellKnownType::RangeFrom
+        }
+
+        if (form & RANGE_HAS_BEGIN) == 0 {
+            return WellKnownType::RangeTo
+        }
+
+        return WellKnownType::Range
+    }
+
+    /// A range literal TAKES its parameter's range type (§5) when that is
+    /// the record of its form over an integer every bound fits; it converts
+    /// to nothing else.
+    priv fn _rank_range(self, a: *ArgInfo, pt: unsafe *Type) -> ImplicitRank {
+        var unsafe *target = canon_unqual(self.tu.strip_nullable(pt))
+        if target == &null || !self.tu.is_lang(target, self._range_record(a->lit_bits)) {
+            return ImplicitRank::None
+        }
+
+        var args = self.tu.record_args(target)
+        if args.size() != 1 || args[0] == &null || !self.tu.is_integer(args[0]) {
+            return ImplicitRank::None
+        }
+
+        for var i: usize = 0; i < a->elems_n; ++i {
+            var *el = &self.list_shapes[a->elems_lo + i]
+            if self._rank_elem(el, args[0]) != ImplicitRank::Exact {
+                return ImplicitRank::None
+            }
+        }
+
+        return ImplicitRank::Exact
+    }
+
+    /// The type a range literal has where nothing asks for one: its record
+    /// over the join of its bounds' own defaults, `usize` for `..`.
+    priv fn _range_default(self, a: *ArgInfo) -> unsafe *Type {
+        var e: unsafe *Type = &null
+        for var i: usize = 0; i < a->elems_n; ++i {
+            var *el = &self.list_shapes[a->elems_lo + i]
+            var sub = ArgInfo()
+            sub.lit      = el->lit
+            sub.lit_lo   = el->lit_lo
+            sub.lit_hi   = el->lit_hi
+            sub.lit_big  = el->lit_big
+            sub.lit_bits = el->lit_bits
+            sub.lit_neg  = el->lit_neg
+            var unsafe *t = self._literal_default(&sub, &null)
+            if t == &null {
+                return &null
+            }
+
+            e = self.conv->join(e, t)
+            if e == &null {
+                return &null
+            }
+        }
+
+        if e == &null {
+            e = self.tu.builtin(BuiltinKind::USize)
+        }
+
+        var ra = cxx::std::vector<unsafe *Type>()
+        ra.push_back(e)
+        return self.tu.lang_record(self._range_record(a->lit_bits), unsafe &ra)
+    }
+
     /// One element against the container's element type. A nested list is
     /// ranked through its own range; everything else is its literal shape or
     /// its type.
@@ -4061,6 +4153,15 @@ pub class OverloadResolution {
             return self._rank_list(&sub, elem)
         }
 
+        if el->lit == LitKind::Range {
+            var sub = ArgInfo()
+            sub.lit      = LitKind::Range
+            sub.lit_bits = el->lit_bits
+            sub.elems_lo = el->kids_lo
+            sub.elems_n  = el->kids_n
+            return self._rank_range(&sub, elem)
+        }
+
         if el->lit != LitKind::None {
             var sub = ArgInfo()
             sub.lit      = el->lit
@@ -4069,7 +4170,7 @@ pub class OverloadResolution {
             sub.lit_big  = el->lit_big
             sub.lit_bits = el->lit_bits
             sub.lit_neg  = el->lit_neg
-            sub.lit_name = el->lit_name
+            sub.lit_name = el->lit_name.copy()
             return self._rank_literal(&sub, elem)
         }
 
@@ -4146,6 +4247,8 @@ pub class OverloadResolution {
                 return self.tu.nullptr_t_type()
             } case LitKind::List {
                 return self._list_default(a->elems_lo, a->elems_n, pt)
+            } case LitKind::Range {
+                return self._range_default(a)
             }
 
             // `.V` has no type of its own to deduce a `T` from.
@@ -4172,6 +4275,13 @@ pub class OverloadResolution {
             var t:  unsafe *Type = &null
             if el->lit == LitKind::List {
                 t = self._list_default(el->kids_lo, el->kids_n, ept)
+            } else if el->lit == LitKind::Range {
+                var sub = ArgInfo()
+                sub.lit      = LitKind::Range
+                sub.lit_bits = el->lit_bits
+                sub.elems_lo = el->kids_lo
+                sub.elems_n  = el->kids_n
+                t            = self._range_default(&sub)
             } else if el->lit != LitKind::None {
                 var sub = ArgInfo()
                 sub.lit      = el->lit
@@ -4180,7 +4290,7 @@ pub class OverloadResolution {
                 sub.lit_big  = el->lit_big
                 sub.lit_bits = el->lit_bits
                 sub.lit_neg  = el->lit_neg
-                sub.lit_name = el->lit_name
+                sub.lit_name = el->lit_name.copy()
                 t            = self._literal_default(&sub, ept)
             } else {
                 t = el->ty
@@ -4571,7 +4681,7 @@ pub class OverloadResolution {
                 var sb = self.sc->diag->report(
                     only->reason_code,
                     at.start,
-                    only->reason,
+                    only->reason.copy(),
                 )
 
                 sb.first(at)
@@ -4648,8 +4758,8 @@ pub class OverloadResolution {
         }
 
         if utargets.size() == 1 {
-            var to  = utargets[0]
-            var via = (*cs)[ufirst].uconv_via
+            var to  = utargets[0].copy()
+            var via = (*cs)[ufirst].uconv_via.copy()
             b.note(
                 (*cs)[ufirst].fix_open,
                 f"C++ would convert the argument to '{to}' implicitly through {via}; Kairo applies no C++ implicit conversion unless -fcxx-implicit-conv is given: write 'as {to}', or pass -fcxx-implicit-conv",

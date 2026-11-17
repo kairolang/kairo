@@ -154,7 +154,9 @@ pub class FileImportIndex {
             }
 
             // always record the module alias too (Foo::{...} still allows Foo::x)
-            self.module_aliases[self._sym->intern(segs[segs.size() - 1]) as u64] = rr.full_scope
+            self.module_aliases[self._sym->intern(
+                segs[segs.size() - 1].copy(),
+            ) as u64] = rr.full_scope
             id->resolved_fid   = rr.target_fid
             id->file_seg_count = (rr.seg_count as u32)
 
@@ -208,7 +210,7 @@ pub class FileImportIndex {
                 return 0
             }
 
-            var name_sym = self._sym->intern(segs[segs.size() - 1])
+            var name_sym = self._sym->intern(segs[segs.size() - 1].copy())
             if id->has_alias {
                 self._macro_alias(name_sym, id->alias)
             }
@@ -234,7 +236,7 @@ pub class FileImportIndex {
             var item_scope = rr.source_scope
             item_scope.segments.pop_back()
             var bi = Self::BareItem{}
-            bi.name  = self._sym->intern(segs[segs.size() - 1])
+            bi.name  = self._sym->intern(segs[segs.size() - 1].copy())
             bi.scope = item_scope
             bi.at    = last.range
             self._bare.push_back(bi)
@@ -243,7 +245,7 @@ pub class FileImportIndex {
         var alias_key = if (id->has_alias) => (self._sym->intern(
                             self._spell(id->alias),
                         ))
-                        else => self._sym->intern(segs[segs.size() - 1])
+                        else => self._sym->intern(segs[segs.size() - 1].copy())
         self.module_aliases[alias_key as u64] = rr.full_scope
         id->resolved_fid                      = rr.target_fid
         id->file_seg_count                    = (rr.seg_count as u32)
@@ -505,7 +507,7 @@ pub class FileImportIndex {
         // the same reason as a duplicate root: the two would share one C++
         // namespace and one object path.
         for var msg: string in res->take_late_collisions() {
-            diag->report(DiagCode(DiagID::R018E), msg).emit()
+            diag->report(DiagCode(DiagID::R018E), msg.copy()).emit()
         }
     }
 
@@ -513,7 +515,7 @@ pub class FileImportIndex {
         var p = ModulePath()
         for var i: usize = 0; i < segs.size(); ++i {
             var id = IdentifierToken()
-            id.name  = self._sym->intern(segs[i])
+            id.name  = self._sym->intern(segs[i].copy())
             id.token = &null
             p.segments.push_back(id)
         }

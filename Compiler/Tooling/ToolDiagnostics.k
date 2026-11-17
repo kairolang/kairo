@@ -96,7 +96,7 @@ pub class ToolDiagConsumer derives DiagConsumer {
     /// whole tree in emission order.
     priv fn _collect(self, diag: unsafe *Diagnostic) {
         var d = ToolDiag()
-        d.message  = diag->message
+        d.message  = diag->message.copy()
         d.code     = diag->code as string
         d.severity = diag->code.severity()
         d.has_loc  = diag->has_loc

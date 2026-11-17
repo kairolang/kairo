@@ -266,7 +266,7 @@ pub class TargetOptions {
             return "<unknown target>"
         }
 
-        return self.effective_triple
+        return self.effective_triple.copy()
     }
 
     /// --mfeatures split on commas, each item as a signed LLVM feature name

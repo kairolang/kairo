@@ -125,7 +125,7 @@ pub class TextSink derives EmitSink {
     override fn create_ident(self, at: SourceRange, const spelling: string) -> bool {
         self._flush_pending()
         self._note(at)
-        self._word(spelling, false)
+        self._word(spelling.copy(), false)
         // spell() lexes `operator` as a word, not through keyword().
         if spelling == "operator" {
             self._after_op_kw = true
@@ -176,7 +176,7 @@ pub class TextSink derives EmitSink {
 
             self._flush_pending()
             self._note(at)
-            self._word(s, false)
+            self._word(s.copy(), false)
             self._pending_brk = true
             return true
         }
@@ -194,7 +194,7 @@ pub class TextSink derives EmitSink {
                 || (self._last_word == "private")
                 || (self._last_word == "protected"))
         self._note(at)
-        self._word(s, tight_before)
+        self._word(s.copy(), tight_before)
         if tight_after {
             self._glue_next = true
         }
@@ -273,21 +273,21 @@ pub class TextSink derives EmitSink {
     override fn create_int(self, at: SourceRange, @inout cxx_v: string) -> bool {
         self._flush_pending()
         self._note(at)
-        self._word(cxx_v, false)
+        self._word(cxx_v.copy(), false)
         return true
     }
 
     override fn create_str(self, at: SourceRange, @inout cxx_v: string) -> bool {
         self._flush_pending()
         self._note(at)
-        self._word(cxx_v, false)
+        self._word(cxx_v.copy(), false)
         return true
     }
 
     override fn create_char(self, at: SourceRange, @inout cxx_v: string) -> bool {
         self._flush_pending()
         self._note(at)
-        self._word(cxx_v, false)
+        self._word(cxx_v.copy(), false)
         return true
     }
 
@@ -360,7 +360,7 @@ pub class TextSink derives EmitSink {
                 self._remember_fid_(name, fl.file_id as u32)
             }
 
-            self._line_file = name
+            self._line_file = name.copy()
             self._line_no   = fl.line
         } else if (self._line_file == name) && (fl.line < self._line_no) {
             self._line_no = fl.line
@@ -369,8 +369,8 @@ pub class TextSink derives EmitSink {
 
     priv fn _flush_line(self) {
         if self.layout {
-            self._rec_text.push_back(self._line)
-            self._rec_file.push_back(self._line_file)
+            self._rec_text.push_back(self._line.copy())
+            self._rec_file.push_back(self._line_file.copy())
             self._rec_line.push_back(self._line_no)
             self._rec_dir.push_back(self._line_dir)
             self._rec_depth.push_back(self._depth)
@@ -382,10 +382,10 @@ pub class TextSink derives EmitSink {
         }
 
         self._line_dir = false
-        var file = self._line_file
+        var file = self._line_file.copy()
         var line = self._line_no
         if file.empty() {
-            file = self.self_path
+            file = self.self_path.copy()
             line = self._phys + 1
             if (self._map_file != file) || (self._map_line != line) {
                 line += 1 // the directive takes this physical line
@@ -402,7 +402,7 @@ pub class TextSink derives EmitSink {
         self.out += self._line
         self.out += "\n"
         self._phys += 1
-        self._map_file  = file
+        self._map_file  = file.copy()
         self._map_line  = line + 1
         self._line      = ""
         self._line_file = ""
@@ -443,7 +443,7 @@ pub class TextSink derives EmitSink {
         // file than from its own.
         for var q: usize = 0; (q < n) && (!self.home_path.empty()); ++q {
             if self._rec_file[q] == self.home_path {
-                home = self.home_path
+                home = self.home_path.copy()
             }
         }
 
@@ -500,9 +500,9 @@ pub class TextSink derives EmitSink {
         // wants. First every such one claims no line; one whose line no
         // declaration then takes (its definition is placed out of order)
         // claims it again, as before, until that settles.
-        self._c_end  = c_end
-        self._c_kind = c_kind
-        self._home   = home
+        self._c_end  = c_end.copy()
+        self._c_kind = c_kind.copy()
+        self._home   = home.copy()
         self._skip_fwd.clear()
         for var q: usize = 0; q < n; ++q {
             self._skip_fwd.push_back(
@@ -630,16 +630,16 @@ pub class TextSink derives EmitSink {
     /// claim no line).
     priv fn _lay_(self, first: usize, const include_line: string) {
         var n      = self._rec_text.size()
-        var home   = self._home
-        var c_end  = self._c_end
-        var c_kind = self._c_kind
+        var home   = self._home.copy()
+        var c_end  = self._c_end.copy()
+        var c_kind = self._c_kind.copy()
         self._pl_text.clear()
         self._pl_lock.clear()
         self._pl_depth.clear()
         self._pl_decl.clear()
         self._doc_done.clear()
         self._pl_rec.clear()
-        self._pl_text.push_back(include_line)
+        self._pl_text.push_back(include_line.copy())
         self._pl_lock.push_back(true)
         self._pl_depth.push_back(0)
         self._pl_decl.push_back(0)
@@ -653,7 +653,7 @@ pub class TextSink derives EmitSink {
         self._run_dep  = 0
         self._mapped   = false
         self._line_at  = 0
-        self._home     = home
+        self._home     = home.copy()
         self._home_fid = u32::MAX
         for var f: usize = 0; f < self._fnames.size(); ++f {
             if self._fnames[f] == home {
@@ -754,7 +754,7 @@ pub class TextSink derives EmitSink {
                         landed              = k
                     } else if hoist {
                         if self._pl_text[k - 1].empty() {
-                            self._pl_text[k - 1] = piece
+                            self._pl_text[k - 1] = piece.copy()
                             self._pl_decl[k - 1] = k
                             self._pl_rec[k - 1]  = q
                         } else {
@@ -772,7 +772,7 @@ pub class TextSink derives EmitSink {
                     if t.starts_with("extern ") {
                         var vn = TextSink::_var_name_(t)
                         if !vn.empty() {
-                            nb_names.push_back(vn)
+                            nb_names.push_back(vn.copy())
                             nb_lines.push_back(landed)
                             if landed > nb_max {
                                 nb_max = landed
@@ -785,7 +785,7 @@ pub class TextSink derives EmitSink {
                 continue
             }
 
-            var text = self._rec_text[r]
+            var text = self._rec_text[r].copy()
             if self._rec_dir[r] {
                 self._fresh_(self._cursor + 1, text, self._run_dep)
                 self._pl_lock[self._cursor - 1] = true
@@ -820,7 +820,7 @@ pub class TextSink derives EmitSink {
                 if opener && ((j0 + 1) <= r) {
                     head = TextSink::_trim_(self._rec_text[j0 + 1])
                 } else if (!opener) && (!self._rec_dir[j0]) {
-                    head = h0
+                    head = h0.copy()
                 }
 
                 var spec = head.starts_with("template<>") || head.starts_with("template <>")
@@ -830,17 +830,17 @@ pub class TextSink derives EmitSink {
                     if sn.empty() {
                         barrier = self._cursor
                     } else {
-                        nb_names.push_back(sn)
+                        nb_names.push_back(sn.copy())
                         nb_lines.push_back(self._cursor)
                         nb_max = self._cursor
                     }
                 } else if !cls.empty() {
-                    cls_names.push_back(cls)
+                    cls_names.push_back(cls.copy())
                     cls_lines.push_back(self._cursor)
                 } else if (!head.empty()) && (!TextSink::_has_(head, "(")) {
                     var vn = TextSink::_var_name_(head)
                     if !vn.empty() {
-                        nb_names.push_back(vn)
+                        nb_names.push_back(vn.copy())
                         nb_lines.push_back(self._cursor)
                         nb_max = self._cursor
                     } else if opener || (j0 < r) {
@@ -998,14 +998,14 @@ pub class TextSink derives EmitSink {
     /// \p t without every leading `template<...>` head (a member template
     /// of a class template has two); `template<>` is kept.
     priv static fn _untemplate_all_(const t: string) -> string {
-        var u = t
+        var u = t.copy()
         while u.starts_with("template<") && (!u.starts_with("template<>")) {
             var v = TextSink::_untemplate_(u)
             if v.size() == u.size() {
                 break
             }
 
-            u = v
+            u = v.copy()
         }
 
         return u
@@ -1176,7 +1176,7 @@ pub class TextSink derives EmitSink {
             }
 
             if !found {
-                names.push_back(self._rec_file[i])
+                names.push_back(self._rec_file[i].copy())
                 counts.push_back(1)
             }
         }
@@ -1186,7 +1186,7 @@ pub class TextSink derives EmitSink {
         for var k: usize = 0; k < names.size(); ++k {
             if counts[k] > best {
                 best = counts[k]
-                home = names[k]
+                home = names[k].copy()
             }
         }
 
@@ -1277,7 +1277,7 @@ pub class TextSink derives EmitSink {
             self._pl_rec.push_back(usize::MAX)
         }
 
-        self._pl_text.push_back(text)
+        self._pl_text.push_back(text.copy())
         self._pl_lock.push_back(false)
         self._pl_depth.push_back(depth_after)
         self._pl_decl.push_back(0)
@@ -1293,7 +1293,7 @@ pub class TextSink derives EmitSink {
             }
         }
 
-        self._fnames.push_back(name)
+        self._fnames.push_back(name.copy())
         self._fids.push_back(fid)
     }
 
@@ -1484,7 +1484,7 @@ pub class TextSink derives EmitSink {
             }
 
             for var d: usize = 0; d < doc.size(); ++d {
-                self._pl_text[top + d - 1] = doc[d]
+                self._pl_text[top + d - 1] = doc[d].copy()
                 self._pl_lock[top + d - 1] = true
             }
 
@@ -1612,7 +1612,7 @@ pub class TextSink derives EmitSink {
     /// an explicit specialization's `template<>` is kept.
     priv static fn _untemplate_(const t: string) -> string {
         if (!t.starts_with("template<")) || t.starts_with("template<>") {
-            return t
+            return t.copy()
         }
 
         var d: usize = 0
@@ -1627,13 +1627,13 @@ pub class TextSink derives EmitSink {
             }
         }
 
-        return t
+        return t.copy()
     }
 
     /// The template an explicit specialization head specializes
     /// (`template<> struct __kairo_niche<E> {` is `__kairo_niche`), or "".
     priv static fn _spec_name_(const t: string) -> string {
-        var u = t
+        var u = t.copy()
         if u.starts_with("template<>") {
             u = TextSink::_trim_(u.subslice(10, u.size() - 10))
         } else if u.starts_with("template <>") {
@@ -1781,7 +1781,7 @@ pub class TextSink derives EmitSink {
 
         self._glue_next   = false
         self._after_op_kw = false
-        self._last_word   = s
+        self._last_word   = s.copy()
         self._put(s)
     }
 }

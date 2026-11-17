@@ -5064,7 +5064,11 @@ pub class <T: type> ExprParse {
             arm_msg = "an arm is a single expression, not a block; use a statement expression '({ ... })'"
         }
 
-        var b = self.dyn()->diag->report(DiagID::S073E, lbrace.start, arm_msg)
+        var b = self.dyn()->diag->report(
+            DiagID::S073E,
+            lbrace.start,
+            arm_msg.copy(),
+        )
 
         b.first(lbrace)
 
@@ -5084,7 +5088,7 @@ pub class <T: type> ExprParse {
             var open     = SourceRange(lbrace.start, open_end)
             if kind == Self::BraceArm::Value {
                 var arrow = if (same_open) => ("=> ") else => "=>"
-                b.fix(open, arrow, "replace '{' with '=>'")
+                b.fix(open, arrow.copy(), "replace '{' with '=>'")
             } else {
                 b.remove(open, "remove '{'")
             }
@@ -5714,7 +5718,7 @@ pub class <T: type> ExprParse {
             var arrow    = if (same_open) => ("=> ") else => "=>"
             b.fix(
                 SourceRange(lbrace.start, open_end),
-                arrow,
+                arrow.copy(),
                 "replace '{' with '=>'",
             )
 

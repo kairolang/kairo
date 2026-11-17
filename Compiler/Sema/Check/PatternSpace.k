@@ -618,7 +618,7 @@ pub class PatternSpace {
     priv fn _opaque(self, const key: string) -> Ctor {
         var c = Ctor{}
         c.kind = CtorKind::Opaque
-        c.key  = key
+        c.key  = key.copy()
         return c
     }
 

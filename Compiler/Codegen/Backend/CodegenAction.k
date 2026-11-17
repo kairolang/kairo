@@ -331,7 +331,7 @@ pub class KairoInject {
         // drops an append. Backend::run restores Includes after the run.
         var *ppo = &ci.getPreprocessorOpts()
         for var i: usize = 0; i < self.sink->system_headers.size(); ++i {
-            var h = self.sink->system_headers[i]
+            var h = self.sink->system_headers[i].copy()
             ppo->Includes.push_back(kairo::std::to_std_string(h))
             var pre  = kairo::std::to_std_string(pp->getPredefines())
             var line = "#include <" + h + ">\n"

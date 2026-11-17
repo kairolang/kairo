@@ -179,7 +179,7 @@ extend EmitPlan {
         var fresh = WitnessPiece()
         fresh.iface = iface
         fresh.row   = row
-        fresh.key   = key
+        fresh.key   = key.copy()
         fresh.after.push_back(iface)
         self._witnesses.push_back(fresh)
         var k = self._witnesses.size() - 1
@@ -348,7 +348,7 @@ extend EmitPlan {
         var        fresh  = WitnessPiece()
         fresh.iface    = iface
         fresh.row      = row
-        fresh.key      = key
+        fresh.key      = key.copy()
         fresh.std_hash = true
         fresh.after.push_back(iface)
         self._witnesses.push_back(fresh)

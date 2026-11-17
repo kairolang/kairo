@@ -349,7 +349,7 @@ extend InterfaceEmitter {
 
         self._cg->sink->brk()
         var sl = LowerTargets::ctor_slot()
-        var sz = builtin_info(BuiltinKind::USize)->cxx
+        var sz = builtin_info(BuiltinKind::USize)->cxx.copy()
         var t  = "template <class T> struct " + sl + " {"
         t += " struct __b { T v; static void* operator new(" + sz + ", void* p) noexcept { return p; } };"
         t += " struct __h { T v; };"

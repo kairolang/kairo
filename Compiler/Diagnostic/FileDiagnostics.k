@@ -51,7 +51,7 @@ pub class FileDiagConsumer derives DiagConsumer {
 
     /// The driver is about to drain \p path's sink.
     pub fn enter(self, const path: string) {
-        self.current = path
+        self.current = path.copy()
         for var i: usize = 0; i < self.order.size(); ++i {
             if self.order[i] == path {
                 return

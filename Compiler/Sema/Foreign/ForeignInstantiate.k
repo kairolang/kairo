@@ -908,7 +908,7 @@ pub class ForeignInstantiate {
         }
 
         if r == CxxDeduce::NoAnswer {
-            *why = awhy
+            *why = awhy.copy()
             ret  = aret
             return r2 as i8
         }

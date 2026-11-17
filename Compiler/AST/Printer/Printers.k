@@ -47,7 +47,7 @@ pub class TypePrinter {
             d.src_type(ty)
         }
 
-        return d.p.out
+        return d.p.out.copy()
     }
 }
 
@@ -64,7 +64,7 @@ pub class ExprPrinter {
             d.src_expr(e)
         }
 
-        return d.p.out
+        return d.p.out.copy()
     }
 }
 
@@ -81,7 +81,7 @@ pub class StmtPrinter {
             d.src_stmt(stmt)
         }
 
-        return d.p.out
+        return d.p.out.copy()
     }
 }
 
@@ -98,7 +98,7 @@ pub class DeclPrinter {
             d.src_decl(decl)
         }
 
-        return d.p.out
+        return d.p.out.copy()
     }
 }
 
@@ -115,7 +115,7 @@ pub class PatternPrinter {
             d.src_pattern(pat)
         }
 
-        return d.p.out
+        return d.p.out.copy()
     }
 }
 
@@ -162,7 +162,7 @@ pub class ASTPrinter {
                 d.p.newline()
             }
 
-            return d.p.out
+            return d.p.out.copy()
         }
 
         var unsafe *prog = tu->program
@@ -209,6 +209,6 @@ pub class ASTPrinter {
             d.p.newline()
         }
 
-        return d.p.out
+        return d.p.out.copy()
     }
 }

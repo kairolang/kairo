@@ -77,7 +77,7 @@ pub class StreamCursor
             return
         }
 
-        var b = self._diag->report(DiagCode(code), r.start, msg)
+        var b = self._diag->report(DiagCode(code), r.start, msg.copy())
         ig_finish(&b, r)
     }
 
@@ -91,7 +91,7 @@ pub class StreamCursor
             return
         }
 
-        var b = self._diag->report(DiagCode(code), r.start, msg)
+        var b = self._diag->report(DiagCode(code), r.start, msg.copy())
         ig_finish_remove(&b, r, cut, fix_msg)
     }
 
@@ -106,7 +106,7 @@ pub class StreamCursor
             return
         }
 
-        var b = self._diag->report(DiagCode(code), r.start, msg)
+        var b = self._diag->report(DiagCode(code), r.start, msg.copy())
         ig_finish_insert(&b, r, at, text, fix_msg)
     }
 }

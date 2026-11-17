@@ -186,7 +186,12 @@ pub class ShorthandLint derives RecursiveASTVisitor<ShorthandLint> {
             msg = f"'{nm}' is a pointer; write '{stars}{nm}'"
         }
 
-        var b = self.sc->diag->report(DiagID::SC226W, v->name.range.start, msg)
+        var b = self.sc->diag->report(
+            DiagID::SC226W,
+            v->name.range.start,
+            msg.copy(),
+        )
+
         b.first(v->name.range)
         b.second(v->init->range, f"this has type '{self._tu.str(c)}'")
         if depth > 0 {

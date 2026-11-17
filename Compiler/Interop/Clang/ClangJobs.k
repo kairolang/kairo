@@ -97,7 +97,7 @@ pub class ClangJobs {
 
     pub fn ClangJobs(self, be: unsafe *ClangBackend, const clang_exe: string) {
         self._be        = be
-        self._clang_exe = clang_exe
+        self._clang_exe = clang_exe.copy()
     }
 
     /// \brief compiles one input: \p words is a clang driver command line

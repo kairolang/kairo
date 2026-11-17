@@ -116,7 +116,7 @@ pub class EmitCXXHeader {
 
         var ts = TextSink(self._ctx->sm, self._ctx->tcm)
         ts.line_mode = self.line_directives
-        ts.self_path = self.header_name
+        ts.self_path = self.header_name.copy()
         ts.layout    = self.layout && self.line_directives
         if ts.layout && (self._ctx->sm != &null) {
             ts.home_path = self._ctx->sm->get_filename(tu->fid)
@@ -159,7 +159,7 @@ pub class EmitCXXHeader {
             self.bodies_needed  = ts.bodies_needed
         }
 
-        return ts.out
+        return ts.out.copy()
     }
 
     /// `#include "h"` per ffi header the module imports, as spelled, in
@@ -203,7 +203,7 @@ pub class EmitCXXHeader {
     pub fn write(self, const dir: string) -> bool {
         var p = self.path_under(dir)
         if self.line_directives && self.header_name.empty() {
-            self.header_name = p
+            self.header_name = p.copy()
         }
 
         if self.layout && self.line_directives {

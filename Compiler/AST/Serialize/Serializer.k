@@ -391,7 +391,7 @@ pub class ASTBinWriter {
     pub fn ASTBinWriter(self) { }
 
     pub fn error(self) -> string {
-        return self.ar.error
+        return self.ar.error.copy()
     }
 
     /// Serializes \p tu into `out`. False (with error()) when the tree is
@@ -481,7 +481,7 @@ pub class ASTBinReader {
     pub fn ASTBinReader(self) { }
 
     pub fn error(self) -> string {
-        return self.ar.error
+        return self.ar.error.copy()
     }
 
     /// Builds the tree \p data holds in \p ctx, which must have its tokens'

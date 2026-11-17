@@ -168,7 +168,7 @@ pub class CRTPCallScan derives RecursiveASTVisitor<CRTPCallScan> {
         }
 
         var c = CRTPCall{}
-        c.via   = via
+        c.via   = via.copy()
         c.name  = self.ctx->get_spelling(st->name->name)
         c.arity = n->args.size()
         c.at    = n->range
@@ -755,7 +755,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
             return pre + inner
         }
 
-        return core
+        return core.copy()
     }
 
     /// # small facts

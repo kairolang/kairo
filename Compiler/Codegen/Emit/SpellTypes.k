@@ -188,7 +188,7 @@ extend Speller {
             // instance names T, so C++ resolves it (`typename T::Guard`).
             var dm = self.dependent_member(t_in)
             if dm.size() > 0 {
-                return self._join(dm, name)
+                return self._join(dm.copy(), name)
             }
 
             self._ice(
@@ -250,7 +250,7 @@ extend Speller {
                     var fk = self.size_fold(b->builtin)
                     if fk != b->builtin {
                         self.sizes_folded += 1
-                        return self._join(builtin_info(fk)->cxx, name)
+                        return self._join(builtin_info(fk)->cxx.copy(), name)
                     }
                 }
 
@@ -300,7 +300,7 @@ extend Speller {
 
                 // `[]` binds tighter than `*` and `&`: a pointer or reference
                 // TO an array parenthesizes its declarator.
-                var nm = name
+                var nm = name.copy()
                 if nm.size() > 0 && (nm[0] == ('*' as u8) || nm[0] == ('&' as u8)) {
                     nm = "(" + nm + ")"
                 }
@@ -618,7 +618,7 @@ extend Speller {
                     }
 
                     var unsafe *e = canon_unqual(els[i])
-                    var        er = rr
+                    var        er = rr.copy()
                     if e != &null && (isa<CXXLValueRefType>(e) || isa<CXXRValueRefType>(e)) {
                         er = ""
                     }

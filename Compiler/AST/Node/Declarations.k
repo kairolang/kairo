@@ -1032,6 +1032,13 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     /// declares it `auto`. For a type Kairo cannot spell where the copy is
     /// made (an enum nested in a generic pattern, a dependent type).
     pub var auto_copy: bool = false
+    /// A hidden local that takes the header expression of a `for` loop,
+    /// declared in the loop's own block (IterLowering): the temporaries of
+    /// its initializer live until that block ends. SequenceLowering reads
+    /// the mark and binds each one to a local of the same block, ahead of
+    /// this one, instead of leaving it to end with the declaration. Never
+    /// written by the user.
+    pub var header_scope: bool = false
     /// `static const x` / `const static x` (or `thread const`): the binding
     /// of a Static-storage variable is const. `storage` stays the storage
     /// keyword so every is_static() reader is unchanged; is_const() folds

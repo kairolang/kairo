@@ -600,7 +600,7 @@ pub class SemaContext {
 
         var u = UncheckedAssumption()
         u.at   = at
-        u.text = text
+        u.text = text.copy()
         self.unchecked.push_back(u)
     }
 

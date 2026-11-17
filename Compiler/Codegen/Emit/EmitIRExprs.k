@@ -595,17 +595,17 @@ extend EmitIR {
             // A script's top-level `var` is a global: C++ captures no
             // global, so the copy is an init-capture from its qualified name,
             // unless an enclosing closure holds it already under `nm`.
-            var origin = nm
+            var origin = nm.copy()
             if (!self._is_local(d)) && (!self._captures_global(self._closure, d)) {
                 origin = self._spell.qual_name(d)
             }
 
             // A union-stored local is its storage's member out here.
-            var place = nm
+            var place = nm.copy()
             var ur    = self._ul_use(d)
             if ur != usize::MAX {
-                origin = self._ul_obj[ur]
-                place  = origin
+                origin = self._ul_obj[ur].copy()
+                place  = origin.copy()
             }
 
             match m {

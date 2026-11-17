@@ -735,7 +735,7 @@ pub class HeaderSet {
                 continue
             }
 
-            var dir = self.import_dir
+            var dir = self.import_dir.copy()
             var local = dir.size() > 0
                 && e->to_path.size() > dir.size() + 1
                 && e->to_path.starts_with(dir)
@@ -807,7 +807,7 @@ pub class HeaderSet {
     /// matches it in closure_kfids. Two spellings of one header would silently
     /// miss the closure and import nothing.
     pub static fn unquote(const lit: string) -> string {
-        var s = lit
+        var s = lit.copy()
         if s.size() >= 2 && s[0] == ('\x22' as u8) && s[s.size() - 1] == ('\x22' as u8) {
             s = s.subslice(1, s.size() - 2)
         }
@@ -1203,7 +1203,7 @@ pub class HeaderSet {
             name.size(),
         )
 
-        hit.real = Path::real_path_of(hit.path)
+        hit.real = Path::real_path_of(hit.path.copy())
 
         // Up the include stack to the set's main buffer, whose line names
         // the import (_main_locs). Each step is one level out, so it ends.
@@ -1451,7 +1451,7 @@ override fn HeaderSetPPCallbacks::FileChanged(self,
     }
 
     var hf = HeaderFile{}
-    hf.path      = p
+    hf.path      = p.copy()
     hf.cfid_hash = fid.getHashValue()
     hf.is_system = clang::SrcMgr::isSystem(kind)
     self._set->files.push_back(hf)

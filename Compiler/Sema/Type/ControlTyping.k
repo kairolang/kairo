@@ -792,11 +792,15 @@ pub class <T: type> ControlTyping {
     /// # ranges, async
 
     fn type_range(self, n: unsafe *Expressions::RangeExpr, expected: unsafe *Type) -> unsafe *Type {
-        if (n->begin == &null || n->end == &null) && !n->as_index {
+        // The range record the context asks for and its element type: a
+        // `Range<usize>` parameter or declared type, as a literal's expected
+        // type is (primitives.md §5).
+        var unsafe *want = self.range_element_of(n, expected)
+        if (n->begin == &null || n->end == &null) && !n->as_index && want == &null {
             self.dyn()->fail(
                 n,
                 DiagID::SC085E,
-                "an open range is only valid as a slice index; give it both bounds",
+                "an open range is only valid as a slice index or where a 'RangeFrom' or 'RangeTo' is expected; give it both bounds",
             )
 
             return &null
@@ -808,11 +812,20 @@ pub class <T: type> ControlTyping {
         var e_lit = n->end != &null && self.dyn()->is_untyped_literal(n->end)
         // An index range's literal bounds are usize, not i32: every `op []`
         // taking a range takes `Range<usize>` (and the open forms), and a
-        // `Range<i32>` from `s[1..3]` would match none of them. Only a
-        // literal takes the hint; a typed bound keeps its own type.
-        var lit_t: unsafe *Type = &null
-        if n->as_index {
+        // `Range<i32>` from `s[1..3]` would match none of them. Elsewhere
+        // they take the element type of the range the context expects.
+        // Only a literal takes the hint; a typed bound keeps its own type.
+        var lit_t: unsafe *Type = want
+        if lit_t == &null && n->as_index {
             lit_t = self.dyn()->tu.builtin(BuiltinKind::USize)
+        }
+
+        // Arithmetic over literals only (`1 + 4`) is as untyped as one
+        // literal, and takes the hint the same way.
+        if lit_t != &null {
+            var shape = ArgInfo()
+            b_lit = b_lit || n->begin != &null && self.dyn()->literal_expr_shape(n->begin, &shape)
+            e_lit = e_lit || n->end != &null && self.dyn()->literal_expr_shape(n->end, &shape)
         }
 
         if b_lit && !e_lit {
@@ -866,7 +879,7 @@ pub class <T: type> ControlTyping {
         }
 
         if elem == &null { // `..`: the whole index space.
-            elem = self.dyn()->tu.builtin(BuiltinKind::USize)
+            elem = if (want != &null) => (want) else => self.dyn()->tu.builtin(BuiltinKind::USize)
         }
 
         if !self.dyn()->tu.is_integer(elem) {
@@ -898,6 +911,40 @@ pub class <T: type> ControlTyping {
         }
 
         return r
+    }
+
+    /// The integer `X` when \p expected is the range record \p n's form
+    /// builds, at `X`: `Range<X>` for `a..b` and `a..=b`, `RangeFrom<X>` for
+    /// `a..` and `..`, `RangeTo<X>` for `..b` and `..=b`. Null otherwise: no
+    /// expected type, another record, or a dependent element.
+    fn range_element_of(self,
+                        n:        unsafe *Expressions::RangeExpr,
+                        expected: unsafe *Type) -> unsafe *Type {
+        if expected == &null {
+            return &null
+        }
+
+        var k = WellKnownType::Range
+        if n->end == &null {
+            k = WellKnownType::RangeFrom
+        } else if n->begin == &null {
+            k = WellKnownType::RangeTo
+        }
+
+        var unsafe *t = canon_unqual(
+            self.dyn()->tu.as_value(self.dyn()->tu.strip_nullable(expected)),
+        )
+
+        if t == &null || !self.dyn()->tu.is_lang(t, k) {
+            return &null
+        }
+
+        var args = self.dyn()->tu.record_args(t)
+        if args.size() != 1 || args[0] == &null || !self.dyn()->tu.is_integer(args[0]) {
+            return &null
+        }
+
+        return canon_unqual(args[0])
     }
 
     fn type_await(self, n: unsafe *Expressions::AwaitExpr, expected: unsafe *Type) -> unsafe *Type {
@@ -1853,7 +1900,7 @@ pub class <T: type> ControlTyping {
                 var b = self.dyn()->sc->diag->report(
                     DiagID::SC256E,
                     vals[0]->range.start,
-                    msg,
+                    msg.copy(),
                 )
 
                 b.first(vals[0]->range, "the payload's type picks the variant")

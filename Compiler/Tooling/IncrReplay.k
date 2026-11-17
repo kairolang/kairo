@@ -113,7 +113,7 @@ fn replay_edit(const cmd: string) -> ReplayEdit {
         return e
     }
 
-    e.name = cmd
+    e.name = cmd.copy()
     return e
 }
 
@@ -197,7 +197,7 @@ class ReplayBuffers {
     pub fn read(self, const path: string, @inout out: string) -> bool {
         for var i: usize = 0; i < self.paths.size(); ++i {
             if self.paths[i] == path {
-                out = self.texts[i]
+                out = self.texts[i].copy()
                 return true
             }
         }
@@ -215,7 +215,7 @@ class ReplayBuffers {
 
         for var i: usize = 0; i < self.paths.size(); ++i {
             if self.paths[i] == path {
-                self.texts[i] = text
+                self.texts[i] = text.copy()
                 return true
             }
         }
@@ -337,7 +337,7 @@ fn replay_fg(live:       *LiveCheck,
         for var i: usize = 0; i < fd->diags.size(); ++i {
             // Its own, and what was reported for it before Sema (the
             // preprocessor's, the parser's: no file owns those).
-            var owner: string = fd->owners[i]
+            var owner: string = fd->owners[i].copy()
             var early = owner.empty()
                 && fd->diags[i]->has_loc
                 && live->ci()->sm()->get_filename(fd->diags[i]->loc) == full
@@ -626,7 +626,7 @@ pub fn incr_replay_main(argc:         i32,
         }
 
         if is_step {
-            name  = arg
+            name  = arg.copy()
             open_ = true
             // In two tiers an edit is re-checked as it is read, and one
             // that takes a full check writes the step's dump then.

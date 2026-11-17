@@ -9,7 +9,7 @@
 ///       a..b, a..=b  ->  Range<T>{ .begin = a, .end = b, .inclusive = ... }
 ///       a..          ->  RangeFrom<T>{ .begin = a }
 ///       ..b, ..=b    ->  RangeTo<T>{ .end = b, .inclusive = ... }
-///       ..           ->  RangeFrom<usize>{ .begin = 0 }
+///       ..           ->  RangeFrom<T>{ .begin = 0 }
 ///
 ///     A designated initializer, not a constructor: C++ evaluates a braced
 ///     initializer's clauses left to right, so `f()..g()` runs `f` first with
@@ -17,8 +17,9 @@
 ///
 ///     A subscript's range index is no special case. OperatorLowering ran
 ///     first and turned `a[r]` into `a.op[](r)`, so the range arrives here as
-///     an ordinary call argument (still marked as_index). Open ranges are
-///     only ever such an index: ExprTyper rejects one anywhere else.
+///     an ordinary call argument (still marked as_index). An open range is
+///     such an index or a value typed where a RangeFrom or RangeTo is
+///     expected: ExprTyper rejects one anywhere else.
 ///
 ///   Phase: LOWER, after IterLowering (which consumes ranges in loops) and
 ///   before SequenceLowering.
@@ -88,12 +89,6 @@ pub class RangeLowering derives ASTWriter<RangeLowering> {
             return out
         }
 
-        if (n->begin == &null || n->end == &null) && !n->as_index {
-            kairo::std::ice_fail(
-                "RangeLowering: an open range outside a subscript index; ControlTyping::type_range must reject it",
-            )
-        }
-
         // Same shape rule as ControlTyping::type_range, which picked the type.
         var k = WellKnownType::Range
         if n->end == &null {
@@ -114,12 +109,18 @@ pub class RangeLowering derives ASTWriter<RangeLowering> {
         if n->begin != &null {
             fields.push(self._field(at, LangMembers::range_begin(), n->begin))
         } else if n->end == &null {
-            // `..`: X typed it RangeFrom<usize>; it starts at the first index.
+            // `..`: X typed it RangeFrom<T>; it starts at the first index.
+            var zk    = BuiltinKind::USize
+            var targs = self.tu.record_args(n->type_)
+            if targs.size() == 1 && self.tu.kind_of(targs[0]) != BuiltinKind::COUNT {
+                zk = self.tu.kind_of(targs[0])
+            }
+
             fields.push(
                 self._field(
                     at,
                     LangMembers::range_begin(),
-                    self.synth.int_literal(at, 0, BuiltinKind::USize),
+                    self.synth.int_literal(at, 0, zk),
                 ),
             )
         }

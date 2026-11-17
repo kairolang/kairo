@@ -889,7 +889,7 @@ extend InterfaceEmitter {
             )
         }
 
-        var u      = builtin_info(BuiltinKind::U32)->cxx
+        var u      = builtin_info(BuiltinKind::U32)->cxx.copy()
         var header = self._plan->mode() == PlanMode::Header
         for var i: usize = 0; i < ie->type_ids.size(); ++i {
             var key  = ie->type_keys[i]

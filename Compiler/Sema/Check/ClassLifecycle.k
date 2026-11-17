@@ -569,7 +569,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         f->copyable         = LifecycleTri::No
-        f->why_not_copyable = held
+        f->why_not_copyable = held.copy()
         f->category         = self._folded_category(f)
         self._settle_non_transfer(f)
     }
@@ -932,7 +932,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
     priv fn _not_relocatable(self, f: unsafe *LifecycleFacts, const why: string) {
         f->relocatable         = LifecycleTri::No
-        f->why_not_relocatable = why
+        f->why_not_relocatable = why.copy()
     }
 
     /// The declaration \p d's attributes are written on: an instance's are
@@ -1008,7 +1008,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         f->relocatable = rl
         if f->deprecated_copy == &null && c->deprecated_copy != &null {
             f->deprecated_copy     = c->deprecated_copy
-            f->deprecated_copy_via = what
+            f->deprecated_copy_via = what.copy()
         }
     }
 
@@ -1409,7 +1409,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         if copy_deleted && (!copy_written) && decl_is_imported(d) {
             var why = self._imported_copy_reason(d)
             if !why.empty() {
-                f->why_not_copyable = why
+                f->why_not_copyable = why.copy()
             }
         }
 
@@ -1846,7 +1846,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
         for var i: usize = 0; i < fails.size(); ++i {
             var *x = &fails[i]
-            var b  = self.sc->diag->report(x->id, x->at.start, x->msg)
+            var b  = self.sc->diag->report(x->id, x->at.start, x->msg.copy())
             b.first(x->at)
             for var j: usize = 0; j < x->note_ids.size(); ++j {
                 b.note(

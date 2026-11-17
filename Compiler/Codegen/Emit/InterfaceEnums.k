@@ -306,7 +306,7 @@ extend InterfaceEmitter {
             // it (_adt_flag).
             if f->storage == Declarations::StorageClass::Eval {
                 if f == en->adt_payload_offset {
-                    var u = builtin_info(BuiltinKind::U32)->cxx
+                    var u = builtin_info(BuiltinKind::U32)->cxx.copy()
                     self._cg->sink->spell(
                         f->name.range,
                         "static constexpr " + u + " " + fnm + " = " + self._payload_offset_init(
@@ -365,7 +365,7 @@ extend InterfaceEmitter {
         self._cxx_alloc_ops(d, nm, at)
         var tt = LowerTargets::adt_tag_type()
         var nv = f"{adt_first_spare_tag(en)}"
-        var w  = builtin_info(BuiltinKind::U64)->cxx
+        var w  = builtin_info(BuiltinKind::U64)->cxx.copy()
         // The tag as written and as read: a member of its own, or the
         // union's tag-only member in the common prefix.
         var tset = LowerTargets::adt_tag_field() + "(static_cast<" + tt + ">(" + nv + " + i))"
@@ -460,7 +460,7 @@ extend InterfaceEmitter {
         var        mem  = self._spell->leaf(pv->adt_member)
         var        fnm  = self._spell->leaf(unsafe (fld as unsafe *Decl))
         var        nt   = "::" + LowerTargets::niche_trait() + "<" + ft + ">::"
-        var        w    = builtin_info(BuiltinKind::U64)->cxx
+        var        w    = builtin_info(BuiltinKind::U64)->cxx.copy()
         var        dl   = adt_niche_dataless(en)
         var        tt   = LowerTargets::adt_tag_type()
         self._cg->sink->spell(at, head)
@@ -720,7 +720,7 @@ extend InterfaceEmitter {
     prot fn _enum_niche_trait(self, en: unsafe *Declarations::EnumDecl) {
         var at = self._at(en)
         var e  = self._spell->qual_name(en)
-        var w  = builtin_info(BuiltinKind::U64)->cxx
+        var w  = builtin_info(BuiltinKind::U64)->cxx.copy()
         var nv = f"{en->variants.size()}"
         self._cg->sink->spell(
             at,
@@ -974,13 +974,13 @@ extend InterfaceEmitter {
                 if v->is_pack_expansion {
                     // Element K: the variant's tag plus K (EnumLayoutQuery::
                     // tag_value), built into the union's K-th member.
-                    var u  = builtin_info(BuiltinKind::U32)->cxx
+                    var u  = builtin_info(BuiltinKind::U32)->cxx.copy()
                     var kv = "::" + LowerTargets::adt_variant_tag()
                     // A site slot (the Panic lang item) is the site id
                     // this construction stores (Compiler/Spec/Panic.md#site-ids); a `panic`
                     // passes its own, a widening the one it copies.
                     var sp = ""
-                    var si = site_init
+                    var si = site_init.copy()
                     if en->adt_site_field != &null {
                         sp = u + " s, "
                         si = ", " + self._spell->leaf(en->adt_site_field) + "(s)"
@@ -1133,7 +1133,7 @@ extend InterfaceEmitter {
             return ""
         }
 
-        var u = builtin_info(BuiltinKind::U32)->cxx
+        var u = builtin_info(BuiltinKind::U32)->cxx.copy()
         var tag = "static_cast<" + u + ">(" + LowerTargets::adt_tag_field() + ")"
         var mem = self._spell->leaf(v->adt_member)
         var arg = if (from.size() > 0) => (", " + from + mem) else => ""

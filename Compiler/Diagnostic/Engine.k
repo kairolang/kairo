@@ -382,28 +382,28 @@ pub class DiagEngine derives DiagEngineVBase {
     /// Creates a \c DiagBuilder for a diagnostic at \p loc.
     pub fn report(self, code: DiagCode, loc: SourceLocation, msg: string) -> DiagBuilder {
         if loc == SourceLocation::invalid() {
-            return self.report(code, msg)
+            return self.report(code, msg.copy())
         }
 
-        return DiagBuilder(&self, code, loc, msg)
+        return DiagBuilder(&self, code, loc, msg.copy())
     }
 
     /// Creates a \c DiagBuilder for a location-less diagnostic.
     pub fn report(self, code: DiagCode, msg: string) -> DiagBuilder {
-        return DiagBuilder(&self, code, msg)
+        return DiagBuilder(&self, code, msg.copy())
     }
 
     /// Convenience overloads accepting a raw \c DiagID.
     pub fn report(self, id: DiagID, loc: SourceLocation, msg: string) -> DiagBuilder {
         if loc == SourceLocation::invalid() {
-            return self.report(DiagCode(id), msg)
+            return self.report(DiagCode(id), msg.copy())
         }
 
-        return DiagBuilder(&self, DiagCode(id), loc, msg)
+        return DiagBuilder(&self, DiagCode(id), loc, msg.copy())
     }
 
     pub fn report(self, id: DiagID, msg: string) -> DiagBuilder {
-        return DiagBuilder(&self, DiagCode(id), msg)
+        return DiagBuilder(&self, DiagCode(id), msg.copy())
     }
 
     /// ## Poison scopes

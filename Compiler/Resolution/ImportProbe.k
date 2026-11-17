@@ -574,11 +574,11 @@ pub class ImportResolver {
     /// \p p with its symlinks resolved, cached per spelling.
     priv fn _real(self, const p: string) -> string {
         if self._real_paths.contains(kairo::sref(p)) {
-            return self._real_paths[kairo::sref(p)]
+            return self._real_paths[kairo::sref(p)].copy()
         }
 
-        var r = Path::real_path_of(p)
-        self._real_paths[kairo::sref(p)] = r
+        var r = Path::real_path_of(p.copy())
+        self._real_paths[kairo::sref(p)] = r.copy()
         return r
     }
 
@@ -592,7 +592,7 @@ pub class ImportResolver {
         var pin   = cxx::std::vector<string>()
         var mod_k = Path::join_str(dir, "module.k")
         if Path::exists_at(mod_k) {
-            pin = read_module_pin(mod_k)
+            pin = read_module_pin(mod_k.copy())
         }
 
         self._dir_pins[kairo::sref(dir)] = pin
@@ -978,7 +978,7 @@ pub class ImportResolver {
 
                 var base_len = root->base_path.full_path().size()
                 if best_rel.size() == 0 || base_len > best_len {
-                    best_rel = rel
+                    best_rel = rel.copy()
                     best_len = base_len
                 }
             }
@@ -1004,13 +1004,13 @@ pub class ImportResolver {
         }
 
         // strip the extension off the leaf
-        var leaf    = parts[parts.size() - 1]
+        var leaf    = parts[parts.size() - 1].copy()
         var dot_pos = leaf.rfind(".")
         if dot_pos != usize::MAX {
             leaf = leaf.subslice(0, dot_pos)
         }
 
-        parts[parts.size() - 1] = leaf
+        parts[parts.size() - 1] = leaf.copy()
 
         // `Foo/module.k` IS module `Foo`; the leaf names the directory entry.
         // At a library's TOP level the directory is the library itself, so
@@ -1058,13 +1058,13 @@ pub class ImportResolver {
     ///          the walk of its ancestors.
     priv fn _library_of(self, const start: string) -> Self::LibraryHit {
         var out  = Self::LibraryHit{}
-        var walk = start
+        var walk = start.copy()
         while walk.size() > 0 {
             for var i: usize = 0; i < self._roots.size(); ++i {
                 var unsafe *r = self._roots[i]
                 if r->name.size() > 0 && r->base_path.full_path() == walk {
                     out.found = true
-                    out.dir   = walk
+                    out.dir   = walk.copy()
                     out.name  = r->name
                     out.root  = r
                     return out
@@ -1075,7 +1075,7 @@ pub class ImportResolver {
             if pin.size() > 0 {
                 self._check_pin_dir(walk, pin)
                 out.found = true
-                out.dir   = walk
+                out.dir   = walk.copy()
                 out.name  = pin
                 return out
             }
@@ -1087,7 +1087,7 @@ pub class ImportResolver {
                 break
             }
 
-            walk = up
+            walk = up.copy()
         }
 
         return out
@@ -1137,8 +1137,8 @@ pub class ImportResolver {
         var other_real = string()
         if other.empty() {
             if !self._lib_pins.contains(kairo::sref(key)) {
-                self._lib_pins[kairo::sref(key)]     = real
-                self._lib_pin_dirs[kairo::sref(key)] = dir
+                self._lib_pins[kairo::sref(key)]     = real.copy()
+                self._lib_pin_dirs[kairo::sref(key)] = dir.copy()
                 return
             }
 
@@ -1146,8 +1146,8 @@ pub class ImportResolver {
                 return
             }
 
-            other      = self._lib_pin_dirs[kairo::sref(key)]
-            other_real = self._lib_pins[kairo::sref(key)]
+            other      = self._lib_pin_dirs[kairo::sref(key)].copy()
+            other_real = self._lib_pins[kairo::sref(key)].copy()
         } else {
             other_real = self._real(other)
         }
@@ -1159,9 +1159,9 @@ pub class ImportResolver {
 
         self._reported_pairs.insert(kairo::sref(pair))
         var c = RootNameCollision{}
-        c.name   = key
-        c.a      = other
-        c.b      = dir
+        c.name   = key.copy()
+        c.a      = other.copy()
+        c.b      = dir.copy()
         c.pinned = true
         self._late_collisions.push_back(c.message())
     }
@@ -1184,12 +1184,12 @@ pub class ImportResolver {
         var key  = self._name_str(ident)
         var real = self._real(file.full_path())
         if !self._identities.contains(kairo::sref(key)) {
-            self._identities[kairo::sref(key)]     = real
+            self._identities[kairo::sref(key)]     = real.copy()
             self._identity_files[kairo::sref(key)] = file.full_path()
             return
         }
 
-        var first = self._identities[kairo::sref(key)]
+        var first = self._identities[kairo::sref(key)].copy()
         if first == real {
             return
         }
@@ -1201,8 +1201,8 @@ pub class ImportResolver {
 
         self._reported_pairs.insert(kairo::sref(pair))
         var c = ModuleIdentityCollision{}
-        c.ident = key
-        c.a     = self._identity_files[kairo::sref(key)]
+        c.ident = key.copy()
+        c.a     = self._identity_files[kairo::sref(key)].copy()
         c.b     = file.full_path()
         self._late_collisions.push_back(c.message())
     }
@@ -1375,7 +1375,7 @@ pub class ImportResolver {
     ///          pragmatic exception rather than an escaping scheme that would
     ///          leak into mangled names forever.
     fn module_ident(self, const name: string) -> string {
-        var out = name
+        var out = name.copy()
         for var i: usize = 0; i < out.size(); ++i {
             if out[i] == ('-' as u8) {
                 out[i] = ('_' as u8)
@@ -1415,7 +1415,7 @@ pub class ImportResolver {
             }
         }
 
-        var last = segments[segments.size() - 1]
+        var last = segments[segments.size() - 1].copy()
         self._sweep_dir(node)
 
         var        mod_node: unsafe *DirEntry = &null
@@ -1540,14 +1540,14 @@ pub class ImportResolver {
 
         var seen = llvm::StringMap<string>() // identity -> first claimant; probed only
         for var i: usize = 0; i < names.size(); ++i {
-            var raw   = names[i]
+            var raw   = names[i].copy()
             var ident = self._lower(self.module_ident(raw))
             var ins   = seen.try_emplace(kairo::sref(ident), raw)
             if ins.second {
                 continue
             }
 
-            var other = ins.first->second
+            var other = ins.first->second.copy()
             if other == raw { // a dir and its own module.k, etc.
                 continue
             }
@@ -1565,9 +1565,9 @@ pub class ImportResolver {
             }
 
             var c = ModuleNameCollision{}
-            c.dir       = key
-            c.a         = other
-            c.b         = raw
+            c.dir       = key.copy()
+            c.a         = other.copy()
+            c.b         = raw.copy()
             c.ident     = self.module_ident(other)
             c.case_only = self._lower(other) == self._lower(raw)
             self._collisions.push_back(c)
@@ -1575,7 +1575,7 @@ pub class ImportResolver {
     }
 
     priv fn _lower(self, const s: string) -> string {
-        var out = s
+        var out = s.copy()
         for var i: usize = 0; i < out.size(); ++i {
             if out[i] >= ('A' as u8) && out[i] <= ('Z' as u8) {
                 out[i] = out[i] + 32

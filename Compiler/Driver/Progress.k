@@ -29,7 +29,7 @@ const PROGRESS_CODEGEN: i32 = 2
 /// never, lines; the meter is then off. `auto` is on whenever stderr is a
 /// terminal, --verbose included.
 pub fn progress_configure(const flag: string) -> bool {
-    var f = flag
+    var f = flag.copy()
     return kairo::ProgressMeter::configure(f.c_str(), false)
 }
 
@@ -50,7 +50,7 @@ pub fn progress_tick(phase: i32, const file: string, n: usize = 1) {
         return
     }
 
-    var f = file
+    var f = file.copy()
     kairo::ProgressMeter::tick(phase, f.c_str(), n)
 }
 

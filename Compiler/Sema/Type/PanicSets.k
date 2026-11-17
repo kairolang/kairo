@@ -284,11 +284,11 @@ pub class PanicTypeIds derives PackSetOrder {
                 // `unsigned long`, and two spellings of it would be two
                 // `__kairo_tid` specializations of one type, a redefinition.
                 if b->builtin == BuiltinKind::USize && self.usize_as != BuiltinKind::COUNT {
-                    return builtin_info(self.usize_as)->cxx
+                    return builtin_info(self.usize_as)->cxx.copy()
                 }
 
                 if b->builtin == BuiltinKind::ISize && self.isize_as != BuiltinKind::COUNT {
-                    return builtin_info(self.isize_as)->cxx
+                    return builtin_info(self.isize_as)->cxx.copy()
                 }
 
                 return b->cxx_emission()

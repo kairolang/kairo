@@ -205,7 +205,7 @@ extend InterfaceEmitter {
             return self._spell->_type(en->underlying)
         }
 
-        return builtin_info(BuiltinKind::U32)->cxx // Kairo's default enum width.
+        return builtin_info(BuiltinKind::U32)->cxx.copy() // Kairo's default enum width.
     }
 
     /// # Tier 1
@@ -765,7 +765,7 @@ extend InterfaceEmitter {
 
             var bs = self._spell->_type(e->base)
             for var k: usize = 0; k < names.size(); ++k {
-                var nm = names[k]
+                var nm = names[k].copy()
                 if acc[k] == 255 {
                     continue
                 }

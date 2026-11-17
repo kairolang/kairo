@@ -477,7 +477,7 @@ pub class ASTContext {
         tok.set_range(range)
         // token = lexer->intern_ident(s_p, length, h);
         // fn intern_ident(self, const data: *u8, len: usize, hash: u32) -> u32
-        var unsafe *str = self.string_alloc.alloc_init<string>(s)
+        var unsafe *str = self.string_alloc.alloc_init<string>(s.copy())
         if str == &null {
             self.diags->report(
                 DiagID::I002F,

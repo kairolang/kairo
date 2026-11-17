@@ -263,7 +263,7 @@ pub class ASTArchive {
     pub fn fail(self, const msg: string) {
         if !self.failed {
             self.failed = true
-            self.error  = msg
+            self.error  = msg.copy()
         }
     }
 
@@ -637,7 +637,7 @@ pub class ASTArchive {
             return cand
         }
 
-        var want = self.files[idx as usize].base
+        var want = self.files[idx as usize].base.copy()
         self.fail(
             f"a file the serialized AST depends on is not loaded or has changed: {want}",
         )
@@ -1330,7 +1330,7 @@ pub class ASTArchive {
             } else if name_cls == 1 {
                 d->macro_name = u32::MAX
             } else if self.psym != &null {
-                d->macro_name = self.psym->intern(name)
+                d->macro_name = self.psym->intern(name.copy())
             } else {
                 self.fail(
                     "no preprocessor symbol table to restore a macro name into",

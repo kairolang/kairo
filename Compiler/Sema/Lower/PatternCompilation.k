@@ -959,7 +959,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             var        nr = CRow{}
             nr.arm     = r->arm
             nr.guarded = r->guarded
-            nr.key     = r->key
+            nr.key     = r->key.copy()
             nr.binds   = r->binds
             if self._ps.is_wild(h) {
                 self._bind_head(&nr, h, (occs)[0])
@@ -1035,7 +1035,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             var nr = CRow{}
             nr.arm     = r->arm
             nr.guarded = r->guarded
-            nr.key     = r->key
+            nr.key     = r->key.copy()
             nr.binds   = r->binds
             self._bind_head(&nr, h, (occs)[0])
             for var k: usize = 1; k < r->cols.size(); ++k {
@@ -1617,7 +1617,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 var        nr = CRow{}
                 nr.arm     = r->arm
                 nr.guarded = r->guarded
-                nr.key     = r->key
+                nr.key     = r->key.copy()
                 nr.binds   = r->binds
                 self._bind_head(&nr, h, (*occs)[0])
                 for var c: usize = 1; c < r->cols.size(); ++c {

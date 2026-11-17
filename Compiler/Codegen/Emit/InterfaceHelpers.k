@@ -52,7 +52,7 @@ extend InterfaceEmitter {
     ///   `__kairo_unit`, `__kairo_nv<T>`   T, or an empty struct for void;
     ///   `__kairo_max_align<P...>(f)`      max(f, alignof(P)...).
     prot fn _panic_helpers(self, en: unsafe *Declarations::EnumDecl) {
-        var u  = builtin_info(BuiltinKind::U32)->cxx
+        var u  = builtin_info(BuiltinKind::U32)->cxx.copy()
         var at = self._tu_at()
         var ti = LowerTargets::type_id_trait()
         self._cg->sink->spell(at, "template <class E> struct " + ti + ";")
@@ -323,7 +323,7 @@ extend InterfaceEmitter {
     /// is spelled; its members are, read off \p en.
     priv fn _fwd_helpers(self, en: unsafe *Declarations::EnumDecl) {
         var at  = self._tu_at()
-        var u   = builtin_info(BuiltinKind::U32)->cxx
+        var u   = builtin_info(BuiltinKind::U32)->cxx.copy()
         var nx  = self._adt_noexcept()
         var vt  = "::" + LowerTargets::adt_variant_tag()
         var fw  = LowerTargets::panic_fwd()
@@ -421,7 +421,7 @@ extend InterfaceEmitter {
             return
         }
 
-        var u = builtin_info(BuiltinKind::U32)->cxx
+        var u = builtin_info(BuiltinKind::U32)->cxx.copy()
         if header {
             self._cg->sink->directive(
                 self._tu_at(),
@@ -472,7 +472,7 @@ extend InterfaceEmitter {
     /// constructed, into a reference-counted buffer the copies share.
     prot fn _panic_api(self, en: unsafe *Declarations::EnumDecl, header: bool) {
         var at = self._tu_at()
-        var u = builtin_info(BuiltinKind::U32)->cxx
+        var u = builtin_info(BuiltinKind::U32)->cxx.copy()
         var sz = "decltype(sizeof(0))"
         var st = "::" + LowerTargets::panic_site_type()
         var pn = self._spell->qual_name(en)
@@ -839,7 +839,7 @@ extend InterfaceEmitter {
     /// (_enum_niche_trait). EnumLayoutQuery::niche_of is the same table.
     prot fn _niche_helpers(self, header: bool) {
         var at = self._tu_at()
-        var w  = builtin_info(BuiltinKind::U64)->cxx
+        var w  = builtin_info(BuiltinKind::U64)->cxx.copy()
         var nt = LowerTargets::niche_trait()
         var c  = LowerTargets::niche_trait_count()
         var pt = LowerTargets::niche_trait_pattern()

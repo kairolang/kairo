@@ -98,7 +98,7 @@ pub fn time_write_trace(const path: string) -> bool {
         return false
     }
 
-    var p = path
+    var p = path.copy()
     return kairo::ktime_write_trace(p.c_str())
 }
 
@@ -115,7 +115,7 @@ pub inline fn time_current() -> unsafe *kairo::KTimeRecord {
 ///          resolve once, then construct from the handle. Valid for the life
 ///          of the process.
 pub fn time_region(const name: string) -> unsafe *kairo::KTimeRecord {
-    var n = name
+    var n = name.copy()
     return kairo::ktime_region(n.c_str())
 }
 
@@ -126,7 +126,7 @@ pub fn time_region(const name: string) -> unsafe *kairo::KTimeRecord {
 ///          stream is being opened, but lex time is not part of opening the
 ///          stream   it belongs beside it, under the walk.
 pub fn time_region_beside(const name: string) -> unsafe *kairo::KTimeRecord {
-    var n = name
+    var n = name.copy()
     return kairo::ktime_region_beside(n.c_str())
 }
 
@@ -157,7 +157,7 @@ pub fn time_bill_since(const name: string, t0: u64) {
         return
     }
 
-    var n = name
+    var n = name.copy()
     kairo::ktime_bill_since(n.c_str(), t0)
 }
 
@@ -190,7 +190,7 @@ pub class TimeRegion {
             return
         }
 
-        var n = name
+        var n = name.copy()
         self._f = kairo::ktime_enter(kairo::ktime_region(n.c_str()))
     }
 

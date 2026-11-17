@@ -664,7 +664,12 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
             msg = f"'{nm}' is an interface, not a type, and a plain interface has no pointer; bound a generic parameter (`T impl {nm}`), or declare it `virtual interface` for dispatch through a pointer"
         }
 
-        var b = self.sc->diag->report(DiagID::SC332E, t->range.start, msg)
+        var b = self.sc->diag->report(
+            DiagID::SC332E,
+            t->range.start,
+            msg.copy(),
+        )
+
         b.first(t->range)
         b.emit()
     }

@@ -69,7 +69,12 @@ pub fn agree_text_magic() -> string {
 
 /// Reports \p f into \p ctx's sink.
 pub fn agree_emit(ctx: unsafe *ASTContext, const f: AgreeFinding) {
-    var b = ctx->diag_sink.report(DiagCode(DiagID::I012W), f.at.start, f.msg)
+    var b = ctx->diag_sink.report(
+        DiagCode(DiagID::I012W),
+        f.at.start,
+        f.msg.copy(),
+    )
+
     b.first(f.at, f.label)
     for var i: usize = 0; i < f.notes.size(); ++i {
         var n = f.notes[i]
@@ -94,7 +99,7 @@ fn _one_line(const s: string) -> string {
     }
 
     if clean {
-        return s
+        return s.copy()
     }
 
     var out = ""
@@ -296,7 +301,7 @@ pub fn agree_decode(sm:         unsafe *SourceManager,
     var open  = false
     var cur   = AgreeFinding{}
     for var li: usize = 0; li < lines.size(); ++li {
-        var line       = lines[li]
+        var line       = lines[li].copy()
         var at:  usize = 0
         var tag        = _word(line, &at)
         if tag == "file" {

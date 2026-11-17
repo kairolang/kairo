@@ -986,7 +986,7 @@ pub class CompilerInstance {
         // registered library's name.
         var ok = true
         for var msg: string in self._imp->take_late_collisions() {
-            self._diag->report(DiagCode(DiagID::R018E), msg).emit()
+            self._diag->report(DiagCode(DiagID::R018E), msg.copy()).emit()
             ok = false
         }
 
@@ -1001,7 +1001,7 @@ pub class CompilerInstance {
     ///
     /// \return false after reporting; the caller must stop.
     fn apply_input_options(self) -> bool {
-        var enc = self.invocation()->input_encoding
+        var enc = self.invocation()->input_encoding.copy()
         var is_utf8 = enc.empty()
             || enc == "utf-8"
             || enc == "UTF-8"
@@ -1015,7 +1015,7 @@ pub class CompilerInstance {
             return false
         }
 
-        var wd = self.invocation()->working_dir
+        var wd = self.invocation()->working_dir.copy()
         if wd.empty() {
             return true
         }
@@ -1271,7 +1271,7 @@ pub class CompilerInstance {
         self.incr.verify       = fe->incr_verify
         self.incr.paranoid     = fe->incr_paranoid
         self.incr.print_status = fe->print_incr_status
-        var format = self.invocation()->diag.format
+        var format = self.invocation()->diag.format.copy()
         var basic  = renders_through_basic(self.invocation()->diag.error_format)
         var color  = false
         if !basic {
@@ -1333,9 +1333,9 @@ pub class CompilerInstance {
         tr.ffi_pthread = self.incr.old_pthread
         tr.warn_count  = self.incr.old_warns
         if renders_through_basic(self.invocation()->diag.error_format) {
-            self._basic->replay = self.incr.old_diag
+            self._basic->replay = self.incr.old_diag.copy()
         } else {
-            self._pretty->replay = self.incr.old_diag
+            self._pretty->replay = self.incr.old_diag.copy()
         }
 
         self._diag->add_replayed(self.incr.old_warns)
@@ -1392,7 +1392,7 @@ pub class CompilerInstance {
             return true
         }
 
-        var all = self.incr.plan_all
+        var all = self.incr.plan_all.copy()
         var old = cxx::std::vector<PlanModule>()
         if all.empty() && !self.incr.plan_base {
             all = "no record"
@@ -1581,13 +1581,15 @@ pub class CompilerInstance {
                 )
             }
 
-            self.incr.sources.push_back(SourceRead { path: name, hash: h })
+            self.incr.sources.push_back(
+                SourceRead { path: name.copy(), hash: h.copy() },
+            )
         }
 
         self.incr.roots   = self._imp->root_dirs()
         self.incr.objects = objs
         self.incr.pthread = pth
-        self.incr.diag    = text
+        self.incr.diag    = text.copy()
         self.incr.warns   = warns
         self.incr.write()
     }
@@ -1680,7 +1682,7 @@ pub class CompilerInstance {
         // runs as it always does.
         var incr_hit = self._incr_begin(&order)
         for var k: InputKind in order {
-            var path_str = k.path
+            var path_str = k.path.copy()
             if k.cls == InputClass::LinkInput {
                 self._link_inputs.push_back(path_str)
                 continue
@@ -1833,7 +1835,7 @@ pub class CompilerInstance {
         var unsafe *sym = self._pp->get_symbol_table()
         for var seg: string in self._imp->input_module_path(Path(path)) {
             var ident = IdentifierToken()
-            ident.name  = sym->intern(seg)
+            ident.name  = sym->intern(seg.copy())
             ident.token = &null
             mp.segments.push_back(ident)
         }

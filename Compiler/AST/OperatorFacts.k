@@ -67,10 +67,10 @@ pub class OperatorRow {
                    unary_only:   bool,
                    returns_bool: bool) {
         self.kind         = kind
-        self.cxx          = cxx_v
+        self.cxx          = cxx_v.copy()
         self.compound     = compound
         self.base         = base
-        self.ext          = ext
+        self.ext          = ext.copy()
         self.unary_only   = unary_only
         self.returns_bool = returns_bool
     }
@@ -1069,7 +1069,7 @@ pub class OperatorFacts {
             return ""
         }
 
-        return r->cxx
+        return r->cxx.copy()
     }
 
     /// `[]` returning a safe `*T` / `*const T`: a place into `self`,

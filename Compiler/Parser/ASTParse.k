@@ -2342,7 +2342,7 @@ pub class ASTParse
     }
 
     pub fn ig_err(self, r: SourceRange, const msg: string, code: DiagID) {
-        var b = self.diag->report(code, r.start, msg)
+        var b = self.diag->report(code, r.start, msg.copy())
         ig_finish(&b, r)
     }
 
@@ -2352,7 +2352,7 @@ pub class ASTParse
                          code:          DiagID,
                          cut:           SourceRange,
                          const fix_msg: string) {
-        var b = self.diag->report(code, r.start, msg)
+        var b = self.diag->report(code, r.start, msg.copy())
         ig_finish_remove(&b, r, cut, fix_msg)
     }
 
@@ -2363,7 +2363,7 @@ pub class ASTParse
                          at:            SourceRange,
                          const text:    string,
                          const fix_msg: string) {
-        var b = self.diag->report(code, r.start, msg)
+        var b = self.diag->report(code, r.start, msg.copy())
         ig_finish_insert(&b, r, at, text, fix_msg)
     }
 
@@ -2596,7 +2596,7 @@ pub class ASTParse
     ///       the remaining hops.
     pub inline fn report_tok(self, id: DiagID, tok: unsafe *Token, const msg: string) {
         if tok == &null {
-            self.diag->report(id, msg).emit()
+            self.diag->report(id, msg.copy()).emit()
             return
         }
 
@@ -2605,7 +2605,9 @@ pub class ASTParse
             && self.imm != &null
 
         if !wrapped {
-            self.diag->report(id, tok->range.start, msg).first(tok->range)->emit()
+            self.diag->report(id, tok->range.start, msg.copy()).first(
+                tok->range,
+            )->emit()
             return
         }
 
@@ -2617,7 +2619,9 @@ pub class ASTParse
 
         if !invoke.is_valid() {
             // degenerate record; fall back to the def-site range
-            self.diag->report(id, tok->range.start, msg).first(tok->range)->emit()
+            self.diag->report(id, tok->range.start, msg.copy()).first(
+                tok->range,
+            )->emit()
             return
         }
 
@@ -3529,7 +3533,7 @@ pub class ASTParse
                     var sp = self.ctx->get_spelling(a->range)
                     if sp.size() >= 2 && sp[0] == ('"' as u8) && sp[sp.size() - 1] == ('"' as u8) {
                         var inner: string = sp.subslice(1, sp.size() - 2)
-                        text = inner
+                        text = inner.copy()
                     }
                 }
 

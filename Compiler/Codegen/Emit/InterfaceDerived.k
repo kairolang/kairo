@@ -344,7 +344,7 @@ extend InterfaceEmitter {
         syms.push_back("!=")
 
         var acc = cur
-        var sc8 = builtin_info(BuiltinKind::I8)->cxx
+        var sc8 = builtin_info(BuiltinKind::I8)->cxx.copy()
         for var i: usize = 0; i < methods.size(); ++i {
             var unsafe *m = methods[i]
             if m == &null || !m->is_operator || !m->is_method() {
@@ -731,7 +731,7 @@ extend InterfaceEmitter {
         var ds  = LowerTargets::adt_destroy()
         var cf  = LowerTargets::adt_construct_from()
         var vt  = "::" + LowerTargets::adt_variant_tag()
-        var u   = builtin_info(BuiltinKind::U32)->cxx
+        var u   = builtin_info(BuiltinKind::U32)->cxx.copy()
         var tc  = "(__is_trivially_copyable(H) && (__is_trivially_copyable(R) && ...))"
         var td  = "(__is_trivially_destructible(H) && (__is_trivially_destructible(R) && ...))"
         var at  = self._tu_at()

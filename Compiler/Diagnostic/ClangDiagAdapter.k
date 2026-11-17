@@ -260,14 +260,14 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             self._g.on   = true
             self._g.code = code
             self._g.at   = kloc
-            self._g.msg  = msg
+            self._g.msg  = msg.copy()
             self._collect_ranges_and_fixits(info)
             self._note_cause(info, msg)
             // stays open for trailing notes; built in _flush_open
         } else {
             // loc-less (cc1 args, target setup, header-blamed): plain no-loc
             self._emit_held()
-            self.sink->report(code, msg).emit()
+            self.sink->report(code, msg.copy()).emit()
         }
 
         self._last_fwded = true
@@ -645,7 +645,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             // No text: the edit is a removal (_replay).
             var fx = ClangFixEdit()
             fx.at   = rr
-            fx.text = text
+            fx.text = text.copy()
             self._g.fixes.push_back(fx)
         }
     }
@@ -725,11 +725,11 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var a = Path(prev).filename()
         var b = Path(self._redef_file).filename()
         if a == b {
-            a = prev
-            b = self._redef_file
+            a = prev.copy()
+            b = self._redef_file.copy()
         }
 
-        var name = self._redef_name
+        var name = self._redef_name.copy()
         self._redef_file = ""
         self._redef_name = ""
         self._attach_child_note(
@@ -749,7 +749,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
         var n = ClangNote()
         n.at    = kloc
-        n.msg   = msg
+        n.msg   = msg.copy()
         n.frame = frame
         self._g.notes.push_back(n)
     }
@@ -868,7 +868,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
         var nm = self.ksm->get_filename(r)
         for var i: usize = 0; i < self.lib_roots.size(); ++i {
-            var root = self.lib_roots[i]
+            var root = self.lib_roots[i].copy()
             if root.empty() {
                 continue
             }
@@ -992,8 +992,8 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
     /// Why the group's record copies only from a non-const lvalue.
     priv fn _copy_cause(self) -> string {
-        var c    = self._g.why_ctor_rec
-        var p    = self._g.why_param
+        var c    = self._g.why_ctor_rec.copy()
+        var p    = self._g.why_param.copy()
         var tail = f"takes a non-const '{p}' (C++ '{c}({c}&)')"
         if self._g.why_field.empty() {
             return f"its copy constructor {tail} and it has no move constructor"
@@ -1005,7 +1005,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// The Kairo fix on \p b: a note at the copy constructor and, where
     /// the parameter's Kairo text is its name, `const` inserted before it.
     priv fn _explain_copy(self, b: unsafe *DiagBuilder) {
-        var p = self._g.why_param
+        var p = self._g.why_param.copy()
         if self._g.why_param_at.is_valid() {
             b->insert(self._g.why_param_at.start, "const ", f"make '{p}' const")
         }
@@ -1065,7 +1065,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         if src != &null {
             var nm = ClangDiagAdapter::_std(src->getNameAsString())
             if !nm.empty() {
-                pname = nm
+                pname = nm.copy()
                 p_at  = self._param_in_decl(ctor_at, nm)
             }
         }
@@ -1077,8 +1077,8 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
 
         self._g.why_rec      = ClangDiagAdapter::_std(c.rec->getNameAsString())
-        self._g.why_ctor_rec = ctor_rec
-        self._g.why_param    = pname
+        self._g.why_ctor_rec = ctor_rec.copy()
+        self._g.why_param    = pname.copy()
         self._g.why_ctor_at  = ctor_at
         self._g.why_param_at = p_at
         if c.field != &null {

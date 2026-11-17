@@ -69,7 +69,7 @@ extend CompilerInstance {
                     continue
                 }
 
-                if Path::absolute_if_exists(k->path) == *f {
+                if Path::absolute_if_exists(k->path.copy()) == *f {
                     named = true
                     break
                 }
@@ -95,7 +95,7 @@ extend CompilerInstance {
         var out = self.invocation()->clang_include_dirs()
         var *fl = &self.invocation()->codegen.cxx_flags
         for var i: usize = 0; i < fl->size(); ++i {
-            var w = (*fl)[i]
+            var w = (*fl)[i].copy()
             if w == "-iquote" {
                 i += 1
                 continue
@@ -110,7 +110,7 @@ extend CompilerInstance {
                 continue
             }
 
-            if LinkText::starts_with(w, "-I") {
+            if LinkText::starts_with(w.copy(), "-I") {
                 out.push_back(
                     string(
                         unsafe (((w.raw() as unsafe *const u8) + 2) as *const u8),
@@ -133,7 +133,7 @@ extend CompilerInstance {
         var angle = self.invocation()->clang_include_dirs()
         var *fl   = &self.invocation()->codegen.cxx_flags
         for var i: usize = 0; i < fl->size(); ++i {
-            var w    = (*fl)[i]
+            var w    = (*fl)[i].copy()
             var next = if (i + 1 < fl->size()) => ((*fl)[i + 1]) else => ""
             if w == "-iquote" {
                 quote.push_back(next)
@@ -147,7 +147,7 @@ extend CompilerInstance {
                 continue
             }
 
-            if LinkText::starts_with(w, "-iquote") {
+            if LinkText::starts_with(w.copy(), "-iquote") {
                 quote.push_back(
                     string(
                         unsafe (((w.raw() as unsafe *const u8) + 7) as *const u8),
@@ -158,7 +158,7 @@ extend CompilerInstance {
                 continue
             }
 
-            if LinkText::starts_with(w, "-I") {
+            if LinkText::starts_with(w.copy(), "-I") {
                 angle.push_back(
                     string(
                         unsafe (((w.raw() as unsafe *const u8) + 2) as *const u8),

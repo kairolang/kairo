@@ -78,6 +78,7 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContextKind
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::TypeKind::TypeKind
@@ -277,6 +278,188 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
         self._stmt_top = saved
         return out
+    }
+
+    /// A `for` header's hidden local (VariableDecl::header_scope): every
+    /// temporary of its initializer lives until the loop ends. C++ ends one
+    /// with the declaration, so each is bound to a local of the loop's
+    /// block, ahead of the declaration: the receiver of a call, an argument
+    /// to a `const` or reference parameter, and every local this pass bound
+    /// inside a block of its own, which would end at that block's `}`. A
+    /// generator handed any of them by reference reads it on every step.
+    fn transform_decl_stmt(self, n: unsafe *DeclStmt) -> cxx::std::vector<unsafe *Stmt> {
+        var out = ASTWriter<SequenceLowering>::transform_decl_stmt(self, n)
+        var unsafe *vd = dyn_cast<VariableDecl>(n->decl)
+        if out.size() != 1 || vd == &null || !vd->header_scope || vd->init == &null {
+            return out
+        }
+
+        var lifted = cxx::std::vector<unsafe *Stmt>()
+        vd->init = self._lift_header(vd->init, unsafe &lifted)
+        if lifted.size() == 0 {
+            return out
+        }
+
+        lifted.push_back(unsafe (n as unsafe *Stmt))
+        return lifted
+    }
+
+    /// \p e, an operand of a `for` header, bound to a local that \p out
+    /// takes; returns what reads it. As _hoist binds it, marked as the
+    /// header's own local is.
+    priv fn _bind_header(self,
+                         e:        unsafe *Expr,
+                         consumed: bool,
+                         out:      unsafe *cxx::std::vector<unsafe *Stmt>) -> unsafe *Expr {
+        var        stmts  = self.list_builder<unsafe *Stmt>()
+        var unsafe *use   = self._hoist(e, unsafe &stmts, consumed, false)
+        var        frozen = FrozenList<unsafe *Stmt>()
+        stmts.freeze_into(&frozen)
+        for var i: usize = 0; i < frozen.size(); ++i {
+            var unsafe *ds = dyn_cast<DeclStmt>(frozen[i])
+            if ds != &null && ds->decl != &null && isa<VariableDecl>(ds->decl) {
+                cast<VariableDecl>(ds->decl)->header_scope = true
+            }
+
+            out->push_back(frozen[i])
+        }
+
+        return use
+    }
+
+    /// \p e, part of a `for` header's initializer that is evaluated
+    /// whenever the initializer is, with its temporaries moved to \p out in
+    /// evaluation order: the locals of a block this pass wrote (the block
+    /// replaced by its value), a record prvalue a call is made on, and a
+    /// value passed to a `const` or reference parameter. Only where the move
+    /// keeps the order: an operand is bound ahead of the declaration when
+    /// nothing before it in its call has an effect (_plan bound whatever
+    /// had one), or when it is pure itself. An operand of `&&`, `||` or an
+    /// `if` is not reached: it may not run.
+    priv fn _lift_header(self,
+                         e:   unsafe *Expr,
+                         out: unsafe *cxx::std::vector<unsafe *Stmt>) -> unsafe *Expr {
+        if e == &null {
+            return e
+        }
+
+        match e->kind {
+            case ExprKind::ParenExpr {
+                var unsafe *p = cast<Expressions::ParenExpr>(e)
+                p->inner = self._lift_header(p->inner, out)
+                return e
+            } case ExprKind::UnsafeExpr {
+                var unsafe *u = cast<Expressions::UnsafeExpr>(e)
+                u->operand = self._lift_header(u->operand, out)
+                return e
+            } case ExprKind::UnaryOperatorExpr {
+                var unsafe *u = cast<Expressions::UnaryOperatorExpr>(e)
+                if u->resolved_op == &null {
+                    u->operand = self._lift_header(u->operand, out)
+                }
+
+                return e
+            } case ExprKind::ChainExpr {
+                // A field read off a temporary (`make().n`).
+                var unsafe *c = cast<ChainExpr>(e)
+                if c->base != &null {
+                    c->base = self._lift_header(c->base, out)
+                    if self._record_prvalue(c->base) {
+                        c->base = self._bind_header(c->base, false, out)
+                    }
+                }
+
+                return e
+            } case ExprKind::StmtExpr {
+                var unsafe *se = cast<Expressions::StmtExpr>(e)
+                if se->is_jump || se->body == &null || se->body->body.size() == 0 {
+                    return e
+                }
+
+                var nb = se->body->body.size()
+                var unsafe *last = dyn_cast<ExpressionStmt>(
+                    se->body->body[nb - 1],
+                )
+
+                if last == &null || last->expr == &null {
+                    return e
+                }
+
+                for var i: usize = 0; i + 1 < nb; ++i {
+                    var unsafe *ds = dyn_cast<DeclStmt>(se->body->body[i])
+                    if ds == &null || ds->decl == &null || !isa<VariableDecl>(ds->decl) {
+                        return e
+                    }
+
+                    var unsafe *d = cast<VariableDecl>(ds->decl)
+                    if d->init == &null || d->raw_slot {
+                        return e
+                    }
+                }
+
+                for var i: usize = 0; i + 1 < nb; ++i {
+                    var unsafe *d = cast<VariableDecl>(
+                        cast<DeclStmt>(se->body->body[i])->decl,
+                    )
+
+                    d->header_scope = true
+                    d->init         = self._lift_header(d->init, out)
+                    out->push_back(se->body->body[i])
+                }
+
+                return self._lift_header(last->expr, out)
+            } case ExprKind::CallExpr {
+                var unsafe *n    = cast<Expressions::CallExpr>(e)
+                var        quiet = true
+                var unsafe *ch   = dyn_cast<ChainExpr>(n->callee)
+                var recv = ch != &null
+                    && ch->base != &null
+                    && ch->steps.size() > 0
+                    && ch->steps.get(0)->access_kind != ChainExpr::AccessKind::ColonColon
+                if recv {
+                    ch->base = self._lift_header(ch->base, out)
+                    if self._record_prvalue(ch->base) {
+                        ch->base = self._bind_header(ch->base, false, out)
+                    }
+
+                    quiet = self.synth.pure_read(ch->base)
+                }
+
+                var borrowed = self._lref_params(n, recv, true)
+                var args     = self.list_builder<unsafe *Expr>()
+                for var i: usize = 0; i < n->args.size(); ++i {
+                    var unsafe *a = n->args[i]
+                    if a == &null {
+                        args.push(a)
+                        continue
+                    }
+
+                    if quiet {
+                        a = self._lift_header(a, out)
+                    }
+
+                    // An extension's receiver (`__kairo_tmp(e)`) is borrowed
+                    // whatever its parameter says.
+                    var held = self._materialized(a)
+                        || !a->is_lvalue() && i < borrowed.size() && borrowed[i] != 0
+                    var mk = dyn_cast<Expressions::UnaryOperatorExpr>(a)
+                    if held
+                        && (mk == &null || !mk->is_mode_marker)
+                        && (quiet || self.synth.pure_read(a))
+                        && !isa<NamedIdentExpr>(self.tu.strip_parens(a)) {
+                        a = self._bind_header(a, true, out)
+                    }
+
+                    quiet = quiet && self.synth.pure_read(a)
+                    args.push(a)
+                }
+
+                args.freeze_into(&n->args)
+                return e
+            } default {
+                return e
+            }
+        }
     }
 
     fn transform_call_expr(self, n: unsafe *Expressions::CallExpr) -> unsafe *Expr {
@@ -948,9 +1131,12 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// Per positional argument of \p n (args are positional after
     /// CallLowering): whether its parameter is an imported `T&` or
     /// `const T&`, or a Kairo `inout`. \p bound_recv: `obj.m(...)`, whose `self` is no argument.
+    /// \p borrows widens it to every parameter a callee can keep a
+    /// reference through: a `const` one and an imported `T&&` too.
     priv fn _lref_params(self,
                          n:          unsafe *Expressions::CallExpr,
-                         bound_recv: bool) -> cxx::std::vector<u8> {
+                         bound_recv: bool,
+                         borrows:    bool = false) -> cxx::std::vector<u8> {
         // u8, not bool: the self-host migration rewrites vec<bool> to vec<u8>
         // by name, and a local named like a field (`out`) dragged the field along.
         var lrs                      = cxx::std::vector<u8>()
@@ -1000,6 +1186,13 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                 var unsafe *t = if (p->type_->canonical != &null) => (p->type_->canonical)
                                 else => p->type_
                 lr = lr || isa<CXXLValueRefType>(canon_unqual(t))
+                if borrows {
+                    lr = lr || isa<CXXRValueRefType>(canon_unqual(t))
+                }
+            }
+
+            if borrows && p->is_const && !p->is_self {
+                lr = true
             }
 
             if lr {

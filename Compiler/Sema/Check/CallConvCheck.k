@@ -405,7 +405,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
             return true
         }
 
-        var a = ci->target.arch_name
+        var a = ci->target.arch_name.copy()
         if a.size() == 0 { // unresolved: the driver reports the target.
             return true
         }
@@ -425,10 +425,10 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
         }
 
         if ci->target.effective_triple.size() > 0 {
-            return ci->target.effective_triple
+            return ci->target.effective_triple.copy()
         }
 
-        return ci->target.triple
+        return ci->target.triple.copy()
     }
 
     /// \p f is visible to C or C++: an `ffi` declaration, or a function no

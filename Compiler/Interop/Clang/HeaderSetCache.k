@@ -104,11 +104,11 @@ pub class HeaderSetCache {
         }
 
         var unsafe *hs = kairo::std::create<HeaderSet>()
-        hs->key         = key
+        hs->key         = key.copy()
         hs->headers     = headers
         hs->c_linkage   = c_linkage
         hs->header_locs = locs
-        hs->import_dir  = import_dir
+        hs->import_dir  = import_dir.copy()
         hs->id          = (self._sets.size())
         self._sets.try_emplace(kairo::sref(key), hs)
 
@@ -201,7 +201,11 @@ pub class HeaderSetCache {
         var conflict  = false
         for var v: *HeaderSet in views {
             for var i: usize = 0; i < v->headers.size(); ++i {
-                var r  = HeaderSetCache::resolve_spelling(v, v->headers[i])
+                var r = HeaderSetCache::resolve_spelling(
+                    v,
+                    v->headers[i].copy(),
+                )
+
                 var c  = i < v->c_linkage.size() && v->c_linkage[i] != 0
                 var it = seen.find(kairo::sref(r))
                 if it != seen.end() {

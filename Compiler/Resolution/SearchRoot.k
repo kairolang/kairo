@@ -146,7 +146,7 @@ pub fn module_dir_at_or_above(const dir: string) -> string {
         return ""
     }
 
-    var cur = Path::real_path_of(dir)
+    var cur = Path::real_path_of(dir.copy())
     while cur.size() > 0 {
         if Path::exists_at(Path::join_str(cur, "module.k")) {
             return cur
@@ -159,7 +159,7 @@ pub fn module_dir_at_or_above(const dir: string) -> string {
             break
         }
 
-        cur = up
+        cur = up.copy()
     }
 
     return ""

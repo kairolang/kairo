@@ -61,7 +61,7 @@ pub class KairoIncludeScan {
 
     /// \brief scans \p path and every quoted header it reaches.
     pub fn scan(self, const path: string) {
-        var abs = Path::absolute_if_exists(path)
+        var abs = Path::absolute_if_exists(path.copy())
         for var i: usize = 0; i < self._seen.size(); ++i {
             if self._seen[i] == abs {
                 return
@@ -170,14 +170,20 @@ pub class KairoIncludeScan {
                         const name: string,
                         const dirs: cxx::std::vector<string>) -> string {
         if !here.empty() {
-            var first = Path::absolute_if_exists(Path::join_str(here, name))
+            var first = Path::absolute_if_exists(
+                Path::join_str(here, name.copy()),
+            )
+
             if Path::exists_at(first) {
                 return first
             }
         }
 
         for var i: usize = 0; i < dirs.size(); ++i {
-            var cand = Path::absolute_if_exists(Path::join_str((dirs)[i], name))
+            var cand = Path::absolute_if_exists(
+                Path::join_str((dirs)[i], name.copy()),
+            )
+
             if Path::exists_at(cand) {
                 return cand
             }

@@ -237,7 +237,7 @@ pub class <T: type> OperatorTyping {
             var b = self.dyn()->sc->diag->report(
                 DiagID::SC262E,
                 rhs->range.start,
-                msg,
+                msg.copy(),
             )
 
             b.first(rhs->range, f"this count is {val}")
@@ -940,7 +940,7 @@ pub class <T: type> OperatorTyping {
             &frees,
             &fargs,
             n->range,
-            label,
+            label.copy(),
             rcv,
         )
 
@@ -2597,7 +2597,7 @@ pub class <T: type> OperatorTyping {
             &frees,
             &fargs,
             n->range,
-            label,
+            label.copy(),
             li,
         )
 
@@ -3697,7 +3697,7 @@ pub class <T: type> OperatorTyping {
         var        is_field = d != &null && isa<FieldDecl>(d)
         if is_field {
             var unsafe *f = cast<FieldDecl>(d)
-            if self._reject_const_self_field_write(n, x, f, verb) {
+            if self._reject_const_self_field_write(n, x, f, verb.copy()) {
                 return true
             }
 
@@ -3783,7 +3783,7 @@ pub class <T: type> OperatorTyping {
             var b = self.dyn()->sc->diag->report(
                 DiagID::SC071E,
                 n->range.start,
-                msg,
+                msg.copy(),
             )
 
             b.first(lhs->range)
@@ -3979,7 +3979,7 @@ pub class <T: type> OperatorTyping {
                 verb = "assign to"
             }
 
-            if self._reject_const_write(n, n->lhs, verb) {
+            if self._reject_const_write(n, n->lhs, verb.copy()) {
                 // The right side is still typed (a brace initializer must
                 // not reach codegen untyped), against the place's type;
                 // a bare `null` there has no target to take a type from and

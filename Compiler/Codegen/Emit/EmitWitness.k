@@ -403,14 +403,14 @@ pub class EmitWitness {
                         subst:        unsafe *InstanceEntry,
                         const self_s: string) -> string {
         var unsafe *saved_i = self._spell->self_iface
-        var        saved_s  = self._spell->self_spelling
+        var        saved_s  = self._spell->self_spelling.copy()
         if self_s.size() > 0 {
             self._self_as(m, self_s)
         }
 
         var r = self._ret(m, subst)
         self._spell->self_iface    = saved_i
-        self._spell->self_spelling = saved_s
+        self._spell->self_spelling = saved_s.copy()
         return r
     }
 
@@ -420,7 +420,7 @@ pub class EmitWitness {
                            subst:        unsafe *InstanceEntry,
                            const self_s: string) -> string {
         var unsafe *saved_i = self._spell->self_iface
-        var        saved_s  = self._spell->self_spelling
+        var        saved_s  = self._spell->self_spelling.copy()
         if self_s.size() > 0 {
             self._self_as(m, self_s)
         }
@@ -451,7 +451,7 @@ pub class EmitWitness {
         }
 
         self._spell->self_iface    = saved_i
-        self._spell->self_spelling = saved_s
+        self._spell->self_spelling = saved_s.copy()
         return s
     }
 
@@ -639,7 +639,7 @@ pub class EmitWitness {
         var k:      usize = 0
         var subs          = cxx::std::vector<unsafe *InstanceEntry>()
         var ms            = self.members_with(idecl, &subs)
-        var saved_q       = self._spell->assoc_self_qual
+        var saved_q       = self._spell->assoc_self_qual.copy()
         self._spell->assoc_self_qual = self._spell->witness_name(p->iface) + self_args
         for var i: usize = 0; i < ms.size(); ++i {
             var unsafe *m = ms[i]
@@ -667,11 +667,11 @@ pub class EmitWitness {
                 }
 
                 parms += self._receiver(m, me) + " " + r
-                args = r
+                args = r.copy()
             }
 
             var unsafe *saved_i = self._spell->self_iface
-            var        saved_s  = self._spell->self_spelling
+            var        saved_s  = self._spell->self_spelling.copy()
             self._self_as(m, me)
             for var j: usize = 0; j < m->params.size(); ++j {
                 var unsafe *q = m->params[j]
@@ -702,7 +702,7 @@ pub class EmitWitness {
             }
 
             self._spell->self_iface    = saved_i
-            self._spell->self_spelling = saved_s
+            self._spell->self_spelling = saved_s.copy()
             if ctor {
                 body += " " + me + "(" + fwd + ");"
                 continue
@@ -717,7 +717,7 @@ pub class EmitWitness {
             ) + self_args + "::" + self._spell->witness_member_name(m) + "(" + args + ");"
         }
 
-        self._spell->assoc_self_qual = saved_q
+        self._spell->assoc_self_qual = saved_q.copy()
         // Each associated type first: a type with no specialization has none,
         // and fails here rather than at a member that names it.
         var tn = ""
@@ -1202,7 +1202,7 @@ pub class EmitWitness {
                          subst:        unsafe *InstanceEntry,
                          const self_s: string) -> string {
         var unsafe *saved_i = self._spell->self_iface
-        var        saved_s  = self._spell->self_spelling
+        var        saved_s  = self._spell->self_spelling.copy()
         self._self_as(m, self_s)
         var ps = ""
         if m->is_method() {
@@ -1228,9 +1228,13 @@ pub class EmitWitness {
 
         // The requirement's convention is the thunk's own, so a call through
         // the bound reaches the conformer with no extra hop of another one.
-        var s = self._spell->template_head(
-            unsafe (m as unsafe *Decl),
-        ) + "static " + Speller::call_conv_attr(m->call_conv) + self._ret(
+        // Its head is spelled over the row's interface arguments, as its
+        // parameters and result are.
+        var unsafe *saved_p = self._spell->pred_subst
+        self._spell->pred_subst = subst
+        var head = self._spell->template_head(unsafe (m as unsafe *Decl))
+        self._spell->pred_subst = saved_p
+        var s = head + "static " + Speller::call_conv_attr(m->call_conv) + self._ret(
             m,
             subst,
         ) + " " + self._spell->witness_member_name(m) + "(" + ps
@@ -1243,7 +1247,7 @@ pub class EmitWitness {
         }
 
         self._spell->self_iface    = saved_i
-        self._spell->self_spelling = saved_s
+        self._spell->self_spelling = saved_s.copy()
         return s
     }
 
@@ -1368,7 +1372,7 @@ pub class EmitWitness {
         var unsafe *dc    = m->semantic_dc
         var unsafe *owner = if (dc != &null) => (dc->owner_decl()) else => &null
         self._spell->self_iface = if (owner != &null) => (Speller::rep(owner)) else => &null
-        self._spell->self_spelling = self_s
+        self._spell->self_spelling = self_s.copy()
     }
 
     /// `template <class __kairo_Self, class T>`: Self, then the interface's own.

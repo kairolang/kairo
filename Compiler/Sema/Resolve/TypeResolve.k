@@ -951,7 +951,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     priv fn _vx_fail(self, e: unsafe *Expr, const why: string) -> unsafe *Type {
         if self._vx_bad == &null {
             self._vx_bad = e
-            self._vx_why = why
+            self._vx_why = why.copy()
         }
 
         return &null
@@ -1372,7 +1372,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         var unsafe *sb = self._vx_bad
-        var        sw  = self._vx_why
+        var        sw  = self._vx_why.copy()
         var unsafe *sf = self._vx_fn
         var        sic = self._vx_in_call
         self._vx_in_call = 0
@@ -1381,7 +1381,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self._vx_through_depth -= 1
         self._vx_in_call = sic
         self._vx_bad     = sb
-        self._vx_why     = sw
+        self._vx_why     = sw.copy()
         self._vx_fn      = sf
         if iv == &null {
             return &null
@@ -2242,8 +2242,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         var tri  = t->describe()
-        var arch = t->arch_name
-        var ld   = t->long_double_fmt_name
+        var arch = t->arch_name.copy()
+        var ld   = t->long_double_fmt_name.copy()
 
         // Two different failures. The hardware may have x87 and the ABI still
         // not expose it: f80 lowers to C++ `long double`, so the ABI is the
@@ -2278,7 +2278,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         fix += "; see --explain P003E"
 
-        self.sc->diag->report(DiagID::P003E, ct->range.start, msg).first(
+        self.sc->diag->report(DiagID::P003E, ct->range.start, msg.copy()).first(
             ct->range,
         )->note(ct->range.start, why)->note(ct->range.start, fix)->emit()
         return false
@@ -2324,7 +2324,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var bk = builtin_for_token(tok.kind)
         if bk != BuiltinKind::COUNT {
             if n > 1 || !seg0->generic_args.is_empty() {
-                var sp = builtin_info(bk)->spelling
+                var sp = builtin_info(bk)->spelling.copy()
                 self.sc->diag->report(
                     DiagID::R024E,
                     ct->range.start,
@@ -3384,7 +3384,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return false
         }
 
-        var b = self.sc->diag->report(DiagID::SC170E, td->name.range.start, why)
+        var b = self.sc->diag->report(
+            DiagID::SC170E,
+            td->name.range.start,
+            why.copy(),
+        )
+
         b.first(td->name.range)
         b.note(
             inh->range.start,
@@ -3515,7 +3520,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                            decl_at_in:      SourceRange,
                            i0:              usize) -> bool {
         var unsafe *base  = base_in
-        var        hname  = hname_in
+        var        hname  = hname_in.copy()
         var        bexprs = cxx::std::vector<unsafe *ConstraintExpr>()
         for var k: usize = 0; k < bexprs_in.size(); ++k {
             bexprs.push_back((bexprs_in)[k])
@@ -5444,7 +5449,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return
         }
 
-        var b = self.sc->diag->report(id, t->range.start, msg)
+        var b = self.sc->diag->report(id, t->range.start, msg.copy())
         b.first(t->range, what)
         b.emit()
         // The block is poisoned, not its target: a generic block is walked

@@ -282,7 +282,7 @@ pub class ObjectCache {
         )
 
         for var r: usize = 0; r < ix.size(); ++r {
-            var p      = paths[ix[r]]
+            var p      = paths[ix[r]].copy()
             var at     = seen.find(kairo::sref(p))
             var h: u32 = 0
             if at == seen.end() {
@@ -307,7 +307,7 @@ pub class ObjectCache {
                 }
 
                 var unsafe *ks = hs->closure_kfids(
-                    HeaderSetCache::resolve_spelling(hs, hs->headers[i]),
+                    HeaderSetCache::resolve_spelling(hs, hs->headers[i].copy()),
                 )
 
                 if ks->size() == 0 {
@@ -376,7 +376,7 @@ pub class ObjectCache {
             ) + "\n"
         }
 
-        self._hdr_global = g
+        self._hdr_global = g.copy()
         self.run_part    = "diag " + ObjectCache::hash(self._diag_part) + "\n"
     }
 
@@ -443,7 +443,7 @@ pub class ObjectCache {
             }
         }
 
-        var h         = self._hdr_global
+        var h         = self._hdr_global.copy()
         var last: u32 = u32::MAX
         for var i: usize = 0; i < hmark.size(); ++i {
             if hmark[i] == (0 as u8) {
@@ -493,7 +493,7 @@ pub class ObjectCache {
             )
         }
 
-        return self._hdr_hash[i]
+        return self._hdr_hash[i].copy()
     }
 
     /// O(m) for a TU whose stream hashed to \p stream and whose reachable
@@ -613,8 +613,8 @@ pub class ObjectCache {
         if ObjectCache::_record_key(ObjectCache::_record_of(beside)) == key {
             var text = ""
             if LinkFS::read(self._found_path(key), &text) && agree_text_whole(text, key) {
-                entry = beside
-                found = text
+                entry = beside.copy()
+                found = text.copy()
                 hit   = true
                 self._used.insert(kairo::sref(self._found_path(key)))
             }
@@ -742,7 +742,7 @@ pub class ObjectCache {
                 var bytes = LinkFS::size(p)
                 var used  = self._used.contains(kairo::sref(p))
                 kept.push_back(
-                    CacheEntryStat { path: p, at: last, bytes: bytes, pinned: used },
+                    CacheEntryStat { path: p.copy(), at: last, bytes: bytes, pinned: used },
                 )
 
                 total += bytes
@@ -896,7 +896,7 @@ pub class ObjectCache {
         var skip_next = false
         var n         = args->size()
         for var i: usize = 0; i < n; ++i {
-            var a = (*args)[i]
+            var a = (*args)[i].copy()
             if skip_next {
                 skip_next = false
                 continue

@@ -1408,7 +1408,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// but they still get ONE space   without it `wildcard_target@ 98:13`
     /// runs the name into the location that follows it.
     priv fn _pad(self, const s: string, w: usize) -> string {
-        var out = s
+        var out = s.copy()
         if s.size() >= w {
             return out + " "
         }
@@ -1492,7 +1492,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return
         }
 
-        self._emitted_scope = self._scope
+        self._emitted_scope = self._scope.copy()
         self._p.paint(Color::Tree, "  ")
         self._p.paint(Color::Keyword, self._scope)
         self._p.newline()
@@ -1610,7 +1610,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
     /// Appends \p name to the scope path; returns the path to restore.
     priv fn _enter_scope(self, name: Token) -> string {
-        var saved = self._scope
+        var saved = self._scope.copy()
         self._scope = f"{self._scope}::{self.ctx->get_spelling(name)}"
         return saved
     }
@@ -1621,7 +1621,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return n
         }
 
-        var saved = self._scope
+        var saved = self._scope.copy()
         // Through sema_dump_decl_name, not get_spelling(n->name): an operator
         // has no name token, and spelling the empty one asserts in debug.
         self._scope = f"{self._scope}::{sema_dump_decl_name(self.ctx, n)}"
@@ -1630,7 +1630,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             n,
         )
 
-        self._scope = saved
+        self._scope = saved.copy()
         return out
     }
 
@@ -1646,7 +1646,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             n,
         )
 
-        self._scope = saved
+        self._scope = saved.copy()
         return out
     }
 
@@ -1662,7 +1662,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             n,
         )
 
-        self._scope = saved
+        self._scope = saved.copy()
         return out
     }
 
@@ -1678,7 +1678,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             n,
         )
 
-        self._scope = saved
+        self._scope = saved.copy()
         return out
     }
 
@@ -1694,7 +1694,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             n,
         )
 
-        self._scope = saved
+        self._scope = saved.copy()
         return out
     }
 
@@ -1710,7 +1710,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             n,
         )
 
-        self._scope = saved
+        self._scope = saved.copy()
         return out
     }
 
@@ -1723,14 +1723,14 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return n
         }
 
-        var saved = self._scope
+        var saved = self._scope.copy()
         self._scope = f"{self._scope}::<closure @ {sema_dump_loc(self.ctx, n->range.start)}>"
         var unsafe *out = RecursiveASTVisitor<SemaDump>::traverse_closure_expr(
             self,
             n,
         )
 
-        self._scope = saved
+        self._scope = saved.copy()
         return out
     }
 
@@ -1746,7 +1746,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             n,
         )
 
-        self._scope = saved
+        self._scope = saved.copy()
         return out
     }
 

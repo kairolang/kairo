@@ -212,7 +212,7 @@ pub class PreProcessor {
         self._define_storage.reserve(self._opts.defines.size())
 
         for var i: usize = 0; i < self._opts.defines.size(); ++i {
-            var raw = self._opts.defines[i]
+            var raw = self._opts.defines[i].copy()
 
             var name:  string
             var value: string
@@ -221,7 +221,7 @@ pub class PreProcessor {
                 name  = raw.subslice(0, eq)
                 value = raw.subslice(eq + 1, raw.size() - (eq + 1))
             } else {
-                name  = raw
+                name  = raw.copy()
                 value = "1"
             }
 
@@ -332,7 +332,7 @@ pub class PreProcessor {
             entry->decl       = decl
             entry->storage    = macro_storage
             entry->body_len   = (macro_storage->size() as u32)
-            entry->name_sym   = self._sym->intern(name)
+            entry->name_sym   = self._sym->intern(name.copy())
             entry->scope      = ModulePath() // global: visible from every TU
             entry->source_fid = fid
             entry->visibility = VisibilityKind::Public // MacroTable::find's cross-file check needs it
@@ -803,7 +803,7 @@ pub class PreProcessor {
         // slice. Told by directory, since a builtin file compiled as the
         // entry has no prelude to be the closure of.
         if !self._opts.builtins_dir.empty() {
-            var root = Path::real_path_of(self._opts.builtins_dir)
+            var root = Path::real_path_of(self._opts.builtins_dir.copy())
             if !root.ends_with("/") {
                 root += "/"
             }
@@ -844,7 +844,7 @@ pub class PreProcessor {
         var b = self._diag->report(
             if (forbid) => (DiagID::R058E) else => DiagID::R058W,
             at.start,
-            msg,
+            msg.copy(),
         )
 
         b.first(at, "this import closes the cycle")

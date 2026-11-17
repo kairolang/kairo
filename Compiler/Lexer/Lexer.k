@@ -326,8 +326,8 @@ pub class Lexer {
     /// \param decode decoded character at the current cursor position
     /// \returns next token
     priv inline fn get_token(self,
-                             const start  : SourceLocation,
-                             const decode : kairo::DecodeResult) -> Token {
+                             const start:  SourceLocation,
+                             const decode: kairo::DecodeResult) -> Token {
         const cls: kairo::CharClass = self.classify(decode.chr)
 
         match cls {
@@ -2889,7 +2889,7 @@ pub class Lexer {
                     var w = self._diag->report(
                         DiagCode(DiagID::S025W),
                         range.start,
-                        msg,
+                        msg.copy(),
                     )
 
                     w.first(range)
@@ -3016,7 +3016,7 @@ pub fn Test(bench: bool = false) -> i32 {
     var create_lexer_from_string_with_diag = fn (content: string, lsm: unsafe *SourceManager, lpool: unsafe *ThreadPool, diag: unsafe *DiagEngine) -> (unsafe *Lexer, u32) {
         var temp_path = Path::temp_dir().join("hlx_lexer_test.k")
         lsm->reset()
-        var temp_data = content
+        var temp_data = content.copy()
         data = kairo::std::to_std_string(temp_data)
 
         var        path = Path(temp_path, false)
@@ -7046,7 +7046,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var code = "fn factorial(n: i32) -> i32 {\n" + "    if n <= 1 {\n" + "        return 1;\n" + "    }\n" + "    return n * factorial(n - 1);\n" + "}\n" + "\n" + "class Point {\n" + "    var x: f64;\n" + "    var y: f64;\n" + "    \n" + "    fn Point(self, x: f64, y: f64) {\n" + "        self.x = x;\n" + "        self.y = y;\n" + "    }\n" + "    \n" + "    fn distance(self, other: *Point) -> f64 {\n" + "        var dx = self.x - other->x;\n" + "        var dy = self.y - other->y;\n" + "        return (dx * dx + dy * dy).sqrt();\n" + "    }\n" + "}\n" + "\n" + "fn main() -> i32 {\n" + "    var p1 = Point(0.0, 0.0);\n" + "    var p2 = Point(3.0, 4.0);\n" + "    var d = p1.distance(&p2);\n" + "    std::print(f\"Distance: {d}\n\");\n" + "    return 0;\n" + "}\n"
 
             var res = create_lexer_from_string_with_diag(
-                code,
+                code.copy(),
                 sm,
                 pool,
                 test_diag_p,

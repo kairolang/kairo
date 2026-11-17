@@ -279,7 +279,7 @@ class PlanLists {
             return plan_absent()
         }
 
-        return self.text[i]
+        return self.text[i].copy()
     }
 
     /// The key is absent or its list is empty.
@@ -362,7 +362,7 @@ class PlanIndex {
 
                         self.ext_of_v.push_back(f[1])
                     } else {
-                        self.ext_of_v[it->second as usize] = f[1]
+                        self.ext_of_v[it->second as usize] = f[1].copy()
                     }
                 }
 
@@ -393,7 +393,7 @@ class PlanIndex {
             return ""
         }
 
-        return self.macros_v[it->second as usize]
+        return self.macros_v[it->second as usize].copy()
     }
 
     fn ext_target(self, const scope: string, @inout out: string) -> bool {
@@ -402,7 +402,7 @@ class PlanIndex {
             return false
         }
 
-        out = self.ext_of_v[it->second as usize]
+        out = self.ext_of_v[it->second as usize].copy()
         return true
     }
 
@@ -452,7 +452,7 @@ class PlanDiff {
         for var side: usize = 0; side < 2; ++side {
             var *x = if (side == 0) => (a) else => b
             for var i: usize = 0; i < x->keys.size(); ++i {
-                var k = x->keys[i]
+                var k = x->keys[i].copy()
                 if a->get(k) == b->get(k) {
                     continue
                 }
@@ -495,7 +495,7 @@ class PlanDiff {
         for var side: usize = 0; side < 2; ++side {
             var *x = if (side == 0) => (&a->decl_i) else => &b->decl_i
             for var i: usize = 0; i < x->keys.size(); ++i {
-                var k = x->keys[i]
+                var k = x->keys[i].copy()
                 if self.sig.contains(kairo::sref(k)) && !self.layout.contains(kairo::sref(k)) {
                     self.layout.insert(kairo::sref(k))
                     work.push_back(k)
@@ -504,7 +504,7 @@ class PlanDiff {
         }
 
         while !work.empty() {
-            var cur = work.back()
+            var cur = work.back().copy()
             work.pop_back()
             var at = rev.at(cur)
             if at == usize::MAX {
@@ -523,7 +523,7 @@ class PlanDiff {
         for var side: usize = 0; side < 2; ++side {
             var *x = if (side == 0) => (&a->names) else => &b->names
             for var i: usize = 0; i < x->keys.size(); ++i {
-                var k = x->keys[i]
+                var k = x->keys[i].copy()
                 if !self.names.contains(kairo::sref(k)) {
                     continue
                 }
@@ -542,7 +542,7 @@ class PlanDiff {
 
             var *bx = if (side == 0) => (&a->bodies) else => &b->bodies
             for var i: usize = 0; i < bx->keys.size(); ++i {
-                var k = bx->keys[i]
+                var k = bx->keys[i].copy()
                 if !self.name_bodies.contains(kairo::sref(k)) {
                     continue
                 }
@@ -690,7 +690,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
 
     for var mi: usize = 0; mi < old->size(); ++mi {
         var *f = &(*old)[mi]
-        var m  = f->name
+        var m  = f->name.copy()
         if out->has(m) {
             continue
         }
@@ -708,7 +708,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
 
             var k = plan_split(r, 9 as u8)
             if k.size() == 3 && !k[1].empty() {
-                var target = k[1]
+                var target = k[1].copy()
                 if !ia.ext_target(k[1], &target) {
                     ib.ext_target(k[1], &target)
                 }
@@ -790,13 +790,13 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
         if reason.empty() && !d.presence.keys.empty() {
             var surf = plan_surface(&ia, &ib, m)
             for var pi: usize = 0; pi < d.presence.keys.size() && reason.empty(); ++pi {
-                var n     = d.presence.keys[pi]
+                var n     = d.presence.keys[pi].copy()
                 var *mods = &d.presence.vals[pi]
                 var src   = ""
                 for var s: string in surf {
                     for var pm: string in (*mods) {
                         if pm == s && (src.empty() || s < src) {
-                            src = s
+                            src = s.copy()
                         }
                     }
                 }
@@ -820,13 +820,13 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                     }
 
                     if ia.declares(s, n) || ib.declares(s, n) {
-                        other = s
+                        other = s.copy()
                         break
                     }
                 }
 
                 if other.empty() && (ia.declares(m, n) || ib.declares(m, n)) {
-                    other = m
+                    other = m.copy()
                 }
 
                 if !other.empty() {

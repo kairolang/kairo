@@ -187,7 +187,7 @@ extend CompilerInstance {
     /// Apple roots of either kind also get System/Library/Frameworks. A
     /// manifest that fails to load is left to the linker to report.
     priv fn _sysroot_header_roots(self, @inout bcfg: ClangBackendConfig) {
-        var sr = LinkText::strip_slash(bcfg.sysroot)
+        var sr = LinkText::strip_slash(bcfg.sysroot.copy())
         if sr.empty() || sr == "/" {
             return
         }
@@ -198,9 +198,9 @@ extend CompilerInstance {
 
         var darwin = tri.isOSDarwin()
 
-        var root  = sr
+        var root  = sr.copy()
         var dirs  = cxx::std::vector<string>()
-        var mpath = LinkText::join(sr, SysrootManifest::file_name())
+        var mpath = LinkText::join(sr.copy(), SysrootManifest::file_name())
         if LinkFS::is_file(mpath) {
             var m = SysrootManifest()
             if !SysrootManifest::load(mpath, &m) {
@@ -208,26 +208,26 @@ extend CompilerInstance {
             }
 
             if !m.sysroot.empty() && m.sysroot != "." {
-                root = LinkText::join(sr, m.sysroot)
+                root = LinkText::join(sr.copy(), m.sysroot.copy())
             }
 
             for *d in m.include_dirs {
-                dirs.push_back(LinkText::join(root, (*d)))
+                dirs.push_back(LinkText::join(root.copy(), (*d)))
             }
 
             for *d in m.cc_defines {
                 bcfg.defines.push_back(*d)
             }
 
-            bcfg.clang_triple = m.clang_triple
+            bcfg.clang_triple = m.clang_triple.copy()
         } else if darwin {
-            dirs.push_back(LinkText::join(sr, "usr/include/c++/v1"))
-            dirs.push_back(LinkText::join(sr, "usr/include"))
+            dirs.push_back(LinkText::join(sr.copy(), "usr/include/c++/v1"))
+            dirs.push_back(LinkText::join(sr.copy(), "usr/include"))
         } else {
             return
         }
 
-        bcfg.sysroot = root
+        bcfg.sysroot = root.copy()
         for *d in dirs {
             if LinkText::contains(*d, "/c++/") {
                 bcfg.cxx_include_dirs.push_back(*d)
@@ -237,7 +237,7 @@ extend CompilerInstance {
         }
 
         if darwin {
-            var fw = LinkText::join(root, "System/Library/Frameworks")
+            var fw = LinkText::join(root.copy(), "System/Library/Frameworks")
             if LinkFS::is_dir(fw) {
                 bcfg.framework_dirs.push_back(fw)
             }
@@ -304,7 +304,7 @@ extend CompilerInstance {
         }
 
         var why   = ""
-        var mpath = LinkText::join(dir, SysrootManifest::file_name())
+        var mpath = LinkText::join(dir.copy(), SysrootManifest::file_name())
         if !LinkFS::is_dir(dir) {
             why = "it is not a directory"
         } else if !LinkFS::is_file(mpath) {
@@ -321,11 +321,11 @@ extend CompilerInstance {
                 DiagID::P007E,
                 f"the bundled sysroot for '{want}' is malformed: {dir}",
             ).emit()
-            self._diag->report(DiagID::P007N, why).emit()
+            self._diag->report(DiagID::P007N, why.copy()).emit()
             return false
         }
 
-        tg->sysroot = dir
+        tg->sysroot = dir.copy()
         return true
     }
 
@@ -369,10 +369,10 @@ extend CompilerInstance {
         var tgt   = SysTarget{}
         var cands = cxx::std::vector<string>()
         var why   = ""
-        var name  = want
+        var name  = want.copy()
         var sdk   = false
         if SysNames::parse(want, glibc_default_version(), &tgt, &cands, &why) {
-            name = tgt.name
+            name = tgt.name.copy()
             sdk  = SysSdk::handles(&tgt)
         }
 
@@ -382,9 +382,9 @@ extend CompilerInstance {
         var cached = if (cache.root.empty()) => ("") else => cache.lookup(name)
         if !cached.empty()
             && LinkFS::is_file(
-                LinkText::join(cached, SysrootManifest::file_name()),
+                LinkText::join(cached.copy(), SysrootManifest::file_name()),
             ) {
-            tg->sysroot = cached
+            tg->sysroot = cached.copy()
             return true
         }
 
@@ -428,14 +428,14 @@ extend CompilerInstance {
         var path = ""
         var o    = SysOutcome()
         if gen.ensure(want, &path, &o) {
-            tg->sysroot = path
+            tg->sysroot = path.copy()
             return true
         }
 
         var id = if (o.status == SYS_STATUS_FAILED) => (DiagID::P010E) else => DiagID::P009E
-        self._diag->report(id, o.message).emit()
+        self._diag->report(id, o.message.copy()).emit()
         if !o.note.empty() {
-            self._diag->report(DiagID::P009N, o.note).emit()
+            self._diag->report(DiagID::P009N, o.note.copy()).emit()
         }
 
         self._sysroot_status = o.status
@@ -479,11 +479,11 @@ extend CompilerInstance {
         var ver  = ""
         var bare = SysNames::split_glibc(tg->triple, &ver)
         if !ver.empty() {
-            tg->glibc  = ver
-            tg->triple = bare
+            tg->glibc  = ver.copy()
+            tg->triple = bare.copy()
         }
 
-        tg->triple = Toolchain::with_os_floor(tg->triple)
+        tg->triple = Toolchain::with_os_floor(tg->triple.copy())
     }
 
     /// The triple whose bundled sysroot this run looks up: --target, else
@@ -495,7 +495,7 @@ extend CompilerInstance {
             return ""
         }
 
-        var want = tg->triple
+        var want = tg->triple.copy()
         if want.empty() {
             if !tg->sysroot.empty() {
                 return ""
@@ -518,7 +518,7 @@ extend CompilerInstance {
             var tgt     = SysTarget{}
             var cands   = cxx::std::vector<string>()
             var why     = ""
-            want = spelled
+            want = spelled.copy()
             if SysNames::parse(
                 spelled,
                 glibc_default_version(),
@@ -526,7 +526,7 @@ extend CompilerInstance {
                 &cands,
                 &why,
             ) {
-                want = tgt.name
+                want = tgt.name.copy()
             }
         }
 
@@ -537,8 +537,12 @@ extend CompilerInstance {
     /// target in another spelling; "" for none.
     prot fn _bundled_sysroot_dir(self, const want: string) -> string {
         var prefix = Path::parent_of(Path::parent_of(env::exe_path()))
-        var root   = LinkText::join(prefix, ResourceLayout::sysroot_subdir())
-        var dir    = LinkText::join(root, want)
+        var root = LinkText::join(
+            prefix.copy(),
+            ResourceLayout::sysroot_subdir(),
+        )
+
+        var dir = LinkText::join(root.copy(), want.copy())
         if !LinkFS::exists(dir) && !self.invocation()->target.glibc.empty() {
             return ""
         }
@@ -549,7 +553,7 @@ extend CompilerInstance {
                 // Only directories can be sysroots: the manifest file beside
                 // them matched an unknown triple and was then reported as a
                 // malformed sysroot instead of the real "unknown target".
-                if !LinkFS::is_dir(LinkText::join(root, name)) {
+                if !LinkFS::is_dir(LinkText::join(root.copy(), name.copy())) {
                     continue
                 }
 
@@ -558,7 +562,7 @@ extend CompilerInstance {
                 }
 
                 if pick.empty() || name < pick {
-                    pick = name
+                    pick = name.copy()
                 }
             }
 
@@ -566,7 +570,7 @@ extend CompilerInstance {
                 return ""
             }
 
-            dir = LinkText::join(root, pick)
+            dir = LinkText::join(root.copy(), pick.copy())
         }
 
         return dir
@@ -591,7 +595,7 @@ extend CompilerInstance {
     /// `--target`, so the argv path is unaffected.
     prot fn _effective_triple(self) -> string {
         var *tg             = &self.invocation()->target
-        var t               = tg->triple
+        var t               = tg->triple.copy()
         var explicit_target = !t.empty()
         if !explicit_target {
             t = self.get_default_target_triple()
@@ -616,7 +620,7 @@ extend CompilerInstance {
         // Canonicalized here so clang, codegen and the linker all see the
         // same float ABI (see Toolchain::canonical_triple).
         if explicit_target {
-            return Toolchain::canonical_triple(t)
+            return Toolchain::canonical_triple(t.copy())
         }
 
         return t
@@ -639,7 +643,7 @@ extend CompilerInstance {
         // nothing.
         var tgt = self.invocation()->target
         if !tgt.cxx_std.empty() {
-            bcfg.cxx_std = tgt.cxx_std
+            bcfg.cxx_std = tgt.cxx_std.copy()
         }
 
         // --march is a DRIVER spelling (cc1 has none): the probe turns it
@@ -748,8 +752,8 @@ extend CompilerInstance {
         // The two header-search roots, exactly as given: no discovery. With
         // neither, clang searches no system headers at all (see the model in
         // ClangBackend::_startup_locked), which is the honest answer.
-        bcfg.sysroot      = tgt.sysroot
-        bcfg.resource_dir = tgt.resource_dir
+        bcfg.sysroot      = tgt.sysroot.copy()
+        bcfg.resource_dir = tgt.resource_dir.copy()
         self._sysroot_header_roots(&bcfg)
         // The host's system headers. Default ("floor"): after every sysroot
         // root, as -idirafter, so <stdio.h> is always the floor's and only a
@@ -767,8 +771,8 @@ extend CompilerInstance {
             bcfg.defines.clear()
             if !tgt.native_bundle.empty() {
                 var nb = ClangBackendConfig{}
-                nb.triple  = bcfg.triple
-                nb.sysroot = tgt.native_bundle
+                nb.triple  = bcfg.triple.copy()
+                nb.sysroot = tgt.native_bundle.copy()
                 self._sysroot_header_roots(&nb)
                 for *d in nb.cxx_include_dirs {
                     bcfg.cxx_include_dirs.push_back(*d)
@@ -840,7 +844,7 @@ extend CompilerInstance {
     /// first may not exist yet, the second names a directory on the TARGET.
     priv fn _absolutize_paths(self) {
         var *inv = self.invocation()
-        var base = Path::absolute_if_exists(inv->working_dir)
+        var base = Path::absolute_if_exists(inv->working_dir.copy())
 
         CompilerInstance::_absolutize_all(&inv->input_files, base)
         CompilerInstance::_absolutize_all(&inv->include_dirs, base)
@@ -850,45 +854,45 @@ extend CompilerInstance {
 
         CompilerInstance::_absolutize_all(&inv->pp.force_includes, base)
         inv->pp.prelude_path = Path::absolute_if_exists(
-            inv->pp.prelude_path,
+            inv->pp.prelude_path.copy(),
             base,
         )
 
         inv->pp.builtins_dir = Path::absolute_if_exists(
-            inv->pp.builtins_dir,
+            inv->pp.builtins_dir.copy(),
             base,
         )
 
-        inv->pp.std_dir = Path::absolute_if_exists(inv->pp.std_dir, base)
+        inv->pp.std_dir = Path::absolute_if_exists(inv->pp.std_dir.copy(), base)
 
         inv->target.sysroot = Path::absolute_if_exists(
-            inv->target.sysroot,
+            inv->target.sysroot.copy(),
             base,
         )
 
         inv->target.resource_dir = Path::absolute_if_exists(
-            inv->target.resource_dir,
+            inv->target.resource_dir.copy(),
             base,
         )
 
         CompilerInstance::_absolutize_all(&inv->linker.lib_dirs, base)
         inv->linker.linker_script = Path::absolute_if_exists(
-            inv->linker.linker_script,
+            inv->linker.linker_script.copy(),
             base,
         )
 
         inv->linker.version_script = Path::absolute_if_exists(
-            inv->linker.version_script,
+            inv->linker.version_script.copy(),
             base,
         )
 
         inv->linker.macos_sdk = Path::absolute_if_exists(
-            inv->linker.macos_sdk,
+            inv->linker.macos_sdk.copy(),
             base,
         )
 
         inv->codegen.profile_use = Path::absolute_if_exists(
-            inv->codegen.profile_use,
+            inv->codegen.profile_use.copy(),
             base,
         )
     }
@@ -908,8 +912,8 @@ extend CompilerInstance {
     priv static fn _pick_resource_dir(const base: string) -> string {
         var pick = ""
         for var name: string in LinkFS::list_dir(base) {
-            var cand = LinkText::join(base, name)
-            if !LinkFS::is_file(LinkText::join(cand, "include/stddef.h")) {
+            var cand = LinkText::join(base.copy(), name.copy())
+            if !LinkFS::is_file(LinkText::join(cand.copy(), "include/stddef.h")) {
                 continue
             }
 
@@ -920,7 +924,7 @@ extend CompilerInstance {
             }
 
             if better {
-                pick = cand
+                pick = cand.copy()
             }
         }
 
@@ -956,16 +960,16 @@ extend CompilerInstance {
     priv fn _discover_roots(self) {
         var *inv   = self.invocation()
         var prefix = CompilerInstance::_toolchain_prefix()
-        var lib    = LinkText::join(prefix, ResourceLayout::lib_subdir())
+        var lib    = LinkText::join(prefix.copy(), ResourceLayout::lib_subdir())
 
         var rd_given = !inv->target.resource_dir.empty()
         if !rd_given {
             var rd = CompilerInstance::_pick_resource_dir(
-                LinkText::join(lib, ResourceLayout::clang_subdir()),
+                LinkText::join(lib.copy(), ResourceLayout::clang_subdir()),
             )
 
             if !rd.empty() {
-                inv->target.resource_dir = rd
+                inv->target.resource_dir = rd.copy()
             } else {
                 self._queue_root_warning(
                     f"clang resource directory not found: searched {lib}/clang/<version>/include/stddef.h",
@@ -1008,23 +1012,27 @@ extend CompilerInstance {
         }
 
         if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
-            inv->pp.builtins_dir = input_builtin
+            inv->pp.builtins_dir = input_builtin.copy()
         }
 
         if inv->pp.builtins_dir.empty() && !inv->pp.no_prelude {
             var legacy = ""
             if rd_given {
                 legacy = LinkText::join(
-                    inv->target.resource_dir,
+                    inv->target.resource_dir.copy(),
                     ResourceLayout::builtin_subdir(),
                 )
             }
 
-            var dir = LinkText::join(lib, ResourceLayout::builtin_subdir())
+            var dir = LinkText::join(
+                lib.copy(),
+                ResourceLayout::builtin_subdir(),
+            )
+
             if !legacy.empty() && LinkFS::is_dir(legacy) {
-                inv->pp.builtins_dir = legacy
+                inv->pp.builtins_dir = legacy.copy()
             } else if LinkFS::is_dir(dir) {
-                inv->pp.builtins_dir = dir
+                inv->pp.builtins_dir = dir.copy()
             } else {
                 self._queue_root_warning(
                     f"builtin module tree not found: searched {dir}",
@@ -1034,23 +1042,23 @@ extend CompilerInstance {
         }
 
         if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
-            inv->pp.std_dir = input_std
+            inv->pp.std_dir = input_std.copy()
         }
 
         if inv->pp.std_dir.empty() && !inv->pp.no_stdlib {
             var legacy = ""
             if rd_given {
                 legacy = LinkText::join(
-                    inv->target.resource_dir,
+                    inv->target.resource_dir.copy(),
                     ResourceLayout::std_subdir(),
                 )
             }
 
-            var dir = LinkText::join(lib, ResourceLayout::std_subdir())
+            var dir = LinkText::join(lib.copy(), ResourceLayout::std_subdir())
             if !legacy.empty() && LinkFS::is_dir(legacy) {
-                inv->pp.std_dir = legacy
+                inv->pp.std_dir = legacy.copy()
             } else if LinkFS::is_dir(dir) {
-                inv->pp.std_dir = dir
+                inv->pp.std_dir = dir.copy()
             } else {
                 self._queue_root_warning(
                     f"standard library not found: searched {dir}",
@@ -1073,21 +1081,21 @@ extend CompilerInstance {
 
         var best = ""
         for const entry in LinkFS::list_dir(parent) {
-            var dir   = Path::join_str(parent, entry)
+            var dir   = Path::join_str(parent, entry.copy())
             var mod_k = Path::join_str(dir, "module.k")
             if !LinkFS::is_dir(dir) || !Path::exists_at(mod_k) {
                 continue
             }
 
-            var real = LinkFS::real(dir)
-            if real == lib_dir || real == LinkFS::real(lib_dir) {
+            var real = LinkFS::real(dir.copy())
+            if real == lib_dir || real == LinkFS::real(lib_dir.copy()) {
                 continue
             }
 
-            var pin = read_module_pin(mod_k)
+            var pin = read_module_pin(mod_k.copy())
             if pin.size() > 0 && root_names_equal(pin, want) {
                 if best.empty() || entry < LinkFS::filename(best) {
-                    best = real
+                    best = real.copy()
                 }
             }
         }
@@ -1117,14 +1125,14 @@ extend CompilerInstance {
                 var mod_k = Path::join_str(walk, "module.k")
                 var pin   = cxx::std::vector<string>()
                 if Path::exists_at(mod_k) {
-                    pin = read_module_pin(mod_k)
+                    pin = read_module_pin(mod_k.copy())
                 }
 
                 if pin.size() > 0 {
                     if root_names_equal(pin, want) {
-                        var real = LinkFS::real(walk)
+                        var real = LinkFS::real(walk.copy())
                         if found.empty() {
-                            found = real
+                            found = real.copy()
                         } else if found != real {
                             return ""
                         }
@@ -1138,7 +1146,7 @@ extend CompilerInstance {
                     break
                 }
 
-                walk = up
+                walk = up.copy()
             }
         }
 
@@ -1168,7 +1176,7 @@ extend CompilerInstance {
             return true
         }
 
-        var sr = inv->target.sysroot
+        var sr = inv->target.sysroot.copy()
         var note = "pass --sysroot=<dir>, or --freestanding to compile without system headers and libraries"
         if sr.empty() {
             var want = self._sysroot_target()
@@ -1300,7 +1308,7 @@ extend CompilerInstance {
             mode = "floor"
         }
 
-        tg->host_mode = mode
+        tg->host_mode = mode.copy()
 
         if !mode.empty() {
             var an: llvm::StringRef = eff.getArchName()
@@ -1345,7 +1353,7 @@ extend CompilerInstance {
             )
 
             for var i: usize = 0; i < nixl.size(); ++i {
-                var w = nixl[i]
+                var w = nixl[i].copy()
                 if (w == "-L" || w == "-rpath") && i + 1 < nixl.size() {
                     if w == "-L" {
                         HostSystem::add_dir(&libs, &seenl, nixl[i + 1])
@@ -1354,7 +1362,7 @@ extend CompilerInstance {
                     }
 
                     i += 1
-                } else if LinkText::starts_with(w, "-L") {
+                } else if LinkText::starts_with(w.copy(), "-L") {
                     HostSystem::add_dir(
                         &libs,
                         &seenl,
@@ -1431,10 +1439,10 @@ extend CompilerInstance {
         var *tg        = &inv->target
         var i:   usize = 0
         while i < words.size() {
-            var w   = words[i]
+            var w   = words[i].copy()
             var nxt = ""
             if i + 1 < words.size() {
-                nxt = words[i + 1]
+                nxt = words[i + 1].copy()
             }
 
             var kind        = ""
@@ -1442,55 +1450,55 @@ extend CompilerInstance {
             var step: usize = 1
             if w == "-I" || w == "-isystem" || w == "-idirafter" {
                 kind = "I"
-                val  = nxt
+                val  = nxt.copy()
                 step = 2
-            } else if LinkText::starts_with(w, "-isystem") {
+            } else if LinkText::starts_with(w.copy(), "-isystem") {
                 kind = "I"
                 val  = LinkText::slice(w, 8, w.size())
-            } else if LinkText::starts_with(w, "-idirafter") {
+            } else if LinkText::starts_with(w.copy(), "-idirafter") {
                 kind = "I"
                 val  = LinkText::slice(w, 10, w.size())
             } else if w == "-D" {
                 kind = "D"
-                val  = nxt
+                val  = nxt.copy()
                 step = 2
             } else if w == "-U" {
                 kind = "U"
-                val  = nxt
+                val  = nxt.copy()
                 step = 2
             } else if w == "-L" {
                 kind = "L"
-                val  = nxt
+                val  = nxt.copy()
                 step = 2
             } else if w == "-l" {
                 kind = "l"
-                val  = nxt
+                val  = nxt.copy()
                 step = 2
             } else if w == "-pthread" {
                 kind = "l"
                 val  = "pthread"
-            } else if LinkText::starts_with(w, "-Wl,") {
+            } else if LinkText::starts_with(w.copy(), "-Wl,") {
                 kind = "Wl"
                 val  = LinkText::slice(w, 4, w.size())
-            } else if LinkText::starts_with(w, "-I") {
+            } else if LinkText::starts_with(w.copy(), "-I") {
                 kind = "I"
                 val  = LinkText::slice(w, 2, w.size())
-            } else if LinkText::starts_with(w, "-D") {
+            } else if LinkText::starts_with(w.copy(), "-D") {
                 kind = "D"
                 val  = LinkText::slice(w, 2, w.size())
-            } else if LinkText::starts_with(w, "-U") {
+            } else if LinkText::starts_with(w.copy(), "-U") {
                 kind = "U"
                 val  = LinkText::slice(w, 2, w.size())
-            } else if LinkText::starts_with(w, "-L") {
+            } else if LinkText::starts_with(w.copy(), "-L") {
                 kind = "L"
                 val  = LinkText::slice(w, 2, w.size())
-            } else if LinkText::starts_with(w, "-l") {
+            } else if LinkText::starts_with(w.copy(), "-l") {
                 kind = "l"
                 val  = LinkText::slice(w, 2, w.size())
-            } else if LinkText::starts_with(w, "/")
-                && (LinkText::ends_with(w, ".a") || HostSystem::is_shared(w)) {
+            } else if LinkText::starts_with(w.copy(), "/")
+                && (LinkText::ends_with(w.copy(), ".a") || HostSystem::is_shared(w)) {
                 kind = "l"
-                val  = w
+                val  = w.copy()
             }
 
             i += step
@@ -1509,7 +1517,7 @@ extend CompilerInstance {
 
             if kind == "I" {
                 var sys = false
-                var rv  = LinkFS::real(val)
+                var rv  = LinkFS::real(val.copy())
                 for *d in tg->host_include_dirs {
                     if LinkFS::real(*d) == rv {
                         sys = true
@@ -1521,7 +1529,7 @@ extend CompilerInstance {
                 }
             } else if kind == "L" {
                 var sys = false
-                var rv  = LinkFS::real(val)
+                var rv  = LinkFS::real(val.copy())
                 for *d in tg->host_lib_dirs {
                     if LinkFS::real(*d) == rv {
                         sys = true
@@ -1563,8 +1571,8 @@ extend CompilerInstance {
     /// info queries never reach initialize(), and do not need the roots.
     prot fn _report_root_warnings(self) {
         for var i: usize = 0; i + 1 < self._root_warnings.size(); i += 2 {
-            self._diag->report(DiagID::P008W, self._root_warnings[i]).emit()
-            self._diag->report(DiagID::P008N, self._root_warnings[i + 1]).emit()
+            self._diag->report(DiagID::P008W, self._root_warnings[i].copy()).emit()
+            self._diag->report(DiagID::P008N, self._root_warnings[i + 1].copy()).emit()
         }
 
         self._root_warnings.clear()
@@ -1572,7 +1580,7 @@ extend CompilerInstance {
 
     priv static fn _absolutize_all(@inout list: cxx::std::vector<string>, const base: string) {
         for var i: usize = 0; i < list.size(); ++i {
-            (list)[i] = Path::absolute_if_exists((list)[i], base)
+            (list)[i] = Path::absolute_if_exists((list)[i].copy(), base)
         }
     }
 
@@ -1719,11 +1727,11 @@ extend CompilerInstance {
         // unchanged; the resolvers report it.
         var *tg = &self.invocation()->target
         if !tg->sysroot.empty() {
-            tg->sysroot = LinkFS::real(tg->sysroot)
+            tg->sysroot = LinkFS::real(tg->sysroot.copy())
         }
 
         if !tg->resource_dir.empty() {
-            tg->resource_dir = LinkFS::real(tg->resource_dir)
+            tg->resource_dir = LinkFS::real(tg->resource_dir.copy())
         }
 
         // The module roots too. A builtin root reached through a symlink
@@ -1733,11 +1741,11 @@ extend CompilerInstance {
         // the roots lit passes.
         var *ppo = &self.invocation()->pp
         if !ppo->builtins_dir.empty() {
-            ppo->builtins_dir = LinkFS::real(ppo->builtins_dir)
+            ppo->builtins_dir = LinkFS::real(ppo->builtins_dir.copy())
         }
 
         if !ppo->std_dir.empty() {
-            ppo->std_dir = LinkFS::real(ppo->std_dir)
+            ppo->std_dir = LinkFS::real(ppo->std_dir.copy())
         }
 
         // The host system: which mode, its dirs, --pkg-config. After the
@@ -1782,7 +1790,7 @@ extend CompilerInstance {
         var objfmt = CompilerInstance::_object_format_of(&tt)
 
         var *t = &self.invocation()->target
-        t->effective_triple = full
+        t->effective_triple = full.copy()
         t->arch_name = string(
             unsafe ((arch.data() as unsafe *const u8) as *const u8),
             arch.size(),
@@ -1880,7 +1888,7 @@ extend CompilerInstance {
         // driver's to resolve. Elsewhere --march is an ISA string
         // (armv8.2-a+crypto, rv64gc) that only clang's per-target parsers
         // read, so it is left to them.
-        var march = self._inv.target.march
+        var march = self._inv.target.march.copy()
         if (!march.empty()) && march != "native" && t->is_x86 {
             var unsafe *XSTI = T->createMCSubtargetInfo(
                 tt,
@@ -2031,7 +2039,7 @@ extend CompilerInstance {
         }
 
         t->long_double_is_x87   = is_x87
-        t->long_double_fmt_name = name
+        t->long_double_fmt_name = name.copy()
         t->long_double_bits     = (ti->getLongDoubleWidth() as usize)
         t->long_double_align    = (ti->getLongDoubleAlign() as usize)
         t->has_float128         = ti->hasFloat128Type()

@@ -55,12 +55,12 @@ pub class Timer {
     inline fn Timer(self) {
         var label: string = "Timer"
         self._start = cxx::std::chrono::steady_clock::now()
-        self._label = label
+        self._label = label.copy()
     }
 
     pub inline fn Timer(self, const label: string) {
         self._start = cxx::std::chrono::steady_clock::now()
-        self._label = label
+        self._label = label.copy()
     }
 
     // Not transferable: the destructor stops and prints it, so a copy would report the same region twice.

@@ -516,11 +516,11 @@ pub class FrontendAction {
             var at = rows.size()
             rows.push_back(r)
             while at > 0 && r < rows[at - 1] {
-                rows[at] = rows[at - 1]
+                rows[at] = rows[at - 1].copy()
                 at -= 1
             }
 
-            rows[at] = r
+            rows[at] = r.copy()
         }
 
         io::println("-- panic sets --")
@@ -533,7 +533,7 @@ pub class FrontendAction {
 
     /// Emits a fatal diagnostic, marks the TU as failed, and returns false.
     priv fn _fatal(self, id: DiagID, const msg: string) -> bool {
-        self._ci->diag()->report(id, msg).emit()
+        self._ci->diag()->report(id, msg.copy()).emit()
         self.result.had_fatal = true
         self._stage           = TUStage::Failed
         return false
@@ -818,7 +818,7 @@ pub class FrontendAction {
 
         /// # print-ast / mem stats: unchanged
 
-        var ast_mode = self._ci->invocation()->frontend.print_ast
+        var ast_mode = self._ci->invocation()->frontend.print_ast.copy()
         if !ast_mode.empty() {
             var use_color              = !self._ci->invocation()->diag.no_color
             var opts:     PrintOptions
@@ -1003,7 +1003,7 @@ pub class FrontendAction {
         // 'tree' -> dump(), 'canonical' -> canonical(), otherwise flat diag rows.
         var sema_opts: PrintOptions = PrintOptions::diag()
         if fe.print_sema || fe.print_lowered {
-            var ast_mode = fe.print_ast
+            var ast_mode = fe.print_ast.copy()
             if ast_mode == "tree" {
                 sema_opts = PrintOptions::dump()
             } else if ast_mode == "canonical" {
@@ -2478,9 +2478,9 @@ pub class FrontendAction {
                 continue
             }
 
-            var key = hdr
+            var key = hdr.copy()
             if view != hs {
-                key = HeaderSetCache::resolve_spelling(view, hdr)
+                key = HeaderSetCache::resolve_spelling(view, hdr.copy())
             }
 
             var unsafe *ks = hs->closure_kfids(key)
@@ -2914,7 +2914,7 @@ pub class FrontendAction {
 
                 if !self.result.global_alloc_at.is_valid() {
                     self.result.global_alloc_at   = here
-                    self.result.global_alloc_file = hfile
+                    self.result.global_alloc_file = hfile.copy()
                 } else if self.result.global_alloc_file != hfile {
                     var first = self.result.global_alloc_at
                     var a     = Path(self.result.global_alloc_file).filename()
@@ -3547,11 +3547,11 @@ pub class FrontendAction {
                 if rel.size() == 0 {
                     rel = self._ci->kairo_object_stem(self.path.stem())
                 } else if segs.size() == 1 {
-                    rel = self._ci->kairo_object_stem(rel)
+                    rel = self._ci->kairo_object_stem(rel.copy())
                 }
 
                 stem     = obj_dir + "/" + rel
-                obj_stem = stem
+                obj_stem = stem.copy()
                 // Two TUs can map to one object name: a pathless `builtin.k`
                 // outside every search dir is named by its stem, as the builtin
                 // root is. Serially the later TU overwrote the earlier and the
@@ -3568,14 +3568,14 @@ pub class FrontendAction {
 
                 if taken {
                     obj_stem = obj_stem + f"-{fid}"
-                    stem     = obj_stem
+                    stem     = obj_stem.copy()
                 }
 
                 used_stems.push_back(obj_stem)
                 var beside = if (self.discovered || fid != self._file_id) => ("")
                              else => self._ci->emit_beside(self.path.stem())
                 if !beside.empty() {
-                    stem = beside
+                    stem = beside.copy()
                 }
             }
 
@@ -3885,7 +3885,7 @@ pub class FrontendAction {
         for var oi: usize in iface_order {
             var fl = flavours[oi] as usize
             if iface_first[fl].empty() {
-                iface_first[fl] = jkeys[oi]
+                iface_first[fl] = jkeys[oi].copy()
             }
         }
 
@@ -3969,7 +3969,7 @@ pub class FrontendAction {
                     writer,
                 )
 
-                var modname = jkeys[ji]
+                var modname = jkeys[ji].copy()
                 var why     = ""
                 if self._ci->incr.on {
                     self._ci->incr.keys.push_back(modname + "\t" + j->key)
@@ -5045,8 +5045,8 @@ pub class FrontendAction {
 
         var rec = self._ci->incr.on
         var head = "{\"version\": 1, \"root\": " + json_string(root) + ", \"files\": ["
-        var io_: string = head
-        var do_: string = head
+        var io_: string = head.copy()
+        var do_: string = head.copy()
         for var i: usize = 0; i < idx.size(); ++i {
             var *f          = &self._incr[idx[i]]
             var rel: string = ""
@@ -5117,7 +5117,7 @@ pub class FrontendAction {
             var cur:  string = ""
             var open_        = false
             for var k: usize = 0; k < deps.overlay.size(); ++k {
-                var row        = deps.overlay[k]
+                var row        = deps.overlay[k].copy()
                 var cut: usize = 0
                 while cut < row.size() && row[cut] != ('\t' as u8) {
                     cut += 1
@@ -5135,7 +5135,7 @@ pub class FrontendAction {
                     }
 
                     do_ += "\n  {\"of\": " + json_string(of_) + ", \"names\": ["
-                    cur   = of_
+                    cur   = of_.copy()
                     open_ = true
                 } else {
                     do_ += ", "
@@ -5163,7 +5163,7 @@ pub class FrontendAction {
                     continue
                 }
 
-                prev = rows[k]
+                prev = rows[k].copy()
                 var cut: usize = 0
                 while cut < prev.size() && prev[cut] != ('\t' as u8) {
                     cut += 1
@@ -5208,21 +5208,21 @@ pub class FrontendAction {
                 // The same facts as lines the invalidation rules read
                 // (Sema/Incremental/Plan.k), with the TU's diagnostics.
                 var pm = PlanModule()
-                pm.name       = name
-                pm.path       = f->path
-                pm.hash       = f->hash
-                pm.macros     = f->macros
+                pm.name       = name.copy()
+                pm.path       = f->path.copy()
+                pm.hash       = f->hash.copy()
+                pm.macros     = f->macros.copy()
                 pm.decls      = f->plain_decls
                 pm.scopes     = f->plain_scopes
                 pm.surface    = deps.surface
                 pm.names      = deps.plain_names
                 pm.overlay    = deps.overlay
-                pm.diag       = f->diag
+                pm.diag       = f->diag.copy()
                 pm.diag_files = f->diag_files
                 var plast: string = ""
                 for var k: usize = 0; k < rows.size(); ++k {
                     if rows[k] != plast {
-                        plast = rows[k]
+                        plast = rows[k].copy()
                         pm.rows.push_back(plast)
                     }
                 }
@@ -5313,7 +5313,7 @@ pub class FrontendAction {
                             opr += ctx->get_spelling(f->op_token[ti])
                         }
 
-                        name = opr
+                        name = opr.copy()
                     }
                 }
 
@@ -6130,7 +6130,7 @@ fn _facts_hashes(f:    unsafe *FileFacts,
                  at:   unsafe *llvm::StringMap<u32>,
                  vals: unsafe *cxx::std::vector<string>) {
     for var k: usize = 0; k < f->plain_decls.size(); ++k {
-        var l   = f->plain_decls[k]
+        var l   = f->plain_decls[k].copy()
         var cut = cxx::std::vector<usize>()
         for var c: usize = 0; c < l.size() && cut.size() < 4; ++c {
             if l[c] == ('\t' as u8) {

@@ -514,7 +514,7 @@ pub class PrimitiveLimits {
     /// f256 / f512's float-valued limit \p k: the class's static of that
     /// name, MIN negating MAX (-MAX, as for every float).
     static fn _class_limit(b: BuiltinKind, k: PrimLimit) -> string {
-        var cls = builtin_info(b)->cxx
+        var cls = builtin_info(b)->cxx.copy()
         match k {
             case PrimLimit::Max {
                 return "(" + cls + "::max())"

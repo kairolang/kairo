@@ -1193,7 +1193,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
     }
 
     priv fn _err_id(self, f: unsafe *FunctionDecl, id: DiagID, const msg: string) {
-        self.sc->diag->report(id, f->range.start, msg).first(f->range)->emit()
+        self.sc->diag->report(id, f->range.start, msg.copy()).first(f->range)->emit()
         f->poison()
     }
 }

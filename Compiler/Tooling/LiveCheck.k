@@ -251,7 +251,7 @@ pub class LiveCheck {
 
         if (!why.empty()) && self.aside {
             self.mode = "refused"
-            self.why  = why
+            self.why  = why.copy()
             self._count()
             return true
         }
@@ -452,7 +452,7 @@ pub class LiveCheck {
             // the set came out of an instance it was first to name. The
             // instance stays checked, so a re-check would not report it
             // again.
-            var owner: string = self._fd->owners[i]
+            var owner: string = self._fd->owners[i].copy()
             var mine = is_name.find(kairo::sref(owner)) != is_name.end()
             if mine && !inside {
                 return "a diagnostic from inside an instance"
@@ -535,7 +535,7 @@ pub class LiveCheck {
         var kd = cxx::std::vector<unsafe *Diagnostic>()
         var ko = cxx::std::vector<string>()
         for var i: usize = 0; i < self._fd->diags.size(); ++i {
-            var owner: string = self._fd->owners[i]
+            var owner: string = self._fd->owners[i].copy()
             if is_name.find(kairo::sref(owner)) == is_name.end() {
                 kd.push_back(self._fd->diags[i])
                 ko.push_back(owner)
@@ -660,7 +660,7 @@ pub class LiveCheck {
 
         var moved = self._action->refresh(group)
         if !moved.empty() {
-            self.detail = self._action->refresh_detail
+            self.detail = self._action->refresh_detail.copy()
             return moved
         }
 
@@ -700,7 +700,7 @@ pub class LiveCheck {
         }
 
         if !self.dump_interface.empty() {
-            self._ci->invocation()->frontend.dump_interface = self.dump_interface
+            self._ci->invocation()->frontend.dump_interface = self.dump_interface.copy()
         }
 
         no = self._recheck(set, names, const &before, fid, n0, false)
@@ -1058,13 +1058,13 @@ pub class LiveCheck {
     /// its end.
     priv fn _tier_end(self) -> string {
         if !self.dump_interface.empty() {
-            self._ci->invocation()->frontend.dump_interface = self.dump_interface
+            self._ci->invocation()->frontend.dump_interface = self.dump_interface.copy()
         }
 
         var why = self._action->tier_finish()
         self._edited.clear()
         if !why.empty() {
-            self.detail = self._action->refresh_detail
+            self.detail = self._action->refresh_detail.copy()
         }
 
         self._self_check()
@@ -1271,7 +1271,7 @@ pub class LiveCheck {
         var k = self._slot(path)
         if k == usize::MAX {
             var slot = LiveOverlay()
-            slot.path = path
+            slot.path = path.copy()
             self._ov.push_back(slot)
             k = self._ov.size() - 1
         }
@@ -1461,7 +1461,7 @@ pub class LiveCheck {
         self._edited.clear()
         self.pending  = 0
         self.mode     = "full"
-        self.why      = why
+        self.why      = why.copy()
         self.errors   = 0
         self.warnings = 0
         self.files    = 0
@@ -1484,7 +1484,7 @@ pub class LiveCheck {
         self._ci->diag()->add_consumer(self._fd)
         self._ci->invocation()->frontend.file_diags = unsafe (self._fd as unsafe *void)
         if !self.dump_interface.empty() {
-            self._ci->invocation()->frontend.dump_interface = self.dump_interface
+            self._ci->invocation()->frontend.dump_interface = self.dump_interface.copy()
         }
 
         // The source manager keeps a VIEW of an overlay's bytes: they are

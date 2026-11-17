@@ -86,7 +86,7 @@ pub class ResourceLayout {
             return ""
         }
 
-        var root = ci->pp.builtins_dir
+        var root = ci->pp.builtins_dir.copy()
         if root.empty() && !ci->target.resource_dir.empty() {
             root = ci->target.resource_dir + "/" + ResourceLayout::builtin_subdir()
         }
@@ -103,7 +103,7 @@ pub class ResourceLayout {
             return ""
         }
 
-        var root = ci->pp.std_dir
+        var root = ci->pp.std_dir.copy()
         if root.empty() && !ci->target.resource_dir.empty() {
             root = ci->target.resource_dir + "/" + ResourceLayout::std_subdir()
         }
@@ -139,11 +139,11 @@ pub class ResourceLayout {
             return false
         }
 
-        var real_root = Path::real_path_of(root)
+        var real_root = Path::real_path_of(root.copy())
         if !real_root.ends_with("/") {
             real_root += "/"
         }
 
-        return Path::real_path_of(file).starts_with(real_root)
+        return Path::real_path_of(file.copy()).starts_with(real_root)
     }
 }

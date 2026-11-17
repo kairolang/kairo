@@ -257,7 +257,7 @@ extend Speller {
     pub fn top_segment(self, tu: unsafe *TranslationUnit) -> string {
         var segs = self.module_segments(tu)
         if segs.size() > 0 {
-            return segs[0]
+            return segs[0].copy()
         }
 
         return Speller::entry_stem(tu)
@@ -285,15 +285,15 @@ extend Speller {
         for var i: usize = 1; i < tops.size(); ++i {
             var j = i
             while j > 0 && tops[j] < tops[j - 1] {
-                var tmp = tops[j]
-                tops[j]     = tops[j - 1]
-                tops[j - 1] = tmp
+                var tmp = tops[j].copy()
+                tops[j]     = tops[j - 1].copy()
+                tops[j - 1] = tmp.copy()
                 j -= 1
             }
         }
 
         for var i: usize = 0; i < tops.size(); ++i {
-            var t = tops[i]
+            var t = tops[i].copy()
             if i > 0 && tops[i - 1] == t {
                 continue
             }
@@ -306,9 +306,9 @@ extend Speller {
                 continue
             }
 
-            var c = t
+            var c = t.copy()
             while true {
-                var taken = is_entry_point_name(c) || header_global(c)
+                var taken = is_entry_point_name(c) || header_global(c.copy())
                 if !taken && c != t {
                     for var j: usize = 0; j < tops.size(); ++j {
                         if tops[j] == c {

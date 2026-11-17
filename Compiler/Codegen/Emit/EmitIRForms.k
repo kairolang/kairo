@@ -434,8 +434,8 @@ extend EmitIR {
 
         var full: FullSourceLocation = ctx->sm->get_line_col(at.start)
         var path                     = full.path.full_path()
-        var b                        = ctx->ci->pp.builtins_dir
-        var d                        = ctx->ci->pp.std_dir
+        var b                        = ctx->ci->pp.builtins_dir.copy()
+        var d                        = ctx->ci->pp.std_dir.copy()
         if !b.empty() && path.starts_with(b) {
             return true
         }
@@ -463,7 +463,7 @@ extend EmitIR {
             return
         }
 
-        var tr = self._cg->opts.target_triple
+        var tr = self._cg->opts.target_triple.copy()
         // ARM32 only: `arm64` is AArch64, which masks free.
         var arm32 = tr.starts_with("thumb") || tr.starts_with("arm") && !tr.starts_with("arm64")
         if !arm32 {
@@ -473,7 +473,7 @@ extend EmitIR {
         var unsafe *ct = Speller::strip_ref(t)
         var        tn  = self._spell._type(ct)
         if ct != &null && isa<BuiltinType>(ct) {
-            tn = builtin_info(cast<BuiltinType>(ct)->builtin)->spelling
+            tn = builtin_info(cast<BuiltinType>(ct)->builtin)->spelling.copy()
         }
 
         var wm1 = Speller::int_width(t) - (1 as u32)

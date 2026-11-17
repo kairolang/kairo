@@ -71,7 +71,9 @@ pub fn module_dir_of_path(const file: string) -> string {
         return ""
     }
 
-    return module_dir_at_or_above(Path::parent_of(Path::real_path_of(file)))
+    return module_dir_at_or_above(
+        Path::parent_of(Path::real_path_of(file.copy())),
+    )
 }
 
 /// \p tu is builtin or std: the library roots the compiler registers, whose
@@ -139,7 +141,7 @@ pub fn tu_module_dir(tu: unsafe *TranslationUnit) -> string {
     }
 
     if tu->vis_stamped {
-        return tu->module_dir
+        return tu->module_dir.copy()
     }
 
     if tu->ctx->sm == &null {

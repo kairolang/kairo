@@ -1346,6 +1346,31 @@ pub class ExprTyper
         return e->type_
     }
 
+    /// \p a and \p b are one type in every instance of the body being
+    /// typed: spelled alike, or two types it knows only by their bounds
+    /// (`T`, `J::Item`) that a `requires __builtin_is_same` of the
+    /// declaration equates. A `T?` handed to such a `T` is a read of its
+    /// value, decidable before instantiation: no instance makes `T?` a `T`.
+    fn same_rigid(self, a: unsafe *Type, b: unsafe *Type) -> bool {
+        if a == &null || b == &null {
+            return false
+        }
+
+        var unsafe *ca = canon_unqual(self.tu.as_value(a))
+        var unsafe *cb = canon_unqual(self.tu.as_value(b))
+        if ca == cb {
+            return true
+        }
+
+        if !self.conv.is_rigid(ca) || !self.conv.is_rigid(cb) {
+            return false
+        }
+
+        return canon_unqual(self.conv.unified(ca)) == canon_unqual(
+            self.conv.unified(cb),
+        )
+    }
+
     /// \p e, typed \p t, as a consumer that takes the nullable as well as
     /// its value sees it: the `T` when \p e is a nullable place proven
     /// non-null here (narrowed), else \p t unchanged and no error.
@@ -1880,7 +1905,7 @@ pub class ExprTyper
             msg = f"'{text}' names an overloaded function, not a value; call it"
         }
 
-        self.sc->diag->report(DiagID::SC094E, child->range.start, msg).first(
+        self.sc->diag->report(DiagID::SC094E, child->range.start, msg.copy()).first(
             child->range,
         )->emit()
         child->poison()
@@ -1895,7 +1920,9 @@ pub class ExprTyper
         }
 
         if !e->is_poisoned() {
-            self.sc->diag->report(id, e->range.start, msg).first(e->range)->emit()
+            self.sc->diag->report(id, e->range.start, msg.copy()).first(
+                e->range,
+            )->emit()
         }
 
         e->poison()
@@ -1906,7 +1933,7 @@ pub class ExprTyper
             return
         }
 
-        self.sc->diag->report(id, e->range.start, msg).first(e->range)->emit()
+        self.sc->diag->report(id, e->range.start, msg.copy()).first(e->range)->emit()
     }
 
     /// \p e asks a bounds-checked parameter \p gp (TypeUtil::checked_param)
@@ -1942,7 +1969,12 @@ pub class ExprTyper
 
             b.emit()
         } else {
-            var b = self.sc->diag->report(DiagID::R051E, e->range.start, msg)
+            var b = self.sc->diag->report(
+                DiagID::R051E,
+                e->range.start,
+                msg.copy(),
+            )
+
             b.first(e->range)
             b.note(
                 DiagCode(DiagID::R051N),
@@ -2277,7 +2309,7 @@ pub class ExprTyper
             // `return t` from a `T?` into a `T` in a generic body: the same
             // read of the value as below, decidable before instantiation.
             var unsafe *din = self.flow.narrowed_type(from)
-            if din != &null && canon_unqual(din) == canon_unqual(to) {
+            if din != &null && self.same_rigid(din, to) {
                 return self.flow.read_value(e, true) != NULL_READ_REFUSED
             }
 

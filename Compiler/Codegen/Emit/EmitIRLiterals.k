@@ -164,7 +164,7 @@ extend EmitIR {
         }
 
         var s     = c_string_literal(p, len)
-        var cxx_v = s
+        var cxx_v = s.copy()
         self._cg->sink->create_str(n->token, &cxx_v)
     }
 
@@ -322,7 +322,7 @@ extend EmitIR {
         var one: u64 = 1
         var top      = one << 63
         var v        = ""
-        var wide     = builtin_info(BuiltinKind::U128)->cxx
+        var wide     = builtin_info(BuiltinKind::U128)->cxx.copy()
         if hi != 0 {
             v = "static_cast<" + wide + f">({hi}ULL) * 4294967296ULL * 4294967296ULL + {lo}ULL"
             if neg {

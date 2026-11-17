@@ -248,7 +248,7 @@ pub class CodeGenOptions {
         }
 
         o.lto           = args.get_string("lto")
-        o.profile       = prof
+        o.profile       = prof.copy()
         o.debug_info    = args.get_bool("debug-info")
         o.no_debug_info = args.get_bool("no-debug-info")
         if prof_given

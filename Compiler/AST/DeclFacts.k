@@ -494,19 +494,19 @@ pub fn decl_ffi_tag_keyword(d: unsafe *Decl) -> string {
     }
 
     if isa<Declarations::ClassDecl>(d) {
-        return cast<Declarations::ClassDecl>(d)->ffi_tag_keyword
+        return cast<Declarations::ClassDecl>(d)->ffi_tag_keyword.copy()
     }
 
     if isa<Declarations::StructDecl>(d) {
-        return cast<Declarations::StructDecl>(d)->ffi_tag_keyword
+        return cast<Declarations::StructDecl>(d)->ffi_tag_keyword.copy()
     }
 
     if isa<Declarations::UnionDecl>(d) {
-        return cast<Declarations::UnionDecl>(d)->ffi_tag_keyword
+        return cast<Declarations::UnionDecl>(d)->ffi_tag_keyword.copy()
     }
 
     if isa<Declarations::EnumDecl>(d) {
-        return cast<Declarations::EnumDecl>(d)->ffi_tag_keyword
+        return cast<Declarations::EnumDecl>(d)->ffi_tag_keyword.copy()
     }
 
     return ""
@@ -518,22 +518,22 @@ pub fn decl_set_ffi_tag_keyword(d: unsafe *Decl, const kw: string) {
     }
 
     if isa<Declarations::ClassDecl>(d) {
-        cast<Declarations::ClassDecl>(d)->ffi_tag_keyword = kw
+        cast<Declarations::ClassDecl>(d)->ffi_tag_keyword = kw.copy()
         return
     }
 
     if isa<Declarations::StructDecl>(d) {
-        cast<Declarations::StructDecl>(d)->ffi_tag_keyword = kw
+        cast<Declarations::StructDecl>(d)->ffi_tag_keyword = kw.copy()
         return
     }
 
     if isa<Declarations::UnionDecl>(d) {
-        cast<Declarations::UnionDecl>(d)->ffi_tag_keyword = kw
+        cast<Declarations::UnionDecl>(d)->ffi_tag_keyword = kw.copy()
         return
     }
 
     if isa<Declarations::EnumDecl>(d) {
-        cast<Declarations::EnumDecl>(d)->ffi_tag_keyword = kw
+        cast<Declarations::EnumDecl>(d)->ffi_tag_keyword = kw.copy()
         return
     }
 }

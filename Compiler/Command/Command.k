@@ -307,7 +307,7 @@ pub class Command {
     ///        input is seen, in each ParsedArgs::inputs entry's lang.
     ///        clang's -x semantics: it applies to the inputs that FOLLOW it.
     fn tag_positionals_with(self, const key: string) {
-        self._tag_key = key
+        self._tag_key = key.copy()
     }
 
     fn mark_unimplemented(self, const key: string) {
@@ -437,7 +437,7 @@ pub class Command {
             var        suffix = name.subslice(split as usize, name.size())
             var unsafe *def   = self._find(prefix)
             if def != &null && def->kind != FlagKind::Bool {
-                (out_value) = suffix
+                (out_value) = suffix.copy()
                 return def
             }
 
@@ -662,7 +662,7 @@ pub class Command {
             return ""
         }
 
-        return disp[best]
+        return disp[best].copy()
     }
 
 
@@ -978,7 +978,7 @@ pub class Command {
     /// One positional input, with the tag flag's value at this point.
     priv fn _push_file(self, result: *ParsedArgs, const path: string) {
         var input = InputArg()
-        input.path = path
+        input.path = path.copy()
         if !self._tag_key.empty() && result->has(self._tag_key) {
             input.lang = result->get_string(self._tag_key)
         }
@@ -1006,7 +1006,7 @@ pub class Command {
 
         var i: usize = 1 // skip args[0] (program name)
         while i < args.size() {
-            var elem = args[i]
+            var elem = args[i].copy()
             var elen = elem.length()
 
             if gstate == Self::GlobalState::PathsOnly {
@@ -1097,7 +1097,7 @@ pub class Command {
                         var hint = self._suggest(name)
                         var msg = if (hint.length() > 0) => (f"unknown flag '--{name}'; did you mean '{hint}'; run '--help' to see available options")
                                   else => f"unknown flag '--{name}'; run '--help' to see available options"
-                        self._diag->report(DiagCode(DiagID::U002E), msg).emit()
+                        self._diag->report(DiagCode(DiagID::U002E), msg.copy()).emit()
                         result.ok = false
                         i += 1
                         continue
@@ -1184,7 +1184,7 @@ pub class Command {
                         var hint = self._suggest(name)
                         var msg = if (hint.length() > 0) => (f"unknown flag '{lead}{name}'; did you mean '{hint}'; run '--help' to see available options")
                                   else => f"unknown flag '{lead}{name}'; run '--help' to see available options"
-                        self._diag->report(DiagCode(DiagID::U002E), msg).emit()
+                        self._diag->report(DiagCode(DiagID::U002E), msg.copy()).emit()
                         result.ok = false
                         i += 1
                         continue
@@ -1455,7 +1455,7 @@ pub class Command {
                 }
             }
 
-            var rhs: string = def->help
+            var rhs: string = def->help.copy()
             // Many help strings already state their default ("(default: X)",
             // "-O0 (default)"); appending the rendered one printed it twice.
             var help_has_default = find(def->help, "(default", 0) != usize::MAX

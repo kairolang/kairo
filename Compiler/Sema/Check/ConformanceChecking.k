@@ -3441,7 +3441,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var vis = self._sees(hr)
         var msg = if (vis) => (f"cannot choose an overload here: '{xs}' has a '{hn}' that would implement '{is}', but it is not public")
                   else => f"cannot choose an overload here: '{xs}' implements '{is}' only through '{hn}', in an extension this file does not import"
-        var db = self.sc->diag->report(DiagID::SC162E, at.start, msg)
+        var db = self.sc->diag->report(DiagID::SC162E, at.start, msg.copy())
         db.first(at)
         db.note(ce->range.start, "the overloads are told apart by this test")->child_first(
             ce->range,
@@ -4236,7 +4236,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         lifecycle_of(self.sc)->instance_failures(e, unsafe &fails)
         for var i: usize = 0; i < fails.size(); ++i {
             var *x = &fails[i]
-            var b  = self.sc->diag->report(x->id, e->use_at.start, x->msg)
+            var b = self.sc->diag->report(x->id, e->use_at.start, x->msg.copy())
             b.first(e->use_at, f"'{self._inst_name(e)}' is instantiated here")
             for var k: usize = 0; k < x->note_ids.size(); ++k {
                 b.note(
@@ -4322,11 +4322,21 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
+        // A record instance laid out by a partial specialization has that
+        // partial's members and no others: the primary's are never
+        // instantiated for it, and what they name at these arguments
+        // (`[T]` of the primary at `T = const X`) is no instance of the
+        // program.
+        var unsafe *body = prim
+        if !isa<Declarations::FunctionDecl>(prim) && e->pattern != &null {
+            body = e->pattern
+        }
+
         var uses = _NestedUses()
         if isa<Declarations::FunctionDecl>(prim) {
             uses.dispatch_decl(prim)
         } else {
-            var ms               = self._methods_of(prim)
+            var ms               = self._methods_of(body)
             var rt: unsafe *Type = &null
             if e->decl != &null {
                 rt = self.sc->types->record(e->decl, unsafe &e->args)
@@ -4341,7 +4351,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             // The fields' types are instantiated with the record (C++ checks a
             // constrained template's bounds even where it is only named, as
             // behind a pointer), and a field is no method's use.
-            var fs = self._fields_of(prim)
+            var fs = self._fields_of(body)
             for var i: usize = 0; i < fs.size(); ++i {
                 var unsafe *f = fs[i]
                 if f == &null || f->type_ == &null {
@@ -4363,7 +4373,20 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         var d = Deduction(self.sc, &null)
-        self._bind_instance(&d, e, prim)
+        if body == prim {
+            self._bind_instance(&d, e, prim)
+        } else {
+            // The partial's own parameters, at what its pattern bound them
+            // to: `T` of `Slice<const T>` is `X` for `Slice<const X>`.
+            var        gps = decl_generic_params(body)
+            var unsafe *br = NameLookup::representative(body)
+            for var i: usize = 0; i < gps.size() && i < e->pattern_args.size(); ++i {
+                if gps[i] != &null {
+                    d.bind(br, gps[i]->index, e->pattern_args[i])
+                }
+            }
+        }
+
         for var i: usize = 0; i < uses.calls.size(); ++i {
             var unsafe *c      = uses.calls[i]
             var unsafe *callee = callee_decl(c)
@@ -6669,7 +6692,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             msg = f"'{xs}' does not conform to '{is}': no member '{missing}' with the requirement's signature"
         }
 
-        var d = self.sc->diag->report(DiagID::SC162E, at.start, msg)
+        var d = self.sc->diag->report(DiagID::SC162E, at.start, msg.copy())
         d.first(at)
         if b != &null {
             d.note(b->range.start, f"required by this bound")->child_first(

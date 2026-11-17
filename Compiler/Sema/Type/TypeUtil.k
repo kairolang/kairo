@@ -2110,19 +2110,26 @@ pub class TypeUtil {
     }
 
     /// The member \p name the record type \p t itself declares, in the
-    /// pattern \p t is an instance of: a partial specialization's own
-    /// member, where lang_member answers with the primary's. Null when \p t
-    /// is no record or declares none.
+    /// pattern its members come from: the partial specialization \p t's
+    /// arguments select (SemaContext::record_partial), where lang_member
+    /// answers with the primary's, else the pattern \p t is an instance
+    /// of. `[const X;]` is the `Slice<const T>` specialization, and C++
+    /// resolves a member of it there. Null when \p t is no record or
+    /// declares none.
     fn own_member(self, t: unsafe *Type, const name: string) -> unsafe *Decl {
         var unsafe *rt = dyn_cast<RecordType>(canon_unqual(t))
         if rt == &null || rt->decl == &null {
             return &null
         }
 
+        var        binds = cxx::std::vector<unsafe *Type>()
+        var unsafe *body = self.sc->record_partial(t, unsafe &binds)
+        if body == &null {
+            body = self.pattern_of(NameLookup::representative(rt->decl))
+        }
+
         return self._member_in(
-            NameLookup::context_of(
-                self.pattern_of(NameLookup::representative(rt->decl)),
-            ),
+            NameLookup::context_of(NameLookup::representative(body)),
             name,
             false,
         )

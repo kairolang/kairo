@@ -124,7 +124,7 @@ extend CompilerInstance {
                 var tgt   = SysTarget{}
                 var cands = cxx::std::vector<string>()
                 var why   = ""
-                var name  = want
+                var name  = want.copy()
                 if SysNames::parse(
                     want,
                     glibc_default_version(),
@@ -132,7 +132,7 @@ extend CompilerInstance {
                     &cands,
                     &why,
                 ) {
-                    name = tgt.name
+                    name = tgt.name.copy()
                 }
 
                 var cache = SysCache(SysCache::default_root())
@@ -145,7 +145,7 @@ extend CompilerInstance {
             }
         }
 
-        return self.invocation()->target.sysroot
+        return self.invocation()->target.sysroot.copy()
     }
 
     /// Resolves and renders the long-form explanation for a diagnostic code.
@@ -568,7 +568,7 @@ extend CompilerInstance {
         var cw         = cxx::std::vector<string>()
         var err        = ""
         if !FlagTranslator::from_driver(&clang_argv, &kw, &cw, &err) {
-            self._diag->report(DiagID::U014E, err).emit()
+            self._diag->report(DiagID::U014E, err.copy()).emit()
             self.flush_errors()
             return EXIT_FAILURE
         }
@@ -637,7 +637,7 @@ extend CompilerInstance {
         var jobs = ClangJobs(be, exe)
         if !jobs.query(&w) {
             if !jobs.error.empty() {
-                self._diag->report(DiagID::U011E, jobs.error).emit()
+                self._diag->report(DiagID::U011E, jobs.error.copy()).emit()
             }
 
             self.flush_errors()
@@ -667,7 +667,7 @@ extend CompilerInstance {
 
         var line = "clang -cc1"
         for var a: string in be->invocation_args() {
-            line = line + " " + shell_quote(a)
+            line = line + " " + shell_quote(a.copy())
         }
 
         io::println(f"{line}")

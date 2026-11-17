@@ -244,7 +244,7 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
     /// \p b's \p k as the literal it is, or null after the error saying why
     /// it has none.
     priv fn _mint(self, range: SourceRange, b: BuiltinKind, k: PrimLimit) -> unsafe *Expr {
-        var sp   = builtin_info(b)->spelling
+        var sp   = builtin_info(b)->spelling.copy()
         var name = PrimitiveLimits::name_of(k)
         if !PrimitiveLimits::exists(b, k) {
             var why = self._why_missing(b, k)

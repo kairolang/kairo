@@ -2645,7 +2645,7 @@ pub class <T: type> DeclParse {
                 self.dyn()->diag->report(
                     DiagID::S070E,
                     p_mode_range.start,
-                    cmsg,
+                    cmsg.copy(),
                 ).first(p_mode_range)->emit()
             }
 
@@ -3310,7 +3310,7 @@ pub class <T: type> DeclParse {
             var b = self.dyn()->diag->report(
                 DiagID::S045E,
                 extra.range.start,
-                msg,
+                msg.copy(),
             )
 
             b.first(extra.range)

@@ -195,7 +195,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
 
             var d = self._edit_distance(nm, k)
             if best.size() == 0 || d < best_d {
-                best   = k
+                best   = k.copy()
                 best_d = d
             }
         }
@@ -319,13 +319,18 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     }
 
     priv fn _bad_arg(self, e: unsafe *AnnotationEntry, at: SourceRange, const msg: string) {
-        var b = self.sc->diag->report(DiagID::SC144E, at.start, msg)
+        var b = self.sc->diag->report(DiagID::SC144E, at.start, msg.copy())
         b.first(at)
         b.emit()
     }
 
     priv fn _unsupported(self, e: unsafe *AnnotationEntry, const msg: string) {
-        var b = self.sc->diag->report(DiagID::SC116E, e->range.start, msg)
+        var b = self.sc->diag->report(
+            DiagID::SC116E,
+            e->range.start,
+            msg.copy(),
+        )
+
         b.first(e->range)
         b.emit()
     }
@@ -921,7 +926,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             }
         }
 
-        var b = self.sc->diag->report(DiagID::SC146W, at.start, msg)
+        var b = self.sc->diag->report(DiagID::SC146W, at.start, msg.copy())
         b.first(at)
         b.note(e->range.start, "'" + name + "' was marked deprecated here")
         b.emit()

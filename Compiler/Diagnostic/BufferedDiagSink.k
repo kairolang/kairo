@@ -78,26 +78,26 @@ pub class BufferedDiagSink derives DiagEngineVBase {
 
     pub fn report(self, code: DiagCode, loc: SourceLocation, msg: string) -> DiagBuilder {
         if loc == SourceLocation::invalid() {
-            return self.report(code, msg)
+            return self.report(code, msg.copy())
         }
 
-        return DiagBuilder(&self, code, loc, msg)
+        return DiagBuilder(&self, code, loc, msg.copy())
     }
 
     fn report(self, code: DiagCode, msg: string) -> DiagBuilder {
-        return DiagBuilder(&self, code, msg)
+        return DiagBuilder(&self, code, msg.copy())
     }
 
     pub fn report(self, id: DiagID, loc: SourceLocation, msg: string) -> DiagBuilder {
         if loc == SourceLocation::invalid() {
-            return DiagBuilder(&self, DiagCode(id), msg)
+            return DiagBuilder(&self, DiagCode(id), msg.copy())
         }
 
-        return DiagBuilder(&self, DiagCode(id), loc, msg)
+        return DiagBuilder(&self, DiagCode(id), loc, msg.copy())
     }
 
     pub fn report(self, id: DiagID, msg: string) -> DiagBuilder {
-        return DiagBuilder(&self, DiagCode(id), msg)
+        return DiagBuilder(&self, DiagCode(id), msg.copy())
     }
 
     /// # suppression: parse-local, immediate (TentativeGuard drives this)

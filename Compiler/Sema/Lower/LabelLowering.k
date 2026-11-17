@@ -117,7 +117,7 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
     fn transform_labeled_stmt(self, n: unsafe *LabeledStmt) -> cxx::std::vector<unsafe *Stmt> {
         var name = self.sc->ctx->get_spelling(n->label)
         var e    = LoopLabel{}
-        e.name = name
+        e.name = name.copy()
         e.brk = self.synth.ident(
             n->label.range,
             LowerTargets::loop_break(self._count, name),

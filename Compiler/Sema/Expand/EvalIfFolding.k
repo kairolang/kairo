@@ -1297,7 +1297,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     priv fn _no(self, at: unsafe *Expr, const why: string) -> FoldVal {
         if self._why_at == &null {
             self._why_at = at
-            self._why    = why
+            self._why    = why.copy()
         }
 
         var v = FoldVal{}

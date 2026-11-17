@@ -2121,29 +2121,29 @@ pub class PPWalker {
         var site = self._inv_site(inv)
         if !remark.empty() {
             if site.start.id != inv->range.start.id {
-                self._diag->report(DiagCode(code), site.start, msg).first(site)->note(
-                    inv->range.start,
-                    note,
-                )->child_first(inv->range)->remark(remark)->emit()
+                self._diag->report(DiagCode(code), site.start, msg.copy()).first(
+                    site,
+                )->note(inv->range.start, note)->child_first(inv->range)->remark(
+                    remark,
+                )->emit()
                 return
             }
 
-            self._diag->report(DiagCode(code), site.start, msg).first(site)->remark(
-                remark,
-            )->emit()
+            self._diag->report(DiagCode(code), site.start, msg.copy()).first(
+                site,
+            )->remark(remark)->emit()
 
             return
         }
 
         if site.start.id != inv->range.start.id {
-            self._diag->report(DiagCode(code), site.start, msg).first(site)->note(
-                inv->range.start,
-                note,
-            )->child_first(inv->range)->emit()
+            self._diag->report(DiagCode(code), site.start, msg.copy()).first(
+                site,
+            )->note(inv->range.start, note)->child_first(inv->range)->emit()
             return
         }
 
-        self._diag->report(DiagCode(code), site.start, msg).first(site)->emit()
+        self._diag->report(DiagCode(code), site.start, msg.copy()).first(site)->emit()
 
         return
     }
@@ -3222,7 +3222,9 @@ pub class PPWalker {
     //  Builtin helpers
 
     priv fn _builtin_report(self, range: SourceRange, const message: string, code: DiagID) {
-        self._diag->report(DiagCode(code), range.start, message).first(range)->emit()
+        self._diag->report(DiagCode(code), range.start, message.copy()).first(
+            range,
+        )->emit()
     }
 
     priv fn _inv_site(self, inv: unsafe *Self::InvocationInfo) -> SourceRange {

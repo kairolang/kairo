@@ -170,7 +170,7 @@ pub class TokenText {
                  rng:       SourceRange,
                  expand:    bool = false,
                  marker:    bool = false) -> void {
-        self.text      = txt
+        self.text      = txt.copy()
         self.range     = rng
         self.is_expand = expand
         self.is_marker = marker
@@ -229,7 +229,7 @@ pub class TokenText {
                 if imm != u32::MAX && tok_range.is_valid() {
                     var text = sm->get_text(tok_range)
                     if !text.empty() && is_illegal_ascii(text[0]) {
-                        return create(text)
+                        return create(text.copy())
                     }
                 }
 

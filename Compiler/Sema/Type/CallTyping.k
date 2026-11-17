@@ -233,6 +233,10 @@ pub class <T: type> CallTyping {
             return a
         }
 
+        if self.dyn()->range_literal_shape(e, &a) {
+            return a
+        }
+
         if self.dyn()->dotted_variant_shape(e, &a) {
             return a
         }
@@ -781,8 +785,41 @@ pub class <T: type> CallTyping {
 
             // Either side dependent -- only reachable through a dependent
             // constructor call -- is the instance's question, as it is for
-            // an initializer field.
+            // an initializer field. One case is decided here: a `T?` place
+            // handed to a parameter that is that `T` in every instance
+            // (`b.put(x)` with `x: T?` and `put(v: T)`) is a read of its
+            // value, narrowed when the place is proven non-null and the
+            // nullness error otherwise, as it is at a concrete `T`.
             if pt != &null && pt->is_dependent() {
+                if !a->marked && a->expr->type_ != &null {
+                    // A member's parameter is read at the receiver's own
+                    // arguments: on a dependent receiver the record's
+                    // parameters were deduced from the arguments, and
+                    // `put(v: T)` given a `U?` reads back as `U?`.
+                    var unsafe *want = pt
+                    if r->receiver != &null && r->receiver_bound {
+                        var rs = Substitution(self.dyn()->sc)
+                        rs.keep_unbound = true
+                        rs.bind_from_record(canon_unqual(r->receiver))
+                        var unsafe *w = rs.substitute(p->type_->canonical)
+                        if w != &null {
+                            want = w
+                        }
+                    }
+
+                    var unsafe *din = self.dyn()->flow.narrowed_type(
+                        a->expr->type_,
+                    )
+
+                    if din != &null
+                        && self.dyn()->tu.nullable_inner(
+                            self.dyn()->tu.as_value(want),
+                        ) == &null
+                        && self.dyn()->same_rigid(din, want) {
+                        self.dyn()->flow.read_value(a->expr, true)
+                    }
+                }
+
                 continue
             }
 
@@ -895,7 +932,7 @@ pub class <T: type> CallTyping {
         } else if f->body_kind == FnBodyKind::Block && f->body_block != &null {
             scan.dispatch_stmt(f->body_block)
             site   = scan.site
-            copied = scan.copied
+            copied = scan.copied.copy()
         }
 
         if scan.array == &null || copied.size() == 0 {
@@ -1547,7 +1584,7 @@ pub class <T: type> CallTyping {
             var b = self.dyn()->sc->diag->report(
                 DiagID::R051E,
                 n->range.start,
-                msg,
+                msg.copy(),
             )
 
             b.first(n->range)
@@ -2329,12 +2366,12 @@ pub class <T: type> CallTyping {
                 self.dyn()->ml.associated_scopes(args[i].ty, &scopes)
             }
 
-            var imm = self.dyn()->sc->imm_table()->find_ident(name)
+            var imm = self.dyn()->sc->imm_table()->find_ident(name.copy())
             if scopes.size() > 0 && imm != u32::MAX {
                 self.dyn()->ml.adl_candidates(
                     &scopes,
                     DeclName::ident(imm),
-                    name,
+                    name.copy(),
                     cands,
                     &all,
                 )
@@ -2422,7 +2459,7 @@ pub class <T: type> CallTyping {
             &args,
             has_receiver,
             n->range,
-            name,
+            name.copy(),
             recv,
             qual,
         )
@@ -2430,6 +2467,15 @@ pub class <T: type> CallTyping {
         self.dyn()->ovl.call_syntax = outer_cs
         if r.outcome == OvlOutcome::Dependent {
             self._check_forwarded_pack(n, all, args)
+            // A range literal waited for its parameter (range_literal_shape)
+            // and the instance picks the callee: it is the range it is with
+            // nothing asking, which RangeLowering then builds.
+            for var i: usize = 0; i < args.size(); ++i {
+                if args[i].lit == LitKind::Range {
+                    self.dyn()->type_of(args[i].expr, &null)
+                }
+            }
+
             self.dyn()->mark_unknown(n)
             return &null
         }
@@ -2837,7 +2883,7 @@ pub class <T: type> CallTyping {
             why = f"'{mname}' is pure virtual: a 'virtual fn' with no body"
         }
 
-        b.note(DiagCode(DiagID::SC249N), pure->range.start, why)->child_first(
+        b.note(DiagCode(DiagID::SC249N), pure->range.start, why.copy())->child_first(
             pure->range,
         )
 

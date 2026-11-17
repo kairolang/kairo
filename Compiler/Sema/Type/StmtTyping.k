@@ -723,7 +723,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             b.first(v->name.range)
             b.second(v->init->range, f"this has type '{self.dyn()->tu.str(c)}'")
             if !stars_ok {
-                b.fix(v->pointer_range, want0, f"write '{want0}'")
+                b.fix(v->pointer_range, want0.copy(), f"write '{want0}'")
             }
 
             b.insert(v->name.range.end, "?", "mark the binding nullable")
@@ -771,7 +771,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var b = self.dyn()->sc->diag->report(
             DiagID::SC266E,
             v->pointer_range.start,
-            msg,
+            msg.copy(),
         )
 
         b.first(v->pointer_range)
@@ -1231,7 +1231,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         var at = if (n->is_operator) => (n->range) else => n->name.range
-        self.dyn()->sc->diag->report(DiagID::SC112E, at.start, why).first(at)->emit()
+        self.dyn()->sc->diag->report(DiagID::SC112E, at.start, why.copy()).first(
+            at,
+        )->emit()
     }
 
     /// A free function named `main` outside any type. Whether this TU is the
@@ -2536,11 +2538,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             // Members, both or neither: one alone is not a fallback to the
             // free pair ([stmt.ranged]/1.2), it is an error.
             if mb.size() == 0 || me.size() == 0 {
-                var have = kb
-                var miss = ke
+                var have = kb.copy()
+                var miss = ke.copy()
                 if mb.size() == 0 {
-                    have = ke
-                    miss = kb
+                    have = ke.copy()
+                    miss = kb.copy()
                 }
 
                 self.dyn()->fail(
@@ -2574,8 +2576,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             self.dyn()->ml.associated_scopes(obj, &scopes)
             var fb = hb
             var fe = he
-            self.dyn()->ml.adl_candidates(&scopes, nb, kb, &hb, &fb)
-            self.dyn()->ml.adl_candidates(&scopes, ne, ke, &he, &fe)
+            self.dyn()->ml.adl_candidates(&scopes, nb, kb.copy(), &hb, &fb)
+            self.dyn()->ml.adl_candidates(&scopes, ne, ke.copy(), &he, &fe)
             if fb.size() == 0 && fe.size() == 0 {
                 return &null
             }
@@ -2591,11 +2593,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             }
 
             if fb.size() == 0 || fe.size() == 0 {
-                var have = kb
-                var miss = ke
+                var have = kb.copy()
+                var miss = ke.copy()
                 if fb.size() == 0 {
-                    have = ke
-                    miss = kb
+                    have = ke.copy()
+                    miss = kb.copy()
                 }
 
                 self.dyn()->fail(
@@ -2739,7 +2741,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     /// This TU's DeclName for the identifier \p s.
     priv fn _cxx_name(self, const s: string) -> DeclName {
         return DeclName::ident(
-            self.dyn()->sc->imm_table()->intern_ident_copy(s),
+            self.dyn()->sc->imm_table()->intern_ident_copy(s.copy()),
         )
     }
 
@@ -2758,7 +2760,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             &args,
             true,
             at->range,
-            name,
+            name.copy(),
             obj,
         )
 
@@ -2787,7 +2789,14 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                       inst:       unsafe *(unsafe *InstanceEntry)) -> unsafe *FunctionDecl {
         var args = cxx::std::vector<ArgInfo>()
         args.push_back(self.dyn()->arg_info(at))
-        var r = self.dyn()->ovl.resolve(cands, &args, false, at->range, name)
+        var r = self.dyn()->ovl.resolve(
+            cands,
+            &args,
+            false,
+            at->range,
+            name.copy(),
+        )
+
         if r.outcome != OvlOutcome::Selected {
             return &null
         }
@@ -3219,7 +3228,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var d = self.dyn()->sc->diag->report(
             DiagID::SC298E,
             b->range.start,
-            msg,
+            msg.copy(),
         )
 
         d.first(b->range)

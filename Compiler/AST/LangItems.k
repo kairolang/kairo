@@ -1314,7 +1314,7 @@ pub class LangAttrs {
             return "set_global_allocator(A)"
         }
 
-        return word
+        return word.copy()
     }
 
     /// What attribute \p word may be written before: words among `fn`,

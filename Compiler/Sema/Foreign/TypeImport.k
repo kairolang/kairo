@@ -382,7 +382,7 @@ pub class TypeImport {
 
     fn opaque(self, qt: clang::QualType) -> unsafe *Type {
         var        sp = self.spelling(qt)
-        var unsafe *t = self.store->opaque(TypeImport::opaque_key(sp))
+        var unsafe *t = self.store->opaque(TypeImport::opaque_key(sp.copy()))
         self._note_opaque_origin(t, qt)
         return t
     }

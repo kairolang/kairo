@@ -309,8 +309,8 @@ extend EmitIR {
             )
         }
 
-        var obj = self._ul_obj[r]
-        var st  = self._ul_store[r]
+        var obj = self._ul_obj[r].copy()
+        var st  = self._ul_store[r].copy()
         var s   = "("
         if maybe {
             s += st + "." + LowerTargets::union_local_kill() + "(), "

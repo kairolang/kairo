@@ -676,7 +676,7 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
                   const msg:   string,
                   const label: string,
                   const flag:  string) {
-        var b = self.sc->diag->report(DiagID::SC198E, at.start, msg)
+        var b = self.sc->diag->report(DiagID::SC198E, at.start, msg.copy())
         b.first(at, label)
         b.note(f"disabled by {flag}")
         b.emit()

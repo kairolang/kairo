@@ -644,7 +644,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
     priv fn _id(self, d: unsafe *Decl) -> string {
         var it = self._ids.find(d as usize as u64)
         if it != self._ids.end() {
-            return self._idv[it->second as usize]
+            return self._idv[it->second as usize].copy()
         }
 
         var s = incr_decl_id(d, self.psym)
@@ -1080,7 +1080,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
                 continue
             }
 
-            last = self._refs[i]
+            last = self._refs[i].copy()
             if !first {
                 row += ", "
                 prefs += "\x1f"

@@ -112,21 +112,21 @@ pub class TermRenderer {
 
         var i: usize = 0
         while i < lines.size() {
-            var line    = lines[i]
+            var line    = lines[i].copy()
             var trimmed = trim(line)
 
             /// ## fenced code block
             if trimmed.starts_with("```") {
                 if in_code_block {
                     // closing fence - draw bottom border
-                    out += self.style(self.DIM)
+                    out += self.style(self.DIM.copy())
                     out += "  └"
                     for _ in (0 as u32) .. self._width - 4 {
                         out += "-"
                     }
 
                     out += "┘"
-                    out += self.style(self.RESET)
+                    out += self.style(self.RESET.copy())
                     out += "\n"
                     in_code_block = false
                     i += 1
@@ -139,7 +139,7 @@ pub class TermRenderer {
                 code_block_info = info
 
                 // draw top border with lang/file
-                out += self.style(self.DIM)
+                out += self.style(self.DIM.copy())
                 out += "  ┌"
 
                 var header = string()
@@ -173,7 +173,7 @@ pub class TermRenderer {
                 }
 
                 out += "┐"
-                out += self.style(self.RESET)
+                out += self.style(self.RESET.copy())
                 out += "\n"
                 i += 1
                 continue
@@ -185,19 +185,19 @@ pub class TermRenderer {
                 var inner   = self._width - 5
                 var clipped = self.clip_to_width(line, inner - 1)
 
-                out += self.style(self.DIM)
+                out += self.style(self.DIM.copy())
                 out += "  │ "
-                out += self.style(self.RESET)
-                out += self.highlight(clipped, code_block_info.lang)
+                out += self.style(self.RESET.copy())
+                out += self.highlight(clipped.copy(), code_block_info.lang)
 
                 var used = self.display_width(clipped)
                 for _ in (0 as u32) .. inner - used {
                     out += " "
                 }
 
-                out += self.style(self.DIM)
+                out += self.style(self.DIM.copy())
                 out += "│"
-                out += self.style(self.RESET)
+                out += self.style(self.RESET.copy())
                 out += "\n"
                 i += 1
                 continue
@@ -219,19 +219,19 @@ pub class TermRenderer {
                     case 1 {
                         out += self.style(self.BOLD + self.UNDERLINE)
                         out += heading_text
-                        out += self.style(self.RESET)
+                        out += self.style(self.RESET.copy())
                     } case 2 {
-                        out += self.style(self.BOLD)
+                        out += self.style(self.BOLD.copy())
                         out += heading_text
-                        out += self.style(self.RESET)
+                        out += self.style(self.RESET.copy())
                     } case 3 {
                         out += self.style(self.BOLD + self.DIM)
                         out += heading_text
-                        out += self.style(self.RESET)
+                        out += self.style(self.RESET.copy())
                     } default {
-                        out += self.style(self.DIM)
+                        out += self.style(self.DIM.copy())
                         out += heading_text
-                        out += self.style(self.RESET)
+                        out += self.style(self.RESET.copy())
                     }
                 }
 
@@ -449,8 +449,8 @@ pub class TermRenderer {
                 var close = find(text, "`", i + 1)
                 if close != usize::MAX {
                     var code_text = text.subslice(i + 1, close - i - 1)
-                    var styled = self.style(self.CYAN) + code_text + self.style(
-                        self.RESET,
+                    var styled = self.style(self.CYAN.copy()) + code_text + self.style(
+                        self.RESET.copy(),
                     )
 
                     if col + self.display_width(code_text) + 2 > self._width && col > indent {
@@ -584,8 +584,8 @@ pub class TermRenderer {
             // line comment
             if c == ('/' as u8) && i + 1 < n && line[i + 1] == ('/' as u8) {
                 var rest = line.subslice(i, n - i)
-                out += self.style(self.HL_COMMENT) + rest + self.style(
-                    self.RESET,
+                out += self.style(self.HL_COMMENT.copy()) + rest + self.style(
+                    self.RESET.copy(),
                 )
 
                 i = n
@@ -601,8 +601,8 @@ pub class TermRenderer {
 
                 var end = if (j + 1 < n) => (j + 2) else => n
                 var seg = line.subslice(i, end - i)
-                out += self.style(self.HL_COMMENT) + seg + self.style(
-                    self.RESET,
+                out += self.style(self.HL_COMMENT.copy()) + seg + self.style(
+                    self.RESET.copy(),
                 )
 
                 i = end
@@ -623,7 +623,10 @@ pub class TermRenderer {
                 }
 
                 var seg = line.subslice(i, j - i)
-                out += self.style(self.HL_STRING) + seg + self.style(self.RESET)
+                out += self.style(self.HL_STRING.copy()) + seg + self.style(
+                    self.RESET.copy(),
+                )
+
                 i = j
                 continue
             }
@@ -644,7 +647,10 @@ pub class TermRenderer {
                 }
 
                 var seg = line.subslice(i, j - i)
-                out += self.style(self.HL_STRING) + seg + self.style(self.RESET)
+                out += self.style(self.HL_STRING.copy()) + seg + self.style(
+                    self.RESET.copy(),
+                )
+
                 i = j
                 continue
             }
@@ -665,7 +671,10 @@ pub class TermRenderer {
                 }
 
                 var seg = line.subslice(i, j - i)
-                out += self.style(self.HL_STRING) + seg + self.style(self.RESET)
+                out += self.style(self.HL_STRING.copy()) + seg + self.style(
+                    self.RESET.copy(),
+                )
+
                 i = j
                 continue
             }
@@ -678,7 +687,10 @@ pub class TermRenderer {
                 }
 
                 var seg = line.subslice(i, j - i)
-                out += self.style(self.HL_NUMBER) + seg + self.style(self.RESET)
+                out += self.style(self.HL_NUMBER.copy()) + seg + self.style(
+                    self.RESET.copy(),
+                )
+
                 i = j
                 continue
             }
@@ -691,8 +703,8 @@ pub class TermRenderer {
                 }
 
                 var seg = line.subslice(i, j - i)
-                out += self.style(self.HL_ATTRIBUTE) + seg + self.style(
-                    self.RESET,
+                out += self.style(self.HL_ATTRIBUTE.copy()) + seg + self.style(
+                    self.RESET.copy(),
                 )
 
                 i = j
@@ -719,20 +731,20 @@ pub class TermRenderer {
                 var kind = self.word_kind(word)
 
                 if self.is_value_word(kind) {
-                    out += self.style(self.HL_NUMBER) + word + self.style(
-                        self.RESET,
+                    out += self.style(self.HL_NUMBER.copy()) + word + self.style(
+                        self.RESET.copy(),
                     )
                 } else if self.is_keyword(word, kind) {
-                    out += self.style(self.HL_KEYWORD) + word + self.style(
-                        self.RESET,
+                    out += self.style(self.HL_KEYWORD.copy()) + word + self.style(
+                        self.RESET.copy(),
                     )
                 } else if is_call {
-                    out += self.style(self.HL_FUNC) + word + self.style(
-                        self.RESET,
+                    out += self.style(self.HL_FUNC.copy()) + word + self.style(
+                        self.RESET.copy(),
                     )
                 } else if self.is_upper(c) {
-                    out += self.style(self.HL_TYPE) + word + self.style(
-                        self.RESET,
+                    out += self.style(self.HL_TYPE.copy()) + word + self.style(
+                        self.RESET.copy(),
                     )
                 } else {
                     out += word
@@ -864,8 +876,8 @@ pub class TermRenderer {
                     if kind == clang::tok::raw_identifier {
                         var *ai = &ids.get(tok.getRawIdentifier())
                         if ai->getObjCKeywordID() != clang::tok::objc_not_keyword {
-                            out += self.style(self.HL_KEYWORD) + "@" + text + self.style(
-                                self.RESET,
+                            out += self.style(self.HL_KEYWORD.copy()) + "@" + text + self.style(
+                                self.RESET.copy(),
                             )
 
                             first = false
@@ -878,8 +890,8 @@ pub class TermRenderer {
                     } else if clang::tok::isLiteral(kind) {
                         var hl = if (kind == clang::tok::numeric_constant) => (self.HL_NUMBER)
                                  else => self.HL_STRING
-                        out += self.style(hl) + "@" + text + self.style(
-                            self.RESET,
+                        out += self.style(hl.copy()) + "@" + text + self.style(
+                            self.RESET.copy(),
                         )
 
                         first = false
@@ -897,20 +909,20 @@ pub class TermRenderer {
             out += gap
 
             if kind == clang::tok::comment {
-                out += self.style(self.HL_COMMENT) + text + self.style(
-                    self.RESET,
+                out += self.style(self.HL_COMMENT.copy()) + text + self.style(
+                    self.RESET.copy(),
                 )
             } else if kind == clang::tok::numeric_constant {
-                out += self.style(self.HL_NUMBER) + text + self.style(
-                    self.RESET,
+                out += self.style(self.HL_NUMBER.copy()) + text + self.style(
+                    self.RESET.copy(),
                 )
             } else if clang::tok::isLiteral(kind) {
-                out += self.style(self.HL_STRING) + text + self.style(
-                    self.RESET,
+                out += self.style(self.HL_STRING.copy()) + text + self.style(
+                    self.RESET.copy(),
                 )
             } else if kind == clang::tok::hash && first {
-                out += self.style(self.HL_KEYWORD) + text + self.style(
-                    self.RESET,
+                out += self.style(self.HL_KEYWORD.copy()) + text + self.style(
+                    self.RESET.copy(),
                 )
 
                 directive = true
@@ -924,8 +936,8 @@ pub class TermRenderer {
                 held_at = true
             } else if kind == clang::tok::raw_identifier {
                 if directive {
-                    out += self.style(self.HL_KEYWORD) + text + self.style(
-                        self.RESET,
+                    out += self.style(self.HL_KEYWORD.copy()) + text + self.style(
+                        self.RESET.copy(),
                     )
 
                     // The raw lexer splits `<a/b.h>` into punctuation: the
@@ -941,17 +953,24 @@ pub class TermRenderer {
 
                         out += line.subslice(pos, at - pos)
                         if at < n {
-                            out += self.style(self.HL_STRING) + line.subslice(
+                            out += self.style(self.HL_STRING.copy()) + line.subslice(
                                 at,
                                 n - at,
-                            ) + self.style(self.RESET)
+                            ) + self.style(self.RESET.copy())
                         }
 
                         pos = n
                         break
                     }
                 } else {
-                    out += self.clang_word(&ids, &lo, &tok, text, line, end)
+                    out += self.clang_word(
+                        &ids,
+                        &lo,
+                        &tok,
+                        text.copy(),
+                        line,
+                        end,
+                    )
                 }
             } else {
                 out += text
@@ -992,14 +1011,18 @@ pub class TermRenderer {
             || text == "NULL"
             || text == "nil"
             || text == "self" {
-            return self.style(self.HL_NUMBER) + text + self.style(self.RESET)
+            return self.style(self.HL_NUMBER.copy()) + text + self.style(
+                self.RESET.copy(),
+            )
         }
 
         var *ii = &ids.get(tok.getRawIdentifier())
         // override/final are C++ keywords only in place, so not in clang's table.
         var contextual = lo.CPlusPlus != 0 && (text == "override" || text == "final")
         if ii->getTokenID() != clang::tok::identifier || contextual {
-            return self.style(self.HL_KEYWORD) + text + self.style(self.RESET)
+            return self.style(self.HL_KEYWORD.copy()) + text + self.style(
+                self.RESET.copy(),
+            )
         }
 
         var k = end
@@ -1008,11 +1031,15 @@ pub class TermRenderer {
         }
 
         if k < line.length() && line[k] == ('(' as u8) {
-            return self.style(self.HL_FUNC) + text + self.style(self.RESET)
+            return self.style(self.HL_FUNC.copy()) + text + self.style(
+                self.RESET.copy(),
+            )
         }
 
         if self.is_upper(text[0]) {
-            return self.style(self.HL_TYPE) + text + self.style(self.RESET)
+            return self.style(self.HL_TYPE.copy()) + text + self.style(
+                self.RESET.copy(),
+            )
         }
 
         return text
@@ -1038,11 +1065,11 @@ pub class TermRenderer {
     }
 
     fn highlight_snippet(self, const code: string) -> string {
-        return self.highlight(code, "kairo")
+        return self.highlight(code.copy(), "kairo")
     }
 
     pub fn highlight_snippet(self, const code: string, const lang: string) -> string {
-        return self.highlight(code, lang)
+        return self.highlight(code.copy(), lang)
     }
 
     fn heading_level(self, const line: string) -> u32 {
@@ -1122,7 +1149,7 @@ pub class TermRenderer {
                 var key = kv.subslice(0, eq)
                 var val = kv.subslice(eq + 1, kv.length() - eq - 1)
                 if key == "file" {
-                    info.file = val
+                    info.file = val.copy()
                 }
             }
         }

@@ -158,7 +158,7 @@ pub class CodegenBackend derives TokenFiller {
 
     fn set_print_cg(self, on: u8, path: string) {
         self._print = on
-        self._path  = path
+        self._path  = path.copy()
     }
 
     /// Header sets whose PCHs this TU's emission loads. Without a merged
@@ -188,7 +188,7 @@ pub class CodegenBackend derives TokenFiller {
 
     /// The object's cache record (ObjectCache::record_asm), or "".
     fn set_record(self, const r: string) {
-        self._record = r
+        self._record = r.copy()
     }
 
     /// The TU's VFS (ClangBackend::codegen_vfs), diagnostic client and fid
@@ -309,7 +309,7 @@ pub class CodegenBackend derives TokenFiller {
                          0,
                      ))
                      else => self._ctx->sm->get_range(fid, 0, 1)
-            var lit = self._record
+            var lit = self._record.copy()
             sink->unanchored(true)
             sink->keyword(at, clang::tok::kw_asm)
             sink->punct(at, clang::tok::l_paren)
@@ -758,7 +758,7 @@ pub class CodegenJob {
             r->instances,
         )
 
-        cg.set_print_cg(self.print, self.path)
+        cg.set_print_cg(self.print, self.path.copy())
         cg.set_record(self.record)
         cg.set_header_sets(self.sets)
         cg.set_codegen_pch(r->merged)
@@ -859,10 +859,10 @@ pub class CodegenJob {
         for var k: usize = 0; k < self.kinds.size(); ++k {
             // Every run re-fills the same stream; print it once.
             if k > 0 {
-                cg->set_print_cg(0, self.path)
+                cg->set_print_cg(0, self.path.copy())
             }
 
-            if !cg->run(self.outs[k], self.kinds[k]) {
+            if !cg->run(self.outs[k].copy(), self.kinds[k]) {
                 self.ok = false
                 break
             }

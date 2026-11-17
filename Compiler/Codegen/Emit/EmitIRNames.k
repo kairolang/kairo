@@ -140,7 +140,7 @@ extend EmitIR {
 
         var ur = self._ul_use(d)
         if ur != usize::MAX {
-            var obj = self._ul_obj[ur]
+            var obj = self._ul_obj[ur].copy()
             if unsafe (n as unsafe *Expr) == self._ret_move {
                 obj = "static_cast<decltype(" + obj + ")&&>(" + obj + ")"
             }

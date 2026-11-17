@@ -39,7 +39,7 @@ pub class DirEntry {
     pub var scanned:   bool ///< full readdir done (enumeration path only)
 
     fn DirEntry(self, name: string, is_dir: bool = true) {
-        self.name      = name
+        self.name      = name.copy()
         self.children  = llvm::StringMap<unsafe *DirEntry>()
         self.file_path = null
         self.ext       = ""
@@ -51,10 +51,10 @@ pub class DirEntry {
     }
 
     fn DirEntry(self, name: string, path: Path, ext: string, category: FileCategory) {
-        self.name      = name
+        self.name      = name.copy()
         self.children  = llvm::StringMap<unsafe *DirEntry>()
         self.file_path = path
-        self.ext       = ext
+        self.ext       = ext.copy()
         self.category  = category
         self.is_dir    = false
         self.fs_path   = null
@@ -105,7 +105,7 @@ pub class DirEntry {
 
     /// Probe for a file with given stem+ext (ext without leading dot). One stat. Memoized.
     fn probe_file(self, stem: string, ext: string) -> unsafe *DirEntry {
-        var key = stem
+        var key = stem.copy()
         if ext.size() > 0 {
             key = stem + "." + ext
         }
@@ -119,7 +119,7 @@ pub class DirEntry {
             return &null
         }
 
-        var fname           = key
+        var fname           = key.copy()
         var found           = false
         var full_path: Path
         var cand            = unwrap!(self.fs_path).join(fname)
@@ -181,7 +181,7 @@ pub class DirEntry {
                 fname.size(),
             )
 
-            var full_raw = Path::join_str(self_path, name_raw)
+            var full_raw = Path::join_str(self_path, name_raw.copy())
             var etype    = Path::type_of_entry(*it)
 
             if etype == FileType::directory_file {
@@ -213,7 +213,7 @@ pub class DirEntry {
 
                     var full = Path::from_known(full_raw, etype)
                     var cat  = self.ext_cfg->categorize(ext)
-                    var key  = stem
+                    var key  = stem.copy()
                     if !ext.empty() {
                         key = stem + "." + ext
                     }
@@ -235,12 +235,12 @@ pub class DirEntry {
     }
 
     fn find_dir(self, const name: string) -> unsafe *DirEntry {
-        return self.probe_child_dir(name)
+        return self.probe_child_dir(name.copy())
     }
 
     fn find_by_stem_and_category(self, const stem: string, cat: FileCategory) -> unsafe *DirEntry {
         if cat == FileCategory::KairoSource {
-            var unsafe *k = self.probe_file(stem, "k")
+            var unsafe *k = self.probe_file(stem.copy(), "k")
             if k != &null && k->category == cat {
                 return k
             }

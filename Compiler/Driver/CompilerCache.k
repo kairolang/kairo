@@ -264,7 +264,7 @@ extend CompilerInstance {
 
                 var bytes = LinkFS::size(p)
                 kept.push_back(
-                    CacheEntryStat { path: p, at: last, bytes: bytes, pinned: pinned },
+                    CacheEntryStat { path: p.copy(), at: last, bytes: bytes, pinned: pinned },
                 )
 
                 total += bytes
@@ -387,7 +387,7 @@ extend CompilerInstance {
             self._lib_lazy.push_back(*o)
         }
 
-        self._lib_archive = archive
+        self._lib_archive = archive.copy()
         // Last use, for _gc_kairo_libs.
         LinkFS::write(dir + "/used", "")
         return true
@@ -470,11 +470,11 @@ extend CompilerInstance {
             return false
         }
 
-        var saved_dir  = self._obj_dir
+        var saved_dir  = self._obj_dir.copy()
         var saved_objs = self._native_objs.size()
-        self._obj_dir = tmp
+        self._obj_dir = tmp.copy()
         finally {
-            self._obj_dir = saved_dir
+            self._obj_dir = saved_dir.copy()
         }
 
         var built = false
@@ -664,7 +664,7 @@ extend CompilerInstance {
             if !partial {
                 var bytes = LinkFS::tree_size(p)
                 kept.push_back(
-                    CacheEntryStat { path: p, at: last, bytes: bytes, tree: true },
+                    CacheEntryStat { path: p.copy(), at: last, bytes: bytes, tree: true },
                 )
 
                 total += bytes

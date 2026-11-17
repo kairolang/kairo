@@ -43,6 +43,7 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::LangItems::entry_point_name
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::Decl
@@ -139,13 +140,13 @@ class NsTops {
             var lock = kairo::std::LockGuard(self._mu)
             for var i: usize = 0; i < self._from.size(); ++i {
                 if self._from[i] == s {
-                    return self._to[i]
+                    return self._to[i].copy()
                 }
             }
         }
 
         if !is_entry_point_name(s) {
-            return s
+            return s.copy()
         }
 
         var c = s + "_"
@@ -162,12 +163,12 @@ class NsTops {
             var lock = kairo::std::LockGuard(self._mu)
             for var i: usize = 0; i < self._to.size(); ++i {
                 if self._to[i] == c {
-                    return self._from[i]
+                    return self._from[i].copy()
                 }
             }
         }
 
-        return c
+        return c.copy()
     }
 
     fn decided(self, const s: string) -> bool {
@@ -223,6 +224,13 @@ pub class Speller {
     /// bare name finds.
     pub var assoc_self_qual: string = ""
     pub var self_spelling:   string = ""
+    /// While EmitWitness writes a requirement's head inside a witness
+    /// specialization: the interface instance's arguments, which a clause
+    /// of the requirement that names the interface's own parameters is
+    /// spelled over (`requires __builtin_is_same<J::Item, T>()` at
+    /// `FromIterator<i64>` reads `T` as `i64`; the specialization declares
+    /// no `T`). Null everywhere else: a clause is spelled as written.
+    pub var pred_subst: unsafe *InstanceEntry = &null
     /// While InterfaceEmitter writes a pack-expanded variant's payload struct
     /// (a template over one element): the enum's pack parameter, which
     /// spells there as that element, LowerTargets::adt_pack_elem(). Null

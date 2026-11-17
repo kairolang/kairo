@@ -2493,7 +2493,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     }
 
     priv fn _err(self, id: DiagID, at: SourceRange, const msg: string) {
-        self.sc->diag->report(id, at.start, msg).first(at)->emit()
+        self.sc->diag->report(id, at.start, msg.copy()).first(at)->emit()
         self.n_errored += 1
     }
 
@@ -2520,7 +2520,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                              const tn:      string) {
         self.sc->contained_errors += 1
         self.n_errored += 1
-        var b = self.sc->diag->report(DiagID::R025E, at.start, msg)
+        var b = self.sc->diag->report(DiagID::R025E, at.start, msg.copy())
         b.first(at)
         self._note_primary_member(&b, ty, name, spelled)
         var e: unsafe *Declarations::ExtensionDecl = &null

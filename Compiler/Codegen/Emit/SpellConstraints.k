@@ -431,6 +431,7 @@ extend Speller {
             var conj = self.concept_name(idecl) + self.witness_args(
                 self.tparam_name(gp, Speller::rep(gp->owner)),
                 rhs,
+                self.pred_subst,
             )
 
             // A pack's bound holds of every element: a fold, since a
@@ -1070,13 +1071,13 @@ extend Speller {
                     return ""
                 }
 
-                arg = self._type(wa->ty)
+                arg = self._type(wa->ty, self.pred_subst)
             } else {
                 if c0->is_dependent() {
                     return ""
                 }
 
-                arg = self._type(ga->ty)
+                arg = self._type(ga->ty, self.pred_subst)
             }
 
             if arg.size() == 0 {
@@ -1118,6 +1119,7 @@ extend Speller {
         return self.concept_name(idecl) + self.witness_args(
             self.tparam_name(gp, Speller::rep(gp->owner)),
             rhs,
+            self.pred_subst,
         )
     }
 
@@ -1194,7 +1196,7 @@ extend Speller {
                 return ""
             }
 
-            return bi + "(" + self._type(tt->type_arg) + ")"
+            return bi + "(" + self._type(tt->type_arg, self.pred_subst) + ")"
         }
 
         if isa<SizeOfExpr>(e) {
@@ -1203,7 +1205,7 @@ extend Speller {
                 return ""
             }
 
-            return "sizeof(" + self._type(t) + ")"
+            return "sizeof(" + self._type(t, self.pred_subst) + ")"
         }
 
         if isa<AlignOfExpr>(e) {
@@ -1212,7 +1214,7 @@ extend Speller {
                 return ""
             }
 
-            return "alignof(" + self._type(t) + ")"
+            return "alignof(" + self._type(t, self.pred_subst) + ")"
         }
 
         if isa<NamedIdentExpr>(e) {

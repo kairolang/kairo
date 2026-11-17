@@ -221,7 +221,7 @@ pub class KairoIncludeHook {
         } else if self.source == &null {
             why = "no Kairo build to take it from"
         } else if !self.source->tokens_for(self._ci, fid, path, toks) {
-            why = self.source->error
+            why = self.source->error.copy()
             toks->clear()
         }
 

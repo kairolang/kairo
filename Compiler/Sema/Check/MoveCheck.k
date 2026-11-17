@@ -366,8 +366,8 @@ pub class MovePlace {
         }
 
         self.has_ptr   = true
-        self.ptr_path  = self.path
-        self.ptr_shown = self.shown
+        self.ptr_path  = self.path.copy()
+        self.ptr_shown = self.shown.copy()
         self.starred   = self.deref
         self.path = if (self.path.size() == 0) => ("*") else => self.path + ".*"
         self.shown = "*" + self.shown
@@ -1266,8 +1266,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     }
                 }
 
-                mp.path  = pl.path
-                mp.shown = pl.shown
+                mp.path  = pl.path.copy()
+                mp.shown = pl.shown.copy()
                 mp.segs  = pl.segs
             }
 
@@ -1869,8 +1869,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var mp = MovedPart()
         mp.d       = pl.d
-        mp.path    = pl.path
-        mp.shown   = pl.shown
+        mp.path    = pl.path.copy()
+        mp.shown   = pl.shown.copy()
         mp.segs    = pl.segs
         mp.at      = n->range
         mp.has_via = true
@@ -2010,11 +2010,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                         f:         unsafe *FunctionDecl) {
         var mp = MovedPart()
         mp.d       = pl.d
-        mp.path    = pl.path
-        mp.shown   = pl.shown
+        mp.path    = pl.path.copy()
+        mp.shown   = pl.shown.copy()
         mp.segs    = pl.segs
         mp.at      = at
-        mp.how     = how
+        mp.how     = how.copy()
         mp.has_via = true
         mp.via     = f->range
         var mv = LangAttrs::param_move()
@@ -2125,8 +2125,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             if have {
                 var mp = MovedPart()
                 mp.d       = pl.d
-                mp.path    = pl.path
-                mp.shown   = pl.shown
+                mp.path    = pl.path.copy()
+                mp.shown   = pl.shown.copy()
                 mp.segs    = pl.segs
                 mp.at      = n->range
                 mp.how     = f"by the call to '{name}'"
@@ -4423,7 +4423,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var ts = self._tu.str(c)
         var cs = self._record_name(owner)
         if cs.empty() {
-            cs = ts
+            cs = ts.copy()
         }
 
         var pn = self.sc->ctx->get_spelling(src->name)
@@ -4441,7 +4441,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             msg = f"cannot assign a temporary {how}: {cause}"
         }
 
-        var b = self.sc->diag->report(DiagID::SC302E, e->range.start, msg)
+        var b = self.sc->diag->report(
+            DiagID::SC302E,
+            e->range.start,
+            msg.copy(),
+        )
+
         b.first(e->range)
         b.insert(src->name.range.start, "const ", f"make '{pn}' const")
         b.note(
@@ -4523,7 +4528,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             msg = f"cannot copy a value of type '{ts}': copying it copies each '{es}', and '{es}' cannot be copied"
         }
 
-        var b = self.sc->diag->report(DiagID::SC182E, e->range.start, msg)
+        var b = self.sc->diag->report(
+            DiagID::SC182E,
+            e->range.start,
+            msg.copy(),
+        )
+
         b.first(e->range)
         b.note(
             e->range.start,
@@ -4659,9 +4669,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// `for x in xs`: a plain binder is a copy of each element (IterLowering,
     /// Binders), so an element type that cannot be copied is refused at the
     /// binder rather than in clang. The element is a place for an
-    /// array, a slice and a generator (`*it.current()`), and for a C++ range
-    /// whose `*it` is an lvalue; a C++ `*it` that returns a value builds the
-    /// binder in place. `*x` binds the address and copies nothing; a
+    /// array, a slice and what a generator points at (`-> yield *T`), and
+    /// for a C++ range whose `*it` is an lvalue; a C++ `*it` that returns a
+    /// value builds the binder in place, and the value of a generator (a
+    /// `-> yield T` function called for the loop, a `Yield<T>`) is moved
+    /// into it. `*x` binds the address and copies nothing; a
     /// destructuring binder is not checked here.
     priv fn _for_binder_copies(self, n: unsafe *Statements::RangedForStmt) {
         if n->bindings.size() != 1 {
@@ -4701,6 +4713,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 &null,
             )
 
+            return
+        }
+
+        // A generator value gives each value it yields up at the next
+        // step: a binder of the element's own type takes it by move
+        // (IterLowering::_given). A record's `op in` is asked for the
+        // record's elements, which stay where they are, and are copied.
+        if k == IterKind::User
+            && n->iter_op == &null
+            && n->iter_elem != &null
+            && canon_unqual(n->iter_elem) == canon_unqual(t) {
             return
         }
 
@@ -4984,7 +5007,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var rd: unsafe *Decl = &null
         var unsafe *facts = self._uncopyable_facts(t, unsafe &tf, unsafe &rd)
         if facts != &null {
-            return facts->why_not_copyable
+            return facts->why_not_copyable.copy()
         }
 
         var unsafe *c = self._tu.as_value(t)
@@ -5250,7 +5273,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var pm = PendingMove()
         pm.d    = d
-        pm.path = pl.path
+        pm.path = pl.path.copy()
         pm.site = e
         self._st.add_pending(pm)
         self._tentative.push_back(e)
@@ -5272,8 +5295,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         mp.kind  = MoveKind::Instance
         mp.site  = e
         mp.d     = pl.d
-        mp.path  = pl.path
-        mp.shown = pl.shown
+        mp.path  = pl.path.copy()
+        mp.shown = pl.shown.copy()
         mp.segs  = pl.segs
         mp.at    = e->range
         self._st.mark(mp)
@@ -5470,11 +5493,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         mp.kind  = kind
         mp.site  = e
         mp.d     = pl.d
-        mp.path  = pl.path
-        mp.shown = pl.shown
+        mp.path  = pl.path.copy()
+        mp.shown = pl.shown.copy()
         mp.segs  = pl.segs
         mp.at    = e->range
-        mp.how   = how
+        mp.how   = how.copy()
         if pl.elem {
             mp.elem = self._spelled(e)
         }
@@ -5749,7 +5772,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var mp = MovedPart()
         mp.d     = d
         mp.path  = ""
-        mp.shown = name
+        mp.shown = name.copy()
         mp.at    = n->range
         mp.how   = "by finally()"
         mp.kind  = MoveKind::Finalize
@@ -6134,14 +6157,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        var gone = mp.shown
+        var gone = mp.shown.copy()
         var read = if (shown.size() == 0) => (self.sc->ctx->get_spelling(n->name)) else => shown
         var part  = !path_within(path, mp.path)
-        var taken = gone
+        var taken = gone.copy()
         var msg   = f"'{gone}' is used after being moved"
         if mp.elem.size() > 0 {
             // An element: the container is what is moved-from.
-            taken = mp.elem
+            taken = mp.elem.copy()
             msg   = f"'{gone}' is used after '{taken}' was moved out of it"
             if part {
                 msg = f"'{read}' is used after '{taken}' was moved out of its part '{gone}'"
@@ -6150,7 +6173,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             msg = f"'{read}' is used after its part '{gone}' was moved"
         }
 
-        var b = self.sc->diag->report(DiagID::SC052E, n->range.start, msg)
+        var b = self.sc->diag->report(
+            DiagID::SC052E,
+            n->range.start,
+            msg.copy(),
+        )
+
         b.first(n->range)
         b.note(mp.at.start, f"'{taken}' was moved here, {mp.how}")->child_first(
             mp.at,

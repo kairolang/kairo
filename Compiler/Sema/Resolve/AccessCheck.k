@@ -848,7 +848,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                   else => f"'{nm}' is protected to its module"
         }
 
-        var b = self.sc->diag->report(DiagID::SC242E, at.start, msg)
+        var b = self.sc->diag->report(DiagID::SC242E, at.start, msg.copy())
         b.first(at, "not accessible here")
         var tok_r   = self._name_range(d)
         var written = d->visibility_range()
@@ -1144,7 +1144,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             msg = f"this constructor of '{on}' is {word}"
         }
 
-        var b = self.sc->diag->report(DiagID::SC242E, at.start, msg)
+        var b = self.sc->diag->report(DiagID::SC242E, at.start, msg.copy())
         b.first(at, "not accessible here")
         // The declaration a keyword is, or would be, written on: the
         // in-class one for a member defined out of line.

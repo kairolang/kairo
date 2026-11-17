@@ -18,7 +18,7 @@ pub fn shell_quote(s: string) -> string {
         return "''"
     }
 
-    var r     = s
+    var r     = s.copy()
     var plain = true
     for var i: usize = 0; i < r.size(); ++i {
         var c = r[i]

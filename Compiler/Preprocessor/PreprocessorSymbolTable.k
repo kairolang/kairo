@@ -70,7 +70,7 @@ pub class PreprocessorSymbolTable {
     }
 
     fn op [](self, const name: string) -> SymbolID {
-        return self.intern(name)
+        return self.intern(name.copy())
     }
 
     fn op as (self) -> string {

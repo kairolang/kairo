@@ -687,7 +687,7 @@ extend EmitIR {
                     continue
                 }
 
-                var cond = cond_t[i]
+                var cond = cond_t[i].copy()
                 if cond_u[i].size() > 0 {
                     cond = if (cond.size() > 0) => (cond + " && " + cond_u[i]) else => cond_u[i]
                 }
@@ -791,7 +791,7 @@ extend EmitIR {
         // Not emitted yet: a constructor or destructor
         // (no return type, member initializers) and a template's member.
         // They stay unemitted.
-        var last = nm
+        var last = nm.copy()
         var prev = ""
         var cut  = nm.rfind("::")
         if cut != usize::MAX {

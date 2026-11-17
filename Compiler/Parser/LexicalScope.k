@@ -123,7 +123,7 @@ pub class LexicalScope {
     /// \param range  source location of the identifier in the binding site.
     fn bind(self, const name: string, decl: *Decl, range: SourceRange) {
         var b = LocalBinding{}
-        b.name  = name
+        b.name  = name.copy()
         b.decl  = decl
         b.range = range
         self.bindings.try_emplace(kairo::sref(name), b) // like insert: an existing name keeps its binding

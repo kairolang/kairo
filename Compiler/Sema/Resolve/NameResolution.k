@@ -1366,7 +1366,12 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 nmsg = f"'{name}' is first forward-declared here as a {ref_kw}"
             }
 
-            var b = self.sc->diag->report(DiagID::R063E, d->range.start, msg)
+            var b = self.sc->diag->report(
+                DiagID::R063E,
+                d->range.start,
+                msg.copy(),
+            )
+
             b.first(d->range)
             b.note(DiagCode(DiagID::R063N), ref_d->range.start, nmsg)->child_first(
                 ref_d->range,
@@ -3119,7 +3124,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         if e.decl == &null {
-            self.sc->diag->report(DiagID::R057E, n->range.start, e.why).first(
+            self.sc->diag->report(DiagID::R057E, n->range.start, e.why.copy()).first(
                 n->range,
             )->emit()
             n->poison()
@@ -3740,7 +3745,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                   else => f"'{nm}' is imported but is private to its file: a declaration with no visibility keyword is 'priv' when its file has no module.k above it"
         }
 
-        var b = self.sc->diag->report(DiagID::R047E, n->range.start, msg)
+        var b = self.sc->diag->report(DiagID::R047E, n->range.start, msg.copy())
         b.first(n->range)
         if d != &null && d->range.is_valid() {
             var nt = decl_name_tok(d).range

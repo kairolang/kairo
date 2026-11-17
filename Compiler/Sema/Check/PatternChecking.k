@@ -705,7 +705,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
     priv fn _report_missing(self, scrutinee: unsafe *Expr, at: SourceRange, u: *Usefulness) {
         var w = "_"
         if u->witness.size() > 0 {
-            w = u->witness[0]
+            w = u->witness[0].copy()
         }
 
         var ty = self._tu.str(scrutinee->type_)

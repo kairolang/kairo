@@ -268,7 +268,7 @@ fn _kcc_is_clang_query(const w: string) -> bool {
         return true
     }
 
-    var n = w
+    var n = w.copy()
     if w.starts_with("--") {
         n = w.subslice(1, w.length() - 1)
     }

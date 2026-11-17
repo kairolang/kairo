@@ -109,7 +109,7 @@ pub class DiagBuilder {
 
         var label = DiagLabel{}
         label.range = range
-        label.text  = text
+        label.text  = text.copy()
         label.style = DiagLabel::Style::Primary
         self._diag->labels.push_back(label)
         return unsafe &self
@@ -127,7 +127,7 @@ pub class DiagBuilder {
 
         var label = DiagLabel{}
         label.range = range
-        label.text  = text
+        label.text  = text.copy()
         label.style = DiagLabel::Style::Secondary
         self._diag->labels.push_back(label)
         return unsafe &self
@@ -145,7 +145,7 @@ pub class DiagBuilder {
 
         var label = DiagLabel{}
         label.range = range
-        label.text  = text
+        label.text  = text.copy()
         label.style = DiagLabel::Style::Highlight
         self._diag->labels.push_back(label)
         return unsafe &self
@@ -165,7 +165,7 @@ pub class DiagBuilder {
 
         var label = DiagLabel{}
         label.range = range
-        label.text  = text
+        label.text  = text.copy()
         label.style = DiagLabel::Style::StrikeThrough
         self._diag->labels.push_back(label)
         return unsafe &self
@@ -190,8 +190,8 @@ pub class DiagBuilder {
 
         var f = FixIt{}
         f.range       = range
-        f.replacement = replacement
-        f.message     = msg
+        f.replacement = replacement.copy()
+        f.message     = msg.copy()
         f.kind        = FixKind::Replace
         self._diag->fixits.push_back(f)
         return unsafe &self
@@ -210,7 +210,7 @@ pub class DiagBuilder {
         var f = FixIt{}
         f.range       = range
         f.replacement = ""
-        f.message     = msg
+        f.message     = msg.copy()
         f.kind        = FixKind::Remove
         self._diag->fixits.push_back(f)
         return unsafe &self
@@ -224,7 +224,7 @@ pub class DiagBuilder {
         var f = FixIt{}
         f.range       = SourceRange::invalid()
         f.replacement = ""
-        f.message     = msg
+        f.message     = msg.copy()
 
         self._diag->fixits.push_back(f)
         return unsafe &self
@@ -249,8 +249,8 @@ pub class DiagBuilder {
 
         var f = FixIt{}
         f.range       = r
-        f.replacement = text
-        f.message     = msg
+        f.replacement = text.copy()
+        f.message     = msg.copy()
         f.kind        = FixKind::Add
         self._diag->fixits.push_back(f)
         return unsafe &self
@@ -291,11 +291,11 @@ pub class DiagBuilder {
                 const code: DiagCode,
                 loc:        SourceLocation,
                 const msg:  string) -> unsafe *Self {
-        return self._add_child(code, loc, msg)
+        return self._add_child(code, loc, msg.copy())
     }
 
     pub fn note(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        return self._add_child(code, SourceLocation::invalid(), msg)
+        return self._add_child(code, SourceLocation::invalid(), msg.copy())
     }
 
     /// Attaches a child warning.
@@ -303,25 +303,25 @@ pub class DiagBuilder {
                    const code: DiagCode,
                    loc:        SourceLocation,
                    const msg:  string) -> unsafe *Self {
-        return self._add_child(code, loc, msg)
+        return self._add_child(code, loc, msg.copy())
     }
 
     fn warning(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        return self._add_child(code, SourceLocation::invalid(), msg)
+        return self._add_child(code, SourceLocation::invalid(), msg.copy())
     }
 
     /// Attaches a child remark.
     fn remark(self, const code: DiagCode, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        return self._add_child(code, loc, msg)
+        return self._add_child(code, loc, msg.copy())
     }
 
     fn remark(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        return self._add_child(code, SourceLocation::invalid(), msg)
+        return self._add_child(code, SourceLocation::invalid(), msg.copy())
     }
 
     /// Attaches a child verbose note.
     fn verbose(self, const code: DiagCode, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        return self._add_child(code, loc, msg)
+        return self._add_child(code, loc, msg.copy())
     }
 
     /// Attaches a child debug note (stripped in release builds).
@@ -329,15 +329,15 @@ pub class DiagBuilder {
                   const code: DiagCode,
                   loc:        SourceLocation,
                   const msg:  string) -> unsafe *Self {
-        return self._add_child(code, loc, msg)
+        return self._add_child(code, loc, msg.copy())
     }
 
     fn verbose(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        return self._add_child(code, SourceLocation::invalid(), msg)
+        return self._add_child(code, SourceLocation::invalid(), msg.copy())
     }
 
     fn debug_note(self, const code: DiagCode, const msg: string) -> unsafe *Self {
-        return self._add_child(code, SourceLocation::invalid(), msg)
+        return self._add_child(code, SourceLocation::invalid(), msg.copy())
     }
 
     /// ## Child diagnostics (no independent code)
@@ -350,66 +350,66 @@ pub class DiagBuilder {
 
     /// Attaches a child note; label it with child_first (see the note above).
     pub fn note(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        return self._add_child(DiagCode(DiagID::I900N), loc, msg)
+        return self._add_child(DiagCode(DiagID::I900N), loc, msg.copy())
     }
 
     pub fn note(self, const msg: string) -> unsafe *Self {
         return self._add_child(
             DiagCode(DiagID::I900N),
             SourceLocation::invalid(),
-            msg,
+            msg.copy(),
         )
     }
 
     /// Attaches a child warning.
     fn warning(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        return self._add_child(DiagCode(DiagID::I900W), loc, msg)
+        return self._add_child(DiagCode(DiagID::I900W), loc, msg.copy())
     }
 
     fn warning(self, const msg: string) -> unsafe *Self {
         return self._add_child(
             DiagCode(DiagID::I900W),
             SourceLocation::invalid(),
-            msg,
+            msg.copy(),
         )
     }
 
     /// Attaches a child remark.
     fn remark(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        return self._add_child(DiagCode(DiagID::I900R), loc, msg)
+        return self._add_child(DiagCode(DiagID::I900R), loc, msg.copy())
     }
 
     pub fn remark(self, const msg: string) -> unsafe *Self {
         return self._add_child(
             DiagCode(DiagID::I900R),
             SourceLocation::invalid(),
-            msg,
+            msg.copy(),
         )
     }
 
     /// Attaches a child verbose note.
     fn verbose(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        return self._add_child(DiagCode(DiagID::I900V), loc, msg)
+        return self._add_child(DiagCode(DiagID::I900V), loc, msg.copy())
     }
 
     fn verbose(self, const msg: string) -> unsafe *Self {
         return self._add_child(
             DiagCode(DiagID::I900V),
             SourceLocation::invalid(),
-            msg,
+            msg.copy(),
         )
     }
 
     /// Attaches a child debug note (stripped in release builds).
     fn debug_note(self, loc: SourceLocation, const msg: string) -> unsafe *Self {
-        return self._add_child(DiagCode(DiagID::I900D), loc, msg)
+        return self._add_child(DiagCode(DiagID::I900D), loc, msg.copy())
     }
 
     fn debug_note(self, const msg: string) -> unsafe *Self {
         return self._add_child(
             DiagCode(DiagID::I900D),
             SourceLocation::invalid(),
-            msg,
+            msg.copy(),
         )
     }
 
@@ -432,7 +432,7 @@ pub class DiagBuilder {
             var unsafe *child = self._diag->children[self._diag->children.size() - 1]
             var label = DiagLabel{}
             label.range = range
-            label.text  = text
+            label.text  = text.copy()
             label.style = DiagLabel::Style::Primary
             child->labels.push_back(label)
         }
@@ -454,7 +454,7 @@ pub class DiagBuilder {
             var unsafe *child = self._diag->children[self._diag->children.size() - 1]
             var label = DiagLabel{}
             label.range = range
-            label.text  = text
+            label.text  = text.copy()
             label.style = DiagLabel::Style::Secondary
             child->labels.push_back(label)
         }
@@ -479,8 +479,8 @@ pub class DiagBuilder {
             var unsafe *child = self._diag->children[self._diag->children.size() - 1]
             var f = FixIt{}
             f.range       = range
-            f.replacement = replacement
-            f.message     = msg
+            f.replacement = replacement.copy()
+            f.message     = msg.copy()
             child->fixits.push_back(f)
         }
 

@@ -72,9 +72,9 @@ extend CompilerInstance {
     /// \return false on a fatal planning error; nothing may compile.
     prot fn _plan_outputs(self) -> bool {
         var *lk = &self.invocation()->linker
-        var out = self.invocation()->frontend.output
+        var out = self.invocation()->frontend.output.copy()
         self._link_out    = ""
-        self._obj_dir     = lk->cache_dir
+        self._obj_dir     = lk->cache_dir.copy()
         self._obj_tmp     = false
         self._emit_beside = false
         self._obj_listed  = true
@@ -88,7 +88,7 @@ extend CompilerInstance {
         var bad  = false
         var n_in = self.invocation()->input_files.size()
         for var i: usize = 0; i < n_in; ++i {
-            var path_str = self.invocation()->input_files[i]
+            var path_str = self.invocation()->input_files[i].copy()
             var k = classify_input(path_str, self.invocation()->input_lang(i))
             if k.cls == InputClass::Unsupported
                 || k.cls == InputClass::Unknown
@@ -176,7 +176,7 @@ extend CompilerInstance {
             return false
         }
 
-        if !out.empty() && (LinkText::ends_with(out, "/") || LinkFS::is_dir(out)) {
+        if !out.empty() && (LinkText::ends_with(out.copy(), "/") || LinkFS::is_dir(out)) {
             self._diag->report(
                 DiagID::I004F,
                 f"-o {out} is a directory; -o names the output file, and object files go to --cache-dir <dir>",
@@ -305,7 +305,7 @@ extend CompilerInstance {
 
     /// Where objects go. Always a directory, always set after _plan_outputs.
     fn object_dir(self) -> string {
-        return self._obj_dir
+        return self._obj_dir.copy()
     }
 
     /// The file -o names when it names an object: a -c run with -o. "" when
@@ -337,7 +337,7 @@ extend CompilerInstance {
         var name = if (self._kairo_inputs == 1) => (Path::stem_of(
                        self._link_out,
                    ))
-                   else => self.kairo_object_stem(stem)
+                   else => self.kairo_object_stem(stem.copy())
         if dir.empty() {
             return name
         }
@@ -362,7 +362,7 @@ extend CompilerInstance {
             return ""
         }
 
-        return self.invocation()->frontend.output
+        return self.invocation()->frontend.output.copy()
     }
 
     /// kld beside this binary: the out-of-process fallback, used only after
@@ -672,8 +672,8 @@ extend CompilerInstance {
         var sym  = LowerTargets::global_alloc_symbol_prefix()
         for var m: LinkMessage in msgs {
             var hit = m.severity == LinkSeverity::Error
-                && LinkText::find(m.text, "duplicate symbol: ", 0) < m.text.size()
-                && LinkText::find(m.text, sym, 0) < m.text.size()
+                && LinkText::find(m.text.copy(), "duplicate symbol: ", 0) < m.text.size()
+                && LinkText::find(m.text.copy(), sym.copy(), 0) < m.text.size()
             if !hit {
                 out.push_back(m)
                 continue
@@ -707,7 +707,9 @@ extend CompilerInstance {
     /// sits at its path under the object dir). Any other object, as given.
     priv fn _object_module(self, o: string) -> string {
         var dir = self.object_dir()
-        if dir.empty() || !LinkText::starts_with(o, dir + "/") || !LinkText::ends_with(o, ".o") {
+        if dir.empty()
+            || !LinkText::starts_with(o.copy(), dir + "/")
+            || !LinkText::ends_with(o.copy(), ".o") {
             return o
         }
 
@@ -772,12 +774,12 @@ extend CompilerInstance {
 
         var *lk = &lk_eff
         var job = LinkJob(&self.invocation()->target, lk)
-        job.output   = self._link_out
+        job.output   = self._link_out.copy()
         job.threads  = (self._pool->get_thread_count() as u32)
         job.kld_path = self._kld_path()
         // lld's LTO backend defaults to -O2 regardless of how the bitcode was
         // produced; the link must be told the level the objects were built at.
-        job.lto       = self.invocation()->codegen.lto
+        job.lto       = self.invocation()->codegen.lto.copy()
         job.opt_level = self.invocation()->codegen.opt_level
         {
             // As the runtime cache: a cache root that cannot be made (a
@@ -787,7 +789,7 @@ extend CompilerInstance {
             if !croot.empty() {
                 var ldir = croot + "/lto"
                 if LinkFS::make_dirs(ldir) {
-                    job.lto_cache_dir = ldir
+                    job.lto_cache_dir = ldir.copy()
                 }
             }
         }
@@ -810,7 +812,7 @@ extend CompilerInstance {
             job.lazy_objects.push_back(*obj)
         }
 
-        job.lazy_archive = self._lib_archive
+        job.lazy_archive = self._lib_archive.copy()
 
         // Emission is synchronous (ExecuteAction closes the output through
         // clearOutputFiles before returning), so a missing object here is a
@@ -870,24 +872,24 @@ extend CompilerInstance {
         var verbose = self.invocation()->frontend.verbose
         for var m: LinkMessage in msgs {
             if m.severity == LinkSeverity::Fatal {
-                self._diag->report(DiagID::L002F, m.text).emit()
+                self._diag->report(DiagID::L002F, m.text.copy()).emit()
             } else if m.severity == LinkSeverity::Error {
-                self._diag->report(DiagID::L002E, m.text).emit()
+                self._diag->report(DiagID::L002E, m.text.copy()).emit()
             } else if m.severity == LinkSeverity::Warning {
-                self._diag->report(DiagID::L002W, m.text).emit()
+                self._diag->report(DiagID::L002W, m.text.copy()).emit()
             } else if m.severity == LinkSeverity::Note {
-                self._diag->report(DiagID::L002N, m.text).emit()
+                self._diag->report(DiagID::L002N, m.text.copy()).emit()
             } else if m.severity == LinkSeverity::Remark {
-                self._diag->report(DiagID::L002R, m.text).emit()
+                self._diag->report(DiagID::L002R, m.text.copy()).emit()
             } else if m.severity == LinkSeverity::Info {
-                self._diag->report(DiagID::L002I, m.text).emit()
+                self._diag->report(DiagID::L002I, m.text.copy()).emit()
             } else if m.severity == LinkSeverity::Verbose {
                 if verbose {
-                    self._diag->report(DiagID::L002V, m.text).emit()
+                    self._diag->report(DiagID::L002V, m.text.copy()).emit()
                 }
             } else if m.severity == LinkSeverity::Debug {
                 if verbose {
-                    self._diag->report(DiagID::L002D, m.text).emit()
+                    self._diag->report(DiagID::L002D, m.text.copy()).emit()
                 }
             }
         }

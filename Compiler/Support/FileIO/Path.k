@@ -105,7 +105,7 @@ pub class Path {
     ///
     pub static fn from_known(const abs: string, t: FileType) -> Path {
         var p = Path()
-        p.path_data  = abs
+        p.path_data  = abs.copy()
         p.entry_type = t
         return p
     }
@@ -155,9 +155,9 @@ pub class Path {
             return p
         }
 
-        var cand = p
+        var cand = p.copy()
         if !base.empty() && !llvm::sys::path::is_absolute(llvm::Twine(kairo::sref(p))) {
-            cand = Path::join_str(base, p)
+            cand = Path::join_str(base, p.copy())
         }
 
         if !Path::exists_at(cand) {
@@ -385,7 +385,7 @@ pub class Path {
     ///        that stat the result themselves; `/` builds a full Path.
     ///
     pub fn join(const self, const rel: string) -> string {
-        return Path::join_str(self.path_data, rel)
+        return Path::join_str(self.path_data, rel.copy())
     }
 
     ///
@@ -433,7 +433,7 @@ pub class Path {
     /// \brief returns the absolute normalized path as string.
     ///
     pub fn full_path(const self) -> string {
-        return self.path_data
+        return self.path_data.copy()
     }
 
     ///
@@ -559,7 +559,7 @@ pub class Path {
     /// lstat per `..`; a path without one is returned as it is.
     priv static fn _fold_dot_dots(const abs: string) -> string {
         if find(abs, "..", 0) == usize::MAX {
-            return abs
+            return abs.copy()
         }
 
         var whole = kairo::sref(abs)
@@ -596,7 +596,7 @@ pub class Path {
         }
 
         if !any {
-            return abs
+            return abs.copy()
         }
 
         return string_from_ref(acc.str())

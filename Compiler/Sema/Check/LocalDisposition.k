@@ -228,7 +228,7 @@ pub class LocalEnds {
 
         var r = LocalEndRow()
         r.d       = d
-        r.refusal = refusal
+        r.refusal = refusal.copy()
         self.rows.push_back(r)
     }
 

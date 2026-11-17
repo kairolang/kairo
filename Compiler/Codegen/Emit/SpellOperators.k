@@ -104,7 +104,7 @@ extend Speller {
         // The member-only set never gets here from an extension;
         // OperatorSignatureCheck rejects it.
         if DeclFacts::decl_extension_of(f) != &null {
-            var key = sym
+            var key = sym.copy()
             if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
                 key = (if (Speller::op_is_postfix(f)) => ("r") else => "l") + sym
             }
@@ -160,7 +160,7 @@ extend Speller {
             return LowerTargets::witness_conversion(Speller::cxx_segment(rt))
         }
 
-        var key = sym
+        var key = sym.copy()
         if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
             key = (if (Speller::op_is_postfix(f)) => ("r") else => "l") + sym
         }

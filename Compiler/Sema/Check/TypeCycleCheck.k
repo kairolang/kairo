@@ -512,7 +512,12 @@ pub class TypeCycleCheck {
         var        hn    = self._decl_name(head)
         var msg = f"'{hn}' contains itself by value; its layout would have to include its own size"
 
-        var b = self.sc->diag->report(DiagID::SC002E, head->range.start, msg)
+        var b = self.sc->diag->report(
+            DiagID::SC002E,
+            head->range.start,
+            msg.copy(),
+        )
+
         b.first(head->range)
 
         // One note per by-value step, in path order. The edge INTO stack[i+1]

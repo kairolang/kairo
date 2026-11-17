@@ -427,7 +427,7 @@ extend Speller {
             // own parameters (TypeResolve::_self_record) -- unsubstituted
             // here, the member's substitution applying only below it.
             if mine && (r->args.size() == 0 || self._own_args(r, self.self_iface)) {
-                return self.self_spelling
+                return self.self_spelling.copy()
             }
 
             self._ice(

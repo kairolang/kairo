@@ -247,8 +247,18 @@ extend EmitIR {
 
         pub_h += " : " + leaf + "(" + LowerTargets::ctor_pre(
             m->ci_index,
-        ) + "(" + ci + "()" + args + ")" + args + ") {}"
+        ) + "(" + ci + "()" + args + ")" + args + ") {"
+        // A bounded generic record's bounds are asserted where a value is
+        // made (Speller::ctor_bound_asserts): this is the constructor a
+        // caller names, so the assertion sits in its body.
+        // Spelled at the body, where a diagnostic on it points.
         self._cg->sink->spell(at, pub_h)
+        var cba = self._spell.ctor_bound_asserts(m)
+        for var i: usize = 0; i < cba.size(); ++i {
+            self._cg->sink->spell(b->range, cba[i])
+        }
+
+        self._cg->sink->spell(at, "}")
         self._close_ns(m->range, wrap)
     }
 

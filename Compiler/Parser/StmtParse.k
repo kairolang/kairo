@@ -1961,7 +1961,7 @@ pub class <T: type> StmtParse {
             )
         } else {
             value = self.dyn()->_expect_arrow_recover(
-                after,
+                after.copy(),
                 self.dyn()->stop_on(T::ExprStopKind::StopBrace),
             )
         }
@@ -2446,9 +2446,11 @@ pub class <T: type> StmtParse {
         }
 
         if !problem.empty() {
-            self.dyn()->diag->report(DiagID::S060E, start_range.start, problem).first(
-                start_range,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S060E,
+                start_range.start,
+                problem.copy(),
+            ).first(start_range)->emit()
             var err = start_range | self.dyn()->prev().range
             if is_jump {
                 return Statements::JumpIntrinsicStmt::create_error(
@@ -2577,9 +2579,11 @@ pub class <T: type> StmtParse {
                 msg = f"'inline \"{w}\"' is not part of Kairo: declare the code in a header and import it with 'ffi \"{w}\" import'"
             }
 
-            self.dyn()->diag->report(DiagID::S095E, start_range.start, msg).first(
-                full_range,
-            )->emit()
+            self.dyn()->diag->report(
+                DiagID::S095E,
+                start_range.start,
+                msg.copy(),
+            ).first(full_range)->emit()
             return (Statements::InlineBlockStmt::create_error(
                 self.dyn()->ctx,
                 full_range,
