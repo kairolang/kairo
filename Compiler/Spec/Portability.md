@@ -156,7 +156,7 @@ Kairo does not implement or check conformance to ISO C, ISO C++, POSIX, or codin
 FFI puts every name a header declares into the importing module's lookup, and Kairo's FFI never expands C macros ([Interop.md](Interop.md#ffi-imports)), so a macro the compiler needs is wrapped in a Native header as a real function or `constexpr`. Two consequences shape the compiler's own `Compiler/Native/` headers:
 
 - No header a Kairo module imports includes `<windows.h>`. Its names collided with Kairo's (winnt.h's `TokenSource` enumerator against the preprocessor's `TokenSource` class), and its constants (`GENERIC_READ`, `INVALID_HANDLE_VALUE`, ...) are macros the FFI cannot name. `<windows.h>` is included only by `Compiler/Native/Win32.cpp`, which `build.py` compiles into every binary (empty off Windows), behind the plain-typed functions of `Compiler/Native/Win32.hh`: `map_readonly` / `unmap` (file mapping for `MMapRegion`), `exe_path_utf8`, `move_path` (directory-capable rename), `console_utf8`, `spawn_thread`. Every call sits under `_WIN32` or `defined!(_WIN32)`.
-- C library macros get shims in `Compiler/Native/KShims.hh`: `kairo::std_out()` / `std_err()` for `stdout` / `stderr` (Darwin's `__stdoutp`, MinGW's `__acrt_iob_func`), and `kairo::neon_ld_u8` / `neon_st_u8` for `arm_neon.h`'s load/store macros.
+- C library macros get shims in `Compiler/Native/Shims.hh`: `kairo::std_out()` / `std_err()` for `stdout` / `stderr` (Darwin's `__stdoutp`, MinGW's `__acrt_iob_func`), and `kairo::neon_ld_u8` / `neon_st_u8` for `arm_neon.h`'s load/store macros.
 
 `Lib/std/env.h` still includes `<windows.h>`, so a user program importing `std::env` on Windows gets the same name pollution.
 
@@ -168,7 +168,7 @@ FFI puts every name a header declares into the importing module's lookup, and Ka
 
 ### POSIX and the BSDs
 
-`Compiler/Native/KThread.hh` uses its POSIX branch on every non-Windows, non-wasm host. Guarding it by `__APPLE__ || __linux__` would leave FreeBSD and NetBSD builds with no pool workers at all.
+`Compiler/Native/Thread.hh` uses its POSIX branch on every non-Windows, non-wasm host. Guarding it by `__APPLE__ || __linux__` would leave FreeBSD and NetBSD builds with no pool workers at all.
 
 ### Darwin
 

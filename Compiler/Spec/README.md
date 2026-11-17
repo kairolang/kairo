@@ -67,8 +67,9 @@ The authoritative pass order and the cross-pass invariants are in [Pipeline.md](
 
 | Document | Contents |
 |---|---|
-| [Codegen.md](Codegen.md) | EmitPlan, CXXSpell, InterfaceEmitter, EmitIR, templates |
+| [Codegen.md](Codegen.md) | EmitPlan, Speller, InterfaceEmitter, EmitIR, templates |
 | [Witnesses.md](Witnesses.md) | Calls through an interface bound |
+| [SemaAgreement.md](SemaAgreement.md) | The walk of clang's AST that checks clang bound each call to the declaration Sema chose; repair, I012W, flags |
 | [Interop.md](Interop.md) | FFI imports, type mapping, clang integration, kcc |
 | [Linking.md](Linking.md) | The linker driver, link jobs, sysroots |
 | [LibraryFormat.md](LibraryFormat.md) | The `.klib` library format |

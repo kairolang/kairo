@@ -28,7 +28,7 @@ Two exceptions, both because a local declaration can only be demanded from insid
 | builtin types | by token kind, before any lookup; `i32::x` is an error |
 | `self` / `Self` in type position | the innermost type scope's self (below); `Self::Inner` is a head; `Self<T>` is an error |
 | heads | generic frames, then `ltypes`, then `unqualified(cur_dc)`; inside an out-of-line body whose owner is in another TU the last step is `unqualified_out_of_line` ([out-of-line bodies](NameResolution.md#name-resolution)). `_primary_of_spec` applies the same rule to a specialization whose semantic scope is an imported primary's. |
-| `::` segments | step through `context_of(decl)`, alias expanded first, spelled for cross-TU probes |
+| `::` segments | step through `context_of(decl)`, alias expanded first, spelled for cross-TU probes. A miss in a class's own table walks its bases (`_in_bases`, Kairo and imported classes alike), so `Der::Inner` names `Base::Inner` at any depth and `GDer<i32>::Elem` reads `GBase<T>::Elem` at `i32`; a base edge not yet resolved is resolved on demand in the class's own scope, so a use above the class works. When two bases declare the name, the first in declaration order wins. Access through the edge is AccessCheck's (SC242E). |
 | generic parameter | `generic_param(owner, index)` on the representative |
 | alias | expanded; a generic alias application checks arity, takes arguments as a nominal does, and substitutes them into the aliased body (`_apply_alias`): `Mat<i32>` of `type <T> Mat = [[T]]` is `[[i32]]`. Only a body substitution cannot rewrite stays instantiation-dependent with no canonical. |
 | nominal | arity, then arguments by position and name, then defaults in the primary's scope; a default naming earlier parameters gets their arguments substituted (`<K, V = K>`: `Pair<i32>` is `Pair<i32, i32>`); then specialization lookup |
@@ -41,7 +41,7 @@ Two exceptions, both because a local declaration can only be demanded from insid
 
 ### Dependent chains
 
-`Foo<T>::Inner`, and `T::Item` on a `derives`-bounded `T`, are marked dependent and stop there ([invariant 5](Pipeline.md#invariants)). `T::Item` on an interface-bounded `T` resolves through the bound, definition-side, never per instance ([Interfaces.md](Interfaces.md#associated-types)). `Foo<Args>::Inner` with concrete arguments is not dependent: it steps into the registry instance (`_kairo_instance_of`). For an imported `Foo`, `_scope_of` has clang fill the instance first (`MemberLookup::ensure_filled`); only a failed fill defers.
+`Foo<T>::Inner`, and `T::Item` on a `derives`-bounded `T`, are marked dependent and stop there ([invariant 5](Pipeline.md#invariants)). `T::Item` on an interface-bounded `T` resolves through the bound, definition-side, never per instance ([Interfaces.md](Interfaces.md#associated-types)). `Foo<Args>::Inner` with concrete arguments is not dependent: it steps into the registry instance (`_kairo_instance_of`). For an imported `Foo`, `_scope_of` has clang fill the instance first (`MemberLookup::ensure_filled`); only a failed fill defers. An imported class template named as a path head with no arguments (`traits::size_type`) is R032E, the arity error of a bare `traits`: C++ names no member of a template without them. Codegen spells a dependent member of a template-id head as `typename traits<T>::size_type` ([Codegen.md](Codegen.md)).
 
 ### Self
 
@@ -103,7 +103,7 @@ A pair with distinct signatures whose parameters all lower to the same C++ types
 
 Generic signatures compare up to the names of their parameters. Each declaration's `T` is a `GenericParamType` owned by that declaration, so `_same_signature` first reads the second declaration's parameter types over the first's (`Substitution::bind_redecl`: `bind_alpha` plus value parameters whose declared types are one canonical, keyed on each declaration rather than its representative, since T built the canonicals before R linked anything) and then compares. `fn <T impl G> g(x: T)` followed by `fn <U impl G> g(x: U) { ... }` is one function, out of line too (`fn <W> C::m`). Return agreement substitutes the same way.
 
-Bounds are not in the signature. A file-scope declaration and definition that disagree about a parameter's bounds (the requires clause's `impl` / `derives` conjuncts) is R061E at the later one. Only a pair with at most one body links (`_one_entity`): two generic definitions of one shape stay two overloads whatever their bounds (a `where` group's members, or a constraint-ordered pair), and so do two bodiless members differing only in their bounds. Packs never align. Codegen spells every link's template head from the representative (`CXXSpell::template_head`).
+Bounds are not in the signature. A file-scope declaration and definition that disagree about a parameter's bounds (the requires clause's `impl` / `derives` conjuncts) is R061E at the later one. Only a pair with at most one body links (`_one_entity`): two generic definitions of one shape stay two overloads whatever their bounds (a `where` group's members, or a constraint-ordered pair), and so do two bodiless members differing only in their bounds. Packs never align. Codegen spells every link's template head from the representative (`Speller::template_head`).
 
 ### `op as`
 
@@ -154,7 +154,7 @@ ConstraintExtraction (`Compiler/Sema/Check/ConstraintExtraction.k`) runs just be
 |---|---|
 | Module | `::` does table lookup over every reopened scope, unioned, with re-exports through the module's overlay; `.` is an error |
 | Type | `::` does member lookup; `.` is an error |
-| Value | `.`, `->`, `?.`, `?->` peel the wrapper, then member lookup on the canonical; `::` is an error. `->` on a record goes through its `op ->`, chained while the result is a record (`Substitution::arrow_target`). |
+| Value | `.`, `->`, `?.`, `?->` peel the wrapper, then member lookup on the canonical; `::` is an error. `->` on a record goes through its `op ->` (the object's cv picks the overload, and the pointee keeps its cv), chained while the result is a record (`Substitution::arrow_target`). |
 | NeedsInference, Errored | record why and stop |
 | Dependent | the three regimes, below |
 

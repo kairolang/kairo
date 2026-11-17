@@ -16,7 +16,7 @@ The parser turns one file's preprocessed token buffer ([Lexing.md](Lexing.md#pre
 | `ImportGrammar` | `Shared/ImportGrammar.k` | import statements, shared with the preprocessor |
 | `MacroHeaderGrammar` | `Shared/MacroHeaderGrammar.k` | `macro name!(params)` headers, shared with the preprocessor |
 
-The two `Shared/` grammars have one implementation and several hosts. A host supplies the `ig_*` methods (`ig_kind`, `ig_peek_kind`, `ig_tok`, `ig_bump`, `ig_bump_nl`, `ig_eof`, `ig_err`, and for the import grammar `ig_err_remove`, an error with a removal fix-it); `ASTParse`, `PPWalker`, `StreamCursor` and `TokenRunCursor` each implement them over their own token source.
+The two `Shared/` grammars have one implementation and several hosts. A host supplies the `ig_*` methods (`ig_kind`, `ig_peek_kind`, `ig_tok`, `ig_bump`, `ig_bump_nl`, `ig_eof`, `ig_err`, and for the import grammar `ig_err_remove`, an error with a removal fix-it); Two hosts implement them: `ASTParse` over the parser's cursor, and `StreamCursor` (`Compiler/Preprocessor/StreamCursor.k`) over a preprocessor `TokenSource`. `DepScanner` drives a silent `StreamCursor` over its scan stream; `PPWalker` drives one over its walk stream, reporting into the walk's engine except while the walk is quiet (collecting macros, skipping a definition), when it is silent. The diagnostic half has one shape: a host starts the builder on its own sink (or returns first when it scans silently) and finishes it with `ig_finish`, `ig_finish_remove` or `ig_finish_insert` (`Shared/ImportGrammar.k`).
 
 ### Cursor
 
@@ -80,11 +80,13 @@ A generic list closed by `>>` (or `>>>`) splits the token: the inner list owes t
 | `thread` | declaration when a binding follows (`thread n: T`); otherwise an expression (`thread work()`) |
 | `eval` | declaration for `eval { }`, `eval fn`, and `eval N = e`; `eval if`, `eval for` and `eval f(3)` are statements |
 | `fn` | declaration; `parse_decl` speculates and, for an anonymous closure invoked in place (`fn () { }()`), returns null with the cursor rolled back, and the statement path parses it |
+| `inline` | declaration for `inline fn`; for an inline foreign block (`inline "..." { }`) `parse_decl` returns null and the statement path parses it, as for an `fn` closure |
 | other declaration keywords | declaration |
 
 ### Other fixed rules
 
 - In the head of `if`, `while`, `for` and similar constructs the condition is parsed with `ExprStopKind::NoStructLiteral`, so `{` after it opens the body and is never a named initializer.
+- `const &x` in expression position is the address-of `&x` with `UnaryOperatorExpr::const_addr` set (`ExprParse::_parse_const_addr`), its range starting at `const`. `const` begins no other expression, and a statement that starts with `const` is a declaration before the expression parser sees it (a bare `const &a` statement is S046E), so the two never meet. `unsafe const &x` is an `UnsafeExpr` over it; `const unsafe &x` is S096E with the swap as its fix-it and parses as `unsafe const &x`. `const` before anything but `&` (or `unsafe &`) is S052E "expected expression, found 'const'". The serialized AST writes `const_addr` after the operator's `fix`; any change to what is written bumps `AST_FORMAT_VERSION`.
 - `.Variant` and `.Variant { ... }` parse as a headless `NamedInitializerExpr`; which enum is meant is a Sema fact.
 - `panic` directly followed by `(` on the same line, after the parameter list of a function, closure or `fn` type, is the declared panic set and never a tuple or a `panic` statement (`TypeParse::parse_panic_set`). A newline ends the specifier. An empty set `panic()` is S055E with a fix-it removing the parentheses and parses as a bare `panic`. The set's meaning is in [Panic.md](Panic.md#model).
 - `fn op panic (const self)` is an operator declaration like `op await`.
@@ -94,14 +96,16 @@ A generic list closed by `>>` (or `>>>`) splits the token: the inner list owes t
 - In patterns, `(` at the start is always a tuple pattern. A literal or path is parsed as a pattern lead and classified by what follows; a path's first segment is looked up shallowly in the index tables, and a hit makes a `ConstructorPattern`, a miss an `UnresolvedConstructorPattern` that Sema resolves or reports. The dotted form `.Variant` never looks anything up.
 - `Self` lexes as `BiSelf` and parses as an ordinary `NamedIdentExpr` head.
 - A `[` or `{` in primary position whose matching closer is immediately followed by `::` opens a container type heading a path (`[T]::make()`, `{T}::make()`, `{K: V}::make()`; `ASTParse::closer_followed_by`): it parses as a type, and the head is a `NamedIdentExpr` whose generic arguments are the element types and whose `container_head` is the type's kind. N binds it to the builtin Vector, HashSet or HashMap record, not by name. No list, set or map literal is followed by `::`, so the literal forms are unaffected. A fixed array or slice there is S094E.
+- Class, struct and union heads are one production, `_parse_record`: generics or a specialization intro, the name, specialization arguments, then heritage, an optional `requires` clause, and the S045E refusal of `where`. A class reads lead modifiers and `derives`/`impl` in either order, each may open a continuation line; a struct or union reads `impl` lists only. A missing body is a forward declaration. Struct and union bodies admit constructors and operators but no named method (S048E).
 - `t.0` versus `.5` is decided by the lexer ([Lexing.md](Lexing.md#operators-and-punctuation)).
+- An inline foreign block is parsed wherever it stands (`StmtParse::_parse_inline_block`, called from the statement path, a type body and a module body), and only `inline "asm"` builds a node. Any other language, `"c++"` and `"c"` among them, is S095E at the block, and the block becomes a recovery node. Kairo does not embed C or C++ source; declarations come in through `ffi "c++" import`.
 - `test` is a keyword only where a test block can start. As a name it is the identifier it spells (`ASTParse::is_member_name_keyword`, `keyword_as_name`) after `fn` in a type body, after `Class::` in an out-of-line definition, and after `.`, `->`, `?.`, `?->` and `::`, so a method may be named `test` and a C++ `test` (`std::bitset::test`) can be called. A top-level `fn test()` stays S047E. No other keyword is contextual this way.
 
 ## Error recovery
 
 A production that fails reports one diagnostic, returns a recovery node, and resynchronizes; the parse always runs to the end of the file unless a depth limit fires.
 
-Recovery nodes. Every node family has a `Recovery*` kind (`RecoveryDecl`, `RecoveryStmt`, `RecoveryExpr`, `RecoveryType`, `RecoveryPattern`). A node's `create_error` factory allocates the full concrete node, sets `kind` to the family's recovery kind, and stores the intended kind in `recovery_kind`. `is_error()` tests the former; `isa_recovery`, `cast_recovery` and `dyn_cast_recovery` (`Compiler/AST/Node/Casting.k`) read the latter, so code that wants partial structure can still reach it. Separately, `fatal_ptr<T>()` returns a per-family sentinel address that a production returns to abandon the whole item; the top-level loop stops on it.
+Recovery nodes. Every node family has a `Recovery*` kind (`RecoveryDecl`, `RecoveryStmt`, `RecoveryExpr`, `RecoveryType`, `RecoveryPattern`). A node's `create_error` factory allocates the full concrete node, sets `kind` to the family's recovery kind, and stores the intended kind in `recovery_kind`. `is_error()` tests the former; `isa_recovery`, `cast_recovery` and `dyn_cast_recovery` (`Compiler/AST/Node/Casting.k`) read the latter, so code that wants partial structure can still reach it. There is no separate abandon-the-item sentinel: the top-level loop stops on a null item, or on EOF (which a depth abort, `_depth_aborted`, makes `is_eof()` report).
 
 Resynchronization. Each mixin has a sync routine that skips tokens while balancing `()`, `[]` and `{}`, and stops at depth zero on the construct's boundary. Each also has a `_progress` variant that guarantees the cursor moved, for use inside retry loops.
 
@@ -110,7 +114,7 @@ What recovery never consumes. A failed operand, type or pattern does not eat a t
 | Routine | Stops at | Token cap |
 |---|---|---|
 | `_sync_expr` | an unbalanced closer; `;`; `,` in list contexts; a newline in top-level context | 64 |
-| `_sync_type` | the type context's closers | 64 |
+| `_sync_type` | `_sync_expr`'s boundaries, plus a `->` at depth 0 (it is `_sync_expr` with `stop_at_arrow`) | 64 |
 | `_sync_stmt` | an unbalanced closer; newline; `;`; a statement or declaration lead keyword | 128 |
 | `_sync_decl` | the declaration context's boundary | 128 |
 | `_sync_generic_args` | the closing `>` (or `>>`) at the opening depth, a statement-level delimiter, or end of file | none |
@@ -164,8 +168,8 @@ A `TranslationUnit` (`Compiler/AST/Context/TranslationUnit.k`) is the root for o
 
 | Tool | File | Use |
 |---|---|---|
-| `RecursiveASTVisitor` | `Compiler/AST/Visitor/RecursiveASTVisitor.k` | Read-only walks and one-for-one rewrites. `dispatch_F` switches on kind to `traverse_N`; `traverse_N` calls `walkup_N` (family hook `visit_F`, then leaf hook `visit_N`), recurses into children, and returns the possibly replaced node for the parent to store. A hook returning false prunes the subtree. List children are walked read-only. |
-| `ASTWriter` | `Compiler/AST/Visitor/ASTWriter.k` | Structural rewrites: deleting, splicing or expanding statements and declarations, replacing a node with one of another family, rebuilding lists. |
+| `RecursiveASTVisitor` | `Compiler/AST/Visitor/RecursiveASTVisitor.k` | Read-only walks. `run(tu)` walks a file's top-level items. `dispatch_F` switches on kind to `traverse_N`; `traverse_N` calls `walkup_N` (family hook `visit_F`, then leaf hook `visit_N`), recurses into children, and returns the node it was given. No child slot, scalar or list, is assigned from a traversal's result: every rewrite belongs to `ASTWriter`. A hook returning false prunes the subtree. A union's methods (constructors and operator overloads) are walked as a struct's are. It walks an `eval for`'s moved bounds (`ev_lo` / `ev_hi`), as `ASTWriter` does; the two walkers visit the same children of every node. |
+| `ASTWriter` | `Compiler/AST/Visitor/ASTWriter.k` | Structural rewrites: deleting, splicing or expanding statements and declarations, replacing a node with one of another family, rebuilding lists. A derived writer that replaces the top-level item list itself calls `_resync_tu_decls` afterwards. |
 
 Both are CRTP: a pass derives one and overrides only the hooks it needs.
 
@@ -183,3 +187,7 @@ Both are CRTP: a pass derives one and overrides only the hooks it needs.
 ## Grammar
 
 [Grammar.ebnf](Grammar.ebnf) is the language's grammar in W3C-style EBNF, generated from the tree-sitter grammar (`Extras/LSPClients/tree-sitter-kairo/grammar.js`) by `Scripts/gen_grammar_ebnf.py`; `--check` reports whether it is current. It leaves out what EBNF cannot say: operator precedence and associativity, and the tree-sitter grammar's declared conflicts. The productions in `Compiler/Parser/` remain the authority where the two disagree, and the language reference defines what each construct means.
+
+### Trailing function modifiers end with the line
+
+`DeclParse::_parse_fn_modifiers` reads the modifiers after a parameter list (`volatile`, `unsafe`, `eval`, `async`, `final`, `panic`, `inline`; a trailing `const` is diagnosed there) only while the token under the cursor does not start a line (`starts_line`). The `)` of a signature is consumed with the newline after it, so without this rule the first keyword of the line after a body-less declaration was taken as its modifier: `eval if`, `eval N: T`, `inline fn` and `const x` lost their first word, and in a type body the rest was S048E.

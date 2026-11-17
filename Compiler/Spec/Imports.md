@@ -85,13 +85,13 @@ The current directory is a search root, so a file in it reaches `./foo.k` as pla
 
 A plain import that every root misses, for every prefix of its path, is retried in the importing file's directory; a hit there resolves (to the file the import always meant) and reports R068E at the first path segment, with a fix-it inserting `self::`. A root answer always wins, so a plain import of a library is never affected by a same-named file beside the importer.
 
-R068 is an error (it was a warning while the tests migrated; `FileImportIndex::_legacy_sibling` now reports `R068E`), but the import still resolves so it does not cascade. Removing the fallback entirely afterwards is the two `_resolve_greedy(..., true, self._dir)` / `_resolve_place(..., true, ...)` calls.
+R068 is an error (it was a warning while the tests migrated; `FileImportIndex::_legacy_sibling` now reports `R068E`), but the import still resolves so it does not cascade. The fallback is one retry in `resolve_import_place` (`Preprocessor/ImportPlace.k`), the resolution the dependency scan and the PP walk share; removing it is deleting that retry.
 
 ### Files and module.k
 
 In its one place, a path segment `foo` is `foo.k` or `foo/module.k`. Both present is R005E naming the two (`ModuleResolution::file_dir`, `dir_path`); the file answers so the import does not also fail. A `module.k` names its directory, and at a root's top level the directory is the root itself: `Lib/std/module.k` is `kairo::std`, not `kairo::std::module`. A name that consumes a library's whole path resolves to that library's `module.k`, which is how `import builtin` and `import kairo::std` resolve. `module X { }` inside a file appends `X` to the file's path.
 
-A path segment is a file or directory name, spelled as a C++ identifier the same way a file stem is (`CXXSpell::cxx_segment`: `operator.k` is `operator_`). A primitive type's word is a segment like any name (`ImportGrammar::is_import_path_word`): `import self::f8::*` imports `f8.k`, though `f8` lexes as a type keyword. Only where the word would be the BOUND name (`import self::i32`, an item `{u8}` without `as`) is it S046E with a fix-it adding ` as i32_mod`: `i32::f()` names the primitive type, never the module.
+A path segment is a file or directory name, spelled as a C++ identifier the same way a file stem is (`Speller::cxx_segment`: `operator.k` is `operator_`). A primitive type's word is a segment like any name (`ImportGrammar::is_import_path_word`): `import self::f8::*` imports `f8.k`, though `f8` lexes as a type keyword. Only where the word would be the BOUND name (`import self::i32`, an item `{u8}` without `as`) is it S046E with a fix-it adding ` as i32_mod`: `i32::f()` names the primitive type, never the module.
 
 ### Resolution order
 
@@ -130,11 +130,13 @@ The driver registers two named roots (`ImportResolver::Builder::add_include(path
 | std | `kairo::std` | `std` | `<resource-dir>/std` | `--std-dir`; `--no-stdlib` skips it |
 | builtin | `builtin` | `builtin` | `<resource-dir>/builtin` | `--builtins-dir` |
 
+With no flag, an input inside a copy of either library (its nearest pinned `module.k` names it) makes that copy the root instead of the staged one ([Driver.md](Driver.md#root-discovery)): one name, one directory, so no R018E between the staged library and a checkout's `Lib/`. The sibling directory pinning the other library (`Lib/builtin` beside `Lib/std`) is taken too.
+
 `SearchRoot::name` is the root's identity: `Lib/std/io.k` is `kairo::std::io` and emits into `::kairo::std`, which cannot collide with C++'s `std`. `SearchRoot::spelling` is what `resolve_module_rel` matches; `canonical_module_path` reads only the name, so the spelling never reaches an emitted namespace. Every other root's spelling is its name.
 
 There is no std prelude. `import std::io` binds `io`, `import std` binds `std` (the root's `module.k`), and a bare `std` in a file that did neither is an ordinary unresolved name. The PP does not add std to the graph either; an import of it does. C++'s `std` is reached as [`cxx::std`](Interop.md#ffi-imports).
 
-builtin is the one prelude: every non-builtin TU receives a synthesized `ImportDecl` with `is_prelude = true` and `resolved_fid` stamped directly (`FrontendAction::_sema`), which phase I folds like any wildcard import. `Lib/builtin/module.k`'s `pub import`s re-export through the ordinary path. `--print-imports` labels the prelude `<prelude>`; the AST printer hides it.
+builtin is the one prelude: every non-builtin TU receives a synthesized `ImportDecl` with `is_prelude = true` and `resolved_fid` stamped directly (`FrontendAction::_sema`), which phase I folds like any wildcard import. A builtin file given as the entry is part of the prelude like every other builtin file: the PP adds no entry-to-root edge when the root already reaches the entry (that edge would close a cycle the dependency scan never saw), and "no builtin root" is `u32::MAX`, never file id 0, which is the entry's. `Lib/builtin/module.k`'s `pub import`s re-export through the ordinary path. `--print-imports` labels the prelude `<prelude>`; the AST printer hides it.
 
 ## Import resolution
 
@@ -185,6 +187,7 @@ Phase I records an access fact (`vis`) per target, and N reads it:
 - A folded declaration records its own visibility; one that writes none records what its file's default makes it (`ImportResolution::_cell_vis`, `AST/VisibilityFacts.k`): `Private`, or `Protected` when a `module.k` is above the file; `Public` under the old rule (`-fdefault-visibility=pub`, and builtin and std, which keep it until marked).
 - N reports R047E when no target of a name reached through the overlay is visible: a private one never is, a protected one only from a file of the same module (`NameResolution::_overlay_access_ok`). The report says why, notes the declaration, offers `pub`, and chains SC272W when a `prot` failed for want of a `module.k`.
 - The same rule for a declaration reached through a module handle (`geo::area`) or a bare type name is AccessCheck's ([SemanticChecks.md](SemanticChecks.md#accesscheck)).
+- A conditional extension's block binds the C++ paths its clause asks about in its own table, outside the overlay ([Interop.md](Interop.md#cxxstd)).
 
 A file's module is the directory tree under the nearest `module.k` at or above it, pinned or not (`VisibilityFacts::module_dir_of_path`); the driver stamps every TU's module directory before Sema (`FrontendAction::_sema`), since parallel Sema reads another TU's from any worker.
 
@@ -264,11 +267,11 @@ The driver's `builtin` and `kairo::std` registrations are the only names given o
 
 ### Inputs are modules
 
-A `.k` on the command line, or one a C++ input includes, takes the module path an import of it would get (`ImportResolver::input_module_path`). `lib/y.k` compiled from the current directory is `lib::y` whether it is compiled, imported or included, and its `priv` declarations keep external linkage.
+A `.k` on the command line, or one a C++ input includes, takes the module path an import of it would get (`ImportResolver::input_module_path`). `lib/y.k` compiled from the current directory is `lib::y` whether it is compiled, imported or included, and its `priv` declarations keep external linkage. Path folds `..` as the filesystem resolves it (a `..` after a symlink climbs from the link's target), so a file named with `..` has the module path it has when named directly.
 
-A pathless TU keeps the entry rules (`CXXSpell::is_entry_tu`): namespace is the file stem, `priv`/`internal` declarations go in an unnamed namespace nested in it, and no header is emitted ([Codegen](Codegen.md#cxxspell)). A TU is pathless when it is outside every search dir and every library, when its path under an unnamed dir starts with a named root's name (`./builtin.k` would claim the builtin library's path), when it is the driver's virtual library entry, or when it is a `module.k` at the top of an unnamed, unpinned dir.
+A pathless TU keeps the entry rules (`Speller::is_entry_tu`): namespace is the file stem, `priv`/`internal` declarations go in an unnamed namespace nested in it, and no header is emitted ([Codegen](Codegen.md#speller)). A TU is pathless when it is outside every search dir and every library, when its path under an unnamed dir starts with a named root's name (`./builtin.k` would claim the builtin library's path), when it is the driver's virtual library entry, or when it is a `module.k` at the top of an unnamed, unpinned dir.
 
-`main` declared at file scope in any TU is the program's global `int main` (`CXXSpell::is_main`); one inside a `module foo { }` block is `foo::main`.
+`main` declared at file scope in any TU is the program's global `int main` (`Speller::is_main`); one inside a `module foo { }` block is `foo::main`.
 
 The driver's `_kairo_order` (importers before the inputs they import) no longer decides identity; it remains only because the importer still claims the file it reaches first, and its fid-0 placeholder is still needed.
 

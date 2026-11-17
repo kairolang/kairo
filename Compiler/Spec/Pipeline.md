@@ -35,9 +35,13 @@ The graph is cut into groups (`ImportGroups`), one per strongly connected compon
 1. Each Kairo TU of the group gets a `Sema`, allocated in an arena so its address never moves (Sema keeps `&self.sc`, and the context keeps `&self.lifecycle`, from its constructor on).
 2. Every TU goes to `Typed`. A one-TU group does this in one `run_to`. A larger group runs in lockstep: one phase (I, E, V, N, T, typed checks) across every member before the next, because each phase of one member reads what the same phase of another produced. Inside the T stage, `Sema::resolve_types_pre` runs for every member before any member's ChainBinding, since binding walks other members' records through `derives` edges their T resolves. After I, the group's re-exports are folded to a fixpoint (`ImportResolution::refold_reexports`): the member that ran I first folded its sources' re-exports from overlays not yet built. Only the call of the lockstep that ran I does this: with the parallel driver a group's front (I to the typed checks) runs on a pool worker and the driver resumes the group for Conformance, past I, where a round found nothing and still took every overlay Frozen -> Refolding -> Frozen while later groups' fronts read them (a debug build asserts no TU past I is refolded). A member that a stage's hard stop ends goes no further (`Sema::stopped()`: its `SemaRun` is `Stopped`, which `run_to` refuses to continue, since the phase still names the stage that stopped); the others continue. A member that only has errors is not stopped: it goes on to the next phase exactly as a one-TU group does, so a file reports the same diagnostics whether or not it sits in an import cycle (the lockstep decides a stop by `Sema::stopped()`, not by `run_to`'s false, which also means "has errors").
 3. The panic-set barrier (see [Phase barriers](#phase-barriers)).
-4. Each TU continues to `Checked`, then the lowerings and mono. The TU that declares the `Nullable` lang item goes first, since every other TU's `T?` lowering reads the layout that TU's EnumLayoutLowering builds. Diagnostics are drained into the driver's sink per TU.
+4. Each TU continues to `Checked`, then the lowerings and mono. The TU that declares the `Null` lang item goes first, since every other TU's `T?` lowering reads the layout that TU's EnumLayoutLowering builds. Diagnostics are drained into the driver's sink per TU.
 
 Each group's stages up to ConformanceChecking (its front) run on the thread pool, beside other groups' fronts and the driver's late part of earlier groups; Conformance, the barrier, the late checks, the lowerings and mono run on the driver one group at a time in this order. `--sema-threads=1` runs the whole loop on the driver. See [Parallel Sema](Performance.md#parallel-sema) and [invariant 4](#invariants).
+
+### After Sema
+
+CodeGen runs per TU on the thread pool ([Codegen.md](Codegen.md)). Inside each TU's clang invocation, after clang's Sema has checked a declaration and before clang's CodeGen takes it, the Sema agreement pass compares clang's callee for each call with the declaration Kairo's Sema chose ([SemaAgreement.md](SemaAgreement.md)). It is not a stop: a disagreement is counted, and reported as the warning I012W by a debug-built compiler or under `-fsema-agreement`.
 
 ### Dumps
 
@@ -63,6 +67,7 @@ The schedule, as `Sema.k` runs it. This table is the one statement of the order;
 | E | PrimitiveLimitDesugar | `Compiler/Sema/Expand/PrimitiveLimitDesugar.k` | [NameResolution.md](NameResolution.md#expansion) |
 | E | AllocSugarDesugar | `Compiler/Sema/Expand/AllocSugarDesugar.k` | [NameResolution.md](NameResolution.md#expansion) |
 | E | EvalIfFolding | `Compiler/Sema/Expand/EvalIfFolding.k` | [NameResolution.md](NameResolution.md#expansion), [Eval.md](Eval.md#passes) |
+| E | DeclaredQueryFolding | `Compiler/Sema/Expand/DeclaredQuery.k` | [NameResolution.md](NameResolution.md#declared-query-folding) |
 | E | RequiresDesugar | `Compiler/Sema/Expand/RequiresDesugar.k` | [NameResolution.md](NameResolution.md#expansion) |
 | V | LoopContextCheck, ArmOrderCheck, JumpLabelCheck, PatternBindingCheck, CxxNameCheck, ModulePinCheck | `Compiler/Sema/Verify/` | [NameResolution.md](NameResolution.md#verification) |
 | N | NameResolution, then `fill_lang_items` | `Compiler/Sema/Resolve/NameResolution.k` | [NameResolution.md](NameResolution.md#name-resolution) |
@@ -87,6 +92,7 @@ The schedule, as `Sema.k` runs it. This table is the one statement of the order;
 | C | CRTPHookCheck | `Compiler/Sema/Check/CRTPHookCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | PatternChecking | `Compiler/Sema/Check/PatternChecking.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | ReturnPathCheck | `Compiler/Sema/Check/ReturnPathCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
+| C | ConditionalExtensionCheck | `Compiler/Sema/Check/ConditionalExtensionCheck.k` | [SemanticChecks.md](SemanticChecks.md#conditionalextensioncheck) |
 | C | FnPurityCheck | `Compiler/Sema/Check/FnPurityCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | CallConvCheck | `Compiler/Sema/Check/CallConvCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
 | C | ScopeEscapeCheck | `Compiler/Sema/Check/ScopeEscapeCheck.k` | [SemanticChecks.md](SemanticChecks.md#check-passes) |
@@ -113,7 +119,7 @@ The schedule, as `Sema.k` runs it. This table is the one statement of the order;
 | M1 | instance enumeration (`ConformanceChecking::discover`) | `Compiler/Sema/Check/ConformanceChecking.k` | [Generics.md](Generics.md#monomorphization-sync-point) |
 | M2 | instance facts (`PanicInstances`, `EnumLayoutQuery::sweep`) | `Compiler/Sema/Lower/PanicLowering.k`, `Compiler/Sema/Lower/EnumLayoutLowering.k` | [Generics.md](Generics.md#monomorphization-sync-point) |
 
-Three planned passes have stub files and are not scheduled: MacroExpansion (E), ConstChecking (C) and LayoutPass. ExtensionOrphanCheck, the home of orphan errors in [invariant 3](#error-homes), does not exist yet.
+MacroExpansion (E) has no file and is not scheduled. Const-correctness has no pass of its own: the typer and conversions decide it ([Ownership.md](Ownership.md)). ExtensionOrphanCheck, the home of orphan errors in [invariant 3](#error-homes), does not exist yet.
 
 ## Phase barriers
 
@@ -163,7 +169,7 @@ The hard invariants of the pipeline. Code cites them by number.
 | 18 | A class definition is closed at its file. Its friends are its same-file extension scopes; nothing in another file changes the emitted definition. |
 | 19 | An interface bound names every interface argument. |
 | 20 | One namespace per declaration, derived and never stored per use. A declaration's C++ namespace is its DC parent chain mapped through `ModuleDecl::module_path`; every TU that emits the declaration computes the same path from the same node. |
-| 21 | Nothing outside the source tree reaches the ABI. A declaration's C++ namespace is a function of its root's declared name, its path within that root, and any enclosing `module X { }` blocks: not the checkout directory, a flag, or the importer's spelling. Two builds of one tree emit byte-identical interfaces. A pathless TU (outside every search directory and library) declares no root, so its namespace is its file stem; `main` is always the global one. A path segment is spelled as a C++ identifier the way the stem is (`CXXSpell::cxx_segment`: `operator.k` is `operator_`). |
+| 21 | Nothing outside the source tree reaches the ABI. A declaration's C++ namespace is a function of its root's declared name, its path within that root, and any enclosing `module X { }` blocks: not the checkout directory, a flag, or the importer's spelling. Two builds of one tree emit byte-identical interfaces. A pathless TU (outside every search directory and library) declares no root, so its namespace is its file stem; `main` is always the global one. A path segment is spelled as a C++ identifier the way the stem is (`Speller::cxx_segment`: `operator.k` is `operator_`). |
 | 22 | Compiler-invented names come from one file. `Compiler/AST/LangItems.k` holds lang items (declarations a user could have written, arriving through ordinary imports and filled once per build on the `GlobalDisambigTable`) and lower targets (fragments of C++ names no Kairo declaration spells, such as `__kairo_contains` for `op in` and `__kairo_pow` for `op ^^`). Nothing else carries a copy of those strings; a pass that needs one asks that file. `CxxNameCheck` rejects a user identifier with the reserved prefix, so an invented name never collides with a written one. |
 | 23 | Aliases are TU-local. An alias never appears in an exported interface; C++ consumers see canonical names only. |
 | 24 | Class granularity. A class enters a TU's emitted interface whole (every member declared) or not at all. |
@@ -215,20 +221,20 @@ Invariant 7 in full.
 | `ci_cut` on FunctionDecl | CtorInitLowering |
 | `ConditionalStmt::eval_deferred`, `sc->eval_branches` | EvalIfFolding (filed in E, retired by EvalIfLateFolding) |
 | `fold_pin` on VariableDecl / FieldDecl | EvalIfLateFolding |
-| a transfer constructor's `other` mode; a record's derived `op =` (`assign_from`, `assign_form`); lifecycle facts | ClassLifecycle, one instance owned by `Sema`, published as `sc->lifecycle`; readers go through `lifecycle_of(sc)` |
+| a transfer constructor's `other` mode; a record's derived `op =` (`assign_from`, `assign_form`) and `implicit_transfer`; lifecycle facts | ClassLifecycle, one instance owned by `Sema`, published as `sc->lifecycle`; readers go through `lifecycle_of(sc)` |
 
 ## Remaining work
 
 Open items of the Sema pipeline. Items owned by other stages are listed in their documents.
 
-- ConstChecking is a stub: assignment to a `const` binding is caught by clang, not Sema.
+- A write to a field of a `const` object (`c.v = 3`) is not reported by Sema.
 - A type declared in a deferred `eval if` branch is refused.
 - A type extent that reads a constant declared in a deferred `eval if` branch (`[u8; W]`) is resolved before the late fold decides which `W` exists.
 - The late-fold agreement pin covers neither direct type facts with no constant nor constants of other TUs.
 - `requires_holds` cannot decide the type-fact intrinsics, so the partial specialization SC132N suggests is undecided at use.
 - `eval if T impl I` narrows only the steps ChainBinding binds; steps the expression typer binds and operators do not see it.
 - MoveCheck ignores aliases of concrete MOVE values.
-- MacroExpansion (E) is a stub.
+- MacroExpansion (E) is not implemented.
 - ExtensionOrphanCheck and the import-scoped extension index do not exist.
 - ImportResolution reports three different errors under one code, R015E.
 - `_register_specs_in` descends type and module scopes only, never executable scopes.

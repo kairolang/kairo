@@ -9,7 +9,7 @@ A panic is a returned value. A function that may panic returns a tagged result, 
 | The result type and its layout | [Model](#model) | `Lib/builtin/errors/panic_result.k`, `Compiler/Sema/Type/PanicSets.k`, `Compiler/Sema/Lower/EnumLayoutLowering.k` |
 | Each function's set of error types | [Effect sets](#effect-sets) | `Compiler/Sema/Check/EffectPropagation.k`, `Compiler/Sema/Check/PanicEffectChecking.k` |
 | The passes that check and rewrite | [Passes](#passes) | the two above, `Compiler/Sema/Lower/PanicLowering.k` |
-| The C++ that results | [Codegen](#codegen), [Interop with C++ exceptions](#interop-with-c-exceptions) | `Compiler/Codegen/Emit/InterfaceEmitter.k`, `Compiler/Codegen/Emit/EmitIR.k`, `Compiler/Codegen/Emit/CXXSpell.k` |
+| The C++ that results | [Codegen](#codegen), [Interop with C++ exceptions](#interop-with-c-exceptions) | `Compiler/Codegen/Emit/InterfaceEmitter.k`, `Compiler/Codegen/Emit/EmitIR.k`, `Compiler/Codegen/Emit/Spell.k` |
 
 ## Model
 
@@ -55,7 +55,7 @@ A panic set is canonical: deduplicated, sorted by type id, built only by the com
 
 A type id is FNV-1a 32 (offset 2166136261, prime 16777619) over the type's C++ spelling, masked to 32 bits (or to `--test-panic-id-bits`); while the result is 0 (reserved for `Ok`), one more byte 0xFF is hashed into the full state and the mask applied again (`panic_id_of`). Guards and record names key on FNV-1a 64 of the same text (`panic_fnv64`).
 
-The spelling (`PanicTypeIds::spelling`) is the one name every TU, and the C++ specialization the id is read through, must already agree on: a Kairo record's CXXSpell qualified name with its arguments (`::app::cfg::ConfigError`), an imported C++ record's clang spelling, a builtin's emitted name, `T*`, `T[N]`, `::__kairo_fn<R(A,B)>`. `usize` / `isize` hash as the fixed-width builtin they are in C++ (`PanicTypeIds::size_types`). Dependent types, references and interfaces have no id. Two Kairo builtins that are one C++ type under two spellings would get two ids.
+The spelling (`PanicTypeIds::spelling`) is the one name every TU, and the C++ specialization the id is read through, must already agree on: a Kairo record's Speller qualified name with its arguments (`::app::cfg::ConfigError`), an imported C++ record's clang spelling, a builtin's emitted name, `T*`, `T[N]`, `::__kairo_fn<R(A,B)>`. `usize` / `isize` hash as the fixed-width builtin they are in C++ (`PanicTypeIds::size_types`). Dependent types, references and interfaces have no id. Two Kairo builtins that are one C++ type under two spellings would get two ids.
 
 Two different types with one id cannot share a set, since their tags would be equal. `PanicSets::check_collisions` reports SC223E when a set is formed, with a note at each type. Every widening `S -> R` has `S ⊆ R`, so checking each set at formation covers every later copy of a tag word. One type written twice is one element, never a collision.
 
@@ -291,7 +291,7 @@ An error goes to the innermost target: the function's return (`return fwd(p)`, o
 
 #### Moves
 
-`return x` and `panic x` of a whole local or by-value parameter move it into the return (C++'s implicit move). `panic x` into a `try`'s slot copies, because the local lives on after the `try`. A `panic Big(n)` builds the payload in place; each widening moves it once; a slot moves it in once and out once.
+`return x` and `panic x` of a whole local or by-value parameter move it into the return (C++'s implicit move). The local is one the body itself declares, not `static`, `thread`, `const` or `eval`: a variable a closure captures is read, not moved. A payload-free enum is read too: it is a C++ `enum class`, and there is nothing to move. `panic x` into a `try`'s slot copies, because the local lives on after the `try`. A `panic Big(n)` builds the payload in place; each widening moves it once; a slot moves it in once and out once.
 
 #### `try` / `catch`
 
@@ -349,7 +349,7 @@ The pack constructor of `Panic` takes the site id (`VariantInitExpr::site`, 0 fo
 
 ### Shapes
 
-A panicking function is spelled with its `panic_result` (`CXXSpell::return_spelling`), `noexcept` and `[[nodiscard]]`. Schematic C++ for the slot form. The emitted code reads tags and payloads directly (`__kairo_type_id<E>`, `__kairo_get<K>()`); the example writes them with the equivalent [C++ view](#the-c-view) helpers. `S` is the slot's result type and `FILL` stands for the placement construction into the slot's `__kairo_rbox`:
+A panicking function is spelled with its `panic_result` (`Speller::return_spelling`), `noexcept` and `[[nodiscard]]`. Schematic C++ for the slot form. The emitted code reads tags and payloads directly (`__kairo_type_id<E>`, `__kairo_get<K>()`); the example writes them with the equivalent [C++ view](#the-c-view) helpers. `S` is the slot's result type and `FILL` stands for the placement construction into the slot's `__kairo_rbox`:
 
 ```kairo
 fn config_port(path: string) -> i32 {
@@ -394,7 +394,7 @@ The failure test carries no `[[unlikely]]`: `ConditionalStmt` has no slot for it
 
 ### Generic templates
 
-One C++ template serves every instance of a generic, so a set naming `T` is ordered by C++. CXXSpell spells a `Panic` with a dependent element as `::__kairo_pset<::builtin::types::Panic, T, E...>`. The alias (`InterfaceEmitter::_pset_helpers`) inserts each element into a type list sorted by `__kairo_type_id`, drops repeats, and static_asserts that two different types do not share an id (the C++ side of SC223E), then applies `Panic`. That is Sema's order, so the template's result at `T = A` is the same `Panic<i32, A>` every concrete former names, and repeated elements never make a second C++ type.
+One C++ template serves every instance of a generic, so a set naming `T` is ordered by C++. Speller spells a `Panic` with a dependent element as `::__kairo_pset<::builtin::types::Panic, T, E...>`. The alias (`InterfaceEmitter::_pset_helpers`) inserts each element into a type list sorted by `__kairo_type_id`, drops repeats, and static_asserts that two different types do not share an id (the C++ side of SC223E), then applies `Panic`. That is Sema's order, so the template's result at `T = A` is the same `Panic<i32, A>` every concrete former names, and repeated elements never make a second C++ type.
 
 Inside such a body nothing only the instance knows is spelled: `catch e: E` is `::builtin::is<E>(p)`, its binding `::builtin::error<E>(p)`, and an `Err` is built at `__kairo_vt<__kairo_pidx<E>(static_cast<R*>(nullptr))>` with payload `typename R::template __kairo_Err_t<E>` (EmitIR `_variant_init`).
 

@@ -383,7 +383,7 @@ range_expr ::= _expression ( ".." | "..=" ) _expression? | ( ".." | "..=" ) _exp
 
 cast_expr ::= _expression "as" "static"? _type
 
-unary_expr ::= ( "!" | "not" | "+" | "-" | "~" | "compl" | "&" | "*" | "++" | "--" | "..." | "await" | "spawn" | "thread" | "eval" | "yield" ) _expression
+unary_expr ::= ( "!" | "not" | "+" | "-" | "~" | "compl" | "&" | "const" "&" | "*" | "++" | "--" | "..." | "await" | "spawn" | "thread" | "eval" | "yield" ) _expression
              | "delete" ( "[" "]" )? _expression
 
 unsafe_expr ::= "unsafe" _expression

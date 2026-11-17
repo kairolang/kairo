@@ -22,7 +22,7 @@ The language word is matched without case by one table, `Statements::ffi_lang_of
 |---|---|---|
 | PP | `PPWalker::_handle_ffi` builds the `ImportDecl` (header, alias, linkage) and appends the unquoted spelling to the file's ordered header list; `_finalize` requests a `HeaderSet` for the list | `Compiler/Preprocessor/Preprocessor.k` |
 | after PP | `HeaderSetCache::start_shared` parses the union of every recorded list on the pool (`HEADER_BUILD_GROUP`), overlapping the Kairo parse | `Compiler/Interop/Clang/HeaderSet.k` |
-| driver, before sema | `FrontendAction::_sema` waits for the header builds; per TU with a set, `HeaderIndex::index` mints a fid and TU per header clang touched, in touch order, runs `DeclImport` declare then define, and freezes; `_attach_ffi_edges` stamps each ffi `ImportDecl` with `resolved_fid` (the header's own fid) and `ffi_closure_fids` (its transitive include closure, `HeaderSet::closure_of`) | `Compiler/Driver/CompilerInstance.k`, `Compiler/Sema/Foreign/HeaderIndex.k` |
+| driver, before sema | `FrontendAction::_sema` waits for the header builds; per TU with a set, `HeaderIndex::index` mints a fid and TU per header clang touched, in touch order, runs `DeclImport` declare then define, and freezes; `_attach_ffi_edges` stamps each ffi `ImportDecl` with `resolved_fid` (the header's own fid) and `ffi_closure_fids` (its transitive include closure, `HeaderSet::closure_kfids`) | `Compiler/Driver/CompilerInstance.k`, `Compiler/Sema/Foreign/HeaderIndex.k` |
 | I | `_resolve_ffi`: aliased, one module handle per closure header under the one alias key (the [reopened-namespace](Imports.md#overlays-and-visibility) shape, so `my_h::f` searches every header's table); bare, `_fold_all_cells` over every closure header, as the `#include` it stands for would | `Compiler/Sema/Resolve/ImportResolution.k` |
 | N, T, ChainBinding | nothing special; cross-TU probes spell through `in_scope`; a header TU has an identifier table (`TokenCacheManager::ensure_imm_table`) and no tokens | |
 | typing | a C `...` tail ranks Converted, unchecked (`OverloadResolution`); an `explicit` constructor is not a converting constructor; argument-dependent lookup (`MemberLookup::associated_scopes`) finds `std::operator<<` | [Expression typing](ExprTyping.md#overload-resolution) |
@@ -30,7 +30,7 @@ The language word is matched without case by one table, `Statements::ffi_lang_of
 
 ### Header sets
 
-A `HeaderSet` is one clang parse (phase A) whose live AST Sema/Foreign walks and that template fills query. The build parses all its header lists as one shared set: `HeaderSetCache::request` records each distinct list as a view, and `start_shared` parses their union, ordered by list key, each header once by resolved path and linkage. Every view's `shared` then points at the union, and each TU's `header_set` becomes the union after indexing. A TU's names stay filtered per ffi import by `closure_of`; its clang-level view (macros for `defined!`, fills, deductions) is the union, which is what codegen compiles against anyway.
+A `HeaderSet` is one clang parse (phase A) whose live AST Sema/Foreign walks and that template fills query. The build parses all its header lists as one shared set: `HeaderSetCache::request` records each distinct list as a view, and `start_shared` parses their union, ordered by list key, each header once by resolved path and linkage. Every view's `shared` then points at the union, and each TU's `header_set` becomes the union after indexing. A TU's names stay filtered per ffi import by `closure_kfids`; its clang-level view (macros for `defined!`, fills, deductions) is the union, which is what codegen compiles against anyway.
 
 It falls back to one parse per list when there is a single list, when one header is imported both as C and as C++ (the language is part of a set's key), when the union fails to parse (the per-list parses then report the errors), or under `-fno-shared-header-set`.
 
@@ -47,6 +47,8 @@ Bare `std` is Kairo's (`kairo::std`, [std root](Imports.md#path-resolution)), so
 The alias is transparent: the declarations it reaches are the header TUs' own, with their own paths, and codegen spells them `::std::...`. It adds no lookup arm: `cxx` is a module anchor and `std` under it an all-module cell, so `cxx::std::cout` uses the multi-scope rule. A change needed in ChainBinding or TypeResolve for this would be a bug in reopened-namespace support.
 
 `_fold_all_cells` takes a `skip_std` flag because it has three callers (the bare ffi fold, `import foo::*`, a `*` item in a selective import), and only the first passes true. Every other top-level C++ name folds as before: `cxx` is one alias for one name, not a general prefix. `cxx` used alone as a value or type is R053E. A user module or root named `cxx` shadows it legally. This `SymbolTable` is the one built outside `ASTParse::_build_symbols`; it holds foreign declarations by reference and is frozen before anything reads it.
+
+A conditional extension's C++ paths ([Generics.md](Generics.md#conditional-extensions)) resolve through synthetic modules bound in the block's own table (the `_bind_cxx` shape, one name per path), found by `DeclaredQuery::resolve_in_headers` over every header TU of the build, so the block can name `cxx::std::string` in a file that imports no header. `FFILinkage::ffi_defined` says a header record has a definition; a record with none does not answer `__builtin_is_declared`.
 
 ### Tags and ordinary names
 
@@ -65,7 +67,7 @@ The rule is applied in three places:
 - `ImportResolution::_apply_hiding`, per overlay entry. A header's table is filled by the first set that indexes it, so a later set that also sees the hider marks the target `hidden` (out of `merged` and out of `non_function_count`). Same scope only, read off the qualified C++ spelling: a tag in an inline namespace beside a global variable stays an ambiguity, as in C++. A header cell with several entities folds one target per entity (`_fold_ffi_cell`).
 - `ChainBinding::_commit` (`ffi_hide_tags`), for `h::timezone` through an alias.
 
-The type stays reachable through everything that names it, because TypeImport goes by the clang declaration and never by name: `gettimeofday(*timeval, *timezone)` types its parameter as the struct. CXXSpell writes a hidden tag elaborated (`struct ::timezone`).
+The type stays reachable through everything that names it, because TypeImport goes by the clang declaration and never by name: `gettimeofday(*timeval, *timezone)` types its parameter as the struct. Speller writes a hidden tag elaborated (`struct ::timezone`).
 
 An overlay entry whose collision is between header entities only (`OverlayEntry::lazy`) is not reported by I, since a header set routinely declares names nobody uses. N (expression heads) and T (type names) report R016E at the use, with one R016N note per candidate (`MemberLookup::report_lazy_ambiguity`). A collision any Kairo import takes part in is reported at the import. `--print-imports` marks a lazy entry `(reported at use)` and a hidden target `hidden`.
 
@@ -119,7 +121,7 @@ Header TUs live for the build; `CompilerInstance::release` refuses one, since th
 | `std::nullptr_t` | one shared opaque; an untyped `&null` deduces it for a template parameter and ranks Converted to a pointer, as in clang |
 | `Foo<int>` | the registry shell `instance_for(Foo, [int])` |
 | a template parameter | `generic_param(owner, index)` |
-| a specialization of the Nullable lang item | `T?` |
+| a specialization of the Null lang item | `T?` |
 | anything else | `opaque(spelling)`: usable as a value, never looked into |
 
 `ForeignRegistry` (`Compiler/Sema/Foreign/ForeignRegistry.k`) maps USR to Kairo declaration build-wide: `struct Foo` reached through two header sets is two clang declarations and one Kairo declaration. Every cross-reference `DeclImport` and `TypeImport` make goes through it. `DeclImport` (`Compiler/Sema/Foreign/DeclImport.k`) does not import friend classes, using-directives, `static_assert`, deduction guides, variable templates, bit-field widths or default-argument expressions (their presence is recorded).
@@ -132,13 +134,13 @@ Header TUs live for the build; `CompilerInstance::release` refuses one, since th
 |---|---|
 | value (`array<i32, 4>`) | its canonical is the exact integer (`CanonicalTypeStore::value_arg`) on both sides, so the instance a header names and the one source spells are one registry entry; the parameter's C++ type is not part of the identity, and TypeExport recovers it from the template parameter, refusing a value the parameter cannot hold. A C++ spelling prints every value argument with its type. |
 | pointer | `*Node` and `unsafe *Node` are both `Node*` to C++. Inside a fill every pointer level of every argument is recorded against the clang type it spells (`TypeImport::note_pointer_arg`), so a member type naming that clang type reads back as the argument: `vector<*Node>::push_back` takes `const *Node&`. Two flavours of one pointee are two shells over one clang specialization, sharing member declarations registered once by USR. |
-| `T?` | the Nullable lang item's instance over `T`, as NullableTypeLowering lowers it: `vector<*Node?>` prints `::std::vector<::builtin::Nullable<::stem::Node *>>` |
+| `T?` | the Null lang item's instance over `T`, as NullableTypeLowering lowers it: `vector<*Node?>` prints `::std::vector<::builtin::Null<::stem::Node *>>` |
 | Kairo record | a stand-in, below |
 | `fn(A) -> R` | the C pointer `R(*)(A)` it imports from |
 
 ### Stand-ins for Kairo types
 
-Phase A's AST has never seen a Kairo record, so `std::vector<S>` makes TypeExport declare a stand-in for `S` there: a complete struct with `S`'s non-static fields in order, under exactly the name EmitIR emits (`CXXSpell::ns_segments` plus leaf, e.g. `::stem::S`). Every spelling the fill records is printed from phase A and compiled in phase B against the real `S`, so the name is what makes it sound. The stand-in's USR is registered to `S`, so `reference` reads back as `S&`, the Kairo record.
+Phase A's AST has never seen a Kairo record, so `std::vector<S>` makes TypeExport declare a stand-in for `S` there: a complete struct with `S`'s non-static fields in order, under exactly the name EmitIR emits (`Speller::ns_segments` plus leaf, e.g. `::stem::S`). Every spelling the fill records is printed from phase A and compiled in phase B against the real `S`, so the name is what makes it sound. The stand-in's USR is registered to `S`, so `reference` reads back as `S&`, the Kairo record.
 
 | Kairo type | Stand-in |
 |---|---|
@@ -150,7 +152,7 @@ Phase A's AST has never seen a Kairo record, so `std::vector<S>` makes TypeExpor
 
 The transfers are what clang reads every copy and move trait of a template over the record from. With implicit members only, the stand-in of a move-only `Mv` copied, so `std::optional<Mv>` was trivially copyable in phase A, libc++'s sfinae bases (`is_copy_constructible<Mv>`) kept its copy, and the instance read COPY until phase B rejected the copy. With them clang deletes the defaulted copy of `optional`, `tuple`, `variant`, `expected` and `pair` over `Mv` itself; `DeclImport` reads it as any deleted member, so those instances are MOVE, and a view (`span<Mv>`) keeps its trivial copy. A record that writes no transfer keeps the implicit members, which fold its fields' stand-ins exactly as C++ folds the real fields. The default constructor keeps the default-constructibility the stand-in had (a declared transfer suppresses the implicit one); its triviality is not mirrored, nor is a Kairo destructor.
 
-Refused, so the fill fails: records nested in a type, classes with a virtual base (subobject placement is not modelled), generics with a pack or value parameter, an ADT with a pack-expanded variant, a field whose type has no export, and a name a header already owns. A Kairo instance a fill names first (`Nullable<i32>`) is homed in the TU that demanded the fill.
+Refused, so the fill fails: records nested in a type, classes with a virtual base (subobject placement is not modelled), generics with a pack or value parameter, an ADT with a pack-expanded variant, a field whose type has no export, and a name a header already owns. A Kairo instance a fill names first (`Null<i32>`) is homed in the TU that demanded the fill.
 
 A stand-in's fields and bases are spelled for its layout only (`TypeExport::_layout_spelling`), never through the asker's `allow_opaque_args` (a call deduction's permission to spell an unspellable ARGUMENT as a blob): a field this set cannot spell has its own fallbacks (`void *` for a pointer, a blob of the measured size), and a stand-in is the same whoever asked for it first. Taken through the asker's flag, a field's blob marked the argument itself opaque, so `cxx::std::move(a)` on a Kairo class holding `unsafe *z::Blk` from a header only its own file imports dropped the substituted return (SC028E under `-fno-shared-header-set`).
 
@@ -173,7 +175,7 @@ A C++ reference return is spelled, in Kairo, only where Kairo defines a function
 
 ### Kairo definitions of C++-declared functions
 
-An out-of-line definition attached to an imported declaration (`CXXSpell::defines_foreign`: `fn Widget::get(self)`, `static fn Widget::make()`, `fn ns::f(...)`) is emitted as that declaration's definition, at global scope by `EmitIR::_foreign_def`: `R (Widget::get)(params) const { ... }`, the declarator-id parenthesized and unqualified at the root. The parameter types are the C++ declaration's (a `const T&` that Kairo reads as `x: T` stays `const T&`), the names the definition's own, and `noexcept` is written only when the declaration has it (`ffi_noexcept`). InterfaceEmitter declares nothing for it and opens no namespace; a Kairo call names it by its C++ name (`CXXSpell::qual_name`). Its names are spelled through the table of the file it is written in (`CXXSpell::tu_of`: a definition's semantic scope is the C++ one, its tokens are this file's). Not yet emitted, as before: constructors, destructors, and members of class templates.
+An out-of-line definition attached to an imported declaration (`Speller::defines_foreign`: `fn Widget::get(self)`, `static fn Widget::make()`, `fn ns::f(...)`) is emitted as that declaration's definition, at global scope by `EmitIR::_foreign_def`: `R (Widget::get)(params) const { ... }`, the declarator-id parenthesized and unqualified at the root. The parameter types are the C++ declaration's (a `const T&` that Kairo reads as `x: T` stays `const T&`), the names the definition's own, and `noexcept` is written only when the declaration has it (`ffi_noexcept`). InterfaceEmitter declares nothing for it and opens no namespace; a Kairo call names it by its C++ name (`Speller::qual_name`). Its names are spelled through the table of the file it is written in (`Speller::tu_of`: a definition's semantic scope is the C++ one, its tokens are this file's). Not yet emitted, as before: constructors, destructors, and members of class templates.
 
 A plain `fn f(...)` at file scope with the name of a C++ global declares a NEW Kairo function in the module's namespace; it does not define the C++ one (there is no spelling for "the C++ global `f`" yet: `fn ::f` is R020E). The rooted spelling `fn ::gf(...)` is S093E at the name, and the function is checked on as a Kairo `fn gf`; `fn ::ns::f` is S093E with a fix-it removing the `::`.
 
@@ -186,6 +188,7 @@ Kairo links clang in-process. The pieces, all in `Compiler/Interop/Clang/` unles
 | `ClangBackend.k` | persistent clang state for the whole batch; startup on the pool |
 | `HeaderSet.k` | phase A: header parses for ffi imports ([header sets](#header-sets)); phase B's merged `CodegenPCH` of every set, built on the pool during sema (`prebuild_codegen_pch`), with a textual per-set fallback when it fails |
 | `BuiltinsSet.k` | a parse-free clang instance that answers what a builtin's ID, prototype and attributes are |
+| `ClangInstance.k` | the bring-up every hand-built `CompilerInstance` here shares, as three steps in `ExecuteAction`'s order: `setup_diagnostics` (file system, then the engine), `setup_target` (`CreateTargetInfo`, then `adjust` with no aux target), `begin_and_execute` (`BeginSourceFile`, `Execute`, the `llvm::Error` consumed); and `parse_llvm_args`, the one hand-off of `-mllvm` words to `llvm::cl` |
 | `ClangJobs.k` | C, C++, Objective-C and LLVM IR inputs, compiled by clang's driver and frontend in-process ([native inputs](Driver.md#native-inputs)) |
 | `ClangLocMap.k` | Kairo to clang source-location translation over a shared clang TU |
 | `KairoInclude.k`, `KairoIncludeScan.k` | `#include "foo.k"` ([kcc](#kcc)) |
@@ -208,7 +211,7 @@ Three consumers read an EmitPlan ([EmitPlan](Codegen.md#emitplan)) through the s
 | `EmitCXXHeader` | `Header` | own `pub` declarations plus foreign declarations reached | `<dir>/<module path>.hh`, under `--emit-headers` |
 | `IncludeEmitter` | `Include` | `Header` roots plus a visible-body walk, emitted Preamble style | the token stream `#include "foo.k"` splices into a C++ TU |
 
-`EmitCXXHeader` (`Compiler/Codegen/Backend/EmitCXXHeader.k`) is not a clang action: it needs sema's resolved links only, runs per TU after sema into a `TextSink`, and writes nothing for a pathless TU (nothing can import it) or when sema reported errors. A C++ consumer of the header sees canonical namespaced names (the module path, [CXXSpell](Codegen.md#cxxspell)) and no Kairo aliases.
+`EmitCXXHeader` (`Compiler/Codegen/Backend/EmitHeader.k`) is not a clang action: it needs sema's resolved links only, runs per TU after sema into a `TextSink`, and writes nothing for a pathless TU (nothing can import it) or when sema reported errors. A C++ consumer of the header sees canonical namespaced names (the module path, [Speller](Codegen.md#speller)) and no Kairo aliases.
 
 Class `priv` members are C++ `private:`. Top-level `priv` and `internal` declarations are left out of an include stream, except those a `pub` `inline` or template body needs; a pathless file's such helpers stay out of the unnamed namespace (`TranslationUnit::cxx_escaping`) so includers can link against them.
 

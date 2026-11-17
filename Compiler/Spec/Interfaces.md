@@ -13,7 +13,7 @@ How the compiler normalizes interfaces, decides conformance and resolves associa
 | Requirement | Met by |
 |---|---|
 | constructor (`decl_is_ctor_requirement`) | an own constructor of `X` (its own table under `DeclName::ctor()`, never a base's) matched on the non-`self` parameters; a zero-parameter one on a record declaring none by the implicit `X()` (the record decl stands as witness); a builtin meets none (`i32()` is SC037E) (`_ctor_implementation`) |
-| lifecycle (`@copy fn Copyable(self, const other: Self)`, `@move`) | category ([Ownership.md](Ownership.md#copy-and-move)): `@copy` by COPY, `@move` by COPY or MOVE, builtins included |
+| lifecycle (`@copy fn Copy(self, const other: Self)`, `@move`) | category ([Ownership.md](Ownership.md#copy-and-move)): `@copy` by COPY, `@move` by COPY or MOVE, builtins included |
 | native (`_native_implementation`) | the requirement itself, when no member matches: an operator requirement a builtin or a pointer has built in with the requirement's shape (`_builtin_op_result`, see [Builtin operators as witnesses](#builtin-operators-as-witnesses)), or `op ==(const self, other: Self) -> bool` on an imported C++ record; the Hash lang item's `hash` on a pointer or an imported C++ type (`std::hash<X>`) |
 
 The match is exact on canonicals after `Self` is replaced by `X` (`Substitution::replace_self`) and the interface's parameters by the bound's arguments: the same receiver constness, parameter count, modes and types, and return type. Requirement generic parameters are matched by position (`fn <U> put(u: U)` and `fn <V> put(v: V)` are one signature). A generic record's own member is matched at the instance's arguments. Exactness is required because a witness forwards to the decl the row names and must reach the same one in every TU.
@@ -32,6 +32,8 @@ The match is exact on canonicals after `Self` is replaced by `X` (`Substitution:
 | `ok` | every requirement found |
 | `seen_by` | the TUs the row is usable in |
 | `hidden`, `clash` | detached rows only (below) |
+
+A class, struct or union may declare `impl I`; `decl_implements` reads the list for all three. An extension's list is `ExtensionDecl::implements`.
 
 A declared row is recorded under its declaring decl (`declare_row`) for EmitPlan, which admits it where that decl is emitted. A generic declared conformance is one row over the declaring decl's own parameters (`extend <T> Pair<T> impl Container<T>`: conformer `Pair<T>`, interface `Container<T>`).
 
@@ -70,7 +72,7 @@ A direct use of an instance another TU made live is re-checked once per TU again
 
 An unmet bound is reported at the instance's use with its instantiation chain ([Generics.md](Generics.md#monomorphization-sync-point)).
 
-Not implemented: the impl-only rule and the orphan rule (no pass exists); a declared `impl` that does not hold is not reported at the declaration; a generic extension member's bounds are not checked at the call; `T(args)` arguments are not checked against the constructor requirement; one generic conformance declared twice is a C++ redefinition (`Tests/Codegen/witness/declared_twice.k` XFAIL; needs alpha-equivalent keying of generic declared rows). Virtual interfaces (`*I`) are not compiled.
+Not implemented: the impl-only rule and the orphan rule (no pass exists); a declared `impl` that does not hold is not reported at the declaration; a generic extension member's bounds are not checked at the call; `T(args)` arguments are not checked against the constructor requirement; one generic conformance declared twice is a C++ redefinition (`Tests/Codegen/witness/declared_twice.k` XFAIL; needs alpha-equivalent keying of generic declared rows). Virtual interfaces (`*I`) are not compiled. `virtual interface I` is recorded on the declaration (`InterfaceDecl::is_virtual`, serialized); `*I` of a virtual interface is SC116E, and `*I` of a plain one is SC332E, as `I` itself is ([SemanticChecks.md](SemanticChecks.md#featuregatecheck)).
 
 Once an orphan rule holds, an `extend X impl I` lives in `X`'s or `I`'s file, which every TU naming both imports transitively, so the visibility filter can then fire only on an orphan. The fixtures in `Tests/Codegen/witness/visibility/` are orphans on purpose.
 
@@ -106,7 +108,7 @@ The result is `InterfaceDecl::requirements`, one `Requirement` per element, own 
 | `bounds` | an associated type's bounds after merging, as a requires-style `&&` |
 | `default_ty` | an associated type's kept default |
 
-Element identity (`_same`): a method requirement is its name, receiver (none, `self`, `const self`), its own generic parameters with their bounds, and its parameter modes and canonical types, each source's `Self` normalized to the composed interface's and its parameters bound by the leaf's arguments. The return type is not part of identity. Bounds compare as the set of `impl` / `derives` conjuncts per own parameter; a requirement carrying a value predicate is identical only to itself. So `A::process<T>(val: T)` and `B::process<T impl Serializable>(val: T)` are two elements, and `A - B` keeps `A.process`.
+Element identity (`_same`): a method requirement is its name, receiver (none, `self`, `const self`), its own generic parameters with their bounds, and its parameter modes and canonical types, each source's `Self` normalized to the composed interface's and its parameters bound by the leaf's arguments. The return type is not part of identity. Bounds compare as the set of `impl` / `derives` conjuncts per own parameter; a requirement carrying a value predicate is identical only to itself. So `A::process<T>(val: T)` and `B::process<T impl Serialize>(val: T)` are two elements, and `A - B` keeps `A.process`.
 
 | Operation | Methods | Associated types (by name) |
 |---|---|---|
@@ -132,7 +134,7 @@ type N impl X               // bound
 type N impl X, Y            // several bounds
 type N = usize              // default
 type N impl X = Default     // bound and default
-type <K impl Hashable> M    // generic associated type
+type <K impl Hash> M    // generic associated type
 ```
 
 Each is a `TypeAliasDecl` with `is_associated = true` and `aliased` the default or null. Its bounds are its `requires_clause`, the `&&` conjunction every requires clause desugars to, so ConstraintExtraction partitions them as for any decl. `type N impl X + Y` (an interface expression) is not accepted: it would need an anonymous composed interface.
@@ -161,13 +163,13 @@ Conformance: a structural conformer must declare every associated type, and the 
 
 A body uses an associated-type value only through its bounds: `TypeUtil::checked_head` makes operators, conversions, formatting, null tests and patterns on it follow the rules for a checked parameter ([Generics.md](Generics.md#instantiation-model)). Construction (`T::Node{}`, `T::Node(args)`) needs a constructor requirement of that arity in the associated type's bounds (`Substitution::bounds_construct`; SC251E otherwise); a field list is always rejected. Members of an associated-type value are exactly those its own bounds declare (`x.show()` with `type Node impl Display`), at any depth (`T::Item::Inner`, `T::Item::make()`).
 
-C++ spelling: `T::Node` is `typename I_witness<T>::Node` through the bound that declares it (`CXXSpell::assoc_spelling`, `_assoc_bound_of`). Every row of an interface with an associated type is a specialization opening with `using Node = <type>;`; the primary declares none, and the concept probes it with `typename I_witness<Self>::Node;`. A `using Node = typename Self::Node;` in the primary was rejected: instantiating the primary (any concept check, for example of another overload candidate, or a kcc host's type) would hard-error on a type without `Node` instead of failing the concept. So a C++ host type conforms to an interface with associated types only through a Kairo `impl`. Details in [Witnesses.md](Witnesses.md#the-c-shape).
+C++ spelling: `T::Node` is `typename I_witness<T>::Node` through the bound that declares it (`Speller::assoc_spelling`, `_assoc_bound_of`). Every row of an interface with an associated type is a specialization opening with `using Node = <type>;`; the primary declares none, and the concept probes it with `typename I_witness<Self>::Node;`. A `using Node = typename Self::Node;` in the primary was rejected: instantiating the primary (any concept check, for example of another overload candidate, or a kcc host's type) would hard-error on a type without `Node` instead of failing the concept. So a C++ host type conforms to an interface with associated types only through a Kairo `impl`. Details in [Witnesses.md](Witnesses.md#the-c-shape).
 
 Not implemented: a non-generic ADT nested in a generic class is SC116E (EnumLayoutLowering keys its generic regime on the enum's own parameters). `var x: T::Node` with no initializer is not checked for a constructor bound.
 
 ## Builtin operators as witnesses
 
-An extension cannot declare an operator on a builtin type, so a builtin meets an operator requirement through the operator it has built in. The requirement must be a method with no generic parameters, `const self` (a compound assignment: `self`), its operands all `Self`, and its result the builtin's result with `Self` substituted: `void` for a compound assignment, `bool` for a comparison, `Ordering` for `<=>`, `Self` otherwise. `ConformanceChecking::_builtin_op_result` is the table:
+An extension cannot redeclare an operator a builtin type has built in (it may add an `op as`), so a builtin meets an operator requirement through the operator it has built in. The requirement must be a method with no generic parameters, `const self` (a compound assignment: `self`), its operands all `Self`, and its result the builtin's result with `Self` substituted: `void` for a compound assignment, `bool` for a comparison, `Ordering` for `<=>`, `Self` otherwise. `ConformanceChecking::_builtin_op_result` is the table:
 
 | Operator | Built in on |
 |---|---|

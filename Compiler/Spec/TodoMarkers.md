@@ -12,6 +12,7 @@ The `TODO(<CATEGORY>)` marker kinds that remain in the source. Every marker is `
 | `TODO(STD-STRING)` (the spelling `kairo::std::to_std_string` / `from_std_string` is the marker) | Native helpers that convert between Kairo's `string` and C++'s `std::string` by bytes and count (`Native/Types.hh`). | Drop the `std::string` uses (Stage 1.5). |
 | `TODO(WINDOWS)` | The Windows branch of the language server's process spawn (`Analyzer/kals_io.h`), which returns no child. | Implement `CreatePipe` + `CreateProcess` there. |
 | `TODO` (using-declaration hiding) | An imported C++ class whose `using Base::f;` should hide a base overload, worked around with an explicit `Redeclarable` base (`Compiler/Sema/Foreign/DeclImport.k`). | Remove the explicit base once using-declaration hiding lands. |
+| `TODO(replace with kairo test blocks)` | A module's own `Test()` function, run by `kunit` (`Compiler/Tooling/UnitTests.k`, build.py target `kunit`). Sites: `Threading/ThreadPool.k`, `Memory/MappedFileBuffer.k`, `Location/SourceManager.k`, `Lexer/Lexer.k`, `Command/FlagRegistry.k`, `Support/TermRenderer.k`. | Move the cases into Kairo `test` blocks once the test runner runs them; then delete the `Test()`, its `kunit` line and this marker. |
 
 ## Spellings the migration chose
 

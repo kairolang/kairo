@@ -36,6 +36,7 @@ Two build drivers exist:
 | `kals` | `Analyzer/Driver/kals.k` (adds the `Analyzer` and `Extras/Formatter` roots) |
 | `kparse` | `Compiler/Tooling/ParseOnceTest.k` |
 | `katar` | `Extras/KaTAR/KTCompress.k` (adds the `Extras/KaTAR` root) |
+| `kunit` | `Compiler/Tooling/UnitTests.k` (runs each module's `Test()`; not staged) |
 | `clang-diag-identity` | `Compiler/Tooling/GenClangDiagIdentity.k` |
 
 The toolchain (`TOOLCHAIN`, what a bare `python3 build.py` builds and a release ships) is `kairo`, `kcc`, `kld`, `kfmt`, `ksys` and `kals`; each of them triggers [staging](#staged-trees) (`STAGED`). `kbld` and `kpkg` are refused until their sources are migrated.
@@ -91,12 +92,13 @@ One compile per target links the whole binary:
 
 - inputs: the entry, the generated `<target>_meta.cpp` (one string of project metadata and a `built=` stamp in a named section, per object format, and the tool's version string), the registry object, clang's `cc1as_main.cpp` (so `-cc1as` jobs run in-process) and `Compiler/Native/Win32.cpp` (the only file that includes `<windows.h>`, empty elsewhere);
 - `-I Compiler -I Linker` for every target, so module identity is the same in every tool;
-- `--cxx-define KAIRO_VERSION_EXTERN=1`, `--threads`, `--cache-dir <cache>/tu`. The tool's version string (`<name>-0.2.0+dev.<date>`) is defined in its `<target>_meta.cpp` as `kairo_version_cstr()`, which `Native/KShims.hh`'s `version_string()` returns under that define, not as a `-D VERSION` on every TU: a define is a cc1 word, so it was in every object key and differed per tool and per day ([Cache layout](#cache-layout));
+- `--cxx-define KAIRO_VERSION_EXTERN=1`, `--threads`, `--cache-dir <cache>/tu`. The tool's version string (`<name>-0.2.0+dev.<date>`) is defined in its `<target>_meta.cpp` as `kairo_version_cstr()`, which `Native/Shims.hh`'s `version_string()` returns under that define, not as a `-D VERSION` on every TU: a define is a cc1 word, so it was in every object key and differed per tool and per day ([Cache layout](#cache-layout));
 - LLVM, clang and lld headers and libraries ([Toolchain linkage](#toolchain-linkage));
 - profile: debug is `--profile debug -O0 -g --debug-macros -D DEBUG --cxx-define DEBUG` (plus `-fsanitize-ub` under `--sanitize-ub`); release is `--profile release -O3 --cxx-define NDEBUG`;
 - `--rpath $ORIGIN/../lib` (Linux) or `@loader_path/../lib` (macOS); on Windows the SDK and MSVC library paths found by registry and `vswhere`;
 - `--native` unless `--no-native`, `KAIRO_HOST_SYSROOT` or `--target`: the vendored LLVM was built against the host glibc, newer than the bundled sysroot's. With `--native` on Linux, `-l c++ -l c++abi` come first so every libc++ symbol resolves from the shared libc++ that `libLLVM.so` uses: two copies in one process throw `std::bad_cast` before `main`;
 - for a self-host tree, `-w` unless `--warnings`, and `-A R058W`: the AST node modules import each other by design;
+- `--sema-agreement-summary` when the seed has it. `build.py` prints one `sema agreement:` line per build with each tool's count ([SemaAgreement.md](SemaAgreement.md#flags)); the tree compiles with `-w`, which hides I012W;
 - `--reproducible` flags when on ([Fixed point](SelfHosting.md#bootstrap)). The flag is opt-in for every profile (`build.py --release --reproducible`): without it a build keeps real paths, the real build date and the linker's build-id. `fixedpoint` and `reprocheck` pass it themselves. On macOS it does not drop `LC_UUID` (dyld refuses a Mach-O without one; ld64.lld derives the UUID from a hash of the output, so the binary stays reproducible).
 
 `--print-jobs` prints the planned clang jobs and link without building. `--print-command` prints each tool's exact `kairo` command line, shell-quoted and preceded by a `# <tool> (cwd <root>)` line, and stops before compiling it. Like `--print-jobs` it runs the pre-build steps the command depends on (the registry), skips the LLVM stamp check, the native objects, staging and post-build, and builds nothing.

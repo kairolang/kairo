@@ -50,14 +50,14 @@ The exit status is 0 when `BatchResult::ok()` holds: no error anywhere in the ba
 
 ### Batch execution
 
-`main` (`Compiler/Driver/Kairo.k`) runs `execute()` on a joined thread with the pool workers' stack, `Tuning::WORKER_STACK_BYTES` (32 MB; `kairo::execute_on_big_stack`, `Compiler/Native/KThread.hh`), so the entry file's parse, Sema and codegen do not depend on the main thread's stack, which the OS sizes (8 MB on Linux) and only a Linux-only `setrlimit` could raise (a left-deep 30000-term `+` chain overflowed it in Sema's recursive visitors; release now handles 30000, debug 7500). An exception on that thread is rethrown on the main one. Where no thread with a stack size can be made (Windows, wasm, a failing `pthread_create`) `execute()` runs on the calling thread.
+`main` (`Compiler/Driver/Kairo.k`) runs `execute()` on a joined thread with the pool workers' stack, `Tuning::WORKER_STACK_BYTES` (32 MB; `kairo::execute_on_big_stack`, `Compiler/Native/Thread.hh`), so the entry file's parse, Sema and codegen do not depend on the main thread's stack, which the OS sizes (8 MB on Linux) and only a Linux-only `setrlimit` could raise (a left-deep 30000-term `+` chain overflowed it in Sema's recursive visitors; release now handles 30000, debug 7500). An exception on that thread is rethrown on the main one. Where no thread with a stack size can be made (Windows, wasm, a failing `pthread_create`) `execute()` runs on the calling thread.
 
 `execute()`:
 
 1. No inputs is I004F.
 2. `_plan_outputs` classifies every input and fixes the output plan ([Outputs and the object directory](#outputs-and-the-object-directory)). An unusable input stops the run before anything compiles, every one reported.
 3. `_discover_includes` finds `.k` files that C/C++ inputs include (`Compiler/Driver/KairoIncludes.k`; see [Interop.md](Interop.md#kcc)).
-4. `_settle_global_allocator`, then the Kairo library when linking under `--kairo-lib` and the link holds Kairo code (`_link_has_kairo`: a `.k` input, a C/C++ input that includes a `.k`, or an object or archive carrying the ABI note, `LinkABI::carries_note`; a pure C/C++ link is exactly clang's) ([Runtime and the Kairo library](#runtime-and-the-kairo-library)).
+4. `_settle_global_allocator` (whether every Kairo file is compiled with `__KAIRO_GLOBAL_ALLOCATOR_SET`: `--global-allocator-set` or a `-D` of it, a linked object whose ABI note says its file set it, or a file the inputs reach that writes `@set_global_allocator(` at file scope; a file whose bytes name the attribute is lexed, and only `@`, the name and `(` outside every brace count, so a comment, a string or a function body naming it does not), then the Kairo library when linking under `--kairo-lib` and the link holds Kairo code (`_link_has_kairo`: a `.k` input, a C/C++ input that includes a `.k`, or an object or archive carrying the ABI note, `LinkABI::carries_note`; a pure C/C++ link is exactly clang's) ([Runtime and the Kairo library](#runtime-and-the-kairo-library)).
 5. One `FrontendAction` per Kairo input, in `_kairo_order()`. Link inputs go to the link list; C/C++ sources and headers are collected for step 7. Every input runs even after an earlier one failed, as clang does; a fatal sets `aborted`, which stops what runs after the loop.
 6. When linking: a second script (each script is a `main`; see [ScriptMode.md](ScriptMode.md#script-files)) or a second global allocator is an error.
 7. With no errors: compile native inputs (`_compile_sources`), then the runtime when Kairo objects were emitted.
@@ -134,11 +134,13 @@ Two feature toggles split the conversion rules: `-f[no-]implicit-conv` is the Ka
 
 ### Dialect flags and the library
 
-A flag that changes a language rule (`-fno-implicit-conv`, `-fcxx-implicit-conv`, `-funwind`, `-fduck-generics`, the `--no-*` gates and `--max-*` limits) applies to the user's files only. `Lib/builtin` and `Lib/std` always compile in one fixed mode, whatever the user passes: every pass asks `SemaContext::in_library` (`VisibilityFacts::is_library_tu`, the driver's stamp). So under `-funwind` a library function is still `noexcept` unless it is marked `@unwind` (`FunctionDecl::no_unwind`, which every TU that declares the function reads), and a C++ exception thrown through such a frame (a callback the library calls) terminates. Codegen's own `-funwind` reading (`EmitOptions::unwind`: closures' call operators, `__kairo_fn`'s call path, witness and role functions) still follows the user's flag everywhere: those are spelled by every TU that emits them, so splitting them by TU could give one entity two spellings. Not yet under this rule: `-finfer-purity` (`-fno-infer-purity` turns inference off in the library too; exempting it changes `Tests/Codegen/purity/infer_purity.k`).
+A flag that changes a language rule (`-fno-implicit-conv`, `-fcxx-implicit-conv`, `-funwind`, `-fduck-generics`, `-fstrict-cxx-moves` (on unless `-fno-strict-cxx-moves`), the `--no-*` gates and `--max-*` limits) applies to the user's files only. `Lib/builtin` and `Lib/std` always compile in one fixed mode, whatever the user passes: every pass asks `SemaContext::in_library` (`VisibilityFacts::is_library_tu`, the driver's stamp). So under `-funwind` a library function is still `noexcept` unless it is marked `@unwind` (`FunctionDecl::no_unwind`, which every TU that declares the function reads), and a C++ exception thrown through such a frame (a callback the library calls) terminates. Codegen's own `-funwind` reading (`EmitOptions::unwind`: closures' call operators, `__kairo_fn`'s call path, witness and role functions) still follows the user's flag everywhere: those are spelled by every TU that emits them, so splitting them by TU could give one entity two spellings. Not yet under this rule: `-finfer-purity` (`-fno-infer-purity` turns inference off in the library too; exempting it changes `Tests/Codegen/purity/infer_purity.k`).
 
 ### Unimplemented flags
 
 A flag the parser accepts but nothing consumes is registered with `cmd->mark_unimplemented(key)` at the end of `register_kairo_flags` (`c:<name>` for config limits, the bare name for features). Setting one emits U005W ("accepted but not yet implemented; it has no effect"), once per flag, and `--help` renders it with `[not implemented]`, so a flag never appears to do something it does not. The entry is removed in the same change that wires the flag's consumer. An unknown key in the list is ignored, so a typo there cannot abort the compiler.
+
+The Sema agreement pass ([SemaAgreement.md](SemaAgreement.md#flags)) runs in each TU's clang invocation unless `-fno-sema-agreement` is given. `-fsema-agreement` makes it report (I012W); with neither flag a debug-built compiler reports and a release-built one only counts. `-fsema-agreement-repair` (on) lets it point a call clang bound differently at Kairo's declaration; `-fno-sema-agreement-repair` leaves every call alone. All are `CodeGenOptions` fields and apply to every TU, the library's included. `--test-sema-agreement-swap=<from>:<to>`, `--test-sema-agreement-quiet` and `--test-sema-agreement-no-adl` are the pass's hidden test hooks. `--sema-agreement-summary` (hidden) prints `kairo: sema agreement: N finding(s) in M of T file(s) (kind n, ...)` after codegen, or `off`. With `-v` the driver logs `incremental: not stored <file>: <reason>` for each object it compiled and did not store.
 
 An internal flag, one that exists for the compiler's own build rather than for users, is registered with `cmd->mark_hidden(key)` (same key forms). It parses and works as usual; `--help` leaves it out. The first is `-fduck-generics` (off by default so user code gets real bounds; `build.py` passes it for the compiler's own targets).
 
@@ -172,10 +174,11 @@ Dump flags are orthogonal to the action and fire at fixed points:
 | `--print-ast=tree\|flat\|canonical`, `--print-symbols` | AST, frozen symbol tables | after parsing |
 | `--print-sema` | every resolved binding | after the checks, before any lowering |
 | `--print-lowered` | the same dump after the `Lower/` passes | after lowering |
+| `--print-unchecked-assumptions` | per TU, one line per C++ call that borrows a MOVE argument although its body could not be inspected: `file:line:col: unchecked assumption: 'f' is assumed not to move out of 'h': <why>`, or, for a call into the toolchain's own standard library, `'f' is a C++ standard library function whose body is not visible: assumed not to move out of 'h'` ([Ownership.md](Ownership.md#c-bodies)). The standard library's calls are listed under the default `-fstrict-cxx-moves` too; the others are listed under `-fno-strict-cxx-moves`, and in `Lib/builtin` / `Lib/std`, which always borrow, since strict moves take such a call to move the argument instead of assuming | after the checks, beside `--print-sema` |
 | `--dump-interface=<path.json>`, `--dump-deps=<path.json>` | every file's interface hashes and name sets; every file's dependency rows ([IncrementalSema.md](IncrementalSema.md#the-dumps)) | the interface at `Checked`, before any lowering; the rows and both files at the end of Sema |
 | `--emit-headers-line-directives` (hidden) | with `--emit-headers`: `#line` before each header line naming its Kairo file and line, invented text under the header's own name; an unchanged header is not rewritten | for kals' clangd bridge only (LanguageServer.md section 15); a plain `--emit-headers` stays directive-free |
 | `--emit-headers-layout` (hidden) | with `--emit-headers`: each declaration on the same physical line as in its `.k` file, invented text in `<header>.prelude` included from line 1; for clangd, which ignores `#line` | kals only |
-| `--print-emit-plan`, `--print-cxx`, `--emit-headers=<dir>` | EmitPlan, C++ preamble text, interop headers | after Sema; headers only without errors |
+| `--print-emit-plan`, `--print-cxx`, `--emit-headers=<dir>` | EmitPlan, C++ preamble text, interop headers | after Sema; headers only without errors, each header and prelude written to a temporary beside it and renamed into place |
 | `--print-cg`, `--print-ir` | codegen token stream, generated C++ | in codegen (forces one worker) |
 | `--print-panic-sets` | every `Panic<T, E...>` instance | after Sema |
 
@@ -200,7 +203,7 @@ What were environment variables during the compile-time and parallel-Sema measur
 
 ### Progress
 
-`--progress=auto|always|never|lines` (`Driver/Progress.k`, engine in `Native/KProgress.hh`) reports how far a run is, on stderr. Three phases report: `parse` (one unit per file), `sema` (one per file, counted when its import group finishes) and `codegen` (one per Kairo TU). Counters are atomics bumped when a task ends.
+`--progress=auto|always|never|lines` (`Driver/Progress.k`, engine in `Native/Progress.hh`) reports how far a run is, on stderr. Three phases report: `parse` (one unit per file), `sema` (one per file, counted when its import group finishes) and `codegen` (one per Kairo TU). Counters are atomics bumped when a task ends.
 
 | Value | Behaviour |
 |---|---|
@@ -255,6 +258,8 @@ A staged tree ([BuildSystem.md](BuildSystem.md#staged-trees)) runs with no root 
 ### Root discovery
 
 `_discover_roots` fills the roots that were not given. A flag always wins. A given `--resource-dir` keeps its older meaning too: its `builtin/` and `std/` are used when they exist, before the layout. No builtin root is searched under `--no-prelude` (or `--freestanding`), and no std root under `--no-stdlib`.
+
+Between the flag and those defaults comes the library an input lies in (`_input_library_dir`). A Kairo input whose nearest pinned `module.k` (walking up from its directory, as `ImportResolver::_library_of` does) says `module builtin` or `module kairo::std` makes that directory the builtin or std root. A source checkout's `Lib/std/io.k` is therefore checked against that checkout's `Lib/std`, and the toolchain's staged copy is not registered beside it: the two would claim one root name ([R018E](Imports.md#path-resolution)). Directories compare by real path. Inputs in two different copies of one library select nothing, so the default is registered and the resolver reports the copies. When only one library is selected this way, the directory beside it (same parent) whose `module.k` pins the other driver library is registered as that library's root too (`_sibling_library_dir`; the first by name if several qualify), so a checkout's `Lib/std` is checked against that checkout's `Lib/builtin`. A flag for a library still wins for that library, and a copy of the other library found as an input is used as it is. The current directory's pinned subdirectories never replace a toolchain library. A file outside every library is unaffected. The runtime root (`_runtime_root`, the builtin root's parent) follows the builtin root, so a checkout's builtin uses that checkout's `Lib/rt` headers.
 
 A root still missing is P008W with a P008N naming the flag to pass. The warnings are queued and reported by `initialize()`, so `--help`, `--version` and the info queries never print them. Without the builtin tree every lang item is unbound and `string` does not resolve; the warning keeps that from reading as a Sema bug.
 
@@ -319,9 +324,9 @@ Defaults for a C/C++ input are clang's: the translator forwards only Kairo flags
 
 Native inputs follow the batch's action: `-c` writes `.o`, `-S` `.s`, `--emit` kinds `.ll`/`.bc` (one driver run per kind), `--preprocess` runs `-E` to stdout or `-o`, and `--syntax-only` and `--type-check-only` both run `-fsyntax-only`. An input with no such phase (IR and `.i`/`.ii` under `--preprocess`, IR under a check-only run) is skipped with U012W, as clang does. Outputs are named `<object dir>/<stem>.<ext>`; a header's is `<file>.pch` (`foo.h` writes `foo.h.pch`, so it never collides with `foo.c`), kept in the working directory when the object directory is temporary. `--print-clang-args` prints each native input's planned cc1 line after the Kairo line; `--print-jobs` adds the planned link (kcc's `-###`).
 
-### Open decisions
+### `-E` is the deny flag
 
-`-E` stays the diagnostic deny flag. A clang user typing `kairo -E foo.cc` gets "deny foo.cc"; `--preprocess` is the preprocess spelling. Moving `-E` to the clang meaning, with `--error=<code>` long-only, is an open design question.
+`-E <code>` denies a diagnostic. A clang user typing `kairo -E foo.cc` gets "deny foo.cc"; `--preprocess` is the preprocess spelling.
 
 ### Incremental Sema (`--incremental-sema`)
 

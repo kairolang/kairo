@@ -4,7 +4,7 @@ This document covers stages E, V and N of Sema: the surface rewrites that run be
 
 ## Expansion
 
-Stage E (`Sema::_stage_expand`) rewrites the tree so that V, N and T see one canonical form. Its passes need nothing past `Parsed`, except that EvalIfFolding needs I (below). In order:
+Stage E (`Sema::_stage_expand`) rewrites the tree so that V, N and T see one canonical form. Its passes need nothing past `Parsed`, except that EvalIfFolding and DeclaredQueryFolding need I (below). In order:
 
 | Pass | File | Effect |
 |---|---|---|
@@ -12,9 +12,10 @@ Stage E (`Sema::_stage_expand`) rewrites the tree so that V, N and T see one can
 | PrimitiveLimitDesugar | `Compiler/Sema/Expand/PrimitiveLimitDesugar.k` | primitive associated constants become literals |
 | AllocSugarDesugar | `Compiler/Sema/Expand/AllocSugarDesugar.k` | `@create` / `@destroy` become calls of `alloc.k`'s `create` / `destroy` |
 | EvalIfFolding | `Compiler/Sema/Expand/EvalIfFolding.k` | folds every `eval if` whose condition folds now; defers the rest |
+| DeclaredQueryFolding | `Compiler/Sema/Expand/DeclaredQuery.k` | every `__builtin_is_declared<P>()` left becomes `true` or `false`; in an extension's `requires` clause, the extension's gate |
 | RequiresDesugar | `Compiler/Sema/Expand/RequiresDesugar.k` | hoists inline generic bounds into `requires_clause` |
 
-Macro expansion is not implemented (`Compiler/Sema/Expand/MacroExpansion.k` is a stub).
+Macro expansion is not implemented.
 
 ### Primitive limits
 
@@ -34,6 +35,12 @@ Being before T, the pass cannot answer a type fact (`sizeof`, `alignof`, the tri
 
 V, N, T and RedeclMerge see every branch of a deferred `eval if`; [EvalIfLateFolding](TypeResolution.md#late-eval-if-folding) decides it. A condition that folds at neither point is SC230E. In a function body an `eval if` whose condition does not fold stays `if constexpr`.
 
+### Declared-query folding
+
+`__builtin_is_declared<P>()` is the one query whose operand may fail to resolve, so it is recognised by its spelling (no `Lib/builtin` declaration; a function declared with that name is SC341E) and answered before N or T meet the path. `DeclaredQueryFolding` runs after EvalIfFolding, so a name only an untaken branch declares is gone, and before N and T, which would report the path when the answer is no. `EvalIfFolding::_declared` answers the query in the conditions it folds itself, minus the declarations it dropped, and waits on branches still undecided. Every other call becomes the literal `true` or `false`; in an extension's `requires` clause it becomes the extension's gate ([Generics.md](Generics.md#conditional-extensions)).
+
+P is a path of plain names; a template is named bare (`cxx::std::vector`). Template arguments, a pointer or array type, or call arguments are SC341E. P is looked up from the declaration scopes that enclose the call (a type's body, module blocks, the file), then in the file's import overlay, where a C++ header's names and `cxx` are; a function's locals are not asked. A miss is `false`, never an error. A type, an alias, a class template, a module or namespace, a function, a variable, an enum variant and a method count, and a primitive keyword is always true. A record that is only forward-declared does not count, nor does a name only an untaken `eval if` branch declares. The answer is the file's where the call is written, so a generic or `inline` body carries its defining file's answer into every file that instantiates or inlines it. The query may stand in a file-scope `eval if`, an `eval` constant, a function body and a function's `requires` clause; in an `eval if` of a type's body it is SC342E.
+
 ### Requires desugaring
 
 RequiresDesugar moves inline bounds (`<T impl I>`, `<T derives B>`) into the declaration's `requires_clause` as `ConstraintExpr` conjuncts and empties the inline lists, so `requires_clause` is the single source of truth for ConstraintExtraction and RedeclMerge.
@@ -47,10 +54,10 @@ Stage V (`Sema::_stage_verify`) runs structural checks over the expanded tree. T
 | Pass | File | Checks | Codes |
 |---|---|---|---|
 | LoopContextCheck | `Compiler/Sema/Verify/LoopContextCheck.k` | `break` / `continue` outside a loop or naming no enclosing label; a nested label reusing an enclosing one; `finally` outside a function body. `match` is transparent: `break` in an arm targets the enclosing loop. | SC012E, SC013E, SC014E, SC015W, SC239E |
-| ArmOrderCheck | `Compiler/Sema/Verify/ArmOrderCheck.k` | a `catch` arm after a bare `catch` in the statement form; two bare `catch` arms. Dead `match` arms are PatternChecking's. | SC008E, SC009W, SC240E |
+| ArmOrderCheck | `Compiler/Sema/Verify/ArmOrderCheck.k` | a `catch` arm after a bare `catch` in the statement form; two bare `catch` arms. In the expression form a default arm is terminal in the grammar (the parser's S054E), so the pass reads statements only. Dead `match` arms are PatternChecking's. | SC008E, SC240E |
 | JumpLabelCheck | `Compiler/Sema/Verify/JumpLabelCheck.k` | every `jump!` names a `label!` in the same function; no label declared twice. Its script rule runs after X ([SemanticChecks.md](SemanticChecks.md#check-passes)). | SC006E, SC007E |
 | PatternBindingCheck | `Compiler/Sema/Verify/PatternBindingCheck.k` | every alternative binds the same names; no name bound twice in one alternative or destructuring | SC010E, SC011E |
-| CxxNameCheck | `Compiler/Sema/Verify/CxxNameCheck.k` | every declared name is spellable as a C++ identifier: no C++ keyword (from clang's tables, `Compiler/AST/CxxReservedWords.k`), no reserved pattern, no compiler-reserved prefix | SC004E, SC005W, SC017E |
+| CxxNameCheck | `Compiler/Sema/Verify/ForeignNameCheck.k` | every declared name is spellable as a C++ identifier: no C++ keyword (from clang's tables, `Compiler/AST/ForeignReservedWords.k`), no reserved pattern, no compiler-reserved prefix; and no primitive type's name (`u8`, `bool`, `char`, ...), which always denotes the type | SC004E, SC005W, SC017E, SC331E |
 | ModulePinCheck | `Compiler/Sema/Verify/ModulePinCheck.k` | a bare `module a::b` pin sits where it means something (`pin_allowed`) | R064E |
 
 Unreachable code is not a V check: it needs `!` types and is ControlFlowAnalysis, after X.
@@ -87,7 +94,7 @@ Every `NamedIdentExpr` head gets `resolved_decl` or `candidate_cell`. The lookup
 
 A redeclaration chain collapses to its representative; specializations never compete for a name; a genuine overload set goes through whole as a `candidate_cell`.
 
-The lexical stack holds parameters; generic parameters of the enclosing function or type; statement binders (`for`, `catch`, destructuring, `case var n`, context bindings); body `var`s, declared after their initializer; and statement-scope named declarations (`fn inner`, `class Local`, `type X`), declared before their body so recursion binds. A C-style `for var i = ...` scopes `i` to the loop. Statement-scope declarations are in no table; the lexical stack (and T's `ltypes`) own them.
+The lexical stack holds parameters; generic parameters of the enclosing function or type; statement binders (`for`, `catch`, destructuring, `case var n`, context bindings); body `var`s, declared after their initializer; and statement-scope named declarations (`fn inner`, `class Local`, `type X`), declared before their body so recursion binds. A C-style `for var i = ...` scopes `i` to the loop. Statement-scope declarations are in no table; the lexical stack (and T's `ltypes`) own them. A second `const` of one name in one frame is a rebinding (both must be `const`, else R029E); every body-introduced name that hides a visible local of its name, in its frame or an outer one, gets `VariableDecl::rebind`, one more than the hidden binding's, which codegen spells it apart by ([Codegen.md](Codegen.md#shadowing-locals)). `_declare_local_var` is the one place that numbers a name and declares it, for a statement `var` or `const` and for every binder: a destructuring declaration's names, `for`, `catch`, context bindings and match patterns. So `const (a, b) = (b, a)` reads the old `a` and `b`, and `for xs in xs` walks the outer `xs`.
 
 `Self` (lexed as `BiSelf`) in expression position binds to the enclosing type body's declaration: the record, or the `ExtensionDecl`.
 

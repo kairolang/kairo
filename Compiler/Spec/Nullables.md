@@ -4,7 +4,7 @@
 
 | File | Role |
 |---|---|
-| `Lib/builtin/module.k` | `null_t`, `enum <T> Nullable { Value { v: T }, Null }` |
+| `Lib/builtin/module.k` | `null_t`, `enum <T> Null { Value { v: T }, Null }` |
 | `Compiler/AST/EnumNiche.k` | niche facts Sema and codegen share |
 | `Compiler/Sema/Lower/EnumLayoutLowering.k` | layout (tagged or niche) and the role members of every ADT, `niche_of` |
 | `Compiler/Sema/Type/NullnessFlow.k` | the null-test classifier and the flow analysis |
@@ -24,11 +24,11 @@ Tests: `Tests/Sema/Nullable/`, `Tests/Codegen/nullable/`.
 
 ### The canonical type and its record
 
-`T?` parses to a `NullableType` canonical. `Nullable` is not a name Kairo code can write; the `?` suffix is its only spelling. Any `T` may be wrapped: a pointer, a record, an ADT, another nullable. `T?` holds its `T` by value, so a record cannot contain a nullable of itself: the field is a by-value cycle, SC002E ([TypeCycleCheck](SemanticChecks.md#check-passes)).
+`T?` parses to a `NullableType` canonical. `Null` is not a name Kairo code can write; the `?` suffix is its only spelling. Any `T` may be wrapped: a pointer, a record, an ADT, another nullable. `T?` holds its `T` by value, so a record cannot contain a nullable of itself: the field is a by-value cycle, SC002E ([TypeCycleCheck](SemanticChecks.md#check-passes)).
 
-The type is not rewritten in the tree. Each canonical `NullableType` has a write-once `lowered` slot that NullableTypeLowering fills with the record `::builtin::Nullable<inner>` (`SemaContext::lang_record`), walking the canonical table (`CanonicalTypeStore::nullables()`), not the tree. Canonicals are interned build-wide, and `T?` sits inside instance keys (`Box<i32?>`), pointer types and expression types no written type names (`var b = find(3)`); rewriting them would re-key the instantiation registry, which breaks deduction. Every pass after NullableTypeLowering still sees `NullableType`. CXXSpell and EmitPlan spell and plan a `T?` through `lowered`; a `T?` with none is an ICE in CXXSpell naming NullableTypeLowering. A dependent inner gives the primary template over it, which is what a generic body's `::builtin::Nullable<T>` is.
+The type is not rewritten in the tree. Each canonical `NullableType` has a write-once `lowered` slot that NullableTypeLowering fills with the record `::builtin::Null<inner>` (`SemaContext::lang_record`), walking the canonical table (`CanonicalTypeStore::nullables()`), not the tree. Canonicals are interned build-wide, and `T?` sits inside instance keys (`Box<i32?>`), pointer types and expression types no written type names (`var b = find(3)`); rewriting them would re-key the instantiation registry, which breaks deduction. Every pass after NullableTypeLowering still sees `NullableType`. Speller and EmitPlan spell and plan a `T?` through `lowered`; a `T?` with none is an ICE in Speller naming NullableTypeLowering. A dependent inner gives the primary template over it, which is what a generic body's `::builtin::Null<T>` is.
 
-No value conversion is rewritten. Sema checks `T -> T?` and `null -> T?` (`Conversion::_seq`) and records no conversion node, as for every implicit conversion. The record's non-explicit constructors make each one C++ copy-initialization at every site. The `null` literal is the exception: bare, it has no C++ type, so NullableTypeLowering replaces a `null` typed `T?` with the record's null `VariantInitExpr` (`Nullable<T>(::__kairo_vt<1>{})`), which gives an if-expression arm a C++ type. `&null` typed `(*T)?` becomes the same; `&null` against a plain pointer stays the null pointer.
+No value conversion is rewritten. Sema checks `T -> T?` and `null -> T?` (`Conversion::_seq`) and records no conversion node, as for every implicit conversion. The record's non-explicit constructors make each one C++ copy-initialization at every site. The `null` literal is the exception: bare, it has no C++ type, so NullableTypeLowering replaces a `null` typed `T?` with the record's null `VariantInitExpr` (`Null<T>(::__kairo_vt<1>{})`), which gives an if-expression arm a C++ type. `&null` typed `(*T)?` becomes the same; `&null` against a plain pointer stays the null pointer.
 
 `T? -> U?` with different inners type-checks and fails in clang.
 
@@ -37,19 +37,19 @@ No value conversion is rewritten. Sema checks `T -> T?` and `null -> T?` (`Conve
 `Lib/builtin/module.k` declares:
 
 - `null_t`, an empty struct. `null` is a keyword, so its constant has no Kairo declaration: InterfaceEmitter writes `inline constexpr null_t null{};` after the record (`StructDecl::is_null_type`). C++ hosts spell it `::builtin::null`; Kairo's `null` literal never lowers to it.
-- `enum <T> Nullable { Value { v: T }, Null }`, an ADT, so the payload is a real `T` only while present, built in place and destroyed once, and copy and move follow `T`'s.
+- `enum <T> Null { Value { v: T }, Null }`, an ADT, so the payload is a real `T` only while present, built in place and destroyed once, and copy and move follow `T`'s.
 
-EnumLayoutLowering gives it what every generic ADT gets (tag, payload union, lifecycle-selected special members) and, for this lang item only, a C++ surface as role functions (`AdtRole::NullDefault` ... `Equal`): `Nullable()`, `Nullable(null_t)`, `Nullable(const T&)`, `Nullable(T&&)`, `is_null()`, the unchecked `__value()` (`T&` and `const T&`), and `operator==` when `T` has one. Every implicit `T -> T?` and `null -> T?` is one of these constructors, so a C++ host writes `Nullable<int> x = ::builtin::null;` or `= 5`. The surface syntax is Sema's desugar onto `is_null()` and `__value()`; `__value()` is called only where the analysis or the desugar's own test proved a value. The members are role functions rather than Kairo bodies because a wrapping class cannot construct its field in place, a `match` in a generic body ICEs, and two constructors `(null_t)` / `(T)` on a generic record are ambiguous (SC064E). Nothing outside the `Nullable` declaration depends on its layout.
+EnumLayoutLowering gives it what every generic ADT gets (tag, payload union, lifecycle-selected special members) and, for this lang item only, a C++ surface as role functions (`AdtRole::NullDefault` ... `Equal`): `Null()`, `Null(null_t)`, `Null(const T&)`, `Null(T&&)`, `is_null()`, the unchecked `__value()` (`T&` and `const T&`), and `operator==` when `T` has one. Every implicit `T -> T?` and `null -> T?` is one of these constructors, so a C++ host writes `Null<int> x = ::builtin::null;` or `= 5`. The surface syntax is Sema's desugar onto `is_null()` and `__value()`; `__value()` is called only where the analysis or the desugar's own test proved a value. The members are role functions rather than Kairo bodies because a wrapping class cannot construct its field in place, a `match` in a generic body ICEs, and two constructors `(null_t)` / `(T)` on a generic record are ambiguous (SC064E). Nothing outside the `Null` declaration depends on its layout.
 
 ### Niche layout
 
-`Nullable` is an ordinary ADT, so EnumLayoutLowering lays it out tagged or niche-filled by the rules every ADT follows ([Lowering.md](Lowering.md#passes); the niche counts and the C++ trait are in [Codegen.md](Codegen.md#interfaceemitter)).
+`Null` is an ordinary ADT, so EnumLayoutLowering lays it out tagged or niche-filled by the rules every ADT follows ([Lowering.md](Lowering.md#passes); the niche counts and the C++ trait are in [Codegen.md](Codegen.md#interfaceemitter)).
 
 So `(*T)?` is one pointer with `nullptr` as null, standard-layout and passed as the pointer; `Color?` (closed, three variants) is one byte with null at 3, and `(Color?)?` one byte with pattern 4; `((*T)?)?` is tagged because the pointer's one pattern is taken; an `@open` `Color?` is tagged. A `bool?` is tagged until `bool` has a niche, and a record's first niche-bearing field is computed but read by no layout.
 
 ### Nested nullables
 
-`(T?)?` is a distinct type, `Nullable<Nullable<T>>`, and is never collapsed, including by generic substitution (`V?` with `V = User?` is `(User?)?`). `T??` does not parse as a type (`??` is the operator); a written `(T?)?` is S055W ("nested nullable '(T?)?': legal and distinct from 'T?', but rarely what you want", `Compiler/Parser/TypeParse.k`). A conversion wraps one level: `T -> (T?)?` is SC028E, `T? -> (T?)?` makes the outer present, `null` is the outer null. `?.` is the one operator that flattens ([Safe access](#safe-access)). Printers write `(i32?)?`.
+`(T?)?` is a distinct type, `Null<Null<T>>`, and is never collapsed, including by generic substitution (`V?` with `V = User?` is `(User?)?`). `T??` does not parse as a type (`??` is the operator); a written `(T?)?` is S055W ("nested nullable '(T?)?': legal and distinct from 'T?', but rarely what you want", `Compiler/Parser/TypeParse.k`). A conversion wraps one level: `T -> (T?)?` is SC028E, `T? -> (T?)?` makes the outer present, `null` is the outer null. `?.` is the one operator that flattens ([Safe access](#safe-access)). Printers write `(i32?)?`.
 
 ### The pointer suffix
 
@@ -220,7 +220,7 @@ A mark on a middle chain step splits the chain there and the rest continues from
 
 ### NullableTypeLowering
 
-The last nullable pass, so the others still see `NullableType`. Fills each canonical `T?`'s `lowered` record and replaces each `null` typed as a nullable with the record's null `VariantInitExpr` ([The canonical type and its record](#the-canonical-type-and-its-record)). It must follow CopyMoveLowering: that pass decides a transfer from the value's lifecycle, which ClassLifecycle answers for a `NullableType` from its inner, while a freshly minted `Nullable<Uniq>` instance would have no facts yet. It does nothing when the build has no builtin root, and ICEs if the lang item is not an enum or has no payload-less variant.
+The last nullable pass, so the others still see `NullableType`. Fills each canonical `T?`'s `lowered` record and replaces each `null` typed as a nullable with the record's null `VariantInitExpr` ([The canonical type and its record](#the-canonical-type-and-its-record)). It must follow CopyMoveLowering: that pass decides a transfer from the value's lifecycle, which ClassLifecycle answers for a `NullableType` from its inner, while a freshly minted `Null<Uniq>` instance would have no facts yet. It does nothing when the build has no builtin root, and ICEs if the lang item is not an enum or has no payload-less variant.
 
 ### Diagnostics
 
@@ -245,7 +245,7 @@ The last nullable pass, so the others still see `NullableType`. Fills each canon
 
 ## Codegen
 
-Everything nullable reaches codegen as ordinary nodes: member calls of `is_null()` and `__value()`, `VariantInitExpr`s, if-expressions and statement expressions. The C++ side of the lang item (the role members, `null_t` and its constant, the niche specialization and its `static_assert`s) is written by InterfaceEmitter ([Codegen.md](Codegen.md#interfaceemitter)); CXXSpell spells a `T?` through its `lowered` record.
+Everything nullable reaches codegen as ordinary nodes: member calls of `is_null()` and `__value()`, `VariantInitExpr`s, if-expressions and statement expressions. The C++ side of the lang item (the role members, `null_t` and its constant, the niche specialization and its `static_assert`s) is written by InterfaceEmitter ([Codegen.md](Codegen.md#interfaceemitter)); Speller spells a `T?` through its `lowered` record.
 
 The checked downcast `p as (*D)?` (`TypeCastExpr::checked_downcast`, set by CastTyping) is spelled by `EmitIR::_checked_downcast` as
 
@@ -253,4 +253,4 @@ The checked downcast `p as (*D)?` (`TypeCastExpr::checked_downcast`, set by Cast
 [](D* __kairo_dc) noexcept -> N { return __kairo_dc ? N(__kairo_dc) : N(); }(dynamic_cast<D*>(p))
 ```
 
-with `N = Nullable<D*>`. A lambda keeps it an expression wherever a cast is and adds nothing to the preamble. A generic pointee is accepted and checked by C++ per instance. A nullable source `(*A)? as (*D)?` is SC027E.
+with `N = Null<D*>`. A lambda keeps it an expression wherever a cast is and adds nothing to the preamble. A generic pointee is accepted and checked by C++ per instance. A nullable source `(*A)? as (*D)?` is SC027E.

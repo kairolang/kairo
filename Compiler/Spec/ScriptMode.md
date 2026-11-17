@@ -74,11 +74,11 @@ The slot constraints that fix the pass's place:
 
 ### Storage of a deferred global
 
-The global's own declaration becomes its storage: type `T?` (the Nullable lang item), initializer `null`, same decl, same name. EmitIR spells it `::builtin::Nullable<T> g = <null>;`. A deferred `const` becomes `var` storage that `main` assigns; each read still carries the `const T` it was typed with. The name is the user's: a script is a root and is never imported, so nothing links against `g`.
+The global's own declaration becomes its storage: type `T?` (the Null lang item), initializer `null`, same decl, same name. EmitIR spells it `::builtin::Null<T> g = <null>;`. A deferred `const` becomes `var` storage that `main` assigns; each read still carries the `const T` it was typed with. The name is the user's: a script is a root and is never imported, so nothing links against `g`.
 
 Three shapes are SC235E ("not supported yet"):
 
-- a deferred binding of fixed-array type (`var a: [i32; 2] = [1, f()]`): its storage would be `Nullable<T[N]>`, which Lib/builtin's Nullable cannot construct. The note suggests a list literal of constants and assigning the elements after.
+- a deferred binding of fixed-array type (`var a: [i32; 2] = [1, f()]`): its storage would be `Null<T[N]>`, which Lib/builtin's Null cannot construct. The note suggests a list literal of constants and assigning the elements after.
 
 - a deferred binding whose declared type is itself nullable (`var g: i32? = find()`): its storage would be `(i32?)?`, and a read the typer narrowed would need two marks, which NarrowedAccessLowering does not take. The note suggests `= null` and an assignment on the next line.
 - a top-level destructuring binding (`var (a, b) = f()`).
@@ -103,7 +103,7 @@ A whole-object write `g = e` as a statement is not a read. It assigns the storag
 
 ### Read before initialization through calls
 
-A direct call from `main`, made before `g`'s line, of a function in this file whose body reads `g` on every path is SC236E at the call ("'f' reads script variable 'g' before the line that gives it a value has run"), with notes at the read and at the binding. `ScriptUseScan` collects the reads and direct calls of a subtree; a use is definite when no branch, loop, `match`, `try`, short-circuit operand or closure encloses it and no `return` / `panic` / `jump!` precedes it in source order. A call anywhere in a statement of `main` counts, even under an `if`: if it runs, it reads.
+A direct call from `main`, made before `g`'s line, of a function in this file whose body reads `g` on every path is SC236E at the call ("'f' reads script variable 'g' before the line that gives it a value has run"), with notes at the read and at the binding. `ScriptUseScan` collects the reads and direct calls of a subtree; a use is definite when it is in no branch body, loop body, `match` arm, `try`, right operand of `&&` / `||` / `??` or closure, and no `return` / `panic` / `jump!` precedes it in source order. The part of a construct that runs whenever the construct does is as definite as the construct itself: an `if` or `while` condition, a `match` scrutinee, the iterable of a `for`, the init of a C-style `for`, the condition of an `if` expression, the left operand of a short-circuit operator. A `try` has no such part: a panic it catches skips the rest of its body and the program goes on. A call anywhere in a statement of `main` counts, even under an `if`: if it runs, it reads.
 
 Only one level is followed: `relay()` calling `report()` that reads `g` is left to the runtime check (`Tests/Codegen/script/guarded_read.k` relies on this). Method calls and calls through values are not followed. The analysis errs toward no error, so it never reports a false one.
 
