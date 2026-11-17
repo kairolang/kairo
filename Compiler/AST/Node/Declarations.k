@@ -779,6 +779,10 @@ pub class FunctionDecl
     /// call is clang's builtin, spelled at the call site (EmitIR::_call).
     /// One writer, NameResolution::fill_lang_items, as for lowers_to_expect.
     pub var lowers_to_assume: bool = false
+    /// The Unpredictable lang item (`__builtin_unpredictable`,
+    /// base/intrinsics.k): every call is clang's builtin, spelled at the
+    /// call site (EmitIR::_call). One writer, as for lowers_to_expect.
+    pub var lowers_to_unpredictable: bool = false
     /// The DynamicSize (1) / DynamicAlign (2) lang item, else 0
     /// (a DynamicLayout as u8): EmitIR
     /// writes its body (EmitIR::_dynamic_layout_body), reading T's hidden
@@ -874,25 +878,26 @@ pub class FunctionDecl
         node->init_annotations(unsafe &ctx->ast_alloc)
         node->init_dc(DeclContextKind::Function, ctx, parent, node)
         node->init_redecl()
-        node->adt_role         = AdtRole::None
-        node->adt_form         = AdtForm::Trivial
-        node->adt_variant      = 0
-        node->ci_split         = 0
-        node->ci_index         = 0
-        node->ci_cut           = false
-        node->lowers_to_expect = false
-        node->lowers_to_assume = false
-        node->dynamic_layout   = DynamicLayout::None as u8
-        node->class_alloc_op   = 0
-        node->old_dtor_at      = SourceRange::invalid()
-        node->hot_path         = false
-        node->no_inline        = false
-        node->cold_path        = false
-        node->is_pure          = false
-        node->call_conv        = 0
-        node->is_const_fn      = false
-        node->purity_at        = SourceRange::invalid()
-        node->inferred_purity  = PurityLevel::None as u8
+        node->adt_role                = AdtRole::None
+        node->adt_form                = AdtForm::Trivial
+        node->adt_variant             = 0
+        node->ci_split                = 0
+        node->ci_index                = 0
+        node->ci_cut                  = false
+        node->lowers_to_expect        = false
+        node->lowers_to_assume        = false
+        node->lowers_to_unpredictable = false
+        node->dynamic_layout          = DynamicLayout::None as u8
+        node->class_alloc_op          = 0
+        node->old_dtor_at             = SourceRange::invalid()
+        node->hot_path                = false
+        node->no_inline               = false
+        node->cold_path               = false
+        node->is_pure                 = false
+        node->call_conv               = 0
+        node->is_const_fn             = false
+        node->purity_at               = SourceRange::invalid()
+        node->inferred_purity         = PurityLevel::None as u8
         return node
     }
 
@@ -919,22 +924,23 @@ pub class FunctionDecl
         node->init_annotations(unsafe &ctx->ast_alloc)
         node->init_dc(DeclContextKind::Function, ctx, &null, node)
         node->init_redecl()
-        node->adt_role         = AdtRole::None
-        node->adt_form         = AdtForm::Trivial
-        node->adt_variant      = 0
-        node->lowers_to_expect = false
-        node->lowers_to_assume = false
-        node->dynamic_layout   = DynamicLayout::None as u8
-        node->class_alloc_op   = 0
-        node->old_dtor_at      = SourceRange::invalid()
-        node->hot_path         = false
-        node->no_inline        = false
-        node->cold_path        = false
-        node->is_pure          = false
-        node->call_conv        = 0
-        node->is_const_fn      = false
-        node->purity_at        = SourceRange::invalid()
-        node->inferred_purity  = PurityLevel::None as u8
+        node->adt_role                = AdtRole::None
+        node->adt_form                = AdtForm::Trivial
+        node->adt_variant             = 0
+        node->lowers_to_expect        = false
+        node->lowers_to_assume        = false
+        node->lowers_to_unpredictable = false
+        node->dynamic_layout          = DynamicLayout::None as u8
+        node->class_alloc_op          = 0
+        node->old_dtor_at             = SourceRange::invalid()
+        node->hot_path                = false
+        node->no_inline               = false
+        node->cold_path               = false
+        node->is_pure                 = false
+        node->call_conv               = 0
+        node->is_const_fn             = false
+        node->purity_at               = SourceRange::invalid()
+        node->inferred_purity         = PurityLevel::None as u8
         return node
     }
 

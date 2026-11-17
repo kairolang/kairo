@@ -129,6 +129,7 @@ import AST::Visitor::ASTWriter::{
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Codegen::CodegenICE::codegen_ice
+import Sema::Check::ClassLifecycle::moves_on_pass
 import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
@@ -1304,7 +1305,19 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return self.synth.use_of(nv, e->range, Expr::ValueCategory::LValue)
         }
 
-        if place
+        // A value whose type cannot be copied (a MOVE record) is read where
+        // it is: the operand is a borrow (a `const` parameter, a receiver,
+        // an operator's operand), and a snapshot of it would be a copy the
+        // type does not have. A later operand that changes it is the
+        // program's aliasing, as it is through a reference parameter.
+        var borrow = !place
+            && e->is_lvalue()
+            && !self._materialized(e)
+            && e->type_ != &null
+            && !e->type_->is_dependent()
+            && !e->type_->is_instantiation_dependent()
+            && moves_on_pass(self.sc, e->type_)
+        if (place || borrow)
             && e->is_lvalue()
             && !self._materialized(e)
             && e->type_ != &null

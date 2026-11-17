@@ -190,6 +190,7 @@ import AST::Node::Declarations::{
     TransferKind,  VariableDecl,
 }
 import AST::Node::Expressions
+import AST::Node::Patterns::BindingPattern
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
     ChainExpr,
@@ -2503,6 +2504,144 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return out
     }
 
+    /// `var (x, y) = t`: each binder takes its part of the value. A value
+    /// whose type moves is moved as a whole into the destructuring, as
+    /// `var w = t` moves it (TupleLowering then binds it by value and moves
+    /// each part into its binder), and a later read of `t` is SC052E. A
+    /// `*x` binder points into the value where it is, so with one the
+    /// value is read in place and a plain binder of a part that cannot be
+    /// copied is refused.
+    fn traverse_destructuring_decl_stmt(self,
+                                        n: *Statements::DestructuringDeclStmt) -> *Statements::DestructuringDeclStmt {
+        var out = RecursiveASTVisitor<MoveCheck>::traverse_destructuring_decl_stmt(
+            self,
+            n,
+        )
+
+        if n->value == &null
+            || n->value->is_poisoned()
+            || !moves_on_pass(self.sc, n->value->type_) {
+            return out
+        }
+
+        var in_place = false
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *b = n->bindings.get(i)
+            if b != &null && b->shorthand.has(Statements::BindingShorthand::Pointer) {
+                in_place = true
+            }
+        }
+
+        if !in_place {
+            self._transfer(n->value, "into the destructured binders")
+            return out
+        }
+
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *b = n->bindings.get(i)
+            if b == &null
+                || b->is_discard
+                || b->shorthand.has(Statements::BindingShorthand::Pointer)
+                || b->decl == &null
+                || b->decl->type_ == &null
+                || b->decl->is_poisoned() {
+                continue
+            }
+
+            var unsafe *t = if (b->decl->type_->canonical != &null) => (b->decl->type_->canonical)
+                            else => b->decl->type_
+            var tf               = LifecycleFacts()
+            var rd: unsafe *Decl = &null
+            var unsafe *facts = self._uncopyable_facts(
+                t,
+                unsafe &tf,
+                unsafe &rd,
+            )
+
+            if facts == &null {
+                continue
+            }
+
+            var nm = self.sc->ctx->get_spelling(b->decl->name)
+            var kb = self.sc->diag->report(
+                DiagID::SC182E,
+                b->range.start,
+                f"cannot copy a value of type '{self._tu.str(self._tu.as_value(t))}': {facts->why_not_copyable}",
+            )
+
+            kb.first(b->range)
+            kb.note(
+                b->range.start,
+                f"a '*' binder reads the value in place, so '{nm}' is a copy of its part; bind '*{nm}' for its address instead",
+            )
+
+            if rd != &null {
+                kb.note(rd->range.start, type_declared_here())->child_first(
+                    rd->range,
+                )
+            }
+
+            kb.emit()
+            b->decl->poison()
+            self.n_errored += 1
+        }
+
+        return out
+    }
+
+    /// `case var v`: the binder is a copy of what it matched (MatchLowering
+    /// reads the scrutinee in place, by `const T&`), so a type that cannot
+    /// be copied is refused here, not in clang; `case const v` reads it
+    /// without a copy.
+    fn traverse_binding_pattern(self, n: *BindingPattern) -> *BindingPattern {
+        var out = RecursiveASTVisitor<MoveCheck>::traverse_binding_pattern(
+            self,
+            n,
+        )
+
+        var unsafe *vd = dyn_cast<VariableDecl>(n->decl)
+        if n->is_const || vd == &null || vd->type_ == &null || vd->is_poisoned() {
+            return out
+        }
+
+        var unsafe *t = if (vd->type_->canonical != &null) => (vd->type_->canonical)
+                        else => vd->type_
+        var tf               = LifecycleFacts()
+        var rd: unsafe *Decl = &null
+        var unsafe *facts = self._uncopyable_facts(t, unsafe &tf, unsafe &rd)
+        if facts == &null {
+            return out
+        }
+
+        var nm = self.sc->ctx->get_spelling(vd->name)
+        var kb = self.sc->diag->report(
+            DiagID::SC182E,
+            n->range.start,
+            f"cannot copy a value of type '{self._tu.str(self._tu.as_value(t))}': {facts->why_not_copyable}",
+        )
+
+        kb.first(n->range)
+        kb.note(
+            n->range.start,
+            f"the binder 'var {nm}' is a copy of what it matched; 'const {nm}' reads it in place",
+        )
+
+        var kw = SourceRange()
+        kw.start = n->range.start
+        kw.end   = n->range.start.with_offset(3)
+        kb.fix(kw, "const", "bind it 'const'")
+        if rd != &null {
+            kb.note(rd->range.start, type_declared_here())->child_first(
+                rd->range,
+            )
+        }
+
+        kb.emit()
+        vd->poison()
+        self.n_errored += 1
+        return out
+    }
+
     /// The call initialising \p n when a later test of \p n can stand for
     /// a test of the call: a local of the body, the call its whole
     /// initializer, of type `bool` or `T?`, and the local declared with
@@ -4673,13 +4812,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// for a C++ range whose `*it` is an lvalue; a C++ `*it` that returns a
     /// value builds the binder in place, and the value of a generator (a
     /// `-> yield T` function called for the loop, a `Yield<T>`) is moved
-    /// into it. `*x` binds the address and copies nothing; a
-    /// destructuring binder is not checked here.
+    /// into it. `*x` binds the address and copies nothing.
+    ///
+    /// A binder list destructures each element, and each plain binder is a
+    /// copy of its part: over a pointer part (`op in` yielding
+    /// `(*const K, *V)`) a copy of what it points at, over a value part a
+    /// copy of the part. Over a generator value the parts are moved, as a
+    /// lone binder is.
     priv fn _for_binder_copies(self, n: unsafe *Statements::RangedForStmt) {
-        if n->bindings.size() != 1 {
-            return
-        }
-
         var k = n->iter_kind
         if k != IterKind::Array
             && k != IterKind::Slice
@@ -4694,12 +4834,61 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        var unsafe *bn = n->bindings.get(0)
+        if n->bindings.size() == 1 {
+            self._for_binder_copy(n, n->bindings.get(0), false)
+            return
+        }
+
+        // A generator value's tuple is given up at the next step, and its
+        // parts are moved into the binders (IterLowering::_given). A pointer
+        // part binds the pointer itself, which copies.
+        if k == IterKind::User
+            && n->iter_op == &null
+            && n->iter_yield != Statements::IterYield::Pointer
+            && n->iter_yield != Statements::IterYield::UnsafePointer {
+            return
+        }
+
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *bn = n->bindings.get(i)
+            if bn == &null || bn->is_discard {
+                continue
+            }
+
+            self._for_binder_copy(n, bn, self._tuple_yield_pointer_part(n, i))
+        }
+    }
+
+    /// Part \p i of \p n's tuple yield is a pointer (`-> yield (*const K, *V)`),
+    /// so a `const *k` binder takes it without copying what it points at.
+    priv fn _tuple_yield_pointer_part(self,
+                                      n: unsafe *Statements::RangedForStmt,
+                                      i: usize) -> bool {
+        if n->iter_yield != Statements::IterYield::Tuple || n->iter_op == &null {
+            return false
+        }
+
+        var forms = self._tu.fn_iter_yield_elems(
+            dyn_cast<FunctionDecl>(self._tu.pattern_of(n->iter_op)),
+        )
+
+        return i < forms.size() && forms[i] != Statements::IterYield::Value
+    }
+
+    /// One plain binder \p bn of \p n, a copy of its element or part:
+    /// refused (SC182E) when that cannot be copied. \p pointer_part: \p bn
+    /// destructures a pointer part of a tuple yield, so `const *` before its
+    /// name binds the pointer.
+    priv fn _for_binder_copy(self,
+                             n:            unsafe *Statements::RangedForStmt,
+                             bn:           unsafe *Statements::Binding,
+                             pointer_part: bool) {
         var unsafe *bd = bn->decl
         if bd == &null || bd->type_ == &null || bd->is_poisoned() {
             return
         }
 
+        var k = n->iter_kind
         var unsafe *t = if (bd->type_->canonical != &null) => (bd->type_->canonical)
                         else => bd->type_
         var tf               = LifecycleFacts()
@@ -4720,7 +4909,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // step: a binder of the element's own type takes it by move
         // (IterLowering::_given). A record's `op in` is asked for the
         // record's elements, which stay where they are, and are copied.
-        if k == IterKind::User
+        if n->bindings.size() == 1
+            && k == IterKind::User
             && n->iter_op == &null
             && n->iter_elem != &null
             && canon_unqual(n->iter_elem) == canon_unqual(t) {
@@ -4738,15 +4928,32 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         b.first(bn->range)
         // A value-yielding `op in` takes no `*x` binder (StmtTyping::
         // _iter_yield_rule): the element's address comes from `-> yield *T`.
+        // `const *k` fits a pointer part through either `op in` form.
         var how = f"bind '*{nm}' for the element's address instead"
-        if n->iter_yield == Statements::IterYield::Value {
+        if pointer_part {
+            how = f"bind 'const *{nm}' for a pointer to it instead"
+        } else if n->iter_yield == Statements::IterYield::Value
+            || n->iter_yield == Statements::IterYield::Tuple {
             how = f"its 'op in' yields values; declare it '-> yield *{ts}' and bind '*{nm}' for the element's address"
         }
 
+        var what = if (n->bindings.size() == 1) => ("each element")
+                   else => ("its part of each element")
         b.note(
             bn->range.start,
-            f"the loop binder '{nm}' is a copy of each element; {how}",
+            f"the loop binder '{nm}' is a copy of {what}; {how}",
         )
+
+        if pointer_part && bn->shorthand.empty() && bn->type_ == &null {
+            var ins = if (bn->is_explicit) => ("*") else => ("const *")
+            if !bn->is_explicit || bn->is_const {
+                b.insert(
+                    bn->name->range.start,
+                    ins,
+                    f"bind a pointer to the part",
+                )
+            }
+        }
 
         if rd != &null {
             b.note(rd->range.start, type_declared_here())->child_first(

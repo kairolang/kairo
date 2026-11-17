@@ -860,6 +860,19 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             ad->canonical_decl()->lowers_to_assume = true
         }
 
+        // `__builtin_unpredictable` keeps a branch on its condition a
+        // conditional move only where clang sees it in that branch's
+        // condition, so it too is clang's builtin at every call.
+        self._bind_lang(root, WellKnownType::Unpredictable)
+        var unsafe *ud = dyn_cast<Declarations::FunctionDecl>(
+            self.sc->well_known->get(WellKnownType::Unpredictable),
+        )
+
+        if ud != &null && (ud->semantic_dc) == self.sc->tu {
+            ud->lowers_to_unpredictable                   = true
+            ud->canonical_decl()->lowers_to_unpredictable = true
+        }
+
         // The trivially-copyable / -destructible traits, read by
         // ConformanceChecking at a call that meets a member `requires`.
         self._bind_lang(root, WellKnownType::IsTriviallyCopyable)

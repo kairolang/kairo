@@ -923,6 +923,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
+        if self._copy_into_local(n, f) {
+            return true
+        }
+
         if !self._callee(n->range, d) {
             return true
         }
@@ -1402,6 +1406,84 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return false
     }
 
+    /// `__builtin_copy(dst, src, n)` under `@pure` whose `dst` is the address
+    /// of this function's own local (`&w as unsafe *u8`, `&buf[0]`,
+    /// `&s.f`): it reads memory through `src` and writes only storage the
+    /// call's caller never sees, which `@pure` (memory(read)) allows. A
+    /// const fn reads no memory, so not there; any other `dst` is the
+    /// ordinary call, refused.
+    priv fn _copy_into_local(self,
+                             n: unsafe *Expressions::CallExpr,
+                             f: unsafe *FunctionDecl) -> bool {
+        if self._level != PurityLevel::Pure || n->args.size() != 3 || self.sc->g == &null {
+            return false
+        }
+
+        if !self.sc->g->is_builtin_fid(
+            self._tu.fid_of(unsafe (f as unsafe *Decl)),
+        )
+            || self._tu.decl_name(unsafe (f as unsafe *Decl)) != "__builtin_copy" {
+            return false
+        }
+
+        var unsafe *dst = self._tu.strip_parens(*n->args.get(0))
+        while dst != &null && isa<Expressions::TypeCastExpr>(dst) {
+            dst = self._tu.strip_parens(
+                cast<Expressions::TypeCastExpr>(dst)->operand,
+            )
+        }
+
+        var unsafe *u = dyn_cast<Expressions::UnaryOperatorExpr>(dst)
+        if u == &null
+            || u->op_token.kind != TokenKind::OpAmp
+            || u->resolved_op != &null
+            || u->fix != Expressions::UnaryOperatorExpr::Fix::Prefix {
+            return false
+        }
+
+        return self._local_storage(u->operand)
+    }
+
+    /// \p e names storage of the function being checked: a local (not a
+    /// static, a global or a parameter), an element of a local array, or a
+    /// field of one reached by `.` steps.
+    priv fn _local_storage(self, e: unsafe *Expr) -> bool {
+        var unsafe *x = self._tu.strip_parens(e)
+        if x == &null {
+            return false
+        }
+
+        if isa<Expressions::SubscriptExpr>(x) {
+            var unsafe *s = cast<Expressions::SubscriptExpr>(x)
+            if s->resolved_op != &null || self._tu.pointee(self._expr_type(s->base)) != &null {
+                return false
+            }
+
+            return self._local_storage(s->base)
+        }
+
+        if isa<ChainExpr>(x) {
+            var unsafe *ch = cast<ChainExpr>(x)
+            for var i: usize = 0; i < ch->steps.size(); ++i {
+                if ch->steps.get(i)->access_kind != ChainExpr::AccessKind::Dot {
+                    return false
+                }
+            }
+
+            return ch->base != &null && self._local_storage(ch->base)
+        }
+
+        if !isa<NamedIdentExpr>(x) {
+            return false
+        }
+
+        var unsafe *v = dyn_cast<VariableDecl>(
+            cast<NamedIdentExpr>(x)->resolved_decl,
+        )
+
+        return v != &null && !is_global_storage(v)
+    }
+
     /// May the current function call \p f? Either redecl may carry the
     /// attribute (`fn` declared in one place, defined in another), so the
     /// chain's canonical is asked too; inference's verdict counts like a
@@ -1493,10 +1575,22 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         if nm == "__builtin_expect"
             || nm == "__builtin_expect_prob"
             || nm == "__builtin_assume"
+            || nm == "__builtin_unpredictable"
             || nm == "__builtin_assume_aligned"
             || nm == "__builtin_unreachable"
             || nm == "__builtin_is_constant_evaluated"
             || nm == "__builtin_target_info" {
+            return true
+        }
+
+        // The bit operations are functions of their argument's bits alone:
+        // they read no memory, so they keep const as well as @pure.
+        if nm == "__builtin_ctz"
+            || nm == "__builtin_clz"
+            || nm == "__builtin_popcount"
+            || nm == "__builtin_bswap"
+            || nm == "__builtin_rotl"
+            || nm == "__builtin_rotr" {
             return true
         }
 

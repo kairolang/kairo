@@ -175,6 +175,7 @@ KAIRO_RT_INL bool kairo_rt_expect_prob(bool c, bool e, double p) KAIRO_RT_NOEXCE
 [[noreturn]] KAIRO_RT_INL void kairo_rt_abort() KAIRO_RT_NOEXCEPT { __builtin_abort(); }
 KAIRO_RT_INL void kairo_rt_debugtrap() KAIRO_RT_NOEXCEPT { __builtin_debugtrap(); }
 KAIRO_RT_INL void kairo_rt_assume(bool c) KAIRO_RT_NOEXCEPT { __builtin_assume(c); }
+KAIRO_RT_INL bool kairo_rt_unpredictable(bool c) KAIRO_RT_NOEXCEPT { return __builtin_unpredictable(c); }
 KAIRO_RT_INL void kairo_rt_prefetch(const unsigned char *p, int rw, int loc) KAIRO_RT_NOEXCEPT {
     if (rw == 0) {
         switch (loc) { case 0: __builtin_prefetch(p, 0, 0); break; case 1: __builtin_prefetch(p, 0, 1); break;

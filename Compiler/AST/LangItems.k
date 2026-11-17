@@ -123,6 +123,11 @@ pub enum WellKnownType derives u8 {
     /// parses to: clang's builtin at the call site
     /// (FunctionDecl::lowers_to_assume), where it can inform the optimizer.
     Assume,
+    /// `__builtin_unpredictable(cond)` (base/intrinsics.k): clang's builtin
+    /// at the call site (FunctionDecl::lowers_to_unpredictable), the only
+    /// place it keeps a branch on `cond` a conditional move; behind a call
+    /// the hint is gone before the branch is formed.
+    Unpredictable,
     /// `__builtin_is_trivially_copyable<T>()` / `..._destructible<T>()`
     /// (base/intrinsics.k): C++ answers them, but ConformanceChecking reads
     /// them as ClassLifecycle's facts to check a member `requires` at a call
@@ -255,6 +260,8 @@ pub fn to_string(k: WellKnownType) -> string {
             return "__builtin_expect"
         } case WellKnownType::Assume {
             return "__builtin_assume"
+        } case WellKnownType::Unpredictable {
+            return "__builtin_unpredictable"
         } case WellKnownType::IsTriviallyCopyable {
             return "__builtin_is_trivially_copyable"
         } case WellKnownType::IsTriviallyDestructible {
@@ -1084,6 +1091,13 @@ pub class LangAttrs {
         return "unlikely"
     }
 
+    /// `@unpredictable if c`: the condition is spelled as a call of the
+    /// Unpredictable lang item (EmitIR::_if), clang's
+    /// `__builtin_unpredictable(c)`.
+    pub static fn unpredictable() -> string {
+        return "unpredictable"
+    }
+
     /// `@assume(cond)`: a statement of its own, parsed to a call of the
     /// Assume lang item (StmtParse::_try_parse_assume).
     pub static fn assume() -> string {
@@ -1274,6 +1288,8 @@ pub class LangAttrs {
                 return LangAttrs::no_inline()
             } case 25 {
                 return LangAttrs::relocatable()
+            } case 26 {
+                return LangAttrs::unpredictable()
             } default {
                 return ""
             }
@@ -1355,6 +1371,10 @@ pub class LangAttrs {
         }
 
         if word == LangAttrs::unlikely() {
+            return "stmt"
+        }
+
+        if word == LangAttrs::unpredictable() {
             return "stmt"
         }
 
@@ -1466,6 +1486,10 @@ pub class LangAttrs {
 
         if word == LangAttrs::unlikely() {
             return "The condition is expected to be false (before `if`, or before `else`)"
+        }
+
+        if word == LangAttrs::unpredictable() {
+            return "The condition follows no pattern a branch predictor learns (before `if`)"
         }
 
         if word == LangAttrs::assume() {
@@ -3569,6 +3593,12 @@ pub class LowerTargets {
     /// What a call of the Assume lang item is spelled as (EmitIR::_call).
     pub static fn clang_assume() -> string {
         return "__builtin_assume"
+    }
+
+    /// What a call of the Unpredictable lang item, and the condition of an
+    /// `@unpredictable if`, is spelled as (EmitIR::_call, EmitIR::_if).
+    pub static fn clang_unpredictable() -> string {
+        return "__builtin_unpredictable"
     }
 
     /// The hidden virtual of a class with a virtual destructor, returning

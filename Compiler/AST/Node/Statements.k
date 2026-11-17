@@ -1041,6 +1041,10 @@ pub class RangedForStmt derives Stmt {
     /// UnsafePointer leave iter_elem the yielded pointer type; the binders
     /// are typed over its pointee, and IterLowering dereferences once more.
     pub var iter_yield: IterYield = IterYield::Free
+    /// User, over a generator value: the one `*x` binder is the pointer the
+    /// generator yields (TypeUtil::for_binds_yielded_pointer, decided by
+    /// StmtTyping), not the address of its slot.
+    pub var binds_yielded_ptr: bool = false
     // Cxx only.
     pub var cxx_begin_fn:   unsafe *Decl          = &null ///< `begin`, a member or (cxx_free) a free function.
     pub var cxx_end_fn:     unsafe *Decl          = &null
@@ -1067,17 +1071,18 @@ pub class RangedForStmt derives Stmt {
         node->kind  = StmtKind::RangedForStmt
         node->range = range
         node->init_annotations(unsafe &ctx->ast_alloc)
-        node->iterable   = iterable
-        node->body       = body
-        node->is_eval    = is_eval
-        node->ev_lo      = &null
-        node->ev_hi      = &null
-        node->ev_incl    = false
-        node->iter_kind  = IterKind::None
-        node->iter_op    = &null
-        node->iter_elem  = &null
-        node->iter_inst  = &null
-        node->iter_yield = IterYield::Free
+        node->iterable          = iterable
+        node->body              = body
+        node->is_eval           = is_eval
+        node->ev_lo             = &null
+        node->ev_hi             = &null
+        node->ev_incl           = false
+        node->iter_kind         = IterKind::None
+        node->iter_op           = &null
+        node->iter_elem         = &null
+        node->binds_yielded_ptr = false
+        node->iter_inst         = &null
+        node->iter_yield        = IterYield::Free
         return node
     }
 
@@ -1087,11 +1092,12 @@ pub class RangedForStmt derives Stmt {
         node->recovery_kind = StmtKind::RangedForStmt
         node->range         = range
         node->init_annotations(unsafe &ctx->ast_alloc)
-        node->iter_kind  = IterKind::None
-        node->iter_op    = &null
-        node->iter_elem  = &null
-        node->iter_inst  = &null
-        node->iter_yield = IterYield::Free
+        node->iter_kind         = IterKind::None
+        node->iter_op           = &null
+        node->iter_elem         = &null
+        node->binds_yielded_ptr = false
+        node->iter_inst         = &null
+        node->iter_yield        = IterYield::Free
         return node
     }
 

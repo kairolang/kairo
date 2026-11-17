@@ -350,6 +350,26 @@ extend EmitIR {
             return
         }
 
+        // `__builtin_unpredictable(c)` is clang's builtin at the call, where
+        // the branch on its result can still be formed as a select. As an
+        // `if`'s whole condition it is spelled bare: clang attaches the hint
+        // only to a branch whose condition is the builtin's call, and a cast
+        // of its `long` back to `bool` hides it.
+        if f != &null
+            && (f->lowers_to_unpredictable || xf != &null && xf->lowers_to_unpredictable)
+            && n->args.size() == 1 {
+            var bare = self._if_cond == unsafe (n as unsafe *Expr)
+            self._cg->sink->spell(
+                n->callee->range,
+                if (bare) => (LowerTargets::clang_unpredictable() + "(")
+                else => "static_cast<bool>(" + LowerTargets::clang_unpredictable() + "(",
+            )
+
+            self._args(n, f, false, inst)
+            self._cg->sink->spell(n->range, if (bare) => (")") else => "))")
+            return
+        }
+
         // `__builtin_assume(c)` (what `@assume(c)` parses to) is likewise
         // clang's builtin at the call: behind a library call the assumption
         // would hold only inside that function. An unoptimized build tests

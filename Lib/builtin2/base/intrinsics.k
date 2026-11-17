@@ -519,6 +519,12 @@ pub inline fn __builtin_assume(cond: bool) {
     kairo_rt_assume(cond)
 }
 
+/// Returns `cond`, hinting that it follows no pattern, so a branch on it is
+/// better a conditional move. Maps to `__builtin_unpredictable` at the call.
+pub inline fn __builtin_unpredictable(cond: bool) -> bool {
+    return kairo_rt_unpredictable(cond)
+}
+
 /// Hints that the cache line holding `ptr` will be accessed soon. Maps to `__builtin_prefetch`;
 /// never faults, even for an invalid address.
 ///

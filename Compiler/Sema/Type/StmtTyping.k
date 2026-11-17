@@ -2964,6 +2964,13 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         } else if n->iter_yield == Statements::IterYield::Tuple {
             var unsafe *of = dyn_cast<FunctionDecl>(n->iter_op)
             self._bind_tuple_yield(n, elem, of != &null && of->is_const())
+        } else if self._binds_yielded_pointer(n, elem) {
+            // `for *k in m.keys()`: the yielded pointer itself.
+            n->binds_yielded_ptr = true
+            var unsafe *vd = dyn_cast<VariableDecl>(n->bindings.get(0)->decl)
+            if vd != &null {
+                vd->type_ = canon_unqual(elem)
+            }
         } else {
             self._bind_list(
                 &n->bindings,
@@ -3448,6 +3455,32 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         var args = self.dyn()->tu.record_args(o)
         return args.size() == 1 && args[0] != &null && canon_has_const(args[0])
+    }
+
+    /// TypeUtil::for_binds_yielded_pointer, with a call's generator read off
+    /// its declaration as an `op in` is: `-> yield T` at `T = *P` yields
+    /// values, so `*x` there is the address of the yielded value.
+    priv fn _binds_yielded_pointer(self,
+                                   n:    unsafe *Statements::RangedForStmt,
+                                   elem: unsafe *Type) -> bool {
+        if !self.dyn()->tu.for_binds_yielded_pointer(n, elem) {
+            return false
+        }
+
+        var unsafe *g = self._generator_called(n->iterable)
+        if g == &null {
+            return true
+        }
+
+        var unsafe *gp = dyn_cast<FunctionDecl>(
+            self.dyn()->tu.pattern_of(unsafe (g as unsafe *Decl)),
+        )
+
+        if gp == &null {
+            gp = g
+        }
+
+        return self.dyn()->tu.fn_iter_yield(gp) == Statements::IterYield::Pointer
     }
 
     /// The generator a `Yield<T>` iterable is a direct call of

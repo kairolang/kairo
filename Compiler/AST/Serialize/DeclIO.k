@@ -523,6 +523,11 @@ fn io_function_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::FunctionDec
         ar->sema_zero(n->ffi_ice_mask as u64, "FunctionDecl::ffi_ice_mask")
         ar->sema_false(n->lowers_to_expect, "FunctionDecl::lowers_to_expect")
         ar->sema_false(n->lowers_to_assume, "FunctionDecl::lowers_to_assume")
+        ar->sema_false(
+            n->lowers_to_unpredictable,
+            "FunctionDecl::lowers_to_unpredictable",
+        )
+
         ar->sema_zero(n->dynamic_layout as u64, "FunctionDecl::dynamic_layout")
         ar->sema_zero(
             n->inferred_purity as u64,

@@ -75,6 +75,7 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
     StringLiteralExpr,
 }
+import AST::Node::Statements
 import AST::Node::Statements::IterYield
 import AST::Node::Types
 import AST::OperatorFacts::OperatorFacts
@@ -276,6 +277,37 @@ pub class TypeUtil {
         }
 
         return if (self.is_unsafe_ptr(y)) => (IterYield::UnsafePointer) else => IterYield::Pointer
+    }
+
+    /// \p n is a loop over a generator value (a call of a `-> yield *T`
+    /// function, a `Yield<*T>`) whose one binder is a safe pointer binder
+    /// (`*x`, `const *x`, no ascription): the binder is the pointer the
+    /// generator yielded, as `for *x` over an `op in -> yield *T` is, not
+    /// the address of the generator's own slot. \p elem is the loop's
+    /// element, the yielded pointer type. A plain `x` there is the pointer
+    /// value itself.
+    fn for_binds_yielded_pointer(self,
+                                 n:    unsafe *Statements::RangedForStmt,
+                                 elem: unsafe *Type) -> bool {
+        if n == &null
+            || n->iter_kind != Statements::IterKind::User
+            || n->iter_op != &null
+            || n->bindings.size() != 1
+            || elem == &null {
+            return false
+        }
+
+        var unsafe *b = n->bindings.get(0)
+        if b == &null
+            || b->is_discard
+            || b->type_ != &null
+            || !b->shorthand.has(Statements::BindingShorthand::Pointer)
+            || b->shorthand.has(Statements::BindingShorthand::Unsafe)
+            || b->shorthand.has(Statements::BindingShorthand::Nullable) {
+            return false
+        }
+
+        return self.iter_yield_of(elem) == IterYield::Pointer
     }
 
     /// The binder rule \p f declares: iter_yield_of its written `Yield<T>`'s

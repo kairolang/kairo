@@ -1274,7 +1274,19 @@ pub class Substitution {
     /// not the record's: each one the extension's target names as a bare
     /// argument (`D<I>`) is \p x's argument in that position.
     fn _bind_extension_args(self, ta: unsafe *TypeAliasDecl, x: unsafe *RecordType) {
-        var unsafe *lex = ta->lexical_dc
+        self.bind_extension_of(unsafe (ta as unsafe *Decl), x)
+    }
+
+    /// The parameters of the generic extension that declares \p d
+    /// (`extend <T> Bag<T> { fn push(self, v: T) }`), each one the
+    /// extension's target names as a bare argument bound to \p x's argument
+    /// in that position. Nothing when \p d is not an extension's member.
+    fn bind_extension_of(self, d: unsafe *Decl, x: unsafe *RecordType) {
+        if d == &null || x == &null {
+            return
+        }
+
+        var unsafe *lex = d->lexical_dc
         if lex == &null || lex->dc_kind != DeclContextKind::Extension {
             return
         }

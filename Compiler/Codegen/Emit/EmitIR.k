@@ -116,7 +116,10 @@ import API::LinkABI::{
 }
 import AST::Context::DeclContext::DeclContextKind
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::DeclFacts::decl_extension_of
+import AST::DeclFacts::{
+    decl_extension_of,
+    decl_fields,
+}
 import AST::Kind::DeclKind::to_string
 import AST::Kind::ExprKind::to_string
 import AST::Kind::StmtKind::to_string
@@ -147,8 +150,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,     EnumDecl,  ExtensionDecl, FunctionDecl, GenericParamDecl, ParamDecl, StructDecl,
-    TypeAliasDecl, UnionDecl, VariableDecl,
+    ClassDecl, EnumDecl,   ExtensionDecl, FieldFold, FunctionDecl, GenericParamDecl,
+    ParamDecl, StructDecl, TypeAliasDecl, UnionDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
     ClosureExpr,
@@ -177,6 +180,7 @@ import Codegen::Emit::EmitIRLocals
 import Codegen::Emit::EmitIRStmts
 import Codegen::Emit::Spell::Speller
 import Codegen::EmitPlan::EmitPlan
+import Codegen::PlanVisitors::EarlyNeeds
 import Codegen::PlanVisitors::HoistedLocals
 import Config::Target::ObjectFormat
 import Diagnostic::Registry::DiagID
@@ -290,6 +294,10 @@ pub class EmitIR {
     /// The declaration being written is a C-style `for`'s init, where one
     /// declaration is all the syntax holds (_for).
     prot var _in_for_init: bool = false
+    /// The condition of the `if` being written, when it is a call: a call of
+    /// the Unpredictable lang item there is spelled bare (EmitIR::_call),
+    /// since clang drops the hint when anything wraps it.
+    prot var _if_cond: unsafe *Expr = &null
 
     fn EmitIR(self, cg: unsafe *CodegenContext) {
         self._cg    = cg
@@ -317,21 +325,57 @@ pub class EmitIR {
         // A constexpr body (the string literal constructor, an eval class's
         // field default, Compiler/Spec/Eval.md#strings-at-compile-time / 7b) goes with them: a constant
         // expression needs it defined as much.
+        var hoisted = plan->include_eval_vars()
+        for var i: usize = 0; i < hoisted.size(); ++i {
+            self._mark(unsafe (hoisted[i] as unsafe *Decl), BodyMark::Hoisted)
+        }
+
+        // An eval field's thunk is evaluated by the field's definition right
+        // after its body, so the foreign ones wait for every other body
+        // (_thunk_reads_first).
         var vis = plan->visible_bodies()
         for var i: usize = 0; i < vis.size(); ++i {
-            if self._compile_time(vis[i]) && !self._done(vis[i]) {
+            if self._compile_time(vis[i]) && !self._done(vis[i]) && !self._eval_thunk(vis[i]) {
                 self._visible_body(vis[i])
             }
         }
 
         // Free functions first, then records' compile-time methods: an eval
         // field's definition follows its thunk's body and is evaluated right
-        // there, so what the thunk calls must already be defined.
+        // there, so what the thunk calls must already be defined, and the
+        // eval bindings it reads (_thunk_reads_first).
         for var round: u32 = 0; round < 2; ++round {
             self._pass = if (round == 1) => (EmitPass::EvalRecords) else => EmitPass::EvalFree
+            if round == 1 {
+                for var i: usize = 0; i < vis.size(); ++i {
+                    if self._compile_time(vis[i])
+                        && !self._done(vis[i])
+                        && self._eval_thunk(vis[i]) {
+                        self._thunk_reads_first(vis[i], &hoisted)
+                        self._visible_body(vis[i])
+                    }
+                }
+            }
+
             for var i: usize = 0; i < items->size(); ++i {
                 var item = *items->get(i)
                 if item.kind == TopLevelKind::Decl {
+                    if round == 1 {
+                        var fields = decl_fields(item.as_decl())
+                        for var k: usize = 0; k < fields.size(); ++k {
+                            var unsafe *fd = fields[k]
+                            if fd != &null
+                                && fd->is_eval()
+                                && fd->init_fold == FieldFold::Thunk
+                                && isa<FunctionDecl>(fd->init_thunk) {
+                                self._thunk_reads_first(
+                                    cast<FunctionDecl>(fd->init_thunk),
+                                    &hoisted,
+                                )
+                            }
+                        }
+                    }
+
                     self.emit(item.as_decl())
                 }
             }
@@ -342,10 +386,6 @@ pub class EmitIR {
         // own, dependencies first: each reads those bodies, and one may read
         // another declared below it or in another file. The own ones are
         // skipped where the program walk below reaches them.
-        var hoisted = plan->include_eval_vars()
-        for var i: usize = 0; i < hoisted.size(); ++i {
-            self._mark(unsafe (hoisted[i] as unsafe *Decl), BodyMark::Hoisted)
-        }
 
         self._eval_vars(hoisted)
 
@@ -625,6 +665,45 @@ pub class EmitIR {
         return f->is_eval() || f->is_constexpr()
     }
 
+    /// \p f is an eval field's initializer thunk (FieldInitLowering): a
+    /// compiler-made consteval function the field's definition calls.
+    priv fn _eval_thunk(self, f: unsafe *FunctionDecl) -> bool {
+        return f->is_eval() && f->is_implicit
+    }
+
+    /// An eval field's thunk \p f (`eval H: usize = HDR` in a class) is
+    /// called by the field's definition right after its body
+    /// (EmitIR::_eval_field_def), a constant expression evaluated there: the
+    /// eval bindings it reads are defined first, with every binding before
+    /// them in \p vars (the plan's order puts a binding's own dependencies
+    /// ahead of it). Any other compile-time body is evaluated only later.
+    priv fn _thunk_reads_first(self,
+                               f:    unsafe *FunctionDecl,
+                               vars: *cxx::std::vector<unsafe *VariableDecl>) {
+        if !self._eval_thunk(f) || vars->size() == 0 {
+            return
+        }
+
+        var n = EarlyNeeds()
+        n.dispatch_decl(unsafe (f as unsafe *Decl))
+        var last = usize::MAX
+        for var i: usize = 0; i < vars->size(); ++i {
+            for var k: usize = 0; k < n.items.size(); ++k {
+                if n.items[k] == unsafe ((*vars)[i] as unsafe *Decl) {
+                    last = i
+                }
+            }
+        }
+
+        if last == usize::MAX {
+            return
+        }
+
+        for var i: usize = 0; i <= last; ++i {
+            self.early(unsafe ((*vars)[i] as unsafe *Decl))
+        }
+    }
+
     /// Eval bindings' `inline constexpr` definitions, in the plan's order
     /// (dependencies first), each in its namespace (Compiler/Spec/Eval.md#eval-bindings).
     priv fn _eval_vars(self, const list: cxx::std::vector<unsafe *VariableDecl>) {
@@ -713,7 +792,14 @@ pub class EmitIR {
                    vars:       cxx::std::vector<unsafe *VariableDecl>) {
         self._cg->require_phase(CodegenPhase::Planned)
         for var i: usize = 0; i < list.size(); ++i {
-            if self._compile_time(list[i]) && !self._done(list[i]) {
+            if self._compile_time(list[i]) && !self._done(list[i]) && !self._eval_thunk(list[i]) {
+                self._visible_body(list[i])
+            }
+        }
+
+        for var i: usize = 0; i < list.size(); ++i {
+            if self._compile_time(list[i]) && !self._done(list[i]) && self._eval_thunk(list[i]) {
+                self._thunk_reads_first(list[i], &vars)
                 self._visible_body(list[i])
             }
         }

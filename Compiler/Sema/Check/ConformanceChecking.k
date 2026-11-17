@@ -103,8 +103,9 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    AlignOfExpr, BinaryOperatorExpr, CallExpr,      ConstraintExpr, PackExpansionExpr, ParenExpr,
-    SizeOfExpr,  SubscriptExpr,      TypeTraitExpr, TypeTraitKind,  UnaryOperatorExpr,
+    AlignOfExpr,       AssignOperatorExpr, BinaryOperatorExpr, CallExpr,      ConstraintExpr,
+    PackExpansionExpr, ParenExpr,          SizeOfExpr,         SubscriptExpr, TypeTraitExpr,
+    TypeTraitKind,     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
@@ -432,6 +433,14 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             self._check_type(e->type_, e->range, 0)
         }
 
+        // A generic operator's instance (`s |= o` through an extension's
+        // `op |=`, a member template's `op []`) is an instantiation site,
+        // as a call's is: its bounds are checked and their rows go with it.
+        var unsafe *oi = self._op_instance(e)
+        if oi != &null {
+            self._check_instance(oi, e->range)
+        }
+
         if e->kind == ExprKind::SubscriptExpr {
             // `r[i]` / `r[i] = v` through a record's `op []` / `op []=`.
             var unsafe *sx = cast<SubscriptExpr>(e)
@@ -465,6 +474,24 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         self._check_copy_call(c)
         self._check_member_requires(c)
         return true
+    }
+
+    /// The instance of the generic operator operator node \p e resolved
+    /// to (OperatorTyping::_record, MemberTyping), or null.
+    priv fn _op_instance(self, e: unsafe *Expr) -> unsafe *InstanceEntry {
+        match e->kind {
+            case ExprKind::BinaryOperatorExpr {
+                return cast<BinaryOperatorExpr>(e)->op_instance
+            } case ExprKind::UnaryOperatorExpr {
+                return cast<UnaryOperatorExpr>(e)->op_instance
+            } case ExprKind::AssignOperatorExpr {
+                return cast<AssignOperatorExpr>(e)->op_instance
+            } case ExprKind::SubscriptExpr {
+                return cast<SubscriptExpr>(e)->op_instance
+            } default {
+                return &null
+            }
+        }
     }
 
     /// # a generic record's member `requires` at a call
@@ -2837,6 +2864,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 }
             }
 
+            if !self._extension_rows(e, prim, at, chain, rows) {
+                ok = false
+            }
+
             // `X derives B`: the argument is B or reaches it. Checked
             // because the bound is what makes a CRTP
             // base's `&self as *X` a static_cast (CastTyping 3b), and a
@@ -2891,6 +2922,56 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
 
             if ok && !self._value_preds_ok(e, prim, at, chain) {
+                ok = false
+            }
+        }
+
+        return ok
+    }
+
+    /// The rows of the `impl` bounds of the extension \p prim is a member
+    /// of (`extend <K impl I> Box<K>`, `extend <K> Box<K> requires K impl
+    /// I`) at instance \p e, appended to \p rows, as _bound_rows does for
+    /// the member's own: a conformance the compiler provides (Copyable on
+    /// a COPY type, Hash on a pointer) has its witness emitted only where
+    /// an instance carries its row. A bound not met is reported at \p at;
+    /// false then.
+    priv fn _extension_rows(self,
+                            e:     unsafe *InstanceEntry,
+                            prim:  unsafe *Decl,
+                            at:    SourceRange,
+                            chain: unsafe *InstanceEntry,
+                            rows:  unsafe *cxx::std::vector<unsafe *ConformanceRow>) -> bool {
+        var unsafe *xd = decl_extension_of(prim)
+        if xd == &null {
+            return true
+        }
+
+        var        ok     = true
+        var unsafe *xdd   = unsafe (xd as unsafe *Decl)
+        var        bounds = cxx::std::vector<unsafe *ConstraintExpr>()
+        self._impl_bounds(decl_requires_clause(xdd), unsafe &bounds)
+        for var i: usize = 0; i < bounds.size(); ++i {
+            var unsafe *b  = bounds[i]
+            var unsafe *gp = self._param_named(b, xdd)
+            if gp == &null || gp->is_pack {
+                continue
+            }
+
+            var unsafe *x     = self._arg_of(e, prim, gp)
+            var unsafe *iface = self._bound_iface(b, xdd, e)
+            if x == &null || iface == &null || x->is_dependent() || iface->is_dependent() {
+                continue
+            }
+
+            var unsafe *row = self.conforms(x, iface)
+            if row == &null || !row->ok {
+                self._report(at, b, x, iface, row, chain)
+                ok = false
+                continue
+            }
+
+            if !self._push_closure(row, x, &*rows, at, b) {
                 ok = false
             }
         }

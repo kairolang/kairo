@@ -90,8 +90,9 @@ import AST::Node::Declarations::{
     ParamDecl, TransferKind, TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
-    AlignOfExpr,  CallExpr,          ClosureExpr, ConstraintExpr, FinalizeKind,  IfExpr,
-    NamedArgExpr, PackExpansionExpr, SizeOfExpr,  TypeCastExpr,   TypeTraitExpr, UnaryOperatorExpr,
+    AlignOfExpr,       CallExpr,          ClosureExpr, ConstraintExpr, FinalizeKind, IfExpr,
+    NamedArgExpr,      PackExpansionExpr, SizeOfExpr,  SubscriptExpr,  TypeCastExpr, TypeTraitExpr,
+    UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
@@ -801,6 +802,13 @@ pub class <T: type> CallTyping {
                         var rs = Substitution(self.dyn()->sc)
                         rs.keep_unbound = true
                         rs.bind_from_record(canon_unqual(r->receiver))
+                        // A member of a generic extension (`extend <U> Bag<U>`)
+                        // is typed over the extension's parameters.
+                        rs.bind_extension_of(
+                            unsafe (f as unsafe *Decl),
+                            dyn_cast<RecordType>(canon_unqual(r->receiver)),
+                        )
+
                         var unsafe *w = rs.substitute(p->type_->canonical)
                         if w != &null {
                             want = w
@@ -1921,6 +1929,45 @@ pub class <T: type> CallTyping {
                         ce,
                         last->resolved_decl,
                     )
+
+                    // A subscript receiver typed as its place form for the
+                    // call (`v[1..3]` on a mutable `[T;]`) and moved to its
+                    // read form by a method that reads (`[const T;]`): the
+                    // call is resolved again on the read form, so a generic
+                    // extension's parameters are deduced from the receiver
+                    // C++ is handed (`T := const X`), not from the place.
+                    // Only for an extension's member: an extension of
+                    // `Slice<T>` applies to the read form as it is, while a
+                    // record's own members were looked up on the place
+                    // form's record, which the read form may specialize.
+                    var unsafe *rb  = self.dyn()->tu.strip_parens(ce->base)
+                    var unsafe *sel = last->resolved_decl
+                    if ce->steps.size() == 1
+                        && sel != &null
+                        && sel->semantic_dc != &null
+                        && sel->semantic_dc->dc_kind == DeclContextKind::Extension
+                        && rb != &null
+                        && isa<SubscriptExpr>(rb)
+                        && rb->type_ != &null
+                        && info->receiver != &null
+                        && canon_unqual(rb->type_) != canon_unqual(
+                            info->receiver,
+                        ) {
+                        self._set_explicit(&last->generic_args)
+                        self.dyn()->ovl.recv_cat = info->receiver_cat
+                        r = self._call_candidates(
+                            n,
+                            &info->callable_cands,
+                            info->has_receiver,
+                            rb->type_,
+                            nm,
+                            &null,
+                            last,
+                        )
+
+                        self.dyn()->ovl.explicit_args.clear()
+                        self.dyn()->ovl.recv_cat = Expr::ValueCategory::LValue
+                    }
                 }
 
                 if ce->has_optional_chaining() {
@@ -2388,9 +2435,12 @@ pub class <T: type> CallTyping {
                    else => self.dyn()->tu.strip_nullable(receiver)
             // `p.copy()` on a pointer (ChainBinding::binds_lang_copy) copies
             // the pointer: Self is the pointer type, not what it points at.
+            // Through `->` the receiver is already the object, so
+            // `pp->copy()` on a `**T` copies the `*T` it points at.
             var pt = self.dyn()->tu.pointee(recv)
             var own_ptr = step != &null
-                && step->access_kind == ChainExpr::AccessKind::Dot
+                && (step->access_kind == ChainExpr::AccessKind::Dot
+                    || step->access_kind == ChainExpr::AccessKind::Arrow)
                 && self.dyn()->cb.binds_lang_copy(step)
             if pt != &null && !own_ptr {
                 recv = pt

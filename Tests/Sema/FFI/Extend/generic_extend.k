@@ -12,7 +12,7 @@
 ffi "c++" import "../traits_typedef.h"
 
 interface <T> Div { // with or without this should be working
-    fn op / (self, other: T) -> T
+    fn op / (const self, other: T) -> T
 }
 
 extend <T impl Div<T>> cont<T> {

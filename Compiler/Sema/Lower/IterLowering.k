@@ -1070,6 +1070,15 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             }
         } else if n->iter_yield == IterYield::Tuple {
             self._bind_tuple_yield(n, unsafe &body, at, got)
+        } else if n->binds_yielded_ptr {
+            // A generator of pointers: `*x` is the pointer it yielded
+            // (StmtTyping typed it so), never the address of its slot.
+            var unsafe *b  = n->bindings.get(0)
+            var unsafe *vd = cast<VariableDecl>(b->decl)
+            vd->init = got
+            body.push(
+                unsafe (DeclStmt::create(self.ctx, b->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
+            )
         } else {
             // A generator's own value, made for this step: the binder
             // takes it. A record's `op in` is asked for its elements,

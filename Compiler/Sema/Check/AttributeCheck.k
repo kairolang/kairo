@@ -599,7 +599,9 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             return
         }
 
-        if nm == LangAttrs::likely() || nm == LangAttrs::unlikely() {
+        if nm == LangAttrs::likely()
+            || nm == LangAttrs::unlikely()
+            || nm == LangAttrs::unpredictable() {
             self._misplaced(
                 e,
                 nm,
@@ -702,7 +704,9 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             return
         }
 
-        if nm == LangAttrs::likely() || nm == LangAttrs::unlikely() {
+        if nm == LangAttrs::likely()
+            || nm == LangAttrs::unlikely()
+            || nm == LangAttrs::unpredictable() {
             if !is_if {
                 self._misplaced(
                     e,

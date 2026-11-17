@@ -1335,6 +1335,16 @@ pub class <T: type> StmtParse {
             if self.dyn()->check(TokenKind::KwIf) {
                 // else-if: recurse, store the ConditionalStmt directly as else_
                 else_ = self._parse_conditional(true, is_eval)
+            } else if self.dyn()->check(TokenKind::KwEval)
+                && self.dyn()->check_peek(TokenKind::KwIf) {
+                // `else eval if c { }`: the nested `else { eval if c { } }`,
+                // spelled as a chain. The rest of its chain is `eval` too.
+                self.dyn()->advance() // consume `eval`
+                if self.dyn()->tu != &null {
+                    self.dyn()->tu->has_eval_if = true
+                }
+
+                else_ = self._parse_conditional(true, true)
             } else if self.dyn()->check(TokenKind::OpLBrace) {
                 // final else: a block
                 else_ = self.parse_compound()

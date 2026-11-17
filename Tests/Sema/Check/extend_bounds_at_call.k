@@ -2,15 +2,6 @@
 // the extension's bounds (extends.mdx, Generic Extends: "Calling
 // `pair_of_noncomparable.max()` ... is a compile error"), so the call is
 // rejected at the call site.
-//
-// XFAIL: *
-// Waits on checking an extension member's bounds at the call
-// site (status.mdx, Not
-// Diagnosed). Today `p.max()` on a Pair<Opaque> type-checks: the bound
-// `T impl Comparable` is not checked for T = Opaque, and the error (if
-// any) comes from clang. The code is not decided; the check asks for an
-// error at the call. When it XPASSes, delete the XFAIL and pin the code
-// and message.
 
 interface Comparable {
     fn op <(const self, other: Self) -> bool
@@ -34,7 +25,8 @@ struct Opaque {
 fn main() -> i32 {
     var p = Pair<Opaque> { first: Opaque { n: 1 }, second: Opaque { n: 2 } }
     var m = p.max()
-// CHECK: extend_bounds_at_call.k:[[@LINE-1]]:{{[0-9]+}}: error [{{[A-Z]+[0-9]+}}E]:
+// CHECK: extend_bounds_at_call.k:[[@LINE-1]]:13: error [SC162E]: 'Opaque' does not conform to 'Comparable': no member 'op <' with the requirement's signature
+// CHECK: extend_bounds_at_call.k:15:9: note [I900N]: required by this bound
     return m.n
 }
 

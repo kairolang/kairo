@@ -673,6 +673,24 @@ extend EmitIR {
         return BranchHint::None as u8
     }
 
+    /// \p n is written `@unpredictable if`.
+    priv fn _unpredictable(self, n: unsafe *ConditionalStmt) -> bool {
+        if n->is_eval || !n->has_attribute() {
+            return false
+        }
+
+        var unsafe *tbl = self._cg->ctx->tcm->get_imm_table_for_fid(
+            self._owning_fid(),
+        )
+
+        if tbl == &null {
+            return false
+        }
+
+        var k = tbl->find_ident(LangAttrs::unpredictable())
+        return k != u32::MAX && n->has_attribute_named(k)
+    }
+
     /// C++'s attribute for BranchHint \p h, or "".
     priv fn _hint_attr(self, h: u8) -> string {
         if h == (BranchHint::Likely as u8) {
@@ -696,7 +714,38 @@ extend EmitIR {
             if (own) => (kw) else => kw + " (",
         )
 
+        // `@unpredictable if c`: the condition is clang's
+        // `__builtin_unpredictable(c)`, which marks the branch on it.
+        // Bare, as the whole condition: clang keeps the hint only on a branch
+        // whose condition is the builtin's own call (no cast, no `!= 0`).
+        var unpred = self._unpredictable(n)
+        if unpred {
+            if own {
+                self._cg->sink->spell(n->cond->range, "(")
+            }
+
+            self._cg->sink->spell(
+                n->cond->range,
+                LowerTargets::clang_unpredictable() + "(",
+            )
+        }
+
+        var unsafe *saved_cond = self._if_cond
+        var unsafe *cx         = n->cond
+        while cx != &null && isa<ParenExpr>(cx) {
+            cx = cast<ParenExpr>(cx)->inner
+        }
+
+        self._if_cond = if (unpred) => (&null) else => cx
         self.emit(n->cond)
+        self._if_cond = saved_cond
+        if unpred {
+            self._cg->sink->spell(n->cond->range, ")")
+            if own {
+                self._cg->sink->spell(n->cond->range, ")")
+            }
+        }
+
         if !own {
             self._cg->sink->spell(n->cond->range, ")")
         }
