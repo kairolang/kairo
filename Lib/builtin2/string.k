@@ -53,6 +53,9 @@ priv eval W: usize = sizeof usize
 priv eval W_LOG2: usize = (W / 4) + 1 // 2 for a 4-byte word, 3 for an 8-byte one
 /// Bytes in front of a heap string's first byte: `[cap: usize][conts: usize]`.
 priv eval HDR: usize = 2 * W
+/// The least `meta` of a string a word long: `meta >= WORD_META` is
+/// `size() >= W`, whatever the state and ASCII bits are.
+priv eval WORD_META: usize = W << LEN_SHIFT
 /// The smallest capacity a string is promoted or grown to.
 priv eval MIN_CAP: usize = 15
 
@@ -1203,6 +1206,16 @@ priv inline fn eq_bytes_(a: unsafe *const u8, b: unsafe *const u8, n: usize) -> 
     }
 
     unsafe {
+        // 17 to 32 bytes: the first sixteen and the last sixteen, which
+        // overlap unless n is 32. No branch on the bytes and no call.
+        if n <= 32 {
+            var x = load_u64_(a) ^ load_u64_(b)
+            var y = load_u64_(a + 8) ^ load_u64_(b + 8)
+            var z = load_u64_(a + (n - 16)) ^ load_u64_(b + (n - 16))
+            var w = load_u64_(a + (n - 8)) ^ load_u64_(b + (n - 8))
+            return ((x | y) | (z | w)) == 0
+        }
+
         if a == b {
             return true
         }
@@ -1211,15 +1224,90 @@ priv inline fn eq_bytes_(a: unsafe *const u8, b: unsafe *const u8, n: usize) -> 
     }
 }
 
-/// Three-way comparison of two byte ranges: -1, 0 or 1, the values of
-/// `Ordering`. Bytes compare unsigned, and a proper prefix orders first.
-/// For UTF-8 this is codepoint order.
+/// A word loaded in the target's byte order, with its first byte in memory
+/// most significant: an unsigned compare of two such words orders their
+/// bytes.
+priv inline fn first_byte_high_(w: usize) -> usize {
+    eval if defined!(__BIG_ENDIAN__) {
+        return w
+    } else {
+        return __builtin_bswap(w)
+    }
+}
+
+/// The `0 < n < W` bytes at `p` as one integer that orders as the bytes do,
+/// among keys built from the same `n`: the first half word and the last
+/// half word (they overlap unless `n` is `W / 2`, and bytes that compare
+/// equal in the first make the overlap equal in the second), or the first,
+/// middle and last byte when `n` is below a half word.
+///
+/// \safety `p` must be valid for reads of `n` bytes.
+priv inline fn short_key_(p: unsafe *const u8, n: usize) -> u64 {
+    unsafe {
+        eval if W == 8 {
+            if n >= 4 {
+                var hi = load_u32_(p)
+                var lo = load_u32_(p + (n - 4))
+                eval if !defined!(__BIG_ENDIAN__) {
+                    hi = __builtin_bswap(hi)
+                    lo = __builtin_bswap(lo)
+                }
+
+                return ((hi as u64) << 32) | (lo as u64)
+            }
+        }
+
+        return ((p[0] as u64) << 16) | ((p[n >> 1] as u64) << 8) | (p[n - 1] as u64)
+    }
+}
+
+/// How two lengths order once the common prefix has compared equal: the
+/// shorter range is a proper prefix and orders first.
+priv inline fn order_lengths_(an: usize, bn: usize) -> Ordering {
+    var c = ((an > bn) as i8) - ((an < bn) as i8)
+    if c < 0 {
+        return Ordering::Less
+    }
+
+    if c > 0 {
+        return Ordering::Greater
+    }
+
+    return Ordering::Equal
+}
+
+/// Three-way comparison of two byte ranges of which one is shorter than a
+/// word: no load leaves the shorter range, and there is no call.
 ///
 /// \safety `a` must be valid for reads of `an` bytes and `b` of `bn`.
-priv inline fn compare_bytes_(a:  unsafe *const u8,
+priv inline fn compare_short_(a:  unsafe *const u8,
                               an: usize,
                               b:  unsafe *const u8,
-                              bn: usize) -> i8 {
+                              bn: usize) -> Ordering {
+    var n = an
+    if bn < n {
+        n = bn
+    }
+
+    if n != 0 {
+        var x = short_key_(a, n)
+        var y = short_key_(b, n)
+        if x != y {
+            return if x < y => Ordering::Less else => Ordering::Greater
+        }
+    }
+
+    return order_lengths_(an, bn)
+}
+
+/// Three-way comparison of two byte ranges whose common prefix is longer
+/// than two words, by the library's byte compare.
+///
+/// \safety `a` must be valid for reads of `an` bytes and `b` of `bn`.
+@no_inline priv fn compare_long_(a:  unsafe *const u8,
+                                 an: usize,
+                                 b:  unsafe *const u8,
+                                 bn: usize) -> Ordering {
     var n = an
     if bn < n {
         n = bn
@@ -1230,11 +1318,51 @@ priv inline fn compare_bytes_(a:  unsafe *const u8,
         r = __builtin_compare_mem(a, b, n)
     }
 
-    if r == 0 {
-        return ((an > bn) as i8) - ((an < bn) as i8)
+    if r != 0 {
+        return if r < 0 => Ordering::Less else => Ordering::Greater
     }
 
-    return ((r > 0) as i8) - ((r < 0) as i8)
+    return order_lengths_(an, bn)
+}
+
+/// Three-way comparison of two strings' bytes, both at least a word long,
+/// whose first words are equal; `ma` and `mb` are the two `meta` words.
+/// Out of line, so that `op <=>` leaves one compare of two words in its
+/// caller. It calls nothing when the common prefix is at most two words,
+/// and so keeps no frame: the longer compare is reached by a tail call.
+///
+/// \safety `a` and `b` must be valid for reads of `ma >> LEN_SHIFT` and
+/// `mb >> LEN_SHIFT` bytes.
+@no_inline priv fn compare_rest_(a:  unsafe *const u8,
+                                 ma: usize,
+                                 b:  unsafe *const u8,
+                                 mb: usize) -> Ordering {
+    var an = ma >> LEN_SHIFT
+    var bn = mb >> LEN_SHIFT
+    var n  = an
+    if bn < n {
+        n = bn
+    }
+
+    if n > 2 * W {
+        return compare_long_(a, an, b, bn)
+    }
+
+    // The last word of the common prefix. It overlaps the first word,
+    // whose bytes are equal, unless the prefix is two words long.
+    var x: usize = 0
+    var y: usize = 0
+    unsafe {
+        x = load_word_unaligned_(a + (n - W))
+        y = load_word_unaligned_(b + (n - W))
+    }
+
+    if x != y {
+        return if first_byte_high_(x) < first_byte_high_(y) => Ordering::Less
+               else => Ordering::Greater
+    }
+
+    return order_lengths_(an, bn)
 }
 
 pub enum ParseErrorKind derives u8 {
@@ -1617,24 +1745,33 @@ pub class string {
         }
     }
 
-    /// The continuation bytes in this string, whatever its state.
-    @pure priv inline fn conts_(const self) -> usize {
-        var m = self.meta
+    /// The continuation bytes in the string whose two words are `d` and `m`,
+    /// whatever its state. It takes the words, not a string, so a caller
+    /// that holds them in registers keeps them there.
+    priv static inline fn conts_of_(d: unsafe *const u8, m: usize) -> usize {
         if (m & ASCII_BIT) != 0 {
             return 0
         }
 
-        if (m & OWN_BIT) != 0 {
-            unsafe {
-                return *self.hdr_conts()
+        var n = m >> LEN_SHIFT
+        unsafe {
+            if (m & OWN_BIT) != 0 {
+                return *((d as unsafe *const usize) - 1)
             }
-        }
 
-        if (m & NUL_BIT) != 0 {
-            return (m >> LEN_SHIFT) - self.lit_cp()
-        }
+            if (m & NUL_BIT) != 0 {
+                return n - *((d as unsafe *const usize) - 1)
+            }
 
-        return (m >> LEN_SHIFT) - self.scan_codepoints()
+            // Out of line: a caller keeps no frame for the scan of a
+            // view that is not known to be ASCII.
+            return n - string::scan_(d, n)
+        }
+    }
+
+    /// The continuation bytes in this string, whatever its state.
+    priv inline fn conts_(const self) -> usize {
+        return string::conts_of_(self.raw(), self.meta)
     }
 
     /// Offset of `d` in this string's bytes when it points into [p, p + len],
@@ -1760,6 +1897,47 @@ pub class string {
         }
 
         return s
+    }
+
+    /// `to_owned` of the string of at least one byte whose two words are
+    /// `d` and `m`: a heap copy in a block exactly as long as the text.
+    /// The words are taken by value: a view that exists only to be copied
+    /// (`s[a..b].to_owned()`) is then never stored, and its destructor
+    /// folds away. The bytes are a string's, so they are copied without a
+    /// UTF-8 check. The count is read after the allocation, so only the
+    /// two words are live across it.
+    priv static fn to_owned_(d: unsafe *const u8, m: usize) -> string {
+        var        n  = m >> LEN_SHIFT
+        var unsafe *b = alloc_raw(HDR + n + 1, W)
+        @unlikely
+        if b == &null {
+            string::block_fail_(n)
+        }
+
+        var conts = string::conts_of_(d, m)
+        unsafe {
+            *(b as unsafe *usize)       = n
+            *((b as unsafe *usize) + 1) = conts
+            b                           = b + HDR
+            if n <= 8 * W {
+                copy_short_(b, d, n)
+            } else {
+                __builtin_copy(b, d, n)
+            }
+
+            b[n] = 0
+        }
+
+        return string::make_(
+            b,
+            (n << LEN_SHIFT) | (if conts == 0 => ASCII_BIT else => 0) | ST_HEAP,
+        )
+    }
+
+    /// No memory for a block of capacity `cap`.
+    @cold_path @no_inline
+    priv static fn block_fail_(cap: usize) -> ! {
+        oom(HDR + cap + 1, W)
     }
 
     /// Frees the block. Heap only.
@@ -1897,21 +2075,7 @@ pub class string {
     /// `push_str` when the inline path does not apply: the string is not
     /// owned, the bytes do not fit, or `s` is not known to be ASCII.
     priv inline fn append_slow_impl_(self, d: unsafe *const u8, ometa: usize) {
-        var n            = ometa >> LEN_SHIFT
-        var conts: usize = 0
-        if (ometa & ASCII_BIT) == 0 {
-            unsafe {
-                if (ometa & OWN_BIT) != 0 {
-                    conts = *((d as unsafe *const usize) - 1)
-                } else if (ometa & NUL_BIT) != 0 {
-                    conts = n - *((d as unsafe *const usize) - 1)
-                } else {
-                    conts = count_conts_(d, n)
-                }
-            }
-        }
-
-        self.append_raw_(d, n, conts)
+        self.append_raw_(d, ometa >> LEN_SHIFT, string::conts_of_(d, ometa))
     }
 
     /// `push` when the inline path does not apply.
@@ -2046,7 +2210,7 @@ pub class string {
         }
     }
 
-    pub fn op [] (const self, r: Range<usize>) -> string { // view; traps off a boundary
+    pub inline fn op [] (const self, r: Range<usize>) -> string { // view; traps off a boundary
         var hi = r.end
         if r.inclusive {
             @unlikely
@@ -2064,7 +2228,7 @@ pub class string {
         return self.slice_(r.begin, self.size())
     }
 
-    pub fn op [] (const self, r: RangeTo<usize>) -> string {
+    pub inline fn op [] (const self, r: RangeTo<usize>) -> string {
         var hi = r.end
         if r.inclusive {
             @unlikely
@@ -2078,22 +2242,34 @@ pub class string {
         return self.slice_(0, hi)
     }
 
-    /// The view of bytes [lo, hi) after the range and both boundaries are checked.
-    priv fn slice_(const self, lo: usize, hi: usize) -> string {
-        var len = self.meta >> LEN_SHIFT
+    /// The view of bytes [lo, hi) after the range and both boundaries are
+    /// checked. ASCII text has a boundary at every offset, so its check is
+    /// the one test of the bit; offset 0 and the end are boundaries of any
+    /// text.
+    priv inline fn slice_(const self, lo: usize, hi: usize) -> string {
+        var m   = self.meta
+        var len = m >> LEN_SHIFT
         @unlikely
         if lo > hi || hi > len {
             range_fail(lo, hi, len)
         }
 
         @unlikely
-        if !self.is_char_boundary(lo) {
-            self.boundary_fail(lo)
-        }
+        if (m & ASCII_BIT) == 0 {
+            unsafe {
+                var unsafe *q = self.raw()
+                // A continuation byte is below -0x40 as a signed byte.
+                // `lo == len` leaves `hi == len` and reads nothing.
+                @unlikely
+                if lo != 0 && lo != len && (q[lo] as i8) < -0x40 {
+                    string::index_fail_(lo, len)
+                }
 
-        @unlikely
-        if !self.is_char_boundary(hi) {
-            self.boundary_fail(hi)
+                @unlikely
+                if hi != len && (q[hi] as i8) < -0x40 {
+                    string::index_fail_(hi, len)
+                }
+            }
         }
 
         return self.sub_(lo, hi)
@@ -2368,17 +2544,29 @@ extend string impl Eq {
 }
 
 extend string impl Ord {
+    /// Byte order, which for UTF-8 is codepoint order; a proper prefix
+    /// orders first. Two strings of at least a word each that differ in
+    /// their first word are ordered by one compare of those words, each
+    /// read as an integer: no call and no loop.
     inline fn op <=> (const self, const o: string) -> Ordering {
-        var c = compare_bytes_(self.raw(), self.size(), o.raw(), o.size())
-        if c < 0 {
-            return Ordering::Less
+        var        ma = self.meta
+        var        mb = o.meta
+        var unsafe *a = self.raw()
+        var unsafe *b = o.raw()
+        @likely
+        if ma >= WORD_META && mb >= WORD_META {
+            var x = load_word_unaligned_(a)
+            var y = load_word_unaligned_(b)
+            @likely
+            if x != y {
+                return if first_byte_high_(x) < first_byte_high_(y) => Ordering::Less
+                       else => Ordering::Greater
+            }
+
+            return compare_rest_(a, ma, b, mb)
         }
 
-        if c > 0 {
-            return Ordering::Greater
-        }
-
-        return Ordering::Equal
+        return compare_short_(a, ma >> LEN_SHIFT, b, mb >> LEN_SHIFT)
     }
 }
 
@@ -2472,13 +2660,13 @@ extend string {
         return string::make_(self.raw(), m)
     }
 
-    pub fn to_owned(const self) -> string {
-        var n = self.meta >> LEN_SHIFT
-        if n == 0 {
+    pub inline fn to_owned(const self) -> string {
+        var m = self.meta
+        if (m >> LEN_SHIFT) == 0 {
             return string()
         }
 
-        return string::owned_(self.raw(), n, self.conts_(), n)
+        return string::to_owned_(self.raw(), m)
     }
 
     pub inline fn view(const self) -> string {
@@ -2504,15 +2692,16 @@ extend string {
 
     @pure pub inline fn codepoints(const self) -> usize { // O(1), except a non-ASCII view: O(n)
         var m = self.meta
-        @likely
-        if (m & ASCII_BIT) != 0 {
-            return m >> LEN_SHIFT
-        }
-
+        // Invariant 6: a heap string's count word is exact whether or not
+        // the ASCII bit is set, so one test leads to a load and a subtract.
         if (m & OWN_BIT) != 0 {
             unsafe {
                 return (m >> LEN_SHIFT) - *self.hdr_conts()
             }
+        }
+
+        if (m & ASCII_BIT) != 0 {
+            return m >> LEN_SHIFT
         }
 
         if (m & NUL_BIT) != 0 {

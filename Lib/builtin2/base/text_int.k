@@ -74,27 +74,50 @@ inline fn put_pair(buf: unsafe *u8, at: usize, v: u32) {
     buf[at + 1] = NUMTEXT_DIGIT_PAIRS[i + 1]
 }
 
+/// Writes `v` (below 100) so that its last digit is `buf[end - 1]`;
+/// returns the index of its first digit. With no branch: the pair's first
+/// byte goes to the returned index, then its second to `end - 1`, which for
+/// a one-digit `v` is the same byte.
+inline fn put_lead2(buf: unsafe *u8, end: usize, v: u32) -> usize {
+    var i     = (v as usize) * 2
+    var start = end - 2 + (if v < 10 => 1usize else => 0usize)
+    buf[start]   = NUMTEXT_DIGIT_PAIRS[i]
+    buf[end - 1] = NUMTEXT_DIGIT_PAIRS[i + 1]
+    return start
+}
+
 /// Writes `v` so that its last digit is `buf[end - 1]`; returns the index of
 /// its first digit. At most 10 bytes.
+///
+/// The digit count picks the shape up front, as a tree of divisions by
+/// 10^8, 10^4 and 100, so the work does not form one chain of divisions and
+/// the only branches are on the size of `v`.
 inline fn put_u32(buf: unsafe *u8, end: usize, v: u32) -> usize {
-    var p = end
-    var x = v
-    while x >= 100 {
-        var q = x / 100
-        p -= 2
-        put_pair(buf, p, x - q * 100)
-        x = q
+    if v < 10000 {
+        if v < 100 {
+            return put_lead2(buf, end, v)
+        }
+
+        var q = v / 100
+        put_pair(buf, end - 2, v - q * 100)
+        return put_lead2(buf, end - 2, q)
     }
 
-    if x >= 10 {
-        p -= 2
-        put_pair(buf, p, x)
-    } else {
-        p -= 1
-        buf[p] = (48 + x) as u8
+    if v < 100000000 {
+        var hi = v / 10000
+        put_pad4(buf, end, v - hi * 10000)
+        if hi < 100 {
+            return put_lead2(buf, end - 4, hi)
+        }
+
+        var q = hi / 100
+        put_pair(buf, end - 6, hi - q * 100)
+        return put_lead2(buf, end - 6, q)
     }
 
-    return p
+    var top = v / 100000000
+    put_pad8(buf, end, v - top * 100000000)
+    return put_lead2(buf, end - 8, top)
 }
 
 /// Writes exactly nine digits of `v` (below 10^9), zero padded, ending at
@@ -114,32 +137,45 @@ inline fn put_u32_pad9(buf: unsafe *u8, end: usize, v: u32) -> usize {
     return p
 }
 
+/// Writes exactly four digits of `v` (below 10^4), zero padded, ending at
+/// `buf[end - 1]`.
+inline fn put_pad4(buf: unsafe *u8, end: usize, v: u32) {
+    var q = v / 100
+    put_pair(buf, end - 2, v - q * 100)
+    put_pair(buf, end - 4, q)
+}
+
+/// Writes exactly eight digits of `v` (below 10^8), zero padded, ending at
+/// `buf[end - 1]`. The two halves do not depend on each other, so their
+/// divisions overlap.
+inline fn put_pad8(buf: unsafe *u8, end: usize, v: u32) {
+    var hi = v / 10000
+    put_pad4(buf, end, v - hi * 10000)
+    put_pad4(buf, end - 4, hi)
+}
+
 /// Writes `v` so that its last digit is `buf[end - 1]`; returns the index of
 /// its first digit. At most 20 bytes.
 ///
-/// Where a 64-bit divide is a library call the value is cut into base-10^9
-/// chunks with at most two of them, and every digit comes from 32-bit
-/// arithmetic.
+/// A value of 10^8 or more is cut into base-10^8 chunks, at most three,
+/// each written as a tree of divisions rather than one chain of them.
+/// Where a 64-bit divide is a library call the chunks are base-10^9, at
+/// most two divisions, and every digit comes from 32-bit arithmetic.
 inline fn put_u64(buf: unsafe *u8, end: usize, v: u64) -> usize {
     eval if NUMTEXT_WIDE {
-        var p = end
-        var x = v
-        while x >= 100 {
-            var q = x / 100
-            p -= 2
-            put_pair(buf, p, (x - q * 100) as u32)
-            x = q
+        if v < 100000000 {
+            return put_u32(buf, end, v as u32)
         }
 
-        if x >= 10 {
-            p -= 2
-            put_pair(buf, p, x as u32)
-        } else {
-            p -= 1
-            buf[p] = (48 + x) as u8
+        var hi = v / 100000000
+        put_pad8(buf, end, (v - hi * 100000000) as u32)
+        if hi < 100000000 {
+            return put_u32(buf, end - 8, hi as u32)
         }
 
-        return p
+        var top = hi / 100000000
+        put_pad8(buf, end - 8, (hi - top * 100000000) as u32)
+        return put_u32(buf, end - 16, top as u32)
     } else {
         if v <= 0xFFFFFFFF {
             return put_u32(buf, end, v as u32)
@@ -294,11 +330,108 @@ prot inline fn isize_to_text(v: isize, buf: unsafe *u8, cap: usize) -> TextRange
     return int_fail(&err, i, ParseErrorKind::Overflow)
 }
 
+// --- SWAR digit words ---------------------------------------------------------
+
+/// The 8 bytes at `p`, any alignment, as a little-endian word: the first
+/// byte in the low bits on every target.
+prot inline fn read_le64(p: unsafe *const u8) -> u64 {
+    var v: u64 = 0
+    unsafe {
+        __builtin_copy(&v as unsafe *u8, p, 8)
+    }
+
+    eval if defined!(__BIG_ENDIAN__) {
+        return __builtin_bswap(v)
+    } else {
+        return v
+    }
+}
+
+/// The 4 bytes at `p`, any alignment, little-endian, zero-extended.
+prot inline fn read_le32(p: unsafe *const u8) -> u64 {
+    var v: u32 = 0
+    unsafe {
+        __builtin_copy(&v as unsafe *u8, p, 4)
+    }
+
+    eval if defined!(__BIG_ENDIAN__) {
+        return __builtin_bswap(v) as u64
+    } else {
+        return v
+    }
+}
+
+/// Stores `v` at `p` as 8 bytes, any alignment, the low byte first.
+prot inline fn write_le64(p: unsafe *u8, v: u64) {
+    eval if defined!(__BIG_ENDIAN__) {
+        var w = __builtin_bswap(v)
+        unsafe {
+            __builtin_copy(p, &w as unsafe *const u8, 8)
+        }
+    } else {
+        unsafe {
+            __builtin_copy(p, &v as unsafe *const u8, 8)
+        }
+    }
+}
+
+/// Stores the low 4 bytes of `v` at `p`, any alignment, the low byte first.
+prot inline fn write_le32(p: unsafe *u8, v: u64) {
+    var w = v as u32
+    eval if defined!(__BIG_ENDIAN__) {
+        w = __builtin_bswap(w)
+    }
+
+    unsafe {
+        __builtin_copy(p, &w as unsafe *const u8, 4)
+    }
+}
+
+/// ASCII '0' in every byte.
+prot eval ZEROS8: u64 = 0x3030303030303030u64
+
+/// True when all 8 bytes of the little-endian word `v` are ASCII digits:
+/// a byte below '0' borrows into its top bit when '0' is subtracted, and a
+/// byte above '9' carries into it when 0x46 is added.
+prot inline fn is_eight_digits(v: u64) -> bool {
+    return (((v + 0x4646464646464646u64) | (v - ZEROS8)) & 0x8080808080808080u64) == 0
+}
+
+/// The value of 8 ASCII digits read little-endian (the first digit in the
+/// low byte): adjacent digits combine into pairs, then two multiplies place
+/// the four pairs, the sum landing in the high word.
+prot inline fn eight_digits_value(v: u64) -> u64 {
+    var x = v - ZEROS8
+    x = x * 10 + (x >> 8)
+    var lo = (x & 0x000000FF000000FFu64) * 0x000F424000000064u64
+    var hi = ((x >> 16) & 0x000000FF000000FFu64) * 0x0000271000000001u64
+    return ((lo + hi) >> 32) & 0xFFFFFFFFu64
+}
+
+/// The `n` bytes at `p`, 1 to 8 of them, as the last `n` bytes of an
+/// 8-byte little-endian word whose first `8 - n` bytes are ASCII '0': the
+/// text of the same number padded to eight digits. Reads only `p[0 .. n)`.
+inline fn padded_eight(p: unsafe *const u8, n: usize) -> u64 {
+    var v: u64 = 0
+    unsafe {
+        if n >= 4 {
+            // Two 4-byte reads that overlap for n < 8; the shared bytes land
+            // in the same place, so or-ing them is exact.
+            v = read_le32(p) | (read_le32(p + (n - 4)) << (((n - 4) * 8) as u64))
+        } else {
+            v = (p[0] as u64) | ((p[n >> 1] as u64) << (((n >> 1) * 8) as u64)) | ((p[n - 1] as u64) << (((n - 1) * 8) as u64))
+        }
+    }
+
+    var s = ((8 - n) * 8) as u64
+    return (v << s) | (ZEROS8 & ((1u64 << s) - 1))
+}
+
 /// Parses the digits `p[from .. n)` as a value in `[0, limit]`.
 ///
-/// Up to 18 digits cannot overflow a `u64`, so they accumulate unchecked and
-/// the range is checked once; digits beyond them (leading zeros included)
-/// use checked arithmetic.
+/// Up to 19 digits cannot overflow a `u64`, so they accumulate unchecked,
+/// eight at a time while eight are left, and the range is checked once;
+/// digits beyond them (leading zeros included) use checked arithmetic.
 inline fn parse_digits(p:          unsafe *const u8,
                        from:       usize,
                        n:          usize,
@@ -314,7 +447,17 @@ inline fn parse_digits(p:          unsafe *const u8,
 
     var acc: u64 = 0
     var i        = from
-    var stop     = if n - from > 18 => from + 18 else => n
+    var stop     = if n - from > 19 => from + 19 else => n
+    while stop - i >= 8 {
+        var eight = read_le64(unsafe p + i)
+        if !is_eight_digits(eight) {
+            break
+        }
+
+        acc = acc * 100000000 + eight_digits_value(eight)
+        i += 8
+    }
+
     while i < stop {
         var d = p[i] - 48
         if d > 9 {
@@ -358,6 +501,10 @@ inline fn parse_digits(p:          unsafe *const u8,
 
 /// Parses `[+]digits` as a value in `[0, max]`.
 ///
+/// One to eight digits with no sign, in range, take one SWAR word and no
+/// loop; anything else, every failure included, takes the general path, so
+/// the fast path decides no error.
+///
 /// \pre `p` is valid for reads of `n` bytes.
 prot inline fn parse_unsigned(p:          unsafe *const u8,
                               n:          usize,
@@ -365,6 +512,16 @@ prot inline fn parse_unsigned(p:          unsafe *const u8,
                               @inout err: ParseError) -> u64 {
     err.at   = 0
     err.kind = ParseErrorKind::None
+    if n - 1 < 8 {
+        var eight = padded_eight(p, n)
+        if is_eight_digits(eight) {
+            var v = eight_digits_value(eight)
+            if v <= max {
+                return v
+            }
+        }
+    }
+
     var from: usize = 0
     if n != 0 && p[0] == 43 {
         if n == 1 {
@@ -387,6 +544,19 @@ prot inline fn parse_signed(p:          unsafe *const u8,
                             @inout err: ParseError) -> i64 {
     err.at   = 0
     err.kind = ParseErrorKind::None
+    // One to eight digits after an optional '-', in range: as for
+    // `parse_unsigned`.
+    var lead: usize = if n != 0 && p[0] == 45 => 1 else => 0
+    if n - lead - 1 < 8 {
+        var eight = padded_eight(unsafe p + lead, n - lead)
+        if is_eight_digits(eight) {
+            var v = eight_digits_value(eight)
+            if v <= max + (lead as u64) {
+                return (if lead != 0 => 0u64 - v else => v) as i64
+            }
+        }
+    }
+
     var from: usize = 0
     var neg         = false
     if n != 0 && (p[0] == 43 || p[0] == 45) {

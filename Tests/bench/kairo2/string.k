@@ -14,6 +14,9 @@ fn letters(rng: *Rng, len: u64, alphabet: u64) -> string {
     return s
 }
 
+// The source is a string, as the Rust twin's `String::from(&str)` has it:
+// text that is already a string is copied without a second UTF-8 check.
+// `string(p, n)` is the constructor from foreign bytes, which checks them.
 fn create_destroy(len: u64) {
     const ops: u64 = 200000
     var rng = Rng()
@@ -23,7 +26,7 @@ fn create_destroy(len: u64) {
         var acc: u64 = 0
         bench_tic()
         for var i: u64 = 0; i < ops; i += 1 {
-            var s = string(src.data(), bench_opaque(len) as usize)
+            var s = src[0..(bench_opaque(len) as usize)].to_owned()
             unsafe { bench_sink_ptr(s.data() as unsafe *const void) }
             acc += s.size() as u64
         }

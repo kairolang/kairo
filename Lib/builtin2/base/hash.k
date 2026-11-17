@@ -75,32 +75,45 @@ priv inline fn read32(p: unsafe *const u8) -> u64 {
     }
 }
 
-/// The state after absorbing `n > 16` bytes at `p`.
+/// The state after absorbing `n > 32` bytes at `p`.
 ///
-/// Two lanes, 16 bytes each per step, so two multiplies are in flight at
-/// once; then one 16-byte step if more than 16 bytes are left, then the last
-/// 16 bytes of the input, which overlap whatever the steps already took.
-/// Each multiply has a secret on both sides (a lane, or the seed), so no
-/// input word can zero an operand for every seed.
+/// Over 64 bytes, three lanes take 16 bytes each per step, so three
+/// multiplies are in flight at once. Then up to three 16-byte steps for what
+/// is left beyond the last 16 bytes, with no loop, so up to 64 bytes are
+/// straight-line code; then the last 16 bytes of the input, which overlap
+/// whatever the steps already took. Each multiply has a secret on both sides (a lane, or
+/// the seed), so no input word can zero an operand for every seed.
 @no_inline priv fn write_long(state: u64, seed: u64, p: unsafe *const u8, n: usize) -> u64 {
     var        k   = seed ^ K1
     var        s0  = state
     var        s1  = seed ^ K2
     var unsafe *q  = p
     var        rem = n
-    while rem > 32 {
-        unsafe {
-            s0 = mum(read64(q) ^ s0, read64(q + 8) ^ k)
-            s1 = mum(read64(q + 16) ^ s1, read64(q + 24) ^ k)
-            q  = q + 32
+    if rem > 64 {
+        var s2 = seed ^ K0
+        while rem > 48 {
+            unsafe {
+                s0 = mum(read64(q) ^ s0, read64(q + 8) ^ k)
+                s1 = mum(read64(q + 16) ^ s1, read64(q + 24) ^ k)
+                s2 = mum(read64(q + 32) ^ s2, read64(q + 40) ^ k)
+                q  = q + 48
+            }
+
+            rem -= 48
         }
 
-        rem -= 32
+        s1 = s1 ^ s2
     }
 
     if rem > 16 {
         unsafe {
             s0 = mum(read64(q) ^ s0, read64(q + 8) ^ k)
+            if rem > 32 {
+                s1 = mum(read64(q + 16) ^ s1, read64(q + 24) ^ k)
+                if rem > 48 {
+                    s0 = mum(read64(q + 32) ^ s0, read64(q + 40) ^ k)
+                }
+            }
         }
     }
 
@@ -118,10 +131,24 @@ priv inline fn read32(p: unsafe *const u8) -> u64 {
 ///
 /// Up to 16 bytes take one fold: two words (two overlapping 8-byte reads for
 /// 8..16, two 4-byte reads for 4..7, the first / middle / last byte for 1..3,
-/// zeros for 0), the length mixed in after it.
+/// zeros for 0), the length mixed in after it. 17 to 32 bytes take two, on
+/// the first 16 bytes and the last 16, which overlap, without a call.
 @hot_path priv inline fn write_bytes(state: u64, seed: u64, p: unsafe *const u8, n: usize) -> u64 {
     if n > 16 {
-        return write_long(state, seed, p, n)
+        if n > 32 {
+            return write_long(state, seed, p, n)
+        }
+
+        var s0: u64 = 0
+        var a:  u64 = 0
+        var b:  u64 = 0
+        unsafe {
+            s0 = mum(read64(p) ^ state, read64(p + 8) ^ seed ^ K1)
+            a  = read64(p + (n - 16))
+            b  = read64(p + (n - 8))
+        }
+
+        return mum(a ^ s0, b ^ seed ^ K2) ^ (n as u64)
     }
 
     var a: u64 = 0

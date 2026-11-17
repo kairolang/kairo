@@ -5,13 +5,15 @@
 /// Value to text gives the shortest decimal that reads back as the same
 /// value (Schubfach: R. Giulietti, "The Schubfach way to render doubles").
 /// Text to value is correctly rounded, to nearest with ties to even:
-/// Eisel-Lemire on the first 19 significant digits (D. Lemire, "Number
-/// Parsing at a Gigabyte per Second"), and exact big-integer arithmetic on
-/// up to 768 digits for the inputs it cannot settle.
+/// Clinger's exact fast path where it applies, Eisel-Lemire on the first
+/// 19 significant digits (D. Lemire, "Number Parsing at a Gigabyte per
+/// Second"), and exact big-integer arithmetic on up to 768 digits for the
+/// inputs it cannot settle.
 ///
-/// Every step is integer arithmetic on the bit pattern: no floating-point
-/// instruction runs, so the results do not depend on the rounding mode, on
-/// x87 excess precision or on a soft-float library. Nothing here allocates,
+/// Value to text is integer arithmetic on the bit pattern. Text to value is
+/// too, except for one f64 (f32) multiply or divide of exact operands where
+/// the float unit rounds each operation once (x86-64, AArch64): that result
+/// assumes the default rounding mode, to nearest. Nothing here allocates,
 /// calls libc or depends on byte order.
 
 import base::intrinsics::*
@@ -237,29 +239,73 @@ prot fn f32_to_decimal(bits: u32) -> FloatDecimal {
 
 // --- value to text: layout -----------------------------------------------------
 
+/// 10^0 .. 10^19.
+priv static const NUMTEXT_POW10_U64: [u64; 20] = [
+    1,                 10,                 100,                 1000,
+    10000,             100000,             1000000,             10000000,
+    100000000,         1000000000,         10000000000,         100000000000,
+    1000000000000,     10000000000000,     100000000000000,     1000000000000000,
+    10000000000000000, 100000000000000000, 1000000000000000000, 10000000000000000000,
+]
+
+/// The number of decimal digits of `v`, for `v >= 1`: the bit length times
+/// log10(2) (1233 / 4096) is the count or one less, and one compare with a
+/// power of ten decides which.
+inline fn decimal_digits(v: u64) -> usize {
+    var t = ((64 - __builtin_clz(v)) * 1233) >> 12
+    return (t as usize) + (if v >= NUMTEXT_POW10_U64[t as usize] => 1usize else => 0usize)
+}
+
+/// Moves the `len` bytes at `buf[at + 1 ..)` to `buf[at ..)`, for
+/// `1 <= len <= 16`. Every load comes before every store, so the overlap is
+/// harmless, and nothing outside `buf[at .. at + len]` is written.
+inline fn shift_left_one(buf: unsafe *u8, at: usize, len: usize) {
+    unsafe {
+        if len >= 8 {
+            var a = read_le64(buf + (at + 1))
+            var b = read_le64(buf + (at + len - 7))
+            write_le64(buf + at, a)
+            write_le64(buf + (at + len - 8), b)
+        } else if len >= 4 {
+            var a = read_le32(buf + (at + 1))
+            var b = read_le32(buf + (at + len - 3))
+            write_le32(buf + at, a)
+            write_le32(buf + (at + len - 4), b)
+        } else {
+            var a = buf[at + 1]
+            var b = buf[at + 1 + (len >> 1)]
+            var c = buf[at + len]
+            buf[at]              = a
+            buf[at + (len >> 1)] = b
+            buf[at + len - 1]    = c
+        }
+    }
+}
+
 /// Writes `sig * 10^exp` at `buf[at ..)` and returns the index after it.
 ///
 /// With e the exponent of the first digit: plain decimal notation when
 /// -4 <= e < `fixed_below`, otherwise `d[.ddd]e[+-]XX` with at least two
 /// exponent digits. A whole number has no point and no fraction.
+///
+/// The digit count is known first, so the digits are written once, in
+/// place; where a point goes among them they are written one byte to the
+/// right and the digits before the point move back over it.
+///
+/// \pre `fixed_below <= 17`; `buf[at ..)` has room for the text and for 8
+/// bytes past `at` in any case.
 fn layout_decimal(buf: unsafe *u8, at: usize, sig: u64, exp: i32, fixed_below: i32) -> usize {
-    var digits: [u8; 20]
-    var r                = u64_to_text(sig, unsafe &digits[0], 20)
-    var n                = r.len as i32
-    var src              = r.start
-    var e                = exp + n - 1
-    var o                = at
+    var n = decimal_digits(sig)
+    var e = exp + (n as i32) - 1
+    var o = at
 
     if e < -4 || e >= fixed_below {
-        buf[o] = digits[src]
+        put_u64(buf, o + 1 + n, sig)
+        buf[o] = buf[o + 1]
         o += 1
         if n > 1 {
             buf[o] = 46
-            o += 1
-            for var i: i32 = 1; i < n; ++i {
-                buf[o] = digits[src + (i as usize)]
-                o += 1
-            }
+            o += n
         }
 
         buf[o] = 101
@@ -284,39 +330,41 @@ fn layout_decimal(buf: unsafe *u8, at: usize, sig: u64, exp: i32, fixed_below: i
     }
 
     if e < 0 {
+        // "0." and -e - 1 (at most 3) zeros, then the digits.
+        var z = (0 - e - 1) as usize
+        unsafe {
+            write_le32(buf + (o + 2), 0x30303030u64)
+        }
+
         buf[o]     = 48
         buf[o + 1] = 46
-        o += 2
-        for var i: i32 = e + 1; i < 0; ++i {
-            buf[o] = 48
-            o += 1
-        }
-
-        for var i: i32 = 0; i < n; ++i {
-            buf[o] = digits[src + (i as usize)]
-            o += 1
-        }
-
-        return o
+        return put_u64(buf, o + 2 + z + n, sig) + n
     }
 
-    // e + 1 digits before the point.
-    for var i: i32 = 0; i < n; ++i {
-        if i == e + 1 {
-            buf[o] = 46
-            o += 1
+    var int_digits = (e + 1) as usize
+    if n > int_digits {
+        // The point among the digits: at most 16 of them before it.
+        put_u64(buf, o + 1 + n, sig)
+        shift_left_one(buf, o, int_digits)
+        buf[o + int_digits] = 46
+        return o + 1 + n
+    }
+
+    // A whole number: the digits, then zeros up to the point's place, which
+    // is at most 17 digits in. The zeros go first and never past the text
+    // or 8 bytes from `at`.
+    unsafe {
+        write_le64(buf + o, ZEROS8)
+        if int_digits > 8 {
+            write_le64(buf + (o + int_digits - 8), ZEROS8)
+            if int_digits > 16 {
+                write_le64(buf + (o + 8), ZEROS8)
+            }
         }
-
-        buf[o] = digits[src + (i as usize)]
-        o += 1
     }
 
-    for var i: i32 = n; i < e + 1; ++i {
-        buf[o] = 48
-        o += 1
-    }
-
-    return o
+    put_u64(buf, o + n, sig)
+    return o + int_digits
 }
 
 /// Writes "inf" or "nan" at `buf[at ..)` and returns the index after it.
@@ -898,39 +946,146 @@ inline fn word3(p: unsafe *const u8, i: usize, a: u8, b: u8, c: u8) -> bool {
     return float_fail(&err, i, ParseErrorKind::InvalidChar)
 }
 
-/// The 8 bytes at `p`, any alignment, as a little-endian word: the first
-/// byte in the low bits on every target.
-inline fn read_eight(p: unsafe *const u8) -> u64 {
-    var v: u64 = 0
-    unsafe {
-        __builtin_copy(&v as unsafe *u8, p, 8)
-    }
-
-    eval if defined!(__BIG_ENDIAN__) {
-        return __builtin_bswap(v)
-    } else {
-        return v
-    }
+/// `w * 10^q` for the first 19 significant digits of a number with more
+/// than 19 digits: `truncated` when a nonzero digit is left out of `w`.
+struct Leading19 {
+    var w:         u64
+    var q:         i64
+    var truncated: bool
 }
 
-/// True when all 8 bytes of `v` are ASCII digits: each byte's high nibble
-/// is 3, and adding 6 to it leaves the high nibble at 3 (no byte above '9').
-inline fn is_eight_digits(v: u64) -> bool {
-    return ((v & 0xF0F0F0F0F0F0F0F0u64) | (((v + 0x0606060606060606u64) & 0xF0F0F0F0F0F0F0F0u64) >> 4)) == 0x3333333333333333u64
+/// The digits `p[int_from .. int_to)` `.` `p[frac_from .. frac_to)`, times
+/// `10^ex`, cut to their first 19 significant digits. For texts of more
+/// than 19 digits, leading zeros included, where `w` accumulated by the
+/// scan may have wrapped.
+@cold_path @no_inline fn leading19(p:         unsafe *const u8,
+                                   int_from:  usize,
+                                   int_to:    usize,
+                                   frac_from: usize,
+                                   frac_to:   usize,
+                                   ex:        i64) -> Leading19 {
+    var r       = Leading19 { w: 0, q: ex, truncated: false }
+    var nd: i32 = 0
+    for var i = int_from; i < int_to; ++i {
+        var d: u64 = p[i] - 48
+        if nd < 19 {
+            r.w = r.w * 10 + d
+            if r.w != 0 {
+                nd += 1
+            }
+        } else {
+            r.q += 1
+            if d != 0 {
+                r.truncated = true
+            }
+        }
+    }
+
+    for var j = frac_from; j < frac_to; ++j {
+        var d: u64 = p[j] - 48
+        if nd < 19 {
+            r.w = r.w * 10 + d
+            r.q -= 1
+            if r.w != 0 {
+                nd += 1
+            }
+        } else if d != 0 {
+            r.truncated = true
+        }
+    }
+
+    return r
 }
 
-/// The value of 8 ASCII digits read little-endian (first digit in the low
-/// byte): pairs, then quads, then the whole, each one multiply.
-inline fn eight_digits_value(v: u64) -> u64 {
-    var x = v & 0x0F0F0F0F0F0F0F0Fu64
-    x = (x * 2561) >> 8
-    x = ((x & 0x00FF00FF00FF00FFu64) * 6553601) >> 16
-    return ((x & 0x0000FFFF0000FFFFu64) * 42949672960001) >> 32
+/// Takes the digits at `p[from .. n)` into `w`, eight at a time while eight are
+/// left; returns where they end. `w` wraps past 19 digits, which the caller
+/// detects from the count.
+inline fn scan_digits(p: unsafe *const u8, from: usize, n: usize, @inout w: u64) -> usize {
+    var i = from
+    while n - i >= 8 {
+        var eight = read_le64(unsafe p + i)
+        if !is_eight_digits(eight) {
+            break
+        }
+
+        w = w * 100000000 + eight_digits_value(eight)
+        i += 8
+    }
+
+    while i < n {
+        var d = p[i] - 48
+        if d > 9 {
+            break
+        }
+
+        w = w * 10 + (d as u64)
+        i += 1
+    }
+
+    return i
+}
+
+/// 10^0 .. 10^22, every one exact in an f64.
+priv static const NUMTEXT_EXACT_POW10_F64: [f64; 23] = [
+    1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,
+    1e8,  1e9,  1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+    1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
+]
+
+/// 10^0 .. 10^10, every one exact in an f32.
+priv static const NUMTEXT_EXACT_POW10_F32: [f32; 11] = [
+    1e0, 1e1, 1e2,  1e3, 1e4, 1e5, 1e6, 1e7,
+    1e8, 1e9, 1e10,
+]
+
+/// Whether the float unit rounds each f32 and f64 operation once, to the
+/// type: true for the SSE2 unit every x86-64 has and for AArch64, false for
+/// x87 (excess precision) and soft-float targets, which keep to integers.
+eval FLOAT_OPS_EXACT: bool = defined!(__x86_64__) || defined!(__aarch64__)
+
+/// `w * 10^q` rounded once, when that is one float operation on exact
+/// operands (W. D. Clinger, "How to Read Floating Point Numbers
+/// Accurately"): `w` is exact in `F` and so is `10^|q|`, so the product or
+/// quotient is correctly rounded under the default rounding mode. Returns
+/// the bit pattern, or `FLOAT_UNDECIDED` when `w` or `q` is out of reach.
+inline fn <F> clinger(w: u64, q: i64) -> u64 {
+    eval if FLOAT_OPS_EXACT {
+        eval if __builtin_is_same<F, f32>() {
+            if w <= (1u64 << 24) && q >= -10 && q <= 10 {
+                var v = w as f32
+                if q < 0 {
+                    v = v / NUMTEXT_EXACT_POW10_F32[(0 - q) as usize]
+                } else {
+                    v = v * NUMTEXT_EXACT_POW10_F32[q as usize]
+                }
+
+                return __builtin_bitcast<u32, f32>(v)
+            }
+        } else {
+            if w <= (1u64 << 53) && q >= -22 && q <= 22 {
+                var v = w as f64
+                if q < 0 {
+                    v = v / NUMTEXT_EXACT_POW10_F64[(0 - q) as usize]
+                } else {
+                    v = v * NUMTEXT_EXACT_POW10_F64[q as usize]
+                }
+
+                return __builtin_bitcast<u64, f64>(v)
+            }
+        }
+    }
+
+    return FLOAT_UNDECIDED
 }
 
 /// The bit pattern (an f32's in the low word when `single`) of the float
 /// nearest the number `p[0 .. n)` spells, for `F` f64 or f32 (as for
 /// `eisel_lemire`).
+///
+/// The digits accumulate without a count and the count comes from where
+/// they end; past 19 of them `leading19` takes the significant ones again.
+/// Then: one float operation when that is exact (`clinger`), Eisel-Lemire
+/// when the 128-bit product decides, exact arithmetic otherwise.
 fn <F> parse_float_bits(p: unsafe *const u8, n: usize, @inout err: ParseError) -> u64 {
     var single = __builtin_is_same<F, f32>()
     err.at   = 0
@@ -958,97 +1113,20 @@ fn <F> parse_float_bits(p: unsafe *const u8, n: usize, @inout err: ParseError) -
         return parse_special(p, i, n, sign, single, &err)
     }
 
-    // The first 19 significant digits, as w * 10^q.
     var w:        u64 = 0
-    var nd:       i32 = 0
-    var dropped:  i64 = 0     // integer digits not in w
-    var fracn:    i64 = 0     // fraction digits in w, leading zeros included
-    var truncated     = false // a nonzero digit is not in w
     var int_from      = i
-    // Leading zeros are not significant; past them every digit is, so the
-    // loops below take digits without testing for zero.
-    while i < n && p[i] == 48 {
-        i += 1
-    }
-
-    while nd <= 11 && i + 8 <= n {
-        var eight = read_eight(unsafe p + i)
-        if !is_eight_digits(eight) {
-            break
-        }
-
-        w = w * 100000000 + eight_digits_value(eight)
-        nd += 8
-        i += 8
-    }
-
-    while i < n {
-        var c = p[i] - 48
-        if c > 9 {
-            break
-        }
-
-        if nd < 19 {
-            w = w * 10 + (c as u64)
-            nd += 1
-        } else {
-            dropped += 1
-            if c != 0 {
-                truncated = true
-            }
-        }
-
-        i += 1
-    }
-
-    var int_to    = i
-    var frac_from = i
-    var frac_to   = i
+    var int_to        = scan_digits(p, i, n, &w)
+    var frac_from     = int_to
+    var frac_to       = int_to
+    i = int_to
     if i < n && p[i] == 46 {
-        var j = i + 1
-        frac_from = j
-        if w == 0 {
-            while j < n && p[j] == 48 {
-                fracn += 1
-                j += 1
-            }
-        }
-
-        while nd <= 11 && j + 8 <= n {
-            var eight = read_eight(unsafe p + j)
-            if !is_eight_digits(eight) {
-                break
-            }
-
-            w = w * 100000000 + eight_digits_value(eight)
-            nd += 8
-            fracn += 8
-            j += 8
-        }
-
-        while j < n {
-            var c = p[j] - 48
-            if c > 9 {
-                break
-            }
-
-            if nd < 19 {
-                fracn += 1
-                w = w * 10 + (c as u64)
-                nd += 1
-            } else if c != 0 {
-                truncated = true
-            }
-
-            j += 1
-        }
-
-        frac_to = j
+        frac_from = i + 1
+        frac_to   = scan_digits(p, frac_from, n, &w)
         if int_to == int_from && frac_to == frac_from {
             return float_fail(&err, i, ParseErrorKind::InvalidChar)
         }
 
-        i = j
+        i = frac_to
     }
 
     // An exponent needs at least one digit; otherwise the `e` is trailing.
@@ -1088,16 +1166,31 @@ fn <F> parse_float_bits(p: unsafe *const u8, n: usize, @inout err: ParseError) -
         return float_fail(&err, i, ParseErrorKind::Trailing)
     }
 
+    var q         = ex - ((frac_to - frac_from) as i64)
+    var truncated = false
+    if (int_to - int_from) + (frac_to - frac_from) > 19 {
+        var r = leading19(p, int_from, int_to, frac_from, frac_to, ex)
+        w         = r.w
+        q         = r.q
+        truncated = r.truncated
+    }
+
     if w == 0 {
         return sign
     }
 
-    var q    = ex + dropped - fracn
-    var bits = eisel_lemire<F>(w, q)
-    // With digits cut off the value lies strictly between w and w + 1; it is
-    // settled only when both round to the same float.
-    if truncated && bits != FLOAT_UNDECIDED && eisel_lemire<F>(w + 1, q) != bits {
-        bits = FLOAT_UNDECIDED
+    var bits = FLOAT_UNDECIDED
+    if !truncated {
+        bits = clinger<F>(w, q)
+    }
+
+    if bits == FLOAT_UNDECIDED {
+        bits = eisel_lemire<F>(w, q)
+        // With digits cut off the value lies strictly between w and w + 1;
+        // it is settled only when both round to the same float.
+        if truncated && bits != FLOAT_UNDECIDED && eisel_lemire<F>(w + 1, q) != bits {
+            bits = FLOAT_UNDECIDED
+        }
     }
 
     if bits == FLOAT_UNDECIDED {
