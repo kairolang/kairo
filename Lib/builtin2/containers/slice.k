@@ -553,9 +553,16 @@ extend <T> Slice<T> {
             index_fail(0, 0)
         }
 
-        var unsafe *p = self.cbase()
-        var i: usize  = 0
-        while i + n <= self.len {
+        // Compared as `i <= len - n`: `i + n` wraps for a huge `n` and would
+        // pass the test with a window that runs past the slice.
+        if n > self.len {
+            return
+        }
+
+        var unsafe *p    = self.cbase()
+        var i:    usize  = 0
+        var last: usize  = self.len - n
+        while i <= last {
             unsafe {
                 yield Slice<const T>(p + i, n)
             }

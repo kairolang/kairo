@@ -148,7 +148,7 @@ pub class FmtBuf {
     @move fn FmtBuf(self, other: Self) = delete
 
     /// A spilled buffer that was never handed over by finish().
-    fn op delete(self) {
+    fn op finally(self) {
         if self.spilled_() {
             unsafe {
                 FmtBuf::release_(self.data as unsafe *u8, self.cap)
@@ -723,9 +723,13 @@ pub class FmtBuf {
     ///
     /// Valid until this FmtBuf is written again, cleared or destroyed.
     ///
-    /// **Note:** Calling it after `finish()`, before anything is written again, writes through a
-    /// null `data` and crashes.
+    /// After `finish()`, before anything is written again, the view is the empty string.
     pub inline fn view(self) -> string {
+        @unlikely
+        if self.data == &null {
+            return string()
+        }
+
         self.data[self.len] = 0
         return string::view_of_(self.data as *const u8, self.len)
     }

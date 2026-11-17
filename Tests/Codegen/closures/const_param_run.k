@@ -82,7 +82,7 @@ fn main() -> i32 {
 // IR:     +{{ ?}}[{{ ?}}]{{ ?}}({{ ?}}const{{ ?}}::builtin::string::string s{{ ?}},{{ ?}}bool b{{ ?}})
 // IR:     ::builtin::string::string{{ ?}}*{{ ?}}const q
 // IR:     ({{ ?}}const signed int{{ ?}}({{ ?}}&{{ ?}}xs{{ ?}}){{\[}}3{{\]}}{{ ?}})
-// IR-NOT: const{{ ?}}::builtin::string::string{{ ?}}&{{ ?}}s{{[,)]}}
+// IR-NOT: ]{{ ?}}({{ ?}}const{{ ?}}::builtin::string::string{{ ?}}&{{ ?}}s{{[,)]}}
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

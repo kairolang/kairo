@@ -2747,6 +2747,11 @@ extend string {
 
     /// Room for at least `bytes` bytes in all, without another allocation.
     pub fn reserve(self, bytes: usize) {
+        // Room for nothing is what a view or a literal already has.
+        if bytes == 0 {
+            return
+        }
+
         if (self.meta & OWN_BIT) != 0 {
             unsafe {
                 if bytes <= *self.hdr_cap() {
@@ -3617,6 +3622,12 @@ extend string {
         }
 
         if (m & OWN_BIT) == 0 {
+            // Nothing is kept, so nothing is copied and no block is made.
+            if bytes == 0 {
+                self.set_empty_()
+                return
+            }
+
             // Shorten the borrowed text first, so only what is kept is copied.
             self.meta = (bytes << LEN_SHIFT) | (m & ASCII_BIT) | ST_VIEW
             self.make_owned()

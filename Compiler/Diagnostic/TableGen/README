@@ -52,5 +52,5 @@ graph never reaches the compiler (kld, katar, clang-diag-identity), and it is
 compiled --emit-scope=inputs. So it must be self-contained: it may reference
 no symbol of a compiler module, only types and inline bodies. That is why
 diag_from_string's hash is written out by gen_diag.py (constants from
-Scripts/Migration/eval_hash.py) instead of calling Support/EvalHash.k's
+Scripts/eval_hash.py) instead of calling Support/EvalHash.k's
 compute_hash. Check with `llvm-nm -u -C <cache root>/registry/registry.o`.

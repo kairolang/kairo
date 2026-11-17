@@ -15,7 +15,7 @@ Usage:
         --output=Compiler/Diagnostic/Registry.k --full-output=build/registry/Compiler/Diagnostic/Registry.k
 
 DiagID values are compute_hash::<"CODE">() folded at generation time
-(Scripts/Migration/eval_hash.py, the same function as Support/EvalHash.k), so the enum
+(Scripts/eval_hash.py, the same function as Support/EvalHash.k), so the enum
 needs no compile-time evaluation. A file is rewritten only when its text changes, so an
 unchanged TOML set leaves build.py's registry stamp valid.
 """
@@ -23,7 +23,7 @@ unchanged TOML set leaves build.py's registry stamp valid.
 import sys, tomllib, textwrap, os, argparse
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "Migration"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from eval_hash import compute_hash, FNV_OFFSET_BASIS, FNV_PRIME, GOLDEN_RATIO_MIX, RESERVED_LOW  # noqa: E402
 
 CAT_MAP = {

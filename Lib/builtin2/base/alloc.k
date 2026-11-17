@@ -203,7 +203,7 @@ pub class <T> UninitializedSlice {
         }
     }
 
-    fn op delete(self) {
+    fn op finally(self) {
         self.clear()
     }
 }
@@ -450,7 +450,7 @@ pub class <A impl ScopedFullAllocator> AllocatorScope {
     }
 
     /// Idempotent. Scopes close in reverse order of opening.
-    fn op delete(self) {
+    fn op finally(self) {
         if !self.active {
             return
         }

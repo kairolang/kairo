@@ -819,7 +819,9 @@ extend <T> Vector<T> {
             return
         }
 
-        if self.len == 0 {
+        // An empty vector takes other's block, unless its own already has
+        // the room: a reserved block is kept, and the elements move into it.
+        if self.len == 0 && self.cap_() < m {
             // Swapped, not overwritten: other's destructor frees this block.
             var mine = self.base_()
             self.set_base_(other.base_())

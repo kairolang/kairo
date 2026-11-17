@@ -6,7 +6,7 @@
 #      and the diagnostic highlighter take spellings from that table, and the
 #      lexer finds a word's kind by hashing it, so a value written wrong is a
 #      keyword that silently lexes as an identifier);
-#   2. Support/EvalHash.k's constants are Scripts/Migration/eval_hash.py's,
+#   2. Support/EvalHash.k's constants are Scripts/eval_hash.py's,
 #      which computed the written values (and the DiagID values gen_diag.py
 #      writes into Diagnostic/Registry.k);
 #   3. every hash-valued member has a row in the spelling table (the
@@ -19,7 +19,7 @@
 import os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "Migration"))
+sys.path.insert(0, HERE)
 import eval_hash  # noqa: E402
 
 ROOT = os.path.dirname(HERE)
