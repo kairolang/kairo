@@ -16,7 +16,11 @@ fn main() -> i32 { var h = Host(); return h.go() }
 
 // --- lit wiring ---
 // REQUIRES: clang
+// RUN: rm -f %t.exe
 // RUN: rm -rf %t.d
-// RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: CL001E
 // RUN: %t.exe; test $? -eq 30
+// A `: type` parameter is rejected unless duck generics are enabled.
+// RUN: { %kairo --type-check-only %s 2>&1 || true; } | %FileCheck %s --check-prefix=GATE
+// GATE: error [SC198E]: 'T: type' needs -fduck-generics

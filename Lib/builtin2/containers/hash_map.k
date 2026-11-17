@@ -700,3 +700,9 @@ priv fn <K impl Hash, V impl Copyable> map_extend_from(m:           *HashMap<K, 
         i += 1
     }
 }
+
+extend <K impl Hash, V> HashMap<K, V> impl Default {
+    static inline fn make_default() -> HashMap<K, V> {
+        return HashMap<K, V>()
+    }
+}

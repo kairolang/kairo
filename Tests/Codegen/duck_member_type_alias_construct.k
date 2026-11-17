@@ -29,8 +29,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
+// RUN: rm -f %t.exe
 // RUN: rm -rf %t.d
-// RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: I011W
 // DIAG-NOT: I003E
 // RUN: %t.exe

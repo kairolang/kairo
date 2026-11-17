@@ -860,8 +860,9 @@ priv class <T, K impl Ord> SortKeyLess impl SortLess<T> {
 /// Ranges of this length or shorter are sorted by insertion.
 priv eval SORT_INSERTION_MAX: usize = 20
 
-/// Above this length the pivot is a median of three medians.
-priv eval SORT_NINTHER_MIN: usize = 128
+/// From this length the pivot is a recursive pseudo-median: the median of
+/// three such medians, each taken over an eighth of the range.
+priv eval SORT_PSEUDO_MEDIAN_MIN: usize = 64
 
 /// Elements classified per step by the block partition; an offset fits a
 /// byte.
@@ -1172,25 +1173,48 @@ priv fn <T, C impl SortLess<T>> sort_heap(base: unsafe *T, n: usize, const c: C)
     }
 }
 
-/// Orders the three elements at `a < b < d`; the median ends at `b`.
-priv inline fn <T, C impl SortLess<T>> sort_three(base:    unsafe *T,
-                                             a:       usize,
-                                             b:       usize,
-                                             d:       usize,
-                                             const c: C,
-                                             tmp:     unsafe *T) {
+/// The index of the median of the elements at `a`, `b` and `d`. Compares
+/// only; nothing moves.
+priv inline fn <T, C impl SortLess<T>> sort_median3(base:    unsafe *T,
+                                               a:       usize,
+                                               b:       usize,
+                                               d:       usize,
+                                               const c: C) -> usize {
     unsafe {
-        if c.lt(&base[b], &base[a]) {
-            sort_swap<T>(base + a, base + b, tmp)
-        }
-
-        if c.lt(&base[d], &base[b]) {
-            sort_swap<T>(base + b, base + d, tmp)
-            if c.lt(&base[b], &base[a]) {
-                sort_swap<T>(base + a, base + b, tmp)
-            }
+        var x = c.lt(&base[a], &base[b])
+        var y = c.lt(&base[a], &base[d])
+        if x == y {
+            // `a` is the least or the greatest of the three.
+            var z = c.lt(&base[b], &base[d])
+            return (if z != x => d else => b)
         }
     }
+
+    return a
+}
+
+/// The pseudo-median of about `n^0.63` elements: the median of three, each
+/// of which is the same choice over the eighth of the range that starts at
+/// `a`, `b` or `d`, down to eighths shorter than eight elements. `n` is the
+/// length of each eighth. A pivot this close to the median saves more
+/// comparisons in the partitions below it than its choice costs.
+priv fn <T, C impl SortLess<T>> sort_median3_rec(base:    unsafe *T,
+                                            a:       usize,
+                                            b:       usize,
+                                            d:       usize,
+                                            n:       usize,
+                                            const c: C) -> usize {
+    var ia = a
+    var ib = b
+    var id = d
+    if n * 8 >= SORT_PSEUDO_MEDIAN_MIN {
+        var n8 = n / 8
+        ia = sort_median3_rec<T, C>(base, a, a + 4 * n8, a + 7 * n8, n8, c)
+        ib = sort_median3_rec<T, C>(base, b, b + 4 * n8, b + 7 * n8, n8, c)
+        id = sort_median3_rec<T, C>(base, d, d + 4 * n8, d + 7 * n8, n8, c)
+    }
+
+    return sort_median3<T, C>(base, ia, ib, id, c)
 }
 
 /// True when the range is sorted on return: it was non-descending already,
@@ -1231,19 +1255,16 @@ priv fn <T, C impl SortLess<T>> sort_partition(base: unsafe *T, n: usize, const 
     unsafe {
         var unsafe *tmp = sort_tmp<T>(__builtin_alloca(sort_tmp_bytes<T>()) as unsafe *u8)
         var unsafe *pv  = sort_tmp<T>(__builtin_alloca(sort_tmp_bytes<T>()) as unsafe *u8)
-        var mid         = n / 2
-        if n > SORT_NINTHER_MIN {
-            var step = n / 8
-            sort_three<T, C>(base, 0, step, 2 * step, c, tmp)
-            sort_three<T, C>(base, mid - step, mid, mid + step, c, tmp)
-            sort_three<T, C>(base, n - 1 - 2 * step, n - 1 - step, n - 1, c, tmp)
-            sort_three<T, C>(base, step, mid, n - 1 - step, c, tmp)
-        } else {
-            sort_three<T, C>(base, 0, mid, n - 1, c, tmp)
-        }
+        var n8 = n / 8
+        var at = (if n >= SORT_PSEUDO_MEDIAN_MIN
+                  => sort_median3_rec<T, C>(base, 0, 4 * n8, 7 * n8, n8, c)
+                  else => sort_median3<T, C>(base, 0, 4 * n8, 7 * n8, c))
 
         // The pivot sits at index 0, which the scans below never reach.
-        sort_swap<T>(base, base + mid, tmp)
+        if at != 0 {
+            sort_swap<T>(base, base + at, tmp)
+        }
+
         eval if sort_pivot_snapshot<T>() {
             __builtin_copy(pv as unsafe *u8, base as unsafe *const u8, sizeof T)
         } else {
@@ -1422,9 +1443,22 @@ priv fn <T, C impl SortLess<T>> sort_next_run(b: unsafe *T, m: usize, const c: C
     return i
 }
 
+/// The number of elements in `[lo, hi)`.
+priv inline fn <T> sort_count(lo: unsafe *const T, hi: unsafe *const T) -> usize {
+    return ((hi as usize) - (lo as usize)) / sizeof T
+}
+
 /// Merges the sorted runs `[s, s + n1)` and `[s + n1, s + n1 + n2)`. The
 /// shorter run moves to `scratch`, which holds at least `min(n1, n2)`
 /// elements.
+///
+/// The cursors are pointers, so a step is the comparison, one relocation
+/// and the cursor updates. For elements of two words or less a step selects
+/// the source and advances both cursors by the comparison's value, with no
+/// branch on the data. Larger elements branch: x86 backends turn the select
+/// of a large element's source into a branch unless it is marked
+/// unpredictable, and the marked form takes about a quarter more
+/// instructions per element than the branch, though it mispredicts less.
 priv fn <T, C impl SortLess<T>> sort_merge(base:    unsafe *T,
                                       s:       usize,
                                       n1:      usize,
@@ -1439,65 +1473,75 @@ priv fn <T, C impl SortLess<T>> sort_merge(base:    unsafe *T,
         }
 
         if n1 <= n2 {
+            // Forward: the left run is in scratch, the right run in place;
+            // `d` is the next free slot, and the slots before it hold
+            // what `l` and `r` have passed.
             sort_reloc_n<T>(scratch, a, n1)
-            var i: usize = 0 // next in scratch (the left run)
-            var j: usize = 0 // next in b
-            var d: usize = 0 // next free slot in a; d == i + j
+            var l    = scratch
+            var lend = scratch + n1
+            var r    = b
+            var rend = b + n2
+            var d    = a
             eval if sort_shift_by_element<T>() {
-                // Select the source and advance by the comparison's value:
-                // the loop has no branch on the data.
-                while i < n1 && j < n2 {
-                    var right = c.lt(&b[j], &scratch[i])
-                    sort_reloc<T>(a + d, (if right => b + j else => scratch + i))
-                    j += right as usize
-                    i += (!right) as usize
+                while l != lend && r != rend {
+                    var right = c.lt(&r[0], &l[0])
+                    sort_reloc<T>(d, (if right => r else => l))
+                    r += right as usize
+                    l += (!right) as usize
                     d += 1
                 }
             } else {
-                while i < n1 && j < n2 {
-                    if c.lt(&b[j], &scratch[i]) {
-                        sort_reloc<T>(a + d, b + j)
-                        j += 1
+                while l != lend && r != rend {
+                    if c.lt(&r[0], &l[0]) {
+                        sort_reloc<T>(d, r)
+                        r += 1
                     } else {
-                        sort_reloc<T>(a + d, scratch + i)
-                        i += 1
+                        sort_reloc<T>(d, l)
+                        l += 1
                     }
 
                     d += 1
                 }
             }
 
-            // What is left of b is in place already.
-            sort_reloc_n<T>(a + d, scratch + i, n1 - i)
+            // What is left of the right run is in place already.
+            sort_reloc_n<T>(d, l, sort_count<T>(l, lend))
         } else {
+            // Backward: the right run is in scratch, the left run in place;
+            // `l`, `r` and `d` are one past the next element of each. An
+            // equal pair places the right run's element last.
             sort_reloc_n<T>(scratch, b, n2)
-            var i = n1      // one past the next in a
-            var j = n2      // one past the next in scratch (the right run)
-            var d = n1 + n2 // one past the next free slot; d == i + j
-            // An equal pair places the right run's element last.
+            var l = b
+            var r = scratch + n2
+            var d = b + n2
             eval if sort_shift_by_element<T>() {
-                while i > 0 && j > 0 {
-                    var left = c.lt(&scratch[j - 1], &a[i - 1])
-                    sort_reloc<T>(a + d - 1, (if left => a + i - 1 else => scratch + j - 1))
-                    i -= left as usize
-                    j -= (!left) as usize
+                while l != a && r != scratch {
+                    var lp   = l - 1
+                    var rp   = r - 1
+                    var left = c.lt(&rp[0], &lp[0])
                     d -= 1
+                    sort_reloc<T>(d, (if left => lp else => rp))
+                    l -= left as usize
+                    r -= (!left) as usize
                 }
             } else {
-                while i > 0 && j > 0 {
-                    if c.lt(&scratch[j - 1], &a[i - 1]) {
-                        sort_reloc<T>(a + d - 1, a + i - 1)
-                        i -= 1
-                    } else {
-                        sort_reloc<T>(a + d - 1, scratch + j - 1)
-                        j -= 1
-                    }
-
+                while l != a && r != scratch {
+                    var lp = l - 1
+                    var rp = r - 1
                     d -= 1
+                    if c.lt(&rp[0], &lp[0]) {
+                        sort_reloc<T>(d, lp)
+                        l = lp
+                    } else {
+                        sort_reloc<T>(d, rp)
+                        r = rp
+                    }
                 }
             }
 
-            sort_reloc_n<T>(a + i, scratch, j)
+            // What is left of the left run is in place already; `d == l +
+            // (r - scratch)`.
+            sort_reloc_n<T>(l, scratch, sort_count<T>(scratch, r))
         }
     }
 }
@@ -1928,8 +1972,8 @@ priv fn <T> sort_radix_alloc(base: unsafe *T, n: usize) {
 // --- search -----------------------------------------------------------------
 
 /// Index of the first element that does not order before `*v` in a sorted
-/// range. The loop halves the length and keeps the base, so its only branch
-/// is the loop bound.
+/// range. The loop halves the length and keeps the base, with no early
+/// exit, so the number of steps depends on `n` alone.
 priv fn <T, C impl SortLess<T>> sort_lower_bound(base:    unsafe *const T,
                                             n:       usize,
                                             v:       *const T,
@@ -1943,7 +1987,10 @@ priv fn <T, C impl SortLess<T>> sort_lower_bound(base:    unsafe *const T,
     unsafe {
         while len > 1 {
             var half = len / 2
-            if c.lt(&base[lo + half - 1], v) {
+            // The comparison is unpredictable by construction, and only the
+            // hint keeps this step a conditional move: x86 backends turn the
+            // select into a branch inside an innermost loop.
+            @unpredictable if c.lt(&base[lo + half - 1], v) {
                 lo += half
             }
 
@@ -1991,7 +2038,8 @@ priv fn <T> sort_partition_point(base: unsafe *const T, n: usize, pred: fn(*cons
     unsafe {
         while len > 1 {
             var half = len / 2
-            if pred(&base[lo + half - 1]) {
+            // Hinted as in sort_lower_bound.
+            @unpredictable if pred(&base[lo + half - 1]) {
                 lo += half
             }
 

@@ -6,14 +6,7 @@
 import std::io::*
 
 fn add_score(@inout scores: {string: [i32]}, const name: string, n: i32) {
-    var *list? = scores.get_mut(name)
-    if list? {
-        list->push(n)
-        return
-    }
-
-    var first: [i32] = [n]
-    scores.insert(name.to_owned(), first)
+    scores[name].push(n)
 }
 
 fn main() -> i32 {

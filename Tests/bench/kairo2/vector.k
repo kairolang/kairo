@@ -201,9 +201,11 @@ fn swap_remove(n: u64) {
     var v: [i32]
     bench_begin(n)
     while bench_next() {
-        v.clear()
-        for var i: u64 = 0; i < n; i += 1 {
-            v.push(i as i32)
+        // The refill is untimed but counted: it matches the C++ twin's
+        // resize and store, not a push per element.
+        v.resize(n as usize, 0)
+        for var i: usize = 0; i < v.size(); i += 1 {
+            v[i] = i as i32
         }
 
         var rng      = Rng()

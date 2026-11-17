@@ -1,5 +1,6 @@
+// RUN: rm -f %t.exe
 // RUN: rm -rf %t.d
-// RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: { %kairo -fduck-generics %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // RUN: %t.exe; test $? -eq 3
 //
 // A local deduced from a member read through a `: type` parameter's pointer

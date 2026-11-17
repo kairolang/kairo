@@ -668,3 +668,9 @@ priv fn <T impl Hash> set_extend_from(s:           *HashSet<T>,
         i += 1
     }
 }
+
+extend <T impl Hash> HashSet<T> impl Default {
+    static inline fn make_default() -> HashSet<T> {
+        return HashSet<T>()
+    }
+}

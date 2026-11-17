@@ -1183,3 +1183,9 @@ extend <T> Drain<T> impl ExactSize {
         return self.tail - self.head
     }
 }
+
+extend <T> Vector<T> impl Default {
+    static inline fn make_default() -> Vector<T> {
+        return Vector<T>()
+    }
+}

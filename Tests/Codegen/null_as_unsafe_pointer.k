@@ -10,7 +10,8 @@ class Deco {
         return &null;
     }
 }
-class <T: type> Mix {
+interface HasK { fn k(self) -> i32 }
+class <T derives Mix<T> impl HasK> Mix {
     inline fn dyn(self) -> *T { return unsafe (&self as *T); }
     pub fn go(self) -> i32 {
         var d: unsafe *Deco = Deco::create(self.dyn()->k(), unsafe (&null as unsafe *Base));
@@ -18,11 +19,12 @@ class <T: type> Mix {
         return 0
     }
 }
-class H derives Mix<H> { fn k(self) -> i32 { return 1 } }
+class H derives Mix<H> impl HasK { fn k(self) -> i32 { return 1 } }
 fn main() -> i32 { var h = H(); return h.go() }
 
 // --- lit wiring ---
 // REQUIRES: clang
+// RUN: rm -f %t.exe
 // RUN: rm -rf %t.d
 // RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: CL001E

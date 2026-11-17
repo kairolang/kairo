@@ -14,13 +14,17 @@ pub fn is_rec(p: unsafe *St) -> bool { return p->k == 7; }
 
 enum Prec derives u8 { A, B }
 
-class Host derives Mixin<Host> {
+interface Parses {
+    fn parse_type(self) -> unsafe *Ex
+    fn kind(self) -> i32
+}
+class Host derives Mixin<Host> impl Parses {
     pub var e: Ex;
     pub fn parse_type(self) -> unsafe *Ex { return unsafe (&self.e); }
     pub fn kind(self) -> i32 { return 3; }
 }
 
-class <T: type> Mixin {
+class <T derives Mixin<T> impl Parses> Mixin {
     inline fn dyn(self) -> unsafe *T { return unsafe ((unsafe &self) as unsafe *T); }
     priv fn prec_of(self, k: i32) -> Prec { if k > 2 { return Prec::B; } return Prec::A; }
     pub fn go(self) -> bool {
@@ -41,6 +45,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
+// RUN: rm -f %t.exe
 // RUN: rm -rf %t.d
 // RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: I011W

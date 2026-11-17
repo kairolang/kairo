@@ -1,11 +1,4 @@
 // with_len and resize(n).
-//
-// XFAIL: *
-// Waiting on the compiler: a member of an `extend <T impl Default>` block is
-// rejected by clang for `i32`, `u8` and a class with its own
-// `extend X impl Default`, and for string ("'int' does not satisfy
-// 'Default_c'"), while a function with a `<T impl Default>` bound is
-// accepted for the same types.
 
 import self::Inputs::elems::*
 import std::io
