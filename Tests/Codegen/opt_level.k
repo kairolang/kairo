@@ -21,7 +21,7 @@ fn main() -> i32 {
 // there is printed and the awk range still finds the real one; `jalr` on
 // RISC-V). MinGW's main opens with `call __main` (CRT static init); the
 // sed drops that call and its relocation line.
-// RUN: %objdump --show-all-symbols -dr --no-show-raw-insn %t.o0/opt_level.o | awk '/<_?main>:/,/^$/' | sed '/call/{N;/__main/d;}' | grep -qE 'call|[[:space:]]bl[[:space:]]|[[:space:]]jalr[[:space:]]'
+// RUN: %objdump --show-all-symbols -dr --no-show-raw-insn %t.o0/opt_level.o | awk '/<_?main>:/,/^$/' | sed '/call/{N;/__main/d;}' | grep -E 'call|[[:space:]]bl[[:space:]]|[[:space:]]jalr[[:space:]]' > /dev/null
 
 // At -O2 it is inlined and the loop folds away: no call left in main.
 // RUN: %objdump --show-all-symbols -dr --no-show-raw-insn %t.o2/opt_level.o | awk '/<_?main>:/,/^$/' | sed '/call/{N;/__main/d;}' | { ! grep -qE 'call|[[:space:]]bl[[:space:]]|[[:space:]]jalr[[:space:]]'; }

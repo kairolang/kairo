@@ -10,6 +10,7 @@ import alloc_raw::{
 import base::cmp::*
 import base::copy::*
 import base::intrinsics::*
+import base::iter::*
 import base::range::*
 import builtin::Null
 import containers::vector::*
@@ -173,6 +174,209 @@ priv inline fn range_to_end(const r: RangeTo<usize>, len: usize) -> usize {
     return hi
 }
 
+/// The elements of a slice by pointer, from either end.
+///
+/// What `Slice::iter()` returns. It is two pointers: it copies freely, owns
+/// nothing, and is valid while the slice's elements are. It knows how many
+/// elements are left, so a chain over it can be reversed, cut and collected
+/// into storage sized once.
+pub class <T> SliceIter {
+    // Invariant: `[lo, hi)` are live elements; `lo == hi` when none is left.
+    priv var lo: unsafe *const T
+    priv var hi: unsafe *const T
+
+    /// The `n` elements from `first`.
+    ///
+    /// Unchecked: the caller vouches for `n`.
+    pub inline fn SliceIter(self, first: unsafe *const T, n: usize) {
+        unsafe {
+            self.lo = first
+            self.hi = first + n
+        }
+    }
+
+    @copy pub fn SliceIter(self, const other: Self) = default
+
+    /// The elements not yet yielded.
+    pub inline fn as_slice(const self) -> [const T;] {
+        return Slice<const T>(self.lo, self.left_())
+    }
+
+    /// Keeps the first `n` of the elements left, or all of them when there
+    /// are fewer.
+    pub inline fn keep_first(self, n: usize) {
+        unsafe {
+            if self.left_() > n {
+                self.hi = self.lo + n
+            }
+        }
+    }
+
+    /// Keeps the last `n` of the elements left, or all of them when there
+    /// are fewer.
+    pub inline fn keep_last(self, n: usize) {
+        unsafe {
+            if self.left_() > n {
+                self.lo = self.hi - n
+            }
+        }
+    }
+
+    /// `for p in s.iter()` gives a pointer to each element left, front to
+    /// back.
+    ///
+    /// A `for` loop reads through what `op in` yields, so the pointer is
+    /// yielded by its address.
+    pub fn op in (self) -> yield *const (*const T) {
+        var unsafe *p = self.lo
+        var unsafe *e = self.hi
+        unsafe {
+            while p != e {
+                var q = p as *const T
+                yield const &q
+                p = p + 1
+            }
+        }
+    }
+
+    priv inline fn left_(const self) -> usize {
+        unsafe {
+            return ((self.hi as usize) - (self.lo as usize)) / sizeof T
+        }
+    }
+}
+
+extend <T> SliceIter<T> impl DoubleEnded {
+    type Item = *const T
+    inline fn next(self) -> (*const T)? {
+        unsafe {
+            if self.lo == self.hi {
+                return null
+            }
+
+            var unsafe *p = self.lo
+            self.lo = p + 1
+            return p as *const T
+        }
+    }
+    inline fn next_back(self) -> (*const T)? {
+        unsafe {
+            if self.lo == self.hi {
+                return null
+            }
+
+            self.hi = self.hi - 1
+            return self.hi as *const T
+        }
+    }
+}
+
+extend <T> SliceIter<T> impl ExactSize {
+    inline fn remaining(const self) -> usize {
+        return self.left_()
+    }
+}
+
+extend <T> SliceIter<T> impl PointerItems {
+    type Target = T
+}
+
+/// The elements of a slice by pointer, for writing, from either end.
+///
+/// What `Slice::iter_mut()` returns: `SliceIter` with pointers the elements
+/// can be written through.
+pub class <T> SliceIterMut {
+    // Invariant: as `SliceIter`'s.
+    priv var lo: unsafe *T
+    priv var hi: unsafe *T
+
+    /// The `n` elements from `first`.
+    ///
+    /// Unchecked: the caller vouches for `n`.
+    pub inline fn SliceIterMut(self, first: unsafe *T, n: usize) {
+        unsafe {
+            self.lo = first
+            self.hi = first + n
+        }
+    }
+
+    @copy pub fn SliceIterMut(self, const other: Self) = default
+
+    /// Keeps the first `n` of the elements left, or all of them when there
+    /// are fewer.
+    pub inline fn keep_first(self, n: usize) {
+        unsafe {
+            if self.left_() > n {
+                self.hi = self.lo + n
+            }
+        }
+    }
+
+    /// Keeps the last `n` of the elements left, or all of them when there
+    /// are fewer.
+    pub inline fn keep_last(self, n: usize) {
+        unsafe {
+            if self.left_() > n {
+                self.lo = self.hi - n
+            }
+        }
+    }
+
+    /// `for p in s.iter_mut()` gives a pointer to each element left, front
+    /// to back.
+    ///
+    /// A `for` loop reads through what `op in` yields, so the pointer is
+    /// yielded by its address.
+    pub fn op in (self) -> yield *const (*T) {
+        var unsafe *p = self.lo
+        var unsafe *e = self.hi
+        unsafe {
+            while p != e {
+                var q = p as *T
+                yield const &q
+                p = p + 1
+            }
+        }
+    }
+
+    priv inline fn left_(const self) -> usize {
+        unsafe {
+            return ((self.hi as usize) - (self.lo as usize)) / sizeof T
+        }
+    }
+}
+
+extend <T> SliceIterMut<T> impl DoubleEnded {
+    type Item = *T
+    inline fn next(self) -> (*T)? {
+        unsafe {
+            if self.lo == self.hi {
+                return null
+            }
+
+            var unsafe *p = self.lo
+            self.lo = p + 1
+            return p as *T
+        }
+    }
+    inline fn next_back(self) -> (*T)? {
+        unsafe {
+            if self.lo == self.hi {
+                return null
+            }
+
+            self.hi = self.hi - 1
+            return self.hi as *T
+        }
+    }
+}
+
+extend <T> SliceIterMut<T> impl ExactSize {
+    inline fn remaining(const self) -> usize {
+        return self.left_()
+    }
+}
+
 /// A view: copied freely, owns nothing. Two words. Reads through op [],
 /// writes through op []=.
 pub class <T> Slice {
@@ -318,16 +522,14 @@ pub class <T> Slice {
         )
     }
 
-    pub fn iter_mut(self) -> yield *T {
-        var unsafe *p = self.base()
-        var i: usize  = 0
-        while i < self.len {
-            unsafe {
-                yield (p + i) as *T
-            }
+    /// The elements by pointer, from either end, with their count.
+    pub inline fn iter(const self) -> SliceIter<T> {
+        return SliceIter<T>(self.cbase(), self.len)
+    }
 
-            i += 1
-        }
+    /// The elements by pointer, for writing, from either end.
+    pub inline fn iter_mut(self) -> SliceIterMut<T> {
+        return SliceIterMut<T>(self.base(), self.len)
     }
 
     pub fn get_mut(self, i: usize) -> *T? {
@@ -425,6 +627,11 @@ pub class <T> Slice<const T> {
     }
 
     @copy pub fn Slice(self, const other: Self) = default
+
+    /// The elements by pointer, from either end, with their count.
+    pub inline fn iter(const self) -> SliceIter<T> {
+        return SliceIter<T>(self.base(), self.len)
+    }
 
     @hot_path pub fn op [] (const self, i: usize) -> *const T { // checked
         @unlikely if i >= self.len {
@@ -533,18 +740,6 @@ extend <T> Slice<T> {
         unsafe {
             var unsafe *p = self.cbase()
             return (Slice<const T>(p, i), Slice<const T>(p + i, self.len - i))
-        }
-    }
-
-    pub fn iter(const self) -> yield *const T {
-        var unsafe *p = self.cbase()
-        var i: usize  = 0
-        while i < self.len {
-            unsafe {
-                yield (p + i) as *const T
-            }
-
-            i += 1
         }
     }
 

@@ -1,11 +1,6 @@
 // Iterator chain rows (ops.toml, group "iter") on the two-word library:
-// std::iter's adapters over a slice, and beside each chain the loop a person
-// would write by hand (`_loop`).
-//
-// The slice's own `iter()` is a generator, which reads forward only and
-// does not know its length: the first row runs over it. The rows that need
-// the length or the back end (`take`, `rev`, `collect`) run over
-// `iter_slice_`, std::iter's pointer-pair source.
+// std::iter's adapters over a slice's `iter()`, and beside each chain the
+// loop a person would write by hand (`_loop`).
 import self::support::*
 import std::iter::*
 ffi "c++" import "bench.h"
@@ -24,20 +19,20 @@ fn not_sentinel(p: *const (*const i32)) -> bool = **p != 5000
 fn weigh(acc: i64, e: (usize, *const i32)) -> i64 = acc + (e.0 as i64) * (*e.1 as i64)
 
 fn map_filter_sum(const v: [const i32;]) -> u64 {
-    var sum: i32 = iter(v.iter()).copied().map<i32>(triple).filter(is_even).sum()
+    var sum: i32 = iter(v.iter()).copied().map(triple).filter(is_even).sum()
     return (sum as i64) as u64
 }
 
 fn enumerate_take(const v: [const i32;]) -> u64 {
-    return iter_slice_(v).enumerate().take(v.size() / 2).fold<i64>(0, weigh) as u64
+    return iter(v.iter()).enumerate().take(v.size() / 2).fold<i64>(0, weigh) as u64
 }
 
 fn rev_take_while_count(const v: [const i32;]) -> u64 {
-    return iter_slice_(v).rev().take_while(not_sentinel).count() as u64
+    return iter(v.iter()).rev().take_while(not_sentinel).count() as u64
 }
 
 fn collect_map(const v: [const i32;]) -> u64 {
-    var out = iter_slice_(v).copied().map<i32>(triple).collect<[i32]>()
+    var out = iter(v.iter()).copied().map(triple).collect<[i32]>()
     unsafe { bench_sink_ptr(&out[0] as unsafe *const void) }
     return out.size() as u64 + ((out[v.size() - 1] as i64) as u64)
 }

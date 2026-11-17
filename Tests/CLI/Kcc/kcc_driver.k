@@ -39,7 +39,7 @@ fn main() -> i32 { return 0 }
 // RUN: %kcc -S -emit-llvm %S/Inputs/std23.cc -o %t.d/s.ll
 // RUN: grep -q 'define .*@main' %t.d/s.ll
 // RUN: %kcc -c -emit-llvm %S/Inputs/std23.cc -o %t.d/s.bc
-// RUN: od -An -c -N2 %t.d/s.bc | grep -q 'B   C'
+// RUN: od -An -c -N2 %t.d/s.bc | grep 'B   C' > /dev/null
 // RUN: { %kcc -emit-llvm %S/Inputs/std23.cc 2>&1 || true; } | %FileCheck %s --check-prefix=EMITLLVM
 // EMITLLVM: kcc: error: -emit-llvm needs -S or -c
 

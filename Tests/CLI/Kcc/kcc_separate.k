@@ -34,7 +34,7 @@ fn main() -> i32 { return 0 }
 // RUN: %if sysroot-x86_64-windows-gnu %{ %kcc --target=x86_64-windows-gnu -c %S/Inputs/use_shapes.cc -o %t.d/xw.o %}
 // RUN: %if sysroot-x86_64-windows-gnu %{ %kcc --target=x86_64-windows-gnu -c %S/Inputs/shapes.k -o %t.d/yw.o %}
 // RUN: %if sysroot-x86_64-windows-gnu %{ %kcc --target=x86_64-windows-gnu %t.d/xw.o %t.d/yw.o -o %t.d/main.exe 2>&1 | %FileCheck %s --check-prefix=MINGW --allow-empty %}
-// RUN: %if sysroot-x86_64-windows-gnu %{ od -An -c -N2 %t.d/main.exe | grep -q 'M   Z' %}
+// RUN: %if sysroot-x86_64-windows-gnu %{ od -An -c -N2 %t.d/main.exe | grep 'M   Z' > /dev/null %}
 // MINGW-NOT: warning
 // MINGW-NOT: error
 

@@ -42,7 +42,7 @@ fn main() -> i32 = level(Level::Info) + status(200) + word("abc")
 // function's address and would otherwise be the only label printed there.
 // RUN: %objdump --show-all-symbols -d --no-show-raw-insn %t.o2/shapes.o > %t.o2.s
 // RUN: %objdump --show-all-symbols -d --no-show-raw-insn %t.o3/shapes.o > %t.o3.s
-// RUN: awk '/<[^>]*5level[^>]*>:/,/^$/' %t.o2.s | grep -qE 'ud2|brk|unimp'
+// RUN: awk '/<[^>]*5level[^>]*>:/,/^$/' %t.o2.s | grep -E 'ud2|brk|unimp' > /dev/null
 // RUN: awk '/<[^>]*5level[^>]*>:/,/^$/' %t.o3.s | { ! grep -qE 'ud2|brk|unimp'; }
 // RUN: test $(awk '/<[^>]*6status[^>]*>:/,/^$/' %t.o2.s | grep -c cmp) -le 4
 // RUN: awk '/<[^>]*4word[^>]*>:/,/^$/' %t.o2.s | { ! grep -qE 'call|[[:space:]]bl[[:space:]]|[[:space:]]jalr[[:space:]]'; }

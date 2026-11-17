@@ -13,7 +13,7 @@ fn deep(c: bool) -> i32 {
 // REQUIRES: shell
 // RUN: timeout 10 %kairo %s --syntax-only --cmax-errors=10000 > %t.out 2>&1; test $? -ne 124
 // RUN: %FileCheck %s --check-prefix=DIAG --input-file=%t.out
-// RUN: grep -c 'error \[S073E\]' %t.out | grep -qx 60
-// RUN: grep -c 'error \[S077E\]' %t.out | grep -qx 29
+// RUN: grep -c 'error \[S073E\]' %t.out | grep -x 60 > /dev/null
+// RUN: grep -c 'error \[S077E\]' %t.out | grep -x 29 > /dev/null
 // DIAG: arms_recovery_deep_nesting.k:9:17: error [S073E]
 // DIAG-NOT: error [S0{[^7]}

@@ -26,14 +26,14 @@ fn main() -> i32 { return 3 }
 // RUN: %t.exe; test $? -eq 3
 // RUN: env KAIRO_CACHE_DIR=%t.c %kairo_bin --error-format=basic --builtins-dir=%t.lib/builtin --std-dir=%S/../../../Lib/std %s -o %t.exe -O3 -v 2>&1 | %FileCheck %s --check-prefix=HIT
 // RUN: env KAIRO_CACHE_DIR=%t.c %kairo_bin --error-format=basic --builtins-dir=%t.lib/builtin --std-dir=%S/../../../Lib/std %s -o %t.exe -v 2>&1 | %FileCheck %s --check-prefix=HIT
-// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -qx 2
+// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -x 2 > /dev/null
 
 // A changed runtime header misses, and its store replaces the old entry of
 // that slot rather than adding one.
 // RUN: echo '/* edited */' >> %t.lib/rt/alloc.h
 // RUN: env KAIRO_CACHE_DIR=%t.c %kairo_bin --error-format=basic --builtins-dir=%t.lib/builtin --std-dir=%S/../../../Lib/std %s -o %t.exe -v 2>&1 | %FileCheck %s --check-prefix=MISS
 // RUN: env KAIRO_CACHE_DIR=%t.c %kairo_bin --error-format=basic --builtins-dir=%t.lib/builtin --std-dir=%S/../../../Lib/std %s -o %t.exe -v 2>&1 | %FileCheck %s --check-prefix=HIT
-// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -qx 2
+// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -x 2 > /dev/null
 
 // A changed mimalloc file (a submodule bump) misses too.
 // RUN: echo '/* edited */' >> %t.lib/rt/mimalloc/include/mimalloc.h

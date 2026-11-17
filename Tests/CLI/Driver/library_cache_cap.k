@@ -25,7 +25,7 @@ fn main() -> i32 { return 7 }
 // RUN: test ! -e %t.c/rt/fakeold-1-1.o
 // RUN: test ! -e %t.c/rt/fakeolder-1-1.o
 // RUN: test -e %t.c/rt/fakerecent-1-1.o
-// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -qx 1
+// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -x 1 > /dev/null
 
 // Library cache: a link of separately compiled objects builds the library.
 // RUN: python3 %S/Inputs/library_cache_cap/seed.py tree %t.c/lib
@@ -35,5 +35,5 @@ fn main() -> i32 { return 7 }
 // RUN: test ! -e %t.c/lib/fakeold-1
 // RUN: test ! -e %t.c/lib/fakeolder-1
 // RUN: test -e %t.c/lib/fakerecent-1
-// RUN: ls %t.c/lib | grep -v '^fake' | grep -c . | grep -qx 1
+// RUN: ls %t.c/lib | grep -v '^fake' | grep -c . | grep -x 1 > /dev/null
 // RUN: rm -rf %t.c %t.d

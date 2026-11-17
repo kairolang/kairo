@@ -19,6 +19,16 @@ pub interface ExactSize derives Iterator {
     fn remaining(const self) -> usize
 }
 
+/// An iterator whose items are pointers to `Target`, not to be written
+/// through.
+///
+/// It is what `copied()` asks of a chain: `Item` is `*const Target`, which
+/// the user of the bound states as
+/// `requires __builtin_is_same<I::Item, *const I::Target>()`.
+pub interface PointerItems derives Iterator {
+    type Target
+}
+
 /// `hint` is a lower bound on the item count, 0 when unknown.
 pub interface <T> FromIterator {
     static fn <J impl Iterator> from_iter(it:   J,

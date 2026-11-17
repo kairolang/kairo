@@ -12,7 +12,7 @@ fn main() -> i32 { return add(40, 2) }
 // RUN: grep -qE '^_?main:' %t.d/emit_kinds.s
 // RUN: grep -q 'define .*@main' %t.d/emit_kinds.ll
 // Raw bitcode starts with BC; Darwin wraps it in a 20-byte header first.
-// RUN: od -An -c -N24 %t.d/emit_kinds.bc | grep -q 'B   C'
+// RUN: od -An -c -N24 %t.d/emit_kinds.bc | grep 'B   C' > /dev/null
 // RUN: test -f %t.d/builtin/coro/generator.s
 // RUN: test -z "$(find %t.d -name '*.o')"
 

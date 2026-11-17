@@ -1,9 +1,8 @@
 // A chain over a slice costs what its loop costs. At -O2 each function
-// below is its loops and nothing else: the generator's frame is elided (no
-// allocation), the adapter structs are never stored (no alloca), and the
-// `fn` callbacks are the named functions, inlined (no call of any kind,
-// direct or through a pointer, other than an `llvm.` intrinsic of a
-// vectorized loop).
+// below is its loops and nothing else: the adapter structs are never stored
+// (no alloca), and the `fn` callbacks are the named functions, inlined (no
+// call of any kind, direct or through a pointer, other than an `llvm.`
+// intrinsic).
 
 import std::iter::*
 
@@ -46,7 +45,7 @@ fn main() -> i32 {
 // CHECK-NOT: alloca
 // CHECK: {{^}}}
 // CHECK-LABEL: define {{.*}}13chain_counted
-// CHECK-NOT: {{(call|invoke) }}
+// CHECK-NOT: {{(call|invoke) [^@]*@[^l]}}
 // CHECK-NOT: alloca
 // CHECK: {{^}}}
 // CHECK-LABEL: define {{.*}}12chain_mapped
@@ -56,7 +55,7 @@ fn main() -> i32 {
 // CHECK-NOT: {{(call|invoke) [^@]*@[^l]}}
 // CHECK: {{^}}}
 // CHECK-LABEL: define {{.*}}12chain_prefix
-// CHECK-NOT: {{(call|invoke) }}
+// CHECK-NOT: {{(call|invoke) [^@]*@[^l]}}
 // CHECK-NOT: alloca
 // CHECK: {{^}}}
 

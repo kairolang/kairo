@@ -19,7 +19,7 @@ import builtin::string::*
 
 /// Adapters live on a wrapper until interfaces get blanket extends.
 /// An Iter is used once: an adapter moves the inner iterator out.
-/// Start from a generator: `iter(v.iter())`, `iter(s.lines())`.
+/// Start from an iterator or a generator: `iter(v.iter())`, `iter(s.lines())`.
 pub class <I impl Iterator> Iter {
     priv var it: I
 }
@@ -177,6 +177,18 @@ extend <I impl ExactSize> Enumerate<I> impl ExactSize {
     }
 }
 
+/// From the back an item's index is counted from the length.
+extend <I impl DoubleEnded> Enumerate<I> impl DoubleEnded requires I impl ExactSize {
+    inline fn next_back(self) -> (usize, I::Item)? {
+        var x = self.it.next_back()
+        if !x? {
+            return null
+        }
+
+        return (self.i + self.it.remaining(), move(unwrap!(x)))
+    }
+}
+
 /// Ends with the shorter side. `a` is pulled first; when `b` has ended the
 /// item pulled from `a` is dropped.
 pub class <I impl Iterator, J impl Iterator> Zip {
@@ -206,6 +218,35 @@ extend <I impl ExactSize, J impl ExactSize> Zip<I, J> impl ExactSize {
         var n = self.a.remaining()
         var m = self.b.remaining()
         return if n < m => n else => m
+    }
+}
+
+/// From the back the longer side first drops what has no partner.
+extend <I impl DoubleEnded, J impl DoubleEnded> Zip<I, J> impl DoubleEnded requires I impl ExactSize && J impl ExactSize {
+    inline fn next_back(self) -> (I::Item, J::Item)? {
+        var n = self.a.remaining()
+        var m = self.b.remaining()
+        while n > m {
+            var dropped = self.a.next_back()
+            n -= 1
+        }
+
+        while m > n {
+            var dropped = self.b.next_back()
+            m -= 1
+        }
+
+        var x = self.a.next_back()
+        if !x? {
+            return null
+        }
+
+        var y = self.b.next_back()
+        if !y? {
+            return null
+        }
+
+        return (move(unwrap!(x)), move(unwrap!(y)))
     }
 }
 
@@ -276,6 +317,28 @@ extend <I impl ExactSize> Take<I> impl ExactSize {
     }
 }
 
+/// From the back the items past the cut are dropped first.
+extend <I impl DoubleEnded> Take<I> impl DoubleEnded requires I impl ExactSize {
+    inline fn next_back(self) -> I::Item? {
+        if self.n == 0 {
+            return null
+        }
+
+        var m = self.it.remaining()
+        while m > self.n {
+            var dropped = self.it.next_back()
+            m -= 1
+        }
+
+        if m == 0 {
+            return null
+        }
+
+        self.n = m - 1
+        return self.it.next_back()
+    }
+}
+
 /// `n` is how many items are still to be discarded; the first `next` discards
 /// them.
 pub class <I impl Iterator> Skip {
@@ -308,6 +371,17 @@ extend <I impl ExactSize> Skip<I> impl ExactSize {
     inline fn remaining(const self) -> usize {
         var m = self.it.remaining()
         return if m > self.n => m - self.n else => 0
+    }
+}
+
+/// From the back the items still to be discarded are never reached.
+extend <I impl DoubleEnded> Skip<I> impl DoubleEnded requires I impl ExactSize {
+    inline fn next_back(self) -> I::Item? {
+        if self.it.remaining() <= self.n {
+            return null
+        }
+
+        return self.it.next_back()
     }
 }
 
@@ -493,119 +567,113 @@ extend <I impl DoubleEnded> Rev<I> impl ExactSize requires I impl ExactSize {
     }
 }
 
-pub class <U impl Copyable> Copied {
-    priv var it: Yield<*const U>
+/// The items a chain of pointers points at, copied.
+///
+/// The inner iterator is any whose items are `*const Target`: a slice's
+/// `iter()`, a generator of pointers, or an adapter over one that passes
+/// its items on unchanged.
+///
+/// COMPILER-WORKAROUND(derived-interface-item): the bound is `Iterator`, with
+/// `PointerItems` stated in the clause. Under the bound `I impl
+/// PointerItems` the clause's `I::Item` is not found, although the
+/// interface derives `Iterator`. The item is bound to a `*const I::Target`
+/// before it is read through: the clause makes the two one type, but not
+/// one that `*` applies to.
+pub class <I impl Iterator> Copied requires I impl PointerItems && I::Target impl Copyable && __builtin_is_same<I::Item, *const I::Target>() {
+    priv var it: I
 }
 
-extend <U impl Copyable> Copied<U> impl Iterator {
-    type Item = U
-    inline fn next(self) -> U? {
+extend <I impl Iterator> Copied<I> impl Iterator requires I impl PointerItems && I::Target impl Copyable && __builtin_is_same<I::Item, *const I::Target>() {
+    type Item = I::Target
+    inline fn next(self) -> I::Target? {
         var p = self.it.next()
         if !p? {
             return null
         }
 
-        return (*unwrap!(p)).copy()
+        var q: *const I::Target = unwrap!(p)
+        return (*q).copy()
     }
 }
 
-/// The elements of a slice by pointer, from either end, with their count.
-/// Reached through `iter_slice_`, which is not part of the public surface.
-pub class <T> SliceIter {
-    priv var lo: unsafe *const T
-    priv var hi: unsafe *const T
-}
-
-priv inline fn <T> span_len(lo: unsafe *const T, hi: unsafe *const T) -> usize {
-    unsafe {
-        return ((hi as usize) - (lo as usize)) / sizeof T
-    }
-}
-
-extend <T> SliceIter<T> impl DoubleEnded {
-    type Item = *const T
-    inline fn next(self) -> (*const T)? {
-        unsafe {
-            if self.lo == self.hi {
-                return null
-            }
-
-            var unsafe *p = self.lo
-            self.lo = p + 1
-            return p as *const T
+extend <I impl Iterator> Copied<I> impl DoubleEnded requires I impl DoubleEnded && I impl PointerItems && I::Target impl Copyable && __builtin_is_same<I::Item, *const I::Target>() {
+    inline fn next_back(self) -> I::Target? {
+        var p = self.it.next_back()
+        if !p? {
+            return null
         }
-    }
-    inline fn next_back(self) -> (*const T)? {
-        unsafe {
-            if self.lo == self.hi {
-                return null
-            }
 
-            self.hi = self.hi - 1
-            return self.hi as *const T
-        }
+        var q: *const I::Target = unwrap!(p)
+        return (*q).copy()
     }
 }
 
-extend <T> SliceIter<T> impl ExactSize {
+extend <I impl Iterator> Copied<I> impl ExactSize requires I impl ExactSize && I impl PointerItems && I::Target impl Copyable && __builtin_is_same<I::Item, *const I::Target>() {
     inline fn remaining(const self) -> usize {
-        return span_len<T>(self.lo, self.hi)
+        return self.it.remaining()
     }
 }
 
-/// `SliceIter` yielding copies of the elements.
-pub class <T impl Copyable> SliceCopied {
-    priv var lo: unsafe *const T
-    priv var hi: unsafe *const T
-}
-
-extend <T impl Copyable> SliceCopied<T> impl DoubleEnded {
-    type Item = T
-    inline fn next(self) -> T? {
-        unsafe {
-            if self.lo == self.hi {
-                return null
-            }
-
-            var unsafe *p = self.lo
-            self.lo = p + 1
-            return (*p).copy()
-        }
-    }
-    inline fn next_back(self) -> T? {
-        unsafe {
-            if self.lo == self.hi {
-                return null
-            }
-
-            self.hi = self.hi - 1
-            return (*self.hi).copy()
-        }
-    }
-}
-
-extend <T impl Copyable> SliceCopied<T> impl ExactSize {
-    inline fn remaining(const self) -> usize {
-        return span_len<T>(self.lo, self.hi)
-    }
-}
-
-/// A chain over the elements of `s`, by pointer. Unlike `iter(s.iter())` the
-/// source knows its length and reads from either end, so `rev()` applies, a
-/// `take(n)` is a counted loop and `collect()` sizes its target once.
+/// A generator of pointers, as an iterator that says what they point at.
 ///
-/// The trailing underscore marks it as outside the public surface: it stands
-/// in until `Slice::iter()` itself returns a source of this kind.
-pub inline fn <T> iter_slice_(const s: [const T;]) -> Iter<SliceIter<T>> {
-    var n = s.size()
-    unsafe {
-        var lo: unsafe *const T = &null
-        if n != 0 {
-            lo = &s[0] as unsafe *const T
-        }
+/// COMPILER-WORKAROUND(pattern-associated-type): `Yield<*const U>` does not
+/// implement `PointerItems` itself. An associated type set from the
+/// parameter of an extension's pattern (`extend <U> Yield<*const U> ...
+/// type Target = U`) is emitted by that parameter's name in the witness of
+/// a class over it, so `copied()` on a generator wraps it in this class,
+/// whose own parameter is the target.
+pub class <U> Pointed {
+    priv var it: Yield<*const U>
+}
 
-        return Iter<SliceIter<T>> { it: SliceIter<T> { lo: lo, hi: lo + n } }
+extend <U> Pointed<U> impl Iterator {
+    type Item = *const U
+    inline fn next(self) -> (*const U)? {
+        return self.it.next()
     }
+}
+
+extend <U> Pointed<U> impl PointerItems {
+    type Target = U
+}
+
+// The adapters that pass their items on unchanged keep pointing at what
+// their inner iterator points at.
+
+extend <I impl PointerItems> Iter<I> impl PointerItems {
+    type Target = I::Target
+}
+
+extend <I impl PointerItems> Filter<I> impl PointerItems {
+    type Target = I::Target
+}
+
+extend <I impl PointerItems> Take<I> impl PointerItems {
+    type Target = I::Target
+}
+
+extend <I impl PointerItems> Skip<I> impl PointerItems {
+    type Target = I::Target
+}
+
+extend <I impl PointerItems> TakeWhile<I> impl PointerItems {
+    type Target = I::Target
+}
+
+extend <I impl PointerItems> SkipWhile<I> impl PointerItems {
+    type Target = I::Target
+}
+
+extend <I impl PointerItems> StepBy<I> impl PointerItems {
+    type Target = I::Target
+}
+
+extend <I impl PointerItems> Peekable<I> impl PointerItems {
+    type Target = I::Target
+}
+
+extend <I impl DoubleEnded> Rev<I> impl PointerItems requires I impl PointerItems {
+    type Target = I::Target
 }
 
 // --- internal iteration -----------------------------------------------------
@@ -712,140 +780,138 @@ priv class <I impl DoubleEnded> DriveBack {
 // --- sources ----------------------------------------------------------------
 
 priv class <T> SliceDrive {
+    /// An index loop over the elements left. A loop over `next` tests each
+    /// result for null as well, which the optimizer does not fold into the
+    /// end test: two exits where this has one.
     static inline fn <S impl Sink<*const T>> run(it: *SliceIter<T>, s: *S) -> bool {
-        unsafe {
-            var unsafe *p = it->lo
-            var unsafe *e = it->hi
-            while p != e {
-                var q = p as *const T
-                p = p + 1
-                if !s->put(&q) {
-                    it->lo = p
-                    return false
-                }
+        var left = it->as_slice()
+        var n = left.size()
+        var i: usize = 0
+        while i < n {
+            var q: *const T = &left[i]
+            i += 1
+            if !s->put(&q) {
+                it->keep_last(n - i)
+                return false
             }
-
-            it->lo = p
-            return true
         }
+
+        it->keep_last(0)
+        return true
     }
 
     static inline fn bound(it: *const SliceIter<T>) -> Bound {
-        return Bound { lo: span_len<T>(it->lo, it->hi), exact: true }
+        return Bound { lo: it->remaining(), exact: true }
     }
 
     static inline fn limit(it: *SliceIter<T>, n: usize) -> bool {
-        unsafe {
-            if span_len<T>(it->lo, it->hi) > n {
-                it->hi = it->lo + n
-            }
-        }
-
+        it->keep_first(n)
         return true
     }
 }
 
-class <T> Drive<SliceIter<T>> derives SliceDrive<T> { }
+// COMPILER-WORKAROUND(partial-forward-decl): as for `Drive<Chain<I, J>>`,
+// for a class of another module.
+class <T> Drive<SliceIter<T>> derives SliceDrive<T> requires sizeof usize != 0 { }
 
 priv class <T> SliceBackDrive {
+    /// A pointer walked down from the end: one instruction an item less
+    /// than an index counted down.
     static inline fn <S impl Sink<*const T>> run(it: *SliceIter<T>, s: *S) -> bool {
+        var left = it->as_slice()
+        var n = left.size()
+        if n == 0 {
+            return true
+        }
+
         unsafe {
-            var unsafe *b = it->lo
-            var unsafe *p = it->hi
-            while p != b {
+            var unsafe *first = &left[0] as unsafe *const T
+            var unsafe *p = first + n
+            while p != first {
                 p = p - 1
                 var q = p as *const T
                 if !s->put(&q) {
-                    it->hi = p
+                    it->keep_first(((p as usize) - (first as usize)) / sizeof T)
                     return false
                 }
             }
-
-            it->hi = p
-            return true
         }
+
+        it->keep_first(0)
+        return true
     }
 
     static inline fn limit(it: *SliceIter<T>, n: usize) -> bool {
-        unsafe {
-            if span_len<T>(it->lo, it->hi) > n {
-                it->lo = it->hi - n
-            }
-        }
-
+        it->keep_last(n)
         return true
     }
 }
 
-class <T> DriveBack<SliceIter<T>> derives SliceBackDrive<T> { }
+// COMPILER-WORKAROUND(partial-forward-decl): as for `Drive<Chain<I, J>>`,
+// for a class of another module.
+class <T> DriveBack<SliceIter<T>> derives SliceBackDrive<T> requires sizeof usize != 0 { }
 
-priv class <T impl Copyable> SliceCopiedDrive {
-    static inline fn <S impl Sink<T>> run(it: *SliceCopied<T>, s: *S) -> bool {
-        unsafe {
-            var unsafe *p = it->lo
-            var unsafe *e = it->hi
-            while p != e {
-                var x = (*p).copy()
-                p = p + 1
-                if !s->put(&x) {
-                    it->lo = p
-                    return false
-                }
+priv class <T> SliceMutDrive {
+    /// The loop runs on a copy of the two pointers, so they are the loop's
+    /// own whatever becomes of the chain they come from.
+    static inline fn <S impl Sink<*T>> run(it: *SliceIterMut<T>, s: *S) -> bool {
+        var c = *it
+        loop {
+            var x = c.next()
+            if !x? {
+                *it = c
+                return true
             }
 
-            it->lo = p
-            return true
+            var q: *T = unwrap!(x)
+            if !s->put(&q) {
+                *it = c
+                return false
+            }
         }
     }
 
-    static inline fn bound(it: *const SliceCopied<T>) -> Bound {
-        return Bound { lo: span_len<T>(it->lo, it->hi), exact: true }
+    static inline fn bound(it: *const SliceIterMut<T>) -> Bound {
+        return Bound { lo: it->remaining(), exact: true }
     }
 
-    static inline fn limit(it: *SliceCopied<T>, n: usize) -> bool {
-        unsafe {
-            if span_len<T>(it->lo, it->hi) > n {
-                it->hi = it->lo + n
-            }
-        }
-
+    static inline fn limit(it: *SliceIterMut<T>, n: usize) -> bool {
+        it->keep_first(n)
         return true
     }
 }
 
-class <T> Drive<SliceCopied<T>> derives SliceCopiedDrive<T> { }
+// COMPILER-WORKAROUND(partial-forward-decl): as for `Drive<Chain<I, J>>`,
+// for a class of another module.
+class <T> Drive<SliceIterMut<T>> derives SliceMutDrive<T> requires sizeof usize != 0 { }
 
-priv class <T impl Copyable> SliceCopiedBackDrive {
-    static inline fn <S impl Sink<T>> run(it: *SliceCopied<T>, s: *S) -> bool {
-        unsafe {
-            var unsafe *b = it->lo
-            var unsafe *p = it->hi
-            while p != b {
-                p = p - 1
-                var x = (*p).copy()
-                if !s->put(&x) {
-                    it->hi = p
-                    return false
-                }
+priv class <T> SliceMutBackDrive {
+    static inline fn <S impl Sink<*T>> run(it: *SliceIterMut<T>, s: *S) -> bool {
+        var c = *it
+        loop {
+            var x = c.next_back()
+            if !x? {
+                *it = c
+                return true
             }
 
-            it->hi = p
-            return true
+            var q: *T = unwrap!(x)
+            if !s->put(&q) {
+                *it = c
+                return false
+            }
         }
     }
 
-    static inline fn limit(it: *SliceCopied<T>, n: usize) -> bool {
-        unsafe {
-            if span_len<T>(it->lo, it->hi) > n {
-                it->lo = it->hi - n
-            }
-        }
-
+    static inline fn limit(it: *SliceIterMut<T>, n: usize) -> bool {
+        it->keep_last(n)
         return true
     }
 }
 
-class <T> DriveBack<SliceCopied<T>> derives SliceCopiedBackDrive<T> { }
+// COMPILER-WORKAROUND(partial-forward-decl): as for `Drive<Chain<I, J>>`,
+// for a class of another module.
+class <T> DriveBack<SliceIterMut<T>> derives SliceMutBackDrive<T> requires sizeof usize != 0 { }
 
 // --- adapters ---------------------------------------------------------------
 
@@ -864,6 +930,18 @@ priv class <I impl Iterator> IterDrive {
 }
 
 class <I> Drive<Iter<I>> derives IterDrive<I> { }
+
+priv class <I impl DoubleEnded> IterBackDrive {
+    static inline fn <S impl Sink<I::Item>> run(it: *Iter<I>, s: *S) -> bool {
+        return DriveBack<I>::run<S>(&it->it, s)
+    }
+
+    static inline fn limit(it: *Iter<I>, n: usize) -> bool {
+        return DriveBack<I>::limit(&it->it, n)
+    }
+}
+
+class <I> DriveBack<Iter<I>> derives IterBackDrive<I> { }
 
 priv class <T, U, S impl Sink<U>> MapSink impl Sink<T> {
     var f:    *const (fn(T) -> U)
@@ -1225,6 +1303,39 @@ priv class <I impl Iterator> TakeDrive {
 
 class <I> Drive<Take<I>> derives TakeDrive<I> { }
 
+priv class <I impl DoubleEnded> TakeBackDrive requires I impl ExactSize {
+    /// The items past the cut are pulled and dropped, as `next_back` drops
+    /// them, and what is left is run from the back.
+    static inline fn <S impl Sink<I::Item>> run(it: *Take<I>, s: *S) -> bool {
+        if it->n == 0 {
+            return true
+        }
+
+        var m = it->it.remaining()
+        while m > it->n {
+            var dropped = it->it.next_back()
+            m -= 1
+        }
+
+        if m == 0 {
+            return true
+        }
+
+        // The run is counted, so it ends with the last item and the inner
+        // iterator is not asked for one more.
+        var ts = TakeSink<I::Item, S> { n: m, next: s, refused: false }
+        DriveBack<I>::run<TakeSink<I::Item, S>>(&it->it, &ts)
+        it->n = ts.n
+        return !ts.refused
+    }
+
+    static inline fn limit(it: *Take<I>, n: usize) -> bool {
+        return false
+    }
+}
+
+class <I> DriveBack<Take<I>> derives TakeBackDrive<I> { }
+
 /// Discards `n` items, `n` not zero, and ends the run with the last of them.
 priv class <T> DiscardSink impl Sink<T> {
     var n: usize
@@ -1472,22 +1583,37 @@ priv class <U impl Copyable, S impl Sink<U>> CopiedSink impl Sink<*const U> {
     }
 }
 
-priv class <U impl Copyable> CopiedDrive {
-    static inline fn <S impl Sink<U>> run(it: *Copied<U>, s: *S) -> bool {
-        var cs = CopiedSink<U, S> { next: s }
-        return Drive<Yield<*const U>>::run<CopiedSink<U, S>>(&it->it, &cs)
+priv class <I impl Iterator> CopiedDrive requires I impl PointerItems && I::Target impl Copyable && __builtin_is_same<I::Item, *const I::Target>() {
+    static inline fn <S impl Sink<I::Target>> run(it: *Copied<I>, s: *S) -> bool {
+        var cs = CopiedSink<I::Target, S> { next: s }
+        return Drive<I>::run<CopiedSink<I::Target, S>>(&it->it, &cs)
     }
 
-    static inline fn bound(it: *const Copied<U>) -> Bound {
-        return Bound { lo: 0, exact: false }
+    static inline fn bound(it: *const Copied<I>) -> Bound {
+        return Drive<I>::bound(&it->it)
     }
 
-    static inline fn limit(it: *Copied<U>, n: usize) -> bool {
-        return false
+    static inline fn limit(it: *Copied<I>, n: usize) -> bool {
+        return Drive<I>::limit(&it->it, n)
     }
 }
 
-class <U> Drive<Copied<U>> derives CopiedDrive<U> { }
+// COMPILER-WORKAROUND(partial-forward-decl): as for `Drive<Chain<I, J>>`.
+class <I> Drive<Copied<I>> derives CopiedDrive<I> requires sizeof usize != 0 { }
+
+priv class <I impl DoubleEnded> CopiedBackDrive requires I impl PointerItems && I::Target impl Copyable && __builtin_is_same<I::Item, *const I::Target>() {
+    static inline fn <S impl Sink<I::Target>> run(it: *Copied<I>, s: *S) -> bool {
+        var cs = CopiedSink<I::Target, S> { next: s }
+        return DriveBack<I>::run<CopiedSink<I::Target, S>>(&it->it, &cs)
+    }
+
+    static inline fn limit(it: *Copied<I>, n: usize) -> bool {
+        return DriveBack<I>::limit(&it->it, n)
+    }
+}
+
+// COMPILER-WORKAROUND(partial-forward-decl): as for `Drive<Chain<I, J>>`.
+class <I> DriveBack<Copied<I>> derives CopiedBackDrive<I> requires sizeof usize != 0 { }
 
 // --- consumers --------------------------------------------------------------
 
@@ -1695,12 +1821,17 @@ priv class <T> RoomSink impl Sink<T> {
 }
 
 /// A vector is built in place by a run: one allocation and a store per item
-/// when the chain's length is exact, and otherwise one reservation for the
-/// chain's lower bound and growth when that is used up.
+/// when the chain's length is exact, and otherwise one reservation and
+/// growth when that is used up.
+///
+/// `hint` is what the chain says of its own length, zero when it says
+/// nothing. It sizes the reservation and no more: only this file's bound is
+/// trusted to store without a capacity test.
 priv class <I impl Iterator> CollectVector {
-    static inline fn run(it: *I) -> Vector<I::Item> {
+    static inline fn run(it: *I, hint: usize) -> Vector<I::Item> {
         var b = Drive<I>::bound(it)
-        var w = VectorFill<I::Item>(Vector<I::Item>::with_capacity(b.lo))
+        var room = if b.exact || b.lo > hint => b.lo else => hint
+        var w = VectorFill<I::Item>(Vector<I::Item>::with_capacity(room))
         if b.exact {
             var fs = FillSink<I::Item> { at: w.slots(), n: 0 }
             Drive<I>::run<FillSink<I::Item>>(it, &fs)
@@ -1723,8 +1854,8 @@ priv class <I impl Iterator> CollectVector {
     }
 }
 
-priv inline fn <I impl Iterator, C> collect_vector(it: *I) -> C requires __builtin_is_same<C, Vector<I::Item>>() {
-    return CollectVector<I>::run(it)
+priv inline fn <I impl Iterator, C> collect_vector(it: *I, hint: usize) -> C requires __builtin_is_same<C, Vector<I::Item>>() {
+    return CollectVector<I>::run(it, hint)
 }
 
 /// Builds the target of `collect`: a vector by a run, any other target by
@@ -1736,12 +1867,12 @@ priv inline fn <I impl Iterator, C> collect_vector(it: *I) -> C requires __built
 ///
 /// The chain comes by pointer: each move of it on the way to the loop is a
 /// constructor and a destructor the loop's function has to carry.
-priv inline fn <I impl Iterator, C impl FromIterator<I::Item>> collect_into(it: *I) -> C {
+priv inline fn <I impl Iterator, C impl FromIterator<I::Item>> collect_into(it: *I, hint: usize) -> C {
     eval if __builtin_is_same<C, Vector<I::Item>>() {
-        return collect_vector<I, C>(it)
+        return collect_vector<I, C>(it, hint)
     } else {
         var b = Drive<I>::bound(it)
-        return C::from_iter(move(*it), b.lo)
+        return C::from_iter(move(*it), if b.lo > hint => b.lo else => hint)
     }
 }
 
@@ -1811,18 +1942,16 @@ extend <I impl Iterator> Iter<I> {
     }
 
     /// The target's `from_iter` gets the chain with a lower bound on its
-    /// length as the hint. A vector is built here instead: with one
+    /// length as the hint. A vector is built here instead, with one
     /// allocation and no capacity test when the chain's length is exact (a
     /// slice source under adapters that keep or cut the length).
     ///
-    /// COMPILER-WORKAROUND(overload-across-extends): the overload for an
-    /// `ExactSize` chain is not declared. Two extends declaring `collect`
-    /// under different bounds are ambiguous at every call, and the unit
-    /// that calls `remaining` on a wrapped adapter is given no `ExactSize`
-    /// witness for it. The length reaches the target through the chain's
-    /// own bound, which needs no conformance.
-    pub inline fn <C impl FromIterator<I::Item>> collect(self) -> C {
-        return collect_into<I, C>(&self.it)
+    /// COMPILER-WORKAROUND(overload-across-extends): the clause keeps this
+    /// one off a chain that has the sized `collect`. A generic member
+    /// declared in two extensions under different bounds is ambiguous at
+    /// the call, where a member with no parameter of its own is not.
+    pub inline fn <C impl FromIterator<I::Item>> collect(self) -> C requires !(I impl ExactSize) {
+        return collect_into<I, C>(&self.it, 0)
     }
 
     pub inline fn <A> fold(self, init: A, f: fn(A, I::Item) -> A) -> A {
@@ -1921,6 +2050,15 @@ extend <I impl ExactSize> Iter<I> impl ExactSize {
     }
 }
 
+/// Chosen over the plain `collect` when the length is known: the target is
+/// sized once, by `remaining()`.
+extend <I impl ExactSize> Iter<I> {
+    pub inline fn <C impl FromIterator<I::Item>> collect(self) -> C {
+        var n = self.it.remaining()
+        return collect_into<I, C>(&self.it, n)
+    }
+}
+
 extend <I impl DoubleEnded> Iter<I> {
     pub inline fn rev(self) -> Iter<Rev<I>> {
         return Iter<Rev<I>> { it: Rev<I> { it: move(self.it) } }
@@ -1935,16 +2073,24 @@ extend <I impl Iterator> Iter<Peekable<I>> {
     }
 }
 
-/// Container iteration yields pointers; this yields the elements.
-extend <U impl Copyable> Iter<Yield<*const U>> {
-    pub inline fn copied(self) -> Iter<Copied<U>> {
-        return Iter<Copied<U>> { it: Copied<U> { it: move(self.it) } }
+/// A chain reads from its back where its iterator does.
+extend <I impl DoubleEnded> Iter<I> impl DoubleEnded {
+    inline fn next_back(self) -> I::Item? {
+        return self.it.next_back()
     }
 }
 
-extend <U impl Copyable> Iter<SliceIter<U>> {
-    pub inline fn copied(self) -> Iter<SliceCopied<U>> {
-        return Iter<SliceCopied<U>> { it: SliceCopied<U> { lo: self.it.lo, hi: self.it.hi } }
+/// The items a generator of pointers points at, copied.
+extend <U impl Copyable> Iter<Yield<*const U>> {
+    pub inline fn copied(self) -> Iter<Copied<Pointed<U>>> {
+        return Iter<Copied<Pointed<U>>> { it: Copied<Pointed<U>> { it: Pointed<U> { it: move(self.it) } } }
+    }
+}
+
+/// Container iteration yields pointers; this yields the elements.
+extend <I impl Iterator> Iter<I> requires I impl PointerItems && I::Target impl Copyable && __builtin_is_same<I::Item, *const I::Target>() {
+    pub inline fn copied(self) -> Iter<Copied<I>> {
+        return Iter<Copied<I>> { it: Copied<I> { it: move(self.it) } }
     }
 }
 
@@ -1999,7 +2145,7 @@ extend <I impl Iterator> Iter<I> requires I::Item impl Ord {
 
     /// Stable: equal items keep the order they were pulled in.
     pub fn sorted(self) -> [I::Item] {
-        var v: [I::Item] = CollectVector<I>::run(&self.it)
+        var v: [I::Item] = CollectVector<I>::run(&self.it, 0)
         v.sort()
         return move(v)
     }
@@ -2024,16 +2170,12 @@ extend <I impl Iterator> Iter<I> requires I::Item impl Hash {
     }
 }
 
-/// COMPILER-WORKAROUND(witness-unused-bound): a bound on an associated type
-/// (`requires I::Item impl Default`) brings no witness into the unit that
-/// calls the member, so a member under such a bound reaches the interface
-/// through one of these, whose own parameter carries the bound.
+/// COMPILER-WORKAROUND(witness-unused-bound): `I::Item::make_default()`
+/// under `requires I::Item impl Default` reaches no witness when the item
+/// is a primitive, so the identity comes through a function whose own
+/// parameter carries the bound.
 priv inline fn <T impl Default> default_of() -> T {
     return T::make_default()
-}
-
-priv inline fn <T impl Append> append_item(const x: T, @inout out: string) {
-    x.append_to(&out)
 }
 
 priv class <T impl Add> SumSink impl Sink<T> {
@@ -2065,7 +2207,7 @@ priv class <T impl Append> JoinSink impl Sink<T> {
         }
 
         self.first = false
-        append_item<T>(x, &self.out)
+        x.append_to(&self.out)
         return true
     }
 }

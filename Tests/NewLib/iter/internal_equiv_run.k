@@ -56,6 +56,65 @@ extend Source impl Iterator {
     }
 }
 
+/// `n` values in [0, 100) drawn from `seed`, read from either end, with
+/// their count. Every pull from either end is counted, and every pull made
+/// after the end.
+class Deck {
+    var items: [i64]
+    var lo:    usize
+    var hi:    usize
+    var ended: bool
+
+    pub fn Deck(self, seed: u64, n: i64) {
+        self.lo    = 0
+        self.hi    = n as usize
+        self.ended = false
+        var s = seed
+        for var i: i64 = 0; i < n; i += 1 {
+            s = scramble(s)
+            self.items.push((s % 100) as i64)
+        }
+    }
+}
+
+extend Deck impl DoubleEnded {
+    type Item = i64
+    fn next(self) -> i64? {
+        pulls += 1
+        if self.ended {
+            overruns += 1
+        }
+
+        if self.lo == self.hi {
+            self.ended = true
+            return null
+        }
+
+        self.lo += 1
+        return self.items[self.lo - 1]
+    }
+    fn next_back(self) -> i64? {
+        pulls += 1
+        if self.ended {
+            overruns += 1
+        }
+
+        if self.lo == self.hi {
+            self.ended = true
+            return null
+        }
+
+        self.hi -= 1
+        return self.items[self.hi]
+    }
+}
+
+extend Deck impl ExactSize {
+    fn remaining(const self) -> usize {
+        return self.hi - self.lo
+    }
+}
+
 /// Counts from `lo` up to `hi` (exclusive).
 class Span {
     var lo: i64
@@ -411,35 +470,55 @@ fn round(seed: u64, which: i32, pre: usize) {
     check!("peekable.skip.take", iter(Source(seed, n)).peekable().skip(j).take(k))
     check!("enumerate.skip", iter(Source(seed, n)).enumerate().skip(k).map<i64>(weigh))
 
+    // A source with two ends and a count that counts its pulls: what an
+    // adapter drops from the back to reach its last item is pulled the same
+    // way by both paths.
+    check!("deck.rev", iter(Deck(seed, n)).rev())
+    check!("deck.take.rev", iter(Deck(seed, n)).take(k).rev())
+    check!("deck.take(0).rev", iter(Deck(seed, n)).take(0).rev())
+    check!("deck.skip.rev", iter(Deck(seed, n)).skip(k).rev())
+    check!("deck.enumerate.rev", iter(Deck(seed, n)).enumerate().rev().map<i64>(weigh))
+    check!("deck.zip.rev", iter(Deck(seed, n)).zip(Deck(s2, m)).rev().map<i64>(pair_sum))
+    check!("deck.rev.take", iter(Deck(seed, n)).rev().take(k))
+    check!("deck.map.take.rev", iter(Deck(seed, n)).map<i64>(add1).take(k).rev())
+    check!("deck.take.rev.skip", iter(Deck(seed, n)).take(k + 2).rev().skip(j))
+    check!("deck.skip.take.rev.take_while", iter(Deck(seed, n)).skip(j).take(k).rev().take_while(below70))
+
     // A generator, which counts its own resumes.
     check!("generator", iter(counted(n)).map<i64>(add1).filter(third))
     check!("generator.take", iter(counted(n)).take(k))
     check!("generator.skip.step_by", iter(counted(n)).skip(k).step_by(j + 1))
 
-    // The slice source: its length is known, so `take` cuts it and `skip`
+    // A slice's `iter()`: its length is known, so `take` cuts it and `skip`
     // and `step_by` count from it; it runs from either end.
     var v = data(seed, n)
     var w = data(s2, m)
     var vs: [const i64;] = v
     var ws: [const i64;] = w
-    check!("slice", iter_slice_(vs).copied())
-    check!("slice by generator", iter(vs.iter()).copied().map<i64>(add1))
-    check!("slice.rev", iter_slice_(vs).copied().rev())
-    check!("slice.rev.rev", iter_slice_(vs).copied().rev().rev())
-    check!("slice.map.rev", iter_slice_(vs).copied().map<i64>(add1).rev())
-    check!("slice.filter.rev", iter_slice_(vs).copied().filter(third).rev())
-    check!("slice.take", iter_slice_(vs).copied().map<i64>(add1).take(k))
-    check!("slice.rev.take", iter_slice_(vs).copied().rev().take(k))
-    check!("slice.enumerate.take", iter_slice_(vs).copied().enumerate().take(k).map<i64>(weigh))
-    check!("slice.skip.take", iter_slice_(vs).copied().skip(j).take(k))
-    check!("slice.take.take", iter_slice_(vs).copied().take(k + 3).take(k))
-    check!("slice.step_by", iter_slice_(vs).copied().step_by(j + 1))
-    check!("slice.rev.skip", iter_slice_(vs).copied().rev().skip(k))
-    check!("slice.zip", iter_slice_(vs).copied().zip(iter_slice_(ws).copied()).map<i64>(pair_sum))
-    check!("slice.zip.take", iter_slice_(vs).copied().zip(iter_slice_(ws).copied()).take(k).map<i64>(pair_sum))
-    check!("slice.chain", iter_slice_(vs).copied().chain(iter_slice_(ws).copied()))
-    check!("slice.chain.step_by", iter_slice_(vs).copied().chain(iter_slice_(ws).copied()).step_by(j + 1))
-    check!("slice.peekable.take", iter_slice_(vs).copied().peekable().take(k))
+    check!("slice", iter(vs.iter()).copied())
+    check!("vector", iter(v.iter()).copied().map<i64>(add1))
+    check!("slice.take.rev", iter(vs.iter()).copied().take(k).rev())
+    check!("slice.skip.rev", iter(vs.iter()).copied().skip(k).rev())
+    check!("slice.enumerate.rev", iter(vs.iter()).copied().enumerate().rev().map<i64>(weigh))
+    check!("slice.zip.rev", iter(vs.iter()).copied().zip(iter(ws.iter()).copied()).rev().map<i64>(pair_sum))
+    check!("slice.chain(chain).rev", iter(vs.iter()).copied().chain(iter(ws.iter()).copied().take(k)).rev())
+    check!("slice.rev.copied", iter(vs.iter()).rev().take(k).copied())
+    check!("slice.rev", iter(vs.iter()).copied().rev())
+    check!("slice.rev.rev", iter(vs.iter()).copied().rev().rev())
+    check!("slice.map.rev", iter(vs.iter()).copied().map<i64>(add1).rev())
+    check!("slice.filter.rev", iter(vs.iter()).copied().filter(third).rev())
+    check!("slice.take", iter(vs.iter()).copied().map<i64>(add1).take(k))
+    check!("slice.rev.take", iter(vs.iter()).copied().rev().take(k))
+    check!("slice.enumerate.take", iter(vs.iter()).copied().enumerate().take(k).map<i64>(weigh))
+    check!("slice.skip.take", iter(vs.iter()).copied().skip(j).take(k))
+    check!("slice.take.take", iter(vs.iter()).copied().take(k + 3).take(k))
+    check!("slice.step_by", iter(vs.iter()).copied().step_by(j + 1))
+    check!("slice.rev.skip", iter(vs.iter()).copied().rev().skip(k))
+    check!("slice.zip", iter(vs.iter()).copied().zip(iter(ws.iter()).copied()).map<i64>(pair_sum))
+    check!("slice.zip.take", iter(vs.iter()).copied().zip(iter(ws.iter()).copied()).take(k).map<i64>(pair_sum))
+    check!("slice.chain", iter(vs.iter()).copied().chain(iter(ws.iter()).copied()))
+    check!("slice.chain.step_by", iter(vs.iter()).copied().chain(iter(ws.iter()).copied()).step_by(j + 1))
+    check!("slice.peekable.take", iter(vs.iter()).copied().peekable().take(k))
 }
 
 fn main() -> i32 {
@@ -463,6 +542,7 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // REQUIRES: newlib
+// RUN: rm -f %t.exe %t.O2.exe
 // RUN: rm -rf %t.d
 // RUN: %kairo_new -O2 %s -o %t.O2.exe --cache-dir %t.d
 // RUN: %t.O2.exe

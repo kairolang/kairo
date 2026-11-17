@@ -21,7 +21,7 @@ fn main() -> i32 { return 0 }
 
 // RUN: cd %t.d/s && %kcc -S %t.d/a.cc && test "$(ls)" = "a.s" && grep -q '_Z1av' a.s
 // RUN: cd %t.d/s && %kcc -c %t.d/b.cc -S && test -e b.s && test ! -e b.o
-// RUN: cd %t.d/e && %kcc -E %t.d/a.cc | grep -q 'int a()' && test -z "$(ls)"
+// RUN: cd %t.d/e && %kcc -E %t.d/a.cc | grep 'int a()' > /dev/null && test -z "$(ls)"
 // RUN: cd %t.d/e && %kcc -E %t.d/a.cc -o a.i && grep -q 'int a()' a.i
 
 // RUN: cd %t.d/l && %kcc %t.d/a.cc %t.d/b.cc %t.d/m.cc && test "$(ls)" = "a.out"

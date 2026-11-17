@@ -14,7 +14,7 @@ fn main() -> i32 { return 7 }
 // COLD:     runtime cache miss: {{.*}}.tmp.c/rt/mimalloc-{{[0-9A-F]+}}-{{[0-9A-F]+}}.o
 // COLD-NOT: runtime cache hit
 // RUN: %t.exe; test $? -eq 7
-// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -qx 1
+// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -x 1 > /dev/null
 // RUN: test -z "$(ls %t.c/rt | grep tmp-)"
 
 // RUN: env KAIRO_CACHE_DIR=%t.c %kairo %s -o %t.exe -v 2>&1 | %FileCheck %s --check-prefix=WARM
@@ -31,7 +31,7 @@ fn main() -> i32 { return 7 }
 // FORCE:     runtime cache bypassed (--force-recompile): {{.*}}/rt/mimalloc-
 // FORCE-NOT: runtime cache hit
 // RUN: %t.exe; test $? -eq 7
-// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -qx 1
+// RUN: ls %t.c/rt | grep -c '^mimalloc-.*\.o$' | grep -x 1 > /dev/null
 
 // A damaged entry is rebuilt, not linked: every entry truncated to a few
 // bytes reads as no object and misses.

@@ -96,7 +96,7 @@ fn main() -> i32 { return 0 }
 
 // One input's errors do not fail the next one: each compile has its own
 // diagnostics. Exactly one error, and the good input's object is written.
-// RUN: { %kairo -c %S/Inputs/native_bad.cc %S/Inputs/native_add.cc --cache-dir %t.d/two 2>&1 || true; } | grep -c 'error \[CL' | grep -qx 1
+// RUN: { %kairo -c %S/Inputs/native_bad.cc %S/Inputs/native_add.cc --cache-dir %t.d/two 2>&1 || true; } | grep -c 'error \[CL' | grep -x 1 > /dev/null
 // RUN: test -s %t.d/two/native_add.o
 
 // Runs that write no files have no output names to collide.
