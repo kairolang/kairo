@@ -32,6 +32,7 @@ import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::DeclContext
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import AST::Context::TranslationUnit::{
+    DeferredMacroError,
     ImportEdge,
     TranslationUnit,
 }
@@ -204,6 +205,21 @@ fn io_tu(ar: unsafe *ASTArchive, tu: unsafe *TranslationUnit) {
         ar->decl<ImportDecl>(&e.decl)
         if ar->reading() {
             tu->import_edges.push(e)
+        }
+    }
+
+    var late = ar->len_(tu->deferred_macro_errors.size())
+    for var i: usize = 0; i < late; ++i {
+        var e = DeferredMacroError{}
+        if !ar->reading() {
+            e = *tu->deferred_macro_errors.get(i)
+        }
+
+        ar->range(&e.site)
+        ar->range(&e.name)
+        ar->range(&e.written)
+        if ar->reading() {
+            tu->deferred_macro_errors.push(e)
         }
     }
 

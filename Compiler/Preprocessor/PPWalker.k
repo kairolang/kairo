@@ -23,6 +23,7 @@ ffi "c++" import "algorithm"
 
 import AST::Context::ASTContext::ASTContext
 import AST::Context::TranslationUnit::{
+    DeferredMacroError,
     ImportEdge,
     TranslationUnit,
 }
@@ -177,6 +178,30 @@ const BRACE_MODULE: u8 = 0
 const BRACE_BRANCH: u8 = 1
 const BRACE_BLOCK:  u8 = 2
 
+/// What the preprocessor knows of an `eval if` condition before Sema folds
+/// it. Only a condition that asks `defined!` is the preprocessor's to
+/// decide: any other is COND_SEMA, and its branches are walked as plain
+/// text. One that asks is COND_OPEN when it also reads anything but
+/// `true`, `false`, `!`, `&&`, `||` and parentheses, or when the name is no
+/// Kairo macro: such a name may still be one of clang's.
+const COND_FALSE: u8 = 0
+const COND_TRUE:  u8 = 1
+const COND_OPEN:  u8 = 2
+const COND_SEMA:  u8 = 3
+
+/// An `eval if` branch as the walk treats it: BRANCH_LIVE is walked as any
+/// other text; BRANCH_OPEN is walked, and an unknown macro in it is an
+/// error only if Sema keeps the branch; BRANCH_DEAD is not walked at all.
+const BRANCH_LIVE: u8 = 0
+const BRANCH_OPEN: u8 = 1
+const BRANCH_DEAD: u8 = 2
+
+/// The else-if chain a branch belongs to, as bits: CHAIN_TAKEN when the
+/// condition of this branch or an earlier one is known true (every later
+/// branch is dead), CHAIN_OPEN when one of them is not known.
+const CHAIN_TAKEN: u8 = 1
+const CHAIN_OPEN:  u8 = 2
+
 pub class PPWalker {
     priv var _splices:          cxx::std::vector<unsafe *TokenBuffer<512>> ///< frame backing; freed in finalize
     priv var _opts:             PreprocessorOptions
@@ -221,7 +246,16 @@ pub class PPWalker {
     /// own), BRACE_BRANCH (an `eval if` branch: its declarations are the
     /// enclosing scope's, so it is no scope for a macro either) or BRACE_BLOCK.
     priv var _braces:      cxx::std::vector<u8>
-    priv var _branch_next: bool                                 = false ///< the next `{` opens an `eval if` branch.
+    priv var _branch_next: bool                 = false ///< the next `{` opens an `eval if` branch.
+    /// The next branch's BRANCH_* and its chain's CHAIN_* bits, read when
+    /// its `{` is met (_branch_next).
+    priv var _next_branch: u8 = BRANCH_LIVE
+    priv var _next_chain:  u8 = 0
+    /// One entry per BRACE_BRANCH in _braces, innermost last: the branch's
+    /// BRANCH_* in the low two bits, its chain's CHAIN_* bits above them.
+    priv var _branches:    cxx::std::vector<u8>
+    priv var _open_depth:  i32                                  = 0 ///< BRANCH_OPEN branches the walk is inside.
+    priv var _skip_dead:   bool                                 = false ///< the `{` just emitted opened a BRANCH_DEAD branch.
     priv var _block_owned: cxx::std::vector<unsafe *MacroEntry> ///< every block macro of the walk; freed with it.
 
     /// ffi headers this file imports, spelled as HeaderSet::unquote does,
@@ -640,6 +674,12 @@ pub class PPWalker {
             }
 
             self._note_eval_if(k)
+            if self._skip_dead {
+                self._skip_dead = false
+                self._skip_branch_body()
+                continue
+            }
+
             if k == TokenKind::KwFfi {
                 self._handle_ffi()
                 continue
@@ -891,9 +931,23 @@ pub class PPWalker {
                 kind = BRACE_MODULE
             } else if self._branch_next {
                 kind = BRACE_BRANCH
+                self._branches.push_back(
+                    self._next_branch | (self._next_chain << 2),
+                )
+
+                if self._next_branch == BRANCH_OPEN {
+                    self._open_depth += 1
+                }
+
+                // Only the walk drops text: a collecting read registers the
+                // macros of every branch.
+                self._skip_dead = self._next_branch == BRANCH_DEAD
+                    && self._phase == WalkPhase::Walking
             }
 
             self._branch_next = false
+            self._next_branch = BRANCH_LIVE
+            self._next_chain  = 0
             self._braces.push_back(kind)
         }
 
@@ -908,13 +962,23 @@ pub class PPWalker {
             // `} else {` and `} else if c {`, the `else` on this line or
             // a later one: the next `{` is a branch too.
             if was == BRACE_BRANCH {
+                var info: u8 = 0
+                if !self._branches.empty() {
+                    info = self._branches.back()
+                    self._branches.pop_back()
+                }
+
+                if (info & 3) == BRANCH_OPEN {
+                    self._open_depth -= 1
+                }
+
                 var at: usize = 0
                 while self._src->peek(at).kind == TokenKind::TkNewLine {
                     at += 1
                 }
 
                 if self._src->peek(at).kind == TokenKind::KwElse {
-                    self._branch_next = true
+                    self._else_branch(at, info >> 2)
                 }
             }
 
@@ -925,6 +989,306 @@ pub class PPWalker {
         }
 
         return true
+    }
+
+    /// The `else` at peek(\p at), after a branch whose chain is \p chain.
+    /// Once a condition of the chain is known true the rest of it is dead
+    /// text, conditions included, and is dropped here; Sema then sees the
+    /// chain end at the branch before.
+    priv fn _else_branch(self, at: usize, chain: u8) {
+        if (chain & CHAIN_TAKEN) != 0 && self._phase == WalkPhase::Walking {
+            self._drop_else_chain()
+            return
+        }
+
+        self._branch_next = true
+        if self._src->peek(at + 1).kind == TokenKind::KwIf {
+            self._note_cond(at + 2, chain)
+            return
+        }
+
+        self._next_chain  = chain
+        self._next_branch = if ((chain & CHAIN_OPEN) != 0) => (BRANCH_OPEN) else => BRANCH_LIVE
+    }
+
+    /// The condition at peek(\p at) of a chain that is \p chain so far:
+    /// what its branch is, into _next_branch and _next_chain.
+    priv fn _note_cond(self, at: usize, chain: u8) {
+        var v = self._cond_value(at)
+        self._next_chain = chain
+        if v == COND_SEMA {
+            self._next_branch = if ((chain & CHAIN_OPEN) != 0) => (BRANCH_OPEN) else => BRANCH_LIVE
+            return
+        }
+
+        if v == COND_FALSE {
+            self._next_branch = BRANCH_DEAD
+            return
+        }
+
+        if v == COND_TRUE {
+            self._next_chain  = chain | CHAIN_TAKEN
+            self._next_branch = if ((chain & CHAIN_OPEN) != 0) => (BRANCH_OPEN) else => BRANCH_LIVE
+            return
+        }
+
+        self._next_chain  = chain | CHAIN_OPEN
+        self._next_branch = BRANCH_OPEN
+    }
+
+    /// COND_* of the condition whose first token is peek(\p at): the
+    /// tokens up to the `{` that opens its branch, read where they stand
+    /// and not consumed. They are expanded and emitted as any other text
+    /// afterwards, so Sema folds the same condition to the same value.
+    priv fn _cond_value(self, at: usize) -> u8 {
+        var toks  = cxx::std::vector<Token>()
+        var paren = 0
+        var n     = at
+        var asks  = false
+        while true {
+            if self._src->peek_leaves_frame(n) || toks.size() > 256 {
+                return if (asks) => (COND_OPEN) else => COND_SEMA
+            }
+
+            var t = self._src->peek(n)
+            if t.kind == TokenKind::TkEof {
+                return if (asks) => (COND_OPEN) else => COND_SEMA
+            }
+
+            if t.kind == TokenKind::LitIdentifier
+                && self._src->peek(n + 1).kind == TokenKind::OpExclaim
+                && TokenText::spelling(t, self._tcm) == LangIntrinsics::defined() {
+                asks = true
+            }
+
+            if t.kind == TokenKind::OpLBrace && paren == 0 {
+                break
+            }
+
+            if t.kind == TokenKind::OpLParen {
+                paren += 1
+            } else if t.kind == TokenKind::OpRParen {
+                paren -= 1
+            }
+
+            if t.kind != TokenKind::TkNewLine {
+                toks.push_back(t)
+            }
+
+            n += 1
+        }
+
+        if !asks {
+            return COND_SEMA
+        }
+
+        var pos: usize = 0
+        var v          = self._cond_or(unsafe &toks, &pos)
+        if pos != toks.size() {
+            return COND_OPEN
+        }
+
+        return v
+    }
+
+    priv fn _cond_or(self, toks: unsafe *cxx::std::vector<Token>, @inout pos: usize) -> u8 {
+        var v = self._cond_and(toks, &pos)
+        while pos < toks->size()
+            && ((*toks)[pos].kind == TokenKind::OpPipePipe
+                || (*toks)[pos].kind == TokenKind::KwOr) {
+            pos += 1
+            var r = self._cond_and(toks, &pos)
+            if v == COND_TRUE || r == COND_TRUE {
+                v = COND_TRUE
+            } else if v == COND_OPEN || r == COND_OPEN {
+                v = COND_OPEN
+            }
+        }
+
+        return v
+    }
+
+    priv fn _cond_and(self, toks: unsafe *cxx::std::vector<Token>, @inout pos: usize) -> u8 {
+        var v = self._cond_unary(toks, &pos)
+        while pos < toks->size()
+            && ((*toks)[pos].kind == TokenKind::OpAmpAmp || (*toks)[pos].kind == TokenKind::KwAnd) {
+            pos += 1
+            var r = self._cond_unary(toks, &pos)
+            if v == COND_FALSE || r == COND_FALSE {
+                v = COND_FALSE
+            } else if v == COND_OPEN || r == COND_OPEN {
+                v = COND_OPEN
+            }
+        }
+
+        return v
+    }
+
+    /// A token outside the grammar leaves \p pos where it is, so the
+    /// caller's "all tokens read" test fails and the condition is open.
+    priv fn _cond_unary(self, toks: unsafe *cxx::std::vector<Token>, @inout pos: usize) -> u8 {
+        if pos >= toks->size() {
+            return COND_OPEN
+        }
+
+        var t = (*toks)[pos]
+        if t.kind == TokenKind::OpExclaim || t.kind == TokenKind::KwNot {
+            pos += 1
+            var v = self._cond_unary(toks, &pos)
+            if v == COND_OPEN {
+                return COND_OPEN
+            }
+
+            return if (v == COND_TRUE) => (COND_FALSE) else => COND_TRUE
+        }
+
+        if t.kind == TokenKind::KwTrue {
+            pos += 1
+            return COND_TRUE
+        }
+
+        if t.kind == TokenKind::KwFalse {
+            pos += 1
+            return COND_FALSE
+        }
+
+        if t.kind == TokenKind::OpLParen {
+            pos += 1
+            var v = self._cond_or(toks, &pos)
+            if pos >= toks->size() || (*toks)[pos].kind != TokenKind::OpRParen {
+                pos = toks->size() + 1
+                return COND_OPEN
+            }
+
+            pos += 1
+            return v
+        }
+
+        // defined ! ( NAME )
+        if t.kind == TokenKind::LitIdentifier
+            && pos + 4 < toks->size()
+            && TokenText::spelling(t, self._tcm) == LangIntrinsics::defined()
+            && (*toks)[pos + 1].kind == TokenKind::OpExclaim
+            && (*toks)[pos + 2].kind == TokenKind::OpLParen
+            && (*toks)[pos + 3].kind == TokenKind::LitIdentifier
+            && (*toks)[pos + 4].kind == TokenKind::OpRParen {
+            var name  = (*toks)[pos + 3]
+            var probe = Self::InvocationInfo()
+            probe.name = name
+            probe.name_sym = self._sym->intern(
+                TokenText::spelling(name, self._tcm),
+            )
+
+            probe.range = name.range
+            probe.found = true
+            pos += 5
+            return if (self._resolve(probe) != &null) => (COND_TRUE) else => COND_OPEN
+        }
+
+        pos = toks->size() + 1
+        return COND_OPEN
+    }
+
+    /// The text of a dead branch, from after its `{` to before its `}`:
+    /// consumed and not emitted, so nothing in it is expanded or imported.
+    /// A macro the branch itself defines is still registered: an `eval if`
+    /// branch is no scope for a macro, taken or not.
+    priv fn _skip_branch_body(self) {
+        var depth = 0
+        while !self._src->at_eof() {
+            var k = self._src->peek(0).kind
+            if k == TokenKind::TkEof {
+                return
+            }
+
+            if depth == 0 && self._dead_macro_def(k) {
+                continue
+            }
+
+            if k == TokenKind::OpLBrace {
+                depth += 1
+            } else if k == TokenKind::OpRBrace {
+                if depth == 0 {
+                    return
+                }
+
+                depth -= 1
+            }
+
+            self._src->next()
+        }
+    }
+
+    /// A macro definition at peek(0), kind \p k, in dead text: defined as
+    /// the walk defines one in live text. False when peek(0) starts none.
+    priv fn _dead_macro_def(self, k: TokenKind) -> bool {
+        var vis = VisibilityKind::Public
+        if k == TokenKind::KwPub || k == TokenKind::KwPriv || k == TokenKind::KwProt {
+            if self._src->peek(1).kind != TokenKind::KwMacro {
+                return false
+            }
+
+            vis =      if (k == TokenKind::KwPub) => (VisibilityKind::Public)
+                  else if (k == TokenKind::KwPriv) => (VisibilityKind::Private)
+                  else => VisibilityKind::Protected
+            self._src->next()
+        } else if k != TokenKind::KwMacro {
+            return false
+        }
+
+        if self._macros_known && !self._in_block() {
+            self._skip_macro_def()
+        } else {
+            self._handle_macro_def(vis)
+        }
+
+        return true
+    }
+
+    /// Every `else` branch from peek(0) on, with its condition: consumed
+    /// and not emitted.
+    priv fn _drop_else_chain(self) {
+        while true {
+            var at: usize = 0
+            while self._src->peek(at).kind == TokenKind::TkNewLine {
+                at += 1
+            }
+
+            if self._src->peek(at).kind != TokenKind::KwElse {
+                return
+            }
+
+            for var i: usize = 0; i <= at; ++i {
+                self._src->next()
+            }
+
+            // The condition, if any, up to the branch's `{`.
+            var paren = 0
+            while !self._src->at_eof() {
+                var k = self._src->peek(0).kind
+                if k == TokenKind::TkEof || (k == TokenKind::OpLBrace && paren == 0) {
+                    break
+                }
+
+                if k == TokenKind::OpLParen {
+                    paren += 1
+                } else if k == TokenKind::OpRParen {
+                    paren -= 1
+                }
+
+                self._src->next()
+            }
+
+            if self._src->peek(0).kind != TokenKind::OpLBrace {
+                return
+            }
+
+            self._src->next()
+            self._skip_branch_body()
+            if self._src->peek(0).kind == TokenKind::OpRBrace {
+                self._src->next()
+            }
+        }
     }
 
     /// The place in _braces, from 1, of the innermost open `{` that scopes a
@@ -951,6 +1315,7 @@ pub class PPWalker {
     priv fn _note_eval_if(self, k: TokenKind) {
         if k == TokenKind::KwEval && self._src->peek(1).kind == TokenKind::KwIf {
             self._branch_next = true
+            self._note_cond(2, 0)
         }
     }
 
@@ -1840,6 +2205,18 @@ pub class PPWalker {
                 )->child_first(hint)
                 b.insert(hint.end, "!", f"import the macro '{nm}!'")
                 b.emit()
+                self._emit_poison(inv)
+                return
+            }
+
+            // In a branch only Sema can decide, the name is unknown only if
+            // the branch is kept: Sema reports it then.
+            if self._open_depth > 0 && self._tu != &null {
+                var late = DeferredMacroError{}
+                late.site    = self._inv_site(inv)
+                late.name    = inv->name.range
+                late.written = inv->range
+                self._tu->deferred_macro_errors.push(late)
                 self._emit_poison(inv)
                 return
             }

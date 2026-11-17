@@ -240,6 +240,15 @@ pub struct ImportEdge {
     pub var decl:       unsafe *ImportDecl = &null
 }
 
+/// An invocation of a macro no table knows, inside an `eval if` branch
+/// the preprocessor could not decide. It is an error only if the branch is
+/// kept, so the preprocessor leaves the report to EvalIfFolding.
+pub struct DeferredMacroError {
+    pub var site:    SourceRange ///< where the error is reported: the outermost invocation.
+    pub var name:    SourceRange ///< the macro's name token.
+    pub var written: SourceRange ///< the invocation as written; differs from `site` inside an expansion.
+}
+
 /// Root of a parsed file's AST. Derives DeclContext so it participates in
 /// name lookup like any other scope.
 pub class TranslationUnit derives DeclContext {
@@ -290,6 +299,11 @@ pub class TranslationUnit derives DeclContext {
     /// Resolved import edges, in declaration order. One writer: the PP walk
     /// (FileImportIndex). Readers: parser disambig fallback + ImportResolution.
     pub var import_edges: ArenaList<ImportEdge>
+
+    /// Unknown macros in undecided `eval if` branches, in source order. One
+    /// writer: the PP walk. One reader: EvalIfFolding, which reports those
+    /// outside every branch it discards.
+    pub var deferred_macro_errors: ArenaList<DeferredMacroError>
 
     /// A C++ header imported through Sema/Foreign: decls come from clang,
     /// there is no Kairo token stream behind this fid. Set by
@@ -415,6 +429,7 @@ pub class TranslationUnit derives DeclContext {
         self.out_of_line.set_allocator(unsafe &ctx->pp_alloc, 8)
         self.import_overlay = &null
         self.import_edges.set_allocator(unsafe &ctx->pp_alloc, 16)
+        self.deferred_macro_errors.set_allocator(unsafe &ctx->pp_alloc, 4)
         self.pin_segments.set_allocator(unsafe &ctx->pp_alloc, 4)
         self.global_alloc    = &null
         self.global_alloc_at = SourceRange::invalid()

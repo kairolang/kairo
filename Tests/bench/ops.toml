@@ -1,0 +1,717 @@
+# The rows of the builtin-library benchmarks: one [[row]] per operation, in
+# the order the report prints them. run.py reads this file; every program
+# under cpp/, rust/ and kairo/ implements the rows of its group under the same
+# ids and sizes. README says how to add one.
+#
+#   id      the name a program is asked for; its group is the part before
+#           the dot unless `group` names another
+#   label   the operation, as the report's table names it
+#   sizes   one cell per size; `size` says what the number counts
+#   op      what one operation is: every time is nanoseconds per `op`
+#   timed   what is inside the timed region (setup and teardown outside it
+#           are not measured)
+#   cpp / rust / kairo   the call each language makes; kairo names the call
+#           of the library under test
+#   kairo_checksum = false   the Kairo program's checksum is not compared
+#           with the others' (a row whose result is the library's own hash)
+#
+# Rows ending in `_fast` repeat the row before them with the fast hasher of
+# cpp/bench.h and rust/bench.rs (the same function in both) in place of the
+# standard library's default: std::hash, which is the identity for an integer
+# in libc++, and SipHash-1-3 with per-process keys in Rust. Kairo has one
+# hasher, so its number is the same measurement in both rows.
+
+[kairo]
+# What the Kairo column measures; the report prints it in the column's legend.
+library = "old library (Lib/builtin as installed)"
+
+[[group]]
+id = "string"
+title = "String"
+against = "std::string, String"
+
+[[group]]
+id = "slice"
+title = "Slice and sort"
+against = "<algorithm> on std::vector storage, slice methods"
+
+[[group]]
+id = "vector"
+title = "Vector"
+against = "std::vector, Vec"
+
+[[group]]
+id = "map"
+title = "Hash map and set"
+against = "std::unordered_map / std::unordered_set, HashMap / HashSet"
+
+[[group]]
+id = "hash"
+title = "Hasher"
+against = "std::hash, RandomState (SipHash-1-3), and the fast hasher"
+
+[[group]]
+id = "num"
+title = "Number text"
+against = "std::to_chars / std::from_chars, `{}` formatting / str::parse"
+
+[[group]]
+id = "iter"
+title = "Iterator chains"
+against = "C++20 <ranges>, std iterator adapters, and the hand-written loop"
+
+# --- string ------------------------------------------------------------------
+
+[[row]]
+id = "string.create_destroy"
+label = "create + destroy"
+sizes = [0, 8, 32, 256]
+size = "bytes copied into the string"
+op = "one string built from a byte range and destroyed"
+timed = "construction from (pointer, length) and destruction; the length is opaque to the optimizer"
+cpp = "std::string(p, n)"
+rust = "String::from(&str)"
+kairo = "string(p, n)"
+
+[[row]]
+id = "string.push_byte"
+label = "append one byte, to 1 MiB"
+sizes = [1048576]
+size = "final length in bytes"
+op = "one byte appended"
+timed = "the appends, starting from an empty string with no reserve; not the destruction"
+cpp = "push_back(char)"
+rust = "String::push(char), ASCII"
+kairo = "push(u8)"
+
+[[row]]
+id = "string.append_literal"
+label = "append a short literal"
+sizes = [4, 12]
+size = "bytes in the literal"
+op = "one literal appended"
+timed = "100000 appends to an empty string with no reserve"
+cpp = "operator+=(const char*)"
+rust = "push_str(&str)"
+kairo = "push_str / +="
+
+[[row]]
+id = "string.find"
+label = "find an 8-byte needle"
+sizes = [64, 4096, 1048576]
+size = "haystack bytes"
+op = "one search"
+timed = "the search; the needle matches only at the very end, the haystack is letters a..p and shares the needle's first seven bytes' alphabet"
+cpp = "std::string::find(const std::string&)"
+rust = "str::find(&str)"
+kairo = "find(string)"
+
+[[row]]
+id = "string.eq"
+label = "equality of short keys"
+sizes = [8, 16]
+size = "bytes in each key"
+op = "one comparison"
+timed = "1024 pairs of equal-length strings, half equal and half differing in the last byte"
+cpp = "operator=="
+rust = "=="
+kairo = "=="
+
+[[row]]
+id = "string.codepoints"
+label = "count code points, cold"
+sizes = [4096, 1048576]
+size = "bytes of UTF-8 (70% one-byte, 20% two-byte, 10% three-byte code points)"
+op = "one byte scanned"
+timed = "a full count over the text"
+cpp = "a loop counting non-continuation bytes (std::string has no count)"
+rust = "chars().count()"
+kairo = "codepoints() on a string whose count is not yet stored"
+
+[[row]]
+id = "string.codepoints_cached"
+label = "count code points, cached"
+sizes = [4096, 1048576]
+size = "bytes of UTF-8"
+op = "one call"
+timed = "2^20 calls on a string whose count is already stored"
+cpp = "none: the count is not stored"
+rust = "none: the count is not stored"
+kairo = "codepoints() after the first call"
+
+# --- slice -------------------------------------------------------------------
+
+[[row]]
+id = "slice.sort_unstable_i32"
+label = "unstable sort, i32"
+sizes = [1000000]
+size = "elements"
+op = "one element sorted"
+timed = "the sort of a fresh random copy; the copy is not timed"
+cpp = "std::sort"
+rust = "sort_unstable"
+kairo = "sort_unstable"
+
+[[row]]
+id = "slice.sort_unstable_u64"
+label = "unstable sort, u64"
+sizes = [1000000]
+size = "elements"
+op = "one element sorted"
+timed = "as above"
+cpp = "std::sort"
+rust = "sort_unstable"
+kairo = "sort_unstable"
+
+[[row]]
+id = "slice.sort_unstable_string"
+label = "unstable sort, 16-byte strings"
+sizes = [1000000]
+size = "elements"
+op = "one element sorted"
+timed = "as above; 16 bytes sit inside libc++'s inline buffer and on the heap in Rust"
+cpp = "std::sort"
+rust = "sort_unstable"
+kairo = "sort_unstable"
+
+[[row]]
+id = "slice.sort_unstable_struct64"
+label = "unstable sort, 64-byte struct by u64 key"
+sizes = [1000000]
+size = "elements"
+op = "one element sorted"
+timed = "as above"
+cpp = "std::sort with a comparator"
+rust = "sort_unstable_by"
+kairo = "sort_by on the unstable path"
+
+[[row]]
+id = "slice.sort_stable_i32"
+label = "stable sort, i32"
+sizes = [1000000]
+size = "elements"
+op = "one element sorted"
+timed = "the sort of a fresh random copy; the copy is not timed"
+cpp = "std::stable_sort"
+rust = "sort"
+kairo = "sort"
+
+[[row]]
+id = "slice.sort_stable_u64"
+label = "stable sort, u64"
+sizes = [1000000]
+size = "elements"
+op = "one element sorted"
+timed = "as above"
+cpp = "std::stable_sort"
+rust = "sort"
+kairo = "sort"
+
+[[row]]
+id = "slice.sort_stable_string"
+label = "stable sort, 16-byte strings"
+sizes = [1000000]
+size = "elements"
+op = "one element sorted"
+timed = "as above"
+cpp = "std::stable_sort"
+rust = "sort"
+kairo = "sort"
+
+[[row]]
+id = "slice.sort_stable_struct64"
+label = "stable sort, 64-byte struct by u64 key"
+sizes = [1000000]
+size = "elements"
+op = "one element sorted"
+timed = "as above"
+cpp = "std::stable_sort with a comparator"
+rust = "sort_by"
+kairo = "sort_by"
+
+[[row]]
+id = "slice.binary_search"
+label = "binary search, u64"
+sizes = [1024, 10000000]
+size = "elements (1024 stays in L1; 10^7 is 80 MB, past L3)"
+op = "one search"
+timed = "65536 searches for random keys, one in three present"
+cpp = "std::lower_bound and an equality test"
+rust = "binary_search"
+kairo = "binary_search"
+
+[[row]]
+id = "slice.reverse"
+label = "reverse, u64"
+sizes = [4096, 1000000]
+size = "elements"
+op = "one element moved"
+timed = "whole-slice reversals in place"
+cpp = "std::reverse"
+rust = "reverse"
+kairo = "reverse"
+
+[[row]]
+id = "slice.fill"
+label = "fill, u64"
+sizes = [4096, 1000000]
+size = "elements"
+op = "one element written"
+timed = "whole-slice fills with a value opaque to the optimizer"
+cpp = "std::fill"
+rust = "fill"
+kairo = "fill"
+
+# --- vector ------------------------------------------------------------------
+
+[[row]]
+id = "vector.push_i32"
+label = "push i32, no reserve"
+sizes = [10000000]
+size = "elements pushed"
+op = "one push"
+timed = "the pushes into an empty vector, growth included; not the destruction"
+cpp = "push_back"
+rust = "push"
+kairo = "push"
+
+[[row]]
+id = "vector.push_i32_reserved"
+label = "push i32, reserved"
+sizes = [10000000]
+size = "elements pushed"
+op = "one push"
+timed = "one reserve of the full size, then the pushes"
+cpp = "reserve + push_back"
+rust = "reserve + push"
+kairo = "reserve + push"
+
+[[row]]
+id = "vector.push_i32_cap24"
+label = "push i32, 24-byte vector variant"
+sizes = [10000000]
+size = "elements pushed"
+op = "one push"
+timed = "as push i32, no reserve, through a throwaway vector that keeps its capacity in the object: the cost of loading the capacity in push"
+cpp = "none: Kairo only"
+rust = "none: Kairo only"
+kairo = "push on the 24-byte variant"
+
+[[row]]
+id = "vector.push_string"
+label = "push 10^6 strings"
+sizes = [8, 32]
+size = "bytes in each string (8 is inside libc++'s inline buffer, 32 is on the heap everywhere)"
+op = "one string built and pushed"
+timed = "construction of each string from a byte range and its push, no reserve; not the destruction"
+cpp = "push_back(std::string(p, n))"
+rust = "push(String::from(&str))"
+kairo = "push(string(p, n))"
+
+[[row]]
+id = "vector.iter_sum"
+label = "iterate and sum i32"
+sizes = [10000, 10000000]
+size = "elements"
+op = "one element read"
+timed = "a for loop over the vector, summing into i64"
+cpp = "range-for"
+rust = "for &x in &v"
+kairo = "for x in v"
+
+[[row]]
+id = "vector.insert_front"
+label = "insert at index 0"
+sizes = [10000]
+size = "elements inserted"
+op = "one insert"
+timed = "the inserts into an empty vector"
+cpp = "insert(begin(), x)"
+rust = "insert(0, x)"
+kairo = "insert(0, x)"
+
+[[row]]
+id = "vector.create_destroy"
+label = "create + destroy"
+sizes = [0, 1]
+size = "elements pushed between the two"
+op = "one vector constructed and destroyed"
+timed = "construction, the push if any, destruction"
+cpp = "std::vector<int32_t>"
+rust = "Vec<i32>"
+kairo = "[i32]"
+
+[[row]]
+id = "vector.swap_remove"
+label = "random swap_remove until empty"
+sizes = [1000000]
+size = "initial elements"
+op = "one removal"
+timed = "removals at random indices (the index draw is inside, the same in every language)"
+cpp = "v[i] = v.back(); v.pop_back() (std::vector has no swap_remove)"
+rust = "swap_remove"
+kairo = "swap_remove"
+
+# --- map ---------------------------------------------------------------------
+
+[[row]]
+id = "map.insert_seq"
+label = "insert sequential u64"
+sizes = [1000000]
+size = "entries"
+op = "one insert"
+timed = "inserts of the keys 0..n into an empty map, growth included; not the destruction"
+cpp = "emplace"
+rust = "insert"
+kairo = "insert"
+
+[[row]]
+id = "map.insert_rand"
+label = "insert random u64"
+sizes = [1000000]
+size = "entries"
+op = "one insert"
+timed = "as above with distinct scattered keys"
+cpp = "emplace"
+rust = "insert"
+kairo = "insert"
+
+[[row]]
+id = "map.insert_rand_fast"
+label = "insert random u64, fast hasher"
+sizes = [1000000]
+size = "entries"
+op = "one insert"
+timed = "as above"
+cpp = "emplace"
+rust = "insert"
+kairo = "insert"
+
+[[row]]
+id = "map.lookup_hit"
+label = "lookup, key present"
+sizes = [1000, 100000, 10000000]
+size = "entries (10^3 in L1, 10^5 in L2/L3, 10^7 out of cache)"
+op = "one lookup"
+timed = "2^20 lookups of random present keys (the key draw is inside, the same in every language)"
+cpp = "find"
+rust = "get"
+kairo = "get"
+
+[[row]]
+id = "map.lookup_hit_fast"
+label = "lookup, key present, fast hasher"
+sizes = [1000, 100000, 10000000]
+size = "entries"
+op = "one lookup"
+timed = "as above"
+cpp = "find"
+rust = "get"
+kairo = "get"
+
+[[row]]
+id = "map.lookup_miss"
+label = "lookup, key absent"
+sizes = [1000, 100000, 10000000]
+size = "entries"
+op = "one lookup"
+timed = "2^20 lookups of random absent keys"
+cpp = "find"
+rust = "get"
+kairo = "get"
+
+[[row]]
+id = "map.lookup_miss_fast"
+label = "lookup, key absent, fast hasher"
+sizes = [1000, 100000, 10000000]
+size = "entries"
+op = "one lookup"
+timed = "as above"
+cpp = "find"
+rust = "get"
+kairo = "get"
+
+[[row]]
+id = "map.churn"
+label = "remove + insert at steady size"
+sizes = [100000]
+size = "entries held"
+op = "one removal of the oldest key and one insert of a new key"
+timed = "2^20 remove/insert pairs"
+cpp = "erase + emplace"
+rust = "remove + insert"
+kairo = "swap_remove + insert"
+
+[[row]]
+id = "map.churn_fast"
+label = "remove + insert at steady size, fast hasher"
+sizes = [100000]
+size = "entries held"
+op = "one removal and one insert"
+timed = "as above"
+cpp = "erase + emplace"
+rust = "remove + insert"
+kairo = "swap_remove + insert"
+
+[[row]]
+id = "map.iterate"
+label = "iterate and sum values"
+sizes = [1000000]
+size = "entries"
+op = "one entry visited"
+timed = "four walks over the whole map"
+cpp = "range-for"
+rust = "for (_, v) in &m"
+kairo = "for (k, v) in m"
+
+[[row]]
+id = "map.str_insert"
+label = "insert 10^5 string keys"
+sizes = [8, 32]
+size = "bytes in each key"
+op = "one insert"
+timed = "inserts into an empty map, each copying its key"
+cpp = "emplace(const std::string&, v)"
+rust = "insert(key.clone(), v)"
+kairo = "insert"
+
+[[row]]
+id = "map.str_lookup"
+label = "lookup among 10^5 string keys"
+sizes = [8, 32]
+size = "bytes in each key"
+op = "one lookup"
+timed = "2^18 lookups of random present keys"
+cpp = "find"
+rust = "get(&str)"
+kairo = "get"
+
+[[row]]
+id = "map.str_lookup_fast"
+label = "lookup among 10^5 string keys, fast hasher"
+sizes = [8, 32]
+size = "bytes in each key"
+op = "one lookup"
+timed = "as above"
+cpp = "find"
+rust = "get(&str)"
+kairo = "get"
+
+[[row]]
+id = "map.copy"
+label = "copy a map"
+sizes = [1000000]
+size = "entries"
+op = "one entry copied"
+timed = "the copy; not the destruction of the copy"
+cpp = "copy assignment"
+rust = "clone"
+kairo = "copy()"
+
+[[row]]
+id = "set.insert_rand"
+group = "map"
+label = "set: insert random u64"
+sizes = [1000000]
+size = "elements"
+op = "one insert"
+timed = "inserts into an empty set"
+cpp = "insert"
+rust = "insert"
+kairo = "insert"
+
+[[row]]
+id = "set.contains"
+group = "map"
+label = "set: contains, half present"
+sizes = [100000]
+size = "elements"
+op = "one membership test"
+timed = "2^20 tests of random keys, half of them present"
+cpp = "count"
+rust = "contains"
+kairo = "contains"
+
+# --- hash --------------------------------------------------------------------
+
+[[row]]
+id = "hash.u64_std"
+label = "hash one u64, std default"
+sizes = [8]
+size = "key bytes"
+op = "one key hashed"
+timed = "2^20 hashes of values opaque to the optimizer"
+cpp = "std::hash<uint64_t> (the identity in libc++)"
+rust = "RandomState::hash_one (SipHash-1-3)"
+kairo = "Hash::hash through a Hasher"
+
+[[row]]
+id = "hash.u64_fast"
+kairo_checksum = false
+label = "hash one u64, fast hasher"
+sizes = [8]
+size = "key bytes"
+op = "one key hashed"
+timed = "as above"
+cpp = "bench_fast_hash_u64"
+rust = "fast_hash_u64"
+kairo = "Hash::hash through a Hasher"
+
+[[row]]
+id = "hash.bytes_std"
+label = "hash a string, std default"
+sizes = [8, 16, 64, 1024]
+size = "key bytes"
+op = "one key hashed"
+timed = "hashes of 256 different keys of that length"
+cpp = "std::hash<std::string>"
+rust = "RandomState::hash_one(&str) (SipHash-1-3)"
+kairo = "Hasher::write + finish"
+
+[[row]]
+id = "hash.bytes_fast"
+kairo_checksum = false
+label = "hash a string, fast hasher"
+sizes = [8, 16, 64, 1024]
+size = "key bytes"
+op = "one key hashed"
+timed = "as above"
+cpp = "bench_fast_hash_bytes"
+rust = "fast_hash_bytes"
+kairo = "Hasher::write + finish"
+
+# --- num ---------------------------------------------------------------------
+
+[[row]]
+id = "num.u64_to_text"
+label = "u64 to decimal text"
+sizes = [4, 20]
+size = "most digits (4: values below 10^4; 20: the full u64 range)"
+op = "one number appended to a string"
+timed = "4096 numbers appended to one reused string"
+cpp = "std::to_chars into a stack buffer + append"
+rust = "write!(s, \"{}\", x)"
+kairo = "s.append(x)"
+
+[[row]]
+id = "num.text_to_u64"
+label = "decimal text to u64"
+sizes = [4, 20]
+size = "most digits"
+op = "one number parsed"
+timed = "4096 parses of the texts of the row above"
+cpp = "std::from_chars"
+rust = "str::parse::<u64>"
+kairo = "parse<u64>()"
+
+[[row]]
+id = "num.f64_to_text"
+label = "f64 to shortest text"
+sizes = [17]
+size = "most significant digits (values in [0, 10^6) with a full significand)"
+op = "one number appended to a string"
+timed = "4096 numbers appended to one reused string, shortest text that reads back, fixed notation"
+cpp = "std::to_chars(chars_format::fixed) + append"
+rust = "write!(s, \"{}\", x)"
+kairo = "s.append(x)"
+
+[[row]]
+id = "num.text_to_f64"
+label = "text to f64"
+sizes = [17]
+size = "most significant digits"
+op = "one number parsed"
+timed = "4096 parses of the texts of the row above"
+cpp = "std::from_chars"
+rust = "str::parse::<f64>"
+kairo = "parse<f64>()"
+
+# --- iter --------------------------------------------------------------------
+
+[[row]]
+id = "iter.map_filter_sum"
+label = "copied.map.filter.sum"
+sizes = [1000, 1000000]
+size = "elements of the i32 slice"
+op = "one element consumed"
+timed = "s.iter().copied().map(triple).filter(is_even).sum()"
+cpp = "views::transform | views::filter, summed by a range-for"
+rust = "iter().copied().map().filter().sum()"
+kairo = "iter().copied().map().filter().sum()"
+
+[[row]]
+id = "iter.map_filter_sum_loop"
+label = "the same, hand-written loop"
+sizes = [1000, 1000000]
+size = "elements"
+op = "one element consumed"
+timed = "an index loop with the same body"
+cpp = "for loop"
+rust = "for i in 0..n"
+kairo = "for loop"
+
+[[row]]
+id = "iter.enumerate_take"
+label = "enumerate.take(n/2), sum of i * x"
+sizes = [1000, 1000000]
+size = "elements of the i32 slice"
+op = "one element consumed"
+timed = "the chain over the first half"
+cpp = "views::iota | views::take (C++20 has no enumerate)"
+rust = "iter().enumerate().take().map().sum()"
+kairo = "iter().enumerate().take()"
+
+[[row]]
+id = "iter.enumerate_take_loop"
+label = "the same, hand-written loop"
+sizes = [1000, 1000000]
+size = "elements"
+op = "one element consumed"
+timed = "a counted loop with the same body"
+cpp = "for loop"
+rust = "for i in 0..n / 2"
+kairo = "for loop"
+
+[[row]]
+id = "iter.rev_take_while_count"
+label = "rev.take_while.count"
+sizes = [1000, 1000000]
+size = "elements of the i32 slice"
+op = "one element consumed"
+timed = "the chain; the predicate holds for every element"
+cpp = "views::reverse | views::take_while, ranges::distance"
+rust = "iter().rev().take_while().count()"
+kairo = "iter().rev().take_while().count()"
+
+[[row]]
+id = "iter.rev_take_while_count_loop"
+label = "the same, hand-written loop"
+sizes = [1000, 1000000]
+size = "elements"
+op = "one element consumed"
+timed = "a backward while loop"
+cpp = "while loop"
+rust = "while loop"
+kairo = "while loop"
+
+[[row]]
+id = "iter.collect_map"
+label = "map.collect into a vector"
+sizes = [1000, 1000000]
+size = "elements of the i32 slice"
+op = "one element collected"
+timed = "the collect and the destruction of the result"
+cpp = "reserve + ranges::copy(views::transform, back_inserter)"
+rust = "iter().copied().map().collect::<Vec<i32>>()"
+kairo = "iter().copied().map().collect()"
+
+[[row]]
+id = "iter.collect_map_loop"
+label = "the same, hand-written loop"
+sizes = [1000, 1000000]
+size = "elements"
+op = "one element collected"
+timed = "reserve, a push loop, and the destruction of the result"
+cpp = "reserve + push_back"
+rust = "with_capacity + push"
+kairo = "with_capacity + push"

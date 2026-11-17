@@ -156,6 +156,7 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::named_declared_here
 import Diagnostic::Registry::DiagID
 import Interop::Clang::HeaderSet::HeaderSet
+import Location::SourceRange::SourceRange
 import Memory::ArenaList::ArenaList
 import Sema::Check::ClassLifecycle::{
     LifecycleTri,
@@ -360,6 +361,9 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     priv var _why_decl: unsafe *Decl = &null
     /// The branch the last _choose took.
     priv var _taken: unsafe *CompoundStmt = &null
+    /// Per folded `eval if`, two entries: its whole range, then the range
+    /// of the branch it kept (invalid when it kept none).
+    priv var _folded: cxx::std::vector<SourceRange>
     /// The last lookup found only declarations a deferred `eval if` may
     /// still discard: the condition waits for it rather than fails.
     priv var _pending_name: bool     = false
@@ -405,6 +409,49 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         ASTWriter<EvalIfFolding>::run(self, self.sc->tu)
         for var i: usize = 0; i < self._dirty.size(); ++i {
             self._rebuild_table(self._dirty[i])
+        }
+
+        self._report_unknown_macros()
+    }
+
+    /// R013E for each unknown macro the preprocessor left undecided
+    /// (TranslationUnit::deferred_macro_errors) that no fold of this run
+    /// discarded. An `eval if` that waits for the late fold, or stays
+    /// `if constexpr`, keeps every branch here, so its macros are reported.
+    priv fn _report_unknown_macros(self) {
+        var unsafe *tu = self.sc->tu
+        for var i: usize = 0; i < tu->deferred_macro_errors.size(); ++i {
+            var e    = *tu->deferred_macro_errors.get(i)
+            var dead = false
+            for var j: usize = 0; j < self._folded.size() && !dead; j += 2 {
+                dead = self._folded[j].contains(e.site.start)
+                    && !(self._folded[j + 1].is_valid()
+                        && self._folded[j + 1].contains(e.site.start))
+            }
+
+            if dead {
+                continue
+            }
+
+            var nm = string()
+            if self.ctx->sm != &null {
+                nm = self.ctx->sm->get_text(e.name)
+            }
+
+            var b = self.sc->diag->report(
+                DiagID::R013E,
+                e.site.start,
+                f"unknown macro '{nm}!' (macros must be defined or imported before use)",
+            )
+
+            b.first(e.site)
+            if e.site.start.id != e.written.start.id {
+                b.note(e.written.start, "expanded from here")->child_first(
+                    e.written,
+                )
+            }
+
+            b.emit()
         }
     }
 
@@ -716,6 +763,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
         self._drop_untaken(n, chosen)
         self._taken = chosen
+        self._folded.push_back(n->range)
+        self._folded.push_back(
+            if (chosen != &null) => (chosen->range) else => SourceRange::invalid(),
+        )
+
         if self._late() {
             self.sc->eval_branches.retire(n)
             self._progress = true

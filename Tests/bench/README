@@ -1,0 +1,171 @@
+Tests/bench -- benchmarks
+=========================
+
+Two things live here, and neither is a lit suite (lit.local.cfg keeps the
+whole directory out of collection).
+
+  1. The builtin-library benchmarks: ops.toml, run.py, cpp/, rust/, kairo/.
+     One row per library operation (string, slice and sort, vector, hash map
+     and set, hasher, number text, iterator chains), measured in four
+     columns and written up as one Markdown report. The rest of this file
+     is about them.
+  2. Whole-program benchmarks: the *.k / *.cc / *.rs files in this directory
+     (nbody, gsort, spectral, ...), driven by bench-run.fish and
+     bench-timing.py. Their header comments say how.
+
+
+The four columns
+----------------
+
+    Kairo         kairo/<group>.k    kairo -O3
+    C++ (clang)   cpp/<group>.cpp    the toolchain's clang++, its libc++,
+                                     the C library's malloc
+    C++ (kcc)     cpp/<group>.cpp    kcc, the same libc++, linked with
+                                     cpp/kcc_anchor.k
+    Rust          rust/<group>.rs    rustc -C opt-level=3, std only
+
+The two C++ columns are the same compiler, the same libc++ and the same
+flags; they differ in the heap. A kcc link of C++ alone is clang's link and
+keeps the C library's heap. A link that holds Kairo code carries the Kairo
+runtime, whose mimalloc then serves malloc and operator new for the whole
+program. cpp/kcc_anchor.k is that Kairo code. So clang against kcc shows
+what the allocator is worth on each row. run.py checks both binaries with
+llvm-nm (mi_malloc defined in the kcc one, absent from the clang one) and
+stops if either is wrong.
+
+The clang column is not `clang++ -stdlib=libc++` with the host's libc++: it
+uses the sysroot kcc links with (run.py reads it from `kcc -###`), so the
+library is the same in both.
+
+All four compilers get -O3 and the same target CPU: the name clang resolves
+-march=native to (override with --cpu-name).
+
+
+Running
+-------
+
+    python3 run.py                         everything
+    python3 run.py --groups string,vector  some groups
+    python3 run.py --rows 'map\.lookup'    rows whose id matches a regex
+    python3 run.py --columns clang,rust    some columns
+    python3 run.py --quick                 a smoke pass: 20 ms per cell, once,
+                                           no counters
+    python3 run.py --quiet-machine         for numbers to keep: 7 processes
+                                           per cell in place of 3, and the
+                                           report drops its noise warning
+
+It needs python 3.11 or later, taskset, rustc, and the installed toolchain:
+the first build/x86_64-linux-musl/release/bin at or above this directory,
+or --toolchain / $KAIRO_TOOLCHAIN (--kairo, --kcc, --clang and --rustc name
+single tools). perf is optional: where `perf stat` may count user-mode
+events, a second pass reports instructions and cycles per operation; where
+it may not, the report says so and has times only.
+
+Output goes to out/ (--out): bin/<group>.<column>, results.json (every
+number, with each process's time) and report.md (one table per group, one
+line per operation and size, the fastest cell in bold, and Kairo against
+the fastest baseline as a ratio).
+
+One program can be run by hand:
+
+    out/bin/string.clang list                    the cells it holds
+    out/bin/string.clang string.find 4096        one cell
+    out/bin/string.clang string.find             every size of a row
+    out/bin/string.clang all --min-ms=50         everything, quicker
+    env BENCH_ROW=string.eq BENCH_SIZE=8 out/bin/string.kairo
+
+A Kairo main takes no arguments, so a Kairo program reads BENCH_ROW,
+BENCH_SIZE, BENCH_MIN_MS and BENCH_REPS; the others accept either form.
+
+How long: 13 minutes for everything with counters (measured once, on a
+busy 24-thread machine), of which the builds are about two. The map group
+is the largest part (its 10^7-entry tables are built once per process).
+--quiet-machine runs seven processes per cell in place of three, so expect
+about twice that; --quick is the builds plus a minute or two.
+
+    python3 run.py --report-only           write report.md again from the
+                                           results.json already in out/
+
+
+The protocol
+------------
+
+cpp/bench.h is the reference; rust/bench.rs is the same thing in Rust, and
+the Kairo programs call bench.h through `ffi "c++" import`.
+
+  - A row is a loop of repetitions. Each repetition does its untimed setup,
+    then the timed workload between bench_tic and bench_toc. The first
+    repetition warms up and is dropped. Repetitions continue until 200 ms
+    have been timed and at least three were. The row's time is the FASTEST
+    repetition divided by the operations in a repetition. ops.toml says
+    what one operation is.
+  - Each program prints `id,size,ns_per_op,iterations` on stdout
+    (iterations = timed repetitions; `nan,0` for a row it cannot run) and
+    `check,id,size,checksum,ops_per_rep` on stderr.
+  - The checksum is what the workload computed. Inputs come from one
+    xorshift64 generator with one seed, written out in each language, so
+    every column must print the same checksum for a cell. run.py compares
+    them, marks a disagreeing row in the report and exits nonzero.
+  - Results and inputs pass through an optimizer barrier (bench_sink,
+    bench_sink_ptr, bench_opaque; std::hint::black_box in Rust), so a
+    workload cannot be folded away or hoisted out of its loop.
+  - What is timed is the same in every language. Destroying what a
+    repetition built happens in the next repetition's setup, untimed,
+    unless the row is about destruction (create + destroy, collect).
+    A generator the timed code draws from is reseeded in the setup.
+  - run.py runs each cell as its own process pinned to one CPU with
+    taskset, the columns interleaved, and keeps the fastest process.
+  - Counters: `perf stat` counts a whole process, so run.py runs a cell
+    with K and with 2K repetitions and divides the difference by K
+    repetitions' operations. Start-up, input generation and the warm-up
+    cancel; a repetition's untimed setup does not, so on rows with a large
+    setup (the sorts copy their input) the counters include it.
+
+Fairness notes that are easy to miss:
+
+  - `_fast` rows. The standard hashers are not comparable: libc++'s
+    std::hash of an integer is the identity, Rust's default is SipHash-1-3
+    with random keys. So the map and hasher rows come twice: with each
+    library's default, and (`_fast`) with one fast hasher written out
+    identically in bench.h and bench.rs. Kairo has one hasher; its programs
+    answer both ids with the same code.
+  - std::sort pairs with sort_unstable, std::stable_sort with sort.
+  - String sizes sit on both sides of libc++'s 22-byte inline buffer
+    (8 and 32 bytes); a Rust String is always on the heap.
+  - C++20 has no enumerate, and a transform_view is an input range to
+    vector's iterator-pair constructor; ops.toml names the C++20 spelling
+    used in each such row.
+
+
+Adding a row
+------------
+
+  1. ops.toml: add a [[row]] with a new id (`<group>.<name>`), its sizes,
+     what one operation is and what is timed.
+  2. cpp/<group>.cpp, rust/<group>.rs, kairo/<group>.k: write the row in
+     each, in the shape of its neighbours, and add the
+     `if bench_want("<id>", <size>)` line to main for every size. A
+     language that cannot run it says so: `bench_skip()` under the
+     bench_want (C++), `b.skip()` (Rust), `bench_todo("<id>", <size>)`
+     (Kairo). run.py reports a program whose cells differ from ops.toml.
+  3. Make the checksum depend on the result and on nothing else (not on
+     how many repetitions ran), and compute it the same way in each
+     language.
+  4. `python3 run.py --quick --rows '<id>'` must finish without a checksum
+     complaint.
+
+A new group is a [[group]] entry in ops.toml and one file per language.
+
+
+The Kairo column
+----------------
+
+kairo/*.k is written against the library the installed compiler ships
+(ops.toml, `[kairo] library`, is printed in the report). Rows that library
+has no operation for print `nan` and stay empty: every slice row, find,
+swap_remove, the text-to-number rows and the iterator chains. To move a
+program to another library, rewrite the bodies with that library's calls
+(the `kairo` field of each row names the intended one), turn each
+bench_todo into a real row, and update `[kairo] library`. The ids, sizes,
+operation counts and checksums stay as they are; a wrong port shows up as a
+checksum disagreement.
