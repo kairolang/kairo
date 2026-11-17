@@ -183,6 +183,7 @@ ffi "c++" import "vector"
 ffi "c++" import "memory"
 
 import AST::ASTSupport::FrozenList
+import AST::AttrFacts::AttrFacts
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
@@ -339,6 +340,12 @@ pub class LifecycleFacts {
     /// record in place. The one case where building a new value is the fix:
     /// a deleted transfer or an unassignable member has nothing to rebuild.
     pub var poly_rebuild: bool = false
+    /// The `@deprecated` `@copy` constructor a copy of this type runs: its
+    /// own, or, when the copy is memberwise, the one a base, a by-value
+    /// field or an element brings (`deprecated_copy_via` names that part,
+    /// and is empty for its own). Null when a copy runs none.
+    pub var deprecated_copy:     unsafe *FunctionDecl = &null
+    pub var deprecated_copy_via: string               = ""
     fn LifecycleFacts(self) { }
 }
 
@@ -731,6 +738,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             || self._tu.is_string(t) {
             out.trivially_copyable = LifecycleTri::No
             out.trivial_dtor       = LifecycleTri::No
+            self._held_deprecated_copy(t, unsafe &out)
             return out
         }
 
@@ -815,6 +823,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     return self._unknown_facts()
                 }
 
+                self._held_deprecated_copy(t, unsafe &out)
                 return out
             } default {
                 // A generic parameter, or a type built from one by value.
@@ -902,6 +911,73 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         f->movable = mv
+        if f->deprecated_copy == &null && c->deprecated_copy != &null {
+            f->deprecated_copy     = c->deprecated_copy
+            f->deprecated_copy_via = what
+        }
+    }
+
+    /// The parts a library container or a nullable copies with itself: its
+    /// own `@copy` when that is deprecated, else the first type argument
+    /// (or the nullable's value) whose copy is.
+    priv fn _held_deprecated_copy(self, t: unsafe *Type, out: unsafe *LifecycleFacts) {
+        if t->kind == TypeKind::NullableType {
+            var unsafe *inner = cast<NullableType>(t)->inner
+            if inner == &null || inner->is_dependent() || inner->is_instantiation_dependent() {
+                return
+            }
+
+            var nf = self.facts_of_type(inner)
+            if nf.deprecated_copy != &null {
+                out->deprecated_copy     = nf.deprecated_copy
+                out->deprecated_copy_via = "its value"
+            }
+
+            return
+        }
+
+        var unsafe *d = self._tu.record_decl(t)
+        if d == &null {
+            return
+        }
+
+        var unsafe *pd = self._tu.pattern_of(d)
+        var        ms  = self._methods(if (pd != &null) => (pd) else => d)
+        for var i: usize = 0; i < ms.size(); ++i {
+            var unsafe *m = ms[i]
+            if m != &null
+                && m->transfer == TransferKind::Copy
+                && AttrFacts::find(
+                    unsafe (m as unsafe *Decl),
+                    LangAttrs::deprecated(),
+                ) != &null {
+                out->deprecated_copy = m
+                return
+            }
+        }
+
+        if self.sc->instances == &null {
+            return
+        }
+
+        var unsafe *e = self.sc->instances->entry_of(d)
+        if e == &null {
+            return
+        }
+
+        for var i: usize = 0; i < e->args.size(); ++i {
+            var unsafe *a = e->args[i]
+            if a == &null || a->is_dependent() || a->is_instantiation_dependent() {
+                continue
+            }
+
+            var af = self.facts_of_type(a)
+            if af.deprecated_copy != &null {
+                out->deprecated_copy     = af.deprecated_copy
+                out->deprecated_copy_via = f"its element type '{self._tu.str(canon_unqual(a))}'"
+                return
+            }
+        }
     }
 
     priv fn _compute(self, d: unsafe *Decl, f: unsafe *LifecycleFacts) {
@@ -912,18 +988,19 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
         f->in_progress = true
 
-        var user_copy     = false
-        var user_move     = false
-        var copy_deleted  = false
-        var copy_written  = false // deleted by `= delete` in a header, not by C++ (FFILinkage::ffi_deleted).
-        var move_deleted  = false
-        var copy_provided = false
-        var move_provided = false
-        var user_dtor     = false
-        var dtor_deleted  = false
-        var dtor_provided = false
-        var dtor_virtual  = false
-        var polymorphic   = false
+        var user_copy                            = false
+        var user_move                            = false
+        var copy_deleted                         = false
+        var copy_written                         = false // deleted by `= delete` in a header, not by C++ (FFILinkage::ffi_deleted).
+        var move_deleted                         = false
+        var copy_provided                        = false
+        var move_provided                        = false
+        var user_dtor                            = false
+        var dtor_deleted                         = false
+        var dtor_provided                        = false
+        var dtor_virtual                         = false
+        var polymorphic                          = false
+        var own_deprecated: unsafe *FunctionDecl = &null
 
         var methods = self._methods(d)
         for var i: usize = 0; i < methods.size(); ++i {
@@ -947,6 +1024,13 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             var provided = m->body_kind != FnBodyKind::Default && m->body_kind != FnBodyKind::Delete
             if m->transfer == TransferKind::Copy {
                 user_copy = true
+                if AttrFacts::find(
+                    unsafe (m as unsafe *Decl),
+                    LangAttrs::deprecated(),
+                ) != &null {
+                    own_deprecated = m
+                }
+
                 if m->body_kind == FnBodyKind::Delete {
                     copy_deleted = true
                     copy_written = copy_written || m->ffi_deleted
@@ -1180,6 +1264,20 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         if copy_pinned {
             f->copyable         = LifecycleTri::Yes
             f->why_not_copyable = ""
+        }
+
+        // A copy the record declares is the one that runs: its own mark
+        // counts, and a part's does not reach through a written body (a
+        // copy inside that body is reported there). A record that cannot
+        // be copied runs none.
+        if own_deprecated != &null || copy_pinned {
+            f->deprecated_copy     = own_deprecated
+            f->deprecated_copy_via = ""
+        }
+
+        if f->copyable == LifecycleTri::No {
+            f->deprecated_copy     = &null
+            f->deprecated_copy_via = ""
         }
 
         if move_pinned {

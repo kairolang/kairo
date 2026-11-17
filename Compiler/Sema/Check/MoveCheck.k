@@ -200,6 +200,7 @@ import AST::Visitor::RecursiveASTVisitor::{
 import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::type_declared_here
 import Diagnostic::Registry::DiagID
+import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::{
     ClassLifecycle,
@@ -865,6 +866,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// The transfer being checked is an assignment's right-hand side
     /// (_uncopyable_place leaves a Kairo NON_TRANSFER record to SC071E).
     priv var _assigning: bool = false
+    /// Where an implicit copy through a deprecated constructor was reported
+    /// (_deprecated_copy): one warning a place, however many checks see it.
+    priv var _copy_warned: cxx::std::vector<SourceLocation>
     /// The function whose body is being walked; null in a closure body and
     /// at file scope. `_caps` is the by-pointer captures of the closure
     /// being walked. `_out` is what the exits met so far leave moved-from
@@ -1111,6 +1115,20 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 if (cm == Expressions::CaptureMode::Ptr || cm == Expressions::CaptureMode::ConstPtr)
                     && n->held[i].decl != &null {
                     self._addr.insert(n->held[i].decl as usize as u64)
+                }
+            }
+
+            for var i: usize = 0; i < n->held.size(); ++i {
+                var unsafe *use = n->held[i].first_use
+                if n->held[i].mode == Expressions::CaptureMode::Copy
+                    && use != &null
+                    && use->type_ != &null {
+                    self._deprecated_copy(
+                        use->range,
+                        use->type_,
+                        f"the closure captures '{self.sc->ctx->get_spelling(use->name)}' by copy",
+                        &null,
+                    )
                 }
             }
 
@@ -3924,7 +3942,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             var unsafe *c  = self._tu.as_value(v->type_)
             var unsafe *rd = self._tu.record_decl(c)
             if rd != &null && !self._tu.is_tuple(c) {
-                self._dropped_copy_place(v, c, rd, "out of the function")
+                if self._dropped_copy_place(v, c, rd, "out of the function") {
+                    return
+                }
+            }
+
+            // A returned local or by-value parameter is moved by C++; any
+            // other name (a `const` parameter, a global) is copied.
+            var unsafe *nx = cast<NamedIdentExpr>(self._tu.strip_parens(v))
+            var unsafe *pd = dyn_cast<ParamDecl>(nx->resolved_decl)
+            if !self._returned_local(nx) || pd != &null && pd->is_const {
+                self._deprecated_copy_place(v, "out of the function")
             }
         }
     }
@@ -4132,6 +4160,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
             if copies && self._uncopyable_place(e, how) {
                 return
+            }
+
+            if copies {
+                self._deprecated_copy_place(e, how)
             }
 
             self._dependent_transfer(e)
@@ -4522,10 +4554,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         if canon_has_const(x->type_) || self._const_place(x) || place_has_const_root(x) {
-            self._no_copy(
+            if !self._no_copy(
                 n->value,
                 f"'{self._spelled(x)}' is const, and a generator yields a const value by copying it",
-            )
+            ) {
+                self._deprecated_copy_place(n->value, "out of the generator")
+            }
         }
 
         return out
@@ -4569,6 +4603,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var rd: unsafe *Decl = &null
         var unsafe *facts = self._uncopyable_facts(t, unsafe &tf, unsafe &rd)
         if facts == &null {
+            self._deprecated_copy(
+                bn->range,
+                t,
+                f"the loop binder '{self.sc->ctx->get_spelling(bd->name)}' is a copy of each element",
+                &null,
+            )
+
             return
         }
 
@@ -4633,7 +4674,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             f"'{sym}' is derived from 'op {csym}': it copies its left operand '{self._spelled(x)}', applies '{csym}' to the copy and yields it; write '{self._spelled(x)} {csym} ...' to change it in place",
         ) {
             bo->poison()
+            return
         }
+
+        self._deprecated_copy(
+            bo->lhs->range,
+            bo->lhs->type_,
+            f"'{sym}' is derived from 'op {csym}', which copies its left operand '{self._spelled(x)}'",
+            &null,
+        )
     }
 
     /// A vector, set or map literal is built from a backing array, which the
@@ -4648,6 +4697,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 self._tu.container_elem(n->type_),
                 "vector",
             )
+        }
+
+        return true
+    }
+
+    /// A tuple literal copies each lvalue element into the tuple.
+    fn visit_tuple_literal_expr(self, n: *Expressions::TupleLiteralExpr) -> bool {
+        for var i: usize = 0; i < n->elements.size(); ++i {
+            self._deprecated_copy_place(n->elements[i], "into the tuple")
         }
 
         return true
@@ -4692,6 +4750,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var rd: unsafe *Decl = &null
         var unsafe *facts = self._uncopyable_facts(elem, unsafe &tf, unsafe &rd)
         if facts == &null {
+            self._deprecated_copy(
+                e->range,
+                elem,
+                f"the {what} copies each element out of the literal",
+                &null,
+            )
+
             return false
         }
 
@@ -5475,6 +5540,110 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// The type of \p e is a record with a public `fn copy(const self) -> Self`:
     /// the one requirement of std's CopiesItself, read off the record so the
     /// answer does not depend on std::utility being imported.
+    /// _deprecated_copy for a transfer of the lvalue \p e: a temporary is
+    /// built in place and copies nothing.
+    priv fn _deprecated_copy_place(self, e: unsafe *Expr, const how: string) {
+        if e == &null || e->is_poisoned() || e->type_ == &null {
+            return
+        }
+
+        var unsafe *x = self._tu.strip_parens(e)
+        if x == &null || x->value_category != Expr::ValueCategory::LValue {
+            return
+        }
+
+        self._deprecated_copy(
+            e->range,
+            e->type_,
+            f"the transfer {how} copies '{self._spelled(x)}'",
+            e,
+        )
+    }
+
+    /// SC354W at \p at when a copy of a \p t runs a `@copy` constructor
+    /// marked `@deprecated` (LifecycleFacts::deprecated_copy): the copies
+    /// nothing in the source names, which the plain deprecation warning,
+    /// reported at a use of the name, never sees. \p why says what copies
+    /// here. \p src is the copied expression when `.copy()` after it is the
+    /// rewrite, else null. Nothing inside the constructor itself is
+    /// reported.
+    priv fn _deprecated_copy(self,
+                             at:        SourceRange,
+                             t:         unsafe *Type,
+                             const why: string,
+                             src:       unsafe *Expr) {
+        if t == &null || !at.is_valid() {
+            return
+        }
+
+        var unsafe *c = self._tu.as_value(t)
+        if c == &null || c->is_dependent() || c->is_instantiation_dependent() {
+            return
+        }
+
+        var unsafe *cu = canon_unqual(c)
+        if cu->kind != TypeKind::RecordType
+            && cu->kind != TypeKind::NullableType
+            && cu->kind != TypeKind::FixedArrayType {
+            return
+        }
+
+        var        facts = lifecycle_of(self.sc)->facts_of_type(cu)
+        var unsafe *ctor = facts.deprecated_copy
+        if ctor == &null {
+            return
+        }
+
+        if ctor->range.contains(at.start) {
+            return
+        }
+
+        for var i: usize = 0; i < self._copy_warned.size(); ++i {
+            if self._copy_warned[i] == at.start {
+                return
+            }
+        }
+
+        self._copy_warned.push_back(at.start)
+        var ts = self._tu.str(cu)
+        var b = self.sc->diag->report(
+            DiagID::SC354W,
+            at.start,
+            f"implicit copy of a '{ts}', whose copy constructor is deprecated",
+        )
+
+        b.first(at)
+        var unsafe *n = b.note(at.end, why)
+        if src != &null && facts.deprecated_copy_via.empty() && self._copies_itself(src) {
+            var unsafe *x = src
+            if isa<NamedIdentExpr>(x)
+                || isa<ChainExpr>(x)
+                || isa<Expressions::CallExpr>(x)
+                || isa<Expressions::SubscriptExpr>(x)
+                || isa<Expressions::ParenExpr>(x) {
+                n->child_fix(
+                    SourceRange(at.end, at.end),
+                    ".copy()",
+                    "copy it explicitly",
+                )
+            }
+        }
+
+        if !facts.deprecated_copy_via.empty() {
+            b.note(
+                at.start,
+                f"a copy of a '{ts}' copies {facts.deprecated_copy_via}",
+            )
+        }
+
+        b.note(
+            ctor->range.start,
+            "the copy constructor is marked deprecated here",
+        )->child_first(ctor->range)
+
+        b.emit()
+    }
+
     priv fn _copies_itself(self, e: unsafe *Expr) -> bool {
         if e->type_ == &null {
             return false
@@ -5502,8 +5671,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 continue
             }
 
+            // The class spelled by its own name is a named type until
+            // its canonical form is read.
+            var unsafe *rt = if (m->return_type->canonical != &null) => (m->return_type->canonical)
+                             else => m->return_type
             if m->return_type->kind == TypeKind::SelfType
-                || self._tu.record_decl(self._tu.as_value(m->return_type)) == rd {
+                || self._tu.record_decl(self._tu.as_value(rt)) == rd {
                 return true
             }
         }

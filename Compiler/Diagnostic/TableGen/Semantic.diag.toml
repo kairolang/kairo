@@ -6869,3 +6869,40 @@ group = "classes"
 
     [SC353.N]
     explain = "Points at the declaration of the type named as the base."
+
+[SC354]
+brief = "an implicit copy runs a deprecated copy constructor"
+group = "attributes"
+
+    [SC354.W]
+    explain = """
+    # an implicit copy through a deprecated copy constructor
+
+    The type's `@copy` constructor is marked `@deprecated`, and this place
+    copies a value of it without naming the constructor: a variable
+    initialized from another, a by-value argument, a field initializer, an
+    assignment, a returned field, a loop binder, a container literal. A copy
+    of a struct, tuple or nullable that holds such a value by value is
+    reported the same way, with the part named.
+
+    ```kairo
+    class Text {
+        @deprecated("copy with .copy()")
+        @copy pub fn Text(self, const other: Self) { ... }
+        pub fn copy(const self) -> Text { ... }
+    }
+
+    var b = a            // warned: copies `a`
+    take(a)              // warned: `take` takes its Text by value
+    var c = a.copy()     // not warned
+    ```
+
+    A returned local or by-value parameter is not reported: it is moved, not
+    copied. An explicit `Text(a)` is the plain deprecation warning, SC146W.
+
+    ## how to fix
+
+    Write the copy out (`a.copy()`), pass the value by `const` where the
+    callee only reads it, or restructure so the value is no longer used
+    after this place.
+    """
