@@ -38,9 +38,9 @@ import AST::Kind::PatternKind::PatternKind
 import AST::Kind::StmtKind::StmtKind
 import AST::Kind::TypeKind::TypeKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -4471,7 +4471,7 @@ pub class <D: type> RecursiveASTVisitor {
 
     /// # PATTERN FAMILY
 
-    fn dispatch_pattern(self, p: unsafe *Pattern) -> unsafe *Pattern {
+    fn dispatch_pattern(self, p: unsafe *AstPattern) -> unsafe *AstPattern {
         if p == &null {
             return p
         }
@@ -4524,7 +4524,7 @@ pub class <D: type> RecursiveASTVisitor {
         }
     }
 
-    fn visit_pattern(self, n: *Pattern) -> bool {
+    fn visit_pattern(self, n: *AstPattern) -> bool {
         return true
     }
 

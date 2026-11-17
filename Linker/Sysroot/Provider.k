@@ -55,7 +55,7 @@ pub class StageCtx {
     pub fn product(self, const name: string) -> string {
         for var i: usize = 0; i < self.done_names.size(); ++i {
             if self.done_names[i] == name {
-                return self.done_dirs[i] + "/out"
+                return self.done_dirs[i].copy() + "/out"
             }
         }
 
@@ -79,7 +79,7 @@ pub class StageCtx {
     pub fn input_root(self, const path: string) -> string {
         var best = ""
         for var d: string in self.inputs {
-            if (path == d || LinkText::starts_with(path.copy(), d + "/"))
+            if (path == d || LinkText::starts_with(path.copy(), d.copy() + "/"))
                 && d.size() > best.size() {
                 best = d.copy()
             }
@@ -103,12 +103,12 @@ pub class StageCtx {
     /// The absolute share path of the recipe template \p tmpl (a [libc]
     /// value such as "glibc/{libc_version}/{arch}/crt"), expanded.
     pub fn share_path(self, const tmpl: string) -> string {
-        return self.share + "/" + self.recipe.expand(tmpl, &self.target)
+        return self.share.copy() + "/" + self.recipe.expand(tmpl, &self.target)
     }
 
     /// The toolchain binary \p name (kcc, kld) beside the others.
     pub fn tool(self, const name: string) -> string {
-        var exe = self.tools + "/" + name
+        var exe = self.tools.copy() + "/" + name
         eval if defined!(_WIN32) {
             exe = exe + ".exe"
         }

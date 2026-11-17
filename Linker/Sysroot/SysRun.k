@@ -97,12 +97,12 @@ pub class SysRun {
         var e        = LinkFS::env("KSYS_JOBS")
         var n: usize = 0
         for var i: usize = 0; i < e.size(); ++i {
-            if e[i] < ('0' as u8) || e[i] > ('9' as u8) {
+            if e.data()[i] < ('0' as u8) || e.data()[i] > ('9' as u8) {
                 n = 0
                 break
             }
 
-            n = n * 10 + ((e[i] - ('0' as u8)) as usize)
+            n = n * 10 + ((e.data()[i] - ('0' as u8)) as usize)
         }
 
         if n == 0 {
@@ -227,15 +227,15 @@ pub class SysRun {
         var rels = cxx::std::vector<string>()
         var tgts = cxx::std::vector<string>()
         var text = ""
-        if LinkFS::read(root + "/links.tsv", &text) {
-            for var line: string in LinkText::split_lines(text.copy()) {
-                if line.is_empty() {
+        if LinkFS::read(root.copy() + "/links.tsv", &text) {
+            for *line in LinkText::split_lines(text.copy()) {
+                if line->is_empty() {
                     continue
                 }
 
-                var cols = SysUtil::split(line, ('\t' as u8))
+                var cols = SysUtil::split(*line, ('\t' as u8))
                 if cols.size() != 3 {
-                    err = f"{root}/links.tsv: malformed row \x27{line}\x27"
+                    err = f"{root}/links.tsv: malformed row \x27{*line}\x27"
                     return false
                 }
 
@@ -276,7 +276,7 @@ pub class SysRun {
                 return false
             }
 
-            var src = root + "/" + res
+            var src = root.copy() + "/" + res
             LinkFS::remove(at)
             var ok = if (LinkFS::is_dir(src)) => (SysRun::copy_tree(
                          src,
@@ -291,20 +291,20 @@ pub class SysRun {
         }
 
         text = ""
-        if !LinkFS::read(root + "/casefold.tsv", &text) {
+        if !LinkFS::read(root.copy() + "/casefold.tsv", &text) {
             return true
         }
 
         var stored = cxx::std::vector<string>()
         var real   = cxx::std::vector<string>()
-        for var line: string in LinkText::split_lines(text.copy()) {
-            if line.is_empty() {
+        for *line in LinkText::split_lines(text.copy()) {
+            if line->is_empty() {
                 continue
             }
 
-            var cols = SysUtil::split(line, ('\t' as u8))
+            var cols = SysUtil::split(*line, ('\t' as u8))
             if cols.size() != 2 {
-                err = f"{root}/casefold.tsv: malformed row \x27{line}\x27"
+                err = f"{root}/casefold.tsv: malformed row \x27{*line}\x27"
                 return false
             }
 
@@ -337,12 +337,12 @@ pub class SysRun {
     /// Whether the filesystem holding \p dir folds case: one probe file,
     /// looked up under its upper-case name.
     pub static fn case_insensitive(const dir: string) -> bool {
-        var probe = dir + "/.kairo-case-probe"
+        var probe = dir.copy() + "/.kairo-case-probe"
         if !LinkFS::write(probe, "") {
             return false
         }
 
-        var folds = LinkFS::exists(dir + "/.KAIRO-CASE-PROBE")
+        var folds = LinkFS::exists(dir.copy() + "/.KAIRO-CASE-PROBE")
         LinkFS::remove(probe)
         return folds
     }
@@ -351,14 +351,18 @@ pub class SysRun {
     /// under \p to; "" when \p rel is not under \p sub.
     priv static fn _mapped(const sub: string, const rel: string, const to: string) -> string {
         if sub.is_empty() {
-            return to + "/" + rel
+            return to.copy() + "/" + rel
         }
 
-        if !LinkText::starts_with(rel.copy(), sub + "/") {
+        if !LinkText::starts_with(rel.copy(), sub.copy() + "/") {
             return ""
         }
 
-        return to + "/" + LinkText::slice(rel, sub.size() + 1, rel.size())
+        return to.copy() + "/" + LinkText::slice(
+            rel,
+            sub.size() + 1,
+            rel.size(),
+        )
     }
 
     /// The link-free path inside \p root that the recorded link \p rel
@@ -375,7 +379,7 @@ pub class SysRun {
         var head: usize = 0
         while head < parts.size() {
             var cur = SysUtil::joined(&done, "/")
-            cur = if (cur.is_empty()) => (parts[head]) else => cur + "/" + parts[head]
+            cur = if (cur.is_empty()) => (parts[head]) else => cur.copy() + "/" + parts[head]
             var hit = rels.size()
             for var i: usize = 0; i < rels.size(); ++i {
                 if rels[i] == cur {
@@ -418,7 +422,7 @@ pub class SysRun {
         }
 
         var res = SysUtil::joined(&done, "/")
-        if res.is_empty() || !LinkFS::exists(root + "/" + res) {
+        if res.is_empty() || !LinkFS::exists(root.copy() + "/" + res) {
             return ""
         }
 
@@ -435,10 +439,10 @@ pub class SysRun {
         }
 
         var none = cxx::std::vector<string>()
-        for var name: string in LinkFS::list_dir(from) {
+        for *name in LinkFS::list_dir(from) {
             var found = false
-            for var s: string in skip {
-                if s == name {
+            for *s in skip {
+                if *s == *name {
                     found = true
                 }
             }
@@ -447,8 +451,8 @@ pub class SysRun {
                 continue
             }
 
-            var s    = from + "/" + name
-            var d    = to + "/" + name
+            var s    = from.copy() + "/" + *name
+            var d    = to.copy() + "/" + *name
             var link = SysRun::read_link(s)
             if !link.is_empty() {
                 if !SysRun::symlink(link, d) {

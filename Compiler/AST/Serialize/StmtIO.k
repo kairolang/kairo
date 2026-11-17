@@ -21,9 +21,9 @@ ffi "c++" import "Native/Types.hh"
 import AST::ASTSupport::FrozenList
 import AST::Kind::StmtKind::StmtKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -161,7 +161,7 @@ pub fn io_match_cases(ar: unsafe *ASTArchive, @inout l: FrozenList<Statements::M
     var n = ar->list<Statements::MatchCase>(&l)
     for var i: usize = 0; i < n; ++i {
         var unsafe *c = l.get(i)
-        ar->pattern_list<Pattern>(&c->patterns)
+        ar->pattern_list<AstPattern>(&c->patterns)
         ar->expr<Expr>(&c->guard)
         ar->stmt<Statements::CompoundStmt>(&c->body)
         ar->expr<Expr>(&c->expression)

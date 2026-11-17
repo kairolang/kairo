@@ -32,9 +32,9 @@ import AST::LangItems::{
     to_string,
 }
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
 }
 import AST::Node::Casting::{
@@ -1896,8 +1896,8 @@ pub class <T: type> StmtParse {
         result.is_default = false
 
         var start_range = self.dyn()->current_ptr()->range
-        var pats:  kairo::std::StackBuf<*Pattern, 4>
-        var after: string                            = "pattern"
+        var pats:  kairo::std::StackBuf<*AstPattern, 4>
+        var after: string                               = "pattern"
 
         if self.dyn()->check(TokenKind::KwDefault) {
             // default arm: patterns left empty
@@ -2000,7 +2000,7 @@ pub class <T: type> StmtParse {
     ///          token) so the surrounding match-arm structure parses, and
     ///          returns null. Replace with a real `dyn()->parse_pattern()`
     ///          call once PatternParse exists.
-    priv fn _parse_pattern(self) -> *Pattern {
+    priv fn _parse_pattern(self) -> *AstPattern {
         return self.dyn()->parse_pattern()
     }
 

@@ -52,9 +52,9 @@ import AST::Kind::PatternKind::PatternKind
 import AST::Kind::StmtKind::StmtKind
 import AST::Kind::TypeKind::TypeKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -1607,7 +1607,7 @@ pub class ASTArchive {
         return isa<T>(t) || isa_recovery<T>(t)
     }
 
-    priv fn <T: type> _pattern_is(self, p: unsafe *Pattern) -> bool {
+    priv fn <T: type> _pattern_is(self, p: unsafe *AstPattern) -> bool {
         return isa<T>(p) || isa_recovery<T>(p)
     }
 
@@ -1684,7 +1684,7 @@ pub class ASTArchive {
 
     pub fn <T: type> pattern(self, @inout p: unsafe *T) {
         if self.reading() {
-            var unsafe *q = unsafe (self._read_ref(CAT_PATTERN) as unsafe *Pattern)
+            var unsafe *q = unsafe (self._read_ref(CAT_PATTERN) as unsafe *AstPattern)
             if q != &null && !self._pattern_is<T>(q) {
                 self.fail("pattern of the wrong class for its field")
                 p = &null
@@ -1695,7 +1695,7 @@ pub class ASTArchive {
             return
         }
 
-        var q: unsafe *Pattern = unsafe (p as unsafe *Pattern)
+        var q: unsafe *AstPattern = unsafe (p as unsafe *AstPattern)
         self._write_ref(CAT_PATTERN, unsafe (q as unsafe *void))
     }
 

@@ -70,9 +70,9 @@ import AST::Mixin::Annotation::{
 }
 import AST::Mixin::TypeQual::TypeQual
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -180,7 +180,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.p.paint(Color::Punct, close)
     }
 
-    fn _pat_list(self, xs: FrozenList<unsafe *Pattern>) {
+    fn _pat_list(self, xs: FrozenList<unsafe *AstPattern>) {
         for var i: usize = 0; i < xs.size(); ++i {
             if i > 0 {
                 self.p.paint(Color::Punct, ", ")
@@ -1387,7 +1387,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
     //  PATTERNS  source-faithful  (UNCHANGED)
 
-    fn src_pattern(self, pat: unsafe *Pattern) {
+    fn src_pattern(self, pat: unsafe *AstPattern) {
         if pat == &null {
             self.p.paint(Color::Error, "<error>")
             return
@@ -3313,7 +3313,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
     }
 
     /* OVERRIDE */
-    fn dispatch_pattern(self, pat: unsafe *Pattern) -> unsafe *Pattern {
+    fn dispatch_pattern(self, pat: unsafe *AstPattern) -> unsafe *AstPattern {
         var is_last = self._pending_last
         self.dump_pattern_row(pat, is_last)
         return pat
@@ -3358,7 +3358,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.dyn()->dispatch_type(t)
     }
 
-    fn _child_pattern(self, pat: unsafe *Pattern, is_last: bool) {
+    fn _child_pattern(self, pat: unsafe *AstPattern, is_last: bool) {
         self._pending_last = is_last
         self.dyn()->dispatch_pattern(pat)
     }
@@ -4673,7 +4673,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
     //  PATTERN dump row
 
-    fn dump_pattern_row(self, pat: unsafe *Pattern, is_last: bool) {
+    fn dump_pattern_row(self, pat: unsafe *AstPattern, is_last: bool) {
         if pat == &null {
             self._head("<null-pat>", is_last)
             self.p.newline()
@@ -6103,7 +6103,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.dyn()->dispatch_expr(e)
     }
 
-    fn dump_pattern(self, pat: unsafe *Pattern, is_last: bool) {
+    fn dump_pattern(self, pat: unsafe *AstPattern, is_last: bool) {
         self._pending_last = is_last
         self.dyn()->dispatch_pattern(pat)
     }
@@ -6128,7 +6128,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         return self._type_kind_name_of(ty->kind)
     }
 
-    fn _pattern_kind_name(self, pat: unsafe *Pattern) -> string {
+    fn _pattern_kind_name(self, pat: unsafe *AstPattern) -> string {
         return self._pattern_kind_name_of(pat->kind)
     }
 

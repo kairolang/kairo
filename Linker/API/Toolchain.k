@@ -350,12 +350,12 @@ pub class Toolchain {
         // After the sysroot's own dirs are known, so a host dir that IS one
         // of them (--native, where the sysroot is the host) is not searched
         // twice.
-        for var d: string in t->env_lib_dirs {
-            self._add_host_dir(d)
+        for *d in t->env_lib_dirs {
+            self._add_host_dir(*d)
         }
 
-        for var d: string in t->host_lib_dirs {
-            self._add_host_dir(d)
+        for *d in t->host_lib_dirs {
+            self._add_host_dir(*d)
         }
 
         if darwin {
@@ -417,8 +417,8 @@ pub class Toolchain {
         self.pass_sysroot = true
         self.static_only  = m->is_static
 
-        for var d: string in m->lib_dirs {
-            self._add_dir(LinkText::join(self.sysroot.copy(), d.copy()))
+        for *d in m->lib_dirs {
+            self._add_dir(LinkText::join(self.sysroot.copy(), d->copy()))
         }
 
         if self.lib_dirs.empty() {
@@ -440,11 +440,11 @@ pub class Toolchain {
         }
 
         if !m->crt_startup.empty() {
-            for var d: string in self.lib_dirs {
+            for *d in self.lib_dirs {
                 if LinkFS::is_file(
-                    LinkText::join(d.copy(), m->crt_startup[0].copy()),
+                    LinkText::join(d->copy(), m->crt_startup[0].copy()),
                 ) {
-                    self.crt_dir = d.copy()
+                    self.crt_dir = d->copy()
                     break
                 }
             }
@@ -486,28 +486,28 @@ pub class Toolchain {
             || LinkFS::is_dir(LinkText::join(usr.copy(), "lib64")) {
             self.style = "root"
             bases.push_back(usr)
-            bases.push_back(self.sysroot)
+            bases.push_back(self.sysroot.copy())
             self.pass_sysroot = self.sysroot != "/"
         } else {
             self.style = "prefix"
-            bases.push_back(self.sysroot)
+            bases.push_back(self.sysroot.copy())
             self.pass_sysroot = false
         }
 
         var ma = Toolchain::multiarch(self.arch, self.os, self.env)
-        for var b: string in bases {
-            var lib = LinkText::join(b.copy(), "lib")
+        for *b in bases {
+            var lib = LinkText::join(b->copy(), "lib")
             if !ma.is_empty() {
                 self._add_dir(LinkText::join(lib.copy(), ma.copy()))
             }
 
             if self.is64 {
-                self._add_dir(LinkText::join(b.copy(), "lib64"))
+                self._add_dir(LinkText::join(b->copy(), "lib64"))
                 self._add_dir(lib)
             } else {
                 // A 32-bit link on a 64-bit multilib host: lib/ is the wrong
                 // class and lld would take the first libc it finds there.
-                var l32 = LinkText::join(b.copy(), "lib32")
+                var l32 = LinkText::join(b->copy(), "lib32")
                 if LinkFS::is_dir(l32) {
                     self._add_dir(l32)
                 } else {
@@ -516,10 +516,10 @@ pub class Toolchain {
             }
         }
 
-        for var d: string in self.lib_dirs {
-            if LinkFS::is_file(LinkText::join(d.copy(), "crt1.o"))
-                || LinkFS::is_file(LinkText::join(d.copy(), "Scrt1.o")) {
-                self.crt_dir = d.copy()
+        for *d in self.lib_dirs {
+            if LinkFS::is_file(LinkText::join(d->copy(), "crt1.o"))
+                || LinkFS::is_file(LinkText::join(d->copy(), "Scrt1.o")) {
+                self.crt_dir = d->copy()
                 break
             }
         }
@@ -540,15 +540,15 @@ pub class Toolchain {
         var tris  = Toolchain::mingw_triples(spelled_arch, self.arch)
         var usr   = LinkText::join(self.sysroot.copy(), "usr")
         var bases = cxx::std::vector<string>()
-        for var tr: string in tris {
-            bases.push_back(LinkText::join(self.sysroot.copy(), tr.copy()))
-            bases.push_back(LinkText::join(usr.copy(), tr.copy()))
+        for *tr in tris {
+            bases.push_back(LinkText::join(self.sysroot.copy(), tr->copy()))
+            bases.push_back(LinkText::join(usr.copy(), tr->copy()))
         }
 
-        bases.push_back(self.sysroot)
+        bases.push_back(self.sysroot.copy())
 
-        for var b: string in bases {
-            var lib = LinkText::join(b.copy(), "lib")
+        for *b in bases {
+            var lib = LinkText::join(b->copy(), "lib")
             if LinkFS::is_file(LinkText::join(lib.copy(), "crt2.o"))
                 || LinkFS::is_file(LinkText::join(lib.copy(), "libmingw32.a")) {
                 self._add_dir(lib)
@@ -566,9 +566,9 @@ pub class Toolchain {
             return
         }
 
-        for var d: string in self.lib_dirs {
-            if LinkFS::is_file(LinkText::join(d.copy(), "crt2.o")) {
-                self.crt_dir = d.copy()
+        for *d in self.lib_dirs {
+            if LinkFS::is_file(LinkText::join(d->copy(), "crt2.o")) {
+                self.crt_dir = d->copy()
                 break
             }
         }
@@ -593,9 +593,9 @@ pub class Toolchain {
 
         var best   = ""
         var best_v = ""
-        for var g: string in groots {
-            if LinkFS::is_dir(g) {
-                self._scan_gcc(g, &tris, "", &best, &best_v)
+        for *g in groots {
+            if LinkFS::is_dir(*g) {
+                self._scan_gcc(*g, &tris, "", &best, &best_v)
             }
         }
 
@@ -610,9 +610,9 @@ pub class Toolchain {
         self.pass_sysroot = false
 
         if self.sysroot == "/" {
-            for var d: string in Toolchain::_split(LinkFS::env(EnvNames::lib()), ';' as u8) {
-                if !d.is_empty() {
-                    self._add_dir(LinkText::strip_slash(d.copy()))
+            for *d in Toolchain::_split(LinkFS::env(EnvNames::lib()), ';' as u8) {
+                if !d->is_empty() {
+                    self._add_dir(LinkText::strip_slash(d->copy()))
                 }
             }
         }
@@ -629,8 +629,8 @@ pub class Toolchain {
             var vcs = cxx::std::vector<string>()
             vcs.push_back("VC/Tools/MSVC")
             vcs.push_back("vc/tools/msvc")
-            for var vc: string in vcs {
-                var root = LinkText::join(sr.copy(), vc.copy())
+            for *vc in vcs {
+                var root = LinkText::join(sr.copy(), vc->copy())
                 var v    = Toolchain::newest_version(root)
                 if !v.is_empty() {
                     self._add_dir(LinkText::join(root.copy(), f"{v}/lib/{vs}"))
@@ -641,8 +641,8 @@ pub class Toolchain {
             kits.push_back("Windows Kits/10/Lib")
             kits.push_back("kits/10/Lib")
             kits.push_back("kits/10/lib")
-            for var k: string in kits {
-                var root = LinkText::join(sr.copy(), k.copy())
+            for *k in kits {
+                var root = LinkText::join(sr.copy(), k->copy())
                 var v    = Toolchain::newest_version(root)
                 if v.is_empty() {
                     continue
@@ -717,10 +717,10 @@ pub class Toolchain {
             return
         }
 
-        for var d: string in self.lib_dirs {
-            if LinkFS::is_file(LinkText::join(d.copy(), "crt1-command.o"))
-                || LinkFS::is_file(LinkText::join(d.copy(), "crt1.o")) {
-                self.crt_dir = d.copy()
+        for *d in self.lib_dirs {
+            if LinkFS::is_file(LinkText::join(d->copy(), "crt1-command.o"))
+                || LinkFS::is_file(LinkText::join(d->copy(), "crt1.o")) {
+                self.crt_dir = d->copy()
                 break
             }
         }
@@ -918,10 +918,10 @@ pub class Toolchain {
         }
 
         var looked = ""
-        for var root: string in roots {
-            var lib = LinkText::join(root.copy(), "lib")
-            for var tr: string in tris {
-                var d = LinkText::join(lib.copy(), tr.copy())
+        for *root in roots {
+            var lib = LinkText::join(root->copy(), "lib")
+            for *tr in tris {
+                var d = LinkText::join(lib.copy(), tr->copy())
                 if self._try_rt(d, "") {
                     return
                 }
@@ -947,16 +947,16 @@ pub class Toolchain {
 
         // llvm-mingw and ksys keep the builtins beside the CRT, old -<arch> layout.
         if self.format == ObjectFormat::Coff || self.format == ObjectFormat::Wasm {
-            for var d: string in self.lib_dirs {
-                if self._try_rt(d, f"-{rtarch}") {
+            for *d in self.lib_dirs {
+                if self._try_rt(*d, f"-{rtarch}") {
                     return
                 }
 
-                if self._try_rt(d, "") {
+                if self._try_rt(*d, "") {
                     return
                 }
 
-                looked += f"\n  {d}"
+                looked += f"\n  {*d}"
             }
         }
 
@@ -977,8 +977,12 @@ pub class Toolchain {
     /// builtins.
     priv fn _find_darwin_rt(self, t: *TargetOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
         var name = f"libclang_rt.{Toolchain::darwin_rt_os(self.platform.copy())}.a"
-        for var root: string in self._rt_roots(t) {
-            var d = LinkText::join(LinkText::join(root.copy(), "lib"), "darwin")
+        for *root in self._rt_roots(t) {
+            var d = LinkText::join(
+                LinkText::join(root->copy(), "lib"),
+                "darwin",
+            )
+
             var a = LinkText::join(d.copy(), name.copy())
             if LinkFS::is_file(a) {
                 self.rt_dir   = d.copy()
@@ -999,11 +1003,11 @@ pub class Toolchain {
     /// then the old <resource>/lib/windows/clang_rt.builtins-<arch>.lib.
     priv fn _find_msvc_rt(self, t: *TargetOptions, @inout msgs: cxx::std::vector<LinkMessage>) {
         var looked = ""
-        for var root: string in self._rt_roots(t) {
-            var lib = LinkText::join(root.copy(), "lib")
-            for var tr: string in self._rt_triples(t) {
+        for *root in self._rt_roots(t) {
+            var lib = LinkText::join(root->copy(), "lib")
+            for *tr in self._rt_triples(t) {
                 var a = LinkText::join(
-                    LinkText::join(lib.copy(), tr.copy()),
+                    LinkText::join(lib.copy(), tr->copy()),
                     "clang_rt.builtins.lib",
                 )
 
@@ -1031,14 +1035,14 @@ pub class Toolchain {
             looked += f"\n  {w}"
         }
 
-        for var d: string in self.lib_dirs {
+        for *d in self.lib_dirs {
             var a = LinkText::join(
-                d.copy(),
+                d->copy(),
                 f"clang_rt.builtins-{self.arch}.lib",
             )
 
             if LinkFS::is_file(a) {
-                self.rt_dir    = d.copy()
+                self.rt_dir    = d->copy()
                 self.rt_suffix = f"-{self.arch}"
                 self.builtins  = a.copy()
                 return
@@ -1124,8 +1128,8 @@ pub class Toolchain {
         }
 
         var cands = cxx::std::vector<string>()
-        for var tr: string in self._rt_triples(t) {
-            cands.push_back(LinkText::join(base.copy(), tr.copy()))
+        for *tr in self._rt_triples(t) {
+            cands.push_back(LinkText::join(base.copy(), tr->copy()))
         }
 
         // base is the host's own libc++; only a host-format link may take it.
@@ -1133,14 +1137,14 @@ pub class Toolchain {
             cands.push_back(base)
         }
 
-        for var c: string in cands {
-            if LinkFS::is_file(LinkText::join(c.copy(), "libc++.so"))
-                || LinkFS::is_file(LinkText::join(c.copy(), "libc++.dylib"))
-                || LinkFS::is_file(LinkText::join(c.copy(), "libc++.a"))
-                || LinkFS::is_file(LinkText::join(c.copy(), "libc++.lib"))
-                || LinkFS::is_file(LinkText::join(c.copy(), "c++.lib")) {
-                if !self._has_dir(c) {
-                    self.toolchain_lib = c.copy()
+        for *c in cands {
+            if LinkFS::is_file(LinkText::join(c->copy(), "libc++.so"))
+                || LinkFS::is_file(LinkText::join(c->copy(), "libc++.dylib"))
+                || LinkFS::is_file(LinkText::join(c->copy(), "libc++.a"))
+                || LinkFS::is_file(LinkText::join(c->copy(), "libc++.lib"))
+                || LinkFS::is_file(LinkText::join(c->copy(), "c++.lib")) {
+                if !self._has_dir(*c) {
+                    self.toolchain_lib = c->copy()
                 }
 
                 return
@@ -1280,8 +1284,8 @@ pub class Toolchain {
         var e = name.size() - 4
         var b = e
         while b > 0
-            && (name[b - 1] >= ('0' as u8) && name[b - 1] <= ('9' as u8)
-                || name[b - 1] == ('.' as u8)) {
+            && (name.data()[b - 1] >= ('0' as u8) && name.data()[b - 1] <= ('9' as u8)
+                || name.data()[b - 1] == ('.' as u8)) {
             b -= 1
         }
 
@@ -1298,10 +1302,10 @@ pub class Toolchain {
         libnames.push_back("lib")
         libnames.push_back("lib64")
 
-        for var b: string in bases {
-            for var ln: string in libnames {
+        for *b in bases {
+            for *ln in libnames {
                 var groot = LinkText::join(
-                    LinkText::join(b.copy(), ln.copy()),
+                    LinkText::join(b->copy(), ln->copy()),
                     "gcc",
                 )
 
@@ -1326,18 +1330,18 @@ pub class Toolchain {
                       const multilib: string,
                       @inout best:    string,
                       @inout best_v:  string) {
-        for var t: string in tris {
-            var tdir = LinkText::join(groot.copy(), t.copy())
+        for *t in tris {
+            var tdir = LinkText::join(groot.copy(), t->copy())
             if !LinkFS::is_dir(tdir) {
                 continue
             }
 
-            for var v: string in LinkFS::list_dir(tdir) {
-                if v.is_empty() || v[0] < ('0' as u8) || v[0] > ('9' as u8) {
+            for *v in LinkFS::list_dir(tdir) {
+                if v->is_empty() || v->data()[0] < ('0' as u8) || v->data()[0] > ('9' as u8) {
                     continue
                 }
 
-                var d = LinkText::join(tdir.copy(), v.copy())
+                var d = LinkText::join(tdir.copy(), v->copy())
                 if !multilib.is_empty() {
                     d = LinkText::join(d.copy(), multilib.copy())
                 }
@@ -1346,9 +1350,9 @@ pub class Toolchain {
                     continue
                 }
 
-                if best.is_empty() || Toolchain::version_less(best_v, v) {
+                if best.is_empty() || Toolchain::version_less(best_v, *v) {
                     best   = d.copy()
-                    best_v = v.copy()
+                    best_v = v->copy()
                 }
             }
         }
@@ -1360,8 +1364,8 @@ pub class Toolchain {
         }
 
         var r = LinkFS::real(d.copy())
-        for var s: string in self._real_dirs {
-            if s == r {
+        for *s in self._real_dirs {
+            if *s == r {
                 return
             }
         }
@@ -1378,8 +1382,8 @@ pub class Toolchain {
         }
 
         var r = LinkFS::real(d.copy())
-        for var s: string in self._real_dirs {
-            if s == r {
+        for *s in self._real_dirs {
+            if *s == r {
                 return
             }
         }
@@ -1390,8 +1394,8 @@ pub class Toolchain {
 
     priv fn _has_dir(self, const d: string) -> bool {
         var r = LinkFS::real(d.copy())
-        for var s: string in self._real_dirs {
-            if s == r {
+        for *s in self._real_dirs {
+            if *s == r {
                 return true
             }
         }
@@ -1415,8 +1419,8 @@ pub class Toolchain {
             }
         }
 
-        for var d: string in self.lib_dirs {
-            var p = LinkText::join(d.copy(), name.copy())
+        for *d in self.lib_dirs {
+            var p = LinkText::join(d->copy(), name.copy())
             if LinkFS::is_file(p) {
                 return p
             }
@@ -1556,14 +1560,14 @@ pub class Toolchain {
         }
 
         out.push_back("library search:")
-        for var d: string in self.lib_dirs {
-            out.push_back(f"  {d}")
+        for *d in self.lib_dirs {
+            out.push_back(f"  {*d}")
         }
 
         if !self.host_lib_dirs.empty() {
             out.push_back("host library search (after the sysroot):")
-            for var d: string in self.host_lib_dirs {
-                out.push_back(f"  {d}")
+            for *d in self.host_lib_dirs {
+                out.push_back(f"  {*d}")
             }
         }
 
@@ -1914,13 +1918,13 @@ pub class Toolchain {
         }
 
         var best = ""
-        for var v: string in LinkFS::list_dir(dir) {
-            if v.is_empty() || v[0] < ('0' as u8) || v[0] > ('9' as u8) {
+        for *v in LinkFS::list_dir(dir) {
+            if v->is_empty() || v->data()[0] < ('0' as u8) || v->data()[0] > ('9' as u8) {
                 continue
             }
 
-            if best.is_empty() || Toolchain::version_less(best, v) {
-                best = v.copy()
+            if best.is_empty() || Toolchain::version_less(best, *v) {
+                best = v->copy()
             }
         }
 
@@ -1964,14 +1968,14 @@ pub class Toolchain {
             e = "gnu"
         }
 
-        for var x: string in archs {
-            Toolchain::_push_unique(&out, f"{x}-pc-linux-{e}")
-            Toolchain::_push_unique(&out, f"{x}-linux-{e}")
-            Toolchain::_push_unique(&out, f"{x}-unknown-linux-{e}")
+        for *x in archs {
+            Toolchain::_push_unique(&out, f"{*x}-pc-linux-{e}")
+            Toolchain::_push_unique(&out, f"{*x}-linux-{e}")
+            Toolchain::_push_unique(&out, f"{*x}-unknown-linux-{e}")
             if e == "gnu" {
-                Toolchain::_push_unique(&out, f"{x}-redhat-linux")
-                Toolchain::_push_unique(&out, f"{x}-suse-linux")
-                Toolchain::_push_unique(&out, f"{x}-linux")
+                Toolchain::_push_unique(&out, f"{*x}-redhat-linux")
+                Toolchain::_push_unique(&out, f"{*x}-suse-linux")
+                Toolchain::_push_unique(&out, f"{*x}-linux")
             }
         }
 
@@ -2006,7 +2010,7 @@ pub class Toolchain {
         var digits       = 0
         var i:     usize = 0
         while i < v.size() {
-            var c = v[i]
+            var c = v.data()[i]
             if c == ('.' as u8) {
                 if digits == 0 {
                     return false
@@ -2206,11 +2210,11 @@ pub class Toolchain {
         devs.push_back("/Library/Developer/CommandLineTools")
         devs.push_back("/Applications/Xcode.app/Contents/Developer")
 
-        for var d: string in devs {
+        for *d in devs {
             // Xcode nests SDKs per platform; the Command Line Tools keep a
             // flat SDKs/ with macOS only.
             var x = LinkText::join(
-                d.copy(),
+                d->copy(),
                 f"Platforms/{pname}.platform/Developer/SDKs/{pname}.sdk",
             )
 
@@ -2218,7 +2222,7 @@ pub class Toolchain {
                 return x
             }
 
-            var c = LinkText::join(d.copy(), f"SDKs/{pname}.sdk")
+            var c = LinkText::join(d->copy(), f"SDKs/{pname}.sdk")
             if LinkFS::is_dir(c) {
                 return c
             }
@@ -2234,9 +2238,9 @@ pub class Toolchain {
         var i   = LinkText::find(text.copy(), pat.copy(), 0)
         while i < text.size() {
             var j = Toolchain::_skip_ws(text.copy(), i + pat.size())
-            if j < text.size() && text[j] == (':' as u8) {
+            if j < text.size() && text.data()[j] == (':' as u8) {
                 j = Toolchain::_skip_ws(text.copy(), j + 1)
-                if j >= text.size() || text[j] != ('\x22' as u8) {
+                if j >= text.size() || text.data()[j] != ('\x22' as u8) {
                     return ""
                 }
 
@@ -2375,12 +2379,12 @@ pub class Toolchain {
 
     priv static fn _num(s: string, @inout i: usize) -> u32 {
         var v: u32 = 0
-        while i < s.size() && s[i] >= ('0' as u8) && s[i] <= ('9' as u8) {
-            v = v * 10 + ((s[i] - ('0' as u8)) as u32)
+        while i < s.size() && s.data()[i] >= ('0' as u8) && s.data()[i] <= ('9' as u8) {
+            v = v * 10 + ((s.data()[i] - ('0' as u8)) as u32)
             i += 1
         }
 
-        while i < s.size() && s[i] != ('.' as u8) {
+        while i < s.size() && s.data()[i] != ('.' as u8) {
             i += 1
         }
 
@@ -2394,10 +2398,10 @@ pub class Toolchain {
     priv static fn _skip_ws(s: string, i: usize) -> usize {
         var j = i
         while j < s.size()
-            && (s[j] == (' ' as u8)
-                || s[j] == ('\t' as u8)
-                || s[j] == ('\n' as u8)
-                || s[j] == ('\r' as u8)) {
+            && (s.data()[j] == (' ' as u8)
+                || s.data()[j] == ('\t' as u8)
+                || s.data()[j] == ('\n' as u8)
+                || s.data()[j] == ('\r' as u8)) {
             j += 1
         }
 
@@ -2405,8 +2409,8 @@ pub class Toolchain {
     }
 
     priv static fn _push_unique(@inout out: cxx::std::vector<string>, const s: string) {
-        for var x: string in out {
-            if x == s {
+        for *x in out {
+            if *x == s {
                 return
             }
         }
@@ -2418,7 +2422,7 @@ pub class Toolchain {
         var out       = cxx::std::vector<string>()
         var b:  usize = 0
         for var i: usize = 0; i < s.size(); ++i {
-            if s[i] == sep {
+            if s.data()[i] == sep {
                 out.push_back(LinkText::slice(s, b, i))
                 b = i + 1
             }

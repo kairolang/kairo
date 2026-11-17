@@ -34,7 +34,7 @@ pub class LinkText {
         }
 
         for var i: usize = 0; i < p.size(); ++i {
-            if s[i] != p[i] {
+            if s.data()[i] != p.data()[i] {
                 return false
             }
         }
@@ -49,7 +49,7 @@ pub class LinkText {
 
         var off = s.size() - p.size()
         for var i: usize = 0; i < p.size(); ++i {
-            if s[off + i] != p[i] {
+            if s.data()[off + i] != p.data()[i] {
                 return false
             }
         }
@@ -76,7 +76,7 @@ pub class LinkText {
         for var i: usize = from; i + m <= n; ++i {
             var hit = true
             for var j: usize = 0; j < m; ++j {
-                if s[i + j] != p[j] {
+                if s.data()[i + j] != p.data()[j] {
                     hit = false
                     break
                 }
@@ -117,9 +117,9 @@ pub class LinkText {
         var out       = cxx::std::vector<string>()
         var b:  usize = 0
         for var i: usize = 0; i < s.size(); ++i {
-            if s[i] == ('\n' as u8) {
+            if s.data()[i] == ('\n' as u8) {
                 var e = i
-                if e > b && s[e - 1] == ('\r' as u8) {
+                if e > b && s.data()[e - 1] == ('\r' as u8) {
                     e -= 1
                 }
 
@@ -141,21 +141,21 @@ pub class LinkText {
             return a
         }
 
-        if a.is_empty() || b[0] == ('/' as u8) {
+        if a.is_empty() || b.data()[0] == ('/' as u8) {
             return b
         }
 
-        if a[a.size() - 1] == ('/' as u8) {
-            return a + b
+        if a.data()[a.size() - 1] == ('/' as u8) {
+            return a.copy() + b
         }
 
-        return a + "/" + b
+        return a.copy() + "/" + b
     }
 
     /// Drops trailing slashes, but never turns "/" into "".
     pub static fn strip_slash(s: string) -> string {
         var e = s.size()
-        while e > 1 && s[e - 1] == ('/' as u8) {
+        while e > 1 && s.data()[e - 1] == ('/' as u8) {
             e -= 1
         }
 
@@ -171,7 +171,7 @@ pub class LinkText {
 
         var plain = true
         for var i: usize = 0; i < a.size(); ++i {
-            var c = a[i]
+            var c = a.data()[i]
             var ok = c >= ('a' as u8) && c <= ('z' as u8)
                 || c >= ('A' as u8) && c <= ('Z' as u8)
                 || c >= ('0' as u8) && c <= ('9' as u8)
@@ -197,7 +197,7 @@ pub class LinkText {
         var s        = "'"
         var b: usize = 0
         for var i: usize = 0; i < a.size(); ++i {
-            if a[i] == ('\x27' as u8) {
+            if a.data()[i] == ('\x27' as u8) {
                 s += LinkText::slice(a, b, i)
                 s += "'\x5C''"
                 b = i + 1
@@ -215,7 +215,7 @@ pub class LinkText {
         var s        = "\""
         var b: usize = 0
         for var i: usize = 0; i < a.size(); ++i {
-            if a[i] == ('\x22' as u8) || a[i] == ('\\' as u8) {
+            if a.data()[i] == ('\x22' as u8) || a.data()[i] == ('\\' as u8) {
                 s += LinkText::slice(a, b, i)
                 s += "\x5C"
                 b = i
@@ -228,7 +228,7 @@ pub class LinkText {
     }
 
     priv static fn _space(s: string, i: usize) -> bool {
-        var c = s[i]
+        var c = s.data()[i]
         return c == (' ' as u8) || c == ('\t' as u8) || c == ('\r' as u8) || c == ('\n' as u8)
     }
 }

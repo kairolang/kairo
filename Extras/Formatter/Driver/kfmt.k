@@ -58,6 +58,7 @@ import Format::*
 import Options::*
 import Renderer::*
 import Resolution::ModulePath::*
+import Support::Ascii::copy_strings
 import Support::FileIO::Path::*
 import Token::TokenKind::*
 import Tooling::ParseAPI::*
@@ -100,7 +101,7 @@ fn diag_line(const d: ToolDiag) -> string {
     return f"{head}{d.code}: {d.message}"
 }
 
-fn is_error(d: ToolDiag) -> bool {
+fn is_error(const d: ToolDiag) -> bool {
     return d.severity == DiagSeverity::Error || d.severity == DiagSeverity::Fatal
 }
 
@@ -135,17 +136,18 @@ fn parse_fid(ci: unsafe *CompilerInstance, fid: u32) -> Parsed {
 /// Syntax errors (and fatals) in \p u, printed to stderr when \p show; 0
 /// when clean. An import that does not resolve from here says nothing
 /// about the text.
-fn syntax_errors(u: Parsed, show: bool) -> u32 {
+fn syntax_errors(const u: Parsed, show: bool) -> u32 {
     var bad: u32 = 0
     for var i: usize = 0; i < u.diags.size(); ++i {
-        var d = u.diags[i]
-        if !is_error(d) {
+        var *d = &u.diags[i]
+        if !is_error(*d) {
             continue
         }
 
-        if d.severity == DiagSeverity::Fatal || d.code.size() > 0 && d.code[0] == ('S' as u8) {
+        if d->severity == DiagSeverity::Fatal
+            || d->code.size() > 0 && d->code.data()[0] == ('S' as u8) {
             if show {
-                io::eprintln(f"  {diag_line(d)}")
+                io::eprintln(f"  {diag_line(*d)}")
             }
 
             bad += 1
@@ -192,15 +194,15 @@ fn tree_dump(const u: Parsed) -> string {
     var a:    usize  = 0
     while a < out.size() {
         var b = a
-        while b < out.size() && out[b] != ('\n' as u8) {
+        while b < out.size() && out.data()[b] != ('\n' as u8) {
             b += 1
         }
 
         var row = out.subslice(a, b - a)
-        var drop = find_str(row.copy(), "doc-comment") < row.size()
-            || find_str(row.copy(), "line-comment") < row.size()
-            || find_str(row.copy(), "block-comment") < row.size()
-            || find_str(row.copy(), "<annotation>") < row.size()
+        var drop = find_str(row, "doc-comment") < row.size()
+            || find_str(row, "line-comment") < row.size()
+            || find_str(row, "block-comment") < row.size()
+            || find_str(row, "<annotation>") < row.size()
         if !drop {
             kept += row
             kept += "\n"
@@ -293,24 +295,24 @@ fn import_comments(f:        *Formatter,
 /// Kairo import \p im as a set of `path::item` names, in a canonical order:
 /// `import a::{x, y}`, `import a::{y, x}` and, for one name, the 5.1 forms
 /// all read the same.
-fn import_names(im: ImportInfo) -> string {
-    var s: string = im.vis + "|" + im.anchor + "|"
+fn import_names(const im: ImportInfo) -> string {
+    var s: string = im.vis.copy() + "|" + im.anchor + "|"
     var xs        = cxx::std::vector<string>()
     if im.braced {
         for var i: usize = 0; i < im.items.size(); ++i {
-            xs.push_back(im.path + "::" + im.items[i])
+            xs.push_back(im.path.copy() + "::" + im.items[i])
         }
     } else if im.star {
-        xs.push_back(im.path + "::*")
+        xs.push_back(im.path.copy() + "::*")
     } else if im.alias.size() > 0 {
-        xs.push_back(im.path + " as " + im.alias)
+        xs.push_back(im.path.copy() + " as " + im.alias)
     } else {
-        xs.push_back(im.path)
+        xs.push_back(im.path.copy())
     }
 
     sort_strings(unsafe &xs)
     for var i: usize = 0; i < xs.size(); ++i {
-        s += xs[i] + ","
+        s += xs[i].copy() + ","
     }
 
     return s
@@ -328,20 +330,20 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
     }
 
     for var x: usize = 0; x < f->imps.size(); ++x {
-        var im = f->imps[x]
+        var *im = &f->imps[x]
         // not understood: not restyled or moved, so compared as code
-        if im.raw {
+        if im->raw {
             continue
         }
 
-        for var i = f->_lb(im.start); i < n && f->toks[i].start < im.end; ++i {
+        for var i = f->_lb(im->start); i < n && f->toks[i].start < im->end; ++i {
             in_imp[i] = 1
         }
 
-        var cm = import_comments(f, im, unsafe &used)
-        if im.is_ffi {
+        var cm = import_comments(f, *im, unsafe &used)
+        if im->is_ffi {
             var t: string = ""
-            for var i = f->_lb(im.start); i < n && f->toks[i].start < im.core; ++i {
+            for var i = f->_lb(im->start); i < n && f->toks[i].start < im->core; ++i {
                 if Formatter::trivia(f->toks[i].kind) {
                     continue
                 }
@@ -349,9 +351,9 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
                 t += f->tok_text(i) + " "
             }
 
-            g.ffis.push_back(t + "#" + cm)
+            g.ffis.push_back(t.copy() + "#" + cm)
         } else {
-            g.imps.push_back(import_names(im) + "#" + cm)
+            g.imps.push_back(import_names(*im) + "#" + cm)
         }
     }
 
@@ -415,17 +417,16 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
 /// \p s with each run of whitespace outside double quotes made one space:
 /// the pieces of a chained string (`"a "\n    "b"`) are re-indented with
 /// their statement, and only their text is the code.
-fn squeeze(s: string) -> string {
+fn squeeze(const s: string) -> string {
     var out: string = ""
     var q           = false
     var sp          = false
     var i:   usize  = 0
+    var run: usize  = 0     // start of the bytes of s not yet copied to out
     while i < s.size() {
-        var c = s[i]
+        var c = s.data()[i]
         if q {
-            out.push_back(c)
             if c == ('\\' as u8) && i + 1 < s.size() {
-                out.push_back(s[i + 1])
                 i += 2
                 continue
             }
@@ -439,17 +440,18 @@ fn squeeze(s: string) -> string {
         }
 
         if c == (' ' as u8) || c == ('\t' as u8) || c == ('\n' as u8) || c == ('\r' as u8) {
+            out += s[run..i]
             sp = true
             i += 1
+            run = i
             continue
         }
 
         if sp && out.size() > 0 {
-            out.push_back(' ' as u8)
+            out.push(' ')
         }
 
         sp = false
-        out.push_back(c)
         if c == ('"' as u8) {
             q = true
         }
@@ -457,11 +459,12 @@ fn squeeze(s: string) -> string {
         i += 1
     }
 
+    out += s[run..]
     return out
 }
 
-fn same_list(a:          cxx::std::vector<string>,
-             b:          cxx::std::vector<string>,
+fn same_list(const a:    cxx::std::vector<string>,
+             const b:    cxx::std::vector<string>,
              const what: string,
              why:        unsafe *string) -> bool {
     var n = if a.size() < b.size() => a.size() else => b.size()
@@ -471,7 +474,7 @@ fn same_list(a:          cxx::std::vector<string>,
             var ctx: string = ""
             var k           = if i > 4 => i - 4 else => 0
             while k < i {
-                ctx += a[k] + " "
+                ctx += a[k].copy() + " "
                 k += 1
             }
 
@@ -493,8 +496,8 @@ fn first_diff(a: string, b: string) -> string {
     var i:    usize = 0
     var line: usize = 1
     var ls:   usize = 0
-    while i < a.size() && i < b.size() && a[i] == b[i] {
-        if a[i] == ('\n' as u8) {
+    while i < a.size() && i < b.size() && a.data()[i] == b.data()[i] {
+        if a.data()[i] == ('\n' as u8) {
             line += 1
             ls = i + 1
         }
@@ -503,7 +506,7 @@ fn first_diff(a: string, b: string) -> string {
     }
 
     var e = ls
-    while e < a.size() && a[e] != ('\n' as u8) {
+    while e < a.size() && a.data()[e] != ('\n' as u8) {
         e += 1
     }
 
@@ -519,7 +522,7 @@ fn verify(ci:             unsafe *CompilerInstance,
           const a:        Sig,
           const ta:       string,
           const file_dir: string,
-          roots:          cxx::std::vector<string>,
+          const roots:    cxx::std::vector<string>,
           const out:      string,
           set:            Settings,
           buf:            unsafe *cxx::std::string,
@@ -528,7 +531,7 @@ fn verify(ci:             unsafe *CompilerInstance,
     // to the caller and outlives the virtual file
     *buf = kairo::std::to_std_string(out)
     var vfid = ci->sm()->load_virtual(
-        Path(name + ".kfmt-check.k", false),
+        Path(name.copy() + ".kfmt-check.k", false),
         unsafe (buf->data() as kairo::std::ConstPtr<u8>),
         buf->size(),
     )
@@ -548,7 +551,7 @@ fn verify(ci:             unsafe *CompilerInstance,
 
     var f2 = Formatter(v.ctx, ci, vfid, set)
     f2.file_dir = file_dir.copy()
-    f2.roots    = roots
+    f2.roots    = copy_strings(roots)
     if !f2.prepare() {
         *why = "the output does not lex"
         return false
@@ -603,11 +606,11 @@ fn verify(ci:             unsafe *CompilerInstance,
 }
 
 /// 0 unchanged, 1 changed (reformatted, or would be), 2 refused or failed.
-fn format_one_file(ci:         unsafe *CompilerInstance,
-                   const name: string,
-                   mode:       FmtMode,
-                   set:        Settings,
-                   roots:      cxx::std::vector<string>) -> i32 {
+fn format_one_file(ci:          unsafe *CompilerInstance,
+                   const name:  string,
+                   mode:        FmtMode,
+                   set:         Settings,
+                   const roots: cxx::std::vector<string>) -> i32 {
     // the checked output's bytes: declared before the release below so they
     // outlive the virtual file that points at them
     var buf = cxx::std::string()
@@ -636,7 +639,7 @@ fn format_one_file(ci:         unsafe *CompilerInstance,
 
     var fmt = Formatter(u.ctx, ci, fid, set)
     fmt.file_dir = Path::parent_of(Path::absolute_if_exists(name.copy()))
-    fmt.roots    = roots
+    fmt.roots    = copy_strings(roots)
     if !fmt.prepare() {
         io::eprintln(f"kfmt: {name}: could not lex")
         return 2
@@ -752,7 +755,7 @@ fn usage() {
 
 /// The value of `--name=value` in \p arg, or "" when \p arg is not that flag.
 fn flag_value(const arg: string, const name: string) -> string {
-    var p = name + "="
+    var p = name.copy() + "="
     if arg.size() <= p.size() || !arg.starts_with(p) {
         return ""
     }
@@ -838,7 +841,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             var v: i32 = 0
             var ok     = ts.size() <= 2
             for var k: usize = 0; k < ts.size(); ++k {
-                var c = ts[k]
+                var c = ts.data()[k]
                 if c < ('0' as u8) || c > ('9' as u8) {
                     ok = false
                     break
@@ -866,7 +869,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             var v: i32 = 0
             var ok     = cw.size() <= 3
             for var k: usize = 0; k < cw.size(); ++k {
-                var c = cw[k]
+                var c = cw.data()[k]
                 if c < ('0' as u8) || c > ('9' as u8) {
                     ok = false
                     break
@@ -915,11 +918,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     ci->initialize(Path::cwd())
 
     // the -I directories, for the 5.1 module-collision test
-    var roots = cxx::std::vector<string>()
-    var dirs  = ci->invocation()->include_dirs
-    for var i: usize = 0; i < dirs.size(); ++i {
-        roots.push_back(dirs[i])
-    }
+    var roots = copy_strings(ci->invocation()->include_dirs)
 
     // every .k file named, or under a named directory; sorted so runs agree
     var files = cxx::std::vector<string>()
@@ -951,7 +950,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
             sort_strings(unsafe &found)
             for var i: usize = 0; i < found.size(); ++i {
-                files.push_back(found[i])
+                files.push_back(cxx::std::move(found[i]))
             }
         } else {
             if Path::extension_of(target_path) != ".k" {

@@ -164,21 +164,21 @@ pub fn cache_root() -> string {
     if root.is_empty() {
         var xdg = LinkFS::env(EnvNames::xdg_cache_home())
         if !xdg.is_empty() {
-            root = xdg + "/kairo"
+            root = xdg.copy() + "/kairo"
         }
     }
 
     if root.is_empty() {
         var home = LinkFS::env(EnvNames::home())
         if !home.is_empty() {
-            root = home + "/.cache/kairo"
+            root = home.copy() + "/.cache/kairo"
         }
     }
 
     if root.is_empty() {
         var local = LinkFS::env(EnvNames::local_app_data())
         if !local.is_empty() {
-            root = local + "/kairo"
+            root = local.copy() + "/kairo"
         }
     }
 

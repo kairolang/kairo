@@ -122,7 +122,7 @@ pub class MinGWArgs {
         /// neither capture path is a tty, so lld never colors here anyway.
         argv.push_back("ld.lld")
         argv.push_back("-m")
-        argv.push_back(tc.emulation)
+        argv.push_back(tc.emulation.copy())
         argv.push_back(LldWords::no_error_limit())
         if job.threads > 0 {
             argv.push_back(f"--threads={job.threads}")
@@ -161,13 +161,13 @@ pub class MinGWArgs {
         /// # crt startup
         if !no_crt {
             if tc.has_manifest && !tc.manifest.crt_startup.empty() {
-                for var n: string in tc.manifest.crt_startup {
-                    var name = n.copy()
-                    if shared && LinkText::starts_with(n.copy(), "crt1") {
+                for *n in tc.manifest.crt_startup {
+                    var name = n->copy()
+                    if shared && LinkText::starts_with(n->copy(), "crt1") {
                         name = "dllcrt1.o"
                     }
 
-                    if shared && LinkText::starts_with(n.copy(), "crt2") {
+                    if shared && LinkText::starts_with(n->copy(), "crt2") {
                         name = "dllcrt2.o"
                     }
 
@@ -189,8 +189,8 @@ pub class MinGWArgs {
         }
 
         /// # search path, user's first
-        for var d: string in o->lib_dirs {
-            argv.push_back(f"-L{d}")
+        for *d in o->lib_dirs {
+            argv.push_back(f"-L{*d}")
         }
 
         if !tc.toolchain_lib.is_empty() {
@@ -201,8 +201,8 @@ pub class MinGWArgs {
             argv.push_back(f"-L{tc.gcc_dir}")
         }
 
-        for var d: string in tc.lib_dirs {
-            argv.push_back(f"-L{d}")
+        for *d in tc.lib_dirs {
+            argv.push_back(f"-L{*d}")
         }
 
         /// # behavior
@@ -253,13 +253,13 @@ pub class MinGWArgs {
             argv.push_back(o->entry)
         }
 
-        for var f: string in o->ld_flags {
-            argv.push_back(f)
+        for *f in o->ld_flags {
+            argv.push_back(*f)
         }
 
         /// # inputs
-        for var obj: string in job.objects {
-            argv.push_back(obj)
+        for *obj in job.objects {
+            argv.push_back(*obj)
         }
 
         // The MinGW driver has no --start-lib: job.lazy_objects come as
@@ -282,8 +282,8 @@ pub class MinGWArgs {
             argv.push_back(o->def)
         }
 
-        for var spec: string in o->link_libs {
-            MinGWArgs::_user_lib(spec, want_stat, &argv, &msgs)
+        for *spec in o->link_libs {
+            MinGWArgs::_user_lib(*spec, want_stat, &argv, &msgs)
         }
 
         if !no_libs {
@@ -293,8 +293,8 @@ pub class MinGWArgs {
         /// # crt end
         if !no_crt {
             if tc.has_manifest && !tc.manifest.crt_end.empty() {
-                for var n: string in tc.manifest.crt_end {
-                    MinGWArgs::_crt(&tc, n, &argv, &msgs)
+                for *n in tc.manifest.crt_end {
+                    MinGWArgs::_crt(&tc, *n, &argv, &msgs)
                 }
             } else {
                 var ce = tc.crt_object("crtend", "")
@@ -571,8 +571,8 @@ pub class MinGWArgs {
             argv.push_back("-Bstatic")
         }
 
-        for var x: string in cxx_v {
-            argv.push_back(x)
+        for *x in cxx_v {
+            argv.push_back(*x)
         }
 
         if !want_stat {
@@ -588,23 +588,23 @@ pub class MinGWArgs {
         }
 
         var user_crt = MinGWArgs::_user_links_crt(o)
-        for var x: string in libc {
+        for *x in libc {
             if user_crt
-                && LinkText::starts_with(x.copy(), "-l")
-                && MinGWArgs::_is_crt(LinkText::slice(x, 2, x.size())) {
+                && LinkText::starts_with(x->copy(), "-l")
+                && MinGWArgs::_is_crt(LinkText::slice(*x, 2, x->size())) {
                 continue
             }
 
-            argv.push_back(x)
+            argv.push_back(*x)
         }
     }
 
     priv static fn _user_links_crt(o: *LinkerOptions) -> bool {
-        for var spec: string in o->link_libs {
-            var n = spec.copy()
-            var c = LinkText::find(spec.copy(), ":", 0)
-            if c < spec.size() {
-                n = LinkText::slice(spec, c + 1, spec.size())
+        for *spec in o->link_libs {
+            var n = spec->copy()
+            var c = LinkText::find(spec->copy(), ":", 0)
+            if c < spec->size() {
+                n = LinkText::slice(*spec, c + 1, spec->size())
             }
 
             if MinGWArgs::_is_crt(n) {

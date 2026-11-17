@@ -58,8 +58,8 @@ pub class LinkJob {
     /// Once per path: two inputs that share an import both emit its object
     /// to the same place.
     pub fn add_object(self, const path: string) {
-        for var o: string in self.objects {
-            if o == path {
+        for *o in self.objects {
+            if *o == path {
                 return
             }
         }

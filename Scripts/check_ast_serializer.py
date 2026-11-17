@@ -83,7 +83,7 @@ FUNCTIONS = {
     "Stmt": ["io_stmt_base"],
     "Decl": ["io_decl_base"],
     "Type": ["io_type_base"],
-    "Pattern": ["io_pattern_base"],
+    "AstPattern": ["io_pattern_base"],
     "VisibilityAnnotation": ["io_decl_base"],
     "Annotation": ["io_annotations"],
     "AnnotationEntry": ["io_annotations"],
@@ -206,7 +206,7 @@ def main():
             continue
         checked_classes += 1
         text = "\n".join(texts)
-        rebuilt = dict(REBUILT["*"]) if cls not in ("Expr", "Stmt", "Decl", "Type", "Pattern") else {}
+        rebuilt = dict(REBUILT["*"]) if cls not in ("Expr", "Stmt", "Decl", "Type", "AstPattern") else {}
         rebuilt.update(REBUILT.get(cls, {}))
         for field, rel, line in classes[cls]:
             if field in rebuilt:

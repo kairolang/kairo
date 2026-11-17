@@ -142,12 +142,12 @@ pub class LinkABI {
     static fn check(@inout job: LinkJob, @inout msgs: cxx::std::vector<LinkMessage>) {
         var notes  = cxx::std::vector<AbiNote>()
         var allocs = cxx::std::vector<AllocNote>()
-        for var o: string in job.objects {
-            LinkABI::_scan(o, &notes, &allocs)
+        for *o in job.objects {
+            LinkABI::_scan(*o, &notes, &allocs)
         }
 
-        for var o: string in job.lazy_objects {
-            LinkABI::_scan(o, &notes, &allocs)
+        for *o in job.lazy_objects {
+            LinkABI::_scan(*o, &notes, &allocs)
         }
 
         LinkABI::_check_global_allocator(&allocs, &msgs)
@@ -187,8 +187,8 @@ pub class LinkABI {
         var notes  = cxx::std::vector<AbiNote>()
         var allocs = cxx::std::vector<AllocNote>()
         LinkABI::_scan(path, &notes, &allocs)
-        for var a: AllocNote in allocs {
-            if (a.flags & ABI_ALLOC_SETS_GLOBAL) != 0 {
+        for *a in allocs {
+            if (a->flags & ABI_ALLOC_SETS_GLOBAL) != 0 {
                 return true
             }
         }
@@ -225,17 +225,17 @@ pub class LinkABI {
         }
 
         var s = allocs[setter as usize]
-        for var a: AllocNote in allocs {
-            if (a.flags & ABI_ALLOC_INLINES_SYSTEM) == 0 {
+        for *a in allocs {
+            if (a->flags & ABI_ALLOC_INLINES_SYSTEM) == 0 {
                 continue
             }
 
-            var how = if (a.path == s.path) => (f"{a.path} sets the global allocator, but was")
-                      else => f"{s.path} sets the global allocator, but {a.path} was"
+            var how = if (a->path == s.path) => (f"{a->path} sets the global allocator, but was")
+                      else => f"{s.path} sets the global allocator, but {a->path} was"
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
-                    how + " compiled without " + alloc_set_macro_name() + ", so its allocations go to System and bypass it; " + f"rebuild {a.path} with --global-allocator-set",
+                    how.copy() + " compiled without " + alloc_set_macro_name() + ", so its allocations go to System and bypass it; " + f"rebuild {a->path} with --global-allocator-set",
                 ),
             )
 
@@ -266,7 +266,7 @@ pub class LinkABI {
         for var i: usize = 0; i + m + 2 <= n; ++i {
             var at_magic = true
             for var k: usize = 0; k < m; ++k {
-                if data[i + k] != magic[k] {
+                if data.data()[i + k] != magic.data()[k] {
                     at_magic = false
                     break
                 }
@@ -276,8 +276,8 @@ pub class LinkABI {
                 continue
             }
 
-            var ver  = ((data[i + m]) as u32)
-            var bits = ((data[i + m + 1]) as u32)
+            var ver  = ((data.data()[i + m]) as u32)
+            var bits = ((data.data()[i + m + 1]) as u32)
             if ver == ABI_NOTE_KIND_ALLOC {
                 if bits == 0 || bits > (ABI_ALLOC_INLINES_SYSTEM | ABI_ALLOC_SETS_GLOBAL) {
                     continue
@@ -295,7 +295,7 @@ pub class LinkABI {
                 continue
             }
 
-            var major = ((data[i + m + 2]) as u32)
+            var major = ((data.data()[i + m + 2]) as u32)
             // A record of a version this linker does not know, or bytes that
             // only look like the magic, are not a note.
             var all_bits = call_conv_note_bit(CALL_CONV_PRESERVE_MOST) | call_conv_note_bit(

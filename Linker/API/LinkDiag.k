@@ -49,8 +49,8 @@ pub class LinkDiag {
     /// and after, so a step never has to track its own failure flag.
     static fn error_count(@inout msgs: cxx::std::vector<LinkMessage>) -> usize {
         var n: usize = 0
-        for var m: LinkMessage in msgs {
-            if m.severity == LinkSeverity::Fatal || m.severity == LinkSeverity::Error {
+        for *m in msgs {
+            if m->severity == LinkSeverity::Fatal || m->severity == LinkSeverity::Error {
                 n += 1
             }
         }
@@ -62,18 +62,18 @@ pub class LinkDiag {
     static fn parse(const text: string, @inout out: cxx::std::vector<LinkMessage>) {
         var have = false
         var cur  = LinkMessage{}
-        for var line: string in LinkText::split_lines(text.copy()) {
-            if LinkText::trim(line).is_empty() {
+        for *line in LinkText::split_lines(text.copy()) {
+            if LinkText::trim(*line).is_empty() {
                 continue
             }
 
-            if LinkText::starts_with(line.copy(), ">>>")
-                || LinkText::starts_with(line.copy(), " ") {
+            if LinkText::starts_with(line->copy(), ">>>")
+                || LinkText::starts_with(line->copy(), " ") {
                 if have {
                     cur.text += "\n"
-                    cur.text += line
+                    cur.text += *line
                 } else {
-                    out.push_back(LinkDiag::make(LinkSeverity::Note, line))
+                    out.push_back(LinkDiag::make(LinkSeverity::Note, *line))
                 }
 
                 continue
@@ -83,7 +83,7 @@ pub class LinkDiag {
                 out.push_back(cur)
             }
 
-            cur  = LinkDiag::_classify(line)
+            cur  = LinkDiag::_classify(*line)
             have = true
         }
 
@@ -100,12 +100,12 @@ pub class LinkDiag {
     /// such entries (COFF's one-line form).
     pub static fn definers(const text: string) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
-        for var line: string in LinkText::split_lines(text.copy()) {
-            if !LinkText::starts_with(line.copy(), ">>>") {
+        for *line in LinkText::split_lines(text.copy()) {
+            if !LinkText::starts_with(line->copy(), ">>>") {
                 continue
             }
 
-            var rest  = LinkText::trim(LinkText::slice(line, 3, line.size()))
+            var rest  = LinkText::trim(LinkText::slice(*line, 3, line->size()))
             var fresh = false
             if LinkText::starts_with(rest.copy(), "defined at ")
                 || LinkText::starts_with(rest.copy(), "defined in ") {

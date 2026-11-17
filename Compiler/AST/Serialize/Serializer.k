@@ -37,9 +37,9 @@ import AST::Context::TranslationUnit::{
     TranslationUnit,
 }
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -125,7 +125,7 @@ fn hook_io(ar: unsafe *ASTArchive, cat: u8, p: unsafe *void) {
     } else if cat == CAT_TYPE {
         type_io(ar, unsafe (p as unsafe *Type))
     } else if cat == CAT_PATTERN {
-        pattern_io(ar, unsafe (p as unsafe *Pattern))
+        pattern_io(ar, unsafe (p as unsafe *AstPattern))
     }
 }
 

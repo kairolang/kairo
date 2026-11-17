@@ -70,7 +70,7 @@ pub class MingwProvider derives SysrootProvider {
             return out.refuse(f"share input {from} missing", "")
         }
 
-        if !ctx->materialise(from, dst + "/include", &out) {
+        if !ctx->materialise(from, dst.copy() + "/include", &out) {
             return false
         }
 
@@ -101,7 +101,7 @@ pub class MingwProvider derives SysrootProvider {
             return out.refuse(f"share input {defs} or {crt} missing", "")
         }
 
-        var lib  = dst + "/lib"
+        var lib  = dst.copy() + "/lib"
         var none = cxx::std::vector<string>()
         if !SysRun::copy_tree(crt, lib, &none) {
             return out.fail(f"cannot copy {crt} into {lib}", "")
@@ -110,26 +110,26 @@ pub class MingwProvider derives SysrootProvider {
         var names = LinkFS::list_dir(defs)
         cxx::std::sort(names.begin(), names.end())
         var flags = ctx->recipe.list("libc", "dlltool_flags")
-        for var n: string in names {
-            if !LinkText::ends_with(n.copy(), ".def") {
+        for *n in names {
+            if !LinkText::ends_with(n->copy(), ".def") {
                 continue
             }
 
-            var stem = LinkText::slice(n, 0, n.size() - 4)
+            var stem = LinkText::slice(*n, 0, n->size() - 4)
             var args = cxx::std::vector<string>()
             args.push_back("llvm-dlltool")
             args.push_back("-m")
-            args.push_back(machine)
-            for var f: string in flags {
-                args.push_back(f)
+            args.push_back(machine.copy())
+            for *f in flags {
+                args.push_back(*f)
             }
 
             args.push_back("-d")
-            args.push_back(defs + "/" + n)
+            args.push_back(defs.copy() + "/" + *n)
             args.push_back("-l")
-            args.push_back(lib + "/lib" + stem + ".a")
+            args.push_back(lib.copy() + "/lib" + stem + ".a")
             if MingwProvider::dlltool(&args) != 0 {
-                return out.fail(f"dlltool -d {defs}/{n} failed", "")
+                return out.fail(f"dlltool -d {defs}/{*n} failed", "")
             }
         }
 
@@ -163,11 +163,11 @@ pub class MingwProvider derives SysrootProvider {
             )
         }
 
-        var work = ctx->stage + "/crt"
+        var work = ctx->stage.copy() + "/crt"
         var env  = CrtEnv()
-        env.src     = tables + "/src"
-        env.build   = work + "/build"
-        env.sysroot = work + "/sysroot"
+        env.src     = tables.copy() + "/src"
+        env.build   = work.copy() + "/build"
+        env.sysroot = work.copy() + "/sysroot"
         env.src_tag = "mingw-w64-crt"
         LinkFS::remove_tree(work)
         if !LinkFS::make_dirs(env.build) {
@@ -182,16 +182,16 @@ pub class MingwProvider derives SysrootProvider {
         }
 
         var err = ""
-        for var f: CrtPair in t.files {
+        for *f in t.files {
             if !SysCrt::put_ref(
-                f.val,
+                f->val,
                 env.src,
-                tables + "/gen",
-                env.build + "/" + f.key,
+                tables.copy() + "/gen",
+                env.build.copy() + "/" + f->key,
                 false,
                 &err,
             ) {
-                return out.refuse(f"{tpath}: [files] {f.key}: {err}", "")
+                return out.refuse(f"{tpath}: [files] {f->key}: {err}", "")
             }
         }
 
@@ -205,23 +205,23 @@ pub class MingwProvider derives SysrootProvider {
 
         // The prebuilt remainder first: what [install] builds wins where an
         // older share's crt/ still carries a copy of it.
-        var lib   = dst + "/lib"
+        var lib   = dst.copy() + "/lib"
         var extra = ctx->share_path(ctx->recipe.str("libc", "crt"))
         if LinkFS::is_dir(extra) && !ctx->materialise(extra, lib, &out) {
             return false
         }
 
-        for var i: CrtPair in t.install {
-            var from = env.build + "/" + i.val
+        for *i in t.install {
+            var from = env.build.copy() + "/" + i->val
             if !LinkFS::is_file(from) {
                 return out.fail(
-                    f"{tpath}: [install] {i.key}: nothing built {i.val}",
+                    f"{tpath}: [install] {i->key}: nothing built {i->val}",
                     "",
                 )
             }
 
-            if !SysRun::put_file(from, dst + "/" + i.key, true) {
-                return out.fail(f"cannot install {from} as {dst}/{i.key}", "")
+            if !SysRun::put_file(from, dst.copy() + "/" + i->key, true) {
+                return out.fail(f"cannot install {from} as {dst}/{i->key}", "")
             }
         }
 
@@ -248,7 +248,7 @@ pub class MingwProvider derives SysrootProvider {
         }
 
         for var a: CrtArchive in t->archives {
-            var o = env->build + "/" + a.out
+            var o = env->build.copy() + "/" + a.out
             LinkFS::make_dirs(LinkFS::parent(o))
             LinkFS::remove(o)
             if a.def.is_empty() {
@@ -258,9 +258,9 @@ pub class MingwProvider derives SysrootProvider {
             var args = cxx::std::vector<string>()
             args.push_back("llvm-dlltool")
             args.push_back("-m")
-            args.push_back(t->dlltool_machine)
-            for var f: string in t->dlltool_flags {
-                args.push_back(f)
+            args.push_back(t->dlltool_machine.copy())
+            for *f in t->dlltool_flags {
+                args.push_back(*f)
             }
 
             args.push_back("-d")
@@ -275,22 +275,22 @@ pub class MingwProvider derives SysrootProvider {
             }
         }
 
-        var logs = ctx->log_dir + "/ar"
+        var logs = ctx->log_dir.copy() + "/ar"
         LinkFS::make_dirs(logs)
         var jobs       = SysJobs()
         var n:   usize = 0
         jobs.limit(ctx->jobs)
-        for var a: CrtArchive in t->archives {
-            if a.members.empty() {
+        for *a in t->archives {
+            if a->members.empty() {
                 continue
             }
 
             var argv = cxx::std::vector<string>()
-            argv.push_back(ctx->ar)
+            argv.push_back(ctx->ar.copy())
             argv.push_back("qc")
-            argv.push_back(env->build + "/" + a.out)
-            for var m: string in a.members {
-                argv.push_back(env->build + "/" + m)
+            argv.push_back(env->build.copy() + "/" + a->out)
+            for *m in a->members {
+                argv.push_back(env->build.copy() + "/" + *m)
             }
 
             if !jobs.add(&argv, f"{logs}/{n}.log") {
@@ -309,15 +309,15 @@ pub class MingwProvider derives SysrootProvider {
             )
         }
 
-        for var a: CrtArchive in t->archives {
-            var o = env->build + "/" + a.out
-            if !a.addlib.empty() {
+        for *a in t->archives {
+            var o = env->build.copy() + "/" + a->out
+            if !a->addlib.empty() {
                 var argv = cxx::std::vector<string>()
-                argv.push_back(ctx->ar)
+                argv.push_back(ctx->ar.copy())
                 argv.push_back("qcL")
-                argv.push_back(o)
-                for var m: string in a.addlib {
-                    argv.push_back(env->build + "/" + m)
+                argv.push_back(o.copy())
+                for *m in a->addlib {
+                    argv.push_back(env->build.copy() + "/" + *m)
                 }
 
                 var log = f"{logs}/addlib-{n}.log"
@@ -326,7 +326,7 @@ pub class MingwProvider derives SysrootProvider {
                     var text = ""
                     LinkFS::read(log, &text)
                     return out.fail(
-                        f"llvm-ar qcL {a.out} failed: {SysCrt::first_error(text)}",
+                        f"llvm-ar qcL {a->out} failed: {SysCrt::first_error(text)}",
                         f"log: {log}",
                     )
                 }

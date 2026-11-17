@@ -96,7 +96,7 @@ fn ksys_opt(@inout args: cxx::std::vector<string>,
             const name:  string,
             @inout val:  string) -> bool {
     var a = args[i].copy()
-    if LinkText::starts_with(a.copy(), name + "=") {
+    if LinkText::starts_with(a.copy(), name.copy() + "=") {
         val = LinkText::slice(a, name.size() + 1, a.size())
         return true
     }
@@ -170,13 +170,13 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
             var n: usize = 0
             for var k: usize = 0; k < v.size(); ++k {
-                if v[k] < ('0' as u8) || v[k] > ('9' as u8) {
+                if v.data()[k] < ('0' as u8) || v.data()[k] > ('9' as u8) {
                     return ksys_usage_error(
                         f"-j wants a number of jobs, not {v}",
                     )
                 }
 
-                n = n * 10 + ((v[k] - ('0' as u8)) as usize)
+                n = n * 10 + ((v.data()[k] - ('0' as u8)) as usize)
             }
 
             if n == 0 {
@@ -274,8 +274,8 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     }
 
     if cmd == "ls" {
-        for var line: string in c.list() {
-            io::println(line)
+        for *line in c.list() {
+            io::println(*line)
         }
 
         return 0
@@ -285,8 +285,8 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         // 30 days in the filesystem clock's ticks (llvm's TimePoint is
         // nanoseconds on every host).
         var month: u64 = 30 * 24 * 3600 * (1000000000 as u64)
-        for var p: string in c.gc(c.now(), month) {
-            io::println(f"removed {p}")
+        for *p in c.gc(c.now(), month) {
+            io::println(f"removed {*p}")
         }
 
         return 0

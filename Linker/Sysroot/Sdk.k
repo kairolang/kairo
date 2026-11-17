@@ -166,12 +166,12 @@ pub class SysSdk {
             cands.push_back(LinkText::join(mc.copy(), "splat"))
         }
 
-        for var c: string in cands {
-            var um = LinkText::join(c.copy(), "sdk/include/um")
+        for *c in cands {
+            var um = LinkText::join(c->copy(), "sdk/include/um")
             var hd = LinkFS::is_file(LinkText::join(um.copy(), "Windows.h"))
                 || LinkFS::is_file(LinkText::join(um.copy(), "windows.h"))
-            if hd && LinkFS::is_dir(LinkText::join(c.copy(), f"crt/lib/{xa}")) {
-                return LinkFS::real(c.copy())
+            if hd && LinkFS::is_dir(LinkText::join(c->copy(), f"crt/lib/{xa}")) {
+                return LinkFS::real(c->copy())
             }
         }
 
@@ -279,7 +279,7 @@ pub class SysSdk {
 
         var dir = c.sysroot_dir(key)
         if !LinkFS::is_file(LinkText::join(dir.copy(), ".ok")) {
-            var tmp = dir + ".tmp"
+            var tmp = dir.copy() + ".tmp"
             LinkFS::remove_tree(tmp)
             if !LinkFS::make_dirs(tmp) {
                 return out.fail(f"cannot create {tmp}", "")
@@ -351,12 +351,12 @@ pub class SysSdk {
         var settings = cxx::std::vector<string>()
         settings.push_back("SDKSettings.json")
         settings.push_back("SDKSettings.plist")
-        for var f: string in settings {
-            var s = LinkText::join(sdk.copy(), f.copy())
+        for *f in settings {
+            var s = LinkText::join(sdk.copy(), f->copy())
             if LinkFS::is_file(s)
                 && !SysRun::put_file(
                     s,
-                    LinkText::join(dst.copy(), f.copy()),
+                    LinkText::join(dst.copy(), f->copy()),
                     false,
                 ) {
                 return out.fail(f"cannot copy {s}", "")
@@ -428,22 +428,22 @@ pub class SysSdk {
         dirs.push_back("sdk/include/winrt")
         dirs.push_back(f"sdk/lib/um/{xa}")
         dirs.push_back(f"sdk/lib/ucrt/{xa}")
-        for var d: string in dirs {
-            var s = LinkText::join(splat.copy(), d.copy())
+        for *d in dirs {
+            var s = LinkText::join(splat.copy(), d->copy())
             if !LinkFS::is_dir(s) {
-                if d == "sdk/include/winrt" {
+                if *d == "sdk/include/winrt" {
                     continue
                 }
 
                 return out.refuse(
-                    f"{splat} has no {d}: re-run xwin with --arch including {xa}",
+                    f"{splat} has no {*d}: re-run xwin with --arch including {xa}",
                     "",
                 )
             }
 
             if !SysSdk::_copy(
                 s,
-                LinkText::join(m.copy(), d.copy()),
+                LinkText::join(m.copy(), d->copy()),
                 &none,
                 &none,
                 0,
@@ -474,13 +474,13 @@ pub class SysSdk {
         parts.push_back("include")
         parts.push_back("lib")
         parts.push_back("compiler-rt")
-        for var d: string in parts {
+        for *d in parts {
             if !SysRun::copy_tree(
-                LinkText::join(ov.copy(), d.copy()),
-                LinkText::join(dst.copy(), d.copy()),
+                LinkText::join(ov.copy(), d->copy()),
+                LinkText::join(dst.copy(), d->copy()),
                 &none,
             ) {
-                return out.fail(f"cannot copy the overlay {ov}/{d}", "")
+                return out.fail(f"cannot copy the overlay {ov}/{*d}", "")
             }
         }
 
@@ -569,9 +569,9 @@ pub class SysSdk {
             need.push_back("lib/libc++.lib")
         }
 
-        for var n: string in need {
-            if !LinkFS::is_file(LinkText::join(r.copy(), n.copy())) {
-                return out.fail(f"{t->name}: the staged root has no {n}", "")
+        for *n in need {
+            if !LinkFS::is_file(LinkText::join(r.copy(), n->copy())) {
+                return out.fail(f"{t->name}: the staged root has no {*n}", "")
             }
         }
 
@@ -583,10 +583,10 @@ pub class SysSdk {
                 )
             }
 
-            for var f: string in LinkFS::list_dir(LinkText::join(r.copy(), "usr/lib")) {
-                if SysSdk::_glob(f, "libc++*.tbd") {
+            for *f in LinkFS::list_dir(LinkText::join(r.copy(), "usr/lib")) {
+                if SysSdk::_glob(*f, "libc++*.tbd") {
                     return out.fail(
-                        f"{t->name}: Apple\x27s libc++ stub {f} leaked into the root",
+                        f"{t->name}: Apple\x27s libc++ stub {*f} leaked into the root",
                         "",
                     )
                 }
@@ -769,7 +769,7 @@ pub class SysSdk {
 
         var dir = c.sysroot_dir(key)
         if !LinkFS::is_file(LinkText::join(dir.copy(), ".ok")) {
-            var stage = dir + ".tmp"
+            var stage = dir.copy() + ".tmp"
             LinkFS::remove_tree(stage)
             LinkFS::make_dirs(stage)
             var log = LinkText::join(
@@ -788,17 +788,17 @@ pub class SysSdk {
             argv.push_back("Bypass")
             argv.push_back("-File")
             argv.push_back(ps1)
-            argv.push_back(t->arch)
+            argv.push_back(t->arch.copy())
             // The script reads OUT / WORK from its environment; the driver
             // is still single-threaded here, so setting them is safe.
             var old_out  = LinkFS::env("OUT")
             var old_work = LinkFS::env("WORK")
             LinkFS::set_env("OUT", stage)
-            LinkFS::set_env("WORK", stage + ".work")
+            LinkFS::set_env("WORK", stage.copy() + ".work")
             var rc = SysRun::run(&argv, log)
             LinkFS::set_env("OUT", old_out)
             LinkFS::set_env("WORK", old_work)
-            LinkFS::remove_tree(stage + ".work")
+            LinkFS::remove_tree(stage.copy() + ".work")
             var made = LinkText::join(stage.copy(), t->name.copy())
             if rc != 0
                 || !LinkFS::is_file(
@@ -909,13 +909,13 @@ pub class SysSdk {
         }
 
         var none = cxx::std::vector<string>()
-        for var name: string in LinkFS::list_dir(from) {
-            if SysSdk::_any_glob(name, &top) || SysSdk::_any_glob(name, &any) {
+        for *name in LinkFS::list_dir(from) {
+            if SysSdk::_any_glob(*name, &top) || SysSdk::_any_glob(*name, &any) {
                 continue
             }
 
-            var s    = from + "/" + name
-            var d    = to + "/" + name
+            var s    = from.copy() + "/" + *name
+            var d    = to.copy() + "/" + *name
             var link = SysRun::read_link(s)
             if !link.is_empty() {
                 if !SysRun::symlink(link, d) {
@@ -942,8 +942,8 @@ pub class SysSdk {
     }
 
     priv static fn _any_glob(const name: string, @inout pats: cxx::std::vector<string>) -> bool {
-        for var p: string in pats {
-            if SysSdk::_glob(name, p) {
+        for *p in pats {
+            if SysSdk::_glob(name, *p) {
                 return true
             }
         }

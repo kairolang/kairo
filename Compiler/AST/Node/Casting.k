@@ -1,6 +1,6 @@
 /// --- The Kairo Project --------------------------- AST/Node/Casting.k --- ///
 ///
-///   isa, cast and dyn_cast over Expr, Stmt, Decl, Type and Pattern, using the
+///   isa, cast and dyn_cast over Expr, Stmt, Decl, Type and AstPattern, using the
 ///   nodes' kind tags instead of RTTI.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -20,9 +20,9 @@ import AST::Kind::PatternKind::PatternKind
 import AST::Kind::StmtKind::StmtKind
 import AST::Kind::TypeKind::TypeKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -147,7 +147,7 @@ pub fn <T: type> isa(ptr: unsafe *const Type) -> bool {
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: *const Pattern, tag: SafePtrTag = SafePtrTag()) -> bool {
+pub fn <T: type> isa(ptr: *const AstPattern, tag: SafePtrTag = SafePtrTag()) -> bool {
     if ptr == &null {
         return false
     }
@@ -156,12 +156,12 @@ pub fn <T: type> isa(ptr: *const Pattern, tag: SafePtrTag = SafePtrTag()) -> boo
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: unsafe *const Pattern) -> bool {
+pub fn <T: type> isa(ptr: unsafe *const AstPattern) -> bool {
     if ptr == &null {
         return false
     }
 
-    return T::classof(unsafe (ptr as *const Pattern))
+    return T::classof(unsafe (ptr as *const AstPattern))
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
@@ -437,7 +437,7 @@ pub fn <T: type> cast(ptr: unsafe *Type) -> unsafe *T {
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *const Pattern, tag: SafePtrTag = SafePtrTag()) -> *const T {
+pub fn <T: type> cast(ptr: *const AstPattern, tag: SafePtrTag = SafePtrTag()) -> *const T {
     eval if defined!(DEBUG) {
         if !(ptr != &null) {
             kairo::std::ice_fail(r"cast<>: null pointer")
@@ -454,7 +454,7 @@ pub fn <T: type> cast(ptr: *const Pattern, tag: SafePtrTag = SafePtrTag()) -> *c
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *const Pattern) -> unsafe *const T {
+pub fn <T: type> cast(ptr: unsafe *const AstPattern) -> unsafe *const T {
     eval if defined!(DEBUG) {
         if !(ptr != &null) {
             kairo::std::ice_fail(r"cast<>: null pointer")
@@ -462,7 +462,7 @@ pub fn <T: type> cast(ptr: unsafe *const Pattern) -> unsafe *const T {
     }
 
     eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *const Pattern)) {
+        if !T::classof(unsafe (ptr as *const AstPattern)) {
             kairo::std::ice_fail(r"cast<>: incorrect type")
         }
     }
@@ -471,7 +471,7 @@ pub fn <T: type> cast(ptr: unsafe *const Pattern) -> unsafe *const T {
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) -> *T {
+pub fn <T: type> cast(ptr: *AstPattern, tag: SafePtrTag = SafePtrTag()) -> *T {
     eval if defined!(DEBUG) {
         if !(ptr != &null) {
             kairo::std::ice_fail(r"cast<>: null pointer")
@@ -488,7 +488,7 @@ pub fn <T: type> cast(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) -> *T {
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *Pattern) -> unsafe *T {
+pub fn <T: type> cast(ptr: unsafe *AstPattern) -> unsafe *T {
     eval if defined!(DEBUG) {
         if !(ptr != &null) {
             kairo::std::ice_fail(r"cast<>: null pointer")
@@ -496,7 +496,7 @@ pub fn <T: type> cast(ptr: unsafe *Pattern) -> unsafe *T {
     }
 
     eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *Pattern)) {
+        if !T::classof(unsafe (ptr as *AstPattern)) {
             kairo::std::ice_fail(r"cast<>: incorrect type")
         }
     }
@@ -613,7 +613,7 @@ pub fn <T: type> dyn_cast(ptr: unsafe *const Type) -> unsafe *const T {
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) -> *T? {
+pub fn <T: type> dyn_cast(ptr: *AstPattern, tag: SafePtrTag = SafePtrTag()) -> *T? {
     if ptr != &null && T::classof(ptr) {
         return unsafe (ptr as unsafe *T as *T)
     }
@@ -622,8 +622,8 @@ pub fn <T: type> dyn_cast(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) -> *T? 
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *Pattern) -> unsafe *T {
-    if ptr != &null && T::classof(unsafe (ptr as *Pattern)) {
+pub fn <T: type> dyn_cast(ptr: unsafe *AstPattern) -> unsafe *T {
+    if ptr != &null && T::classof(unsafe (ptr as *AstPattern)) {
         return unsafe (ptr as unsafe *T)
     }
 
@@ -631,8 +631,8 @@ pub fn <T: type> dyn_cast(ptr: unsafe *Pattern) -> unsafe *T {
 }
 
 // TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *const Pattern) -> unsafe *const T {
-    if ptr != &null && T::classof(unsafe (ptr as *const Pattern)) {
+pub fn <T: type> dyn_cast(ptr: unsafe *const AstPattern) -> unsafe *const T {
+    if ptr != &null && T::classof(unsafe (ptr as *const AstPattern)) {
         return unsafe (ptr as unsafe *const T)
     }
 
@@ -1014,7 +1014,7 @@ pub fn <T: type> dyn_cast_recovery(ptr: unsafe *const Type) -> unsafe *const T {
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *Pattern) -> bool {
+pub fn <T: type> isa_recovery(ptr: unsafe *AstPattern) -> bool {
     if ptr == &null {
         return false
     }
@@ -1027,7 +1027,7 @@ pub fn <T: type> isa_recovery(ptr: unsafe *Pattern) -> bool {
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *Pattern) -> unsafe *T {
+pub fn <T: type> cast_recovery(ptr: unsafe *AstPattern) -> unsafe *T {
     eval if defined!(DEBUG) {
         if !(ptr != &null) {
             kairo::std::ice_fail(r"cast_recovery<>: null pointer")
@@ -1050,7 +1050,7 @@ pub fn <T: type> cast_recovery(ptr: unsafe *Pattern) -> unsafe *T {
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *Pattern) -> unsafe *T {
+pub fn <T: type> dyn_cast_recovery(ptr: unsafe *AstPattern) -> unsafe *T {
     if ptr != &null
         && ptr->kind == PatternKind::RecoveryPattern
         && ptr->recovery_kind == T::pattern_kind() {
@@ -1061,7 +1061,7 @@ pub fn <T: type> dyn_cast_recovery(ptr: unsafe *Pattern) -> unsafe *T {
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *const Pattern) -> bool {
+pub fn <T: type> isa_recovery(ptr: unsafe *const AstPattern) -> bool {
     if ptr == &null {
         return false
     }
@@ -1074,7 +1074,7 @@ pub fn <T: type> isa_recovery(ptr: unsafe *const Pattern) -> bool {
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *const Pattern) -> unsafe *const T {
+pub fn <T: type> cast_recovery(ptr: unsafe *const AstPattern) -> unsafe *const T {
     eval if defined!(DEBUG) {
         if !(ptr != &null) {
             kairo::std::ice_fail(r"cast_recovery<>: null pointer")
@@ -1097,7 +1097,7 @@ pub fn <T: type> cast_recovery(ptr: unsafe *const Pattern) -> unsafe *const T {
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *const Pattern) -> unsafe *const T {
+pub fn <T: type> dyn_cast_recovery(ptr: unsafe *const AstPattern) -> unsafe *const T {
     if ptr != &null
         && ptr->kind == PatternKind::RecoveryPattern
         && ptr->recovery_kind == T::pattern_kind() {
@@ -1123,7 +1123,7 @@ pub fn is_recovery(ptr: unsafe *Decl) -> bool {
     return ptr != &null && ptr->kind == DeclKind::RecoveryDecl
 }
 
-pub fn is_recovery(ptr: unsafe *Pattern) -> bool {
+pub fn is_recovery(ptr: unsafe *AstPattern) -> bool {
     return ptr != &null && ptr->kind == PatternKind::RecoveryPattern
 }
 
@@ -1143,7 +1143,7 @@ pub fn is_recovery(ptr: unsafe *const Decl) -> bool {
     return ptr != &null && ptr->kind == DeclKind::RecoveryDecl
 }
 
-pub fn is_recovery(ptr: unsafe *const Pattern) -> bool {
+pub fn is_recovery(ptr: unsafe *const AstPattern) -> bool {
     return ptr != &null && ptr->kind == PatternKind::RecoveryPattern
 }
 
@@ -1425,12 +1425,12 @@ pub fn <T: type> dyn_cast_recovery(ptr: *Type, tag: SafePtrTag = SafePtrTag()) -
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: *const Pattern, tag: SafePtrTag = SafePtrTag()) -> bool {
+pub fn <T: type> isa_recovery(ptr: *const AstPattern, tag: SafePtrTag = SafePtrTag()) -> bool {
     if ptr == &null {
         return false
     }
 
-    var p: *const Pattern = ptr
+    var p: *const AstPattern = ptr
     if p->kind != PatternKind::RecoveryPattern {
         return false
     }
@@ -1439,7 +1439,7 @@ pub fn <T: type> isa_recovery(ptr: *const Pattern, tag: SafePtrTag = SafePtrTag(
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *const Pattern, tag: SafePtrTag = SafePtrTag()) -> *const T {
+pub fn <T: type> cast_recovery(ptr: *const AstPattern, tag: SafePtrTag = SafePtrTag()) -> *const T {
     eval if defined!(DEBUG) {
         if !(ptr != &null) {
             kairo::std::ice_fail(r"cast_recovery<>: null pointer")
@@ -1462,7 +1462,7 @@ pub fn <T: type> cast_recovery(ptr: *const Pattern, tag: SafePtrTag = SafePtrTag
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) -> *T {
+pub fn <T: type> cast_recovery(ptr: *AstPattern, tag: SafePtrTag = SafePtrTag()) -> *T {
     eval if defined!(DEBUG) {
         if !(ptr != &null) {
             kairo::std::ice_fail(r"cast_recovery<>: null pointer")
@@ -1485,7 +1485,7 @@ pub fn <T: type> cast_recovery(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) ->
 }
 
 // TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Pattern, tag: SafePtrTag = SafePtrTag()) -> *T? {
+pub fn <T: type> dyn_cast_recovery(ptr: *AstPattern, tag: SafePtrTag = SafePtrTag()) -> *T? {
     if ptr != &null
         && ptr->kind == PatternKind::RecoveryPattern
         && ptr->recovery_kind == T::pattern_kind() {

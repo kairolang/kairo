@@ -134,8 +134,8 @@ pub class HostSystem {
         }
 
         var r = LinkFS::real(d.copy())
-        for var s: string in seen {
-            if s == r {
+        for *s in seen {
+            if *s == r {
                 return
             }
         }
@@ -156,7 +156,7 @@ pub class HostSystem {
 
         var b: usize = 0
         for var i: usize = 0; i <= v.size(); ++i {
-            if i == v.size() || v[i] == (':' as u8) {
+            if i == v.size() || v.data()[i] == (':' as u8) {
                 var part = LinkText::slice(v, b, i)
                 if part.is_empty() {
                     part = "."
@@ -221,7 +221,7 @@ pub class HostSystem {
         }
 
         var args = cxx::std::vector<string>()
-        args.push_back(prog)
+        args.push_back(prog.copy())
         args.push_back("--cflags")
         args.push_back("--libs")
         args.push_back(name)
@@ -270,8 +270,8 @@ pub class HostSystem {
             LinkFS::read(err_path, &text)
             var lines = LinkText::split_lines(text.copy())
             var why   = ""
-            for var l: string in lines {
-                var t = LinkText::trim(l)
+            for *l in lines {
+                var t = LinkText::trim(*l)
                 if !t.is_empty() {
                     why = t.copy()
                     break
@@ -280,7 +280,7 @@ pub class HostSystem {
 
             var msg = f"pkg-config does not know the package '{name}\x27"
             if !why.is_empty() {
-                msg = msg + f" ({why})"
+                msg = msg.copy() + f" ({why})"
             }
 
             panic PkgConfigError { message: msg.copy() }
@@ -301,7 +301,7 @@ pub class HostSystem {
         var quote          = (' ' as u8)
         var i:       usize = 0
         while i < text.size() {
-            var c = text[i]
+            var c = text.data()[i]
             if in_quote {
                 if c == quote {
                     in_quote = false
@@ -360,15 +360,15 @@ pub class HostSystem {
     static fn find_lib(const name:  string,
                        @inout dirs: cxx::std::vector<string>,
                        static_only: bool) -> string {
-        for var d: string in dirs {
+        for *d in dirs {
             if !static_only {
-                var so = LinkText::join(d.copy(), f"lib{name}.so")
+                var so = LinkText::join(d->copy(), f"lib{name}.so")
                 if LinkFS::is_file(so) {
                     return so
                 }
             }
 
-            var ar = LinkText::join(d.copy(), f"lib{name}.a")
+            var ar = LinkText::join(d->copy(), f"lib{name}.a")
             if LinkFS::is_file(ar) {
                 return ar
             }
@@ -391,7 +391,7 @@ pub class HostSystem {
 
         var p = LinkFS::real(path.copy())
         var r = LinkText::strip_slash(LinkFS::real(root.copy()))
-        return LinkText::starts_with(p.copy(), r + "/")
+        return LinkText::starts_with(p.copy(), r.copy() + "/")
     }
 
     /// # DT_VERNEED
@@ -412,15 +412,15 @@ pub class HostSystem {
             return r
         }
 
-        if ((d[0]) as u32) != 127
-            || d[1] != ('E' as u8)
-            || d[2] != ('L' as u8)
-            || d[3] != ('F' as u8) {
+        if ((d.data()[0]) as u32) != 127
+            || d.data()[1] != ('E' as u8)
+            || d.data()[2] != ('L' as u8)
+            || d.data()[3] != ('F' as u8) {
             return r
         }
 
-        var cls = ((d[4]) as u32)
-        var enc = ((d[5]) as u32)
+        var cls = ((d.data()[4]) as u32)
+        var enc = ((d.data()[5]) as u32)
         if cls != 1 && cls != 2 || enc != 1 && enc != 2 {
             return r
         }
@@ -539,7 +539,7 @@ pub class HostSystem {
             return ""
         }
 
-        if name[6] < ('0' as u8) || name[6] > ('9' as u8) {
+        if name.data()[6] < ('0' as u8) || name.data()[6] > ('9' as u8) {
             return ""
         }
 
@@ -559,7 +559,7 @@ pub class HostSystem {
                 idx = off + (n - 1 - i)
             }
 
-            var bv = ((d[idx as usize]) as u64)
+            var bv = ((d.data()[idx as usize]) as u64)
             v = v | bv << 8 * i
         }
 
@@ -576,7 +576,7 @@ pub class HostSystem {
         var s   = ""
         var p   = base + idx
         var end = base + len
-        while p < end && ((d[p as usize]) as u32) != 0 {
+        while p < end && ((d.data()[p as usize]) as u32) != 0 {
             s.push_back(d[p as usize])
             p += 1
         }

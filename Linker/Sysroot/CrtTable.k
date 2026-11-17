@@ -215,9 +215,9 @@ pub class SysCrtTable {
 
     /// [flags].<lang>; empty when the table has none for it.
     pub fn lang_flags(self, const lang: string) -> cxx::std::vector<string> {
-        for var f: CrtFlags in self.flags {
-            if f.lang == lang {
-                return f.list
+        for *f in self.flags {
+            if f->lang == lang {
+                return f->list
             }
         }
 
@@ -252,7 +252,7 @@ pub class SysCrt {
                           t:          *SysCrtTable,
                           env:        *CrtEnv,
                           @inout out: SysOutcome) -> bool {
-        var logs = ctx->log_dir + "/crt"
+        var logs = ctx->log_dir.copy() + "/crt"
         LinkFS::make_dirs(logs)
         var base = ctx->kcc(env->sysroot)
         // The objects name neither the share tree nor the cache, so two
@@ -264,8 +264,8 @@ pub class SysCrt {
         var jobs = SysJobs()
         jobs.limit(ctx->jobs)
         var n: usize = 0
-        for var d: CrtDef in t->defs {
-            var o = env->build + "/" + d.out
+        for *d in t->defs {
+            var o = env->build.copy() + "/" + d->out
             LinkFS::make_dirs(LinkFS::parent(o))
             // -o, not stdout: a job's stdout is its log.
             var argv = base
@@ -273,14 +273,14 @@ pub class SysCrt {
             argv.push_back("-P")
             argv.push_back("-x")
             argv.push_back("c")
-            for var f: string in d.flags {
-                argv.push_back(SysCrt::expand(env, f))
+            for *f in d->flags {
+                argv.push_back(SysCrt::expand(env, *f))
             }
 
             argv.push_back("-Wp,-w")
             argv.push_back("-o")
             argv.push_back(o)
-            argv.push_back(SysCrt::expand(env, d.source))
+            argv.push_back(SysCrt::expand(env, d->source))
             if !jobs.add(&argv, f"{logs}/{n}.log") {
                 break
             }
@@ -288,39 +288,44 @@ pub class SysCrt {
             n += 1
         }
 
-        for var g: CrtGroup in t->groups {
+        for *g in t->groups {
             var fl = cxx::std::vector<string>()
-            for var f: string in t->lang_flags(g.lang) {
-                fl.push_back(SysCrt::expand(env, f))
+            for *f in t->lang_flags(g->lang) {
+                fl.push_back(SysCrt::expand(env, *f))
             }
 
-            for var f: string in g.flags {
-                fl.push_back(SysCrt::expand(env, f))
+            for *f in g->flags {
+                fl.push_back(SysCrt::expand(env, *f))
             }
 
-            for var e: string in g.sources {
-                var eq = LinkText::find(e.copy(), "=", 0)
-                if eq >= e.size() {
+            for *e in g->sources {
+                var eq = LinkText::find(e->copy(), "=", 0)
+                if eq >= e->size() {
                     jobs.wait_all()
                     return out.refuse(
-                        f"{t->path}: source entry \x27{e}\x27 names no object",
+                        f"{t->path}: source entry \x27{*e}\x27 names no object",
                         "",
                     )
                 }
 
-                var o = env->build + "/" + LinkText::slice(e, eq + 1, e.size())
+                var o = env->build.copy() + "/" + LinkText::slice(
+                    *e,
+                    eq + 1,
+                    e->size(),
+                )
+
                 LinkFS::make_dirs(LinkFS::parent(o))
                 var argv = base
-                for var f: string in fl {
-                    argv.push_back(f)
+                for *f in fl {
+                    argv.push_back(*f)
                 }
 
-                for var f: string in maps {
-                    argv.push_back(f)
+                for *f in maps {
+                    argv.push_back(*f)
                 }
 
                 argv.push_back("-c")
-                argv.push_back(SysCrt::expand(env, LinkText::slice(e, 0, eq)))
+                argv.push_back(SysCrt::expand(env, LinkText::slice(*e, 0, eq)))
                 argv.push_back("-o")
                 argv.push_back(o)
                 if !jobs.add(&argv, f"{logs}/{n}.log") {
@@ -340,12 +345,12 @@ pub class SysCrt {
             )
         }
 
-        for var d: CrtDef in t->defs {
-            if !d.strip_at {
+        for *d in t->defs {
+            if !d->strip_at {
                 continue
             }
 
-            var o    = env->build + "/" + d.out
+            var o    = env->build.copy() + "/" + d->out
             var text = ""
             if !LinkFS::read(o, &text) || !LinkFS::write(o, SysCrt::strip_at(text)) {
                 return out.fail(f"cannot rewrite {o}", "")
@@ -369,7 +374,7 @@ pub class SysCrt {
 
             var l   = lines[i].copy()
             var end = l.size()
-            if end > 0 && l[end - 1] == ('\r' as u8) {
+            if end > 0 && l.data()[end - 1] == ('\r' as u8) {
                 end -= 1
             }
 
@@ -377,7 +382,7 @@ pub class SysCrt {
             var we = if (sp < l.size()) => (sp) else => end
             var at = we
             for var j: usize = 0; j < we; ++j {
-                if l[j] == ('@' as u8) {
+                if l.data()[j] == ('@' as u8) {
                     at = j
                 }
             }
@@ -386,7 +391,7 @@ pub class SysCrt {
             // nothing but digits up to the word's end.
             var digits = at > 0 && at + 1 < we
             for var j: usize = at + 1; j < we && digits; ++j {
-                if l[j] < ('0' as u8) || l[j] > ('9' as u8) {
+                if l.data()[j] < ('0' as u8) || l.data()[j] > ('9' as u8) {
                     digits = false
                 }
             }
@@ -406,9 +411,9 @@ pub class SysCrt {
     }
 
     pub static fn first_error(const text: string) -> string {
-        for var l: string in LinkText::split_lines(text.copy()) {
-            if LinkText::contains(l, "error") {
-                return LinkText::trim(l)
+        for *l in LinkText::split_lines(text.copy()) {
+            if LinkText::contains(*l, "error") {
+                return LinkText::trim(*l)
             }
         }
 
@@ -437,8 +442,8 @@ pub class SysCrt {
             return false
         }
 
-        var rel  = LinkText::slice(how, colon + 1, how.size())
-        var from = if (kind == "src") => (src + "/" + rel) else => gen + "/" + rel
+        var rel = LinkText::slice(how, colon + 1, how.size())
+        var from = if (kind == "src") => (src.copy() + "/" + rel) else => gen.copy() + "/" + rel
         if !SysRun::put_file(from, to, hard) {
             err = f"cannot copy {from} to {to}"
             return false

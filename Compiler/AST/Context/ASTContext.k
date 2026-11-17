@@ -65,7 +65,7 @@ pub class ASTContext {
     pub var pp_alloc:     ArenaAllocator = ArenaAllocator(64 * 1024) ///< TU, ImportDecl, MacroDecl, import edges.
     pub var index_alloc:  ArenaAllocator = ArenaAllocator(64 * 1024) ///< DisambigTable/Node. Read CROSS-FID during parse,
     ///  so it outlives this fid's ast_alloc.
-    pub var ast_alloc:     ArenaAllocator   = ArenaAllocator(1024 * 1024) ///< Program + every Decl/Stmt/Expr/Type/Pattern.
+    pub var ast_alloc:     ArenaAllocator   = ArenaAllocator(1024 * 1024) ///< Program + every Decl/Stmt/Expr/Type/AstPattern.
     pub var sema_alloc:    ArenaAllocator   = ArenaAllocator() ///< lazy   nothing allocates here until Sema exists.
     pub var codegen_alloc: ArenaAllocator   = ArenaAllocator() ///< lazy   CodegenBackend's node storage.
     pub var scratch_alloc: ArenaAllocator   = ArenaAllocator() ///< lazy   For transient tooling buffers whose contents never become AST.

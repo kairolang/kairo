@@ -88,9 +88,9 @@ import AST::LangItems::{
 }
 import AST::Mixin::FFILinkage::ForeignLayout
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Type,
 }
 import AST::Node::Casting::{
@@ -2132,7 +2132,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// `resolved=<Variant|Record|Const> <name>` on a head that names a decl,
     /// `field=<name>` on a payload subpattern. Patterns with neither are
     /// left out; their type is the column's, already on the scrutinee row.
-    fn visit_pattern(self, n: unsafe *Pattern) -> bool {
+    fn visit_pattern(self, n: unsafe *AstPattern) -> bool {
         if !self._expr_mode || n == &null {
             return true
         }

@@ -37,7 +37,7 @@ ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
 import AST::Kind::PatternKind::PatternKind
-import AST::Node::Base::Pattern
+import AST::Node::Base::AstPattern
 import AST::Node::Casting::cast
 import AST::Node::Patterns::{
     AlternationPattern,
@@ -69,7 +69,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
 
     /// Collect every binding name token in \p p. For a nested alternation,
     /// the first alternative stands for the whole (see header).
-    priv fn _collect(self, p: unsafe *Pattern, out: unsafe *cxx::std::vector<Token>) {
+    priv fn _collect(self, p: unsafe *AstPattern, out: unsafe *cxx::std::vector<Token>) {
         if p == &null {
             return
         }
@@ -111,7 +111,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
 
     /// _collect over each pattern of \p ps, in order.
     priv fn _collect_each(self,
-                          const ps: FrozenList<unsafe *Pattern>,
+                          const ps: FrozenList<unsafe *AstPattern>,
                           out:      unsafe *cxx::std::vector<Token>) {
         for var i: usize = 0; i < ps.size(); i++ {
             self._collect(*ps.get(i), out)
@@ -172,7 +172,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
 
     /// The shared core: \p alts are sibling alternatives (an alternation's
     /// list, or a case's pattern list same FrozenList shape, same rules).
-    priv fn _check_alternatives(self, const alts: FrozenList<unsafe *Pattern>) {
+    priv fn _check_alternatives(self, const alts: FrozenList<unsafe *AstPattern>) {
         var first_set = cxx::std::vector<Token>()
 
         for var i: usize = 0; i < alts.size(); i++ {

@@ -168,16 +168,16 @@ pub class COFFArgs {
         }
 
         /// # search path, user's first
-        for var d: string in o->lib_dirs {
-            argv.push_back(f"-libpath:{d}")
+        for *d in o->lib_dirs {
+            argv.push_back(f"-libpath:{*d}")
         }
 
         if !tc.toolchain_lib.is_empty() {
             argv.push_back(f"-libpath:{tc.toolchain_lib}")
         }
 
-        for var d: string in tc.lib_dirs {
-            argv.push_back(f"-libpath:{d}")
+        for *d in tc.lib_dirs {
+            argv.push_back(f"-libpath:{*d}")
         }
 
         /// # behavior
@@ -223,26 +223,26 @@ pub class COFFArgs {
         }
 
         COFFArgs::_pe_options(o, &argv, &msgs)
-        for var f: string in o->ld_flags {
-            argv.push_back(f)
+        for *f in o->ld_flags {
+            argv.push_back(*f)
         }
 
         /// # inputs
-        for var obj: string in job.objects {
-            argv.push_back(obj)
+        for *obj in job.objects {
+            argv.push_back(*obj)
         }
 
         if job.lazy_objects.size() > 0 {
             argv.push_back("-start-lib")
-            for var obj: string in job.lazy_objects {
-                argv.push_back(obj)
+            for *obj in job.lazy_objects {
+                argv.push_back(*obj)
             }
 
             argv.push_back("-end-lib")
         }
 
-        for var spec: string in o->link_libs {
-            COFFArgs::_user_lib(spec, &argv, &msgs)
+        for *spec in o->link_libs {
+            COFFArgs::_user_lib(*spec, &argv, &msgs)
         }
 
         if !no_libs {
@@ -531,16 +531,16 @@ pub class COFFArgs {
             crt.push_back("kernel32.lib")
         }
 
-        for var x: string in cxx_v {
-            argv.push_back(x)
+        for *x in cxx_v {
+            argv.push_back(*x)
         }
 
         if tc.rtlib == "compiler-rt" && !tc.builtins.is_empty() {
             argv.push_back(tc.builtins)
         }
 
-        for var x: string in crt {
-            argv.push_back(x)
+        for *x in crt {
+            argv.push_back(*x)
         }
     }
 
@@ -556,11 +556,11 @@ pub class COFFArgs {
     }
 
     priv static fn _user_links_crt(o: *LinkerOptions) -> bool {
-        for var spec: string in o->link_libs {
-            var n = spec.copy()
-            var c = LinkText::find(spec.copy(), ":", 0)
-            if c < spec.size() {
-                n = LinkText::slice(spec, c + 1, spec.size())
+        for *spec in o->link_libs {
+            var n = spec->copy()
+            var c = LinkText::find(spec->copy(), ":", 0)
+            if c < spec->size() {
+                n = LinkText::slice(*spec, c + 1, spec->size())
             }
 
             if LinkText::starts_with(n.copy(), "msvcrt")

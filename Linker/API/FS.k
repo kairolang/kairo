@@ -195,8 +195,8 @@ pub class LinkFS {
         }
 
         var total: u64 = 0
-        for var name: string in LinkFS::list_dir(p) {
-            total += LinkFS::tree_size(p + "/" + name)
+        for *name in LinkFS::list_dir(p) {
+            total += LinkFS::tree_size(p.copy() + "/" + *name)
         }
 
         return total
@@ -245,8 +245,8 @@ pub class LinkFS {
                                    @inout objects: cxx::std::vector<string>,
                                    coff:           bool) -> bool {
         var members: cxx::std::vector<llvm::NewArchiveMember>
-        for var o: string in objects {
-            var m = llvm::NewArchiveMember::getFile(kairo::sref(o), true)
+        for *o in objects {
+            var m = llvm::NewArchiveMember::getFile(kairo::sref(*o), true)
             if !(m as bool) {
                 llvm::consumeError(m.takeError())
                 return false
@@ -301,9 +301,9 @@ pub class LinkFS {
             return false
         }
 
-        for var name: string in LinkFS::list_dir(from) {
-            var s = from + "/" + name
-            var d = to + "/" + name
+        for *name in LinkFS::list_dir(from) {
+            var s = from.copy() + "/" + *name
+            var d = to.copy() + "/" + *name
             if LinkFS::is_dir(s) {
                 if !LinkFS::copy_tree(s, d) {
                     return false

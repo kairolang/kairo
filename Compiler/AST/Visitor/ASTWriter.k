@@ -59,9 +59,9 @@ import AST::Kind::PatternKind::PatternKind
 import AST::Kind::StmtKind::StmtKind
 import AST::Kind::TypeKind::TypeKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -473,8 +473,8 @@ pub class <D: type> ASTWriter {
         }
     }
 
-    fn rebuild_pattern_list(self, old: *FrozenList<*Pattern>) {
-        var buf     = ArenaList<*Pattern>()
+    fn rebuild_pattern_list(self, old: *FrozenList<*AstPattern>) {
+        var buf     = ArenaList<*AstPattern>()
         var changed = false
         for var i: usize = 0; i < old->size(); i++ {
             var *orig = *old->get(i)
@@ -2608,7 +2608,7 @@ pub class <D: type> ASTWriter {
         return self._one_decl(n)
     }
 
-    fn transform_pattern(self, p: unsafe *Pattern) -> unsafe *Pattern {
+    fn transform_pattern(self, p: unsafe *AstPattern) -> unsafe *AstPattern {
         if p == &null {
             return &null
         }
@@ -2662,11 +2662,11 @@ pub class <D: type> ASTWriter {
         }
     }
 
-    fn transform_wildcard_pattern(self, n: *WildcardPattern) -> *Pattern {
+    fn transform_wildcard_pattern(self, n: *WildcardPattern) -> *AstPattern {
         return n
     }
 
-    fn transform_literal_pattern(self, n: *LiteralPattern) -> *Pattern {
+    fn transform_literal_pattern(self, n: *LiteralPattern) -> *AstPattern {
         if n->value != &null {
             n->value = self.dyn()->transform_expr(n->value)
         }
@@ -2674,7 +2674,7 @@ pub class <D: type> ASTWriter {
         return n
     }
 
-    fn transform_binding_pattern(self, n: *BindingPattern) -> *Pattern {
+    fn transform_binding_pattern(self, n: *BindingPattern) -> *AstPattern {
         if n->type_ != &null {
             n->type_ = self.dyn()->transform_type(n->type_)
         }
@@ -2682,12 +2682,12 @@ pub class <D: type> ASTWriter {
         return n
     }
 
-    fn transform_tuple_destructure_pattern(self, n: *TupleDestructurePattern) -> *Pattern {
+    fn transform_tuple_destructure_pattern(self, n: *TupleDestructurePattern) -> *AstPattern {
         self.dyn()->rebuild_pattern_list(&n->elements)
         return n
     }
 
-    fn transform_constructor_pattern(self, n: *ConstructorPattern) -> *Pattern {
+    fn transform_constructor_pattern(self, n: *ConstructorPattern) -> *AstPattern {
         if n->head != &null {
             n->head = self.dyn()->transform_expr(n->head)
         }
@@ -2697,7 +2697,7 @@ pub class <D: type> ASTWriter {
     }
 
     fn transform_unresolved_constructor_pattern(self,
-                                                n: *UnresolvedConstructorPattern) -> *Pattern {
+                                                n: *UnresolvedConstructorPattern) -> *AstPattern {
         if n->head != &null {
             n->head = self.dyn()->transform_expr(n->head)
         }
@@ -2706,12 +2706,12 @@ pub class <D: type> ASTWriter {
         return n
     }
 
-    fn transform_alternation_pattern(self, n: *AlternationPattern) -> *Pattern {
+    fn transform_alternation_pattern(self, n: *AlternationPattern) -> *AstPattern {
         self.dyn()->rebuild_pattern_list(&n->alternatives)
         return n
     }
 
-    fn transform_range_pattern(self, n: *RangePattern) -> *Pattern {
+    fn transform_range_pattern(self, n: *RangePattern) -> *AstPattern {
         if n->lo != &null {
             n->lo = self.dyn()->transform_expr(n->lo)
         }
@@ -2723,7 +2723,7 @@ pub class <D: type> ASTWriter {
         return n
     }
 
-    fn transform_slice_pattern(self, n: *SlicePattern) -> *Pattern {
+    fn transform_slice_pattern(self, n: *SlicePattern) -> *AstPattern {
         self.dyn()->rebuild_pattern_list(&n->prefix)
         self.dyn()->rebuild_pattern_list(&n->suffix)
         if n->rest_binding != &null {

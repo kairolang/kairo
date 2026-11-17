@@ -20,9 +20,9 @@ ffi "c++" import "cstdio"
 import AST::Context::ASTContext::ASTContext
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -103,11 +103,13 @@ pub class DeclPrinter {
 }
 
 pub class PatternPrinter {
-    static fn print(pat: unsafe *Pattern, ctx: unsafe *ASTContext) -> string {
+    static fn print(pat: unsafe *AstPattern, ctx: unsafe *ASTContext) -> string {
         return PatternPrinter::print(pat, ctx, PrintOptions::diag())
     }
 
-    static fn print(pat: unsafe *Pattern, ctx: unsafe *ASTContext, opts: PrintOptions) -> string {
+    static fn print(pat:  unsafe *AstPattern,
+                    ctx:  unsafe *ASTContext,
+                    opts: PrintOptions) -> string {
         var d = AstDumper(ctx, opts)
         if opts.is_debug() {
             d.dump_pattern(pat, true)

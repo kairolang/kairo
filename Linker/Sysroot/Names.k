@@ -105,7 +105,7 @@ pub class SysProps {
                 s += " "
             }
 
-            s += self.keys[i] + "=" + self.vals[i]
+            s += self.keys[i].copy() + "=" + self.vals[i]
         }
 
         return s
@@ -230,7 +230,7 @@ pub class SysNames {
             t.clang_triple = f"x86_64-unknown-linux-{env}"
             t.name         = f"x86_64-linux-{env}"
             if family == "linux-gnu" {
-                t.name         = t.name + f"-glibc{glibc}"
+                t.name         = t.name.copy() + f"-glibc{glibc}"
                 t.libc_version = glibc.copy()
             }
         } else if family == "linux-musl" {
@@ -273,9 +273,9 @@ pub class SysNames {
     /// Every target the table knows, glibc at \p glibc.
     pub static fn all(const glibc: string) -> cxx::std::vector<SysTarget> {
         var out = cxx::std::vector<SysTarget>()
-        for var f: string in SysNames::families() {
-            for var a: string in SysNames::arches(f) {
-                out.push_back(SysNames::make(f, a, glibc))
+        for *f in SysNames::families() {
+            for *a in SysNames::arches(*f) {
+                out.push_back(SysNames::make(*f, *a, glibc))
             }
         }
 
@@ -328,7 +328,7 @@ pub class SysNames {
         var ver     = ""
         var spelled = SysNames::split_glibc(input, &ver)
         var glibc   = if (ver.is_empty()) => (glibc_default) else => ver
-        var named = if (ver.is_empty()) => (spelled) else => spelled + "-glibc" + ver
+        var named = if (ver.is_empty()) => (spelled) else => spelled.copy() + "-glibc" + ver
         if LinkText::ends_with(input.copy(), "-glibc") {
             why = f"\x27{input}\x27 names no glibc version after -glibc"
             return false
@@ -336,16 +336,17 @@ pub class SysNames {
 
         var table = SysNames::all(glibc)
         for var t: SysTarget in table {
-            if t.name == named || t.family == "linux-gnu" && t.name == spelled + "-glibc" + glibc {
+            if t.name == named
+                || t.family == "linux-gnu" && t.name == spelled.copy() + "-glibc" + glibc {
                 out = t
                 return true
             }
         }
 
         var hits = cxx::std::vector<SysTarget>()
-        for var t: SysTarget in table {
-            if SysNames::same_target(spelled, t.clang_triple) {
-                hits.push_back(t)
+        for *t in table {
+            if SysNames::same_target(spelled, t->clang_triple) {
+                hits.push_back(*t)
             }
         }
 
@@ -357,9 +358,9 @@ pub class SysNames {
         // A prefix of names (`x86_64-linux`): the one it completes to, or
         // every one it could mean.
         if hits.empty() {
-            for var t: SysTarget in table {
-                if LinkText::starts_with(t.name.copy(), input + "-") {
-                    hits.push_back(t)
+            for *t in table {
+                if LinkText::starts_with(t->name.copy(), input.copy() + "-") {
+                    hits.push_back(*t)
                 }
             }
 
@@ -383,8 +384,8 @@ pub class SysNames {
             return false
         }
 
-        for var t: SysTarget in hits {
-            cands.push_back(t.name)
+        for *t in hits {
+            cands.push_back(t->name)
         }
 
         var list = SysUtil::joined(&cands, ", ")
@@ -457,7 +458,7 @@ pub class SysNames {
         }
 
         for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
+            var c = s.data()[i]
             if (c < ('0' as u8) || c > ('9' as u8)) && c != ('.' as u8) {
                 return false
             }
@@ -471,7 +472,7 @@ pub class SysNames {
         if arch == "x86_64"
             || arch == "x32"
             || arch.size() == 4
-                && arch[0] == ('i' as u8)
+                && arch.data()[0] == ('i' as u8)
                 && LinkText::ends_with(arch.copy(), "86") {
             return "x86"
         }

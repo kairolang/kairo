@@ -112,9 +112,9 @@ import AST::LangItems::{
 }
 import AST::Mixin::FFILinkage::LinkageKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -1133,7 +1133,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// pattern is the only trace of until MatchLowering runs.
     fn visit_literal_pattern(self, n: unsafe *LiteralPattern) -> bool {
         if self._level != PurityLevel::None && n != &null {
-            self._pattern_eq(unsafe (n as unsafe *Pattern))
+            self._pattern_eq(unsafe (n as unsafe *AstPattern))
         }
 
         return true
@@ -1144,7 +1144,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             && n != &null
             && n->resolved_decl != &null
             && isa<VariableDecl>(n->resolved_decl) {
-            self._pattern_eq(unsafe (n as unsafe *Pattern))
+            self._pattern_eq(unsafe (n as unsafe *AstPattern))
         }
 
         return true
@@ -1155,7 +1155,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             && n != &null
             && n->resolved_decl != &null
             && isa<VariableDecl>(n->resolved_decl) {
-            self._pattern_eq(unsafe (n as unsafe *Pattern))
+            self._pattern_eq(unsafe (n as unsafe *AstPattern))
         }
 
         return true
@@ -1164,7 +1164,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// Every `op ==` of the record \p p is tested against: which one C++
     /// picks is overload resolution against the constant, so each must be
     /// one this function may call.
-    priv fn _pattern_eq(self, p: unsafe *Pattern) {
+    priv fn _pattern_eq(self, p: unsafe *AstPattern) {
         var unsafe *u = self._tu.as_value(p->type_)
         if u == &null || !isa<RecordType>(u) {
             return

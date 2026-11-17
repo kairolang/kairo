@@ -105,9 +105,9 @@ import AST::DeclFacts::{
 }
 import AST::Kind::PatternKind::PatternKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Type,
 }
 import AST::Node::CanonicalNodes::{
@@ -187,12 +187,12 @@ pub enum DKind derives u8 {
 /// that tests it, for the kinds whose value lives in a pattern (Opaque,
 /// string keys) and for the dump.
 pub struct DEdge {
-    var kind:  CtorKind        = CtorKind::Wild
-    var index: u32             = 0              ///< Variant: position in the enum.
-    var lo:    u64             = 0              ///< Bool: 0/1. Int: keys, inclusive.
-    var hi:    u64             = 0
-    var pat:   unsafe *Pattern = &null
-    var child: u32             = 0
+    var kind:  CtorKind           = CtorKind::Wild
+    var index: u32                = 0              ///< Variant: position in the enum.
+    var lo:    u64                = 0              ///< Bool: 0/1. Int: keys, inclusive.
+    var hi:    u64                = 0
+    var pat:   unsafe *AstPattern = &null
+    var child: u32                = 0
 }
 
 pub struct DBind {
@@ -228,7 +228,7 @@ pub class DecisionTree {
 /// A string head's bytes: a literal's decoded text, or a constant's literal
 /// initializer's. False when the head is neither.
 pub fn pattern_string_bytes(sc:  unsafe *SemaContext,
-                            p:   unsafe *Pattern,
+                            p:   unsafe *AstPattern,
                             out: unsafe *cxx::std::vector<u8>) -> bool {
     if p == &null {
         return false
@@ -281,9 +281,9 @@ pub fn pattern_string_bytes(sc:  unsafe *SemaContext,
 /// A row while it is being compiled: PatRow plus the binders it has already
 /// passed and an id that names it across paths.
 pub struct CRow {
-    var cols:    cxx::std::vector<unsafe *Pattern>
-    var arm:     u32                               = 0
-    var guarded: bool                              = false
+    var cols:    cxx::std::vector<unsafe *AstPattern>
+    var arm:     u32                                  = 0
+    var guarded: bool                                 = false
     var key:     string ///< `arm.alt`, extended at each alternation it expands.
     var binds:   cxx::std::vector<DBind>
 }
@@ -462,7 +462,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// PatternChecking::_broken: a pattern tree already diagnosed.
-    priv fn _broken(self, p: unsafe *Pattern) -> bool {
+    priv fn _broken(self, p: unsafe *AstPattern) -> bool {
         if p == &null {
             return false
         }
@@ -555,7 +555,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
     /// A typed head at \p occ refines its type: a field declared `T` in a
     /// generic record is `i32` in the instance the pattern was typed in.
-    priv fn _note_type(self, occ: u32, p: unsafe *Pattern) {
+    priv fn _note_type(self, occ: u32, p: unsafe *AstPattern) {
         if p == &null || p->type_ == &null {
             return
         }
@@ -1048,7 +1048,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return out
     }
 
-    priv fn _bind_head(self, r: *CRow, h: unsafe *Pattern, occ: u32) {
+    priv fn _bind_head(self, r: *CRow, h: unsafe *AstPattern, occ: u32) {
         if h == &null || h->kind != PatternKind::BindingPattern {
             return
         }
@@ -1120,7 +1120,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         // Edges in first-appearance order; each edge's rows bucketed in the
         // same pass (wildcard rows join every edge at _specialize_idx).
         var order   = cxx::std::vector<u32>()
-        var heads   = cxx::std::vector<unsafe *Pattern>()
+        var heads   = cxx::std::vector<unsafe *AstPattern>()
         var buckets = cxx::std::vector<cxx::std::vector<u32>>()
         var wilds   = cxx::std::vector<u32>()
         var slot    = cxx::std::vector<i32>()
@@ -1205,7 +1205,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var have = cxx::std::vector<u8>()
         have.push_back(0)
         have.push_back(0)
-        var heads = cxx::std::vector<unsafe *Pattern>()
+        var heads = cxx::std::vector<unsafe *AstPattern>()
         heads.push_back(&null)
         heads.push_back(&null)
         for var i: usize = 0; i < rows->size(); ++i {
@@ -1575,8 +1575,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                            occs: unsafe *cxx::std::vector<u32>) -> u32 {
         // Keys in first-appearance order, each key's rows bucketed by its
         // decoded bytes in the same pass; wildcard rows join every key.
-        var at:   llvm::StringMap<u32>
-        var heads                      = cxx::std::vector<unsafe *Pattern>()
+        var at: llvm::StringMap<u32>
+        var heads   = cxx::std::vector<unsafe *AstPattern>()
         var buckets = cxx::std::vector<cxx::std::vector<u32>>()
         var wilds   = cxx::std::vector<u32>()
         for var i: usize = 0; i < rows->size(); ++i {
@@ -1647,7 +1647,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     priv fn _test(self,
                   const rows: cxx::std::vector<CRow>,
                   occs:       unsafe *cxx::std::vector<u32>) -> u32 {
-        var h: unsafe *Pattern = &null
+        var h: unsafe *AstPattern = &null
         for var i: usize = 0; i < rows.size() && h == &null; ++i {
             if !self._ps.is_wild((rows)[i].cols[0]) {
                 h = (rows)[i].cols[0]
@@ -1720,7 +1720,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
     /// An opaque test MatchLowering cannot render: `==` on a record that X
     /// typed no `==` for (PatternTyping::_type_eq_test).
-    priv fn _check_opaque(self, h: unsafe *Pattern) {
+    priv fn _check_opaque(self, h: unsafe *AstPattern) {
         if h == &null || h->type_ == &null {
             return
         }
@@ -1745,7 +1745,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         )
     }
 
-    priv fn _unsupported(self, p: unsafe *Pattern, const what: string) {
+    priv fn _unsupported(self, p: unsafe *AstPattern, const what: string) {
         if self._bad {
             return
         }
@@ -1808,7 +1808,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// tag before its payload) and its binders; an alternation forks the
     /// row. Every fork lands in \p out.
     priv fn _flatten(self,
-                     p:          unsafe *Pattern,
+                     p:          unsafe *AstPattern,
                      occ:        u32,
                      acc:        *FlatRow,
                      @inout out: cxx::std::vector<FlatRow>) {
@@ -1816,13 +1816,13 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         cur.push_back(*acc)
         self._flatten_into(p, occ, unsafe &cur)
         for var i: usize = 0; i < cur.size(); ++i {
-            cur[i].row.cols = cxx::std::vector<unsafe *Pattern>() // all consumed: _accept reads binds only.
+            cur[i].row.cols = cxx::std::vector<unsafe *AstPattern>() // all consumed: _accept reads binds only.
             out.push_back(cur[i])
         }
     }
 
     priv fn _flatten_into(self,
-                          p:    unsafe *Pattern,
+                          p:    unsafe *AstPattern,
                           occ:  u32,
                           rows: unsafe *cxx::std::vector<FlatRow>) {
         if p == &null {

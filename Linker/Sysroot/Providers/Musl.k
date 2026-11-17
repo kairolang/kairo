@@ -119,7 +119,7 @@ pub class MuslProvider derives SysrootProvider {
             return false
         }
 
-        var inc = dst + "/include"
+        var inc = dst.copy() + "/include"
         if !MuslProvider::install_headers(src, ma, inc) {
             return out.fail(
                 f"musl install-headers ARCH={ma} into {inc} failed",
@@ -127,8 +127,8 @@ pub class MuslProvider derives SysrootProvider {
             )
         }
 
-        for var u: string in ctx->recipe.list("libc", "uapi") {
-            var from = ctx->share_path(u)
+        for *u in ctx->recipe.list("libc", "uapi") {
+            var from = ctx->share_path(*u)
             if !LinkFS::is_dir(from) {
                 return out.refuse(f"share input {from} missing", "")
             }
@@ -149,15 +149,18 @@ pub class MuslProvider derives SysrootProvider {
             return false
         }
 
-        var obj = ctx->stage + "/obj"
-        var gen = obj + "/include/bits"
-        if !LinkFS::make_dirs(gen) || !LinkFS::make_dirs(obj + "/src/internal") {
+        var obj = ctx->stage.copy() + "/obj"
+        var gen = obj.copy() + "/include/bits"
+        if !LinkFS::make_dirs(gen) || !LinkFS::make_dirs(obj.copy() + "/src/internal") {
             return out.fail(f"cannot create {obj}", "")
         }
 
-        if !LinkFS::write(gen + "/alltypes.h", MuslProvider::alltypes(src, ma))
+        if !LinkFS::write(
+            gen.copy() + "/alltypes.h",
+            MuslProvider::alltypes(src, ma),
+        )
             || !LinkFS::write(
-                gen + "/syscall.h",
+                gen.copy() + "/syscall.h",
                 MuslProvider::syscall_h(src, ma),
             ) {
             return out.fail(
@@ -167,16 +170,16 @@ pub class MuslProvider derives SysrootProvider {
         }
 
         var ver = ""
-        LinkFS::read(src + "/VERSION", &ver)
+        LinkFS::read(src.copy() + "/VERSION", &ver)
         var vh = f"#define VERSION \x22{LinkText::trim(ver)}\x22\n"
-        if !LinkFS::write(obj + "/src/internal/version.h", vh) {
+        if !LinkFS::write(obj.copy() + "/src/internal/version.h", vh) {
             return out.fail(f"cannot write {obj}/src/internal/version.h", "")
         }
 
         var objs = MuslProvider::objects(src, ma)
         var base = ctx->kcc(ctx->stage)
-        for var f: string in musl_c99fse() {
-            base.push_back(f)
+        for *f in musl_c99fse() {
+            base.push_back(*f)
         }
 
         base.push_back("-D_XOPEN_SOURCE=700")
@@ -187,15 +190,15 @@ pub class MuslProvider derives SysrootProvider {
         base.push_back("-I" + src + "/src/internal")
         base.push_back("-I" + obj + "/include")
         base.push_back("-I" + src + "/include")
-        for var f: string in musl_cflags_auto() {
-            base.push_back(f)
+        for *f in musl_cflags_auto() {
+            base.push_back(*f)
         }
 
-        for var f: string in ctx->recipe.list("libc", "cflags") {
-            base.push_back(f)
+        for *f in ctx->recipe.list("libc", "cflags") {
+            base.push_back(*f)
         }
 
-        var logs = ctx->log_dir + "/cc"
+        var logs = ctx->log_dir.copy() + "/cc"
         LinkFS::make_dirs(logs)
         var jobs = SysJobs()
         jobs.limit(ctx->jobs)
@@ -213,7 +216,7 @@ pub class MuslProvider derives SysrootProvider {
             // libc objects are the Makefile's .lo (AOBJS = LOBJS); crt
             // objects stay .o.
             var ext  = if (crt) => (".o") else => ".lo"
-            var path = obj + "/" + o.obj + ext
+            var path = obj.copy() + "/" + o.obj + ext
             LinkFS::make_dirs(LinkFS::parent(path))
             var argv = base
             var stem = LinkFS::filename(o.obj)
@@ -233,8 +236,8 @@ pub class MuslProvider derives SysrootProvider {
 
             argv.push_back("-c")
             argv.push_back("-o")
-            argv.push_back(path)
-            argv.push_back(src + "/" + o.src)
+            argv.push_back(path.copy())
+            argv.push_back(src.copy() + "/" + o.src)
             if !jobs.add(&argv, f"{logs}/{i}.log") {
                 break
             }
@@ -254,20 +257,20 @@ pub class MuslProvider derives SysrootProvider {
         }
 
         LinkFS::remove_tree(logs)
-        var lib = dst + "/lib"
+        var lib = dst.copy() + "/lib"
         LinkFS::make_dirs(lib)
-        for var t: string in ctx->recipe.list("libc", "targets") {
-            var name = LinkFS::filename(t)
+        for *t in ctx->recipe.list("libc", "targets") {
+            var name = LinkFS::filename(*t)
             if name == "libc.a" {
-                if !LinkFS::write_archive(lib + "/libc.a", &archive) {
+                if !LinkFS::write_archive(lib.copy() + "/libc.a", &archive) {
                     return out.fail(f"cannot write {lib}/libc.a", "")
                 }
             } else if LinkText::ends_with(name.copy(), ".o") {
                 // lib/%.o: obj/crt/<ARCH>/%.o first, then obj/crt/%.o.
                 var stem = LinkText::slice(name, 0, name.size() - 2)
-                var from = obj + "/crt/" + ma + "/" + name
+                var from = obj.copy() + "/crt/" + ma + "/" + name
                 if !LinkFS::is_file(from) {
-                    from = obj + "/crt/" + name
+                    from = obj.copy() + "/crt/" + name
                 }
 
                 if !LinkFS::is_file(from) {
@@ -277,12 +280,12 @@ pub class MuslProvider derives SysrootProvider {
                     )
                 }
 
-                if !SysRun::put_file(from, lib + "/" + name, false) {
+                if !SysRun::put_file(from, lib.copy() + "/" + name, false) {
                     return out.fail(f"cannot copy {from}", "")
                 }
             } else if LinkText::ends_with(name.copy(), ".a") {
                 // EMPTY_LIBS: `ar rc` with no members.
-                if !LinkFS::write(lib + "/" + name, "!<arch>\n") {
+                if !LinkFS::write(lib.copy() + "/" + name, "!<arch>\n") {
                     return out.fail(f"cannot write {lib}/{name}", "")
                 }
             }
@@ -297,47 +300,52 @@ pub class MuslProvider derives SysrootProvider {
     /// then the generated bits, then arch/generic/bits, then arch/<ma>/bits.
     pub static fn install_headers(const src: string, const ma: string, const inc: string) -> bool {
         var none = cxx::std::vector<string>()
-        var sub  = src + "/include"
-        for var n: string in LinkFS::list_dir(sub) {
-            var p = sub + "/" + n
+        var sub  = src.copy() + "/include"
+        for *n in LinkFS::list_dir(sub) {
+            var p = sub.copy() + "/" + *n
             if LinkFS::is_dir(p) {
-                for var m: string in LinkFS::list_dir(p) {
-                    if LinkText::ends_with(m.copy(), ".h") && LinkFS::is_file(p + "/" + m) {
+                for *m in LinkFS::list_dir(p) {
+                    if LinkText::ends_with(m->copy(), ".h")
+                        && LinkFS::is_file(p.copy() + "/" + *m) {
                         if !SysRun::put_file(
-                            p + "/" + m,
-                            inc + "/" + n + "/" + m,
+                            p.copy() + "/" + *m,
+                            inc.copy() + "/" + *n + "/" + *m,
                             false,
                         ) {
                             return false
                         }
                     }
                 }
-            } else if LinkText::ends_with(n.copy(), ".h") {
-                if !SysRun::put_file(p, inc + "/" + n, false) {
+            } else if LinkText::ends_with(n->copy(), ".h") {
+                if !SysRun::put_file(p, inc.copy() + "/" + *n, false) {
                     return false
                 }
             }
         }
 
-        LinkFS::make_dirs(inc + "/bits")
+        LinkFS::make_dirs(inc.copy() + "/bits")
         if !LinkFS::write(
-            inc + "/bits/alltypes.h",
+            inc.copy() + "/bits/alltypes.h",
             MuslProvider::alltypes(src, ma),
         )
             || !LinkFS::write(
-                inc + "/bits/syscall.h",
+                inc.copy() + "/bits/syscall.h",
                 MuslProvider::syscall_h(src, ma),
             ) {
             return false
         }
 
         var dirs = cxx::std::vector<string>()
-        dirs.push_back(src + "/arch/generic/bits")
-        dirs.push_back(src + "/arch/" + ma + "/bits")
-        for var d: string in dirs {
-            for var n: string in LinkFS::list_dir(d) {
-                if LinkText::ends_with(n.copy(), ".h")
-                    && !SysRun::put_file(d + "/" + n, inc + "/bits/" + n, false) {
+        dirs.push_back(src.copy() + "/arch/generic/bits")
+        dirs.push_back(src.copy() + "/arch/" + ma + "/bits")
+        for *d in dirs {
+            for *n in LinkFS::list_dir(*d) {
+                if LinkText::ends_with(n->copy(), ".h")
+                    && !SysRun::put_file(
+                        d->copy() + "/" + *n,
+                        inc.copy() + "/bits/" + *n,
+                        false,
+                    ) {
                     return false
                 }
             }
@@ -351,11 +359,11 @@ pub class MuslProvider derives SysrootProvider {
     pub static fn alltypes(const src: string, const ma: string) -> string {
         var a = ""
         var b = ""
-        LinkFS::read(src + "/arch/" + ma + "/bits/alltypes.h.in", &a)
-        LinkFS::read(src + "/include/alltypes.h.in", &b)
+        LinkFS::read(src.copy() + "/arch/" + ma + "/bits/alltypes.h.in", &a)
+        LinkFS::read(src.copy() + "/include/alltypes.h.in", &b)
         var out = ""
-        for var l: string in MuslProvider::_lines(a + b) {
-            out += MuslProvider::_mkalltypes(l)
+        for *l in MuslProvider::_lines(a.copy() + b) {
+            out += MuslProvider::_mkalltypes(*l)
             out += "\n"
         }
 
@@ -366,15 +374,15 @@ pub class MuslProvider derives SysrootProvider {
     /// names __NR_ again with its first __NR_ spelled SYS_.
     pub static fn syscall_h(const src: string, const ma: string) -> string {
         var text = ""
-        LinkFS::read(src + "/arch/" + ma + "/bits/syscall.h.in", &text)
+        LinkFS::read(src.copy() + "/arch/" + ma + "/bits/syscall.h.in", &text)
         var out = text.copy()
-        for var l: string in MuslProvider::_lines(text) {
-            var at = LinkText::find(l.copy(), "__NR_", 0)
-            if at < l.size() {
-                out += LinkText::slice(l, 0, at) + "SYS_" + LinkText::slice(
-                    l,
+        for *l in MuslProvider::_lines(text) {
+            var at = LinkText::find(l->copy(), "__NR_", 0)
+            if at < l->size() {
+                out += LinkText::slice(*l, 0, at) + "SYS_" + LinkText::slice(
+                    *l,
                     at + 5,
-                    l.size(),
+                    l->size(),
                 ) + "\n"
             }
         }
@@ -386,11 +394,11 @@ pub class MuslProvider derives SysrootProvider {
     /// each with the source its pattern rules would pick.
     pub static fn objects(const src: string, const ma: string) -> cxx::std::vector<MuslObj> {
         var dirs = cxx::std::vector<string>()
-        var top  = LinkFS::list_dir(src + "/src")
+        var top  = LinkFS::list_dir(src.copy() + "/src")
         cxx::std::sort(top.begin(), top.end())
-        for var d: string in top {
-            if LinkFS::is_dir(src + "/src/" + d) {
-                dirs.push_back("src/" + d)
+        for *d in top {
+            if LinkFS::is_dir(src.copy() + "/src/" + *d) {
+                dirs.push_back("src/" + *d)
             }
         }
 
@@ -398,33 +406,39 @@ pub class MuslProvider derives SysrootProvider {
         dirs.push_back("crt")
         dirs.push_back("ldso")
         var compat = MuslProvider::_compat_dirs(src, ma)
-        for var d: string in compat {
-            dirs.push_back(d)
+        for *d in compat {
+            dirs.push_back(*d)
         }
 
         var base_objs = cxx::std::vector<string>()
         var base_srcs = cxx::std::vector<string>()
         var arch_objs = cxx::std::vector<string>()
         var arch_srcs = cxx::std::vector<string>()
-        for var d: string in dirs {
-            for var n: string in LinkFS::list_dir(src + "/" + d) {
-                if LinkText::ends_with(n.copy(), ".c") && LinkFS::is_file(src + "/" + d + "/" + n) {
+        for *d in dirs {
+            for *n in LinkFS::list_dir(src.copy() + "/" + *d) {
+                if LinkText::ends_with(n->copy(), ".c")
+                    && LinkFS::is_file(src.copy() + "/" + *d + "/" + *n) {
                     base_objs.push_back(
-                        d + "/" + LinkText::slice(n, 0, n.size() - 2),
+                        d->copy() + "/" + LinkText::slice(*n, 0, n->size() - 2),
                     )
 
-                    base_srcs.push_back(d + "/" + n)
+                    base_srcs.push_back(d->copy() + "/" + *n)
                 }
             }
 
-            var ad = d + "/" + ma
-            for var n: string in LinkFS::list_dir(src + "/" + ad) {
-                var rank = MuslProvider::_ext_rank(n)
-                if rank == 0 || !LinkFS::is_file(src + "/" + ad + "/" + n) {
+            var ad = d->copy() + "/" + ma
+            for *n in LinkFS::list_dir(src.copy() + "/" + ad) {
+                var rank = MuslProvider::_ext_rank(*n)
+                if rank == 0 || !LinkFS::is_file(src.copy() + "/" + ad + "/" + *n) {
                     continue
                 }
 
-                var stem = ad + "/" + LinkText::slice(n, 0, n.size() - 2)
+                var stem = ad.copy() + "/" + LinkText::slice(
+                    *n,
+                    0,
+                    n->size() - 2,
+                )
+
                 // Two arch sources of one stem: make's first pattern rule
                 // that applies wins (.s, then .S, then .c).
                 var dup = false
@@ -434,14 +448,14 @@ pub class MuslProvider derives SysrootProvider {
                         if rank < MuslProvider::_ext_rank(
                             LinkFS::filename(arch_srcs[i]),
                         ) {
-                            arch_srcs[i] = ad + "/" + n
+                            arch_srcs[i] = ad.copy() + "/" + *n
                         }
                     }
                 }
 
                 if !dup {
                     arch_objs.push_back(stem)
-                    arch_srcs.push_back(ad + "/" + n)
+                    arch_srcs.push_back(ad.copy() + "/" + *n)
                 }
             }
         }
@@ -450,14 +464,14 @@ pub class MuslProvider derives SysrootProvider {
         // the same path minus /<ARCH>/.
         var replaced = cxx::std::vector<string>()
         var marker   = "/" + ma + "/"
-        for var o: string in arch_objs {
-            var at = LinkText::find(o.copy(), marker.copy(), 0)
-            if at < o.size() {
+        for *o in arch_objs {
+            var at = LinkText::find(o->copy(), marker.copy(), 0)
+            if at < o->size() {
                 replaced.push_back(
-                    LinkText::slice(o, 0, at) + "/" + LinkText::slice(
-                        o,
+                    LinkText::slice(*o, 0, at) + "/" + LinkText::slice(
+                        *o,
                         at + marker.size(),
-                        o.size(),
+                        o->size(),
                     ),
                 )
             }
@@ -471,24 +485,24 @@ pub class MuslProvider derives SysrootProvider {
             }
         }
 
-        for var o: string in arch_objs {
-            if !SysUtil::contains(&replaced, o) {
-                keys.push_back(o)
+        for *o in arch_objs {
+            if !SysUtil::contains(&replaced, *o) {
+                keys.push_back(*o)
             }
         }
 
         cxx::std::sort(keys.begin(), keys.end())
-        for var k: string in keys {
+        for *k in keys {
             var m = MuslObj{}
-            m.obj = k.copy()
+            m.obj = k->copy()
             for var i: usize = 0; i < arch_objs.size(); ++i {
-                if arch_objs[i] == k {
+                if arch_objs[i] == *k {
                     m.src = arch_srcs[i].copy()
                 }
             }
 
             if m.src.is_empty() {
-                m.src = k + ".c"
+                m.src = k->copy() + ".c"
             }
 
             // libc.a lists src/ objects before compat/ ones; crt/ and ldso/
@@ -497,15 +511,15 @@ pub class MuslProvider derives SysrootProvider {
         }
 
         var ordered = cxx::std::vector<MuslObj>()
-        for var m: MuslObj in out {
-            if !LinkText::starts_with(m.obj.copy(), "compat/") {
-                ordered.push_back(m)
+        for *m in out {
+            if !LinkText::starts_with(m->obj.copy(), "compat/") {
+                ordered.push_back(*m)
             }
         }
 
-        for var m: MuslObj in out {
-            if LinkText::starts_with(m.obj.copy(), "compat/") {
-                ordered.push_back(m)
+        for *m in out {
+            if LinkText::starts_with(m->obj.copy(), "compat/") {
+                ordered.push_back(*m)
             }
         }
 
@@ -519,9 +533,9 @@ pub class MuslProvider derives SysrootProvider {
                             @inout src: string,
                             @inout out: SysOutcome) -> bool {
         ma = ""
-        for var q: SysQuirk in ctx->quirks {
-            if !q.musl_arch.is_empty() {
-                ma = q.musl_arch.copy()
+        for *q in ctx->quirks {
+            if !q->musl_arch.is_empty() {
+                ma = q->musl_arch.copy()
             }
         }
 
@@ -536,8 +550,9 @@ pub class MuslProvider derives SysrootProvider {
             )
         }
 
-        src = ctx->share + "/musl"
-        if !LinkFS::is_dir(src + "/arch/" + ma) || !LinkFS::is_file(src + "/VERSION") {
+        src = ctx->share.copy() + "/musl"
+        if !LinkFS::is_dir(src.copy() + "/arch/" + ma)
+            || !LinkFS::is_file(src.copy() + "/VERSION") {
             return out.refuse(
                 f"share input {src} is not a musl source tree with arch/{ma}",
                 "",
@@ -552,17 +567,17 @@ pub class MuslProvider derives SysrootProvider {
     priv static fn _compat_dirs(const src: string, const ma: string) -> cxx::std::vector<string> {
         var out  = cxx::std::vector<string>()
         var text = ""
-        if !LinkFS::read(src + "/arch/" + ma + "/arch.mak", &text) {
+        if !LinkFS::read(src.copy() + "/arch/" + ma + "/arch.mak", &text) {
             return out
         }
 
-        for var l: string in MuslProvider::_lines(text) {
-            var t = LinkText::trim(l)
+        for *l in MuslProvider::_lines(text) {
+            var t = LinkText::trim(*l)
             if LinkText::starts_with(t.copy(), "COMPAT_SRC_DIRS") {
                 var eq = LinkText::find(t.copy(), "=", 0)
-                for var w: string in SysUtil::split(LinkText::trim(LinkText::slice(t, eq + 1, t.size())), (' ' as u8)) {
-                    if !w.is_empty() {
-                        out.push_back(w)
+                for *w in SysUtil::split(LinkText::trim(LinkText::slice(t, eq + 1, t.size())), (' ' as u8)) {
+                    if !w->is_empty() {
+                        out.push_back(*w)
                     }
                 }
             }
@@ -595,7 +610,7 @@ pub class MuslProvider derives SysrootProvider {
             var body = LinkText::slice(l, 8, l.size() - 1)
             var sp   = body.size()
             for var i: usize = 0; i < body.size(); ++i {
-                if body[i] == (' ' as u8) {
+                if body.data()[i] == (' ' as u8) {
                     sp = i
                 }
             }
@@ -612,23 +627,23 @@ pub class MuslProvider derives SysrootProvider {
         var kinds = cxx::std::vector<string>()
         kinds.push_back("STRUCT")
         kinds.push_back("UNION")
-        for var k: string in kinds {
-            if !LinkText::starts_with(l.copy(), k.copy()) || !LinkText::ends_with(l.copy(), ";") {
+        for *k in kinds {
+            if !LinkText::starts_with(l.copy(), k->copy()) || !LinkText::ends_with(l.copy(), ";") {
                 continue
             }
 
             // STRUCT * \([^ ]*\) \(.*\);$ : spaces, the tag, one space, the body.
-            var i = k.size()
-            if i >= l.size() || l[i] != (' ' as u8) {
+            var i = k->size()
+            if i >= l.size() || l.data()[i] != (' ' as u8) {
                 continue
             }
 
-            while i < l.size() && l[i] == (' ' as u8) {
+            while i < l.size() && l.data()[i] == (' ' as u8) {
                 i += 1
             }
 
             var j = i
-            while j < l.size() && l[j] != (' ' as u8) {
+            while j < l.size() && l.data()[j] != (' ' as u8) {
                 j += 1
             }
 
@@ -638,7 +653,7 @@ pub class MuslProvider derives SysrootProvider {
 
             var tag  = LinkText::slice(l, i, j)
             var body = LinkText::slice(l, j + 1, l.size() - 1)
-            var lo   = if (k == "STRUCT") => ("struct") else => "union"
+            var lo   = if (*k == "STRUCT") => ("struct") else => "union"
             return f"#if defined(__NEED_{lo}_{tag}) && !defined(__DEFINED_{lo}_{tag})\n{lo} {tag} {body};\n#define __DEFINED_{lo}_{tag}\n#endif\n"
         }
 
@@ -650,7 +665,7 @@ pub class MuslProvider derives SysrootProvider {
         var out       = cxx::std::vector<string>()
         var b:  usize = 0
         for var i: usize = 0; i < s.size(); ++i {
-            if s[i] == ('\n' as u8) {
+            if s.data()[i] == ('\n' as u8) {
                 out.push_back(LinkText::slice(s, b, i))
                 b = i + 1
             }
@@ -666,9 +681,9 @@ pub class MuslProvider derives SysrootProvider {
     /// The first line of a compile log that says error, else its first line.
     priv static fn _first_error(const text: string) -> string {
         var lines = MuslProvider::_lines(text)
-        for var l: string in lines {
-            if LinkText::contains(l, "error") {
-                return LinkText::trim(l)
+        for *l in lines {
+            if LinkText::contains(*l, "error") {
+                return LinkText::trim(*l)
             }
         }
 

@@ -112,7 +112,7 @@ pub class ELFArgs {
 
         if !tc.emulation.is_empty() {
             argv.push_back("-m")
-            argv.push_back(tc.emulation)
+            argv.push_back(tc.emulation.copy())
         }
 
         if tc.pass_sysroot {
@@ -190,12 +190,12 @@ pub class ELFArgs {
                 )
             } else {
                 argv.push_back("-dynamic-linker")
-                argv.push_back(tc.dynamic_linker)
+                argv.push_back(tc.dynamic_linker.copy())
             }
         }
 
         argv.push_back("-o")
-        argv.push_back(job.output)
+        argv.push_back(job.output.copy())
 
         /// # crt startup
         var pic_crt = shared || pie || static_pie
@@ -204,13 +204,13 @@ pub class ELFArgs {
 
         if !no_crt {
             if tc.has_manifest && !tc.manifest.crt_startup.empty() {
-                for var n: string in tc.manifest.crt_startup {
-                    var is_start = n == "crt1.o" || n == "Scrt1.o" || n == "rcrt1.o"
+                for *n in tc.manifest.crt_startup {
+                    var is_start = *n == "crt1.o" || *n == "Scrt1.o" || *n == "rcrt1.o"
                     if shared && is_start {
                         continue
                     }
 
-                    var name = n.copy()
+                    var name = n->copy()
                     if is_start && static_pie {
                         name = "rcrt1.o"
                     } else if is_start && pie {
@@ -236,8 +236,8 @@ pub class ELFArgs {
         }
 
         /// # search path, user's first
-        for var d: string in o->lib_dirs {
-            argv.push_back(f"-L{d}")
+        for *d in o->lib_dirs {
+            argv.push_back(f"-L{*d}")
         }
 
         if !tc.toolchain_lib.is_empty() {
@@ -248,14 +248,14 @@ pub class ELFArgs {
             argv.push_back(f"-L{tc.gcc_dir}")
         }
 
-        for var d: string in tc.lib_dirs {
-            argv.push_back(f"-L{d}")
+        for *d in tc.lib_dirs {
+            argv.push_back(f"-L{*d}")
         }
 
         // The host's dirs last: a library the sysroot has (libc, libm) is
         // always the sysroot's, and only what it lacks is the host's.
-        for var d: string in tc.host_lib_dirs {
-            argv.push_back(f"-L{d}")
+        for *d in tc.host_lib_dirs {
+            argv.push_back(f"-L{*d}")
         }
 
         // A static image has no dynamic section to carry a DT_RUNPATH, and lld
@@ -271,15 +271,15 @@ pub class ELFArgs {
         }
 
         if !want_stat {
-            for var r: string in o->rpath {
+            for *r in o->rpath {
                 argv.push_back("-rpath")
-                argv.push_back(r)
+                argv.push_back(*r)
             }
         }
 
         if !want_stat && !no_libs && !tc.toolchain_lib.is_empty() {
             argv.push_back("-rpath")
-            argv.push_back(tc.toolchain_lib)
+            argv.push_back(tc.toolchain_lib.copy())
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Verbose,
@@ -288,9 +288,9 @@ pub class ELFArgs {
             )
         }
 
-        for var r: string in o->rpath_link {
+        for *r in o->rpath_link {
             argv.push_back("-rpath-link")
-            argv.push_back(r)
+            argv.push_back(*r)
         }
 
         /// # host libraries (the default build's glibc floor)
@@ -362,26 +362,26 @@ pub class ELFArgs {
             argv.push_back(o->entry)
         }
 
-        for var f: string in o->ld_flags {
-            argv.push_back(f)
+        for *f in o->ld_flags {
+            argv.push_back(*f)
         }
 
         /// # inputs
-        for var obj: string in job.objects {
-            argv.push_back(obj)
+        for *obj in job.objects {
+            argv.push_back(*obj)
         }
 
         if job.lazy_objects.size() > 0 {
             argv.push_back("--start-lib")
-            for var obj: string in job.lazy_objects {
-                argv.push_back(obj)
+            for *obj in job.lazy_objects {
+                argv.push_back(*obj)
             }
 
             argv.push_back("--end-lib")
         }
 
-        for var spec: string in o->link_libs {
-            ELFArgs::_user_lib(spec, want_stat, &argv, &msgs)
+        for *spec in o->link_libs {
+            ELFArgs::_user_lib(*spec, want_stat, &argv, &msgs)
         }
 
         if !no_libs {
@@ -396,8 +396,8 @@ pub class ELFArgs {
             }
 
             if tc.has_manifest && !tc.manifest.crt_end.empty() {
-                for var n: string in tc.manifest.crt_end {
-                    ELFArgs::_crt(&tc, n, &argv, &msgs)
+                for *n in tc.manifest.crt_end {
+                    ELFArgs::_crt(&tc, *n, &argv, &msgs)
                 }
             } else {
                 ELFArgs::_crt(&tc, "crtn.o", &argv, &msgs)
@@ -418,8 +418,8 @@ pub class ELFArgs {
                                    @inout msgs: cxx::std::vector<LinkMessage>) {
         var *o   = job.opts
         var dirs = cxx::std::vector<string>()
-        for var d: string in o->lib_dirs {
-            dirs.push_back(d)
+        for *d in o->lib_dirs {
+            dirs.push_back(*d)
         }
 
         if !tc.toolchain_lib.is_empty() {
@@ -430,23 +430,23 @@ pub class ELFArgs {
             dirs.push_back(tc.gcc_dir)
         }
 
-        for var d: string in tc.lib_dirs {
-            dirs.push_back(d)
+        for *d in tc.lib_dirs {
+            dirs.push_back(*d)
         }
 
-        for var d: string in tc.host_lib_dirs {
-            dirs.push_back(d)
+        for *d in tc.host_lib_dirs {
+            dirs.push_back(*d)
         }
 
         var found = cxx::std::vector<string>()
-        for var spec: string in o->link_libs {
-            var name = spec.copy()
+        for *spec in o->link_libs {
+            var name = spec->copy()
             var stat = want_stat
-            if LinkText::starts_with(spec.copy(), "static:") {
-                name = LinkText::slice(spec, 7, spec.size())
+            if LinkText::starts_with(spec->copy(), "static:") {
+                name = LinkText::slice(*spec, 7, spec->size())
                 stat = true
-            } else if LinkText::starts_with(spec.copy(), "dynamic:") {
-                name = LinkText::slice(spec, 8, spec.size())
+            } else if LinkText::starts_with(spec->copy(), "dynamic:") {
+                name = LinkText::slice(*spec, 8, spec->size())
             }
 
             if name.is_empty() {
@@ -470,40 +470,40 @@ pub class ELFArgs {
             }
         }
 
-        for var obj: string in job.objects {
-            if HostSystem::is_shared(obj) && LinkFS::is_file(obj) {
-                found.push_back(obj)
+        for *obj in job.objects {
+            if HostSystem::is_shared(*obj) && LinkFS::is_file(*obj) {
+                found.push_back(*obj)
             }
         }
 
-        for var p: string in found {
-            if HostSystem::under(p, tc.sysroot) {
+        for *p in found {
+            if HostSystem::under(*p, tc.sysroot) {
                 continue
             }
 
-            if HostSystem::is_shared(p) {
+            if HostSystem::is_shared(*p) {
                 var dup = false
-                for var h: string in job.host_shared {
-                    if h == p {
+                for *h in job.host_shared {
+                    if *h == *p {
                         dup = true
                     }
                 }
 
                 if !dup {
-                    job.host_shared.push_back(p)
+                    job.host_shared.push_back(*p)
                 }
 
                 continue
             }
 
-            if !LinkText::ends_with(p.copy(), ".a") {
+            if !LinkText::ends_with(p->copy(), ".a") {
                 continue
             }
 
             var host_dir = false
-            var pdir     = LinkFS::real(LinkFS::parent(p))
-            for var d: string in tc.host_lib_dirs {
-                if LinkFS::real(d.copy()) == pdir {
+            var pdir     = LinkFS::real(LinkFS::parent(*p))
+            for *d in tc.host_lib_dirs {
+                if LinkFS::real(d->copy()) == pdir {
                     host_dir = true
                 }
             }
@@ -515,7 +515,7 @@ pub class ELFArgs {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Warning,
-                    f"{p} is a static archive from the host system: it was built against the host's glibc, and linking it can silently raise the glibc this program needs above the floor ({job.glibc_floor}); link its shared library instead, or build it against the floor",
+                    f"{*p} is a static archive from the host system: it was built against the host's glibc, and linking it can silently raise the glibc this program needs above the floor ({job.glibc_floor}); link its shared library instead, or build it against the floor",
                 ),
             )
         }
@@ -694,8 +694,8 @@ pub class ELFArgs {
 
     priv static fn _append(@inout argv: cxx::std::vector<string>,
                            @inout xs:   cxx::std::vector<string>) {
-        for var x: string in xs {
-            argv.push_back(x)
+        for *x in xs {
+            argv.push_back(*x)
         }
     }
 }

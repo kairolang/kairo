@@ -56,6 +56,7 @@ import Location::SourceManager::*
 import Location::SourceRange::*
 import Options::*
 import Renderer::*
+import Support::Ascii::copy_strings
 import Support::FileIO::Path::*
 import Token::Token::*
 import Token::TokenKind::*
@@ -388,7 +389,7 @@ pub class Formatter {
         var src = self.src.copy()
         self.lstart.push_back(0)
         for var i: usize = 0; i < src.size(); ++i {
-            if src[i] == ('\n' as u8) {
+            if src.data()[i] == ('\n' as u8) {
                 self.lstart.push_back((i + 1) as u32)
             }
         }
@@ -620,16 +621,18 @@ pub class Formatter {
         var l   = self._list(self.base, self.base + self.size, 0, unsafe &els)
         var out = Renderer::render(unsafe &l.body, self.set)
         // 3.5: the renderer writes LF; with the rule off a CRLF file keeps CRLF
-        if !rules().crlf_to_lf && find_str(self.src.copy(), "\r\n") < self.src.size() {
+        if !rules().crlf_to_lf && find_str(self.src, "\r\n") < self.src.size() {
             var crlf: string = ""
+            var run:  usize  = 0  // start of the line being copied
             for var i: usize = 0; i < out.size(); ++i {
-                if out[i] == ('\n' as u8) {
-                    crlf.push_back('\r' as u8)
+                if out.data()[i] == ('\n' as u8) {
+                    crlf += out[run..i]
+                    crlf += "\r\n"
+                    run = i + 1
                 }
-
-                crlf.push_back(out[i])
             }
 
+            crlf += out[run..]
             return crlf
         }
 
@@ -667,7 +670,7 @@ pub class Formatter {
         var n        = t.size()
         var k: usize = 0
         while k < n {
-            var c = t[n - 1 - k]
+            var c = t.data()[n - 1 - k]
             var drop = c == ('\n' as u8)
                 || c == ('\r' as u8)
                 || spaces_too && (c == (' ' as u8) || c == ('\t' as u8))
@@ -685,7 +688,7 @@ pub class Formatter {
         var t        = self._text(a, b)
         var n        = t.size()
         var l: usize = 0
-        while l < n && Formatter::_ws(t[l]) {
+        while l < n && Formatter::_ws(t.data()[l]) {
             l += 1
         }
 
@@ -694,7 +697,7 @@ pub class Formatter {
         }
 
         var r: usize = 0
-        while r < n && Formatter::_ws(t[n - 1 - r]) {
+        while r < n && Formatter::_ws(t.data()[n - 1 - r]) {
             r += 1
         }
 
@@ -734,7 +737,7 @@ pub class Formatter {
     priv fn _lead_ws(self, a: u32, b: u32) -> u32 {
         var t        = self._text(a, b)
         var k: usize = 0
-        while k < t.size() && (t[k] == (' ' as u8) || t[k] == ('\t' as u8)) {
+        while k < t.size() && (t.data()[k] == (' ' as u8) || t.data()[k] == ('\t' as u8)) {
             k += 1
         }
 
@@ -1092,7 +1095,7 @@ pub class Formatter {
             return false
         }
 
-        var c = t[0]
+        var c = t.data()[0]
         return c >= ('a' as u8) && c <= ('z' as u8)
             || c >= ('A' as u8) && c <= ('Z' as u8)
             || c == ('_' as u8)
@@ -1325,24 +1328,30 @@ pub class Formatter {
     /// so the braces stay. Checked against the file's directory, every
     /// directory above it (the tree roots are among them), their `Lib/`, and
     /// the -I roots: more places checked only keeps more braces.
-    priv fn _module_exists(self, segs: string) -> bool {
+    priv fn _module_exists(self, const segs: string) -> bool {
         var rel: string = ""
         var i:   usize  = 0
+        var run: usize  = 0  // start of the segment being copied
         while i < segs.size() {
-            if i + 1 < segs.size() && segs[i] == (':' as u8) && segs[i + 1] == (':' as u8) {
+            if i + 1 < segs.size()
+                && segs.data()[i] == (':' as u8)
+                && segs.data()[i + 1] == (':' as u8) {
+                rel += segs[run..i]
                 rel += "/"
                 i += 2
+                run = i
                 continue
             }
 
-            rel.push_back(segs[i])
             i += 1
         }
+
+        rel += segs[run..]
 
         var bases = cxx::std::vector<string>()
         var d     = self.file_dir.copy()
         while d.size() > 0 {
-            bases.push_back(d)
+            bases.push_back(d.copy())
             bases.push_back(Path::join_str(d, "Lib"))
             var p = Path::parent_of(d)
             if p == d || p.size() == 0 {
@@ -1353,12 +1362,12 @@ pub class Formatter {
         }
 
         for var r: usize = 0; r < self.roots.size(); ++r {
-            bases.push_back(self.roots[r])
+            bases.push_back(self.roots[r].copy())
         }
 
         for var b: usize = 0; b < bases.size(); ++b {
             var f = Path::join_str(bases[b], rel.copy())
-            if Path::exists_at(f + ".k") || Path::exists_at(Path::join_str(f, "module.k")) {
+            if Path::exists_at(f.copy() + ".k") || Path::exists_at(Path::join_str(f, "module.k")) {
                 return true
             }
         }
@@ -1371,12 +1380,12 @@ pub class Formatter {
     fn import_head(self, const im: ImportInfo) -> string {
         var s: string = ""
         if im.vis.size() > 0 {
-            s += im.vis + " "
+            s += im.vis.copy() + " "
         }
 
         s += "import "
         if im.anchor.size() > 0 {
-            s += im.anchor + "::"
+            s += im.anchor.copy() + "::"
         }
 
         s += im.path
@@ -1385,7 +1394,7 @@ pub class Formatter {
 
     /// The braced items in print order (5.2: sorted like 5.4).
     fn import_items(self, const im: ImportInfo) -> cxx::std::vector<string> {
-        var xs = im.items
+        var xs = copy_strings(im.items)
         if rules().import_sort_items {
             sort_strings(unsafe &xs)
         }
@@ -1394,7 +1403,7 @@ pub class Formatter {
     }
 
     /// One item that loses its braces under 5.1, or "" when the braces stay.
-    fn unbraced_item(self, im: ImportInfo) -> string {
+    fn unbraced_item(self, const im: ImportInfo) -> string {
         if !im.braced || im.items.size() != 1 {
             return ""
         }
@@ -1405,17 +1414,17 @@ pub class Formatter {
         }
 
         var base = it.copy()
-        var cut  = find_str(it.copy(), " as ")
+        var cut  = find_str(it, " as ")
         if cut < it.size() {
             base = it.subslice(0, cut)
         }
 
-        var nested = find_str(base.copy(), "::") < base.size()
+        var nested = find_str(base, "::") < base.size()
         if nested && !rules().import_unbrace_more {
             return ""
         }
 
-        if self._module_exists(im.path + "::" + base) {
+        if self._module_exists(im.path.copy() + "::" + base) {
             return ""
         }
 
@@ -1431,7 +1440,7 @@ pub class Formatter {
         var tail: string = ""
         var one          = self.unbraced_item(im)
         if one.size() > 0 {
-            var cut = find_str(one.copy(), " as ")
+            var cut = find_str(one, " as ")
             if cut < one.size() {
                 path += "::" + one.subslice(0, cut)
                 tail = "as " + one.subslice(cut + 4, one.size() - cut - 4)
@@ -1456,39 +1465,39 @@ pub class Formatter {
             tail = "as " + im.alias
         }
 
-        return path + "\x01" + tail + "\x01" + im.vis + "\x01" + im.anchor
+        return path.copy() + "\x01" + tail + "\x01" + im.vis + "\x01" + im.anchor
     }
 
     priv fn _import_doc(self, idx: usize) -> Doc {
-        var im = self.imps[idx]
-        if im.is_ffi || im.raw {
-            return self._v(im.start, im.core)
+        var *im = &self.imps[idx]
+        if im->is_ffi || im->raw {
+            return self._v(im->start, im->core)
         }
 
-        var head = self.import_head(im)
-        if im.star {
-            return Doc::text(head + "::*")
+        var head = self.import_head(*im)
+        if im->star {
+            return Doc::text(head.copy() + "::*")
         }
 
-        if !im.braced {
-            if im.alias.size() > 0 {
-                return Doc::text(head + " as " + im.alias)
+        if !im->braced {
+            if im->alias.size() > 0 {
+                return Doc::text(head.copy() + " as " + im->alias)
             }
 
             return Doc::text(head)
         }
 
-        var one = self.unbraced_item(im)
+        var one = self.unbraced_item(*im)
         if one.size() > 0 {
-            return Doc::text(head + "::" + one)
+            return Doc::text(head.copy() + "::" + one)
         }
 
-        if im.items.size() == 1 {
-            return Doc::text(head + "::{" + im.items[0] + "}")
+        if im->items.size() == 1 {
+            return Doc::text(head.copy() + "::{" + im->items[0] + "}")
         }
 
         // 5.2: two or more names are always broken, block or grid form
-        var xs   = self.import_items(im)
+        var xs   = self.import_items(*im)
         var keys = cxx::std::vector<Doc>()
         var vals = cxx::std::vector<Doc>()
         for var i: usize = 0; i < xs.size(); ++i {
@@ -1502,7 +1511,7 @@ pub class Formatter {
         }
 
         return Doc::concat2(
-            Doc::text(head + "::"),
+            Doc::text(head.copy() + "::"),
             Doc::list("{", "}", keys, vals, Doc::nothing(), flags),
         )
     }
@@ -1768,14 +1777,14 @@ pub class Formatter {
                 }
 
                 {
-                    var im = self.imps[ix as usize]
-                    var e  = Entry{}
+                    var *im = &self.imps[ix as usize]
+                    var e   = Entry{}
                     e.doc   = self._import_doc(ix as usize)
                     e.imp   = ix
-                    e.semi  = im.semi
-                    e.first = self._line(im.start)
-                    e.last  = self._line(im.end - 1)
-                    var cur = self._trailing(im.end, b, &e)
+                    e.semi  = im->semi
+                    e.first = self._line(im->start)
+                    e.last  = self._line(im->end - 1)
+                    var cur = self._trailing(im->end, b, &e)
                     e.cmt_first = false // after the import's last line, as import_lint writes it
                     e.next_kind = self._kind_at(self._sig_after(cur))
                     es->push_back(e)
@@ -1827,7 +1836,7 @@ pub class Formatter {
 
     /// An entry printed on its own: its doc, its kept `;`, its comment.
     priv fn _entry_doc(self, e: *Entry) -> Doc {
-        var d = Doc::concat2(e->doc, Doc::text(self._semi_of(e)))
+        var d = Doc::concat2(e->doc.copy(), Doc::text(self._semi_of(e)))
         if e->cmt.size() == 0 {
             return d
         }
@@ -2255,7 +2264,7 @@ pub class Formatter {
             }
 
             for var k: usize = 0; k < ROW_COLS(); ++k {
-                var c = e->cells[k]
+                var c = e->cells[k].copy()
                 if k == last {
                     c = Doc::concat2(c, Doc::text(semi))
                     if !cmts && e->cmt.size() > 0 {
@@ -2416,7 +2425,7 @@ pub class Formatter {
                 parts.push_back(Doc::text(" "))
             }
 
-            parts.push_back(e->doc)
+            parts.push_back(e->doc.copy())
         }
 
         r->oneline     = Doc::concat(parts)
@@ -2561,8 +2570,8 @@ pub class Formatter {
         }
 
         var broken = Doc::concat5(
-            open,
-            l.head,
+            open.copy(),
+            l.head.copy(),
             Doc::indent(Doc::concat2(Doc::hardline(), l.body)),
             Doc::hardline(),
             Doc::text("}"),
@@ -2644,7 +2653,7 @@ pub class Formatter {
 
         var c = self.fxc(cond, true, PCtx { kind: 4, prec: 0, right: false })
         return Doc::concat4(
-            Doc::text(kw + " "),
+            Doc::text(kw.copy() + " "),
             c,
             Doc::text(" "),
             self._block(blk),
@@ -2652,21 +2661,23 @@ pub class Formatter {
     }
 
     /// \p a equals \p b once runs of whitespace are one space.
-    priv static fn _same_words(a: string, const b: string) -> bool {
-        var s: string = ""
-        var sp        = false
-        for var i: usize = 0; i < a.size(); ++i {
-            if Formatter::_ws(a[i]) {
-                sp = true
+    priv static fn _same_words(const a: string, const b: string) -> bool {
+        var s:   string = ""
+        var run: usize  = 0  // start of the word being read
+        for var i: usize = 0; i <= a.size(); ++i {
+            if i < a.size() && !Formatter::_ws(a.data()[i]) {
                 continue
             }
 
-            if sp && s.size() > 0 {
-                s += " "
+            if i > run {
+                if s.size() > 0 {
+                    s += " "
+                }
+
+                s += a[run..i]
             }
 
-            sp = false
-            s.push_back(a[i])
+            run = i + 1
         }
 
         return s == b
@@ -2732,10 +2743,10 @@ pub class Formatter {
                     self._fill_row(
                         e,
                         ROW_ASSIGN(),
-                        lhs,
+                        lhs.copy(),
                         Doc::nothing(),
                         Doc::nothing(),
-                        rhs,
+                        rhs.copy(),
                     )
 
                     e->capped = self._calls != c0
@@ -3310,13 +3321,7 @@ pub class Formatter {
         return self._v(st, en)
     }
 
-    priv fn _fill_row(self,
-                      e:        unsafe *Entry,
-                      kind:     u8,
-                      const c0: Doc,
-                      const c1: Doc,
-                      const c2: Doc,
-                      const c3: Doc) {
+    priv fn _fill_row(self, e: unsafe *Entry, kind: u8, c0: Doc, c1: Doc, c2: Doc, c3: Doc) {
         if e == &null {
             return
         }
@@ -3410,19 +3415,19 @@ pub class Formatter {
                 self._fill_row(
                     e,
                     ROW_DECL(),
-                    kw,
-                    Doc::text(name + ":"),
-                    Doc::concat3(tyd, Doc::text(" = "), ini),
+                    kw.copy(),
+                    Doc::text(name.copy() + ":"),
+                    Doc::concat3(tyd.copy(), Doc::text(" = "), ini.copy()),
                     Doc::nothing(),
                 )
             } else {
                 self._fill_row(
                     e,
                     ROW_DECL(),
-                    kw,
-                    Doc::text(name + ":"),
-                    tyd,
-                    ini,
+                    kw.copy(),
+                    Doc::text(name.copy() + ":"),
+                    tyd.copy(),
+                    ini.copy(),
                 )
             }
 
@@ -3430,7 +3435,7 @@ pub class Formatter {
                 e->capped = self._calls != c0
             }
 
-            var head = if kw.is_empty() => Doc::text(name + ": ")
+            var head = if kw.is_empty() => Doc::text(name.copy() + ": ")
                        else => Doc::concat2(kw, Doc::text(" " + name + ": "))
             if init == &null {
                 return Doc::concat2(head, tyd)
@@ -3440,7 +3445,15 @@ pub class Formatter {
         }
 
         var v = self.fx(init, true)
-        self._fill_row(e, ROW_UNTYPED(), kw, Doc::text(name), Doc::nothing(), v)
+        self._fill_row(
+            e,
+            ROW_UNTYPED(),
+            kw.copy(),
+            Doc::text(name),
+            Doc::nothing(),
+            v.copy(),
+        )
+
         if e != &null {
             e->capped = self._calls != c0
         }
@@ -3541,8 +3554,8 @@ pub class Formatter {
                 return self._span(st, be)
             }
 
-            keys.push_back(key)
-            vals.push_back(val)
+            keys.push_back(key.copy())
+            vals.push_back(val.copy())
             if i > 0 {
                 flat.push_back(Doc::text(", "))
             }
@@ -3817,10 +3830,10 @@ pub class Formatter {
                     self._fill_row(
                         e,
                         ROW_ENUM(),
-                        key,
+                        key.copy(),
                         Doc::nothing(),
                         Doc::nothing(),
-                        Doc::concat2(val, Doc::text(e->sep)),
+                        Doc::concat2(val.copy(), Doc::text(e->sep)),
                     )
 
                     return Doc::concat4(
@@ -3867,7 +3880,7 @@ pub class Formatter {
     /// range is one) and \p ext more around it: under `--normalize-parens`
     /// (rule 9.5) only as many as the parse needs.
     fn _wrap(self, e: unsafe *Expr, const d0: Doc, ext: u32, pc: PCtx) -> Doc {
-        var d = d0
+        var d = d0.copy()
         var n = ext
         if self._int_parens(e) {
             n += 1
@@ -4231,7 +4244,7 @@ pub class Formatter {
 
         var off       = (a - self.base) as usize
         var n:  usize = 0
-        while off > n && n < 3 && Formatter::_alpha(self.src[off - n - 1]) {
+        while off > n && n < 3 && Formatter::_alpha(self.src.data()[off - n - 1]) {
             n += 1
         }
 
@@ -4241,9 +4254,10 @@ pub class Formatter {
 
         // a prefix stands alone: the byte before it is not part of a word
         if off > n
-            && (Formatter::_alpha(self.src[off - n - 1])
-                || self.src[off - n - 1] == ('_' as u8)
-                || self.src[off - n - 1] >= ('0' as u8) && self.src[off - n - 1] <= ('9' as u8)) {
+            && (Formatter::_alpha(self.src.data()[off - n - 1])
+                || self.src.data()[off - n - 1] == ('_' as u8)
+                || self.src.data()[off - n - 1] >= ('0' as u8)
+                    && self.src.data()[off - n - 1] <= ('9' as u8)) {
             return a
         }
 
@@ -4553,11 +4567,11 @@ pub class Formatter {
                 }
 
                 if !keys[i].is_empty() {
-                    flat.push_back(keys[i])
+                    flat.push_back(keys[i].copy())
                     flat.push_back(Doc::text(" "))
                 }
 
-                flat.push_back(vals[i])
+                flat.push_back(vals[i].copy())
             }
 
             flat.push_back(Doc::text(" }"))
@@ -4588,8 +4602,8 @@ pub class Formatter {
 
             // word operators (`not`) need their space back
             var word = _op.size() > 0
-                && (_op[0] >= ('a' as u8) && _op[0] <= ('z' as u8)
-                    || _op[0] >= ('A' as u8) && _op[0] <= ('Z' as u8))
+                && (_op.data()[0] >= ('a' as u8) && _op.data()[0] <= ('z' as u8)
+                    || _op.data()[0] >= ('A' as u8) && _op.data()[0] <= ('Z' as u8))
             if word {
                 _op += " "
             }
@@ -4938,7 +4952,7 @@ pub class Formatter {
         var flat  = cxx::std::vector<Doc>()
         var cells = cxx::std::vector<Doc>()
         flat.push_back(Doc::text("try "))
-        flat.push_back(opd)
+        flat.push_back(opd.copy())
         var unsafe *prev = x->try_expr
         for var i: usize = 0; i < x->catch_arms.size(); ++i {
             var unsafe *arm = x->catch_arms.get(i)
@@ -4973,9 +4987,9 @@ pub class Formatter {
             }
 
             flat.push_back(Doc::text(" "))
-            flat.push_back(head)
+            flat.push_back(head.copy())
             flat.push_back(Doc::text(" => "))
-            flat.push_back(val)
+            flat.push_back(val.copy())
             cells.push_back(head)
             cells.push_back(Doc::concat2(Doc::text("=> "), val))
             prev = arm->body
@@ -5123,7 +5137,7 @@ pub class Formatter {
         var os = self.tok_text(o)
         var cs = self.tok_text(c)
         if items.empty() {
-            return Doc::text(os + cs)
+            return Doc::text(os.copy() + cs)
         }
 
         var starts = cxx::std::vector<u32>()
@@ -5153,7 +5167,7 @@ pub class Formatter {
                 flat.push_back(Doc::text(", "))
             }
 
-            flat.push_back(vals[i])
+            flat.push_back(vals[i].copy())
         }
 
         flat.push_back(Doc::text(cs))
@@ -5271,8 +5285,8 @@ pub class Formatter {
 
                     if ok {
                         keys.push_back(Doc::text(self._tok(na->name) + ":"))
-                        vals.push_back(val)
-                        flat.push_back(keys[i])
+                        vals.push_back(val.copy())
+                        flat.push_back(keys[i].copy())
                         flat.push_back(Doc::text(" "))
                         flat.push_back(val)
                         continue
@@ -5280,13 +5294,13 @@ pub class Formatter {
 
                     keys.push_back(Doc::nothing())
                     vals.push_back(self._span(lo[i], hi[i]))
-                    flat.push_back(vals[i])
+                    flat.push_back(vals[i].copy())
                     continue
                 }
 
                 keys.push_back(Doc::nothing())
                 vals.push_back(self._slot_expr(a, lo[i], hi[i], unsafe &ok))
-                flat.push_back(vals[i])
+                flat.push_back(vals[i].copy())
             }
         }
 
@@ -5353,7 +5367,7 @@ pub class Formatter {
             var tail = cxx::std::vector<Doc>()
             for var i: usize = 1; i < xs.size(); ++i {
                 tail.push_back(Doc::line())
-                tail.push_back(Doc::text(ops[i - 1] + " "))
+                tail.push_back(Doc::text(ops[i - 1].copy() + " "))
                 tail.push_back(
                     self.fxc(
                         xs[i],
@@ -5407,7 +5421,7 @@ pub class Formatter {
 }
 
 /// Index of \p needle in \p hay, or hay.size().
-pub fn find_str(hay: string, needle: string) -> usize {
+pub fn find_str(const hay: string, const needle: string) -> usize {
     var n = hay.size()
     var m = needle.size()
     if m == 0 || m > n {
@@ -5417,7 +5431,7 @@ pub fn find_str(hay: string, needle: string) -> usize {
     for var i: usize = 0; i + m <= n; ++i {
         var ok = true
         for var j: usize = 0; j < m; ++j {
-            if hay[i + j] != needle[j] {
+            if hay.data()[i + j] != needle.data()[j] {
                 ok = false
                 break
             }

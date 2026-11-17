@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------------------ AST/Node/Base.k --- ///
 ///
-///   The AST base classes: Expr, Stmt, Decl, Type and Pattern.
+///   The AST base classes: Expr, Stmt, Decl, Type and AstPattern.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -384,7 +384,7 @@ pub class Type derives TypeQual<Type>, Annotation<Type> { // all types have qual
     }
 }
 
-pub class Pattern derives Annotation<Pattern> {
+pub class AstPattern derives Annotation<AstPattern> {
     pub var kind:          PatternKind = PatternKind::RecoveryPattern
     pub var range:         SourceRange = SourceRange::invalid()
     pub var recovery_kind: PatternKind = PatternKind::RecoveryPattern
@@ -429,7 +429,7 @@ pub class Pattern derives Annotation<Pattern> {
     }
 
     /// Copy sema-owned slots from \p other. See Expr::adopt_sema.
-    fn adopt_sema(self, other: unsafe *Pattern) {
+    fn adopt_sema(self, other: unsafe *AstPattern) {
         if other == &null {
             return
         }
@@ -441,8 +441,8 @@ pub class Pattern derives Annotation<Pattern> {
         self.poisoned      = other->poisoned
     }
 
-    static fn classof(ptr: *const Pattern) -> bool {
-        return true // all Pattern* are valid for classof(Pattern)
+    static fn classof(ptr: *const AstPattern) -> bool {
+        return true // all AstPattern* are valid for classof(AstPattern)
     }
 
     static fn pattern_kind() -> PatternKind {

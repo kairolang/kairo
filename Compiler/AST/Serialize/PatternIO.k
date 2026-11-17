@@ -19,23 +19,23 @@ ffi "c++" import "Native/Types.hh"
 
 import AST::Kind::PatternKind::PatternKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Type,
 }
 import AST::Node::Patterns
 import AST::Serialize::Archive::ASTArchive
 import AST::Serialize::NodeCommon::io_annotations
 
-fn <T: type> new_pattern(ar: unsafe *ASTArchive) -> unsafe *Pattern {
+fn <T: type> new_pattern(ar: unsafe *ASTArchive) -> unsafe *AstPattern {
     var unsafe *n = ar->ctx->alloc<T>()
     n->init_annotations(unsafe &ar->ctx->ast_alloc)
-    return unsafe (n as unsafe *Pattern)
+    return unsafe (n as unsafe *AstPattern)
 }
 
 /// Reads a pattern's kind and allocates an object of its class.
-pub fn pattern_alloc(ar: unsafe *ASTArchive) -> unsafe *Pattern {
+pub fn pattern_alloc(ar: unsafe *ASTArchive) -> unsafe *AstPattern {
     var kind = PatternKind::RecoveryPattern
     ar->en<PatternKind>(&kind)
     var cls = kind
@@ -43,7 +43,7 @@ pub fn pattern_alloc(ar: unsafe *ASTArchive) -> unsafe *Pattern {
         ar->en<PatternKind>(&cls)
     }
 
-    var p: unsafe *Pattern = &null
+    var p: unsafe *AstPattern = &null
     match cls {
         case PatternKind::WildcardPattern {
             p = new_pattern<Patterns::WildcardPattern>(ar)
@@ -76,7 +76,7 @@ pub fn pattern_alloc(ar: unsafe *ASTArchive) -> unsafe *Pattern {
     return p
 }
 
-fn io_pattern_base(ar: unsafe *ASTArchive, p: unsafe *Pattern) {
+fn io_pattern_base(ar: unsafe *ASTArchive, p: unsafe *AstPattern) {
     if !ar->reading() {
         ar->en<PatternKind>(&p->kind)
         if p->kind == PatternKind::RecoveryPattern {
@@ -86,7 +86,7 @@ fn io_pattern_base(ar: unsafe *ASTArchive, p: unsafe *Pattern) {
 
     ar->range(&p->range)
     ar->flag(&p->poisoned)
-    io_annotations<Pattern>(ar, p)
+    io_annotations<AstPattern>(ar, p)
     eval if defined!(DEBUG) {
         // What a pattern matches and names is PatternTyping's.
         ar->sema_null<Type>(p->type_, "Pattern::type_")
@@ -116,7 +116,7 @@ fn io_binding_pattern(ar: unsafe *ASTArchive, n: unsafe *Patterns::BindingPatter
 
 fn io_tuple_destructure_pattern(ar: unsafe *ASTArchive,
                                 n:  unsafe *Patterns::TupleDestructurePattern) {
-    ar->pattern_list<Pattern>(&n->elements)
+    ar->pattern_list<AstPattern>(&n->elements)
 }
 
 fn io_constructor_pattern(ar: unsafe *ASTArchive, n: unsafe *Patterns::ConstructorPattern) {
@@ -124,18 +124,18 @@ fn io_constructor_pattern(ar: unsafe *ASTArchive, n: unsafe *Patterns::Construct
     ar->tok(&n->dotted_name)
     ar->flag(&n->is_dotted)
     ar->flag(&n->has_parens)
-    ar->pattern_list<Pattern>(&n->subpatterns)
+    ar->pattern_list<AstPattern>(&n->subpatterns)
 }
 
 fn io_unresolved_constructor_pattern(ar: unsafe *ASTArchive,
                                      n:  unsafe *Patterns::UnresolvedConstructorPattern) {
     ar->expr<Expr>(&n->head)
     ar->flag(&n->has_parens)
-    ar->pattern_list<Pattern>(&n->subpatterns)
+    ar->pattern_list<AstPattern>(&n->subpatterns)
 }
 
 fn io_alternation_pattern(ar: unsafe *ASTArchive, n: unsafe *Patterns::AlternationPattern) {
-    ar->pattern_list<Pattern>(&n->alternatives)
+    ar->pattern_list<AstPattern>(&n->alternatives)
 }
 
 fn io_range_pattern(ar: unsafe *ASTArchive, n: unsafe *Patterns::RangePattern) {
@@ -145,14 +145,14 @@ fn io_range_pattern(ar: unsafe *ASTArchive, n: unsafe *Patterns::RangePattern) {
 }
 
 fn io_slice_pattern(ar: unsafe *ASTArchive, n: unsafe *Patterns::SlicePattern) {
-    ar->pattern_list<Pattern>(&n->prefix)
-    ar->pattern_list<Pattern>(&n->suffix)
+    ar->pattern_list<AstPattern>(&n->prefix)
+    ar->pattern_list<AstPattern>(&n->suffix)
     ar->flag(&n->has_rest)
-    ar->pattern<Pattern>(&n->rest_binding)
+    ar->pattern<AstPattern>(&n->rest_binding)
 }
 
 /// Writes or reads one pattern: the family header, then its class.
-pub fn pattern_io(ar: unsafe *ASTArchive, p: unsafe *Pattern) {
+pub fn pattern_io(ar: unsafe *ASTArchive, p: unsafe *AstPattern) {
     io_pattern_base(ar, p)
 
     var cls = p->kind

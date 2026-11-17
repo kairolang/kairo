@@ -66,12 +66,12 @@ pub class SysRecipe {
         var key  = ""
         var val  = TomlValue{}
         while toml.next(&key, &val) {
-            self.raw_tables.push_back(toml.table)
-            self.raw_keys.push_back(key)
+            self.raw_tables.push_back(toml.table.copy())
+            self.raw_keys.push_back(key.copy())
             self.raw_vals.push_back(val)
             if LinkText::starts_with(toml.table.copy(), "per_arch.") && val.kind == 1 {
                 var v = LinkText::slice(toml.table, 9, toml.table.size())
-                self.per_arch_keys.push_back(v + "." + key)
+                self.per_arch_keys.push_back(v.copy() + "." + key)
                 self.per_arch_vals.push_back(val.text)
                 continue
             }
@@ -195,8 +195,8 @@ pub class SysRecipe {
     /// providers that compile against a libc-headers root render it too.
     pub fn render_toml(self, t: *SysTarget) -> string {
         var text = ""
-        for var key: string in self.keys_of("toml") {
-            var v   = self.value("toml", key)
+        for *key in self.keys_of("toml") {
+            var v   = self.value("toml", *key)
             var val = ""
             if v->kind == 2 {
                 val = if (v->flag) => ("true") else => "false"
@@ -215,12 +215,12 @@ pub class SysRecipe {
                 val = "\x22" + self.expand(v->text, t) + "\x22"
             }
 
-            var k = key.copy()
+            var k = key->copy()
             while k.size() < 13 {
                 k += " "
             }
 
-            text += k + " = " + val + "\n"
+            text += k.copy() + " = " + val + "\n"
         }
 
         return text
@@ -364,9 +364,9 @@ pub class QuirkSet {
             }
 
             var probe_ok = true
-            for var p: string in q.match_probe {
-                var neg = LinkText::starts_with(p.copy(), "!")
-                var fact = if (neg) => (LinkText::slice(p, 1, p.size())) else => p
+            for *p in q.match_probe {
+                var neg = LinkText::starts_with(p->copy(), "!")
+                var fact = if (neg) => (LinkText::slice(*p, 1, p->size())) else => *p
                 if SysUtil::contains(&probe, fact) == neg {
                     probe_ok = false
                 }
@@ -382,7 +382,7 @@ pub class QuirkSet {
 
     priv static fn _set(q: *SysQuirk, const key: string, @inout v: TomlValue) -> bool {
         var as_text = if (v.kind == 3) => (SysUtil::joined(&v.list, ",")) else => v.text
-        q->effects.push_back(key + "=" + as_text)
+        q->effects.push_back(key.copy() + "=" + as_text)
         if v.kind == 1 {
             if key == "target_rewrite" {
                 q->target_rewrite = v.text.copy()
@@ -493,11 +493,11 @@ pub class ShareTree {
             if toml.table.is_empty() && key == "schema" {
                 schema = val.text.copy()
             } else if toml.table == "inputs" && val.kind == 1 {
-                self.input_dirs.push_back(key)
-                self.input_sha.push_back(val.text)
+                self.input_dirs.push_back(key.copy())
+                self.input_sha.push_back(val.text.copy())
             } else if toml.table == "licenses" && val.kind == 1 {
-                self.license_dirs.push_back(key)
-                self.license_ids.push_back(val.text)
+                self.license_dirs.push_back(key.copy())
+                self.license_ids.push_back(val.text.copy())
             }
         }
 
@@ -550,7 +550,7 @@ pub class ShareTree {
     priv static fn _absolute(const p: string) -> string {
         var abs = LinkText::starts_with(p.copy(), "/")
             || LinkText::starts_with(p.copy(), "\\")
-            || p.size() > 2 && p[1] == (':' as u8)
+            || p.size() > 2 && p.data()[1] == (':' as u8)
         return if (abs) => (p) else => LinkFS::real(p.copy())
     }
 

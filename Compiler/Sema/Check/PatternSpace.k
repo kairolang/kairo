@@ -66,9 +66,9 @@ import AST::DeclFacts::{
 }
 import AST::Kind::PatternKind::PatternKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Type,
 }
 import AST::Node::CanonicalNodes::{
@@ -167,10 +167,10 @@ pub struct Ctor {
 /// WildcardPattern or a BindingPattern (X has already rejected an ascribed
 /// binder whose type does not match its column).
 pub struct PatRow {
-    var cols:    cxx::std::vector<unsafe *Pattern>
-    var arm:     u32                               = 0 ///< index of the MatchCase this row came from.
-    var alt:     u32                               = 0 ///< index of the alternative within the arm.
-    var guarded: bool                              = false
+    var cols:    cxx::std::vector<unsafe *AstPattern>
+    var arm:     u32                                  = 0 ///< index of the MatchCase this row came from.
+    var alt:     u32                                  = 0 ///< index of the alternative within the arm.
+    var guarded: bool                                 = false
 }
 
 pub class PatternSpace {
@@ -469,7 +469,7 @@ pub class PatternSpace {
     /// # heads
 
     /// A pattern that matches every value of its column.
-    fn is_wild(self, p: unsafe *Pattern) -> bool {
+    fn is_wild(self, p: unsafe *AstPattern) -> bool {
         if p == &null {
             return true
         }
@@ -479,7 +479,7 @@ pub class PatternSpace {
 
     /// The constructor \p p tests. Never called on an AlternationPattern
     /// (rows are expanded first) or a wildcard.
-    fn ctor_of(self, p: unsafe *Pattern) -> Ctor {
+    fn ctor_of(self, p: unsafe *AstPattern) -> Ctor {
         var c = Ctor{}
         if self.is_wild(p) {
             return c
@@ -558,7 +558,7 @@ pub class PatternSpace {
         }
     }
 
-    priv fn _ctor_from_resolved(self, p: unsafe *Pattern, d: Domain) -> Ctor {
+    priv fn _ctor_from_resolved(self, p: unsafe *AstPattern, d: Domain) -> Ctor {
         var unsafe *rd = p->resolved_decl
         if rd == &null {
             return self._opaque(f"pat:{(p as usize as u64)}")
@@ -669,8 +669,10 @@ pub class PatternSpace {
 
     /// The \p arity sub-columns of \p p under its own constructor. A field the
     /// pattern does not name is a wildcard (null).
-    fn sub_columns(self, p: unsafe *Pattern, arity: u32) -> cxx::std::vector<unsafe *Pattern> {
-        var out = cxx::std::vector<unsafe *Pattern>()
+    fn sub_columns(self,
+                   p:     unsafe *AstPattern,
+                   arity: u32) -> cxx::std::vector<unsafe *AstPattern> {
+        var out = cxx::std::vector<unsafe *AstPattern>()
         for var i: u32 = 0; i < arity; ++i {
             out.push_back(&null)
         }
@@ -688,7 +690,7 @@ pub class PatternSpace {
             return out
         }
 
-        var subs = create_empty_frozen_list<unsafe *Pattern>()
+        var subs = create_empty_frozen_list<unsafe *AstPattern>()
         if p->kind == PatternKind::ConstructorPattern {
             subs = cast<ConstructorPattern>(p)->subpatterns
         } else if p->kind == PatternKind::UnresolvedConstructorPattern {

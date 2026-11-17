@@ -66,7 +66,7 @@ pub class SysTemplate {
 
     pub fn load(self, const dir: string) -> bool {
         self.dir = dir.copy()
-        var at = dir + "/index.toml"
+        var at = dir.copy() + "/index.toml"
         if !self.index.load(at) {
             self.error = f"{at}: {self.index.error}"
             return false
@@ -85,12 +85,12 @@ pub class SysTemplate {
     /// properties recorded for it: anything else means this side and
     /// runtimes_template.py compute them differently.
     pub fn fits(self, t: *SysTarget, p: *SysProps, @inout why: string) -> bool {
-        for var k: string in self.index.keys_of("domain") {
-            var v = p->get(k)
-            var d = self.index.list("domain", k)
+        for *k in self.index.keys_of("domain") {
+            var v = p->get(*k)
+            var d = self.index.list("domain", *k)
             if !SysUtil::contains(&d, v) {
                 var list = SysUtil::joined(&d, ", ")
-                why = f"the runtimes template has no rule for {k}={v} ({t->name}); it was derived for {k} in {list}"
+                why = f"the runtimes template has no rule for {*k}={v} ({t->name}); it was derived for {*k} in {list}"
                 return false
             }
         }
@@ -117,23 +117,23 @@ pub class SysTemplate {
                        const dst:  string,
                        @inout why: string) -> bool {
         var outs = SysRecipe()
-        var at   = self.dir + "/outputs.toml"
+        var at   = self.dir.copy() + "/outputs.toml"
         if !outs.load(at) {
             why = f"{at}: {outs.error}"
             return false
         }
 
         var profs = SysRecipe()
-        at = self.dir + "/profiles.toml"
+        at = self.dir.copy() + "/profiles.toml"
         if !profs.load(at) {
             why = f"{at}: {profs.error}"
             return false
         }
 
         var rts = cxx::std::vector<TmplRuntime>()
-        for var n: string in SysTemplate::runtimes() {
+        for *n in SysTemplate::runtimes() {
             var rt = TmplRuntime()
-            rt.name = n.copy()
+            rt.name = n->copy()
             rts.push_back(rt)
         }
 
@@ -144,18 +144,19 @@ pub class SysTemplate {
         var sfx  = if (p->get("objfmt") == "coff") => (".obj") else => ".o"
 
         var arch = ""
-        for var id: string in self.index.keys_of("archive_files") {
-            var es = SysTemplate::pick(&outs, "archive." + id, p)
+        for *id in self.index.keys_of("archive_files") {
+            var es = SysTemplate::pick(&outs, "archive." + *id, p)
             if es.empty() {
                 continue
             }
 
-            var file = self.index.str("archive_files", id)
-            var dest = if (id == "builtins") => (rl + "/" + bn) else => ldir + "/" + file
+            var file = self.index.str("archive_files", *id)
+            var dest = if (*id == "builtins") => (rl.copy() + "/" + bn)
+                       else => ldir.copy() + "/" + file
             arch += f"\x22{dest}\x22 = [\n"
-            for var e: string in es {
+            for *e in es {
                 var ref = ""
-                if !SysTemplate::_take(&rts, e, p, sfx, &ref, &why) {
+                if !SysTemplate::_take(&rts, *e, p, sfx, &ref, &why) {
                     return false
                 }
 
@@ -166,8 +167,8 @@ pub class SysTemplate {
         }
 
         var objs = ""
-        for var id: string in self.index.keys_of("object_files") {
-            var es = SysTemplate::pick(&outs, "object." + id, p)
+        for *id in self.index.keys_of("object_files") {
+            var es = SysTemplate::pick(&outs, "object." + *id, p)
             if es.empty() {
                 continue
             }
@@ -177,7 +178,7 @@ pub class SysTemplate {
                 return false
             }
 
-            var file = self.index.str("object_files", id)
+            var file = self.index.str("object_files", *id)
             objs += f"\x22{rl}/{file}\x22 = \x22{ref}\x22\n"
         }
 
@@ -234,7 +235,7 @@ pub class SysTemplate {
                        const prefix: string,
                        p:            *SysProps) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
-        var pre = prefix + ".f"
+        var pre = prefix.copy() + ".f"
         for var i: usize = 0; i < r->raw_keys.size(); ++i {
             var tb = r->raw_tables[i].copy()
             if r->raw_keys[i] != "add" || !LinkText::starts_with(tb.copy(), pre.copy()) {
@@ -254,8 +255,8 @@ pub class SysTemplate {
                 continue
             }
 
-            for var x: string in r->raw_vals[i].list {
-                out.push_back(x)
+            for *x in r->raw_vals[i].list {
+                out.push_back(*x)
             }
         }
 
@@ -269,16 +270,16 @@ pub class SysTemplate {
             return true
         }
 
-        for var alt: string in when {
+        for *alt in when {
             var all = true
-            for var c: string in SysUtil::split(alt, (' ' as u8)) {
-                if c.is_empty() {
+            for *c in SysUtil::split(*alt, (' ' as u8)) {
+                if c->is_empty() {
                     continue
                 }
 
-                var eq = LinkText::find(c.copy(), "=", 0)
-                var vs = SysUtil::split(LinkText::slice(c, eq + 1, c.size()), ('|' as u8))
-                if !SysUtil::contains(&vs, p->get(LinkText::slice(c, 0, eq))) {
+                var eq = LinkText::find(c->copy(), "=", 0)
+                var vs = SysUtil::split(LinkText::slice(*c, eq + 1, c->size()), ('|' as u8))
+                if !SysUtil::contains(&vs, p->get(LinkText::slice(*c, 0, eq))) {
                     all = false
                     break
                 }
@@ -335,8 +336,8 @@ pub class SysTemplate {
             if rts[i].name == rt {
                 rts[i].langs.push_back(lang)
                 rts[i].pids.push_back(pid)
-                rts[i].entries.push_back(path + "=" + member)
-                ref = rt + ":" + path + "=" + member
+                rts[i].entries.push_back(path.copy() + "=" + member)
+                ref = rt.copy() + ":" + path + "=" + member
                 return true
             }
         }
@@ -363,18 +364,18 @@ pub class SysTemplate {
         var s = "# instantiated by ksys from the runtimes template; FORMAT.md (runtimes-recipe).\n"
         s += f"runtime = \x22{rt->name}\x22\n\n[flags]\n"
         var langs = cxx::std::vector<string>()
-        for var l: string in rt->langs {
-            if !SysUtil::contains(&langs, l) {
-                langs.push_back(l)
-                s += l + " = " + SysTemplate::_array(
-                    SysTemplate::pick(&rules, "flags." + l, p),
+        for *l in rt->langs {
+            if !SysUtil::contains(&langs, *l) {
+                langs.push_back(l->copy())
+                s += l->copy() + " = " + SysTemplate::_array(
+                    SysTemplate::pick(&rules, "flags." + *l, p),
                 ) + "\n"
             }
         }
 
         var keys = cxx::std::vector<string>()
         for var i: usize = 0; i < rt->entries.size(); ++i {
-            var k = rt->langs[i] + "@" + rt->pids[i]
+            var k = rt->langs[i].copy() + "@" + rt->pids[i]
             if SysUtil::contains(&keys, k) {
                 continue
             }
@@ -413,10 +414,10 @@ pub class SysTemplate {
         }
 
         var s = "[\n"
-        for var x: string in xs {
-            s += f"    \x22{x}\x22,\n"
+        for *x in xs {
+            s += f"    \x22{*x}\x22,\n"
         }
 
-        return s + "]"
+        return s.copy() + "]"
     }
 }

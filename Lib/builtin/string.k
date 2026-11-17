@@ -45,10 +45,16 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import base::ordering::*
-import base::intrinsics::*
-import alloc_raw::{alloc_raw, free_raw, resize_raw, oom}
+import alloc_raw::{
+    alloc_raw,
+    free_raw,
+    oom,
+    resize_raw,
+}
 import base::c_char::*
+import base::intrinsics::*
+import base::ordering::*
+import base::range::*
 
 /// One NUL byte with static lifetime: what every empty string points at, so
 /// `data` is never null and the C string view is valid for every string.
@@ -65,18 +71,36 @@ eval MIN_BLOCK: usize = 16
 eval CPS_STALE: usize = usize::MAX ^ (usize::MAX >> 1)
 
 /// 1 when \p b starts a codepoint (is not a UTF-8 continuation byte).
-inline fn lead_(b: u8) -> usize { return if (b & 0xC0) != 0x80 => 1 else => 0 }
+inline fn lead_(b: u8) -> usize {
+    return if (b & 0xC0) != 0x80 => 1 else => 0
+}
 
 /// memcmp over safe pointers.
 inline fn cmp_(a: *const u8, b: *const u8, n: usize) -> i32 {
-    unsafe { return __builtin_compare_mem(a as unsafe *const u8, b as unsafe *const u8, n) }
+    unsafe {
+        return __builtin_compare_mem(
+            a as unsafe *const u8,
+            b as unsafe *const u8,
+            n,
+        )
+    }
 }
 
 /// The codepoints in n bytes at p.
 fn count_cps_(p: *const u8, n: usize) -> usize {
     var c: usize = 0
-    for var i: usize = 0; i < n; ++i { c += lead_(p[i]) }
+    for var i: usize = 0; i < n; ++i {
+        c += lead_(p[i])
+    }
+
     return c
+}
+
+/// Out of line and cold: what a range subscript runs when the range is not
+/// inside the string or cuts a character.
+@cold_path @no_inline
+fn string_out_of_range() -> ! {
+    __builtin_trap()
 }
 
 /// The UTF-8 string type. Immutable-by-default text with cheap literals and an owned, growable
@@ -98,14 +122,14 @@ fn count_cps_(p: *const u8, n: usize) -> usize {
 pub class string {
     /// Pointer to the first byte. Always valid and NUL-terminated: an empty string points at a
     /// static NUL.
-    var buf:  *const u8
+    var buf: *const u8
     /// Length in bytes, not counting the NUL.
-    var len:  usize
+    var len: usize
     /// Cached codepoint count; the top bit (CPS_STALE) means the count is stale and must be
     /// recounted.
-    var cps:  usize
+    var cps: usize
     /// Heap block size in bytes, NUL slot included; 0 means the bytes are borrowed (not owned).
-    var cap:  usize
+    var cap: usize
 
     /// Overwrites all four fields without freeing or copying anything. Used by FmtBuf to hand over
     /// a
@@ -116,26 +140,26 @@ pub class string {
     /// in effect of exactly `ca` bytes, and `c` must be the codepoint count of the `l` bytes.
     fn place(self, d: *const u8, l: usize, c: usize, ca: usize) {
         self.buf = d
-        self.len  = l
-        self.cps  = c
-        self.cap  = ca
+        self.len = l
+        self.cps = c
+        self.cap = ca
     }
 
     /// Creates the empty string. Borrowed; allocates nothing.
     fn string(self) {
         self.buf = &EMPTY[0]
-        self.len  = 0
-        self.cps  = 0
-        self.cap  = 0
+        self.len = 0
+        self.cps = 0
+        self.cap = 0
     }
 
     /// Creates a borrowed string over `l` bytes at `d` holding `c` codepoints. This is the literal
     /// constructor StringLowering emits; do not call it from user code.
     fn string(self, d: *const u8, l: usize, c: usize) {
         self.buf = d
-        self.len  = l
-        self.cps  = c
-        self.cap  = 0
+        self.len = l
+        self.cps = c
+        self.cap = 0
     }
 
     /// Creates a string by copying the NUL-terminated bytes at `c`. O(n).
@@ -143,22 +167,29 @@ pub class string {
     /// Stage 0's `string(const char *)`.
     fn string(self, c: *const u8) {
         var n: usize = 0
-        while c[n] != 0 { ++n }
+        while c[n] != 0 {
+            ++n
+        }
+
         self.buf = &EMPTY[0]
-        self.len  = 0
-        self.cps  = 0
-        self.cap  = 0
-        if n != 0 { self.assign_bytes_(c, n) }
+        self.len = 0
+        self.cps = 0
+        self.cap = 0
+        if n != 0 {
+            self.assign_bytes_(c, n)
+        }
     }
 
     /// Creates a string by copying `l` bytes at `d`. O(l). The bytes should be valid UTF-8; this is
     /// not checked.
     fn string(self, d: *const u8, l: usize) {
         self.buf = &EMPTY[0]
-        self.len  = 0
-        self.cps  = 0
-        self.cap  = 0
-        if l != 0 { self.assign_bytes_(d, l) }
+        self.len = 0
+        self.cps = 0
+        self.cap = 0
+        if l != 0 {
+            self.assign_bytes_(d, l)
+        }
     }
 
     /// Creates a string of `n` copies of the byte `c`. O(n).
@@ -166,20 +197,24 @@ pub class string {
     /// The count comes second, so a literal count is never read as a pointer.
     fn string(self, c: u8, n: usize) {
         self.buf = &EMPTY[0]
-        self.len  = 0
-        self.cps  = 0
-        self.cap  = 0
-        if n != 0 { self.fill_bytes_(c, n) }
+        self.len = 0
+        self.cps = 0
+        self.cap = 0
+        if n != 0 {
+            self.fill_bytes_(c, n)
+        }
     }
 
     /// Copies `other`: deep (one block of `len + 1` bytes) for an owned string, shared bytes and no
     /// allocation for a borrowed one.
     @copy fn string(self, const other: Self) {
         self.buf = other.buf
-        self.len  = other.len
-        self.cps  = other.cps
-        self.cap  = 0
-        if other.cap != 0 { self.own_exact_() }
+        self.len = other.len
+        self.cps = other.cps
+        self.cap = 0
+        if other.cap != 0 {
+            self.own_exact_()
+        }
     }
 
     /// A copy, made by the copy constructor: the spelling of a copy the
@@ -190,7 +225,9 @@ pub class string {
 
     fn op delete(self) {
         if self.cap != 0 {
-            unsafe { free_raw(self.buf as unsafe *u8, self.cap, 1) }
+            unsafe {
+                free_raw(self.buf as unsafe *u8, self.cap, 1)
+            }
         }
     }
 
@@ -198,43 +235,73 @@ pub class string {
 
     /// Returns a pointer to the bytes (NUL-terminated). Valid until the string is mutated or
     /// destroyed.
-    inline fn as_ptr(const self) -> *const u8 { return self.buf }
+    inline fn as_ptr(const self) -> *const u8 {
+        return self.buf
+    }
+
     /// Returns the length in bytes. O(1).
-    inline fn length(const self) -> usize     { return self.len }
+    inline fn length(const self) -> usize {
+        return self.len
+    }
+
     /// The codepoints the bytes encode. O(1), except after a write through
     /// the mutable `[]`, which leaves the count stale: then the bytes are
     /// counted, on every call, until something replaces the string.
     inline fn codepoints(const self) -> usize {
-        @unlikely if (self.cps & CPS_STALE) != 0 { return count_cps_(self.buf, self.len) }
+        @unlikely
+        if (self.cps & CPS_STALE) != 0 {
+            return count_cps_(self.buf, self.len)
+        }
+
         return self.cps
     }
+
     /// Returns the heap block size in bytes including the NUL slot, or 0 for a borrowed string.
     /// Not the number of content bytes that fit.
-    inline fn capacity(const self) -> usize   { return self.cap }
+    inline fn capacity(const self) -> usize {
+        return self.cap
+    }
 
     /// Returns the length in bytes; same as `length()`.
-    inline fn size(const self) -> usize { return self.len }
+    inline fn size(const self) -> usize {
+        return self.len
+    }
+
     /// Returns true when the length is 0.
-    inline fn empty(const self) -> bool { return self.len == 0 }
+    inline fn empty(const self) -> bool {
+        return self.len == 0
+    }
+
     /// Returns true when the length is 0; same as `empty()`.
-    inline fn is_empty(const self) -> bool { return self.len == 0 }
+    inline fn is_empty(const self) -> bool {
+        return self.len == 0
+    }
 
     /// Returns the NUL-terminated bytes; same as `as_ptr()`.
-    inline fn raw(const self) -> *const u8 { return self.buf }
+    inline fn raw(const self) -> *const u8 {
+        return self.buf
+    }
+
     /// Returns the NUL-terminated bytes; same as `as_ptr()`.
-    inline fn data(const self) -> *const u8 { return self.buf }
+    inline fn data(const self) -> *const u8 {
+        return self.buf
+    }
 
     /// The bytes as a C string, for a C or C++ `const char *` parameter.
     /// O(1): a literal and an owned string both keep a NUL past len. Valid
     /// until the string is next mutated or destroyed.
     inline fn c_str(const self) -> unsafe *const __builtin_c_char {
-        unsafe { return self.buf as unsafe *const __builtin_c_char }
+        unsafe {
+            return self.buf as unsafe *const __builtin_c_char
+        }
     }
 
     /// Returns the byte at `i` as a read-only place. A byte, not a codepoint.
     ///
     /// \note No bounds check: an out-of-range `i` reads out of bounds.
-    inline fn op [] (const self, i: usize) -> *const u8 { return &self.buf[i] }
+    inline fn op [] (const self, i: usize) -> *const u8 {
+        return &self.buf[i]
+    }
 
     /// Returns the byte at `i` as a writable place. A borrowed string is first copied to the heap.
     ///
@@ -243,7 +310,11 @@ pub class string {
     ///
     /// \note No bounds check: an out-of-range `i` accesses memory out of bounds.
     inline fn op [] (self, i: usize) -> *u8 {
-        @unlikely if self.cap == 0 { self.own_exact_() }
+        @unlikely
+        if self.cap == 0 {
+            self.own_exact_()
+        }
+
         self.cps |= CPS_STALE
         unsafe {
             var unsafe *d = (self.buf as unsafe *u8) + i
@@ -259,24 +330,49 @@ pub class string {
         // spells that conditional's `: ::builtin::...` as `:::builtin`
         // (ticket candidate), and every header includes this body.
         if self.len == other.len {
-            if self.buf == other.buf { return Ordering::Equal }   // copies of one literal
+            if self.buf == other.buf { // copies of one literal
+                return Ordering::Equal
+            }
+
             var e = cmp_(self.buf, other.buf, self.len)
-            if e == 0 { return Ordering::Equal }
-            if e < 0 { return Ordering::Less }
+            if e == 0 {
+                return Ordering::Equal
+            }
+
+            if e < 0 {
+                return Ordering::Less
+            }
+
             return Ordering::Greater
         }
+
         var n = if self.len < other.len => self.len else => other.len
         var c = cmp_(self.buf, other.buf, n)
-        if c < 0 { return Ordering::Less }
-        if c > 0 { return Ordering::Greater }
-        if self.len < other.len { return Ordering::Less }
+        if c < 0 {
+            return Ordering::Less
+        }
+
+        if c > 0 {
+            return Ordering::Greater
+        }
+
+        if self.len < other.len {
+            return Ordering::Less
+        }
+
         return Ordering::Greater
     }
 
     /// Returns true when both strings have the same bytes. A length test, then one memcmp.
     inline fn op == (const self, const other: string) -> bool {
-        if self.len != other.len { return false }
-        if self.buf == other.buf { return true }
+        if self.len != other.len {
+            return false
+        }
+
+        if self.buf == other.buf {
+            return true
+        }
+
         return cmp_(self.buf, other.buf, self.len) == 0
     }
 
@@ -289,33 +385,107 @@ pub class string {
         var p = if pos < self.len => pos else => self.len
         var k = if n < self.len - p => n else => self.len - p
         var r = string()
-        if k == 0 { return r }
-        if (self.cap == 0) && (p + k == self.len) {
-            r.buf = &self.buf[p]
-            r.len  = k
-            r.cps  = if self.len == self.cps => k else => count_cps_(&self.buf[p], k)   // a stale count is never len
+        if k == 0 {
             return r
         }
+
+        if (self.cap == 0) && (p + k == self.len) {
+            r.buf = &self.buf[p]
+            r.len = k
+            r.cps = if self.len == self.cps => k else => count_cps_(&self.buf[p], k) // a stale count is never len
+            return r
+        }
+
         r.assign_bytes_(&self.buf[p], k)
         return r
+    }
+
+    /// Returns the bytes `a..b` (or `a..=b`) as a string of its own. O(b - a).
+    ///
+    /// **Panics:** traps when the range is reversed, ends past `size()`, or starts or ends
+    /// inside a multibyte character.
+    fn op [] (const self, r: Range<usize>) -> string {
+        var hi = r.end
+        if r.inclusive {
+            if hi == usize::MAX {
+                string_out_of_range()
+            }
+
+            hi += 1
+        }
+
+        return self.cut_(r.begin, hi)
+    }
+
+    /// Returns the bytes from `a` to the end, as `s[a..size()]` does.
+    fn op [] (const self, r: RangeFrom<usize>) -> string {
+        return self.cut_(r.begin, self.len)
+    }
+
+    /// Returns the bytes before `b` (or through `b` for `..=b`), as `s[0..b]` does.
+    fn op [] (const self, r: RangeTo<usize>) -> string {
+        var hi = r.end
+        if r.inclusive {
+            if hi == usize::MAX {
+                string_out_of_range()
+            }
+
+            hi += 1
+        }
+
+        return self.cut_(0, hi)
+    }
+
+    /// The bytes `lo..hi`, checked: in range, and each end on a character boundary.
+    priv fn cut_(const self, lo: usize, hi: usize) -> string {
+        if (lo > hi) || (hi > self.len) {
+            string_out_of_range()
+        }
+
+        if (lo < self.len) && ((self.buf[lo] & 0xC0) == 0x80) {
+            string_out_of_range()
+        }
+
+        if (hi < self.len) && ((self.buf[hi] & 0xC0) == 0x80) {
+            string_out_of_range()
+        }
+
+        return self.subslice(lo, hi - lo)
+    }
+
+    /// A string that owns its bytes.
+    ///
+    /// Every copy does; the name says that a caller keeps the result past the string it was
+    /// cut from.
+    inline fn to_owned(const self) -> string {
+        return string(self)
     }
 
     /// Prefix and suffix tests. Stage 0 also takes a single byte; a literal
     /// converts to `string` for free (it is borrowed).
     /// Returns true when the string begins with `needle`. O(needle length).
     inline fn starts_with(const self, const needle: string) -> bool {
-        if needle.len > self.len { return false }
+        if needle.len > self.len {
+            return false
+        }
+
         return cmp_(self.buf, needle.buf, needle.len) == 0
     }
+
     /// Returns true when the first byte is `c`.
     inline fn starts_with(const self, c: u8) -> bool {
         return (self.len != 0) && (self.buf[0] == c)
     }
+
     /// Returns true when the string ends with `needle`. O(needle length).
     inline fn ends_with(const self, const needle: string) -> bool {
-        if needle.len > self.len { return false }
+        if needle.len > self.len {
+            return false
+        }
+
         return cmp_(&self.buf[self.len - needle.len], needle.buf, needle.len) == 0
     }
+
     /// Returns true when the last byte is `c`.
     inline fn ends_with(const self, c: u8) -> bool {
         return (self.len != 0) && (self.buf[self.len - 1] == c)
@@ -324,22 +494,36 @@ pub class string {
     /// Returns the byte offset of the last occurrence of `needle`, or `usize::MAX` when absent
     /// (Stage 0's npos). An empty needle is found at `size()`. O(n * needle length).
     fn rfind(const self, const needle: string) -> usize {
-        if needle.len > self.len { return usize::MAX }
+        if needle.len > self.len {
+            return usize::MAX
+        }
+
         var i = self.len - needle.len
         while true {
-            if cmp_(&self.buf[i], needle.buf, needle.len) == 0 { return i }
-            if i == 0 { break }
+            if cmp_(&self.buf[i], needle.buf, needle.len) == 0 {
+                return i
+            }
+
+            if i == 0 {
+                break
+            }
+
             --i
         }
+
         return usize::MAX
     }
+
     /// Returns the byte offset of the last byte equal to `c`, or `usize::MAX` when absent.
     fn rfind(const self, c: u8) -> usize {
         var i = self.len
         while i != 0 {
             --i
-            if self.buf[i] == c { return i }
+            if self.buf[i] == c {
+                return i
+            }
         }
+
         return usize::MAX
     }
 
@@ -349,8 +533,16 @@ pub class string {
     /// moves to the heap first. Appending a string to itself is safe.
     inline fn op += (self, const other: string) {
         var k = other.len
-        if k == 0 { return }
-        @likely if self.len + k < self.cap { self.append_(other.buf, k, other.cps); return }
+        if k == 0 {
+            return
+        }
+
+        @likely
+        if self.len + k < self.cap {
+            self.append_(other.buf, k, other.cps)
+            return
+        }
+
         self.append_slow_(other)
     }
 
@@ -359,8 +551,38 @@ pub class string {
     /// `codepoints()` counts the byte only when it starts a codepoint, so pushing a multibyte
     /// character byte by byte counts it once.
     inline fn push_back(self, c: u8) {
-        @likely if self.len + 1 < self.cap { self.put_(c); return }
+        @likely
+        if self.len + 1 < self.cap {
+            self.put_(c)
+            return
+        }
+
         self.push_slow_(c)
+    }
+
+    /// Appends the character `c`, encoded as UTF-8 (one to four bytes). O(1) amortized.
+    fn push(self, c: char) {
+        var v: u32 = c
+        if v < 0x80 {
+            self.push_back(v as u8)
+        } else if v < 0x800 {
+            self.push_back((0xC0 | (v >> 6)) as u8)
+            self.push_back((0x80 | (v & 0x3F)) as u8)
+        } else if v < 0x10000 {
+            self.push_back((0xE0 | (v >> 12)) as u8)
+            self.push_back((0x80 | ((v >> 6) & 0x3F)) as u8)
+            self.push_back((0x80 | (v & 0x3F)) as u8)
+        } else {
+            self.push_back((0xF0 | (v >> 18)) as u8)
+            self.push_back((0x80 | ((v >> 12) & 0x3F)) as u8)
+            self.push_back((0x80 | ((v >> 6) & 0x3F)) as u8)
+            self.push_back((0x80 | (v & 0x3F)) as u8)
+        }
+    }
+
+    /// Appends `s`, as `+=` does.
+    inline fn push_str(self, const s: string) {
+        self += s
     }
 
     /// k bytes at p, k > 0, into room the block already has.
@@ -371,6 +593,7 @@ pub class string {
             __builtin_copy(d + self.len, p as unsafe *const u8, k)
             d[n] = 0
         }
+
         self.len = n
         // A stale count on either side stays stale: two set bits would
         // carry out of the sum and clear it.
@@ -383,8 +606,9 @@ pub class string {
         unsafe {
             var unsafe *d = self.buf as unsafe *u8
             d[self.len] = c
-            d[n] = 0
+            d[n]        = 0
         }
+
         self.len = n
         self.cps += lead_(c)
     }
@@ -392,7 +616,9 @@ pub class string {
     /// Ensures room for at least `n` content bytes (plus the NUL) without another allocation.
     /// A borrowed string asked for no more than it already has stays borrowed.
     inline fn reserve(self, n: usize) {
-        if (n >= self.cap) && ((self.cap != 0) || (n > self.len)) { self.realloc_(n + 1) }
+        if (n >= self.cap) && ((self.cap != 0) || (n > self.len)) {
+            self.realloc_(n + 1)
+        }
     }
 
     // --- slow paths ---------------------------------------------------------
@@ -414,8 +640,14 @@ pub class string {
     @cold_path @no_inline
     priv fn grow_(self, need: usize) {
         var want = self.cap * 2
-        if want < need + 1 { want = need + 1 }
-        if want < MIN_BLOCK { want = MIN_BLOCK }
+        if want < need + 1 {
+            want = need + 1
+        }
+
+        if want < MIN_BLOCK {
+            want = MIN_BLOCK
+        }
+
         self.realloc_(want)
     }
 
@@ -428,15 +660,22 @@ pub class string {
             var p: unsafe *u8 = &null
             if self.cap != 0 {
                 p = resize_raw(self.buf as unsafe *u8, self.cap, block, 1)
-                if p == &null { oom(block, 1) }
+                if p == &null {
+                    oom(block, 1)
+                }
             } else {
                 p = alloc_raw(block, 1)
-                if p == &null { oom(block, 1) }
+                if p == &null {
+                    oom(block, 1)
+                }
+
                 __builtin_copy(p, self.buf as unsafe *const u8, self.len)
                 p[self.len] = 0
             }
+
             self.buf = p as *const u8
         }
+
         self.cap = block
     }
 
@@ -448,11 +687,15 @@ pub class string {
         var block = self.len + 1
         unsafe {
             var unsafe *p = alloc_raw(block, 1)
-            if p == &null { oom(block, 1) }
+            if p == &null {
+                oom(block, 1)
+            }
+
             __builtin_copy(p, self.buf as unsafe *const u8, self.len)
             p[self.len] = 0
-            self.buf = p as *const u8
+            self.buf    = p as *const u8
         }
+
         self.cap = block
     }
 
@@ -462,11 +705,15 @@ pub class string {
         var block = n + 1
         unsafe {
             var unsafe *p = alloc_raw(block, 1)
-            if p == &null { oom(block, 1) }
+            if p == &null {
+                oom(block, 1)
+            }
+
             __builtin_copy(p, d as unsafe *const u8, n)
-            p[n] = 0
+            p[n]     = 0
             self.buf = p as *const u8
         }
+
         self.len = n
         self.cps = count_cps_(d, n)
         self.cap = block
@@ -478,11 +725,18 @@ pub class string {
         var block = n + 1
         unsafe {
             var unsafe *p = alloc_raw(block, 1)
-            if p == &null { oom(block, 1) }
-            for var i: usize = 0; i < n; ++i { p[i] = c }
-            p[n] = 0
+            if p == &null {
+                oom(block, 1)
+            }
+
+            for var i: usize = 0; i < n; ++i {
+                p[i] = c
+            }
+
+            p[n]     = 0
             self.buf = p as *const u8
         }
+
         self.len = n
         // Every copy of c counts the same: a continuation byte repeated is
         // zero codepoints, as count_cps_ would say of the same bytes.

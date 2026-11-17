@@ -159,8 +159,8 @@ pub class Link {
             return
         }
 
-        for var p: string in job.host_shared {
-            var n = HostSystem::glibc_needs(p)
+        for *p in job.host_shared {
+            var n = HostSystem::glibc_needs(*p)
             if !n.ok || n.max_glibc.is_empty() {
                 continue
             }

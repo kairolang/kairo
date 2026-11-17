@@ -109,7 +109,7 @@ pub class WasmArgs {
         /// # options
         argv.push_back("wasm-ld")
         argv.push_back("-m")
-        argv.push_back(tc.emulation)
+        argv.push_back(tc.emulation.copy())
         argv.push_back(LldWords::no_color())
         argv.push_back(LldWords::no_error_limit())
         if job.threads > 0 {
@@ -141,8 +141,8 @@ pub class WasmArgs {
 
         if !no_crt {
             if tc.has_manifest && !tc.manifest.crt_startup.empty() {
-                for var n: string in tc.manifest.crt_startup {
-                    WasmArgs::_crt(&tc, n, &argv, &msgs)
+                for *n in tc.manifest.crt_startup {
+                    WasmArgs::_crt(&tc, *n, &argv, &msgs)
                 }
             } else {
                 var c = tc.find_lib_file("crt1-command.o")
@@ -155,16 +155,16 @@ pub class WasmArgs {
         }
 
         /// # search path, user's first
-        for var d: string in o->lib_dirs {
-            argv.push_back(f"-L{d}")
+        for *d in o->lib_dirs {
+            argv.push_back(f"-L{*d}")
         }
 
         if !tc.toolchain_lib.is_empty() {
             argv.push_back(f"-L{tc.toolchain_lib}")
         }
 
-        for var d: string in tc.lib_dirs {
-            argv.push_back(f"-L{d}")
+        for *d in tc.lib_dirs {
+            argv.push_back(f"-L{*d}")
         }
 
         /// # behavior
@@ -199,26 +199,26 @@ pub class WasmArgs {
         }
 
         WasmArgs::_wasm_options(o, &argv, &msgs)
-        for var f: string in o->ld_flags {
-            argv.push_back(f)
+        for *f in o->ld_flags {
+            argv.push_back(*f)
         }
 
         /// # inputs
-        for var obj: string in job.objects {
-            argv.push_back(obj)
+        for *obj in job.objects {
+            argv.push_back(*obj)
         }
 
         if job.lazy_objects.size() > 0 {
             argv.push_back("--start-lib")
-            for var obj: string in job.lazy_objects {
-                argv.push_back(obj)
+            for *obj in job.lazy_objects {
+                argv.push_back(*obj)
             }
 
             argv.push_back("--end-lib")
         }
 
-        for var spec: string in o->link_libs {
-            WasmArgs::_user_lib(spec, &argv, &msgs)
+        for *spec in o->link_libs {
+            WasmArgs::_user_lib(*spec, &argv, &msgs)
         }
 
         if !no_libs {
@@ -227,8 +227,8 @@ pub class WasmArgs {
 
         /// # crt end
         if !no_crt && tc.has_manifest {
-            for var n: string in tc.manifest.crt_end {
-                WasmArgs::_crt(&tc, n, &argv, &msgs)
+            for *n in tc.manifest.crt_end {
+                WasmArgs::_crt(&tc, *n, &argv, &msgs)
             }
         }
 
@@ -295,8 +295,8 @@ pub class WasmArgs {
             argv.push_back("--shared-memory")
         }
 
-        for var e: string in o->wasm_export {
-            argv.push_back(f"--export={e}")
+        for *e in o->wasm_export {
+            argv.push_back(f"--export={*e}")
         }
     }
 
@@ -422,12 +422,12 @@ pub class WasmArgs {
                 )
             }
 
-            for var x: string in tc.manifest.libcxx_link {
-                argv.push_back(x)
+            for *x in tc.manifest.libcxx_link {
+                argv.push_back(*x)
             }
 
-            for var x: string in tc.manifest.libc_link {
-                argv.push_back(x)
+            for *x in tc.manifest.libc_link {
+                argv.push_back(*x)
             }
         } else {
             argv.push_back("-lc++")
@@ -440,7 +440,7 @@ pub class WasmArgs {
         }
 
         if !tc.builtins.is_empty() {
-            argv.push_back(tc.builtins)
+            argv.push_back(tc.builtins.copy())
         }
     }
 }

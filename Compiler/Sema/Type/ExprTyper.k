@@ -14,7 +14,7 @@
 ///                          canonical node itself), or its poison bit
 ///       functions          is_generator, has_yield, no_unwind
 ///       enum variants      EnumVariantDecl::value
-///       patterns           Pattern::type_ / resolved_decl / field_decl
+///       patterns           AstPattern::type_ / resolved_decl / field_decl
 ///                          (PatternTyping)
 ///       callees            the promotion candidate_cell -> resolved_decl
 ///       calls              CallExpr::arg_map / pack_len / instance /

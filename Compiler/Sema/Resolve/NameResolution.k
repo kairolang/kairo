@@ -114,8 +114,8 @@ import AST::Mixin::Annotation::{
     VisibilityKind,
 }
 import AST::Node::Base::{
+    AstPattern,
     Decl,
-    Pattern,
 }
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
@@ -2965,7 +2965,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     /// A constructor pattern's head is a name use, never a binder; only its
     /// subpatterns can contain binders. In an alternation the first
     /// alternative declares and the rest share its decls.
-    priv fn _declare_pattern_binders(self, p: unsafe *Pattern) {
+    priv fn _declare_pattern_binders(self, p: unsafe *AstPattern) {
         if p == &null {
             return
         }
@@ -3020,7 +3020,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     /// body sees one binding. A name with no counterpart is SC011E
     /// (PatternBindingCheck); its decl is left alone and NOT declared, or the
     /// body would see a name some paths never bind.
-    priv fn _rebind_pattern_binders(self, p: unsafe *Pattern) {
+    priv fn _rebind_pattern_binders(self, p: unsafe *AstPattern) {
         if p == &null {
             return
         }

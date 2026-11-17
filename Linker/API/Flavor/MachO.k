@@ -112,9 +112,9 @@ pub class MachOArgs {
         }
 
         argv.push_back("-arch")
-        argv.push_back(tc.darwin_arch)
+        argv.push_back(tc.darwin_arch.copy())
         argv.push_back("-platform_version")
-        argv.push_back(tc.platform)
+        argv.push_back(tc.platform.copy())
         argv.push_back(tc.min_version)
         argv.push_back(tc.sdk_version)
         argv.push_back("-syslibroot")
@@ -152,8 +152,8 @@ pub class MachOArgs {
         /// # search path, user's first
         /// The SDK's usr/lib comes from -syslibroot. A manifest sysroot may list
         /// others, which lld would not find on its own.
-        for var d: string in o->lib_dirs {
-            argv.push_back(f"-L{d}")
+        for *d in o->lib_dirs {
+            argv.push_back(f"-L{*d}")
         }
 
         if !tc.toolchain_lib.is_empty() {
@@ -161,14 +161,14 @@ pub class MachOArgs {
         }
 
         if tc.has_manifest {
-            for var d: string in tc.lib_dirs {
-                argv.push_back(f"-L{d}")
+            for *d in tc.lib_dirs {
+                argv.push_back(f"-L{*d}")
             }
         }
 
-        for var r: string in o->rpath {
+        for *r in o->rpath {
             argv.push_back("-rpath")
-            argv.push_back(r)
+            argv.push_back(*r)
         }
 
         if !o->rpath_origin.is_empty() {
@@ -178,12 +178,12 @@ pub class MachOArgs {
             var ro      = o->rpath_origin.copy()
             var ok      = false
             var anchors = MachOArgs::_anchors()
-            for var a: string in anchors {
-                if ro == a {
+            for *a in anchors {
+                if ro == *a {
                     ok = true
                 }
 
-                if LinkText::starts_with(ro.copy(), a + "/") {
+                if LinkText::starts_with(ro.copy(), a->copy() + "/") {
                     ok = true
                 }
             }
@@ -203,7 +203,7 @@ pub class MachOArgs {
 
         if !no_libs && !tc.toolchain_lib.is_empty() {
             argv.push_back("-rpath")
-            argv.push_back(tc.toolchain_lib)
+            argv.push_back(tc.toolchain_lib.copy())
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Verbose,
@@ -225,9 +225,9 @@ pub class MachOArgs {
 
         // Each archive is loaded whole, so its unreferenced members (plugin
         // registrars, static initializers) are not dropped by the linker.
-        for var a: string in o->force_load {
+        for *a in o->force_load {
             argv.push_back("-force_load")
-            argv.push_back(a)
+            argv.push_back(*a)
         }
 
         if o->icf {
@@ -268,26 +268,26 @@ pub class MachOArgs {
             argv.push_back("_" + o->entry)
         }
 
-        for var f: string in o->ld_flags {
-            argv.push_back(f)
+        for *f in o->ld_flags {
+            argv.push_back(*f)
         }
 
         /// # inputs
-        for var obj: string in job.objects {
-            argv.push_back(obj)
+        for *obj in job.objects {
+            argv.push_back(*obj)
         }
 
         if job.lazy_objects.size() > 0 {
             argv.push_back("--start-lib")
-            for var obj: string in job.lazy_objects {
-                argv.push_back(obj)
+            for *obj in job.lazy_objects {
+                argv.push_back(*obj)
             }
 
             argv.push_back("--end-lib")
         }
 
-        for var spec: string in o->link_libs {
-            MachOArgs::_user_lib(spec, o, &tc, &argv, &msgs)
+        for *spec in o->link_libs {
+            MachOArgs::_user_lib(*spec, o, &tc, &argv, &msgs)
         }
 
         if !no_libs {
@@ -430,8 +430,8 @@ pub class MachOArgs {
                                  o:          *LinkerOptions,
                                  @inout tc:  Toolchain) -> string {
         var file = f"lib{name}.a"
-        for var d: string in o->lib_dirs {
-            var p = LinkText::join(d.copy(), file.copy())
+        for *d in o->lib_dirs {
+            var p = LinkText::join(d->copy(), file.copy())
             if LinkFS::is_file(p) {
                 return p
             }
@@ -444,8 +444,8 @@ pub class MachOArgs {
             }
         }
 
-        for var d: string in tc.lib_dirs {
-            var p = LinkText::join(d.copy(), file.copy())
+        for *d in tc.lib_dirs {
+            var p = LinkText::join(d->copy(), file.copy())
             if LinkFS::is_file(p) {
                 return p
             }
@@ -485,12 +485,12 @@ pub class MachOArgs {
             libc.push_back("-lSystem")
         }
 
-        for var x: string in cxx_v {
-            argv.push_back(x)
+        for *x in cxx_v {
+            argv.push_back(*x)
         }
 
-        for var x: string in libc {
-            argv.push_back(x)
+        for *x in libc {
+            argv.push_back(*x)
         }
 
         if !tc.builtins.is_empty() {
@@ -519,8 +519,8 @@ pub class MachOArgs {
     }
 
     priv static fn _has_flag(@inout xs: cxx::std::vector<string>, const f: string) -> bool {
-        for var x: string in xs {
-            if x == f {
+        for *x in xs {
+            if *x == f {
                 return true
             }
         }

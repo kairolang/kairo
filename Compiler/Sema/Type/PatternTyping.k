@@ -11,12 +11,12 @@
 ///     arms are PatternChecking's, after X, over what this writes.
 ///
 ///     Writes (one writer, this mixin):
-///       Pattern::type_         the column type, on every pattern typed.
-///       Pattern::resolved_decl what a constructor-shaped head names: an
+///       AstPattern::type_         the column type, on every pattern typed.
+///       AstPattern::resolved_decl what a constructor-shaped head names: an
 ///                              EnumVariantDecl, a StructDecl / ClassDecl
 ///                              (struct pattern), or a const / eval
 ///                              VariableDecl (`case MAX`).
-///       Pattern::field_decl    on each subpattern of a variant or struct
+///       AstPattern::field_decl    on each subpattern of a variant or struct
 ///                              pattern, the field it destructures.
 ///       VariableDecl::type_    on every binder's decl.
 ///
@@ -62,9 +62,9 @@ import AST::ASTSupport::FrozenList
 import AST::DeclFacts::adt_pack_variant
 import AST::Kind::PatternKind::PatternKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Type,
 }
 import AST::Node::CanonicalNodes::{
@@ -117,7 +117,7 @@ pub class <T: type> PatternTyping {
 
     /// # entry
 
-    fn type_pattern(self, p: unsafe *Pattern, scrutinee: unsafe *Type) {
+    fn type_pattern(self, p: unsafe *AstPattern, scrutinee: unsafe *Type) {
         if p == &null {
             return
         }
@@ -272,7 +272,7 @@ pub class <T: type> PatternTyping {
     /// An ADT that declares no `op ==` compares by variant only: `case K`
     /// would take every value of K's variant whatever its payload, so it is
     /// refused rather than widened.
-    priv fn _type_eq_test(self, p: unsafe *Pattern, value: unsafe *Expr, st: unsafe *Type) {
+    priv fn _type_eq_test(self, p: unsafe *AstPattern, value: unsafe *Expr, st: unsafe *Type) {
         if p->is_poisoned()
             || value == &null
             || value->is_poisoned()
@@ -409,7 +409,7 @@ pub class <T: type> PatternTyping {
     /// # ranges
 
     priv fn _type_range(self, r: unsafe *RangePattern, st: unsafe *Type) {
-        var unsafe *p = unsafe (r as unsafe *Pattern)
+        var unsafe *p = unsafe (r as unsafe *AstPattern)
         var is_char = st != &null && self.dyn()->tu.is_builtin(st, BuiltinKind::Char)
         if st != &null && !st->is_dependent() && !self.dyn()->tu.is_integer(st) && !is_char {
             self.dyn()->sc->diag->report(
@@ -530,12 +530,12 @@ pub class <T: type> PatternTyping {
     /// # constructor heads
 
     priv fn _type_ctor(self,
-                       p:          unsafe *Pattern,
+                       p:          unsafe *AstPattern,
                        head:       unsafe *Expr,
                        is_dotted:  bool,
                        dotted:     Token,
                        has_parens: bool,
-                       subs:       FrozenList<unsafe *Pattern>,
+                       subs:       FrozenList<unsafe *AstPattern>,
                        st:         unsafe *Type) {
         var ps = PatternSpace(self.dyn()->sc)
 
@@ -736,11 +736,11 @@ pub class <T: type> PatternTyping {
 
     /// Names first, then positions; see the file header.
     priv fn _map_payload(self,
-                         p:           unsafe *Pattern,
+                         p:           unsafe *AstPattern,
                          rd:          unsafe *Decl,
                          const owner: string,
                          has_parens:  bool,
-                         subs:        FrozenList<unsafe *Pattern>,
+                         subs:        FrozenList<unsafe *AstPattern>,
                          st:          unsafe *Type,
                          ps:          unsafe *PatternSpace) {
         var        fields = ps->fields_of_resolved(rd)
@@ -864,10 +864,10 @@ pub class <T: type> PatternTyping {
     /// a binder of a pack field names as its type (`.Err(var e: f64)`), or
     /// the only one; -1 after reporting why there is none.
     priv fn _pat_pick_element(self,
-                              p:           unsafe *Pattern,
+                              p:           unsafe *AstPattern,
                               v:           unsafe *EnumVariantDecl,
                               const owner: string,
-                              subs:        FrozenList<unsafe *Pattern>,
+                              subs:        FrozenList<unsafe *AstPattern>,
                               st:          unsafe *Type,
                               ve:          *VariadicEnum,
                               pes:         unsafe *cxx::std::vector<unsafe *Type>) -> i32 {
@@ -990,7 +990,7 @@ pub class <T: type> PatternTyping {
         return -1
     }
 
-    priv fn _type_subs_unknown(self, subs: FrozenList<unsafe *Pattern>) {
+    priv fn _type_subs_unknown(self, subs: FrozenList<unsafe *AstPattern>) {
         for var i: usize = 0; i < subs.size(); ++i {
             self.type_pattern(subs[i], &null)
         }

@@ -82,18 +82,18 @@ pub class LLDRunner {
     }
 
     static fn needs_process(@inout argv: cxx::std::vector<string>) -> bool {
-        for var a: string in argv {
-            if a == "-mllvm" || a == "--mllvm" {
+        for *a in argv {
+            if *a == "-mllvm" || *a == "--mllvm" {
                 return true
             }
 
-            if LinkText::starts_with(a.copy(), "-mllvm=")
-                || LinkText::starts_with(a.copy(), "--mllvm=") {
+            if LinkText::starts_with(a->copy(), "-mllvm=")
+                || LinkText::starts_with(a->copy(), "--mllvm=") {
                 return true
             }
 
-            if LinkText::starts_with(a.copy(), "-plugin-opt=-")
-                || LinkText::starts_with(a.copy(), "--plugin-opt=-") {
+            if LinkText::starts_with(a->copy(), "-plugin-opt=-")
+                || LinkText::starts_with(a->copy(), "--plugin-opt=-") {
                 return true
             }
         }
@@ -217,18 +217,18 @@ pub class LLDRunner {
         }
 
         var args = cxx::std::vector<string>()
-        args.push_back(kld_path)
+        args.push_back(kld_path.copy())
         args.push_back("-flavor")
-        args.push_back(flavor)
-        for var a: string in rest {
-            args.push_back(a)
+        args.push_back(flavor.copy())
+        for *a in rest {
+            args.push_back(*a)
         }
 
         if !LLDRunner::_fits(&args) {
             rsp_path = LinkFS::temp_file("kld", "rsp")
             var text = ""
-            for var a: string in rest {
-                text += LinkText::quote_rsp(a.copy())
+            for *a in rest {
+                text += LinkText::quote_rsp(a->copy())
                 text += "\n"
             }
 
@@ -238,9 +238,9 @@ pub class LLDRunner {
             }
 
             args.clear()
-            args.push_back(kld_path)
+            args.push_back(kld_path.copy())
             args.push_back("-flavor")
-            args.push_back(flavor)
+            args.push_back(flavor.copy())
             // quote_rsp escapes backslashes GNU-style. lld-link defaults to
             // Windows tokenization, which would keep both of them.
             if flavor == "gnu" || flavor == "wasm" || flavor == "link" {

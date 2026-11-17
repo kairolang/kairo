@@ -41,8 +41,8 @@
 ffi "c++" import "Native/Types.hh"
 
 import AST::Node::Base::{
+    AstPattern,
     Expr,
-    Pattern,
     Type,
 }
 import AST::Node::Casting::{
@@ -83,7 +83,7 @@ pub class <T: type> PatternParse {
         return unsafe ((&self) as *T)
     }
 
-    priv inline fn _error_pattern(self, range: SourceRange) -> unsafe *Pattern {
+    priv inline fn _error_pattern(self, range: SourceRange) -> unsafe *AstPattern {
         return WildcardPattern::create_error(self.dyn()->ctx, range)
     }
 
@@ -91,7 +91,7 @@ pub class <T: type> PatternParse {
 
     /// \brief parses a single pattern. Returns a recovery pattern (never null)
     ///        on failure so the surrounding match-arm structure keeps its shape.
-    fn parse_pattern(self) -> unsafe *Pattern {
+    fn parse_pattern(self) -> unsafe *AstPattern {
         if self.dyn()->is_eof() {
             return self._error_pattern(SourceRange::invalid())
         }
@@ -106,7 +106,7 @@ pub class <T: type> PatternParse {
         return p
     }
 
-    priv fn _parse_pattern_inner(self) -> unsafe *Pattern {
+    priv fn _parse_pattern_inner(self) -> unsafe *AstPattern {
         var cur_ptr = self.dyn()->current_ptr()
         if cur_ptr == &null {
             return self._error_pattern(SourceRange::invalid())
@@ -239,7 +239,7 @@ pub class <T: type> PatternParse {
 
     //  Binding   `var x` | `const x` | `var x: T`
 
-    priv fn _parse_binding_pattern(self) -> unsafe *Pattern {
+    priv fn _parse_binding_pattern(self) -> unsafe *AstPattern {
         var start    = self.dyn()->current_ptr()->range
         var is_const = self.dyn()->check(TokenKind::KwConst)
         self.dyn()->advance()              // consume var/const
@@ -289,7 +289,7 @@ pub class <T: type> PatternParse {
 
     //  Tuple   `(p, p, ...)`
 
-    priv fn _parse_tuple_pattern(self) -> unsafe *Pattern {
+    priv fn _parse_tuple_pattern(self) -> unsafe *AstPattern {
         var start = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `(`
 
@@ -306,7 +306,7 @@ pub class <T: type> PatternParse {
             ))
         }
 
-        var elems: kairo::std::StackBuf<unsafe *Pattern, 8>
+        var elems: kairo::std::StackBuf<unsafe *AstPattern, 8>
 
         while !self.dyn()->is_eof() {
             if self.dyn()->check(TokenKind::OpRParen) {
@@ -359,14 +359,14 @@ pub class <T: type> PatternParse {
 
     //  Slice   `[p, p, ..rest]` | `[p, .., p]` | `[.., p]` | `[p, p]`
 
-    priv fn _parse_slice_pattern(self) -> unsafe *Pattern {
+    priv fn _parse_slice_pattern(self) -> unsafe *AstPattern {
         var start = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `[`
 
-        var prefix:       kairo::std::StackBuf<unsafe *Pattern, 8>
-        var suffix:       kairo::std::StackBuf<unsafe *Pattern, 8>
-        var seen_rest                                              = false
-        var rest_binding: unsafe *Pattern                          = &null
+        var prefix:       kairo::std::StackBuf<unsafe *AstPattern, 8>
+        var suffix:       kairo::std::StackBuf<unsafe *AstPattern, 8>
+        var seen_rest                                                 = false
+        var rest_binding: unsafe *AstPattern                          = &null
 
         while !self.dyn()->is_eof() && !self.dyn()->check(TokenKind::OpRSquare) {
             // rest element: `..` or `..name`
@@ -454,7 +454,7 @@ pub class <T: type> PatternParse {
 
     //  Dotted constructor   `.Variant` / `.Variant(...)`
 
-    priv fn _parse_dotted_pattern(self) -> unsafe *Pattern {
+    priv fn _parse_dotted_pattern(self) -> unsafe *AstPattern {
         var start = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `.`
 
@@ -473,8 +473,8 @@ pub class <T: type> PatternParse {
         var variant = self.dyn()->current()
         self.dyn()->advance()
 
-        var has_parens                                          = false
-        var subs:      kairo::std::StackBuf<unsafe *Pattern, 8>
+        var has_parens                                             = false
+        var subs:      kairo::std::StackBuf<unsafe *AstPattern, 8>
         if self.dyn()->check(TokenKind::OpLParen) {
             has_parens = true
             self._parse_ctor_payload(&subs)
@@ -498,7 +498,7 @@ pub class <T: type> PatternParse {
     /// pattern led by something primary can parse: a literal or a path
     /// (`foo`, `A::B`, `Foo<T>`). parse_pattern_lead stops before postfix `(`
     /// and before `..`, so we peek after to choose range vs constructor vs bare.
-    priv fn _parse_primary_led_pattern(self, start: SourceRange) -> *Pattern {
+    priv fn _parse_primary_led_pattern(self, start: SourceRange) -> *AstPattern {
         var unsafe *lead = self._parse_lead()
         if lead == &null || is_recovery(lead) {
             return self._error_pattern(start | self.dyn()->prev().range)
@@ -520,7 +520,7 @@ pub class <T: type> PatternParse {
 
         // constructor with payload: `lead ( ... )`
         if self.dyn()->check(TokenKind::OpLParen) {
-            var subs: kairo::std::StackBuf<unsafe *Pattern, 8>
+            var subs: kairo::std::StackBuf<unsafe *AstPattern, 8>
             self._parse_ctor_payload(&subs)
             return self._build_ctor(start, lead, true, subs)
         }
@@ -535,7 +535,7 @@ pub class <T: type> PatternParse {
         }
 
         // bare (nullary) path constructor / name
-        var empty: kairo::std::StackBuf<unsafe *Pattern, 8>
+        var empty: kairo::std::StackBuf<unsafe *AstPattern, 8>
         return self._build_ctor(start, lead, false, empty)
     }
 
@@ -564,7 +564,7 @@ pub class <T: type> PatternParse {
     }
 
     /// `..hi` / `..=hi` with no lower bound at pattern start.
-    priv fn _parse_open_lower_range(self, start: SourceRange) -> *Pattern {
+    priv fn _parse_open_lower_range(self, start: SourceRange) -> *AstPattern {
         var inclusive = self.dyn()->check(TokenKind::OpRangeEqual)
         self.dyn()->advance(T::SkipNL::After) // consume `..` / `..=`
         var unsafe *hi = self._parse_range_hi()
@@ -617,7 +617,7 @@ pub class <T: type> PatternParse {
                         start:      SourceRange,
                         head:       unsafe *Expr,
                         has_parens: bool,
-                        const subs: kairo::std::StackBuf<unsafe *Pattern, 8>) -> *Pattern {
+                        const subs: kairo::std::StackBuf<unsafe *AstPattern, 8>) -> *AstPattern {
         if self._head_resolves(head) {
             var node = ConstructorPattern::create(
                 self.dyn()->ctx,
@@ -688,7 +688,7 @@ pub class <T: type> PatternParse {
     //  Constructor payload   `( p (, p)* ,? )`
 
     /// precondition: current is `(`. Consumes through the matching `)`.
-    priv fn _parse_ctor_payload(self, @inout out: kairo::std::StackBuf<unsafe *Pattern, 8>) {
+    priv fn _parse_ctor_payload(self, @inout out: kairo::std::StackBuf<unsafe *AstPattern, 8>) {
         var lparen = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `(`
 

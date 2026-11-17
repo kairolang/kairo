@@ -26,6 +26,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/StringRef.h"
+ffi "c++" import "vector"
 
 /// Space, tab, line feed or carriage return: the whitespace a scan of one
 /// line or one token's neighbourhood skips (not form feed or vertical tab).
@@ -100,7 +101,7 @@ pub fn find(const hay: string, const needle: string, from: usize) -> usize {
 
     for var i: usize = from; i + m <= n; ++i {
         var j: usize = 0
-        while j < m && hay[i + j] == needle[j] {
+        while j < m && hay.data()[i + j] == needle.data()[j] {
             j += 1
         }
 
@@ -122,19 +123,19 @@ pub fn split(const s: string, sep: u8, keep_empty: bool) -> [string] {
     var out:   [string]
     var start: usize    = 0
     for var i: usize = 0; i < s.size(); ++i {
-        if s[i] != sep {
+        if s.data()[i] != sep {
             continue
         }
 
         if keep_empty || i > start {
-            out.push(s.subslice(start, i - start))
+            out.push(s[start..i].to_owned())
         }
 
         start = i + 1
     }
 
     if start < s.size() {
-        out.push(s.subslice(start, s.size() - start))
+        out.push(s[start..].to_owned())
     }
 
     return out
@@ -149,21 +150,21 @@ pub fn trim(const s: string) -> string {
 /// \p s without its leading spaces and tabs.
 pub fn trim_start(const s: string) -> string {
     var a: usize = 0
-    while a < s.size() && (s[a] == (' ' as u8) || s[a] == ('\t' as u8)) {
+    while a < s.size() && (s.data()[a] == (' ' as u8) || s.data()[a] == ('\t' as u8)) {
         a += 1
     }
 
-    return s.subslice(a, s.size() - a)
+    return s[a..].to_owned()
 }
 
 /// \p s without its trailing spaces and tabs.
 pub fn trim_end(const s: string) -> string {
     var b = s.size()
-    while b > 0 && (s[b - 1] == (' ' as u8) || s[b - 1] == ('\t' as u8)) {
+    while b > 0 && (s.data()[b - 1] == (' ' as u8) || s.data()[b - 1] == ('\t' as u8)) {
         b -= 1
     }
 
-    return s.subslice(0, b)
+    return s[..b].to_owned()
 }
 
 /// The value of the decimal digits that start \p s, up to the first byte
@@ -171,8 +172,8 @@ pub fn trim_end(const s: string) -> string {
 /// saturates there.
 pub fn parse_decimal(const s: string) -> u64 {
     var n: u64 = 0
-    for var i: usize = 0; i < s.size() && is_digit(s[i]); ++i {
-        var d = (s[i] - ('0' as u8)) as u64
+    for var i: usize = 0; i < s.size() && is_digit(s.data()[i]); ++i {
+        var d = (s.data()[i] - ('0' as u8)) as u64
         if n > (u64::MAX - d) / 10 {
             return u64::MAX
         }
@@ -181,6 +182,19 @@ pub fn parse_decimal(const s: string) -> u64 {
     }
 
     return n
+}
+
+/// A copy of `v`, string by string.
+///
+/// A C++ vector of strings has no copy of its own.
+pub fn copy_strings(const v: cxx::std::vector<string>) -> cxx::std::vector<string> {
+    var out = cxx::std::vector<string>()
+    out.reserve(v.size())
+    for *s in v {
+        out.push_back(s->copy())
+    }
+
+    return out
 }
 
 /// A copy of the bytes \p sr views.

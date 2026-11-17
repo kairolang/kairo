@@ -48,17 +48,20 @@ pub fn width_of(const s: string) -> i32 {
 /// then at most one `;` or `,`, then at most a comment.
 pub fn closer_only_line(out: string) -> bool {
     var i = out.size()
-    while i > 0 && out[i - 1] != ('\n' as u8) {
+    while i > 0 && out.data()[i - 1] != ('\n' as u8) {
         i -= 1
     }
 
     var n = out.size()
-    while i < n && (out[i] == (' ' as u8) || out[i] == ('\t' as u8)) {
+    while i < n && (out.data()[i] == (' ' as u8) || out.data()[i] == ('\t' as u8)) {
         i += 1
     }
 
     var closers: usize = 0
-    while i < n && (out[i] == ('}' as u8) || out[i] == (')' as u8) || out[i] == (']' as u8)) {
+    while i < n
+        && (out.data()[i] == ('}' as u8)
+            || out.data()[i] == (')' as u8)
+            || out.data()[i] == (']' as u8)) {
         closers += 1
         i += 1
     }
@@ -67,11 +70,11 @@ pub fn closer_only_line(out: string) -> bool {
         return false
     }
 
-    if i < n && (out[i] == (';' as u8) || out[i] == (',' as u8)) {
+    if i < n && (out.data()[i] == (';' as u8) || out.data()[i] == (',' as u8)) {
         i += 1
     }
 
-    while i < n && (out[i] == (' ' as u8) || out[i] == ('\t' as u8)) {
+    while i < n && (out.data()[i] == (' ' as u8) || out.data()[i] == ('\t' as u8)) {
         i += 1
     }
 
@@ -81,8 +84,8 @@ pub fn closer_only_line(out: string) -> bool {
 
     // a trailing comment does not change what the line is
     return i + 1 < n
-        && out[i] == ('/' as u8)
-        && (out[i + 1] == ('/' as u8) || out[i + 1] == ('*' as u8))
+        && out.data()[i] == ('/' as u8)
+        && (out.data()[i + 1] == ('/' as u8) || out.data()[i + 1] == ('*' as u8))
 }
 
 /// Pending work: print `doc` at level `ind` plus `pad` spaces, broken or
@@ -94,6 +97,18 @@ pub struct Cmd {
     var brk: bool        = true
     var doc: unsafe *Doc = &null
     var lit: string      = ""
+}
+
+extend Cmd {
+    fn copy(const self) -> Cmd {
+        return Cmd {
+            ind: self.ind,
+            pad: self.pad,
+            brk: self.brk,
+            doc: self.doc,
+            lit: self.lit.copy(),
+        }
+    }
 }
 
 /// The output and where it stands.
@@ -233,7 +248,7 @@ pub class Renderer {
 
         while true {
             while !stack.empty() {
-                var c = stack.back()
+                var c = cxx::std::move(stack.back())
                 stack.pop_back()
 
                 if Renderer::_is_newline(c) {
@@ -448,19 +463,21 @@ pub class Renderer {
         var i = sfx->size()
         while i > 0 {
             i -= 1
-            stack->push_back((*sfx)[i])
+            stack->push_back(cxx::std::move((*sfx)[i]))
         }
 
         sfx->clear()
     }
 
-    /// \p seq, in print order, onto the stack (which pops from the back).
+    /// `seq`, in print order, onto the stack (which pops from the back).
+    ///
+    /// The commands are moved: `seq` is left holding emptied ones.
     priv static fn _push_seq(stack: unsafe *cxx::std::vector<Cmd>,
                              seq:   unsafe *cxx::std::vector<Cmd>) {
         var i = seq->size()
         while i > 0 {
             i -= 1
-            stack->push_back((*seq)[i])
+            stack->push_back(cxx::std::move((*seq)[i]))
         }
     }
 
@@ -486,7 +503,7 @@ pub class Renderer {
         var        set   = pen->set
 
         if n == 0 {
-            stack->push_back(Renderer::_lit(c.ind, c.pad, open + close))
+            stack->push_back(Renderer::_lit(c.ind, c.pad, open.copy() + close))
             return
         }
 
@@ -916,7 +933,7 @@ pub class Renderer {
         var rem  = rem0
         var rest = stack->size()
         var work = cxx::std::vector<Cmd>()
-        work.push_back(next)
+        work.push_back(next.copy())
 
         while true {
             if rem < 0 {
@@ -929,11 +946,11 @@ pub class Renderer {
                 }
 
                 rest -= 1
-                work.push_back((*stack)[rest])
+                work.push_back((*stack)[rest].copy())
                 continue
             }
 
-            var c = work.back()
+            var c = cxx::std::move(work.back())
             work.pop_back()
 
             if c.doc == &null {

@@ -46,7 +46,7 @@
 ///     out, and a second one is noise. They are recorded exhaustive so
 ///     ReturnPathCheck stays quiet too. A dependent scrutinee is M2's.
 ///
-///   Phase: CHECK (after ExprTyper: reads Pattern::type_, resolved_decl and
+///   Phase: CHECK (after ExprTyper: reads AstPattern::type_, resolved_decl and
 ///          field_decl, which PatternTyping writes; before ReturnPathCheck,
 ///          which reads is_exhaustive)
 ///
@@ -70,8 +70,8 @@ import AST::DeclFacts::{
 }
 import AST::Kind::PatternKind::PatternKind
 import AST::Node::Base::{
+    AstPattern,
     Expr,
-    Pattern,
 }
 import AST::Node::CanonicalNodes::canon_unqual
 import AST::Node::Casting::cast
@@ -287,7 +287,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             }
         }
 
-        var q = cxx::std::vector<unsafe *Pattern>()
+        var q = cxx::std::vector<unsafe *AstPattern>()
         q.push_back(&null)
 
         var closed = self._useful(unsafe &covering, unsafe &q, true, true)
@@ -308,7 +308,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
     }
 
     /// A pattern tree already diagnosed: skip the whole match.
-    priv fn _broken(self, p: unsafe *Pattern) -> bool {
+    priv fn _broken(self, p: unsafe *AstPattern) -> bool {
         if p == &null {
             return false
         }
@@ -474,7 +474,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
                 return false
             }
 
-            var alts = cxx::std::vector<unsafe *Pattern>()
+            var alts = cxx::std::vector<unsafe *AstPattern>()
             self._flat_alts((rows)[i].cols[0], unsafe &alts)
             var hs = cxx::std::vector<Ctor>()
             for var k: usize = 0; k < alts.size(); ++k {
@@ -542,7 +542,9 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
     }
 
     /// \p p's alternatives, nested alternations flattened, in order.
-    priv fn _flat_alts(self, p: unsafe *Pattern, out: unsafe *cxx::std::vector<unsafe *Pattern>) {
+    priv fn _flat_alts(self,
+                       p:   unsafe *AstPattern,
+                       out: unsafe *cxx::std::vector<unsafe *AstPattern>) {
         if p != &null && p->kind == PatternKind::AlternationPattern {
             var unsafe *a = cast<AlternationPattern>(p)
             for var k: usize = 0; k < a->alternatives.size(); ++k {
@@ -737,7 +739,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
     /// when every variant is listed. \p want: build the witness.
     priv fn _useful(self,
                     rows0:  unsafe *cxx::std::vector<PatRow>,
-                    q:      unsafe *cxx::std::vector<unsafe *Pattern>,
+                    q:      unsafe *cxx::std::vector<unsafe *AstPattern>,
                     closed: bool,
                     want:   bool) -> Usefulness {
         var res  = Usefulness{}
@@ -944,7 +946,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         // Incomplete signature: the default matrix decides; a missing
         // constructor heads the witness.
         var drows = self._ps.default_rows(&rows)
-        var qt    = cxx::std::vector<unsafe *Pattern>()
+        var qt    = cxx::std::vector<unsafe *AstPattern>()
         for var k: usize = 1; k < q->size(); ++k {
             qt.push_back((*q)[k])
         }
@@ -966,7 +968,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
     /// Specialize rows and q by \p c, recurse, and wrap the sub-witness.
     priv fn _useful_ctor(self,
                          rows:    unsafe *cxx::std::vector<PatRow>,
-                         const q: cxx::std::vector<unsafe *Pattern>,
+                         const q: cxx::std::vector<unsafe *AstPattern>,
                          const c: Ctor,
                          d:       Domain,
                          closed:  bool,

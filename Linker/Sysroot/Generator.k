@@ -116,12 +116,12 @@ pub class SysPlan {
     pub var key_json:   string
 
     pub fn row(self, const label: string, const value: string) {
-        var pad = label + ":"
+        var pad = label.copy() + ":"
         while pad.size() < 14 {
             pad += " "
         }
 
-        self.rows.push_back(pad + value)
+        self.rows.push_back(pad.copy() + value)
     }
 }
 
@@ -169,8 +169,8 @@ pub class SysGen {
     pub fn probe(self, const target: string, @inout out: SysOutcome) -> bool {
         var p  = SysPlan()
         var ok = self.plan(target, &p, &out, false)
-        for var r: string in p.rows {
-            io::println(r)
+        for *r in p.rows {
+            io::println(*r)
         }
 
         return ok
@@ -220,7 +220,7 @@ pub class SysGen {
         // After the lock: a concurrent ensure of this key that held it may
         // have finished the root while this one waited.
         var done_dir = c.sysroot_dir(p.key)
-        if LinkFS::is_file(done_dir + "/.ok") {
+        if LinkFS::is_file(done_dir.copy() + "/.ok") {
             if !c.publish(p.target.name, p.key) {
                 return out.fail(
                     f"cannot write {c.root}/by-name/{p.target.name}",
@@ -284,7 +284,7 @@ pub class SysGen {
             return out.refuse(f"{tp}: {tt.error}", "")
         }
 
-        LinkFS::make_dirs(out_dir + "/targets")
+        LinkFS::make_dirs(out_dir.copy() + "/targets")
         if !SysRun::put_file(
             tp,
             f"{out_dir}/targets/{p.target.name}.toml",
@@ -293,17 +293,17 @@ pub class SysGen {
             return out.fail(f"cannot copy {tp}", "")
         }
 
-        for var rt: string in SysTemplate::runtimes() {
-            var key = tt.str("", rt)
+        for *rt in SysTemplate::runtimes() {
+            var key = tt.str("", *rt)
             if key.is_empty() {
                 continue
             }
 
-            LinkFS::make_dirs(out_dir + "/" + rt)
-            var from = f"{rdir}/{rt}/{key}.toml"
+            LinkFS::make_dirs(out_dir.copy() + "/" + *rt)
+            var from = f"{rdir}/{*rt}/{key}.toml"
             if !SysRun::put_file(
                 from,
-                f"{out_dir}/{rt}/{p.target.name}.toml",
+                f"{out_dir}/{*rt}/{p.target.name}.toml",
                 false,
             ) {
                 return out.fail(f"cannot copy {from}", "")
@@ -436,19 +436,19 @@ pub class SysGen {
             base = LinkText::join(m.dir.copy(), m.sysroot.copy())
         }
 
-        for var d: string in m.include_dirs {
-            if !LinkFS::is_dir(LinkText::join(base.copy(), d.copy())) {
+        for *d in m.include_dirs {
+            if !LinkFS::is_dir(LinkText::join(base.copy(), d->copy())) {
                 return out.fail(
-                    f"validation failed at manifest: include_dirs entry {d} is not a directory under {base}",
+                    f"validation failed at manifest: include_dirs entry {*d} is not a directory under {base}",
                     "",
                 )
             }
         }
 
-        for var d: string in m.lib_dirs {
-            if !LinkFS::is_dir(LinkText::join(base.copy(), d.copy())) {
+        for *d in m.lib_dirs {
+            if !LinkFS::is_dir(LinkText::join(base.copy(), d->copy())) {
                 return out.fail(
-                    f"validation failed at manifest: lib_dirs entry {d} is not a directory under {base}",
+                    f"validation failed at manifest: lib_dirs entry {*d} is not a directory under {base}",
                     "",
                 )
             }
@@ -492,7 +492,7 @@ pub class SysGen {
         // single result.
         var real_root = LinkFS::real(root.copy())
         var probe     = cxx::std::vector<string>()
-        probe.push_back(kcc)
+        probe.push_back(kcc.copy())
         KccArgv::push_target(&probe, m.triple, root)
         probe.push_back("-###")
         probe.push_back(LinkText::join(vdir.copy(), "t.c"))
@@ -503,10 +503,10 @@ pub class SysGen {
         var ptext = ""
         LinkFS::read(plog, &ptext)
         var seen = SysGen::_sysroots_in(ptext)
-        for var r: string in seen {
-            if LinkFS::real(r.copy()) != real_root {
+        for *r in seen {
+            if LinkFS::real(r->copy()) != real_root {
                 return out.refuse(
-                    f"cannot validate {root}: this toolchain builds {t->name} against {r} (a bundled root shadows --sysroot)",
+                    f"cannot validate {root}: this toolchain builds {t->name} against {*r} (a bundled root shadows --sysroot)",
                     "run ksys from a toolchain without <prefix>/sysroot/" + t->name,
                 )
             }
@@ -552,34 +552,34 @@ pub class SysGen {
         // it, never a pass. One compile per type asks the toolchain itself.
         var have = cxx::std::vector<string>()
         var lack = cxx::std::vector<string>()
-        for var src: string in progs {
-            var want = SysGen::_expected(&exp, src)
+        for *src in progs {
+            var want = SysGen::_expected(&exp, *src)
             var need = ""
-            for var e: string in exp {
-                if LinkText::starts_with(e.copy(), "types/" + src + "=") {
-                    need = LinkText::slice(e, src.size() + 7, e.size())
+            for *e in exp {
+                if LinkText::starts_with(e->copy(), "types/" + *src + "=") {
+                    need = LinkText::slice(*e, src->size() + 7, e->size())
                 }
             }
 
             var missing = ""
             if !need.is_empty() {
-                for var ty: string in SysUtil::split(need, (',' as u8)) {
+                for *ty in SysUtil::split(need, (',' as u8)) {
                     if !SysGen::_has_type(
                         kcc,
                         m.triple,
                         root,
                         work,
-                        ty,
+                        *ty,
                         &have,
                         &lack,
                     ) {
-                        missing += if (missing.is_empty()) => (ty) else => ", " + ty
+                        missing += if (missing.is_empty()) => (*ty) else => ", " + *ty
                     }
                 }
             }
 
             if !missing.is_empty() {
-                var spad = src + ":"
+                var spad = src->copy() + ":"
                 while spad.size() < 14 {
                     spad += " "
                 }
@@ -588,44 +588,48 @@ pub class SysGen {
                 continue
             }
 
-            var dot  = LinkText::find(src.copy(), ".", 0)
-            var stem = LinkText::slice(src, 0, dot)
-            var lang = LinkText::slice(src, dot + 1, src.size())
-            var bin  = LinkText::join(work.copy(), stem + "-" + lang + ext)
+            var dot  = LinkText::find(src->copy(), ".", 0)
+            var stem = LinkText::slice(*src, 0, dot)
+            var lang = LinkText::slice(*src, dot + 1, src->size())
+            var bin = LinkText::join(
+                work.copy(),
+                stem.copy() + "-" + lang + ext,
+            )
+
             var argv = cxx::std::vector<string>()
             if lang == "k" {
-                argv.push_back(kairo)
-                argv.push_back(LinkText::join(vdir.copy(), src.copy()))
+                argv.push_back(kairo.copy())
+                argv.push_back(LinkText::join(vdir.copy(), src->copy()))
                 argv.push_back("--target")
-                argv.push_back(m.triple)
+                argv.push_back(m.triple.copy())
                 argv.push_back("--sysroot")
                 argv.push_back(root)
                 argv.push_back("--sysroot-exact")
                 argv.push_back("-o")
-                argv.push_back(bin)
+                argv.push_back(bin.copy())
             } else {
-                argv.push_back(kcc)
+                argv.push_back(kcc.copy())
                 if lang == "cpp" {
                     argv.push_back("--driver-mode=g++")
                 }
 
                 KccArgv::push_target(&argv, m.triple, root)
-                for var x: string in extra {
-                    argv.push_back(x)
+                for *x in extra {
+                    argv.push_back(*x)
                 }
 
-                argv.push_back(LinkText::join(vdir.copy(), src.copy()))
+                argv.push_back(LinkText::join(vdir.copy(), src->copy()))
                 argv.push_back("-o")
-                argv.push_back(bin)
+                argv.push_back(bin.copy())
             }
 
             var blog = LinkText::join(
                 work.copy(),
-                stem + "-" + lang + ".build.log",
+                stem.copy() + "-" + lang + ".build.log",
             )
 
             var rc  = SysRun::run(&argv, blog)
-            var pad = src + ":"
+            var pad = src->copy() + ":"
             while pad.size() < 14 {
                 pad += " "
             }
@@ -634,7 +638,7 @@ pub class SysGen {
                 var text = ""
                 LinkFS::read(blog, &text)
                 return out.fail(
-                    f"validation failed at {src}: the build exited {rc}: {SysGen::_first_line(text)}",
+                    f"validation failed at {*src}: the build exited {rc}: {SysGen::_first_line(text)}",
                     f"log: {blog}",
                 )
             }
@@ -648,13 +652,13 @@ pub class SysGen {
             run.push_back(bin)
             var rlog = LinkText::join(
                 work.copy(),
-                stem + "-" + lang + ".run.log",
+                stem.copy() + "-" + lang + ".run.log",
             )
 
             var got = SysRun::run(&run, rlog)
             if f"{got}" != want {
                 return out.fail(
-                    f"validation failed at {src}: it exited {got}, expected {want}",
+                    f"validation failed at {*src}: it exited {got}, expected {want}",
                     f"log: {rlog}",
                 )
             }
@@ -896,12 +900,12 @@ pub class SysGen {
 
         var qids     = cxx::std::vector<string>()
         var rewrites = cxx::std::vector<string>()
-        for var q: SysQuirk in p.quirks {
-            qids.push_back(q.id)
-            if !q.target_rewrite.is_empty() {
-                rewrites.push_back(q.id)
+        for *q in p.quirks {
+            qids.push_back(q->id.copy())
+            if !q->target_rewrite.is_empty() {
+                rewrites.push_back(q->id)
                 p.target.clang_triple = p.recipe.expand(
-                    q.target_rewrite,
+                    q->target_rewrite,
                     &p.target,
                 )
             }
@@ -954,12 +958,12 @@ pub class SysGen {
         tools.push_back("kcc")
         tools.push_back("kld")
         tools.push_back("llvm-ar")
-        for var t: string in tools {
-            var at = SysGen::find_tool(t)
+        for *t in tools {
+            var at = SysGen::find_tool(*t)
             if at.is_empty() {
-                p.row("tools", f"{t} missing")
+                p.row("tools", f"{*t} missing")
                 return out.refuse(
-                    f"{t} not found beside {LinkFS::parent(env::exe_path())} or on PATH",
+                    f"{*t} not found beside {LinkFS::parent(env::exe_path())} or on PATH",
                     "reinstall the toolchain",
                 )
             }
@@ -983,8 +987,8 @@ pub class SysGen {
 
         /// ## inputs (4.3)
         var rels = cxx::std::vector<string>()
-        for var tmpl: string in p.recipe.inputs {
-            rels.push_back(p.recipe.expand(tmpl, &p.target))
+        for *tmpl in p.recipe.inputs {
+            rels.push_back(p.recipe.expand(*tmpl, &p.target))
         }
 
         // The builtins and runtimes stages compile the runtimes source with
@@ -1003,29 +1007,29 @@ pub class SysGen {
         rtin.push_back("runtimes")
         rtin.push_back("runtimes-template")
         rtin.push_back("runtimes-recipe")
-        for var rt: string in rtin {
-            var need = !p.recipe.runtimes.empty() || !p.share.registered(rt).is_empty()
-            if rt == "runtimes-template" {
+        for *rt in rtin {
+            var need = !p.recipe.runtimes.empty() || !p.share.registered(*rt).is_empty()
+            if *rt == "runtimes-template" {
                 need = has_tmpl
-            } else if rt == "runtimes-recipe" && has_tmpl {
-                need = !p.share.registered(rt).is_empty()
+            } else if *rt == "runtimes-recipe" && has_tmpl {
+                need = !p.share.registered(*rt).is_empty()
             }
 
-            if need && !SysUtil::contains(&rels, rt) {
-                rels.push_back(rt)
+            if need && !SysUtil::contains(&rels, *rt) {
+                rels.push_back(*rt)
             }
         }
 
-        for var rel: string in rels {
-            var reg = p.share.registered(rel)
+        for *rel in rels {
+            var reg = p.share.registered(*rel)
             if reg.is_empty() {
                 return out.refuse(
-                    f"share input {rel} is not listed in {sdir}/registry.toml",
+                    f"share input {*rel} is not listed in {sdir}/registry.toml",
                     "",
                 )
             }
 
-            var path = p.share.input_path(rel)
+            var path = p.share.input_path(*rel)
             if !LinkFS::is_dir(path) {
                 return out.refuse(f"share input {path} missing", "")
             }
@@ -1049,7 +1053,7 @@ pub class SysGen {
                 )
             }
 
-            p.inputs.push_back(rel)
+            p.inputs.push_back(*rel)
             p.in_paths.push_back(path)
             p.in_sha.push_back(got)
         }
@@ -1085,9 +1089,9 @@ pub class SysGen {
 
         /// ## keys (section 7)
         var build_id = SysGen::_compiler_build_id(&c, p.tools)
-        for var s: string in sys_stages() {
+        for *s in sys_stages() {
             p.stage_keys.push_back(
-                SysUtil::sha256(SysGen::_key_json(&p, build_id, s)),
+                SysUtil::sha256(SysGen::_key_json(&p, build_id, *s)),
             )
         }
 
@@ -1173,7 +1177,7 @@ pub class SysGen {
                     out.note = SysGen::_moved(
                         out.note,
                         st.tmp(),
-                        st.dir + ".failed",
+                        st.dir.copy() + ".failed",
                     )
                 } else {
                     st.abandon()
@@ -1189,13 +1193,13 @@ pub class SysGen {
                 )
             }
 
-            ctx.done_names.push_back(name)
-            ctx.done_dirs.push_back(st.dir)
+            ctx.done_names.push_back(name.copy())
+            ctx.done_dirs.push_back(st.dir.copy())
             if name == "validate" {
                 var rep = ""
-                LinkFS::read(st.dir + "/out/report.txt", &rep)
-                for var line: string in LinkText::split_lines(rep.copy()) {
-                    self._log(f"{p->target.name}: validate: {line}")
+                LinkFS::read(st.dir.copy() + "/out/report.txt", &rep)
+                for *line in LinkText::split_lines(rep.copy()) {
+                    self._log(f"{p->target.name}: validate: {*line}")
                 }
             }
         }
@@ -1222,15 +1226,15 @@ pub class SysGen {
         var parts = cxx::std::vector<string>()
         parts.push_back("libc-headers")
         parts.push_back("libc-libs")
-        for var n: string in parts {
-            var from = ctx->product(n)
+        for *n in parts {
+            var from = ctx->product(*n)
             if from.is_empty() || !LinkFS::copy_tree(from, dest) {
-                return out.fail(f"cannot copy the {n} product into {dest}", "")
+                return out.fail(f"cannot copy the {*n} product into {dest}", "")
             }
         }
 
         if !LinkFS::write(
-            dest + "/" + SysrootManifest::file_name(),
+            dest.copy() + "/" + SysrootManifest::file_name(),
             SysGen::render_toml(&p->recipe, &p->target),
         ) {
             return out.fail(f"cannot write {dest}/SYSROOT.toml", "")
@@ -1262,13 +1266,13 @@ pub class SysGen {
     /// recipe's [layout]; LICENSES/ per input (section 15); the
     /// __config_site and assert_file_contains checks.
     priv static fn _stage_assemble(ctx: *StageCtx, p: *SysPlan, @inout out: SysOutcome) -> bool {
-        var root  = ctx->stage + "/out"
+        var root  = ctx->stage.copy() + "/out"
         var none  = cxx::std::vector<string>()
         var parts = cxx::std::vector<string>()
         parts.push_back("libc-headers")
         parts.push_back("libc-libs")
-        for var part: string in parts {
-            var from = ctx->product(part)
+        for *part in parts {
+            var from = ctx->product(*part)
             if !SysRun::link_tree(from, root, &none) {
                 return out.fail(f"cannot lay {from} into {root}", "")
             }
@@ -1285,23 +1289,28 @@ pub class SysGen {
         )
 
         var bsrc = ctx->product("builtins") + "/" + bn
-        if !LinkFS::is_file(bsrc) || !SysRun::put_file(bsrc, root + "/" + rl + "/" + bn, true) {
+        if !LinkFS::is_file(bsrc)
+            || !SysRun::put_file(bsrc, root.copy() + "/" + rl + "/" + bn, true) {
             return out.fail(f"the builtins stage left no {bn}", "")
         }
 
         var rt = ctx->product("runtimes")
-        for var g: string in ctx->recipe.list("layout", "gather") {
-            var from = rt + "/" + g
-            var to   = root + "/" + SysRuntimes::layout_path(&ctx->recipe, g)
+        for *g in ctx->recipe.list("layout", "gather") {
+            var from = rt.copy() + "/" + *g
+            var to = root.copy() + "/" + SysRuntimes::layout_path(
+                &ctx->recipe,
+                *g,
+            )
+
             if LinkFS::is_dir(from) {
                 if !SysRun::link_tree(from, to, &none) {
                     return out.fail(f"cannot lay {from} into {to}", "")
                 }
             } else if !LinkFS::is_file(from) || !SysRun::put_file(from, to, true) {
-                return out.fail(f"the runtimes stage left no {g}", "")
+                return out.fail(f"the runtimes stage left no {*g}", "")
             }
 
-            if g == "include/c++/v1" && !LinkFS::is_file(to + "/__config_site") {
+            if *g == "include/c++/v1" && !LinkFS::is_file(to.copy() + "/__config_site") {
                 return out.fail(
                     f"{to} has no __config_site beside the libc++ headers",
                     "",
@@ -1310,13 +1319,13 @@ pub class SysGen {
         }
 
         if ctx->recipe.flag("", "crt_objects", false) {
-            for var n: string in SysRuntimes::crt_names() {
+            for *n in SysRuntimes::crt_names() {
                 if !SysRun::put_file(
-                    rt + "/crt/" + n,
-                    root + "/" + rl + "/" + n,
+                    rt.copy() + "/crt/" + *n,
+                    root.copy() + "/" + rl + "/" + *n,
                     true,
                 ) {
-                    return out.fail(f"the runtimes stage left no crt/{n}", "")
+                    return out.fail(f"the runtimes stage left no crt/{*n}", "")
                 }
             }
         }
@@ -1324,22 +1333,22 @@ pub class SysGen {
         // Section 15: every input's notices travel with the root, and the
         // compiler-rt / libc++ ones always (the builtins are in every root).
         var comps = cxx::std::vector<string>()
-        for var rel: string in p->inputs {
+        for *rel in p->inputs {
             var lic = ""
             for var i: usize = 0; i < p->share.license_dirs.size(); ++i {
-                if p->share.license_dirs[i] == rel {
+                if p->share.license_dirs[i] == *rel {
                     lic = p->share.license_ids[i].copy()
                 }
             }
 
             if lic.is_empty() {
                 return out.refuse(
-                    f"share input {rel} has no [licenses] entry in registry.toml",
+                    f"share input {*rel} has no [licenses] entry in registry.toml",
                     "",
                 )
             }
 
-            var comp = SysUtil::split(rel, ('/' as u8))[0].copy()
+            var comp = SysUtil::split(*rel, ('/' as u8))[0].copy()
             if !SysUtil::contains(&comps, comp) {
                 comps.push_back(comp)
             }
@@ -1349,23 +1358,27 @@ pub class SysGen {
             comps.push_back("runtimes")
         }
 
-        for var comp: string in comps {
-            var from = ctx->share + "/licenses/" + comp
+        for *comp in comps {
+            var from = ctx->share.copy() + "/licenses/" + *comp
             if !LinkFS::is_dir(from)
-                || !SysRun::copy_tree(from, root + "/LICENSES/" + comp, &none) {
+                || !SysRun::copy_tree(
+                    from,
+                    root.copy() + "/LICENSES/" + *comp,
+                    &none,
+                ) {
                 return out.refuse(f"share input {from} missing", "")
             }
         }
 
-        for var q: SysQuirk in ctx->quirks {
-            for var a: string in q.assert_file_contains {
-                var colon = LinkText::find(a.copy(), ":", 0)
-                var file  = root + "/" + LinkText::slice(a, 0, colon)
-                var want  = LinkText::slice(a, colon + 1, a.size())
+        for *q in ctx->quirks {
+            for *a in q->assert_file_contains {
+                var colon = LinkText::find(a->copy(), ":", 0)
+                var file  = root.copy() + "/" + LinkText::slice(*a, 0, colon)
+                var want  = LinkText::slice(*a, colon + 1, a->size())
                 var text  = ""
                 if !LinkFS::read(file, &text) || !LinkText::contains(text, want) {
                     return out.fail(
-                        f"quirk {q.id}: {file} does not contain {want}",
+                        f"quirk {q->id}: {file} does not contain {want}",
                         "",
                     )
                 }
@@ -1387,7 +1400,7 @@ pub class SysGen {
         }
 
         if !LinkFS::write(
-            ctx->stage + "/out/" + SysrootManifest::file_name(),
+            ctx->stage.copy() + "/out/" + SysrootManifest::file_name(),
             text,
         ) {
             return out.fail(f"cannot write {ctx->stage}/out/SYSROOT.toml", "")
@@ -1406,14 +1419,14 @@ pub class SysGen {
     /// its logs.
     priv static fn _stage_validate(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
         var rep  = ""
-        var root = ctx->stage + "/root"
+        var root = ctx->stage.copy() + "/root"
         var none = cxx::std::vector<string>()
         var asm_ = ctx->product("assemble")
         var tom  = ctx->product("toml") + "/" + SysrootManifest::file_name()
         if !SysRun::link_tree(asm_, root, &none)
             || !SysRun::put_file(
                 tom,
-                root + "/" + SysrootManifest::file_name(),
+                root.copy() + "/" + SysrootManifest::file_name(),
                 false,
             ) {
             return out.fail(f"cannot lay out {root} for validation", "")
@@ -1425,12 +1438,12 @@ pub class SysGen {
             &ctx->recipe,
             ctx->share,
             ctx->tools,
-            ctx->log_dir + "/validate",
+            ctx->log_dir.copy() + "/validate",
             &rep,
             &out,
         )
 
-        LinkFS::write(ctx->stage + "/out/report.txt", rep)
+        LinkFS::write(ctx->stage.copy() + "/out/report.txt", rep)
         LinkFS::remove_tree(root)
         return ok
     }
@@ -1445,14 +1458,14 @@ pub class SysGen {
                             @inout out: SysOutcome) -> bool {
         var fin = if (dest.is_empty()) => (c->sysroot_dir(p->key))
                   else => LinkText::strip_slash(dest.copy())
-        var tmp  = fin + ".tmp"
+        var tmp  = fin.copy() + ".tmp"
         var none = cxx::std::vector<string>()
         LinkFS::remove_tree(tmp)
         var tom = ctx->product("toml") + "/" + SysrootManifest::file_name()
         if !SysRun::link_tree(ctx->product("assemble"), tmp, &none)
             || !SysRun::put_file(
                 tom,
-                tmp + "/" + SysrootManifest::file_name(),
+                tmp.copy() + "/" + SysrootManifest::file_name(),
                 false,
             ) {
             LinkFS::remove_tree(tmp)
@@ -1465,23 +1478,23 @@ pub class SysGen {
         var stages = sys_stages()
         var sk     = cxx::std::vector<string>()
         for var i: usize = 0; i < stages.size(); ++i {
-            sk.push_back(stages[i] + "=" + p->stage_keys[i])
+            sk.push_back(stages[i].copy() + "=" + p->stage_keys[i])
         }
 
         SysUtil::field(&f, "stage_keys", SysUtil::json_list(&sk))
         var qids = cxx::std::vector<string>()
-        for var q: SysQuirk in p->quirks {
-            qids.push_back(q.id)
+        for *q in p->quirks {
+            qids.push_back(q->id)
         }
 
         SysUtil::field(&f, "quirks", SysUtil::json_list(&qids))
         var ins = cxx::std::vector<string>()
         for var i: usize = 0; i < p->inputs.size(); ++i {
-            ins.push_back(p->inputs[i] + "=" + p->in_sha[i])
+            ins.push_back(p->inputs[i].copy() + "=" + p->in_sha[i])
         }
 
         SysUtil::field(&f, "inputs", SysUtil::json_list(&ins))
-        var lics = LinkFS::list_dir(tmp + "/LICENSES")
+        var lics = LinkFS::list_dir(tmp.copy() + "/LICENSES")
         cxx::std::sort(lics.begin(), lics.end())
         SysUtil::field(&f, "licenses", SysUtil::json_list(&lics))
         SysUtil::field(
@@ -1499,14 +1512,14 @@ pub class SysGen {
         var by = "ksys " + SysGen::tool_version()
         SysUtil::field(&f, "generated_by", SysUtil::json_str(by))
         if !LinkFS::write(
-            tmp + "/.kairo-sysroot.json",
+            tmp.copy() + "/.kairo-sysroot.json",
             SysUtil::json_object(&f) + "\n",
         ) {
             LinkFS::remove_tree(tmp)
             return out.fail(f"cannot write {tmp}/.kairo-sysroot.json", "")
         }
 
-        if dest.is_empty() && !LinkFS::write(tmp + "/.ok", "") {
+        if dest.is_empty() && !LinkFS::write(tmp.copy() + "/.ok", "") {
             LinkFS::remove_tree(tmp)
             return out.fail(f"cannot write {tmp}/.ok", "")
         }
@@ -1548,7 +1561,7 @@ pub class SysGen {
         var val  = TomlValue{}
         while toml.next(&key, &val) {
             if toml.table == "exit" && val.kind == 1 {
-                out.push_back(key + "=" + val.text)
+                out.push_back(key.copy() + "=" + val.text)
             } else if toml.table == "types" && val.kind == 3 {
                 // [types] "<file>" = ["f16", ...]: the Kairo float types the
                 // program spells, kept as types/<file>=f16,bf16.
@@ -1613,9 +1626,9 @@ pub class SysGen {
     }
 
     priv static fn _expected(@inout exp: cxx::std::vector<string>, const file: string) -> string {
-        for var e: string in exp {
-            if LinkText::starts_with(e.copy(), file + "=") {
-                return LinkText::slice(e, file.size() + 1, e.size())
+        for *e in exp {
+            if LinkText::starts_with(e->copy(), file.copy() + "=") {
+                return LinkText::slice(*e, file.size() + 1, e->size())
             }
         }
 
@@ -1631,9 +1644,9 @@ pub class SysGen {
             var b = i + pat.size()
             var e = b
             while e < text.size()
-                && text[e] != (' ' as u8)
-                && text[e] != ('\x22' as u8)
-                && text[e] != ('\n' as u8) {
+                && text.data()[e] != (' ' as u8)
+                && text.data()[e] != ('\x22' as u8)
+                && text.data()[e] != ('\n' as u8) {
                 e += 1
             }
 
@@ -1771,9 +1784,9 @@ pub class SysGen {
     }
 
     priv static fn _first_line(const text: string) -> string {
-        for var l: string in LinkText::split_lines(text.copy()) {
-            if LinkText::contains(l, "error") {
-                return LinkText::trim(l)
+        for *l in LinkText::split_lines(text.copy()) {
+            if LinkText::contains(*l, "error") {
+                return LinkText::trim(*l)
             }
         }
 
@@ -1828,7 +1841,7 @@ pub class SysGen {
         SysUtil::field(&f, "libc_version", SysUtil::json_str(libc))
         var ins = cxx::std::vector<string>()
         for var i: usize = 0; i < p->inputs.size(); ++i {
-            ins.push_back(p->inputs[i] + "=" + p->in_sha[i])
+            ins.push_back(p->inputs[i].copy() + "=" + p->in_sha[i])
         }
 
         SysUtil::field(&f, "inputs", SysUtil::json_list(&ins))
@@ -1853,7 +1866,9 @@ pub class SysGen {
         var qs = cxx::std::vector<string>()
         for var q: SysQuirk in p->quirks {
             if stage.is_empty() || SysGen::_quirk_touches(&q, stage) {
-                qs.push_back(q.id + ":" + SysUtil::joined(&q.effects, ";"))
+                qs.push_back(
+                    q.id.copy() + ":" + SysUtil::joined(&q.effects, ";"),
+                )
             }
         }
 
@@ -1943,24 +1958,24 @@ pub class SysGen {
             stamp += f"{b} {SysUtil::file_size(b)} {LinkFS::mtime(b)}\n"
         }
 
-        var memo = if (c->root.is_empty()) => ("") else => c->root + "/build-id"
+        var memo = if (c->root.is_empty()) => ("") else => c->root.copy() + "/build-id"
         var text = ""
         if !memo.is_empty() && LinkFS::read(memo, &text) {
             var lines = LinkText::split_lines(text.copy())
-            if lines.size() >= 1 && text == stamp + lines[lines.size() - 1] + "\n" {
+            if lines.size() >= 1 && text == stamp.copy() + lines[lines.size() - 1] + "\n" {
                 return lines[lines.size() - 1].copy()
             }
         }
 
         var all = ""
-        for var b: string in bins {
-            all += LinkFS::filename(b) + " " + SysUtil::sha256_file(b) + "\n"
+        for *b in bins {
+            all += LinkFS::filename(*b) + " " + SysUtil::sha256_file(*b) + "\n"
         }
 
         var id = SysUtil::sha256(all)
         if !memo.is_empty() {
             LinkFS::make_dirs(c->root)
-            LinkFS::write(memo, stamp + id + "\n")
+            LinkFS::write(memo, stamp.copy() + id + "\n")
         }
 
         return id

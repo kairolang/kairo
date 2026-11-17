@@ -125,7 +125,7 @@ pub class SysRuntimes {
             &ctx->target,
         )
 
-        var dest = rl + "/" + bn
+        var dest = rl.copy() + "/" + bn
         if env.target.list("archives", dest).empty() {
             return out.fail(
                 f"the runtimes recipe for {ctx->target.name} has no archive {dest} (the recipe\x27s resource_layout + builtins_name)",
@@ -137,7 +137,7 @@ pub class SysRuntimes {
             ctx,
             &env,
             dest,
-            ctx->stage + "/out/" + bn,
+            ctx->stage.copy() + "/out/" + bn,
             &out,
         ) {
             return false
@@ -169,14 +169,14 @@ pub class SysRuntimes {
             return false
         }
 
-        var dst   = ctx->stage + "/out"
+        var dst   = ctx->stage.copy() + "/out"
         var hdest = env.target.str("", "headers_dest")
         var done  = cxx::std::vector<string>()
-        for var g: string in gather {
-            var at = SysRuntimes::layout_path(&ctx->recipe, g)
-            done.push_back(at)
+        for *g in gather {
+            var at = SysRuntimes::layout_path(&ctx->recipe, *g)
+            done.push_back(at.copy())
             if at == hdest {
-                if !SysRuntimes::_headers(&env, dst + "/" + g, &out) {
+                if !SysRuntimes::_headers(&env, dst.copy() + "/" + *g, &out) {
                     return false
                 }
 
@@ -185,12 +185,18 @@ pub class SysRuntimes {
 
             if env.target.list("archives", at).empty() {
                 return out.fail(
-                    f"the runtimes recipe for {ctx->target.name} has no {at} (gather item {g})",
+                    f"the runtimes recipe for {ctx->target.name} has no {at} (gather item {*g})",
                     "",
                 )
             }
 
-            if !SysRuntimes::_archive(ctx, &env, at, dst + "/" + g, &out) {
+            if !SysRuntimes::_archive(
+                ctx,
+                &env,
+                at,
+                dst.copy() + "/" + *g,
+                &out,
+            ) {
                 return false
             }
         }
@@ -208,27 +214,27 @@ pub class SysRuntimes {
             &ctx->target,
         )
 
-        for var a: string in env.target.keys_of("archives") {
-            if a != rl + "/" + bn && !SysUtil::contains(&done, a) {
+        for *a in env.target.keys_of("archives") {
+            if *a != rl.copy() + "/" + bn && !SysUtil::contains(&done, *a) {
                 return out.fail(
-                    f"the runtimes recipe for {ctx->target.name} builds {a}, which no [layout] gather item takes",
+                    f"the runtimes recipe for {ctx->target.name} builds {*a}, which no [layout] gather item takes",
                     "",
                 )
             }
         }
 
         if crt {
-            for var n: string in SysRuntimes::crt_names() {
-                var ref = env.target.str("objects", rl + "/" + n)
+            for *n in SysRuntimes::crt_names() {
+                var ref = env.target.str("objects", rl.copy() + "/" + *n)
                 if ref.is_empty() {
                     return out.fail(
-                        f"the runtimes recipe for {ctx->target.name} has no object {rl}/{n}",
+                        f"the runtimes recipe for {ctx->target.name} has no object {rl}/{*n}",
                         "",
                     )
                 }
 
                 var from = SysRuntimes::_obj(&env, ref)
-                if !SysRun::put_file(from, dst + "/crt/" + n, false) {
+                if !SysRun::put_file(from, dst.copy() + "/crt/" + *n, false) {
                     return out.fail(f"cannot copy {from}", "")
                 }
             }
@@ -268,11 +274,11 @@ pub class SysRuntimes {
         var inc = r->list("layout", "include")
         var lib = r->list("layout", "lib")
         if LinkText::starts_with(g.copy(), "include/") && !inc.empty() {
-            return inc[0] + LinkText::slice(g, 7, g.size())
+            return inc[0].copy() + LinkText::slice(g, 7, g.size())
         }
 
         if LinkText::starts_with(g.copy(), "lib/") && !lib.empty() {
-            return lib[0] + LinkText::slice(g, 3, g.size())
+            return lib[0].copy() + LinkText::slice(g, 3, g.size())
         }
 
         return g.copy()
@@ -308,7 +314,7 @@ pub class SysRuntimes {
         // A registered tree that is not a runtimes source (a share view
         // holding only REVISION) would fail on its first compile, with a
         // missing-file error that names one source and not the cause.
-        if !LinkFS::is_dir(env.src + "/compiler-rt/lib/builtins") {
+        if !LinkFS::is_dir(env.src.copy() + "/compiler-rt/lib/builtins") {
             return out.refuse(
                 f"share input {env.src} is not an LLVM runtimes source (no compiler-rt/lib/builtins)",
                 "the builtins and runtimes stages compile it; install share/kairo/runtimes with the toolchain",
@@ -316,9 +322,9 @@ pub class SysRuntimes {
         }
 
         env.share   = ctx->share.copy()
-        env.work    = ctx->stage + "/work"
-        env.build   = env.work + "/build"
-        env.sysroot = env.work + "/sysroot"
+        env.work    = ctx->stage.copy() + "/work"
+        env.build   = env.work.copy() + "/build"
+        env.sysroot = env.work.copy() + "/sysroot"
         env.trees   = env.tables.copy()
         LinkFS::remove_tree(env.work)
         if !LinkFS::make_dirs(env.work) {
@@ -331,13 +337,13 @@ pub class SysRuntimes {
                 &ctx->target,
                 &ctx->recipe,
                 tmpl,
-                env.work + "/tables",
+                env.work.copy() + "/tables",
                 &why,
             ) {
                 return out.refuse(why, "")
             }
 
-            env.tables = env.work + "/tables"
+            env.tables = env.work.copy() + "/tables"
             env.trees  = tmpl.copy()
         }
 
@@ -403,8 +409,8 @@ pub class SysRuntimes {
         }
 
         var dirs = cxx::std::vector<string>()
-        for var d: string in ctx->recipe.list("toml", "include_dirs") {
-            dirs.push_back(ctx->recipe.expand(d, &ctx->target))
+        for *d in ctx->recipe.list("toml", "include_dirs") {
+            dirs.push_back(ctx->recipe.expand(*d, &ctx->target))
         }
 
         // Outermost first, ties in list order (an insertion sort is
@@ -427,14 +433,14 @@ pub class SysRuntimes {
         }
 
         var taken = cxx::std::vector<string>()
-        for var d: string in dirs {
-            if LinkText::contains("/" + d + "/", "/c++/") {
+        for *d in dirs {
+            if LinkText::contains("/" + *d + "/", "/c++/") {
                 continue
             }
 
             var under = false
-            for var t: string in taken {
-                if LinkText::starts_with(d.copy(), t + "/") {
+            for *t in taken {
+                if LinkText::starts_with(d->copy(), t->copy() + "/") {
                     under = true
                 }
             }
@@ -443,15 +449,15 @@ pub class SysRuntimes {
                 continue
             }
 
-            taken.push_back(d)
-            var from = prod + "/" + d
-            if LinkFS::is_dir(from) && !SysRuntimes::_tree(from, dst + "/" + d, &skip, 0) {
+            taken.push_back(d->copy())
+            var from = prod.copy() + "/" + *d
+            if LinkFS::is_dir(from) && !SysRuntimes::_tree(from, dst.copy() + "/" + *d, &skip, 0) {
                 return out.fail(f"cannot lay {from} into {dst}", "")
             }
         }
 
         LinkFS::make_dirs(dst)
-        if !LinkFS::write(dst + "/" + SysrootManifest::file_name(), toml) {
+        if !LinkFS::write(dst.copy() + "/" + SysrootManifest::file_name(), toml) {
             return out.fail(f"cannot write {dst}/SYSROOT.toml", "")
         }
 
@@ -461,7 +467,7 @@ pub class SysRuntimes {
     priv static fn _depth(const s: string) -> usize {
         var n: usize = 0
         for var i: usize = 0; i < s.size(); ++i {
-            if s[i] == ('/' as u8) {
+            if s.data()[i] == ('/' as u8) {
                 n += 1
             }
         }
@@ -478,13 +484,13 @@ pub class SysRuntimes {
             return false
         }
 
-        for var name: string in LinkFS::list_dir(from) {
-            if SysUtil::contains(&skip, name) {
+        for *name in LinkFS::list_dir(from) {
+            if SysUtil::contains(&skip, *name) {
                 continue
             }
 
-            var s    = from + "/" + name
-            var d    = to + "/" + name
+            var s    = from.copy() + "/" + *name
+            var d    = to.copy() + "/" + *name
             var link = SysRun::read_link(s)
             if !link.is_empty() {
                 if !SysRun::symlink(link, d) {
@@ -543,8 +549,8 @@ pub class SysRuntimes {
 
             var kind = LinkText::slice(how, 0, colon)
             var rel  = LinkText::slice(how, colon + 1, how.size())
-            var from = if (kind == "src") => (src + "/" + rel) else => gen + "/" + rel
-            if !SysRun::put_file(from, dst + "/" + m.raw_keys[i], hard) {
+            var from = if (kind == "src") => (src.copy() + "/" + rel) else => gen.copy() + "/" + rel
+            if !SysRun::put_file(from, dst.copy() + "/" + m.raw_keys[i], hard) {
                 return out.fail(f"cannot copy {from}", "")
             }
 
@@ -565,7 +571,7 @@ pub class SysRuntimes {
                             env:        *RtEnv,
                             @inout rts: cxx::std::vector<string>,
                             @inout out: SysOutcome) -> bool {
-        var logs = ctx->log_dir + "/cc"
+        var logs = ctx->log_dir.copy() + "/cc"
         LinkFS::make_dirs(logs)
         var base = ctx->kcc(env->sysroot)
         // Keep the build machine's paths out of the objects (libc++abi's
@@ -578,53 +584,53 @@ pub class SysRuntimes {
         var jobs = SysJobs()
         jobs.limit(ctx->jobs)
         var n: usize = 0
-        for var rt: string in rts {
-            var key = env->target.str("", rt)
+        for *rt in rts {
+            var key = env->target.str("", *rt)
             if key.is_empty() {
                 continue
             }
 
-            var tpath = f"{env->tables}/{rt}/{key}.toml"
+            var tpath = f"{env->tables}/{*rt}/{key}.toml"
             var t     = SysRecipe()
             if !t.load(tpath) {
                 return out.refuse(f"{tpath}: {t.error}", "")
             }
 
-            var od = env->work + "/obj/" + rt
+            var od = env->work.copy() + "/obj/" + *rt
             if !LinkFS::make_dirs(od) {
                 return out.fail(f"cannot create {od}", "")
             }
 
             var members = cxx::std::vector<string>()
-            for var g: string in SysRuntimes::_groups(&t) {
-                var lang = t.str(g, "lang")
+            for *g in SysRuntimes::_groups(&t) {
+                var lang = t.str(*g, "lang")
                 var fl   = cxx::std::vector<string>()
-                for var f: string in t.list("flags", lang) {
-                    fl.push_back(SysRuntimes::_expand(env, f))
+                for *f in t.list("flags", lang) {
+                    fl.push_back(SysRuntimes::_expand(env, *f))
                 }
 
-                for var f: string in t.list(g, "flags") {
-                    fl.push_back(SysRuntimes::_expand(env, f))
+                for *f in t.list(*g, "flags") {
+                    fl.push_back(SysRuntimes::_expand(env, *f))
                 }
 
-                for var e: string in t.list(g, "sources") {
-                    var path   = SysRuntimes::_entry_path(e)
-                    var member = SysRuntimes::_entry_member(e)
-                    members.push_back(member)
+                for *e in t.list(*g, "sources") {
+                    var path   = SysRuntimes::_entry_path(*e)
+                    var member = SysRuntimes::_entry_member(*e)
+                    members.push_back(member.copy())
                     var argv = base
-                    for var f: string in fl {
-                        argv.push_back(f)
+                    for *f in fl {
+                        argv.push_back(*f)
                     }
 
-                    for var f: string in maps {
-                        argv.push_back(f)
+                    for *f in maps {
+                        argv.push_back(*f)
                     }
 
                     argv.push_back("-c")
-                    argv.push_back(env->src + "/" + path)
+                    argv.push_back(env->src.copy() + "/" + path)
                     argv.push_back("-o")
-                    argv.push_back(od + "/" + member)
-                    if !jobs.add(&argv, f"{logs}/{rt}-{n}.log") {
+                    argv.push_back(od.copy() + "/" + member)
+                    if !jobs.add(&argv, f"{logs}/{*rt}-{n}.log") {
                         break
                     }
 
@@ -662,10 +668,10 @@ pub class SysRuntimes {
     /// The [group.*] tables of \p t, in file order.
     priv static fn _groups(t: *SysRecipe) -> cxx::std::vector<string> {
         var gs = cxx::std::vector<string>()
-        for var tb: string in t->raw_tables {
-            if LinkText::starts_with(tb.copy(), "group.")
-                && (gs.empty() || gs[gs.size() - 1] != tb) {
-                gs.push_back(tb)
+        for *tb in t->raw_tables {
+            if LinkText::starts_with(tb->copy(), "group.")
+                && (gs.empty() || gs[gs.size() - 1] != *tb) {
+                gs.push_back(*tb)
             }
         }
 
@@ -682,10 +688,10 @@ pub class SysRuntimes {
                             const to:   string,
                             @inout out: SysOutcome) -> bool {
         var objs = cxx::std::vector<string>()
-        for var m: string in env->target.list("archives", dest) {
-            var o = SysRuntimes::_obj(env, m)
+        for *m in env->target.list("archives", dest) {
+            var o = SysRuntimes::_obj(env, *m)
             if !LinkFS::is_file(o) {
-                return out.fail(f"{dest}: member {m} was not compiled", "")
+                return out.fail(f"{dest}: member {*m} was not compiled", "")
             }
 
             objs.push_back(o)
@@ -726,7 +732,9 @@ pub class SysRuntimes {
         var colon = LinkText::find(ref.copy(), ":", 0)
         var rt    = LinkText::slice(ref, 0, colon)
         var e     = LinkText::slice(ref, colon + 1, ref.size())
-        return env->work + "/obj/" + rt + "/" + SysRuntimes::_entry_member(e)
+        return env->work.copy() + "/obj/" + rt + "/" + SysRuntimes::_entry_member(
+            e,
+        )
     }
 
     /// `<path>` or `<path>=<member>`: the source path.
@@ -757,9 +765,9 @@ pub class SysRuntimes {
     }
 
     priv static fn _first_error(const text: string) -> string {
-        for var l: string in LinkText::split_lines(text.copy()) {
-            if LinkText::contains(l, "error") {
-                return LinkText::trim(l)
+        for *l in LinkText::split_lines(text.copy()) {
+            if LinkText::contains(*l, "error") {
+                return LinkText::trim(*l)
             }
         }
 

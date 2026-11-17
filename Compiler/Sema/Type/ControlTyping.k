@@ -58,9 +58,9 @@ import AST::LangItems::{
     to_string,
 }
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -352,7 +352,7 @@ pub class <T: type> ControlTyping {
     /// # match on a nullable (Compiler/Spec/Nullables.md#match)
 
     /// \p p is the `null` literal pattern.
-    priv fn _null_pattern(self, p: unsafe *Pattern) -> bool {
+    priv fn _null_pattern(self, p: unsafe *AstPattern) -> bool {
         if p == &null || p->kind != PatternKind::LiteralPattern {
             return false
         }
@@ -361,7 +361,7 @@ pub class <T: type> ControlTyping {
     }
 
     /// \p p is, or has as an alternative, the `null` literal pattern.
-    priv fn _has_null_pattern(self, p: unsafe *Pattern) -> bool {
+    priv fn _has_null_pattern(self, p: unsafe *AstPattern) -> bool {
         if self._null_pattern(p) {
             return true
         }
@@ -610,7 +610,7 @@ pub class <T: type> ControlTyping {
         return st
     }
 
-    priv fn _enum_head_type(self, p: unsafe *Pattern) -> unsafe *Type {
+    priv fn _enum_head_type(self, p: unsafe *AstPattern) -> unsafe *Type {
         if p == &null {
             return &null
         }

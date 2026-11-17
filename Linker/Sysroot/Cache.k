@@ -119,7 +119,7 @@ pub class SysCache {
             return ""
         }
 
-        return SysCache::_slashes(r + "/sysroot")
+        return SysCache::_slashes(r.copy() + "/sysroot")
     }
 
     pub fn stage_dir(self, const stage: string, const key: string) -> string {
@@ -184,7 +184,7 @@ pub class SysCache {
 
         if ec.value() != 0 || !LinkFS::is_dir(tmp) {
             LinkFS::remove(tmp)
-            if !LinkFS::write(tmp, key + "\n") {
+            if !LinkFS::write(tmp, key.copy() + "\n") {
                 return false
             }
         }
@@ -202,16 +202,16 @@ pub class SysCache {
         var names = LinkFS::list_dir(f"{self.root}/by-name")
         cxx::std::sort(names.begin(), names.end())
         var out = cxx::std::vector<string>()
-        for var n: string in names {
-            if LinkText::starts_with(n.copy(), ".") {
+        for *n in names {
+            if LinkText::starts_with(n->copy(), ".") {
                 continue
             }
 
-            var key = self.key_of(n)
+            var key = self.key_of(*n)
             if key.is_empty() {
-                out.push_back(f"{n}  (dangling)")
+                out.push_back(f"{*n}  (dangling)")
             } else {
-                out.push_back(f"{n}  {self.sysroot_dir(key)}")
+                out.push_back(f"{*n}  {self.sysroot_dir(key)}")
             }
         }
 
@@ -240,31 +240,31 @@ pub class SysCache {
     /// removed, one path per entry.
     pub fn gc(self, now: u64, max_age_ticks: u64) -> cxx::std::vector<string> {
         var removed = cxx::std::vector<string>()
-        for var name: string in LinkFS::list_dir(f"{self.root}/by-name") {
-            if LinkText::starts_with(name.copy(), ".") {
-                var p = f"{self.root}/by-name/{name}"
+        for *name in LinkFS::list_dir(f"{self.root}/by-name") {
+            if LinkText::starts_with(name->copy(), ".") {
+                var p = f"{self.root}/by-name/{*name}"
                 LinkFS::remove(p)
                 removed.push_back(p)
                 continue
             }
 
-            if self.key_of(name).is_empty() {
-                var p = f"{self.root}/by-name/{name}"
+            if self.key_of(*name).is_empty() {
+                var p = f"{self.root}/by-name/{*name}"
                 LinkFS::remove(p)
                 removed.push_back(p)
             }
         }
 
-        for var key: string in LinkFS::list_dir(f"{self.root}/sysroots") {
-            if !self._referenced(key) {
-                var p = self.sysroot_dir(key)
+        for *key in LinkFS::list_dir(f"{self.root}/sysroots") {
+            if !self._referenced(*key) {
+                var p = self.sysroot_dir(*key)
                 LinkFS::remove_tree(p)
                 removed.push_back(p)
             }
         }
 
-        for var s: string in LinkFS::list_dir(f"{self.root}/stage") {
-            var p = f"{self.root}/stage/{s}"
+        for *s in LinkFS::list_dir(f"{self.root}/stage") {
+            var p = f"{self.root}/stage/{*s}"
             var t = LinkFS::mtime(p)
             if t != 0 && now > t && now - t > max_age_ticks {
                 LinkFS::remove_tree(p)
@@ -287,8 +287,8 @@ pub class SysCache {
     }
 
     priv fn _referenced(self, const key: string) -> bool {
-        for var name: string in LinkFS::list_dir(f"{self.root}/by-name") {
-            if !LinkText::starts_with(name.copy(), ".") && self.key_of(name) == key {
+        for *name in LinkFS::list_dir(f"{self.root}/by-name") {
+            if !LinkText::starts_with(name->copy(), ".") && self.key_of(*name) == key {
                 return true
             }
         }
@@ -320,11 +320,11 @@ pub class SysStage {
     }
 
     pub fn done(self) -> bool {
-        return LinkFS::is_file(self.dir + "/.ok")
+        return LinkFS::is_file(self.dir.copy() + "/.ok")
     }
 
     pub fn tmp(self) -> string {
-        return self.dir + ".tmp"
+        return self.dir.copy() + ".tmp"
     }
 
     pub fn log_dir(self) -> string {
@@ -342,17 +342,17 @@ pub class SysStage {
             return false
         }
 
-        LinkFS::remove_tree(self.dir + ".failed")
+        LinkFS::remove_tree(self.dir.copy() + ".failed")
         LinkFS::remove_tree(self.dir)
         return LinkFS::rename(self.tmp(), self.dir)
     }
 
     /// Keeps the log as `<dir>.failed`; returns its log path.
     pub fn fail(self, const why: string) -> string {
-        LinkFS::write(self.log_dir() + "/error.txt", why + "\n")
-        LinkFS::remove_tree(self.dir + ".failed")
-        LinkFS::rename(self.tmp(), self.dir + ".failed")
-        return self.dir + ".failed/log"
+        LinkFS::write(self.log_dir() + "/error.txt", why.copy() + "\n")
+        LinkFS::remove_tree(self.dir.copy() + ".failed")
+        LinkFS::rename(self.tmp(), self.dir.copy() + ".failed")
+        return self.dir.copy() + ".failed/log"
     }
 
     /// A refusal is not a failure: nothing was attempted worth a log.

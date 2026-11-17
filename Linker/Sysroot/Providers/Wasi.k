@@ -60,15 +60,15 @@ pub class WasiProvider derives SysrootProvider {
         }
 
         var base = ctx->inputs[0].copy()
-        for var k: string in ctx->recipe.keys_of("bundle_layout") {
-            var from = base + "/" + k
+        for *k in ctx->recipe.keys_of("bundle_layout") {
+            var from = base.copy() + "/" + *k
             if !LinkFS::is_dir(from) {
                 return out.refuse(f"share input {from} missing", "")
             }
 
             if !ctx->materialise(
                 from,
-                dst + "/" + ctx->recipe.str("bundle_layout", k),
+                dst.copy() + "/" + ctx->recipe.str("bundle_layout", *k),
                 &out,
             ) {
                 return false
@@ -86,16 +86,16 @@ pub class WasiProvider derives SysrootProvider {
         }
 
         var err = ""
-        for var h: CrtPair in t.headers {
+        for *h in t.headers {
             if !SysCrt::put_ref(
-                h.val,
-                tables + "/src",
-                tables + "/gen",
-                dst + "/" + h.key,
+                h->val,
+                tables.copy() + "/src",
+                tables.copy() + "/gen",
+                dst.copy() + "/" + h->key,
                 false,
                 &err,
             ) {
-                return out.refuse(f"{t.path}: [headers] {h.key}: {err}", "")
+                return out.refuse(f"{t.path}: [headers] {h->key}: {err}", "")
             }
         }
 
@@ -118,11 +118,11 @@ pub class WasiProvider derives SysrootProvider {
         // {build} is the work dir itself and {sysroot} a dir in it, as the
         // runner lays them out: the object paths are {build}-relative and
         // never start with sysroot/.
-        var work = ctx->stage + "/libc"
+        var work = ctx->stage.copy() + "/libc"
         var env  = CrtEnv()
-        env.src     = tables + "/src"
+        env.src     = tables.copy() + "/src"
         env.build   = work.copy()
-        env.sysroot = work + "/sysroot"
+        env.sysroot = work.copy() + "/sysroot"
         env.src_tag = "wasi-libc"
         LinkFS::remove_tree(work)
         if !LinkFS::make_dirs(env.sysroot) {
@@ -130,21 +130,21 @@ pub class WasiProvider derives SysrootProvider {
         }
 
         var err = ""
-        for var h: CrtPair in t.headers {
+        for *h in t.headers {
             if !SysCrt::put_ref(
-                h.val,
+                h->val,
                 env.src,
-                tables + "/gen",
-                env.sysroot + "/" + h.key,
+                tables.copy() + "/gen",
+                env.sysroot.copy() + "/" + h->key,
                 true,
                 &err,
             ) {
-                return out.refuse(f"{t.path}: [headers] {h.key}: {err}", "")
+                return out.refuse(f"{t.path}: [headers] {h->key}: {err}", "")
             }
         }
 
         if !LinkFS::write(
-            env.sysroot + "/SYSROOT.toml",
+            env.sysroot.copy() + "/SYSROOT.toml",
             ctx->recipe.render_toml(&ctx->target),
         ) {
             return out.fail(f"cannot write {env.sysroot}/SYSROOT.toml", "")
@@ -158,8 +158,13 @@ pub class WasiProvider derives SysrootProvider {
         )
 
         var rt = ctx->product("builtins") + "/" + bn
-        var rd = env.sysroot + "/compiler-rt/lib/" + t.clang_triple
-        if !LinkFS::is_file(rt) || !SysRun::put_file(rt, rd + "/libclang_rt.builtins.a", true) {
+        var rd = env.sysroot.copy() + "/compiler-rt/lib/" + t.clang_triple
+        if !LinkFS::is_file(rt)
+            || !SysRun::put_file(
+                rt,
+                rd.copy() + "/libclang_rt.builtins.a",
+                true,
+            ) {
             return out.fail(f"the builtins stage left no {bn}", "")
         }
 
@@ -167,13 +172,13 @@ pub class WasiProvider derives SysrootProvider {
             return false
         }
 
-        for var a: CrtArchive in t.archives {
+        for *a in t.archives {
             var objs = cxx::std::vector<string>()
-            for var m: string in a.members {
-                objs.push_back(env.build + "/" + m)
+            for *m in a->members {
+                objs.push_back(env.build.copy() + "/" + *m)
             }
 
-            var o = env.build + "/" + a.out
+            var o = env.build.copy() + "/" + a->out
             LinkFS::make_dirs(LinkFS::parent(o))
             LinkFS::remove(o)
             if !LinkFS::write_archive(o, &objs) {
@@ -181,9 +186,9 @@ pub class WasiProvider derives SysrootProvider {
             }
         }
 
-        for var e: string in t.empty {
-            if !SysCrt::write_empty_archive(env.sysroot + "/" + e) {
-                return out.fail(f"cannot write {env.sysroot}/{e}", "")
+        for *e in t.empty {
+            if !SysCrt::write_empty_archive(env.sysroot.copy() + "/" + *e) {
+                return out.fail(f"cannot write {env.sysroot}/{*e}", "")
             }
         }
 
@@ -195,17 +200,17 @@ pub class WasiProvider derives SysrootProvider {
             argv.push_back(ctx->tool("kld"))
             argv.push_back("-flavor")
             argv.push_back("wasm")
-            for var x: string in l.ld {
-                if x == "{members}" {
-                    for var m: string in l.members {
-                        argv.push_back(env.build + "/" + m)
+            for *x in l.ld {
+                if *x == "{members}" {
+                    for *m in l.members {
+                        argv.push_back(env.build.copy() + "/" + *m)
                     }
                 } else {
-                    argv.push_back(SysCrt::expand(&env, x))
+                    argv.push_back(SysCrt::expand(&env, *x))
                 }
             }
 
-            var o = env.build + "/" + l.out
+            var o = env.build.copy() + "/" + l.out
             LinkFS::make_dirs(LinkFS::parent(o))
             argv.push_back("-o")
             argv.push_back(o)
@@ -223,17 +228,21 @@ pub class WasiProvider derives SysrootProvider {
             WasiProvider::_install_ready(&t, &env)
         }
 
-        for var i: CrtPair in t.install {
-            if !LinkFS::is_file(env.sysroot + "/" + i.key) {
+        for *i in t.install {
+            if !LinkFS::is_file(env.sysroot.copy() + "/" + i->key) {
                 return out.fail(
-                    f"{t.path}: [install] {i.key}: nothing built {i.val}",
+                    f"{t.path}: [install] {i->key}: nothing built {i->val}",
                     "",
                 )
             }
         }
 
         var none = cxx::std::vector<string>()
-        if !SysRun::link_tree(env.sysroot + "/lib", dst + "/lib", &none) {
+        if !SysRun::link_tree(
+            env.sysroot.copy() + "/lib",
+            dst.copy() + "/lib",
+            &none,
+        ) {
             return out.fail(f"cannot lay {env.sysroot}/lib into {dst}", "")
         }
 
@@ -270,9 +279,9 @@ pub class WasiProvider derives SysrootProvider {
     /// Every [install] entry whose source exists now and is not in {sysroot}
     /// yet, copied there.
     priv static fn _install_ready(t: *SysCrtTable, env: *CrtEnv) {
-        for var i: CrtPair in t->install {
-            var from = env->build + "/" + i.val
-            var to   = env->sysroot + "/" + i.key
+        for *i in t->install {
+            var from = env->build.copy() + "/" + i->val
+            var to   = env->sysroot.copy() + "/" + i->key
             if LinkFS::is_file(from) && !LinkFS::exists(to) {
                 SysRun::put_file(from, to, true)
             }

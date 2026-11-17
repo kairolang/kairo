@@ -61,17 +61,17 @@ pub class TomlLite {
                 return false
             }
 
-            if self._s[self._i] != ('[' as u8) {
+            if self._s.data()[self._i] != ('[' as u8) {
                 break
             }
 
             var hb = self._i + 1
-            while self._i < self._s.size() && self._s[self._i] != ('\n' as u8) {
+            while self._i < self._s.size() && self._s.data()[self._i] != ('\n' as u8) {
                 self._i += 1
             }
 
             var he = hb
-            while he < self._i && self._s[he] != (']' as u8) {
+            while he < self._i && self._s.data()[he] != (']' as u8) {
                 he += 1
             }
 
@@ -80,7 +80,7 @@ pub class TomlLite {
 
         // A quoted key: registry.toml's input dirs hold `/` and `.`, which a
         // bare TOML key cannot.
-        if self._s[self._i] == ('\x22' as u8) {
+        if self._s.data()[self._i] == ('\x22' as u8) {
             if !self._string(&key) {
                 return false
             }
@@ -90,7 +90,7 @@ pub class TomlLite {
 
         var b = self._i
         while self._i < self._s.size() {
-            var c = self._s[self._i]
+            var c = self._s.data()[self._i]
             if c == ('=' as u8) || c == (' ' as u8) || c == ('\t' as u8) || c == ('\n' as u8) {
                 break
             }
@@ -104,7 +104,7 @@ pub class TomlLite {
 
     priv fn _after_key(self, @inout key: string, @inout val: TomlValue) -> bool {
         self._skip(false)
-        if self._i >= self._s.size() || self._s[self._i] != ('=' as u8) {
+        if self._i >= self._s.size() || self._s.data()[self._i] != ('=' as u8) {
             return self._fail(f"expected = after {key}")
         }
 
@@ -117,7 +117,7 @@ pub class TomlLite {
         }
 
         self._skip(false)
-        if self._i < self._s.size() && self._s[self._i] != ('\n' as u8) {
+        if self._i < self._s.size() && self._s.data()[self._i] != ('\n' as u8) {
             return self._fail(f"unexpected text after the value of {key}")
         }
 
@@ -129,7 +129,7 @@ pub class TomlLite {
             return self._fail("missing value")
         }
 
-        var c = self._s[self._i]
+        var c = self._s.data()[self._i]
 
         if c == ('\x22' as u8) || c == ('\x27' as u8) {
             val.kind = 1
@@ -145,12 +145,12 @@ pub class TomlLite {
                     return self._fail("unterminated array")
                 }
 
-                if self._s[self._i] == (']' as u8) {
+                if self._s.data()[self._i] == (']' as u8) {
                     self._i += 1
                     return true
                 }
 
-                var q = self._s[self._i]
+                var q = self._s.data()[self._i]
                 if q != ('\x22' as u8) && q != ('\x27' as u8) {
                     return self._fail("arrays may only hold strings")
                 }
@@ -162,7 +162,7 @@ pub class TomlLite {
 
                 val.list.push_back(item)
                 self._skip(true)
-                if self._i < self._s.size() && self._s[self._i] == (',' as u8) {
+                if self._i < self._s.size() && self._s.data()[self._i] == (',' as u8) {
                     self._i += 1
                 }
             }
@@ -170,7 +170,7 @@ pub class TomlLite {
 
         var b = self._i
         while self._i < self._s.size() {
-            var d = self._s[self._i]
+            var d = self._s.data()[self._i]
             if d == ('\n' as u8)
                 || d == ('#' as u8)
                 || d == (' ' as u8)
@@ -198,12 +198,12 @@ pub class TomlLite {
 
     /// Basic ("...", with \" \\ \n \t) or literal ('...', no escapes).
     priv fn _string(self, @inout out: string) -> bool {
-        var q = self._s[self._i]
+        var q = self._s.data()[self._i]
         self._i += 1
         var b   = self._i
         var res = ""
         while self._i < self._s.size() {
-            var c = self._s[self._i]
+            var c = self._s.data()[self._i]
             if c == ('\n' as u8) {
                 break
             }
@@ -217,7 +217,7 @@ pub class TomlLite {
 
             if q == ('\x22' as u8) && c == ('\\' as u8) && self._i + 1 < self._s.size() {
                 res += LinkText::slice(self._s, b, self._i)
-                var e = self._s[self._i + 1]
+                var e = self._s.data()[self._i + 1]
                 if e == ('n' as u8) {
                     res += "\n"
                 } else if e == ('t' as u8) {
@@ -239,7 +239,7 @@ pub class TomlLite {
 
     priv fn _skip(self, newlines: bool) {
         while self._i < self._s.size() {
-            var c = self._s[self._i]
+            var c = self._s.data()[self._i]
             if c == (' ' as u8) || c == ('\t' as u8) || c == ('\r' as u8) {
                 self._i += 1
                 continue
@@ -251,7 +251,7 @@ pub class TomlLite {
             }
 
             if c == ('#' as u8) {
-                while self._i < self._s.size() && self._s[self._i] != ('\n' as u8) {
+                while self._i < self._s.size() && self._s.data()[self._i] != ('\n' as u8) {
                     self._i += 1
                 }
 
@@ -265,7 +265,7 @@ pub class TomlLite {
     priv fn _fail(self, const what: string) -> bool {
         var line: usize = 1
         for var i: usize = 0; i < self._i && i < self._s.size(); ++i {
-            if self._s[i] == ('\n' as u8) {
+            if self._s.data()[i] == ('\n' as u8) {
                 line += 1
             }
         }

@@ -113,9 +113,9 @@ import AST::LangItems::{
     to_string,
 }
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -1685,7 +1685,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// An opaque head's test, read off the pattern. Its operands are
     /// literals and constant names (X: SC126E for range bounds), leaves no
     /// later pass rewrites, so reading them on more than one path is safe.
-    priv fn _opaque_cond(self, occ: u32, p: unsafe *Pattern) -> unsafe *Expr {
+    priv fn _opaque_cond(self, occ: u32, p: unsafe *AstPattern) -> unsafe *Expr {
         var unsafe *t = self._occ_type(occ)
         if t != &null && self.tu.is_string(t) {
             var b = cxx::std::vector<u8>()
@@ -1786,7 +1786,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// every call: a test rendered on two paths is two trees.
     priv fn _eq_test(self,
                      occ:   u32,
-                     p:     unsafe *Pattern,
+                     p:     unsafe *AstPattern,
                      typed: unsafe *BinaryOperatorExpr) -> unsafe *Expr {
         var rhs: unsafe *Expr = &null
         if p->kind == PatternKind::LiteralPattern {

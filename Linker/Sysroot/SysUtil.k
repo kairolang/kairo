@@ -113,13 +113,13 @@ pub class SysUtil {
         cxx::std::sort(rels.begin(), rels.end())
 
         var stream = if (follow) => ("schema 1\n") else => "schema 2\n"
-        for var r: string in rels {
-            var p = LinkText::join(dir.copy(), r.copy())
-            stream += f"{r} {SysUtil::file_size(p)} {LinkFS::mtime(p)}\n"
+        for *r in rels {
+            var p = LinkText::join(dir.copy(), r->copy())
+            stream += f"{*r} {SysUtil::file_size(p)} {LinkFS::mtime(p)}\n"
         }
 
-        for var l: string in links {
-            stream += f"link {l}\n"
+        for *l in links {
+            stream += f"link {*l}\n"
         }
 
         return SysUtil::sha256(stream)
@@ -139,7 +139,7 @@ pub class SysUtil {
     pub static fn json_str(const s: string) -> string {
         var out = "\x22"
         for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
+            var c = s.data()[i]
             if c == ('\x22' as u8) || c == ('\\' as u8) {
                 out += "\\"
                 out.push_back(c)
@@ -176,8 +176,8 @@ pub class SysUtil {
     /// were added in.
     pub static fn json_object(@inout fields: cxx::std::vector<SysJsonField>) -> string {
         var keys = cxx::std::vector<string>()
-        for var f: SysJsonField in fields {
-            keys.push_back(f.key)
+        for *f in fields {
+            keys.push_back(f->key)
         }
 
         cxx::std::sort(keys.begin(), keys.end())
@@ -187,11 +187,11 @@ pub class SysUtil {
                 out += ","
             }
 
-            for var f: SysJsonField in fields {
-                if f.key == keys[i] {
-                    out += SysUtil::json_str(f.key)
+            for *f in fields {
+                if f->key == keys[i] {
+                    out += SysUtil::json_str(f->key)
                     out += ":"
-                    out += f.json
+                    out += f->json
                     break
                 }
             }
@@ -214,7 +214,7 @@ pub class SysUtil {
         var out       = cxx::std::vector<string>()
         var b:  usize = 0
         for var i: usize = 0; i < s.size(); ++i {
-            if s[i] == sep {
+            if s.data()[i] == sep {
                 out.push_back(LinkText::slice(s, b, i))
                 b = i + 1
             }
@@ -260,8 +260,8 @@ pub class SysUtil {
     }
 
     pub static fn contains(@inout xs: cxx::std::vector<string>, const s: string) -> bool {
-        for var x: string in xs {
-            if x == s {
+        for *x in xs {
+            if *x == s {
                 return true
             }
         }
@@ -285,11 +285,11 @@ pub class SysUtil {
     priv static fn _num(const s: string) -> u64 {
         var v: u64 = 0
         for var i: usize = 0; i < s.size(); ++i {
-            if s[i] < ('0' as u8) || s[i] > ('9' as u8) {
+            if s.data()[i] < ('0' as u8) || s.data()[i] > ('9' as u8) {
                 break
             }
 
-            v = v * 10 + ((s[i] - ('0' as u8)) as u64)
+            v = v * 10 + ((s.data()[i] - ('0' as u8)) as u64)
         }
 
         return v
@@ -309,9 +309,9 @@ pub class SysUtil {
             return
         }
 
-        for var name: string in LinkFS::list_dir(dir) {
-            var p = LinkText::join(dir.copy(), name.copy())
-            var r = if (rel.is_empty()) => (name) else => rel + "/" + name
+        for *name in LinkFS::list_dir(dir) {
+            var p = LinkText::join(dir.copy(), name->copy())
+            var r = if (rel.is_empty()) => (*name) else => rel.copy() + "/" + *name
             if !follow && llvm::sys::fs::is_symlink_file(llvm::Twine(kairo::sref(p))) {
                 links.push_back(r)
             } else if LinkFS::is_dir(p) {

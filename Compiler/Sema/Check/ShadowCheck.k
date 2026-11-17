@@ -78,8 +78,8 @@ ffi "c++" import "vector"
 import AST::ASTSupport::FrozenList
 import AST::Kind::PatternKind::PatternKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
-    Pattern,
     Type,
 }
 import AST::Node::Casting::{
@@ -625,7 +625,7 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
         self._declare(self._name_imm(vd->name), d, d->range)
     }
 
-    priv fn _declare_pattern_binders(self, p: unsafe *Pattern) {
+    priv fn _declare_pattern_binders(self, p: unsafe *AstPattern) {
         if p == &null {
             return
         }

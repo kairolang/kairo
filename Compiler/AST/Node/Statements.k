@@ -25,9 +25,9 @@ import AST::Context::ASTContext::ASTContext
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Kind::StmtKind::StmtKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Stmt,
     Type,
 }
@@ -1650,10 +1650,10 @@ pub class CompoundStmt derives Stmt {
 ///  (Kairo has no fall-through; comma is the only way to share a body).
 ///
 pub struct MatchCase {
-    pub var patterns:   FrozenList<unsafe *Pattern> ///< empty when is_default.
-    pub var guard:      unsafe *Expr                ///< optional `where` guard; null if none.
+    pub var patterns:   FrozenList<unsafe *AstPattern> ///< empty when is_default.
+    pub var guard:      unsafe *Expr                   ///< optional `where` guard; null if none.
     pub var body:       unsafe *CompoundStmt
-    pub var expression: unsafe *Expr                ///< expr only path invalidates the body.
+    pub var expression: unsafe *Expr                   ///< expr only path invalidates the body.
     pub var range:      SourceRange
     pub var is_default: bool
 }

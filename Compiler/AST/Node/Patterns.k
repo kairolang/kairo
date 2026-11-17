@@ -2,7 +2,7 @@
 ///
 ///   Pattern-position AST nodes for `match` cases and destructuring.
 ///
-///   Every concrete Pattern subclass sets kind to its PatternKind and provides
+///   Every concrete AstPattern subclass sets kind to its PatternKind and provides
 ///   create / create_error plus classof / pattern_kind for the RTTI-free cast
 ///   system (see Casting.k).
 ///
@@ -19,16 +19,16 @@ import AST::ASTSupport::FrozenList
 import AST::Context::ASTContext::ASTContext
 import AST::Kind::PatternKind::PatternKind
 import AST::Node::Base::{
+    AstPattern,
     Decl,
     Expr,
-    Pattern,
     Type,
 }
 import Location::SourceRange::SourceRange
 import Token::Token::Token
 
 ///  WildcardPattern :  _
-pub class WildcardPattern derives Pattern {
+pub class WildcardPattern derives AstPattern {
     pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *WildcardPattern {
         var unsafe *node = ctx->alloc<WildcardPattern>()
         node->kind  = PatternKind::WildcardPattern
@@ -47,7 +47,7 @@ pub class WildcardPattern derives Pattern {
     }
 
     /* OVERRIDE */
-    static fn classof(ptr: *const Pattern) -> bool {
+    static fn classof(ptr: *const AstPattern) -> bool {
         return ptr->kind == PatternKind::WildcardPattern
     }
 
@@ -59,7 +59,7 @@ pub class WildcardPattern derives Pattern {
 
 ///  LiteralPattern :  1 | "foo" | true | null | 'a'
 ///  `value` is the literal expr (IntegerLiteralExpr, StringLiteralExpr, etc).
-pub class LiteralPattern derives Pattern {
+pub class LiteralPattern derives AstPattern {
     pub var value: unsafe *Expr
 
     pub static fn create(ctx:   *ASTContext,
@@ -84,7 +84,7 @@ pub class LiteralPattern derives Pattern {
     }
 
     /* OVERRIDE */
-    static fn classof(ptr: *const Pattern) -> bool {
+    static fn classof(ptr: *const AstPattern) -> bool {
         return ptr->kind == PatternKind::LiteralPattern
     }
 
@@ -97,7 +97,7 @@ pub class LiteralPattern derives Pattern {
 ///  BindingPattern :  var x | const x | var x: i32
 ///  Type-ascribed binding folds in here: type_ non-null when `: T` was written.
 ///  `is_const` is the resolved mutability. `name` is the bound identifier.
-pub class BindingPattern derives Pattern {
+pub class BindingPattern derives AstPattern {
     pub var name:     Token
     pub var is_const: bool         = false
     pub var type_:    unsafe *Type = &null ///< explicit `: T` ascription; null if none.
@@ -136,7 +136,7 @@ pub class BindingPattern derives Pattern {
     }
 
     /* OVERRIDE */
-    static fn classof(ptr: *const Pattern) -> bool {
+    static fn classof(ptr: *const AstPattern) -> bool {
         return ptr->kind == PatternKind::BindingPattern
     }
 
@@ -147,8 +147,8 @@ pub class BindingPattern derives Pattern {
 }
 
 ///  TupleDestructurePattern :  (p, p, ...)
-pub class TupleDestructurePattern derives Pattern {
-    pub var elements: FrozenList<unsafe *Pattern>
+pub class TupleDestructurePattern derives AstPattern {
+    pub var elements: FrozenList<unsafe *AstPattern>
 
     pub static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *TupleDestructurePattern {
         var unsafe *node = ctx->alloc<TupleDestructurePattern>()
@@ -169,7 +169,7 @@ pub class TupleDestructurePattern derives Pattern {
     }
 
     /* OVERRIDE */
-    static fn classof(ptr: *const Pattern) -> bool {
+    static fn classof(ptr: *const AstPattern) -> bool {
         return ptr->kind == PatternKind::TupleDestructurePattern
     }
 
@@ -188,12 +188,12 @@ pub class TupleDestructurePattern derives Pattern {
 ///  the `.Ident`. `is_dotted` selects between them. `subpatterns` is the paren
 ///  payload, empty for a bare `.Variant` or `Foo` with no parens.
 ///  `has_parens` distinguishes `Foo` (nullary path pattern) from `Foo()`.
-pub class ConstructorPattern derives Pattern {
-    pub var head:        unsafe *Expr                = &null ///< resolved path (ChainExpr / NamedIdentExpr); null when is_dotted.
+pub class ConstructorPattern derives AstPattern {
+    pub var head:        unsafe *Expr                   = &null ///< resolved path (ChainExpr / NamedIdentExpr); null when is_dotted.
     pub var dotted_name: Token ///< the `.Ident`; valid when is_dotted.
-    pub var is_dotted:   bool                        = false
-    pub var has_parens:  bool                        = false ///< `Foo()` / `.V()` vs `Foo` / `.V`.
-    pub var subpatterns: FrozenList<unsafe *Pattern>
+    pub var is_dotted:   bool                           = false
+    pub var has_parens:  bool                           = false ///< `Foo()` / `.V()` vs `Foo` / `.V`.
+    pub var subpatterns: FrozenList<unsafe *AstPattern>
 
     pub static fn create(
         ctx:        *ASTContext,
@@ -227,7 +227,7 @@ pub class ConstructorPattern derives Pattern {
     }
 
     /* OVERRIDE */
-    static fn classof(ptr: *const Pattern) -> bool {
+    static fn classof(ptr: *const AstPattern) -> bool {
         return ptr->kind == PatternKind::ConstructorPattern
     }
 
@@ -242,10 +242,10 @@ pub class ConstructorPattern derives Pattern {
 ///  Identical shape to ConstructorPattern minus the dotted case (dotted never
 ///  misses). Distinct kind so sema runs one "resolve-or-error" path instead of
 ///  re-deriving hit vs miss. Never produced for `.Variant`.
-pub class UnresolvedConstructorPattern derives Pattern {
-    pub var head:        unsafe *Expr                = &null ///< the unresolved path (ChainExpr / NamedIdentExpr).
-    pub var has_parens:  bool                        = false
-    pub var subpatterns: FrozenList<unsafe *Pattern>
+pub class UnresolvedConstructorPattern derives AstPattern {
+    pub var head:        unsafe *Expr                   = &null ///< the unresolved path (ChainExpr / NamedIdentExpr).
+    pub var has_parens:  bool                           = false
+    pub var subpatterns: FrozenList<unsafe *AstPattern>
 
     pub static fn create(
         ctx:        *ASTContext,
@@ -275,7 +275,7 @@ pub class UnresolvedConstructorPattern derives Pattern {
     }
 
     /* OVERRIDE */
-    static fn classof(ptr: *const Pattern) -> bool {
+    static fn classof(ptr: *const AstPattern) -> bool {
         return ptr->kind == PatternKind::UnresolvedConstructorPattern
     }
 
@@ -289,8 +289,8 @@ pub class UnresolvedConstructorPattern derives Pattern {
 ///  the `|` or-pattern. The match parser builds the comma list into MatchCase
 ///  patterns; this node is for `|` inside a single pattern position.
 ///  Reserved so sema and the printer have the kind.)
-pub class AlternationPattern derives Pattern {
-    pub var alternatives: FrozenList<unsafe *Pattern>
+pub class AlternationPattern derives AstPattern {
+    pub var alternatives: FrozenList<unsafe *AstPattern>
 
     static fn create(ctx: *ASTContext, range: SourceRange) -> unsafe *AlternationPattern {
         var unsafe *node = ctx->alloc<AlternationPattern>()
@@ -310,7 +310,7 @@ pub class AlternationPattern derives Pattern {
     }
 
     /* OVERRIDE */
-    static fn classof(ptr: *const Pattern) -> bool {
+    static fn classof(ptr: *const AstPattern) -> bool {
         return ptr->kind == PatternKind::AlternationPattern
     }
 
@@ -323,7 +323,7 @@ pub class AlternationPattern derives Pattern {
 ///  RangePattern :  lo..hi | lo..=hi   bounds are *Expr (sema enforces const).
 ///  Either bound may be null for open ranges (..hi, lo..) in
 ///  pattern position; parser fills what's present.
-pub class RangePattern derives Pattern {
+pub class RangePattern derives AstPattern {
     pub var lo:           unsafe *Expr = &null
     pub var hi:           unsafe *Expr = &null
     pub var is_inclusive: bool         = false ///< `..=`
@@ -355,7 +355,7 @@ pub class RangePattern derives Pattern {
     }
 
     /* OVERRIDE */
-    static fn classof(ptr: *const Pattern) -> bool {
+    static fn classof(ptr: *const AstPattern) -> bool {
         return ptr->kind == PatternKind::RangePattern
     }
 
@@ -370,16 +370,16 @@ pub class RangePattern derives Pattern {
 ///  marks the `..`; `rest_binding` is the optional `..name` (null for bare `..`
 ///  or no rest). Without a rest, all elements live in `prefix` and suffix is
 ///  empty.
-pub class SlicePattern derives Pattern {
-    pub var prefix:       FrozenList<unsafe *Pattern>
-    pub var suffix:       FrozenList<unsafe *Pattern>
-    pub var has_rest:     bool                        = false
-    pub var rest_binding: unsafe *Pattern             = &null ///< BindingPattern for `..name`; null otherwise.
+pub class SlicePattern derives AstPattern {
+    pub var prefix:       FrozenList<unsafe *AstPattern>
+    pub var suffix:       FrozenList<unsafe *AstPattern>
+    pub var has_rest:     bool                           = false
+    pub var rest_binding: unsafe *AstPattern             = &null ///< BindingPattern for `..name`; null otherwise.
 
     pub static fn create(ctx:          *ASTContext,
                          range:        SourceRange,
                          has_rest:     bool,
-                         rest_binding: unsafe *Pattern) -> unsafe *SlicePattern {
+                         rest_binding: unsafe *AstPattern) -> unsafe *SlicePattern {
         var unsafe *node = ctx->alloc<SlicePattern>()
         node->kind         = PatternKind::SlicePattern
         node->range        = range
@@ -401,7 +401,7 @@ pub class SlicePattern derives Pattern {
     }
 
     /* OVERRIDE */
-    static fn classof(ptr: *const Pattern) -> bool {
+    static fn classof(ptr: *const AstPattern) -> bool {
         return ptr->kind == PatternKind::SlicePattern
     }
 

@@ -50,9 +50,9 @@ pub class BundleProvider derives SysrootProvider {
             )
         }
 
-        for var k: string in keys {
-            var from = base + "/" + k
-            var to   = dst + "/" + ctx->recipe.str("bundle_layout", k)
+        for *k in keys {
+            var from = base.copy() + "/" + *k
+            var to   = dst.copy() + "/" + ctx->recipe.str("bundle_layout", *k)
             if !LinkFS::is_dir(from) {
                 return out.refuse(f"share input {from} missing", "")
             }
