@@ -98,23 +98,23 @@ fn main() -> i32 {
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
 // CXX-NEXT:     class GD: public::{{[A-Za-z0-9_]+}}::G<signed int> {
-// CXX-NEXT:         public: signed int g(double t) noexcept;
+// CXX-NEXT:         public: __attribute((const)) signed int g(double t) noexcept;
 // CXX-NEXT:         using::{{[A-Za-z0-9_]+}}::G<signed int>::g;
 // CXX-NEXT:     };
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
 // CXX-NEXT:     class L {
-// CXX-NEXT:         public: signed int m() noexcept;
+// CXX-NEXT:         public: __attribute((const)) signed int m() noexcept;
 // CXX-NEXT:     };
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
 // CXX-NEXT:     class R {
-// CXX-NEXT:         public: signed int m() noexcept;
+// CXX-NEXT:         public: __attribute((const)) signed int m() noexcept;
 // CXX-NEXT:     };
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
 // CXX-NEXT:     class LR: public::{{[A-Za-z0-9_]+}}::L, public::{{[A-Za-z0-9_]+}}::R {
-// CXX-NEXT:         public: signed int m() noexcept;
+// CXX-NEXT:         public: __attribute((const)) signed int m() noexcept;
 // CXX-NEXT:         using::{{[A-Za-z0-9_]+}}::L::m;
 // CXX-NEXT:         using::{{[A-Za-z0-9_]+}}::R::m;
 // CXX-NEXT:     };
@@ -171,22 +171,22 @@ fn main() -> i32 {
 // CXX-NEXT:     }
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
-// CXX-NEXT:     signed int GD::g(double t) noexcept {
+// CXX-NEXT:     __attribute((const)) signed int GD::g(double t) noexcept {
 // CXX-NEXT:         return 2;
 // CXX-NEXT:     }
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
-// CXX-NEXT:     signed int L::m() noexcept {
+// CXX-NEXT:     __attribute((const)) signed int L::m() noexcept {
 // CXX-NEXT:         return 1;
 // CXX-NEXT:     }
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
-// CXX-NEXT:     signed int R::m() noexcept {
+// CXX-NEXT:     __attribute((const)) signed int R::m() noexcept {
 // CXX-NEXT:         return 2;
 // CXX-NEXT:     }
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
-// CXX-NEXT:     signed int LR::m() noexcept {
+// CXX-NEXT:     __attribute((const)) signed int LR::m() noexcept {
 // CXX-NEXT:         return 3;
 // CXX-NEXT:     }
 // CXX-NEXT: }

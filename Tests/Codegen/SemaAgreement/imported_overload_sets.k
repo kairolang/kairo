@@ -1,13 +1,9 @@
-// Disagreements the pass finds in ordinary code, with no test hook: calls
-// into imported C++ overload sets, which go out by the set's name. Clang
-// picks the overload, and Sema's recorded pick is another one.
-//   - `push_back` with an `if` expression: Sema records the `T&&`
-//     overload; the C++ conditional of two lvalues is an lvalue, and clang
-//     takes `const T&`.
-//   - `std::pair<A, B>` from two lvalues: Sema records
-//     `pair(const A&, const B&)`; clang takes the forwarding template.
-// Neither is repaired (the callees are members of a class template
-// instance), and the program runs as clang resolved it.
+// Calls into imported C++ overload sets go out by the set's name, so clang
+// picks the overload; Sema records the same one, and the pass is silent.
+//   - `push_back` with an `if` expression of two lvalues: the C++
+//     conditional is an lvalue, and both take `const T&`.
+//   - `std::pair<A, B>` from two lvalues: both take the forwarding
+//     constructor template, which binds each as `T&`.
 //
 // Whether the pass reports unasked depends on how the compiler was built,
 // so every RUN line says: -fsema-agreement reports, -fno-sema-agreement
@@ -40,15 +36,10 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: clang
 // RUN: rm -rf %t.d
-// RUN: %kairo %s -fsema-agreement -o %t.exe --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=WARN
-// WARN-DAG: imported_overload_sets.k:30:5: warning [I012W]: internal: clang resolved this call to 'std::vector<int>::push_back(const_reference)', but Kairo's Sema chose 'push_back'; this is a compiler bug
-// WARN-DAG: imported_overload_sets.k:32:13: warning [I012W]: internal: clang resolved this call to 'std::pair<unsigned int, int>::pair<unsigned int &, int &, 0>(unsigned int &, int &)', but Kairo's Sema chose 'pair'
+// RUN: %kairo %s -fsema-agreement -o %t.exe --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=WARN --allow-empty
+// WARN-NOT: I012W
 // WARN-NOT: error
 // RUN: %t.exe; test $? -eq 2
-
-// Reported, the object is not cached: the next build says it again.
-// RUN: %kairo %s -fsema-agreement -o %t.exe --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=AGAIN
-// AGAIN: warning [I012W]
 
 // Off: nothing is looked at.
 // RUN: rm -rf %t.d
@@ -57,20 +48,10 @@ fn main() -> i32 {
 // OFF-NOT: sema agreement:
 // OFF: compilation:
 
-// A release-built compiler's default: the two are counted and not said.
+// A release-built compiler's default: nothing to count, nothing said.
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -v --test-sema-agreement-quiet -o %t.exe --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=QUIET
 // QUIET-NOT: I012W
-// QUIET: sema agreement: {{.*}} 2 disagreed in {{.*}}imported_overload_sets.k
-// QUIET-NOT: I012W
+// QUIET-NOT: {{[1-9][0-9]*}} disagreed in {{.*}}imported_overload_sets.k
+// QUIET: compilation:
 // RUN: %t.exe; test $? -eq 2
-
-// Not said, the object is cached: the next build does not compile the file.
-// RUN: %kairo %s -v --test-sema-agreement-quiet -o %t.exe --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=CACHED
-// CACHED-NOT: disagreed in {{.*}}imported_overload_sets.k
-// CACHED: compilation:
-
-// Asked for, it reports whatever the default is, and does not take the
-// object a counting build stored.
-// RUN: %kairo %s -fsema-agreement --test-sema-agreement-quiet -o %t.exe --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=ASKED
-// ASKED: warning [I012W]

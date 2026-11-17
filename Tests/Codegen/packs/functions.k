@@ -52,7 +52,8 @@ fn main() -> i32 {
 // CXX: (... &&[&]({{\[\[}}maybe_unused{{\]\]}} auto & arg)->bool {
 // CXX: (args));
 // CXX: template<class ... T> signed int scaled(T && ... xs, signed int scale) noexcept {
-// CXX-NEXT: return(scale + ::functions::count(static_cast<T &&>(xs) ...));
+// CXX-NOT: xs
+// CXX: (scale, ::functions::count(static_cast<T &&>(xs) ...)));
 // CXX: ::functions::count<signed int, ::builtin::string::string, bool>(42, {{.*}}, true);
 // CXX: ::functions::none<>();
 // CXX: template signed int( ::functions::count<signed int, ::builtin::string::string, bool>)(signed int &&, ::builtin::string::string &&, bool &&);
