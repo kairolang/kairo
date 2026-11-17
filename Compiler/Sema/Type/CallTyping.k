@@ -536,6 +536,13 @@ pub class <T: type> CallTyping {
                 pn = self.dyn()->tu.param_name(r->inout_params[k])
             }
 
+            var unsafe *pd = if (k < r->inout_params.size()) => (r->inout_params[k]) else => &null
+            var unsafe *bare = self.dyn()->tu.strip_parens(a->expr)
+            if bare != &null && isa<IfExpr>(bare) {
+                self._if_to_lref(a->expr, pd, pn)
+                continue
+            }
+
             // An error but not a poison: the argument types fine, only the marker is
             // missing, so poisoning would cascade into the rest of the call.
             var ub = self.dyn()->sc->diag->report(
@@ -548,6 +555,32 @@ pub class <T: type> CallTyping {
             ub.insert(a->expr->range.start, "&", "mark the argument with '&'")
             ub.emit()
         }
+    }
+
+    /// An `if` expression given to a `T&` parameter that was read as
+    /// `@inout`. C++ binds `T&` to the conditional of two lvalues, so the
+    /// callee would write an arm, while to Kairo the expression is a value.
+    /// No `&` fix-it: `&(if ...)` is the address of a temporary (SC069E).
+    priv fn _if_to_lref(self, e: unsafe *Expr, p: unsafe *ParamDecl, pn: string) {
+        var cxx_ref = p != &null
+            && p->type_ != &null
+            && isa<CXXLValueRefType>(canon_unqual(p->type_->canonical))
+        var what = if (cxx_ref) => (f"the C++ 'T&' parameter '{pn}'")
+                   else => f"the {LangAttrs::quoted(LangAttrs::param_inout())} parameter '{pn}'"
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC357E,
+            e->range.start,
+            f"an 'if' expression cannot be passed to {what}; bind it to a variable",
+        )
+
+        b.first(e->range)
+        if p != &null {
+            b.note(p->range.start, f"'{pn}' is declared here")->child_first(
+                p->range,
+            )
+        }
+
+        b.emit()
     }
 
     /// The type parameter `p` of the selected `f` takes in the call `r`

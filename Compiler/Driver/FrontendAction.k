@@ -5658,6 +5658,10 @@ pub class FrontendAction {
         io::eprintln(
             f"[stats] purity inferred: const {kairo::purity_inferred_const().load()}, pure {kairo::purity_inferred_pure().load()}",
         )
+
+        io::eprintln(
+            f"[stats] purity not proven to return: loop {kairo::purity_unproven_loop().load()}, call {kairo::purity_unproven_call().load()}",
+        )
     }
 }
 

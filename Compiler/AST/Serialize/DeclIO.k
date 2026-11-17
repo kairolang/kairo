@@ -534,6 +534,8 @@ fn io_function_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::FunctionDec
             "FunctionDecl::inferred_purity",
         )
 
+        ar->sema_zero(n->purity_proof as u64, "FunctionDecl::purity_proof")
+
         ar->sema_is(
             n->adt_role == Declarations::AdtRole::None,
             "FunctionDecl::adt_role",

@@ -882,6 +882,11 @@ pub class ConditionalStmt derives Stmt {
 pub class WhileLoopStmt derives Stmt {
     pub var cond: unsafe *Expr
     pub var body: unsafe *CompoundStmt
+    /// The loop runs a bounded number of times whatever its body does: a
+    /// `for` over a range, a fixed array or a slice, whose counter and end
+    /// are hidden locals the body cannot name (IterLowering). Read by
+    /// FnPurityCheck's termination proof; false on every written `while`.
+    pub var bounded: bool = false
 
     pub static fn create(ctx:   unsafe *ASTContext,
                          range: SourceRange,
@@ -891,8 +896,9 @@ pub class WhileLoopStmt derives Stmt {
         node->kind  = StmtKind::WhileLoopStmt
         node->range = range
         node->init_annotations(unsafe &ctx->ast_alloc)
-        node->cond = cond
-        node->body = body
+        node->cond    = cond
+        node->body    = body
+        node->bounded = false
         return node
     }
 
@@ -901,6 +907,7 @@ pub class WhileLoopStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt
         node->recovery_kind = StmtKind::WhileLoopStmt
         node->range         = range
+        node->bounded       = false
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }

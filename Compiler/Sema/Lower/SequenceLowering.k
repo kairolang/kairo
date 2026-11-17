@@ -756,10 +756,15 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     }
 
     ///   a[i()] = v()   ->   ({ auto&& __kairo_ord0 = (a[i()]); __kairo_ord0 = v(); })
+    ///   a[i++] = i     ->   ({ auto&& __kairo_ord0 = (a[i++]); __kairo_ord0 = i; })
     ///
     /// The place first, then the value, then the store: C++17 evaluates the
-    /// right side of `=` and `op=` first. A compound assignment EmitIR
-    /// orders itself (wrap_ordered) is left to it.
+    /// right side of `=` and `op=` first. So the place is bound whenever an
+    /// operand needs it by _plan's rule, and also whenever the place has an
+    /// effect and the value is not a constant (target_first): _plan leaves
+    /// the last effectful operand in place, and here that operand would run
+    /// after the value. A compound assignment EmitIR orders itself
+    /// (wrap_ordered) is left to it.
     fn transform_assign_operator_expr(self,
                                       n: unsafe *Expressions::AssignOperatorExpr) -> unsafe *Expr {
         var unsafe *out = ASTWriter<SequenceLowering>::transform_assign_operator_expr(
@@ -788,13 +793,73 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         places.push_back(1)
         places.push_back(0)
         var hoist = cxx::std::vector<u8>()
-        if !self._plan(unsafe &ops, unsafe &hoist, unsafe &places) {
+        if !self._plan(unsafe &ops, unsafe &hoist, unsafe &places)
+            && !SequenceLowering::target_first(n, &self.synth) {
             return out
         }
 
         var stmts = self.list_builder<unsafe *Stmt>()
         n->lhs = self._hoist(n->lhs, unsafe &stmts, false, true)
         return self._close_lvalue(n, unsafe &stmts, self._stmt_top == n)
+    }
+
+    /// The assignment's place has an effect (`a[i++]`, `a[c.bump()]`,
+    /// `*next()`) and its value is not a constant, so the value could read
+    /// what the effect changes, a local included (`c.bump()` writes `c`
+    /// through its receiver, which no address-of shows). SequenceCheck reads
+    /// the same rule.
+    static fn target_first(n: unsafe *Expressions::AssignOperatorExpr, synth: *LowerSynth) -> bool {
+        return !synth->pure_read(n->lhs) && !SequenceLowering::constant_value(n->rhs)
+    }
+
+    /// `e` reads no storage at all: a literal, an eval constant, a
+    /// function or enum variant name, or a cast or negation of one.
+    static fn constant_value(e_in: unsafe *Expr) -> bool {
+        var unsafe *e = e_in
+        while e != &null && isa<Expressions::ParenExpr>(e) {
+            e = cast<Expressions::ParenExpr>(e)->inner
+        }
+
+        if e == &null {
+            return false
+        }
+
+        match e->kind {
+            case ExprKind::IntegerLiteralExpr,   ExprKind::FloatingLiteralExpr,
+                 ExprKind::CharacterLiteralExpr, ExprKind::BooleanLiteralExpr,
+                 ExprKind::NullLiteralExpr,      ExprKind::StringLiteralExpr,
+                 ExprKind::SizeOfExpr,           ExprKind::AlignOfExpr,
+                 ExprKind::TypeTraitExpr {
+                return true
+            } case ExprKind::NamedIdentExpr {
+                var unsafe *d = cast<NamedIdentExpr>(e)->resolved_decl
+                if d == &null {
+                    return false
+                }
+
+                if isa<FunctionDecl>(d) || isa<EnumVariantDecl>(d) {
+                    return true
+                }
+
+                var unsafe *vd = dyn_cast<VariableDecl>(d)
+                return vd != &null && vd->is_eval()
+            } case ExprKind::TypeCastExpr {
+                return SequenceLowering::constant_value(
+                    cast<Expressions::TypeCastExpr>(e)->operand,
+                )
+            } case ExprKind::UnaryOperatorExpr {
+                var unsafe *u = cast<Expressions::UnaryOperatorExpr>(e)
+                return u->resolved_op == &null
+                    && u->fix == Expressions::UnaryOperatorExpr::Fix::Prefix
+                    && (u->op_token.kind == TokenKind::OpMinus
+                        || u->op_token.kind == TokenKind::OpTilde)
+                    && SequenceLowering::constant_value(u->operand)
+            } default {
+                return false
+            }
+        }
+
+        return false
     }
 
     ///   p()[i()]   ->   (*({ T* __kairo_ord0 = p(); &__kairo_ord0[i()]; }))
@@ -1835,6 +1900,10 @@ pub class SequenceCheck derives RecursiveASTVisitor<SequenceCheck> {
         var c = self._fx(n->lhs) + self._fx(n->rhs)
         if c >= (2 as u32) {
             self._fail(n, "an assignment", c)
+        }
+
+        if c == (1 as u32) && SequenceLowering::target_first(n, &self.synth) {
+            self._fail(n, "an assignment whose place runs after its value", c)
         }
 
         return true

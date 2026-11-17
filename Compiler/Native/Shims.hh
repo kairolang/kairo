@@ -542,13 +542,24 @@ inline ::std::atomic<unsigned long long> &header_set_late_uses() noexcept {
     return n;
 }
 
-/// -finfer-purity's totals over the build (FnPurityCheck::infer, one add per
+/// -finfer-purity's totals over the build (FnPurityCheck::settle, one add per
 /// TU, from the Sema pool); --print-stats reports them.
 inline ::std::atomic<unsigned long long> &purity_inferred_const() noexcept {
     static ::std::atomic<unsigned long long> n{0};
     return n;
 }
 inline ::std::atomic<unsigned long long> &purity_inferred_pure() noexcept {
+    static ::std::atomic<unsigned long long> n{0};
+    return n;
+}
+/// Inferred levels the termination proof took away (FnPurityCheck::settle):
+/// for a loop in the function's own body, and for a call (a callee not
+/// proven, or a call cycle).
+inline ::std::atomic<unsigned long long> &purity_unproven_loop() noexcept {
+    static ::std::atomic<unsigned long long> n{0};
+    return n;
+}
+inline ::std::atomic<unsigned long long> &purity_unproven_call() noexcept {
     static ::std::atomic<unsigned long long> n{0};
     return n;
 }

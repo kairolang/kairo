@@ -2,8 +2,10 @@
 // the bare name, not the namespace-mangled one, so a C caller or a linker
 // script (`LONG(Reset_Handler)` in a vector table) can name it. `extern "C"`
 // leads the declaration and the definition both. The backend also passes
-// -fno-finite-loops, so `loop {}` is never assumed to terminate and the
-// IR carries no `mustprogress`.
+// -fno-finite-loops, so the IR carries no `mustprogress` and `loop {}` is not
+// assumed to terminate on that account. That flag alone is not enough: a
+// `[[gnu::const]]` / `[[gnu::pure]]` function is `willreturn`, so those
+// attributes are spelled only where termination is proven.
 
 ffi "c" fn kairo_exported(x: i32) -> i32 { return x + 1 }
 

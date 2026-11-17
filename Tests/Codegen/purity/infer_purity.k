@@ -45,12 +45,12 @@ fn main() -> i32 {
 // INF-DAG: __attribute{{(__)?}}((const)) signed int sum_sq(
 // INF-DAG: __attribute{{(__)?}}((pure)) signed int reads_g(
 // INF-DAG: __attribute{{(__)?}}((pure)) signed int uses_pure(
-// INF-DAG: __attribute{{(__)?}}((const)) bool even(
-// INF-DAG: __attribute{{(__)?}}((const)) bool odd(
 // INF-DAG: __attribute{{(__)?}}((const)) signed int first({{[^&]*}}Big p)
 
 // RUN: { %kairo %s -finfer-purity --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=NEG
 // NEG-NOT: (({{const|pure}})) signed int {{(calls_)?}}bumps(
+// A call cycle is never proven to return, so even and odd carry no attribute.
+// NEG-NOT: (({{const|pure}})) bool {{even|odd}}(
 
 // RUN: { %kairo %s -fno-infer-purity --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=OFF
 // OFF-NOT: (({{const|pure}}))

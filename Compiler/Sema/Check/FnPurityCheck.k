@@ -64,7 +64,7 @@
 ///     `panic` statement is allowed; what it builds follows the rules above.
 ///
 ///   \par Inference (-finfer-purity)
-///     infer() runs this same rule set, silent, over every eligible function
+///     settle() runs this same rule set, silent, over every eligible function
 ///     of the TU that made no promise, as a greatest fixpoint over the call
 ///     graph: every candidate starts at const, and each round lowers one
 ///     that breaks the rules to pure, then to none, until nothing changes.
@@ -77,11 +77,28 @@
 ///     impure. A callee in a TU whose Sema has not run yet (an import
 ///     cycle) has no inferred purity yet and counts as impure.
 ///
+///   \par Termination (settle)
+///     `willreturn` is a promise the rules above do not check: a body that
+///     loops forever or recurses without end keeps every one of them, and
+///     clang deletes an unused call to it, or folds the loop away. So every
+///     function with a level, written or inferred, also needs a proof that
+///     it returns (FunctionDecl::purity_proof), and the C++ attribute is
+///     spelled only on a proven one. A body is proven when it has no
+///     `while`, `loop`, C-style `for` or label/jump (a `for` over a range, a
+///     fixed array or a slice is bounded: WhileLoopStmt::bounded), and
+///     every callee is proven, an eval fn, a side-effect-free intrinsic or
+///     a C/C++ function clang itself calls const or pure. The proof is a
+///     least fixpoint over the TU's call graph, so a function on a call
+///     cycle (direct recursion included) is never proven. An inferred
+///     function that is not proven loses its level; a written one keeps
+///     its Kairo promise and its checks, and only the attribute is left
+///     out.
+///
 ///   Phase: CHECK (after ExprTyper: reads resolved declarations and types;
 ///          before every lowering, so it sees only what the user wrote and
 ///          its diagnostics name the user's own constructs; the two calls a
 ///          lowering or EmitIR makes from them are modelled above).
-///          infer(): LOWER, after StringLowering, before ParamPassInference.
+///          settle(): LOWER, after StringLowering, before ParamPassInference.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -128,8 +145,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,   AdtRole,     ClassDecl,    ExtensionDecl, FieldDecl, FnBodyKind, FunctionDecl,
-    ParamDecl, PurityLevel, TransferKind, VariableDecl,
+    AbiKind,   AdtRole,     ClassDecl,   ExtensionDecl, FieldDecl,    FnBodyKind, FunctionDecl,
+    ParamDecl, PurityLevel, PurityProof, TransferKind,  VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::Patterns::{
@@ -143,9 +160,11 @@ import AST::Node::PrimaryExpressions::{
     StringLiteralExpr,
 }
 import AST::Node::Statements::{
+    IndexedForStmt,
     IterKind,
     RangedForStmt,
     RuntimeAssertStmt,
+    WhileLoopStmt,
 }
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
@@ -164,13 +183,14 @@ import Sema::SemaContext::{
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
-/// What one walk over the items does. run() is one Check. infer()
-/// (-finfer-purity) is one Collect, then Infer rounds to a
-/// fixpoint, then back to Check.
+/// What one walk over the items does. run() is one Check. settle() is one
+/// Collect, then (-finfer-purity) Infer rounds to a fixpoint, then one
+/// Prove walk per function with a level, then back to Check.
 pub enum PurityWalk derives u8 {
     Check = 0, ///< report every broken promise.
     Collect,   ///< visit_function_decl only gathers candidates.
     Infer,     ///< a silent walk: a broken rule, or a node kind the rules do not know, sets _fail.
+    Prove,     ///< a silent walk that records the body's unbounded loops and its callees (settle).
 }
 
 pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
@@ -184,11 +204,22 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     priv var _level: PurityLevel          = PurityLevel::None
     /// Which walk this is (see PurityWalk). Under Infer, rules break
     /// silently into _fail instead of reporting.
-    priv var _walk:   PurityWalk                             = PurityWalk::Check
-    priv var _fail:   bool                                   = false
-    priv var _cands:  cxx::std::vector<unsafe *FunctionDecl>
-    pub var  n_const: usize                                  = 0
-    pub var  n_pure:  usize                                  = 0
+    priv var _walk:  PurityWalk                             = PurityWalk::Check
+    priv var _fail:  bool                                   = false
+    priv var _cands: cxx::std::vector<unsafe *FunctionDecl>
+    /// The Prove walk's findings for the function being walked: a loop
+    /// whose end is not proven, a callee that is not proven, and the
+    /// callees whose proof is still Pending (appended to _deps).
+    priv var _unbounded: bool                                   = false
+    priv var _bad_call:  bool                                   = false
+    priv var _deps:      cxx::std::vector<unsafe *FunctionDecl>
+    /// Inferred levels kept, and the inferred levels the termination proof
+    /// took away, by the reason it failed first: a loop in the function's
+    /// own body, or a call (a callee not proven, or a call cycle).
+    pub var n_const:     usize = 0
+    pub var n_pure:      usize = 0
+    pub var n_lost_loop: usize = 0
+    pub var n_lost_call: usize = 0
 
     fn FnPurityCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -234,8 +265,9 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return false
         }
 
-        // infer(): a nested function is its own question, never asked.
-        if self._walk == PurityWalk::Infer {
+        // Inference and the proof: a nested function is its own question,
+        // never asked.
+        if self._silent() {
             return false
         }
 
@@ -272,21 +304,45 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
     }
 
-    /// -finfer-purity. PRE: every lowering ran, ParamPassInference has not.
-    fn infer(self) {
+    /// Every purity verdict of the TU: -finfer-purity's inference when
+    /// `infer`, then the termination proof of every function with a level,
+    /// written or inferred. PRE: every lowering ran, ParamPassInference has
+    /// not.
+    fn settle(self, infer: bool) {
         self._walk = PurityWalk::Collect
         self._walk_items()
         self._walk = PurityWalk::Check
 
-        // The candidates, all optimistic: const until shown otherwise.
         var live = cxx::std::vector<unsafe *FunctionDecl>()
+        if infer {
+            self._infer(unsafe &live)
+        }
+
+        self._prove()
+
+        for var i: usize = 0; i < live.size(); ++i {
+            var p = (live[i]->inferred_purity as PurityLevel)
+            if p == PurityLevel::Const {
+                self.n_const += 1
+            }
+
+            if p == PurityLevel::Pure {
+                self.n_pure += 1
+            }
+        }
+    }
+
+    /// -finfer-purity over the collected candidates; `live` receives the
+    /// ones inference asked about.
+    priv fn _infer(self, live: unsafe *cxx::std::vector<unsafe *FunctionDecl>) {
+        // The candidates, all optimistic: const until shown otherwise.
         for var i: usize = 0; i < self._cands.size(); ++i {
             var unsafe *f = self._cands[i]
             if !self._inferable(f) {
                 continue
             }
 
-            live.push_back(f)
+            live->push_back(f)
             self._stamp(f, PurityLevel::Const)
         }
 
@@ -296,8 +352,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         var changed = true
         while changed {
             changed = false
-            for var i: usize = 0; i < live.size(); ++i {
-                var unsafe *f  = live[i]
+            for var i: usize = 0; i < live->size(); ++i {
+                var unsafe *f  = (*live)[i]
                 var        cur = (f->inferred_purity as PurityLevel)
                 if cur == PurityLevel::None {
                     continue
@@ -318,17 +374,118 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         self._walk = PurityWalk::Check
+    }
 
-        for var i: usize = 0; i < live.size(); ++i {
-            var p = (live[i]->inferred_purity as PurityLevel)
-            if p == PurityLevel::Const {
-                self.n_const += 1
+    /// The termination proof (header, "Termination"). One Prove walk per
+    /// function with a level records whether its own body is bounded and
+    /// which callees it waits on; then a least fixpoint: a function is
+    /// proven once every callee it waits on is. Whatever is still Pending
+    /// sits on a call cycle or waits on one, and is not proven.
+    priv fn _prove(self) {
+        var fns    = cxx::std::vector<unsafe *FunctionDecl>()
+        var levels = cxx::std::vector<PurityLevel>()
+        // The nodes are this TU's bodies. A link without one (a forward
+        // declaration, an import) proves nothing: its proof is the
+        // definition's, read through _proof_of.
+        for var i: usize = 0; i < self._cands.size(); ++i {
+            var unsafe *f  = self._cands[i]
+            var        lvl = self._level_of(f)
+            if lvl == PurityLevel::None || f->is_poisoned() {
+                continue
             }
 
-            if p == PurityLevel::Pure {
-                self.n_pure += 1
+            if f->body_block == &null && f->body_expr == &null {
+                continue
+            }
+
+            if f->is_imported() || f->ffi_linkage != LinkageKind::None {
+                continue
+            }
+
+            fns.push_back(f)
+            levels.push_back(lvl)
+            self._mark(f, PurityProof::Pending)
+        }
+
+        if fns.empty() {
+            return
+        }
+
+        // Per function: 0 its body is bounded and every callee is proven
+        // or Pending, 1 a loop, 2 a call; and its Pending callees, as the
+        // range [dep_lo[i], dep_lo[i + 1]) of _deps.
+        var why    = cxx::std::vector<u8>()
+        var dep_lo = cxx::std::vector<usize>()
+        self._deps.clear()
+        self._walk = PurityWalk::Prove
+        for var i: usize = 0; i < fns.size(); ++i {
+            var unsafe *f = fns[i]
+            dep_lo.push_back(self._deps.size())
+            self._f         = f
+            self._level     = levels[i]
+            self._fail      = false
+            self._unbounded = false
+            self._bad_call  = false
+            self._walk_body(f)
+            var w: u8 = 0
+            if self._unbounded {
+                w = 1
+            } else if self._bad_call || self._fail {
+                w = 2
+            }
+
+            why.push_back(w)
+        }
+
+        dep_lo.push_back(self._deps.size())
+        self._f     = &null
+        self._level = PurityLevel::None
+        self._walk  = PurityWalk::Check
+
+        var changed = true
+        while changed {
+            changed = false
+            for var i: usize = 0; i < fns.size(); ++i {
+                var unsafe *f = fns[i]
+                if why[i] != 0 || f->purity_proof != (PurityProof::Pending as u8) {
+                    continue
+                }
+
+                var all = true
+                for var k = dep_lo[i]; k < dep_lo[i + 1]; ++k {
+                    if self._proof_of(self._deps[k]) != PurityProof::Proven {
+                        all = false
+                        break
+                    }
+                }
+
+                if all {
+                    self._mark(f, PurityProof::Proven)
+                    changed = true
+                }
             }
         }
+
+        for var i: usize = 0; i < fns.size(); ++i {
+            var unsafe *f = fns[i]
+            if f->purity_proof == (PurityProof::Proven as u8) {
+                continue
+            }
+
+            self._mark(f, PurityProof::Unproven)
+            if self._written(f) {
+                continue
+            }
+
+            self._stamp(f, PurityLevel::None)
+            if why[i] == 1 {
+                self.n_lost_loop += 1
+            } else {
+                self.n_lost_call += 1
+            }
+        }
+
+        self._deps.clear()
     }
 
     /// One silent walk of `f`'s head and body under promise `mode`.
@@ -350,20 +507,133 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// spells the declaration from its own link, and the definition from
     /// this one, and both must carry the same attribute.
     priv fn _stamp(self, f: unsafe *FunctionDecl, level: PurityLevel) {
-        var        lvl          = (level as u8)
+        var links = self._links(f)
+        for var i: usize = 0; i < links.size(); ++i {
+            links[i]->inferred_purity = level as u8
+        }
+    }
+
+    /// Write `proof` on every link of `f`'s chain, for the same reason as
+    /// _stamp.
+    priv fn _mark(self, f: unsafe *FunctionDecl, proof: PurityProof) {
+        var links = self._links(f)
+        for var i: usize = 0; i < links.size(); ++i {
+            links[i]->purity_proof = proof as u8
+        }
+    }
+
+    /// Every link of `f`'s redeclaration chain, `f` included.
+    priv fn _links(self, f: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *FunctionDecl> {
+        var        out          = cxx::std::vector<unsafe *FunctionDecl>()
         var unsafe *head        = f->first_decl()
         var unsafe *cur         = head
         var        guard: usize = 0
         while cur != &null && guard < 64 {
-            cur->inferred_purity = lvl
-            cur                  = cur->next_in_chain()
+            if cur != f {
+                out.push_back(cur)
+            }
+
+            cur = cur->next_in_chain()
             guard += 1
             if cur == head {
                 break
             }
         }
 
-        f->inferred_purity = lvl
+        out.push_back(f)
+        return out
+    }
+
+    /// The promise `f` made in writing, on either link.
+    priv fn _written(self, f: unsafe *FunctionDecl) -> bool {
+        var unsafe *c = f->canonical_decl()
+        return f->is_const_fn || f->is_pure || c != &null && (c->is_const_fn || c->is_pure)
+    }
+
+    /// The level `f` is held to: its written promise, else inference's
+    /// verdict, on either link.
+    priv fn _level_of(self, f: unsafe *FunctionDecl) -> PurityLevel {
+        var unsafe *c = f->canonical_decl()
+        if f->is_const_fn || c != &null && c->is_const_fn {
+            return PurityLevel::Const
+        }
+
+        if f->is_pure || c != &null && c->is_pure {
+            return PurityLevel::Pure
+        }
+
+        var p = f->inferred_purity
+        if p == (PurityLevel::None as u8) && c != &null {
+            p = c->inferred_purity
+        }
+
+        return p as PurityLevel
+    }
+
+    /// `f`'s termination proof, from whichever link carries it.
+    priv fn _proof_of(self, f: unsafe *FunctionDecl) -> PurityProof {
+        var unsafe *c = f->canonical_decl()
+        var        p  = f->purity_proof
+        if p == (PurityProof::Unproven as u8) && c != &null {
+            p = c->purity_proof
+        }
+
+        return p as PurityProof
+    }
+
+    /// The Prove walk reached a call of `f`: an eval fn, a side-effect-free
+    /// intrinsic, a proven function and a C/C++ function clang calls const
+    /// or pure return; a Pending one is waited on; anything else leaves the
+    /// caller unproven.
+    priv fn _edge(self, f: unsafe *FunctionDecl) {
+        var unsafe *c = f->canonical_decl()
+        if f->is_eval() || c != &null && c->is_eval() || self._is_intrinsic(f) {
+            return
+        }
+
+        var p = self._proof_of(f)
+        if p == PurityProof::Proven {
+            return
+        }
+
+        if p == PurityProof::Pending {
+            self._deps.push_back(f)
+            return
+        }
+
+        if self._level_of(f) == PurityLevel::None && self._foreign_purity(f) != 0 {
+            return
+        }
+
+        self._bad_call = true
+    }
+
+    /// The walk reports nothing: a broken rule sets _fail instead.
+    priv fn _silent(self) -> bool {
+        return self._walk == PurityWalk::Infer || self._walk == PurityWalk::Prove
+    }
+
+    /// A loop or jump whose end is not proven: `while` and `loop` as
+    /// written, a C-style `for`, a label (a jump's target), and a `for ...
+    /// in` that is not a bounded loop by now. An `eval for` and a loop over
+    /// a pack unroll at compile time.
+    priv fn _unbounded_stmt(self, n: *Stmt) -> bool {
+        match n->kind {
+            case StmtKind::WhileLoopStmt {
+                return !cast<WhileLoopStmt>(n)->bounded
+            } case StmtKind::LoopStmt, StmtKind::LabelIntrinsicStmt, StmtKind::JumpIntrinsicStmt {
+                return true
+            } case StmtKind::IndexedForStmt {
+                return !cast<IndexedForStmt>(n)->is_eval
+            } case StmtKind::RangedForStmt {
+                var *r = cast<RangedForStmt>(n)
+                return !r->is_eval && r->iter_kind != IterKind::Pack
+            } default {
+                return false
+            }
+        }
+
+        return false
     }
 
     /// May inference ask about `f` at all? A function no promise could
@@ -537,7 +807,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         if self._returns_nothing(f) {
-            if self._walk == PurityWalk::Infer {
+            if self._silent() {
                 self._fail = true
                 return
             }
@@ -636,7 +906,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
     /// # the rules
 
-    /// infer(): a node kind outside this list is a construct the rules do
+    /// Inference: a node kind outside this list is a construct the rules do
     /// not model (a closure, a match a lowering has not removed, a panic
     /// slot), so the function is impure.
     fn visit_expr(self, n: *Expr) -> bool {
@@ -684,6 +954,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     fn visit_stmt(self, n: *Stmt) -> bool {
+        if self._walk == PurityWalk::Prove && n != &null && self._unbounded_stmt(n) {
+            self._unbounded = true
+        }
+
         if (self._walk != PurityWalk::Infer) || self._level == PurityLevel::None || n == &null {
             return true
         }
@@ -900,7 +1174,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             // A function value or a closure: nothing says what it does.
             // A callee the typer already rejected is its own error.
             var unsafe *ce = self._tu.strip_parens(n->callee)
-            if self._walk == PurityWalk::Infer || ce != &null && !ce->is_poisoned() {
+            if self._silent() || ce != &null && !ce->is_poisoned() {
                 self._call(n->range, "a function value")
             }
 
@@ -1289,7 +1563,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return
         }
 
-        if self._walk == PurityWalk::Infer {
+        if self._silent() {
             self._fail = true
             return
         }
@@ -1320,7 +1594,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             if ai < 0 && (p->default_val != &null || p->default_thunk != &null) {
                 // The default is evaluated here, in the caller, and it is
                 // code nothing in this body shows.
-                if self._walk == PurityWalk::Infer {
+                if self._silent() {
                     self._fail = true
                     return
                 }
@@ -1358,7 +1632,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 continue
             }
 
-            if self._walk == PurityWalk::Infer {
+            if self._silent() {
                 self._fail = true
                 return
             }
@@ -1381,11 +1655,16 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
+        if self._walk == PurityWalk::Prove {
+            self._edge(f)
+            return true
+        }
+
         if self._callable(f) {
             return true
         }
 
-        if self._walk == PurityWalk::Infer {
+        if self._silent() {
             self._fail = true
             return false
         }
@@ -1702,7 +1981,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// The error, with a note on the function's head that says what it
     /// promised. `what`: the sentence after "<f> is const, so it cannot".
     priv fn _report(self, at: SourceRange, const what: string) {
-        if self._walk == PurityWalk::Infer {
+        if self._silent() {
             self._fail = true
             return
         }
@@ -1736,7 +2015,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// The promise cannot stand on this function at all. `fix`: offer to
     /// remove the written `const` / `@pure` (FunctionDecl::purity_at).
     priv fn _report_head(self, f: unsafe *FunctionDecl, const why: string, fix: bool) {
-        if self._walk == PurityWalk::Infer {
+        if self._silent() {
             self._fail = true
             return
         }
@@ -1759,7 +2038,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     priv fn _global(self, at: SourceRange, v: unsafe *VariableDecl, const verb: string) {
-        if self._walk == PurityWalk::Infer {
+        if self._silent() {
             self._fail = true
             return
         }
@@ -1777,7 +2056,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     priv fn _call(self, at: SourceRange, const callee: string) {
-        if self._walk == PurityWalk::Infer {
+        if self._silent() {
             self._fail = true
             return
         }

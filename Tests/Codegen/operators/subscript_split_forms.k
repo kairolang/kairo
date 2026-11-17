@@ -174,7 +174,8 @@ fn main() -> i32 {
 // CXX:        signed int& operator[](decltype(sizeof(0)) i) noexcept;
 // CXX:      };
 // RUN: { %kairo %s --print-ir -o %t.ir.exe 2>&1 || true; } | %FileCheck %s --check-prefix=IR
-// IR-DAG: Store_witness<S>::__kairo_op_index_set((* s), 1) = v
+// IR-DAG: auto && [[ORD:__kairo_ord[0-9]+]] ={{ ?}}( ::{{.*}}Store_witness<S>::__kairo_op_index_set((* s), 1));
+// IR-DAG: ([[ORD]] = v);
 // IR-DAG: return{{ *}}::{{.*}}Store_witness<S>::__kairo_op_index((* s), 1)
 // IR-DAG: Slice<signed int> s = v.__kairo_op_set(
 // IR-DAG: Slice<signed int> u = v.__kairo_op_get(

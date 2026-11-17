@@ -710,20 +710,26 @@ extend Speller {
             s += LowerTargets::attr_cold()
         }
 
-        // -finfer-purity's verdict (FnPurityCheck::infer) is spelled like a
+        // -finfer-purity's verdict (FnPurityCheck::settle) is spelled like a
         // written promise; it is stamped on every link, so each head agrees.
+        // Either attribute is `willreturn` to clang, so it is spelled only
+        // on a function whose termination is proven.
         var inferred = f->inferred_purity
         if inferred == (Declarations::PurityLevel::None as u8) && c != &null {
             inferred = c->inferred_purity
         }
 
-        if f->is_const_fn
+        var proven = f->purity_proof == (Declarations::PurityProof::Proven as u8)
+            || c != &null && c->purity_proof == (Declarations::PurityProof::Proven as u8)
+        var is_const = f->is_const_fn
             || c != &null && c->is_const_fn
-            || inferred == (Declarations::PurityLevel::Const as u8) {
-            s += LowerTargets::attr_const()
-        } else if f->is_pure
+            || inferred == (Declarations::PurityLevel::Const as u8)
+        var is_pure = f->is_pure
             || c != &null && c->is_pure
-            || inferred == (Declarations::PurityLevel::Pure as u8) {
+            || inferred == (Declarations::PurityLevel::Pure as u8)
+        if proven && is_const {
+            s += LowerTargets::attr_const()
+        } else if proven && is_pure {
             s += LowerTargets::attr_pure()
         }
 

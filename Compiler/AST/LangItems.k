@@ -2613,11 +2613,17 @@ pub class LowerTargets {
         return "kairo_rt_div_zero"
     }
 
+    /// The parameter of the lambda a saturating float-to-integer `as` is
+    /// spelled as (EmitIR::_fp_to_int). Local to that lambda.
+    pub static fn fp_to_int_param() -> string {
+        return "__kairo_fx"
+    }
+
     /// clang's infinity and quiet NaN for a float, by its builtins' type
     /// tag (`f`, `l`, `f16`, `f128`, "" for double): the primitive limits
     /// `f32::INFINITY` / `f32::NAN` (PrimitiveLimits::float_cxx), which no
     /// literal spells. Both are constant expressions to clang.
-    static fn float_inf(const tag: string) -> string {
+    pub static fn float_inf(const tag: string) -> string {
         return "__builtin_inf" + tag
     }
 

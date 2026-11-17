@@ -68,7 +68,7 @@ pub class LangOptions {
     /// pass through every Kairo frame. Unset or -fno-unwind: each is
     /// `noexcept` unless marked `@unwind`.
     pub var unwind: i32 = -1
-    /// -finfer-purity: FnPurityCheck::infer stamps const / pure on the
+    /// -finfer-purity: FnPurityCheck::settle stamps const / pure on the
     /// functions that keep the promise unwritten (Compiler/Spec/
     /// SemanticChecks.md, FnPurityCheck). On unless 0 (-fno-infer-purity),
     /// as `const` parameters are inferred unasked: the

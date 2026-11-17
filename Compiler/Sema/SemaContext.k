@@ -177,7 +177,7 @@ pub class SemaOptions {
     /// a `catch e: cxx::...` arm needs them (Compiler/Spec/Panic.md#c-exception-arms).
     pub var cxx_exceptions: bool = true
     pub var unwind_all:     bool = false ///< -funwind: no Kairo function is spelled noexcept (but @no_unwind).
-    pub var infer_purity:   bool = true ///< -finfer-purity (on; -fno-infer-purity turns it off): FnPurityCheck::infer runs before ParamPassInference.
+    pub var infer_purity:   bool = true ///< -finfer-purity (on; -fno-infer-purity turns it off): FnPurityCheck::settle runs before ParamPassInference.
     /// -fstrict-cxx-moves (on; -fno-strict-cxx-moves turns it off): a C++
     /// call whose body MoveCheck cannot inspect takes its MOVE argument at
     /// its worst (moved-from), instead of borrowing it on an unchecked

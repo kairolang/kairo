@@ -248,6 +248,9 @@ fn io_conditional_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::Conditiona
 fn io_while_loop_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::WhileLoopStmt) {
     ar->expr<Expr>(&n->cond)
     ar->stmt<Statements::CompoundStmt>(&n->body)
+    eval if defined!(DEBUG) {
+        ar->sema_false(n->bounded, "WhileLoopStmt::bounded")
+    }
 }
 
 fn io_loop_stmt(ar: unsafe *ASTArchive, n: unsafe *Statements::LoopStmt) {

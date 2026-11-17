@@ -7018,3 +7018,30 @@ group = "lifecycle"
 
     [SC356.N]
     explain = "Points at the base or field that is not relocatable, and says why."
+
+[SC357]
+brief = "an `if` expression passed to a C++ `T&`"
+group = "calls"
+
+    [SC357.E]
+    explain = """
+    # an `if` expression cannot be passed to a C++ `T&`
+
+    an imported C++ function's `T&` parameter takes a variable, marked `&`. an `if` expression
+    is a value, not a variable: it cannot be marked (`&(if ...)` is the address of a temporary),
+    and the C++ conditional it becomes would let the callee write one of its arms.
+
+    ```kairo
+    // void bump(int& x);
+    bump(if (c) => (i) else => j)    // error
+    ```
+
+    ## how to fix
+
+    bind the value to a variable and pass the variable:
+
+    ```kairo
+    var t = if (c) => (i) else => j
+    bump(&t)
+    ```
+    """

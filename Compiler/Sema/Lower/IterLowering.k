@@ -349,6 +349,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             return self._one_stmt(n)
         }
 
+        IterLowering::_mark_bounded(n, #loop)
         pre.push(#loop)
         return self._one_stmt(self._block(n->range, &pre))
     }
@@ -367,9 +368,30 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             return self._one_stmt(n)
         }
 
+        IterLowering::_mark_bounded(rf, #loop)
         n->inner = #loop
         pre.push(n)
         return self._one_stmt(self._block(n->range, &pre))
+    }
+
+    /// A loop over a range, a fixed array or a slice runs at most its
+    /// length's count of times: its counter and its end are hidden locals
+    /// the body cannot name, and every shape advances before the body
+    /// (WhileLoopStmt::bounded). A generator or a C++ range decides its own
+    /// end.
+    priv static fn _mark_bounded(n: unsafe *RangedForStmt, lowered: unsafe *Stmt) {
+        var k = n->iter_kind
+        if k != IterKind::RangeLit
+            && k != IterKind::RangeValue
+            && k != IterKind::Array
+            && k != IterKind::Slice {
+            return
+        }
+
+        var unsafe *w = dyn_cast<WhileLoopStmt>(lowered)
+        if w != &null {
+            w->bounded = true
+        }
     }
 
     /// Children first: a `for` inside the body or the iterable is lowered on

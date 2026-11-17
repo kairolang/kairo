@@ -1193,16 +1193,21 @@ pub class Sema {
         // -finfer-purity: const / pure for the functions that keep the
         // promise unwritten, by FnPurityCheck's own rules, as a greatest
         // fixpoint over this TU's call graph (callees in TUs already done
-        // count with their verdict). On the lowered tree, so every call a
-        // lowering minted is judged; BEFORE ParamPassInference, which must
-        // leave an inferred-const function's record parameters by value.
-        // Writes FunctionDecl::inferred_purity, read by codegen.
-        if self.sc.opts.infer_purity {
+        // count with their verdict). Then, with or without it, the
+        // termination proof of every function with a level: the C++
+        // attribute is `willreturn`. On the lowered tree, so every call and
+        // loop a lowering minted is judged; BEFORE ParamPassInference, which
+        // must leave an inferred-const function's record parameters by
+        // value. Writes FunctionDecl::inferred_purity and purity_proof, read
+        // by codegen.
+        {
             var _p = TimeRegion("PurityInference")
             var pi = FnPurityCheck(unsafe &self.sc)
-            pi.infer()
+            pi.settle(self.sc.opts.infer_purity)
             kairo::purity_inferred_const().fetch_add(pi.n_const as u64)
             kairo::purity_inferred_pure().fetch_add(pi.n_pure as u64)
+            kairo::purity_unproven_loop().fetch_add(pi.n_lost_loop as u64)
+            kairo::purity_unproven_call().fetch_add(pi.n_lost_call as u64)
         }
 
         // A by-value COPY record parameter the body never mutates is passed

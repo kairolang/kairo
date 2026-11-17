@@ -34,12 +34,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,
-    BuiltinType,
-    RecordType,
-    canon_has_const,
-    canon_quals,
-    canon_unqual,
+    BuiltinKind, BuiltinType, RecordType, builtin_info, canon_has_const, canon_quals, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -994,7 +989,149 @@ extend EmitIR {
             }
         }
 
+        if kind == "static_cast" && self._fp_to_int(n) {
+            return
+        }
+
         self._cast_to(n->target, n->operand, kind)
+    }
+
+    /// A float `as` an integer truncates toward zero and saturates: NaN is
+    /// 0, a value at or past a bound is that bound's extreme (casting.mdx,
+    /// "Float to integer"). A C++ static_cast is undefined there, so the
+    /// cast is a lambda called on the operand, which evaluates it once and
+    /// is a constant expression, so a constant operand folds and an eval
+    /// cast gets the same answer:
+    ///
+    ///     [](F x) noexcept -> I { return x != x ? 0 : x >= HI ? MAX
+    ///                                    : x <= LO ? MIN : static_cast<I>(x); }(e)
+    ///
+    /// `HI` is 2^(N-1) for a signed N-bit target and 2^N for an unsigned
+    /// one, `LO` -2^(N-1) or 0, each exact in `F`; a bound past `F`'s
+    /// largest finite value is its infinity, which only the infinity
+    /// reaches. A signed `MIN` is the double -2^(N-1) converted (exact and
+    /// in range for every builtin width) and `MAX` its complement; an
+    /// unsigned `MAX` is -1 converted. A nullable target (`x as i32?`)
+    /// clamps to its inner type and converts that. True when the cast was spelled;
+    /// false for any other pair (a corelib float, a dependent or a
+    /// non-builtin type), which keeps the plain cast.
+    ///
+    /// ### Parameters
+    /// - `n`: an `as` whose kind is static_cast.
+    ///
+    /// ### Returns
+    /// Whether the cast was emitted here.
+    priv fn _fp_to_int(self, n: unsafe *TypeCastExpr) -> bool {
+        if n->mode != CastMode::Default && n->mode != CastMode::Static {
+            return false
+        }
+
+        // `x as i32?` clamps to the inner type, then converts.
+        var unsafe *src   = self._builtin_of(n->operand->type_)
+        var unsafe *dst   = self._builtin_of(n->target)
+        var unsafe *inner = n->target
+        if dst == &null && n->target != &null && n->target->canonical != &null {
+            inner = self._nullable_inner(canon_unqual(n->target->canonical))
+            dst   = self._builtin_of(inner)
+        }
+
+        if src == &null || dst == &null {
+            return false
+        }
+
+        // The float's exponent bound: every finite value is below 2^emax
+        // (the IEEE formats' bias + 1; x87's is binary128's). A half-width
+        // float is widened to f32 first, which is exact and keeps every
+        // answer: the lambda's parameter is then a float, and the x86
+        // backend at -O0 passes a `__bf16` call result as an argument wrong.
+        var emax: usize = 0
+        var wide        = false
+        match src->builtin {
+            case BuiltinKind::F16, BuiltinKind::BF16 {
+                emax = 128
+                wide = true
+            } case BuiltinKind::F32 {
+                emax = 128
+            } case BuiltinKind::F64 {
+                emax = 1024
+            } case BuiltinKind::F80, BuiltinKind::F128 {
+                emax = 16384
+            } default {
+                return false
+            }
+        }
+
+        match dst->builtin {
+            case BuiltinKind::I8,   BuiltinKind::I16,  BuiltinKind::I32,   BuiltinKind::I64,
+                 BuiltinKind::I128, BuiltinKind::I256, BuiltinKind::I512,  BuiltinKind::U8,
+                 BuiltinKind::U16,  BuiltinKind::U32,  BuiltinKind::U64,   BuiltinKind::U128,
+                 BuiltinKind::U256, BuiltinKind::U512, BuiltinKind::USize, BuiltinKind::ISize {
+                if dst->size_bits == 0 {
+                    return false
+                }
+            } default {
+                return false
+            }
+        }
+
+        var sgn = dst->info()->is_signed()
+        var k   = if (sgn) => (dst->size_bits - 1) else => dst->size_bits
+        var ft = if (wide) => (builtin_info(BuiltinKind::F32)->cxx.copy())
+                 else => src->cxx_emission()
+        var it = self._spell._type(inner, &null)
+        var x  = LowerTargets::fp_to_int_param()
+        var hi = if (k >= emax) => ("static_cast<" + ft + ">(" + LowerTargets::float_inf(
+                     "",
+                 ) + "())")
+                 else => "static_cast<" + ft + ">(0x1p" + f"{k}" + ")"
+        var lo = if (sgn) => ("-" + hi) else => "static_cast<" + ft + ">(0)"
+        var mn = if (sgn) => ("static_cast<" + it + ">(-0x1p" + f"{k}" + ")")
+                 else => "static_cast<" + it + ">(0)"
+        var mx = if (sgn) => ("static_cast<" + it + ">(~" + mn + ")")
+                 else => "static_cast<" + it + ">(-1)"
+        var wrap = inner != n->target
+        if wrap {
+            self._cg->sink->spell(
+                n->operand->range,
+                "static_cast<" + self._spell._type(n->target, &null) + ">(",
+            )
+        }
+
+        self._cg->sink->spell(
+            n->operand->range,
+            "[](" + ft + " " + x + ") noexcept -> " + it + " { return " + x + " != " + x + " ? static_cast<" + it + ">(0) : " + x + " >= " + hi + " ? " + mx + " : " + x + " <= " + lo + " ? " + mn + " : static_cast<" + it + ">(" + x + "); }(",
+        )
+
+        if wide {
+            self._cg->sink->spell(n->operand->range, "static_cast<" + ft + ">(")
+        }
+
+        self.emit(n->operand)
+        if wide {
+            self._cg->sink->spell(n->operand->range, ")")
+        }
+
+        self._cg->sink->spell(n->operand->range, ")")
+        if wrap {
+            self._cg->sink->spell(n->operand->range, ")")
+        }
+
+        return true
+    }
+
+    /// The builtin `t` is, through sugar and cv, or null.
+    priv fn _builtin_of(self, t: unsafe *Type) -> unsafe *BuiltinType {
+        if t == &null || t->is_dependent() || t->is_instantiation_dependent() {
+            return &null
+        }
+
+        var unsafe *c = if (t->canonical != &null) => (t->canonical) else => t
+        var unsafe *u = canon_unqual(c)
+        if u == &null || !isa<BuiltinType>(u) {
+            return &null
+        }
+
+        return cast<BuiltinType>(u)
     }
 
     /// `t` is a plain (non-ADT) enum, Kairo's or a C/C++ one.

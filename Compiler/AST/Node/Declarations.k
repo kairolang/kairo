@@ -338,6 +338,14 @@ pub enum PurityLevel derives u8 {
     Pure,     ///< `@pure`: `[[gnu::pure]]`.
 }
 
+/// FnPurityCheck's termination proof for a function with a purity level.
+/// The values are the encoding of FunctionDecl::purity_proof.
+pub enum PurityProof derives u8 {
+    Unproven = 0, ///< not proven to return: no C++ purity attribute.
+    Proven,       ///< every path returns: no unbounded loop, no call cycle, every callee proven.
+    Pending,      ///< in the proof of its own TU, not decided yet; never read outside it.
+}
+
 /// Which layout lang item a function is. The values are the encoding of
 /// FunctionDecl::dynamic_layout.
 pub enum DynamicLayout derives u8 {
@@ -827,11 +835,18 @@ pub class FunctionDecl
     /// -finfer-purity's verdict for a function that made no promise, a
     /// PurityLevel as u8: 0
     /// none, 1 const (`[[gnu::const]]`), 2 pure (`[[gnu::pure]]`). Writer:
-    /// FnPurityCheck::infer, on every link of the chain, in the defining
+    /// FnPurityCheck::settle, on every link of the chain, in the defining
     /// TU's Sema; readers: Speller::fn_attrs, ParamPassInference (an
     /// inferred-const function keeps its by-value parameters), and the
     /// callers' own inference (a callee counts as a promise once decided).
     pub var inferred_purity: u8 = 0
+    /// Whether the function's termination is proven, as a PurityProof.
+    /// `[[gnu::const]]` and `[[gnu::pure]]` are `willreturn` to clang, so
+    /// the attribute is spelled only on a Proven function, written promise
+    /// or inferred. Writer: FnPurityCheck::settle, on every link of the
+    /// chain, in the defining TU's Sema; readers: Speller::fn_attrs and the
+    /// callers' own proof.
+    pub var purity_proof: u8 = 0
     /// A function EnumLayoutLowering minted for an ADT's layout record, or
     /// None. It has no Kairo body and never a requires_clause: InterfaceEmitter
     /// writes its C++ from adt_role and adt_form, constraints included.
@@ -898,6 +913,7 @@ pub class FunctionDecl
         node->is_const_fn             = false
         node->purity_at               = SourceRange::invalid()
         node->inferred_purity         = PurityLevel::None as u8
+        node->purity_proof            = PurityProof::Unproven as u8
         return node
     }
 
@@ -941,6 +957,7 @@ pub class FunctionDecl
         node->is_const_fn             = false
         node->purity_at               = SourceRange::invalid()
         node->inferred_purity         = PurityLevel::None as u8
+        node->purity_proof            = PurityProof::Unproven as u8
         return node
     }
 

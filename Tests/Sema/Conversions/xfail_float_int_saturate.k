@@ -6,17 +6,6 @@
 // result; this test asks for 0, the only saturating answer that favours
 // neither end (Rust's `as`, and LLVM's fptosi.sat). That one is a decision,
 // not a spec quote: if the spec picks otherwise, change its two checks.
-//
-// XFAIL: *
-// Waits on float -> int `as` saturating: it is a bare static_cast, so out of range is
-// undefined behaviour. EmitIR's _cast spells
-// every numeric `as` as static_cast<T>(x), which is UB in C++ past the
-// range. On x86_64 at -O0 cvttsd2si answers the "integer indefinite"
-// 0x80000000...: 1e18 as i32 is i32 MIN, -1.0 as u8 is 255, NaN is MIN.
-// The fix is a saturating helper (or __builtin-based clamp) per target
-// type. Gated to x86_64 because there the failure is deterministic; on
-// another ISA the UB may happen to land on the right value and XPASS.
-// When it XPASSes on x86_64, delete the XFAIL line; the checks are the spec.
 
 import std::io::println
 
