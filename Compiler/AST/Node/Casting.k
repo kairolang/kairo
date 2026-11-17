@@ -73,1423 +73,284 @@ import AST::Node::Base::{
 /// Disambiguates the safe overloads from the raw ones in C++ (see above).
 pub struct SafePtrTag { }
 
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: *const Expr, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(ptr)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: unsafe *const Expr) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(unsafe (ptr as *const Expr))
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: *const Stmt, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(ptr)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: unsafe *const Stmt) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(unsafe (ptr as *const Stmt))
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: *const Decl, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(ptr)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: unsafe *const Decl) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(unsafe (ptr as *const Decl))
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: *const Type, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(ptr)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: unsafe *const Type) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(unsafe (ptr as *const Type))
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: *const AstPattern, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(ptr)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa(ptr: unsafe *const AstPattern) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    return T::classof(unsafe (ptr as *const AstPattern))
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *const Expr, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *const Expr) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *const Expr)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *Expr, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *Expr) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *Expr)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *const Stmt, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *const Stmt) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *const Stmt)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *Stmt, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *Stmt) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *Stmt)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *const Decl, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *const Decl) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *const Decl)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *Decl, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *Decl) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *Decl)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *const Type, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *const Type) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *const Type)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *Type, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *Type) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *Type)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *const AstPattern, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *const AstPattern) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *const AstPattern)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: *AstPattern, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(ptr) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast(ptr: unsafe *AstPattern) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !T::classof(unsafe (ptr as *AstPattern)) {
-            kairo::std::ice_fail(r"cast<>: incorrect type")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T)
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: *Expr, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null && T::classof(ptr) {
-        return unsafe (ptr as unsafe *T as *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *Expr) -> unsafe *T {
-    if ptr != &null && T::classof(unsafe (ptr as *Expr)) {
-        return unsafe (ptr as unsafe *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *const Expr) -> unsafe *const T {
-    if ptr != &null && T::classof(unsafe (ptr as *const Expr)) {
-        return unsafe (ptr as unsafe *const T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: *Stmt, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null && T::classof(ptr) {
-        return unsafe (ptr as unsafe *T as *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *Stmt) -> unsafe *T {
-    if ptr != &null && T::classof(unsafe (ptr as *Stmt)) {
-        return unsafe (ptr as unsafe *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *const Stmt) -> unsafe *const T {
-    if ptr != &null && T::classof(unsafe (ptr as *const Stmt)) {
-        return unsafe (ptr as unsafe *const T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: *Decl, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null && T::classof(ptr) {
-        return unsafe (ptr as unsafe *T as *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *Decl) -> unsafe *T {
-    if ptr != &null && T::classof(unsafe (ptr as *Decl)) {
-        return unsafe (ptr as unsafe *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *const Decl) -> unsafe *const T {
-    if ptr != &null && T::classof(unsafe (ptr as *const Decl)) {
-        return unsafe (ptr as unsafe *const T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: *Type, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null && T::classof(ptr) {
-        return unsafe (ptr as unsafe *T as *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *Type) -> unsafe *T {
-    if ptr != &null && T::classof(unsafe (ptr as *Type)) {
-        return unsafe (ptr as unsafe *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *const Type) -> unsafe *const T {
-    if ptr != &null && T::classof(unsafe (ptr as *const Type)) {
-        return unsafe (ptr as unsafe *const T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: *AstPattern, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null && T::classof(ptr) {
-        return unsafe (ptr as unsafe *T as *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *AstPattern) -> unsafe *T {
-    if ptr != &null && T::classof(unsafe (ptr as *AstPattern)) {
-        return unsafe (ptr as unsafe *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses classof. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast(ptr: unsafe *const AstPattern) -> unsafe *const T {
-    if ptr != &null && T::classof(unsafe (ptr as *const AstPattern)) {
-        return unsafe (ptr as unsafe *const T)
-    }
-
-    return &null
-}
-
-/// # Recovery casting
+/// Recovery casting: a Recovery node is cast back to the concrete class it
+/// was allocated as. create_error() on every concrete node allocates the
+/// full concrete node and then sets kind to the family's Recovery kind, so
+/// recovery_kind always names the allocation and the cast is valid. Each
+/// concrete node defines `static fn expr_kind() -> ExprKind` (or stmt_kind,
+/// decl_kind, type_kind, pattern_kind), which the recovery casts compare
+/// recovery_kind with.
 ///
-/// Used by sema to cast a RecoveryExpr/RecoveryStmt/RecoveryDecl/RecoveryType
-/// back to its concrete allocated type.
-///
-/// Safe because create_error() on every concrete node allocates the FULL
-/// concrete node and then overwrites kind with Recovery*.
-/// recovery_kind always matches the actual allocationthe cast is valid.
-///
-/// Each concrete node must define:
-///   static fn expr_kind() -> ExprKind   (or stmt_kind, decl_kind, type_kind)
-/// so the recovery cast can verify the recovery_kind matches T.
-
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *Expr) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != ExprKind::RecoveryExpr {
-        return false
-    }
-
-    return ptr->recovery_kind == T::expr_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *Expr) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+/// One family's functions, for the node base `Base_` whose kind enum is
+/// `Kind_`, whose recovery kind is `Kind_::Recovery_` and whose concrete
+/// classes answer `kind_fn_()`. The five families are the five invocations
+/// below.
+// TODO(DUCK-GENERIC): T uses classof and the family's kind function. Bound it or keep `: type`.
+macro node_casts!(Base_, Kind_, Recovery_, kind_fn_) {
+    pub fn <T: type> isa(ptr: *const Base_, tag: SafePtrTag = SafePtrTag()) -> bool {
+        if ptr == &null {
+            return false
         }
+
+        return T::classof(ptr)
     }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == ExprKind::RecoveryExpr) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+    pub fn <T: type> isa(ptr: unsafe *const Base_) -> bool {
+        if ptr == &null {
+            return false
         }
+
+        return T::classof(unsafe (ptr as *const Base_))
     }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::expr_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+    pub fn <T: type> cast(ptr: *const Base_, tag: SafePtrTag = SafePtrTag()) -> *const T {
+        eval if defined!(DEBUG) {
+            if !(ptr != &null) {
+                kairo::std::ice_fail(r"cast<>: null pointer")
+            }
         }
-    }
 
-    return unsafe (ptr as unsafe *T)
-}
-
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *Expr) -> unsafe *T {
-    if ptr != &null && ptr->kind == ExprKind::RecoveryExpr && ptr->recovery_kind == T::expr_kind() {
-        return unsafe (ptr as unsafe *T)
-    }
-
-    return &null
-}
-
-// const overloads for Expr recovery
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *const Expr) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != ExprKind::RecoveryExpr {
-        return false
-    }
-
-    return ptr->recovery_kind == T::expr_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *const Expr) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+        eval if defined!(DEBUG) {
+            if !T::classof(ptr) {
+                kairo::std::ice_fail(r"cast<>: incorrect type")
+            }
         }
+
+        return unsafe (ptr as unsafe *const T as *const T)
     }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == ExprKind::RecoveryExpr) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+    pub fn <T: type> cast(ptr: unsafe *const Base_) -> unsafe *const T {
+        eval if defined!(DEBUG) {
+            if !(ptr != &null) {
+                kairo::std::ice_fail(r"cast<>: null pointer")
+            }
         }
-    }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::expr_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+        eval if defined!(DEBUG) {
+            if !T::classof(unsafe (ptr as *const Base_)) {
+                kairo::std::ice_fail(r"cast<>: incorrect type")
+            }
         }
-    }
 
-    return unsafe (ptr as unsafe *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *const Expr) -> unsafe *const T {
-    if ptr != &null && ptr->kind == ExprKind::RecoveryExpr && ptr->recovery_kind == T::expr_kind() {
         return unsafe (ptr as unsafe *const T)
     }
 
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *Stmt) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != StmtKind::RecoveryStmt {
-        return false
-    }
-
-    return ptr->recovery_kind == T::stmt_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *Stmt) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+    pub fn <T: type> cast(ptr: *Base_, tag: SafePtrTag = SafePtrTag()) -> *T {
+        eval if defined!(DEBUG) {
+            if !(ptr != &null) {
+                kairo::std::ice_fail(r"cast<>: null pointer")
+            }
         }
-    }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == StmtKind::RecoveryStmt) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+        eval if defined!(DEBUG) {
+            if !T::classof(ptr) {
+                kairo::std::ice_fail(r"cast<>: incorrect type")
+            }
         }
+
+        return unsafe (ptr as unsafe *T as *T)
     }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::stmt_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+    pub fn <T: type> cast(ptr: unsafe *Base_) -> unsafe *T {
+        eval if defined!(DEBUG) {
+            if !(ptr != &null) {
+                kairo::std::ice_fail(r"cast<>: null pointer")
+            }
         }
-    }
 
-    return unsafe (ptr as unsafe *T)
-}
+        eval if defined!(DEBUG) {
+            if !T::classof(unsafe (ptr as *Base_)) {
+                kairo::std::ice_fail(r"cast<>: incorrect type")
+            }
+        }
 
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *Stmt) -> unsafe *T {
-    if ptr != &null && ptr->kind == StmtKind::RecoveryStmt && ptr->recovery_kind == T::stmt_kind() {
         return unsafe (ptr as unsafe *T)
     }
 
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *const Stmt) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != StmtKind::RecoveryStmt {
-        return false
-    }
-
-    return ptr->recovery_kind == T::stmt_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *const Stmt) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+    pub fn <T: type> dyn_cast(ptr: *Base_, tag: SafePtrTag = SafePtrTag()) -> *T? {
+        if ptr != &null && T::classof(ptr) {
+            return unsafe (ptr as unsafe *T as *T)
         }
+
+        return &null
     }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == StmtKind::RecoveryStmt) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+    pub fn <T: type> dyn_cast(ptr: unsafe *Base_) -> unsafe *T {
+        if ptr != &null && T::classof(unsafe (ptr as *Base_)) {
+            return unsafe (ptr as unsafe *T)
         }
+
+        return &null
     }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::stmt_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+    pub fn <T: type> dyn_cast(ptr: unsafe *const Base_) -> unsafe *const T {
+        if ptr != &null && T::classof(unsafe (ptr as *const Base_)) {
+            return unsafe (ptr as unsafe *const T)
         }
+
+        return &null
     }
 
-    return unsafe (ptr as unsafe *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *const Stmt) -> unsafe *const T {
-    if ptr != &null && ptr->kind == StmtKind::RecoveryStmt && ptr->recovery_kind == T::stmt_kind() {
-        return unsafe (ptr as unsafe *const T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *Decl) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != DeclKind::RecoveryDecl {
-        return false
-    }
-
-    return ptr->recovery_kind == T::decl_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *Decl) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+    pub fn <T: type> isa_recovery(ptr: unsafe *Base_) -> bool {
+        if ptr == &null {
+            return false
         }
-    }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == DeclKind::RecoveryDecl) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+        if ptr->kind != Kind_::Recovery_ {
+            return false
         }
+
+        return ptr->recovery_kind == T::kind_fn_()
     }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::decl_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+    pub fn <T: type> cast_recovery(ptr: unsafe *Base_) -> unsafe *T {
+        eval if defined!(DEBUG) {
+            if !(ptr != &null) {
+                kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+            }
         }
-    }
 
-    return unsafe (ptr as unsafe *T)
-}
+        eval if defined!(DEBUG) {
+            if !(ptr->kind == Kind_::Recovery_) {
+                kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+            }
+        }
 
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *Decl) -> unsafe *T {
-    if ptr != &null && ptr->kind == DeclKind::RecoveryDecl && ptr->recovery_kind == T::decl_kind() {
+        eval if defined!(DEBUG) {
+            if !(ptr->recovery_kind == T::kind_fn_()) {
+                kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+            }
+        }
+
         return unsafe (ptr as unsafe *T)
     }
 
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *const Decl) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != DeclKind::RecoveryDecl {
-        return false
-    }
-
-    return ptr->recovery_kind == T::decl_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *const Decl) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+    pub fn <T: type> dyn_cast_recovery(ptr: unsafe *Base_) -> unsafe *T {
+        if ptr != &null && ptr->kind == Kind_::Recovery_ && ptr->recovery_kind == T::kind_fn_() {
+            return unsafe (ptr as unsafe *T)
         }
+
+        return &null
     }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == DeclKind::RecoveryDecl) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+    pub fn <T: type> isa_recovery(ptr: unsafe *const Base_) -> bool {
+        if ptr == &null {
+            return false
         }
-    }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::decl_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+        if ptr->kind != Kind_::Recovery_ {
+            return false
         }
+
+        return ptr->recovery_kind == T::kind_fn_()
     }
 
-    return unsafe (ptr as unsafe *const T)
-}
+    pub fn <T: type> cast_recovery(ptr: unsafe *const Base_) -> unsafe *const T {
+        eval if defined!(DEBUG) {
+            if !(ptr != &null) {
+                kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+            }
+        }
 
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *const Decl) -> unsafe *const T {
-    if ptr != &null && ptr->kind == DeclKind::RecoveryDecl && ptr->recovery_kind == T::decl_kind() {
+        eval if defined!(DEBUG) {
+            if !(ptr->kind == Kind_::Recovery_) {
+                kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+            }
+        }
+
+        eval if defined!(DEBUG) {
+            if !(ptr->recovery_kind == T::kind_fn_()) {
+                kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+            }
+        }
+
         return unsafe (ptr as unsafe *const T)
     }
 
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *Type) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != TypeKind::RecoveryType {
-        return false
-    }
-
-    return ptr->recovery_kind == T::type_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *Type) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+    pub fn <T: type> dyn_cast_recovery(ptr: unsafe *const Base_) -> unsafe *const T {
+        if ptr != &null && ptr->kind == Kind_::Recovery_ && ptr->recovery_kind == T::kind_fn_() {
+            return unsafe (ptr as unsafe *const T)
         }
+
+        return &null
     }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == TypeKind::RecoveryType) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+    pub fn is_recovery(ptr: unsafe *Base_) -> bool {
+        return ptr != &null && ptr->kind == Kind_::Recovery_
+    }
+
+    pub fn is_recovery(ptr: unsafe *const Base_) -> bool {
+        return ptr != &null && ptr->kind == Kind_::Recovery_
+    }
+
+    pub fn <T: type> isa_recovery(ptr: *const Base_, tag: SafePtrTag = SafePtrTag()) -> bool {
+        if ptr == &null {
+            return false
         }
-    }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::type_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+        var p: *const Base_ = ptr
+        if p->kind != Kind_::Recovery_ {
+            return false
         }
+
+        return p->recovery_kind == T::kind_fn_()
     }
 
-    return unsafe (ptr as unsafe *T)
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *Type) -> unsafe *T {
-    if ptr != &null && ptr->kind == TypeKind::RecoveryType && ptr->recovery_kind == T::type_kind() {
-        return unsafe (ptr as unsafe *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *const Type) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != TypeKind::RecoveryType {
-        return false
-    }
-
-    return ptr->recovery_kind == T::type_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *const Type) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+    pub fn <T: type> cast_recovery(ptr: *const Base_, tag: SafePtrTag = SafePtrTag()) -> *const T {
+        eval if defined!(DEBUG) {
+            if !(ptr != &null) {
+                kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+            }
         }
-    }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == TypeKind::RecoveryType) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+        eval if defined!(DEBUG) {
+            if !(ptr->kind == Kind_::Recovery_) {
+                kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+            }
         }
-    }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::type_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+        eval if defined!(DEBUG) {
+            if !(ptr->recovery_kind == T::kind_fn_()) {
+                kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+            }
         }
+
+        return unsafe (ptr as unsafe *const T as *const T)
     }
 
-    return unsafe (ptr as unsafe *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *const Type) -> unsafe *const T {
-    if ptr != &null && ptr->kind == TypeKind::RecoveryType && ptr->recovery_kind == T::type_kind() {
-        return unsafe (ptr as unsafe *const T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *AstPattern) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != PatternKind::RecoveryPattern {
-        return false
-    }
-
-    return ptr->recovery_kind == T::pattern_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *AstPattern) -> unsafe *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+    pub fn <T: type> cast_recovery(ptr: *Base_, tag: SafePtrTag = SafePtrTag()) -> *T {
+        eval if defined!(DEBUG) {
+            if !(ptr != &null) {
+                kairo::std::ice_fail(r"cast_recovery<>: null pointer")
+            }
         }
-    }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == PatternKind::RecoveryPattern) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+        eval if defined!(DEBUG) {
+            if !(ptr->kind == Kind_::Recovery_) {
+                kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
+            }
         }
-    }
 
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::pattern_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+        eval if defined!(DEBUG) {
+            if !(ptr->recovery_kind == T::kind_fn_()) {
+                kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
+            }
         }
-    }
 
-    return unsafe (ptr as unsafe *T)
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *AstPattern) -> unsafe *T {
-    if ptr != &null
-        && ptr->kind == PatternKind::RecoveryPattern
-        && ptr->recovery_kind == T::pattern_kind() {
-        return unsafe (ptr as unsafe *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: unsafe *const AstPattern) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    if ptr->kind != PatternKind::RecoveryPattern {
-        return false
-    }
-
-    return ptr->recovery_kind == T::pattern_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: unsafe *const AstPattern) -> unsafe *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == PatternKind::RecoveryPattern) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::pattern_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: unsafe *const AstPattern) -> unsafe *const T {
-    if ptr != &null
-        && ptr->kind == PatternKind::RecoveryPattern
-        && ptr->recovery_kind == T::pattern_kind() {
-        return unsafe (ptr as unsafe *const T)
-    }
-
-    return &null
-}
-
-pub fn is_recovery(ptr: unsafe *Expr) -> bool {
-    return ptr != &null && ptr->kind == ExprKind::RecoveryExpr
-}
-
-pub fn is_recovery(ptr: unsafe *Stmt) -> bool {
-    return ptr != &null && ptr->kind == StmtKind::RecoveryStmt
-}
-
-pub fn is_recovery(ptr: unsafe *Type) -> bool {
-    return ptr != &null && ptr->kind == TypeKind::RecoveryType
-}
-
-pub fn is_recovery(ptr: unsafe *Decl) -> bool {
-    return ptr != &null && ptr->kind == DeclKind::RecoveryDecl
-}
-
-pub fn is_recovery(ptr: unsafe *AstPattern) -> bool {
-    return ptr != &null && ptr->kind == PatternKind::RecoveryPattern
-}
-
-pub fn is_recovery(ptr: unsafe *const Expr) -> bool {
-    return ptr != &null && ptr->kind == ExprKind::RecoveryExpr
-}
-
-pub fn is_recovery(ptr: unsafe *const Stmt) -> bool {
-    return ptr != &null && ptr->kind == StmtKind::RecoveryStmt
-}
-
-pub fn is_recovery(ptr: unsafe *const Type) -> bool {
-    return ptr != &null && ptr->kind == TypeKind::RecoveryType
-}
-
-pub fn is_recovery(ptr: unsafe *const Decl) -> bool {
-    return ptr != &null && ptr->kind == DeclKind::RecoveryDecl
-}
-
-pub fn is_recovery(ptr: unsafe *const AstPattern) -> bool {
-    return ptr != &null && ptr->kind == PatternKind::RecoveryPattern
-}
-
-// Safe-pointer recovery casts: same contracts as the raw ones above.
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: *const Expr, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    var p: *const Expr = ptr
-    if p->kind != ExprKind::RecoveryExpr {
-        return false
-    }
-
-    return p->recovery_kind == T::expr_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *const Expr, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == ExprKind::RecoveryExpr) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::expr_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *Expr, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == ExprKind::RecoveryExpr) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::expr_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses expr_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Expr, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null && ptr->kind == ExprKind::RecoveryExpr && ptr->recovery_kind == T::expr_kind() {
         return unsafe (ptr as unsafe *T as *T)
     }
 
-    return &null
+    pub fn <T: type> dyn_cast_recovery(ptr: *Base_, tag: SafePtrTag = SafePtrTag()) -> *T? {
+        if ptr != &null && ptr->kind == Kind_::Recovery_ && ptr->recovery_kind == T::kind_fn_() {
+            return unsafe (ptr as unsafe *T as *T)
+        }
+
+        return &null
+    }
 }
 
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: *const Stmt, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    var p: *const Stmt = ptr
-    if p->kind != StmtKind::RecoveryStmt {
-        return false
-    }
-
-    return p->recovery_kind == T::stmt_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *const Stmt, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == StmtKind::RecoveryStmt) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::stmt_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *Stmt, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == StmtKind::RecoveryStmt) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::stmt_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses stmt_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Stmt, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null && ptr->kind == StmtKind::RecoveryStmt && ptr->recovery_kind == T::stmt_kind() {
-        return unsafe (ptr as unsafe *T as *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: *const Decl, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    var p: *const Decl = ptr
-    if p->kind != DeclKind::RecoveryDecl {
-        return false
-    }
-
-    return p->recovery_kind == T::decl_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *const Decl, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == DeclKind::RecoveryDecl) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::decl_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *Decl, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == DeclKind::RecoveryDecl) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::decl_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses decl_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Decl, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null && ptr->kind == DeclKind::RecoveryDecl && ptr->recovery_kind == T::decl_kind() {
-        return unsafe (ptr as unsafe *T as *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: *const Type, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    var p: *const Type = ptr
-    if p->kind != TypeKind::RecoveryType {
-        return false
-    }
-
-    return p->recovery_kind == T::type_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *const Type, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == TypeKind::RecoveryType) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::type_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *Type, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == TypeKind::RecoveryType) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::type_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses type_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *Type, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null && ptr->kind == TypeKind::RecoveryType && ptr->recovery_kind == T::type_kind() {
-        return unsafe (ptr as unsafe *T as *T)
-    }
-
-    return &null
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> isa_recovery(ptr: *const AstPattern, tag: SafePtrTag = SafePtrTag()) -> bool {
-    if ptr == &null {
-        return false
-    }
-
-    var p: *const AstPattern = ptr
-    if p->kind != PatternKind::RecoveryPattern {
-        return false
-    }
-
-    return p->recovery_kind == T::pattern_kind()
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *const AstPattern, tag: SafePtrTag = SafePtrTag()) -> *const T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == PatternKind::RecoveryPattern) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::pattern_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *const T as *const T)
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> cast_recovery(ptr: *AstPattern, tag: SafePtrTag = SafePtrTag()) -> *T {
-    eval if defined!(DEBUG) {
-        if !(ptr != &null) {
-            kairo::std::ice_fail(r"cast_recovery<>: null pointer")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->kind == PatternKind::RecoveryPattern) {
-            kairo::std::ice_fail(r"cast_recovery<>: not a recovery node")
-        }
-    }
-
-    eval if defined!(DEBUG) {
-        if !(ptr->recovery_kind == T::pattern_kind()) {
-            kairo::std::ice_fail(r"cast_recovery<>: wrong recovery_kind")
-        }
-    }
-
-    return unsafe (ptr as unsafe *T as *T)
-}
-
-// TODO(DUCK-GENERIC): T uses pattern_kind. Stage 0 was duck-typed; bound it or keep `: type`.
-pub fn <T: type> dyn_cast_recovery(ptr: *AstPattern, tag: SafePtrTag = SafePtrTag()) -> *T? {
-    if ptr != &null
-        && ptr->kind == PatternKind::RecoveryPattern
-        && ptr->recovery_kind == T::pattern_kind() {
-        return unsafe (ptr as unsafe *T as *T)
-    }
-
-    return &null
-}
+node_casts!(Expr, ExprKind, RecoveryExpr, expr_kind)
+node_casts!(Stmt, StmtKind, RecoveryStmt, stmt_kind)
+node_casts!(Decl, DeclKind, RecoveryDecl, decl_kind)
+node_casts!(Type, TypeKind, RecoveryType, type_kind)
+node_casts!(AstPattern, PatternKind, RecoveryPattern, pattern_kind)

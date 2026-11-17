@@ -446,7 +446,10 @@ flag to turn sorting off (2.2-2.5 are the only knobs).
 space on each side. In a parameter, `name: Type` has no space before `:` and
 one after. Generic parameters attach to `fn`: `fn <T> name(...)`, one space
 after `fn` and none inside `<...>`. Today only the parameter list is laid out
-(rule 4.1); the rest of the head is copied as written.
+(rule 4.1); the rest of the head is copied as written, except that the `:` of
+each generic parameter is glued the same way (`fn <eval N: usize>`), and so is
+each parameter's `:` in a closure's head (`fn (u: i32)`), when the head is on
+one line.
 ```rs
 fn <T>pick( x :T,n:i32 )->i32{ return 1 }
 // after
@@ -787,14 +790,17 @@ per line, the values align in one column (rule 11.3).
 **9.7 Closures.** (proposed) [impl, copied] `fn (a: i32) -> i32 { ... }` and
 `fn ()|x, *y| { ... }`: one space between `fn` and `(`; the capture list
 `|...|` attaches to `)`. The head (`fn`, generics, parameters, captures,
-`-> T`) is copied as written. [impl] A block
+`-> T`) is copied as written, except that on a one-line head each
+parameter's and generic parameter's `:` is glued to its name with one space
+after it (rule 6.1). [impl] A block
 body is laid out like any block: 13.1 drops its redundant `;`, 9.5 applies,
 and a comment or macro use inside it belongs to the body's statement list, so
 it no longer makes the call or statement around the closure copied. A body
 written on one line with exactly one statement (no comment, no macro) stays
 on one line while it fits, `op(at, fn () { s->spell(at, p) }, t)`, instead
 of the three lines 8.1 would give each such argument; any other body is
-broken by 8.1. An expression body (`fn (x) => x`) is still copied.
+broken by 8.1. An expression body (`fn (x: i32) -> i32 = x`) is copied, with the
+head's colons glued the same way.
 
 **9.8 f-strings and literals.** (strings untouched) [impl] Copied byte
 for byte, including the `{...}` parts and number spellings (`0xFF` stays
@@ -1053,7 +1059,7 @@ split the run on the next pass. Switch: `Rules.blank_after_closer`.
 
 Copied byte for byte, then re-indented as a whole: control-flow headers
 (`if`, `while`, `for`, `match` scrutinee, `catch`), types, patterns, closure
-heads (9.7), macro invocations and everything a macro expanded to, imports,
+heads (9.7, but for the colons of their parameters), macro invocations and everything a macro expanded to, imports,
 type aliases, macro declarations, `eval` blocks (an `eval if` / `eval for`
 statement keeps only its header as written; its blocks are laid out by 8.1),
 asserts, `label!` / `jump!`, inline blocks, operator function heads, any

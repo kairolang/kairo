@@ -195,5 +195,12 @@ pub fn cache_root() -> string {
         }
     }
 
+    // Absolute: the library cache compares the paths it builds under the
+    // root with the ones the source manager spells, which are absolute, so
+    // a relative KAIRO_CACHE_DIR made every library build "incomplete".
+    if !root.is_empty() {
+        root = LinkFS::absolute(root)
+    }
+
     return root
 }

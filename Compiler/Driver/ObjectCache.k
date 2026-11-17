@@ -184,7 +184,7 @@ pub class ObjectCache {
     priv var _prefix:     cxx::std::vector<string>
     priv var _edges:      cxx::std::vector<cxx::std::vector<u32>>
     priv var _hdr_global: string                                  = "" ///< in every TU's headers: the merged-PCH verdict and -include files
-    priv var _tu_part:    string                                  = "" ///< the "headers" line of the TU key() was last asked for
+    priv var _tu_part:    string                                  = "" ///< the "headers" (and "iface-walk") lines of the TU key() was last asked for
     /// The entries this run fetched or stored: gc's size bound never
     /// evicts one, so the generation in use survives however old its
     /// store time is (mtime is when an entry was stored, not used).
@@ -506,14 +506,28 @@ pub class ObjectCache {
     /// name in a -g object's debug info, so with -g it is in the key (and
     /// ignored without: nothing else of the writer reaches an object).
     ///
-    /// Remembers `headers` for the record and fetch of the same TU, which
-    /// the driver asks for next.
+    /// `walk`, when not empty, names what the Sema agreement walk of that
+    /// PCH covers (the flavour's TUs): the TU it is given to carries the
+    /// findings of PCH bodies in files that are no TU of the PCH, so an
+    /// object of a build whose walk covered another set of TUs is another
+    /// key's. The set is named by module, not by content: an edit to
+    /// another TU that changes what the walk finds in such a file leaves
+    /// this key as it is (fetch then serves the finding-bearing entry
+    /// first).
+    ///
+    /// Remembers `headers` and `walk` for the record and fetch of the same
+    /// TU, which the driver asks for next.
     pub fn key(self,
                const stream:  string,
                iface:         bool,
                const headers: string,
-               const writer:  string) -> string {
+               const writer:  string,
+               const walk:    string) -> string {
         self._tu_part = "headers " + headers + "\n"
+        if !walk.is_empty() {
+            self._tu_part += "iface-walk " + walk + "\n"
+        }
+
         var w = if (iface && self.with_locs) => ("iface-writer " + writer + "\n") else => ""
         return ObjectCache::hash(
             f"F {self.f_hash}\nstream {stream}\n{self._tu_part}{self.run_part}iface {iface}\n{w}emit obj\n",
@@ -829,8 +843,8 @@ pub class ObjectCache {
                 continue
             }
 
-            if line.starts_with("headers ") {
-                if self._tu_part != line + "\n" {
+            if line.starts_with("headers ") || line.starts_with("iface-walk ") {
+                if find(self._tu_part, line + "\n", 0) == usize::MAX {
                     out += " " + line.subslice(0, sp)
                 }
             } else if line.starts_with("diag ") {
@@ -842,6 +856,11 @@ pub class ObjectCache {
                     out += " " + line.subslice(0, sp)
                 }
             }
+        }
+
+        if find(self._tu_part, "iface-walk ", 0) != usize::MAX
+            && find(have, "\niface-walk ", 0) == usize::MAX {
+            out += " iface-walk"
         }
 
         if out.is_empty() {

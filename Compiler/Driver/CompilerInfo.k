@@ -238,17 +238,19 @@ extend CompilerInstance {
         return &null
     }
 
-    /// a TargetMachine for `T` on `tt`, generic CPU and no
-    /// features, which the caller deletes; &null after reporting
-    /// P005F.
+    /// A TargetMachine for `T` on `tt`.
+    ///
+    /// `cpu` names the CPU, with no features; the caller deletes the
+    /// result. &null after reporting P005F.
     priv fn _info_target_machine(self,
                                  T:            unsafe *llvm::Target,
                                  tt:           *llvm::Triple,
-                                 const triple: string) -> unsafe *llvm::TargetMachine {
+                                 const triple: string,
+                                 const cpu:    string) -> unsafe *llvm::TargetMachine {
         var opts: llvm::TargetOptions
         var TM: unsafe *llvm::TargetMachine = T->createTargetMachine(
             *tt,
-            kairo::sref(/*CPU=*/r"generic"),
+            kairo::sref(cpu),
             /*Features=*/kairo::sref(r""),
             opts,
             cxx::std::optional<llvm::Reloc::Model>(cxx::std::nullopt)
@@ -263,6 +265,41 @@ extend CompilerInstance {
         }
 
         return TM
+    }
+
+    /// The CPU a compile with this invocation targets.
+    ///
+    /// Read off the last `-target-cpu` of the shared cc1 line
+    /// (ClangBackend::invocation_args), so it is the CPU --print-clang-args
+    /// shows. "" when the line names none (AVR without `-mmcu`) or the
+    /// invocation was refused (an unknown --mcpu, P006E), which leaves no
+    /// CPU a compile would use.
+    priv fn _compile_cpu(self) -> string {
+        if !self.invocation()->ok {
+            return ""
+        }
+
+        // The driver probe's own warnings (AVR's "no target
+        // microcontroller") are a compile's to say, not this query's.
+        var cfg = self._backend_config()
+        cfg.driver_words.push_back("-w")
+        var unsafe *be = kairo::std::create<ClangBackend>(self._sm, cfg)
+
+        finally {
+            kairo::std::destroy(be)
+        }
+
+        // The last one: --mcpu is placed after the driver's default, and
+        // cc1 takes the last -target-cpu it is given.
+        var cpu  = ""
+        var args = be->invocation_args()
+        for var i: usize = 0; i + 1 < args.size(); ++i {
+            if args[i] == "-target-cpu" {
+                cpu = args[i + 1].copy()
+            }
+        }
+
+        return cpu
     }
 
     //  --print-cpus
@@ -280,7 +317,13 @@ extend CompilerInstance {
             return EXIT_FAILURE
         }
 
-        var unsafe *TM = self._info_target_machine(T, &llvm_triple, triple)
+        var unsafe *TM = self._info_target_machine(
+            T,
+            &llvm_triple,
+            triple,
+            "generic",
+        )
+
         if TM == &null {
             return EXIT_FAILURE
         }
@@ -360,9 +403,11 @@ extend CompilerInstance {
 
     //  --print-target-info
 
-    /// Prints triple, architecture, ABI, pointer width, endianness, object format,
-    /// data layout, and default CPU for the effective target. Uses --target if
-    /// given, otherwise the host triple.
+    /// Prints the target a compile with the same flags uses.
+    ///
+    /// Triple, architecture, ABI, pointer width, endianness, object format,
+    /// data layout and CPU, after --target (else the default target), --m32 /
+    /// --m64, --mcpu and --march.
     fn print_target_info(self) -> i32 {
         var triple = self._effective_triple()
         var llvm_triple = llvm::Triple(
@@ -441,8 +486,18 @@ extend CompilerInstance {
         io::println(f"OS family:       {os_family}")
         io::println(f"Object format:   {obj_format}")
 
-        // Data layout via TargetMachine
-        var unsafe *TM = self._info_target_machine(T, &llvm_triple, triple)
+        // The CPU and data layout a compile with these flags uses: the
+        // -target-cpu of the cc1 line every compile copies (--mcpu, --march
+        // or clang's default for the triple), else the target machine's
+        // own name for LLVM's generic CPU.
+        var cpu = self._compile_cpu()
+        var unsafe *TM = self._info_target_machine(
+            T,
+            &llvm_triple,
+            triple,
+            if cpu.is_empty() => "generic" else => cpu,
+        )
+
         if TM == &null {
             return EXIT_FAILURE
         }
@@ -455,12 +510,16 @@ extend CompilerInstance {
             TM->createDataLayout().getStringRepresentation(),
         )
 
-        var default_cpu: llvm::StringRef = TM->getTargetCPU()
+        if cpu.is_empty() {
+            var tm_cpu: llvm::StringRef = TM->getTargetCPU()
+            cpu = string(
+                unsafe ((tm_cpu.data() as unsafe *const u8) as *const u8),
+                tm_cpu.size(),
+            )
+        }
 
         io::println(f"Data layout:     {data_layout}")
-        io::println(
-            f"Default CPU:     {string(unsafe ((default_cpu.data() as unsafe *const u8) as *const u8), default_cpu.size())}",
-        )
+        io::println(f"Default CPU:     {cpu}")
 
         return EXIT_OK
     }

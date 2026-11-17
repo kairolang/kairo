@@ -222,7 +222,7 @@ pub class LiveCheck {
     /// `path`'s text changed. false when the command line was refused or
     /// names no entry; the diagnostics say which.
     pub fn replace_file(self, const path: string) -> bool {
-        var why = "re-checking in place is not built"
+        var why = "re-checking in place is off"
         self.detail         = ""
         self.dropped_bodies = false
         self.rechecked.clear()

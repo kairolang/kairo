@@ -45,6 +45,8 @@ import Support::Ascii::find
 import Support::FileIO::AtomicFile::{
     file_stat,
     is_leftover_temp,
+    lock_file_drop,
+    lock_file_take,
     now_ns,
     publish_copy,
 }
@@ -53,8 +55,18 @@ import Support::Tuning::{
     CACHE_ENTRY_MAX_AGE_NS,
     CACHE_LIBRARY_MAX_BYTES,
     CACHE_PARTIAL_MAX_AGE_NS,
+    PUBLISH_LOCK_STALE_NS,
+    PUBLISH_LOCK_WAIT_NS,
 }
 import std::env
+
+/// How _publish_kairo_lib ended.
+enum LibPublish {
+    Nothing, ///< nothing published; a library may still be there (another build's)
+    Theirs,  ///< a valid library was already there, and is used
+    Renamed, ///< this build's library was renamed into place
+    Copied,  ///< this build's library was copied into place (Windows)
+}
 
 extend CompilerInstance {
     /// # The runtime object cache
@@ -243,6 +255,18 @@ extend CompilerInstance {
         for var name: string in LinkFS::list_dir(dir) {
             var p = dir + "/" + name
             if !LinkFS::is_file(p) {
+                continue
+            }
+
+            // A publish lock left by a crashed build (lock_file_take takes
+            // over such a lock for its own entry; this removes the rest).
+            if name.ends_with(".lock") && !LinkFS::is_dir(p) {
+                var lm: u64 = 0
+                var ls: u64 = 0
+                if file_stat(p, &lm, &ls) && now > lm && now - lm > PUBLISH_LOCK_STALE_NS {
+                    Path::remove_file(p)
+                }
+
                 continue
             }
 
@@ -573,14 +597,61 @@ extend CompilerInstance {
             return false
         }
 
-        // A library already there was stale when _kairo_lib read it, and is
-        // moved aside, since a rename cannot replace a full directory. It is
-        // checked again first: a parallel build that missed too may have
-        // published its fresh library during this build, and moving that one
-        // aside would pull it from under that build's own read of it. Then
-        // theirs is used and this one is dropped (built stays false). If a
-        // parallel build renames its fresh one in after the check, the
-        // rename below fails and theirs is used.
+        // The check and the rename run under `<dir>.lock`, so two builds
+        // that both missed publish one at a time: the second sees the
+        // first's library in its check and uses it. A lock not had in time
+        // (lock_file_take's bound) leaves the publish unlocked, where a
+        // rename that loses the race still fails safe (below). The lock is
+        // dropped before the slow parts, removing a stale tree and the gc.
+        var lock = dir + ".lock"
+        var locked = lock_file_take(
+            lock,
+            PUBLISH_LOCK_STALE_NS,
+            PUBLISH_LOCK_WAIT_NS,
+        )
+
+        var aside = ""
+        var how   = self._publish_kairo_lib(dir, tmp, &aside)
+        if locked {
+            lock_file_drop(lock)
+        }
+
+        if !aside.is_empty() {
+            LinkFS::remove_tree(aside)
+        }
+
+        if how == LibPublish::Renamed {
+            built = true
+        }
+
+        if how == LibPublish::Renamed || how == LibPublish::Copied {
+            self._gc_kairo_libs(dir)
+            return true
+        }
+
+        if how == LibPublish::Theirs {
+            return true
+        }
+
+        // Another build got there first: theirs is as good as this one.
+        return LinkFS::is_dir(dir)
+    }
+
+    /// Moves the library built in `tmp` into `dir`; the caller holds
+    /// `dir`'s lock when it could take it.
+    ///
+    /// A library already there was stale when _kairo_lib read it, and is
+    /// moved aside to `aside` (the caller removes it), since a rename
+    /// cannot replace a full directory. It is checked again first: a
+    /// parallel build that missed too may have published its fresh library
+    /// during this build, and moving that one aside would pull it from
+    /// under that build's own read of it. Then theirs is used and this one
+    /// is dropped. If a parallel build renames its fresh one in after the
+    /// check, the rename fails and theirs is used.
+    priv fn _publish_kairo_lib(self,
+                               const dir:    string,
+                               const tmp:    string,
+                               @inout aside: string) -> LibPublish {
         if LinkFS::is_dir(dir) {
             var their_objs    = cxx::std::vector<string>()
             var their_archive = ""
@@ -589,39 +660,34 @@ extend CompilerInstance {
                 &their_objs,
                 &their_archive,
             ) {
-                return true
+                return LibPublish::Theirs
             }
 
             var old = f"{dir}.stale-{llvm::sys::Process::getProcessId()}"
             if LinkFS::rename(dir, old) {
-                LinkFS::remove_tree(old)
+                aside = old.copy()
             }
         }
 
         if LinkFS::rename(tmp, dir) {
-            built = true
-            self._gc_kairo_libs(dir)
-            return true
+            return LibPublish::Renamed
         }
 
         // Windows refuses to rename a directory while a file in it is open or
         // mapped, and this session still maps tmp/kairo-lib.k (the source it just
         // compiled): kcc on Windows failed every first build here. A copy has no
-        // open files, so it renames into place as atomically as tmp would have;
-        // tmp is left to _gc_kairo_libs / the next run (its .tmp- name ages out).
+        // open files, so it renames into place as atomically as tmp would have.
         if !LinkFS::is_dir(dir) {
             var copy = f"{dir}.copy-{llvm::sys::Process::getProcessId()}"
             LinkFS::remove_tree(copy)
             if LinkFS::copy_tree(tmp, copy) && LinkFS::rename(copy, dir) {
-                self._gc_kairo_libs(dir)
-                return true
+                return LibPublish::Copied
             }
 
             LinkFS::remove_tree(copy)
         }
 
-        // Another build got there first: theirs is as good as this one.
-        return LinkFS::is_dir(dir)
+        return LibPublish::Nothing
     }
 
     /// removes the cached libraries beside `keep` that no link has
@@ -642,6 +708,18 @@ extend CompilerInstance {
         for var name: string in LinkFS::list_dir(root) {
             var p = root + "/" + name
             if p == keep || !LinkFS::is_dir(p) {
+                continue
+            }
+
+            // A publish lock left by a crashed build (lock_file_take takes
+            // over such a lock for its own entry; this removes the rest).
+            if name.ends_with(".lock") && !LinkFS::is_dir(p) {
+                var lm: u64 = 0
+                var ls: u64 = 0
+                if file_stat(p, &lm, &ls) && now > lm && now - lm > PUBLISH_LOCK_STALE_NS {
+                    Path::remove_file(p)
+                }
+
                 continue
             }
 

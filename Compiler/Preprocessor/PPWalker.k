@@ -69,6 +69,7 @@ import Parser::Shared::StringOperand::{
     refused_prefix,
     refused_prefix_fixable,
     refused_prefix_message,
+    refused_suffix_message,
 }
 import Preprocessor::FileImportIndex::FileImportIndex
 import Preprocessor::MacroTable::{
@@ -1560,7 +1561,8 @@ pub class PPWalker {
     }
 
     /// Reports `tok`, the language or the header of an `ffi ... import`
-    /// line, when it carries a prefix a `what` operand does not take.
+    /// line, when it carries a prefix a `what` operand does not take or a
+    /// literal suffix.
     priv fn _check_ffi_prefix(self, tok: Token, what: StringOperand) {
         if self._quiet || tok.kind != TokenKind::LitString {
             return
@@ -1571,8 +1573,19 @@ pub class PPWalker {
             return
         }
 
-        var unsafe *d      = tbl->get<Immediate::StringData>(tok.imm)
-        var        refused = refused_prefix(d, what)
+        var unsafe *d = tbl->get<Immediate::StringData>(tok.imm)
+        if d != &null && d->suffix.range.is_valid() {
+            self._diag->report(
+                DiagCode(DiagID::S064E),
+                d->suffix.range.start,
+                refused_suffix_message(what, "ffi"),
+            ).first(d->suffix.range)->remove(
+                d->suffix.range,
+                "remove the suffix",
+            )->emit()
+        }
+
+        var refused = refused_prefix(d, what)
         if refused.is_empty() {
             return
         }

@@ -1016,6 +1016,16 @@ pub class Formatter {
 
     /// The tokens in [a, b) as written, whitespace at both ends dropped.
     fn _span(self, a: u32, b: u32) -> Doc {
+        return self._span_glued(a, b, cxx::std::vector<usize>())
+    }
+
+    /// `_span(a, b)` with each `:` token in `cols` glued to the code before
+    /// it and followed by one space (rule 6.1's `name: Type`).
+    ///
+    /// Only a span on one line is rewritten, and a `:` with a comment beside
+    /// it keeps its spacing: a multi-line span is re-indented by `_v`, which
+    /// works on whole lines.
+    priv fn _span_glued(self, a: u32, b: u32, const cols: cxx::std::vector<usize>) -> Doc {
         var n = self.toks.size()
         var i = self._lb(a)
         while i < n
@@ -1052,7 +1062,105 @@ pub class Formatter {
             }
         }
 
-        return self._v(s0, e1)
+        if cols.empty() || self._line(s0) != self._line(e1 - 1) {
+            return self._v(s0, e1)
+        }
+
+        var out = ""
+        var pos = s0
+        for var k: usize = 0; k < cols.size(); ++k {
+            var c = cols[k]
+            if self.toks[c].start < pos || self.toks[c].end > e1 {
+                continue
+            }
+
+            var q = c
+            while q > 0 && self.toks[q - 1].kind == TokenKind::TkWhitespace {
+                q -= 1
+            }
+
+            var r = c + 1
+            while r < n && self.toks[r].kind == TokenKind::TkWhitespace {
+                r += 1
+            }
+
+            if q == 0
+                || Formatter::trivia(self.toks[q - 1].kind)
+                || self.toks[q - 1].end < pos
+                || r >= n
+                || Formatter::trivia(self.toks[r].kind)
+                || self.toks[r].start >= e1 {
+                continue
+            }
+
+            out = out + self._text(pos, self.toks[q - 1].end) + ": "
+            pos = self.toks[r].start
+        }
+
+        out = out + self._text(pos, e1)
+        return Doc::text(out)
+    }
+
+    /// The `:` tokens directly inside the bracket list that opens at token
+    /// `o` (a `(` or a generic list's `<`), ascending, appended to `out`.
+    ///
+    /// Returns the index of the token that closes the list, or toks.size()
+    /// when the list does not close (a `<` list ended by `>>` counts as
+    /// unclosed: its colons are still collected).
+    priv fn _list_colons(self, o: usize, out: unsafe *cxx::std::vector<usize>) -> usize {
+        var n          = self.toks.size()
+        var angle      = self.toks[o].kind == TokenKind::OpLess
+        var depth: i32 = 0
+        for var i = o + 1; i < n; ++i {
+            var k = self.toks[i].kind
+            if Formatter::_is_open(k) || angle && k == TokenKind::OpLess {
+                depth += 1
+            } else if Formatter::_is_close(k) || angle && k == TokenKind::OpGreater {
+                if depth == 0 {
+                    return i
+                }
+
+                depth -= 1
+            } else if angle && k == TokenKind::OpGreaterGreater {
+                return n
+            } else if k == TokenKind::OpColon && depth == 0 {
+                out->push_back(i)
+            }
+        }
+
+        return n
+    }
+
+    /// The `:` of each generic parameter of the `fn` head in [a, b)
+    /// (`fn <eval N: usize>`), and with `params` those of its parameter list
+    /// (a closure's `fn (u: i32)`).
+    priv fn _head_colons(self, a: u32, b: u32, params: bool) -> cxx::std::vector<usize> {
+        var out = cxx::std::vector<usize>()
+        var n   = self.toks.size()
+        var i   = self._sig_after(a)
+        while i < n && self.toks[i].start < b && self.toks[i].kind != TokenKind::KwFn {
+            i += 1
+        }
+
+        if i >= n || self.toks[i].start >= b {
+            return out
+        }
+
+        var j = self._sig_after(self.toks[i].end)
+        if j < n && self.toks[j].start < b && self.toks[j].kind == TokenKind::OpLess {
+            var z = self._list_colons(j, unsafe &out)
+            if z >= n {
+                return out
+            }
+
+            j = self._sig_after(self.toks[z].end)
+        }
+
+        if params && j < n && self.toks[j].start < b && self.toks[j].kind == TokenKind::OpLParen {
+            self._list_colons(j, unsafe &out)
+        }
+
+        return out
     }
 
     // ----------------------------------------------------------------------
@@ -3494,7 +3602,7 @@ pub class Formatter {
             || f->params_end.is_invalid()
             || self._comment_in(st, be)
             || self._macro_in(st, be) {
-            return self._span(st, be)
+            return self._span_glued(st, be, self._head_colons(st, be, false))
         }
 
         var c = self._lb(f->params_end.start.raw())
@@ -3576,7 +3684,11 @@ pub class Formatter {
 
         var fd = Doc::concat3(Doc::text("("), Doc::concat(flat), Doc::text(")"))
         var lst = Doc::list("(", ")", keys, vals, fd, flags)
-        var hd  = Doc::concat2(self._span(st, self.toks[o].start), lst)
+        var hs  = self.toks[o].start
+        var hd = Doc::concat2(
+            self._span_glued(st, hs, self._head_colons(st, hs, false)),
+            lst,
+        )
 
         var tail = self._span(self.toks[c].end, be)
         if tail.is_empty() {
@@ -4771,8 +4883,8 @@ pub class Formatter {
         return self._ev(e)
     }
 
-    /// Rule 9.7: a closure with a block body is its head as written, then
-    /// the block. A body written on one line with one statement stays on one
+    /// Rule 9.7: a closure with a block body is its head as written (each
+    /// parameter's `:` glued, 6.1), then the block. A body written on one line with one statement stays on one
     /// line while it fits (`_op_form(at, k, fn () { s->spell(at, p) }, t)`
     /// would be three lines per argument under 8.1); any other body is laid
     /// out by 8.1. Either way the body gets 13.1 and 9.5 like any block,
@@ -4780,7 +4892,13 @@ pub class Formatter {
     priv fn _closure(self, c: unsafe *ClosureExpr) -> Doc {
         var unsafe *b = c->body_block
         if b == &null {
-            return self._ev(c)
+            if self._int_parens(c) {
+                return self._ev(c)
+            }
+
+            var ea = self._es(c)
+            var ee = self._ee(c)
+            return self._span_glued(ea, ee, self._head_colons(ea, ee, true))
         }
 
         var a = self._es(c)
@@ -4791,7 +4909,8 @@ pub class Formatter {
             return self._ev(c)
         }
 
-        var head = self._span(a, b->range.start.raw())
+        var hz   = b->range.start.raw()
+        var head = self._span_glued(a, hz, self._head_colons(a, hz, true))
         // a closure sits inside a statement: the block flags belong to that
         // statement's own blocks, so this one leaves them as it found them
         var ungroup = self._ungroup_next

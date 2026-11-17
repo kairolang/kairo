@@ -12,7 +12,7 @@
 // introduced, another file edited while it stands, the error fixed, a
 // private name made public, a file removed.
 //
-// Every step is `full` today: re-checking in place is not built, and a step
+// Every step is `full` today: re-checking in place is off, and a step
 // is a full check in a new CompilerInstance inside the same process. The
 // modes line is pinned so a step that starts re-checking in place has to
 // say so here.

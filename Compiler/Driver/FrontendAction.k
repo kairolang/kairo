@@ -3942,14 +3942,25 @@ pub class FrontendAction {
             )
         }
 
-        var iface_first = cxx::std::vector<string>()
-        iface_first.push_back("")
-        iface_first.push_back("")
+        // Per flavour: the first TU's module and job, and every TU's module
+        // in that order, which is what the PCH's Sema agreement walk covers.
+        var iface_first   = cxx::std::vector<string>()
+        var iface_first_i = cxx::std::vector<usize>()
+        var iface_tus     = cxx::std::vector<string>()
+        for var fl: usize = 0; fl < 2; ++fl {
+            iface_first.push_back("")
+            iface_first_i.push_back(jobs.size())
+            iface_tus.push_back("")
+        }
+
         for var oi: usize in iface_order {
             var fl = flavours[oi] as usize
             if iface_first[fl].is_empty() {
-                iface_first[fl] = jkeys[oi].copy()
+                iface_first[fl]   = jkeys[oi].copy()
+                iface_first_i[fl] = oi
             }
+
+            iface_tus[fl] += jkeys[oi] + "\n"
         }
 
         // The incremental object cache, phase 1 (Driver/ObjectCache.k,
@@ -4025,11 +4036,22 @@ pub class FrontendAction {
             for var ji: usize = 0; ji < jobs.size(); ++ji {
                 var unsafe *j = jobs[ji]
                 var writer = if (j->iface_on) => (iface_first[flavours[ji] as usize]) else => ""
+                // The flavour's first TU carries the findings of PCH bodies
+                // in files that are no TU of the PCH, so its object depends
+                // on which TUs the walk covered.
+                var walk = ""
+                if j->iface_on
+                    && cgo->sema_agreement != 0
+                    && iface_first_i[flavours[ji] as usize] == ji {
+                    walk = ObjectCache::hash(iface_tus[flavours[ji] as usize])
+                }
+
                 j->key = ocache.key(
                     j->stream,
                     j->iface_on,
                     ocache.tu_headers(j->fid, j->stream_files),
                     writer,
+                    walk,
                 )
 
                 var modname = jkeys[ji].copy()
@@ -4215,12 +4237,12 @@ pub class FrontendAction {
                     }
                 }
 
-                // A file that is no TU of this build: the first TU that
-                // compiles carries it.
-                for var k: usize = 0; hi == mine.size() && k < mine.size(); ++k {
-                    if !mine[k]->reused {
-                        hi = k
-                    }
+                // A file that is no TU of the PCH: the flavour's first TU
+                // carries it, whose key names the TUs the walk covered
+                // (ObjectCache::key's walk). When that TU is reused, its
+                // stored findings hold it.
+                if hi == mine.size() && !mine.empty() {
+                    hi = 0
                 }
 
                 if hi == mine.size() || mine[hi]->reused {
@@ -4415,7 +4437,9 @@ pub class FrontendAction {
             }
         }
 
-        if self._ci->invocation()->codegen.sema_agreement_summary {
+        // --print-stats includes it: a build's statistics say what the
+        // agreement pass found as well.
+        if self._ci->invocation()->codegen.sema_agreement_summary || fe.print_stats {
             self._agree_summary(jobs)
         }
 
@@ -4441,8 +4465,8 @@ pub class FrontendAction {
         return true
     }
 
-    /// --sema-agreement-summary: one line on stderr counting what the Sema
-    /// agreement pass found over `jobs`, by kind. It counts a TU whose
+    /// --sema-agreement-summary (and --print-stats): one line on stderr
+    /// counting what the Sema agreement pass found over `jobs`, by kind. It counts a TU whose
     /// object was reused (its stored findings) as one that compiled, and
     /// does not depend on whether the findings were reported or on -w.
     priv fn _agree_summary(self, const jobs: cxx::std::vector<unsafe *CodegenJob>) {

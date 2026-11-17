@@ -3,7 +3,9 @@
 ///   A string literal written where the grammar wants a fixed operand
 ///   rather than a value: the language of `ffi "c++"` and `inline "asm"`,
 ///   and the header of `ffi "c++" import "vector"`. Which prefixes such a
-///   string may carry, and the one diagnostic for a prefix it may not.
+///   string may carry, and the one diagnostic for a prefix it may not; it
+///   takes no literal suffix (`"c++"_x`), which names a literal operator
+///   over a value, and the operand is not a value.
 ///
 ///   Shared by the preprocessor, which reads the whole `ffi ... import`
 ///   line, and the parser, which reads the language of an ffi block or
@@ -66,6 +68,16 @@ pub fn refused_prefix_message(what:            StringOperand,
     }
 
     return f"an ffi header path is a plain or raw string; remove the '{letters}' prefix"
+}
+
+/// The message for a `what` operand of `construct` written with a literal
+/// suffix.
+pub fn refused_suffix_message(what: StringOperand, const construct: string) -> string {
+    if what == StringOperand::Tag {
+        return f"the language of '{construct}' is a plain string; remove the suffix"
+    }
+
+    return "an ffi header path takes no suffix; remove it"
 }
 
 /// True when removing `prefix`, a refused string's whole prefix, is the

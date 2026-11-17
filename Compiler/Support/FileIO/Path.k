@@ -269,7 +269,7 @@ pub class Path {
 
     /// A fresh, uniquely named directory under the system temp dir; "" on
     /// failure. The caller owns removing it (remove_tree).
-    static fn make_temp_dir(const prefix: string) -> string {
+    pub static fn make_temp_dir(const prefix: string) -> string {
         // createUniqueDirectory takes the prefix relative to the cwd; anchor
         // it in the temp dir first.
         var base: llvm::SmallString<256>

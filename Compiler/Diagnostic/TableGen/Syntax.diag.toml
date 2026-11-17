@@ -1343,8 +1343,8 @@ group = "ast"
 
     for `inline` blocks:
     - missing language string (e.g. `inline "c++"`)
-    - a prefixed language string (`inline r"asm"`): the language is a plain
-      string
+    - a prefixed or suffixed language string (`inline r"asm"`,
+      `inline "asm"_x`): the language is a plain string
     - missing `{` to open the inline body
 
     for `label!`/`jump!` intrinsics:
@@ -1467,6 +1467,9 @@ group = "ast"
       no prefix (`ffi r"c++"`), and a header path is a plain or a raw string
       (`ffi "c++" import r"C:\\sdk\\gl.h"`), never a format or byte string
       (`f"..."`, `b"..."`)
+    - a literal suffix on the language or the header path (`ffi "c++"_x`):
+      a suffix names a literal operator over a value, and neither string is
+      a value
     - missing a name after `as` in an ffi import
     - missing a declaration, `import`, or `{` after `ffi "..."`
     - a declaration that is not permitted inside an `ffi` block

@@ -81,6 +81,7 @@ import Parser::Shared::StringOperand::{
     refused_prefix,
     refused_prefix_fixable,
     refused_prefix_message,
+    refused_suffix_message,
 }
 import Support::FlagSet::FlagSet
 import Token::Token::Token
@@ -5899,7 +5900,8 @@ pub class <T: type> DeclParse {
     ///   (test, macro, enum, etc.). Sema validates deeper constraints (e.g.
     ///   ffi "c" on a ClassDecl).
     /// Reports an ffi header path written as a format or byte string
-    /// (StringOperand::Path); the import goes on with its text.
+    /// (StringOperand::Path) or with a literal suffix; the import goes on
+    /// with its text.
     priv fn _check_header_prefix(self, raw: Token) {
         var tok = self.dyn()->ctx->unwrap_token(raw)
         if tok.kind != TokenKind::LitString {
@@ -5909,6 +5911,17 @@ pub class <T: type> DeclParse {
         var unsafe *d = self.dyn()->ctx->get_payload_table(raw)->get<Immediate::StringData>(
             tok.imm,
         )
+
+        if d != &null && d->suffix.range.is_valid() {
+            self.dyn()->diag->report(
+                DiagID::S064E,
+                d->suffix.range.start,
+                refused_suffix_message(StringOperand::Path, "ffi"),
+            ).first(d->suffix.range)->remove(
+                d->suffix.range,
+                "remove the suffix",
+            )->emit()
+        }
 
         var refused = refused_prefix(d, StringOperand::Path)
         if refused.empty() {

@@ -36,6 +36,7 @@ import Command::FlagRegistry::Test as command_test
 import Lexer::Lexer::Test as lexer_test
 import Location::SourceManager::Test as source_manager_test
 import Memory::MappedFileBuffer::Test as mapped_file_buffer_test
+import Support::FileIO::AtomicFile::Test as atomic_file_test
 import Support::TermRenderer::Test as term_renderer_test
 import Threading::ThreadPool::Test as thread_pool_test
 import std::c_char
@@ -148,5 +149,6 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     runner.run("Lexer", fn () -> i32 { return lexer_test(bench) })
     runner.run("FlagRegistry", command_test)
     runner.run("TermRenderer", term_renderer_test)
+    runner.run("AtomicFile", atomic_file_test)
     return runner.finish()
 }

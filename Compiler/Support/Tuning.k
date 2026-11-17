@@ -73,6 +73,20 @@ eval CACHE_RECENT_STORE_NS: u64 = 3600 * NS_PER_SEC
 pub
 eval CACHE_PARTIAL_MAX_AGE_NS: u64 = NS_PER_DAY
 
+/// A publish lock file (lock_file_take) older than this belongs to a holder
+/// that crashed or was killed, and another publish takes it over. A holder
+/// keeps the lock for a check and a rename, or on Windows a copy of the
+/// library tree, so this stays well above the slowest of those; a crashed
+/// holder costs the next publish at most this long, once.
+pub
+eval PUBLISH_LOCK_STALE_NS: u64 = 60 * NS_PER_SEC
+
+/// How long a publish waits for another's lock before it goes on without
+/// one. Above PUBLISH_LOCK_STALE_NS, so a stale lock is always taken over
+/// before the wait ends.
+pub
+eval PUBLISH_LOCK_WAIT_NS: u64 = 90 * NS_PER_SEC
+
 /// A file whose mtime is within this of the run's start is hashed rather
 /// than trusted by mtime: a coarse filesystem clock can give an edit made
 /// during the run the same stamp. Higher: more files hashed each run;

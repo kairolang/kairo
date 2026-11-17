@@ -63,6 +63,7 @@ import Parser::Shared::StringOperand::{
     refused_prefix,
     refused_prefix_fixable,
     refused_prefix_message,
+    refused_suffix_message,
 }
 import Support::FlagSet::FlagSet
 import Token::Token::Token
@@ -2651,6 +2652,20 @@ pub class <T: type> StmtParse {
 
         var tbl = self.dyn()->ctx->get_payload_table(raw)
         var imm = tbl->get<Immediate::StringData>(tok.imm)
+
+        if imm != &null && imm->suffix.range.is_valid() {
+            self.dyn()->diag->report(
+                if (after_ffi) => (DiagID::S064E) else => DiagID::S060E,
+                imm->suffix.range.start,
+                refused_suffix_message(
+                    StringOperand::Tag,
+                    if (after_ffi) => ("ffi") else => "inline",
+                ),
+            ).first(imm->suffix.range)->remove(
+                imm->suffix.range,
+                "remove the suffix",
+            )->emit()
+        }
 
         var refused = refused_prefix(imm, StringOperand::Tag)
         if !refused.empty() {

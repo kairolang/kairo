@@ -1195,7 +1195,8 @@ def _single(a, mode: str, out: Path, cache: Path, kairo: Path, targets: list, ta
     argv = [sys.executable, str(Path(__file__).resolve()), "--single", f"--{mode}",
             "--out", str(out), "--cache-dir", str(cache), "--kairo", str(kairo)]
     if target:
-        argv += ["--target", target]
+        # The pipeline made the cross LLVM current first (_cross_llvm_ready).
+        argv += ["--target", target, "--stale-llvm", a.stale_llvm or "use"]
     if a.warnings:      argv.append("--warnings")
     if a.jobs:          argv += ["-j", str(a.jobs)]
     if a.no_native:     argv.append("--no-native")
@@ -1287,6 +1288,74 @@ def _cross_llvm_stale(target: str) -> bool:
     r = subprocess.run(["ninja", "-C", str(bld), "-n", "all", "clang", "llvm-nm", "llvm-objdump", "llvm-ar"],
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     return r.returncode != 0 or "no work to do" not in r.stdout
+
+
+def cross_llvm_built_commit(target: str, root: Path = None) -> str:
+    """The fork commit `target`'s cross LLVM was built from: the LLVM_REVISION its build
+    wrote into include/llvm/Support/VCSRevision.h, else the PREBUILT file's `llvm` line
+    (an unpacked CI archive). "" when neither says."""
+    d = (root / target) if root else cross_dir(target)
+    vcs = d / "llvm" / "include" / "llvm" / "Support" / "VCSRevision.h"
+    if vcs.is_file():
+        for line in vcs.read_text(errors="replace").splitlines():
+            parts = line.split()
+            if len(parts) == 3 and parts[:2] == ["#define", "LLVM_REVISION"]:
+                return parts[2].strip('"')
+    pre = d / "PREBUILT"
+    if pre.is_file():
+        return next((l.split()[1] for l in pre.read_text().splitlines()
+                     if l.startswith("llvm ") and len(l.split()) > 1), "")
+    return ""
+
+
+def pinned_llvm_commit(src: Path = ROOT) -> str:
+    """The fork commit the tree pins: the Lib/llvm-runtimes gitlink of HEAD (what a
+    checkout of this commit gets), else the submodule's checked-out commit. "" when
+    git cannot say."""
+    r = subprocess.run(["git", "-C", str(src), "ls-tree", "HEAD", "Lib/llvm-runtimes"],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    parts = r.stdout.split()
+    if r.returncode == 0 and len(parts) >= 3 and parts[1] == "commit":
+        return parts[2]
+    r = subprocess.run(["git", "-C", str(src / "Lib" / "llvm-runtimes"), "rev-parse", "HEAD"],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def stale_llvm_choice(target: str, built: str, pinned: str, mode: str, interactive: bool, ask=input) -> str:
+    """What a --single --target build does about a cross LLVM built from another fork
+    commit than the tree pins: "use" (link with the built one) or "rebuild". Fresh, or
+    either commit unknown: "use", silently. Otherwise one warning line, then `mode`
+    (--stale-llvm) decides; without it a terminal is asked (the default, Enter, is to
+    link with the built one) and a run without a terminal goes on with the built one."""
+    if not built or not pinned or built == pinned:
+        return "use"
+    say(f"warning: the cross LLVM for {target} was built at commit {built[:12]}, "
+        f"the tree pins {pinned[:12]} (build/cross-llvm/{target})")
+    if mode in ("use", "rebuild"):
+        return mode
+    if not interactive:
+        return "use"
+    try:
+        reply = ask(f"rebuild LLVM for {target}, or link with the built one? [r/L] ")
+    except EOFError:
+        return "use"
+    return "rebuild" if reply.strip().lower() in ("r", "rebuild") else "use"
+
+
+def _rebuild_cross_llvm(target: str, kairo: Path) -> bool:
+    """Scripts/cross_llvm.py for `target`, with the kcc beside `kairo`."""
+    kcc = kairo.parent / f"kcc{EXE}"
+    if not kcc.exists():
+        say(f"cannot rebuild {target}'s LLVM: no kcc beside {kairo} (build kcc first, or pass --kairo)")
+        return False
+    say(f"rebuilding {target}'s LLVM with {kcc}")
+    r = subprocess.run([sys.executable, str(ROOT / "Scripts" / "cross_llvm.py"), target, "--kcc", str(kcc)],
+                       cwd=str(ROOT))
+    if r.returncode != 0:
+        say(f"FAILED: Scripts/cross_llvm.py {target} (log build/cross-llvm/{target}/llvm.log)")
+        return False
+    return True
 
 
 def _cross_llvm_ready(a, host: str, target: str) -> bool:
@@ -1431,6 +1500,10 @@ def main() -> int:
     ap.add_argument("--compiler-flag", action="append", default=[], metavar="FLAG",
                     help="pass FLAG to every kairo invocation of the build (repeatable), e.g. "
                          "--compiler-flag=--type-check-only --compiler-flag=--error-format=basic")
+    ap.add_argument("--stale-llvm", choices=("rebuild", "use"), default=None,
+                    help="with --target: when the cross LLVM was built from another fork commit than the tree "
+                         "pins, rebuild it (Scripts/cross_llvm.py) or link with the built one, without asking "
+                         "(default: ask on a terminal, else warn and link with the built one)")
     ap.add_argument("--single", action="store_true", help=argparse.SUPPRESS)   # one tree; the pipeline's step
     a = ap.parse_args()
 
@@ -1492,6 +1565,16 @@ def main() -> int:
     # and there is no tree to stage.
     check_only = any(f in ("--type-check-only", "--syntax-only") for f in a.compiler_flag)
     staged = (not (a.print_jobs or a.print_command)) and (not a.no_postbuild) and (not check_only) and bool(STAGED & set(a.targets))
+    # The cross LLVM's fork commit, before anything compiles against its headers. The
+    # pipeline checks it against its sources first (_cross_llvm_ready); a --single build
+    # checks only which commit it is. A run that prints commands never asks or warns: its
+    # stdout is the commands.
+    printing = a.print_jobs or a.print_command or a.emit_compile_json
+    if a.target and not printing:
+        choice = stale_llvm_choice(a.target, cross_llvm_built_commit(a.target), pinned_llvm_commit(),
+                                   a.stale_llvm, sys.stdin.isatty())
+        if choice == "rebuild" and not _rebuild_cross_llvm(a.target, kairo):
+            return 1
     prog = Progress(1 + (0 if a.registry_object else 1) + len(a.targets) + (1 if staged else 0))
     prog.log(f"{stage} {mode_name}, host {triple}" + (f", target {a.target} (static, cross LLVM)" if a.target else ""))
     prog.log(f"  compiler {kairo}")

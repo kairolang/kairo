@@ -2768,12 +2768,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     cmd->mark_hidden("test-sema-agreement-no-adl")
 
     // For a build script that compiles with -w, which hides the pass's
-    // warning, and with a compiler that only counts. Hidden from --help.
+    // warning, and with a compiler that only counts: the line alone, where
+    // --print-stats prints it among every other statistic. Hidden from
+    // --help, listed by --help-hidden.
     cmd->define<FlagKind::Bool>(
         "sema-agreement-summary",
         "",
         "sema-agreement-summary",
-        "after codegen, print one line counting what the Sema agreement pass found in this build, reported or not",
+        "after codegen, print one line counting what the Sema agreement pass found in this build, reported or not (--print-stats prints it too)",
         false,
     )
 

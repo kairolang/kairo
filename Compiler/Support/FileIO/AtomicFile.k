@@ -1,7 +1,8 @@
 /// --- The Kairo Project ------------------ Support/FileIO/AtomicFile.k --- ///
 ///
-///   Atomic file publish for the caches, the stat they key entries on, and
-///   the sweep of what an interrupted publish leaves behind.
+///   Atomic file publish for the caches, the stat they key entries on, the
+///   sweep of what an interrupted publish leaves behind, and the lock file
+///   a publish that must check before it renames holds.
 ///
 ///   A cache shared by parallel builds must never let a reader see half an
 ///   entry. A publish writes a private temporary beside the destination and
@@ -32,12 +33,15 @@ ffi "c++" import "Native/Win32.hh" // move_path (Windows directory renames)
 ffi "c++" import "llvm/ADT/Twine.h"
 ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/Support/Process.h"
+ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "chrono"
 ffi "c++" import "system_error"
+ffi "c++" import "thread"
 
 import Support::Ascii::find
 import Support::FileIO::Path::Path
 import std::c_char
+import std::io
 
 /// Temporaries minted by this process; with the pid it makes every
 /// temporary name unique, across threads too.
@@ -215,4 +219,132 @@ pub fn sweep_leftover_temps(const dir: string, max_age_ns: u64) -> usize {
     }
 
     return removed
+}
+
+/// Creates the file `path` only if nothing is there, in one step: llvm's
+/// CD_CreateNew is O_CREAT | O_EXCL, and CREATE_NEW on Windows, so of two
+/// processes creating one path exactly one succeeds.
+priv fn _create_new(const path: string) -> bool {
+    var ec: cxx::std::error_code
+    var os = llvm::raw_fd_ostream(
+        kairo::sref(path),
+        &ec,
+        llvm::sys::fs::CD_CreateNew,
+    )
+
+    return ec.value() == 0
+}
+
+/// Takes the lock file `path` for this process, waiting up to `wait_ns`
+/// for another holder to drop it (lock_file_drop).
+///
+/// The lock is the file's existence, made by _create_new. A lock older
+/// than `stale_ns` is taken over: its holder crashed or was killed, since a
+/// live one holds it only for a short check-and-publish. The age is read
+/// again right before the stale file is removed, so a lock another process
+/// took over in between, which has a new mtime, is left to it. An age is
+/// used rather than the holder's process id: whether a pid is alive cannot
+/// be asked the same way on every host, and a pid can be reused.
+///
+/// False when the lock is still held after `wait_ns`, or cannot be
+/// created at all (the directory is missing or read-only); the caller
+/// then goes on without it.
+pub fn lock_file_take(const path: string, stale_ns: u64, wait_ns: u64) -> bool {
+    var start        = now_ns()
+    var pause: i64   = 100      // microseconds, doubled up to 10 ms
+    var gone:  usize = 0
+    while true {
+        if _create_new(path) {
+            return true
+        }
+
+        var mtime: u64 = 0
+        var size:  u64 = 0
+        if !file_stat(path, &mtime, &size) {
+            // Dropped between the create and the stat: try again at once. A
+            // create that keeps failing with no file there cannot work.
+            gone += 1
+            if gone > 16 {
+                return false
+            }
+
+            continue
+        }
+
+        var now = now_ns()
+        if now >= mtime && now - mtime >= stale_ns {
+            var again: u64 = 0
+            if file_stat(path, &again, &size) && again == mtime {
+                Path::remove_file(path)
+            }
+
+            continue
+        }
+
+        if now >= start && now - start >= wait_ns {
+            return false
+        }
+
+        cxx::std::this_thread::sleep_for(cxx::std::chrono::microseconds(pause))
+        if pause < 10000 {
+            pause *= 2
+        }
+    }
+
+    return false
+}
+
+/// Drops the lock lock_file_take took.
+pub fn lock_file_drop(const path: string) {
+    Path::remove_file(path)
+}
+
+pub fn Test() -> i32 {
+    var errors = 0
+    var check = fn (what: string, ok: bool) -> i32 {
+        if ok {
+            return 0
+        }
+
+        io::println(f"FAIL: {what}")
+        return 1
+    }
+
+    var dir = Path::make_temp_dir("kairo-lock-test")
+    if dir.is_empty() {
+        io::println("FAIL: no temp dir")
+        return 1
+    }
+
+    var lock = dir + "/entry.lock"
+    var day  = (86400 as u64) * (1000000000 as u64)
+    errors += check("take a free lock", lock_file_take(lock, day, 0))
+    errors += check("the lock is a file", Path::exists_at(lock))
+    errors += check(
+        "a fresh lock is not taken twice",
+        !lock_file_take(lock, day, 0),
+    )
+
+    errors += check(
+        "a held lock is waited for, then refused",
+        !lock_file_take(lock, day, 20000000),
+    )
+
+    errors += check("a stale lock is taken over", lock_file_take(lock, 0, 0))
+    errors += check(
+        "taken over, it is still held",
+        !lock_file_take(lock, day, 0),
+    )
+
+    lock_file_drop(lock)
+    errors += check("dropped, it is gone", !Path::exists_at(lock))
+    errors += check("dropped, it is free", lock_file_take(lock, day, 0))
+    lock_file_drop(lock)
+    errors += check(
+        "no directory, no lock",
+        !lock_file_take(dir + "/none/entry.lock", day, day),
+    )
+
+    Path::remove_tree(dir)
+    return errors
 }

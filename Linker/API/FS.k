@@ -44,6 +44,21 @@ pub class LinkFS {
         return llvm::sys::fs::is_regular_file(llvm::Twine(kairo::sref(p)))
     }
 
+    /// `p` made absolute against the working directory, without touching
+    /// the filesystem; `p` unchanged if it already is, or cannot be.
+    pub static fn absolute(p: string) -> string {
+        var out: llvm::SmallString<256>
+        out.assign(kairo::sref(p))
+        if llvm::sys::fs::make_absolute(&out).value() != 0 {
+            return p
+        }
+
+        return string(
+            unsafe ((out.data() as unsafe *const u8) as *const u8),
+            out.size(),
+        )
+    }
+
     /// Symlinks resolved; `p` unchanged if it cannot be.
     pub static fn real(p: string) -> string {
         var out: llvm::SmallString<256>

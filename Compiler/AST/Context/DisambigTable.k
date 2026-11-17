@@ -37,9 +37,6 @@ pub enum DisambigKind derives u8 {
     TypeAlias,     ///< type Foo = ...
     Function,      ///< fn foo
     Variable,      ///< var foo / const foo
-    ProcMacro,     ///< @foo
-    BasicMacro,    ///< foo!
-    Module,        ///< namespace / module block
 }
 
 /// A single entry in the hoisted scope table.
@@ -91,10 +88,6 @@ pub class DisambigEntry {
 
     fn is_value(self) -> bool {
         return self.kind == DisambigKind::Function || self.kind == DisambigKind::Variable
-    }
-
-    fn is_macro(self) -> bool {
-        return self.kind == DisambigKind::ProcMacro || self.kind == DisambigKind::BasicMacro
     }
 
     pub fn is_generic(self) -> bool {
@@ -205,10 +198,6 @@ pub class LookupResult {
 
     fn is_value(self) -> bool {
         return self.found() && (*self.entries)[0].is_value()
-    }
-
-    fn is_macro(self) -> bool {
-        return self.found() && (*self.entries)[0].is_macro()
     }
 
     static fn not_found() -> LookupResult {
@@ -502,10 +491,6 @@ pub class DisambigTable {
         return self.lookup(name).is_value()
     }
 
-    fn is_macro(self, const name: string) -> bool {
-        return self.lookup(name).is_macro()
-    }
-
     pub fn root(self) -> unsafe *DisambigNode {
         return unsafe &self._root
     }
@@ -625,12 +610,6 @@ pub class DisambigTable {
                 return "fn"
             } case DisambigKind::Variable {
                 return "var"
-            } case DisambigKind::ProcMacro {
-                return "@macro"
-            } case DisambigKind::BasicMacro {
-                return "macro!"
-            } case DisambigKind::Module {
-                return "module"
             }
         }
     }

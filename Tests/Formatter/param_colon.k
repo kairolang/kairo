@@ -3,7 +3,7 @@
 //
 // Rule 6.1: in a parameter, `name: Type`, the `:` glued to the name and one
 // space after it, whatever was written. Fields, locals and named arguments
-// already read that way. A closure's head is copied as written (1.7).
+// already read that way, and so does a closure's parameter.
 
 fn w(xs : [const i32;], y :i32, @inout z   :   i32, d : i32 = 3) -> i32 {
     var l = fn (u : i32) -> i32 { return u }

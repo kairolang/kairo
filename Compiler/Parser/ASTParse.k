@@ -1923,8 +1923,8 @@ pub class ASTParse
         }
 
         // MacroDecl / ProcedureMacroDecl: never hoisted. Macro invocations
-        // are resolved by the PP; is_macro() has zero parser callsites, and
-        // macro names never head a `<` disambiguation (`foo!` / `@foo`).
+        // are resolved by the PP, and macro names never head a `<`
+        // disambiguation (`foo!` / `@foo`).
 
         if isa<ModuleDecl>(d) {
             var unsafe *n = cast<ModuleDecl>(d)
