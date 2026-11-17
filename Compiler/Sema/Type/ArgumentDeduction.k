@@ -96,9 +96,9 @@ pub class Deduction derives Substitution {
     /// `extend <T> Vec<T>` reached through a `Vec<i64>`: T := i64, before any
     /// argument is ranked. The target is UNIFIED with the receiver, so a
     /// non-identity target (`extend <T> Vec<Box<T>>`) binds what it names and
-    /// rejects a receiver it does not match (false). No receiver, or a
-    /// dependent one, binds nothing: `Vec::m(v)` deduces from its `self`
-    /// argument like any other parameter.
+    /// rejects a receiver it does not match (false). No receiver binds
+    /// nothing: `Vec::m(v)` deduces from its `self` argument like any other
+    /// parameter.
     fn bind_from_extension(self, f: unsafe *FunctionDecl, receiver: unsafe *Type) -> bool {
         var unsafe *ext = decl_extension_of(f)
         if ext == &null || self.tu.generic_params_of(unsafe (ext as unsafe *Decl)).size() == 0 {
@@ -109,11 +109,12 @@ pub class Deduction derives Substitution {
             return true
         }
 
+        // A dependent receiver binds as a concrete one does: `View<U>` in a
+        // generic body gives `extend <T> View<T>` T := U, and `View<const U>`
+        // gives it T := const U. The body is checked once, so an extension
+        // whose target the receiver's shape does not meet is no candidate
+        // there, whatever U is bound to in an instance.
         var unsafe *r = canon_unqual(receiver)
-        if r->is_dependent() || r->is_instantiation_dependent() {
-            return true
-        }
-
         if self.unify(canon_unqual(ext->target->canonical), r, false) == ImplicitRank::None {
             return false
         }

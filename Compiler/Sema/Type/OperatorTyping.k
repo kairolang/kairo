@@ -141,6 +141,7 @@ import Diagnostic::NoteText::named_declared_here
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
+import Sema::Resolve::ConversionHop::ConversionHop
 import Sema::Type::Conversion::ImplicitRank
 import Sema::Type::MemberTyping::{
     SUB_SOFT,
@@ -871,6 +872,18 @@ pub class <T: type> OperatorTyping {
             unsafe &frees,
         )
 
+        // Nothing declares the operator for the left operand's type: the
+        // result of one of its `@implicit op as` conversions may
+        // (ConversionHop), and the operator is then that type's, applied
+        // to the converted operand.
+        var hop = ConversionHop()
+        if cands.size() == 0 && frees.size() == 0 && !copy_recv {
+            hop = self._operand_hop(n, k0, recv, name)
+            if hop.conv != &null {
+                cands = hop.members
+            }
+        }
+
         if cands.size() == 0 && frees.size() == 0 {
             return &null
         }
@@ -895,6 +908,24 @@ pub class <T: type> OperatorTyping {
         var unsafe *rcv = self._receiver_of(recv)
         if copy_recv && rcv != &null {
             rcv = canon_unqual(rcv)
+        }
+
+        // The operator of a conversion's result is used when it takes
+        // these operands, and is otherwise as absent as it was: the
+        // caller's fallbacks and its "no operator" error stay the type's.
+        if hop.conv != &null {
+            rcv = hop.target
+            if !self.dyn()->ovl.any_viable(
+                &cands,
+                &margs,
+                true,
+                &frees,
+                &fargs,
+                rcv,
+            ) {
+                *found = false
+                return &null
+            }
         }
 
         if viable_only && !self.dyn()->ovl.any_viable(&cands, &margs, true, &frees, &fargs, rcv) {
@@ -931,7 +962,79 @@ pub class <T: type> OperatorTyping {
 
         var rt = self.dyn()->call_result_type(r.decl, &r)
         self._record(n, r.decl, r.via_free, r.instance)
+        if hop.conv != &null {
+            // The conversion of the operand, for ImplicitConvLowering to
+            // write: C++ converts no operand to find a member operator.
+            var key = recv as usize as u64
+            self.dyn()->sc->implicit_convs[key]        = hop.conv
+            self.dyn()->sc->implicit_conv_targets[key] = hop.target
+            self.dyn()->sc->hop_operands.insert(key)
+            self.dyn()->sc->conversion_hops += 1
+        }
+
         return rt
+    }
+
+    /// The conversion of \p recv, the left operand of the infix operator
+    /// \p n, whose result declares \p name; empty when there is none, when
+    /// two apply, or when \p n is another form. Infix only, and never
+    /// `in`: a unary or compound-assignment operator would act on the
+    /// conversion's temporary, and `in` reads its right operand.
+    priv fn _operand_hop(self,
+                         n:    unsafe *Expr,
+                         k0:   TokenKind,
+                         recv: unsafe *Expr,
+                         name: DeclName) -> ConversionHop {
+        var none = ConversionHop()
+        if !isa<BinaryOperatorExpr>(n) || k0 == TokenKind::KwIn {
+            return none
+        }
+
+        if cast<BinaryOperatorExpr>(n)->lhs != recv {
+            return none
+        }
+
+        var unsafe *rv = self._receiver_of(recv)
+        if rv == &null || !isa<RecordType>(canon_unqual(rv)) {
+            return none
+        }
+
+        // The type's own operator wins in its derived forms too: with an
+        // `op <=>` of its own, `a < b` is that one's, and likewise `!=`
+        // from `op ==` and `+` from `op +=`.
+        var from = TokenKind::TkUnknown
+        if self._is_relational(k0) {
+            from = TokenKind::OpLessEqualGreater
+        } else if self._is_inequality(k0) {
+            from = TokenKind::OpEqualEqual
+        } else {
+            from = OperatorFacts::compound_of(k0)
+        }
+
+        if from != TokenKind::TkUnknown {
+            var own = cxx::std::vector<unsafe *Decl>()
+            if self.dyn()->ml.lookup(
+                canon_unqual(rv),
+                DeclName::op_name(from, TokenKind::TkUnknown),
+                unsafe &own,
+            ) {
+                return none
+            }
+        }
+
+        var hop = ConversionHop::find(
+            self.dyn()->sc,
+            &self.dyn()->ml,
+            canon_unqual(rv),
+            canon_has_const(rv),
+            name,
+        )
+
+        if hop.conv == &null || hop.ambiguous() {
+            return none
+        }
+
+        return hop
     }
 
     /// An ArgInfo for an operand X already typed: never re-shaped as an

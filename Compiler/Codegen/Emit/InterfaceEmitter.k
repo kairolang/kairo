@@ -96,6 +96,7 @@
 
 ffi "c++" import "vector"
 
+import AST::AttrFacts::AttrFacts
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::DeclFacts
 import AST::EnumNiche::enum_has_niche_trait
@@ -348,6 +349,13 @@ pub class InterfaceEmitter {
             self._cg->sink->spell(
                 self._tu_at(),
                 "template <class T> auto* " + LowerTargets::tmp_addr() + "(T&& t) { return " + LowerTargets::clang_addressof() + "(t); }",
+            )
+
+            self._cg->sink->brk()
+            // The non-deduced spelling of a type (InterfaceFunctions::_forwarder).
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T> struct " + LowerTargets::nondeduced() + " { using type = T; };",
             )
 
             self._cg->sink->brk()
@@ -1009,6 +1017,7 @@ pub class InterfaceEmitter {
     priv fn _header_prologue(self) {
         var at = self._tu_at()
         self._cg->sink->directive(at, "#pragma once")
+        self._abi_guard(at)
         // The module's ffi headers first: its declarations and its inline
         // bodies name what they declare, exactly as the module's own TU did.
         for var i: usize = 0; i < self._ffi_lines.size(); ++i {
@@ -1049,6 +1058,68 @@ pub class InterfaceEmitter {
             line += "\""
             self._cg->sink->directive(at, line)
         }
+    }
+
+    /// A header that defines a `@relocatable` record refuses a compiler
+    /// without `trivial_abi`: that compiler would pass the record through
+    /// memory where Kairo's object code passes it in registers, and the two
+    /// would link and corrupt each other's arguments.
+    priv fn _abi_guard(self, at: SourceRange) {
+        var found = false
+        for var i: usize = 0; i < self._plan->entries.size() && !found; ++i {
+            var *e = &self._plan->entries[i]
+            found = e->own
+                && e->decl != &null
+                && e->scope == &null
+                && e->witness == &null
+                && self._holds_relocatable(e->decl)
+        }
+
+        if !found {
+            return
+        }
+
+        self._cg->sink->directive(
+            at,
+            "#if !defined(__clang__) || !__has_cpp_attribute(clang::trivial_abi)",
+        )
+
+        self._cg->sink->directive(
+            at,
+            "#error \"Kairo headers require the Kairo Clang toolchain (trivial_abi)\"",
+        )
+
+        self._cg->sink->directive(at, "#endif")
+    }
+
+    /// \p d, or a record nested in it, is `@relocatable`.
+    priv fn _holds_relocatable(self, d: unsafe *Decl) -> bool {
+        if !self._is_type(d) {
+            return false
+        }
+
+        if AttrFacts::is_relocatable(d) {
+            return true
+        }
+
+        var unsafe *dc = Speller::dc_of(d)
+        if dc == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd != &null && self._holds_relocatable(nd) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The C++ is compiled for the Microsoft C++ ABI.
+    prot fn _ms_abi(self) -> bool {
+        return self._cg->opts.target_triple.ends_with("-msvc")
     }
 
     /// # Namespace wrapping

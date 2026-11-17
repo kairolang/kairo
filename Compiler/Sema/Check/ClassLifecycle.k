@@ -40,6 +40,22 @@
 ///                  bit, so a Yes would hand it a transfer it does not have.
 ///       destructible  no `op delete = delete` on this type, its bases, or
 ///                  its by-value fields.
+///       relocatable  a value may be moved by copying its bytes and
+///                  abandoning the source, which is what C++ calls trivial
+///                  for the purposes of calls. A record marked
+///                  `@relocatable` is, by declaration; one that is not is
+///                  when it has no destructor or transfer constructor that
+///                  is user-provided or deleted, no vptr, and every base and
+///                  by-value field is relocatable. An imported record has
+///                  clang's answer (ForeignLayout::trivial_for_calls). An
+///                  ADT, and a `T?` that is not a pointer, are lowered with
+///                  special members of their own, so they are relocatable
+///                  only when trivially copyable and trivially destroyed.
+///                  `@relocatable` is `trivial_abi`, which clang drops from
+///                  a record that has a base or field without this fact, is
+///                  polymorphic, or has every transfer deleted; that is an
+///                  error here (_check_relocatable), asked again of each
+///                  instance of a generic record (instance_failures).
 ///
 ///     An ENUM is the same question with no members to declare. A plain enum
 ///     is an integer: COPY, trivially everything, destructible. An ADT is a
@@ -313,6 +329,10 @@ pub class LifecycleFacts {
     pub var virtual_dtor:       LifecycleTri = LifecycleTri::No
     pub var why_not_movable:    string       = ""
     pub var why_not_copyable:   string       = ""
+    /// Its bytes may be moved and the source abandoned (file header). The
+    /// reason is a clause about the type: "it has a destructor".
+    pub var relocatable:         LifecycleTri = LifecycleTri::Yes
+    pub var why_not_relocatable: string       = ""
     /// Doc: Lifecycle Categories. DEFAULT (no transfer ctor written) is
     /// reported as the weakest its bases and fields allow, which is Copy
     /// whenever they all copy; the implicit-copy warning tells DEFAULT
@@ -369,6 +389,9 @@ pub fn lifecycle_open(f: unsafe *LifecycleFacts) -> bool {
 pub class LifecycleFailure {
     pub var id:  DiagID = DiagID::SC001E
     pub var msg: string = ""
+    /// Where a failure of the declaration itself is reported; an instance's
+    /// is reported at its use.
+    pub var at: SourceRange = SourceRange::invalid()
     /// Parallel: each note's code (I900N for a plain one), place, text.
     pub var note_ids: cxx::std::vector<DiagID>
     pub var note_at:  cxx::std::vector<SourceRange>
@@ -738,6 +761,16 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             || self._tu.is_string(t) {
             out.trivially_copyable = LifecycleTri::No
             out.trivial_dtor       = LifecycleTri::No
+            // The one fact read off the declaration: the container says
+            // itself whether its bytes may be moved.
+            var unsafe *cd = self._tu.record_decl(t)
+            if cd == &null || !AttrFacts::is_relocatable(self._pattern(cd)) {
+                self._not_relocatable(
+                    unsafe &out,
+                    "it has a destructor and is not marked '@relocatable'",
+                )
+            }
+
             self._held_deprecated_copy(t, unsafe &out)
             return out
         }
@@ -775,18 +808,38 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             } case TypeKind::VectorType {
                 out.trivially_copyable = LifecycleTri::No
                 out.trivial_dtor       = LifecycleTri::No
+                self._not_relocatable(
+                    unsafe &out,
+                    "it has a destructor and is not marked '@relocatable'",
+                )
+
                 return out
             } case TypeKind::MapType {
                 out.trivially_copyable = LifecycleTri::No
                 out.trivial_dtor       = LifecycleTri::No
+                self._not_relocatable(
+                    unsafe &out,
+                    "it has a destructor and is not marked '@relocatable'",
+                )
+
                 return out
             } case TypeKind::SetType {
                 out.trivially_copyable = LifecycleTri::No
                 out.trivial_dtor       = LifecycleTri::No
+                self._not_relocatable(
+                    unsafe &out,
+                    "it has a destructor and is not marked '@relocatable'",
+                )
+
                 return out
             } case TypeKind::OpaqueFFIType {
                 out.trivially_copyable = LifecycleTri::No
                 out.trivial_dtor       = LifecycleTri::No
+                self._not_relocatable(
+                    unsafe &out,
+                    "it has a destructor and is not marked '@relocatable'",
+                )
+
                 return out
             }
 
@@ -808,6 +861,11 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
                 out.trivially_copyable = LifecycleTri::No
                 out.trivial_dtor       = LifecycleTri::No
+                self._not_relocatable(
+                    unsafe &out,
+                    "a 'fn' value owns the closure it holds",
+                )
+
                 return out
             } case TypeKind::CXXLValueRefType {
                 return out
@@ -821,6 +879,19 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
                 if t->is_dependent() || t->is_instantiation_dependent() {
                     return self._unknown_facts()
+                }
+
+                // A `T?` that is no pointer is a record with constructors
+                // and a destructor of its own, defaulted only over a trivial
+                // T: a relocatable T does not make it relocatable.
+                var vf = self.facts_of_type(inner)
+                out.relocatable = lifecycle_and(
+                    vf.trivially_copyable,
+                    vf.trivial_dtor,
+                )
+
+                if out.relocatable == LifecycleTri::No {
+                    out.why_not_relocatable = "a nullable value is relocatable only when the value is trivially copyable and trivially destroyed"
                 }
 
                 self._held_deprecated_copy(t, unsafe &out)
@@ -849,8 +920,21 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         out.virtual_dtor       = LifecycleTri::Unknown
         out.polymorphic        = LifecycleTri::Unknown
         out.assignable         = LifecycleTri::Unknown
+        out.relocatable        = LifecycleTri::Unknown
         out.category           = LifecycleCategory::Unknown
         return out
+    }
+
+    priv fn _not_relocatable(self, f: unsafe *LifecycleFacts, const why: string) {
+        f->relocatable         = LifecycleTri::No
+        f->why_not_relocatable = why
+    }
+
+    /// The declaration \p d's attributes are written on: an instance's are
+    /// its pattern's.
+    priv fn _pattern(self, d: unsafe *Decl) -> unsafe *Decl {
+        var unsafe *pat = self.sc->body_of(d)
+        return if (pat != &null) => (NameLookup::representative(pat)) else => d
     }
 
     /// facts_of_type for a reader that acts on the answer (file header,
@@ -911,6 +995,12 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         f->movable = mv
+        var rl = lifecycle_and(f->relocatable, c->relocatable)
+        if rl == LifecycleTri::No && f->relocatable != LifecycleTri::No {
+            f->why_not_relocatable = f"{what} is not relocatable"
+        }
+
+        f->relocatable = rl
         if f->deprecated_copy == &null && c->deprecated_copy != &null {
             f->deprecated_copy     = c->deprecated_copy
             f->deprecated_copy_via = what
@@ -1129,6 +1219,22 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             )
 
             f->trivial_dtor = lifecycle_tri(dtor_trivial)
+            if copy_deleted || move_deleted {
+                self._not_relocatable(
+                    f,
+                    "it has a deleted transfer constructor",
+                )
+            } else if copy_provided || move_provided {
+                self._not_relocatable(
+                    f,
+                    "it has a transfer constructor with a body and is not marked '@relocatable'",
+                )
+            } else if !dtor_trivial {
+                self._not_relocatable(
+                    f,
+                    "it has a destructor and is not marked '@relocatable'",
+                )
+            }
         }
 
         // A vptr (a virtual method of its own) or a virtual-base offset
@@ -1158,6 +1264,9 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
         if polymorphic {
             f->trivially_copyable = LifecycleTri::No
+            if f->relocatable != LifecycleTri::No {
+                self._not_relocatable(f, "it is polymorphic")
+            }
         }
 
         f->polymorphic = lifecycle_tri(polymorphic)
@@ -1356,6 +1465,20 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             }
         }
 
+        // The declaration decides, not the parts: `@relocatable` says the
+        // bytes may be moved (a part that cannot be is _check_relocatable's
+        // error), and an imported record passes the way clang says it does.
+        if AttrFacts::is_relocatable(d) {
+            f->relocatable         = LifecycleTri::Yes
+            f->why_not_relocatable = ""
+        } else if lay != &null && lay->known {
+            f->relocatable         = lifecycle_tri(lay->trivial_for_calls)
+            f->why_not_relocatable = ""
+            if !lay->trivial_for_calls {
+                f->why_not_relocatable = "it is a C++ type with a non-trivial copy constructor, move constructor or destructor"
+            }
+        }
+
         f->in_progress = false
     }
 
@@ -1415,6 +1538,14 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             f->why_not_assignable = "it can be neither copied nor moved"
         }
 
+        // Its special members are written out unless every payload is
+        // trivial, so a relocatable payload does not make it relocatable.
+        f->relocatable = lifecycle_and(f->trivially_copyable, f->trivial_dtor)
+        f->why_not_relocatable = ""
+        if f->relocatable == LifecycleTri::No {
+            f->why_not_relocatable = "an enum with payloads is relocatable only when every payload is trivially copyable and trivially destroyed"
+        }
+
         f->in_progress = false
     }
 
@@ -1469,6 +1600,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         // class's own members, so this sits above the no-base early-out.
         self._check_transfer_shapes(n, self.sc->ctx->get_spelling(n->name))
         self._check_lifecycle_rules(n)
+        self._check_relocatable(unsafe (n as unsafe *Decl))
         self._derive_assign(n)
         if n->derives_list.size() == 0 {
             return true
@@ -1553,8 +1685,175 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             self.sc->ctx->get_spelling(n->name),
         )
 
+        self._check_relocatable(unsafe (n as unsafe *Decl))
         self._derive_assign(unsafe (n as unsafe *Decl))
         return true
+    }
+
+    fn visit_union_decl(self, n: unsafe *UnionDecl) -> bool {
+        if n != &null && !n->is_poisoned() {
+            self._check_relocatable(unsafe (n as unsafe *Decl))
+        }
+
+        return true
+    }
+
+    /// # `@relocatable`
+
+    /// What stops `@relocatable` on \p d (a pattern, or an instance's body
+    /// read through \p sub and named \p dn): one failure per base and
+    /// by-value field that is not relocatable, else the record's own
+    /// reason. A part \p sub leaves Unknown is skipped, and so is one the
+    /// pattern already answered No for when \p sub is set: the declaration
+    /// reported it.
+    priv fn _relocatable_failures(self,
+                                  d:          unsafe *Decl,
+                                  sub:        unsafe *Substitution,
+                                  const dn:   string,
+                                  @inout out: cxx::std::vector<LifecycleFailure>) {
+        var at   = AttrFacts::find(d, LangAttrs::relocatable())->range
+        var head = f"'{LangAttrs::at(LangAttrs::relocatable())}' cannot be applied to '{dn}'"
+        if isa<ClassDecl>(d) {
+            var unsafe *c = cast<ClassDecl>(d)
+            for var i: usize = 0; i < c->derives_list.size(); ++i {
+                var unsafe *e  = c->derives_list.get(i)
+                var unsafe *pb = self._base_decl(e->base)
+                var unsafe *bd = pb
+                if sub != &null {
+                    if pb != &null
+                        && (isa<InterfaceDecl>(pb)
+                            || self.facts_of(pb)->relocatable == LifecycleTri::No) {
+                        continue
+                    }
+
+                    bd = self._inst_base(&*sub, e->base)
+                }
+
+                if bd == &null || isa<InterfaceDecl>(bd) {
+                    continue
+                }
+
+                var unsafe *bf = self.facts_of(bd)
+                if bf->in_progress || bf->relocatable != LifecycleTri::No {
+                    continue
+                }
+
+                var bn = self._tu.decl_name(bd)
+                if sub != &null {
+                    bn = self._tu.str(
+                        self._inst_type(&*sub, e->base->canonical),
+                    )
+                }
+
+                var x = LifecycleFailure()
+                x.id  = DiagID::SC356E
+                x.at  = at
+                x.msg = f"{head}: its base '{bn}' is not relocatable"
+                x.add_note(
+                    DiagID::SC356N,
+                    e->range,
+                    f"'{bn}' is not relocatable: {bf->why_not_relocatable}",
+                )
+
+                if sub != &null {
+                    x.add_note(DiagID::I900N, at, f"'{dn}' is marked here")
+                }
+
+                out.push_back(x)
+            }
+        }
+
+        var fields = self._fields(d)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *fd = fields[i]
+            if fd == &null || fd->is_static() {
+                continue
+            }
+
+            if fd->type_ == &null || fd->type_->canonical == &null {
+                continue
+            }
+
+            var unsafe *ft = canon_unqual(fd->type_->canonical)
+            if sub != &null {
+                if self.facts_of_type(ft).relocatable == LifecycleTri::No {
+                    continue
+                }
+
+                ft = self._inst_type(&*sub, ft)
+            }
+
+            var ff = self.facts_of_type(ft)
+            if ff.in_progress || ff.relocatable != LifecycleTri::No {
+                continue
+            }
+
+            var fname = self.sc->ctx->get_spelling(fd->name)
+            var tn    = self._tu.str(ft)
+            var x     = LifecycleFailure()
+            x.id  = DiagID::SC356E
+            x.at  = at
+            x.msg = f"{head}: its field '{fname}' of type '{tn}' is not relocatable"
+            x.add_note(
+                DiagID::SC356N,
+                fd->range,
+                f"'{tn}' is not relocatable: {ff.why_not_relocatable}",
+            )
+
+            if sub != &null {
+                x.add_note(DiagID::I900N, at, f"'{dn}' is marked here")
+            }
+
+            out.push_back(x)
+        }
+
+        if out.size() != 0 || sub != &null {
+            return
+        }
+
+        // The record's own shape, which no instance changes.
+        var unsafe *f  = self.facts_of(d)
+        var        why = ""
+        if f->polymorphic == LifecycleTri::Yes {
+            why = "it is polymorphic, and its bytes hold the address of its virtual table"
+        } else if f->category == LifecycleCategory::NonTransfer {
+            why = "its transfer constructors are deleted, so nothing moves it"
+        }
+
+        if why.empty() {
+            return
+        }
+
+        var x = LifecycleFailure()
+        x.id  = DiagID::SC356E
+        x.at  = at
+        x.msg = f"{head}: {why}"
+        out.push_back(x)
+    }
+
+    priv fn _check_relocatable(self, d: unsafe *Decl) {
+        if !AttrFacts::is_relocatable(d) {
+            return
+        }
+
+        var fails = cxx::std::vector<LifecycleFailure>()
+        self._relocatable_failures(d, &null, self._tu.decl_name(d), &fails)
+
+        for var i: usize = 0; i < fails.size(); ++i {
+            var *x = &fails[i]
+            var b  = self.sc->diag->report(x->id, x->at.start, x->msg)
+            b.first(x->at)
+            for var j: usize = 0; j < x->note_ids.size(); ++j {
+                b.note(
+                    DiagCode(x->note_ids[j]),
+                    x->note_at[j].start,
+                    x->note_msg[j],
+                )->child_first(x->note_at[j])
+            }
+
+            b.emit()
+            self.n_errored += 1
+        }
     }
 
     /// # transfer-constructor shapes
@@ -2086,11 +2385,29 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         var unsafe *body = self.sc->body_of(e->decl)
-        if body == &null || !isa<ClassDecl>(body) {
+        if body == &null {
             return
         }
 
         body = NameLookup::representative(body)
+        if AttrFacts::is_relocatable(body) && !body->is_poisoned() {
+            var rsub = Substitution(self.sc)
+            rsub.bind_from_record(
+                self.sc->types->record(e->decl, unsafe &e->args),
+            )
+
+            self._relocatable_failures(
+                body,
+                unsafe &rsub,
+                self._tu.str(self.sc->types->record(e->decl, unsafe &e->args)),
+                &*out,
+            )
+        }
+
+        if !isa<ClassDecl>(body) {
+            return
+        }
+
         var unsafe *n = cast<ClassDecl>(body)
         if n->is_poisoned() {
             return

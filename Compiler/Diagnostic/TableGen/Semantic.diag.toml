@@ -6953,3 +6953,68 @@ group = "attributes"
     callee only reads it, or restructure so the value is no longer used
     after this place.
     """
+
+[SC356]
+brief = "'@relocatable' on a record that cannot be moved by copying its bytes"
+group = "lifecycle"
+
+    [SC356.E]
+    explain = """
+    # `@relocatable` on a record that is not relocatable
+
+    `@relocatable` says a value of the record may be moved by copying its
+    bytes and abandoning the source, so the record is passed and returned
+    like a plain struct of the same layout. That holds only when it holds
+    for every part of the record. The C++ compiler drops the attribute from
+    a record with a part it cannot pass that way, and the record would go
+    through memory again without a word, so Kairo makes it an error.
+
+    A type is relocatable when it is one of these:
+
+    - a number, `bool`, `char`, a pointer (nullable or not), a plain enum,
+      an `unsafe fn` pointer;
+    - a record marked `@relocatable`;
+    - a record with no destructor and no `@copy` or `@move` constructor of
+      its own (a `= default` one counts as none), no virtual function, and
+      only relocatable bases and fields;
+    - a fixed array or a tuple of relocatable types;
+    - an enum with payloads, or a `T?` that is not a pointer, when every
+      payload (or `T`) is trivially copyable and has no destructor;
+    - a C++ type that C++ passes as its bytes: one with no user-written
+      copy constructor, move constructor or destructor, or one marked
+      `[[clang::trivial_abi]]`.
+
+    A `fn` value is not relocatable: it owns the closure it holds.
+
+    ```kairo
+    class Name {
+        var p: *u8?
+        @move fn Name(self, other: Self) { ... }
+        fn op finally(self) { ... }
+    }
+
+    @relocatable            // error: field 'name' of type 'Name'
+    class Entry {
+        var name: Name
+        var id: i32
+    }
+    ```
+
+    The record itself must also have no virtual function or virtual base
+    (its bytes hold the address of a table), and must not have its transfer
+    constructors deleted.
+
+    A field whose type is a generic parameter is checked for each instance:
+    `Box<i32>` is accepted and `Box<Name>` is the error, reported where
+    `Box<Name>` is first used.
+
+    ## how to fix
+
+    mark the field's type `@relocatable` too, if moving its bytes is correct
+    for it (it holds no pointer into itself and nothing else holds its
+    address); hold it through a pointer; or remove `@relocatable` from the
+    record.
+    """
+
+    [SC356.N]
+    explain = "Points at the base or field that is not relocatable, and says why."

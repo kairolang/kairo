@@ -162,6 +162,9 @@ pub class TyperFrame {
     /// typed against. Null otherwise, and null for a closure (which cannot
     /// yield yet).
     pub var yield_elem: unsafe *Type = &null
+    /// SemaContext::same_types as the enclosing body had it, put back when
+    /// this frame is popped.
+    pub var outer_same: cxx::std::vector<unsafe *Type>
     fn TyperFrame(self) { }
 }
 
@@ -198,6 +201,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             }
         }
 
+        fr.outer_same = self.dyn()->sc->same_types
+        var facts = fr.outer_same
+        self.dyn()->conv.same_type_facts(f, unsafe &facts)
+        self.dyn()->sc->same_types = facts
         self.dyn()->frames.push_back(fr)
         self.dyn()->flow.enter() // a body starts knowing nothing about any nullable.
     }
@@ -240,6 +247,12 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
     fn pop_frame(self) {
         if !self.dyn()->frames.empty() {
+            var unsafe *fr = &self.dyn()->frames[self.dyn()->frames.size() - 1]
+            // A closure's frame took no copy: it reads its function's.
+            if fr->closure == &null {
+                self.dyn()->sc->same_types = fr->outer_same
+            }
+
             self.dyn()->frames.pop_back()
             self.dyn()->flow.leave()
         }

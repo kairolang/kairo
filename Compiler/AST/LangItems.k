@@ -1143,7 +1143,8 @@ pub class LangAttrs {
     /// `@relocatable` on a class, struct or union: the record is passed and
     /// returned as a trivial type of its size and layout would be, and the
     /// callee destroys a by-value parameter. AttrFacts::record_attr spells
-    /// it as clang's `trivial_abi`.
+    /// it as clang's `trivial_abi`, and the record carries
+    /// LowerTargets::relocatable_marker.
     pub static fn relocatable() -> string {
         return "relocatable"
     }
@@ -2443,6 +2444,15 @@ pub class LowerTargets {
         return "__kairo_spec"
     }
 
+    /// The member alias a `@relocatable` record carries, naming the record
+    /// itself. `__builtin_is_trivially_relocatable<T>()` reads it (Lib/rt
+    /// intrinsics.h): C++26 calls no class with a user-provided move
+    /// constructor or destructor trivially relocatable, `trivial_abi` or
+    /// not, and the Microsoft C++ ABI has no `trivial_abi` record to ask.
+    pub static fn relocatable_marker() -> string {
+        return "__kairo_relocatable"
+    }
+
     /// # Materialized temporaries (writer: InterfaceEmitter; reader: EmitIR)
 
     /// `template <class T> auto* __kairo_tmp(T&& t)`: the address of a
@@ -2450,6 +2460,14 @@ pub class LowerTargets {
     /// full-expression. ExtensionLowering's `materialize` `&` spells it.
     pub static fn tmp_addr() -> string {
         return "__kairo_tmp"
+    }
+
+    /// `template <class T> struct __kairo_nd { using type = T; }`: `typename
+    /// __kairo_nd<P>::type` is P as a non-deduced context. An extension
+    /// operator's C++ forwarder spells its other operands with it, so its
+    /// template arguments come from the receiver alone, as Sema binds them.
+    pub static fn nondeduced() -> string {
+        return "__kairo_nd"
     }
 
     /// # Deferred f-string holes (writer: InterfaceEmitter; reader: EmitIR)

@@ -32,8 +32,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,    BuiltinKind,  BuiltinType, QUAL_CONST, QUAL_VOLATILE, QualifiedType, RecordType,
-    builtin_info, canon_unqual,
+    AssocType,  BuiltinKind,  BuiltinType,     QUAL_CONST,   QUAL_VOLATILE, QualifiedType,
+    RecordType, builtin_info, canon_has_const, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -230,6 +230,13 @@ extend Speller {
                         subst,
                         scope,
                     )
+                }
+
+                // `const T` under an instance that binds T to a const type
+                // is that type: the qualifier folds, as it does in the
+                // template, and is spelled once.
+                if q->quals == QUAL_CONST && self._subst_is_const(q->inner, subst) {
+                    return self.decl(q->inner, name, subst, scope)
                 }
 
                 return pfx + self.decl(q->inner, name, subst, scope)
@@ -809,7 +816,10 @@ extend Speller {
                 && !cast<GenericParamType>(c)->is_pack {
                 return self.decl(
                     t,
-                    self._ref_declarator("const&", name),
+                    self._ref_declarator(
+                        if (self._subst_is_const(t, subst)) => ("&") else => "const&",
+                        name,
+                    ),
                     subst,
                     scope,
                 )
@@ -836,6 +846,22 @@ extend Speller {
 
     /// `& name`, keeping the `T& x` spelling the printed C++ has always had
     /// (and that tests match); bare `&` for the abstract form.
+    /// \p t is a type parameter that \p subst binds to a const type, so a
+    /// `const` written on it in the pattern is already in its spelling.
+    priv fn _subst_is_const(self, t: unsafe *Type, subst: unsafe *InstanceEntry) -> bool {
+        if t == &null || subst == &null || t->canonical == &null {
+            return false
+        }
+
+        var unsafe *g = dyn_cast<GenericParamType>(t->canonical)
+        if g == &null || g->is_pack {
+            return false
+        }
+
+        var unsafe *b = self.subst_for(g, subst)
+        return b != &null && b->canonical != &null && canon_has_const(b->canonical)
+    }
+
     priv fn _ref_declarator(self, sigil: string, const name: string) -> string {
         if name.size() == 0 {
             return sigil

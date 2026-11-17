@@ -2032,10 +2032,22 @@ pub class DeclImport {
             lay.trivially_copyable   = cxx_v->isTriviallyCopyable()
             lay.trivial_dtor         = cxx_v->hasTrivialDestructor()
             lay.trivial_default_ctor = cxx_v->hasTrivialDefaultConstructor()
+            // The Itanium rule on every target: the Microsoft ABI's own
+            // (canPassInRegisters there) refuses a move-only record and
+            // admits a small one with a destructor.
+            lay.trivial_for_calls = cxx_v->canPassInRegisters()
+            if self.cctx->getTargetInfo().getCXXABI().isMicrosoft() {
+                lay.trivial_for_calls = !(cxx_v->hasNonTrivialCopyConstructorForCall()
+                    || cxx_v->hasNonTrivialMoveConstructorForCall()
+                    || cxx_v->hasNonTrivialDestructorForCall())
+            }
+
+            lay.trivial_for_calls = lay.trivial_for_calls || cxx_v->hasAttr<clang::TrivialABIAttr>()
         } else {
             lay.trivially_copyable   = true
             lay.trivial_dtor         = true
             lay.trivial_default_ctor = true
+            lay.trivial_for_calls    = true
         }
 
         if isa<Declarations::ClassDecl>(kd) {

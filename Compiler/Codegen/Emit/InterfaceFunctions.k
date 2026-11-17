@@ -366,6 +366,28 @@ extend InterfaceEmitter {
         return true
     }
 
+    /// Operand \p p of \p f, an operator of the generic extension \p ext
+    /// with no parameters of its own, names the extension's parameters.
+    /// They are the receiver's (Deduction::bind_from_extension), so the
+    /// forwarder must not deduce them from \p p as well: `op ==(const self,
+    /// const o: View<const T>)` on a `View<const i32>` is T := const i32 by
+    /// the receiver and T := i32 by `o`, a conflict to C++ alone. A generic
+    /// body's infix use of the operator is compiled through the forwarder.
+    priv fn _receiver_decides(self,
+                              f:   unsafe *Declarations::FunctionDecl,
+                              ext: unsafe *Declarations::ExtensionDecl,
+                              p:   unsafe *Declarations::ParamDecl) -> bool {
+        if f->generic_params.size() > 0
+            || p->is_pack
+            || DeclFacts::decl_generic_params(unsafe (ext as unsafe *Decl)).size() == 0 {
+            return false
+        }
+
+        return p->type_ != &null
+            && p->type_->canonical != &null
+            && p->type_->canonical->is_dependent()
+    }
+
     /// `inline RET operator+(X& __kairo_a0, Y __kairo_a1) { return
     /// ::N::__kairo_ext_X::__kairo_op_plus(__kairo_a0, ...); }`: the C++
     /// operator an extension operator is, for C++ callers. Kairo calls the
@@ -428,6 +450,12 @@ extend InterfaceEmitter {
             if p->is_self {
                 s += self._spell->ext_receiver(f, ext) + " " + nm
                 call += nm
+            } else if self._receiver_decides(f, ext, p) {
+                s += "typename ::" + LowerTargets::nondeduced() + "<" + self._spell->param_decl(
+                    p,
+                    "",
+                ) + ">::type " + nm
+                call += "static_cast<decltype(" + nm + ")&&>(" + nm + ")"
             } else {
                 s += self._spell->param_decl(p, nm)
                 call += "static_cast<decltype(" + nm + ")&&>(" + nm + ")"

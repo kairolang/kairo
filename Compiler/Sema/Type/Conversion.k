@@ -43,15 +43,18 @@ import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_extension_of,
     decl_is_imported,
+    decl_requires_clause,
 }
+import AST::ExprFacts::callee_decl
 import AST::Node::Base::{
     Decl,
     Expr,
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind, QualifiedType, RecordType,      builtin_info,         canon_has_const,
-    canon_quals, canon_unqual,  float_precision, float_widens_exactly, is_c_character,
+    AssocType,       BuiltinKind, QualifiedType, RecordType,      builtin_info,
+    canon_has_const, canon_quals, canon_unqual,  float_precision, float_widens_exactly,
+    is_c_character,
 }
 import AST::Node::Casting::{
     cast,
@@ -60,6 +63,7 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations::FunctionDecl
 import AST::Node::Expressions
+import AST::Node::PrimaryExpressions::NamedIdentExpr
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
@@ -73,7 +77,10 @@ import AST::ParamMode::ParamMode
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
-import Sema::Type::Substitution::Substitution
+import Sema::Type::Substitution::{
+    Substitution,
+    unified_through,
+}
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
@@ -591,7 +598,156 @@ pub class Conversion {
 
     /// Rank of \p from -> \p to as an implicit conversion. Both canonical.
     fn implicit(self, from: unsafe *Type, to: unsafe *Type) -> ImplicitRank {
-        return self._seq(from, to, true)
+        return self._seq(self.unified(from), self.unified(to), true)
+    }
+
+    /// \p t as the declaration being typed reads it: every type its
+    /// `requires __builtin_is_same<A, B>()` clauses equate is one type
+    /// (SemaContext::same_types). \p t itself outside such a declaration.
+    fn unified(self, t: unsafe *Type) -> unsafe *Type {
+        return unified_through(self.sc, t, &null)
+    }
+
+    /// Whether \p t is a type parameter, or an associated type of one
+    /// (`T`, `T::Item`): a type the body knows only by its bounds.
+    fn is_rigid(self, t: unsafe *Type) -> bool {
+        var unsafe *c = canon_unqual(t)
+        while c != &null && isa<AssocType>(c) {
+            c = canon_unqual(cast<AssocType>(c)->base)
+        }
+
+        return c != &null && isa<GenericParamType>(c) && !cast<GenericParamType>(c)->is_pack
+    }
+
+    /// The equalities \p f's body may rely on, appended to \p out as
+    /// SemaContext::same_types holds them: from \p f's own `requires`,
+    /// its record's, its extension's, and the extended record's read at
+    /// the extension's target.
+    fn same_type_facts(self, f: unsafe *FunctionDecl, out: unsafe *cxx::std::vector<unsafe *Type>) {
+        if f == &null {
+            return
+        }
+
+        self._same_from(f->requires_clause, &null, out)
+        var unsafe *ext = decl_extension_of(f)
+        if ext != &null {
+            self._same_from(decl_requires_clause(ext), &null, out)
+            if ext->target != &null && ext->target->canonical != &null {
+                var unsafe *tc = canon_unqual(ext->target->canonical)
+                var unsafe *rd = self.tu.record_decl(tc)
+                if rd != &null {
+                    var s = Substitution(self.sc)
+                    s.keep_unbound = true
+                    s.bind_from_record(tc)
+                    self._same_from(
+                        decl_requires_clause(
+                            NameLookup::representative(self.tu.pattern_of(rd)),
+                        ),
+                        unsafe &s,
+                        out,
+                    )
+                }
+            }
+
+            return
+        }
+
+        if f->semantic_dc != &null {
+            self._same_from(
+                decl_requires_clause(f->semantic_dc->owner_decl()),
+                &null,
+                out,
+            )
+        }
+    }
+
+    /// The `__builtin_is_same<A, B>()` conjuncts of \p req, each read
+    /// through \p s when it is given. The side that is replaced is a type
+    /// the body knows only by its bounds; an equality of two types that
+    /// are neither is no fact a body can use and is left out.
+    priv fn _same_from(self,
+                       req: unsafe *Expr,
+                       s:   unsafe *Substitution,
+                       out: unsafe *cxx::std::vector<unsafe *Type>) {
+        var unsafe *e = self.tu.strip_parens(req)
+        if e == &null {
+            return
+        }
+
+        var unsafe *b = dyn_cast<Expressions::BinaryOperatorExpr>(e)
+        if b != &null {
+            if b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd {
+                self._same_from(b->lhs, s, out)
+                self._same_from(b->rhs, s, out)
+            }
+
+            return
+        }
+
+        var unsafe *c = dyn_cast<Expressions::CallExpr>(e)
+        if c == &null || c->args.size() != 0 {
+            return
+        }
+
+        var unsafe *callee = callee_decl(c)
+        if callee == &null || self.tu.decl_name(callee) != "__builtin_is_same" {
+            return
+        }
+
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(
+            self.tu.strip_parens(c->callee),
+        )
+
+        if ni == &null || ni->generic_args.size() != 2 {
+            return
+        }
+
+        // Each side as the equalities found so far read it, so a chain
+        // (`A` is `B`, `B` is `i32`) ends at one type.
+        var unsafe *l = self._same_side(ni->generic_args.get(0)->ty, s)
+        var unsafe *r = self._same_side(ni->generic_args.get(1)->ty, s)
+        if !out->empty() {
+            l = canon_unqual(unified_through(self.sc, l, out))
+            r = canon_unqual(unified_through(self.sc, r, out))
+        }
+
+        if l == &null || r == &null || l == r {
+            return
+        }
+
+        // A concrete side is the one kept.
+        var unsafe *kept = l
+        var unsafe *gone = r
+        if !self.is_rigid(r) || (self.is_rigid(l) && !r->is_dependent()) {
+            kept = r
+            gone = l
+        }
+
+        if !self.is_rigid(gone) {
+            return
+        }
+
+        for var i: usize = 0; i + 1 < out->size(); i += 2 {
+            if (*out)[i] == gone {
+                (*out)[i] = kept
+            }
+        }
+
+        out->push_back(kept)
+        out->push_back(gone)
+    }
+
+    priv fn _same_side(self, t: unsafe *Type, s: unsafe *Substitution) -> unsafe *Type {
+        if t == &null || t->canonical == &null {
+            return &null
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        if s != &null && c != &null {
+            c = canon_unqual(s->substitute(c))
+        }
+
+        return c
     }
 
     /// implicit() without the user rung (`@implicit op as`, array -> slice):
@@ -599,7 +755,7 @@ pub class Conversion {
     /// or a binary operand must not be converted by a user function nobody
     /// wrote a target for.
     fn implicit_builtin(self, from: unsafe *Type, to: unsafe *Type) -> ImplicitRank {
-        return self._seq(from, to, false)
+        return self._seq(self.unified(from), self.unified(to), false)
     }
 
     /// \p user: the view and `@implicit` rungs are open. At most ONE of
@@ -1572,7 +1728,7 @@ pub class Conversion {
 
         var unsafe *au = canon_unqual(a)
         var unsafe *bu = canon_unqual(b)
-        if au == bu {
+        if au == bu || canon_unqual(self.unified(au)) == canon_unqual(self.unified(bu)) {
             return au
         }
 

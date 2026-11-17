@@ -181,10 +181,17 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
             return n
         }
 
-        // A generic extension member's arguments are X's, never clang's.
+        // A generic extension member's arguments are X's, never clang's. A
+        // call in a generic body whose receiver names the body's parameters
+        // (`v.size()` on a `View<U>`) has no instance: it carries the
+        // dependent arguments, and each instance of the body deduces them
+        // from the receiver it passes.
         var generic = decl_generic_params(unsafe (ext as unsafe *Decl)).size() > 0
             || f->generic_params.size() > 0
-        if generic && n->instance == &null && !n->is_instantiation_dependent() {
+        if generic
+            && n->instance == &null
+            && n->dep_args.size() == 0
+            && !n->is_instantiation_dependent() {
             kairo::std::ice_fail(
                 "ExtensionLowering: a generic extension member called with no registered instance; CallTyping::call_result_type registers it at Selected",
             )

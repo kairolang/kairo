@@ -81,6 +81,38 @@ pub class DeducedBinding {
     fn DeducedBinding(self) { }
 }
 
+/// \p t with every type \p same equates read as one type: \p same is
+/// pairs (kept, replaced) as SemaContext::same_types holds them, and null
+/// names that list itself. \p t when nothing applies.
+pub fn unified_through(sc:   unsafe *SemaContext,
+                       t:    unsafe *Type,
+                       same: unsafe *cxx::std::vector<unsafe *Type>) -> unsafe *Type {
+    if t == &null || sc == &null || !t->is_dependent() {
+        return t
+    }
+
+    var unsafe *facts = if (same != &null) => (same) else => unsafe &sc->same_types
+    if facts->empty() {
+        return t
+    }
+
+    var s = Substitution(sc)
+    s.keep_unbound = true
+    s.same         = facts
+    var unsafe *cur = t
+    // A later equality may name what an earlier one kept.
+    for var round = 0; round < 4; ++round {
+        var unsafe *next = s.substitute(cur)
+        if next == &null || next == cur {
+            break
+        }
+
+        cur = next
+    }
+
+    return cur
+}
+
 pub class Substitution {
     pub var sc:       unsafe *SemaContext
     pub var tu:       TypeUtil
@@ -96,6 +128,10 @@ pub class Substitution {
     /// base it is read for is still the caller's `T`). Off for deduction,
     /// where an unbound callee parameter must stay a failure.
     pub var keep_unbound: bool = false
+    /// Pairs (kept, replaced) of canonical unqualified types: substitute()
+    /// answers `kept` for `replaced`, wherever it stands in a type. Null
+    /// for every use but Conversion::unified.
+    pub var same: unsafe *cxx::std::vector<unsafe *Type> = &null
 
     fn Substitution(self) {
         self.sc = &null
@@ -126,6 +162,11 @@ pub class Substitution {
         var unsafe *prev = self.lookup(owner, index)
         if prev != &null {
             return prev == ty
+                || unified_through(self.sc, prev, &null) == unified_through(
+                    self.sc,
+                    ty,
+                    &null,
+                )
         }
 
         var b = DeducedBinding()
@@ -462,6 +503,14 @@ pub class Substitution {
         // bindings (`P` through `L<i32>` is `L<i32>::P`).
         if !t->is_dependent() && !t->in_generic_owner() {
             return t
+        }
+
+        if self.same != &null {
+            for var i: usize = 0; i + 1 < self.same->size(); i += 2 {
+                if (*self.same)[i + 1] == t {
+                    return (*self.same)[i]
+                }
+            }
         }
 
         match t->kind {

@@ -587,6 +587,26 @@ extend EmitIR {
                 n->callee->range,
                 self._spell.qual_name(callee) + self._spell.args_str(inst->args),
             )
+        } else if inst == &null
+            && n->dep_args.size() > 0
+            && self._is_extension_member(callee)
+            && Speller::template_params(callee).size() == n->dep_args.size()
+            && self._plain_callee(n->callee) {
+            // The same member called in a generic body, its arguments still
+            // naming the body's parameters: spelled, not left to deduction.
+            // The extension's parameters are the receiver's, and C++ would
+            // deduce them from every parameter that names them:
+            // `has(const View<T> *, T const &)` on a `View<const U>` with a
+            // `U` argument is T := const U to Sema and a conflict to clang.
+            var da = cxx::std::vector<unsafe *Type>()
+            for var i: usize = 0; i < n->dep_args.size(); ++i {
+                da.push_back(n->dep_args[i])
+            }
+
+            self._cg->sink->spell(
+                n->callee->range,
+                self._spell.qual_name(callee) + self._spell.args_str(da),
+            )
         } else if last != &null
             && f != &null
             && f->generic_params.size() > 0

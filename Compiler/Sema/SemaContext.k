@@ -380,8 +380,10 @@ pub class SemaContext {
     pub var trace: ResolutionTrace
 
     /// The `@implicit op as` each implicitly converted expression calls,
-    /// keyed by the Expr as `reinterpret_cast::<u64>(expr)`. One writer:
-    /// ExprTyper::check_convertible, where the conversion is accepted. The
+    /// keyed by the Expr as `reinterpret_cast::<u64>(expr)`. Written where
+    /// the conversion is accepted: ExprTyper::check_convertible, and for a
+    /// member or operator found on a conversion's result (ConversionHop)
+    /// MemberTyping, keyed by the chain, and OperatorTyping. The
     /// call has no node in the tree, before the lowerings or after (EmitIR
     /// spells it as a `static_cast` from the two types), so this is the
     /// only place FnPurityCheck can learn of it: without it a const / @pure
@@ -398,6 +400,15 @@ pub class SemaContext {
     /// DeclaredQueryFolding; ConditionalExtensionCheck walks the file only
     /// when there is one.
     pub var conditional_blocks: u32 = 0
+
+    /// Member steps typed through a conversion of their receiver
+    /// (ChainExpr::Step::hop_conv). ImplicitConvLowering walks the TU for
+    /// them only when there is one.
+    pub var conversion_hops: u32 = 0
+    /// The implicit_conv_targets entries that are an operator's left
+    /// operand converted to the type that declares the operator. Such a
+    /// conversion is written out even when it is a member's `op as`.
+    pub var hop_operands: llvm::DenseSet<u64>
 
     /// The type each implicit_convs entry converts to, cv and reference
     /// dropped, under the same key. The expression's own type is the
@@ -455,6 +466,14 @@ pub class SemaContext {
     /// the canonical node it guards is shared with TUs typed on other
     /// threads.
     pub var assoc_busy: llvm::DenseSet<u64>
+
+    /// The type equalities the declaration being typed may rely on, as
+    /// pairs (kept, replaced): each `requires __builtin_is_same<A, B>()`
+    /// conjunct of the function, of its record and of the record its
+    /// extension extends. Conversion reads both sides of a conversion with
+    /// `replaced` rewritten to `kept`, so the two are one type in the body.
+    /// One writer: the typer, around a function's body (TyperFrame).
+    pub var same_types: cxx::std::vector<unsafe *Type>
 
     /// Every `where` dispatch group of this TU that WhereGuardCheck passed,
     /// flat: one group is a run of members sharing `where_lead`, in

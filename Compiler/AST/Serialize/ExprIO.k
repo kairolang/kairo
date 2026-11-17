@@ -409,6 +409,8 @@ fn io_chain_expr(ar: unsafe *ASTArchive, n: unsafe *ChainExpr) {
             )
 
             ar->sema_null<Type>(s->through, "ChainExpr::Step::through")
+            ar->sema_null<Type>(s->hop_type, "ChainExpr::Step::hop_type")
+            ar->sema_null<Decl>(s->hop_conv, "ChainExpr::Step::hop_conv")
             ar->sema_null<Type>(
                 s->witness_iface,
                 "ChainExpr::Step::witness_iface",

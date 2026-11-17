@@ -274,6 +274,16 @@ pub class ChainExpr derives Expr {
         pub var witness_iface: unsafe *Type = &null
         pub var witness_self:  unsafe *Type = &null
 
+        /// The step names a member the receiver's type does not have: it
+        /// is a member of the type one of the receiver's `@implicit op as`
+        /// conversions yields. `hop_conv` is that operator (a FunctionDecl)
+        /// and `hop_type` its result for this receiver, the type the member
+        /// is called on. One writer: ChainBinding, for ExprTyper; null on
+        /// every other step. ImplicitConvLowering writes the conversion
+        /// around the chain before this step and clears both.
+        pub var hop_conv: unsafe *Decl = &null
+        pub var hop_type: unsafe *Type = &null
+
         pub fn is_operator(self) -> bool {
             return self.target == StepTarget::Operator
         }

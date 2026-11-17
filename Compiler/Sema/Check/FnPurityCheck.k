@@ -28,7 +28,10 @@
 ///                      (a call through the base would carry the promise to
 ///                      an override that never made it), is not a generator
 ///                      or `async` (the frame is allocated), and its result
-///                      type owns nothing (making one allocates).
+///                      type owns nothing (making one allocates), and it
+///                      takes no relocatable value with a destructor by
+///                      value (the callee destroys that parameter; under
+///                      the Microsoft C++ ABI, any value with one).
 ///       const fn       reads strictly its inputs: no global or static (an
 ///                      `eval` constant is a value, not memory), no
 ///                      dereference, no field read through a pointer, no
@@ -586,6 +589,48 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 "return a '" + self._tu.str(
                     rt,
                 ) + "': making one allocates, and its destructor frees",
+            )
+        }
+
+        self._params_destroyed(f)
+    }
+
+    /// A by-value parameter of a relocatable type with a destructor is
+    /// destroyed by the function that receives it (`trivial_abi`: the callee
+    /// destroys), so its destructor is code this function runs, which no
+    /// node of the body shows. Under the Itanium C++ ABI any other by-value
+    /// parameter is destroyed by the caller; under the Microsoft one the
+    /// callee destroys every parameter.
+    priv fn _params_destroyed(self, f: unsafe *FunctionDecl) {
+        var unsafe *lc = lifecycle_of(self.sc)
+        var unsafe *ci = self.sc->ctx->ci
+        var ms_abi = ci != &null && ci->target.effective_triple.ends_with("-msvc")
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var unsafe *p = f->params[i]
+            if p == &null || p->type_ == &null || self._by_reference(p) {
+                continue
+            }
+
+            var unsafe *c = p->type_->canonical
+            if c == &null || c->is_dependent() || c->is_instantiation_dependent() {
+                continue
+            }
+
+            var pf = lc->facts_of_type(c)
+            if pf.trivial_dtor == LifecycleTri::Yes {
+                continue
+            }
+
+            if pf.relocatable != LifecycleTri::Yes && !ms_abi {
+                continue
+            }
+
+            var at = if (p->range.is_valid()) => (p->range) else => f->name.range
+            self._report(
+                at,
+                "take a '" + self._tu.str(
+                    c,
+                ) + "' by value: this function destroys the value it receives, so its destructor runs here",
             )
         }
     }

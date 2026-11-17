@@ -559,7 +559,9 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         // but a call through an instance has no T to name: the step carries
         // the target as the instance binds it, and EmitIR spells the
         // conversion-function-id from it (`wr.operator long()`, which C++
-        // finds as `operator T` with T = long).
+        // finds as `operator T` with T = long). In a generic body the
+        // operand's arguments are the body's parameters, and the target is
+        // spelled in them: `-> View<T>` on a `Buf<U>` is `operator View<U>`.
         var unsafe *rt = if (f->return_type != &null) => (f->return_type->canonical) else => &null
         if rt != &null && rt->is_dependent() && n->operand->type_ != &null && isa<CallExpr>(call) {
             var tu = TypeUtil(self.sc)
@@ -570,7 +572,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
             var unsafe *cr = sb.substitute(rt)
             var unsafe *ch = dyn_cast<ChainExpr>(cast<CallExpr>(call)->callee)
-            if cr != &null && !cr->is_dependent() && ch != &null && ch->steps.size() == 1 {
+            if cr != &null && ch != &null && ch->steps.size() == 1 {
                 ch->steps.get(0)->resolved_type = cr
             }
         }

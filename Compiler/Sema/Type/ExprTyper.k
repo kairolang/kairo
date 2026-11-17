@@ -2267,7 +2267,13 @@ pub class ExprTyper
             return !self.reject_non_value(e)
         }
 
-        if to->is_dependent() {
+        // Two types the body knows only by their bounds (`T`, `J::Item`)
+        // are one type when they are spelled alike or a `requires
+        // __builtin_is_same` of the declaration equates them; otherwise no
+        // instance decides the conversion, and it is judged below as any
+        // other. Every other dependent target is C++'s to judge per instance.
+        var rigid = self.conv.is_rigid(to) && self.conv.is_rigid(self.tu.as_value(from))
+        if to->is_dependent() && !rigid {
             // `return t` from a `T?` into a `T` in a generic body: the same
             // read of the value as below, decidable before instantiation.
             var unsafe *din = self.flow.narrowed_type(from)

@@ -66,6 +66,7 @@ import AST::DeclFacts::{
     decl_generic_params,
     decl_name,
     decl_pattern,
+    decl_spec_kind,
     ffi_hide_tags,
 }
 import AST::ExprFacts::strip_parens
@@ -77,8 +78,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,       BuiltinKind,        BuiltinType,  QualifiedType, RecordType, builtin_for_token,
-    canon_has_const, canon_has_volatile, canon_unqual,
+    AssocType,         BuiltinKind,     BuiltinType,        QUAL_CONST,   QualifiedType, RecordType,
+    builtin_for_token, canon_has_const, canon_has_volatile, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -111,6 +112,7 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
+import Sema::Resolve::ConversionHop::ConversionHop
 import Sema::Resolve::GenericArgs::GenericArgs
 import Sema::Resolve::MemberLookup::{
     MemberLookup,
@@ -1200,6 +1202,20 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         if cands.empty() {
+            // The type has no such member; one of its `@implicit op as`
+            // results may (ConversionHop).
+            var hop = ConversionHop::find(
+                self.sc,
+                &self.ml,
+                ty,
+                self._object_const(a, st),
+                name,
+            )
+
+            if hop.any && self._hop_separator(a, st) {
+                return self._bind_hop(st, loc, at, a, ty, spelled, &hop)
+            }
+
             var tn = self._type_name_str(ty)
             self._err_member_miss(
                 at,
@@ -1223,6 +1239,127 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         return self._commit(st, loc, unsafe &cands, owner, &null, ty)
+    }
+
+    /// The object a `.` / `->` step on \p a reads is const: \p a's own cv,
+    /// read through a C++ reference, or its pointee's after an arrow.
+    priv fn _object_const(self, const a: Anchor, st: unsafe *ChainExpr::Step) -> bool {
+        var unsafe *t = a.ty
+        if st->access_kind == ChainExpr::AccessKind::Arrow
+            || st->access_kind == ChainExpr::AccessKind::QuestionArrow {
+            var unsafe *p = self._peel_maybe(self.ml.peel_ref(a.ty), st)
+            if p == &null || !isa<PointerType>(p) {
+                return false
+            }
+
+            t = cast<PointerType>(p)->pointee
+        }
+
+        return (self.ml.object_quals(t) & QUAL_CONST) != 0
+    }
+
+    /// A conversion of the receiver is written for `x.m` and for `p->m`
+    /// on a pointer. A `?.` / `?->` step, and `->` through a record's
+    /// `op ->`, keep the plain miss.
+    priv fn _hop_separator(self, const a: Anchor, st: unsafe *ChainExpr::Step) -> bool {
+        if st->access_kind == ChainExpr::AccessKind::Dot {
+            return true
+        }
+
+        if st->access_kind != ChainExpr::AccessKind::Arrow {
+            return false
+        }
+
+        var unsafe *p = self._peel_maybe(self.ml.peel_ref(a.ty), st)
+        return p != &null && isa<PointerType>(p)
+    }
+
+    /// Binds \p st, a name \p ty lacks, to the member \p hop found on a
+    /// conversion's result, and records the conversion on the step. Which
+    /// conversion depends on the receiver's constness, which only the
+    /// typer's anchor carries for every receiver: the declared-type walk
+    /// leaves the step for it, as it leaves a nullable's.
+    priv fn _bind_hop(self,
+                      st:            unsafe *ChainExpr::Step,
+                      loc:           u32,
+                      at:            SourceRange,
+                      const a:       Anchor,
+                      ty:            unsafe *Type,
+                      const spelled: string,
+                      hop:           *ConversionHop) -> Anchor {
+        if !self._from_typer {
+            self._record(loc, MemberOutcome::NeedsInference, &null, 0, a.decl)
+            self.n_inference += 1
+            var r = Anchor()
+            r.kind = AnchorKind::NeedsInference
+            r.decl = a.decl
+            return r
+        }
+
+        var tu = TypeUtil(self.sc)
+        var tn = self._type_name_str(ty)
+        if hop->ambiguous() || hop->conv == &null {
+            self.sc->contained_errors += 1
+            self.n_errored += 1
+            if hop->ambiguous() {
+                var b = self.sc->diag->report(
+                    DiagID::R028E,
+                    at.start,
+                    f"'{spelled}' is ambiguous on '{tu.str(ty)}': it is no member of '{tn}', and its implicit conversions to '{tu.str(hop->target)}' and to '{tu.str(hop->other_target)}' both have one",
+                )
+
+                b.first(at)
+                b.note(
+                    hop->conv->range.start,
+                    f"through this conversion it is a member of '{tu.str(hop->target)}'",
+                )
+
+                b.note(
+                    hop->other->range.start,
+                    f"through this conversion it is a member of '{tu.str(hop->other_target)}'",
+                )
+
+                b.note(f"convert the receiver with 'as' to say which is meant")
+
+                b.emit()
+            } else {
+                var b = self.sc->diag->report(
+                    DiagID::R025E,
+                    at.start,
+                    f"no member named '{spelled}' in '{tn}'",
+                )
+
+                b.first(at)
+                b.note(
+                    hop->blocked->range.start,
+                    f"'{tu.str(hop->blocked_target)}' has '{spelled}', and this conversion to it takes 'self': it does not apply to a const '{tu.str(ty)}'",
+                )
+
+                b.emit()
+            }
+
+            st->name->poison()
+            self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
+            var r = Anchor()
+            r.kind = AnchorKind::Errored
+            return r
+        }
+
+        st->hop_conv = unsafe (hop->conv as unsafe *Decl)
+        st->hop_type = hop->target
+        var owner: unsafe *Decl = &null
+        if isa<RecordType>(hop->target) {
+            owner = cast<RecordType>(hop->target)->decl
+        }
+
+        return self._commit(
+            st,
+            loc,
+            unsafe &hop->members,
+            owner,
+            &null,
+            hop->target,
+        )
     }
 
     /// The record a `.`/`->`/`?.`/`?->` step actually reads from: \p a's
@@ -2342,6 +2479,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         self.n_errored += 1
         var b = self.sc->diag->report(DiagID::R025E, at.start, msg)
         b.first(at)
+        self._note_primary_member(&b, ty, name, spelled)
         var e: unsafe *Declarations::ExtensionDecl = &null
         if ty != &null {
             e = self.ml.hidden_extension(ty, name)
@@ -2428,6 +2566,54 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         b.emit()
+    }
+
+    /// The miss of \p name on \p ty is a specialization's: its members are
+    /// the specialization's own, and the primary declares \p name. Says so,
+    /// at the member and at the specialization: a `View<const T>` that
+    /// declares only the read members is how a type takes its mutators away
+    /// from a const element, and "no member" alone reads as a typo.
+    priv fn _note_primary_member(self,
+                                 b:             *DiagBuilder,
+                                 ty:            unsafe *Type,
+                                 name:          DeclName,
+                                 const spelled: string) {
+        var unsafe *u = canon_unqual(ty)
+        if u == &null || !isa<RecordType>(u) {
+            return
+        }
+
+        var unsafe *body = self.sc->record_body(u)
+        var unsafe *prim = decl_pattern(cast<RecordType>(u)->decl)
+        if body == &null || prim == &null || body == prim {
+            return
+        }
+
+        var sk = decl_spec_kind(body)
+        if sk != Declarations::SpecKind::Partial && sk != Declarations::SpecKind::Explicit {
+            return
+        }
+
+        var unsafe *cell = self.ml.in_scope(
+            NameLookup::context_of(prim),
+            name,
+            spelled,
+        )
+
+        if cell == &null || cell->size() == 0 || cell->get(0) == &null {
+            return
+        }
+
+        var ts = TypeUtil(self.sc).str(u)
+        b->note(
+            cell->get(0)->range.start,
+            f"'{spelled}' is a member of the primary declaration, which '{ts}' is not an instance of",
+        )
+
+        b->note(
+            body->range.start,
+            f"'{ts}' is an instance of this specialization, which does not declare '{spelled}'",
+        )
     }
 
     priv fn _tu_of_fid(self, fid: u32) -> unsafe *TranslationUnit {

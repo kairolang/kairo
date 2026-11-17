@@ -589,6 +589,21 @@ pub class <T: type> MemberTyping {
                 // The pointee of a `*const T` is `const T`; peel_ref now
                 // peels quals too.
                 val = self.dyn()->ml.peel_ref(val)
+
+                // A member reached through an `@implicit op as` of the
+                // receiver (ConversionHop) is called on the conversion's
+                // result, a temporary of that type. The conversion is a
+                // call the tree does not show until ImplicitConvLowering
+                // writes it: recorded for the checks that judge calls.
+                if st->hop_type != &null {
+                    val     = st->hop_type
+                    recv_q  = 0
+                    obj_cat = Expr::ValueCategory::RValue
+                    self.dyn()->sc->conversion_hops += 1
+                    self.dyn()->sc->implicit_convs[n as usize as u64] = cast<FunctionDecl>(
+                        st->hop_conv,
+                    )
+                }
             }
 
             if is_last {
@@ -1585,7 +1600,13 @@ pub class <T: type> MemberTyping {
             return
         }
 
-        self._settle_walk(ce->base, self._takes_self(w))
+        // Through a conversion of the receiver, the conversion is what
+        // takes the element, not the member found on its result.
+        var unsafe *hop = ce->steps.get(upto)->hop_conv
+        self._settle_walk(
+            ce->base,
+            self._takes_self(if (hop != &null) => (hop) else => w),
+        )
     }
 
     /// `for e in x[i]`: as settle_receiver_subscript, for the iteration's

@@ -590,6 +590,22 @@ pub class EmitWitness {
         }
 
         self._cg->sink->spell(at, "};")
+        // A const type conforms as its unqualified type does: `const i32`
+        // is what `extend <T impl I> View<T>` binds T to on a
+        // `View<const i32>`, and no conformance row names a const type. Its
+        // witness is the unqualified type's, whose members take a `const
+        // S *` receiver where the requirement is `const self`; a `self`
+        // requirement takes `S *`, which a const object does not give.
+        self._cg->sink->spell(
+            at,
+            self._head(p->iface) + " struct " + self._leaf_witness(p->iface) + self._self_params(
+                p->iface,
+                "const ",
+            ) + " : " + self._leaf_witness(p->iface) + self._self_params(
+                p->iface,
+            ) + " {};",
+        )
+
         self._cg->sink->brk()
     }
 
@@ -1318,8 +1334,8 @@ pub class EmitWitness {
     }
 
     /// `<__kairo_Self, T>`: the primary's own parameters as arguments.
-    priv fn _self_params(self, iface: unsafe *Decl) -> string {
-        var s   = "<" + LowerTargets::witness_self()
+    priv fn _self_params(self, iface: unsafe *Decl, const self_quals: string = "") -> string {
+        var s   = "<" + self_quals + LowerTargets::witness_self()
         var gps = decl_generic_params(iface)
         var fid = Speller::fid_of(iface)
         for var i: usize = 0; i < gps.size(); ++i {

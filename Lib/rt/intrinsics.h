@@ -64,7 +64,27 @@ KAIRO_RT_TRAIT1(is_signed, __is_signed(T))
 KAIRO_RT_TRAIT1(is_unsigned, __is_unsigned(T))
 KAIRO_RT_TRAIT1(is_trivially_copyable, __is_trivially_copyable(T))
 KAIRO_RT_TRAIT1(is_trivially_destructible, __is_trivially_destructible(T))
-KAIRO_RT_TRAIT1(is_trivially_relocatable, __builtin_is_cpp_trivially_relocatable(T))
+/* Three ways to be relocatable. C++26's rule, which no class with a user-provided move constructor or destructor
+   meets. A `@relocatable` Kairo record, which names itself in a `__kairo_relocatable` member alias (itself, so
+   that a derived record does not inherit the answer); an array asks its element. And, under the Itanium C++ ABI,
+   whatever is passed as its bytes: a `trivial_abi` C++ class and any aggregate of relocatable members. The
+   Microsoft ABI passes small classes with destructors that way too, so the last one is not asked there. */
+template <class T> using kairo_rt_array_element = __remove_cv(__remove_all_extents(T));
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-builtins"
+#if defined(_MSC_VER)
+#  define KAIRO_RT_PASSED_AS_BYTES(T) false
+#else
+#  define KAIRO_RT_PASSED_AS_BYTES(T) __is_trivially_relocatable(T)
+#endif
+KAIRO_RT_TRAIT1(is_trivially_relocatable,
+                __builtin_is_cpp_trivially_relocatable(T) || KAIRO_RT_PASSED_AS_BYTES(T)
+                    || requires {
+                           requires __is_same(typename kairo_rt_array_element<T>::__kairo_relocatable,
+                                              kairo_rt_array_element<T>);
+                       })
+#undef KAIRO_RT_PASSED_AS_BYTES
+#pragma clang diagnostic pop
 KAIRO_RT_TRAIT1(is_standard_layout, __is_standard_layout(T))
 KAIRO_RT_TRAIT1(is_aggregate, __is_aggregate(T))
 KAIRO_RT_TRAIT1(is_empty, __is_empty(T))

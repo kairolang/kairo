@@ -50,6 +50,11 @@ pub class ForeignLayout {
     pub var trivially_copyable:   bool                  = false
     pub var trivial_dtor:         bool                  = false
     pub var trivial_default_ctor: bool                  = false
+    /// Passed and returned as its bytes under the Itanium C++ ABI: no copy
+    /// constructor, move constructor or destructor that is non-trivial for
+    /// calls, which a `trivial_abi` record has with a destructor. The same
+    /// answer on every target, the Microsoft ABI ones included.
+    pub var trivial_for_calls: bool = false
     pub fn ForeignLayout(self) { }
 }
 

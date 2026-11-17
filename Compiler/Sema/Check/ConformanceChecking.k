@@ -696,6 +696,27 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 return out
             }
 
+            // `__builtin_is_same<A, B>()`: known once both are concrete.
+            if self.tu.decl_name(callee) == "__builtin_is_same" {
+                var unsafe *sn = dyn_cast<NamedIdentExpr>(
+                    self.tu.strip_parens(c->callee),
+                )
+
+                if sn == &null || sn->generic_args.size() != 2 {
+                    return out
+                }
+
+                var unsafe *l = self._subst(sn->generic_args.get(0)->ty, d)
+                var unsafe *r = self._subst(sn->generic_args.get(1)->ty, d)
+                if l == &null || r == &null {
+                    return out
+                }
+
+                out.known = true
+                out.v = if (canon_unqual(l) == canon_unqual(r)) => (1) else => 0
+                return out
+            }
+
             var copyable = self._is_lang(
                 callee,
                 WellKnownType::IsTriviallyCopyable,

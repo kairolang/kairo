@@ -136,10 +136,14 @@ pub class AttrFacts {
     /// `alignas` below the natural alignment is ill-formed C++, where
     /// Kairo's `@align` is a minimum (max(N, natural)). With `@packed` the
     /// two combine as clang's `packed, aligned(N)`: members at alignment 1,
-    /// the record at N. `@relocatable` is `trivial_abi` in the same list:
-    /// the GNU spelling of `[[clang::trivial_abi]]`, which every target's
-    /// C++ is compiled with, the Microsoft ABI ones included.
-    pub static fn record_attr(d: unsafe *Decl) -> string {
+    /// the record at N. `@relocatable` is `trivial_abi` in the same list,
+    /// the GNU spelling of `[[clang::trivial_abi]]`, unless \p ms_abi: the
+    /// Microsoft C++ ABI passes a record with no copy constructor through
+    /// memory whatever the attribute says, so clang drops it there from
+    /// every record that holds a move-only `@relocatable` one, with a
+    /// warning per record. The record is relocatable on those targets by
+    /// its marker alone (LowerTargets::relocatable_marker).
+    pub static fn record_attr(d: unsafe *Decl, ms_abi: bool) -> string {
         var list: string = ""
         if AttrFacts::is_packed(d) {
             list = "packed"
@@ -154,7 +158,7 @@ pub class AttrFacts {
             list += f"aligned({n})"
         }
 
-        if AttrFacts::is_relocatable(d) {
+        if AttrFacts::is_relocatable(d) && !ms_abi {
             if !list.empty() {
                 list += ", "
             }

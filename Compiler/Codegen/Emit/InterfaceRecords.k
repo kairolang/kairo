@@ -258,7 +258,7 @@ extend InterfaceEmitter {
         // `@packed` / `@align(N)`: on the definition only, between the
         // class-key and the name, where C++ puts a record's attributes.
         // Sema predicted the same layout (EnumLayoutQuery::_plain_record_size).
-        s += AttrFacts::record_attr(d)
+        s += AttrFacts::record_attr(d, self._ms_abi())
         s += name
 
         if is_class {
@@ -286,6 +286,17 @@ extend InterfaceEmitter {
         var tag = self._spec_tag(d)
         if tag >= 0 {
             var line = f"static constexpr unsigned {LowerTargets::spec_tag()} = {tag}u;"
+            if is_class {
+                line = "public: " + line + " private:"
+            }
+
+            self._cg->sink->spell(at, line)
+        }
+
+        if AttrFacts::is_relocatable(d) {
+            // Its own name, not `true`: a derived record inherits the
+            // member, and is relocatable only if it says so itself.
+            var line = f"using {LowerTargets::relocatable_marker()} = {name};"
             if is_class {
                 line = "public: " + line + " private:"
             }
