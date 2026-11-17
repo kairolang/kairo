@@ -80,11 +80,7 @@ import AST::Node::Declarations::{
     pointer_shorthand_spelling,
 }
 import AST::Node::Expressions::{
-    BinaryOperatorExpr,
-    CallExpr,
-    ClosureExpr,
-    RangeExpr,
-    SubscriptExpr,
+    AssignOperatorExpr, BinaryOperatorExpr, CallExpr, ClosureExpr, RangeExpr, SubscriptExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -115,6 +111,7 @@ import Sema::Type::MemberTyping::{
     SUB_BIND,
     SUB_RECV,
     SUB_SOFT,
+    SUB_STORE,
 }
 import Sema::Type::OverloadResolution::{
     ArgInfo,
@@ -1625,6 +1622,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return n
         }
 
+        self._mark_store(n->expr)
         var t = self.dyn()->type_of(n->expr, &null)
         if t != &null && self.dyn()->tu.is_never(t) { // a `-> !` call ends the path.
             self.dyn()->flow.diverge()
@@ -1651,6 +1649,29 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         return n
+    }
+
+    /// \p e is evaluated for its effect only (a whole statement, a `for`
+    /// loop's update). When it is a plain `x[k] = v`, nothing reads the
+    /// assignment's result, so the subscript may store through the setter
+    /// form of `op []=`: marked STORE. An assignment in any other position
+    /// keeps the place form.
+    priv fn _mark_store(self, e: unsafe *Expr) {
+        var unsafe *asn = dyn_cast<AssignOperatorExpr>(
+            self.dyn()->tu.strip_parens(e),
+        )
+
+        if asn == &null || asn->op_token.kind != TokenKind::OpEqual || asn->lhs == &null {
+            return
+        }
+
+        var unsafe *target = dyn_cast<SubscriptExpr>(
+            self.dyn()->tu.strip_parens(asn->lhs),
+        )
+
+        if target != &null {
+            target->place_ctx = SUB_STORE
+        }
     }
 
     /// \p e computes a value and does nothing else: a literal, a bare name,
@@ -2070,6 +2091,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // (which already assumes the body's assignments) covers both.
         self.dyn()->flow.env = head
         if n->update != &null {
+            self._mark_store(n->update)
             self.dyn()->type_of(n->update, &null)
         }
 

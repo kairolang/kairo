@@ -93,6 +93,7 @@ import AST::DeclFacts::{
     decl_is_instance,
     decl_pattern,
 }
+import AST::ExprFacts::setter_store_target
 import AST::Kind::DeclKind::to_string
 import AST::Kind::ExprKind::{
     ExprKind,
@@ -143,6 +144,7 @@ import Sema::Check::ConstEval::ConstEval
 import Sema::Type::Conversion::ImplicitRank
 import Sema::Type::MemberTyping::{
     SUB_SOFT,
+    SUB_STORE,
     SUB_WRITE,
 }
 import Sema::Type::NullnessFlow::{
@@ -3767,7 +3769,36 @@ pub class <T: type> OperatorTyping {
             self.dyn()->mark_subscript_use(n->lhs, SUB_WRITE)
         }
 
+        // A plain `=` statement whose whole left side is a subscript
+        // (StmtTyping marked it STORE) offers its right side to the
+        // subscript's typing: a setter takes it as an argument.
+        var store: unsafe *SubscriptExpr = &null
+        if k == TokenKind::OpEqual {
+            store = dyn_cast<SubscriptExpr>(self.dyn()->tu.strip_parens(n->lhs))
+            if store != &null && store->place_ctx != SUB_STORE {
+                store = &null
+            }
+        }
+
+        var unsafe *outer_value = self.dyn()->store_value
+        if store != &null {
+            self.dyn()->store_value = n->rhs
+        }
+
         var lt = self.dyn()->type_of(n->lhs, &null)
+        self.dyn()->store_value = outer_value
+        // The setter ran overload resolution over the index and the value:
+        // the right side is typed and converted as its argument, and the
+        // statement is the call, with no value of its own.
+        if store != &null && !store->is_poisoned() && setter_store_target(n) != &null {
+            if self.dyn()->propagate(n, n->lhs) || self.dyn()->propagate(n, n->rhs) {
+                return &null
+            }
+
+            n->value_category = Expr::ValueCategory::RValue
+            return self.dyn()->tu.builtin(BuiltinKind::Void)
+        }
+
         if self.dyn()->propagate(n, n->lhs) || lt == &null {
             // A left side whose type is unknown (a dependent `res[i]`) must
             // not leave the right side unvisited: a brace initializer there

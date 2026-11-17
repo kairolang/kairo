@@ -336,10 +336,11 @@ pub class NamedArgExpr derives Expr {
 /// encoding of SubscriptExpr::place_ctx.
 pub enum PlaceCtx derives u8 {
     Read = 0, ///< the read form, `op []`; never the place form.
-    Write,    ///< the place form, `op []=`: `=`, `op=`, `++`, `--`, a member written through.
-    Soft,     ///< the place form on a mutable container, else the read form: `&x[i]`, `for *e in`.
-    Bind,     ///< `var t = a[i..j]`: as Soft.
-    Recv,     ///< a method receiver: as Soft, then the read form unless the method takes `self`.
+    Write, ///< the place form, `op []=`: `=`, `op=`, `++`, `--`, a member written through.
+    Soft, ///< the place form on a mutable container, else the read form: `&x[i]`, `for *e in`.
+    Bind, ///< `var t = a[i..j]`: as Soft.
+    Recv, ///< a method receiver: as Soft, then the read form unless the method takes `self`.
+    Store, ///< the whole left side of a plain `=` whose result nothing reads: the setter form of `op []=` when one takes the index and the value, else as Write.
 }
 
 ///

@@ -2387,9 +2387,16 @@ pub class LowerTargets {
         return "__kairo_op_index_set"
     }
 
-    /// The C++ member names of a SPLIT subscript's two forms (a type that
-    /// declares `op []=`): `op []` is `__kairo_op_get`, `op []=` is
-    /// `__kairo_op_set`. Kairo calls each by its own name, so clang never
+    /// The witness member for a setter requirement (`fn op []= (self, k: K,
+    /// v: V)`), beside witness_subscript_set's: the two forms of `op []=`
+    /// may both be required, so each has its own name.
+    pub static fn witness_subscript_put() -> string {
+        return "__kairo_op_index_put"
+    }
+
+    /// The C++ member names of a SPLIT subscript's forms (a type that
+    /// declares `op []=`): `op []` is `__kairo_op_get`, the place form of
+    /// `op []=` is `__kairo_op_set`. Kairo calls each by its own name, so clang never
     /// picks between them; C++ users get `operator[]` forwarders to them
     /// (InterfaceEmitter::_subscript_forwarders). A type with no `op []=`
     /// keeps `operator[]` itself, as before.
@@ -2399,6 +2406,13 @@ pub class LowerTargets {
 
     pub static fn subscript_set() -> string {
         return "__kairo_op_set"
+    }
+
+    /// The setter form of `op []=` (OperatorFacts::is_subscript_setter):
+    /// a member of its own name, called by Kairo for a plain `x[k] = v`.
+    /// It takes the value, so it is no `operator[]` and gets no forwarder.
+    pub static fn subscript_put() -> string {
+        return "__kairo_op_put"
     }
 
     /// A witness member's name for an `op as` requirement (an interpolation

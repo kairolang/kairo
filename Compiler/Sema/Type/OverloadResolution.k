@@ -111,6 +111,7 @@ import AST::Node::Expressions::{
     BinaryOperatorExpr,
     ClosureExpr,
     RangeExpr,
+    SubscriptExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::Types::{
@@ -3309,6 +3310,21 @@ pub class OverloadResolution {
                     var unsafe *ca = dyn_cast<UnaryOperatorExpr>(a->expr)
                     if ca != &null && ca->const_addr {
                         c->reason = f"parameter '{pn}' is {LangAttrs::quoted(LangAttrs::param_inout())} and writes its argument; 'const &' makes a pointer to const, not the '&' marker"
+                    }
+
+                    // `&x[k]` where the type's `op []=` is only the setter
+                    // form took the read form: there is no place to pass.
+                    var unsafe *cs = if (ca != &null) => (dyn_cast<SubscriptExpr>(
+                                         self.tu.strip_parens(ca->operand),
+                                     ))
+                                     else => (unsafe (&null as unsafe *SubscriptExpr))
+                    var unsafe *cf = if (cs != &null
+                                         && cs->resolved_op != &null) => (dyn_cast<FunctionDecl>(
+                                         cs->resolved_op,
+                                     ))
+                                     else => (unsafe (&null as unsafe *FunctionDecl))
+                    if cf != &null && OperatorFacts::reads_setter_only(cf) {
+                        c->reason += "; its type declares only the setter form of 'op []=', so declare the place form, 'fn op []= (self, k: K) -> *V'"
                     }
 
                     return

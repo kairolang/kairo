@@ -28,21 +28,26 @@ import AST::Node::Base::{
 }
 import AST::Node::Casting::{
     cast,
+    dyn_cast,
     isa,
 }
 import AST::Node::Declarations::FunctionDecl
 import AST::Node::Expressions::{
+    AssignOperatorExpr,
     CallExpr,
     ParenExpr,
+    SubscriptExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
+import AST::OperatorFacts::OperatorFacts
 import Support::FlagSet::{
     FlagBit,
     FlagSet,
 }
+import Token::TokenKind::TokenKind
 
 /// \p e without the parentheses around it, however many; null for null.
 pub fn strip_parens(e: unsafe *Expr) -> unsafe *Expr {
@@ -56,6 +61,28 @@ pub fn strip_parens(e: unsafe *Expr) -> unsafe *Expr {
 
 /// The slots callee_decl reads besides the callee's own resolved_decl.
 /// With none set the answer is what the callee expression is bound to.
+/// The subscript on the left of the plain `=` \p asn that Sema resolved to
+/// the setter form of `op []=` (OperatorFacts::is_subscript_setter), or
+/// null. The assignment is then one call of that setter, with the
+/// subscript's index and the assignment's right side as its arguments.
+pub fn setter_store_target(asn: unsafe *AssignOperatorExpr) -> unsafe *SubscriptExpr {
+    if asn == &null || asn->op_token.kind != TokenKind::OpEqual || asn->lhs == &null {
+        return &null
+    }
+
+    var unsafe *s = dyn_cast<SubscriptExpr>(strip_parens(asn->lhs))
+    if s == &null || s->resolved_op == &null {
+        return &null
+    }
+
+    var unsafe *f = dyn_cast<FunctionDecl>(s->resolved_op)
+    if f == &null || !OperatorFacts::is_subscript_setter(f) {
+        return &null
+    }
+
+    return s
+}
+
 pub enum CalleeOpt derives u8 {
     /// A construction: `ctor_decl`, when it is a function, is the callee.
     /// One that is not a function (a record built with no constructor) is

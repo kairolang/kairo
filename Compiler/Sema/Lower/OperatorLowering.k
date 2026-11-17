@@ -70,6 +70,7 @@ import AST::DeclFacts::{
     decl_is_imported,
     decl_is_instance,
 }
+import AST::ExprFacts::setter_store_target
 import AST::Node::Base::{
     Decl,
     Expr,
@@ -367,6 +368,24 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
     }
 
     priv fn _assign(self, n: unsafe *AssignOperatorExpr, out: unsafe *Expr) -> unsafe *Expr {
+        // `x[k] = v` through the setter form of `op []=`: one call taking
+        // the index and the value, in the place of the whole assignment.
+        var unsafe *st = setter_store_target(n)
+        if st != &null {
+            var sargs = cxx::std::vector<unsafe *Expr>()
+            sargs.push_back(st->index)
+            sargs.push_back(n->rhs)
+            return self._call_tokens(
+                unsafe (n as unsafe *Expr),
+                st->base,
+                self._bracket_tokens(st),
+                st->resolved_op,
+                st->op_via_free,
+                sargs,
+                st->op_instance,
+            )
+        }
+
         if n->resolved_op == &null {
             return out
         }
@@ -405,8 +424,19 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         return self._subscript(n, out)
     }
 
+    priv fn _is_setter(self, d: unsafe *Decl) -> bool {
+        var unsafe *f = if (d != &null) => (dyn_cast<FunctionDecl>(d)) else => &null
+        return f != &null && OperatorFacts::is_subscript_setter(f)
+    }
+
     priv fn _subscript(self, n: unsafe *SubscriptExpr, out: unsafe *Expr) -> unsafe *Expr {
         if n->resolved_op == &null {
+            return out
+        }
+
+        // A setter is called by the assignment it stores for (_assign): the
+        // value is its second argument, and the subscript alone is no call.
+        if self._is_setter(n->resolved_op) {
             return out
         }
 

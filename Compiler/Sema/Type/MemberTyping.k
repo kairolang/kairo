@@ -66,6 +66,7 @@ import AST::Node::Declarations::{
     VariableDecl,
 }
 import AST::Node::Expressions::{
+    AnonInitializerExpr,
     PlaceCtx,
     RangeExpr,
     SubscriptExpr,
@@ -113,6 +114,11 @@ import Token::TokenKind::TokenKind
 ///   BIND   `var t = a[i..j]`: as SOFT.
 ///   RECV   a method receiver: as SOFT, then settle_receiver_subscript moves
 ///          it to the read form unless the chosen method takes `self`.
+///   STORE  the whole left side of a plain `=` whose result nothing reads
+///          (a statement, a `for` loop's update): the setter form
+///          (`op []=` with no return type) when one takes the index and
+///          the value, which becomes its argument; else as WRITE. Every
+///          other context selects among the place forms only.
 pub
 const SUB_READ: u8 = PlaceCtx::Read as u8
 pub
@@ -123,6 +129,8 @@ pub
 const SUB_BIND: u8 = PlaceCtx::Bind as u8
 pub
 const SUB_RECV: u8 = PlaceCtx::Recv as u8
+pub
+const SUB_STORE: u8 = PlaceCtx::Store as u8
 
 /// \enum ChainKind
 /// \brief What the position a chain walk has reached denotes: the walk's
@@ -1186,7 +1194,9 @@ pub class <T: type> MemberTyping {
 
             var unsafe *s = dyn_cast<SubscriptExpr>(cur)
             if s != &null {
-                if s->place_ctx == SUB_READ || c == SUB_WRITE {
+                // A STORE mark is the assignment statement's own: the write
+                // it is keeps it, and writes the container.
+                if s->place_ctx != SUB_STORE && (s->place_ctx == SUB_READ || c == SUB_WRITE) {
                     s->place_ctx = c
                 }
 
@@ -1229,21 +1239,78 @@ pub class <T: type> MemberTyping {
     }
 
     /// `x[i]` on a split subscript: \p gets are its `op []` (read) forms,
-    /// \p sets its `op []=` (place) forms, \p obj the receiver with the
-    /// container's const. The form is the use's (SubscriptExpr::place_ctx),
-    /// never a fallback from the other: a read never calls `op []=` and a
-    /// write never calls `op []`, so the type's const pair does
-    /// not decide, and neither does the return type.
+    /// \p sets its `op []=` forms (place forms and setters), \p obj the
+    /// receiver with the container's const. The form is the use's
+    /// (SubscriptExpr::place_ctx), never a fallback from the other: a read
+    /// never calls `op []=` and a write never calls `op []`, so the type's
+    /// const pair does not decide, and neither does the return type. \p
+    /// value is the right side of the plain `=` statement \p n is the whole
+    /// left side of (STORE), or null.
     priv fn _type_split_subscript(self,
-                                  n:    *SubscriptExpr,
-                                  bt:   *Type,
-                                  recv: *Type,
-                                  obj:  *Type,
-                                  gets: unsafe *cxx::std::vector<*Decl>,
-                                  sets: unsafe *cxx::std::vector<*Decl>) -> unsafe *Type {
+                                  n:     *SubscriptExpr,
+                                  bt:    *Type,
+                                  recv:  *Type,
+                                  obj:   *Type,
+                                  gets:  unsafe *cxx::std::vector<*Decl>,
+                                  sets:  unsafe *cxx::std::vector<*Decl>,
+                                  value: unsafe *Expr) -> unsafe *Type {
         var ctx        = n->place_ctx
         var recv_const = canon_has_const(unsafe (obj as unsafe *Type))
-        var place      = ctx == SUB_WRITE || (ctx != SUB_READ && !recv_const)
+        // A setter that failed its own signature rules is left with the
+        // place forms: it is no candidate for a store.
+        var places  = cxx::std::vector<*Decl>()
+        var setters = cxx::std::vector<*Decl>()
+        for var i: usize = 0; i < sets->size(); ++i {
+            var unsafe *sf = dyn_cast<FunctionDecl>(
+                unsafe ((*sets)[i] as unsafe *Decl),
+            )
+
+            if sf != &null && OperatorFacts::is_subscript_setter(sf) && !sf->is_poisoned() {
+                setters.push_back((*sets)[i])
+            } else {
+                places.push_back((*sets)[i])
+            }
+        }
+
+        if ctx == SUB_STORE {
+            // The setter where one takes this index and this value; with no
+            // place form to fall back to, the setters' own overload error.
+            // A const container is the write's error below either way.
+            // An anonymous initializer takes its type from the place it is
+            // assigned to; as an argument it has none. With a place form to
+            // go through it is left untouched for that.
+            var targeted = value != &null
+                && places.size() > 0
+                && isa<AnonInitializerExpr>(self.dyn()->tu.strip_parens(value))
+            if setters.size() > 0 && value != &null && !recv_const && !targeted {
+                var sargs = cxx::std::vector<ArgInfo>()
+                sargs.push_back(self.dyn()->arg_info(n->index))
+                sargs.push_back(self.dyn()->arg_info(value))
+                var unsafe *so = unsafe (obj as unsafe *Type)
+                if places.size() == 0
+                    || self.dyn()->ovl.any_viable(
+                        unsafe &setters,
+                        &sargs,
+                        true,
+                        &null,
+                        &null,
+                        so,
+                    ) {
+                    return self._type_subscript_store(
+                        n,
+                        recv,
+                        obj,
+                        unsafe &setters,
+                        unsafe &sargs,
+                    )
+                }
+            }
+
+            ctx          = SUB_WRITE
+            n->place_ctx = SUB_WRITE
+        }
+
+        var place = ctx == SUB_WRITE || (ctx != SUB_READ && !recv_const)
         // A softer use prefers the place form only where one takes this
         // index: the forms are per index type, so `var t = b[0..2]` with a
         // read range form and no place one is the read it can be. A write
@@ -1252,7 +1319,14 @@ pub class <T: type> MemberTyping {
             var probe = cxx::std::vector<ArgInfo>()
             probe.push_back(self.dyn()->arg_info(n->index))
             var unsafe *ro = unsafe (obj as unsafe *Type)
-            if !self.dyn()->ovl.any_viable(sets, &probe, true, &null, &null, ro) {
+            if !self.dyn()->ovl.any_viable(
+                unsafe &places,
+                &probe,
+                true,
+                &null,
+                &null,
+                ro,
+            ) {
                 place = false
             }
         }
@@ -1264,7 +1338,20 @@ pub class <T: type> MemberTyping {
         }
 
         if place {
-            return self._type_subscript_op(n, bt, recv, obj, sets, "op []=")
+            if places.size() == 0 {
+                self.dyn()->type_of(n->index, &null)
+                self._missing_place_form(n, bt, unsafe &setters)
+                return &null
+            }
+
+            return self._type_subscript_op(
+                n,
+                bt,
+                recv,
+                obj,
+                unsafe &places,
+                "op []=",
+            )
         }
 
         if gets->size() == 0 {
@@ -1274,6 +1361,96 @@ pub class <T: type> MemberTyping {
         }
 
         return self._type_subscript_op(n, bt, recv, obj, gets, "op []")
+    }
+
+    /// `x[k] = v` through the setter form: \p setters against \p args, the
+    /// index and the value. The node is the place the statement stores to:
+    /// an lvalue of the value parameter's type, with the setter as its
+    /// operator, which OperatorLowering turns into one call with the
+    /// assignment's right side.
+    priv fn _type_subscript_store(self,
+                                  n:       *SubscriptExpr,
+                                  recv:    *Type,
+                                  obj:     *Type,
+                                  setters: unsafe *cxx::std::vector<*Decl>,
+                                  args:    unsafe *cxx::std::vector<ArgInfo>) -> unsafe *Type {
+        var r = self.dyn()->ovl.resolve(
+            setters,
+            args,
+            true,
+            n->range,
+            "op []=",
+            obj,
+        )
+
+        if r.outcome == OvlOutcome::Dependent {
+            self.dyn()->mark_unknown(n)
+            return &null
+        }
+
+        if r.outcome != OvlOutcome::Selected {
+            self.dyn()->poison_only(n)
+            return &null
+        }
+
+        n->resolved_op = r.decl
+        n->op_via_free = r.via_free
+        r.ded.bind_from_record(recv)
+        self.dyn()->finish_call_args(r.decl, args, &r)
+        // Registers a generic winner's instance, as _type_subscript_op does.
+        self.dyn()->call_result_type(r.decl, &r)
+        n->op_instance = r.instance
+        var fd                    = cast<FunctionDecl>(r.decl)
+        var vp: unsafe *ParamDecl = &null
+        for var i: usize = 0; i < fd->params.size(); ++i {
+            if fd->params[i] != &null && !fd->params[i]->is_self {
+                vp = fd->params[i]
+            }
+        }
+
+        var unsafe *vt = self.dyn()->param_slot_type(fd, &r, vp)
+        if vt == &null && args->size() > 1 && (*args)[1].expr != &null {
+            vt = (*args)[1].expr->type_
+        }
+
+        if vt == &null {
+            self.dyn()->mark_unknown(n)
+            return &null
+        }
+
+        n->value_category = Expr::ValueCategory::LValue
+        return vt
+    }
+
+    /// SC355E: a use that needs a place (a compound assignment, `++`, a
+    /// member written through, an assignment whose result is read) on a
+    /// type whose `op []=` is only the setter form. The setter stores a
+    /// whole value; it hands out nothing to update in place.
+    priv fn _missing_place_form(self,
+                                n:       *SubscriptExpr,
+                                bt:      *Type,
+                                setters: unsafe *cxx::std::vector<*Decl>) {
+        if !n->is_poisoned() {
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC355E,
+                n->range.start,
+                f"{self._use_text(n)} needs a place here, and '{self.dyn()->tu.str(bt)}' declares only the setter form of 'op []='; declare the place form, 'fn op []= (self, k: K) -> *V'",
+            )
+
+            b.first(n->range)
+            if setters->size() > 0 && (*setters)[0] != &null {
+                var d = (*setters)[0]
+                b.note(
+                    DiagCode(DiagID::SC355N),
+                    d->range.start,
+                    "the setter form is declared here; it serves a plain 'x[k] = v' statement",
+                )->child_first(d->range)
+            }
+
+            b.emit()
+        }
+
+        self.dyn()->poison_only(n)
     }
 
     /// `x[i]` as source text for a message, or a description when it is
@@ -1310,11 +1487,18 @@ pub class <T: type> MemberTyping {
             b.first(n->range)
             if sets->size() > 0 && (*sets)[0] != &null {
                 var d = (*sets)[0]
-                b.note(
-                    DiagCode(DiagID::SC279N),
-                    d->range.start,
-                    "only the place form, 'op []=', is declared",
-                )->child_first(d->range)
+                var unsafe *df = dyn_cast<FunctionDecl>(
+                    unsafe (d as unsafe *Decl),
+                )
+
+                var only = "only the place form, 'op []=', is declared"
+                if df != &null && OperatorFacts::is_subscript_setter(df) {
+                    only = "only the setter form of 'op []=' is declared"
+                }
+
+                b.note(DiagCode(DiagID::SC279N), d->range.start, only)->child_first(
+                    d->range,
+                )
             }
 
             b.emit()
@@ -1574,6 +1758,15 @@ pub class <T: type> MemberTyping {
     }
 
     fn type_subscript(self, n: unsafe *SubscriptExpr, expected: unsafe *Type) -> unsafe *Type {
+        // The right side of the `=` statement this subscript is the whole
+        // left side of (OperatorTyping::type_assign). Taken before the base
+        // and the index are typed: a statement nested in them has its own.
+        var store_value: unsafe *Expr = &null
+        if n->place_ctx == SUB_STORE {
+            store_value             = self.dyn()->store_value
+            self.dyn()->store_value = &null
+        }
+
         var bt = self.dyn()->type_of(n->base, &null)
         // An unknown base (`self.dyn()->xs[i]`, a field of a duck parameter)
         // still has an index to type: left alone, a call inside it
@@ -1701,6 +1894,7 @@ pub class <T: type> MemberTyping {
                         obj,
                         &cands,
                         &sets,
+                        store_value,
                     )
                 }
 

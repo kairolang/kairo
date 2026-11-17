@@ -6002,7 +6002,9 @@ group = "operators"
     written nested subscript (`x[i][j] = v`), a `for *e in x[...]`, and a
     receiver of a method that takes `self`. Every other use reads, and picks
     `op []`. There is no fallback from one form to the other: a read never
-    calls `op []=`, a write never calls `op []`.
+    calls `op []=`, a write never calls `op []`. A plain `x[i] = v`
+    statement calls the setter form, `fn op []= (self, i: usize, v: T)`,
+    when the type declares one; a setter is no read form either.
 
     ```kairo
     class Ring {
@@ -6052,6 +6054,11 @@ group = "operators"
       `const`: `*const i32` with `*i32`, a value `i32` with `*i32`.
     - A type that declares `op []=` cannot inherit a place-returning
       `op []` (`*T`) from a base: that one would be both forms.
+    - `op []=` with no return type is the setter form: it takes `self`, one
+      index and the value, by value or `const`, as in
+      `fn op []= (self, const k: K, v: V)`. An `op []=` that returns
+      something is the place form and takes only the index. The value a
+      setter takes is the element type of the other forms with its index.
 
     ```kairo
     class Buf {
@@ -6093,6 +6100,46 @@ group = "lint"
     declare the binding `const` (the fix-it does), or silence the warning
     with `@no_warn(SC281W)` on the declaration.
     """
+
+[SC355]
+brief = "a subscript use needs a place, and its type declares only a setter"
+group = "operators"
+
+    [SC355.E]
+    explain = """
+    # this use needs a place, and the type has only a setter
+
+    `op []=` has two forms. The place form returns the place a write goes
+    through (`-> *V`). The setter form returns nothing and takes the value:
+    `fn op []= (self, const k: K, v: V)`. A plain `x[k] = v` statement
+    calls the setter when the type declares one that takes the index and
+    the value.
+
+    Every other write needs a place: a compound assignment (`x[k] += 1`),
+    `++` and `--`, a member written through (`x[k].f = v`), the container
+    of a written nested subscript (`x[k][j] = v`), and an assignment whose
+    result is read. A setter cannot serve them: it stores a whole value and
+    hands out nothing to update.
+
+    ```kairo
+    class Table {
+        fn op [] (const self, k: i32) -> i32 { ... }
+        fn op []= (self, k: i32, v: i32) { ... }
+    }
+    var t = Table()
+    t[1] = 4          // ok: the setter
+    t[1] += 1         // error: needs a place
+    ```
+
+    ## how to fix
+
+    declare the place form beside the setter,
+    `fn op []= (self, k: K) -> *V`, or write the update as a read and a
+    store: `t[1] = t[1] + 1`.
+    """
+
+    [SC355.N]
+    explain = "Points at the setter form the type declares."
 
 [SC296]
 brief = "an inline assembly block must be in an unsafe context"

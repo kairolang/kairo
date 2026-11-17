@@ -112,6 +112,7 @@ import AST::DeclFacts::{
     decl_generic_params,
     is_global_storage,
 }
+import AST::ExprFacts::setter_store_target
 import AST::Kind::TypeKind::TypeKind
 import AST::Node::Base::{
     Decl,
@@ -1038,6 +1039,13 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
         if out != n {
             return out
+        }
+
+        // `x[k] = v` through a setter is that setter's call, and the
+        // assignment is where OperatorLowering makes it.
+        var unsafe *st = setter_store_target(n)
+        if st != &null {
+            return self._op_call(out, st->resolved_op)
         }
 
         return self._op_call(out, n->resolved_op)

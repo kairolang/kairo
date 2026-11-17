@@ -545,6 +545,26 @@ pub class <T: type> CallTyping {
         }
     }
 
+    /// The type parameter \p p of the selected \p f takes in the call \p r
+    /// resolved: `Self` and the receiver's and the call's generic arguments
+    /// substituted, as finish_call_args reads each argument's slot. Null
+    /// when it is still dependent.
+    fn param_slot_type(self,
+                       f: unsafe *FunctionDecl,
+                       r: *OvlResult,
+                       p: unsafe *ParamDecl) -> unsafe *Type {
+        if p == &null || p->type_ == &null {
+            return &null
+        }
+
+        var unsafe *pt = self._self_first(f, r, p->type_->canonical, true)
+        if pt != &null && (pt->is_dependent() || pt->in_generic_owner()) {
+            pt = r->ded.substitute(pt)
+        }
+
+        return r->ded.through_receiver(f, r->receiver, pt)
+    }
+
     /// After selection: type the untyped literals against their parameters,
     /// commit `&` markers, and re-check every argument against the
     /// substituted parameter type.

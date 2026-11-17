@@ -35,6 +35,7 @@ import AST::Node::Base::Type
 import AST::Node::CanonicalNodes::canon_unqual
 import AST::Node::Casting::{
     cast,
+    dyn_cast,
     isa,
 }
 import AST::Node::Declarations::FunctionDecl
@@ -906,10 +907,10 @@ pub class OperatorFacts {
         return true
     }
 
-    /// `op []=`: the place (write) form of the subscript, three tokens
-    /// (`[` `]` `=`, the `=` touching the `]`; DeclParse). Keyed apart from
-    /// `op []` (DeclName::op_name_of), so a lookup of one never finds the
-    /// other.
+    /// `op []=`: a write form of the subscript, three tokens (`[` `]` `=`,
+    /// the `=` touching the `]`; DeclParse): the place form, or the setter
+    /// (is_subscript_setter). Keyed apart from `op []`
+    /// (DeclName::op_name_of), so a lookup of one never finds the other.
     pub static fn is_subscript_set(f: unsafe *FunctionDecl) -> bool {
         if f == &null {
             return false
@@ -920,6 +921,46 @@ pub class OperatorFacts {
             && OperatorFacts::_kind_at(f, i) == TokenKind::OpLSquare
             && OperatorFacts::_kind_at(f, i + 1) == TokenKind::OpRSquare
             && OperatorFacts::_kind_at(f, i + 2) == TokenKind::OpEqual
+    }
+
+    /// `op []=` with no return type: the setter form, `fn op []= (self, k:
+    /// K, v: V)`, which a plain `x[k] = v` statement calls with the value.
+    /// An `op []=` that declares a return type is the place form. The two
+    /// share one name (DeclName::subscript_set_name), so a lookup finds both
+    /// and every reader tells them apart here.
+    pub static fn is_subscript_setter(f: unsafe *FunctionDecl) -> bool {
+        return OperatorFacts::is_subscript_set(f) && f->return_type == &null
+    }
+
+    /// \p f is the read form of a type whose `op []=` is only the setter
+    /// form: no use of its element is a place.
+    pub static fn reads_setter_only(f: unsafe *FunctionDecl) -> bool {
+        if f == &null || !OperatorFacts::is_subscript(f) {
+            return false
+        }
+
+        var unsafe *dc = f->semantic_dc
+        if dc == &null || !dc->is_type_scope() {
+            dc = f->lexical_dc
+        }
+
+        if dc == &null {
+            return false
+        }
+
+        var unsafe *cell = dc->lookup_symbol(DeclName::subscript_set_name())
+        if cell == &null || cell->size() == 0 {
+            return false
+        }
+
+        for var i: usize = 0; i < cell->size(); ++i {
+            var unsafe *g = dyn_cast<FunctionDecl>(cell->get(i))
+            if g != &null && !OperatorFacts::is_subscript_setter(g) {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// The record whose member \p f is declares an `op []=`: its subscript

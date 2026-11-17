@@ -147,7 +147,10 @@ import AST::DeclFacts::{
     decl_methods,
     place_has_const_root,
 }
-import AST::ExprFacts::callee_expr_decl
+import AST::ExprFacts::{
+    callee_expr_decl,
+    setter_store_target,
+}
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::StmtKind::StmtKind
 import AST::Kind::TypeKind::TypeKind
@@ -2682,6 +2685,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                         return e
                     }
 
+                    // `m[k] = v` through the setter form of `op []=` is a
+                    // call: the value is passed as its parameter takes it.
+                    var unsafe *vp = self._setter_value_param(asn)
+                    if vp != &null {
+                        self._pass(asn->rhs, vp, vp->mode)
+                        return e
+                    }
+
                     self._assigning = true
                     self._transfer(
                         asn->rhs,
@@ -4006,6 +4017,26 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         self._operator_panics(opd)
+    }
+
+    /// The value parameter of the setter (`op []=` with no return type) the
+    /// plain `=` \p asn stores through, or null: its last parameter.
+    priv fn _setter_value_param(self,
+                                asn: unsafe *Expressions::AssignOperatorExpr) -> unsafe *ParamDecl {
+        var unsafe *sx = setter_store_target(asn)
+        if sx == &null {
+            return &null
+        }
+
+        var unsafe *f                     = cast<FunctionDecl>(sx->resolved_op)
+        var        out: unsafe *ParamDecl = &null
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if f->params[i] != &null && !f->params[i]->is_self {
+                out = f->params[i]
+            }
+        }
+
+        return out
     }
 
     /// A user operator \p opd marked `panic` may leave the path by a panic.

@@ -88,6 +88,7 @@ import AST::Node::Declarations::{
 import AST::Node::Program::TopLevelKind
 import AST::Node::Statements::IterYield
 import AST::OperatorFacts::OperatorFacts
+import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
@@ -258,7 +259,34 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             ).first(f->range)->emit()
         }
 
-        if !self._arity_ok(k, nargs) {
+        // `op []=` is two forms, told apart by the return type: the place
+        // form returns the place and takes the index, the setter returns
+        // nothing and takes the index and the value.
+        var setter = OperatorFacts::is_subscript_setter(f) && nargs == 2
+        if OperatorFacts::is_subscript_set(f) && nargs >= 2 && !setter {
+            if f->return_type == &null {
+                self._err_id(
+                    f,
+                    DiagID::SC280E,
+                    f"the setter form of 'op {sym}' takes one index and the value, '(self, k: K, v: V)', not {nargs} operands",
+                )
+            } else if nargs == 2 {
+                self._err_id(
+                    f,
+                    DiagID::SC280E,
+                    f"'op {sym}' with a value parameter is the setter form, which returns nothing; the place form takes only the index, 'fn op {sym} (self, k: K) -> *V'",
+                )
+            } else {
+                self._err(
+                    f,
+                    f"'op {sym}' takes {self._arity_text(k)}, not {nargs}",
+                )
+            }
+
+            return true
+        }
+
+        if !setter && !self._arity_ok(k, nargs) {
             self._err(f, f"'op {sym}' takes {self._arity_text(k)}, not {nargs}")
             return true
         }
@@ -279,23 +307,34 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
     /// # the split subscript
     ///
     /// A type that declares `op []=` splits its subscript: `op []` is the
-    /// read form, `op []=` the place form, and MemberTyping picks one for
-    /// each use by what the use does (Compiler/Spec/ExprTyping.md). Each
-    /// form's own rules are here; the pair's (one element type) are
-    /// _split_pairs'. A type with no `op []=` is not split, and its `op []`
+    /// read form, `op []=` the place form (it returns the place) or the
+    /// setter form (it returns nothing and takes the value), and
+    /// MemberTyping picks one for each use by what the use does
+    /// (Compiler/Spec/ExprTyping.md). Each form's own rules are here; the
+    /// pair's (one element type) are _split_pairs'. A type with no `op []=` is not split, and its `op []`
     /// keeps the one-operator rules of _check_result.
 
     /// `op []=`: takes `self` and returns what a write goes through, a safe
     /// `*T` or a mutable view `[T;]`. A `const self` place form (a view a
     /// const binding can still write through) is not decided yet, so it is
     /// refused rather than given a meaning here.
+    ///
+    /// The setter form (no return type, the index and the value) takes
+    /// `self` for the same reason, and its value by value or `const`: the
+    /// right side of `x[k] = v` is an argument, with no `&` to mark it.
     priv fn _check_subscript_set(self, f: unsafe *FunctionDecl, const sym: string) {
+        var setter = OperatorFacts::is_subscript_setter(f) && OperatorFacts::arity(f) == 2
         var unsafe *recv = self._self_param(f)
         if recv != &null && recv->is_const {
+            var why = "it hands out the place a write goes through, and a 'const self' place form is not supported"
+            if setter {
+                why = "the setter stores into the container, and a 'const self' setter is not supported"
+            }
+
             var b = self.sc->diag->report(
                 DiagID::SC280E,
                 recv->range.start,
-                f"'op {sym}' takes 'self': it hands out the place a write goes through, and a 'const self' place form is not supported",
+                f"'op {sym}' takes 'self': {why}",
             )
 
             b.first(recv->range)
@@ -312,6 +351,20 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
 
             b.emit()
             f->poison()
+            return
+        }
+
+        if setter {
+            var unsafe *v = self._value_param(f)
+            if v != &null && v->mode != ParamMode::Value {
+                self.sc->diag->report(
+                    DiagID::SC280E,
+                    v->range.start,
+                    f"the setter form of 'op {sym}' takes its value by value or 'const': the right side of an assignment is passed as written",
+                ).first(v->range)->emit()
+                f->poison()
+            }
+
             return
         }
 
@@ -433,6 +486,18 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         return &null
     }
 
+    /// The last operand of a setter: its value.
+    priv fn _value_param(self, f: unsafe *FunctionDecl) -> unsafe *ParamDecl {
+        var out: unsafe *ParamDecl = &null
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if f->params[i] != &null && !f->params[i]->is_self {
+                out = f->params[i]
+            }
+        }
+
+        return out
+    }
+
     /// The first operand's type of a subscript form (its index), unqualified.
     priv fn _index_of(self, f: unsafe *FunctionDecl) -> unsafe *Type {
         for var i: usize = 0; i < f->params.size(); ++i {
@@ -452,8 +517,18 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
     }
 
     /// The element a subscript form hands out, const dropped: the pointee
-    /// of `*T` / `*const T`, a view's element, or the value itself.
+    /// of `*T` / `*const T`, a view's element, or the value itself. A
+    /// setter's element is the value it takes.
     priv fn _element_of(self, f: unsafe *FunctionDecl) -> unsafe *Type {
+        if OperatorFacts::is_subscript_setter(f) {
+            var unsafe *v = self._value_param(f)
+            if v == &null || v->type_ == &null || v->type_->canonical == &null {
+                return &null
+            }
+
+            return canon_unqual(v->type_->canonical)
+        }
+
         if f->return_type == &null || f->return_type->canonical == &null {
             return &null
         }
@@ -501,6 +576,29 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
 
                     self._agree(g, s)
                 }
+            }
+        }
+
+        // The place form and the setter are two ways to write one element.
+        for var i: usize = 0; sets != &null && i < sets->size(); ++i {
+            var unsafe *p = dyn_cast<FunctionDecl>(sets->get(i))
+            if p == &null
+                || p->is_poisoned()
+                || p->is_out_of_line()
+                || OperatorFacts::is_subscript_setter(p) {
+                continue
+            }
+
+            for var j: usize = 0; j < sets->size(); ++j {
+                var unsafe *s = dyn_cast<FunctionDecl>(sets->get(j))
+                if s == &null
+                    || s->is_poisoned()
+                    || s->is_out_of_line()
+                    || !OperatorFacts::is_subscript_setter(s) {
+                    continue
+                }
+
+                self._agree(p, s)
             }
         }
 
@@ -577,18 +675,30 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             return
         }
 
+        var pair = "'op []' and 'op []='"
+        var tail = "the two forms of one subscript hand out one element type"
+        var from = "the read form is declared here"
+        if OperatorFacts::is_subscript_setter(s) {
+            tail = "the setter stores the element the other forms hand out"
+            if OperatorFacts::is_subscript(g) {
+                pair = "'op []' and the setter form of 'op []='"
+            } else {
+                pair = "the place form and the setter form of 'op []='"
+                from = "the place form is declared here"
+            }
+        }
+
         var b = self.sc->diag->report(
             DiagID::SC280E,
             s->range.start,
-            f"'op []' and 'op []=' taking '{self._tu.str(gi)}' disagree on the element: '{self._tu.str(ge)}' and '{self._tu.str(se)}'; the two forms of one subscript hand out one element type",
+            f"{pair} taking '{self._tu.str(gi)}' disagree on the element: '{self._tu.str(ge)}' and '{self._tu.str(se)}'; {tail}",
         )
 
         b.first(s->range)
-        b.note(
-            DiagCode(DiagID::SC280N),
-            g->range.start,
-            "the read form is declared here",
-        )->child_first(g->range)
+        b.note(DiagCode(DiagID::SC280N), g->range.start, from)->child_first(
+            g->range,
+        )
+
         b.emit()
         s->poison()
     }

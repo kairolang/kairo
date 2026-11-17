@@ -113,7 +113,8 @@ pub class DeclName {
         return DeclName::op_name(k0, k1)
     }
 
-    /// `op []=`'s key (op_name_of): what a use looks the place form up by.
+    /// `op []=`'s key (op_name_of): what a use looks the place form and the
+    /// setter form up by.
     pub static fn subscript_set_name() -> DeclName {
         return DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpEqual)
     }

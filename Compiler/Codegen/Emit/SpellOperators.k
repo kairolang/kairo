@@ -82,8 +82,13 @@ extend Speller {
         // one that runs (clang would pick `operator[]` by the object's
         // constness, the non-const one -- the place form -- for every read
         // of a mutable object). C++ users reach them through `operator[]`
-        // forwarders (InterfaceEmitter::_subscript_forwarders).
+        // forwarders (InterfaceEmitter::_subscript_forwarders). The setter
+        // form takes the value too, so it is a named member only.
         if OperatorFacts::in_split_subscript(f) {
+            if OperatorFacts::is_subscript_setter(f) {
+                return LowerTargets::subscript_put()
+            }
+
             return if (OperatorFacts::is_subscript_set(f)) => (LowerTargets::subscript_set())
                    else => LowerTargets::subscript_get()
         }
@@ -136,6 +141,10 @@ extend Speller {
 
         if OperatorFacts::is_subscript(f) {
             return LowerTargets::witness_subscript()
+        }
+
+        if OperatorFacts::is_subscript_setter(f) {
+            return LowerTargets::witness_subscript_put()
         }
 
         if OperatorFacts::is_subscript_set(f) {
@@ -263,6 +272,11 @@ extend Speller {
             }
         }
 
+        // `operator[]` takes one operand: the setter is reached by name.
+        if OperatorFacts::is_subscript_setter(f) {
+            return false
+        }
+
         if OperatorFacts::is_subscript_set(f) {
             return true
         }
@@ -283,7 +297,10 @@ extend Speller {
         var unsafe *mine = Speller::_operand_of(f)
         for var i: usize = 0; i < sets->size(); ++i {
             var unsafe *g = dyn_cast<Declarations::FunctionDecl>(sets->get(i))
-            if g == &null || g->is_poisoned() || g->is_const() != f->is_const() {
+            if g == &null
+                || g->is_poisoned()
+                || g->is_const() != f->is_const()
+                || OperatorFacts::is_subscript_setter(g) {
                 continue
             }
 

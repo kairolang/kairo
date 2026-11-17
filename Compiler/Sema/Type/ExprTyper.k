@@ -375,6 +375,11 @@ pub class ExprTyper
     /// the other operand's pointer type without storing anything in it, so a
     /// comparison is never the "`&null` into a `*T`" error (LiteralTyping).
     pub var null_compared: *Expr? = &null
+    /// The right side of the plain `=` statement whose left side is being
+    /// typed, for the subscript that left side is (PlaceCtx::Store): a
+    /// setter takes it as an argument. Set by OperatorTyping::type_assign,
+    /// taken by MemberTyping::type_subscript; null otherwise.
+    pub var store_value: unsafe *Expr = &null
 
     /// ## side tables
     /// Keyed by expr address: a pointer can never be DenseMap's reserved
