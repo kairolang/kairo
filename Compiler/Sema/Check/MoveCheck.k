@@ -212,6 +212,7 @@ import AST::Visitor::RecursiveASTVisitor::{
     named_call_arg_value,
 }
 import Diagnostic::Code::DiagCode
+import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::NoteText::type_declared_here
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
@@ -3695,6 +3696,20 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
+        // The places this call borrows (a `const` or `@inout` argument, the
+        // receiver of a method), live when borrowed: another argument that
+        // moves one leaves the callee reading a moved-from value.
+        var borrowed = cxx::std::vector<unsafe *Expr>()
+        if f != &null && !is_ctor && f->is_method() && n->callee != &null {
+            var unsafe *ch = dyn_cast<ChainExpr>(
+                self._tu.strip_parens(n->callee),
+            )
+
+            if ch != &null && self._callee_binds_receiver(n->callee) {
+                self._note_borrow(ch->base, unsafe &borrowed)
+            }
+        }
+
         var bound_p       = cxx::std::vector<unsafe *ParamDecl>()
         var bound_e       = cxx::std::vector<unsafe *Expr>()
         var pos:    usize = 0
@@ -3771,8 +3786,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 bound_p.push_back(p)
                 bound_e.push_back(e)
             }
+
+            if mode == ParamMode::Inout || p != &null && p->is_const {
+                self._note_borrow(e, unsafe &borrowed)
+            }
         }
 
+        self._moved_while_borrowed(borrowed)
         var cm = CallMarks{}
         if f != &null && !n->is_poisoned() {
             cm = self._call_leaves(n, f, is_ctor, bound_p, bound_e)
@@ -3825,6 +3845,70 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // after the call runs, so whatever it moved is never read.
         if n->type_ != &null && self._tu.is_never(n->type_) {
             self._st.dead = true
+        }
+    }
+
+    /// `e`, an argument the call borrows, is a live place of a MOVE type:
+    /// appended to `out` (_moved_while_borrowed).
+    priv fn _note_borrow(self, e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
+        // `&x` committed as the `@inout` marker borrows `x`.
+        var unsafe *x  = self._tu.strip_parens(e)
+        var unsafe *mk = dyn_cast<Expressions::UnaryOperatorExpr>(x)
+        if mk != &null && mk->is_mode_marker {
+            x = self._tu.strip_parens(mk->operand)
+        }
+
+        if x == &null || x->is_poisoned() || !moves_on_pass(self.sc, x->type_) {
+            return
+        }
+
+        var pl = self._place(x)
+        if pl.d != &null && pl.whole && self._st.overlap_of(pl.d, pl.path) == usize::MAX {
+            out->push_back(x)
+        }
+    }
+
+    /// A place one argument of a call borrows and a later argument moves:
+    /// the callee reads it moved-from, so the call is an error at the
+    /// borrowing argument, with the move as its note.
+    priv fn _moved_while_borrowed(self, const borrowed: cxx::std::vector<unsafe *Expr>) {
+        for var i: usize = 0; i < borrowed.size(); ++i {
+            var unsafe *e = borrowed[i]
+            if e->is_poisoned() || self._st.dead {
+                continue
+            }
+
+            var pl = self._place(e)
+            var k  = self._st.overlap_of(pl.d, pl.path)
+            if k == usize::MAX {
+                continue
+            }
+
+            var mp   = self._st.moved[k]
+            var name = self._spelled(self._tu.strip_parens(e))
+            var b = self.sc->diag->report(
+                DiagID::SC001E,
+                e->range.start,
+                f"'{name}' is borrowed by this argument and moved by a later argument of the same call, so the call reads a moved-from value",
+            )
+
+            b.first(e->range)
+            b.note(mp.at.start, f"'{mp.shown}' is moved here, {mp.how}")->child_first(
+                mp.at,
+            )
+
+            if mp.site != &null && self._copies_itself(mp.site) {
+                self._copy_fix(
+                    &b,
+                    mp.site,
+                    f"'{mp.shown}' has a 'copy' method: write '{self._copy_text(mp.site)}' to pass a copy instead",
+                    "copy it instead",
+                )
+            }
+
+            b.emit()
+            e->poison()
+            self.n_errored += 1
         }
     }
 
@@ -4116,6 +4200,21 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 if (self._fn != &null) => (self._fn->return_type) else => &null,
             )
 
+            return
+        }
+
+        // A returned local or by-value parameter converted to the return
+        // type (`return x` of an `M` from a `-> M?` function) is spelled as
+        // the conversion, which is no longer the bare name C++ moves on its
+        // own: the move is made explicit.
+        if v != &null
+            && (!v->is_poisoned())
+            && moves_on_pass(self.sc, v->type_)
+            && self._returned_local(self._tu.strip_parens(v))
+            && self._fn != &null
+            && self._fn->return_type != &null
+            && !self._same_type(self._fn->return_type, v->type_) {
+            self._transfer(v, "out of the function", self._fn->return_type)
             return
         }
 
@@ -4468,6 +4567,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             )
 
             kb.first(e->range)
+            self._offer_copy(&kb, e)
             kb.note(del->range.start, "the copy constructor is deleted here")->child_first(
                 del->range,
             )
@@ -4503,6 +4603,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
 
         b.first(e->range)
+        self._offer_copy(&b, e)
         b.note(rd->range.start, type_declared_here())->child_first(rd->range)
         b.emit()
         e->poison()
@@ -4715,9 +4816,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return if (facts->copyable == LifecycleTri::No) => (facts) else => &null
     }
 
-    /// SC182E at \p e, whose value is copied and cannot be: \p why says why
+    /// SC182E at `e`, whose value is copied and cannot be: `why` says why
     /// the copy is the transfer here. False when the type can be copied.
-    priv fn _no_copy(self, e: unsafe *Expr, const why: string) -> bool {
+    /// With `offer`, a place whose type copies itself gets the `.copy()`
+    /// fix-it (_offer_copy).
+    priv fn _no_copy(self, e: unsafe *Expr, const why: string, offer: bool = true) -> bool {
         var tf               = LifecycleFacts()
         var rd: unsafe *Decl = &null
         var unsafe *facts = self._uncopyable_facts(
@@ -4739,6 +4842,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         b.first(e->range)
         b.note(e->range.start, why)
+        if offer {
+            self._offer_copy(&b, e)
+        }
+
         if rd != &null {
             b.note(rd->range.start, type_declared_here())->child_first(
                 rd->range,
@@ -4778,8 +4885,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// `yield e` of a const lvalue: the generator copies it to a frame local
     /// (EmitIR::_yield; the promise's `T&` cannot bind it and its `T&&`
     /// cannot take an lvalue), so a type that cannot be copied is refused
-    /// here. A non-const lvalue is yielded by address, a temporary
-    /// by `T&&`: neither copies.
+    /// here. A temporary is yielded by `T&&` and copies nothing.
+    ///
+    /// A loop over a generator moves each value it yields into its binder
+    /// (IterLowering::_given), so in a `-> yield T` function with a MOVE
+    /// `T`, `yield x` of a local or a by-value parameter is a move out of
+    /// it: `x` is moved-from until it is assigned again. Any other place of
+    /// a MOVE type (`self.f`, `*p`, an element) is not the generator's to
+    /// give up, and cannot be copied either. A COPY value, and a non-const
+    /// lvalue in a record's `op in` (whose loop copies each value it
+    /// yields), is yielded by address.
     fn traverse_yield_stmt(self, n: *Statements::YieldStmt) -> *Statements::YieldStmt {
         var out = RecursiveASTVisitor<MoveCheck>::traverse_yield_stmt(self, n)
         // A generator destroyed while suspended here leaves every open block.
@@ -4800,7 +4915,38 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             ) {
                 self._deprecated_copy_place(n->value, "out of the generator")
             }
+
+            return out
         }
+
+        if self._fn == &null
+            || (self._fn->is_operator && OperatorFacts::single_kind(self._fn) == TokenKind::KwIn) {
+            return out
+        }
+
+        // A value of a generic parameter's type moves at the instances that
+        // cannot copy it (_dependent_transfer).
+        if !moves_on_pass(self.sc, n->value->type_) {
+            if self._returned_local(x) {
+                self._dependent_transfer(n->value)
+            }
+
+            return out
+        }
+
+        if self._returned_local(x) {
+            self._transfer(
+                n->value,
+                "out of the generator, to the loop reading it",
+            )
+
+            return out
+        }
+
+        self._no_copy(
+            n->value,
+            f"a generator gives up the value it yields, and '{self._spelled(x)}' is not a local or a by-value parameter it can move from",
+        )
 
         return out
     }
@@ -4993,6 +5139,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         if self._no_copy(
             bo->lhs,
             f"'{sym}' is derived from 'op {csym}': it copies its left operand '{self._spelled(x)}', applies '{csym}' to the copy and yields it; write '{self._spelled(x)} {csym} ...' to change it in place",
+            false,
         ) {
             bo->poison()
             return
@@ -5266,12 +5413,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         b.first(e->range)
         if self._copies_itself(e) {
-            b.note(
-                e->range.end,
-                f"'{ts}' has a 'copy' method: write '{name}.copy()' to put a copy of '{name}' in the {what}",
-            )->child_fix(
-                SourceRange(e->range.end, e->range.end),
-                ".copy()",
+            self._copy_fix(
+                &b,
+                e,
+                f"'{ts}' has a 'copy' method: write '{self._copy_text(e)}' to put a copy of '{name}' in the {what}",
                 "copy it explicitly",
             )
         } else {
@@ -6252,55 +6397,85 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         b.emit()
     }
 
-    /// The type of \p e is a record with a public `fn copy(const self) -> Self`
-    /// of its own: the method `.copy()` runs there, read off the record so
-    /// the answer needs no import. A COPY type with no such method also
-    /// takes `.copy()` (the Copyable lang item), but that is its copy
-    /// constructor again, which an implicit copy already runs: no `.copy()`
-    /// is offered for it. An instance of a generic record (`[T]`, `{K: V}`)
-    /// declares its methods on its pattern, where the return type names the
-    /// pattern (`Vector<T>`): both are read through the pattern.
+    /// `e` reads as the receiver of a `.copy()` written after it: a name,
+    /// a member, a call, an element or a parenthesized expression. Any other
+    /// form (`*p`, `a as T`) binds looser than `.copy()` and is wrapped.
+    priv fn _copy_bare(self, e: unsafe *Expr) -> bool {
+        return isa<NamedIdentExpr>(e)
+            || isa<ChainExpr>(e)
+            || isa<Expressions::CallExpr>(e)
+            || isa<Expressions::SubscriptExpr>(e)
+            || isa<Expressions::ParenExpr>(e)
+    }
+
+    /// The explicit copy of `e` as source text: `x.copy()`, `(*p).copy()`.
+    priv fn _copy_text(self, e: unsafe *Expr) -> string {
+        var shown = self._spelled(self._tu.strip_parens(e))
+        if self._copy_bare(e) {
+            return shown + ".copy()"
+        }
+
+        return "(" + shown + ").copy()"
+    }
+
+    /// A note `text` at the end of `e` on `b`, with the fix-it (`msg`)
+    /// that makes `e` an explicit copy (_copy_text).
+    priv fn _copy_fix(self,
+                      b:          *DiagBuilder,
+                      e:          unsafe *Expr,
+                      const text: string,
+                      const msg:  string) {
+        b->note(e->range.end, text)
+        if !self._copy_bare(e) {
+            b->child_fix(SourceRange(e->range.start, e->range.start), "(", msg)
+            b->child_fix(
+                SourceRange(e->range.end, e->range.end),
+                ").copy()",
+                msg,
+            )
+
+            return
+        }
+
+        b->child_fix(SourceRange(e->range.end, e->range.end), ".copy()", msg)
+    }
+
+    /// A copy of place `e` is refused on `b`: when its type copies itself,
+    /// the note at its end with the fix-it writing the explicit copy.
+    priv fn _offer_copy(self, b: *DiagBuilder, e: unsafe *Expr) {
+        var unsafe *x = self._tu.strip_parens(e)
+        if x == &null
+            || x->value_category != Expr::ValueCategory::LValue
+            || !self._copies_itself(e) {
+            return
+        }
+
+        var ts = self._tu.str(self._tu.as_value(e->type_))
+        self._copy_fix(
+            b,
+            e,
+            f"'{ts}' has a 'copy' method: write '{self._copy_text(e)}' for an explicit copy",
+            "copy it explicitly",
+        )
+    }
+
+    /// The type of `e` has a public `fn copy(const self) -> Self` that
+    /// `.copy()` on it calls (ConformanceChecking::copy_method): in the
+    /// record, in its pattern, or in an extension whose bounds the type
+    /// meets. A COPY type with no such method also takes `.copy()` (the
+    /// Copyable lang item), but that is its copy constructor again, which an
+    /// implicit copy already runs: no `.copy()` is offered for it.
     priv fn _copies_itself(self, e: unsafe *Expr) -> bool {
         if e->type_ == &null {
             return false
         }
 
-        var unsafe *c  = self._tu.as_value(e->type_)
-        var unsafe *rd = self._tu.record_decl(c)
-        if rd == &null || self._tu.is_tuple(c) {
+        var unsafe *c = self._tu.as_value(e->type_)
+        if c == &null || c->is_dependent() {
             return false
         }
 
-        var unsafe *pd = self._tu.pattern_of(rd)
-        var        ms  = decl_methods(if (pd != &null) => (pd) else => rd)
-        for var i: usize = 0; i < ms.size(); ++i {
-            var unsafe *m = ms[i]
-            if m->is_operator || (!m->is_method()) || (!m->is_const()) || m->params.size() != 1 {
-                continue
-            }
-
-            if self.sc->ctx->get_spelling(m->name) != "copy" || m->return_type == &null {
-                continue
-            }
-
-            if m->visibility == VisibilityKind::Private
-                || m->visibility == VisibilityKind::Protected {
-                continue
-            }
-
-            // The class spelled by its own name is a named type until
-            // its canonical form is read.
-            var unsafe *rt = if (m->return_type->canonical != &null) => (m->return_type->canonical)
-                             else => m->return_type
-            var unsafe *rrd = self._tu.record_decl(self._tu.as_value(rt))
-            if m->return_type->kind == TypeKind::SelfType
-                || rrd == rd
-                || (rrd != &null && self._tu.pattern_of(rrd) == pd) {
-                return true
-            }
-        }
-
-        return false
+        return ConformanceChecking(self.sc).copy_method(c) != &null
     }
 
     /// # reads
@@ -6394,12 +6569,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // The moved type makes its own copies (`fn copy(const self) -> Self`):
         // the move may have been meant as one.
         if mp.site != &null && self._copies_itself(mp.site) {
-            b.note(
-                mp.site->range.end,
-                f"'{taken}' has a 'copy' method: write '{taken}.copy()' here if a copy was meant",
-            )->child_fix(
-                SourceRange(mp.site->range.end, mp.site->range.end),
-                ".copy()",
+            self._copy_fix(
+                &b,
+                mp.site,
+                f"'{taken}' has a 'copy' method: write '{self._copy_text(mp.site)}' here if a copy was meant",
                 "copy it instead",
             )
         }

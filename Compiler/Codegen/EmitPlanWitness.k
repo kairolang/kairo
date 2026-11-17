@@ -113,7 +113,9 @@ extend EmitPlan {
         // The rows its associated types' bounds rest on come with it, whether
         // or not this row needs a specialization of its own: a body reaching
         // `T::Item::Inner` spells `Holder_witness<Purse>` (ConformanceRow::
-        // assoc_rows). Once each: a row may name itself through a bound.
+        // assoc_rows). So do the rows its witnesses' extension bounds rest
+        // on (ConformanceRow::bound_rows). Once each: a row may name itself
+        // through a bound.
         var seen = false
         for var i: usize = 0; i < self._assoc_seen.size(); ++i {
             if self._assoc_seen[i] == row {
@@ -125,6 +127,10 @@ extend EmitPlan {
             self._assoc_seen.push_back(row)
             for var i: usize = 0; i < row->assoc_rows.size(); ++i {
                 self._witness_row(row->assoc_rows[i])
+            }
+
+            for var i: usize = 0; i < row->bound_rows.size(); ++i {
+                self._witness_row(row->bound_rows[i])
             }
         }
 

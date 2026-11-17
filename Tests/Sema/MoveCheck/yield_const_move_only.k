@@ -1,8 +1,8 @@
 // A generator yields a const place by copying it to a frame local (the
 // promise's `T&` overload cannot bind a const lvalue, and its `T&&` takes no
 // lvalue), so a const place of a move-only type cannot be yielded: SC182E,
-// not clang's CL001E. A non-const place is yielded by address and a
-// temporary by `T&&`; neither copies.
+// not clang's CL001E. So is a non-const place that is not a local or a
+// by-value parameter (`self.t`); a temporary is yielded by `T&&`.
 
 class Tok {
     pub var id: i32 = 0
@@ -42,5 +42,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
 // CHECK: yield_const_move_only.k:18:15: error [SC182E]: cannot copy a value of type 'Tok': it declares a move constructor and no copy constructor
 // CHECK: yield_const_move_only.k:18:15: note [I900N]: 'self.t' is const, and a generator yields a const value by copying it
+// CHECK: yield_const_move_only.k:22:15: error [SC182E]: cannot copy a value of type 'Tok': it declares a move constructor and no copy constructor
+// CHECK: yield_const_move_only.k:22:15: note [I900N]: a generator gives up the value it yields, and 'self.t' is not a local or a by-value parameter it can move from
 // CHECK: yield_const_move_only.k:28:11: error [SC182E]: cannot copy a value of type 'Tok'
 // CHECK: yield_const_move_only.k:28:11: note [I900N]: 'h.t' is const, and a generator yields a const value by copying it

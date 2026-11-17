@@ -128,7 +128,10 @@ import Diagnostic::NoteText::declared_here
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
-import Sema::Check::ConformanceChecking::ConformanceChecking
+import Sema::Check::ConformanceChecking::{
+    ClauseFalse,
+    ConformanceChecking,
+}
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
@@ -1043,7 +1046,8 @@ pub class OverloadResolution {
     /// deduced arguments is not viable (requires.mdx: the clause is a
     /// compile-time gate), so overloads with complementary clauses never
     /// tie. Inline bounds are clause conjuncts (RequiresDesugar), so a
-    /// failed `<T impl I>` counts the same. A clause that cannot be decided
+    /// failed `<T impl I>` counts the same, and so does a failed bound of
+    /// the extension a member comes from. A clause that cannot be decided
     /// leaves the candidate viable. When the clause is the only thing
     /// standing against the one viable candidate it stays selected, and
     /// ConformanceChecking reports the clause at the instance; with
@@ -1062,19 +1066,25 @@ pub class OverloadResolution {
                 continue
             }
 
-            if !c->generic
-                || c->f == &null
-                || c->f->is_imported()
-                || c->verdict() != Verdict::Viable
-                || !c->ded.is_complete(c->f) {
+            if c->f == &null || c->f->is_imported() || c->verdict() != Verdict::Viable {
                 held += 1
                 continue
             }
 
-            var r = ConformanceChecking(self.sc).clause_false(
-                c->f,
-                unsafe &c->ded,
-            )
+            var cc   = ConformanceChecking(self.sc)
+            var r    = ClauseFalse{}
+            var what = "its 'requires' clause"
+            if c->generic && c->ded.is_complete(c->f) {
+                r = cc.clause_false(c->f, unsafe &c->ded)
+            }
+
+            // An extension's bounds are the candidate's too: a member of
+            // `extend <T impl I> Box<T>` does not exist for a `Box<X>`
+            // whose X is not an I.
+            if !r.known {
+                r    = cc.extension_clause_false(c->f, unsafe &c->ded)
+                what = "the bound of its extension"
+            }
 
             if !r.known {
                 held += 1
@@ -1082,7 +1092,7 @@ pub class OverloadResolution {
             }
 
             fails.push_back(i)
-            whys.push_back(r.why)
+            whys.push_back(f"{what} does not hold: {r.why}")
         }
 
         if fails.size() == 0 || (held == 0 && fails.size() == 1) {
@@ -1092,7 +1102,7 @@ pub class OverloadResolution {
         for var i: usize = 0; i < fails.size(); ++i {
             var *c = &(*cs)[fails[i]]
             c->reject()
-            c->reason = f"its 'requires' clause does not hold: {whys[i]}"
+            c->reason = whys[i].copy()
         }
     }
 
@@ -1108,7 +1118,7 @@ pub class OverloadResolution {
         var *first = &(*cs)[(((winners)[0]))]
         for var i: usize = 0; i < winners.size(); ++i {
             var *c = &(*cs)[(((winners)[i]))]
-            if !c->generic || c->free != first->free {
+            if !(c->generic || self._of_generic_extension(c->f)) || c->free != first->free {
                 return winners
             }
         }
@@ -1136,6 +1146,18 @@ pub class OverloadResolution {
         }
 
         return winners
+    }
+
+    /// `f` is a member of a generic extension (`extend <T> Box<T>`): a
+    /// template in C++ through the extension's parameters, whether or not
+    /// it declares its own.
+    priv fn _of_generic_extension(self, f: unsafe *FunctionDecl) -> bool {
+        if f == &null {
+            return false
+        }
+
+        var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
+        return ext != &null && decl_generic_params(unsafe (ext as unsafe *Decl)).size() > 0
     }
 
     /// [temp.func.order]/2-6: \p a is more specialized than \p b when it is
@@ -1266,6 +1288,13 @@ pub class OverloadResolution {
     /// of b's). References and top-level cv are stripped from both sides
     /// first, and no conversion is allowed: exact unification or nothing.
     priv fn _as_specialized(self, a: *Candidate, b: *Candidate) -> bool {
+        // No argument lands on a parameter of either (`b.pick<i32>()`):
+        // deduction compares nothing and succeeds both ways
+        // ([temp.deduct.partial]/3), so the constraints decide.
+        if a->arg_to_param.size() == 0 && b->arg_to_param.size() == 0 {
+            return true
+        }
+
         var pa = self._ordering_params(a)
         var pb = self._ordering_params(b)
         if pa.size() == 0 || pa.size() != pb.size() {

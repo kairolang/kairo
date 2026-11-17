@@ -297,6 +297,33 @@ pub class Deduction derives Substitution {
             return ImplicitRank::Exact
         }
 
+        // An associated type of a parameter (`I::Item` in `f: fn(I::Item) ->
+        // U`) is a non-deduced context ([temp.deduct.type]/5.1): it binds
+        // nothing. Once what it names is bound (an extension's parameter by
+        // the receiver, a parameter by an earlier argument) it is that type
+        // and has to match; until then the argument is checked against the
+        // substituted parameter after deduction.
+        if isa<AssocType>(param) && !isa<AssocType>(arg) {
+            var unsafe *sub = self.substitute(param)
+            if sub == &null || sub->is_dependent() {
+                return ImplicitRank::Exact
+            }
+
+            var unsafe *sc = canon_unqual(
+                if (sub->canonical != &null) => (sub->canonical) else => sub,
+            )
+
+            if sc == canon_unqual(arg) {
+                return ImplicitRank::Exact
+            }
+
+            return if (top && self.conv != &null) => (self.conv->implicit(
+                       arg,
+                       sc,
+                   ))
+                   else => ImplicitRank::None
+        }
+
         // Dependent composite: same shape, recurse exact.
         if param->kind != arg->kind {
             // *Derived -> *Base<T>: allow the top-level pointer case through

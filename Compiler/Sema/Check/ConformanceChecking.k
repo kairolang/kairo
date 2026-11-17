@@ -252,6 +252,10 @@ pub struct PredFalse {
 /// a negation, a value predicate, a `derives` test or a dependent bound, is
 /// identified by where it is written (\c expr), as C++ identifies an atomic
 /// constraint that is not a concept-id by its appearance in the source.
+/// ClauseAtom::param of an extension's parameter: its index past this, so
+/// it meets no parameter of the member's own.
+eval EXT_PARAM_BASE: u32 = 0x10000
+
 struct ClauseAtom {
     pub var param: u32          = 0
     pub var gp:    unsafe *Decl = &null
@@ -3042,19 +3046,49 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     pub fn clause_false(self,
                         f: unsafe *Declarations::FunctionDecl,
                         d: unsafe *Deduction) -> ClauseFalse {
-        var out = ClauseFalse{}
         if f == &null {
-            return out
+            return ClauseFalse{}
         }
 
-        var unsafe *req = f->requires_clause
-        if req == &null {
-            req = decl_requires_clause(
-                NameLookup::representative(unsafe (f as unsafe *Decl)),
-            )
+        return self._first_false(f, self._clause_of(f), d)
+    }
+
+    /// clause_false for the clause of the extension `f` is a member of
+    /// (`extend <T impl I> Box<T>`, `extend <T> Box<T> requires ...`): its
+    /// bounds are the candidate's as well, on the receiver's arguments.
+    pub fn extension_clause_false(self,
+                                  f: unsafe *Declarations::FunctionDecl,
+                                  d: unsafe *Deduction) -> ClauseFalse {
+        var unsafe *x = self._ext_clause_of(f)
+        if x == &null {
+            return ClauseFalse{}
         }
 
-        var cs = cxx::std::vector<unsafe *Expr>()
+        return self._first_false(f, x, d)
+    }
+
+    /// The clause of the extension `f` is a member of, or null: no
+    /// extension, or one with no bound.
+    priv fn _ext_clause_of(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Expr {
+        if f == &null {
+            return &null
+        }
+
+        var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
+        if ext == &null {
+            return &null
+        }
+
+        return decl_requires_clause(unsafe (ext as unsafe *Decl))
+    }
+
+    /// The first conjunct of `req` known false under `d` (clause_false).
+    priv fn _first_false(self,
+                         f:   unsafe *Declarations::FunctionDecl,
+                         req: unsafe *Expr,
+                         d:   unsafe *Deduction) -> ClauseFalse {
+        var out = ClauseFalse{}
+        var cs  = cxx::std::vector<unsafe *Expr>()
         conjuncts(req, unsafe &cs)
         for var i: usize = 0; i < cs.size(); ++i {
             var unsafe *c = cs[i]
@@ -3099,12 +3133,33 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var        atoms = cxx::std::vector<ClauseAtom>()
         var unsafe *ra   = self._clause_of(a)
         var unsafe *rb   = self._clause_of(b)
-        if !self._in_cxx_head(ra, 0) || !self._in_cxx_head(rb, 0) {
+        var unsafe *xa   = self._ext_clause_of(a)
+        var unsafe *xb   = self._ext_clause_of(b)
+        if !self._in_cxx_head(ra, 0)
+            || !self._in_cxx_head(rb, 0)
+            || !self._in_cxx_head(xa, 0)
+            || !self._in_cxx_head(xb, 0) {
             return false
         }
 
-        return self._at_least_as_constrained(a, ra, b, rb, unsafe &atoms)
-            && !self._at_least_as_constrained(b, rb, a, ra, unsafe &atoms)
+        return self._at_least_as_constrained(
+            a,
+            ra,
+            xa,
+            b,
+            rb,
+            xb,
+            unsafe &atoms,
+        )
+            && !self._at_least_as_constrained(
+                b,
+                rb,
+                xb,
+                a,
+                ra,
+                xa,
+                unsafe &atoms,
+            )
     }
 
     /// Clause \p e is made only of what the emitted C++ template head
@@ -3224,24 +3279,28 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// disjunctive normal form shares an atom with every clause of Q's
     /// conjunctive normal form. A normal form past CLAUSE_NORMAL_MAX clauses
     /// subsumes nothing, so an ordering never rests on a truncated form.
+    /// A candidate's constraints are its own clause (`ra`, `rb`) and its
+    /// extension's (`xa`, `xb`), which its C++ head carries as one.
     priv fn _at_least_as_constrained(self,
                                      a:     unsafe *Declarations::FunctionDecl,
                                      ra:    unsafe *Expr,
+                                     xa:    unsafe *Expr,
                                      b:     unsafe *Declarations::FunctionDecl,
                                      rb:    unsafe *Expr,
+                                     xb:    unsafe *Expr,
                                      atoms: unsafe *cxx::std::vector<ClauseAtom>) -> bool {
-        if rb == &null {
+        if rb == &null && xb == &null {
             return true
         }
 
-        if ra == &null {
+        if ra == &null && xa == &null {
             return false
         }
 
         var p = cxx::std::vector<cxx::std::vector<u32>>()
         var q = cxx::std::vector<cxx::std::vector<u32>>()
-        if !self._normal_form(a, ra, true, unsafe &p, atoms, 0)
-            || !self._normal_form(b, rb, false, unsafe &q, atoms, 0) {
+        if !self._normal_form_of(a, ra, xa, true, unsafe &p, atoms)
+            || !self._normal_form_of(b, rb, xb, false, unsafe &q, atoms) {
             return false
         }
 
@@ -3349,6 +3408,65 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
+    /// The normal form (_normal_form) of the conjunction of `r` and `x`,
+    /// either of which may be null.
+    priv fn _normal_form_of(self,
+                            f:     unsafe *Declarations::FunctionDecl,
+                            r:     unsafe *Expr,
+                            x:     unsafe *Expr,
+                            dnf:   bool,
+                            out:   unsafe *cxx::std::vector<cxx::std::vector<u32>>,
+                            atoms: unsafe *cxx::std::vector<ClauseAtom>) -> bool {
+        if x == &null || r == &null {
+            return self._normal_form(
+                f,
+                if (r != &null) => (r) else => x,
+                dnf,
+                out,
+                atoms,
+                0,
+            )
+        }
+
+        var l = cxx::std::vector<cxx::std::vector<u32>>()
+        var m = cxx::std::vector<cxx::std::vector<u32>>()
+        if !self._normal_form(f, r, dnf, unsafe &l, atoms, 0)
+            || !self._normal_form(f, x, dnf, unsafe &m, atoms, 0) {
+            return false
+        }
+
+        // A conjunction: in conjunctive form the clauses of both sides; in
+        // disjunctive form every clause of one joined with every clause of
+        // the other.
+        if !dnf {
+            for var i: usize = 0; i < l.size(); ++i {
+                out->push_back(l[i])
+            }
+
+            for var j: usize = 0; j < m.size(); ++j {
+                out->push_back(m[j])
+            }
+
+            return out->size() <= CLAUSE_NORMAL_MAX
+        }
+
+        for var i: usize = 0; i < l.size(); ++i {
+            for var j: usize = 0; j < m.size(); ++j {
+                var c = l[i]
+                for var k: usize = 0; k < m[j].size(); ++k {
+                    c.push_back(m[j][k])
+                }
+
+                out->push_back(c)
+                if out->size() > CLAUSE_NORMAL_MAX {
+                    return false
+                }
+            }
+        }
+
+        return true
+    }
+
     /// The id of atom \p e of \p f's clause in \p atoms, added when new;
     /// equal ids are identical atoms (ClauseAtom).
     priv fn _atom_id(self,
@@ -3376,10 +3494,19 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 && self._iface_decl(rhs) != &null {
                 a.expr  = &null
                 a.iface = rhs
+                var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
                 if NameLookup::representative(gp->owner) == NameLookup::representative(
                     unsafe (f as unsafe *Decl),
                 ) {
                     a.param = gp->index
+                } else if ext != &null
+                    && NameLookup::representative(gp->owner) == NameLookup::representative(
+                        unsafe (ext as unsafe *Decl),
+                    ) {
+                    // An extension's parameters lead its members' C++ heads,
+                    // so two extensions of one record name the same
+                    // template parameter by position.
+                    a.param = EXT_PARAM_BASE + gp->index
                 } else {
                     a.gp = unsafe (gp as unsafe *Decl)
                 }
@@ -3736,6 +3863,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                                d: unsafe *Deduction) -> bool {
         var cs = cxx::std::vector<unsafe *Expr>()
         conjuncts(self._clause_of(f), unsafe &cs)
+        conjuncts(self._ext_clause_of(f), unsafe &cs)
         for var i: usize = 0; i < cs.size(); ++i {
             var v = self._conjunct_vp(cs[i], d)
             if !v.known || v.v == 0 {
@@ -5010,6 +5138,18 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         row.covered_by = self._covering(x, iface, unsafe &row)
+        if !x->is_dependent() {
+            for var i: usize = 0; i < row.witnesses.size(); ++i {
+                var unsafe *wf = dyn_cast<Declarations::FunctionDecl>(
+                    row.witnesses[i],
+                )
+
+                if wf != &null {
+                    self._extension_bound_rows(wf, x, unsafe &row.bound_rows)
+                }
+            }
+        }
+
         row.seen_by.push_back(self.sc->ctx->fid)
         return self.sc->instances->row_add(unsafe &row)
     }
@@ -5465,6 +5605,151 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
+    /// The public `fn copy(const self) -> Self` that `x.copy()` calls on a
+    /// value of record type `c`, or null: a member of the record, of its
+    /// pattern (an instance's methods are its pattern's, whose return type
+    /// names the pattern, `Vector<T>`), or of an extension of it whose
+    /// bounds `c` meets (`extend <T impl Copyable> Vector<T>` for `[i32]`,
+    /// not for `[Mv]`). A tuple has none.
+    pub fn copy_method(self, c_in: unsafe *Type) -> unsafe *Declarations::FunctionDecl {
+        var unsafe *c    = canon_unqual(c_in)
+        var unsafe *rd   = self.tu.record_decl(c)
+        var unsafe *imms = self.sc->ctx->get_imm_table()
+        if rd == &null || self.tu.is_tuple(c) || imms == &null {
+            return &null
+        }
+
+        var unsafe *pd   = self.tu.pattern_of(rd)
+        var        cands = cxx::std::vector<unsafe *Decl>()
+        self.ml.lookup(
+            c,
+            DeclName::ident(imms->intern_ident_copy("copy")),
+            unsafe &cands,
+        )
+
+        for var i: usize = 0; i < cands.size(); ++i {
+            var unsafe *m = dyn_cast<Declarations::FunctionDecl>(cands[i])
+            if m == &null
+                || m->is_poisoned()
+                || m->is_operator
+                || (!m->is_method())
+                || (!m->is_const())
+                || m->params.size() != 1
+                || m->return_type == &null
+                || m->generic_params.size() != 0 {
+                continue
+            }
+
+            if m->visibility == VisibilityKind::Private
+                || m->visibility == VisibilityKind::Protected {
+                continue
+            }
+
+            // The class spelled by its own name is a named type until
+            // its canonical form is read.
+            var unsafe *rt = if (m->return_type->canonical != &null) => (m->return_type->canonical)
+                             else => m->return_type
+            var unsafe *rrd = self.tu.record_decl(self.tu.as_value(rt))
+            var self_typed = m->return_type->kind == TypeKind::SelfType
+                || rrd == rd
+                || (rrd != &null && pd != &null && self.tu.pattern_of(rrd) == pd)
+            if self_typed && self.unmet_extension_bound(m, c) == &null {
+                return m
+            }
+        }
+
+        return &null
+    }
+
+    /// The first `impl` bound of the extension `f` is a member of that
+    /// receiver `x` does not meet (`extend <T impl Copyable> Vector<T>`
+    /// reached through a `[Mv]`), or null: `f` is no extension's member,
+    /// the extension has no bound, every bound is met, or a bound is not
+    /// decidable at `x` (a dependent argument; each instance checks it,
+    /// _extension_rows).
+    pub fn unmet_extension_bound(self,
+                                 f: unsafe *Declarations::FunctionDecl,
+                                 x: unsafe *Type) -> unsafe *ConstraintExpr {
+        return self._extension_bound_rows(f, x, &null)
+    }
+
+    /// unmet_extension_bound, appending the row of each bound met to `out`
+    /// when it is not null.
+    priv fn _extension_bound_rows(self,
+                                  f:   unsafe *Declarations::FunctionDecl,
+                                  x:   unsafe *Type,
+                                  out: unsafe *cxx::std::vector<unsafe *ConformanceRow>) -> unsafe *ConstraintExpr {
+        var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
+        if ext == &null || x == &null || x->is_dependent() {
+            return &null
+        }
+
+        var unsafe *xdd   = unsafe (ext as unsafe *Decl)
+        var        bounds = cxx::std::vector<unsafe *ConstraintExpr>()
+        self._impl_bounds(decl_requires_clause(xdd), unsafe &bounds)
+        if bounds.size() == 0 {
+            return &null
+        }
+
+        var args = cxx::std::vector<unsafe *Type>()
+        if !self._ext_args(f, x, &args) {
+            return &null
+        }
+
+        var eps = decl_generic_params(xdd)
+        var d   = Deduction(self.sc, &null)
+        for var i: usize = 0; i < eps.size() && i < args.size(); ++i {
+            if eps[i] != &null {
+                d.bind(xdd, eps[i]->index, args[i])
+            }
+        }
+
+        for var i: usize = 0; i < bounds.size(); ++i {
+            var unsafe *b  = bounds[i]
+            var unsafe *gp = self._param_named(b, xdd)
+            if gp == &null || gp->is_pack || b->rhs == &null || b->rhs->canonical == &null {
+                continue
+            }
+
+            var arg: unsafe *Type = &null
+            for var j: usize = 0; j < eps.size() && j < args.size(); ++j {
+                if eps[j] == gp {
+                    arg = canon_unqual(args[j])
+                }
+            }
+
+            var unsafe *iface = canon_unqual(b->rhs->canonical)
+            if iface->is_dependent() {
+                var unsafe *si = d.substitute(iface)
+                iface = if (si != &null) => (canon_unqual(si)) else => &null
+            }
+
+            if arg == &null || iface == &null || arg->is_dependent() || iface->is_dependent() {
+                continue
+            }
+
+            var unsafe *row = self.conforms(arg, iface)
+            if row == &null || !row->ok {
+                return b
+            }
+
+            if out != &null {
+                var have = false
+                for var k: usize = 0; k < out->size(); ++k {
+                    if (*out)[k] == row {
+                        have = true
+                    }
+                }
+
+                if !have {
+                    out->push_back(row)
+                }
+            }
+        }
+
+        return &null
+    }
+
     /// The member of \p x that implements requirement \p m of \p iface, or
     /// null. Every candidate member lookup finds is a decl the row could
     /// forward to; the one whose signature is \p m's exactly wins.
@@ -5494,6 +5779,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
 
             if !self._signature_matches(f, m, x, iface, idecl) {
+                continue
+            }
+
+            // A member of an extension whose bounds `x` does not meet does
+            // not exist for `x`: `extend <T impl I> Box<T> impl I` makes
+            // `Box<A>` an `I` only where `A` is one.
+            if self.unmet_extension_bound(f, x) != &null {
                 continue
             }
 

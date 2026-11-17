@@ -185,6 +185,13 @@ pub class ConformanceRow {
     /// those spell the bound's witness at the supplied type, so EmitPlan
     /// admits them wherever it admits this row.
     pub var assoc_rows: cxx::std::vector<unsafe *ConformanceRow>
+    /// The rows the bounds of a witness's extension rest on at this row's
+    /// arguments (`extend <I impl DoubleEnded> Filter<I> impl DoubleEnded`
+    /// met by `Filter<Map<S, U>>`: `Map<S, U> impl DoubleEnded`). The
+    /// specialization's forwarders call the extension's members there, and
+    /// C++ checks their bounds where the forwarder is written, so EmitPlan
+    /// admits them wherever it admits this row.
+    pub var bound_rows: cxx::std::vector<unsafe *ConformanceRow>
     /// A concrete row that a GENERIC declared row (`extend <E> Wrap<E> impl
     /// I`, conformer over its own parameters) covers -- same witnesses, its
     /// conformer and interface at this row's arguments -- or null. EmitPlan
@@ -1544,6 +1551,10 @@ pub class InstantiationRegistry {
             row->assoc_rows.push_back(r->assoc_rows[i])
         }
 
+        for var i: usize = 0; i < r->bound_rows.size(); ++i {
+            row->bound_rows.push_back(r->bound_rows[i])
+        }
+
         return row
     }
 
@@ -1790,6 +1801,12 @@ pub class InstantiationRegistry {
             }
         }
 
+        for var i: usize = 0; i < r->bound_rows.size(); ++i {
+            if rows->contains(r->bound_rows[i] as usize as u64) {
+                return true
+            }
+        }
+
         return (r->covered_by != &null && rows->contains(r->covered_by as usize as u64))
             || (r->clash != &null && rows->contains(r->clash as usize as u64))
     }
@@ -1960,6 +1977,7 @@ pub class InstantiationRegistry {
             r->witnesses.clear()
             r->reqs.clear()
             r->assoc_rows.clear()
+            r->bound_rows.clear()
             r->ok = false
         }
 

@@ -1,11 +1,6 @@
 // The adapters that know their length: `remaining` on a chain whose every
 // link is ExactSize (`map`, `enumerate`, `zip`, `take`, `skip`, `rev`). A
 // skip longer than what is left reports zero.
-//
-// Expected to fail: the unit that calls `remaining` on a wrapped adapter is given no
-// `ExactSize` witness for the adapter's instance (`ExactSize_witness<Map<
-// Span, i64>>`), so every chain below but the bare source fails in the
-// emitted C++. When this passes, remove the expected-failure line.
 
 import std::iter::*
 import std::io
@@ -124,7 +119,6 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // REQUIRES: newlib
-// XFAIL: *
 // RUN: rm -rf %t.d
 // RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
