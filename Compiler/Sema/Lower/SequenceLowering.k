@@ -1278,7 +1278,8 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                           n:       unsafe *Expr,
                           stmts:   unsafe *ListBuilder<unsafe *Stmt>,
                           as_stmt: bool) -> unsafe *Expr {
-        if as_stmt && self.tu.record_decl(canon_unqual(n->type_)) == &null {
+        var unsafe *vt = canon_unqual(n->type_)
+        if as_stmt && self.tu.record_decl(vt) == &null && (vt == &null || !vt->is_dependent()) {
             stmts->push(ExpressionStmt::create(self.ctx, n->range, n))
             return self.synth.stmt_expr(n, &*stmts, n->type_)
         }
@@ -1288,7 +1289,9 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         // ending the block is copied: a copy a move-only record does not
         // have (`**p = X()`, `v[i] = v[j]`: CL001E). As a statement,
         // a record's store ends the block inside a block of its own, which
-        // leaves the statement expression no value (void) to copy.
+        // leaves the statement expression no value (void) to copy. A type
+        // that depends on a parameter is a record at some instance, so it
+        // takes the same form.
         if as_stmt {
             var unsafe *inner = CompoundStmt::create(self.ctx, n->range)
             var        one    = self.list_builder<unsafe *Stmt>()

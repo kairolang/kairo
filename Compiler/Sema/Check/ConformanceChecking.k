@@ -2364,6 +2364,31 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return self._requires_blocker(f, d).known
     }
 
+    /// Method \p f has a `requires` clause that is decidably false for the
+    /// concrete record \p x, or a `P impl I` in it that \p x's argument
+    /// does not meet: the instance has no such member.
+    priv fn _dropped_from(self, f: unsafe *Declarations::FunctionDecl, x: unsafe *Type) -> bool {
+        if f->requires_clause == &null || f->generic_params.size() > 0 || !f->is_method() {
+            return false
+        }
+
+        var unsafe *c = canon_unqual(x)
+        if c == &null
+            || !isa<RecordType>(c)
+            || c->is_dependent()
+            || c->is_instantiation_dependent() {
+            return false
+        }
+
+        var d = Deduction(self.sc, &null)
+        d.bind_from_record(c)
+        if self._requires_blocker(f, unsafe &d).known {
+            return true
+        }
+
+        return self._impl_blocker(f, c, unsafe &d).bound != &null
+    }
+
     /// _requires_false_at, and the type whose missing copy (or move) made
     /// the clause false, when one predicate names it.
     priv fn _requires_blocker(self,
@@ -4840,6 +4865,14 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                     w = &null
                 }
 
+                // A member whose `requires` clause is false for this
+                // instance is dropped from it by C++ (Speller::member_requires):
+                // `copy` on `[Mv]` meets no `Copyable`.
+                var unsafe *mf = dyn_cast<Declarations::FunctionDecl>(w)
+                if mf != &null && self._dropped_from(mf, x) {
+                    w = &null
+                }
+
                 // A constructor slot's witness may be the record itself (its
                 // implicit default constructor), which has no extension.
                 var unsafe *wf = dyn_cast<Declarations::FunctionDecl>(w)
@@ -6716,11 +6749,21 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             unsafe &cands,
         )
 
-        if cands.size() > 0 {
+        // A `copy` the instance does not have (_dropped_from) is no
+        // declaration of the wrong shape: the type is merely not copyable.
+        var own: unsafe *Decl = &null
+        for var i: usize = 0; i < cands.size() && own == &null; ++i {
+            var unsafe *cf = dyn_cast<Declarations::FunctionDecl>(cands[i])
+            if cf == &null || !self._dropped_from(cf, x) {
+                own = cands[i]
+            }
+        }
+
+        if own != &null {
             d->note(
-                cands[0]->range.start,
+                own->range.start,
                 f"'{xs}' declares this 'copy', so its copy constructor does not stand in for one: '{is}' needs 'fn copy(const self) -> Self'",
-            )->child_first(decl_name_tok(cands[0]).range)
+            )->child_first(decl_name_tok(own).range)
             return
         }
 

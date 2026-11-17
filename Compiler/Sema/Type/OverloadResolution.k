@@ -90,8 +90,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,  QUAL_CONST, QUAL_VOLATILE, RecordType, builtin_info, canon_has_const, canon_quals,
-    canon_unqual,
+    AssocType,   BuiltinKind,  QUAL_CONST, QUAL_VOLATILE, RecordType, builtin_info, canon_has_const,
+    canon_quals, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -3079,7 +3079,37 @@ pub class OverloadResolution {
             c->ded.open_pack(pg->owner, pg->param_index)
         }
 
+        // A parameter read through an associated type (`v: J::Item`,
+        // `v: S::Item?`) is a non-deduced context ([temp.deduct.type]/5.1):
+        // it is ranked after every other argument, against its type at what
+        // they deduced (J := Count makes it Count's Item).
+        var order = cxx::std::vector<usize>()
+        var later = cxx::std::vector<usize>()
         for var i: usize = 0; i < args->size(); ++i {
+            var pj                    = c->arg_to_param[i]
+            var pd: unsafe *ParamDecl = &null
+            if pj == ARG_PACK_TAIL {
+                pd = params[pack_at]
+            } else if pj != ARG_C_VARARG {
+                pd = params[pj]
+            }
+
+            if pd != &null
+                && !pd->is_self
+                && pd->type_ != &null
+                && self._reads_assoc(pd->type_->canonical) {
+                later.push_back(i)
+            } else {
+                order.push_back(i)
+            }
+        }
+
+        for var i: usize = 0; i < later.size(); ++i {
+            order.push_back(later[i])
+        }
+
+        for var oi: usize = 0; oi < order.size(); ++oi {
+            var i  = order[oi]
             var *a = &(*args)[i]
             var pi = c->arg_to_param[i]
             if pi == ARG_C_VARARG { // Converted, unchecked.
@@ -3111,6 +3141,12 @@ pub class OverloadResolution {
             }
 
             pt = c->ded.through_receiver(c->f, canon_unqual(receiver), pt) // `other: Self` is `other: <receiver>`.
+            if pt != &null && !c->defer && pt->is_dependent() && self._reads_assoc(pt) {
+                var unsafe *sp = c->ded.substitute(pt)
+                if sp != &null && !sp->is_dependent() {
+                    pt = canon_unqual(sp)
+                }
+            }
 
             // Defer mode: read the parameter through the call's record
             // arguments (`Box<U>`'s `p: T` is `p: U`), then assume what is
@@ -4272,6 +4308,27 @@ pub class OverloadResolution {
         }
 
         return self.tu.c_string_ptr_type()
+    }
+
+    /// \p t is an associated type of a type parameter (`J::Item`), under
+    /// nullables, pointers and qualifiers: a type no argument deduces.
+    priv fn _reads_assoc(self, t: unsafe *Type) -> bool {
+        var unsafe *u = if (t != &null) => (canon_unqual(t)) else => &null
+        while u != &null {
+            if isa<AssocType>(u) {
+                return u->is_dependent()
+            }
+
+            if isa<NullableType>(u) {
+                u = canon_unqual(cast<NullableType>(u)->inner)
+            } else if isa<PointerType>(u) {
+                u = canon_unqual(cast<PointerType>(u)->pointee)
+            } else {
+                return false
+            }
+        }
+
+        return false
     }
 
     /// The imported record a C++ user-defined conversion would build for

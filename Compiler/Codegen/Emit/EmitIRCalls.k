@@ -1342,10 +1342,28 @@ extend EmitIR {
 
         if p->mode == ParamMode::Move {
             // An lvalue must be moved explicitly; a prvalue already is.
+            // A parameter type naming the callee's own parameters (`T` of
+            // `fn <T> move(@move x: T)`) is spelled by the argument's type
+            // when the call is in a generic body: the callee's names are
+            // not in scope there, and the call has no concrete instance.
             if a->is_lvalue() {
+                var unsafe *mt = pt
+                var unsafe *pc = if (pt != &null && pt->canonical != &null) => (pt->canonical)
+                                 else => pt
+                if pc != &null && pc->is_dependent() && a->type_ != &null && !p->is_pack {
+                    mt = canon_unqual(a->type_)
+                    if mt != &null && isa<CXXLValueRefType>(mt) {
+                        mt = canon_unqual(cast<CXXLValueRefType>(mt)->referee)
+                    }
+
+                    if mt == &null {
+                        mt = pt
+                    }
+                }
+
                 self._cg->sink->spell(
                     a->range,
-                    "static_cast<" + self._spell._type(pt, inst) + "&&>(",
+                    "static_cast<" + self._spell._type(mt, inst) + "&&>(",
                 )
 
                 self.emit(a)

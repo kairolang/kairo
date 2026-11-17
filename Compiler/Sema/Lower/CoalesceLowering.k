@@ -159,11 +159,25 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
             return out
         }
 
-        if n->is_poisoned() || n->type_ == &null || n->resolved_op != &null {
+        if n->is_poisoned() || n->resolved_op != &null {
             return out
         }
 
         var unsafe *lt = n->lhs->type_
+        // A `??` OperatorTyping defers in a generic body (`x ?? 0` with x
+        // an `I::Item?`) has no type until an instance: it is expanded all
+        // the same, and the C++ conditional joins the arms per instance.
+        // `??` has no C++ spelling, so nothing else can emit it.
+        if n->type_ == &null {
+            var unsafe *li = if (lt != &null) => (self.tu.nullable_inner(
+                                 self.tu.as_value(lt),
+                             ))
+                             else => &null
+            if li == &null || !li->is_dependent() {
+                return out
+            }
+        }
+
         // A C++ reference to a `T?` (`v[0] ?? 1` of a `vector<i32?>`) is
         // read as the nullable it refers to, as _operand reads it.
         if lt == &null || self.tu.nullable_inner(self.tu.as_value(lt)) == &null {
