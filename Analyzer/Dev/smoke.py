@@ -3579,6 +3579,29 @@ def many_imports(exe, base):
     check("many imports: clean shutdown", c.stop() == 0)
 
 
+def no_error_limit(exe, base):
+    """The server lifts the compiler's limit on delivered errors (twenty by
+    default): a file with sixty errors shows sixty, and a limit in the
+    entry's own arguments does not bring the cap back."""
+    root = os.path.join(base, "no-error-limit")
+    os.makedirs(os.path.join(root, "src"))
+    body = "".join("    var a%d: i32 = nope%d\n" % (i, i) for i in range(60))
+    text = "fn main() -> i32 {\n" + body + "    return 0\n}\n"
+    open(os.path.join(root, "src", "main.k"), "w").write(text)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["--cmax-errors=5"] } ] }\n')
+    c = Client(exe, root)
+    c.start({"debounceMs": 50})
+    c.open("src/main.k", text)
+    ok = c.settle()
+    c.pump(0.5)
+    d = [x for x in (c.diagnostics("src/main.k") or []) if x.get("severity") == 1]
+    lines = {x["range"]["start"]["line"] for x in d}
+    check("no error limit: all sixty errors of a file are published",
+          ok and len(lines) == 60 and not [x for x in d if "too many errors" in x.get("message", "")], (len(d), len(lines)))
+    check("no error limit: clean shutdown", c.stop() == 0)
+
+
 def completion_marker(exe, root):
     """The compiler's own completion (the marker path), with the index
     path off: what answers a receiver the tables do not type, and what
@@ -4510,6 +4533,8 @@ def main():
             live(exe, base)
         if want("many_imports"):
             many_imports(exe, base)
+        if want("no_error_limit"):
+            no_error_limit(exe, base)
         if want("unsure_syntax"):
             unsure_syntax(exe, base)
         if want("completion_index"):

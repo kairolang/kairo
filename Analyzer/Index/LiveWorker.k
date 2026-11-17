@@ -1068,6 +1068,8 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
     // sound, as a run does (Worker.k): without it such a graph has no rows
     // at all. A re-check in place never takes such a file (LiveCheck).
     words.push_back(CF_CHECK_PAST_SYNTAX_ERRORS)
+    // After the entry's own arguments, so it wins over a limit they set.
+    words.push_back(CF_NO_ERROR_LIMIT)
 
     var unsafe *obs = kairo::std::create<IndexObserver>()
     finally {

@@ -45,3 +45,7 @@ pub const CF_CHECK_PAST_SYNTAX_ERRORS: string = "--check-past-syntax-errors"
 pub const CF_ERROR_FORMAT_BASIC:       string = "--error-format=basic"
 pub const CF_EMIT_HEADERS:             string = "--emit-headers"
 pub const CF_EMIT_HEADERS_LAYOUT:      string = "--emit-headers-layout"
+/// An editor shows every error of a file. The compiler's default stops
+/// delivering after twenty, which in a file with that many unresolved
+/// imports hides every error below them.
+pub const CF_NO_ERROR_LIMIT: string = "--cmax-errors=0"

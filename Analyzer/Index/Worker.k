@@ -712,11 +712,11 @@ fn syntax_answer(const file:   string,
     ci->initialize(Path::cwd())
     var saved = ci->diag()->take_consumers()
     ci->diag()->add_consumer(collector)
-    // No limit on errors: a file parsed alone reports every import it
-    // cannot resolve (not kept: not about the text), and after --max-errors
-    // of those (20) the engine delivers nothing more, the parser's errors
-    // included. The pass then said `parsed` of any broken file with twenty
-    // imports, which is most files of a real project.
+    // No limit on errors, set here because the syntax server builds its
+    // own command line: a file parsed alone reports every import it cannot
+    // resolve (not kept: not about the text), and under the default limit
+    // of twenty the parser's errors after them are lost and the pass says
+    // `parsed` of a broken file.
     ci->diag()->set_error_limit(0)
 
     // The bytes must outlive the pass: the source manager keeps a view.
@@ -947,6 +947,8 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     // An editor never wants an object file out of a keystroke.
     words.push_back(CF_TYPE_CHECK_ONLY)
+    // After the entry's own arguments, so it wins over a limit they set.
+    words.push_back(CF_NO_ERROR_LIMIT)
 
     // The index run checks what syntax errors leave sound
     // (LanguageServer.md section 9); the syntax pass stops at the parse.
