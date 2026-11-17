@@ -61,23 +61,13 @@ pub class <K impl Hash, V> HashMap {
     priv inline fn find_(const self, const k: K) -> usize {
         var h           = hash_of(self.t, k)
         var slot: usize = 0
-        return raw_find_slot(
-            self.t,
-            k,
-            h,
-            sizeof MapEntry<K, V>,
-            alignof MapEntry<K, V>,
-            &slot,
-        )
+        return raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
     }
 
     /// A new entry for `k` at the end, linked under `h` into `slot` (where
     /// the miss stopped). Returns its address, uninitialized.
     priv inline fn add_(self, h: u64, slot: usize) -> unsafe *u8 {
-        var i = rt_link<MapEntry<K, V>>(&self.t, h, slot)
-        unsafe {
-            return self.ent(i) as unsafe *u8
-        }
+        return rt_link<MapEntry<K, V>>(&self.t, h, slot)
     }
 
     /// `insert`, as a member of the class itself: the extension blocks call
@@ -85,14 +75,7 @@ pub class <K impl Hash, V> HashMap {
     priv inline fn insert_(self, k: K, v: V) -> V? {
         var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = raw_find_slot(
-            self.t,
-            k,
-            h,
-            sizeof MapEntry<K, V>,
-            alignof MapEntry<K, V>,
-            &slot,
-        )
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
 
         if e != NO_ENTRY {
             unsafe {
@@ -130,14 +113,7 @@ pub class <K impl Hash, V> HashMap {
     pub inline fn op []= (self, const k: K, v: V)   requires K impl Copyable {
         var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = raw_find_slot(
-            self.t,
-            k,
-            h,
-            sizeof MapEntry<K, V>,
-            alignof MapEntry<K, V>,
-            &slot,
-        )
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
 
         unsafe {
             if e != NO_ENTRY {
@@ -159,14 +135,7 @@ pub class <K impl Hash, V> HashMap {
     pub inline fn op []= (self, const k: K) -> *V   requires K impl Copyable && V impl Default {
         var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = raw_find_slot(
-            self.t,
-            k,
-            h,
-            sizeof MapEntry<K, V>,
-            alignof MapEntry<K, V>,
-            &slot,
-        )
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
 
         if e == NO_ENTRY {
             e = self.t.size()
@@ -186,33 +155,33 @@ pub class <K impl Hash, V> HashMap {
         }
     }
 
+    // The walks below read the entry array's address and the size once: an
+    // insert or a removal during a walk invalidates it.
     pub fn op in (self) -> yield (*const K, *V) {
-        var i: usize = 0
-        while i < self.t.size() {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
             unsafe {
-                var unsafe *e = self.ent(i)
                 var kv = (&e->key as unsafe *const K as *const K, &e->value as unsafe *V as *V)
                 yield kv
+                e = e + 1
             }
-
-            i += 1
         }
     }
 
     pub fn op in (const self) -> yield (*const K, *const V) {
-        var i: usize = 0
-        while i < self.t.size() {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
             unsafe {
-                var unsafe *e = self.ent(i)
                 var kv = (
                     &e->key as unsafe *const K as *const K,
                     &e->value as unsafe *const V as *const V,
                 )
 
                 yield kv
+                e = e + 1
             }
-
-            i += 1
         }
     }
 }
@@ -329,14 +298,7 @@ extend <K impl Hash, V> HashMap<K, V> {
     pub fn try_insert(self, k: K, v: V) -> V? { // null on success; v back when the key exists
         var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = raw_find_slot(
-            self.t,
-            k,
-            h,
-            sizeof MapEntry<K, V>,
-            alignof MapEntry<K, V>,
-            &slot,
-        )
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
 
         if e != NO_ENTRY {
             var back: V? = move(v)
@@ -358,14 +320,7 @@ extend <K impl Hash, V> HashMap<K, V> {
     pub fn get_or_insert(self, k: K, v: V) -> *V {
         var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = raw_find_slot(
-            self.t,
-            k,
-            h,
-            sizeof MapEntry<K, V>,
-            alignof MapEntry<K, V>,
-            &slot,
-        )
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
 
         if e == NO_ENTRY {
             e = self.t.size()
@@ -389,14 +344,7 @@ extend <K impl Hash, V> HashMap<K, V> {
     pub fn get_or_insert_with(self, k: K, make: fn() -> V) -> *V {
         var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = raw_find_slot(
-            self.t,
-            k,
-            h,
-            sizeof MapEntry<K, V>,
-            alignof MapEntry<K, V>,
-            &slot,
-        )
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
 
         if e == NO_ENTRY {
             // Before the link: `make` may not see a half-built entry.
@@ -422,14 +370,7 @@ extend <K impl Hash, V> HashMap<K, V> {
     pub inline fn swap_remove(self, const k: K) -> V? {
         var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = raw_find_slot(
-            self.t,
-            k,
-            h,
-            sizeof MapEntry<K, V>,
-            alignof MapEntry<K, V>,
-            &slot,
-        )
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
 
         if e == NO_ENTRY {
             return null
@@ -471,10 +412,9 @@ extend <K impl Hash, V> HashMap<K, V> {
 
         unsafe {
             var unsafe *p           = self.ent(n - 1)
-            var        h            = hash_of(self.t, p->key)
             var        out: (K, V)? = (move(p->key), move(p->value))
             __builtin_destruct_at(p as *MapEntry<K, V>)
-            rt_remove_last(&self.t, h)
+            rt_remove_last(&self.t)
             return out
         }
     }
@@ -525,7 +465,6 @@ extend <K impl Hash, V> HashMap<K, V> {
                     p->key,
                     h,
                     sizeof MapEntry<K, V>,
-                    alignof MapEntry<K, V>,
                     &slot,
                 )
 
@@ -564,35 +503,35 @@ extend <K impl Hash, V> HashMap<K, V> {
     }
 
     pub fn keys(const self) -> yield *const K {
-        var i: usize = 0
-        while i < self.t.size() {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
             unsafe {
-                yield &self.ent(i)->key as unsafe *const K as *const K
+                yield &e->key as unsafe *const K as *const K
+                e = e + 1
             }
-
-            i += 1
         }
     }
 
     pub fn values(const self) -> yield *const V {
-        var i: usize = 0
-        while i < self.t.size() {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
             unsafe {
-                yield &self.ent(i)->value as unsafe *const V as *const V
+                yield &e->value as unsafe *const V as *const V
+                e = e + 1
             }
-
-            i += 1
         }
     }
 
     pub fn values_mut(self) -> yield *V {
-        var i: usize = 0
-        while i < self.t.size() {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
             unsafe {
-                yield &self.ent(i)->value as unsafe *V as *V
+                yield &e->value as unsafe *V as *V
+                e = e + 1
             }
-
-            i += 1
         }
     }
 }
@@ -601,14 +540,7 @@ extend <K impl Hash, V impl Default> HashMap<K, V> {
     pub fn get_or_default(self, k: K) -> *V {
         var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = raw_find_slot(
-            self.t,
-            k,
-            h,
-            sizeof MapEntry<K, V>,
-            alignof MapEntry<K, V>,
-            &slot,
-        )
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
 
         if e == NO_ENTRY {
             e = self.t.size()

@@ -1,6 +1,7 @@
 // The lookup paths of HashMap<u64, u64> at -O2 on x86-64: a hit or a miss
-// makes no call at all and hashes with two multiplies, and iteration is a
-// pointer walk that vectorizes.
+// makes no call at all, hashes with two multiplies and compares a bucket's
+// tags with one vector compare; iteration is a pointer walk whose sum is
+// vectorized.
 
 @no_inline
 pub fn probe(const m: {u64: u64}, k: u64) -> u64 {
@@ -44,10 +45,18 @@ fn main() -> i32 {
 // PROBE-NOT: call
 // PROBE: mulq
 // PROBE-NOT: call
+// PROBE: pcmpeqb
+// PROBE-NOT: call
+// PROBE: pmovmskb
+// PROBE-NOT: call
 // PROBE: .Lfunc_end
 // HAS-LABEL: {{^}}_ZN11codegen_hit3has{{.*}}:
 // HAS-NOT: call
+// HAS: pcmpeqb
+// HAS-NOT: call
 // HAS: .Lfunc_end
 // SUM-LABEL: {{^}}_ZN11codegen_hit3sum{{.*}}:
+// SUM-NOT: call
+// SUM: paddq {{.*}}%xmm
 // SUM-NOT: call
 // SUM: .Lfunc_end

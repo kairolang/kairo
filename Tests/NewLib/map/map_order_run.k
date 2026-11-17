@@ -3,9 +3,10 @@
 // full, insertion order survives every growth, shift removal keeps order
 // and swap removal moves the last entry, and the index stays consistent
 // (every entry reachable from its home) after every removal in forward,
-// reverse and random order. Two cases have broken backward-shift deletion
-// before: a slot at its home followed by one far from its own, and a
-// cluster that wraps past the last slot.
+// reverse and random order. An erase in a full bucket leaves a tombstone so
+// the keys past the bucket stay reachable, also across the wrap past the
+// last bucket; a table whose room tombstones have used up is rebuilt in
+// place.
 
 import std::io
 import self::Inputs::table_peek::*
@@ -43,7 +44,7 @@ fn test_growth() {
         m.insert(i * 2654435761, i)
         var now = m.capacity()
         if full {
-            var want = (if cap == 0 => 7usize else => cap * 2)
+            var want = (if cap == 0 => 8usize else => cap * 2)
             if now != want { bad += 1 }
             growths += 1
             var j: u64 = 0
@@ -56,7 +57,7 @@ fn test_growth() {
             bad += 1
         }
     }
-    ck(bad == 0, "growth exactly at 7/8, to double, with insertion order kept")
+    ck(bad == 0, "growth exactly when full, to double, with insertion order kept")
     ck(growths == 14, "14 growths to 40000 entries")
     var old? = m.insert(0, 99)
     ck(old? && old == 0 && m[0] == 99 && m.size() == 40000, "insert of a present key replaces in place")
@@ -65,18 +66,18 @@ fn test_growth() {
 fn test_reserve_shrink() {
     var m: {u64: u64}
     m.reserve(7)
-    ck(m.capacity() == 7, "reserve(7)")
+    ck(m.capacity() == 8, "reserve(7)")
     m.reserve(100)
-    ck(m.capacity() == 112, "reserve(100)")
+    ck(m.capacity() == 128, "reserve(100)")
     m.reserve(50)
-    ck(m.capacity() == 112, "reserve never shrinks")
+    ck(m.capacity() == 128, "reserve never shrinks")
     for var i: u64 = 0; i < 1000; i += 1 { m.insert(i, i * 3) }
     m.reserve(5000)
-    ck(m.capacity() == 7168, "reserve(5000)")
+    ck(m.capacity() == 8192, "reserve(5000)")
     ck(tp_ok(const &m, "after reserve"), "consistent after reserve")
     for var i: u64 = 10; i < 1000; i += 1 { m.shift_remove(i) }
     m.shrink_to_fit()
-    ck(m.capacity() == 14, "shrink to fit 10 entries")
+    ck(m.capacity() == 16, "shrink to fit 10 entries")
     ck(tp_ok(const &m, "after shrink"), "consistent after shrink")
     var bad: u64 = 0
     var j: u64 = 0
@@ -86,7 +87,7 @@ fn test_reserve_shrink() {
     }
     ck(bad == 0 && j == 10, "contents and order after shrink")
     m.shrink_to_fit()
-    ck(m.capacity() == 14, "shrink is idempotent")
+    ck(m.capacity() == 16, "shrink is idempotent")
 }
 
 fn expect(const m: {u64: u64}, const want: [u64], const what: string) {
@@ -117,13 +118,14 @@ fn test_remove_order() {
     ck(tp_ok(const &a, "a") && tp_ok(const &b, "b"), "consistent after removals")
 }
 
-/// Keys whose home slot in a fresh 8-slot table is `home`, as the table
+/// Keys whose home bucket in a two-bucket table is `home`, as the table
 /// itself reports it.
 fn keys_with_home(home: usize, count: usize, start: u64) -> [u64] {
     var out: [u64]
     var c = start
     while out.size() < count {
         var m: {u64: u64}
+        m.reserve(14)
         m.insert(c, 0)
         if tp_home_of(const &m, 0) == home { out.push(c) }
         c += 1
@@ -131,33 +133,101 @@ fn keys_with_home(home: usize, count: usize, start: u64) -> [u64] {
     return out
 }
 
-fn test_erase_past_home() {
-    // Homes 0, 2, 0, 0 land in slots 0, 2, 1, 3. Erasing slot 0 moves the
-    // key in slot 1 back and must also move the one in slot 3, past the key
-    // that sits at its home in slot 2.
-    var h0 = keys_with_home(0, 3, 1000)
-    var h2 = keys_with_home(2, 1, 2000)
+/// Thirteen keys with one home in a two-bucket table: twelve fill the home
+/// bucket and the thirteenth lies in the other. Removing one of the twelve
+/// must leave a tombstone, not an empty slot, or the thirteenth is cut off;
+/// the next key with that home takes the tombstone and uses no room.
+fn erase_in_full_bucket(home: usize, start: u64, swap: bool, const what: string) {
+    var k = keys_with_home(home, 14, start)
     var m: {u64: u64}
-    m.insert(h0[0], 1)
-    m.insert(h2[0], 2)
-    m.insert(h0[1], 3)
-    m.insert(h0[2], 4)
-    ck(m.capacity() == 7 && tp_home_of(const &m, 3) == 0, "one 8-slot block, homes as planned")
-    m.shift_remove(h0[0])
-    ck(tp_ok(const &m, "past home"), "consistent after an erase past an at-home slot")
-    ck(m.contains(h0[2]) && m.contains(h0[1]) && m.contains(h2[0]), "every key still reachable")
+    m.reserve(14)
+    for var i: usize = 0; i < 13; i += 1 { m.insert(k[i], i as u64) }
+    ck(m.capacity() == 16 && tp_nbuckets(const &m) == 2 && tp_home_of(const &m, 12) == home, f"{what}: two buckets, homes as planned")
+    ck(tp_bucket_of(const &m, 12) == 1 - home, f"{what}: the thirteenth key lies in the other bucket")
+    ck(tp_tombstones(const &m) == 0 && tp_room(const &m) == 3, f"{what}: no tombstone yet")
+    if swap { m.swap_remove(k[0]) } else { m.shift_remove(k[0]) }
+    ck(tp_ok(const &m, what), f"{what}: consistent after an erase in a full bucket")
+    ck(tp_tombstones(const &m) == 1 && tp_room(const &m) == 3, f"{what}: the erase left a tombstone")
+    var all = true
+    for var i: usize = 1; i < 13; i += 1 { if !m.contains(k[i]) { all = false } }
+    ck(all && !m.contains(k[0]), f"{what}: every other key still reachable")
+    m.insert(k[13], 13)
+    ck(tp_tombstones(const &m) == 0 && tp_room(const &m) == 3, f"{what}: the next key takes the tombstone")
+    ck(tp_ok(const &m, what) && m.contains(k[13]) && m.contains(k[12]), f"{what}: consistent after the reuse")
+    // In a bucket with an empty slot an erase leaves an empty slot.
+    m.swap_remove(k[12])
+    ck(tp_tombstones(const &m) == 0 && tp_room(const &m) == 4 && tp_ok(const &m, what), f"{what}: an erase beside an empty slot leaves none")
+}
 
-    // A cluster across the wrap: homes 7, 7, 0, 7 land in 7, 0, 1, 2.
-    var h7 = keys_with_home(7, 3, 3000)
-    var z = keys_with_home(0, 1, 4000)
-    var w: {u64: u64}
-    w.insert(h7[0], 1)
-    w.insert(h7[1], 2)
-    w.insert(z[0], 3)
-    w.insert(h7[2], 4)
-    w.swap_remove(h7[0])
-    ck(tp_ok(const &w, "wrap"), "consistent after an erase across the wrap")
-    ck(w.contains(h7[1]) && w.contains(z[0]) && w.contains(h7[2]), "keys after a wrapped erase")
+fn test_erase_past_home() {
+    erase_in_full_bucket(0, 1000, false, "shift")
+    erase_in_full_bucket(0, 2000, true, "swap")
+    // The probe sequence from the last bucket wraps to the first.
+    erase_in_full_bucket(1, 3000, true, "wrap")
+    erase_in_full_bucket(1, 4000, false, "wrap, shift")
+}
+
+/// Tombstones use up the room of a two-bucket table (capacity 16). At most
+/// half full, the index is rebuilt in place and the capacity stays; more
+/// than half full, the block doubles.
+fn test_tombstone_room() {
+    var h0 = keys_with_home(0, 13, 5000)
+    var h1 = keys_with_home(1, 5, 6000)
+
+    // Twelve keys fill bucket 0; removing them leaves twelve tombstones
+    // and room for four. The fifth key for bucket 1 finds no room.
+    var m: {u64: u64}
+    m.reserve(14)
+    for var i: usize = 0; i < 12; i += 1 { m.insert(h0[i], i as u64) }
+    for var i: usize = 0; i < 12; i += 1 { m.swap_remove(h0[i]) }
+    ck(m.size() == 0 && tp_tombstones(const &m) == 12 && tp_room(const &m) == 4, "twelve tombstones, room for four")
+    for var i: usize = 0; i < 4; i += 1 { m.insert(h1[i], i as u64) }
+    ck(tp_room(const &m) == 0 && tp_tombstones(const &m) == 12 && m.capacity() == 16, "the room is used up")
+    m.insert(h1[4], 4)
+    ck(m.capacity() == 16 && m.size() == 5, "at most half full: the block stays")
+    ck(tp_tombstones(const &m) == 0 && tp_room(const &m) == 11, "the index was rebuilt in place")
+    var all = true
+    for var i: usize = 0; i < 5; i += 1 { if !m.contains(h1[i]) || m[h1[i]] != i as u64 { all = false } }
+    ck(all && tp_ok(const &m, "rebuilt"), "contents after the rebuild")
+
+    // Thirteen keys with home 0, four of the first twelve removed: nine
+    // live, four tombstones, room for three. Three keys for bucket 1 use
+    // it up; the next insert finds twelve live entries and doubles.
+    var g: {u64: u64}
+    g.reserve(14)
+    for var i: usize = 0; i < 13; i += 1 { g.insert(h0[i], i as u64) }
+    for var i: usize = 0; i < 4; i += 1 { g.shift_remove(h0[i]) }
+    ck(g.size() == 9 && tp_tombstones(const &g) == 4 && tp_room(const &g) == 3, "nine live, four tombstones")
+    // A reserve the capacity covers clears the tombstones that hold the
+    // room it promises.
+    var r: {u64: u64}
+    r.reserve(14)
+    for var i: usize = 0; i < 13; i += 1 { r.insert(h0[i], i as u64) }
+    for var i: usize = 0; i < 4; i += 1 { r.swap_remove(h0[i]) }
+    r.reserve(12)
+    ck(tp_tombstones(const &r) == 4 && tp_room(const &r) == 3, "reserve within the room changes nothing")
+    r.reserve(16)
+    ck(r.capacity() == 16 && tp_tombstones(const &r) == 0 && tp_room(const &r) == 7, "reserve rebuilds the index for its room")
+    for var i: usize = 0; i < 5; i += 1 { r.insert(h1[i], i as u64) }
+    r.insert(h0[0], 0)
+    r.insert(h0[1], 1)
+    ck(r.capacity() == 16 && r.size() == 16 && tp_ok(const &r, "reserved"), "the reserved inserts keep the block")
+
+    for var i: usize = 0; i < 3; i += 1 { g.insert(h1[i], 100 + i as u64) }
+    ck(tp_room(const &g) == 0 && g.capacity() == 16, "the room is used up again")
+    g.insert(h1[3], 103)
+    ck(g.capacity() == 32 && g.size() == 13 && tp_tombstones(const &g) == 0, "more than half full: the block doubles")
+    all = true
+    for var i: usize = 4; i < 13; i += 1 { if !g.contains(h0[i]) { all = false } }
+    for var i: usize = 0; i < 4; i += 1 { if !g.contains(h1[i]) || g.contains(h0[i]) { all = false } }
+    ck(all && tp_ok(const &g, "doubled"), "contents after the doubling")
+    var j: usize = 4
+    var ordered = true
+    for (k, v) in g {
+        if j < 13 { if k != h0[j] { ordered = false } } else { if k != h1[j - 13] { ordered = false } }
+        j += 1
+    }
+    ck(ordered && j == 17, "insertion order after the doubling")
 }
 
 /// Removes every entry of an n-entry map in forward, reverse and random key
@@ -210,6 +280,7 @@ fn main() -> i32 {
     test_reserve_shrink()
     test_remove_order()
     test_erase_past_home()
+    test_tombstone_room()
     test_remove_all(700)
     io::println(f"{checks} checks, {failures} failures")
     return failures as i32
@@ -222,5 +293,8 @@ fn main() -> i32 {
 // RUN: %t.exe | %FileCheck %s
 // RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe | %FileCheck %s
+// The tag compare as one 128-bit word, the form targets without SSE2 take.
+// RUN: %kairo_new %s -O2 -DKAIRO_TABLE_NO_SIMD -o %t.word.exe --cache-dir %t.dw
+// RUN: %t.word.exe | %FileCheck %s
 // CHECK-NOT: FAIL
 // CHECK: {{[0-9]+}} checks, 0 failures

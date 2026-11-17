@@ -1,6 +1,7 @@
-// Top-bit distribution: 2^20 sequential integers, 2^20 multiples of 4096 and
-// 2^20 heap-like addresses, bucketed by the top 16 bits of the hash, four
-// seeds; chi-square one-sided at mean + 5 sd.
+// Distribution: 2^20 sequential integers, 2^20 multiples of 4096 and 2^20
+// heap-like addresses, bucketed by the top 16 bits of the hash and by bits
+// 32..47 (the hash table takes a key's home bucket from the bits at 32 and
+// up), four seeds; chi-square one-sided at mean + 5 sd.
 
 import std::io
 
@@ -60,7 +61,7 @@ eval LIMIT: u64 = 1077520
 
 var counts: [u32; BUCKETS]
 
-fn chi16(seed: u64, step: u64, base: u64, usize_path: bool) -> u64 {
+fn chi16(seed: u64, step: u64, base: u64, usize_path: bool, shift: u64) -> u64 {
     for var i: usize = 0; i < BUCKETS; i++ {
         counts[i] = 0
     }
@@ -71,7 +72,7 @@ fn chi16(seed: u64, step: u64, base: u64, usize_path: bool) -> u64 {
         } else {
             h.write_u64(base + i * step)
         }
-        counts[(h.finish() >> 48) as usize] += 1
+        counts[((h.finish() >> shift) & 0xffff) as usize] += 1
     }
     var sum: u64 = 0
     for var i: usize = 0; i < BUCKETS; i++ {
@@ -82,9 +83,12 @@ fn chi16(seed: u64, step: u64, base: u64, usize_path: bool) -> u64 {
 }
 
 fn one(const name: string, seed: u64, step: u64, base: u64, usize_path: bool) {
-    var s = chi16(seed, step, base, usize_path)
+    var s = chi16(seed, step, base, usize_path, 48)
     io::println(f"  {name} seed={seed}: chi2*16 = {s} (limit {LIMIT})")
     check(s <= LIMIT, f"{name} seed={seed}: {s} > {LIMIT}")
+    var t = chi16(seed, step, base, usize_path, 32)
+    io::println(f"  {name} seed={seed}, bits 32..47: chi2*16 = {t} (limit {LIMIT})")
+    check(t <= LIMIT, f"{name} seed={seed}, bits 32..47: {t} > {LIMIT}")
 }
 
 fn main() -> i32 {

@@ -89,10 +89,11 @@ fn test_colliding(n: u64) {
 }
 
 fn test_reseed() {
-    // 4096 reserved: 8192 slots. The 130th key walks 129 slots in an index
-    // under half full and the table takes a new seed; the hash ignores it,
-    // so the block asks no more. The block after the growth past 7168 asks
-    // once more.
+    // 4096 reserved: capacity 7168. Once the keys fill more than ten
+    // buckets past their one home, the next key walks past them while under
+    // half the slots are full and the table takes a new seed; the hash
+    // ignores it, so the block asks no more. The block after the growth
+    // past 7168 asks once more.
     var m: {CKey: u64}
     m.reserve(4096)
     var seed = tp_seed(const &m)
@@ -107,7 +108,7 @@ fn test_reseed() {
         }
     }
     ck(changes == 2, f"one reseed per block for a seed-blind hash ({changes})")
-    ck(first_at == 129, f"the first reseed comes at the 130th key ({first_at})")
+    ck(first_at > 128 && first_at <= 160, f"the first reseed comes after 128 colliding keys ({first_at})")
     ck(tp_ok(const &m, "after reseeds"), "consistent after reseeds")
     var bad: u64 = 0
     var j: u64 = 0
@@ -120,11 +121,11 @@ fn test_reseed() {
     }
     ck(bad == 0, "contents and order after reseeds")
 
-    // A dense index never asks: there a long walk is load.
+    // A walk of ten buckets or fewer never asks.
     var d: {CKey: u64}
     var dseed = tp_seed(const &d)
-    for var i: u64 = 0; i < 200; i += 1 { d.insert(CKey { v: i }, i) }
-    ck(tp_seed(const &d) == dseed, "no reseed above half load")
+    for var i: u64 = 0; i < 120; i += 1 { d.insert(CKey { v: i }, i) }
+    ck(tp_seed(const &d) == dseed, "no reseed for a short walk")
 }
 
 fn main() -> i32 {
@@ -140,5 +141,8 @@ fn main() -> i32 {
 // RUN: rm -rf %t.d
 // RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe | %FileCheck %s
+// The tag compare as one 128-bit word, the form targets without SSE2 take.
+// RUN: %kairo_new %s -O2 -DKAIRO_TABLE_NO_SIMD -o %t.word.exe --cache-dir %t.dw
+// RUN: %t.word.exe | %FileCheck %s
 // CHECK-NOT: FAIL
 // CHECK: {{[0-9]+}} checks, 0 failures

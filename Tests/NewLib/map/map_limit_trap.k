@@ -1,9 +1,9 @@
-// A reserve past the entry limit (2^32 - 2^29 at 8-byte slots) traps before
+// A reserve past the entry limit (2^32: 32-bit entry numbers) traps before
 // it allocates.
 
 fn main() -> i32 {
     var m: {u64: u64}
-    m.reserve(3758096385)
+    m.reserve(4294967297)
     return 0
 }
 

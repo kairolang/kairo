@@ -86,7 +86,7 @@ fn test_one() {
     var m: {u64: u64}
     var old? = m.insert(5, 50)
     ck(!old?, "one: insert of a new key returns null")
-    ck(m.size() == 1 && m.capacity() == 7, "one: first growth to 7")
+    ck(m.size() == 1 && m.capacity() == 8, "one: first growth to 8")
     ck(m[5] == 50 && m.contains(5) && !m.contains(6), "one: lookup")
     var f? = m.first()
     var l? = m.last()

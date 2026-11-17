@@ -186,21 +186,55 @@ fn test_copy() {
     ck(live == 0 && errors == 0, "copies destroyed")
 }
 
+/// Every NR key has one home, so sixteen of them fill a two-bucket table:
+/// twelve in the home bucket, four in the other. Removals in the full
+/// bucket leave tombstones that hold the room. The next insert rebuilds
+/// the index in place when the table is at most half full, with no entry
+/// moved, and moves every entry to a block twice the size otherwise.
+fn test_tombstone_room(remove: u64, grows: bool, const what: string) {
+    {
+        var m: {NR: MO}
+        m.reserve(14)
+        for var i: u64 = 0; i < 16; i += 1 { m.insert(NR(i), MO(i)) }
+        ck(m.capacity() == 16 && tp_room(const &m) == 0, f"{what}: full")
+        // The first twelve keys are the ones in the home bucket.
+        for var i: u64 = 0; i < remove; i += 1 { m.swap_remove(NR(i)) }
+        ck(tp_tombstones(const &m) == remove as usize && tp_room(const &m) == 0, f"{what}: tombstones hold the room")
+        var first: usize = 0
+        var after: usize = 0
+        unsafe { first = tp_block(const &m) as usize }
+        m.insert(NR(100), MO(100))
+        unsafe { after = tp_block(const &m) as usize }
+        var moved = after != first
+        if grows {
+            ck(m.capacity() == 32 && moved, f"{what}: the block doubles")
+        } else {
+            ck(m.capacity() == 16 && !moved, f"{what}: the index is rebuilt in place")
+        }
+        ck(tp_tombstones(const &m) == 0 && tp_ok(const &m, what), f"{what}: consistent")
+        var bad: u64 = 0
+        for var i: u64 = remove; i < 16; i += 1 {
+            var *v? = m.get(NR(i))
+            if !v? || v->v != i { bad += 1 }
+        }
+        var *n? = m.get(NR(100))
+        ck(bad == 0 && n? && n->v == 100 && m.size() == (17 - remove) as usize, f"{what}: contents")
+        ck(live == 2 * (17 - remove as i64), f"{what}: one key and one value per entry")
+    }
+    ck(live == 0 && errors == 0, f"{what}: all destroyed")
+}
+
 fn main() -> i32 {
     test_moving(1200)
     test_copy()
+    test_tombstone_room(9, false, "rebuild")
+    test_tombstone_room(3, true, "grow")
     io::println(f"{checks} checks, {failures} failures")
     return failures as i32
 }
 
 // --- lit wiring ---
 // REQUIRES: newlib
-// Expected to fail: clang is given no `Copyable` (or `Default`) witness for a
-// primitive at a member of a block bounded on it ("'int' does not satisfy
-// 'Copyable_c'", CL001E "no matching function for call to 'copy'"), unless
-// something else in the unit calls through that witness. Remove the XFAIL
-// line when the compiler emits the witness for a bound that is only checked.
-// XFAIL: *
 // RUN: rm -rf %t.d
 // RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s

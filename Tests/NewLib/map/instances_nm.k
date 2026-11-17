@@ -62,7 +62,7 @@ fn main() -> i32 {
 // RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu -o %t.exe --cache-dir %t.d
 // Each core member is defined once.
 // RUN: %nm --defined-only %t.exe | grep -c 'RawTable4growE' | %FileCheck %s --check-prefix=ONE
-// RUN: %nm --defined-only %t.exe | grep -c 'RawTable10claim_grow' | %FileCheck %s --check-prefix=ONE
+// RUN: %nm --defined-only %t.exe | grep -c 'RawTable5claimE' | %FileCheck %s --check-prefix=ONE
 // RUN: %nm --defined-only %t.exe | grep -c 'RawTable20index_unlink_swap_at' | %FileCheck %s --check-prefix=ONE
 // RUN: %nm --defined-only %t.exe | grep -c 'RawTable18index_unlink_shift' | %FileCheck %s --check-prefix=ONE
 // RUN: %nm --defined-only %t.exe | grep -c 'RawTable12unlink_shift' | %FileCheck %s --check-prefix=ONE

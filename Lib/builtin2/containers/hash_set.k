@@ -38,14 +38,16 @@ pub class <T impl Hash> HashSet {
         rt_release<T>(&self.t)
     }
 
+    // Reads the entry array's address and the size once: an insert or a
+    // removal during the walk invalidates it.
     pub fn op in (const self) -> yield *const T {
-        var i: usize = 0
-        while i < self.t.size() {
+        var unsafe *p   = self.at_(0)
+        var unsafe *end = self.at_(self.t.size())
+        while p != end {
             unsafe {
-                yield self.at_(i) as *const T
+                yield p as *const T
+                p = p + 1
             }
-
-            i += 1
         }
     }
 
@@ -58,7 +60,7 @@ pub class <T impl Hash> HashSet {
     priv inline fn find_(const self, const x: T) -> usize {
         var h           = hash_of(self.t, x)
         var slot: usize = 0
-        return raw_find_slot(self.t, x, h, sizeof T, alignof T, &slot)
+        return raw_find_slot(self.t, x, h, sizeof T, &slot)
     }
 
     /// `insert`, as a member of the class itself: the extension blocks call
@@ -66,13 +68,12 @@ pub class <T impl Hash> HashSet {
     priv inline fn insert_(self, x: T) -> bool {
         var h           = hash_of(self.t, x)
         var slot: usize = 0
-        if raw_find_slot(self.t, x, h, sizeof T, alignof T, &slot) != NO_ENTRY {
+        if raw_find_slot(self.t, x, h, sizeof T, &slot) != NO_ENTRY {
             return false
         }
 
-        var i = rt_link<T>(&self.t, h, slot)
         unsafe {
-            __builtin_construct_at<T>(self.at_(i) as unsafe *u8, move(x))
+            __builtin_construct_at<T>(rt_link<T>(&self.t, h, slot), move(x))
         }
 
         rt_inserted<T, T>(&self.t)
@@ -251,7 +252,7 @@ extend <T impl Hash> HashSet<T> {
     pub fn replace(self, x: T) -> T? {
         var h           = hash_of(self.t, x)
         var slot: usize = 0
-        var i = raw_find_slot(self.t, x, h, sizeof T, alignof T, &slot)
+        var i           = raw_find_slot(self.t, x, h, sizeof T, &slot)
         if i != NO_ENTRY {
             unsafe {
                 var unsafe *p      = self.at_(i)
@@ -261,9 +262,8 @@ extend <T impl Hash> HashSet<T> {
             }
         }
 
-        var j = rt_link<T>(&self.t, h, slot)
         unsafe {
-            __builtin_construct_at<T>(self.at_(j) as unsafe *u8, move(x))
+            __builtin_construct_at<T>(rt_link<T>(&self.t, h, slot), move(x))
         }
 
         rt_inserted<T, T>(&self.t)
@@ -274,7 +274,7 @@ extend <T impl Hash> HashSet<T> {
     pub fn swap_remove(self, const x: T) -> bool {
         var h           = hash_of(self.t, x)
         var slot: usize = 0
-        var i = raw_find_slot(self.t, x, h, sizeof T, alignof T, &slot)
+        var i           = raw_find_slot(self.t, x, h, sizeof T, &slot)
         if i == NO_ENTRY {
             return false
         }
@@ -305,7 +305,7 @@ extend <T impl Hash> HashSet<T> {
     pub fn take(self, const x: T) -> T? {
         var h           = hash_of(self.t, x)
         var slot: usize = 0
-        var i = raw_find_slot(self.t, x, h, sizeof T, alignof T, &slot)
+        var i           = raw_find_slot(self.t, x, h, sizeof T, &slot)
         if i == NO_ENTRY {
             return null
         }
@@ -326,10 +326,9 @@ extend <T impl Hash> HashSet<T> {
 
         unsafe {
             var unsafe *p      = self.at_(n - 1)
-            var        h       = hash_of(self.t, *p)
             var        out: T? = move(*p)
             __builtin_destruct_at(p as *T)
-            rt_remove_last(&self.t, h)
+            rt_remove_last(&self.t)
             return out
         }
     }

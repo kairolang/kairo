@@ -6,6 +6,8 @@
 // collide. Every 512 operations (and after each whole-table operation) the
 // full state is compared: size, every entry in order with its value, and
 // the table's structure. A failure prints the seed and the operation.
+// A third stream runs a map whose key has only 16 hash values, so buckets
+// fill and removals leave tombstones.
 //
 // FUZZ_OPS (operations per seed) and FUZZ_SEEDS set the length; lit runs a
 // short stream.
@@ -204,6 +206,90 @@ fn run_set(seed: u64, ops: u64) {
     }
 }
 
+/// A key whose hash has 16 values: buckets fill, probe sequences run past
+/// them, and removals leave tombstones that later inserts reuse.
+struct WKey {
+    pub var v: u64
+}
+
+extend WKey impl Hash {
+    fn hash(const self, @inout h: Hasher) {
+        h.write_u64(self.v % 16)
+    }
+
+    fn op == (const self, const o: WKey) -> bool {
+        return self.v == o.v
+    }
+}
+
+fn same_weak(const m: {WKey: u64}, const r: Ref, seed: u64, at: u64) {
+    if m.size() != r.order.size() { fail(seed, at, f"weak size {m.size()} vs {r.order.size()}") }
+    var i: usize = 0
+    for (k, v) in m {
+        if i >= r.order.size() || k.v != r.order[i] || v != r.val.at(k.v) {
+            fail(seed, at, f"weak entry {i}")
+            return
+        }
+        i += 1
+    }
+    var c = tp_check(const &m)
+    if c != 0 { fail(seed, at, f"weak table rule {c}") }
+}
+
+fn run_weak(seed: u64, ops: u64) {
+    var m: {WKey: u64}
+    var r = Ref()
+    var g = Rng(seed + 424242)
+    var space: u64 = 40
+    for var at: u64 = 0; at < ops && !failed; at += 1 {
+        if at % 5000 == 0 {
+            var sizes: [u64] = [20, 40, 150, 600]
+            space = sizes[g.below(4) as usize]
+        }
+        var k = g.below(space)
+        var v = g.next()
+        var c = g.below(100)
+        if c < 40 {
+            var old? = m.insert(WKey { v: k }, v)
+            var had = r.val.count(k) != 0
+            if had != old? || (had && old != r.val.at(k)) { fail(seed, at, "weak insert result") }
+            r.put(k, v)
+        } else if c < 60 {
+            var *p? = m.get(WKey { v: k })
+            var had = r.val.count(k) != 0
+            if had != p? { fail(seed, at, "weak get") }
+            if p? && *p != r.val.at(k) { fail(seed, at, "weak get value") }
+        } else if c < 88 {
+            var got? = m.swap_remove(WKey { v: k })
+            var had = r.val.count(k) != 0
+            if had != got? || (had && got != r.val.at(k)) { fail(seed, at, "weak swap_remove result") }
+            if had { r.swap_remove(k) }
+        } else if c < 93 {
+            var got? = m.shift_remove(WKey { v: k })
+            var had = r.val.count(k) != 0
+            if had != got? || (had && got != r.val.at(k)) { fail(seed, at, "weak shift_remove result") }
+            if had { r.shift_remove(k) }
+        } else if c < 98 {
+            var p? = m.pop()
+            if r.order.size() == 0 {
+                if p? { fail(seed, at, "weak pop on empty") }
+            } else {
+                var last = r.order[r.order.size() - 1]
+                if !p? || p.0.v != last || p.1 != r.val.at(last) { fail(seed, at, "weak pop result") }
+                r.swap_remove(last)
+            }
+        } else if c < 99 {
+            m.shrink_to_fit()
+            same_weak(m, r, seed, at)
+        } else {
+            m.reserve(m.size() + g.below(200) as usize)
+            same_weak(m, r, seed, at)
+        }
+        if at % 256 == 0 { same_weak(m, r, seed, at) }
+    }
+    same_weak(m, r, seed, ops)
+}
+
 fn env_u64(const name: string, fallback: u64) -> u64 {
     unsafe {
         var unsafe *p = getenv(name.data() as unsafe *const __builtin_c_char)
@@ -219,9 +305,10 @@ fn main() -> i32 {
     for var seed = first; seed < first + seeds && !failed; seed += 1 {
         run_map(seed, ops)
         run_set(seed, ops)
+        run_weak(seed, ops)
     }
     if failed { return 1 }
-    io::println(f"ok: {seeds} seeds x {ops} map ops and {ops} set ops")
+    io::println(f"ok: {seeds} seeds x {ops} map ops, {ops} set ops and {ops} weak-hash ops")
     return 0
 }
 
@@ -230,5 +317,8 @@ fn main() -> i32 {
 // RUN: rm -rf %t.d
 // RUN: %kairo_new %s -O2 -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s
+// The tag compare as one 128-bit word, the form targets without SSE2 take.
+// RUN: %kairo_new %s -O2 -DKAIRO_TABLE_NO_SIMD -o %t.word.exe --cache-dir %t.dw
+// RUN: %t.word.exe | %FileCheck %s
 // CHECK-NOT: FAIL
 // CHECK: ok: 2 seeds x 30000 map ops
