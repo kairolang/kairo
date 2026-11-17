@@ -86,6 +86,8 @@ ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
 import AST::Context::DeclContext::DeclContextKind
+import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::DeclFacts::decl_extension_of
 import AST::Kind::ExprKind::to_string
 import AST::LangItems::{
     WellKnownType,
@@ -103,15 +105,17 @@ import AST::Node::CanonicalNodes::{
 }
 import AST::Node::Casting::{
     cast,
+    dyn_cast,
     isa,
 }
 import AST::Node::Declarations::{
+    FunctionDecl,
     StorageClass,
     VariableDecl,
 }
 import AST::Node::Expressions::{
-    InitField,            InitListExpr,   ListLiteralExpr, ListStorage, MapLiteralExpr,
-    NamedInitializerExpr, SetLiteralExpr, TypeCastExpr,
+    CallExpr,       InitField,            InitListExpr,   ListLiteralExpr, ListStorage,
+    MapLiteralExpr, NamedInitializerExpr, SetLiteralExpr, TypeCastExpr,
 }
 import AST::Node::PrimaryExpressions::NullLiteralExpr
 import AST::Node::Statements
@@ -634,6 +638,16 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
                    const keys: cxx::std::vector<unsafe *Expr> = cxx::std::vector<unsafe *Expr>(),
                    kt:         unsafe *Type = &null) -> unsafe *Expr {
         var lb = self.tu.literal_build(k)
+        self._reserve_inst = &null
+        self._add_inst     = &null
+        var bound = self.sc->literal_calls.find(n as usize as u64)
+        if bound != self.sc->literal_calls.end() {
+            lb.reserve         = bound->second.reserve
+            lb.add             = bound->second.add
+            self._reserve_inst = bound->second.reserve_inst
+            self._add_inst     = bound->second.add_inst
+        }
+
         if lb.add == &null {
             kairo::std::ice_fail(
                 f"ListLiteralLowering: {to_string(k)} has no by-value member to build a literal through; MoveCheck refuses the literal",
@@ -714,6 +728,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         var unsafe *unit = self.sc->builtin(BuiltinKind::Void)
         if lb.reserve != &null {
             var args = self.list_builder<unsafe *Expr>()
+            self._receiver_first(n->range, vd, lb.reserve, &args)
             args.push(
                 self._cast(
                     n->range,
@@ -728,16 +743,12 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
 
             out->push_back(
                 self._expr_stmt(
-                    self.synth.member_call(
+                    self._built_call(
                         n->range,
-                        self.synth.use_of(
-                            vd,
-                            n->range,
-                            Expr::ValueCategory::LValue,
-                        ),
+                        vd,
                         lb.reserve,
+                        self._reserve_inst,
                         &args,
-                        unit,
                     ),
                 ),
             )
@@ -747,6 +758,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             var unsafe *v = vals[i]
             var args                      = self.list_builder<unsafe *Expr>()
             var kd:  unsafe *VariableDecl = &null
+            self._receiver_first(v->range, vd, lb.add, &args)
             if keys.size() > 0 {
                 var unsafe *key = keys[i]
                 if !self.synth.pure_read(key) && !self.synth.pure_read(v) {
@@ -767,13 +779,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
 
             args.push(v)
             var unsafe *add = self._expr_stmt(
-                self.synth.member_call(
-                    v->range,
-                    self.synth.use_of(vd, v->range, Expr::ValueCategory::LValue),
-                    lb.add,
-                    &args,
-                    unit,
-                ),
+                self._built_call(v->range, vd, lb.add, self._add_inst, &args),
             )
 
             if kd == &null {
@@ -792,6 +798,58 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             body.freeze_into(&blk->body)
             out->push_back(unsafe (blk as unsafe *Stmt))
         }
+    }
+
+    /// The instances of the build's `reserve` and add when LiteralTyping
+    /// bound them (SemaContext::literal_calls), for the literal _build is on.
+    priv var _reserve_inst: unsafe *InstanceEntry = &null
+    priv var _add_inst:     unsafe *InstanceEntry = &null
+
+    /// A member of an `extend` block is called as ExtensionLowering leaves
+    /// it, `m(&vd, args...)`: that pass has run. Pushes `&vd` when \p m is
+    /// one, ahead of the arguments the caller pushes next.
+    priv fn _receiver_first(self,
+                            at:          SourceRange,
+                            vd:          unsafe *VariableDecl,
+                            m:           unsafe *Decl,
+                            @inout args: ListBuilder<unsafe *Expr>) {
+        if decl_extension_of(cast<FunctionDecl>(m)) != &null {
+            args.push(
+                self.synth.addr_of(
+                    self.synth.use_of(vd, at, Expr::ValueCategory::LValue),
+                ),
+            )
+        }
+    }
+
+    /// `vd.m(args)` with instance \p inst, in the form _receiver_first
+    /// prepared \p args for.
+    priv fn _built_call(self,
+                        at:          SourceRange,
+                        vd:          unsafe *VariableDecl,
+                        m:           unsafe *Decl,
+                        inst:        unsafe *InstanceEntry,
+                        @inout args: ListBuilder<unsafe *Expr>) -> unsafe *Expr {
+        var unsafe *unit              = self.sc->builtin(BuiltinKind::Void)
+        var        call: unsafe *Expr = &null
+        if decl_extension_of(cast<FunctionDecl>(m)) != &null {
+            call = self.synth.free_call(at, m, unsafe &args, unit)
+        } else {
+            call = self.synth.member_call(
+                at,
+                self.synth.use_of(vd, at, Expr::ValueCategory::LValue),
+                m,
+                &args,
+                unit,
+            )
+        }
+
+        var unsafe *c = dyn_cast<CallExpr>(call)
+        if c != &null && inst != &null {
+            c->instance = inst
+        }
+
+        return call
     }
 
     priv fn _exprs(self, l: unsafe *FrozenList<unsafe *Expr>) -> cxx::std::vector<unsafe *Expr> {

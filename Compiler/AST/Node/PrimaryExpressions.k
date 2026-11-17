@@ -1011,6 +1011,11 @@ pub class StringLiteralExpr derives Expr {
     /// byte literal StringLowering mints from it, EmitIR spells the bytes as
     /// `__kairo_estr<...>` rather than a `"..."` that needs a cast.
     pub var const_eval: bool = false
+    /// On the byte literal StringLowering mints for a string literal of the
+    /// two-word library: EmitIR spells the bytes member of the literal's
+    /// read-only object (LowerTargets::lit_str), whose word before the bytes
+    /// holds the codepoint count, in place of a `"..."`.
+    pub var lit_header: bool = false
     /// The C string parameter type this literal is passed as: set by
     /// CallTyping when the literal is an argument of an imported function
     /// at a `const char *` / `*const u8` parameter or its C `...` tail.
@@ -1040,6 +1045,7 @@ pub class StringLiteralExpr derives Expr {
         node->fmt_len     = &null
         node->fmt_holes   = create_empty_frozen_list<FormatHole>() // read only when is_format; an unset list must still be readable.
         node->const_eval  = false
+        node->lit_header  = false
         node->c_string    = &null
         node->udl_op      = &null
         node->init_annotations(unsafe &ctx->ast_alloc)
@@ -1061,6 +1067,7 @@ pub class StringLiteralExpr derives Expr {
         node->fmt_len       = &null
         node->fmt_holes     = create_empty_frozen_list<FormatHole>() // read only when is_format; an unset list must still be readable.
         node->const_eval    = false
+        node->lit_header    = false
         node->c_string      = &null
         node->udl_op        = &null
         node->init_annotations(unsafe &ctx->ast_alloc)

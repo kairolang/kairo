@@ -118,6 +118,21 @@ extend EmitIR {
         // Read at compile time (Compiler/Spec/Eval.md#strings-at-compile-time): the bytes as template
         // arguments of `__kairo_estr`, a `const unsigned char` array with the
         // NUL appended, which needs no cast to reach the string's `data`.
+        // A string literal of the two-word library: the bytes member of its
+        // read-only object, which InterfaceEmitter defined at global scope
+        // ahead of every body (EmitPlan::big_strs collected it).
+        if n->lit_header {
+            self._cg->sink->spell(
+                n->range,
+                "::" + LowerTargets::lit_str(
+                    LowerTargets::eval_str_hash(p, len),
+                    len,
+                ) + "." + LowerTargets::lit_str_bytes(),
+            )
+
+            return
+        }
+
         if n->const_eval {
             // A long one is a named array instead (Compiler/Spec/Eval.md#value-nodes), which
             // InterfaceEmitter defined at global scope ahead of every body

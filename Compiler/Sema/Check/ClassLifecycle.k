@@ -755,10 +755,15 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         //
         // Slice is deliberately absent: it is a non-owning ptr+len view, and
         // it IS trivial in both senses.
-        if self._tu.is_vector_like(t)
-            || self._tu.is_map_like(t)
-            || self._tu.is_set_like(t)
-            || self._tu.is_string(t) {
+        //
+        // The two-word library's four declare their transfer constructor
+        // and destructor, so their facts are read off the declaration like
+        // any record's: they are MOVE types there.
+        if !self._tu.sc->well_known->two_word()
+            && (self._tu.is_vector_like(t)
+                || self._tu.is_map_like(t)
+                || self._tu.is_set_like(t)
+                || self._tu.is_string(t)) {
             out.trivially_copyable = LifecycleTri::No
             out.trivial_dtor       = LifecycleTri::No
             // The one fact read off the declaration: the container says

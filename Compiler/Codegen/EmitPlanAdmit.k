@@ -338,6 +338,17 @@ extend EmitPlan {
             return
         }
 
+        // An argument that holds an interface's own Self (`-> Self?` in a
+        // requirement is `Null<Self>`) names no C++ type here: the witness
+        // spells the instance with the conforming type in its place.
+        for var i: usize = 0; i < e->args.size(); ++i {
+            if Speller::mentions_iface_self(e->args[i]) {
+                // The template itself is still named by that witness.
+                self._admit(prim, PlanNeed::Complete)
+                return
+            }
+        }
+
         if self._inst_seen.insert(e as usize as u64).second {
             self._insts.push_back(e)
             self._admit_reached(e)
@@ -486,7 +497,14 @@ extend EmitPlan {
                 if v->vop == ValueOp::Str {
                     self.needs_eval_str = true
                     self._admit_type(v->vty, PlanNeed::Complete)
-                    self.note_eval_str(v->vbytes, v->vmag as usize)
+                    if self._cg->tu != &null
+                        && self._cg->tu->global_scope != &null
+                        && self._cg->tu->global_scope->well_known()->two_word() {
+                        self.note_lit_str(v->vbytes, v->vmag as usize)
+                    } else {
+                        self.note_eval_str(v->vbytes, v->vmag as usize)
+                    }
+
                     return
                 }
 

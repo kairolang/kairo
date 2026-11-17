@@ -212,14 +212,20 @@ pub class WrapForms {
     /// what lets a type C++ instantiates a bounded template with, which no
     /// Kairo row names, meet the bound through its own operator. "" when
     /// no builtin has the operator.
-    pub static fn witness_gate(k: TokenKind, arity: usize, const S: string) -> string {
+    ///
+    /// \p float_order: the library lets a float meet `<=>` (the two-word
+    /// library's Ord; an unordered pair answers Equal).
+    pub static fn witness_gate(k:           TokenKind,
+                               arity:       usize,
+                               const S:     string,
+                               float_order: bool = false) -> string {
         var b = OperatorFacts::compound_base(k)
         if b != TokenKind::TkUnknown {
             if arity != 1 {
                 return ""
             }
 
-            return WrapForms::witness_gate(b, 1, S)
+            return WrapForms::witness_gate(b, 1, S, float_order)
         }
 
         var ints = "(__is_integral(" + S + ") && !__is_same(" + S + ", bool) && !__is_same(" + S + ", char) && !__is_same(" + S + ", wchar_t) && !__is_same(" + S + ", char8_t) && !__is_same(" + S + ", char16_t) && !__is_same(" + S + ", char32_t))"
@@ -255,7 +261,8 @@ pub class WrapForms {
         }
 
         if k == TokenKind::OpLessEqualGreater {
-            return "(" + ints + " || __is_same(" + S + ", bool) || __is_same(" + S + ", char32_t))"
+            var fl = if (float_order) => (" || __is_floating_point(" + S + ")") else => ""
+            return "(" + ints + " || __is_same(" + S + ", bool) || __is_same(" + S + ", char32_t)" + fl + ")"
         }
 
         if k == TokenKind::OpPlus

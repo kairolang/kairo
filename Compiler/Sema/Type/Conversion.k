@@ -1006,6 +1006,12 @@ pub class Conversion {
             return false
         }
 
+        // The two-word Vector declares its views itself (`@implicit op
+        // as`): the conversion is that operator's, selected like any other.
+        if self.tu.is_vector_like(fu) && self.tu.sc->well_known->two_word() {
+            return false
+        }
+
         var want = self.tu.record_args(to)
         var have = self.tu.record_args(fu)
         if want.size() != 1 || have.size() != 1 {

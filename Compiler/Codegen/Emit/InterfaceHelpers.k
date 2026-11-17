@@ -621,8 +621,11 @@ extend InterfaceEmitter {
             var drp = LowerTargets::panic_api_drop()
             var th  = LowerTargets::panic_api_throw()
             var nm = "::" + LowerTargets::type_id_trait() + "<E>::" + LowerTargets::type_id_name()
-            var sd = LangMembers::string_as_ptr() + "()"
-            var sl = LangMembers::string_length() + "()"
+            var tw = self._cg->tu != &null
+                && self._cg->tu->global_scope != &null
+                && self._cg->tu->global_scope->well_known()->two_word()
+            var sd = LangMembers::string_data(tw) + "()"
+            var sl = LangMembers::string_size(tw) + "()"
             // No `: ::name` anywhere: a header's text sink writes no space
             // between tokens, and `:::` lexes as `::` `:`. The base is
             // default-built in the copy (std::exception holds nothing).

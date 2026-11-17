@@ -395,12 +395,23 @@ pub class LangMembers {
         return "inclusive"
     }
 
-    /// Slice<T> fields (containers/slice.k): IterLowering walks a slice by them.
-    pub static fn slice_data() -> string {
+    /// Slice<T> (containers/slice.k): what IterLowering walks a slice by.
+    /// The four-word library's are its public fields `data` and `len`. The
+    /// two-word library's fields are private, so the loop calls the
+    /// record's own `first_()` and `count_()` instead.
+    pub static fn slice_data(two_word: bool) -> string {
+        if two_word {
+            return "first_"
+        }
+
         return "data"
     }
 
-    pub static fn slice_len() -> string {
+    pub static fn slice_count(two_word: bool) -> string {
+        if two_word {
+            return "count_"
+        }
+
         return "len"
     }
 
@@ -408,12 +419,21 @@ pub class LangMembers {
     /// and the emitted C++ enforces that even where Kairo's AccessCheck does
     /// not look (synthesized trees). MatchLowering compares a string head's
     /// bytes, LiteralTyping sizes an f-string's buffer, the kcc panic view
-    /// reads a message.
-    pub static fn string_as_ptr() -> string {
+    /// reads a message. The two-word library (WellKnownDecls::two_word)
+    /// names the pair `data` / `size`; the four-word one `as_ptr` / `length`.
+    pub static fn string_data(two_word: bool) -> string {
+        if two_word {
+            return "data"
+        }
+
         return "as_ptr"
     }
 
-    pub static fn string_length() -> string {
+    pub static fn string_size(two_word: bool) -> string {
+        if two_word {
+            return "size"
+        }
+
         return "length"
     }
 
@@ -426,7 +446,13 @@ pub class LangMembers {
     }
 
     /// Yield<T> methods (coro/generator.k): the generator protocol IterLowering drives.
-    pub static fn yield_next() -> string {
+    /// The two-word library spells the step `resume`: its `next` is
+    /// Iterator's, which returns the item.
+    pub static fn yield_step(two_word: bool) -> string {
+        if two_word {
+            return "resume"
+        }
+
         return "next"
     }
 
@@ -477,13 +503,13 @@ pub class PureAccessors {
         return 4
     }
 
-    pub static fn string_member(i: usize) -> string {
+    pub static fn string_member(i: usize, two_word: bool) -> string {
         if i == 0 {
-            return LangMembers::string_as_ptr()
+            return LangMembers::string_data(two_word)
         }
 
         if i == 1 {
-            return LangMembers::string_length()
+            return LangMembers::string_size(two_word)
         }
 
         if i == 2 {
@@ -500,6 +526,14 @@ pub class PureAccessors {
 ///        the preprocessor adds the import edge for a file whose tokens use
 ///        what the module declares, and no source file writes the import.
 pub class LangModules {
+    /// The constant the builtin root (module.k) declares when its string,
+    /// Vector, HashMap and HashSet are the move-only two-word records. Its
+    /// presence is the whole signal (WellKnownDecls::two_word); the value
+    /// is the edition number, for a reader of the library.
+    pub static fn library_edition() -> string {
+        return "__builtin_library_edition"
+    }
+
     /// `builtin::base::alloc`: `create` / `destroy`, behind the `@create` /
     /// `@destroy` sugar.
     pub static fn base_dir() -> string {
@@ -628,6 +662,12 @@ pub class LangBuiltins {
 ///        by the pass that needs it.
 pub class WellKnownDecls {
     priv var _decls: cxx::std::vector<unsafe *Decl> ///< indexed by WellKnownType; COUNT slots.
+    /// The builtin root declares LangModules::library_edition: its string,
+    /// Vector, HashMap and HashSet are move-only two-word records with the
+    /// member names and literal entry points that go with them. Written
+    /// once by the driver, after parse and before any TU's Sema; every hook
+    /// that differs between the two libraries asks two_word().
+    priv var _two_word: bool = false
 
     fn WellKnownDecls(self) {
         for var i: usize = 0; i < (WellKnownType::COUNT as u8 as usize); ++i {
@@ -646,6 +686,16 @@ pub class WellKnownDecls {
 
     pub fn has(self, k: WellKnownType) -> bool {
         return self._decls[k as u8 as usize] != &null
+    }
+
+    pub fn set_two_word(self, on: bool) {
+        self._two_word = on
+    }
+
+    /// Which builtin library this build compiles against, read off the
+    /// library itself (its root's edition marker), never off a flag.
+    pub fn two_word(self) -> bool {
+        return self._two_word
     }
 }
 
@@ -2307,6 +2357,41 @@ pub class LowerTargets {
         return f"__kairo_estrh_{len}_" + hex64(hash)
     }
 
+    /// `template <N> struct __kairo_slit_t { size_t cp; unsigned char
+    /// b[N]; }`: a string literal of the two-word library as one read-only
+    /// object, its codepoint count in the word before its bytes and a NUL
+    /// after them. The string points at `b`.
+    pub static fn lit_str_type() -> string {
+        return "__kairo_slit_t"
+    }
+
+    pub static fn lit_str_type_guard() -> string {
+        return "__KAIRO_SLIT_T"
+    }
+
+    /// The key under which InterfaceEmitter::estr_seen records that the
+    /// struct template is written: no content hash is expected to be 0.
+    pub static fn lit_str_type_key() -> u64 {
+        return 0
+    }
+
+    /// The bytes member of lit_str_type.
+    pub static fn lit_str_bytes() -> string {
+        return "b"
+    }
+
+    /// `inline constexpr __kairo_slit_t<len + 1> __kairo_slit_<len>_<hash>`:
+    /// one literal's object, named for its content as eval_str_hashed is,
+    /// so equal literals are one object after linking and the empty one is
+    /// shared by every use.
+    pub static fn lit_str(hash: u64, len: usize) -> string {
+        return f"__kairo_slit_{len}_" + hex64(hash)
+    }
+
+    pub static fn lit_str_guard(hash: u64, len: usize) -> string {
+        return f"__KAIRO_SLIT_{len}_" + hex64(hash)
+    }
+
     /// A header's guard around one eval_str_hashed definition: two Kairo
     /// headers in one C++ TU may both carry it.
     pub static fn eval_str_hashed_guard(hash: u64, len: usize) -> string {
@@ -3691,6 +3776,16 @@ pub class LowerTargets {
     }
 
     /// Its name inside `namespace std`, where the adapters specialize it.
+    /// Hasher members (base/hash.k of the two-word library) the native
+    /// Hash witnesses and the `std::hash` adapter call.
+    pub static fn hasher_write_usize() -> string {
+        return "write_usize"
+    }
+
+    pub static fn hasher_finish() -> string {
+        return "finish"
+    }
+
     pub static fn cxx_std_hash_leaf() -> string {
         return "hash"
     }

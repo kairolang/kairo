@@ -716,17 +716,31 @@ extend EmitPlan {
             return
         }
 
+        self._note_str(p, n, false)
+    }
+
+    /// A string literal of the two-word library, \p n bytes at \p p: its
+    /// object (LowerTargets::lit_str) is defined once per content, whatever
+    /// its length.
+    fn note_lit_str(self, p: kairo::std::ConstPtr<u8>, n: usize) {
+        self._note_str(p, n, true)
+    }
+
+    priv fn _note_str(self, p: kairo::std::ConstPtr<u8>, n: usize, header: bool) {
         var h = LowerTargets::eval_str_hash(p, n)
         for var i: usize = 0; i < self.big_strs.size(); ++i {
-            if self.big_strs[i].hash == h && self.big_strs[i].len == n {
+            if self.big_strs[i].hash == h
+                && self.big_strs[i].len == n
+                && self.big_strs[i].header == header {
                 return
             }
         }
 
         var b = BigStr{}
-        b.bytes = p
-        b.len   = n
-        b.hash  = h
+        b.bytes  = p
+        b.len    = n
+        b.hash   = h
+        b.header = header
         self.big_strs.push_back(b)
     }
 

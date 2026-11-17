@@ -169,7 +169,13 @@ pub class StringLowering derives ASTWriter<StringLowering> {
 
         var unsafe *lit = self.synth.bytes_literal(n->range, unsafe &bytes, pu8)
         var unsafe *data = lit
-        if n->const_eval {
+        if self.sc->well_known->two_word() {
+            // The two-word string reads a literal's codepoint count from the
+            // word before its bytes: the literal is a constant object with
+            // that header, and its bytes member is the pointer as it is, at
+            // run time and in a constant expression alike.
+            cast<StringLiteralExpr>(lit)->lit_header = true
+        } else if n->const_eval {
             // C++ reads it at compile time (Compiler/Spec/Eval.md#strings-at-compile-time): the bytes become
             // `__kairo_estr<...>`, already `const unsigned char`, and the
             // literal constructor is constexpr. No cast, which a constant

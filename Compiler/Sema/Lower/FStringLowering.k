@@ -227,6 +227,9 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
             } else if h->kind == FormatKind::String {
                 // Read twice (its len, then its bytes): one local.
                 var unsafe *vd = self.synth.local(at, "arg", str_t, e)
+                // The two-word string is move-only: the hole reads it where
+                // it is (a temporary lives to the end of the block).
+                vd->place_ref = self.sc->well_known->two_word()
                 stmts.push(
                     unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
                 )

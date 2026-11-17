@@ -32,6 +32,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::Context::DeclContext::DeclContext
+import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::DeclName
 import AST::Kind::ExprKind::to_string
 import AST::LangItems::{
@@ -80,6 +81,7 @@ import Lexer::Immediate::Immediate
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Sema::Resolve::NameLookup::NameLookup
+import Sema::SemaContext::LiteralCalls
 import Sema::Type::Conversion::{
     ImplicitRank,
     literal_fits_int,
@@ -88,6 +90,7 @@ import Sema::Type::OverloadResolution::{
     ArgInfo,
     ListShape,
     LitKind,
+    OvlOutcome,
 }
 import Sema::Type::Substitution::Substitution
 import Support::UTF8View::UTF8View
@@ -1342,7 +1345,10 @@ pub class <T: type> LiteralTyping {
 
         // `[T]`: an owner, built from that same view. Empty is the default ctor.
         if ex != &null && self.dyn()->tu.is_vector_like(ex) {
-            if count == 0 {
+            if count == 0 || self.dyn()->sc->well_known->two_word() {
+                // The two-word Vector has no constructor from a slice: its
+                // literal is the empty vector filled element by element
+                // (ListLiteralLowering), so the elements are moved in.
                 n->owner_ctor = self._lang_ctor(WellKnownType::Vector, 0, false)
             } else {
                 if !self._bind_slice_ctor(n) {
@@ -1361,6 +1367,17 @@ pub class <T: type> LiteralTyping {
                 return &null
             }
 
+            if count > 0
+                && !self._bind_literal_build(
+                    unsafe (n as unsafe *Expr),
+                    WellKnownType::Vector,
+                    ex,
+                    self.dyn()->tu.container_elem(ex),
+                    &null,
+                ) {
+                return &null
+            }
+
             return ex
         }
 
@@ -1376,6 +1393,101 @@ pub class <T: type> LiteralTyping {
         }
 
         return self.dyn()->sc->types->array(elem, count as u64)
+    }
+
+    /// The two-word library builds the non-empty literal \p n, a lang
+    /// record \p k of type \p ct, as the empty container filled element by
+    /// element: bind `reserve` and the add (`push(a)`, `insert(a)`,
+    /// `insert(a, b)`) on \p ct, as a written call would be, into
+    /// SemaContext::literal_calls. True on the other library, which copies
+    /// the elements out of a backing array instead.
+    priv fn _bind_literal_build(self,
+                                n:  unsafe *Expr,
+                                k:  WellKnownType,
+                                ct: unsafe *Type,
+                                a:  unsafe *Type,
+                                b:  unsafe *Type) -> bool {
+        if !self.dyn()->sc->well_known->two_word() || ct == &null || a == &null {
+            return true
+        }
+
+        var        lc    = LiteralCalls{}
+        var unsafe *recv = canon_unqual(self.dyn()->tu.strip_nullable(ct))
+        var        cap   = cxx::std::vector<ArgInfo>()
+        var        ci    = ArgInfo()
+        ci.ty    = self.dyn()->tu.builtin(BuiltinKind::USize)
+        ci.range = n->range
+        cap.push_back(ci)
+        self._bind_member(
+            n,
+            recv,
+            "reserve",
+            &cap,
+            unsafe &lc.reserve,
+            unsafe &lc.reserve_inst,
+        )
+
+        var elems = cxx::std::vector<ArgInfo>()
+        var ea    = ArgInfo()
+        ea.ty    = canon_unqual(a)
+        ea.range = n->range
+        elems.push_back(ea)
+        if b != &null {
+            var eb = ArgInfo()
+            eb.ty    = canon_unqual(b)
+            eb.range = n->range
+            elems.push_back(eb)
+        }
+
+        if !self._bind_member(
+            n,
+            recv,
+            if (k == WellKnownType::Vector) => ("push") else => "insert",
+            &elems,
+            unsafe &lc.add,
+            unsafe &lc.add_inst,
+        ) {
+            self.dyn()->missing_lang_item(n, to_string(k))
+            return false
+        }
+
+        self.dyn()->sc->literal_calls[n as usize as u64] = lc
+        return true
+    }
+
+    /// The member \p name of \p recv that takes \p args, with its instance.
+    priv fn _bind_member(self,
+                         at:         unsafe *Expr,
+                         recv:       unsafe *Type,
+                         const name: string,
+                         args:       *cxx::std::vector<ArgInfo>,
+                         out:        unsafe *(unsafe *Decl),
+                         inst:       unsafe *(unsafe *InstanceEntry)) -> bool {
+        var cands = cxx::std::vector<unsafe *Decl>()
+        var imm   = self.dyn()->sc->imm_table()->intern_ident_copy(name)
+        self.dyn()->ml.lookup(recv, DeclName::ident(imm), &cands)
+        if cands.size() == 0 {
+            return false
+        }
+
+        var r = self.dyn()->ovl.resolve(
+            &cands,
+            args,
+            true,
+            at->range,
+            name,
+            recv,
+        )
+
+        if r.outcome != OvlOutcome::Selected {
+            return false
+        }
+
+        r.ded.bind_from_record(recv)
+        self.dyn()->call_result_type(r.decl, &r)
+        *out  = unsafe (r.decl as unsafe *Decl)
+        *inst = r.instance
+        return true
     }
 
     priv fn _bind_slice_ctor(self, n: unsafe *ListLiteralExpr) -> bool {
@@ -1423,7 +1535,7 @@ pub class <T: type> LiteralTyping {
 
         n->fmt_len = self._lang_method(
             WellKnownType::String,
-            LangMembers::string_length(),
+            LangMembers::string_size(self.dyn()->sc->well_known->two_word()),
         )
 
         if n->fmt_ctor == &null
@@ -1809,36 +1921,7 @@ pub class <T: type> LiteralTyping {
 
     /// A lang record's method by NAME, spelled into that record's own TU.
     priv fn _lang_method(self, k: WellKnownType, const name: string) -> unsafe *Decl {
-        var d = self.dyn()->sc->well_known->get(k)
-        if d == &null {
-            return &null
-        }
-
-        var body = self.dyn()->tu.pattern_of(NameLookup::representative(d))
-        var dc   = NameLookup::context_of(body)
-        if dc == &null {
-            return &null
-        }
-
-        var imm = self.dyn()->sc->imm_table()->intern_ident_copy(name)
-        var cell = self.dyn()->sc->lookup.in_context(
-            dc,
-            DeclName::ident(imm),
-            name,
-        )
-
-        if !cell.found() {
-            return &null
-        }
-
-        for var i: usize = 0; i < cell.cell->size(); ++i {
-            var f = dyn_cast<FunctionDecl>(cell.cell->get(i))
-            if f != &null && f->is_method() {
-                return cell.cell->get(i)
-            }
-        }
-
-        return &null
+        return self.dyn()->tu.lang_member(k, name, true)
     }
 
     /// # format specs
@@ -2259,7 +2342,19 @@ pub class <T: type> LiteralTyping {
             return &null
         }
 
-        return self.dyn()->tu.set_of(elem)
+        var unsafe *st = self.dyn()->tu.set_of(elem)
+        if n->elements.size() > 0
+            && !self._bind_literal_build(
+                unsafe (n as unsafe *Expr),
+                WellKnownType::HashSet,
+                st,
+                elem,
+                &null,
+            ) {
+            return &null
+        }
+
+        return st
     }
 
     fn type_map_literal(self, n: unsafe *MapLiteralExpr, expected: unsafe *Type) -> unsafe *Type {
@@ -2353,7 +2448,19 @@ pub class <T: type> LiteralTyping {
             self.dyn()->tu.tuple_of(unsafe &kv)
         }
 
-        return self.dyn()->tu.map_of(k, v)
+        var unsafe *mt = self.dyn()->tu.map_of(k, v)
+        if n->entries.size() > 0
+            && !self._bind_literal_build(
+                unsafe (n as unsafe *Expr),
+                WellKnownType::HashMap,
+                mt,
+                k,
+                v,
+            ) {
+            return &null
+        }
+
+        return mt
     }
 
     /// An aggregate literal whose element came back untyped takes the

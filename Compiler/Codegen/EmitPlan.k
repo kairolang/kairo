@@ -295,6 +295,9 @@ pub struct BigStr {
     var bytes: kairo::std::ConstPtr<u8>
     var len:   usize
     var hash:  u64
+    /// A literal object of the two-word library (LowerTargets::lit_str):
+    /// the codepoint count goes in front of the bytes.
+    var header: bool = false
 }
 
 /// _needs_complete(who, *) for one who (EmitPlan::_need_row): true for dep
@@ -882,7 +885,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 // A byte literal C++ reads at compile time (Compiler/Spec/Eval.md#strings-at-compile-time): a long
                 // one is a named array this plan's interface defines.
                 var unsafe *sl = cast<StringLiteralExpr>(e)
-                if sl->const_eval && sl->imm != &null && sl->imm->has_owned_text() {
+                if sl->lit_header && sl->imm != &null && sl->imm->has_owned_text() {
+                    self.note_lit_str(
+                        sl->imm->owned_ptr,
+                        sl->imm->owned_len as usize,
+                    )
+                } else if sl->const_eval && sl->imm != &null && sl->imm->has_owned_text() {
                     self.note_eval_str(
                         sl->imm->owned_ptr,
                         sl->imm->owned_len as usize,

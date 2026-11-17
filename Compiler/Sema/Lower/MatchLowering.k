@@ -1579,7 +1579,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             self._dispatch(
                 self._string_call(
                     n.occ,
-                    LangMembers::string_length(),
+                    LangMembers::string_size(self.sc->well_known->two_word()),
                     self._usize(),
                 ),
                 cases,
@@ -1698,7 +1698,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             var unsafe *len = self._eq(
                 self._string_call(
                     occ,
-                    LangMembers::string_length(),
+                    LangMembers::string_size(self.sc->well_known->two_word()),
                     self._usize(),
                 ),
                 self.synth.int_literal(
@@ -1831,7 +1831,14 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         )
 
         var args = self.list_builder<unsafe *Expr>()
-        args.push(self._string_call(occ, LangMembers::string_as_ptr(), pu8))
+        args.push(
+            self._string_call(
+                occ,
+                LangMembers::string_data(self.sc->well_known->two_word()),
+                pu8,
+            ),
+        )
+
         args.push(self.synth.bytes_literal(self._at, bytes, pu8))
         args.push(
             self.synth.int_literal(
@@ -2092,30 +2099,14 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// # lang-item members (IterLowering::_lang_member)
 
     priv fn _lang_member(self, k: WellKnownType, const name: string) -> unsafe *Decl {
-        var unsafe *d = self.sc->well_known->get(k)
-        if d == &null {
+        var unsafe *m = self.tu.lang_member(k, name)
+        if m == &null {
             kairo::std::ice_fail(
-                f"MatchLowering: the '{to_string(k)}' lang item is unbound",
+                f"MatchLowering: '{to_string(k)}' is unbound or has no member '{name}'; Lib/builtin and the lowering disagree",
             )
         }
 
-        var unsafe *body = self.tu.pattern_of(NameLookup::representative(d))
-        var unsafe *dc   = NameLookup::context_of(body)
-        if dc == &null {
-            kairo::std::ice_fail(
-                f"MatchLowering: '{to_string(k)}' has no scope",
-            )
-        }
-
-        var imm  = self.sc->imm_table()->intern_ident_copy(name)
-        var cell = self.sc->lookup.in_context(dc, DeclName::ident(imm), name)
-        if !cell.found() {
-            kairo::std::ice_fail(
-                f"MatchLowering: '{to_string(k)}' has no member '{name}'; Lib/builtin and the lowering disagree",
-            )
-        }
-
-        return cell.first()
+        return m
     }
 
     /// # minting

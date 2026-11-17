@@ -5548,7 +5548,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         if k == TokenKind::OpLessEqualGreater {
-            if !(ints || flag || kind == BuiltinKind::Char) {
+            // The two-word library's Ord covers the floats: its `<=>` on
+            // an unordered pair (a NaN operand) answers Equal.
+            var floats = self.sc->well_known->two_word() && self.tu.is_float(c) && !soft
+            if !(ints || flag || floats || kind == BuiltinKind::Char) {
                 return &null
             }
 
@@ -5594,9 +5597,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return false
         }
 
+        // The two-word library's is `fn hash(const self, @inout h: Hasher)`:
+        // the witness feeds the same value to `h`.
+        var takes: usize = if (self.sc->well_known->two_word()) => (1 as usize) else => 0 as usize
         if !m->is_method()
             || !m->is_const()
-            || self._arity(m) != 0
+            || self._arity(m) != takes
             || m->generic_params.size() > 0 {
             return false
         }

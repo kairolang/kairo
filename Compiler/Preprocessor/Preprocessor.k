@@ -798,6 +798,28 @@ pub class PreProcessor {
             }
         }
 
+        // The same holds for a cycle that stays inside the builtin library:
+        // a slice's `to_owned()` returns the vector whose file imports the
+        // slice. Told by directory, since a builtin file compiled as the
+        // entry has no prelude to be the closure of.
+        if !self._opts.builtins_dir.empty() {
+            var root = Path::real_path_of(self._opts.builtins_dir)
+            if !root.ends_with("/") {
+                root += "/"
+            }
+
+            var own = true
+            for var i: usize = 0; i < n && own; ++i {
+                own = Path::real_path_of(self._sm->get_filename((cyc)[i])).starts_with(
+                    root,
+                )
+            }
+
+            if own {
+                return
+            }
+        }
+
         var path = ""
         for var i: usize = 0; i < n; ++i {
             path += Path::filename_of(self._sm->get_filename((cyc)[i]))

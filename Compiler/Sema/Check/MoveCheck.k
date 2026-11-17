@@ -4244,6 +4244,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
+        // A value converted by its own `op as` (a vector viewed as a slice)
+        // is that method's receiver, read where it is: nothing is
+        // transferred, and the binding stays live.
+        if self._converted_by_op_as(e) || self._converted_by_op_as(x) {
+            return
+        }
+
         // A const place cannot be moved from, and a MOVE value cannot be
         // copied: a transfer that copies is refused here, not
         // left to clang. `self.r` in a `const self` method and `p.r` of a
@@ -4263,6 +4270,21 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self.sc->move_sites.insert(e as usize as u64)
         self.n_moves += 1
         self._mark(e, how, kind, dest)
+    }
+
+    /// ExprTyper accepted an implicit conversion of \p e through a
+    /// conversion operator of its own type (SemaContext::implicit_convs).
+    priv fn _converted_by_op_as(self, e: unsafe *Expr) -> bool {
+        if self.sc->implicit_convs.empty() {
+            return false
+        }
+
+        var it = self.sc->implicit_convs.find(e as usize as u64)
+        if it == self.sc->implicit_convs.end() || it->second == &null {
+            return false
+        }
+
+        return it->second->is_operator && it->second->is_method()
     }
 
     /// A transfer of an lvalue of a record whose copy constructor is
@@ -4907,8 +4929,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return false
         }
 
-        var by_move = !self._why_no_copy(a).empty() || b != &null && !self._why_no_copy(b).empty()
-        if !by_move || self._tu.literal_build(k).add == &null {
+        // The two-word library has one way to build a literal, whatever its
+        // elements: LiteralTyping bound the calls.
+        var two = self.sc->well_known->two_word()
+        var by_move = two
+            || !self._why_no_copy(a).empty()
+            || b != &null && !self._why_no_copy(b).empty()
+        var built = if (two) => (self.sc->literal_calls.count(e as usize as u64) != 0)
+                    else => self._tu.literal_build(k).add != &null
+        if !by_move || !built {
             if !self._literal_elems(e, a, what) && b != &null {
                 self._literal_elems(e, b, what)
             }

@@ -495,7 +495,16 @@ extend Speller {
                 // spellings of one value are template-argument-equivalent.
                 var n    = (v->vmag as usize)
                 var data = ""
-                if n > LowerTargets::eval_str_inline_max() {
+                var two = self._cg != &null
+                    && self._cg->tu != &null
+                    && self._cg->tu->global_scope != &null
+                    && self._cg->tu->global_scope->well_known()->two_word()
+                if two {
+                    data = "::" + LowerTargets::lit_str(
+                        LowerTargets::eval_str_hash(v->vbytes, n),
+                        n,
+                    ) + "." + LowerTargets::lit_str_bytes()
+                } else if n > LowerTargets::eval_str_inline_max() {
                     data = "::" + LowerTargets::eval_str_hashed(
                         LowerTargets::eval_str_hash(v->vbytes, n),
                         n,
@@ -1022,6 +1031,72 @@ extend Speller {
                 }
 
                 return Speller::mentions_assoc(f->return_type)
+            } default {
+                return false
+            }
+        }
+    }
+
+    /// \p t names an interface record anywhere inside it: the `Self` of a
+    /// requirement's signature (`-> Self?` is `Null<Self>`). Only a witness
+    /// spells it, with the conforming type in its place.
+    static fn mentions_iface_self(t: unsafe *Type) -> bool {
+        if t == &null {
+            return false
+        }
+
+        var unsafe *c = t->canonical
+        if c == &null {
+            c = t
+        }
+
+        match c->kind {
+            case TypeKind::QualifiedType {
+                return Speller::mentions_iface_self(
+                    cast<QualifiedType>(c)->inner,
+                )
+            } case TypeKind::PointerType {
+                return Speller::mentions_iface_self(
+                    cast<PointerType>(c)->pointee,
+                )
+            } case TypeKind::NullableType {
+                return Speller::mentions_iface_self(
+                    cast<NullableType>(c)->inner,
+                )
+            } case TypeKind::FixedArrayType {
+                return Speller::mentions_iface_self(
+                    cast<FixedArrayType>(c)->element,
+                )
+            } case TypeKind::CXXLValueRefType {
+                return Speller::mentions_iface_self(
+                    cast<CXXLValueRefType>(c)->referee,
+                )
+            } case TypeKind::CXXRValueRefType {
+                return Speller::mentions_iface_self(
+                    cast<CXXRValueRefType>(c)->referee,
+                )
+            } case TypeKind::RecordType {
+                var unsafe *r = cast<RecordType>(c)
+                if r->decl != &null && isa<Declarations::InterfaceDecl>(r->decl) {
+                    return true
+                }
+
+                for var i: usize = 0; i < r->args.size(); ++i {
+                    if Speller::mentions_iface_self(*r->args.get(i)) {
+                        return true
+                    }
+                }
+
+                return false
+            } case TypeKind::FunctionPointerType {
+                var unsafe *f = cast<FunctionPointerType>(c)
+                for var i: usize = 0; i < f->params.size(); ++i {
+                    if Speller::mentions_iface_self(*f->params.get(i)) {
+                        return true
+                    }
+                }
+
+                return Speller::mentions_iface_self(f->return_type)
             } default {
                 return false
             }

@@ -947,27 +947,15 @@ pub class LowerSynth {
         }
 
         var tu = TypeUtil(self.sc)
-        var unsafe *dc = NameLookup::context_of(
-            tu.pattern_of(NameLookup::representative(sd)),
-        )
-
-        if dc == &null {
-            return
-        }
-
         for var i: usize = 0; i < PureAccessors::string_count(); ++i {
-            var nm   = PureAccessors::string_member(i)
-            var imm  = self.sc->imm_table()->intern_ident_copy(nm)
-            var cell = self.sc->lookup.in_context(dc, DeclName::ident(imm), nm)
-            if !cell.found() {
-                continue
-            }
+            var unsafe *m = tu.lang_member(
+                WellKnownType::String,
+                PureAccessors::string_member(i, self.sc->well_known->two_word()),
+                true,
+            )
 
-            for var k: usize = 0; k < cell.cell->size(); ++k {
-                var unsafe *m = dyn_cast<FunctionDecl>(cell.cell->get(k))
-                if m != &null && m->is_method() {
-                    self._acc.push_back(cell.cell->get(k))
-                }
+            if m != &null {
+                self._acc.push_back(m)
             }
         }
     }

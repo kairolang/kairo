@@ -505,9 +505,21 @@ pub class EmitWitness {
             p->row->iface,
         )
 
+        // The two-word library's `hash` feeds a Hasher the caller owns: the
+        // adapter makes one (seed 0, as a C++ container has none to give),
+        // runs the witness over it and returns what it finishes with.
+        var unsafe *hm = self._hash_requirement(p->iface)
+        var unsafe *hp = if (hm != &null) => (self._hasher_param(hm)) else => &null
+        var body = "return " + w + "::hash(&v);"
+        if hp != &null {
+            body = self._spell->_type(
+                hp->type_,
+            ) + " h(0); " + w + "::hash(&v, h); return static_cast<" + LowerTargets::cxx_size_t() + ">(h." + LowerTargets::hasher_finish() + "());"
+        }
+
         self._cg->sink->spell(
             self._at(p),
-            "inline " + LowerTargets::cxx_size_t() + " " + LowerTargets::cxx_std_hash_leaf() + "<" + x + ">::operator()(const " + x + " & v) const noexcept { return " + w + "::hash(&v); }",
+            "inline " + LowerTargets::cxx_size_t() + " " + LowerTargets::cxx_std_hash_leaf() + "<" + x + ">::operator()(const " + x + " & v) const noexcept { " + body + " }",
         )
 
         self._cg->sink->brk()
@@ -972,11 +984,22 @@ pub class EmitWitness {
                 )
             }
 
+            var hv = "static_cast<" + LowerTargets::cxx_size_t() + ">(" + LowerTargets::cxx_std_hash() + "<" + x + ">{}(*" + LowerTargets::witness_receiver_name() + "))"
             if ptr {
-                return "reinterpret_cast<" + LowerTargets::cxx_size_t() + ">(*" + LowerTargets::witness_receiver_name() + ")"
+                hv = "reinterpret_cast<" + LowerTargets::cxx_size_t() + ">(*" + LowerTargets::witness_receiver_name() + ")"
             }
 
-            return "static_cast<" + LowerTargets::cxx_size_t() + ">(" + LowerTargets::cxx_std_hash() + "<" + x + ">{}(*" + LowerTargets::witness_receiver_name() + "))"
+            // The two-word library's `hash(const self, @inout h: Hasher)`
+            // returns nothing: the same value goes into the hasher.
+            var unsafe *hp = self._hasher_param(m)
+            if hp != &null {
+                return self._pname(
+                    m,
+                    hp,
+                ) + "." + LowerTargets::hasher_write_usize() + "(" + hv + ")"
+            }
+
+            return hv
         }
 
         // A generic requirement's arguments are the witness member's own
@@ -1080,7 +1103,10 @@ pub class EmitWitness {
             return ""
         }
 
-        var g = WrapForms::witness_gate(k, OperatorFacts::arity(m), self_s)
+        var two = self._cg->tu != &null
+            && self._cg->tu->global_scope != &null
+            && self._cg->tu->global_scope->well_known()->two_word()
+        var g = WrapForms::witness_gate(k, OperatorFacts::arity(m), self_s, two)
         if g.size() == 0 {
             return ""
         }
@@ -1222,6 +1248,38 @@ pub class EmitWitness {
     }
 
     /// Every argument after the receiver, as its own declared type.
+    /// The Hasher parameter of the Hash lang item's `hash` requirement
+    /// \p m, when the library's takes one (the two-word library), or null.
+    priv fn _hasher_param(self, m: unsafe *FunctionDecl) -> unsafe *ParamDecl {
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var unsafe *p = m->params[i]
+            if p != &null && !p->is_self {
+                return p
+            }
+        }
+
+        return &null
+    }
+
+    /// The `hash` requirement of the Hash interface \p iface, or null.
+    priv fn _hash_requirement(self, iface: unsafe *Decl) -> unsafe *FunctionDecl {
+        var unsafe *id = dyn_cast<InterfaceDecl>(iface)
+        if id == &null {
+            return &null
+        }
+
+        var ms = self.members(id)
+        for var i: usize = 0; i < ms.size(); ++i {
+            if ms[i] != &null
+                && !ms[i]->is_operator
+                && decl_name(unsafe (ms[i] as unsafe *Decl)) == LowerTargets::cxx_std_hash_leaf() {
+                return ms[i]
+            }
+        }
+
+        return &null
+    }
+
     priv fn _forward(self, m: unsafe *FunctionDecl) -> string {
         var s = ""
         for var i: usize = 0; i < m->params.size(); ++i {

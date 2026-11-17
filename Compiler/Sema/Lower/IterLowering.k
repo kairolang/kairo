@@ -810,6 +810,32 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         )
     }
 
+    /// Slice member \p name as the slice type \p st declares it: `[const
+    /// T;]` may be a specialization with members of its own.
+    priv fn _slice_member(self, st: unsafe *Type, const name: string) -> unsafe *Decl {
+        var unsafe *m = self.tu.own_member(st, name)
+        if m != &null {
+            return m
+        }
+
+        return self._lang_member(WellKnownType::Slice, name)
+    }
+
+    /// `s.m`, or `s.m()` when the library declares \p m as an accessor
+    /// (LangMembers::slice_data), typed \p ty.
+    priv fn _slice_read(self,
+                        at: SourceRange,
+                        s:  unsafe *VariableDecl,
+                        m:  unsafe *Decl,
+                        ty: unsafe *Type) -> unsafe *Expr {
+        if !isa<FunctionDecl>(m) {
+            return self.synth.field_of(at, self._use(s, at), m, ty)
+        }
+
+        var none = self.list_builder<unsafe *Expr>()
+        return self.synth.member_call(at, self._use(s, at), m, &none, ty)
+    }
+
     priv fn _slice(self,
                    n:   unsafe *RangedForStmt,
                    pre: unsafe *ListBuilder<unsafe *Stmt>) -> unsafe *Stmt {
@@ -826,14 +852,14 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         var unsafe *s = self._local(pre, at, "seq", st, n->iterable)
         self.synth.mark_extended(n->iterable)
 
-        var unsafe *data = self._lang_member(
-            WellKnownType::Slice,
-            LangMembers::slice_data(),
+        var unsafe *data = self._slice_member(
+            st,
+            LangMembers::slice_data(self.sc->well_known->two_word()),
         )
 
-        var unsafe *len = self._lang_member(
-            WellKnownType::Slice,
-            LangMembers::slice_len(),
+        var unsafe *len = self._slice_member(
+            st,
+            LangMembers::slice_count(self.sc->well_known->two_word()),
         )
 
         var unsafe *p = self._local(
@@ -841,7 +867,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             at,
             "p",
             ptr,
-            self.synth.field_of(at, self._use(s, at), data, ptr),
+            self._slice_read(at, s, data, ptr),
         )
 
         var unsafe *cnt = self._local(
@@ -849,7 +875,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             at,
             "n",
             self._usize(),
-            self.synth.field_of(at, self._use(s, at), len, self._usize()),
+            self._slice_read(at, s, len, self._usize()),
         )
 
         var unsafe *k = self._local(
@@ -969,7 +995,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
         var unsafe *next_d = self._lang_member(
             WellKnownType::Yield,
-            LangMembers::yield_next(),
+            LangMembers::yield_step(self.sc->well_known->two_word()),
         )
 
         var unsafe *cur_d = self._lang_member(
@@ -1408,28 +1434,14 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
     /// A member of a lang record by name, looked up in the pattern's scope.
     priv fn _lang_member(self, k: WellKnownType, const name: string) -> unsafe *Decl {
-        var unsafe *d = self.sc->well_known->get(k)
-        if d == &null {
+        var unsafe *m = self.tu.lang_member(k, name)
+        if m == &null {
             kairo::std::ice_fail(
-                f"IterLowering: the '{to_string(k)}' lang item is unbound",
+                f"IterLowering: '{to_string(k)}' is unbound or has no member '{name}'; Lib/builtin and the lowering disagree",
             )
         }
 
-        var unsafe *body = self.tu.pattern_of(NameLookup::representative(d))
-        var unsafe *dc   = NameLookup::context_of(body)
-        if dc == &null {
-            kairo::std::ice_fail(f"IterLowering: '{to_string(k)}' has no scope")
-        }
-
-        var imm  = self.sc->imm_table()->intern_ident_copy(name)
-        var cell = self.sc->lookup.in_context(dc, DeclName::ident(imm), name)
-        if !cell.found() {
-            kairo::std::ice_fail(
-                f"IterLowering: '{to_string(k)}' has no member '{name}'; Lib/builtin and the lowering disagree",
-            )
-        }
-
-        return cell.first()
+        return m
     }
 
     priv fn _yield_of(self, elem: unsafe *Type) -> unsafe *Type {

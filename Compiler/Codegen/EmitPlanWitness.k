@@ -438,7 +438,14 @@ extend EmitPlan {
 
         for var j: usize = 0; j < f->params.size(); ++j {
             var unsafe *p = f->params[j]
-            if p == &null || p->is_self || p->mode != ParamMode::Value {
+            if p == &null || p->is_self {
+                continue
+            }
+
+            // A parameter passed by reference (`@inout h: Hasher`) needs its
+            // type declared where the concept and the witness name it.
+            if p->mode != ParamMode::Value {
+                self._admit_type(p->type_, PlanNeed::Fwd)
                 continue
             }
 

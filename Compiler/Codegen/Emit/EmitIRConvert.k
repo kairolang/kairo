@@ -630,8 +630,18 @@ extend EmitIR {
         var        s   = LowerTargets::forward_param()
         var        acc = ""
         if hp == Speller::rep(sd) {
-            acc = s + "." + LangMembers::slice_data() + ", " + s + "." + LangMembers::slice_len()
+            var two = gs->well_known()->two_word()
+            // The two-word slice's are accessors, not fields.
+            var call = if (two) => ("()") else => ""
+            acc = s + "." + LangMembers::slice_data(
+                two,
+            ) + call + ", " + s + "." + LangMembers::slice_count(two) + call
         } else if vd != &null && hp == Speller::rep(vd) {
+            // The two-word Vector converts through its own `op as`.
+            if gs->well_known()->two_word() {
+                return false
+            }
+
             acc = s + ".data(), " + s + ".size()"
         } else {
             return false

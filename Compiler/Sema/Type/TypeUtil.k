@@ -21,11 +21,15 @@ import AST::ASTSupport::{
     FrozenList,
     create_empty_frozen_list,
 }
-import AST::Context::DeclContext::DeclContextKind
+import AST::Context::DeclContext::{
+    DeclContext,
+    DeclContextKind,
+}
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
-    decl_fields,       decl_generic_params, decl_is_imported,     decl_is_instance,   decl_methods,
-    decl_only_forward, decl_pattern,        decl_requires_clause, param_is_type_pack, peel_ref,
+    decl_fields,             decl_generic_params, decl_is_imported, decl_is_instance,
+    decl_methods,            decl_only_forward,   decl_pattern,     decl_requires_clause,
+    for_each_unwrapped_decl, param_is_type_pack,  peel_ref,
 }
 import AST::ExprFacts
 import AST::Kind::DeclKind::{
@@ -2057,6 +2061,136 @@ pub class TypeUtil {
         var unsafe *vt = if (vd->type_->canonical != &null) => (vd->type_->canonical)
                          else => vd->type_
         return canon_has_const(vt) == false && canon_unqual(vt) == canon_unqual(lit->type_)
+    }
+
+    /// A member of lang record \p k by name: the record's own, else one an
+    /// `extend` block of the record's file declares (the two-word library
+    /// declares most of a record's API that way). The first method of that
+    /// name when \p method, else the first declaration. Null when neither
+    /// scope has it: the caller owns the diagnostic.
+    fn lang_member(self,
+                   k:          WellKnownType,
+                   const name: string,
+                   method:     bool = false) -> unsafe *Decl {
+        var unsafe *d = self.sc->well_known->get(k)
+        if d == &null {
+            return &null
+        }
+
+        var unsafe *body = self.pattern_of(NameLookup::representative(d))
+        var unsafe *own = self._member_in(
+            NameLookup::context_of(body),
+            name,
+            method,
+        )
+
+        if own != &null {
+            return own
+        }
+
+        var unsafe *home = body->semantic_dc
+        if home == &null {
+            return &null
+        }
+
+        self._ext_hit = &null
+        for var i: usize = 0; i < home->dc_decls.size() && self._ext_hit == &null; ++i {
+            var unsafe *top = *home->dc_decls.get(i)
+            if top == &null {
+                continue
+            }
+
+            for_each_unwrapped_decl(
+                top,
+                fn (x: unsafe *Decl) { self._ext_probe(x, body, name, method) },
+            )
+        }
+
+        return self._ext_hit
+    }
+
+    /// The member \p name the record type \p t itself declares, in the
+    /// pattern \p t is an instance of: a partial specialization's own
+    /// member, where lang_member answers with the primary's. Null when \p t
+    /// is no record or declares none.
+    fn own_member(self, t: unsafe *Type, const name: string) -> unsafe *Decl {
+        var unsafe *rt = dyn_cast<RecordType>(canon_unqual(t))
+        if rt == &null || rt->decl == &null {
+            return &null
+        }
+
+        return self._member_in(
+            NameLookup::context_of(
+                self.pattern_of(NameLookup::representative(rt->decl)),
+            ),
+            name,
+            false,
+        )
+    }
+
+    /// lang_member's answer from an `extend` block, written by _ext_probe.
+    priv var _ext_hit: unsafe *Decl = &null
+
+    /// \p x is an `extend` block of record pattern \p body that declares
+    /// \p name: record the member, unless an earlier block already has.
+    priv fn _ext_probe(self,
+                       x:          unsafe *Decl,
+                       body:       unsafe *Decl,
+                       const name: string,
+                       method:     bool) {
+        if self._ext_hit != &null || !isa<Declarations::ExtensionDecl>(x) {
+            return
+        }
+
+        var unsafe *e = cast<Declarations::ExtensionDecl>(x)
+        if e->target == &null || e->target->canonical == &null {
+            return
+        }
+
+        var unsafe *rt = dyn_cast<RecordType>(
+            canon_unqual(e->target->canonical),
+        )
+
+        if rt == &null || rt->decl == &null {
+            return
+        }
+
+        if self.pattern_of(NameLookup::representative(rt->decl)) != body {
+            return
+        }
+
+        self._ext_hit = self._member_in(NameLookup::context_of(x), name, method)
+    }
+
+    priv fn _member_in(self,
+                       dc:         unsafe *DeclContext,
+                       const name: string,
+                       method:     bool) -> unsafe *Decl {
+        if dc == &null {
+            return &null
+        }
+
+        var imm  = self.sc->imm_table()->intern_ident_copy(name)
+        var cell = self.sc->lookup.in_context(dc, DeclName::ident(imm), name)
+        if !cell.found() {
+            return &null
+        }
+
+        if !method {
+            return cell.first()
+        }
+
+        for var i: usize = 0; i < cell.cell->size(); ++i {
+            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(
+                cell.cell->get(i),
+            )
+
+            if f != &null && f->is_method() {
+                return cell.cell->get(i)
+            }
+        }
+
+        return &null
     }
 
     /// # qualifiers

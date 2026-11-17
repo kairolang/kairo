@@ -317,6 +317,18 @@ pub struct OnceMention {
     pub var at:    SourceRange           = SourceRange::invalid()
 }
 
+/// The calls a vector, set or map literal of the two-word library is built
+/// through: `reserve(n)` once (null when the record has none), then the add
+/// per element (`push(e)`, `insert(e)`, `insert(k, v)`). Bound at typing by
+/// overload resolution, so a member of a generic `extend` block carries the
+/// instance ExtensionLowering's form of the call needs.
+pub struct LiteralCalls {
+    var reserve:      unsafe *Decl          = &null
+    var reserve_inst: unsafe *InstanceEntry = &null
+    var add:          unsafe *Decl          = &null
+    var add_inst:     unsafe *InstanceEntry = &null
+}
+
 pub class SemaContext {
     pub var ctx:   unsafe *ASTContext
     pub var tu:    unsafe *TranslationUnit
@@ -467,6 +479,11 @@ pub class SemaContext {
     /// its own and moved out of the expression, and MoveCheck has checked
     /// that its container can be.
     pub var filled_literals: llvm::DenseSet<u64>
+    /// Per non-empty vector, set or map literal (`*Expr` as u64) of the
+    /// two-word library: the members it is built through. One writer,
+    /// LiteralTyping; read by MoveCheck (the literal can be built) and
+    /// ListLiteralLowering (the calls).
+    pub var literal_calls: llvm::DenseMap<u64, LiteralCalls>
     /// AssocTypes whose bounds this TU is computing right now
     /// (Substitution::bound_ifaces): the cycle guard, kept per TU because
     /// the canonical node it guards is shared with TUs typed on other

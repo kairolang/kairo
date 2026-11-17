@@ -215,7 +215,7 @@ def _find_resource_dir():
              if os.path.isfile(os.path.join(c, "include", "stddef.h"))]
     return os.path.normpath(cands[-1]) if cands else ""
 
-def _clang_roots(with_builtins=True):
+def _clang_roots(with_builtins=True, with_std=True):
     sysroot = lit_config.params.get("sysroot", "")
     # A sysroot that does not exist is not an error to kairo (no system
     # headers, as with no --sysroot), so a stale path fails every ffi test
@@ -244,7 +244,7 @@ def _clang_roots(with_builtins=True):
     # test is the prelude alias for it and `cxx::std` is C++'s.
     stdlib = os.path.normpath(
         os.path.join(config.test_source_root, "..", "Lib", "std"))
-    if os.path.isdir(stdlib):
+    if with_std and os.path.isdir(stdlib):
         roots += " --std-dir=%s" % _sh(stdlib)
     return roots
 
@@ -317,6 +317,21 @@ config.substitutions.append(
         _sh(os.path.join(config.test_source_root, "overlay_builtins.py")),
         _sh(os.path.normpath(os.path.join(config.test_source_root, "..", "Lib"))))))
 config.substitutions.append(("%kairo_overlay", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + _clang_roots(with_builtins=False)))
+# The two-word library, Lib/builtin2 and Lib/std2 (move-only string, Vector,
+# HashMap and HashSet), beside the one every other test compiles against:
+# `%kairo_new` is %kairo with --builtins-dir / --std-dir naming those two
+# trees and nothing else changed (the runtime is still Lib/rt, the builtin
+# tree's sibling). A test that uses it says `REQUIRES: newlib`, the feature
+# set while both directories exist. Tests/NewLib holds them. Before %kairo,
+# as %kairo_bin is.
+_new_builtin = os.path.normpath(os.path.join(config.test_source_root, "..", "Lib", "builtin2"))
+_new_std = os.path.normpath(os.path.join(config.test_source_root, "..", "Lib", "std2"))
+if os.path.isdir(_new_builtin) and os.path.isdir(_new_std):
+    config.available_features.add("newlib")
+config.substitutions.append(
+    ("%kairo_new", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads
+     + _clang_roots(with_builtins=False, with_std=False)
+     + " --builtins-dir=%s --std-dir=%s" % (_sh(_new_builtin), _sh(_new_std))))
 config.substitutions.append(("%kairo", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + kairo_roots))
 
 # --- kcc ----------------------------------------------------------------------

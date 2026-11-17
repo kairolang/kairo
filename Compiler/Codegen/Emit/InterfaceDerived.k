@@ -16,6 +16,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::DeclFacts
@@ -76,6 +77,11 @@ extend InterfaceEmitter {
             var        len  = self._plan->big_strs[i].len
             var unsafe *p   = self._plan->big_strs[i].bytes
             var        seen = false
+            if self._plan->big_strs[i].header {
+                self._lit_str(h, len, p, header)
+                continue
+            }
+
             for var k: usize = 0; k < self.estr_seen.size(); ++k {
                 if self.estr_seen[k] == h {
                     seen = true
@@ -114,6 +120,83 @@ extend InterfaceEmitter {
         }
 
         self._cg->sink->unanchored(false)
+    }
+
+    /// `inline constexpr ::__kairo_slit_t<len + 1> __kairo_slit_<len>_<hash>
+    /// = {cp, {b..., 0}};`: one string literal of the two-word library
+    /// (LowerTargets::lit_str), its codepoint count in the word before its
+    /// bytes. A constant with a constant initializer, so it is read-only
+    /// data; `inline` and named for its content, as a long compile-time
+    /// string is. The struct template is written once, before the first.
+    priv fn _lit_str(self, h: u64, len: usize, p: kairo::std::ConstPtr<u8>, header: bool) {
+        // estr_seen holds these objects too (one TU spells a literal one
+        // way), and LowerTargets::lit_str_type_key once the struct template
+        // is written: an include stream carries the list forward.
+        var typed = false
+        for var k: usize = 0; k < self.estr_seen.size(); ++k {
+            if self.estr_seen[k] == h {
+                return
+            }
+
+            if self.estr_seen[k] == LowerTargets::lit_str_type_key() {
+                typed = true
+            }
+        }
+
+        self.estr_seen.push_back(h)
+        var sz = "decltype(sizeof(0))"
+        if !typed {
+            self.estr_seen.push_back(LowerTargets::lit_str_type_key())
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::lit_str_type_guard(),
+                )
+
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::lit_str_type_guard(),
+                )
+            }
+
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <" + sz + " N> struct " + LowerTargets::lit_str_type() + " { " + sz + " cp; unsigned char " + LowerTargets::lit_str_bytes() + "[N]; };",
+            )
+
+            self._cg->sink->brk()
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+        }
+
+        var cp: usize = 0
+        for var b: usize = 0; b < len; ++b {
+            if (p[b] & (0xC0 as u8)) != (0x80 as u8) {
+                cp += 1
+            }
+        }
+
+        var g = LowerTargets::lit_str_guard(h, len)
+        if header {
+            self._cg->sink->directive(self._tu_at(), "#ifndef " + g)
+            self._cg->sink->directive(self._tu_at(), "#define " + g)
+        }
+
+        var s = "inline constexpr ::" + LowerTargets::lit_str_type() + "<" + f"{len + 1}" + "> " + LowerTargets::lit_str(
+            h,
+            len,
+        ) + " = {" + f"{cp}" + ", {"
+        for var b: usize = 0; b < len; ++b {
+            s += f"{(p[b] as u32)}, "
+        }
+
+        s += "0}};"
+        self._cg->sink->spell(self._tu_at(), s)
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(self._tu_at(), "#endif")
+        }
     }
 
     prot fn _needs_eval_helpers(self) -> bool {

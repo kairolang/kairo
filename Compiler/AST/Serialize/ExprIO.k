@@ -315,6 +315,7 @@ fn io_string_literal_expr(ar: unsafe *ASTArchive, n: unsafe *StringLiteralExpr) 
         )
 
         ar->sema_false(n->const_eval, "StringLiteralExpr::const_eval")
+        ar->sema_false(n->lit_header, "StringLiteralExpr::lit_header")
         ar->sema_null<Type>(n->c_string, "StringLiteralExpr::c_string")
         ar->sema_null<Decl>(n->udl_op, "StringLiteralExpr::udl_op")
         if has && !ar->reading() {

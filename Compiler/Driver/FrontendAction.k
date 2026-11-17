@@ -82,6 +82,7 @@ import AST::DeclFacts::{
     tu_of,
 }
 import AST::LangItems::{
+    LangModules,
     LowerTargets,
     builtin_root_name,
     hex32,
@@ -1183,6 +1184,14 @@ pub class FrontendAction {
 
             var inject = !self._ci->invocation()->pp.no_builtins
             self._global_scope->mark_builtin_fid(bfid) // the loop skips the root below.
+            // Which library this is, off the root's own table: the parser
+            // froze it, and no TU's Sema has started.
+            self._global_scope->well_known()->set_two_word(
+                self._global_scope->lookup_in(
+                    bfid,
+                    LangModules::library_edition(),
+                ).found(),
+            )
 
             var afid = self._alloc_module_fid()
             {

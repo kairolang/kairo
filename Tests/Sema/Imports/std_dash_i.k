@@ -18,7 +18,7 @@ fn use_io() -> void {
 // through a `..` spelling (the same directory, compared by real path).
 // RUN: %kairo %s --type-check-only -I "$(cd %S/../../../Lib/std && pwd)"
 // RUN: %kairo %s --type-check-only -I "$(cd %S/../../../Lib/builtin && pwd)"
-// RUN: %kairo %s --type-check-only -I %S/../../../Lib/builtin -I %S/../../../Lib/std -I %S/../../../Lib
+// RUN: %kairo %s --type-check-only -I %S/../../../Lib/builtin -I %S/../../../Lib/std
 
 // The registration is checked against the directory's own pin: a std dir
 // whose module.k says something else is told so, not silently renamed.
