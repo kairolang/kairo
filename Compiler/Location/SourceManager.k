@@ -124,7 +124,7 @@ pub class SourceManager {
 
     /// destroys every loaded SourceFile and empties `_files`.
     priv fn _destroy_files(self) {
-        for var f: *SourceFile? in self._files {
+        for var f: unsafe *SourceFile in self._files {
             if f != &null {
                 @destroy unsafe (f as *SourceFile)
             }

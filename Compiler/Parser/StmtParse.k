@@ -43,8 +43,16 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, EnumDecl,     ExtensionDecl, FunctionDecl, InterfaceDecl, StorageClass, StructDecl,
-    UnionDecl, VariableDecl,
+    ClassDecl,
+    EnumDecl,
+    ExtensionDecl,
+    FunctionDecl,
+    InterfaceDecl,
+    StorageClass,
+    StructDecl,
+    UnionDecl,
+    VariableDecl,
+    pointer_shorthand_spelling,
 } // VariableDecl for binder decls (Binding::decl)
 import AST::Node::Expressions::{
     CallExpr,
@@ -52,6 +60,7 @@ import AST::Node::Expressions::{
 } // MatchExpr / IfExpr for value-form statements
 import AST::Node::PrimaryExpressions::NamedIdentExpr
 import AST::Node::Statements
+import AST::Node::Types::NullableType
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Lexer::Immediate::Immediate
@@ -902,6 +911,7 @@ pub class <T: type> StmtParse {
         self.dyn()->_reject_mode_binding() // `(@inout a, b)` / `for @move y`: parameter-only.
 
         // pointer shorthand: `unsafe *` or `*`
+        var ptr_range = self.dyn()->current_range()
         if self.dyn()->check(TokenKind::KwUnsafe) {
             // must be followed by `*` to be a pointer shorthand
             if self.dyn()->check_peek(TokenKind::OpStar) {
@@ -909,6 +919,7 @@ pub class <T: type> StmtParse {
                 self.dyn()->advance() // consume `*`
                 result.shorthand.set(Statements::BindingShorthand::Pointer)
                 result.shorthand.set(Statements::BindingShorthand::Unsafe)
+                ptr_range = ptr_range | self.dyn()->prev().range
             }
         } else if self.dyn()->check(TokenKind::OpStar) {
             self.dyn()->advance() // consume `*`
@@ -942,6 +953,7 @@ pub class <T: type> StmtParse {
         result.name = NamedIdentExpr::create(self.dyn()->ctx, id_range, *id_ptr)
 
         // nullable shorthand suffix `?`
+        var q_range = self.dyn()->current_range()
         if self.dyn()->check(TokenKind::OpQuestion) {
             self.dyn()->advance() // consume `?`
             result.shorthand.set(Statements::BindingShorthand::Nullable)
@@ -957,6 +969,12 @@ pub class <T: type> StmtParse {
             self.dyn()->advance(T::SkipNL::After) // consume `:`
             result.type_ = self.dyn()->parse_type()
             result.range = start | self.dyn()->prev().range
+            self._binding_shorthand_and_type(
+                &result,
+                id_ptr,
+                ptr_range,
+                q_range,
+            )
         }
 
         // A binder IS a declaration, so give it a real one. Sema binds uses of
@@ -975,6 +993,61 @@ pub class <T: type> StmtParse {
         result.decl = bvd
 
         return result
+    }
+
+    /// A binder that writes a shorthand and a type, as a declaration does
+    /// (DeclParse, S058E): `*x: T` states the pointer twice, and the written
+    /// type wins; `x?: T` is recovered as `x: T?`.
+    priv fn _binding_shorthand_and_type(self,
+                                        b:         unsafe *Statements::Binding,
+                                        id:        unsafe *Token,
+                                        ptr_range: SourceRange,
+                                        q_range:   SourceRange) {
+        var unsafe *ty = b->type_
+        if ty == &null || is_recovery(ty) {
+            return
+        }
+
+        var nm = self.dyn()->ctx->get_spelling(*id)
+        if b->shorthand.has(Statements::BindingShorthand::Pointer) {
+            var stars = pointer_shorthand_spelling(
+                1,
+                b->shorthand.has(Statements::BindingShorthand::Unsafe),
+            )
+
+            var d = self.dyn()->diag->report(
+                DiagID::S058E,
+                ptr_range.start,
+                f"'{stars}{nm}' states that the binding is a pointer, but the binding also annotates its type; drop the '{stars}'",
+            )
+
+            d.first(ptr_range)
+            d.remove(ptr_range, "remove the shorthand")
+            d.emit()
+            b->shorthand.clear(Statements::BindingShorthand::Pointer)
+            b->shorthand.clear(Statements::BindingShorthand::Unsafe)
+        }
+
+        if b->shorthand.has(Statements::BindingShorthand::Nullable) {
+            var already = isa<NullableType>(ty)
+            var d = self.dyn()->diag->report(
+                DiagID::S058E,
+                q_range.start,
+                f"'{nm}?' infers a nullable type, but the binding also annotates one; write the '?' on the type",
+            )
+
+            d.first(q_range)
+            d.remove(q_range, "remove the shorthand")
+            if !already {
+                d.insert(ty->range.end, "?", "make the annotated type nullable")
+            }
+
+            d.emit()
+            b->shorthand.clear(Statements::BindingShorthand::Nullable)
+            if !already {
+                b->type_ = NullableType::create(self.dyn()->ctx, ty->range, ty)
+            }
+        }
     }
 
     //  var / const  -> plain decl vs destructuring decl

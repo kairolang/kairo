@@ -544,8 +544,10 @@ extend InterfaceEmitter {
 
     /// In the class, for split constructor `m` (FunctionDecl::ci_split):
     ///   struct __kairo_ciK;
-    ///   static auto __kairo_ctor_preK(__kairo_ciK&& __kairo_s, __kairo_lref<P> p...) -> __kairo_ciK&;
-    ///   R(__kairo_ciK& __kairo_s, __kairo_lref<P> p...);
+    ///   auto __kairo_ctor_preK(__kairo_ciK&& __kairo_s, __kairo_lref<P> p...) -> __kairo_ciK&;
+    ///   R(__kairo_ciK&& __kairo_s, __kairo_lref<P> p...);
+    /// The pre-function is a member: it runs once the bases are built and
+    /// reads their fields through `this`.
     /// The slot record is only declared: its members name the types of
     /// locals the class itself never needs complete, and it is defined
     /// beside the bodies (EmitIR::_split_ctor). The trailing return keeps a
@@ -563,14 +565,14 @@ extend InterfaceEmitter {
         self._cg->sink->spell(at, "struct " + ci + ";")
         self._cg->sink->spell(
             at,
-            "static " + ce + "auto " + LowerTargets::ctor_pre(
+            ce + "auto " + LowerTargets::ctor_pre(
                 m->ci_index,
             ) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&;",
         )
 
         self._cg->sink->spell(
             at,
-            ce + self._spell->leaf(owner) + "(" + ci + "& " + sa + ps + ");",
+            ce + self._spell->leaf(owner) + "(" + ci + "&& " + sa + ps + ");",
         )
     }
 
@@ -669,15 +671,15 @@ extend InterfaceEmitter {
 
         // The class body declared it `static const T s;` (`static const`
         // member); C++ rejects a definition whose type drops the const.
-        if f->is_const() || f->is_eval() {
-            s += "const "
-        }
-
         var nm = self._spell->owner_qual(owner) + "::" + self._spell->leaf(
             unsafe (f as unsafe *Decl),
         )
 
-        s += self._spell->decl(f->type_, nm)
+        s += if (f->is_const() || f->is_eval()) => (self._spell->const_decl(
+                 f->type_,
+                 nm,
+             ))
+             else => self._spell->decl(f->type_, nm)
         if f->init_fold == Declarations::FieldFold::None {
             if f->init != &null {
                 self._ice(

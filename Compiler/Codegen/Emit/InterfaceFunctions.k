@@ -772,6 +772,12 @@ extend InterfaceEmitter {
         self._cg->sink->brk()
         self._instance_layout_asserts(d, ie)
         self._instance_spec_assert(d, ie, e->is_home)
+        var mas = self._spell->mixin_bound_asserts(d, ie)
+        for var i: usize = 0; i < mas.size(); ++i {
+            self._cg->sink->spell(self._at(d), mas[i])
+            self._cg->sink->brk()
+        }
+
         if e->is_home && !isa<Declarations::FunctionDecl>(d) {
             var bas = self._spell->bound_asserts(d, ie)
             for var i: usize = 0; i < bas.size(); ++i {

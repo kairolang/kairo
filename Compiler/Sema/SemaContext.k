@@ -429,6 +429,14 @@ pub class SemaContext {
     /// implicit_conv_targets entries, under the same key.
     pub var implicit_conv_instances: llvm::DenseMap<u64, unsafe *InstanceEntry>
 
+    /// The extension's `@implicit op as` a loop binder's written type is
+    /// reached through (`for p: Path in names`), keyed by the binder's
+    /// VariableDecl, and that operator's instance when its extension is
+    /// generic. Written by StmtTyping; IterLowering writes the call into
+    /// the binder's initializer, which does not exist before it runs.
+    pub var binder_convs:          llvm::DenseMap<u64, unsafe *FunctionDecl>
+    pub var binder_conv_instances: llvm::DenseMap<u64, unsafe *InstanceEntry>
+
     /// The `==` a literal or constant pattern on a record column (struct,
     /// class, enum) tests with, keyed by the Pattern as
     /// `reinterpret_cast::<u64>(pattern)`: a BinaryOperatorExpr X typed as

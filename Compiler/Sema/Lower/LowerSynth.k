@@ -598,6 +598,34 @@ pub class LowerSynth {
         return call
     }
 
+    /// `init` converted to the type written on binder `vd` through the
+    /// extension's `@implicit op as` StmtTyping found for it
+    /// (SemaContext::binder_convs); `init` itself for any other binder.
+    fn binder_converted(self, vd: unsafe *VariableDecl, init: unsafe *Expr) -> unsafe *Expr {
+        var key = vd as usize as u64
+        var it  = self.sc->binder_convs.find(key)
+        if it == self.sc->binder_convs.end() || init == &null {
+            return init
+        }
+
+        var        args = ListBuilder<unsafe *Expr>(self.sc->ctx)
+        var unsafe *cv  = unsafe (it->second as unsafe *Decl)
+        var unsafe *call = self.member_call(
+            init->range,
+            init,
+            cv,
+            &args,
+            canon_unqual(vd->type_),
+        )
+
+        var ii = self.sc->binder_conv_instances.find(key)
+        if ii != self.sc->binder_conv_instances.end() && isa<CallExpr>(call) {
+            cast<CallExpr>(call)->instance = ii->second
+        }
+
+        return call
+    }
+
     /// A constructor call typed `ty`. The callee names the ctor decl; EmitIR
     /// spells the TYPE from the call's own canonical, never from this token.
     /// `ordered` as member_call's.

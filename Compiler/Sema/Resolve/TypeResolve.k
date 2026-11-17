@@ -2743,6 +2743,14 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                                 0,
                                 unsafe &through,
                             )
+
+                            if self._report_base_ambiguity(
+                                ct,
+                                seg->name,
+                                TypeUtil(self.sc).str(kt),
+                            ) {
+                                return
+                            }
                         }
 
                         // Not in the body chosen here, but the template has
@@ -2887,6 +2895,14 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     0,
                     unsafe &through,
                 )
+
+                if self._report_base_ambiguity(
+                    ct,
+                    seg->name,
+                    TypeUtil(self.sc).decl_name(cur),
+                ) {
+                    return
+                }
             }
 
             var next_mods = cxx::std::vector<unsafe *DeclContext>()
@@ -4088,14 +4104,23 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// the one place a foreign shell is filled before its table is read
     /// (MemberLookup::ensure_filled; a failed fill leaves the table empty and
     /// the step misses as it always did).
+    /// Set by _in_bases when two bases of the class it was asked about hold
+    /// different entities under the name: the entities and the bases they
+    /// were found in. Reported by _report_base_ambiguity.
+    priv var _amb_first:       unsafe *Decl = &null
+    priv var _amb_second:      unsafe *Decl = &null
+    priv var _amb_first_base:  unsafe *Type = &null
+    priv var _amb_second_base: unsafe *Type = &null
+
     /// `cd`'s nested name `simm` through its base classes, depth-first in
-    /// declaration order (the first base that has it answers; a type found by
-    /// two paths is one entity), as a member named in an expression is
-    /// found. `of` is the type `cd` was named as (`Der<i32>`), or null: a
-    /// base is read through its arguments (Substitution::base_through), and
-    /// `via` receives the base the name was found in, at those arguments,
-    /// so the result is read through it too. Bounded so a malformed cycle
-    /// cannot spin.
+    /// declaration order, as a member named in an expression is found. A
+    /// type found by two paths is one entity; two different entities found
+    /// through two bases are ambiguous, as in C++ ([class.member.lookup]):
+    /// the first is returned and the _amb_ fields name both. `of` is the
+    /// type `cd` was named as (`Der<i32>`), or null: a base is read through
+    /// its arguments (Substitution::base_through), and `via` receives the
+    /// base the name was found in, at those arguments, so the result is
+    /// read through it too. Bounded so a malformed cycle cannot spin.
     priv fn _in_bases(self,
                       cd:             unsafe *Declarations::ClassDecl,
                       of:             unsafe *Type,
@@ -4108,6 +4133,14 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return none
         }
 
+        if depth == 0 {
+            self._amb_first  = &null
+            self._amb_second = &null
+        }
+
+        var found                  = none
+        var found_via              = cxx::std::vector<unsafe *Type>()
+        var found_bc: unsafe *Type = &null
         for var i: usize = 0; i < cd->derives_list.size(); ++i {
             var unsafe *e = cd->derives_list.get(i)
             if e == &null || e->base == &null {
@@ -4157,37 +4190,144 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 }
             }
 
+            var        hit  = none
+            var        path = cxx::std::vector<unsafe *Type>()
             var unsafe *bdc = NameLookup::context_of(body)
             if bdc != &null {
-                var hit = self.sc->lookup.in_context(
+                hit = self.sc->lookup.in_context(
                     bdc,
                     DeclName::ident(simm),
                     spelling,
                 )
 
                 if hit.found() {
-                    via->push_back(bc)
-                    return hit
+                    path.push_back(bc)
                 }
             }
 
-            if isa<Declarations::ClassDecl>(body) {
-                var deeper = self._in_bases(
+            if !hit.found() && isa<Declarations::ClassDecl>(body) {
+                hit = self._in_bases(
                     cast<Declarations::ClassDecl>(body),
                     bc,
                     simm,
                     spelling,
                     depth + 1,
-                    via,
+                    unsafe &path,
                 )
+            }
 
-                if deeper.found() {
-                    return deeper
-                }
+            if !hit.found() {
+                continue
+            }
+
+            if !found.found() {
+                found     = hit
+                found_via = path
+                found_bc  = bc
+                continue
+            }
+
+            var unsafe *a = NameLookup::representative(found.cell->get(0))
+            var unsafe *b = NameLookup::representative(hit.cell->get(0))
+            if a != b && self._amb_first == &null && !self._same_member_type(a, b) {
+                self._amb_first       = found.cell->get(0)
+                self._amb_second      = hit.cell->get(0)
+                self._amb_first_base  = found_bc
+                self._amb_second_base = bc
             }
         }
 
-        return none
+        for var k: usize = 0; k < found_via.size(); ++k {
+            via->push_back(found_via[k])
+        }
+
+        return found
+    }
+
+    /// Two member types found through two bases name one type: a typedef
+    /// of the other, or two typedefs of the same type (`typedef int T` in
+    /// each base), which C++ does not call ambiguous.
+    priv fn _same_member_type(self, a: unsafe *Decl, b: unsafe *Decl) -> bool {
+        var unsafe *ta = self._member_type_of(a)
+        var unsafe *tb = self._member_type_of(b)
+        if ta != &null && tb != &null {
+            return ta == tb
+        }
+
+        return self._names_record(ta, b) || self._names_record(tb, a)
+    }
+
+    /// `t` is the record type of `d`.
+    priv fn _names_record(self, t: unsafe *Type, d: unsafe *Decl) -> bool {
+        if t == &null || !isa<RecordType>(t) || cast<RecordType>(t)->decl == &null {
+            return false
+        }
+
+        return NameLookup::representative(cast<RecordType>(t)->decl) == d
+    }
+
+    /// The canonical type the member type `d` names, or null when it is no
+    /// type or does not resolve.
+    priv fn _member_type_of(self, d: unsafe *Decl) -> unsafe *Type {
+        if d == &null {
+            return &null
+        }
+
+        if isa<Declarations::TypeAliasDecl>(d) {
+            var unsafe *t = self._expand_alias(
+                cast<Declarations::TypeAliasDecl>(d),
+                d->range,
+            )
+
+            return if (t != &null) => (canon_unqual(t)) else => &null
+        }
+
+        return &null
+    }
+
+    /// The name `name` of `owner`, found by _in_bases, is ambiguous between
+    /// two bases: the error names both, with a note at each declaration.
+    /// False, and nothing said, when the last walk found no ambiguity.
+    priv fn _report_base_ambiguity(self,
+                                   ct:          unsafe *ChainType,
+                                   name:        unsafe *NamedIdentExpr,
+                                   const owner: string) -> bool {
+        if self._amb_first == &null || self._amb_second == &null {
+            return false
+        }
+
+        var tu  = TypeUtil(self.sc)
+        var snm = self.sc->ctx->get_spelling(name->name)
+        var b1  = tu.str(self._amb_first_base)
+        var b2  = tu.str(self._amb_second_base)
+        var b = self.sc->diag->report(
+            DiagID::R028E,
+            name->range.start,
+            f"'{snm}' is ambiguous in '{owner}': its bases '{b1}' and '{b2}' both declare a member '{snm}'",
+        )
+
+        b.first(name->range)
+        b.note(
+            DiagCode(DiagID::R028N),
+            self._amb_first->range.start,
+            f"declared in '{b1}' here",
+        )->child_first(self._amb_first->range)
+
+        b.note(
+            DiagCode(DiagID::R028N),
+            self._amb_second->range.start,
+            f"declared in '{b2}' here",
+        )->child_first(self._amb_second->range)
+
+        b.note(
+            f"name it as '{b1}::{snm}' or '{b2}::{snm}', or declare '{snm}' in '{owner}'",
+        )
+
+        b.emit()
+        self._amb_first  = &null
+        self._amb_second = &null
+        ct->poison()
+        return true
     }
 
     priv fn _scope_of(self, d: unsafe *Decl, at: SourceRange) -> unsafe *DeclContext {

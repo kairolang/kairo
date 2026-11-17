@@ -585,7 +585,7 @@ extend CompilerInstance {
             man += f"src {LinkFS::mtime(p)} {p}\n"
         }
 
-        for var k: InputKind in self._runtime_sources() {
+        for var k in self._runtime_sources() {
             man += f"src {LinkFS::mtime(k.path)} {k.path}\n"
         }
 

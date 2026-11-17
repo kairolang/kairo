@@ -7045,3 +7045,91 @@ group = "calls"
     bump(&t)
     ```
     """
+
+[SC358]
+brief = "a move-only record with a destructor and no constructor"
+group = "lifecycle"
+
+    [SC358.E]
+    explain = """
+    # a move-only record with a destructor needs a constructor
+
+    a class that declares no constructor is built field by field, as a C++ aggregate. when it
+    also declares a destructor, C++ declares no move constructor for it, and when a field is
+    move-only there is no copy to fall back on: no value of the class could be passed, returned
+    or assigned. declaring the move for it would end the field-by-field construction, so the
+    class has to declare one of them itself.
+
+    ```kairo
+    class Handle {
+        pub var m: Mv               // Mv is move-only
+        fn op finally(self) { }     // error: no constructor
+    }
+    ```
+
+    ## how to fix
+
+    write a constructor, or a `@move` constructor (`= default` moves field by field):
+
+    ```kairo
+    class Handle {
+        pub var m: Mv
+        fn Handle(self) { }
+        fn op finally(self) { }
+    }
+    ```
+    """
+
+[SC359]
+brief = "two fields of a union have a default"
+group = "lifecycle"
+
+    [SC359.E]
+    explain = """
+    # only one field of a union may have a default
+
+    a union holds one of its fields at a time. a field with a default is the one a new value of
+    the union holds, so a second field with a default would make two of them the live one.
+
+    ```kairo
+    union Word {
+        var i: i32 = 0
+        var f: f32 = 1.0    // error: 'i' already has a default
+    }
+    ```
+
+    ## how to fix
+
+    keep the default on the field a new value should hold, and remove the others.
+    """
+
+[SC360]
+brief = "a pointer that is never written through"
+group = "const-self"
+
+    [SC360.W]
+    explain = """
+    # a pointer that is never written through
+
+    a pointer parameter or local whose pointee the function never writes, at the levels shown:
+    no assignment through it, no non-`const` method called on what it points at, no mutable
+    address taken of it, and no copy of it kept as a pointer to non-const. declaring the pointee
+    `const` says so in the signature, and the compiler then holds the function to it.
+
+    ```kairo
+    fn total(p: *Stats) -> i64 {       // warning: declare it '*const Stats'
+        return p->sum
+    }
+    ```
+
+    a level is suggested only with every level above it: `**T` becomes `*const *const T`, since
+    `**T` does not convert to `**const T`.
+
+    reported only under `-Wconst-self`. a caller that passes `&x` to the changed parameter is
+    then asked (SC310W) to write `const &x`.
+
+    ## how to fix
+
+    apply the fix-it, which inserts `const` before each pointee, or write to the pointee if the
+    function was meant to.
+    """

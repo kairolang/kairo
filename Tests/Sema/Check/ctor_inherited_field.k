@@ -1,8 +1,8 @@
-// Before a constructor has initialized its own fields, a field of a base is
-// only what the constructor itself assigned: reading one it has not assigned
-// on every path, changing one in place and writing part of one are SC175E.
-// A whole write is accepted, and a base's const or array field is no more
-// assignable here than anywhere else.
+// A constructor builds its bases before its own fields, so before it has
+// initialized its own fields it may read a field of a base, change one in
+// place and write part of one. Calling a method on `self` there is still
+// SC175E, and a base's const or array field is no more assignable here than
+// anywhere else.
 
 class Q {
     pub var n: i32
@@ -101,11 +101,7 @@ fn main() -> i32 {
 // NOICE-NOT: I003E
 // NOICE-NOT: internal compiler error
 
-// CHECK:     ctor_inherited_field.k:23:17: error [SC175E]: 'ctx' cannot be read before the constructor has initialized its fields
-// CHECK:     ctor_inherited_field.k:32:20: error [SC175E]: 'ctx' is read before it is initialized on every path
-// CHECK:     ctor_inherited_field.k:39:9: error [SC175E]: 'ctx' is read before it is initialized on every path
-// CHECK:     ctor_inherited_field.k:47:9: error [SC175E]: 'arr' cannot be read before the constructor has initialized its fields
-// CHECK:     ctor_inherited_field.k:48:9: error [SC175E]: 'pt' cannot be read before the constructor has initialized its fields
+// CHECK-NOT: ctor_inherited_field.k:{{[1-4][0-9]}}:{{.*}}error
 // CHECK:     ctor_inherited_field.k:56:9: error [SC175E]: 'self' is used before the constructor has initialized its fields
 // CHECK:     ctor_inherited_field.k:64:9: error [SC071E]: an array is not assignable
 // CHECK:     ctor_inherited_field.k:65:9: error [SC171E]: cannot assign to const field 'k'

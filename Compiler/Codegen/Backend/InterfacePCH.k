@@ -379,7 +379,7 @@ pub class InterfacePCH {
         var *ppo = &ci.getPreprocessorOpts()
         var *pp  = &ci.getPreprocessor()
         var hdrs = cxx::std::vector<string>()
-        for var s: *TokenSink in self._keep {
+        for var s: unsafe *TokenSink in self._keep {
             for var h: string in s->system_headers {
                 var dup = false
                 for var x: string in hdrs {

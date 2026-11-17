@@ -1,6 +1,6 @@
 // A constructor may assign a field of a base before it initializes its own
-// fields that have no default (classes.mdx, Field initialization): the write
-// rides with them and is assigned once the base is built, so each such own
+// fields that have no default (classes.mdx, Field initialization): the base
+// is built first, so the write goes to the base's field, and each such own
 // field is still constructed exactly once, in declaration order, and
 // destroyed once. Covered: one and several fields with no default, a field
 // with a default initializer, a base built by its initializer, a write on
@@ -150,14 +150,13 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: error
 
-// The base's field has a slot typed through the derived class, never a
-// mem-initializer: it is assigned in the object once the base exists.
+// The base's field has no slot: the base exists when the pre-function runs,
+// which assigns the field in the object.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}ctor_inherited_field_run.k
-// IR:     __kairo_slot{{ ?}}<{{ ?}}decltype{{ ?}}({{ ?}}{{.*}}One{{ ?}}::{{ ?}}ctx{{ ?}}){{ ?}}>{{ ?}}ctx
-// IR:     __kairo_s{{ ?}}.{{ ?}}ctx{{ ?}}.{{ ?}}put{{ ?}}(
-// IR-NOT: ctx{{ ?}}({{ ?}}__kairo_s{{ ?}}.{{ ?}}ctx{{ ?}}.{{ ?}}take
-// IR:     this{{ ?}}->{{ ?}}ctx{{ ?}}={{ ?}}__kairo_s{{ ?}}.{{ ?}}ctx{{ ?}}.{{ ?}}take{{ ?}}(
+// IR-NOT: __kairo_slot{{ ?}}<{{ ?}}decltype{{ ?}}({{ ?}}{{.*}}::{{ ?}}ctx{{ ?}})
+// IR:     __kairo_ctor_pre{{[0-9]+}}(
+// IR:     this{{ ?}}->{{ ?}}ctx{{ ?}}={{ ?}}
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

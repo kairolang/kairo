@@ -38,8 +38,8 @@ import AST::Context::DeclContext::DeclContext
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
-    decl_instantiated_from, decl_is_ctor,       decl_is_imported,     decl_is_instance,
-    decl_only_forward,      param_is_type_pack, place_has_const_root,
+    decl_extension_of, decl_instantiated_from, decl_is_ctor,       decl_is_imported,
+    decl_is_instance,  decl_only_forward,      param_is_type_pack, place_has_const_root,
 }
 import AST::ExprFacts::callee_decl
 import AST::Kind::ExprKind::ExprKind
@@ -107,6 +107,7 @@ import Sema::Check::FfiRefReturnCheck::check_ref_return_value
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Resolve::ResolutionState::ResolveState
+import Sema::Type::Conversion::ImplicitRank
 import Sema::Type::MemberTyping::{
     SUB_BIND,
     SUB_RECV,
@@ -2817,6 +2818,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     }
 
     /// Apply binding shorthands and write the binder's type.
+    ///
+    /// A written type (`for y: i64 in xs`) is the binder's declared type, as
+    /// in `var y: i64 = elem`: the value the binder takes (the element, or
+    /// its address for `*x`, or the nullable for `x?`) converts to it
+    /// implicitly, and SC041E reports one that does not.
     priv fn _bind_one(self,
                       b:          unsafe *Statements::Binding,
                       t:          unsafe *Type,
@@ -2830,24 +2836,81 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return
         }
 
-        if b->type_ != &null && b->type_->canonical != &null {
-            vd->type_ = canon_unqual(b->type_->canonical)
-            if t != &null && !self.dyn()->conv.convertible(t, vd->type_->canonical) {
-                self.dyn()->sc->diag->report(
-                    DiagID::SC041E,
-                    b->range.start,
-                    f"binding annotated '{self.dyn()->tu.str(vd->type_->canonical)}' cannot take a value of type '{self.dyn()->tu.str(t)}'",
-                ).first(b->range)->emit()
-                vd->poison()
+        var unsafe *shaped = if (t != &null) => (self._shape_binder(b, t, const_elem)) else => &null
+        self._type_binder(b, vd, shaped)
+    }
+
+    /// Write `vd`, the declaration of binder `b`, the type of the value it
+    /// takes (`shaped`, null when unknown), or the type written on it, which
+    /// that value must convert to.
+    priv fn _type_binder(self,
+                         b:      unsafe *Statements::Binding,
+                         vd:     unsafe *VariableDecl,
+                         shaped: unsafe *Type) {
+        if b->type_ == &null {
+            if shaped != &null {
+                vd->type_ = shaped
             }
 
             return
         }
 
-        if t == &null {
+        if b->type_->canonical == &null {
+            // Unresolved: TypeResolution reported it.
+            vd->poison()
             return
         }
 
+        vd->type_ = canon_unqual(b->type_->canonical)
+        var dep = shaped == &null || shaped->is_dependent() || vd->type_->is_dependent()
+        if dep {
+            return
+        }
+
+        if !self.dyn()->conv.convertible(shaped, vd->type_) {
+            self.dyn()->sc->diag->report(
+                DiagID::SC041E,
+                b->range.start,
+                f"cannot convert '{self.dyn()->tu.str(shaped)}' to '{self.dyn()->tu.str(vd->type_)}', the type written on the binding",
+            ).first(b->range)->emit()
+            vd->poison()
+            return
+        }
+
+        // A member's `@implicit op as` is a C++ conversion function, which
+        // C++ applies to the initializer itself; an extension's is a call
+        // the tree has to hold (ImplicitConvLowering's rule for a value).
+        var unsafe *fu = self.dyn()->tu.as_value(shaped)
+        var unsafe *tv = self.dyn()->tu.as_value(vd->type_)
+        if fu == &null || tv == &null || canon_unqual(fu) == canon_unqual(tv) {
+            return
+        }
+
+        if self.dyn()->conv.implicit_builtin(fu, tv) != ImplicitRank::None {
+            return
+        }
+
+        var ops = cxx::std::vector<unsafe *FunctionDecl>()
+        self.dyn()->conv.implicit_ops(fu, tv, unsafe &ops)
+        if ops.size() == 0 || decl_extension_of(unsafe (ops[0] as unsafe *Decl)) == &null {
+            return
+        }
+
+        var key = vd as usize as u64
+        self.dyn()->sc->binder_convs[key] = ops[0]
+        var unsafe *inst = self.dyn()->conversion_instance(ops[0], fu)
+        if inst != &null {
+            self.dyn()->sc->binder_conv_instances[key] = inst
+        }
+    }
+
+    /// The type a binder takes from element type `t` before any written
+    /// type applies: `*x` the element's address (to const when the element
+    /// is reached read-only), `x?` the nullable.
+    priv fn _shape_binder(self,
+                          b:          unsafe *Statements::Binding,
+                          t:          unsafe *Type,
+                          const_elem: bool) -> unsafe *Type {
         var unsafe *shaped = canon_unqual(t)
         if b->shorthand.has(Statements::BindingShorthand::Pointer) {
             // An element reached through a `const T&` (a std::set's iterator)
@@ -2867,7 +2930,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             shaped = self._nullable_once(shaped)
         }
 
-        vd->type_ = shaped
+        return shaped
     }
 
     priv fn _bind_list(self,
@@ -2974,7 +3037,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             n->binds_yielded_ptr = true
             var unsafe *vd = dyn_cast<VariableDecl>(n->bindings.get(0)->decl)
             if vd != &null {
-                vd->type_ = canon_unqual(elem)
+                self._type_binder(n->bindings.get(0), vd, canon_unqual(elem))
             }
         } else {
             self._bind_list(

@@ -290,6 +290,12 @@ pub class InstanceEntry {
     pub var decl:        unsafe *Decl                   = &null ///< THE instance: explicit spec (representative) or implicit node.
     pub var is_explicit: bool                           = false ///< `decl` is user-written.
     pub var home_fid:    u32                            = 0 ///< TU that first named it; EmitPlan's home.
+    /// The instance of a record whose transfers its pattern leaves to the
+    /// instance (ImplicitTransfer::Open) is not COPY to Kairo: MOVE or
+    /// NON_TRANSFER. Written by ClassLifecycle::instance_failures; C++'s
+    /// own traits would call a `vector<Mv>` field copyable, so the emitter
+    /// constrains the copy pair on this answer.
+    pub var copy_denied: bool = false
     /// One per `P impl I` bound of the primary, in bound order, then the
     /// rows of each bound interface's `derives` closure: every witness
     /// specialization this instance's body can name (Compiler/Spec/Witnesses.md#emission).

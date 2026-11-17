@@ -1710,14 +1710,21 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 f"'{nm}' is ambiguous: it names more than one member reachable from here",
             )
 
+            // Each note names the scope that declares its candidate: two
+            // bases holding a member of one name are the common case.
             b.first(st->name->range)
+            var tu = TypeUtil(self.sc)
             for var i: usize = 0; i < n; ++i {
-                var unsafe *d = (*cands)[i]
-                b.note(
-                    DiagCode(DiagID::R028N),
-                    d->range.start,
-                    "candidate declared here",
-                )->child_first(d->range)
+                var unsafe *d  = (*cands)[i]
+                var        msg = "candidate declared here"
+                var unsafe *dc = d->semantic_dc
+                if dc != &null && dc->is_type_scope() && dc->dc_owner != &null {
+                    msg = f"candidate declared here, in '{tu.decl_name(dc->dc_owner)}'"
+                }
+
+                b.note(DiagCode(DiagID::R028N), d->range.start, msg)->child_first(
+                    d->range,
+                )
             }
 
             b.emit()

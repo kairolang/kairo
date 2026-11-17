@@ -1446,7 +1446,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             )
         }
 
-        var as_ptr = b->shorthand.has(BindingShorthand::Pointer) && b->type_ == &null
+        var as_ptr = b->shorthand.has(BindingShorthand::Pointer)
         if !as_ptr {
             vd->init = if (self._give) => (self._given(place, vd->type_)) else => place
         } else if stable {
@@ -1462,6 +1462,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
             vd->init = self.synth.addr_of(self._use(copy, at))
         }
+
+        vd->init = self.synth.binder_converted(vd, vd->init)
 
         body->push(
             unsafe (DeclStmt::create(self.ctx, b->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
@@ -1516,12 +1518,11 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         return self.tu.iteration_form(n->iterable->type_, true) != &null
     }
 
-    /// A named `*x` / `unsafe *x` binder with no type written.
+    /// A named `*x` / `unsafe *x` binder.
     priv fn _binds_pointer(self, b: unsafe *Binding) -> bool {
         return b != &null
             && !b->is_discard
             && b->decl != &null
-            && b->type_ == &null
             && b->shorthand.has(BindingShorthand::Pointer)
             && !b->shorthand.has(BindingShorthand::Nullable)
     }

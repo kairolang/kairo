@@ -65,10 +65,10 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}eval_split_ctor.k
 // IR:      consteval Tag(signed int id) noexcept;
-// IR:      static consteval auto __kairo_ctor_pre0(
-// IR-NEXT: consteval Tag(__kairo_ci0 & __kairo_s,
+// IR:      consteval auto __kairo_ctor_pre0(
+// IR-NEXT: consteval Tag(__kairo_ci0 && __kairo_s,
 // IR:      consteval auto Tag::__kairo_ctor_pre0(
-// IR:      consteval Tag::Tag(__kairo_ci0 & __kairo_s,
+// IR:      consteval Tag::Tag(__kairo_ci0 && __kairo_s,
 // IR:      consteval Tag::Tag(signed int id) noexcept: Tag(
 // IR:      template<class T> inline consteval Cell<T>::Cell(T v) noexcept: Cell(
 

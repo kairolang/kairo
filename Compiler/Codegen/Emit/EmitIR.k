@@ -73,12 +73,16 @@
 ///       auto R::__kairo_ctor_preK(__kairo_ciK&& __kairo_s, P& p) ->
 ///           __kairo_ciK& { S_pre; return static_cast<__kairo_ciK&>(__kairo_s);
 ///           }
-///       R::R(__kairo_ciK& __kairo_s, P& p) : x(__kairo_s.x.take()) { S_post }
-///       R::R(P p) : R(__kairo_ctor_preK(__kairo_ciK(), p), p) {}
+///       R::R(__kairo_ciK&& __kairo_s, P& p) : B(...),
+///           x(this->__kairo_ctor_preK(static_cast<__kairo_ciK&&>(__kairo_s), p).x.take()),
+///           y(__kairo_s.y.take()) { S_post }
+///       R::R(P p) : R(__kairo_ciK(), p) {}
 ///
-///     S_pre runs before any object exists, so in it `self.x = e` fills a
-///     slot (`__kairo_s.x.init(e)`, `.put(e)` for a `var` field) and `self.x`
-///     reads one; CtorInitCheck allows `self` nowhere else there. A local of
+///     S_pre runs once the bases are built and before any own field is, so
+///     in it a base's field is `this->x`, `self.x = e` for an own field
+///     fills a slot (`__kairo_s.x.init(e)`, `.put(e)` for a `var` field) and
+///     `self.x` reads one; CtorInitCheck allows `self` nowhere else there.
+///     With no field built from a slot, S_pre runs first in the body. A local of
 ///     S_pre that S_post reads is a slot in both halves. The slot record is
 ///     the public constructor's temporary, alive to the end of its
 ///     mem-initializer, which encloses the whole slot constructor; nothing
@@ -226,8 +230,8 @@ pub class EmitIR {
     /// clause (Speller::member_requires): no static_asserts for it.
     prot var _req_in_head: bool = false
     /// A split constructor whose slots are live (file header), its record,
-    /// and whether this is its S_pre, where there is no object and `self.x`
-    /// is a slot.
+    /// and whether this is its S_pre, where only the bases are built and
+    /// an own field `self.x` is a slot.
     prot var _ci_fn:    unsafe *FunctionDecl = &null
     prot var _ci_owner: unsafe *Decl         = &null
     prot var _ci_pre:   bool                 = false

@@ -29,6 +29,7 @@
 
 ffi "c++" import "Native/Types.hh"
 
+import AST::ASTSupport::FrozenList
 import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::DeclContext
 import AST::Context::TranslationUnit::TranslationUnit
@@ -2831,10 +2832,12 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        // bindings carry only a NamedIdentExpr name (name node) skip.
+        // A binder's name node is skipped; its written type is visited.
         if n->iterable != &null {
             self.dyn()->dispatch_expr(n->iterable)
         }
+
+        self.dyn()->traverse_binding_types(&n->bindings)
 
         // An `eval for` over a range holds its bounds here once IterLowering
         // has run (`iterable` is null then): what the bounds use is planned
@@ -2959,11 +2962,12 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        // bindings carry only NamedIdentExpr names skip.
+        // A binder's name node is skipped; its written type is visited.
         if n->value != &null {
             self.dyn()->dispatch_expr(n->value)
         }
 
+        self.dyn()->traverse_binding_types(&n->bindings)
         self.dyn()->traverse_block(n->body)
         return n
     }
@@ -2974,12 +2978,24 @@ pub class <D: type> RecursiveASTVisitor {
             return n
         }
 
-        // bindings carry only NamedIdentExpr names skip.
+        // A binder's name node is skipped; its written type is visited.
         if n->value != &null {
             self.dyn()->dispatch_expr(n->value)
         }
 
+        self.dyn()->traverse_binding_types(&n->bindings)
         return n
+    }
+
+    /// The types written on binders (`for y: i64 in xs`, `var (a: i64, b)
+    /// = t`). A binder's name and declaration are not children.
+    fn traverse_binding_types(self, list: *FrozenList<Statements::Binding>) {
+        for var i: usize = 0; i < list->size(); ++i {
+            var unsafe *b = list->get(i)
+            if b != &null && b->type_ != &null {
+                self.dyn()->dispatch_type(b->type_)
+            }
+        }
     }
 
     fn traverse_inline_block_stmt(self,

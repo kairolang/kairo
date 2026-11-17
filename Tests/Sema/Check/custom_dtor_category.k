@@ -9,6 +9,7 @@ class OwnsInt {
 }
 class OwnsUnique {
     var u: Unique;
+    fn OwnsUnique(self, u: Unique) { self.u = u; }
     fn op finally(self) { }                  // expect: clean -- a move-only field makes it MOVE
 }
 class OwnsMutex {

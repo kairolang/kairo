@@ -62,11 +62,10 @@
 ///     decides (_split_ctor_dependent); a constructor it rejects is judged
 ///     without them.
 ///
-///     A base is built from the slots too, after S_pre, so in S_pre a field
-///     of a base is what an own `var` field with a default is: `self.f = e`
-///     rides in a slot and is assigned once the base exists, and a read is
-///     of what S_pre assigned on every path or an error (SC175E). Such
-///     fields are tracked after the record's own (_with_inherited).
+///     The bases are built before S_pre runs (EmitIR::_split_ctor), so in
+///     S_pre a field of a base is an initialized field of the object: it is
+///     read and written in place, and has no slot. Such fields are tracked
+///     after the record's own (_with_inherited), assigned from the start.
 ///
 ///     Any non-const field S_pre assigns, and any top-level local of S_pre
 ///     that S_post reads, rides across in a slot too. Those are the facts
@@ -892,9 +891,8 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                         own:   FrozenList<unsafe *FieldDecl>,
                         f:     unsafe *FunctionDecl,
                         index: u32) -> bool {
-        // A base is built after S_pre ran (EmitIR::_split_ctor), so a base's
-        // field is to S_pre what an own field with a default is: a whole
-        // write rides in a slot, and a read sees only what S_pre wrote.
+        // The bases are built before S_pre runs (EmitIR::_split_ctor): a
+        // base's field is read and written in place there.
         var fields = self._with_inherited(own, f)
         self._owner  = owner
         self._ctor   = f
@@ -1202,15 +1200,14 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         var dense = cxx::std::vector<u8>()
         for var i: usize = 0; i < fields.size(); ++i {
             var unsafe *fd = fields[i]
-            if !self._is_written(fd) {
+            // A base's field is written in place: the base exists.
+            if !self._is_written(fd) || i >= self._own {
                 continue
             }
 
-            // A base's field is assigned once the base exists, never built
-            // by this constructor's mem-initializers.
             slots.push_back(fd)
             dense.push_back(
-                (i < self._own && (self._st.dead || self._st.fields[i] == FieldInit::Yes)) as u8,
+                (self._st.dead || self._st.fields[i] == FieldInit::Yes) as u8,
             )
         }
 
@@ -2060,8 +2057,12 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     priv fn _reset_flow(self, n: usize) {
         self._st = CtorFlow{}
         self._assigned_at.clear()
+        // A base's field exists before the constructor's own code runs.
         for var i: usize = 0; i < n; ++i {
-            self._st.fields.push_back(FieldInit::No)
+            self._st.fields.push_back(
+                if (i >= self._own) => (FieldInit::Yes) else => FieldInit::No,
+            )
+
             self._assigned_at.push_back(SourceRange::invalid())
         }
 

@@ -33,7 +33,7 @@ fn main() -> i32 {
 // CXX:      signed int * p =(& x);
 // CXX-NEXT: signed int * * pp =(& p);
 // CXX-NEXT: signed int * * * ppp =(& pp);
-// CXX:      const signed int * cp =
+// CXX:      signed int * const cp =
 // CXX:      ::builtin::Null<signed int *> n =
 
 // REQUIRES: clang

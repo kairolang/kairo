@@ -152,10 +152,10 @@ fn main() -> i32 {
 // CXX-NEXT: MvStruct & operator =(MvStruct &&) = default;
 // CXX-NEXT: };
 // CXX: template<class T> class Box {
-// CXX: Box(const Box &) requires(__is_constructible(__remove_all_extents(T), const __remove_all_extents(T) &)) = default;
-// CXX-NEXT: Box & operator =(const Box &) requires(__is_constructible(__remove_all_extents(T), const __remove_all_extents(T) &)) = default;
-// CXX-NEXT: Box(Box &&) requires(!(__is_constructible(__remove_all_extents(T), const __remove_all_extents(T) &))) = default;
-// CXX-NEXT: Box & operator =(Box &&) requires(!(__is_constructible(__remove_all_extents(T), const __remove_all_extents(T) &))) = default;
+// CXX: Box(const Box &) requires((__is_constructible(__remove_all_extents(T), const __remove_all_extents(T) &)) && __kairo_copy_Box<Box>) = default;
+// CXX-NEXT: Box & operator =(const Box &) requires((__is_constructible(__remove_all_extents(T), const __remove_all_extents(T) &)) && __kairo_copy_Box<Box>) = default;
+// CXX-NEXT: Box(Box &&) requires(!((__is_constructible(__remove_all_extents(T), const __remove_all_extents(T) &)) && __kairo_copy_Box<Box>)) = default;
+// CXX-NEXT: Box & operator =(Box &&) requires(!((__is_constructible(__remove_all_extents(T), const __remove_all_extents(T) &)) && __kairo_copy_Box<Box>)) = default;
 // CXX-NEXT: };
 
 // REQUIRES: clang

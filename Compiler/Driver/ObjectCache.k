@@ -259,7 +259,7 @@ pub class ObjectCache {
         var paths = cxx::std::vector<string>()
         var kfids = cxx::std::vector<u32>()
         var seen  = llvm::StringMap<u32>()
-        for var hs: *HeaderSet in sets {
+        for var hs: unsafe *HeaderSet in sets {
             for var i: usize = 0; i < hs->files.size(); ++i {
                 if hs->files[i].kfid == 0 {
                     continue
@@ -301,7 +301,7 @@ pub class ObjectCache {
 
         // A direct import written `ffi "c"` is wrapped in extern "C": the
         // header's line says so (its root file is the closure's first).
-        for var hs: *HeaderSet in sets {
+        for var hs: unsafe *HeaderSet in sets {
             for var i: usize = 0; i < hs->headers.size() && i < hs->c_linkage.size(); ++i {
                 if hs->c_linkage[i] == (0 as u8) {
                     continue
@@ -331,7 +331,7 @@ pub class ObjectCache {
             placed.resize(self._hdr_path.size(), 0 as u8)
             self._hdr_pos.resize(self._hdr_path.size(), u32::MAX)
             var run = ""
-            for var hs: *HeaderSet in sets {
+            for var hs: unsafe *HeaderSet in sets {
                 for var i: usize = 0; i < hs->files.size(); ++i {
                     var it = self._hdr_of.find(hs->files[i].kfid as u64)
                     if it == self._hdr_of.end() {

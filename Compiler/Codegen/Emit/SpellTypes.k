@@ -709,8 +709,16 @@ extend Speller {
                 )
             }
 
-            var s = self.decl(canon_unqual(c), "&" + name, subst, scope)
-            return (if (p->is_const) => ("const " + s) else => s)
+            if p->is_const {
+                return self._const_array_ref(
+                    canon_unqual(c),
+                    name,
+                    subst,
+                    scope,
+                )
+            }
+
+            return self.decl(canon_unqual(c), "&" + name, subst, scope)
         }
 
         if p->is_pack {
@@ -781,7 +789,7 @@ extend Speller {
         if mode == ParamMode::Value && t != &null && t->canonical != &null {
             var unsafe *ac = canon_unqual(t->canonical)
             if ac != &null && ac->kind == TypeKind::FixedArrayType {
-                return "const " + self.decl(ac, "&" + name, subst, scope)
+                return self._const_array_ref(ac, name, subst, scope)
             }
         }
 
@@ -796,20 +804,8 @@ extend Speller {
             return self.decl(t, self._ref_declarator("&&", name), subst, scope)
         }
 
-        if is_const && fn_param {
-            // After the `*` for a pointer (`T *const p`): a prefix would
-            // make the pointee const and change the function type.
-            var unsafe *pc = t->canonical
-            if pc != &null && pc->kind == TypeKind::PointerType {
-                return self.decl(
-                    t,
-                    if (name.size() > 0) => ("const " + name) else => "const",
-                    subst,
-                    scope,
-                )
-            }
-
-            return "const " + self.decl(t, name, subst, scope)
+        if is_const && (fn_param || Speller::is_pointer(t)) {
+            return self.const_decl(t, name, subst, scope)
         }
 
         if is_const {
@@ -851,6 +847,59 @@ extend Speller {
         }
 
         return self.decl(t, name, subst, scope)
+    }
+
+    /// `t name` for a binding declared `const` (`const p: *T`, a parameter,
+    /// local, field or global). The `const` freezes the binding itself: on
+    /// a pointer it follows the `*` (`T *const p`), since a prefix would
+    /// make the pointee const, which `const p: *T` leaves writable. Empty
+    /// `name` is the abstract form (`T *const`).
+    fn const_decl(self,
+                  t:          unsafe *Type,
+                  const name: string,
+                  subst:      unsafe *InstanceEntry = &null,
+                  scope:      unsafe *Decl = &null) -> string {
+        if Speller::is_pointer(t) {
+            return self.decl(
+                t,
+                if (name.size() > 0) => ("const " + name) else => "const",
+                subst,
+                scope,
+            )
+        }
+
+        return "const " + self.decl(t, name, subst, scope)
+    }
+
+    /// `t` is a pointer, safe or unsafe, or an array of them (at any
+    /// rank): a `const` on such a binding goes in the declarator, after the
+    /// `*`.
+    static fn is_pointer(t: unsafe *Type) -> bool {
+        if t == &null || t->canonical == &null {
+            return false
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        while c != &null && c->kind == TypeKind::FixedArrayType {
+            c = canon_unqual(cast<FixedArrayType>(c)->element)
+        }
+
+        return c != &null && c->kind == TypeKind::PointerType
+    }
+
+    /// A `const` array parameter `name`, passed by reference: `const T
+    /// (&a)[N]`, or `T *const (&a)[N]` for an array of pointers, whose
+    /// pointees stay writable.
+    priv fn _const_array_ref(self,
+                             a:          unsafe *Type,
+                             const name: string,
+                             subst:      unsafe *InstanceEntry,
+                             scope:      unsafe *Decl) -> string {
+        if Speller::is_pointer(a) {
+            return self.decl(a, "const (&" + name + ")", subst, scope)
+        }
+
+        return "const " + self.decl(a, "&" + name, subst, scope)
     }
 
     /// `& name`, keeping the `T& x` spelling the printed C++ has always had

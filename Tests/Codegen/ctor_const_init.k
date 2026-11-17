@@ -72,8 +72,8 @@ fn main() -> i32 {
 // CXX:      F(signed int x) noexcept;
 // CXX:      private{{ ?}}:
 // CXX-NEXT: struct __kairo_ci0;
-// CXX-NEXT: static auto __kairo_ctor_pre0({{.*}}__kairo_ci0{{ ?}}&&{{ ?}}__kairo_s{{.*}}__kairo_lref{{.*}}x{{.*}}__kairo_ci0{{ ?}}&;
-// CXX-NEXT: F({{.*}}__kairo_ci0{{ ?}}&{{ ?}}__kairo_s{{.*}}x);
+// CXX-NEXT: auto __kairo_ctor_pre0({{.*}}__kairo_ci0{{ ?}}&&{{ ?}}__kairo_s{{.*}}__kairo_lref{{.*}}x{{.*}}__kairo_ci0{{ ?}}&;
+// CXX-NEXT: F({{.*}}__kairo_ci0{{ ?}}&&{{ ?}}__kairo_s{{.*}}x);
 
 // The four definitions, for F.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
@@ -83,8 +83,8 @@ fn main() -> i32 {
 // IR:      __kairo_ctor_pre0
 // IR:      __kairo_s{{ ?}}.{{ ?}}x{{ ?}}.{{ ?}}init
 // IR:      return{{ ?}}static_cast<__kairo_ci0{{ ?}}&>({{ ?}}__kairo_s{{ ?}});
-// IR:      x{{ ?}}({{ ?}}__kairo_s{{ ?}}.{{ ?}}x{{ ?}}.{{ ?}}take
-// IR:      F{{ ?}}({{ ?}}__kairo_ctor_pre0{{ ?}}({{ ?}}__kairo_ci0{{ ?}}({{ ?}})
+// IR:      x{{ ?}}({{ ?}}this{{ ?}}->{{ ?}}__kairo_ctor_pre0{{ ?}}({{.*}}__kairo_s{{.*}}){{ ?}}.{{ ?}}x{{ ?}}.{{ ?}}take
+// IR:      F{{ ?}}({{ ?}}__kairo_ci0{{ ?}}({{ ?}}){{ ?}},
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d

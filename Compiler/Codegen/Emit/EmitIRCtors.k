@@ -68,6 +68,13 @@ extend EmitIR {
     /// The slot record's definition, the pre-function, the slot constructor
     /// and the public constructor that delegates to it, for `m`, whose body
     /// CtorInitLowering cut into `{ {S_pre} {S_post} }`.
+    ///
+    /// The public constructor hands a fresh slot record to the slot
+    /// constructor, which builds the bases first (C++ builds them before any
+    /// member), then runs S_pre, a member function, in its first slot
+    /// field's mem-initializer (or at the top of its body when there is
+    /// none), and builds each field from its slot. S_pre so sees the bases
+    /// built, and a base's field is read and written in place there.
     prot fn _split_ctor(self, m: unsafe *FunctionDecl, owner: unsafe *Decl) {
         var unsafe *b = m->body_block
         if !m->ci_cut || b == &null || b->body.size() != 2 {
@@ -166,12 +173,16 @@ extend EmitIR {
         // The object, built from the slots; then S_post in it. Its bases
         // first, as C++ builds them: from the leading `Base::Base(self,
         // ...)` calls, whose arguments are the parameters this constructor
-        // takes by reference too -- so a base is built after S_pre ran,
-        // and sees what S_pre did to a parameter.
-        var h = oh + inl + q + "::" + leaf + "(" + ci + "& " + sa + ps + ")"
+        // takes by reference too. S_pre runs once they are built, in the
+        // first slot field's initializer.
+        var h = oh + inl + q + "::" + leaf + "(" + ci + "&& " + sa + ps + ")"
         self._cg->sink->spell(at, h)
         h = ""
-        var first = !self._mem_inits(m, owner, unsafe &pre->body, false)
+        var run_pre = "this->" + LowerTargets::ctor_pre(
+            m->ci_index,
+        ) + "(static_cast<" + ci + "&&>(" + sa + ")" + args + ")"
+        var pre_run = false
+        var first   = !self._mem_inits(m, owner, unsafe &pre->body, false)
         for var i: usize = 0; i < m->ci_slots.size(); ++i {
             var unsafe *f = dyn_cast<FieldDecl>(m->ci_slots[i])
             if f == &null || !m->ci_dense[i] {
@@ -180,10 +191,12 @@ extend EmitIR {
 
             h += if (first) => (" : ") else => ", "
             first = false
-            var take = sa + "." + self._slot_name(i) + "." + LowerTargets::ctor_slot_take() + "()"
+            var slot = "." + self._slot_name(i) + "." + LowerTargets::ctor_slot_take() + "()"
             var ext = self._array_extent(f->type_)
             if ext == usize::MAX {
-                h += self._spell.leaf(unsafe (f as unsafe *Decl)) + "(" + take + ")"
+                var src = if (pre_run) => (sa.copy()) else => run_pre.copy()
+                pre_run = true
+                h += self._spell.leaf(unsafe (f as unsafe *Decl)) + "(" + src + slot + ")"
             } else {
                 // A member array cannot be initialized from an array, only
                 // from its elements, each moved out of the slot's.
@@ -193,7 +206,9 @@ extend EmitIR {
                         h += ", "
                     }
 
-                    h += take + f"[{k}]"
+                    var src = if (pre_run) => (sa.copy()) else => run_pre.copy()
+                    pre_run = true
+                    h += src + slot + f"[{k}]"
                 }
 
                 h += "}"
@@ -205,6 +220,10 @@ extend EmitIR {
         }
 
         self._cg->sink->synth_at_start(post->range, clang::tok::l_brace)
+        if !pre_run {
+            self._cg->sink->spell(post->range, run_pre + ";")
+        }
+
         // A `var` field S_pre assigned on some paths only kept its default;
         // the slot's value replaces it where there is one.
         for var i: usize = 0; i < m->ci_slots.size(); ++i {
@@ -245,9 +264,7 @@ extend EmitIR {
             pub_h += " noexcept"
         }
 
-        pub_h += " : " + leaf + "(" + LowerTargets::ctor_pre(
-            m->ci_index,
-        ) + "(" + ci + "()" + args + ")" + args + ") {"
+        pub_h += " : " + leaf + "(" + ci + "()" + args + ") {"
         // A bounded generic record's bounds are asserted where a value is
         // made (Speller::ctor_bound_asserts): this is the constructor a
         // caller names, so the assertion sits in its body.
@@ -325,6 +342,13 @@ extend EmitIR {
         }
 
         return true
+    }
+
+    /// The chain step names a field of a base of the record whose split
+    /// constructor is being emitted.
+    prot fn _base_field_step(self, st: unsafe *ChainExpr::Step) -> bool {
+        var unsafe *f = if (st != &null) => (dyn_cast<FieldDecl>(st->resolved_decl)) else => &null
+        return f != &null && self._ci_owner != &null && self._inherited_field(f)
     }
 
     /// `var n = e` in S_pre, for a local S_post reads: its slot, built.

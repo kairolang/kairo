@@ -575,7 +575,7 @@ pub class VirtualFileManager {
     /// finds which mapped segment the pointer belongs to, and computes its
     /// relative offset. aborts if pointer lies outside known regions.
     pub fn resolve_ptr(self, ptr: kairo::std::restrict_ptr<u8>) -> Self::SegmentResolve {
-        for var seg: *Segment? in self._segments {
+        for var seg: unsafe *Segment in self._segments {
             if seg == &null { // retired by evict()
                 continue
             }
@@ -714,7 +714,7 @@ pub class VirtualFileManager {
         var result = "VirtualFileManager(\n"
         result += "  _segments:\n"
 
-        for var seg: *Segment? in self._segments {
+        for var seg: unsafe *Segment in self._segments {
             if seg == &null {
                 result += "    <evicted>\n"
                 continue

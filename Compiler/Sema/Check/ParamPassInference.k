@@ -164,8 +164,9 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,       AdtRole,    ClassDecl, ExtensionDecl, FieldDecl,  FnBodyKind,   FunctionDecl,
-    InterfaceDecl, ModuleDecl, ParamDecl, PurityLevel,   StructDecl, TransferKind, VariableDecl,
+    AbiKind,       AdtRole,    ClassDecl, ExtensionDecl, FieldDecl,    FnBodyKind, FunctionDecl,
+    InterfaceDecl, ModuleDecl, ParamDecl, PurityLevel,   StorageClass, StructDecl, TransferKind,
+    VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
@@ -188,6 +189,7 @@ import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Config::ResourceLayout::ResourceLayout
 import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
 import Sema::Check::ClassLifecycle::{
     LifecycleCategory,
     LifecycleTri,
@@ -210,6 +212,28 @@ pub struct PassCand {
     pub var bad: bool = false
     /// Its lint slot, or usize::MAX for a by-value one SC224W decides.
     pub var slot: usize = usize::MAX
+}
+
+/// A pointer parameter or local the -Wconst-self pointee half (SC360W)
+/// watches: `levels` is how many of its pointee levels, from the first,
+/// every use seen so far leaves unwritten.
+pub struct PointeeCand {
+    pub var decl:    unsafe *Decl = &null
+    pub var written: unsafe *Type = &null ///< its written type, a pointer node.
+    pub var depth:   u32          = 0     ///< pointer levels of its type.
+    pub var levels:  u32          = 0
+}
+
+/// Where an expression sits relative to a PointeeCand `ref`: `k` derefs
+/// from it (`*p` is 1, `**p` 2), then, when `member`, a field or element
+/// of the level-`obj` object. `detached` once a path goes through a
+/// pointer held in such a member: what it reaches is no level of `ref`.
+pub struct PointeePath {
+    pub var ref:      unsafe *NamedIdentExpr = &null
+    pub var k:        u32                    = 0
+    pub var member:   bool                   = false
+    pub var obj:      u32                    = 0
+    pub var detached: bool                   = false
 }
 
 /// The pass. Writes ParamDecl::inferred_const; warns SC224W.
@@ -244,6 +268,16 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     priv var _e_to:         cxx::std::vector<unsafe *FunctionDecl>
     pub var  n_const_self:  usize                                  = 0
     pub var  n_const_inout: usize                                  = 0
+    /// -Wconst-self's pointee half: the candidates of the functions being
+    /// walked (innermost last), their index plus one by declaration, and
+    /// for each reference a parent use claimed, the levels that use leaves
+    /// unwritten. A function's own entry in _pl_fns says whether its
+    /// locals may be candidates.
+    priv var _pl:        cxx::std::vector<PointeeCand>
+    priv var _pl_index:  llvm::DenseMap<u64, u64>
+    priv var _pl_claims: llvm::DenseMap<u64, u32>
+    priv var _pl_fns:    cxx::std::vector<u8>
+    pub var  n_pointee:  usize                         = 0
 
     fn ParamPassInference(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -279,7 +313,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         }
 
         var first    = self._cand.size()
+        var pl_first = self._pl.size()
         var eligible = self._eligible_fn(n)
+        var pl_on    = false
         if eligible {
             for var i: usize = 0; i < n->params.size(); ++i {
                 var unsafe *p = n->params[i]
@@ -294,6 +330,28 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
                 self._lint_cands(n)
             }
         }
+
+        // The pointee half asks only that the signature be the function's
+        // own: a cold or const function reads through its pointers too.
+        if self._lint && self._signature_ours(n) {
+            pl_on = !n->is_method() || self._lint_method_ok(n)
+        }
+
+        if pl_on {
+            for var i: usize = 0; i < n->params.size(); ++i {
+                var unsafe *p = n->params[i]
+                if p != &null
+                    && !p->is_self
+                    && !p->is_pack
+                    && p->mode == ParamMode::Value
+                    && !param_is_type_pack(p)
+                    && p->name.range.is_valid() {
+                    self._pl_add(unsafe (p as unsafe *Decl), p->type_)
+                }
+            }
+        }
+
+        self._pl_fns.push_back(if (pl_on) => (1 as u8) else => (0 as u8))
 
         self._ret.push_back(n->return_type)
         var unsafe *out = RecursiveASTVisitor<ParamPassInference>::traverse_function_decl(
@@ -319,6 +377,16 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
             self._index.erase(p as usize as u64)
             self._cand.pop_back()
+        }
+
+        self._pl_fns.pop_back()
+        while self._pl.size() > pl_first {
+            self._pl_decide(self._pl.size() - 1)
+            self._pl_index.erase(
+                self._pl[self._pl.size() - 1].decl as usize as u64,
+            )
+
+            self._pl.pop_back()
         }
 
         return out
@@ -398,27 +466,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     }
 
     priv fn _eligible_fn(self, f: unsafe *FunctionDecl) -> bool {
-        if f->is_implicit || f->is_poisoned() {
-            return false
-        }
-
-        if f->body_kind != FnBodyKind::Block {
-            return false
-        }
-
-        if f->body_block == &null {
-            return false
-        }
-
-        if f->is_imported() || f->ffi_linkage != LinkageKind::None {
-            return false
-        }
-
-        if f->abi == AbiKind::Virtual || f->abi == AbiKind::Override {
-            return false
-        }
-
-        if f->call_conv != 0 {
+        if !self._signature_ours(f) {
             return false
         }
 
@@ -442,6 +490,25 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
         if canon != &null
             && (canon->is_const_fn || canon->inferred_purity == (PurityLevel::Const as u8)) {
+            return false
+        }
+
+        return true
+    }
+
+    /// `f`'s signature is its own to change: a Kairo function with a body,
+    /// not a transfer, requirement, override or entry point, and not part
+    /// of a generic.
+    priv fn _signature_ours(self, f: unsafe *FunctionDecl) -> bool {
+        if f->is_implicit || f->is_poisoned() || f->body_kind != FnBodyKind::Block {
+            return false
+        }
+
+        if f->body_block == &null || f->is_imported() || f->ffi_linkage != LinkageKind::None {
+            return false
+        }
+
+        if f->abi == AbiKind::Virtual || f->abi == AbiKind::Override || f->call_conv != 0 {
             return false
         }
 
@@ -800,6 +867,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     }
 
     fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        self._pl_ref(n)
         var k = self._cand_of(n->resolved_decl)
         if k == usize::MAX {
             return true
@@ -1035,6 +1103,10 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     /// # approving nodes
 
     fn visit_call_expr(self, n: *Expressions::CallExpr) -> bool {
+        if self._pl.size() > 0 {
+            self._pl_call(n)
+        }
+
         var unsafe *f = dyn_cast<FunctionDecl>(callee_expr_decl(n->callee))
         var is_ctor = n->ctor_decl != &null && isa<FunctionDecl>(n->ctor_decl)
         if is_ctor {
@@ -1140,7 +1212,23 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
     fn visit_binary_operator_expr(self, n: *Expressions::BinaryOperatorExpr) -> bool {
         if n->resolved_op != &null {
+            // Comparing two pointers through an operator declaration
+            // compares the addresses: nothing is written through them.
+            if self._pl.size() > 0
+                && self._pl_is_pointer(n->lhs->type_)
+                && !self._pl_is_pointer(n->type_) {
+                self._pl_read(n->lhs, &null)
+                self._pl_read(n->rhs, &null)
+            }
+
             return true
+        }
+
+        // A builtin operator reads its operands; one that makes a pointer
+        // (`p + 1`) hands the levels on, which nothing here follows.
+        if self._pl.size() > 0 && !self._pl_is_pointer(n->type_) {
+            self._pl_read(n->lhs, &null)
+            self._pl_read(n->rhs, &null)
         }
 
         var k = n->op_token.kind
@@ -1173,6 +1261,23 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             self._approve(n->operand)
         }
 
+        if self._pl.size() > 0 {
+            if k == TokenKind::OpAmp {
+                if n->const_addr {
+                    self._pl_claim(
+                        n->operand,
+                        self._pl_const_addr(self._pl_path(n->operand)),
+                    )
+                } else {
+                    self._pl_write(n->operand, false)
+                }
+            } else if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
+                self._pl_write(n->operand, true)
+            } else if k != TokenKind::OpStar {
+                self._pl_read(n->operand, &null)
+            }
+        }
+
         return true
     }
 
@@ -1182,11 +1287,23 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         }
 
         self._approve(n->rhs)
+        if self._pl.size() > 0 {
+            self._pl_write(n->lhs, true)
+            self._pl_read(
+                n->rhs,
+                if (n->lhs != &null) => (n->lhs->type_) else => &null,
+            )
+        }
+
         return true
     }
 
     fn visit_subscript_expr(self, n: *Expressions::SubscriptExpr) -> bool {
         self._approve(n->index)
+        if self._pl.size() > 0 {
+            self._pl_read(n->index, &null)
+        }
+
         return true
     }
 
@@ -1197,6 +1314,10 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
         if self._is_ref(n->target) {
             return true
+        }
+
+        if self._pl.size() > 0 {
+            self._pl_read(n->operand, n->target)
         }
 
         // `&x as *const T` (IterLowering's call of `op in (const self)` on
@@ -1265,6 +1386,13 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     }
 
     fn visit_if_expr(self, n: *Expressions::IfExpr) -> bool {
+        if self._pl.size() > 0 {
+            self._pl_read(n->condition, &null)
+            for var i: usize = 0; i < n->else_ifs.size(); ++i {
+                self._pl_read(n->else_ifs.get(i)->condition, &null)
+            }
+        }
+
         self._approve(n->condition)
         for var i: usize = 0; i < n->else_ifs.size(); ++i {
             self._approve(n->else_ifs.get(i)->condition)
@@ -1278,6 +1406,23 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     }
 
     fn visit_variable_decl(self, n: *VariableDecl) -> bool {
+        if self._pl_fns.size() > 0
+            && self._pl_fns[self._pl_fns.size() - 1] != 0
+            && !n->place_ref
+            && !n->raw_slot
+            && n->name.range.is_valid()
+            && (n->storage == StorageClass::Var || n->storage == StorageClass::Const) {
+            self._pl_add(unsafe (n as unsafe *Decl), n->type_)
+        }
+
+        if self._pl.size() > 0 && n->init != &null && !n->place_ref && !n->raw_slot {
+            if self._is_ref(n->type_) {
+                self._pl_write(n->init, false)
+            } else {
+                self._pl_read(n->init, n->type_)
+            }
+        }
+
         if n->init == &null || n->place_ref || n->raw_slot {
             return true
         }
@@ -1293,6 +1438,19 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     fn visit_return_stmt(self, n: *ReturnStmt) -> bool {
         if n->value == &null {
             return true
+        }
+
+        // A closure's `return` leaves with the closure's type, which _ret
+        // does not hold: a pointer it returns is taken as kept as it is.
+        if self._pl.size() > 0 && self._closures > 0 {
+            self._pl_read(n->value, n->value->type_)
+        } else if self._pl.size() > 0 && self._ret.size() > 0 {
+            var unsafe *rt = self._ret[self._ret.size() - 1]
+            if self._is_ref(rt) {
+                self._pl_write(n->value, false)
+            } else {
+                self._pl_read(n->value, rt)
+            }
         }
 
         // `return p` moves a by-value parameter out (C++ treats it as an
@@ -1312,17 +1470,563 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
     fn visit_conditional_stmt(self, n: *ConditionalStmt) -> bool {
         self._approve(n->cond)
+        if self._pl.size() > 0 {
+            self._pl_read(n->cond, &null)
+        }
+
         return true
     }
 
     fn visit_while_loop_stmt(self, n: *WhileLoopStmt) -> bool {
         self._approve(n->cond)
+        if self._pl.size() > 0 {
+            self._pl_read(n->cond, &null)
+        }
+
         return true
     }
 
     fn visit_runtime_assert_stmt(self, n: *RuntimeAssertStmt) -> bool {
         self._approve(n->condition)
         self._approve(n->message)
+        if self._pl.size() > 0 {
+            self._pl_read(n->condition, &null)
+        }
+
         return true
+    }
+
+    /// # -Wconst-self: pointee levels (SC360W)
+
+    /// No use limits a level: more than any pointer has.
+    static fn _pl_all() -> u32 {
+        return 1000
+    }
+
+    /// `t` is a pointer (C++ references looked through).
+    priv fn _pl_is_pointer(self, t: unsafe *Type) -> bool {
+        var unsafe *c = self._pl_value(t)
+        return c != &null && c->kind == TypeKind::PointerType
+    }
+
+    /// `t`'s canonical, unqualified, with a C++ reference looked through.
+    priv fn _pl_value(self, t: unsafe *Type) -> unsafe *Type {
+        if t == &null {
+            return &null
+        }
+
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
+        if c != &null && isa<CXXLValueRefType>(c) {
+            c = canon_unqual(cast<CXXLValueRefType>(c)->referee)
+        } else if c != &null && isa<CXXRValueRefType>(c) {
+            c = canon_unqual(cast<CXXRValueRefType>(c)->referee)
+        }
+
+        return c
+    }
+
+    /// How many leading pointee levels of `t` are const: `*const *T` is 1,
+    /// `*const *const T` 2. Not a pointer: every level (a value converted
+    /// to it, such as a `bool`, carries no way to write).
+    priv fn _pl_const_prefix(self, t: unsafe *Type) -> u32 {
+        var unsafe *c = self._pl_value(t)
+        if c == &null {
+            return 0
+        }
+
+        if c->kind != TypeKind::PointerType {
+            return ParamPassInference::_pl_all()
+        }
+
+        var n: u32 = 0
+        while c != &null && c->kind == TypeKind::PointerType {
+            var unsafe *pe = cast<PointerType>(c)->pointee
+            if !canon_has_const(pe) {
+                return n
+            }
+
+            n += 1
+            c = canon_unqual(pe)
+        }
+
+        return n
+    }
+
+    /// Watch `d`, a parameter or local whose written type `w` is a pointer
+    /// with a pointee level that is not const. A type behind an alias, a
+    /// dependent one or one with no source has nowhere for the fix-it.
+    priv fn _pl_add(self, d: unsafe *Decl, w: unsafe *Type) {
+        if w == &null || w->canonical == &null || !w->range.is_valid() {
+            return
+        }
+
+        if !isa<PointerType>(w) || w->canonical->is_dependent() {
+            return
+        }
+
+        var unsafe *c    = canon_unqual(w->canonical)
+        var        depth = 0 as u32
+        var        open  = false
+        while c != &null && c->kind == TypeKind::PointerType {
+            depth += 1
+            var unsafe *pe = cast<PointerType>(c)->pointee
+            if !canon_has_const(pe) {
+                open = true
+            }
+
+            c = canon_unqual(pe)
+        }
+
+        if !open {
+            return
+        }
+
+        var pc = PointeeCand{}
+        pc.decl    = d
+        pc.written = w
+        pc.depth   = depth
+        pc.levels  = depth
+        self._pl.push_back(pc)
+        self._pl_index[d as usize as u64] = (self._pl.size() as u64)
+    }
+
+    priv fn _pl_of(self, d: unsafe *Decl) -> usize {
+        if d == &null {
+            return usize::MAX
+        }
+
+        var it = self._pl_index.find(d as usize as u64)
+        return if (it == self._pl_index.end()) => (usize::MAX) else => ((it->second - 1) as usize)
+    }
+
+    /// A reference to a candidate: the levels the use that claimed it
+    /// leaves unwritten, and none when no use claimed it.
+    priv fn _pl_ref(self, n: *NamedIdentExpr) {
+        var k = self._pl_of(n->resolved_decl)
+        if k == usize::MAX {
+            return
+        }
+
+        var got = 0 as u32
+        var it  = self._pl_claims.find(n as usize as u64)
+        if it != self._pl_claims.end() {
+            got = it->second
+        }
+
+        if got < self._pl[k].levels {
+            self._pl[k].levels = got
+        }
+    }
+
+    /// The path from a candidate reference to `e`, or one with no `ref`.
+    priv fn _pl_path(self, e: unsafe *Expr) -> PointeePath {
+        var        none = PointeePath{}
+        var unsafe *x   = e
+        if x == &null {
+            return none
+        }
+
+        if isa<Expressions::ParenExpr>(x) {
+            return self._pl_path(cast<Expressions::ParenExpr>(x)->inner)
+        }
+
+        if isa<Expressions::UnsafeExpr>(x) {
+            return self._pl_path(cast<Expressions::UnsafeExpr>(x)->operand)
+        }
+
+        if isa<NamedIdentExpr>(x) {
+            var unsafe *ni = cast<NamedIdentExpr>(x)
+            if self._pl_of(ni->resolved_decl) == usize::MAX {
+                return none
+            }
+
+            var r = PointeePath{}
+            r.ref = ni
+            return r
+        }
+
+        if isa<Expressions::UnaryOperatorExpr>(x) {
+            var unsafe *u = cast<Expressions::UnaryOperatorExpr>(x)
+            if u->resolved_op != &null || u->op_token.kind != TokenKind::OpStar {
+                return none
+            }
+
+            var r = self._pl_path(u->operand)
+            return self._pl_deref(r)
+        }
+
+        if isa<ChainExpr>(x) {
+            var unsafe *ce = cast<ChainExpr>(x)
+            return self._pl_chain(ce, ce->steps.size())
+        }
+
+        if isa<Expressions::SubscriptExpr>(x) {
+            var unsafe *se = cast<Expressions::SubscriptExpr>(x)
+            if se->resolved_op != &null {
+                return none
+            }
+
+            var unsafe *bt = if (se->base != &null) => (self._pl_value(
+                                 se->base->type_,
+                             ))
+                             else => &null
+            if bt == &null {
+                return none
+            }
+
+            var r = self._pl_path(se->base)
+            if r.ref == &null {
+                return none
+            }
+
+            if bt->kind == TypeKind::PointerType {
+                return self._pl_deref(r)
+            }
+
+            if bt->kind == TypeKind::FixedArrayType {
+                return self._pl_member(r)
+            }
+
+            return none
+        }
+
+        return none
+    }
+
+    /// One more deref of the place `r` names.
+    priv fn _pl_deref(self, r: PointeePath) -> PointeePath {
+        var o = r
+        if o.ref == &null {
+            return o
+        }
+
+        if o.member {
+            o.detached = true
+        } else {
+            o.k += 1
+        }
+
+        return o
+    }
+
+    /// A field or element of the object `r` names.
+    priv fn _pl_member(self, r: PointeePath) -> PointeePath {
+        var o = r
+        if o.ref == &null || o.member {
+            return o
+        }
+
+        if o.k == 0 {
+            // The candidate itself is a pointer, with no fields.
+            return PointeePath{}
+        }
+
+        o.member = true
+        o.obj    = o.k
+        return o
+    }
+
+    /// _pl_path of `ce` cut to its first `nsteps` steps.
+    priv fn _pl_chain(self, ce: unsafe *ChainExpr, nsteps: usize) -> PointeePath {
+        var none = PointeePath{}
+        var r    = self._pl_path(ce->base)
+        if r.ref == &null {
+            return none
+        }
+
+        for var i: usize = 0; i < nsteps; ++i {
+            var unsafe *st = ce->steps.get(i)
+            var field = st->target == ChainExpr::StepTarget::TupleIndex
+                || st->target == ChainExpr::StepTarget::Name
+                    && st->resolved_decl != &null
+                    && isa<FieldDecl>(st->resolved_decl)
+            if !field {
+                return none
+            }
+
+            if st->access_kind == ChainExpr::AccessKind::Arrow {
+                r = self._pl_member(self._pl_deref(r))
+            } else if st->access_kind == ChainExpr::AccessKind::Dot {
+                r = self._pl_member(r)
+            } else {
+                return none
+            }
+
+            if r.ref == &null {
+                return none
+            }
+        }
+
+        return r
+    }
+
+    /// Record that the use at `e`'s reference leaves `levels` unwritten.
+    /// The outermost use claims first: a parent is visited before its
+    /// operands.
+    priv fn _pl_claim(self, e: unsafe *Expr, levels: u32) {
+        var r = self._pl_path(e)
+        self._pl_claim_path(r, levels)
+    }
+
+    priv fn _pl_claim_path(self, r: PointeePath, levels: u32) {
+        if r.ref == &null {
+            return
+        }
+
+        var key = r.ref as usize as u64
+        if self._pl_claims.count(key) != 0 {
+            return
+        }
+
+        self._pl_claims[key] = levels
+    }
+
+    /// `e`'s value is read, and when it is a pointer it is copied into a
+    /// place of type `dest` (null: compared or tested, never kept).
+    priv fn _pl_read(self, e: unsafe *Expr, dest: unsafe *Type) {
+        var r = self._pl_path(e)
+        if r.ref == &null {
+            return
+        }
+
+        var k = self._pl_of(r.ref->resolved_decl)
+        if r.member || r.k >= self._pl[k].depth || dest == &null {
+            self._pl_claim_path(r, ParamPassInference::_pl_all())
+            return
+        }
+
+        self._pl_claim_path(r, r.k + self._pl_const_prefix(dest))
+    }
+
+    /// `e` is written, or its address escapes as a mutable one (`rebind`:
+    /// written by an assignment or `++`, where the candidate itself is
+    /// only repointed).
+    priv fn _pl_write(self, e: unsafe *Expr, rebind: bool) {
+        var r = self._pl_path(e)
+        if r.ref == &null {
+            return
+        }
+
+        if r.member {
+            self._pl_claim_path(
+                r,
+                if (r.detached) => (ParamPassInference::_pl_all()) else => r.obj - 1,
+            )
+
+            return
+        }
+
+        if r.k == 0 {
+            self._pl_claim_path(
+                r,
+                if (rebind) => (ParamPassInference::_pl_all()) else => 0,
+            )
+
+            return
+        }
+
+        self._pl_claim_path(r, r.k - 1)
+    }
+
+    /// `const &e`: what `e` holds stays unwritten, what it points at does not.
+    priv fn _pl_const_addr(self, r: PointeePath) -> u32 {
+        if r.ref == &null {
+            return 0
+        }
+
+        var k = self._pl_of(r.ref->resolved_decl)
+        if r.member || r.k >= self._pl[k].depth {
+            return ParamPassInference::_pl_all()
+        }
+
+        return r.k
+    }
+
+    /// A call: its receiver object, written unless the method is `const`,
+    /// and each argument as its parameter takes it.
+    priv fn _pl_call(self, n: *Expressions::CallExpr) {
+        var unsafe *f = dyn_cast<FunctionDecl>(callee_expr_decl(n->callee))
+        if n->ctor_decl != &null && isa<FunctionDecl>(n->ctor_decl) {
+            f = cast<FunctionDecl>(n->ctor_decl)
+        }
+
+        var unsafe *callee = self._tu.strip_parens(n->callee)
+        var        bound   = false
+        if f != &null && f->is_method() && callee != &null && isa<ChainExpr>(callee) {
+            var unsafe *ce   = cast<ChainExpr>(callee)
+            var unsafe *last = ce->steps.get(ce->steps.size() - 1)
+            var        arrow = last->access_kind == ChainExpr::AccessKind::Arrow
+            if arrow || last->access_kind == ChainExpr::AccessKind::Dot {
+                bound = true
+                var r = self._pl_chain(ce, ce->steps.size() - 1)
+                if arrow {
+                    r = self._pl_deref(r)
+                }
+
+                if r.ref != &null && !r.member && r.k == 0 {
+                    r = PointeePath{}
+                }
+
+                var obj = if (r.member) => (r.obj) else => r.k
+                if r.ref != &null {
+                    if f->is_const() || r.detached {
+                        self._pl_claim_path(r, ParamPassInference::_pl_all())
+                    } else {
+                        self._pl_claim_path(r, obj - 1)
+                    }
+                }
+            }
+        }
+
+        if f != &null {
+            var view = cxx::std::vector<unsafe *ParamDecl>()
+            for var i: usize = 0; i < f->params.size(); ++i {
+                var unsafe *p = f->params[i]
+                if p == &null || p->is_self && (bound || n->ctor_decl != &null) {
+                    continue
+                }
+
+                view.push_back(p)
+            }
+
+            for var i: usize = 0; i < n->args.size(); ++i {
+                var unsafe *a = n->args[i]
+                if a == &null {
+                    continue
+                }
+
+                if i >= view.size() {
+                    self._pl_read(a, a->type_)
+                    continue
+                }
+
+                var unsafe *p = view[i]
+                // An extension member's receiver, an argument once lowered:
+                // read only through `const self`.
+                if p->is_self {
+                    if p->is_const {
+                        self._pl_claim(a, ParamPassInference::_pl_all())
+                    } else {
+                        self._pl_write(a, false)
+                    }
+                } else if p->mode == ParamMode::Inout {
+                    self._pl_write(a, false)
+                } else if p->type_ != &null && self._pl_mutable_ref(p->type_) {
+                    self._pl_write(a, false)
+                } else {
+                    self._pl_read(a, p->type_)
+                }
+            }
+
+            return
+        }
+
+        // Through a `fn` value: the type's parameters.
+        var unsafe *t = if (n->callee != &null && n->callee->type_ != &null) => (canon_unqual(
+                            self._tu.strip_nullable(n->callee->type_),
+                        ))
+                        else => &null
+        var unsafe *fp = if (t != &null
+                             && isa<FunctionPointerType>(t)) => (cast<FunctionPointerType>(
+                             t,
+                         ))
+                         else => &null
+        for var i: usize = 0; i < n->args.size(); ++i {
+            var unsafe *a = n->args[i]
+            if fp == &null || i >= fp->params.size() || i >= fp->modes.size() {
+                self._pl_read(a, if (a != &null) => (a->type_) else => &null)
+                continue
+            }
+
+            if fp->modes[i] == ParamMode::Inout || self._pl_mutable_ref(fp->params[i]) {
+                self._pl_write(a, false)
+            } else {
+                self._pl_read(a, fp->params[i])
+            }
+        }
+    }
+
+    /// `t` is a C++ `T&` or `T&&` to a non-const `T`.
+    priv fn _pl_mutable_ref(self, t: unsafe *Type) -> bool {
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
+        if c != &null && isa<CXXLValueRefType>(c) {
+            return !canon_has_const(cast<CXXLValueRefType>(c)->referee)
+        }
+
+        if c != &null && isa<CXXRValueRefType>(c) {
+            return !canon_has_const(cast<CXXRValueRefType>(c)->referee)
+        }
+
+        return false
+    }
+
+    /// Candidate `k`'s verdict: when its first levels can all be const and
+    /// one of them is not, SC360W with a fix-it inserting each `const`. A
+    /// level is suggested only with every level above it: `**T` to
+    /// `**const T` is no implicit conversion, so callers would break.
+    priv fn _pl_decide(self, k: usize) {
+        var        c     = self._pl[k]
+        var        upto  = if (c.levels < c.depth) => (c.levels) else => c.depth
+        var unsafe *node = c.written
+        var        at    = cxx::std::vector<SourceRange>()
+        for var lv: u32 = 1; lv <= upto; ++lv {
+            if node == &null || !isa<PointerType>(node) {
+                return
+            }
+
+            var unsafe *pe = cast<PointerType>(node)->pointee
+            if pe == &null || !pe->range.is_valid() {
+                return
+            }
+
+            if !canon_has_const(
+                if (pe->canonical != &null) => (pe->canonical) else => pe,
+            ) {
+                at.push_back(pe->range)
+            }
+
+            node = pe
+        }
+
+        if at.size() == 0 {
+            return
+        }
+
+        // The type as the fix-it leaves it: `*const *const T`.
+        var        want = ""
+        var unsafe *t   = canon_unqual(c.written->canonical)
+        for var lv: u32 = 1; lv <= c.depth; ++lv {
+            var unsafe *pt = cast<PointerType>(t)
+            want += if (pt->is_unsafe) => ("unsafe *") else => "*"
+            if lv <= upto || canon_has_const(pt->pointee) {
+                want += "const "
+            }
+
+            t = canon_unqual(pt->pointee)
+        }
+
+        want += self._tu.str(t)
+        self.n_pointee += 1
+        var unsafe *d = c.decl
+        var        nm = self._tu.decl_name(d)
+        var what = if (isa<ParamDecl>(d)) => ("parameter") else => "variable"
+        var b = self.sc->diag->report(
+            DiagID::SC360W,
+            c.written->range.start,
+            f"{what} '{nm}' is never written through; declare it '{want}'",
+        )
+
+        b.first(c.written->range)
+        for var i: usize = 0; i < at.size(); ++i {
+            b.insert(at[i].start, "const ", "point to const")
+        }
+
+        b.emit()
     }
 }

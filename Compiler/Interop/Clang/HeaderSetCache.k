@@ -196,7 +196,7 @@ pub class HeaderSetCache {
         var u_locs    = cxx::std::vector<SourceRange>()
         var seen      = llvm::StringMap<bool>()         // resolved -> c linkage
         var conflict  = false
-        for var v: *HeaderSet in views {
+        for var v: unsafe *HeaderSet in views {
             for var i: usize = 0; i < v->headers.size(); ++i {
                 var r = HeaderSetCache::resolve_spelling(
                     v,

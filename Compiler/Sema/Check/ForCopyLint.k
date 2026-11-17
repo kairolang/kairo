@@ -362,7 +362,10 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
                 continue
             }
 
-            if b->shorthand.has(BindingShorthand::Pointer) {
+            // A written type makes the binder a converted copy (`for var y:
+            // i64 in xs`): writing it is the point, and `*y` cannot carry a
+            // type.
+            if b->shorthand.has(BindingShorthand::Pointer) || b->type_ != &null {
                 continue
             }
 

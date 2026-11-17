@@ -42,6 +42,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
+    AbiKind,
+    FieldDecl,
     FunctionDecl,
     GenericParamDecl,
     GenericParamKindBound,
@@ -69,6 +71,7 @@ import Codegen::Emit::EmitIRExprs
 import Codegen::Emit::EmitIRLocals
 import Codegen::Emit::EmitIRStmts
 import Codegen::Emit::Spell
+import Codegen::Emit::Spell::Speller
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Token::Token::Token
@@ -215,6 +218,54 @@ extend EmitIR {
         return self._spell.args_str(v)
     }
 
+    /// The bound's qualifier (`::ns::Base::`), when step `st` on `self`
+    /// names a field or non-virtual method Sema found through the bound of
+    /// a class that derives its own type parameter (`class <A derives Base>
+    /// Hooked derives A`). Unqualified, C++ would look the name up in the
+    /// instance's argument first, and a member it declares again would hide
+    /// the bound's one Sema chose; qualified, the bound's is the one called.
+    /// A virtual method stays unqualified so it still dispatches. Empty for
+    /// any other step.
+    priv fn _bound_qual(self, st: unsafe *ChainExpr::Step) -> string {
+        if st == &null
+            || st->resolved_decl == &null
+            || self._cur_ext != &null
+            || self._cur_fn == &null {
+            return ""
+        }
+
+        var unsafe *mf = dyn_cast<FunctionDecl>(st->resolved_decl)
+        if mf != &null && (mf->abi == AbiKind::Virtual || mf->abi == AbiKind::Override) {
+            return ""
+        }
+
+        if mf == &null && !isa<FieldDecl>(st->resolved_decl) {
+            return ""
+        }
+
+        var unsafe *dc = self._cur_fn->semantic_dc
+        if dc == &null || !dc->is_type_scope() || dc->dc_owner == &null {
+            return ""
+        }
+
+        var unsafe *cls = Speller::rep(dc->dc_owner)
+        var unsafe *b   = Speller::mixin_bound(cls)
+        if b == &null {
+            return ""
+        }
+
+        var unsafe *mdc = st->resolved_decl->semantic_dc
+        if mdc == &null || !mdc->is_type_scope() || mdc->dc_owner == &null {
+            return ""
+        }
+
+        if Speller::rep(mdc->dc_owner) == cls {
+            return ""
+        }
+
+        return self._spell._type(b) + "::"
+    }
+
     /// `self` as C++ has it: `this` in a method, the receiver parameter in an
     /// extension member. Always the pointer.
     priv fn _self_ptr(self, n: unsafe *NamedIdentExpr) {
@@ -344,9 +395,13 @@ extend EmitIR {
             }
 
             // `self.x` is `this->x`: the base is the pointer, not _name's
-            // value form `(*this)`. In a split constructor's S_pre there is
-            // no `this`: `self.x` is x's slot (file header).
-            if self._ci_pre && self._base_is_self(n->base) {
+            // value form `(*this)`. In a split constructor's S_pre the object
+            // is not built yet: `self.x` is x's slot (file header), and only
+            // a base's field, built before S_pre runs, is `this->x`.
+            var pre_slot = self._ci_pre
+                && self._base_is_self(n->base)
+                && !(upto > 0 && self._base_field_step(n->steps.get(0)))
+            if pre_slot {
                 if upto == 0 {
                     self._ice(
                         n->range,
@@ -464,7 +519,15 @@ extend EmitIR {
             // record's `op ->`, Substitution::arrow_target) stays `->`: C++
             // calls the class's operator-> for it.
             var sep_arrow = is_ptr || st->access_kind == ChainExpr::AccessKind::Arrow
-            self._cg->sink->spell(st->range, (if (sep_arrow) => ("->") else => "."))
+            var bq = if (j == i && j == 0 && self._base_is_self(n->base)) => (self._bound_qual(
+                         st,
+                     ))
+                     else => ""
+            self._cg->sink->spell(
+                st->range,
+                (if (sep_arrow) => ("->") else => ".") + bq,
+            )
+
             self._name(st->name->name)
             // A pack-expanded variant's member holds one payload per element:
             // element K is its getter's (EnumLayoutQuery::payload_ref).

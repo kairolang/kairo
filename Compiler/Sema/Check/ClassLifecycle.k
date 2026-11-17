@@ -226,9 +226,9 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,      AdtRole,       AssignForm,       ClassDecl,     EnumDecl,  FieldDecl,
-    FnBodyKind,   FunctionDecl,  ImplicitTransfer, InterfaceDecl, ParamDecl, StructDecl,
-    TransferKind, TypeAliasDecl, UnionDecl,
+    AbiKind,    AdtRole,      AssignForm,       ClassDecl,     EnumDecl,  FieldDecl,
+    FnBodyKind, FunctionDecl, ImplicitTransfer, InterfaceDecl, ParamDecl, StorageClass,
+    StructDecl, TransferKind, TypeAliasDecl,    UnionDecl,
 }
 import AST::Node::Expressions::AssignOperatorExpr
 import AST::Node::PrimaryExpressions::{
@@ -804,6 +804,15 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             case TypeKind::RecordType {
                 var unsafe *d = cast<RecordType>(t)->decl
                 if d == &null { // nothing to ask (Asked too early).
+                    return self._unknown_facts()
+                }
+
+                // An imported template over a generic parameter
+                // (`cxx::std::vector<T>`): clang's facts are the template's,
+                // not an instance's, and the instance's argument decides
+                // whether it copies (_imported_elements), so each instance
+                // is asked.
+                if t->is_dependent() && decl_is_imported(d) {
                     return self._unknown_facts()
                 }
 
@@ -1697,10 +1706,60 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
     fn visit_union_decl(self, n: unsafe *UnionDecl) -> bool {
         if n != &null && !n->is_poisoned() {
+            self._check_union_defaults(n)
             self._check_relocatable(unsafe (n as unsafe *Decl))
         }
 
         return true
+    }
+
+    /// A union's default constructor makes one field the live one: the field
+    /// with a default. A second field with a default would be a second live
+    /// field. `static` and `eval` fields are not part of the value.
+    priv fn _check_union_defaults(self, n: unsafe *UnionDecl) {
+        var first: unsafe *FieldDecl = &null
+        for var i: usize = 0; i < n->fields.size(); ++i {
+            var unsafe *fd = n->fields[i]
+            if fd == &null || fd->init == &null {
+                continue
+            }
+
+            if fd->storage == StorageClass::Static || fd->storage == StorageClass::Eval {
+                continue
+            }
+
+            if first == &null {
+                first = fd
+                continue
+            }
+
+            var un  = self.sc->ctx->get_spelling(n->name)
+            var fn_ = self.sc->ctx->get_spelling(fd->name)
+            var b = self.sc->diag->report(
+                DiagID::SC359E,
+                fd->range.start,
+                f"only one field of a union may have a default: '{fn_}' and '{self.sc->ctx->get_spelling(first->name)}' of '{un}' both have one",
+            )
+
+            // From the end of the written type (else the name) through the
+            // initializer: `var f: f32 = 1.0` keeps `var f: f32`.
+            var from = if (fd->type_ != &null
+                           && fd->type_->range.is_valid()) => (fd->type_->range.end)
+                       else => fd->name.range.end
+            b.first(fd->init->range)
+            b.remove(
+                SourceRange(from, fd->init->range.end),
+                "remove this default",
+            )
+
+            b.note(first->range.start, "the first field with a default is here")->child_first(
+                first->init->range,
+            )
+
+            b.emit()
+            fd->poison()
+            self.n_errored += 1
+        }
     }
 
     /// # `@relocatable`
@@ -2179,6 +2238,34 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             )->emit()
         }
 
+        // 4b. A move-only record with a destructor and no constructor is a
+        //     C++ aggregate, and C++ declares no implicit move beside a
+        //     user-declared destructor: no value of it could be moved.
+        //     Declaring the move would end aggregate initialization, so the
+        //     record has to say how it is built or how it moves.
+        if dtor != &null
+            && !f->user_transfer
+            && f->category == LifecycleCategory::Move
+            && !self._declares_ctor(n) {
+            var b = self.sc->diag->report(
+                DiagID::SC358E,
+                n->range.start,
+                f"'{dn}' is move-only and has a destructor but no constructor, so it cannot be moved: write a constructor or a {LangAttrs::quoted(LangAttrs::transfer_move())} constructor",
+            )
+
+            b.first(n->name.range)
+            b.note(dtor->range.start, "the destructor is declared here")->child_first(
+                dtor->range,
+            )
+
+            b.note(
+                f"declare a constructor 'fn {dn}(self)', or the move '{LangAttrs::at(LangAttrs::transfer_move())} fn {dn}(self, other: Self) = default'",
+            )
+
+            b.emit()
+            self.n_errored += 1
+        }
+
         // 5. Category compatibility with every base (doc table): a COPY
         //    base admits COPY / NON_TRANSFER; MOVE admits MOVE / NON_TRANSFER;
         //    NON_TRANSFER admits NON_TRANSFER only. The bad case is a
@@ -2420,19 +2507,29 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
         var unsafe *pf = self.facts_of(body) // the pattern's: what its declaration already decided.
         var unsafe *f  = self.facts_of(e->decl) // the instance's own.
-        var        sub = Substitution(self.sc)
+        // The category the pattern left open, as the instance decides it.
+        e->copy_denied = pf->category == LifecycleCategory::Unknown
+            && (f->category == LifecycleCategory::Move
+                || f->category == LifecycleCategory::NonTransfer)
+        var sub = Substitution(self.sc)
         sub.bind_from_record(self.sc->types->record(e->decl, unsafe &e->args))
         var iname = self._tu.str(
             self.sc->types->record(e->decl, unsafe &e->args),
         )
 
-        // Rule 6, per defaulted transfer constructor.
+        // Rule 6, per defaulted transfer constructor; rule 4b for an
+        // instance whose pattern left the category open.
         var copy_ctor: unsafe *FunctionDecl = &null
         var move_ctor: unsafe *FunctionDecl = &null
+        var dtor:      unsafe *FunctionDecl = &null
         for var i: usize = 0; i < n->methods.size(); ++i {
             var unsafe *m = n->methods[i]
             if m == &null || m->is_poisoned() || m->adt_role != AdtRole::None {
                 continue
+            }
+
+            if self._is_dtor(m) {
+                dtor = m
             }
 
             if m->transfer == TransferKind::Copy && copy_ctor == &null {
@@ -2450,6 +2547,24 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
         if move_ctor != &null && move_ctor->body_kind == FnBodyKind::Default {
             self._instance_defaulted(n, &sub, iname, move_ctor, &*out)
+        }
+
+        if dtor != &null
+            && copy_ctor == &null
+            && move_ctor == &null
+            && pf->category == LifecycleCategory::Unknown
+            && f->category == LifecycleCategory::Move
+            && !self._declares_ctor(n) {
+            var x = LifecycleFailure()
+            x.id = DiagID::SC358E
+            x.msg = f"'{iname}' is move-only and has a destructor but no constructor, so it cannot be moved: write a constructor or a {LangAttrs::quoted(LangAttrs::transfer_move())} constructor in '{self.sc->ctx->get_spelling(n->name)}'"
+            x.add_note(
+                DiagID::I900N,
+                dtor->range,
+                "the destructor is declared here",
+            )
+
+            out->push_back(x)
         }
 
         for var i: usize = 0; i < n->derives_list.size(); ++i {
@@ -2845,6 +2960,18 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         return ImplicitTransfer::Open
+    }
+
+    /// `n` declares a constructor of its own (a transfer one included).
+    priv fn _declares_ctor(self, n: unsafe *ClassDecl) -> bool {
+        for var i: usize = 0; i < n->methods.size(); ++i {
+            var unsafe *m = n->methods[i]
+            if m != &null && m->adt_role == AdtRole::None && decl_is_ctor(m, self.sc->ctx) {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// The one writer of ClassDecl / StructDecl::assign_from, assign_form

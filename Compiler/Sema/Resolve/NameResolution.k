@@ -2672,6 +2672,9 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             n->iterable = self.dyn()->dispatch_expr(n->iterable)
         }
 
+        // A binder's written type is named outside the binders' own scope.
+        self.dyn()->traverse_binding_types(&n->bindings)
+
         self.locals.push_back(LocalScope())
         self.sc->trace.open_scope(
             TraceScopeKind::ForBody,
@@ -2744,6 +2747,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             n->value = self.dyn()->dispatch_expr(n->value)
         }
 
+        self.dyn()->traverse_binding_types(&n->bindings)
         self.locals.push_back(LocalScope())
         self.sc->trace.open_scope(
             TraceScopeKind::ContextBinding,
@@ -2778,6 +2782,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             n->value = self.dyn()->dispatch_expr(n->value)
         }
 
+        self.dyn()->traverse_binding_types(&n->bindings)
         self._declare_bindings(&n->bindings)
         return n
     }

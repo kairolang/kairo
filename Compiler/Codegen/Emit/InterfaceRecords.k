@@ -280,6 +280,7 @@ extend InterfaceEmitter {
         }
 
         s += " {"
+        self._copy_var_primary(d)
         self._cg->sink->spell(at, s)
         // Which body this is, for the pin beside each instance (Compiler/Spec/Generics.md#where-groups-on-generic-functions).
         var tag = self._spec_tag(d)
@@ -462,15 +463,20 @@ extend InterfaceEmitter {
             // An eval field is `static const T k;` here and `constexpr` at its
             // definition (_static_def; Compiler/Spec/Eval.md#eval-bindings).
             if f->is_const() || f->is_eval() {
-                fs += "const "
+                fs += self._spell->const_decl(
+                    f->type_,
+                    self._spell->leaf(unsafe (f as unsafe *Decl)),
+                    &null,
+                    d,
+                )
+            } else {
+                fs += self._spell->decl(
+                    f->type_,
+                    self._spell->leaf(unsafe (f as unsafe *Decl)),
+                    &null,
+                    d,
+                )
             }
-
-            fs += self._spell->decl(
-                f->type_,
-                self._spell->leaf(unsafe (f as unsafe *Decl)),
-                &null,
-                d,
-            )
 
             // A static's value is its definition's (_static_defs), never an
             // in-class initializer, which C++ refuses on a non-const static.
@@ -587,6 +593,7 @@ extend InterfaceEmitter {
         self._friends(d)
 
         self._cg->sink->spell(at, "};")
+        self._copy_var_instances(d)
         // `null_t`'s one value, `::builtin::null` to a C++ host. Inline, so
         // every TU that includes the record has it and none owns it.
         if isa<Declarations::StructDecl>(d) && cast<Declarations::StructDecl>(d)->is_null_type {

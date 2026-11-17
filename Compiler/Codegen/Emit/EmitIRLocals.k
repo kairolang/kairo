@@ -181,7 +181,7 @@ extend EmitIR {
 
         var ty = self._spell._type(n->type_)
         if n->is_const() {
-            ty = "const " + ty
+            ty = self._spell.const_decl(n->type_, "")
         }
 
         // From the local's own C++ name: a shadowing local (its rebind)
@@ -447,12 +447,12 @@ extend EmitIR {
             self._cg->sink->spell(n->name.range, la)
         }
 
+        // `const p: *T` freezes the pointer: its `const` follows the `*`
+        // (after the type, below); a leading one would be the pointee's.
+        var ptr_const = n->storage == StorageClass::Const && Speller::is_pointer(n->type_)
         match n->storage {
             case StorageClass::Const {
-                // A leading `const` before a pointer type is its pointee's;
-                // on a `*const T` (a `for const *x` binder) it would be a
-                // second one, which clang warns about.
-                if !self._ptr_to_const(n) {
+                if !ptr_const {
                     self._cg->sink->kw_const(n->name)
                 }
             } case StorageClass::Static {
@@ -489,7 +489,9 @@ extend EmitIR {
         if c != &null && (c->kind == TypeKind::FixedArrayType || ptr_to_array) {
             // `T name[N]`: the name sits inside the declarator.
             var nm = self._local_name(unsafe (n as unsafe *Decl))
-            self._cg->sink->spell(n->name.range, self._spell.decl(n->type_, nm))
+            var ds = if (ptr_const) => (self._spell.const_decl(n->type_, nm))
+                     else => self._spell.decl(n->type_, nm)
+            self._cg->sink->spell(n->name.range, ds)
         } else {
             // Deduced from a duck chain: `auto` is the type, the instance's.
             if n->type_ == &null && n->init != &null && self._duck_rooted_expr(n->init) {
@@ -513,22 +515,14 @@ extend EmitIR {
                 self._cg->sink->spell(n->name.range, ts)
             }
 
+            if ptr_const {
+                self._cg->sink->kw_const(n->name)
+            }
+
             self._local_ref(unsafe (n as unsafe *Decl), n->name)
         }
 
         self._var_init(n, c)
-    }
-
-    /// `n` is typed a pointer to const (`*const T`).
-    priv fn _ptr_to_const(self, n: unsafe *VariableDecl) -> bool {
-        if n->type_ == &null || n->type_->canonical == &null {
-            return false
-        }
-
-        var unsafe *c = canon_unqual(n->type_->canonical)
-        return c != &null
-            && c->kind == TypeKind::PointerType
-            && canon_has_const(cast<PointerType>(c)->pointee)
     }
 
     /// A record declared in a function body: FinallyLowering's scope guard.

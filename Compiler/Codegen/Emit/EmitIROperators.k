@@ -759,6 +759,12 @@ extend EmitIR {
 
         if self._ci_pre && n->op_token.kind == TokenKind::OpEqual {
             var unsafe *f = self._self_field(n->lhs)
+            // A base's field exists in S_pre (the base is built first): it
+            // is assigned in place.
+            if f != &null && self._inherited_field(f) {
+                f = &null
+            }
+
             if f != &null {
                 var si = self._slot_of(f, true)
                 if si == usize::MAX {

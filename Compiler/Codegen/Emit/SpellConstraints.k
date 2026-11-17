@@ -746,6 +746,125 @@ extend Speller {
         return out
     }
 
+    /// The `derives` bound of the type parameter class `d` derives (`class
+    /// <A derives Base> Hooked derives A`: Base), or null for any other
+    /// class.
+    static fn mixin_bound(d0: unsafe *Decl) -> unsafe *Type {
+        var unsafe *d = Speller::rep(d0)
+        if d == &null || !isa<Declarations::ClassDecl>(d) {
+            return &null
+        }
+
+        var gps   = DeclFacts::decl_generic_params(d)
+        var edges = cast<Declarations::ClassDecl>(d)->derives_list
+        for var i: usize = 0; i < edges.size(); ++i {
+            var unsafe *e = edges.get(i)
+            var unsafe *c = if (e != &null && e->base != &null) => (e->base->canonical)
+                            else => &null
+            var unsafe *g = if (c != &null) => (dyn_cast<GenericParamType>(
+                                canon_unqual(c),
+                            ))
+                            else => &null
+            if g == &null || g->owner == &null || Speller::rep(g->owner) != d {
+                continue
+            }
+
+            var at = (g->param_index as usize)
+            if at < gps.size() && gps[at] != &null {
+                var bs = cxx::std::vector<unsafe *Type>()
+                Speller::derives_bounds_of(d, gps[at], unsafe &bs)
+                if bs.size() > 0 {
+                    return bs[0]
+                }
+            }
+        }
+
+        return &null
+    }
+
+    /// The `derives` bounds of `d`'s generic parameter `gp`, from its
+    /// requires clause (RequiresDesugar moves the inline `<A derives B>`
+    /// there), in clause order.
+    static fn derives_bounds_of(d:   unsafe *Decl,
+                                gp:  unsafe *Declarations::GenericParamDecl,
+                                out: unsafe *cxx::std::vector<unsafe *Type>) {
+        var cs = cxx::std::vector<unsafe *Expr>()
+        Speller::_conjuncts(DeclFacts::decl_requires_clause(d), unsafe &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            var unsafe *c = dyn_cast<ConstraintExpr>(cs[i])
+            if c == &null || !c->is_derives() || c->rhs == &null || c->rhs->canonical == &null {
+                continue
+            }
+
+            if Speller::_bound_param(c) == gp {
+                out->push_back(c->rhs)
+            }
+        }
+    }
+
+    /// The `&&` / `and` conjuncts of `e`, in order.
+    static fn _conjuncts(e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
+        if e == &null {
+            return
+        }
+
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
+        if b != &null
+            && (b->op_token.kind == TokenKind::OpAmpAmp || b->op_token.kind == TokenKind::KwAnd) {
+            Speller::_conjuncts(b->lhs, out)
+            Speller::_conjuncts(b->rhs, out)
+            return
+        }
+
+        out->push_back(e)
+    }
+
+    /// `static_assert(__is_base_of(B, A), "...");` for an instance `ie` of
+    /// a class that derives its own type parameter `A` (`class <A derives
+    /// B> Hooked derives A`), once per `derives` bound of `A`: the body was
+    /// checked against B, so the C++ instance must derive it too.
+    fn mixin_bound_asserts(self,
+                           d0: unsafe *Decl,
+                           ie: unsafe *InstanceEntry) -> cxx::std::vector<string> {
+        var        out = cxx::std::vector<string>()
+        var unsafe *d  = Speller::rep(d0)
+        if ie == &null || d == &null || !isa<Declarations::ClassDecl>(d) {
+            return out
+        }
+
+        var gps   = DeclFacts::decl_generic_params(d)
+        var edges = cast<Declarations::ClassDecl>(d)->derives_list
+        for var i: usize = 0; i < edges.size(); ++i {
+            var unsafe *e = edges.get(i)
+            var unsafe *c = if (e != &null && e->base != &null) => (e->base->canonical)
+                            else => &null
+            var unsafe *g = if (c != &null) => (dyn_cast<GenericParamType>(
+                                canon_unqual(c),
+                            ))
+                            else => &null
+            if g == &null || g->is_pack || g->owner == &null || Speller::rep(g->owner) != d {
+                continue
+            }
+
+            var at = (g->param_index as usize)
+            if at >= gps.size() || at >= ie->args.size() || gps[at] == &null {
+                continue
+            }
+
+            var arg = self._type(ie->args[at], &null)
+            var bs  = cxx::std::vector<unsafe *Type>()
+            Speller::derives_bounds_of(d, gps[at], unsafe &bs)
+            for var k: usize = 0; k < bs.size(); ++k {
+                var bt = self._type(bs[k], &null)
+                out.push_back(
+                    "static_assert(__is_base_of(" + bt + ", " + arg + "), \"Kairo checked this class against the bound '" + bt + "' its argument derives; C++ disagrees\");",
+                )
+            }
+        }
+
+        return out
+    }
+
     /// `static_assert(::ns::I_c<T>, "...");` for each interface bound of the
     /// generic record primary whose constructor `f` is, spelled over the
     /// record's own parameters: the record's C++ head carries none of them

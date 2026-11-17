@@ -459,7 +459,7 @@ pub class ImportResolver {
             }
 
             dir->ensure_scanned()
-            for var child: *DirEntry? in dir->sorted_children() {
+            for var child: unsafe *DirEntry in dir->sorted_children() {
                 if child == &null || !child->is_dir || !child->fs_path? {
                     continue
                 }

@@ -347,7 +347,7 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
                 elems[i],
             )
 
-            var as_ptr = b->shorthand.has(BindingShorthand::Pointer) && b->type_ == &null
+            var as_ptr = b->shorthand.has(BindingShorthand::Pointer)
             if as_ptr {
                 bd->init = self.synth.addr_of(place)
             } else if by_ref {
@@ -355,6 +355,8 @@ pub class TupleLowering derives ASTWriter<TupleLowering> {
             } else {
                 bd->init = self._moved(place)
             }
+
+            bd->init = self.synth.binder_converted(bd, bd->init)
 
             stmts.push_back(
                 unsafe (DeclStmt::create(self.ctx, b->range, unsafe (bd as unsafe *Decl)) as unsafe *Stmt),

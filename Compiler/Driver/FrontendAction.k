@@ -3822,7 +3822,7 @@ pub class FrontendAction {
             EmitPlan::set_graph(gmods, gedges, prelude)
 
             var plans = cxx::std::vector<unsafe *EmitPlan>()
-            for var j: *CodegenJob in jobs {
+            for var j: unsafe *CodegenJob in jobs {
                 var kcg = CodegenContext(j->ctx, &null, psym, insts)
                 var ksp = Speller(unsafe &kcg)
                 jkeys.push_back(
@@ -3834,7 +3834,7 @@ pub class FrontendAction {
             // plans are thrown away (their tier 3 was ordered by the old homes).
             {
                 var *cr = &crun
-                for var j: *CodegenJob in jobs {
+                for var j: unsafe *CodegenJob in jobs {
                     self._ci->pool()->enqueue(
                         kairo::SmallFunction<64>(
                             fn () |j, cr| { j->make_plan(cr) },
@@ -3846,12 +3846,12 @@ pub class FrontendAction {
                 self._ci->pool()->wait_group(CODEGEN_GROUP)
             }
 
-            for var j: *CodegenJob in jobs {
+            for var j: unsafe *CodegenJob in jobs {
                 plans.push_back(j->plan)
             }
 
             EmitPlan::assign_homes(plans, jkeys)
-            for var j: *CodegenJob in jobs {
+            for var j: unsafe *CodegenJob in jobs {
                 kairo::std::destroy(j->plan)
                 kairo::std::destroy(j->pcg)
                 j->plan = &null
@@ -3879,7 +3879,7 @@ pub class FrontendAction {
         var flavour_on = cxx::std::vector<u8>()
         flavour_on.push_back(0 as u8)
         flavour_on.push_back(0 as u8)
-        for var j: *CodegenJob in jobs {
+        for var j: unsafe *CodegenJob in jobs {
             var fcg = CodegenContext(j->ctx, &null, psym, insts)
             var fsp = Speller(unsafe &fcg)
             flavours.push_back(fsp.interface_flavour(j->ctx->tu))
@@ -4021,7 +4021,7 @@ pub class FrontendAction {
             {
                 var *cr  = &crun
                 var locs = ocache.with_locs
-                for var j: *CodegenJob in jobs {
+                for var j: unsafe *CodegenJob in jobs {
                     self._ci->pool()->enqueue(
                         kairo::SmallFunction<64>(
                             fn () |j, cr, locs| { j->hash_stream(cr, locs) },
@@ -4137,7 +4137,7 @@ pub class FrontendAction {
         }
 
         var todo = cxx::std::vector<unsafe *CodegenJob>()
-        for var j: *CodegenJob in jobs {
+        for var j: unsafe *CodegenJob in jobs {
             if !j->reused {
                 todo.push_back(j)
             }
@@ -4183,7 +4183,7 @@ pub class FrontendAction {
             {
                 var _tp = TimeRegion("InterfacePlans")
                 var *cr = &crun
-                for var j: *CodegenJob in mine {
+                for var j: unsafe *CodegenJob in mine {
                     self._ci->pool()->enqueue(
                         kairo::SmallFunction<64>(
                             fn () |j, cr| { j->make_plan(cr) },
@@ -4198,7 +4198,7 @@ pub class FrontendAction {
             var unsafe *iface = kairo::std::create<InterfacePCH>()
             ifaces.push_back(iface)
             iface->path = HeaderSet::vfs_root() + f"/pch/interface-{flavour}.pch"
-            for var j: *CodegenJob in mine {
+            for var j: unsafe *CodegenJob in mine {
                 iface->add(j->ctx, j->fid, j->ksize, j->plan)
             }
 
@@ -4298,14 +4298,14 @@ pub class FrontendAction {
         {
             var _tr = TimeRegion("Backend")
             if workers <= 1 {
-                for var j: *CodegenJob in todo {
+                for var j: unsafe *CodegenJob in todo {
                     j->run(&crun)
                     progress_tick(PROGRESS_CODEGEN, j->path)
                 }
             } else {
                 var q = CodegenQueue()
                 q.run = &crun
-                for var j: *CodegenJob in todo {
+                for var j: unsafe *CodegenJob in todo {
                     q.add(j)
                 }
 
@@ -4344,7 +4344,7 @@ pub class FrontendAction {
         // independent of which worker finished first. Every TU ran, a failed
         // one included, so every sink is drained before the verdict.
         var all_ok = true
-        for var job: *CodegenJob in jobs {
+        for var job: unsafe *CodegenJob in jobs {
             // Stored only when clang said nothing: a stored object's record
             // holds no diagnostics to replay (Incremental.md#diagnostics), so
             // a TU clang warned about compiles again, and says it again,
@@ -5591,7 +5591,7 @@ pub class FrontendAction {
             self._ci->headers()->all(&hsets)
             var live:   usize = 0
             var hbytes: usize = 0
-            for var hs: *HeaderSet in hsets {
+            for var hs: unsafe *HeaderSet in hsets {
                 var b = hs->ast_bytes()
                 if b > 0 {
                     live += 1
@@ -5607,7 +5607,7 @@ pub class FrontendAction {
             var m_map: usize = 0
             var m_sm:  usize = 0
             var m_pp:  usize = 0
-            for var hs: *HeaderSet in hsets {
+            for var hs: unsafe *HeaderSet in hsets {
                 hs->other_bytes(
                     unsafe &m_buf,
                     unsafe &m_map,

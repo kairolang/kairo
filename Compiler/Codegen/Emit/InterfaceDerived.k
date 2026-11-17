@@ -602,6 +602,13 @@ extend InterfaceEmitter {
             // defines as deleted whatever the instance's parts cannot do.
             var copy = ""
             var ok   = self._copy_constraint(d)
+            var vt   = self._copy_var(d)
+            if vt.size() > 0 {
+                var me = self._spell->leaf(d)
+                ok = if (ok.size() > 0) => ("(" + ok + ") && " + vt + "<" + me + ">")
+                     else => vt + "<" + me + ">"
+            }
+
             if ok.size() > 0 {
                 copy = " requires (" + ok + ")"
                 move = " requires (!(" + ok + "))"
@@ -623,6 +630,65 @@ extend InterfaceEmitter {
             dat,
             nm + "& operator=(" + nm + "&&)" + move + " = default;",
         )
+    }
+
+    /// The variable template that holds, per instance of the Open record
+    /// `d`, whether Kairo lets it copy (`__kairo_copy_Bag<Bag<Mv>>` is false
+    /// for a MOVE instance): true by default, specialized false after the
+    /// record for each instance ClassLifecycle found not COPY
+    /// (InstanceEntry::copy_denied). Empty for a record it does not serve:
+    /// not generic, nested in a record (a variable template there would be
+    /// a member), or a partial specialization.
+    prot fn _copy_var(self, d: unsafe *Decl) -> string {
+        if DeclFacts::decl_generic_params(d).size() == 0 || self._spell->spec_suffix(d).size() > 0 {
+            return ""
+        }
+
+        if self._implicit_transfer_of(d) != Declarations::ImplicitTransfer::Open {
+            return ""
+        }
+
+        var unsafe *dc = d->semantic_dc
+        if dc != &null && dc->is_type_scope() {
+            return ""
+        }
+
+        return "__kairo_copy_" + self._spell->leaf(d)
+    }
+
+    /// The default of _copy_var's template, ahead of the record.
+    prot fn _copy_var_primary(self, d: unsafe *Decl) {
+        var vt = self._copy_var(d)
+        if vt.size() > 0 {
+            self._cg->sink->spell(
+                self._at(d),
+                "template <class> inline constexpr bool " + vt + " = true;",
+            )
+        }
+    }
+
+    /// _copy_var's specializations, after the record: one per instance of
+    /// it this TU names that Kairo does not let copy.
+    prot fn _copy_var_instances(self, d: unsafe *Decl) {
+        var vt = self._copy_var(d)
+        if vt.size() == 0 {
+            return
+        }
+
+        var unsafe *insts = self._plan->instances()
+        for var i: usize = 0; i < insts->size(); ++i {
+            var unsafe *e = (*insts)[i]
+            if e == &null || !e->copy_denied || Speller::rep(e->primary) != Speller::rep(d) {
+                continue
+            }
+
+            self._cg->sink->spell(
+                self._at(d),
+                "template <> inline constexpr bool " + vt + "<" + self._spell->qual_name(
+                    d,
+                ) + self._spell->args_str(e->args) + "> = false;",
+            )
+        }
     }
 
     /// What the copy pair of an Open record asks of an instance: every base
