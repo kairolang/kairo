@@ -36,31 +36,28 @@ import AST::Context::SymbolTable::OverloadCell
 import AST::Node::Base::Decl
 import AST::Node::Declarations::ImportDecl
 
-/// \enum OverlayVisibility
-/// \brief The visibility FACT carried on an overlay target the fact I records
-///        and N reads to emit "exists but priv/prot" access errors. I never
-///        filters by this; it writes presence + the fact, N writes the
-///        diagnostic (Compiler/Spec/Pipeline.md#sema-pass-order "import EVERYTHING, carry the fact").
+/// The visibility FACT carried on an overlay target the fact I records
+/// and N reads to emit "exists but priv/prot" access errors. I never
+/// filters by this; it writes presence + the fact, N writes the
+/// diagnostic (Compiler/Spec/Pipeline.md#sema-pass-order "import EVERYTHING, carry the fact").
 pub enum OverlayVisibility derives u8 {
     Public = 0, ///< pub decl / pub edge surface, freely usable.
     Protected,  ///< prot: usable by siblings in the same library; N enforces.
     Private,    ///< priv decl name folded for the "exists but priv" error.
 }
 
-/// \enum OverlayTargetKind
-/// \brief What an overlay target points at. Function-set targets union into an
-///        overload set at resolution; two or more NON-function targets under
-///        one key are an ambiguous import (diagnosed in I, never here).
+/// What an overlay target points at. Function-set targets union into an
+/// overload set at resolution; two or more NON-function targets under
+/// one key are an ambiguous import (diagnosed in I, never here).
 pub enum OverlayTargetKind derives u8 {
     FunctionSet = 0, ///< target is a source OverloadCell of functions (unionable).
     Type, ///< a single non-function type/module/etc. decl target.
     ModuleHandle, ///< a module handle: a Kairo file's ModuleDecl, or one C++ header's under an ffi alias.
 }
 
-/// \class OverlayTarget
-/// \brief One reference an overlay entry holds. Points into a SOURCE TU's
-///        frozen arena (cell) or at a decl; carries the originating import for
-///        diagnostics + edge visibility, and the visibility fact N reads.
+/// One reference an overlay entry holds. Points into a SOURCE TU's
+/// frozen arena (cell) or at a decl; carries the originating import for
+/// diagnostics + edge visibility, and the visibility fact N reads.
 pub class OverlayTarget {
     pub var kind:    OverlayTargetKind    = OverlayTargetKind::Type
     pub var cell:    unsafe *OverloadCell = &null ///< set iff kind == FunctionSet.
@@ -74,17 +71,16 @@ pub class OverlayTarget {
     pub var hidden: bool = false
 }
 
-/// \class OverlayEntry
-/// \brief All targets folded under one THIS-TU imm key. Most entries carry a
-///        single target; multi-target arises from (a) two imports of the same
-///        name, (b) module extension across TUs, (c) a function-set union.
+/// All targets folded under one THIS-TU imm key. Most entries carry a
+/// single target; multi-target arises from (a) two imports of the same
+/// name, (b) module extension across TUs, (c) a function-set union.
 ///
-/// \details `merged` is a this-TU OverloadCell that ImportResolution fills with
-///          the union of every FunctionSet target's decls, so the lookup path
-///          (NameLookup primitive 2) can return ONE *OverloadCell unchanged.
-///          For a single non-function target `merged` holds that one decl too,
-///          keeping every lookup cell-shaped. It is a VIEW built at fold time;
-///          the source cells it references are never mutated.
+/// `merged` is a this-TU OverloadCell that ImportResolution fills with
+/// the union of every FunctionSet target's decls, so the lookup path
+/// (NameLookup primitive 2) can return ONE *OverloadCell unchanged.
+/// For a single non-function target `merged` holds that one decl too,
+/// keeping every lookup cell-shaped. It is a VIEW built at fold time;
+/// the source cells it references are never mutated.
 pub class OverlayEntry {
     pub var targets: cxx::std::vector<OverlayTarget>
     pub var merged:  OverloadCell ///< unioned candidate view; what lookup returns.
@@ -151,17 +147,16 @@ pub class OverlayEntry {
     }
 }
 
-/// \class ImportUseLog
-/// \brief Every overlay hit of one TU, for --dump-import-uses (the import
-///        lint's input). Exists only under that flag, so the lookup path pays
-///        one null check when it is off.
+/// Every overlay hit of one TU, for --dump-import-uses (the import
+/// lint's input). Exists only under that flag, so the lookup path pays
+/// one null check when it is off.
 ///
-/// \details `at` is the spelled head of the use when the caller had one, and
-///          the invalid location for a lookup no token stands behind (lang
-///          items, operator fallbacks, spec primaries): the lint must keep
-///          such a name importable unqualified, since there is no site to
-///          rewrite. Locked because T reads nodes of imported files through
-///          THEIR overlay, from another TU's worker.
+/// `at` is the spelled head of the use when the caller had one, and
+/// the invalid location for a lookup no token stands behind (lang
+/// items, operator fallbacks, spec primaries): the lint must keep
+/// such a name importable unqualified, since there is no site to
+/// rewrite. Locked because T reads nodes of imported files through
+/// THEIR overlay, from another TU's worker.
 pub class ImportUseLog {
     pub var  keys: cxx::std::vector<u32>
     pub var  ats:  cxx::std::vector<u32>
@@ -176,27 +171,25 @@ pub class ImportUseLog {
     }
 }
 
-/// \class ImportOverlay
-/// \enum OverlayState
-/// \brief Who may write an overlay. Building while phase I folds it, then
-///        Frozen for good -- except on an import cycle, where the driver's
-///        re-export fixpoint (ImportResolution::refold_reexports) takes it
-///        Frozen -> Refolding -> Frozen, once per round. Refolding is also
-///        what tells a fold to skip a target its entry already holds: a
-///        round re-folds what the rounds before it folded.
+/// Who may write an overlay. Building while phase I folds it, then
+/// Frozen for good -- except on an import cycle, where the driver's
+/// re-export fixpoint (ImportResolution::refold_reexports) takes it
+/// Frozen -> Refolding -> Frozen, once per round. Refolding is also
+/// what tells a fold to skip a target its entry already holds: a
+/// round re-folds what the rounds before it folded.
 pub enum OverlayState derives u8 {
     Building = 0, ///< phase I is folding the imports.
     Frozen,       ///< read-only; every later phase reads it.
     Refolding,    ///< a re-export fixpoint round of an import cycle.
 }
 
-/// \brief THIS-TU imm-keyed map of imported names -> OverlayEntry.
+/// THIS-TU imm-keyed map of imported names -> OverlayEntry.
 ///
-/// \details Keyed by the IMPORTING TU's imm indices (hard invariant #2): I
-///          re-interns each imported spelling into this TU's imm space once,
-///          at fold time, and every subsequent lookup is an integer probe.
-///          Read LAST in unqualified lookup so TU-local decls shadow imports.
-///          Frozen after I completes (I is the sole writer).
+/// Keyed by the IMPORTING TU's imm indices (hard invariant #2): I
+/// re-interns each imported spelling into this TU's imm space once,
+/// at fold time, and every subsequent lookup is an integer probe.
+/// Read LAST in unqualified lookup so TU-local decls shadow imports.
+/// Frozen after I completes (I is the sole writer).
 pub class ImportOverlay {
     /// MapVector: collect_rows walks entries in the order imports folded
     /// them in, and that walk decides which pair the R016 collision names
@@ -217,7 +210,7 @@ pub class ImportOverlay {
         self._state = OverlayState::Building
     }
 
-    /// Get-or-create the entry for this-TU imm \p key. Write path (I only).
+    /// Get-or-create the entry for this-TU imm `key`. Write path (I only).
     pub fn entry_for(self, key: u32) -> unsafe *OverlayEntry {
         eval if defined!(DEBUG) {
             if self._state == OverlayState::Frozen {
@@ -277,7 +270,7 @@ pub class ImportOverlay {
         return self._state
     }
 
-    /// The only writer of _state: \p from -> \p to, which must be where it is.
+    /// The only writer of _state: `from` -> `to`, which must be where it is.
     priv fn _move(self, from: OverlayState, to: OverlayState, const why: string) {
         eval if defined!(DEBUG) {
             if self._state != from {
@@ -308,7 +301,7 @@ pub class ImportOverlay {
 
     /// # Lookup (read path: NameLookup primitive 2)
 
-    /// The unioned candidate cell for this-TU imm \p key, or null if the name
+    /// The unioned candidate cell for this-TU imm `key`, or null if the name
     /// was never imported. Returns the entry's `merged` view so the caller
     /// stays cell-shaped; ambiguity was already diagnosed in I.
     pub fn lookup_ident(self, key: u32) -> unsafe *OverloadCell {

@@ -60,16 +60,17 @@ import std::io
 extend CompilerInstance {
     /// # Linking
 
-    /// \brief decides once per batch what -o names and where objects go.
+    /// decides once per batch what -o names and where objects go.
     ///
-    /// \details -o is always ONE output file: the executable or library when
-    ///          this run links, the single object under -c. Objects go to
-    ///          --cache-dir (kept); without it, a linking run uses a temp dir
-    ///          it removes afterwards (`<output>.kobj` under --save-temps),
-    ///          and a -c run uses the working directory. -o naming a
-    ///          directory is an error: that is --cache-dir's job.
+    /// -o is always ONE output file: the executable or library when
+    /// this run links, the single object under -c. Objects go to
+    /// --cache-dir (kept); without it, a linking run uses a temp dir
+    /// it removes afterwards (`<output>.kobj` under --save-temps),
+    /// and a -c run uses the working directory. -o naming a
+    /// directory is an error: that is --cache-dir's job.
     ///
-    /// \return false on a fatal planning error; nothing may compile.
+    /// ### Returns
+    /// false on a fatal planning error; nothing may compile.
     prot fn _plan_outputs(self) -> bool {
         var *lk = &self.invocation()->linker
         var out = self.invocation()->frontend.output.copy()
@@ -319,15 +320,15 @@ extend CompilerInstance {
         return self._kairo_inputs
     }
 
-    /// \brief the path, minus its extension, an entry TU of input stem
-    ///        \p stem writes its --emit outputs to in a linking run that
-    ///        listed more kinds than the object, or "" to use the object dir.
+    /// the path, minus its extension, an entry TU of input stem
+    /// `stem` writes its --emit outputs to in a linking run that
+    /// listed more kinds than the object, or "" to use the object dir.
     ///
-    /// \details `kairo app.k --emit obj,asm -o out/app` writes out/app.o and
-    ///          out/app.s, named after the executable; with several Kairo
-    ///          inputs each is named after its own stem, in -o's directory.
-    ///          Imported modules and the prelude stay in the object dir:
-    ///          they are link inputs, not what the user asked to see.
+    /// `kairo app.k --emit obj,asm -o out/app` writes out/app.o and
+    /// out/app.s, named after the executable; with several Kairo
+    /// inputs each is named after its own stem, in -o's directory.
+    /// Imported modules and the prelude stay in the object dir:
+    /// they are link inputs, not what the user asked to see.
     fn emit_beside(self, const stem: string) -> string {
         if !self._emit_beside || self._link_out.is_empty() {
             return ""
@@ -554,7 +555,7 @@ extend CompilerInstance {
         }
     }
 
-    /// true when the file \p fid writes `@set_global_allocator(` at file
+    /// true when the file `fid` writes `@set_global_allocator(` at file
     /// scope, the one place ASTParse takes it: outside every brace, so a
     /// comment, a string literal or a function body naming it does not
     /// count. The bytes on disk are searched first, and only a file that

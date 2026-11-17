@@ -213,17 +213,17 @@ import std::io
 
 /// Per-file pipeline executor.
 ///
-/// Owned by \c CompilerInstance::execute() for the lifetime of one input file.
-/// Advances through \c TUStage in order, honouring \c FrontendOptions stop-at
+/// Owned by `CompilerInstance::execute()` for the lifetime of one input file.
+/// Advances through `TUStage` in order, honouring `FrontendOptions` stop-at
 /// points and post-stage dump flags at each boundary.
 ///
 /// Stages are strictly sequential on the calling thread. Load and lex must run
 /// on the driver thread (shared SM/TCM writes). Preprocess through codegen are
-/// per-file and will be async-dispatchable to the \c ThreadPool in a future
+/// per-file and will be async-dispatchable to the `ThreadPool` in a future
 /// phase once SM/TCM are read-only.
 ///
-/// \c _ci and \c _resolver are non-owning borrows valid for the lifetime of
-/// \c execute(). \c _pp is owned and destroyed with the action.
+/// `_ci` and `_resolver` are non-owning borrows valid for the lifetime of
+/// `execute()`. `_pp` is owned and destroyed with the action.
 pub class FrontendAction {
     pub var  path:          Path
     pub var  module_base:   ModulePath
@@ -249,11 +249,11 @@ pub class FrontendAction {
     /// retractions and slices in between. What one refresh() of the whole
     /// set decides at its end is then decided across the calls:
     ///  - an entry a retraction re-armed must be used again by a file of
-    ///    THAT retraction's set (\c _rearm_set, \c _rearm_ok), judged when
+    ///    THAT retraction's set (`_rearm_set`, `_rearm_ok`), judged when
     ///    every slice is done (tier_finish);
     ///  - an adopted stand-in's record is compared with the layout it had
     ///    before the first retraction since the last tier_finish
-    ///    (\c _tt_old_i), whichever slice re-reads it.
+    ///    (`_tt_old_i`), whichever slice re-reads it.
     pub var  tiered:     bool                                    = false
     priv var _tt_sets:   cxx::std::vector<cxx::std::vector<u32>>
     priv var _rearm_set: cxx::std::vector<u64> ///< parallel to _rearmed: its retraction's set
@@ -300,9 +300,9 @@ pub class FrontendAction {
 
     /// Executes the full pipeline on the calling thread.
     ///
-    /// Stages are gated by \c FrontendOptions. A stage returning false halts the
-    /// pipeline and leaves \c _stage at \c Failed. An early-exit stop-at flag
-    /// advances \c _stage to \c Done and returns without running further stages.
+    /// Stages are gated by `FrontendOptions`. A stage returning false halts the
+    /// pipeline and leaves `_stage` at `Failed`. An early-exit stop-at flag
+    /// advances `_stage` to `Done` and returns without running further stages.
     ///
     /// Load and lex run on the driver thread (shared SM/TCM writes). Preprocess
     /// through codegen are per-file and will be async-dispatchable in a future
@@ -546,7 +546,7 @@ pub class FrontendAction {
         return fe.is_syntax_only() && !self._ci->kairo_feeds_includes()
     }
 
-    /// Registers the source file with \c SourceManager and obtains a file ID.
+    /// Registers the source file with `SourceManager` and obtains a file ID.
     priv fn _load(self) -> bool {
         var _t = TimeRegion("Load")
 
@@ -1681,21 +1681,21 @@ pub class FrontendAction {
         return true
     }
 
-    /// \brief Sema again for \p fids alone, in an instance whose first
-    ///        check is done (Tooling/LiveCheck.k): each of them has been
-    ///        re-read, re-preprocessed and re-parsed, and every other file
-    ///        of the graph is as its own Sema left it.
+    /// Sema again for `fids` alone, in an instance whose first
+    /// check is done (Tooling/LiveCheck.k): each of them has been
+    /// re-read, re-preprocessed and re-parsed, and every other file
+    /// of the graph is as its own Sema left it.
     ///
-    /// \details What _sema does, for a part of the graph: the header set
-    ///          of each file joined and indexed and its ffi imports stamped,
-    ///          the prelude import, the visibility stamp, then the files'
-    ///          import groups in import order on this thread, each to the
-    ///          end of its Sema (its own effect table and mint ranks, after
-    ///          every rank of the first check). The files' old interface
-    ///          facts are replaced.
+    /// What _sema does, for a part of the graph: the header set
+    /// of each file joined and indexed and its ffi imports stamped,
+    /// the prelude import, the visibility stamp, then the files'
+    /// import groups in import order on this thread, each to the
+    /// end of its Sema (its own effect table and mint ranks, after
+    /// every rank of the first check). The files' old interface
+    /// facts are replaced.
     ///
-    /// \pre \p fids is closed under "imports one of them": no file left out
-    ///      points into one that is in.
+    /// **Precondition:** `fids` is closed under "imports one of them": no file left out
+    /// points into one that is in.
     pub fn refresh(self, const fids: cxx::std::vector<u32>) -> string {
         self.refresh_detail = ""
         var        fe        = self._ci->invocation()->frontend
@@ -1955,9 +1955,9 @@ pub class FrontendAction {
         return ""
     }
 
-    /// \brief every slice of a tiered re-check is done: what refresh()
-    ///        decides at its end when it is handed the whole set. "" when
-    ///        the result stands; otherwise why it takes a full check.
+    /// every slice of a tiered re-check is done: what refresh()
+    /// decides at its end when it is handed the whole set. "" when
+    /// the result stands; otherwise why it takes a full check.
     pub fn tier_finish(self) -> string {
         var why = ""
         for var i: usize = 0; i < self._rearmed.size() && why.is_empty(); ++i {
@@ -1996,8 +1996,8 @@ pub class FrontendAction {
         return ""
     }
 
-    /// The primaries whose instances \p fid's Sema asked for, from its
-    /// dependency log (DepLog::bodies), into \p out.
+    /// The primaries whose instances `fid`'s Sema asked for, from its
+    /// dependency log (DepLog::bodies), into `out`.
     priv fn _bodies_of(self, fid: u32, out: unsafe *llvm::DenseSet<u64>) {
         var unsafe *c = self._global_scope->get_context(fid)
         if c == &null || c->tu == &null || c->tu->dep_log == &null {
@@ -2009,27 +2009,27 @@ pub class FrontendAction {
         }
     }
 
-    /// \brief may the queued files \p ahead be re-checked before the files
-    ///        that precede them in Sema's order (a tool's open buffer and
-    ///        what it imports)? An instance's once-only reports belong to
-    ///        its first use in that order, so a file that was the first
-    ///        user of an instance \p ahead also names must go before it:
-    ///        those still queued are appended to \p first (the caller adds
-    ///        them and asks again). False when the order cannot be kept:
-    ///        such an instance has no first user any more (an edited file
-    ///        stopped naming it), and which file is next is not known
-    ///        before the files between are re-checked.
+    /// may the queued files `ahead` be re-checked before the files
+    /// that precede them in Sema's order (a tool's open buffer and
+    /// what it imports)? An instance's once-only reports belong to
+    /// its first use in that order, so a file that was the first
+    /// user of an instance `ahead` also names must go before it:
+    /// those still queued are appended to `first` (the caller adds
+    /// them and asks again). False when the order cannot be kept:
+    /// such an instance has no first user any more (an edited file
+    /// stopped naming it), and which file is next is not known
+    /// before the files between are re-checked.
     ///
-    /// \details Read from what the retractions recorded (the instance's
-    ///          primary and the file of its first use) and from the
-    ///          dependency logs of \p ahead's OLD trees, which name the
-    ///          primaries they instantiate; their text has not changed, so
-    ///          they will ask for the same. By primary, not by instance:
-    ///          too many files go first, never too few, except that an
-    ///          edited file is taken to name an instance still when it
-    ///          names another of the same primary. refresh() / tier_finish
-    ///          still judge every first use afterwards; a miss here is a
-    ///          full check there, not a wrong result.
+    /// Read from what the retractions recorded (the instance's
+    /// primary and the file of its first use) and from the
+    /// dependency logs of `ahead`'s OLD trees, which name the
+    /// primaries they instantiate; their text has not changed, so
+    /// they will ask for the same. By primary, not by instance:
+    /// too many files go first, never too few, except that an
+    /// edited file is taken to name an instance still when it
+    /// names another of the same primary. refresh() / tier_finish
+    /// still judge every first use afterwards; a miss here is a
+    /// full check there, not a wrong result.
     pub fn prefer_first_users(self,
                               ahead:  cxx::std::vector<u32>,
                               queued: cxx::std::vector<u32>,
@@ -2084,7 +2084,7 @@ pub class FrontendAction {
         return true
     }
 
-    /// \p fids group by group, as the sema loop runs them: each import
+    /// `fids` group by group, as the sema loop runs them: each import
     /// cycle's members together, each group after every group it imports
     /// (ImportGroups over order_of). order_of alone breaks a cycle at one
     /// file, which then stands BEFORE files outside the cycle that it
@@ -2107,15 +2107,15 @@ pub class FrontendAction {
         )
     }
 
-    /// \brief every address of the replaced trees (\p dead: their arena
-    ///        blocks) leaves the build-wide stores that are keyed by one or
-    ///        hold one: the canonical type table, the conformance rows,
-    ///        the dropped instances. After it CompilerInstance::
-    ///        release_retired may free them. Says what went, for a log.
+    /// every address of the replaced trees (`dead`: their arena
+    /// blocks) leaves the build-wide stores that are keyed by one or
+    /// hold one: the canonical type table, the conformance rows,
+    /// the dropped instances. After it CompilerInstance::
+    /// release_retired may free them. Says what went, for a log.
     ///
-    /// \pre every file of every retraction has been re-checked (no queued
-    ///      file holds an old tree) and tier_finish / refresh accepted the
-    ///      result.
+    /// **Precondition:** every file of every retraction has been re-checked (no queued
+    /// file holds an old tree) and tier_finish / refresh accepted the
+    /// result.
     pub fn sweep_retired(self, dead: unsafe *kairo::AddrRanges) -> string {
         var        shells = llvm::DenseSet<u64>()
         var        types  = llvm::DenseSet<u64>()
@@ -2132,17 +2132,17 @@ pub class FrontendAction {
         return f"{nt} canonical types, {nr} conformance rows, {shells.size()} instance nodes"
     }
 
-    /// \brief a retraction's part of the same: the conformance rows that
-    ///        name a declaration of \p set (a witness, the declaring
-    ///        `impl`, a conformer that is one of its records) leave the
-    ///        tables NOW, while the files are still to be re-read.
+    /// a retraction's part of the same: the conformance rows that
+    /// name a declaration of `set` (a witness, the declaring
+    /// `impl`, a conformer that is one of its records) leave the
+    /// tables NOW, while the files are still to be re-read.
     ///
-    /// \details A row is found by (conformer, interface), and `extend i32
-    ///          impl I` in a file of the set is found by every later
-    ///          question about i32: left in, the re-check is answered from
-    ///          the old text (a witness that was renamed away still
-    ///          conforms), and the file's own re-check adds nothing, the
-    ///          row being there.
+    /// A row is found by (conformer, interface), and `extend i32
+    /// impl I` in a file of the set is found by every later
+    /// question about i32: left in, the re-check is answered from
+    /// the old text (a witness that was renamed away still
+    /// conforms), and the file's own re-check adds nothing, the
+    /// row being there.
     priv fn _retract_rows(self, const set: cxx::std::vector<u32>) {
         var dead = kairo::AddrRanges()
         dead.label(kairo::std::to_std_string("a file being re-read"))
@@ -2168,7 +2168,7 @@ pub class FrontendAction {
         reg->sweep_dead(unsafe &dead, unsafe &types, true)
     }
 
-    /// \p fids in the order their Sema runs (import order over the graph).
+    /// `fids` in the order their Sema runs (import order over the graph).
     pub fn order_of(self, const fids: cxx::std::vector<u32>) -> cxx::std::vector<u32> {
         var want = llvm::DenseSet<u64>()
         for var f: u32 in fids {
@@ -2185,13 +2185,13 @@ pub class FrontendAction {
         return out
     }
 
-    /// \brief why \p set cannot be re-checked by refresh(), "" when it
-    ///        can. Asked on the files' CHECKED trees, before they are
-    ///        re-read.
+    /// why `set` cannot be re-checked by refresh(), "" when it
+    /// can. Asked on the files' CHECKED trees, before they are
+    /// re-read.
     ///
-    /// \details Each reason is something a file of the set wrote into
-    ///          state that outlives its tree and that nothing takes back
-    ///          out: such an edit is a full check.
+    /// Each reason is something a file of the set wrote into
+    /// state that outlives its tree and that nothing takes back
+    /// out: such an edit is a full check.
     pub fn refresh_blocker(self, const set: cxx::std::vector<u32>) -> string {
         for var fid: u32 in set {
             var unsafe *ctx = self._global_scope->get_context(fid)
@@ -2237,7 +2237,7 @@ pub class FrontendAction {
         return ""
     }
 
-    /// The header set \p fid's ffi imports are checked against (the
+    /// The header set `fid`'s ffi imports are checked against (the
     /// build's shared one when its list was merged into it), or null.
     pub fn header_set_of(self, fid: u32) -> unsafe *void {
         var unsafe *ctx = self._global_scope->get_context(fid)
@@ -2253,8 +2253,8 @@ pub class FrontendAction {
         return unsafe (view as unsafe *void)
     }
 
-    /// \brief before \p set is re-read: its files are taken out of the
-    ///        build-wide stores that outlive a tree.
+    /// before `set` is re-read: its files are taken out of the
+    /// build-wide stores that outlive a tree.
     pub fn retract(self, const set: cxx::std::vector<u32>) -> RetractStats {
         // The layouts the set's records have, while its facts are the old
         // ones: a slice compares against them whenever it runs.
@@ -2326,7 +2326,7 @@ pub class FrontendAction {
         return st
     }
 
-    /// The place of the file of \p at in the order files are drained (a
+    /// The place of the file of `at` in the order files are drained (a
     /// first check's order, kept by the per-file diagnostics); usize::MAX
     /// when unknown.
     priv fn _drain_place(self, at: SourceRange) -> usize {
@@ -2345,12 +2345,12 @@ pub class FrontendAction {
         return usize::MAX
     }
 
-    /// \brief the files that must join \p set because a file of it
-    ///        extends a record they declare: an extension is visible in the
-    ///        extended record's own file whether that file imports it or
-    ///        not (MemberLookup's visibility rule), so that file reads the
-    ///        set and is re-checked with it. Appended to \p out, each once;
-    ///        the caller adds their importers and asks again.
+    /// the files that must join `set` because a file of it
+    /// extends a record they declare: an extension is visible in the
+    /// extended record's own file whether that file imports it or
+    /// not (MemberLookup's visibility rule), so that file reads the
+    /// set and is re-checked with it. Appended to `out`, each once;
+    /// the caller adds their importers and asks again.
     pub fn refresh_extends(self, const set: cxx::std::vector<u32>, out: *cxx::std::vector<u32>) {
         for var fid: u32 in set {
             var unsafe *ctx = self._global_scope->get_context(fid)
@@ -2409,7 +2409,7 @@ pub class FrontendAction {
 
     /// The prelude import of one non-builtin file, as _sema injects it for
     /// every file of a first check (see there for why it is a real
-    /// ImportDecl and why it is stamped rather than resolved). \p afid is
+    /// ImportDecl and why it is stamped rather than resolved). `afid` is
     /// _alloc_module_fid's answer.
     priv fn _inject_prelude_one(self, fid: u32, afid: u32) {
         var bfid = self._global_scope->builtin_fid()
@@ -2452,9 +2452,9 @@ pub class FrontendAction {
         return u32::MAX
     }
 
-    /// The file \p fid's prelude imports, on \p pctx's TU: a wildcard import
-    /// of the builtin root \p bfid, and, for a file that writes `@create` /
-    /// `@destroy`, one of alloc.k (\p afid), each with its ImportEdge.
+    /// The file `fid`'s prelude imports, on `pctx`'s TU: a wildcard import
+    /// of the builtin root `bfid`, and, for a file that writes `@create` /
+    /// `@destroy`, one of alloc.k (`afid`), each with its ImportEdge.
     ///
     /// Both sit at the file's start. The sugar lowers to alloc.k's create /
     /// destroy pre-bound (AllocSugarDesugar), so the TU must be typed AFTER
@@ -2506,13 +2506,13 @@ pub class FrontendAction {
         ptu->import_edges.push(aedge)
     }
 
-    /// Stamp every ffi ImportDecl of \p tu with what its header resolved to in
-    /// \p hs: resolved_fid (the header's own fid), the closure fids phase I folds,
+    /// Stamp every ffi ImportDecl of `tu` with what its header resolved to in
+    /// `hs`: resolved_fid (the header's own fid), the closure fids phase I folds,
     /// and one ImportEdge per closure header, so the import graph (importers_of,
     /// release's inbound-edge guard) sees a header the way it sees a Kairo file.
     /// A spelling clang never resolved leaves resolved_fid 0 and no edges.
-    /// \p hs is the set the TU's headers were parsed in; \p view the TU's own
-    /// list, which is \p hs unless the build parsed every list as one:
+    /// `hs` is the set the TU's headers were parsed in; `view` the TU's own
+    /// list, which is `hs` unless the build parsed every list as one:
     /// then a spelling is first resolved as the view's own parse resolved it.
     priv fn _attach_ffi_edges(self,
                               tu:   unsafe *TranslationUnit,
@@ -2652,8 +2652,8 @@ pub class FrontendAction {
     /// Semantic analysis stage: runs the pipeline to its current end (N) over
     /// every fid of this TU's graph, then honors the sema dump flags.
     /// One group of the sema loop (FrontendAction::_sema): every Kairo TU of
-    /// \p fids to SemaPhase::Typed, the group's panic sets solved, then each
-    /// on to Checked, the lowerings and mono, in \p fids's order.
+    /// `fids` to SemaPhase::Typed, the group's panic sets solved, then each
+    /// on to Checked, the lowerings and mono, in `fids`'s order.
     ///
     /// The group's Semas live until the second pass is done, at addresses that
     /// never move: Sema keeps `&self.sc` (and the context `&self.lifecycle`)
@@ -3276,7 +3276,7 @@ pub class FrontendAction {
 
     /// Give back a finished group's hold on its TUs' header sets; the last
     /// owner's release frees a set that contributed nothing (see _sema).
-    /// --print-unchecked-assumptions: one line per assumption of \p sc's TU,
+    /// --print-unchecked-assumptions: one line per assumption of `sc`'s TU,
     /// `file:line:col: unchecked assumption: text`, at the call it is about.
     priv fn _print_unchecked(self, sc: unsafe *SemaContext) {
         var unsafe *sm = self._ci->sm()
@@ -4442,7 +4442,7 @@ pub class FrontendAction {
     }
 
     /// --sema-agreement-summary: one line on stderr counting what the Sema
-    /// agreement pass found over \p jobs, by kind. It counts a TU whose
+    /// agreement pass found over `jobs`, by kind. It counts a TU whose
     /// object was reused (its stored findings) as one that compiled, and
     /// does not depend on whether the findings were reported or on -w.
     priv fn _agree_summary(self, const jobs: cxx::std::vector<unsafe *CodegenJob>) {
@@ -4494,13 +4494,13 @@ pub class FrontendAction {
         )
     }
 
-    /// \p fid has nothing to define (EmitPlan::is_empty, on the preamble plan).
+    /// `fid` has nothing to define (EmitPlan::is_empty, on the preamble plan).
     /// A fid with no context or TU is not empty -- it is not a Kairo TU at all,
     /// and the callers already skip those -- so this answers only for real ones.
     /// The header sets of every TU in the graph, in graph order, each once:
     /// what phase B's merged PCH holds. One helper for the early build in
     /// _sema and the lookup in _codegen, so both name the same list.
-    /// \p tu's module path, `::`-joined; for a pathless TU, \p fallback (its
+    /// `tu`'s module path, `::`-joined; for a pathless TU, `fallback` (its
     /// file's name, never its directory: a key or record must not depend on
     /// where the checkout is).
     priv fn _module_key(self,
@@ -4607,11 +4607,11 @@ pub class FrontendAction {
         printer.print_stream(tokens, self.path.full_path())
     }
 
-    /// \brief --dump-preprocessed: reconstruct macro-expanded source text from the
-    ///        finalized token buffer and print it to stdout. This is the ONLY
-    ///        stdout-emitting form of the preprocessor's output --preprocess alone
-    ///        stops the pipeline after preprocessing with no extra output, matching
-    ///        every other stops_at_* flag.
+    /// --dump-preprocessed: reconstruct macro-expanded source text from the
+    /// finalized token buffer and print it to stdout. This is the ONLY
+    /// stdout-emitting form of the preprocessor's output --preprocess alone
+    /// stops the pipeline after preprocessing with no extra output, matching
+    /// every other stops_at_* flag.
     ///
     ///        Spelling comes from TokenText::resolve() (the sole sanctioned text
     ///        accessor  see Token/TokenText.k), which already unwraps macro
@@ -5658,7 +5658,7 @@ pub class PublishOnExit {
     }
 }
 
-/// Group \p g's instantiation rank: reserve_ranks gave the run \p base
+/// Group `g`'s instantiation rank: reserve_ranks gave the run `base`
 /// and one counter value per group above it, and the value sits in the
 /// high word. Spelled once because `base + g + 1 << 32` shifts the sum
 /// only by C's precedence. g == the group count is the run's floor.
@@ -5667,9 +5667,9 @@ fn group_rank(base: u64, g: u64) -> u64 {
 }
 
 /// The registry's ordering key for the calling thread, narrowed to
-/// one step of its group's schedule: \p code the step (1 I, 2 the re-export
+/// one step of its group's schedule: `code` the step (1 I, 2 the re-export
 /// refold, 3 E, 4 V, 5 N, 6 T's pre-pass, 7 T, 8 the typed checks and
-/// Conformance, 9 the panic-set barrier, 10 the late part), \p member the
+/// Conformance, 9 the panic-set barrier, 10 the late part), `member` the
 /// TU's place in the group. A one-thread run does the steps in this order,
 /// so requests key as it makes them even when an import cycle's typed
 /// checks run on a worker and their Conformance later on the driver.
@@ -5692,7 +5692,7 @@ fn sema_sub(code: u64, member: usize) {
 /// stop in I/N/T) goes no further; the others carry on, as an acyclic
 /// importer of it would. Re-entrant: phases a TU finished are skipped.
 ///
-/// \p front: the parallel driver's worker part. The TUs were split
+/// `front`: the parallel driver's worker part. The TUs were split
 /// at Conformance, and the run stops, returning false, before a phase that
 /// would read another group's late Sema (see SemaSlot::run_front); the
 /// driver then continues the group in order.
@@ -6040,7 +6040,7 @@ pub class ImportGroups {
         return self._reach[i * n + j] != 0 && self._reach[j * n + i] != 0
     }
 
-    /// Place \p i's component after every component it imports. Its members
+    /// Place `i`'s component after every component it imports. Its members
     /// are marked first: no import of another component can lead back into
     /// this one (it would be in it), so the recursion ends.
     priv fn _place(self, i: usize) {
@@ -6074,7 +6074,7 @@ pub class ImportGroups {
     }
 }
 
-/// \p tu defines, out of line, a member of a type declared in a file
+/// `tu` defines, out of line, a member of a type declared in a file
 /// outside its import group (N attached it there: `semantic_dc`).
 fn _defines_foreign_members(tu:          unsafe *TranslationUnit,
                             const group: cxx::std::vector<unsafe *Sema>) -> bool {
@@ -6104,7 +6104,7 @@ fn _defines_foreign_members(tu:          unsafe *TranslationUnit,
     return false
 }
 
-/// \p dc or a type or module scope under it declares an explicit or partial
+/// `dc` or a type or module scope under it declares an explicit or partial
 /// specialization, which the registry matches against every use whether
 /// the user imports it or not (TypeResolution::_register_specs_in walks the
 /// same scopes), or an extension, which every TU's member lookup indexes
@@ -6112,7 +6112,7 @@ fn _defines_foreign_members(tu:          unsafe *TranslationUnit,
 /// _declares_specs for a live check's refresh set: true for an explicit or
 /// partial specialization (the registry's tables match every use in the
 /// build and hold the declaration), while an extension is not a reason to
-/// refuse: it is collected into \p exts, and the file of the record it
+/// refuse: it is collected into `exts`, and the file of the record it
 /// extends joins the set (FrontendAction::refresh_extends).
 fn _refresh_specs(dc: unsafe *DeclContext, exts: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
     if dc == &null {
@@ -6177,8 +6177,8 @@ fn _decl_refresh_specs(d: unsafe *Decl, exts: unsafe *cxx::std::vector<unsafe *D
     return false
 }
 
-/// DeclId -> the interface hashes under it (joined), from \p f's plan
-/// lines (`id, scope, name, I, ...`), added to \p at / \p vals.
+/// DeclId -> the interface hashes under it (joined), from `f`'s plan
+/// lines (`id, scope, name, I, ...`), added to `at` / `vals`.
 fn _fid_in(set: *cxx::std::vector<u32>, fid: u32) -> bool {
     for var i: usize = 0; i < set->size(); ++i {
         if (*set)[i] == fid {

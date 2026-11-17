@@ -101,7 +101,7 @@ pub class SysRuntimes {
         return v
     }
 
-    /// Stage builtins: <out>/<builtins_name>. \p toml is the target's
+    /// Stage builtins: <out>/<builtins_name>. `toml` is the target's
     /// SYSROOT.toml text, for the libc-headers root.
     pub static fn builtins(ctx: *StageCtx, const toml: string, @inout out: SysOutcome) -> bool {
         var env = RtEnv()
@@ -244,9 +244,9 @@ pub class SysRuntimes {
         return true
     }
 
-    /// The template \p tmpl instantiated for the stage's target into \p dst
+    /// The template `tmpl` instantiated for the stage's target into `dst`
     /// (targets/ and <runtime>/, the runtimes-recipe/ layout). False with
-    /// \p why set when the template cannot serve the target.
+    /// `why` set when the template cannot serve the target.
     pub static fn from_template(tgt:        *SysTarget,
                                 r:          *SysRecipe,
                                 const tmpl: string,
@@ -287,7 +287,7 @@ pub class SysRuntimes {
     /// # Steps
 
     /// The inputs, the target's table, the libc-headers root and (when
-    /// \p with_build) the build tree.
+    /// `with_build`) the build tree.
     priv static fn _prepare(ctx:        *StageCtx,
                             const toml: string,
                             @inout env: RtEnv,
@@ -475,7 +475,7 @@ pub class SysRuntimes {
         return n
     }
 
-    /// link_tree with \p skip applied at every depth, not only the top.
+    /// link_tree with `skip` applied at every depth, not only the top.
     priv static fn _tree(const from:  string,
                          const to:    string,
                          @inout skip: cxx::std::vector<string>,
@@ -516,9 +516,9 @@ pub class SysRuntimes {
         return true
     }
 
-    /// A build/ or headers/ manifest: every [files] entry under \p dst,
-    /// `src:<path>` from the runtimes source, `gen:<path>` from \p gen.
-    /// \p hard links instead of copying (the build tree is scratch; the
+    /// A build/ or headers/ manifest: every [files] entry under `dst`,
+    /// `src:<path>` from the runtimes source, `gen:<path>` from `gen`.
+    /// `hard` links instead of copying (the build tree is scratch; the
     /// installed headers are not, and must not share inodes with the share
     /// tree).
     priv static fn _materialise(const man:  string,
@@ -564,7 +564,7 @@ pub class SysRuntimes {
         return true
     }
 
-    /// Every source of \p rts in one window of compiles. The flags are the
+    /// Every source of `rts` in one window of compiles. The flags are the
     /// table's, in its order; nothing from quirks.toml is applied again
     /// (the tables already carry what the quirks added).
     priv static fn _compile(ctx:        *StageCtx,
@@ -665,7 +665,7 @@ pub class SysRuntimes {
         return true
     }
 
-    /// The [group.*] tables of \p t, in file order.
+    /// The [group.*] tables of `t`, in file order.
     priv static fn _groups(t: *SysRecipe) -> cxx::std::vector<string> {
         var gs = cxx::std::vector<string>()
         for *tb in t->raw_tables {
@@ -678,7 +678,7 @@ pub class SysRuntimes {
         return gs
     }
 
-    /// The archive the table puts at root path \p dest, written to \p to:
+    /// The archive the table puts at root path `dest`, written to `to`:
     /// its members in table order, symbol table and all (CMake's `<AR> qc`
     /// then `<RANLIB>`). COFF targets get a COFF archive, as llvm-ar picks
     /// one from COFF members.
@@ -711,7 +711,7 @@ pub class SysRuntimes {
         return true
     }
 
-    /// Installs the table's c++/v1 headers at \p to.
+    /// Installs the table's c++/v1 headers at `to`.
     priv static fn _headers(env: *RtEnv, const to: string, @inout out: SysOutcome) -> bool {
         var key = env->target.str("", "headers")
         if key.is_empty() {

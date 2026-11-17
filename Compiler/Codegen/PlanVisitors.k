@@ -192,7 +192,7 @@ pub class EarlyNeeds derives RecursiveASTVisitor<EarlyNeeds> {
         }
     }
 
-    /// The records \p t holds by value (raw: EmitPlan maps each to its
+    /// The records `t` holds by value (raw: EmitPlan maps each to its
     /// plan entry), and the items its computed values name.
     fn rec_type(self, t: unsafe *Type) {
         if t == &null {
@@ -270,7 +270,7 @@ pub class EarlyNeeds derives RecursiveASTVisitor<EarlyNeeds> {
         self._const -= 1
     }
 
-    /// Every compile-time member of record \p d with a body, as items.
+    /// Every compile-time member of record `d` with a body, as items.
     priv fn _members(self, d: unsafe *Decl) {
         var ms = decl_methods(d)
         for var i: usize = 0; i < ms.size(); ++i {

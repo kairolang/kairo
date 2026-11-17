@@ -25,16 +25,16 @@ import Codegen::EmitPlan::{
 }
 
 extend EmitPlan {
-    /// \brief the build's file order: \p keys[i] names \p fids[i] (a module
-    ///        path, or a file name for a file that has none), and every plan
-    ///        sorts by the rank of its key instead of by fid.
+    /// the build's file order: `keys[i]` names `fids[i]` (a module
+    /// path, or a file name for a file that has none), and every plan
+    /// sorts by the rank of its key instead of by fid.
     ///
-    /// \details Fids are minted in the order the PP walk meets files from
-    ///          the entry, so two entries over one tree number its modules
-    ///          differently, and a TU's stream (its object key) differed
-    ///          between kairo and kcc in order alone. Ties (two files, one
-    ///          key) go by fid; the caller makes keys unique where it can.
-    ///          Driver thread, before any plan of the codegen runs.
+    /// Fids are minted in the order the PP walk meets files from
+    /// the entry, so two entries over one tree number its modules
+    /// differently, and a TU's stream (its object key) differed
+    /// between kairo and kcc in order alone. Ties (two files, one
+    /// key) go by fid; the caller makes keys unique where it can.
+    /// Driver thread, before any plan of the codegen runs.
     pub static fn set_file_ranks(const keys: cxx::std::vector<string>,
                                  const fids: cxx::std::vector<u32>) {
         EmitPlan::_graph_step(GraphPhase::Unset, GraphPhase::Ranked)
@@ -72,10 +72,10 @@ extend EmitPlan {
         }
     }
 
-    /// \brief the build's import graph: \p edges[i] are module \p mods[i]'s
-    ///        import edge targets in declaration order (TranslationUnit::
-    ///        import_edges), \p prelude the prelude's fid (0: none). What a
-    ///        TU's own file order (_rank_of) and assign_homes walk.
+    /// the build's import graph: `edges[i]` are module `mods[i]`'s
+    /// import edge targets in declaration order (TranslationUnit::
+    /// import_edges), `prelude` the prelude's fid (0: none). What a
+    /// TU's own file order (_rank_of) and assign_homes walk.
     pub static fn set_graph(const mods:  cxx::std::vector<u32>,
                             const edges: cxx::std::vector<cxx::std::vector<u32>>,
                             prelude:     u32) {
@@ -96,8 +96,8 @@ extend EmitPlan {
         _G_PRELUDE = prelude
     }
 
-    /// Whether module \p from imports \p to, transitively (set_graph's
-    /// edges); \p memo holds each asked module's marks.
+    /// Whether module `from` imports `to`, transitively (set_graph's
+    /// edges); `memo` holds each asked module's marks.
     static fn _reaches(memo: *cxx::std::vector<cxx::std::vector<u8>>, from: u32, to: u32) -> bool {
         while memo->size() <= (from as usize) {
             memo->push_back(cxx::std::vector<u8>())
@@ -137,16 +137,16 @@ extend EmitPlan {
         return (f as usize) < _G_IS_MOD.size() && _G_IS_MOD[f as usize] != (0 as u8)
     }
 
-    /// \brief the sort key of \p fid in THIS TU: the order in which a
-    ///        depth-first walk of the imports from this TU (then from the
-    ///        prelude) meets the file, then every other file by module path
-    ///        (set_file_ranks), then by fid.
+    /// the sort key of `fid` in THIS TU: the order in which a
+    /// depth-first walk of the imports from this TU (then from the
+    /// prelude) meets the file, then every other file by module path
+    /// (set_file_ranks), then by fid.
     ///
-    /// \details The walk is the one the PP's dependency scan makes from the
-    ///          entry, which mints fids, so the entry TU's order is what
-    ///          ordering by fid gave; but it starts from this TU, so it reads
-    ///          only this TU's own imports, transitively: the same in every
-    ///          graph that holds the TU (Compiler/Spec/Incremental.md#shared-across-graphs).
+    /// The walk is the one the PP's dependency scan makes from the
+    /// entry, which mints fids, so the entry TU's order is what
+    /// ordering by fid gave; but it starts from this TU, so it reads
+    /// only this TU's own imports, transitively: the same in every
+    /// graph that holds the TU (Compiler/Spec/Incremental.md#shared-across-graphs).
     fn _rank_of(self, fid: u32) -> u64 {
         eval if defined!(DEBUG) {
             if _G_PHASE == GraphPhase::Ranked {
@@ -216,7 +216,7 @@ extend EmitPlan {
         }
     }
 
-    /// The codegen home of \p ie: assign_homes' choice, else its home_fid.
+    /// The codegen home of `ie`: assign_homes' choice, else its home_fid.
     pub static fn home_of(ie: unsafe *InstanceEntry) -> u32 {
         var it = _HOMES.find(ie as usize as u64)
         if it != _HOMES.end() {
@@ -226,7 +226,7 @@ extend EmitPlan {
         return ie->home_fid
     }
 
-    /// One step of GraphPhase, which only runs forward from \p from: a
+    /// One step of GraphPhase, which only runs forward from `from`: a
     /// fact set out of order is read by plans that assume the ones before it.
     static fn _graph_step(from: GraphPhase, to: GraphPhase) {
         eval if defined!(DEBUG) {
@@ -250,32 +250,33 @@ extend EmitPlan {
         _G_PRELUDE = 0
     }
 
-    /// \brief each tier-3 instance's home, from the TUs that hold it and
-    ///        nothing else in the graph.
+    /// each tier-3 instance's home, from the TUs that hold it and
+    /// nothing else in the graph.
     ///
-    /// \param plans  every TU of this codegen, its Preamble plan run.
-    /// \param keys   parallel: each TU's module path, the graph-stable name.
+    /// ### Parameters
+    /// - `plans`: every TU of this codegen, its Preamble plan run.
+    /// - `keys`: parallel: each TU's module path, the graph-stable name.
     ///
-    /// \details The rule (Compiler/Spec/Generics.md's one home, Incremental.md):
-    ///          the users of an instance are the TUs whose plan ADMITTED it
-    ///          (only they can define it: a plan that holds an instance has
-    ///          its body visible, and is_home is all that changes), in the
-    ///          root of its Sema home (home_fid; a root's objects ship
-    ///          together, as header mode assumes). The home is the user with
-    ///          the least module path among those that import no other user
-    ///          (transitively; two in one import cycle do not count as below
-    ///          each other). That is Sema's first namer (D3: the generic's own
-    ///          TU when it uses the instance, else the first user in
-    ///          dependency order) with its graph-wide parts taken out: which
-    ///          entry the build started from and the import order of
-    ///          siblings, for which the module path stands in. It depends only
-    ///          on the users and their imports, so a TU shared by kairo and
-    ///          kcc homes the same instances in both, and a new user takes an
-    ///          instance over only when no other user imports it and its path
-    ///          sorts first. An instance whose Sema home is not a TU of this
-    ///          codegen (a library built separately), or that no plan
-    ///          admitted, keeps home_fid. Driver thread, plans finished,
-    ///          set_graph called.
+    /// The rule (Compiler/Spec/Generics.md's one home, Incremental.md):
+    /// the users of an instance are the TUs whose plan ADMITTED it
+    /// (only they can define it: a plan that holds an instance has
+    /// its body visible, and is_home is all that changes), in the
+    /// root of its Sema home (home_fid; a root's objects ship
+    /// together, as header mode assumes). The home is the user with
+    /// the least module path among those that import no other user
+    /// (transitively; two in one import cycle do not count as below
+    /// each other). That is Sema's first namer (D3: the generic's own
+    /// TU when it uses the instance, else the first user in
+    /// dependency order) with its graph-wide parts taken out: which
+    /// entry the build started from and the import order of
+    /// siblings, for which the module path stands in. It depends only
+    /// on the users and their imports, so a TU shared by kairo and
+    /// kcc homes the same instances in both, and a new user takes an
+    /// instance over only when no other user imports it and its path
+    /// sorts first. An instance whose Sema home is not a TU of this
+    /// codegen (a library built separately), or that no plan
+    /// admitted, keeps home_fid. Driver thread, plans finished,
+    /// set_graph called.
     pub static fn assign_homes(const plans: cxx::std::vector<unsafe *EmitPlan>,
                                const keys:  cxx::std::vector<string>) {
         EmitPlan::_graph_step(GraphPhase::Graphed, GraphPhase::Homed)

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------ Sema/Check/ConstraintExtraction.k --- ///
 ///
-///   \brief Partition a canonical `requires` clause into conformance
-///          constraints vs value predicates.
+/// Partition a canonical `requires` clause into conformance
+/// constraints vs value predicates.
 ///
 ///   \detail
 ///     Runs AFTER RequiresDesugar, so every decl's constraints live in one
@@ -191,7 +191,7 @@ pub class ConstraintExtraction {
     }
 
     /// Partition a requires clause into a ConstraintSet, recording it if it
-    /// carried anything. \p is_alias gates the meaningless-conformance error.
+    /// carried anything. `is_alias` gates the meaningless-conformance error.
     priv fn _extract(self, owner: unsafe *Decl, req: unsafe *Expr, is_alias: bool) {
         if req == &null {
             return

@@ -80,7 +80,7 @@ pub class SysTemplate {
         return true
     }
 
-    /// Whether the rules were derived over every value of \p p they read.
+    /// Whether the rules were derived over every value of `p` they read.
     /// A target the template was derived from must also have the
     /// properties recorded for it: anything else means this side and
     /// runtimes_template.py compute them differently.
@@ -107,8 +107,8 @@ pub class SysTemplate {
         return true
     }
 
-    /// \p t's tables under \p dst: targets/<name>.toml and
-    /// <runtime>/<name>.toml. Archive and object paths go through \p r's
+    /// `t`'s tables under `dst`: targets/<name>.toml and
+    /// <runtime>/<name>.toml. Archive and object paths go through `r`'s
     /// [layout], resource_layout and builtins_name, as the tables' do.
     pub fn instantiate(self,
                        t:          *SysTarget,
@@ -229,8 +229,8 @@ pub class SysTemplate {
         return true
     }
 
-    /// The `add` lists of \p prefix's fragments ([<prefix>.fNNN]) whose
-    /// `when` holds for \p p, concatenated in file order.
+    /// The `add` lists of `prefix`'s fragments ([<prefix>.fNNN]) whose
+    /// `when` holds for `p`, concatenated in file order.
     pub static fn pick(r:            *SysRecipe,
                        const prefix: string,
                        p:            *SysProps) -> cxx::std::vector<string> {
@@ -294,7 +294,7 @@ pub class SysTemplate {
     }
 
     /// Template entry `<rt>:<path>[=<member>][@<profile>]` into its
-    /// runtime's compiles; \p ref the table's member ref for it.
+    /// runtime's compiles; `ref` the table's member ref for it.
     priv static fn _take(@inout rts: cxx::std::vector<TmplRuntime>,
                          const e:    string,
                          p:          *SysProps,
@@ -346,7 +346,7 @@ pub class SysTemplate {
         return false
     }
 
-    /// <runtime>.toml's [flags] for the languages \p rt compiles, and one
+    /// <runtime>.toml's [flags] for the languages `rt` compiles, and one
     /// group per (language, profile) in order of first use.
     priv static fn _write_runtime(const dir:  string,
                                   rt:         *TmplRuntime,

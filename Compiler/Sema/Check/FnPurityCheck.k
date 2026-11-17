@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------- Sema/Check/FnPurityCheck.k --- ///
 ///
-///   \brief Enforces `const fn` and `@pure`: what a function that promises to
-///          be a function of its inputs may touch. With -finfer-purity (on
-///          unless -fno-infer-purity), also finds the functions that keep
-///          the promise without saying so.
+/// Enforces `const fn` and `@pure`: what a function that promises to
+/// be a function of its inputs may touch. With -finfer-purity (on
+/// unless -fno-infer-purity), also finds the functions that keep
+/// the promise without saying so.
 ///
 ///   \detail
 ///     Both promises become C++ attributes, and clang optimizes on them
@@ -164,10 +164,9 @@ import Sema::SemaContext::{
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
-/// \enum PurityWalk
-/// \brief What one walk over the items does. run() is one Check. infer()
-///        (-finfer-purity) is one Collect, then Infer rounds to a
-///        fixpoint, then back to Check.
+/// What one walk over the items does. run() is one Check. infer()
+/// (-finfer-purity) is one Collect, then Infer rounds to a
+/// fixpoint, then back to Check.
 pub enum PurityWalk derives u8 {
     Check = 0, ///< report every broken promise.
     Collect,   ///< visit_function_decl only gathers candidates.
@@ -332,7 +331,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
     }
 
-    /// One silent walk of \p f's head and body under promise \p mode.
+    /// One silent walk of `f`'s head and body under promise `mode`.
     priv fn _passes(self, f: unsafe *FunctionDecl, level: PurityLevel) -> bool {
         self._f     = f
         self._level = level
@@ -347,7 +346,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return !self._fail
     }
 
-    /// Write \p lvl on every link of \p f's chain: an importer's preamble
+    /// Write `lvl` on every link of `f`'s chain: an importer's preamble
     /// spells the declaration from its own link, and the definition from
     /// this one, and both must carry the same attribute.
     priv fn _stamp(self, f: unsafe *FunctionDecl, level: PurityLevel) {
@@ -367,7 +366,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         f->inferred_purity = lvl
     }
 
-    /// May inference ask about \p f at all? A function no promise could
+    /// May inference ask about `f` at all? A function no promise could
     /// stand on, or whose C++ signature or call path is not its own body's
     /// (virtual, a requirement, FFI, a generic pattern whose instances C++
     /// re-checks, a lowering's thunk), is left alone.
@@ -455,7 +454,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return true
     }
 
-    /// \p d sits in a generic record or a generic extension, at any depth.
+    /// `d` sits in a generic record or a generic extension, at any depth.
     priv fn _in_generic(self, d: unsafe *Decl) -> bool {
         var unsafe *ext = decl_extension_of(d)
         if ext != &null && decl_generic_params(unsafe (ext as unsafe *Decl)).size() > 0 {
@@ -1161,7 +1160,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return true
     }
 
-    /// Every `op ==` of the record \p p is tested against: which one C++
+    /// Every `op ==` of the record `p` is tested against: which one C++
     /// picks is overload resolution against the constant, so each must be
     /// one this function may call.
     priv fn _pattern_eq(self, p: unsafe *AstPattern) {
@@ -1229,7 +1228,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return x->type_
     }
 
-    /// \p p reaches the callee as a pointer in C++ (Speller::_param_type):
+    /// `p` reaches the callee as a pointer in C++ (Speller::_param_type):
     /// `@inout`, `@move`, `self`, a `const` record or type parameter, and a
     /// parameter ParamPassInference turned into `const T&`. A by-value
     /// record is a fresh caller copy (clang weakens the promise to "reads
@@ -1255,7 +1254,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return c->kind == TypeKind::RecordType || c->kind == TypeKind::GenericParamType
     }
 
-    /// A value of \p t is more than its bytes: its copy or its destructor
+    /// A value of `t` is more than its bytes: its copy or its destructor
     /// runs code (a string, a vector, a record holding one, a type that
     /// depends on a generic parameter and so may be either).
     priv fn _owns(self, t: unsafe *Type) -> bool {
@@ -1283,7 +1282,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return f.trivial_dtor != LifecycleTri::Yes || f.trivially_copyable != LifecycleTri::Yes
     }
 
-    /// \p e makes a new value: one that owns memory breaks both promises.
+    /// `e` makes a new value: one that owns memory breaks both promises.
     priv fn _made(self, e: unsafe *Expr, at: SourceRange) {
         var unsafe *t = e->type_
         if t == &null || !self._owns(t) {
@@ -1373,7 +1372,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
     }
 
-    /// A call of \p d (a function, an operator, a constructor) at \p at:
+    /// A call of `d` (a function, an operator, a constructor) at `at`:
     /// true when it may be made. A non-function callee (a record's implicit
     /// construction) is not a call.
     priv fn _callee(self, at: SourceRange, d: unsafe *Decl) -> bool {
@@ -1444,7 +1443,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return self._local_storage(u->operand)
     }
 
-    /// \p e names storage of the function being checked: a local (not a
+    /// `e` names storage of the function being checked: a local (not a
     /// static, a global or a parameter), an element of a local array, or a
     /// field of one reached by `.` steps.
     priv fn _local_storage(self, e: unsafe *Expr) -> bool {
@@ -1484,7 +1483,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         return v != &null && !is_global_storage(v)
     }
 
-    /// May the current function call \p f? Either redecl may carry the
+    /// May the current function call `f`? Either redecl may carry the
     /// attribute (`fn` declared in one place, defined in another), so the
     /// chain's canonical is asked too; inference's verdict counts like a
     /// written promise.
@@ -1604,7 +1603,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
     /// # writes (@pure)
 
-    /// \p target is assigned (or incremented): a write to a global or
+    /// `target` is assigned (or incremented): a write to a global or
     /// through a pointer breaks `@pure`; a write to a local does not.
     priv fn _write(self, target: unsafe *Expr, at: SourceRange) {
         var unsafe *e = self._tu.strip_parens(target)
@@ -1701,7 +1700,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     /// The error, with a note on the function's head that says what it
-    /// promised. \p what: the sentence after "<f> is const, so it cannot".
+    /// promised. `what`: the sentence after "<f> is const, so it cannot".
     priv fn _report(self, at: SourceRange, const what: string) {
         if self._walk == PurityWalk::Infer {
             self._fail = true
@@ -1734,7 +1733,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         b.emit()
     }
 
-    /// The promise cannot stand on this function at all. \p fix: offer to
+    /// The promise cannot stand on this function at all. `fix`: offer to
     /// remove the written `const` / `@pure` (FunctionDecl::purity_at).
     priv fn _report_head(self, f: unsafe *FunctionDecl, const why: string, fix: bool) {
         if self._walk == PurityWalk::Infer {

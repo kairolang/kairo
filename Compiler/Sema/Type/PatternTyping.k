@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------------- Sema/Type/PatternTyping.k --- ///
 ///
-///   \brief Typing a pattern against the column it matches: what each head
-///          names, which field each payload subpattern destructures, and the
-///          type of every binder.
+/// Typing a pattern against the column it matches: what each head
+/// names, which field each payload subpattern destructures, and the
+/// type of every binder.
 ///
 ///   \detail
 ///     This is X's half of patterns, and it has to be X's: an arm body is
@@ -860,7 +860,7 @@ pub class <T: type> PatternTyping {
         }
     }
 
-    /// The element of pack-expanded \p v a pattern matches at \p st: the one
+    /// The element of pack-expanded `v` a pattern matches at `st`: the one
     /// a binder of a pack field names as its type (`.Err(var e: f64)`), or
     /// the only one; -1 after reporting why there is none.
     priv fn _pat_pick_element(self,
@@ -998,7 +998,7 @@ pub class <T: type> PatternTyping {
 
     /// The enum a column ranges over, or null. ControlTyping reads the enum
     /// of a variant construction's type through it too.
-    /// \p st is an instance of a Kairo generic ADT at dependent arguments
+    /// `st` is an instance of a Kairo generic ADT at dependent arguments
     /// whose variants are one list for every instance (no pack-expanded
     /// variant): a match on it is typed, checked and compiled at the
     /// definition, and C++ picks the layout (EnumLayoutQuery's Opaque).

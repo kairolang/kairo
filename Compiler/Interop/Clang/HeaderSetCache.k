@@ -32,10 +32,7 @@ import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Threading::ThreadPool::ThreadPool
 
-///
-/// \class HeaderSetCache
-/// \brief key -> HeaderSet, one per build. Owned by CompilerInstance.
-///
+/// key -> HeaderSet, one per build. Owned by CompilerInstance.
 pub class HeaderSetCache {
     /// canonical key -> set. StringMap: probed with the key's own bytes.
     /// Minted from the parallel wave, so neither map nor `id` order is
@@ -160,17 +157,17 @@ pub class HeaderSetCache {
         return h
     }
 
-    /// \brief Parse every list request() recorded since the last call
-    ///        as ONE set, on the pool; each list's set becomes a view of it.
+    /// Parse every list request() recorded since the last call
+    /// as ONE set, on the pool; each list's set becomes a view of it.
     ///
-    /// \details Driver thread, after a preprocess. The union takes the lists
-    ///          by key (a stable order), each header once (by resolved path and
-    ///          linkage; include guards make a repeat a no-op anyway), and each
-    ///          line's source location from the first list that names it, so a
-    ///          header error lands on that import. Per-list parses instead --
-    ///          today's behaviour -- when there is one list, when one header is
-    ///          imported both as C and as C++, or when the union fails to
-    ///          parse (its diagnostics are dropped; the per-list parses report).
+    /// Driver thread, after a preprocess. The union takes the lists
+    /// by key (a stable order), each header once (by resolved path and
+    /// linkage; include guards make a repeat a no-op anyway), and each
+    /// line's source location from the first list that names it, so a
+    /// header error lands on that import. Per-list parses instead --
+    /// today's behaviour -- when there is one list, when one header is
+    /// imported both as C and as C++, or when the union fails to
+    /// parse (its diagnostics are dropped; the per-list parses report).
     pub fn start_shared(self) {
         var views = cxx::std::vector<unsafe *HeaderSet>()
         {
@@ -321,8 +318,8 @@ pub class HeaderSetCache {
         }
     }
 
-    /// \brief phase B's one PCH for \p sets, in that order; built on first
-    ///        request, then shared by every TU that asks for the same list.
+    /// phase B's one PCH for `sets`, in that order; built on first
+    /// request, then shared by every TU that asks for the same list.
     ///
     /// After wait_all(): it reads every set's includes. Built on the pool
     /// while Sema runs when prebuild_codegen_pch() was given the same list;
@@ -355,13 +352,13 @@ pub class HeaderSetCache {
         return p
     }
 
-    /// \brief starts codegen_pch(\p sets) on the pool, off the critical
-    ///        path: it then overlaps Sema and the lowerings instead of
-    ///        running on the driver thread at the start of codegen.
+    /// starts codegen_pch(`sets`) on the pool, off the critical
+    /// path: it then overlaps Sema and the lowerings instead of
+    /// running on the driver thread at the start of codegen.
     ///
-    /// \details Driver thread, after wait_all(). \p rec is the region the
-    ///          build is billed under. The caller joins CODEGEN_PCH_GROUP
-    ///          before its own codegen_pch() call, which then hits.
+    /// Driver thread, after wait_all(). `rec` is the region the
+    /// build is billed under. The caller joins CODEGEN_PCH_GROUP
+    /// before its own codegen_pch() call, which then hits.
     pub fn prebuild_codegen_pch(self,
                                 sets: cxx::std::vector<unsafe *HeaderSet>,
                                 rec:  unsafe *kairo::KTimeRecord) {

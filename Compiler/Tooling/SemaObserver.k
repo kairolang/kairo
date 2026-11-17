@@ -31,15 +31,15 @@ pub class SemaObserver {
 
     pub virtual fn op finally(self) { }
 
-    /// \p sc is this TU's context: `sc->ctx`, `sc->tu`, `sc->phase`. Valid
+    /// `sc` is this TU's context: `sc->ctx`, `sc->tu`, `sc->phase`. Valid
     /// only for the duration of the call.
     ///
-    /// \warning Under parallel Sema this runs on a worker thread, and several
-    ///          TUs' calls overlap. An observer that collects into shared
-    ///          state locks it.
+    /// **Warning:** Under parallel Sema this runs on a worker thread, and several
+    /// TUs' calls overlap. An observer that collects into shared
+    /// state locks it.
     ///
-    /// \warning The TU may have stopped before Checked (a hard stop in name
-    ///          or type resolution): check `sc->phase` before trusting types.
+    /// **Warning:** The TU may have stopped before Checked (a hard stop in name
+    /// or type resolution): check `sc->phase` before trusting types.
     pub virtual fn on_checked(self, sc: unsafe *SemaContext) { }
 
     /// The same TU once the rest of the schedule has run on it (lowering

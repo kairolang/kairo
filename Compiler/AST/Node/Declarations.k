@@ -62,10 +62,10 @@ import Token::Token::Token
 ///   Explicit  full explicit specialization                  `fn <> sum<i32>`
 ///   Partial   partial specialization (class/struct/union)   `class <> Box<[T]>`
 ///
-/// \note Only Primary declarations *own* the generic-ness of a name for
-///       parser disambiguation. Explicit/Partial are specializations OF an
-///       existing primary and must not, by themselves, mark a name generic;
-///       if no primary exists, sema (type resolve) reports the error.
+/// **Note:** Only Primary declarations *own* the generic-ness of a name for
+/// parser disambiguation. Explicit/Partial are specializations OF an
+/// existing primary and must not, by themselves, mark a name generic;
+/// if no primary exists, sema (type resolve) reports the error.
 pub enum SpecKind derives u8 {
     None = 0,
     Primary,
@@ -290,7 +290,7 @@ pub enum AdtCtorForm derives u8 {
     Both,
 }
 
-/// \p r is one of the Null lang item's surface roles, which
+/// `r` is one of the Null lang item's surface roles, which
 /// InterfaceEmitter renders apart from every other ADT member.
 pub fn adt_role_is_nullable(r: AdtRole) -> bool {
     return (r as u8) >= (AdtRole::NullDefault as u8)
@@ -1999,7 +1999,7 @@ pub class TypeAliasDecl derives Decl, TemplateParams<TypeAliasDecl>, FFILinkage<
     }
 }
 
-/// \brief Groups declarations inside an `ffi "lang" { ... }` block.
+/// Groups declarations inside an `ffi "lang" { ... }` block.
 ///
 /// Exists for ASTPrinter round-tripping and so sema can walk FFI blocks
 /// as a unit. The children carry their own FfiLinkage mixin stamps; this

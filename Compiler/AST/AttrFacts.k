@@ -1,11 +1,11 @@
 /// --- The Kairo Project ------------------------------ AST/AttrFacts.k --- ///
 ///
-///   \brief What a declaration's layout attributes say: `@packed` and
-///          `@align(N)` (LangAttrs). One reading for the three places that
-///          act on them -- Sema's layout prediction
-///          (EnumLayoutQuery::_plain_record_size), the C++ record and the
-///          C++ field / variable (Speller) -- so the size Kairo folds and
-///          the size clang lays out come from the same rule.
+/// What a declaration's layout attributes say: `@packed` and
+/// `@align(N)` (LangAttrs). One reading for the three places that
+/// act on them -- Sema's layout prediction
+/// (EnumLayoutQuery::_plain_record_size), the C++ record and the
+/// C++ field / variable (Speller) -- so the size Kairo folds and
+/// the size clang lays out come from the same rule.
 ///
 ///   Read through the DECL'S OWN context: an annotation's name is a per-fid
 ///   imm index (OperatorFacts has the same rule), and a record laid out
@@ -49,8 +49,8 @@ pub fn attr_max_align() -> u64 {
 }
 
 pub class AttrFacts {
-    /// \p d's attribute named \p name, or null. \p local is the table of
-    /// the file \p d is written in, for a decl no scope reaches (a local
+    /// `d`'s attribute named `name`, or null. `local` is the table of
+    /// the file `d` is written in, for a decl no scope reaches (a local
     /// variable has no semantic_dc): the caller knows the file it is in.
     pub static fn find(d:          unsafe *Decl,
                        const name: string,
@@ -113,17 +113,17 @@ pub class AttrFacts {
         return v
     }
 
-    /// `@packed` on \p d (a record).
+    /// `@packed` on `d` (a record).
     pub static fn is_packed(d: unsafe *Decl) -> bool {
         return AttrFacts::find(d, LangAttrs::packed()) != &null
     }
 
-    /// `@relocatable` on \p d (a record).
+    /// `@relocatable` on `d` (a record).
     pub static fn is_relocatable(d: unsafe *Decl) -> bool {
         return AttrFacts::find(d, LangAttrs::relocatable()) != &null
     }
 
-    /// The N of \p d's `@align(N)`, or 0 when it has none (or an invalid one).
+    /// The N of `d`'s `@align(N)`, or 0 when it has none (or an invalid one).
     pub static fn align_of(d: unsafe *Decl, local: unsafe *ImmediateTable = &null) -> u64 {
         return AttrFacts::align_value(
             AttrFacts::find(d, LangAttrs::align(), local),
@@ -137,7 +137,7 @@ pub class AttrFacts {
     /// Kairo's `@align` is a minimum (max(N, natural)). With `@packed` the
     /// two combine as clang's `packed, aligned(N)`: members at alignment 1,
     /// the record at N. `@relocatable` is `trivial_abi` in the same list,
-    /// the GNU spelling of `[[clang::trivial_abi]]`, unless \p ms_abi: the
+    /// the GNU spelling of `[[clang::trivial_abi]]`, unless `ms_abi`: the
     /// Microsoft C++ ABI passes a record with no copy constructor through
     /// memory whatever the attribute says, so clang drops it there from
     /// every record that holds a move-only `@relocatable` one, with a

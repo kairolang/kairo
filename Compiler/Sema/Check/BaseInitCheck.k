@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------- Sema/Check/BaseInitCheck.k --- ///
 ///
-///   \brief A derived class builds each base exactly once, before anything
-///          else, by calling the base's constructor by qualified name:
-///          `Animal::Animal(self, legs)` (classes-inheritance.md).
+/// A derived class builds each base exactly once, before anything
+/// else, by calling the base's constructor by qualified name:
+/// `Animal::Animal(self, legs)` (classes-inheritance.md).
 ///
 ///   \detail
 ///     C++ builds a base before the derived constructor's body runs, and
@@ -118,7 +118,7 @@ pub fn base_init_is_ctor(f: unsafe *FunctionDecl) -> bool {
     )
 }
 
-/// The constructor \p n calls BY NAME (`Animal::Animal(self, 4)`), or null.
+/// The constructor `n` calls BY NAME (`Animal::Animal(self, 4)`), or null.
 /// A construction (`Animal(4)`) names the type and carries ctor_decl.
 pub fn base_init_ctor_of(n: unsafe *CallExpr) -> unsafe *FunctionDecl {
     if n == &null || n->ctor_decl != &null {
@@ -143,7 +143,7 @@ pub fn base_init_ctor_of(n: unsafe *CallExpr) -> unsafe *FunctionDecl {
     return f
 }
 
-/// The call when \p s is a statement that is only a constructor called by
+/// The call when `s` is a statement that is only a constructor called by
 /// name, else null.
 pub fn base_init_stmt(s: unsafe *Stmt) -> unsafe *CallExpr {
     var unsafe *es = dyn_cast<ExpressionStmt>(s)
@@ -315,10 +315,10 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
         return true
     }
 
-    /// Why base \p t cannot be built from nothing, "" when it can (or when
+    /// Why base `t` cannot be built from nothing, "" when it can (or when
     /// clang decides: an imported or dependent base).
     ///
-    /// \p implicit: the derived class declares no constructor. Its implicit
+    /// `implicit`: the derived class declares no constructor. Its implicit
     /// one is then judged where it is used (TypeUtil::why_no_default covers
     /// the base too), so only a base that declares constructors -- and so
     /// visibly has none to default to -- is reported at the class. A base
@@ -391,7 +391,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
         return self._tu.decl_name(decl_pattern(rd))
     }
 
-    /// Constructor \p f has a leading base initializer for base \p t.
+    /// Constructor `f` has a leading base initializer for base `t`.
     priv fn _inits(self, f: unsafe *FunctionDecl, t: unsafe *Type) -> bool {
         if f->body_kind != FnBodyKind::Block || f->body_block == &null {
             return false
@@ -447,7 +447,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
         return r
     }
 
-    /// Judge the leading run of constructor-by-name statements of \p f and
+    /// Judge the leading run of constructor-by-name statements of `f` and
     /// admit the good ones into _ok.
     priv fn _lead(self, f: unsafe *FunctionDecl) {
         var unsafe *owner = base_init_owner(f)
@@ -588,7 +588,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
         }
     }
 
-    /// \p base is a direct base of \p d, or (\p virt) a virtual base above.
+    /// `base` is a direct base of `d`, or (`virt`) a virtual base above.
     priv fn _is_base(self, d: unsafe *Decl, base: unsafe *Decl, virt: bool, depth: u32) -> bool {
         if d == &null || depth > DERIVES_WALK_DEPTH_MAX || !isa<ClassDecl>(d) {
             return false

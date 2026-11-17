@@ -93,7 +93,7 @@ fn first_difference(const a: string, const b: string) -> string {
     return "no differing line (lengths differ)"
 }
 
-/// Index of the node at family base pointer \p p in \p ar's node table.
+/// Index of the node at family base pointer `p` in `ar`'s node table.
 fn node_index(ar: unsafe *ASTArchive, @inout ids: {u64: u32}, p: unsafe *Decl) -> u32 {
     if p == &null {
         return u32::MAX - 1
@@ -160,8 +160,8 @@ fn symbols_differ(a:         unsafe *SymbolTable,
 }
 
 pub class ASTRoundTrip {
-    /// Serializes \p ctx's tree and replaces it with the tree read back.
-    /// On failure the parsed tree is still the context's and \p err says
+    /// Serializes `ctx`'s tree and replaces it with the tree read back.
+    /// On failure the parsed tree is still the context's and `err` says
     /// what went wrong.
     pub static fn replace(ctx:          unsafe *ASTContext,
                           psym:         unsafe *PreprocessorSymbolTable,
@@ -208,8 +208,8 @@ pub class ASTRoundTrip {
         return true
     }
 
-    /// Serializes \p tu, reads it into a context of its own and compares.
-    /// The parsed tree is untouched. False with \p err naming the first
+    /// Serializes `tu`, reads it into a context of its own and compares.
+    /// The parsed tree is untouched. False with `err` naming the first
     /// difference.
     pub static fn verify(tu:           unsafe *TranslationUnit,
                          psym:         unsafe *PreprocessorSymbolTable,
@@ -278,7 +278,7 @@ pub class ASTRoundTrip {
         kairo::std::destroy(c)
     }
 
-    /// True when a reader given \p bytes builds no tree.
+    /// True when a reader given `bytes` builds no tree.
     priv static fn _refused(octx:        unsafe *ASTContext,
                             const bytes: ByteWriter,
                             len:         usize,

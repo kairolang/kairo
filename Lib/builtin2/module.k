@@ -89,7 +89,7 @@ pub struct null_t { }
 /// `__value()`, and `==` when `T` has one. The compiler may lay it out niche-filled (a null
 /// pointer as the null case, for instance), so nothing may depend on the layout.
 ///
-/// \see __builtin_niche_of
+/// See `__builtin_niche_of`.
 pub enum <T> Null {
     /// A present value: `T?` holding `v`.
     Value { v: T },
@@ -148,12 +148,12 @@ pub eval fn <T> __builtin_tuple_arity() -> usize = 0
 /// returns and ends its path for the flow checks. What it reports is not final; rely only on "it
 /// does not return". A file's own `crash!` shadows this one.
 ///
-/// \see crash_with
+/// See crash_with
 /// \example
 /// ```kairo
 /// fn main() -> i32 {
-///     if false { crash!("unreachable state") }
-///     return 0
+/// if false { crash!("unreachable state") }
+/// return 0
 /// }
-/// ```
+/// ```.
 pub macro crash!(...msg) { crash_with(msg...) }

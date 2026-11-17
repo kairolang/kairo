@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------ Sema/Lower/StringLowering.k --- ///
 ///
-///   \brief Every `string` literal becomes the borrowed constructor call it is.
+/// Every `string` literal becomes the borrowed constructor call it is.
 ///
 ///   \detail
 ///       "hi"                 ->  string("hi" as unsafe *const u8, 2, 2)

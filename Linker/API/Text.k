@@ -14,7 +14,7 @@
 ffi "c++" import "vector"
 
 pub class LinkText {
-    /// \p s over [b, e), clamped. Empty when the range is.
+    /// `s` over [b, e), clamped. Empty when the range is.
     pub static fn slice(const s: string, b: usize, e: usize) -> string {
         var end = e
         if end > s.size() {
@@ -57,7 +57,7 @@ pub class LinkText {
         return true
     }
 
-    /// First index of \p p in \p s at or after \p from; s.size() if absent.
+    /// First index of `p` in `s` at or after `from`; s.size() if absent.
     pub static fn find(s: string, p: string, from: usize) -> usize {
         var n = s.size()
         var m = p.size()
@@ -112,7 +112,7 @@ pub class LinkText {
         return LinkText::slice(s, b, e)
     }
 
-    /// Lines of \p s without their terminators; a trailing CR is dropped.
+    /// Lines of `s` without their terminators; a trailing CR is dropped.
     pub static fn split_lines(s: string) -> cxx::std::vector<string> {
         var out       = cxx::std::vector<string>()
         var b:  usize = 0
@@ -135,7 +135,7 @@ pub class LinkText {
         return out
     }
 
-    /// Path join with '/'. An absolute \p b replaces \p a; "." is \p a.
+    /// Path join with '/'. An absolute `b` replaces `a`; "." is `a`.
     pub static fn join(a: string, b: string) -> string {
         if b.is_empty() || b == "." {
             return a

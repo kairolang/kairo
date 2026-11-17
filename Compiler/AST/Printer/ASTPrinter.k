@@ -1255,7 +1255,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         }
     }
 
-    /// \brief Source-faithful formatting facade for ClosureExpr nodes.
+    /// Source-faithful formatting facade for ClosureExpr nodes.
     fn _e_closure(self, e: unsafe *Expressions::ClosureExpr) {
         self.p.paint(Color::Keyword, "fn")
 
@@ -4499,7 +4499,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.p.leave()
     }
 
-    /// \brief Renders the structure hierarchy of ClosureExpr nodes for tree dumps.
+    /// Renders the structure hierarchy of ClosureExpr nodes for tree dumps.
     fn _dx_closure(self, e: unsafe *Expressions::ClosureExpr, is_last: bool) {
         self._head("ClosureExpr", is_last)
         if ((e->modifiers as u16) & (Declarations::FnModifier::IsPanic as u16)) != 0 {

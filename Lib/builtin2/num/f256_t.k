@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------------- Lib/builtin/num/f256_t.k --- ///
 ///
-///   \brief `f256`, IEEE 754 binary256, as a library class: the C++ spelling
-///          of the `f256` type keyword (AST/Node/CanonicalNodes.k).
+/// `f256`, IEEE 754 binary256, as a library class: the C++ spelling
+/// of the `f256` type keyword (AST/Node/CanonicalNodes.k).
 ///
 ///   \detail
 ///     Sign, 19-bit exponent (bias 262143), 236-bit fraction with a
@@ -400,7 +400,7 @@ pub class F256 {
     /// sign, `_` between digits), correctly rounded, into `*out`; false
     /// (out untouched) when `s` is not a float.
     ///
-    /// \note Not `-> F256?`: a nullable return from a builtin class with
+    /// **Note:** Not `-> F256?`: a nullable return from a builtin class with
     /// this alignment does not compile yet (P721).
     pub static fn parse(const s: string, out: *F256) -> bool {
         var v: u512 = 0

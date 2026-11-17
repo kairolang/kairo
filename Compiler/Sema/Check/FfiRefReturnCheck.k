@@ -1,11 +1,11 @@
 /// --- The Kairo Project --------------- Sema/Check/FfiRefReturnCheck.k --- ///
 ///
-///   \brief Where `ffi::ref<T>` / `ffi::mref<T>` may stand, and that an
-///          override of a C++ virtual returns what the virtual returns
-///          (functions-parameter-modes.mdx "Reference returns from C++";
-///          any return, not only a reference), and that an
-///          override of a KAIRO virtual returns what C++ accepts for it
-///          (SC297E).
+/// Where `ffi::ref<T>` / `ffi::mref<T>` may stand, and that an
+/// override of a C++ virtual returns what the virtual returns
+/// (functions-parameter-modes.mdx "Reference returns from C++";
+/// any return, not only a reference), and that an
+/// override of a KAIRO virtual returns what C++ accepts for it
+/// (SC297E).
 ///
 ///   \detail
 ///     `ffi::ref<T>` (C++ `T&`), `ffi::ref<const T>` (`const T&`) and
@@ -108,7 +108,7 @@ import Sema::Type::NullnessFlow::null_flow_is_global
 import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::TypeUtil
 
-/// \p t is a reference written `ffi::ref<...>` / `ffi::mref<...>`.
+/// `t` is a reference written `ffi::ref<...>` / `ffi::mref<...>`.
 pub fn is_ffi_ref_spelled(t: unsafe *Type) -> bool {
     if t == &null {
         return false
@@ -125,7 +125,7 @@ pub fn is_ffi_ref_spelled(t: unsafe *Type) -> bool {
     return false
 }
 
-/// \p t's canonical is a C++ reference (`T&` / `T&&`).
+/// `t`'s canonical is a C++ reference (`T&` / `T&&`).
 pub fn is_cxx_ref_canonical(t: unsafe *Type) -> bool {
     var unsafe *c = canon_unqual(t)
     return c != &null && (isa<CXXLValueRefType>(c) || isa<CXXRValueRefType>(c))
@@ -230,7 +230,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         return true
     }
 
-    /// Empty when \p n is a place a reference return may be defined; else
+    /// Empty when `n` is a place a reference return may be defined; else
     /// why not, worded for the message.
     priv fn _illegal_owner(self, n: unsafe *FunctionDecl) -> string {
         if decl_generic_params(unsafe (n as unsafe *Decl)).size() > 0 {
@@ -434,10 +434,10 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         m->poison()
     }
 
-    /// The edit that makes \p m return \p want (\p bc, null or void for
+    /// The edit that makes `m` return `want` (`bc`, null or void for
     /// none): `-> T` replaced, removed over a `void` virtual, or inserted
     /// after the parameters (and a `panic` specifier, which comes first)
-    /// when \p m has none.
+    /// when `m` has none.
     priv fn _return_fixit(self,
                           b:          unsafe *DiagBuilder,
                           m:          unsafe *FunctionDecl,
@@ -531,7 +531,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
     priv fn _check_kairo_override_return(self,
                                          m:    unsafe *FunctionDecl,
                                          base: unsafe *FunctionDecl) {
-        // \p base has \p m's `self` constness: the base walk compares it
+        // `base` has `m`'s `self` constness: the base walk compares it
         // (overridden_at), since a `const self` beside a plain-`self`
         // virtual is another method (classes-inheritance.mdx).
         var bc: unsafe *Type = &null
@@ -597,7 +597,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
 
 /// # the returned place (SC295E)
 
-/// The local variable or by-value parameter whose storage \p e names, or
+/// The local variable or by-value parameter whose storage `e` names, or
 /// null when the place outlives the call: a field of `self`, an element
 /// through a pointer or a reference, an `@inout` / `@move` parameter, a
 /// global, a dereference, a call that returns a reference. Walks the place
@@ -651,7 +651,7 @@ pub fn ref_return_local_root(e: unsafe *Expr) -> unsafe *Decl {
     return &null
 }
 
-/// \p t (an expression's type) is a pointer or a reference: what is
+/// `t` (an expression's type) is a pointer or a reference: what is
 /// reached through it is not part of the object that holds it.
 fn reaches_out(t: unsafe *Type) -> bool {
     var unsafe *c = canon_unqual(t)
@@ -659,7 +659,7 @@ fn reaches_out(t: unsafe *Type) -> bool {
         && (isa<PointerType>(c) || isa<CXXLValueRefType>(c) || isa<CXXRValueRefType>(c))
 }
 
-/// \p d when it is storage that ends with the call: a local (not
+/// `d` when it is storage that ends with the call: a local (not
 /// `static` or `thread`) variable, or a by-value parameter other than `self`.
 fn local_storage(d: unsafe *Decl) -> unsafe *Decl {
     if d == &null {
@@ -684,7 +684,7 @@ fn local_storage(d: unsafe *Decl) -> unsafe *Decl {
 }
 
 /// `return a` in a function written to return `ffi::ref<T>` /
-/// `ffi::mref<T>`, \p declared its (still reference) canonical: \p a is
+/// `ffi::mref<T>`, `declared` its (still reference) canonical: `a` is
 /// a place (an lvalue; an xvalue too for `mref`) whose storage outlives
 /// the call. A temporary or a local would leave the caller a reference
 /// to nothing, which C++ only warns about.

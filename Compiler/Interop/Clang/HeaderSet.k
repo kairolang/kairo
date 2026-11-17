@@ -243,10 +243,7 @@ pub class HeaderSetAction derives clang::ASTFrontendAction {
     override fn BeginSourceFileAction(self, @inout ci: clang::CompilerInstance) -> bool
 }
 
-///
-/// \class HeaderSet
-/// \brief One distinct ordered header list -> one clang parse.
-///
+/// One distinct ordered header list -> one clang parse.
 pub class HeaderSet {
     pub var key:     string                   ///< headers joined by '\n', in source order, deduped.
     pub var headers: cxx::std::vector<string> ///< as spelled in the .k files.
@@ -378,7 +375,7 @@ pub class HeaderSet {
             || s == HeaderSetState::Final
     }
 
-    /// The one writer of `_state` but release(): \p from -> \p to, or an
+    /// The one writer of `_state` but release(): `from` -> `to`, or an
     /// ICE naming both. A CAS, so a transition from a state the set is not
     /// in is caught, not overwritten; the writers are serialised (see
     /// HeaderSetState), so it never loses a race it should have won. A
@@ -649,7 +646,7 @@ pub class HeaderSet {
         return unsafe &self._sema_mu
     }
 
-    /// Is \p name a macro once the set's headers are read: a predefined one
+    /// Is `name` a macro once the set's headers are read: a predefined one
     /// (`__linux__`) or one a header `#define`s. build() never ends the
     /// source file, so the preprocessor still holds every definition.
     /// Kairo's `defined!` (Compiler/Spec/Eval.md#defined).
@@ -673,7 +670,7 @@ pub class HeaderSet {
 
     /// Is `::name` declared by these headers as anything but a namespace
     /// (`::malloc`, `::exit`; through `extern "C"` too, which lookup sees
-    /// through)? A Kairo module whose top C++ namespace would be \p name
+    /// through)? A Kairo module whose top C++ namespace would be `name`
     /// cannot open `namespace name {` in a TU that loads them
     /// (Speller::decide_tops); a namespace is only reopened. Reads the live
     /// instance directly: ast() would pin the set (contributed), which
@@ -714,17 +711,17 @@ pub class HeaderSet {
         return f"{HeaderSet::vfs_root()}/pch/{self.id}.h"
     }
 
-    /// \brief the `#include` line phase B's wrapper replays for the import
-    ///        spelled \p spelled, or "" when phase A found no such header.
+    /// the `#include` line phase B's wrapper replays for the import
+    /// spelled `spelled`, or "" when phase A found no such header.
     ///
-    /// \details By name, through the search path, unless phase A found it
-    ///          beside the importing .k (the quoted dir only phase A
-    ///          searches): then by that absolute path, which is the same
-    ///          lookup. Never a system header by absolute path: a header
-    ///          reached that way was found in no search dir, so its
-    ///          `#include_next` starts over from the first one and finds
-    ///          itself. libc++'s <math.h> is exactly that wrapper, and then
-    ///          the C library's math.h (FP_NAN and the rest) never arrives.
+    /// By name, through the search path, unless phase A found it
+    /// beside the importing .k (the quoted dir only phase A
+    /// searches): then by that absolute path, which is the same
+    /// lookup. Never a system header by absolute path: a header
+    /// reached that way was found in no search dir, so its
+    /// `#include_next` starts over from the first one and finds
+    /// itself. libc++'s <math.h> is exactly that wrapper, and then
+    /// the C library's math.h (FP_NAN and the rest) never arrives.
     fn replay_include(self, const spelled: string) -> string {
         for *e in self.includes {
             if e->from_path.size() != 0 {
@@ -790,7 +787,7 @@ pub class HeaderSet {
         return false
     }
 
-    /// Whether \p spelled (as written in the .k, unquoted) was imported `ffi "c"`.
+    /// Whether `spelled` (as written in the .k, unquoted) was imported `ffi "c"`.
     fn is_c_header(self, const spelled: string) -> bool {
         for var i: usize = 0; i < self.headers.size(); ++i {
             if self.headers[i] == spelled && i < self.c_linkage.size() {
@@ -1121,7 +1118,7 @@ pub class HeaderSet {
 
     /// # diagnostics
 
-    /// Route this set's clang diagnostics into \p sink until end_diag(), then
+    /// Route this set's clang diagnostics into `sink` until end_diag(), then
     /// back to whichever client was active before. Nests: a fill that
     /// spells a nested instance argument can fill again, and must hand the
     /// outer fill's adapter back, not the printer. Caller holds sema_lock(),
@@ -1139,7 +1136,7 @@ pub class HeaderSet {
         return a
     }
 
-    /// Flush \p a, restore the client begin_diag replaced, free \p a. Null is
+    /// Flush `a`, restore the client begin_diag replaced, free `a`. Null is
     /// a no-op, so a caller with no sink can pair the two unconditionally.
     pub fn end_diag(self, a: unsafe *ClangDiagAdapter) {
         if a == &null {
@@ -1172,15 +1169,15 @@ pub class HeaderSet {
         self.kairo_includes.clear()
     }
 
-    /// \brief records the `#include` of the Kairo file \p file, written at
-    ///        \p hash_loc as \p file_name: HeaderSetPPCallbacks, on the
-    ///        build's thread, before clang enters the file.
+    /// records the `#include` of the Kairo file `file`, written at
+    /// `hash_loc` as `file_name`: HeaderSetPPCallbacks, on the
+    /// build's thread, before clang enters the file.
     ///
-    /// \details Where it is, and which `ffi import` reached it, are clang
-    ///          facts that die with the instance, so they are taken now; the
-    ///          words are drain's (_report_kairo_includes). Only the first
-    ///          build records: a revive re-parses the same text, and its
-    ///          diagnostics were already reported.
+    /// Where it is, and which `ffi import` reached it, are clang
+    /// facts that die with the instance, so they are taken now; the
+    /// words are drain's (_report_kairo_includes). Only the first
+    /// build records: a revive re-parses the same text, and its
+    /// diagnostics were already reported.
     pub fn record_kairo_include(self,
                                 csm:            unsafe *clang::SourceManager,
                                 hash_loc:       clang::SourceLocation,

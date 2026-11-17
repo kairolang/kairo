@@ -26,7 +26,7 @@ pub class DiagEngineVBase {
     @move fn DiagEngineVBase(self, other: Self) = default
 
     virtual fn op finally (self) { }
-    /// True when a diagnostic with \p code would be dropped at emit no matter
+    /// True when a diagnostic with `code` would be dropped at emit no matter
     /// what is attached to it. DiagBuilder asks before allocating the
     /// Diagnostic, so a suppressed warning costs no heap, labels or children.
     virtual fn drops(self, const code: DiagCode) -> bool {

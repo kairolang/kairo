@@ -87,7 +87,7 @@ extend EmitPlan {
     /// in entry order: the module of every foreign entry reached at Complete,
     /// or whose function is declared (only an inline or template body names
     /// a foreign function, and tier 2 leaves it to its own header).
-    /// \p part: 0 all of them; 1 those the declarations need (an entry the
+    /// `part`: 0 all of them; 1 those the declarations need (an entry the
     /// declarations reach at Complete, or a function they name); 2 the rest,
     /// which only the bodies need.
     pub fn header_includes(self, part: u8) -> cxx::std::vector<string> {
@@ -133,7 +133,7 @@ extend EmitPlan {
         return self._spell.header_path(self._cg->tu)
     }
 
-    /// The path of the declaration part of header \p p (`a/b.hh` ->
+    /// The path of the declaration part of header `p` (`a/b.hh` ->
     /// `a/b.decl.hh`): what a header in an include cycle includes of the
     /// others in its cycle group.
     pub static fn decl_unit_path(const p: string) -> string {
@@ -144,7 +144,7 @@ extend EmitPlan {
         return p + ".decl.hh"
     }
 
-    /// \p p's cycle group (from 1), or 0 when no include cycle runs through
+    /// `p`'s cycle group (from 1), or 0 when no include cycle runs through
     /// it (note_header_cycles).
     pub static fn header_cycle(const p: string) -> u32 {
         for var i: usize = 0; i < _HDR_CYCLE_PATH.size(); ++i {
@@ -156,8 +156,8 @@ extend EmitPlan {
         return 0
     }
 
-    /// Records which headers sit in an include cycle: \p paths[i] includes
-    /// every \p to[k] with \p from[k] == i. A header is in a cycle when it
+    /// Records which headers sit in an include cycle: `paths[i]` includes
+    /// every `to[k]` with `from[k]` == i. A header is in a cycle when it
     /// reaches itself; two are in one group when each reaches the other.
     pub static fn note_header_cycles(@inout paths: cxx::std::vector<string>,
                                      @inout from:  cxx::std::vector<usize>,
@@ -283,7 +283,7 @@ extend EmitPlan {
         return self._empty
     }
 
-    /// Every extension scope written in \p d's OWN file, for the definition's
+    /// Every extension scope written in `d`'s OWN file, for the definition's
     /// `friend struct` lines, in plan order. Usually one; `module Geo { extend
     /// Point {...} }` beside a file-scope `extend Point` is two scopes in two
     /// namespaces, and both are friends under invariant 18 -- the set is still
@@ -398,7 +398,7 @@ extend EmitPlan {
         return false
     }
 
-    /// \p d has no visibility written and is `priv` by default, so what C++
+    /// `d` has no visibility written and is `priv` by default, so what C++
     /// includes (a header, a kcc `#include "x.k"` stream) writes it
     /// `private:` (InterfaceEmitter::_cxx_vis) though cxx_access, which is
     /// the module's own object's view, reads it public. The record's file
@@ -416,7 +416,7 @@ extend EmitPlan {
         return default_visibility_of(d) == VisibilityKind::Private
     }
 
-    /// Record \p d's friends (FileFriends), from \p d's file's declarations.
+    /// Record `d`'s friends (FileFriends), from `d`'s file's declarations.
     /// Coarse on purpose: everything of the file that may name a member Kairo
     /// lets it name, whether it does or not, so no walk of any body -- which
     /// another TU may not have lowered -- decides the text.
@@ -667,7 +667,7 @@ extend EmitPlan {
         out->records.push_back(r)
     }
 
-    /// How \p f is befriended: 0 not at all; 1 unqualified, which names (or
+    /// How `f` is befriended: 0 not at all; 1 unqualified, which names (or
     /// first declares) it in the record's namespace; 2 qualified, after an
     /// early declaration of its own (EmitPlan::friend_early) -- a function in
     /// another namespace of the file, or one whose first declaration must
@@ -714,7 +714,7 @@ extend EmitPlan {
         return 1
     }
 
-    /// \p t names a record nested in another type: a name only a complete
+    /// `t` names a record nested in another type: a name only a complete
     /// outer type declares, which the befriending record's definition may
     /// precede.
     fn _ff_nested(self, t: unsafe *Type, depth: u32) -> bool {
@@ -795,7 +795,7 @@ extend EmitPlan {
         }
     }
 
-    /// Interface \p t's decl and everything it derives, once each.
+    /// Interface `t`'s decl and everything it derives, once each.
     fn _ff_iface(self, t: unsafe *Type, out: unsafe *FileFriends, depth: u32) {
         if t == &null || t->canonical == &null || depth > 32 {
             return
@@ -881,7 +881,7 @@ extend EmitPlan {
         }
     }
 
-    /// Where record \p d is Complete, everything its friend lines name is
+    /// Where record `d` is Complete, everything its friend lines name is
     /// declared ahead of it: each record (tier 0), each function's signature
     /// types (as its own declaration would need them; the function itself
     /// need not be), each witness primary, and `main` at global scope.

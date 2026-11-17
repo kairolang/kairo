@@ -147,7 +147,7 @@ pub class DepScanner {
         self._known = known
     }
 
-    /// \brief entry point - builds the full dep graph rooted at entry_fid
+    /// entry point - builds the full dep graph rooted at entry_fid
     fn build_graph(self, entry_fid: u32, const entry_path: ModulePath) -> DepGraph {
         var _t = TimeRegion("DepScan")
 
@@ -156,29 +156,30 @@ pub class DepScanner {
         return graph
     }
 
-    /// \brief folds an out-of-band dependency (--force-include) into the
-    ///        graph as if every TU implicitly imported it, at global scope.
-    ///        Its own import chain gets a fresh depth budget (depth 0) it
-    ///        does not inherit whatever depth the requesting TU is at.
+    /// folds an out-of-band dependency (--force-include) into the
+    /// graph as if every TU implicitly imported it, at global scope.
+    /// Its own import chain gets a fresh depth budget (depth 0) it
+    /// does not inherit whatever depth the requesting TU is at.
     fn add_root_dependency(self, fid: u32, graph: *DepGraph) {
         self.visit(fid, ModulePath(), graph, 0)
     }
 
-    /// \brief folds a MODULE (named, not a file path) into the graph as a root.
+    /// folds a MODULE (named, not a file path) into the graph as a root.
     ///
-    /// \details The prelude's path. One difference from add_root_dependency and
-    ///          it is the whole reason this exists: the module's CANONICAL path
-    ///          comes back from the resolver, so its files carry their root's
-    ///          leading segment. add_root_dependency passes an EMPTY
-    ///          ModulePath, which is right for --force-include (a bare file
-    ///          folded in at global scope) and wrong for a module -- the
-    ///          lang-item fill keys on the qualified path, and an empty one
-    ///          would make `builtin::Vector` unaddressable.
+    /// The prelude's path. One difference from add_root_dependency and
+    /// it is the whole reason this exists: the module's CANONICAL path
+    /// comes back from the resolver, so its files carry their root's
+    /// leading segment. add_root_dependency passes an EMPTY
+    /// ModulePath, which is right for --force-include (a bare file
+    /// folded in at global scope) and wrong for a module -- the
+    /// lang-item fill keys on the qualified path, and an empty one
+    /// would make `builtin::Vector` unaddressable.
     ///
-    /// \returns the module's fid, or u32::MAX when it does not resolve (0 is
-    ///          a real fid: the first file loaded). Silent on a
-    ///          miss, as everything else in the scanner is: the PP walk
-    ///          re-resolves and owns the diagnostic.
+    /// ### Returns
+    /// the module's fid, or u32::MAX when it does not resolve (0 is
+    /// a real fid: the first file loaded). Silent on a
+    /// miss, as everything else in the scanner is: the PP walk
+    /// re-resolves and owns the diagnostic.
     fn add_module_dependency(self, segments: cxx::std::vector<string>, graph: *DepGraph) -> u32 {
         var dep = self.resolve_segments(segments, false, Path(), Path(), false)
         if dep.fid == u32::MAX {
@@ -321,7 +322,7 @@ pub class DepScanner {
         //      assuming it owns the input stream.
     }
 
-    /// 128, 256 or 512 when \p sp ends in `f128` / `f256` / `f512` (either
+    /// 128, 256 or 512 when `sp` ends in `f128` / `f256` / `f512` (either
     /// case of the `f`), else 0.
     priv static fn _wide_float_suffix(const sp: string) -> u32 {
         var n = sp.size()

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------------- Sema/Check/RangeBindingLint.k --- ///
 ///
-///   \brief Warn when `var t = a[i..j]` binds a split subscript's place form
-///          and nothing in the scope writes through `t` (SC281W).
+/// Warn when `var t = a[i..j]` binds a split subscript's place form
+/// and nothing in the scope writes through `t` (SC281W).
 ///
 ///   \detail
 ///     A type that declares `op []=` splits its subscript: `op []` is
@@ -85,10 +85,7 @@ pub struct RangeBindCand {
     pub var oks:  usize                = 0     ///< references approved as reads.
 }
 
-///
-/// \class RangeBindingLint
-/// \brief The pass. Read-only: emits SC281W, writes nothing to the AST.
-///
+/// The pass. Read-only: emits SC281W, writes nothing to the AST.
 pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
     pub var  sc:    unsafe *SemaContext
     priv var _cand: cxx::std::vector<RangeBindCand>
@@ -121,7 +118,7 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
         }
     }
 
-    /// \p e names a candidate: its slot, plus one, or 0.
+    /// `e` names a candidate: its slot, plus one, or 0.
     priv fn _cand_of(self, e: unsafe *Expr) -> u64 {
         var unsafe *ni = dyn_cast<NamedIdentExpr>(strip_parens(e))
         if ni == &null || ni->resolved_decl == &null {
@@ -136,7 +133,7 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
         return it->second
     }
 
-    /// The reference \p e (a candidate's name) is a read.
+    /// The reference `e` (a candidate's name) is a read.
     priv fn _approve(self, e: unsafe *Expr) {
         var slot = self._cand_of(e)
         if slot == 0 {

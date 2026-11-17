@@ -132,7 +132,7 @@ pub class GlobalDisambigTable {
         }
     }
 
-    /// \p fid's mirror page, allocated on first use. Caller holds _mu
+    /// `fid`'s mirror page, allocated on first use. Caller holds _mu
     /// exclusively (the only writer of _dir).
     priv fn _page_for_write(self, fid: u32) -> unsafe *Self::DirPage {
         var pi = (fid as usize) >> 12
@@ -149,7 +149,7 @@ pub class GlobalDisambigTable {
         return page
     }
 
-    /// Mirrors \p fid's entry into _dir. Caller holds _mu exclusively.
+    /// Mirrors `fid`'s entry into _dir. Caller holds _mu exclusively.
     priv fn _publish(self, fid: u32, ctx: unsafe *ASTContext, hoisted: unsafe *DisambigTable) {
         var unsafe *page = self._page_for_write(fid)
         page->ctx[(fid as usize) & 4095].store(
@@ -217,13 +217,13 @@ pub class GlobalDisambigTable {
         return ctx
     }
 
-    /// \brief releases \p fid's artifacts at \p from and every later stage.
+    /// releases `fid`'s artifacts at `from` and every later stage.
     ///
-    /// \details Delegates to ASTContext::release_from, which runs registered
-    ///          destructors and resets the arenas at or after that stage. The
-    ///          context itself survives unless \p from is Preprocessing or
-    ///          earlier, in which case it is destroyed and the entry erased
-    ///          the PP is what created it.
+    /// Delegates to ASTContext::release_from, which runs registered
+    /// destructors and resets the arenas at or after that stage. The
+    /// context itself survives unless `from` is Preprocessing or
+    /// earlier, in which case it is destroyed and the entry erased
+    /// the PP is what created it.
     ///
     ///          Idempotent: releasing at or above an already-released level is
     ///          a no-op, and an unknown fid returns false rather than faulting.
@@ -257,17 +257,17 @@ pub class GlobalDisambigTable {
         return true
     }
 
-    /// \brief takes \p fid's context out of the table WITHOUT destroying
-    ///        it, and returns it (null for an unknown fid).
+    /// takes `fid`'s context out of the table WITHOUT destroying
+    /// it, and returns it (null for an unknown fid).
     ///
-    /// \details A live check that re-checks a file (Tooling/LiveCheck.k)
-    ///          cannot free the old context: the build-wide stores are keyed
-    ///          by the addresses of its declarations (a canonical record
-    ///          type, an instance's arguments), and an arena that is freed is
-    ///          handed out again, so a new declaration would land on an old
-    ///          one's address and find its entries. A context that stays
-    ///          allocated keeps those entries unreachable. The caller owns
-    ///          it from here.
+    /// A live check that re-checks a file (Tooling/LiveCheck.k)
+    /// cannot free the old context: the build-wide stores are keyed
+    /// by the addresses of its declarations (a canonical record
+    /// type, an instance's arguments), and an arena that is freed is
+    /// handed out again, so a new declaration would land on an old
+    /// one's address and find its entries. A context that stays
+    /// allocated keeps those entries unreachable. The caller owns
+    /// it from here.
     pub fn detach(self, fid: u32) -> unsafe *ASTContext {
         var lock = kairo::std::LockGuard(self._mu)
         var it   = self._by_fid.find(fid as u64)
@@ -281,11 +281,11 @@ pub class GlobalDisambigTable {
         return ctx
     }
 
-    /// parse-time, step 1 of 2: claims \p fid for indexing.
+    /// parse-time, step 1 of 2: claims `fid` for indexing.
     ///
-    /// \details the Index-mode parser (ASTParse, constructed by the DRIVER
-    ///          this module cannot import Parser without a cycle) runs
-    ///          between begin_index and finish_index:
+    /// the Index-mode parser (ASTParse, constructed by the DRIVER
+    /// this module cannot import Parser without a cycle) runs
+    /// between begin_index and finish_index:
     ///
     ///            var ctx = gs->begin_index(fid);
     ///            if ctx != null {
@@ -293,9 +293,10 @@ pub class GlobalDisambigTable {
     ///                gs->finish_index(fid);
     ///            }
     ///
-    /// \return the context to index, or null if the fid is unknown (a
-    ///         phase-ordering bug PP must have created it) or already
-    ///         indexed.
+    /// ### Returns
+    /// the context to index, or null if the fid is unknown (a
+    /// phase-ordering bug PP must have created it) or already
+    /// indexed.
     pub fn begin_index(self, fid: u32) -> unsafe *ASTContext {
         if self.get_scope(fid) != &null { // already indexed
             return &null
@@ -329,7 +330,7 @@ pub class GlobalDisambigTable {
     }
 
     /// The ICE path (CompilerInstance::_flush_for_ice): every context's
-    /// buffered sink into \p engine, in fid order, so what each TU reported
+    /// buffered sink into `engine`, in fid order, so what each TU reported
     /// before the abort is printed. No lock: the process aborts next, and
     /// the thread that ICE'd may be the one holding it.
     pub fn drain_sinks_for_ice(self, engine: unsafe *DiagEngine) {
@@ -457,9 +458,9 @@ pub class GlobalDisambigTable {
         return unsafe &self._instances
     }
 
-    /// The record a tuple of \p arity is, minted on first use into the
+    /// The record a tuple of `arity` is, minted on first use into the
     /// builtin root (TupleRecords). Null without a root or outside
-    /// [2, TUPLE_MAX_ARITY]. \p root_dc: the root TU as a DeclContext --
+    /// [2, TUPLE_MAX_ARITY]. `root_dc`: the root TU as a DeclContext --
     /// the caller (Sema) casts, since this layer cannot name TranslationUnit.
     pub fn tuple_pattern(self, arity: usize, root_dc: unsafe *DeclContext) -> unsafe *Decl {
         var fid = self.builtin_fid()

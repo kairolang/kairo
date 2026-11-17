@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------ Sema/Check/TypeCycleCheck.k --- ///
 ///
-///   \brief Reject types whose definition requires their own layout.
+/// Reject types whose definition requires their own layout.
 ///
 ///   \detail
 ///     DFS with a three-colour map over by-value edges only: value
@@ -149,8 +149,8 @@ pub class TypeCycleCheck {
 
     /// # The DFS
 
-    /// Descend into \p d, having arrived through the by-value edge written
-    /// at \p site. Grey-on-grey is the cycle.
+    /// Descend into `d`, having arrived through the by-value edge written
+    /// at `site`. Grey-on-grey is the cycle.
     priv fn _visit(self, d: unsafe *Decl, site: SourceRange) {
         if d == &null {
             return
@@ -256,9 +256,9 @@ pub class TypeCycleCheck {
         }
     }
 
-    /// Follow \p t down its by-value spine, visiting every record it puts
-    /// inside the object being laid out. \p fix_at is where `unsafe *` goes
-    /// to hold \p t through a pointer instead: the start of a field's type
+    /// Follow `t` down its by-value spine, visiting every record it puts
+    /// inside the object being laid out. `fix_at` is where `unsafe *` goes
+    /// to hold `t` through a pointer instead: the start of a field's type
     /// when that type is the record itself, else invalid (no fix-it). It
     /// belongs to this edge only: the edges of a record reached through it
     /// carry their own.
@@ -330,8 +330,8 @@ pub class TypeCycleCheck {
 
     /// # Generic arguments
 
-    /// True when \p index's generic parameter of \p rec is reached by value
-    /// somewhere in \p rec's own layout, i.e. binding it to a type puts that
+    /// True when `index`'s generic parameter of `rec` is reached by value
+    /// somewhere in `rec`'s own layout, i.e. binding it to a type puts that
     /// type inside the object. Depth-capped rather than colour-mapped: the
     /// walk is over a record's fields, and a genuinely recursive one is what
     /// the outer DFS is here to report.
@@ -499,7 +499,7 @@ pub class TypeCycleCheck {
 
     /// # Reporting
 
-    /// The cycle is `_stack[grey ..]` plus the closing edge at \p site. Report
+    /// The cycle is `_stack[grey ..]` plus the closing edge at `site`. Report
     /// it once, at the type the walk re-entered, with one note per step.
     priv fn _report(self, grey: usize, site: SourceRange) {
         for var i: usize = grey; i < self._stack.size(); ++i {
@@ -540,7 +540,7 @@ pub class TypeCycleCheck {
         }
     }
 
-    /// \p held, only ever forward-declared, reached by value at \p site from
+    /// `held`, only ever forward-declared, reached by value at `site` from
     /// the record on top of the stack. Reported once per edge: each record's
     /// edges are walked once (black), so no dedup set is needed.
     priv fn _report_incomplete(self,

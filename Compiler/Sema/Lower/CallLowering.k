@@ -1,7 +1,7 @@
 /// --- The Kairo Project -------------------- Sema/Lower/CallLowering.k --- ///
 ///
-///   \brief Every call becomes one positional argument list in parameter
-///          order: named arguments placed, defaults filled, packs gathered.
+/// Every call becomes one positional argument list in parameter
+/// order: named arguments placed, defaults filled, packs gathered.
 ///
 ///   \detail
 ///     X placed every argument (`CallExpr::arg_map`, parallel to the callee's
@@ -300,7 +300,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         return out
     }
 
-    /// The thunk for \p f's parameter \p i, minting it on first need.
+    /// The thunk for `f`'s parameter `i`, minting it on first need.
     priv fn _thunk_for(self, f: unsafe *FunctionDecl, i: usize) -> unsafe *FunctionDecl {
         var unsafe *own = f->params[i]
         if own != &null && own->default_thunk != &null {
@@ -461,7 +461,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         )
     }
 
-    /// `_<k>` when \p f's name cell holds more than one entity; "" otherwise.
+    /// `_<k>` when `f`'s name cell holds more than one entity; "" otherwise.
     priv fn _ordinal(self, f: unsafe *FunctionDecl) -> string {
         var unsafe *dc  = f->semantic_dc
         var unsafe *lex = f->lexical_dc

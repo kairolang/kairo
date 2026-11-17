@@ -30,10 +30,7 @@ import Config::Target::TargetOptions
 import Diagnostic::Engine::DiagEngine
 import std::c_char
 
-///
-/// \class CompilerInvocation
-///
-/// \brief The canonical, strongly-typed representation of one compiler run.
+/// The canonical, strongly-typed representation of one compiler run.
 ///
 /// Built once from ParsedArgs at driver startup via from_args().  After that
 /// point nothing in the pipeline reads raw string flag keys - all options are
@@ -49,7 +46,6 @@ import std::c_char
 ///      CompilerInstance(inv) instead of serialising options back into flag
 ///      strings for the CLI parser to re-parse. Mirrors clang's
 ///      CompilerInvocation::CreateFromArgs / CompilerInstance::setInvocation.
-///
 pub class CompilerInvocation {
     /// # sub-option structs (one per subsystem)
 
@@ -78,12 +74,12 @@ pub class CompilerInvocation {
 
     /// # provenance
 
-    /// \brief the raw parsed CLI this invocation came from.
+    /// the raw parsed CLI this invocation came from.
     ///
-    /// \details Kept because a handful of flags have no typed home: --help,
-    ///          --version, --explain and the --print-* info queries are
-    ///          driver-identity questions, not compilation options.
-    ///          CompilerInstance answers them off this.
+    /// Kept because a handful of flags have no typed home: --help,
+    /// --version, --explain and the --print-* info queries are
+    /// driver-identity questions, not compilation options.
+    /// CompilerInstance answers them off this.
     ///
     ///          EMPTY on the programmatic path, and that is well-defined: every
     ///          ParsedArgs getter returns the zero value for a key it does not
@@ -91,12 +87,12 @@ pub class CompilerInvocation {
     ///          of them.
     pub var args: ParsedArgs
 
-    /// \brief whether this invocation is usable.
+    /// whether this invocation is usable.
     ///
-    /// \details False ONLY when argv parsing failed (see from_args below). A
-    ///          hand-built invocation is ok by construction   there is no flag
-    ///          syntax to get wrong   so the default is true and a programmatic
-    ///          caller never has to set it.
+    /// False ONLY when argv parsing failed (see from_args below). A
+    /// hand-built invocation is ok by construction   there is no flag
+    /// syntax to get wrong   so the default is true and a programmatic
+    /// caller never has to set it.
     pub var ok: bool = true
 
     /// The header dirs clang searches with -I, in the order it gets them:
@@ -125,7 +121,7 @@ pub class CompilerInvocation {
         return out
     }
 
-    /// The -x language of input \p i, "" when none was given.
+    /// The -x language of input `i`, "" when none was given.
     pub fn input_lang(self, i: usize) -> string {
         if i < self.input_langs.size() {
             return self.input_langs[i].copy()
@@ -193,12 +189,12 @@ pub class CompilerInvocation {
         return inv
     }
 
-    /// \brief the whole argv -> options path, with no CompilerInstance in it.
+    /// the whole argv -> options path, with no CompilerInstance in it.
     ///
-    /// \details Defines the flag table, parses \p argv against it, and lowers
-    ///          the result into typed options. This is ALL of it   the driver's
-    ///          constructor is a caller of this function, not a second copy of
-    ///          it.
+    /// Defines the flag table, parses `argv` against it, and lowers
+    /// the result into typed options. This is ALL of it   the driver's
+    /// constructor is a caller of this function, not a second copy of
+    /// it.
     ///
     /// \par Why a DiagEngine parameter rather than an error list
     ///      Flag errors are diagnostics like any other: Command reports them
@@ -207,21 +203,23 @@ pub class CompilerInvocation {
     ///      list would fork that formatting, and the engine is not owned by the
     ///      CompilerInstance anyway   it is created before one exists and can
     ///      be created by a caller that never builds one. So the engine comes
-    ///      in, and \c ok comes out for callers that want a bool.
+    ///      in, and `ok` comes out for callers that want a bool.
     ///
-    /// \param diag  where flag errors are reported. MUST NOT be null   Command
-    ///              reports through it unconditionally. A caller with no engine
-    ///              of its own can stand up a throwaway DiagEngine and read the
-    ///              messages back through a consumer.
+    /// ### Parameters
+    /// - `diag`: where flag errors are reported. MUST NOT be null   Command
+    ///   reports through it unconditionally. A caller with no engine
+    ///   of its own can stand up a throwaway DiagEngine and read the
+    ///   messages back through a consumer.
     ///
-    /// \return the invocation. On a parse failure \c ok is false, \c args holds
-    ///         whatever was parsed before the error, and every typed sub-option
-    ///         but \c target is left at its default   the same shape the
-    ///         driver has always had on a bad command line. \c target is
-    ///         read anyway: `--version` has no inputs, which fails the parse,
-    ///         and still reports the --target and --sysroot it was given.
-    ///         The rest stay default on purpose: a read --error-format with
-    ///         no consumer attached for it would swallow the flag errors.
+    /// ### Returns
+    /// the invocation. On a parse failure `ok` is false, `args` holds
+    /// whatever was parsed before the error, and every typed sub-option
+    /// but `target` is left at its default   the same shape the
+    /// driver has always had on a bad command line. `target` is
+    /// read anyway: `--version` has no inputs, which fails the parse,
+    /// and still reports the --target and --sysroot it was given.
+    /// The rest stay default on purpose: a read --error-format with
+    /// no consumer attached for it would swallow the flag errors.
     pub static fn from_args(argc: i32,
                             argv: unsafe *(unsafe *c_char),
                             diag: unsafe *DiagEngine) -> CompilerInvocation {

@@ -48,7 +48,7 @@ pub class StringTable {
         return self.items.size()
     }
 
-    /// The spelling at \p id; the empty string for an index the table does
+    /// The spelling at `id`; the empty string for an index the table does
     /// not have (the reader reports that through its own `failed`).
     pub fn get(const self, id: u32) -> string {
         if (id as usize) >= self.items.size() {

@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------- Sema/Expand/RequiresDesugar.k --- ///
 ///
-///   \brief Desugar inline generic bounds into the `requires` clause.
+/// Desugar inline generic bounds into the `requires` clause.
 ///
 ///   \detail
 ///     Surface normalization. Every `<T impl Foo>` / `<T derives Base>` inline

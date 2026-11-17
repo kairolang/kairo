@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------------- Lib/builtin/base/intrinsics.k --- ///
 ///
-///   \brief The compiler intrinsics: memory, layout, traits, bits, overflow,
-///          optimizer hooks, termination, atomics and the target.
+/// The compiler intrinsics: memory, layout, traits, bits, overflow,
+/// optimizer hooks, termination, atomics and the target.
 ///
 ///   \detail
 ///     Each is one of three things:
@@ -176,7 +176,7 @@ pub fn <T> __builtin_destruct_at(ptr: *T) {
 ///
 /// `__builtin_bit_cast` is a clang keyword, so no C++ declaration can carry the name directly.
 ///
-/// \note `T` and `From` must be the same size and trivially copyable; clang rejects the call
+/// **Note:** `T` and `From` must be the same size and trivially copyable; clang rejects the call
 /// otherwise.
 pub fn <T, From> __builtin_bitcast(v: From) -> T {
     return kairo_rt_bit_cast<T, From>(v)
@@ -196,8 +196,9 @@ pub fn <T> __builtin_launder(ptr: *T) -> *T {
 /// `__builtin_assume` on the address bits, so unlike clang's own form `align` need not be a
 /// constant.
 ///
-/// \param align  A power of two.
-/// \safety `ptr` must really be `align`-aligned; otherwise the behaviour is undefined.
+/// ### Parameters
+/// - `align`: A power of two.
+///   \safety `ptr` must really be `align`-aligned; otherwise the behaviour is undefined.
 pub inline fn __builtin_assume_aligned(ptr: unsafe *u8, align: usize) -> unsafe *u8 {
     unsafe {
         return kairo_rt_assume_aligned(ptr, align as u64)
@@ -451,7 +452,8 @@ pub fn <T> __builtin_rotr(v: T, n: u32) -> T {
 /// Computes `a + b`, stores the wrapped result in `*result` and returns true when the exact value
 /// did not fit in `T`. Maps to `__builtin_add_overflow`.
 ///
-/// \param result  Receives the wrapped value even when the call returns true.
+/// ### Parameters
+/// - `result`: Receives the wrapped value even when the call returns true.
 pub fn <T> __builtin_add_overflow(a: T, b: T, result: *T) -> bool {
     unsafe {
         return kairo_rt_add_overflow(a, b, result as unsafe *T)
@@ -461,7 +463,8 @@ pub fn <T> __builtin_add_overflow(a: T, b: T, result: *T) -> bool {
 /// Computes `a - b`, stores the wrapped result in `*result` and returns true when the exact value
 /// did not fit in `T`. Maps to `__builtin_sub_overflow`.
 ///
-/// \param result  Receives the wrapped value even when the call returns true.
+/// ### Parameters
+/// - `result`: Receives the wrapped value even when the call returns true.
 pub fn <T> __builtin_sub_overflow(a: T, b: T, result: *T) -> bool {
     unsafe {
         return kairo_rt_sub_overflow(a, b, result as unsafe *T)
@@ -471,7 +474,8 @@ pub fn <T> __builtin_sub_overflow(a: T, b: T, result: *T) -> bool {
 /// Computes `a * b`, stores the wrapped result in `*result` and returns true when the exact value
 /// did not fit in `T`. Maps to `__builtin_mul_overflow`.
 ///
-/// \param result  Receives the wrapped value even when the call returns true.
+/// ### Parameters
+/// - `result`: Receives the wrapped value even when the call returns true.
 pub fn <T> __builtin_mul_overflow(a: T, b: T, result: *T) -> bool {
     unsafe {
         return kairo_rt_mul_overflow(a, b, result as unsafe *T)
@@ -528,9 +532,10 @@ pub inline fn __builtin_unpredictable(cond: bool) -> bool {
 /// Hints that the cache line holding `ptr` will be accessed soon. Maps to `__builtin_prefetch`;
 /// never faults, even for an invalid address.
 ///
-/// \param rw        0 for a read (default), anything else for a write.
-/// \param locality  0 (no reuse) to 3 (keep in all cache levels, the default); other values are
-/// treated as 3.
+/// ### Parameters
+/// - `rw`: 0 for a read (default), anything else for a write.
+/// - `locality`: 0 (no reuse) to 3 (keep in all cache levels, the default); other values are
+///   treated as 3.
 pub inline fn __builtin_prefetch(ptr: unsafe *const u8, rw: i32 = 0, locality: i32 = 3) {
     unsafe {
         kairo_rt_prefetch(ptr, rw, locality)
@@ -554,8 +559,9 @@ pub fn <T> __builtin_constant_p(v: T) -> bool {
 /// Writes `msg[0..len)` and a newline to stderr, then terminates the process with `exit_code` via
 /// `_Exit` (no atexit handlers, no destructors). Never returns.
 ///
-/// \param exit_code  The process exit status.
-/// \safety `msg` must be valid for reads of `len` bytes.
+/// ### Parameters
+/// - `exit_code`: The process exit status.
+///   \safety `msg` must be valid for reads of `len` bytes.
 pub inline fn __builtin_crash(msg: *const u8, len: usize, exit_code: i32) -> ! {
     unsafe {
         kairo_rt_crash_exit(msg as unsafe *const u8, len, exit_code)
@@ -586,7 +592,8 @@ pub inline fn __builtin_abort() -> ! {
 /// Pass `order` as a constant so the inlined helper folds it; a run-time order compiles to a
 /// switch.
 ///
-/// \param order  `Relaxed`, `Consume`, `Acquire` or `SeqCst`.
+/// ### Parameters
+/// - `order`: `Relaxed`, `Consume`, `Acquire` or `SeqCst`.
 pub fn <T> __builtin_atomic_load(ptr: *const T, order: MemoryOrder) -> T {
     unsafe {
         return kairo_rt_atomic_load(ptr as unsafe *const T, order as i32)
@@ -595,7 +602,8 @@ pub fn <T> __builtin_atomic_load(ptr: *const T, order: MemoryOrder) -> T {
 
 /// Atomically writes `v` to `*ptr`. Maps to `__atomic_store_n`.
 ///
-/// \param order  `Relaxed`, `Release` or `SeqCst`.
+/// ### Parameters
+/// - `order`: `Relaxed`, `Release` or `SeqCst`.
 pub fn <T> __builtin_atomic_store(ptr: *T, v: T, order: MemoryOrder) {
     unsafe {
         kairo_rt_atomic_store(ptr as unsafe *T, v, order as i32)
@@ -613,10 +621,11 @@ pub fn <T> __builtin_atomic_exchange(ptr: *T, v: T, order: MemoryOrder) -> T {
 /// Compare-and-swap: if `*ptr == *expected`, stores `desired` and returns true; otherwise copies
 /// `*ptr` into `*expected` and returns false. Maps to `__atomic_compare_exchange_n`.
 ///
-/// \param weak  A weak exchange may fail spuriously; use it in a retry loop.
-/// \param succ  The order when the exchange happens.
-/// \param fail  The order of the load when it does not; it may not be `Release` or `AcqRel` nor
-/// stronger than `succ`.
+/// ### Parameters
+/// - `weak`: A weak exchange may fail spuriously; use it in a retry loop.
+/// - `succ`: The order when the exchange happens.
+/// - `fail`: The order of the load when it does not; it may not be `Release` or `AcqRel` nor
+///   stronger than `succ`.
 pub fn <T> __builtin_atomic_cas(ptr:      *T,
                                 expected: *T,
                                 desired:  T,

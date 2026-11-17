@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------- Sema/Check/CtorInitCheck.k --- ///
 ///
-///   \brief A const field, and a field whose type has no default, is
-///          initialized by its record's constructor before the object is
-///          used; and the constructor's body is cut where that happens
-///          (FunctionDecl::ci_split).
+/// A const field, and a field whose type has no default, is
+/// initialized by its record's constructor before the object is
+/// used; and the constructor's body is cut where that happens
+/// (FunctionDecl::ci_split).
 ///
 ///   \detail
 ///     classes.md: a `const` member with no initializer at its declaration
@@ -165,7 +165,7 @@ pub fn ctor_init_is_self(e: unsafe *Expr) -> bool {
     return p != &null && p->is_self
 }
 
-/// The field \p e names when it is exactly `self.f` (one step), else null.
+/// The field `e` names when it is exactly `self.f` (one step), else null.
 pub fn ctor_init_self_field(e: unsafe *Expr) -> unsafe *FieldDecl {
     var unsafe *c = dyn_cast<ChainExpr>(e)
     if c == &null || c->steps.size() != 1 || !ctor_init_is_self(c->base) {
@@ -275,7 +275,7 @@ pub class CtorConstWriteFind derives RecursiveASTVisitor<CtorConstWriteFind> {
     }
 }
 
-/// The first write of part of field \p field under a statement
+/// The first write of part of field `field` under a statement
 /// (ctor_init_part_root), for the note on a field never built whole.
 pub class CtorPartWriteFind derives RecursiveASTVisitor<CtorPartWriteFind> {
     pub var field: unsafe *FieldDecl = &null
@@ -294,7 +294,7 @@ pub class CtorPartWriteFind derives RecursiveASTVisitor<CtorPartWriteFind> {
 }
 
 /// Every field written as `self.f = ...` under a statement, and where first;
-/// and each of \p elems written as `self.f[k] = ...` (built element by
+/// and each of `elems` written as `self.f[k] = ...` (built element by
 /// element, CtorInitCheck::_elem_ok).
 pub class CtorFieldWriteFind derives RecursiveASTVisitor<CtorFieldWriteFind> {
     pub var fields: cxx::std::vector<unsafe *FieldDecl>
@@ -333,8 +333,8 @@ pub class CtorFieldWriteFind derives RecursiveASTVisitor<CtorFieldWriteFind> {
 }
 
 /// Every field of a base named `self.f...` under a statement, through the
-/// constructor's own `self` (\p self_decl): a local class's methods have
-/// another one. \p own is the record's own fields.
+/// constructor's own `self` (`self_decl`): a local class's methods have
+/// another one. `own` is the record's own fields.
 pub class CtorInheritedFind derives RecursiveASTVisitor<CtorInheritedFind> {
     pub var self_decl: unsafe *Decl                        = &null
     pub var own:       FrozenList<unsafe *FieldDecl>
@@ -399,10 +399,9 @@ pub class CtorSelfFind derives RecursiveASTVisitor<CtorSelfFind> {
     }
 }
 
-/// \enum FieldInit
-/// \brief Whether a field (or an element) is assigned on the paths that
-///        reach a point: on none, on some, on every one. One value, so
-///        "definitely but not maybe" has no encoding.
+/// Whether a field (or an element) is assigned on the paths that
+/// reach a point: on none, on some, on every one. One value, so
+/// "definitely but not maybe" has no encoding.
 pub enum FieldInit derives u8 {
     No = 0, ///< on no path.
     Maybe,  ///< on some path, not every one.
@@ -1508,7 +1507,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
 
     /// # events replayed from the expression scan
 
-    /// `self.f = e` (\p compound: `self.f op= e`), after e was scanned.
+    /// `self.f = e` (`compound`: `self.f op= e`), after e was scanned.
     priv fn _on_write(self, f: unsafe *FieldDecl, at: SourceRange, compound: bool) {
         var i = self._index(f)
         if i == usize::MAX {
@@ -1739,7 +1738,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         self._failed = true
     }
 
-    /// `self.f[k] = e`, f an array field. Field \p f built element by
+    /// `self.f[k] = e`, f an array field. Field `f` built element by
     /// element (_elem_ok) and not yet whole: this builds element k, once,
     /// with k a constant, outside any loop. A field already built whole: an
     /// ordinary element assignment. Any other: a write of part of f.
@@ -1891,7 +1890,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
 
     /// # helpers
 
-    /// \p own, then every field of a base \p f's body names as `self.x`.
+    /// `own`, then every field of a base `f`'s body names as `self.x`.
     priv fn _with_inherited(self,
                             own: FrozenList<unsafe *FieldDecl>,
                             f:   unsafe *FunctionDecl) -> FrozenList<unsafe *FieldDecl> {
@@ -1982,7 +1981,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         return f->is_const() || self._why(f).size() > 0
     }
 
-    /// Why \p f's type has no default (TypeUtil::why_no_default); empty when
+    /// Why `f`'s type has no default (TypeUtil::why_no_default); empty when
     /// it has one, or is not known.
     priv fn _why(self, f: unsafe *FieldDecl) -> string {
         if f->type_ == &null || f->type_->canonical == &null {
@@ -2079,7 +2078,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         }
     }
 
-    /// The constructor never assigns required field \p fd whole.
+    /// The constructor never assigns required field `fd` whole.
     priv fn _missing(self,
                      fd:          unsafe *FieldDecl,
                      const cname: string,
@@ -2141,7 +2140,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         b.emit()
     }
 
-    /// Why a write of part of array field \p f does not build it, when f is
+    /// Why a write of part of array field `f` does not build it, when f is
     /// an array: only whole elements count, and only of an array built
     /// element by element. Empty for any other field.
     priv fn _part_note(self, f: unsafe *FieldDecl) -> string {
@@ -2235,7 +2234,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         return i != usize::MAX && self._ebase[i] != usize::MAX
     }
 
-    /// Some element of field \p i may be built on the path walked so far.
+    /// Some element of field `i` may be built on the path walked so far.
     priv fn _elems_begun(self, i: usize) -> bool {
         if i >= self._ebase.size() || self._ebase[i] == usize::MAX {
             return false
@@ -2251,7 +2250,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     }
 
     /// "element 1 is" / "elements 1, 3 and 4 are": the elements of field
-    /// \p i not built on every path walked so far.
+    /// `i` not built on every path walked so far.
     priv fn _missing_elems(self, i: usize) -> string {
         var miss = cxx::std::vector<usize>()
         for var k: usize = 0; k < self._elen[i]; ++k {

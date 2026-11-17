@@ -59,9 +59,9 @@ import std::env
 extend CompilerInstance {
     /// # The runtime object cache
 
-    /// \brief where _compile_runtime caches the runtime's objects:
-    ///        <cache root>/rt (_cache_root), shared by every link of every
-    ///        target and option set; "" when there is no cache root.
+    /// where _compile_runtime caches the runtime's objects:
+    /// <cache root>/rt (_cache_root), shared by every link of every
+    /// target and option set; "" when there is no cache root.
     prot fn _rt_cache_dir(self) -> string {
         if self._backend == &null {
             return ""
@@ -87,18 +87,18 @@ extend CompilerInstance {
         return f"{p} {size} {mtime}\n"
     }
 
-    /// \brief every file a runtime object may be built from, stamped: the
-    ///        compiler (clang is linked into it, and it stages the sysroot
-    ///        and resource dir beside itself), every file directly in
-    ///        <runtime root>/rt (sources and the headers they share), and
-    ///        the vendored mimalloc (_runtime_deps: a submodule bump never
-    ///        touches rt/mimalloc.c).
+    /// every file a runtime object may be built from, stamped: the
+    /// compiler (clang is linked into it, and it stages the sysroot
+    /// and resource dir beside itself), every file directly in
+    /// <runtime root>/rt (sources and the headers they share), and
+    /// the vendored mimalloc (_runtime_deps: a submodule bump never
+    /// touches rt/mimalloc.c).
     ///
-    /// \details One set for all of the runtime's objects, not each one's own
-    ///          includes: any change rebuilds all of them, which costs only
-    ///          the first link after it, and no include an object reads can
-    ///          be left out of its key. Sorted, so the key does not follow
-    ///          readdir.
+    /// One set for all of the runtime's objects, not each one's own
+    /// includes: any change rebuilds all of them, which costs only
+    /// the first link after it, and no include an object reads can
+    /// be left out of its key. Sorted, so the key does not follow
+    /// readdir.
     prot fn _rt_fingerprint(self) -> string {
         var out   = CompilerInstance::_rt_stamp(env::exe_path())
         var rroot = self._runtime_root()
@@ -132,15 +132,15 @@ extend CompilerInstance {
         return out
     }
 
-    /// \brief copies the cache entry \p entry to \p obj; false (compile it)
-    ///        when there is none or it does not read as an object file.
+    /// copies the cache entry `entry` to `obj`; false (compile it)
+    /// when there is none or it does not read as an object file.
     ///
-    /// \details Entries are only ever renamed into place whole
-    ///          (_rt_cache_store), so a partial write is never seen; the
-    ///          parse guards against what else can damage a file in a cache
-    ///          directory (a full disk, a crash of the file system, a hand
-    ///          edit), which would otherwise fail the link instead of
-    ///          rebuilding the object.
+    /// Entries are only ever renamed into place whole
+    /// (_rt_cache_store), so a partial write is never seen; the
+    /// parse guards against what else can damage a file in a cache
+    /// directory (a full disk, a crash of the file system, a hand
+    /// edit), which would otherwise fail the link instead of
+    /// rebuilding the object.
     prot static fn _rt_cache_fetch(const entry: string, const obj: string) -> bool {
         if !LinkFS::is_file(entry) {
             return false
@@ -170,13 +170,14 @@ extend CompilerInstance {
         return true
     }
 
-    /// \brief stores the object \p obj as the cache entry \p entry: copied to
-    ///        a private name and renamed into place, so a parallel link reads
-    ///        the whole object or none; two runs that both missed write the
-    ///        same bytes and the last rename wins. Then the slot's older
-    ///        entries (`<stem>-<slot>-*.o`, other inputs) are removed.
+    /// stores the object `obj` as the cache entry `entry`: copied to
+    /// a private name and renamed into place, so a parallel link reads
+    /// the whole object or none; two runs that both missed write the
+    /// same bytes and the last rename wins. Then the slot's older
+    /// entries (`<stem>-<slot>-*.o`, other inputs) are removed.
     ///
-    /// \return true when the entry was written.
+    /// ### Returns
+    /// true when the entry was written.
     prot static fn _rt_cache_store(const obj: string, const entry: string) -> bool {
         if !publish_copy(obj, entry) {
             return false
@@ -224,13 +225,13 @@ extend CompilerInstance {
         return true
     }
 
-    /// \brief removes the runtime cache's entries no store has refreshed for
-    ///        30 days (a target or option set no longer used) and private
-    ///        copies a crashed store left (a day old); then, past
-    ///        CACHE_LIBRARY_MAX_BYTES, the oldest-stored entries other than
-    ///        \p used (what this run fetched or stored), as the object cache
-    ///        does (cache_evict_to_cap). Run after a store, which is
-    ///        rare; a hit lists nothing.
+    /// removes the runtime cache's entries no store has refreshed for
+    /// 30 days (a target or option set no longer used) and private
+    /// copies a crashed store left (a day old); then, past
+    /// CACHE_LIBRARY_MAX_BYTES, the oldest-stored entries other than
+    /// `used` (what this run fetched or stored), as the object cache
+    /// does (cache_evict_to_cap). Run after a store, which is
+    /// rare; a hit lists nothing.
     prot static fn _rt_cache_gc(const dir: string, const used: cxx::std::vector<string>) {
         if dir.is_empty() {
             return
@@ -276,19 +277,19 @@ extend CompilerInstance {
 
     /// # The Kairo library (--kairo-lib)
 
-    /// \brief builtin, std and the runtime, as objects the link takes
-    ///        lazily (_lib_lazy): what a link of objects from separate
-    ///        `kcc -c` runs needs and none of those runs wrote.
+    /// builtin, std and the runtime, as objects the link takes
+    /// lazily (_lib_lazy): what a link of objects from separate
+    /// `kcc -c` runs needs and none of those runs wrote.
     ///
-    /// \details Cached per target and code generation options, under
-    ///          the toolchain's cache root (_cache_root), and rebuilt when the compiler or any source
-    ///          it was built from changes (the manifest records each one's
-    ///          mtime). Built in THIS session, before the inputs, when the
-    ///          cache has none: it claims builtin and std first (claim_fid),
-    ///          so the inputs' actions emit no copy of their own, and the
-    ///          link finds them here. Lazy, so a run that did emit its own
-    ///          copy (a valid cache) keeps it, and an unused std module costs
-    ///          nothing.
+    /// Cached per target and code generation options, under
+    /// the toolchain's cache root (_cache_root), and rebuilt when the compiler or any source
+    /// it was built from changes (the manifest records each one's
+    /// mtime). Built in THIS session, before the inputs, when the
+    /// cache has none: it claims builtin and std first (claim_fid),
+    /// so the inputs' actions emit no copy of their own, and the
+    /// link finds them here. Lazy, so a run that did emit its own
+    /// copy (a valid cache) keeps it, and an unused std module costs
+    /// nothing.
     prot fn _kairo_lib(self) -> bool {
         var dir = self._kairo_lib_dir()
         if dir.is_empty() { // no cache root: the run's own objects are all there is
@@ -318,10 +319,10 @@ extend CompilerInstance {
         return true
     }
 
-    /// \brief the toolchain's cache root (API/EnvNames.k), shared by the
-    ///        Kairo library (_kairo_lib_dir), the runtime objects
-    ///        (_rt_cache_dir) and the LTO cache. "" when no variable names
-    ///        one: nothing is cached.
+    /// the toolchain's cache root (API/EnvNames.k), shared by the
+    /// Kairo library (_kairo_lib_dir), the runtime objects
+    /// (_rt_cache_dir) and the LTO cache. "" when no variable names
+    /// one: nothing is cached.
     prot static fn _cache_root() -> string {
         return cache_root()
     }
@@ -374,7 +375,7 @@ extend CompilerInstance {
         )
     }
 
-    /// The library's objects from \p dir's manifest into _lib_lazy; false
+    /// The library's objects from `dir`'s manifest into _lib_lazy; false
     /// when there is none or a recorded source has changed.
     priv fn _read_kairo_lib(self, const dir: string) -> bool {
         var objs    = cxx::std::vector<string>()
@@ -393,8 +394,8 @@ extend CompilerInstance {
         return true
     }
 
-    /// The objects and the archive \p dir's manifest names, into \p objs
-    /// and \p archive; false when there is no manifest, it names no object,
+    /// The objects and the archive `dir`'s manifest names, into `objs`
+    /// and `archive`; false when there is no manifest, it names no object,
     /// a recorded source has changed or a named file is missing. Reads
     /// only: _build_kairo_lib asks it too, of a library another build may
     /// have just published.
@@ -458,11 +459,11 @@ extend CompilerInstance {
         return objs.size() > 0
     }
 
-    /// \brief builds the library into \p dir: a virtual entry that imports
-    ///        std (so builtin and every std module are reached under their
-    ///        own module paths), and the runtime, written to a private
-    ///        directory and renamed into place, so parallel builds never see
-    ///        half a library.
+    /// builds the library into `dir`: a virtual entry that imports
+    /// std (so builtin and every std module are reached under their
+    /// own module paths), and the runtime, written to a private
+    /// directory and renamed into place, so parallel builds never see
+    /// half a library.
     priv fn _build_kairo_lib(self, const dir: string) -> bool {
         var tmp = f"{dir}.tmp-{llvm::sys::Process::getProcessId()}"
         LinkFS::remove_tree(tmp)
@@ -623,16 +624,16 @@ extend CompilerInstance {
         return LinkFS::is_dir(dir)
     }
 
-    /// \brief removes the cached libraries beside \p keep that no link has
-    ///        used for 30 days, and what a crashed build left (a day old);
-    ///        then, past CACHE_LIBRARY_MAX_BYTES, the least recently used
-    ///        others (cache_evict_to_cap).
+    /// removes the cached libraries beside `keep` that no link has
+    /// used for 30 days, and what a crashed build left (a day old);
+    /// then, past CACHE_LIBRARY_MAX_BYTES, the least recently used
+    /// others (cache_evict_to_cap).
     ///
-    /// \details Every compiler rebuild and every option set leaves a library
-    ///          of its own, and nothing else removes them. Run when a library
-    ///          is built, which is rare; a link only touches `used`
-    ///          (_read_kairo_lib). \p keep, the one this run built, is never
-    ///          removed.
+    /// Every compiler rebuild and every option set leaves a library
+    /// of its own, and nothing else removes them. Run when a library
+    /// is built, which is rare; a link only touches `used`
+    /// (_read_kairo_lib). `keep`, the one this run built, is never
+    /// removed.
     priv fn _gc_kairo_libs(self, const keep: string) {
         var root       = LinkFS::parent(keep)
         var now        = now_ns()

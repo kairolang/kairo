@@ -77,14 +77,14 @@ pub struct ImportSpec {
     pub var ok:                bool        = false
 }
 
-/// \brief finishes an import-grammar diagnostic \p b (made by the host's
-///        sink at r.start): labelled at \p r, then emitted.
+/// finishes an import-grammar diagnostic `b` (made by the host's
+/// sink at r.start): labelled at `r`, then emitted.
 pub fn ig_finish(@inout b: DiagBuilder, r: SourceRange) {
     b.first(r)
     b.emit()
 }
 
-/// \brief ig_finish, plus a fix-it removing \p cut.
+/// ig_finish, plus a fix-it removing `cut`.
 pub fn ig_finish_remove(@inout b:      DiagBuilder,
                         r:             SourceRange,
                         cut:           SourceRange,
@@ -94,7 +94,7 @@ pub fn ig_finish_remove(@inout b:      DiagBuilder,
     b.emit()
 }
 
-/// \brief ig_finish, plus a fix-it inserting \p text at the start of \p at.
+/// ig_finish, plus a fix-it inserting `text` at the start of `at`.
 pub fn ig_finish_insert(@inout b:      DiagBuilder,
                         r:             SourceRange,
                         at:            SourceRange,
@@ -106,22 +106,22 @@ pub fn ig_finish_insert(@inout b:      DiagBuilder,
 }
 
 // TODO(DUCK-GENERIC): T uses ig_bump, ig_bump_nl, ig_eof, ig_err, ig_err_remove, ig_kind, ig_peek_kind, ig_tok. Stage 0 was duck-typed; bound it or keep `: type`.
-/// \brief true for a token that can be an import path segment: a name, or a
-///        primitive type's word.
+/// true for a token that can be an import path segment: a name, or a
+/// primitive type's word.
 ///
-/// \details A segment names a FILE or a declaration in one, and a file may be
-///          called `f8.k`, `i32.k` or `bool.k`: the word lexes as a type
-///          keyword, and refusing it made such a file impossible to import
-///         . Only where the word would become the BOUND name does it
-///          clash with the type (_check_bound_word).
+/// A segment names a FILE or a declaration in one, and a file may be
+/// called `f8.k`, `i32.k` or `bool.k`: the word lexes as a type
+/// keyword, and refusing it made such a file impossible to import
+/// . Only where the word would become the BOUND name does it
+/// clash with the type (_check_bound_word).
 pub fn is_import_path_word(k: TokenKind) -> bool {
     return k == TokenKind::LitIdentifier || is_primitive_type_word(k)
 }
 
-/// \brief true for a primitive type's word (`i32`, `f8`, `bool`, `usize`,
-///        ...): every `@`-kind but the comment. The parser's name and type
-///        predicates (DeclParse::check_is_ident, TypeParse::_is_type_tok_kind)
-///        and is_import_path_word build on it.
+/// true for a primitive type's word (`i32`, `f8`, `bool`, `usize`,
+/// ...): every `@`-kind but the comment. The parser's name and type
+/// predicates (DeclParse::check_is_ident, TypeParse::_is_type_tok_kind)
+/// and is_import_path_word build on it.
 pub fn is_primitive_type_word(k: TokenKind) -> bool {
     return is_annotation(k) && k != TokenKind::AtComment
 }
@@ -131,10 +131,10 @@ pub class <T: type> ImportGrammar {
         return unsafe ((&self) as *T)
     }
 
-    /// \brief S046E when a primitive type's word would be the name an import
-    ///        binds: `import self::i32` binds `i32`, and `i32::f()` reads as
-    ///        the type, never the module. Fix-it: an `as` name after it.
-    /// \p kind is the word's RESOLVED kind (ig_kind when it was read): a
+    /// S046E when a primitive type's word would be the name an import
+    /// binds: `import self::i32` binds `i32`, and `i32::f()` reads as
+    /// the type, never the module. Fix-it: an `as` name after it.
+    /// `kind` is the word's RESOLVED kind (ig_kind when it was read): a
     /// segment a macro expanded is a wrapper token whose own kind says
     /// nothing about the word.
     priv fn _check_bound_word(self, word: Token, kind: TokenKind) {
@@ -153,8 +153,8 @@ pub class <T: type> ImportGrammar {
         )
     }
 
-    /// \brief parses one import statement. Precondition: current token is
-    ///        `import` (caller verified; visibility already consumed by caller).
+    /// parses one import statement. Precondition: current token is
+    /// `import` (caller verified; visibility already consumed by caller).
     pub fn parse_import_spec(self) -> ImportSpec {
         var spec = ImportSpec()
 
@@ -306,7 +306,7 @@ pub class <T: type> ImportGrammar {
         return spec
     }
 
-    /// \brief selective import list: past the `{`, consumes through `}`.
+    /// selective import list: past the `{`, consumes through `}`.
     priv fn _parse_item_list(self, spec: *ImportSpec, last: *SourceRange) {
         var open = *last
 

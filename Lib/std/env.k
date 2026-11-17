@@ -7,7 +7,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c" import "env.h"   // the per-OS query; stdlib.h for free
+ffi "c" import "env.h" // the per-OS query; stdlib.h for free
 
 import string::*
 
@@ -17,7 +17,8 @@ import string::*
 /// resolved where the OS resolves them (`/proc/self/exe` on Linux, `realpath` on macOS). It is a
 /// `string`, not a path type: the bytes are exactly what the OS reported.
 ///
-/// \returns the absolute path, or `""` when the OS cannot say
+/// ### Returns
+/// the absolute path, or `""` when the OS cannot say
 /// \example
 /// ```kairo
 /// import std::io
@@ -32,7 +33,10 @@ pub fn exe_path() -> string {
     var n: usize = 0
     unsafe {
         var unsafe *p = kstd_exe_path(unsafe &n)
-        if n == 0 { return "" }               // env.h: no block when there is no path
+        if n == 0 { // env.h: no block when there is no path
+            return ""
+        }
+
         var s = string(p as *const u8, n)
         free(p)
         return s

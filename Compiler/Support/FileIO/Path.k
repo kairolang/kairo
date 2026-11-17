@@ -30,11 +30,8 @@ import Support::Ascii::{
 }
 import Support::FileIO::FileSystem::FileType
 
+/// high-level abstraction over llvm::sys::path / llvm::sys::fs.
 ///
-/// \file Path.k
-/// \brief high-level abstraction over llvm::sys::path / llvm::sys::fs.
-///
-/// \details
 /// `Path` holds an absolute path as a plain UTF-8 string and answers every
 /// query through LLVM's path library, the same one clang and the linker
 /// API (Linker/API/FS.k) use. Sharing it is the point: a path Kairo
@@ -49,34 +46,29 @@ import Support::FileIO::FileSystem::FileType
 ///   - caches file type for faster attribute lookups.
 ///   - stores and returns the generic ('/'-separated) form on every host.
 ///
-/// \note this class is designed as a thin wrapper and does not perform
+/// **Note:** this class is designed as a thin wrapper and does not perform
 /// any I/O beyond filesystem metadata queries.
 ///
-/// \see FileSystem, VirtualFileManager, MappedFileBuffer
-///
+/// See FileSystem, VirtualFileManager, MappedFileBuffer.
 
 pub class Path {
     pub var path_data:  string   ///< absolute, generic-form path.
     pub var entry_type: FileType ///< cached type of the path entry.
 
-    ///
-    /// \brief default constructor (creates empty path).
-    ///
+    /// default constructor (creates empty path).
     pub fn Path(self) = default
 
+    /// constructs and validates a new Path from string input.
     ///
-    /// \brief constructs and validates a new Path from string input.
+    /// ### Parameters
+    /// - `input`: raw path string (absolute or relative).
+    /// - `mustExist`: if true, ensures the path exists on disk.
     ///
-    /// \param input raw path string (absolute or relative).
-    /// \param mustExist if true, ensures the path exists on disk.
-    ///
-    /// \details
     /// - converts `input` into an absolute path against the process cwd.
     /// - crashes if the path is empty or non-existent when `mustExist` is true.
     ///
-    /// \warning
+    /// **Warning:**
     /// this constructor performs a system call to check existence.
-    ///
     pub fn Path(self, const input: string, mustExist: bool = false) {
         self.path_data = Path::_normalize(input)
 
@@ -96,13 +88,11 @@ pub class Path {
         }
     }
 
+    /// a Path for `abs` whose type the caller already knows -- from
+    /// a readdir record or a probe's own stat. No syscall.
     ///
-    /// \brief a Path for \p abs whose type the caller already knows -- from
-    ///        a readdir record or a probe's own stat. No syscall.
-    ///
-    /// \details \p abs must already be absolute and generic-form (a
-    ///          Path::join off another Path is); it is stored as given.
-    ///
+    /// `abs` must already be absolute and generic-form (a
+    /// Path::join off another Path is); it is stored as given.
     pub static fn from_known(const abs: string, t: FileType) -> Path {
         var p = Path()
         p.path_data  = abs.copy()
@@ -135,21 +125,20 @@ pub class Path {
         return Path("/")
     }
 
+    /// `p` made absolute against `base`, IF it names something on
+    /// disk; otherwise `p` exactly as given.
     ///
-    /// \brief \p p made absolute against \p base, IF it names something on
-    ///        disk; otherwise \p p exactly as given.
+    /// For option values (-I, --sysroot, --resource-dir, inputs):
+    /// resolving them once, up front, means nothing downstream
+    /// re-resolves a relative spelling against a different
+    /// directory (a PCH's, a chdir'd cwd). A path that does not exist
+    /// is left alone so the diagnostic that rejects it later quotes
+    /// what the user typed. No stat beyond the one existence check;
+    /// symlinks are NOT resolved.
     ///
-    /// \details For option values (-I, --sysroot, --resource-dir, inputs):
-    ///          resolving them once, up front, means nothing downstream
-    ///          re-resolves a relative spelling against a different
-    ///          directory (a PCH's, a chdir'd cwd). A path that does not exist
-    ///          is left alone so the diagnostic that rejects it later quotes
-    ///          what the user typed. No stat beyond the one existence check;
-    ///          symlinks are NOT resolved.
-    ///
-    /// \param base directory a relative \p p is taken against; "" means the
-    ///             process cwd.
-    ///
+    /// ### Parameters
+    /// - `base`: directory a relative `p` is taken against; "" means the
+    ///   process cwd.
     pub static fn absolute_if_exists(p: string, const base: string = "") -> string {
         if p.is_empty() {
             return p
@@ -167,13 +156,11 @@ pub class Path {
         return Path::_normalize(cand)
     }
 
+    /// `rel` appended to `base`, purely lexically (no stat).
     ///
-    /// \brief \p rel appended to \p base, purely lexically (no stat).
-    ///
-    /// \details An absolute \p rel replaces \p base, matching
-    ///          filesystem::path's operator/ that the callers were written
-    ///          against; llvm's append() would glue the two together instead.
-    ///
+    /// An absolute `rel` replaces `base`, matching
+    /// filesystem::path's operator/ that the callers were written
+    /// against; llvm's append() would glue the two together instead.
     pub static fn join_str(const base: string, rel: string) -> string {
         if base.is_empty() || llvm::sys::path::is_absolute(llvm::Twine(kairo::sref(rel))) {
             return rel
@@ -216,13 +203,13 @@ pub class Path {
         return string_from_ref(sr)
     }
 
-    /// \p p with every symlink resolved, or \p p unchanged when it cannot
+    /// `p` with every symlink resolved, or `p` unchanged when it cannot
     ///        be (it does not exist). One syscall.
     ///
-    /// \details For IDENTITY comparisons only -- "are these two spellings one
-    ///          directory?" -- never for a path that is printed or stored:
-    ///          what the user typed (a vendored symlink) is what a diagnostic
-    ///          should quote.
+    /// For IDENTITY comparisons only -- "are these two spellings one
+    /// directory?" -- never for a path that is printed or stored:
+    /// what the user typed (a vendored symlink) is what a diagnostic
+    /// should quote.
     pub static fn real_path_of(p: string) -> string {
         if p.is_empty() {
             return p
@@ -245,7 +232,7 @@ pub class Path {
 
     /// # filesystem mutations
 
-    /// \p dir and every missing parent. True when it exists afterwards.
+    /// `dir` and every missing parent. True when it exists afterwards.
     pub static fn make_dirs(const dir: string) -> bool {
         if dir.is_empty() {
             return true
@@ -257,17 +244,17 @@ pub class Path {
         ).value() == 0
     }
 
-    /// The directory \p file will be written into, created if missing.
+    /// The directory `file` will be written into, created if missing.
     pub static fn make_parent_dirs(const file: string) -> bool {
         return Path::make_dirs(Path::parent_of(file))
     }
 
-    /// chdir. False (nothing changed) when \p dir cannot be entered.
+    /// chdir. False (nothing changed) when `dir` cannot be entered.
     pub static fn set_cwd(const dir: string) -> bool {
         return llvm::sys::fs::set_current_path(llvm::Twine(kairo::sref(dir))).value() == 0
     }
 
-    /// \p dir and everything under it; a missing \p dir is not an error.
+    /// `dir` and everything under it; a missing `dir` is not an error.
     pub static fn remove_tree(const dir: string) {
         if dir.is_empty() {
             return
@@ -296,7 +283,7 @@ pub class Path {
         return string_from_ref(out.str())
     }
 
-    /// Writes \p text to \p p in one go, truncating. False on failure.
+    /// Writes `text` to `p` in one go, truncating. False on failure.
     pub static fn write_file(const p: string, const text: string) -> bool {
         var ec: cxx::std::error_code
         var os = llvm::raw_fd_ostream(
@@ -314,15 +301,13 @@ pub class Path {
         return !os.has_error()
     }
 
+    /// the type of a directory_iterator entry, from the readdir
+    /// record itself where the OS supplies one (d_type).
     ///
-    /// \brief the type of a directory_iterator entry, from the readdir
-    ///        record itself where the OS supplies one (d_type).
-    ///
-    /// \details A second stat is paid only for a symlink or an unknown type,
-    ///          and follows the link: a link to a directory must still be
-    ///          walked as one, as filesystem::directory_iterator's
-    ///          is_directory() did.
-    ///
+    /// A second stat is paid only for a symlink or an unknown type,
+    /// and follows the link: a link to a directory must still be
+    /// walked as one, as filesystem::directory_iterator's
+    /// is_directory() did.
     pub static fn type_of_entry(const e: llvm::sys::fs::directory_entry) -> FileType {
         var t: FileType = kairo::dir_entry_type(e)
         if t == FileType::symlink_file || t == FileType::type_unknown {
@@ -332,70 +317,54 @@ pub class Path {
         return t
     }
 
-    ///
-    /// \brief whether \p p names something on disk. One stat, no Path built
-    ///        -- for probes that only need the answer.
-    ///
+    /// whether `p` names something on disk. One stat, no Path built
+    /// -- for probes that only need the answer.
     pub static fn exists_at(const p: string) -> bool {
         return llvm::sys::fs::exists(llvm::Twine(kairo::sref(p)))
     }
 
-    ///
-    /// \brief checks if path exists.
-    ///
+    /// checks if path exists.
     pub fn exists(const self) -> bool {
         return Path::exists_at(self.path_data)
     }
 
-    ///
-    /// \brief returns file extension (including the dot).
-    ///
+    /// returns file extension (including the dot).
     pub fn extension(const self) -> string {
         var sr = llvm::sys::path::extension(kairo::sref(self.path_data))
         return string_from_ref(sr)
     }
 
-    ///
-    /// \brief returns the final filename component.
-    ///
+    /// returns the final filename component.
     pub fn filename(const self) -> string {
         var sr = llvm::sys::path::filename(kairo::sref(self.path_data))
         return string_from_ref(sr)
     }
 
-    ///
-    /// \brief returns the final filename component without its extension.
-    ///
+    /// returns the final filename component without its extension.
     pub fn stem(const self) -> string {
         var sr = llvm::sys::path::stem(kairo::sref(self.path_data))
         return string_from_ref(sr)
     }
 
-    ///
-    /// \brief the containing directory as a string; "" for a root or an
-    ///        empty Path. No stat.
-    ///
+    /// the containing directory as a string; "" for a root or an
+    /// empty Path. No stat.
     pub fn parent_path(const self) -> string {
         var sr = llvm::sys::path::parent_path(kairo::sref(self.path_data))
         return string_from_ref(sr)
     }
 
-    ///
-    /// \brief \p rel under this path, as a string. No stat -- for probes
-    ///        that stat the result themselves; `/` builds a full Path.
-    ///
+    /// `rel` under this path, as a string. No stat -- for probes
+    /// that stat the result themselves; `/` builds a full Path.
     pub fn join(const self, const rel: string) -> string {
         return Path::join_str(self.path_data, rel.copy())
     }
 
+    /// this path relative to `base`, or "" when it is not strictly
+    /// under `base` (equal, a sibling, or above it).
     ///
-    /// \brief this path relative to \p base, or "" when it is not strictly
-    ///        under \p base (equal, a sibling, or above it).
-    ///
-    /// \details Component-wise prefix match on the normalised strings, so
-    ///          `/a/bc` is not under `/a/b`. Lexical, like the
-    ///          lexically_relative() it replaces.
-    ///
+    /// Component-wise prefix match on the normalised strings, so
+    /// `/a/bc` is not under `/a/b`. Lexical, like the
+    /// lexically_relative() it replaces.
     pub fn relative_to(const self, const base: Path) -> string {
         var it   = llvm::sys::path::begin(kairo::sref(self.path_data))
         var end  = llvm::sys::path::end(kairo::sref(self.path_data))
@@ -429,65 +398,47 @@ pub class Path {
         return string_from_ref(buf.str())
     }
 
-    ///
-    /// \brief returns the absolute normalized path as string.
-    ///
+    /// returns the absolute normalized path as string.
     pub fn full_path(const self) -> string {
         return self.path_data.copy()
     }
 
-    ///
-    /// \brief returns the cached filesystem entry type.
-    ///
+    /// returns the cached filesystem entry type.
     fn file_type(const self) -> FileType {
         return self.entry_type
     }
 
-    ///
-    /// \brief true if the path refers to a directory.
-    ///
+    /// true if the path refers to a directory.
     pub fn is_directory(const self) -> bool {
         return self.entry_type == FileType::directory_file
     }
 
-    ///
-    /// \brief true if the path refers to a regular file.
-    ///
+    /// true if the path refers to a regular file.
     pub fn is_regular_file(const self) -> bool {
         return self.entry_type == FileType::regular_file
     }
 
-    ///
-    /// \brief true if the path refers to a symbolic link.
-    ///
+    /// true if the path refers to a symbolic link.
     pub fn is_symlink(const self) -> bool {
         return self.entry_type == FileType::symlink_file
     }
 
-    ///
-    /// \brief true if the path refers to a fifo node.
-    ///
+    /// true if the path refers to a fifo node.
     fn is_fifo(const self) -> bool {
         return self.entry_type == FileType::fifo_file
     }
 
-    ///
-    /// \brief true if the path refers to a unix domain socket.
-    ///
+    /// true if the path refers to a unix domain socket.
     fn is_socket(const self) -> bool {
         return self.entry_type == FileType::socket_file
     }
 
-    ///
-    /// \brief true if the path refers to a block device.
-    ///
+    /// true if the path refers to a block device.
     fn is_block_device(const self) -> bool {
         return self.entry_type == FileType::block_file
     }
 
-    ///
-    /// \brief true if the path refers to a character device.
-    ///
+    /// true if the path refers to a character device.
     fn is_character_device(const self) -> bool {
         return self.entry_type == FileType::character_file
     }
@@ -516,12 +467,11 @@ pub class Path {
         return Path(self.join(other.path_data))
     }
 
+    /// string representation for debugging/logging.
     ///
-    /// \brief string representation for debugging/logging.
-    ///
-    /// \return formatted as
-    ///         `"Path(path_data: <abs_path>, entry_type: <numeric_type>)"`.
-    ///
+    /// ### Returns
+    /// formatted as
+    /// `"Path(path_data: <abs_path>, entry_type: <numeric_type>)"`.
     fn op as (self) -> string {
         return f"Path(path_data: {self.path_data}, entry_type: {(self.entry_type as i32 as u32)})"
     }
@@ -548,7 +498,7 @@ pub class Path {
         )
     }
 
-    /// \p abs (absolute, native separators) with every `..` folded as the
+    /// `abs` (absolute, native separators) with every `..` folded as the
     /// filesystem resolves it, so a file has one spelling however it was
     /// named: `/w/q/../p/x.k` is `/w/p/x.k`, and a module path, a source
     /// manager key or an include's identity computed from one spelling

@@ -73,7 +73,7 @@ import WorkerArgs::*
 import std::io
 
 extend Server {
-    /// The live child of entry \p ei, or usize::MAX.
+    /// The live child of entry `ei`, or usize::MAX.
     fn live_of(const self, ei: usize) -> usize {
         for var k: usize = 0; k < self.lives.size(); ++k {
             if self.lives[k].entry == self.entries[ei].entry {
@@ -95,7 +95,7 @@ extend Server {
         return n
     }
 
-    /// Children busy with a request, other than entry \p ei's own.
+    /// Children busy with a request, other than entry `ei`'s own.
     fn live_busy_others(const self, ei: usize) -> usize {
         var n: usize = 0
         for var k: usize = 0; k < self.lives.size(); ++k {
@@ -107,7 +107,7 @@ extend Server {
         return n
     }
 
-    /// Is entry \p ei analysed by a live worker? A project's entries only,
+    /// Is entry `ei` analysed by a live worker? A project's entries only,
     /// the first LIVE_MAX_CHILDREN of them to ask: a file checked on its
     /// own is small, and a process for it costs nothing to keep correct.
     fn live_takes(self, ei: usize) -> bool {
@@ -130,7 +130,7 @@ extend Server {
         return true
     }
 
-    /// Requests of child \p k whose first answer has not come.
+    /// Requests of child `k` whose first answer has not come.
     fn live_waiting_(const self, k: usize) -> usize {
         var n: usize = 0
         for var q: usize = 0; q < self.lives[k].sent.size(); ++q {
@@ -221,7 +221,7 @@ extend Server {
         }
     }
 
-    /// The completion \p a goes to a process of its own (or, when its
+    /// The completion `a` goes to a process of its own (or, when its
     /// entry is gone, is answered with nothing).
     fn live_ask_falls_back_(self, a: *LiveAsk) {
         self.garbage.push(a->out.copy())
@@ -244,16 +244,16 @@ extend Server {
         )
     }
 
-    /// \brief asks entry \p ei's live worker for a completion: the marked
-    ///        buffer \p mpath is tried aside (LiveWorker.k), the file alone,
-    ///        and the items are what its walk found at the marker. False
-    ///        when there is no worker to ask: the caller starts a process.
+    /// asks entry `ei`'s live worker for a completion: the marked
+    /// buffer `mpath` is tried aside (LiveWorker.k), the file alone,
+    /// and the items are what its walk found at the marker. False
+    /// when there is no worker to ask: the caller starts a process.
     ///
-    /// \details Not while the entry's first check is still to land (the
-    ///          worker has no graph to copy; a process is as fast), nor of
-    ///          a worker that is being restarted. The worker answers
-    ///          between two steps of whatever it is doing, a queue of
-    ///          importers included, which it then goes on with.
+    /// Not while the entry's first check is still to land (the
+    /// worker has no graph to copy; a process is as fast), nor of
+    /// a worker that is being restarted. The worker answers
+    /// between two steps of whatever it is doing, a queue of
+    /// importers included, which it then goes on with.
     fn live_complete_(self,
                       ei:          usize,
                       const id:    string,
@@ -333,7 +333,7 @@ extend Server {
         self.lives.clear()
     }
 
-    /// Sends entry \p ei's state to its live worker. False when this run
+    /// Sends entry `ei`'s state to its live worker. False when this run
     /// is a process's instead (the caller starts one); true when a request
     /// went out, or one will on a later turn (a verdict is awaited, or
     /// another run holds the slot).
@@ -552,7 +552,7 @@ extend Server {
         return true
     }
 
-    /// The worker of child \p k died or hung: its requests are dropped and
+    /// The worker of child `k` died or hung: its requests are dropped and
     /// the entry's next run is a process, so this revision still gets its
     /// results (and a crash that the text causes is reported by that run).
     fn live_lost(self, k: usize, const why: string) {
@@ -914,8 +914,8 @@ extend Server {
         return all
     }
 
-    /// What the worker's copy found for the buffers \p tried (LiveWorker.k,
-    /// live_aside_copy, in \p out) becomes their diagnostics, until they
+    /// What the worker's copy found for the buffers `tried` (LiveWorker.k,
+    /// live_aside_copy, in `out`) becomes their diagnostics, until they
     /// change again.
     fn live_side_(self, ei: usize, tried: *const [string], const out: string) {
         if tried->is_empty() {
@@ -991,7 +991,7 @@ extend Server {
         }
     }
 
-    /// Restarts child \p k and has the new one check the graph at once, in
+    /// Restarts child `k` and has the new one check the graph at once, in
     /// the background: the entry goes on answering from the snapshot it
     /// has, which is of the same text, and the next edit usually finds the
     /// worker warm. (An edit that arrives before then waits for the rest

@@ -1,6 +1,6 @@
 /// --- The Kairo Project --------------- Sema/Check/EffectPropagation.k --- ///
 ///
-///   \brief Infer the panic set of every function and closure (Compiler/Spec/Panic.md#effect-sets).
+/// Infer the panic set of every function and closure (Compiler/Spec/Panic.md#effect-sets).
 ///
 ///   \detail
 ///     A panicking body's set is the union of what it raises (`panic X`
@@ -125,7 +125,7 @@ import Token::TokenKind::TokenKind
 
 /// # sets
 
-/// \p a before \p b in the canonical order (Compiler/Spec/Panic.md#canonical-sets): by type id,
+/// `a` before `b` in the canonical order (Compiler/Spec/Panic.md#canonical-sets): by type id,
 /// ties (a collision, itself an error where the set is formed) by the
 /// spelling key -- PanicTypeIds::order, so a set here and the `Panic<...>`
 /// PanicLowering forms from it list their types alike. A type with no id
@@ -158,7 +158,7 @@ pub fn pset_before(tu: unsafe *TypeUtil, a: unsafe *Type, b: unsafe *Type) -> bo
     return (a as usize as u64) < (b as usize as u64)
 }
 
-/// \p t is in \p s (canonical, unqualified on both sides).
+/// `t` is in `s` (canonical, unqualified on both sides).
 pub fn pset_has(s: unsafe *cxx::std::vector<unsafe *Type>, t: unsafe *Type) -> bool {
     for var i: usize = 0; i < s->size(); ++i {
         if (*s)[i] == t {
@@ -169,7 +169,7 @@ pub fn pset_has(s: unsafe *cxx::std::vector<unsafe *Type>, t: unsafe *Type) -> b
     return false
 }
 
-/// Insert \p t into \p s where the order puts it; false when it was there.
+/// Insert `t` into `s` where the order puts it; false when it was there.
 pub fn pset_add(tu:   unsafe *TypeUtil,
                 s:    unsafe *cxx::std::vector<unsafe *Type>,
                 t_in: unsafe *Type) -> bool {
@@ -269,7 +269,7 @@ pub enum PanicKnown derives u8 {
 }
 
 /// The function a redeclaration chain's facts are read from: its
-/// definition when it has one, else \p f itself.
+/// definition when it has one, else `f` itself.
 pub fn panic_home(f: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
     if f == &null {
         return f
@@ -411,7 +411,7 @@ pub fn panic_set_of_member(tu:         unsafe *TypeUtil,
     return PanicKnown::Unknown
 }
 
-/// The final set of \p f_in into \p out. A `where` group is one function
+/// The final set of `f_in` into `out`. A `where` group is one function
 /// to its callers, bound to its lead: its set is the union of its members'
 /// (Compiler/Spec/Panic.md#crashes-are-not-panics), each member's its own body's.
 pub fn panic_set_of_fn(tu:   unsafe *TypeUtil,
@@ -446,12 +446,12 @@ pub fn panic_set_of_fn(tu:   unsafe *TypeUtil,
 
 /// # a callee's set at the call
 
-/// \p t has a component that names a type parameter.
+/// `t` has a component that names a type parameter.
 pub fn panic_dep(t: unsafe *Type) -> bool {
     return t != &null && (t->is_dependent() || t->is_instantiation_dependent())
 }
 
-/// \p t's value type: a pointer, a reference and a nullable stripped (a
+/// `t`'s value type: a pointer, a reference and a nullable stripped (a
 /// receiver read through `->`, `?.`).
 pub fn panic_recv_value(tu: unsafe *TypeUtil, t_in: unsafe *Type) -> unsafe *Type {
     if t_in == &null {
@@ -534,8 +534,8 @@ pub fn panic_call_receiver(tu: unsafe *TypeUtil,
     return &null
 }
 
-/// The record \p r is, or derives, whose pattern is \p owner, read through
-/// \p r's arguments hop by hop (`class D derives Box<i32>`: a `d.get()`
+/// The record `r` is, or derives, whose pattern is `owner`, read through
+/// `r`'s arguments hop by hop (`class D derives Box<i32>`: a `d.get()`
 /// reaches Box's method at `Box<i32>`); null when none is.
 pub fn panic_base_at(tu:    unsafe *TypeUtil,
                      r_in:  unsafe *Type,
@@ -593,7 +593,7 @@ pub fn panic_base_at(tu:    unsafe *TypeUtil,
     return &null
 }
 
-/// \p owner's type parameters, each still unbound in \p d, bound to
+/// `owner`'s type parameters, each still unbound in `d`, bound to
 /// itself: a call inside the generic that names its own members at its own
 /// parameters (`self.m()` in `Box<T>`, `f(x)` recursing at `T`) reads the
 /// callee's set as written.
@@ -632,7 +632,7 @@ pub fn panic_bind_self(tu: unsafe *TypeUtil, d: unsafe *Deduction, owner_in: uns
     }
 }
 
-/// \p f's own (and its extension's) type parameters from what the call
+/// `f`'s own (and its extension's) type parameters from what the call
 /// chose: the instance's arguments, or the dependent arguments a call in a
 /// generic body records -- ConformanceChecking::_bind_instance's order (an
 /// extension's parameters first).
@@ -698,7 +698,7 @@ pub fn panic_bind_args(tu: unsafe *TypeUtil,
     }
 }
 
-/// Bind what \p f's set may name, for the call \p c through receiver \p recv
+/// Bind what `f`'s set may name, for the call `c` through receiver `recv`
 /// (either may be null): false when a requirement's declaring interface
 /// is not found (no bound, no qualifier declares it).
 pub fn panic_bind_call(tu:   unsafe *TypeUtil,
@@ -761,9 +761,9 @@ pub fn panic_bind_call(tu:   unsafe *TypeUtil,
     return true
 }
 
-/// \p f's set as the call \p c (through receiver \p recv) sees it: \p f's
+/// `f`'s set as the call `c` (through receiver `recv`) sees it: `f`'s
 /// final set with every type parameter it names read at the call's
-/// arguments. A concrete set is \p f's own. Unbound when a parameter
+/// arguments. A concrete set is `f`'s own. Unbound when a parameter
 /// it names is not bound here.
 pub fn panic_call_set(tu:   unsafe *TypeUtil,
                       f:    unsafe *Declarations::FunctionDecl,
@@ -808,7 +808,7 @@ pub fn panic_call_set(tu:   unsafe *TypeUtil,
     return PanicKnown::Set
 }
 
-/// \p t read through \p f's call \p c (panic_call_set's bindings): a
+/// `t` read through `f`'s call `c` (panic_call_set's bindings): a
 /// callee's dependent panic result as this call receives it, or null when
 /// a parameter it names is not bound here.
 pub fn panic_call_type(tu:   unsafe *TypeUtil,
@@ -828,7 +828,7 @@ pub fn panic_call_type(tu:   unsafe *TypeUtil,
     return d.substitute(t)
 }
 
-/// How deeply \p t nests types (a record's arguments, a pointee): the
+/// How deeply `t` nests types (a record's arguments, a pointee): the
 /// solve's guard against a recursion at ever-larger arguments.
 pub fn panic_type_depth(t: unsafe *Type, budget: u32) -> u32 {
     if t == &null || budget == 0 {
@@ -869,7 +869,7 @@ pub fn panic_type_depth(t: unsafe *Type, budget: u32) -> u32 {
 /// dropped), so a Kairo `x: D` (by value; ParamPassInference leaves an
 /// override alone) does not override a C++ `const D&` (SI8), while a Kairo
 /// `const x: D` (Speller::_param_type: `const D&`) does. 0 by value, 1
-/// `T&`, 2 `T&&`; \p inner_const is the referee's const.
+/// `T&`, 2 `T&&`; `inner_const` is the referee's const.
 pub fn override_param_shape(p:           unsafe *Declarations::ParamDecl,
                             t:           unsafe *Type,
                             inner_const: unsafe *bool) -> u8 {
@@ -920,7 +920,7 @@ pub fn override_param_core(t: unsafe *Type) -> unsafe *Type {
     return c
 }
 
-/// \p x (the override's) and \p y (the base's, typed \p yt after the base's
+/// `x` (the override's) and `y` (the base's, typed `yt` after the base's
 /// arguments) are the same C++ parameter type.
 pub fn override_param_same(x:  unsafe *Declarations::ParamDecl,
                            y:  unsafe *Declarations::ParamDecl,
@@ -938,7 +938,7 @@ pub fn override_param_same(x:  unsafe *Declarations::ParamDecl,
     return a != &null && a == b
 }
 
-/// \p loose: name and arity only, the parameter types unread -- the base
+/// `loose`: name and arity only, the parameter types unread -- the base
 /// method an `override` was meant for when no parameter list matches (SI8).
 pub fn overridden_at(tu:       unsafe *TypeUtil,
                      cd:       unsafe *Declarations::ClassDecl,
@@ -1091,8 +1091,8 @@ pub fn overridden_at(tu:       unsafe *TypeUtil,
     return &null
 }
 
-/// panic_overridden, and the base record it was found in, \p out_base, as
-/// \p cd derives it (`B<i32>` for `class D derives B<i32>`): a generic
+/// panic_overridden, and the base record it was found in, `out_base`, as
+/// `cd` derives it (`B<i32>` for `class D derives B<i32>`): a generic
 /// base's method is read through it (its parameters, its panic set).
 /// A generic base is walked as its pattern (an instance shell holds no
 /// methods), each hop's bases read through the hop's arguments.
@@ -1103,7 +1103,7 @@ pub fn panic_overridden_at(tu:       unsafe *TypeUtil,
     return overridden_at(tu, cd, m, out_base, false)
 }
 
-/// The method \p m overrides: the nearest base's virtual or override
+/// The method `m` overrides: the nearest base's virtual or override
 /// method of its name, arity and parameter types.
 pub fn panic_overridden(tu: unsafe *TypeUtil,
                         cd: unsafe *Declarations::ClassDecl,
@@ -1112,10 +1112,10 @@ pub fn panic_overridden(tu: unsafe *TypeUtil,
     return panic_overridden_at(tu, cd, m, unsafe &bt)
 }
 
-/// \p sup's final set read through \p at (a base record `B<i32>`, an
+/// `sup`'s final set read through `at` (a base record `B<i32>`, an
 /// interface instance `Src<IOError>`): what a subset rule holds an
-/// override or a conformer to. \p at null, or a concrete set: the
-/// set as it is. Unknown when a parameter it names is not bound by \p at.
+/// override or a conformer to. `at` null, or a concrete set: the
+/// set as it is. Unknown when a parameter it names is not bound by `at`.
 pub fn panic_set_through(tu:  unsafe *TypeUtil,
                          sup: unsafe *Declarations::FunctionDecl,
                          at:  unsafe *Type,
@@ -1148,7 +1148,7 @@ pub fn panic_set_through(tu:  unsafe *TypeUtil,
     return PanicKnown::Set
 }
 
-/// Write \p s as the final set of \p f's whole redeclaration chain.
+/// Write `s` as the final set of `f`'s whole redeclaration chain.
 pub fn panic_store_fn(ctx: unsafe *ASTContext,
                       f:   unsafe *Declarations::FunctionDecl,
                       s:   unsafe *cxx::std::vector<unsafe *Type>,
@@ -1175,7 +1175,7 @@ pub fn panic_store_fn(ctx: unsafe *ASTContext,
     }
 }
 
-/// The set a `fn` value of type \p t_in panics with: the effect is part of
+/// The set a `fn` value of type `t_in` panics with: the effect is part of
 /// the `fn` type's canonical (CanonicalTypeStore::func), so the value's
 /// type says it. A bare `panic` with no set is a closure or function value
 /// whose set was never declared, which PanicEffectChecking reports where
@@ -1522,7 +1522,7 @@ pub class PanicWalk derives RecursiveASTVisitor<PanicWalk> {
         self._op_node = &null
     }
 
-    /// One call of \p f: its set as this call reads it. A set naming
+    /// One call of `f`: its set as this call reads it. A set naming
     /// a parameter the call does not bind adds nothing and is kept for
     /// PanicEffectChecking to report.
     priv fn _call(self,
@@ -1615,7 +1615,7 @@ pub class PanicWalk derives RecursiveASTVisitor<PanicWalk> {
         }
     }
 
-    /// The `try` index of the bare arm whose binding \p e names, or -1.
+    /// The `try` index of the bare arm whose binding `e` names, or -1.
     priv fn _bare_repanic(self, e_in: unsafe *Expr) -> i64 {
         var unsafe *e = self.tu.strip_parens(e_in)
         if e == &null || !isa<NamedIdentExpr>(e) {
@@ -1874,7 +1874,7 @@ pub class EffectTable {
         self.rounds = 0
     }
 
-    /// Register \p sc's TU. Its bodies start from the empty set, Final, so a
+    /// Register `sc`'s TU. Its bodies start from the empty set, Final, so a
     /// query during the solve reads the set as it grows.
     pub fn add_tu(self, sc: unsafe *SemaContext) {
         if sc == &null || sc->tu == &null {
@@ -1982,7 +1982,7 @@ pub class EffectTable {
     }
 }
 
-/// The table \p sc's driver solved, or null.
+/// The table `sc`'s driver solved, or null.
 pub fn effects_of(sc: unsafe *SemaContext) -> unsafe *EffectTable {
     if sc == &null {
         return &null

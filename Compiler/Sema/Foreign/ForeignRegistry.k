@@ -1,6 +1,6 @@
 /// --- The Kairo Project --------------- Sema/Foreign/ForeignRegistry.k --- ///
 ///
-///   \brief Build-wide USR -> Kairo Decl. THE identity for imported entities.
+/// Build-wide USR -> Kairo Decl. THE identity for imported entities.
 ///
 ///   `c1.h`'s `struct Foo` reached through two different header sets is two
 ///   clang decls in two ASTContexts and ONE Kairo decl. Every cross-decl
@@ -92,7 +92,7 @@ pub class ForeignRegistry {
         return r.first->second
     }
 
-    /// Link \p m, a fresh ModuleDecl for the C++ namespace \p qual, into
+    /// Link `m`, a fresh ModuleDecl for the C++ namespace `qual`, into
     /// the redeclaration ring of the first one minted for that namespace.
     ///
     /// DeclImport mints one ModuleDecl per (header, namespace) -- one table
@@ -106,10 +106,10 @@ pub class ForeignRegistry {
     /// (Sema/Incremental/Retract.k), which judges each and gives the dead
     /// ones back to forget().
     ///
-    /// \note The USRs are VIEWS of the table's keys (a graph that uses C++
-    ///       containers has hundreds of thousands, and copying them was
-    ///       most of a retraction): valid until the table changes, which
-    ///       forget() does.
+    /// **Note:** The USRs are VIEWS of the table's keys (a graph that uses C++
+    /// containers has hundreds of thousands, and copying them was
+    /// most of a retraction): valid until the table changes, which
+    /// forget() does.
     pub fn entries(self,
                    usrs:  unsafe *cxx::std::vector<llvm::StringRef>,
                    decls: unsafe *cxx::std::vector<unsafe *Decl>) {
@@ -122,11 +122,11 @@ pub class ForeignRegistry {
         }
     }
 
-    /// Drops \p usrs, and what was noted about the shells \p shells: the
+    /// Drops `usrs`, and what was noted about the shells `shells`: the
     /// next import or stand-in under one of those USRs registers afresh.
     ///
-    /// \note \p usrs and \p orphans may be entries()'s views: each is read
-    ///       before its own key is erased, never after.
+    /// **Note:** `usrs` and `orphans` may be entries()'s views: each is read
+    /// before its own key is erased, never after.
     pub fn forget(self,
                   usrs:    unsafe *cxx::std::vector<llvm::StringRef>,
                   orphans: unsafe *cxx::std::vector<llvm::StringRef>,
@@ -149,15 +149,15 @@ pub class ForeignRegistry {
         }
     }
 
-    /// \brief \p usr is a stand-in this build declared for a Kairo
-    ///        declaration that a live check has since re-read: \p d, the
-    ///        declaration now asking under the same C++ name, takes it over.
-    ///        False when \p usr is no such stand-in (a header's own type).
+    /// `usr` is a stand-in this build declared for a Kairo
+    /// declaration that a live check has since re-read: `d`, the
+    /// declaration now asking under the same C++ name, takes it over.
+    /// False when `usr` is no such stand-in (a header's own type).
     ///
-    /// \details The clang record keeps the layout it was defined with.
-    ///          \c adopted lists what was taken over, so the caller can
-    ///          refuse the result when a layout moved (FrontendAction::
-    ///          refresh compares the interface hashes).
+    /// The clang record keeps the layout it was defined with.
+    /// `adopted` lists what was taken over, so the caller can
+    /// refuse the result when a layout moved (FrontendAction::
+    /// refresh compares the interface hashes).
     pub fn adopt(self, usr: llvm::StringRef, d: unsafe *Decl) -> bool {
         var lock = kairo::std::LockGuard(self._mu)
         if !self._orphans.contains(usr) {
@@ -220,8 +220,8 @@ pub class ForeignRegistry {
         return it->second
     }
 
-    /// The clang type \p opaque (an OpaqueFFIType) was imported from in the
-    /// ASTContext \p cctx, so TypeExport can spell it back. An opaque
+    /// The clang type `opaque` (an OpaqueFFIType) was imported from in the
+    /// ASTContext `cctx`, so TypeExport can spell it back. An opaque
     /// has no Kairo shape to rebuild a clang type from, and before this
     /// `vector<__m128i>` never filled and `std::move(v)` of one never
     /// deduced. Per context: the opaque is build-wide (keyed by spelling),

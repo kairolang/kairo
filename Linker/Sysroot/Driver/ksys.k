@@ -67,7 +67,7 @@ fn ksys_usage() -> string {
     return u
 }
 
-/// Prints \p o's refusal or failure the way the compiler's basic error
+/// Prints `o`'s refusal or failure the way the compiler's basic error
 /// format prints P009E / P010E, and returns its exit status.
 fn ksys_report(@inout o: SysOutcome) -> i32 {
     if o.status == 0 {
@@ -90,7 +90,7 @@ fn ksys_usage_error(const what: string) -> i32 {
 }
 
 /// `--name=value` or `--name value`; true when argv[i] is that option, with
-/// \p i advanced past its value.
+/// `i` advanced past its value.
 fn ksys_opt(@inout args: cxx::std::vector<string>,
             @inout i:    usize,
             const name:  string,

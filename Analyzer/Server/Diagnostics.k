@@ -166,7 +166,7 @@ extend Server {
 
     // --- snapshot lookups ------------------------------------------------
 
-    /// Starts the syntax-only pass of buffer \p di: its current text, parsed
+    /// Starts the syntax-only pass of buffer `di`: its current text, parsed
     /// alone (no imports, no Sema).
     fn start_syntax(self, di: usize) {
         if self.launch_held() {
@@ -226,9 +226,8 @@ extend Server {
         self.land_syntax(di, j->rev, &doc, true)
     }
 
-    /// Takes a syntax pass's answer \p doc (as syntax_main writes it) for
-    /// buffer \p di at server revision \p rev, and publishes it when \p
-    /// publish. Either path, a process per pass or the persistent worker,
+    /// Takes a syntax pass's answer `doc` (as syntax_main writes it) for
+    /// buffer `di` at server revision `rev`, and publishes it when `publish`. Either path, a process per pass or the persistent worker,
     /// under the one rule of SyntaxState::land: an answer for a text the
     /// buffer no longer holds is dropped (its positions are the old
     /// text's), and so is one older than what has landed.
@@ -275,9 +274,9 @@ extend Server {
         self.retry_parked(false)
     }
 
-    /// The diagnostics to show for \p path, as a JSON array, and their
-    /// number in \p n. The newest result wins per buffer: when the buffer's
-    /// syntax pass saw a later text than entry \p ei's last run, its errors
+    /// The diagnostics to show for `path`, as a JSON array, and their
+    /// number in `n`. The newest result wins per buffer: when the buffer's
+    /// syntax pass saw a later text than entry `ei`'s last run, its errors
     /// replace that run's syntax errors (which are at old positions, or
     /// fixed) and the run's other diagnostics stay until the next run. Sema
     /// results for every OTHER file are the run's alone.
@@ -330,7 +329,7 @@ extend Server {
         return out
     }
 
-    /// Publishes buffer \p di's diagnostics after its syntax pass, unless
+    /// Publishes buffer `di`'s diagnostics after its syntax pass, unless
     /// the entry's last run is at least as new (it has published already).
     fn publish_syntax(self, di: usize) {
         var path = self.docs.docs[di].path.copy()
@@ -369,8 +368,8 @@ extend Server {
         self.entries[ei].published = kept.copy()
     }
 
-    /// Publishes buffer \p di's diagnostics as they now compose (a live
-    /// worker's aside result landed for it), and keeps entry \p ei's list
+    /// Publishes buffer `di`'s diagnostics as they now compose (a live
+    /// worker's aside result landed for it), and keeps entry `ei`'s list
     /// of files that show some.
     fn publish_doc(self, ei: usize, di: usize) {
         var n:  usize = 0

@@ -78,9 +78,9 @@ pub class ResourceLayout {
 
     /// # builtin
 
-    /// \brief the builtin root the import resolver loads the prelude from:
-    ///        --builtins-dir, else <resource-dir>/builtin; "" with neither.
-    ///        As spelled: the caller makes it absolute if it needs to.
+    /// the builtin root the import resolver loads the prelude from:
+    /// --builtins-dir, else <resource-dir>/builtin; "" with neither.
+    /// As spelled: the caller makes it absolute if it needs to.
     pub static fn builtin_root_of(ci: unsafe *CompilerInvocation) -> string {
         if ci == &null {
             return ""
@@ -96,8 +96,8 @@ pub class ResourceLayout {
 
     /// # std
 
-    /// \brief the std root the library tests compare against: --std-dir,
-    ///        else <resource-dir>/std; "" with neither.
+    /// the std root the library tests compare against: --std-dir,
+    /// else <resource-dir>/std; "" with neither.
     pub static fn std_root_of(ci: unsafe *CompilerInvocation) -> string {
         if ci == &null {
             return ""
@@ -111,8 +111,8 @@ pub class ResourceLayout {
         return root
     }
 
-    /// \brief \p file is under the std root as spelled, without resolving
-    ///        a symlink on either side.
+    /// `file` is under the std root as spelled, without resolving
+    /// a symlink on either side.
     priv static fn _under_std_as_spelled(ci:         unsafe *CompilerInvocation,
                                          const file: string) -> bool {
         var root = ResourceLayout::std_root_of(ci)
@@ -127,8 +127,8 @@ pub class ResourceLayout {
         return file.starts_with(root)
     }
 
-    /// \brief \p file is in std: under the root as spelled, or once both
-    ///        are resolved (a std file reached through a symlinked tree).
+    /// `file` is in std: under the root as spelled, or once both
+    /// are resolved (a std file reached through a symlinked tree).
     pub static fn is_std_file(ci: unsafe *CompilerInvocation, const file: string) -> bool {
         if ResourceLayout::_under_std_as_spelled(ci, file) {
             return true

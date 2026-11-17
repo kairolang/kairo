@@ -87,7 +87,7 @@ pub enum JobKind derives u8 {
     Header,
 }
 
-/// The name of \p k in the trace.
+/// The name of `k` in the trace.
 pub fn job_kind_name(k: JobKind) -> string {
     if k == JobKind::Index {
         return "index"
@@ -433,7 +433,7 @@ pub class Parked {
 }
 
 extend Server {
-    /// Adds \p e to the entry list under a new id; its index.
+    /// Adds `e` to the entry list under a new id; its index.
     fn add_entry_(self, @inout e: Entry) -> usize {
         self.entry_seq += 1
         e.id = self.entry_seq
@@ -441,7 +441,7 @@ extend Server {
         return self.entries.size() - 1
     }
 
-    /// The index of the live (not retired) entry with id \p id, or
+    /// The index of the live (not retired) entry with id `id`, or
     /// usize::MAX: the project was reloaded, or the entry retired, under
     /// whoever holds the id.
     fn entry_by_id(const self, id: u64) -> usize {
@@ -458,7 +458,7 @@ extend Server {
         return usize::MAX
     }
 
-    /// Kills every index run of entry \p id (0: of every entry). Its result
+    /// Kills every index run of entry `id` (0: of every entry). Its result
     /// is dropped as a stale run's is, and reap still ends its progress.
     fn disown_runs_(self, id: u64) {
         for var q: usize = 0; q < self.jobs.size(); ++q {
@@ -477,7 +477,7 @@ extend Server {
         }
     }
 
-    /// Retires ad-hoc entry \p k: a project entry's graph holds its file
+    /// Retires ad-hoc entry `k`: a project entry's graph holds its file
     /// now and answers for it. Its diagnostics are cleared and its run in
     /// flight, if any, is killed and disowned (entry_by_id no longer finds
     /// it), so nothing it computed lands or is published.
@@ -506,7 +506,7 @@ extend Server {
         self.entries[ei].published.clear()
     }
 
-    /// The entry \p path belongs to, or usize::MAX when no entry is known to
+    /// The entry `path` belongs to, or usize::MAX when no entry is known to
     /// hold it yet.
     fn entry_of(const self, const path: string) -> usize {
         for var i: usize = 0; i < self.entries.size(); ++i {
@@ -524,7 +524,7 @@ extend Server {
         return usize::MAX
     }
 
-    /// How much of \p a and \p b's directory prefix is shared: the entry
+    /// How much of `a` and `b`'s directory prefix is shared: the entry
     /// nearest a file in the tree is the likeliest to import it.
     fn shared_prefix(const self, const a: string, const b: string) -> usize {
         var n:    usize = 0
@@ -540,7 +540,7 @@ extend Server {
         return last
     }
 
-    /// Could entry \p ei's import graph reach \p path at all? Only when the
+    /// Could entry `ei`'s import graph reach `path` at all? Only when the
     /// file is under the entry file's own directory or one of its `-I` roots.
     fn could_hold(const self, ei: usize, const path: string) -> bool {
         var home = Path::parent_of(self.entries[ei].entry) + "/"
@@ -570,7 +570,7 @@ extend Server {
         return false
     }
 
-    /// The entry for \p path. usize::MAX while that is not known yet.
+    /// The entry for `path`. usize::MAX while that is not known yet.
     ///
     /// An entry that IS the file, or whose last run read it, answers at once.
     /// Otherwise the project's entries are tried ONE AT A TIME, nearest in
@@ -632,7 +632,7 @@ extend Server {
         return self.add_entry_(&e)
     }
 
-    /// The entry that already answers for buffer \p di as it is: its last
+    /// The entry that already answers for buffer `di` as it is: its last
     /// run is current, indexed the file, and read from the disk the very
     /// text the buffer holds. usize::MAX when a run is needed (an edited
     /// buffer, a file the last run did not index, an entry not yet run).
@@ -660,7 +660,7 @@ extend Server {
         return ei
     }
 
-    /// Marks every entry that reads \p path as needing a run.
+    /// Marks every entry that reads `path` as needing a run.
     fn touch(self, const path: string) {
         self.rev += 1
         self.last_change_ms = now_ms()
@@ -827,7 +827,7 @@ extend Server {
         self.parked.push(p)
     }
 
-    /// Runs every parked request again. With \p force, the ones that have
+    /// Runs every parked request again. With `force`, the ones that have
     /// waited too long are answered from whatever snapshot there is.
     fn retry_parked(self, force: bool) {
         var old = self.parked.copy()

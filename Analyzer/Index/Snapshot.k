@@ -166,22 +166,21 @@ pub struct ScopeFact {
     var tag: u32 = 0
 }
 
-/// \class ScopeFacts
-/// \brief the ScopeFact of every declaration some file's overlay has
-///        named, by declaration, for the walks of one check.
+/// the ScopeFact of every declaration some file's overlay has
+/// named, by declaration, for the walks of one check.
 ///
-/// \details A core file is imported by hundreds of files and the builtin
-///          library by all of them: each of their walks would spell the
-///          same names and print the same signatures again (most of what
-///          the scope rows cost, measured on a 442-file graph). Shared by
-///          the walks of a check, which run on Sema's threads: every call
-///          takes the lock. A tree that a re-check replaced is freed in
-///          time (LiveCheck's retired trees, a whole re-check's old
-///          instance) and a later declaration may be given its address, in
-///          the middle of a step too: a fact answers only for the
-///          declaration whose name is where it was and whose node kind is
-///          the same (`loc`, `tag`), and the facts are emptied before each
-///          check or re-check (`clear`) so they do not grow.
+/// A core file is imported by hundreds of files and the builtin
+/// library by all of them: each of their walks would spell the
+/// same names and print the same signatures again (most of what
+/// the scope rows cost, measured on a 442-file graph). Shared by
+/// the walks of a check, which run on Sema's threads: every call
+/// takes the lock. A tree that a re-check replaced is freed in
+/// time (LiveCheck's retired trees, a whole re-check's old
+/// instance) and a later declaration may be given its address, in
+/// the middle of a step too: a fact answers only for the
+/// declaration whose name is where it was and whose node kind is
+/// the same (`loc`, `tag`), and the facts are emptied before each
+/// check or re-check (`clear`) so they do not grow.
 pub class ScopeFacts {
     var mu_:   kairo::std::Mutex
     var at_:   {u64: u32}

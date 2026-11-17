@@ -50,8 +50,7 @@ import Token::TokenKind::{
     token_kind_to_readable_string,
 }
 
-/// \struct UnwrappedToken
-/// \brief result of walking a macro-expansion chain to its origin.
+/// result of walking a macro-expansion chain to its origin.
 pub struct UnwrappedToken {
     pub var kind:        TokenKind ///< original token kind.
     pub var imm:         u32 ///< original imm index (ident/literal payload).
@@ -64,13 +63,13 @@ pub struct UnwrappedToken {
     ///  kind stays TkMacroExpand, imm is the sentinel.
 }
 
-/// \brief walks a TkMacroExpand chain back to the original token identity.
+/// walks a TkMacroExpand chain back to the original token identity.
 ///
-/// \details wrap_token chains original_kind/original_imm through nested
-///          wraps, so a well-formed token unwraps in one hop; the loop is
-///          defensive against malformed chains. Pure mechanism: reports
-///          nothing, moves nothing. Callers decide what hit_limit and
-///          is_sentinel mean for them.
+/// wrap_token chains original_kind/original_imm through nested
+/// wraps, so a well-formed token unwraps in one hop; the loop is
+/// defensive against malformed chains. Pure mechanism: reports
+/// nothing, moves nothing. Callers decide what hit_limit and
+/// is_sentinel mean for them.
 pub fn unwrap_expansion(tok:       Token,
                         tcm:       unsafe *TokenCacheManager,
                         max_depth: u32 = 32) -> UnwrappedToken {
@@ -130,7 +129,7 @@ pub fn unwrap_expansion(tok:       Token,
     return r
 }
 
-/// \brief canonical display text for a macro sentinel imm value.
+/// canonical display text for a macro sentinel imm value.
 pub fn sentinel_text(imm: u32) -> string {
     if imm == (MacroSentinel::Todo as u32) {
         return "<todo>"
@@ -176,7 +175,7 @@ pub class TokenText {
         self.is_marker = marker
     }
 
-    /// \brief resolves a token to its spelled text.
+    /// resolves a token to its spelled text.
     pub static fn resolve(tok: Token, tcm: unsafe *TokenCacheManager) -> TokenText {
         eval if defined!(DEBUG) {
             if !(tcm != &null) {
@@ -342,14 +341,14 @@ pub class TokenText {
         // THIS is dead-code, the default branch handles it, but we keep it here for clarity.
     }
 
-    /// \brief null-tolerant spelling accessor for scanners that resolve the imm
-    ///        table per token (PP scanners hold only a tcm, not a fixed table).
+    /// null-tolerant spelling accessor for scanners that resolve the imm
+    /// table per token (PP scanners hold only a tcm, not a fixed table).
     ///
-    /// \details identical to \c resolve().get_text() when \p tbl is non-null;
-    ///          falls back to raw source when the table can't be reached (e.g.
-    ///          a token whose range doesn't map to a live fid). For raw lexed
-    ///          identifiers the two agree, so this is behavior-neutral today and
-    ///          becomes the correct path once expansion can synthesize tokens.
+    /// identical to `resolve().get_text()` when `tbl` is non-null;
+    /// falls back to raw source when the table can't be reached (e.g.
+    /// a token whose range doesn't map to a live fid). For raw lexed
+    /// identifiers the two agree, so this is behavior-neutral today and
+    /// becomes the correct path once expansion can synthesize tokens.
     pub static fn spelling(tok: Token, tcm: unsafe *TokenCacheManager) -> string {
         eval if defined!(DEBUG) {
             if !(tcm != &null) {
@@ -369,7 +368,7 @@ pub class TokenText {
         return *TokenText::resolve(tok, tcm).get_text()
     }
 
-    /// \brief raw source slice for a RANGE (not a token).
+    /// raw source slice for a RANGE (not a token).
     pub static fn from_range(range: SourceRange, sm: unsafe *SourceManager) -> TokenText {
         eval if defined!(DEBUG) {
             if !(sm != &null) {
@@ -382,12 +381,13 @@ pub class TokenText {
         return TokenText(sm->get_text(range), range, false, false)
     }
 
-    /// \brief a view of the spelled text, not a copy.
-    /// \details Callers that keep the text past the owning TokenText, or
-    ///          change it, must copy it: `var s = *tt.get_text();`. Most
-    ///          callers read it off a temporary (`TokenText::resolve(..)
-    ///          .get_text()`), where the view lives to the end of the full
-    ///          expression, which is as long as they use it.
+    /// a view of the spelled text, not a copy.
+    ///
+    /// Callers that keep the text past the owning TokenText, or
+    /// change it, must copy it: `var s = *tt.get_text();`. Most
+    /// callers read it off a temporary (`TokenText::resolve(..)
+    /// .get_text()`), where the view lives to the end of the full
+    /// expression, which is as long as they use it.
     pub fn get_text(const self) -> unsafe *const string {
         return unsafe &self.text
     }

@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------------ Codegen/Emit/EmitIR.k --- ///
 ///
-///   \brief The body emitter. Declarations are InterfaceEmitter's; this
-///          writes what goes between the braces, plus the out-of-line
-///          headers those braces hang off (`double Circle::area() {`).
+/// The body emitter. Declarations are InterfaceEmitter's; this
+/// writes what goes between the braces, plus the out-of-line
+/// headers those braces hang off (`double Circle::area() {`).
 ///
 ///   \par Where its parts are
 ///     This file holds the class: its fields, construction, the TU entry
@@ -524,7 +524,7 @@ pub class EmitIR {
         self._cg->sink->brk()
     }
 
-    /// Records \p f's calling convention, if it has one, for the ABI note.
+    /// Records `f`'s calling convention, if it has one, for the ABI note.
     prot fn _cc_mark(self, f: unsafe *FunctionDecl) {
         if f == &null {
             return
@@ -655,7 +655,7 @@ pub class EmitIR {
         self._cg->sink->brk()
     }
 
-    /// Whether the interface PCH this TU loads already defines \p d's body.
+    /// Whether the interface PCH this TU loads already defines `d`'s body.
     prot fn _in_pch(self, d: unsafe *Decl) -> bool {
         return self.pch_bodies != &null && self.pch_bodies->contains(d as usize as u64)
     }
@@ -665,17 +665,17 @@ pub class EmitIR {
         return f->is_eval() || f->is_constexpr()
     }
 
-    /// \p f is an eval field's initializer thunk (FieldInitLowering): a
+    /// `f` is an eval field's initializer thunk (FieldInitLowering): a
     /// compiler-made consteval function the field's definition calls.
     priv fn _eval_thunk(self, f: unsafe *FunctionDecl) -> bool {
         return f->is_eval() && f->is_implicit
     }
 
-    /// An eval field's thunk \p f (`eval H: usize = HDR` in a class) is
+    /// An eval field's thunk `f` (`eval H: usize = HDR` in a class) is
     /// called by the field's definition right after its body
     /// (EmitIR::_eval_field_def), a constant expression evaluated there: the
     /// eval bindings it reads are defined first, with every binding before
-    /// them in \p vars (the plan's order puts a binding's own dependencies
+    /// them in `vars` (the plan's order puts a binding's own dependencies
     /// ahead of it). Any other compile-time body is evaluated only later.
     priv fn _thunk_reads_first(self,
                                f:    unsafe *FunctionDecl,
@@ -717,7 +717,7 @@ pub class EmitIR {
         }
     }
 
-    /// Whether \p d carries mark \p m (_marks).
+    /// Whether `d` carries mark `m` (_marks).
     prot fn _marked(self, d: unsafe *Decl, m: BodyMark) -> bool {
         var it = self._marks.find(d as usize as u64)
         if it == self._marks.end() {
@@ -732,7 +732,7 @@ pub class EmitIR {
         (*slot) = (*slot) | (m as u8)
     }
 
-    /// Whether compile-time body \p f is already written (the eval pass, or
+    /// Whether compile-time body `f` is already written (the eval pass, or
     /// an early item).
     prot fn _done(self, f: unsafe *FunctionDecl) -> bool {
         return self._marked(unsafe (f as unsafe *Decl), BodyMark::Done)
@@ -818,7 +818,7 @@ pub class EmitIR {
 
     /// ## Constructors that initialize a field in place (file header)
 
-    /// The length of \p t when it is a fixed array of known length (the one
+    /// The length of `t` when it is a fixed array of known length (the one
     /// kind of field whose slot hands its value over element by element),
     /// else usize(-1). CtorInitCheck gated a generic length.
     prot fn _array_extent(self, t: unsafe *Type) -> usize {
@@ -924,7 +924,7 @@ pub class EmitIR {
         return isa<ClassDecl>(d) || isa<StructDecl>(d) || isa<UnionDecl>(d) || isa<EnumDecl>(d)
     }
 
-    /// An untyped \p e reached codegen: I011W at its source (CodegenICE).
+    /// An untyped `e` reached codegen: I011W at its source (CodegenICE).
     prot fn _ice_untyped(self, e: unsafe *Expr, const msg: string) {
         codegen_ice(
             self._cg->ctx,
@@ -934,7 +934,7 @@ pub class EmitIR {
         )
     }
 
-    /// ICE naming the Kairo source at \p at (CodegenICE).
+    /// ICE naming the Kairo source at `at` (CodegenICE).
     prot fn _ice(self, at: SourceRange, const msg: string) {
         codegen_ice(self._cg->ctx, at, msg)
     }
@@ -988,7 +988,7 @@ pub class EmitIR {
     /// and records are untouched. `no_wrap` (proven not to overflow) prints
     /// C++'s operator.
 
-    /// \p e, parens aside.
+    /// `e`, parens aside.
     prot fn _strip(self, e: unsafe *Expr) -> unsafe *Expr {
         var unsafe *x = e
         while x != &null && isa<ParenExpr>(x) {

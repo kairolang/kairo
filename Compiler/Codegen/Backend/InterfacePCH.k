@@ -1,9 +1,9 @@
 /// --- The Kairo Project --------------- Codegen/Backend/InterfacePCH.k --- ///
 ///
-///   \brief The program's interface PCH: every module's declarations and
-///          template / inline bodies, parsed once, chained on the merged
-///          header PCH. Every TU of the build loads it and emits only what
-///          its own object defines.
+/// The program's interface PCH: every module's declarations and
+/// template / inline bodies, parsed once, chained on the merged
+/// header PCH. Every TU of the build loads it and emits only what
+/// its own object defines.
 ///
 ///   Why (Compiler/Spec/Codegen.md#the-interface-pch): a TU's stream was
 ///   its whole preamble -- every declaration it reaches, own and foreign --
@@ -86,10 +86,9 @@ import Location::SourceManager::FileID
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Support::TimeReport::TimeRegion
 
-/// \class InterfacePCHAction
-/// \brief Writes InterfacePCH's bytes: a prefix parse of the injected
-///        stream (InterfacePCH::inject), as CodegenPCHAction is of the
-///        headers' text.
+/// Writes InterfacePCH's bytes: a prefix parse of the injected
+/// stream (InterfacePCH::inject), as CodegenPCHAction is of the
+/// headers' text.
 pub class InterfacePCHAction derives clang::ASTFrontendAction {
     pub var _buf:  cxx::std::shared_ptr<clang::PCHBuffer>
     pub var owner: unsafe *InterfacePCH                   = &null
@@ -100,8 +99,7 @@ pub class InterfacePCHAction derives clang::ASTFrontendAction {
     override fn BeginSourceFileAction(self, @inout ci: clang::CompilerInstance) -> bool
 }
 
-/// \class InterfacePCH
-/// \brief One build's interface PCH and the keys of what it holds.
+/// One build's interface PCH and the keys of what it holds.
 ///
 /// Built on the driver thread after CodegenRun::mount and before the
 /// fan-out; read-only from then on, by every worker (`seen` is only ever
@@ -158,7 +156,7 @@ pub class InterfacePCH {
     }
 
     /// Turns the Sema agreement pass on for the PCH's parse: before
-    /// build(). \p repair and \p count_unrecorded as KairoInject::agree_start.
+    /// build(). `repair` and `count_unrecorded` as KairoInject::agree_start.
     pub fn agree_start(self, repair: bool, count_unrecorded: bool) {
         if self.agree == &null {
             self.agree = kairo::std::create<kairo::SemaAgreeTable>()
@@ -187,13 +185,14 @@ pub class InterfacePCH {
         self._plans.push_back(plan)
     }
 
-    /// \brief builds the PCH over every add()ed TU.
+    /// builds the PCH over every add()ed TU.
     ///
-    /// \param header  the merged header PCH (CodegenPCH), or null: the
-    ///                interface PCH chains on it, so a TU still loads one
-    ///                implicit PCH.
-    /// \param mounts  what the build's VFS holds (CodegenRun::mount), the
-    ///                header PCH among it.
+    /// ### Parameters
+    /// - `header`: the merged header PCH (CodegenPCH), or null: the
+    ///   interface PCH chains on it, so a TU still loads one
+    ///   implicit PCH.
+    /// - `mounts`: what the build's VFS holds (CodegenRun::mount), the
+    ///   header PCH among it.
     pub fn build(self,
                  be:     unsafe *ClangBackend,
                  header: unsafe *CodegenPCH,

@@ -58,8 +58,8 @@ pub class HostSystem {
     /// "glibc", "musl" or "" for the Linux host's C library, by its dynamic
     /// loader: the compiler's own process triple is fixed when it is built
     /// and says nothing about the machine it runs on. glibc wins when both
-    /// are installed (a glibc distro with musl-gcc beside it). \p arch is
-    /// Toolchain's canonical spelling, \p hf whether 32-bit ARM is hard-float.
+    /// are installed (a glibc distro with musl-gcc beside it). `arch` is
+    /// Toolchain's canonical spelling, `hf` whether 32-bit ARM is hard-float.
     pub static fn host_libc(const arch: string, hf: bool) -> string {
         var env_g = if (hf) => ("gnueabihf") else => "gnu"
         var env_m = if (hf) => ("musleabihf") else => "musl"
@@ -124,8 +124,8 @@ pub class HostSystem {
         return out
     }
 
-    /// Appends \p d to \p out when it is a directory whose real path is not
-    /// in \p seen yet.
+    /// Appends `d` to `out` when it is a directory whose real path is not
+    /// in `seen` yet.
     pub static fn add_dir(@inout out:  cxx::std::vector<string>,
                           @inout seen: cxx::std::vector<string>,
                           const d:     string) {
@@ -179,7 +179,7 @@ pub class HostSystem {
     ///
     /// \panic PkgConfigError: no pkg-config, or it failed (an unknown
     ///        package; its own first line of stderr is appended). A user
-    ///        error the caller reports, so a panic and not an ICE; \p words
+    ///        error the caller reports, so a panic and not an ICE; `words`
     ///        is untouched then.
     pub static fn pkg_config(const name:   string,
                              @inout words: cxx::std::vector<string>) panic(PkgConfigError) {
@@ -354,9 +354,9 @@ pub class HostSystem {
 
     /// # Library resolution
 
-    /// The file lld would take for `-l<name>` searching \p dirs in order:
+    /// The file lld would take for `-l<name>` searching `dirs` in order:
     /// per directory lib<name>.so, then lib<name>.a (only .a when
-    /// \p static_only). "" when none matches.
+    /// `static_only`). "" when none matches.
     static fn find_lib(const name:  string,
                        @inout dirs: cxx::std::vector<string>,
                        static_only: bool) -> string {
@@ -377,13 +377,13 @@ pub class HostSystem {
         return ""
     }
 
-    /// Whether \p path names a shared object: foo.so or foo.so.1.2.
+    /// Whether `path` names a shared object: foo.so or foo.so.1.2.
     pub static fn is_shared(const path: string) -> bool {
         var base = LinkFS::filename(path)
         return LinkText::ends_with(base.copy(), ".so") || LinkText::contains(base, ".so.")
     }
 
-    /// Whether \p path lies under directory \p root (both made real).
+    /// Whether `path` lies under directory `root` (both made real).
     static fn under(const path: string, const root: string) -> bool {
         if root.is_empty() || root == "/" {
             return false
@@ -396,7 +396,7 @@ pub class HostSystem {
 
     /// # DT_VERNEED
 
-    /// The highest GLIBC_<version> \p path needs and its soname. A linker
+    /// The highest GLIBC_<version> `path` needs and its soname. A linker
     /// script (libc.so is one) or any non-ELF file comes back !ok; so does a
     /// truncated one, rather than reading past its end.
     static fn glibc_needs(const path: string) -> HostLibNeeds {
@@ -546,7 +546,7 @@ pub class HostSystem {
         return LinkText::slice(name, 6, name.size())
     }
 
-    /// \p n bytes at \p off as an unsigned integer; 0 past the end.
+    /// `n` bytes at `off` as an unsigned integer; 0 past the end.
     priv static fn _rd(@inout d: string, off: u64, n: u64, be: bool) -> u64 {
         if off + n > (d.size() as u64) {
             return 0
@@ -566,8 +566,8 @@ pub class HostSystem {
         return v
     }
 
-    /// The NUL-terminated string at \p idx of the string table at
-    /// [\p base, \p base + \p len); "" when out of range.
+    /// The NUL-terminated string at `idx` of the string table at
+    /// [`base`, `base` + `len`); "" when out of range.
     priv static fn _cstr(@inout d: string, base: u64, len: u64, idx: u64) -> string {
         if idx >= len {
             return ""

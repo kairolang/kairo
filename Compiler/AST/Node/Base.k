@@ -214,7 +214,7 @@ pub class Decl derives VisibilityAnnotation<Decl>, Annotation<Decl> {
         return self.lexical_dc != &null && self.lexical_dc != self.semantic_dc
     }
 
-    /// Copy sema-owned slots from \p other. See Expr::adopt_sema. For decl
+    /// Copy sema-owned slots from `other`. See Expr::adopt_sema. For decl
     /// splits/splices in ASTWriter where the replacement stands for the
     /// same declared entity.
     pub fn adopt_sema(self, other: unsafe *Decl) {
@@ -318,7 +318,7 @@ pub class Type derives TypeQual<Type>, Annotation<Type> { // all types have qual
         return self.poisoned
     }
 
-    /// Copy sema-owned slots from \p other. See Expr::adopt_sema. For Type
+    /// Copy sema-owned slots from `other`. See Expr::adopt_sema. For Type
     /// this carries the canonical link + layout a post-sema rewrite that
     /// substitutes an equivalent type keeps its resolved identity. If the
     /// rewrite CHANGES the type's meaning, do not call this; let
@@ -428,7 +428,7 @@ pub class AstPattern derives Annotation<AstPattern> {
         self.type_ = t
     }
 
-    /// Copy sema-owned slots from \p other. See Expr::adopt_sema.
+    /// Copy sema-owned slots from `other`. See Expr::adopt_sema.
     fn adopt_sema(self, other: unsafe *AstPattern) {
         if other == &null {
             return

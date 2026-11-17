@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------- Sema/Resolve/ResolutionTrace.k --- ///
 ///
-///   \brief An ordered record of every scope, declaration and binding
-///          decision NameResolution made, for `--print-sema`.
+/// An ordered record of every scope, declaration and binding
+/// decision NameResolution made, for `--print-sema`.
 ///
 ///   \detail
 ///     The AST records the RESULT of name resolution (`resolved_decl`,
@@ -47,10 +47,9 @@ import AST::Context::DeclContext::DeclContext
 import AST::Node::Base::Decl
 import Location::SourceRange::SourceRange
 
-/// \enum MemberOutcome
-/// \brief What ChainBinding decided about one chain step. Joined onto N's
-///        Member row by SemaDump via the step's location, so the scopes
-///        section still reads in source order.
+/// What ChainBinding decided about one chain step. Joined onto N's
+/// Member row by SemaDump via the step's location, so the scopes
+/// section still reads in source order.
 pub enum MemberOutcome derives u8 {
     None = 0,       ///< ChainBinding did not run (phase stopped before T).
     Bound,          ///< resolved_decl set.
@@ -60,7 +59,6 @@ pub enum MemberOutcome derives u8 {
     Errored,        ///< diagnosed here.
 }
 
-/// \class MemberResult
 pub class MemberResult {
     pub var outcome:  MemberOutcome = MemberOutcome::None
     pub var decl:     unsafe *Decl  = &null               ///< Bound.
@@ -69,9 +67,8 @@ pub class MemberResult {
     fn MemberResult(self) { }
 }
 
-/// \enum TraceVia
-/// \brief WHICH of N's three lookup sources answered. This is the column a
-///        reader checks first when a name bound to the wrong thing.
+/// WHICH of N's three lookup sources answered. This is the column a
+/// reader checks first when a name bound to the wrong thing.
 pub enum TraceVia derives u8 {
     None = 0, ///< no lookup happened (a Declare row).
     Local,    ///< a lexical frame: body local, param, generic or binder.
@@ -80,10 +77,9 @@ pub enum TraceVia derives u8 {
     Miss,     ///< nothing found anywhere; diagnosed as undeclared.
 }
 
-/// \enum TraceScopeKind
-/// \brief What kind of lexical frame a ScopeOpen row opened. Frames are the
-///        construct-level scopes N pushes, NOT DeclContexts   a class body
-///        never appears here because it has a table, not a frame.
+/// What kind of lexical frame a ScopeOpen row opened. Frames are the
+/// construct-level scopes N pushes, NOT DeclContexts   a class body
+/// never appears here because it has a table, not a frame.
 pub enum TraceScopeKind derives u8 {
     Function = 0,
     Closure,
@@ -94,20 +90,18 @@ pub enum TraceScopeKind derives u8 {
     ContextBinding,
 }
 
-/// \enum TraceMemberKind
-/// \brief What a deferred chain step named. Steps have no single spelling in
-///        common: `.x` is an identifier, `.0` an ordinal, `Foo::op+` a token
-///        pair, so the renderer has to be told which one to read.
+/// What a deferred chain step named. Steps have no single spelling in
+/// common: `.x` is an identifier, `.0` an ordinal, `Foo::op+` a token
+/// pair, so the renderer has to be told which one to read.
 pub enum TraceMemberKind derives u8 {
     Name = 0,   ///< `.x`   -- `name` holds the imm.
     Operator,   ///< `op+`  -- no imm; the spelling lives on the AST step.
     TupleIndex, ///< `.0`   -- `index` holds the ordinal.
 }
 
-/// \enum TraceSep
-/// \brief The access operator that reached a step. Mirrors
-///        ChainExpr::AccessKind, duplicated rather than imported so the
-///        trace stays a leaf that depends on nothing but Decl and locations.
+/// The access operator that reached a step. Mirrors
+/// ChainExpr::AccessKind, duplicated rather than imported so the
+/// trace stays a leaf that depends on nothing but Decl and locations.
 pub enum TraceSep derives u8 {
     Dot = 0,       ///< `.`
     Arrow,         ///< `->`
@@ -116,7 +110,6 @@ pub enum TraceSep derives u8 {
     QuestionArrow, ///< `?->`
 }
 
-/// \enum TraceRowKind
 pub enum TraceRowKind derives u8 {
     ScopeOpen = 0,
     ScopeClose,
@@ -125,13 +118,10 @@ pub enum TraceRowKind derives u8 {
     Member,  ///< a chain step N deliberately did NOT bind (needs T).
 }
 
-///
-/// \class TraceRow
-/// \brief One recorded decision. A single wide row rather than a variant per
-///        kind: the whole structure exists to be printed, the row count is
-///        bounded by the size of the TU's bodies, and a tagged union here
-///        would buy nothing but ceremony.
-///
+/// One recorded decision. A single wide row rather than a variant per
+/// kind: the whole structure exists to be printed, the row count is
+/// bounded by the size of the TU's bodies, and a tagged union here
+/// would buy nothing but ceremony.
 pub class TraceRow {
     pub var kind:  TraceRowKind = TraceRowKind::ScopeOpen
     pub var depth: usize        = 0                       ///< lexical frame depth, for indent.
@@ -184,10 +174,7 @@ pub class TraceRow {
     fn TraceRow(self) { }
 }
 
-///
-/// \class ResolutionTrace
-/// \brief The append-only row stream, plus the enable flag.
-///
+/// The append-only row stream, plus the enable flag.
 pub class ResolutionTrace {
     pub var enabled: bool                       = false
     pub var rows:    cxx::std::vector<TraceRow>

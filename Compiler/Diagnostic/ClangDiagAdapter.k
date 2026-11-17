@@ -39,7 +39,7 @@ import Support::Ascii::{
 }
 import Support::FileIO::Path::Path
 
-/// A clang fix-it edit of the Kairo source: \c at replaced by \c text
+/// A clang fix-it edit of the Kairo source: `at` replaced by `text`
 /// ("" removes it).
 pub struct ClangFixEdit {
     pub var at:   SourceRange = SourceRange::invalid()
@@ -457,7 +457,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         return self.ksm->get_range(kb, start, end - start)
     }
 
-    /// \p msg is a "'X' declared here" note whose location in a `.k` file
+    /// `msg` is a "'X' declared here" note whose location in a `.k` file
     /// does not spell X: the declaration is one codegen wrote (a module
     /// namespace, under typo correction, passes its name as text, so
     /// clang_diag_names_namespace cannot see it), and the note would point
@@ -509,7 +509,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         return !rest.starts_with(name)
     }
 
-    /// \p r is in a `.k` file: C++ Kairo emitted, not a host's own source.
+    /// `r` is in a `.k` file: C++ Kairo emitted, not a host's own source.
     priv fn _in_kairo_source(self, r: SourceRange) -> bool {
         var nm = self.ksm->get_filename(r)
         var n  = nm.size()
@@ -650,7 +650,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
     }
 
-    /// \p h is a removal or a replacement of ONE token whose spelling in the
+    /// `h` is a removal or a replacement of ONE token whose spelling in the
     /// emitted C++ equals the Kairo text at the position it maps to. The C++
     /// spelling is read at the SPELLING location: a token the emitter
     /// synthesized is spelled in a scratch buffer and only EXPANDS into the
@@ -860,7 +860,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         return found
     }
 
-    /// \p r is in a `.k` file outside the library roots.
+    /// `r` is in a `.k` file outside the library roots.
     priv fn _user_kairo(self, r: SourceRange) -> bool {
         if !r.is_valid() || !self._in_kairo_source(r) {
             return false
@@ -885,7 +885,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         return true
     }
 
-    /// One error at the Kairo frame \p ai for the open group: clang's
+    /// One error at the Kairo frame `ai` for the open group: clang's
     /// message as the reason, its location as a note, the frames folded
     /// into a count (all of them under --diag-cxx-chain). A group at the
     /// place of the held error is folded into that one.
@@ -960,7 +960,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         self._held_at = at
     }
 
-    /// What the frame \p msg instantiates: "member function 'X::f'" of
+    /// What the frame `msg` instantiates: "member function 'X::f'" of
     /// "in instantiation of member function 'X::f' requested here".
     static fn _frame_entity(const msg: string) -> string {
         var pre = "in instantiation of "
@@ -977,7 +977,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         return "a C++ template"
     }
 
-    /// \p msg is one of clang's instantiation-context notes: the stack of
+    /// `msg` is one of clang's instantiation-context notes: the stack of
     /// template instantiations, default arguments, substitutions and
     /// implicit members that leads from the use to the error.
     static fn _is_frame(const msg: string) -> bool {
@@ -1002,7 +1002,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         return f"its field '{self._g.why_field}' is a '{c}', whose copy constructor {tail} and which has no move constructor"
     }
 
-    /// The Kairo fix on \p b: a note at the copy constructor and, where
+    /// The Kairo fix on `b`: a note at the copy constructor and, where
     /// the parameter's Kairo text is its name, `const` inserted before it.
     priv fn _explain_copy(self, b: unsafe *DiagBuilder) {
         var p = self._g.why_param.copy()
@@ -1088,7 +1088,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
     }
 
-    /// \p loc (its expansion) in Kairo terms, \p len bytes long, or invalid.
+    /// `loc` (its expansion) in Kairo terms, `len` bytes long, or invalid.
     priv fn _kairo_range_at(self,
                             loc: clang::SourceLocation,
                             csm: unsafe *const clang::SourceManager,
@@ -1114,8 +1114,8 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         )
     }
 
-    /// Where the Kairo declaration starting on the line of \p at names its
-    /// parameter \p nm (`nm:`, as a whole word, not already `const`), or
+    /// Where the Kairo declaration starting on the line of `at` names its
+    /// parameter `nm` (`nm:`, as a whole word, not already `const`), or
     /// invalid. The emitted constructor's tokens carry locations near, not
     /// exactly at, the Kairo tokens they come from, so the name is found in
     /// the Kairo text, up to the body's `{` or a `;`.

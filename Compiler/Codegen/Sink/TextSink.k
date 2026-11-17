@@ -1,8 +1,8 @@
 /// --- The Kairo Project ---------------------- Codegen/Sink/TextSink.k --- ///
 ///
-///   \brief EmitSink that writes bytes. The interop header (EmitCXXHeader)
-///          and --print-cxx. Same emitter, same fragments as the token
-///          stream; only the landing differs.
+/// EmitSink that writes bytes. The interop header (EmitCXXHeader)
+/// and --print-cxx. Same emitter, same fragments as the token
+/// stream; only the landing differs.
 ///
 ///   Formatting is minimal and deterministic: one space between tokens,
 ///   a newline after `;` `{` `}` and after a directive, brace-depth
@@ -47,7 +47,7 @@ pub class TextSink derives EmitSink {
     /// built in `_line` and written at its break, under a `#line` naming the
     /// Kairo file and line of its first located token, or, for a line with
     /// none (guards, includes, glue the emitter invents), under one naming
-    /// \ref self_path at the line's own number. A directive is written only
+    /// `self_path` at the line's own number. A directive is written only
     /// where the attribution changes, so a run of lines from consecutive
     /// Kairo lines carries one.
     pub var  line_mode:  bool   = false
@@ -628,7 +628,7 @@ pub class TextSink derives EmitSink {
         return prelude
     }
 
-    /// finish_layout's placement, from nothing: every record from \p first
+    /// finish_layout's placement, from nothing: every record from `first`
     /// on, onto `_pl_text` (_skip_fwd says which forward declarations
     /// claim no line).
     priv fn _lay_(self, first: usize, const include_line: string) {
@@ -979,8 +979,8 @@ pub class TextSink derives EmitSink {
         return any
     }
 
-    /// The preprocessor conditional depth after record \p t (a directive
-    /// when \p dir), from \p d.
+    /// The preprocessor conditional depth after record `t` (a directive
+    /// when `dir`), from `d`.
     priv static fn _cond_depth_(const t: string, dir: bool, d: usize) -> usize {
         if !dir {
             return d
@@ -998,7 +998,7 @@ pub class TextSink derives EmitSink {
         return d
     }
 
-    /// \p t without every leading `template<...>` head (a member template
+    /// `t` without every leading `template<...>` head (a member template
     /// of a class template has two); `template<>` is kept.
     priv static fn _untemplate_all_(const t: string) -> string {
         var u = t.copy()
@@ -1014,7 +1014,7 @@ pub class TextSink derives EmitSink {
         return u
     }
 
-    /// The name a function head (no template head) declares, and in \p qual
+    /// The name a function head (no template head) declares, and in `qual`
     /// whether it is qualified (`X<T>::f`, `X::~X`, `X::operator[]`): an
     /// operator is `operator`; else the identifier before the first `(`
     /// that is not a type or attribute spelling (`decltype(sizeof(0))`).
@@ -1251,7 +1251,7 @@ pub class TextSink derives EmitSink {
         return 0
     }
 
-    /// Text on physical line \p k (ahead of the cursor), with the first
+    /// Text on physical line `k` (ahead of the cursor), with the first
     /// `#line` naming the Kairo file on the line before it when there is room.
     priv fn _place_(self, k: usize, const text: string, depth_after: usize) {
         if (!self._mapped) && (k >= (self._cursor + 2)) {
@@ -1270,7 +1270,7 @@ pub class TextSink derives EmitSink {
         self._pl_decl[k - 1] = k
     }
 
-    /// Text on line \p k, the lines between padded with nothing.
+    /// Text on line `k`, the lines between padded with nothing.
     priv fn _fresh_(self, k: usize, const text: string, depth_after: usize) {
         while self._pl_text.size() < (k - 1) {
             self._pl_text.push("")
@@ -1310,8 +1310,8 @@ pub class TextSink derives EmitSink {
         return false
     }
 
-    /// The `///` block directly above line \p k of the home .k file, top
-    /// line first, as written (\p top: its first line). The block kals'
+    /// The `///` block directly above line `k` of the home .k file, top
+    /// line first, as written (`top`: its first line). The block kals'
     /// hover shows (Hovers.k doc_): attribute lines between it and the
     /// declaration are passed over, a bare `//` ends it, and a block opening
     /// with a `/// ---` rule is the file's license banner, not a doc.
@@ -1611,7 +1611,7 @@ pub class TextSink derives EmitSink {
             && (!TextSink::_has_(t, "="))
     }
 
-    /// \p t without a leading `template<...> ` head (balanced), else \p t;
+    /// `t` without a leading `template<...> ` head (balanced), else `t`;
     /// an explicit specialization's `template<>` is kept.
     priv static fn _untemplate_(const t: string) -> string {
         if (!t.starts_with("template<")) || t.starts_with("template<>") {
@@ -1729,7 +1729,7 @@ pub class TextSink derives EmitSink {
         return n != z
     }
 
-    /// \p name in \p s as a whole identifier.
+    /// `name` in `s` as a whole identifier.
     priv static fn _has_word_(const s: string, const name: string) -> bool {
         if name.is_empty() || (name.size() > s.size()) {
             return false

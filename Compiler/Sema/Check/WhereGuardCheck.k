@@ -1,8 +1,8 @@
 /// --- The Kairo Project ----------------- Sema/Check/WhereGuardCheck.k --- ///
 ///
-///   \brief Judge every `where` dispatch group: what may be guarded, that a
-///          group has a fallback, that its members agree, and which guards
-///          can never fire or overlap an earlier one (where.mdx).
+/// Judge every `where` dispatch group: what may be guarded, that a
+/// group has a fallback, that its members agree, and which guards
+/// can never fire or overlap an earlier one (where.mdx).
 ///
 ///   \detail
 ///     A group is the same-signature overloads of one name in one scope,
@@ -453,7 +453,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         return false
     }
 
-    /// \p b's bounds read over \p a's generic parameters equal \p a's:
+    /// `b`'s bounds read over `a`'s generic parameters equal `a`'s:
     /// one C++ template signature, so one set of constraints. Compared as
     /// (parameter, interface / base) pairs from the bound table.
     priv fn _same_bounds(self,
@@ -739,7 +739,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         }
     }
 
-    /// Narrow member \p m's box by \p e; false when \p e is not simple.
+    /// Narrow member `m`'s box by `e`; false when `e` is not simple.
     priv fn _narrow(self, m: usize, f: unsafe *FunctionDecl, e0: unsafe *Expr) -> bool {
         var unsafe *e = self._tu.strip_parens(e0)
         if e == &null {
@@ -856,7 +856,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         return false
     }
 
-    /// Intersect member \p m's interval for \p p with [lo, hi].
+    /// Intersect member `m`'s interval for `p` with [lo, hi].
     priv fn _clip(self, m: usize, p: usize, lo: i64, hi: i64) -> bool {
         var at = m * self._np + p
         if lo > self._lo[at] {
@@ -874,7 +874,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         return true
     }
 
-    /// \p e names one of \p f's own integer parameters: its index.
+    /// `e` names one of `f`'s own integer parameters: its index.
     priv fn _int_param(self, f: unsafe *FunctionDecl, e: unsafe *Expr) -> usize {
         var p = self._param_of(f, e)
         if p == usize::MAX {
@@ -930,7 +930,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         return p
     }
 
-    /// \p e folded to an i64 (the header's range).
+    /// `e` folded to an i64 (the header's range).
     priv fn _const(self, e: unsafe *Expr, out: unsafe *i64) -> bool {
         var c = self._ce.eval_int(e)
         if !c.ok || c.overflow {
@@ -962,7 +962,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
 
     /// # relations
 
-    /// Box \p b inside box \p a.
+    /// Box `b` inside box `a`.
     priv fn _inside(self, a: usize, b: usize) -> bool {
         for var p: usize = 0; p < self._np; ++p {
             var ia = a * self._np + p
@@ -989,7 +989,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         return true
     }
 
-    /// The parameters box \p m constrains: none (the whole space), one
+    /// The parameters box `m` constrains: none (the whole space), one
     /// (`index` says which), or more than one.
     priv fn _only_param(self, m: usize) -> BoxParam {
         var found = BoxParam{}
@@ -1011,8 +1011,8 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         return found
     }
 
-    /// [lo, hi] of parameter \p p inside the union of the simple, non-empty
-    /// boxes among members [0, upto) that constrain only \p p (or nothing).
+    /// [lo, hi] of parameter `p` inside the union of the simple, non-empty
+    /// boxes among members [0, upto) that constrain only `p` (or nothing).
     priv fn _union_covers(self, upto: usize, p: usize, lo: i64, hi: i64) -> bool {
         var cur = lo
         while true {

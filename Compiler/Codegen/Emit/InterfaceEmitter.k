@@ -1,9 +1,9 @@
 /// --- The Kairo Project -------------- Codegen/Emit/InterfaceEmitter.k --- ///
 ///
-///   \brief Emit an EmitPlan as C++ declarations. Two callers, one emitter
-///          (Compiler/Spec/Codegen.md#plan-modes): Backend for a TU's preamble
-///              (TokenSink),
-///          EmitCXXHeader for the module's interop header (TextSink).
+/// Emit an EmitPlan as C++ declarations. Two callers, one emitter
+/// (Compiler/Spec/Codegen.md#plan-modes): Backend for a TU's preamble
+///     (TokenSink),
+/// EmitCXXHeader for the module's interop header (TextSink).
 ///
 ///   \par Where its parts are
 ///     This file holds the class: its fields, construction, run() (the
@@ -296,7 +296,7 @@ pub class InterfaceEmitter {
         return out
     }
 
-    /// ICE naming the Kairo source at \p at (CodegenICE).
+    /// ICE naming the Kairo source at `at` (CodegenICE).
     prot fn _ice(self, at: SourceRange, const msg: string) {
         codegen_ice(self._cg->ctx, at, msg)
     }
@@ -1140,7 +1140,7 @@ pub class InterfaceEmitter {
         self._cg->sink->directive(at, "#endif")
     }
 
-    /// \p d, or a record nested in it, is `@relocatable`.
+    /// `d`, or a record nested in it, is `@relocatable`.
     priv fn _holds_relocatable(self, d: unsafe *Decl) -> bool {
         if !self._is_type(d) {
             return false
@@ -1226,8 +1226,8 @@ pub class InterfaceEmitter {
 
     /// The early fns held back from the declarations ahead of tier 1 (their
     /// signature computes from another early item), each declared once no
-    /// item its signature needs is still in \p todo; one defined meanwhile
-    /// needs no declaration. Taken off \p late either way.
+    /// item its signature needs is still in `todo`; one defined meanwhile
+    /// needs no declaration. Taken off `late` either way.
     priv fn _late_decls(self,
                         @inout late:   cxx::std::vector<unsafe *Declarations::FunctionDecl>,
                         @inout late_d: cxx::std::vector<unsafe *Decl>,
@@ -1350,7 +1350,7 @@ pub class InterfaceEmitter {
 
     /// Emit an access specifier when the member's visibility differs from
     /// the running one. `prot` is `protected`.
-    /// \p default_priv: an unmarked member of this kind is private (a class's
+    /// `default_priv`: an unmarked member of this kind is private (a class's
     /// variables, and nothing else).
     prot fn _access(self, cur: u8, want_in: u8, default_priv: bool, at: SourceRange) -> u8 {
         var want = want_in

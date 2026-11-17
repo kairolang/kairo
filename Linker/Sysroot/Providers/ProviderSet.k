@@ -22,8 +22,8 @@ import Sysroot::Providers::User::UserProvider
 import Sysroot::Providers::Wasi::WasiProvider
 
 pub class ProviderSet {
-    /// A new provider for \p id (the caller destroys it); null for an
-    /// unknown id. \p input is --input, which only the user provider reads.
+    /// A new provider for `id` (the caller destroys it); null for an
+    /// unknown id. `input` is --input, which only the user provider reads.
     pub static fn make(const id: string, const input: string) -> unsafe *SysrootProvider {
         if id == "musl" {
             return unsafe (kairo::std::create<MuslProvider>() as unsafe *SysrootProvider)

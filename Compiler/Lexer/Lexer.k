@@ -67,8 +67,8 @@ import Token::TokenKind::{
 }
 import std::io
 
-/// The bytes of string token \p t's FIRST segment, prefix, quotes and
-/// suffix included; \p len (its range's size) for anything else. A chain
+/// The bytes of string token `t`'s FIRST segment, prefix, quotes and
+/// suffix included; `len` (its range's size) for anything else. A chain
 /// is one token whose range covers every segment; a reader that
 /// handles the later segments itself -- kals' tokens colour each apart,
 /// kfmt keeps them in the gap after the head -- takes the head's own
@@ -106,8 +106,9 @@ pub fn chain_head_len(imm: unsafe *ImmediateTable, t: Token, len: u32) -> u32 {
     return if (n < len) => (n) else => len
 }
 
-/// \brief coarse classification of the previously emitted token
-/// \details used for context-sensitive lexing decisions
+/// coarse classification of the previously emitted token
+///
+/// used for context-sensitive lexing decisions
 pub enum LastTokenKind derives u8 {
     None,
     Text,
@@ -116,12 +117,12 @@ pub enum LastTokenKind derives u8 {
     Number,
 }
 
-/// \brief utf-8 aware lexer for kairo source files
-/// \details
-///  - performs tokenization only
-///  - no semantic validation beyond lexical correctness
-///  - produces immediate nodes for literals
-///  - supports f-strings, byte strings, nested comments, and unicode
+/// utf-8 aware lexer for kairo source files
+///
+/// - performs tokenization only
+/// - no semantic validation beyond lexical correctness
+/// - produces immediate nodes for literals
+/// - supports f-strings, byte strings, nested comments, and unicode
 pub class Lexer {
     /// The stream's one record of where it is: Streaming means the TkEof is
     /// still to come, Exhausted that it went out.
@@ -152,10 +153,10 @@ pub class Lexer {
     // PORT(stage2)
     var _test_buff: unsafe *TokenBuffer<512> = &null
 
-    /// \brief kind of the most recent symbol token, when `_last_kind == Symbol`.
-    ///        `_last_kind` collapses `)` `]` `+` `,` into one bucket, but the
-    ///        `.`-is-member-access test needs to tell a closing bracket from an
-    ///        operator. Written once per symbol token; not read in any scan loop.
+    /// kind of the most recent symbol token, when `_last_kind == Symbol`.
+    /// `_last_kind` collapses `)` `]` `+` `,` into one bucket, but the
+    /// `.`-is-member-access test needs to tell a closing bracket from an
+    /// operator. Written once per symbol token; not read in any scan loop.
     var _last_sym: TokenKind = TokenKind::TkError
 
     /// ## Pass timing (--time-passes)
@@ -193,8 +194,9 @@ pub class Lexer {
     /// string literals: the head's loop links the next one, not the segment.
     var _in_chain: bool = false
 
-    /// \brief transient context for string / char lexing
-    /// \details lives only during lex_text
+    /// transient context for string / char lexing
+    ///
+    /// lives only during lex_text
     struct TextCtx {
         /// f-string hole: `{` expr [`=`] [`:` spec] `}`. 0 is "absent" for
         /// spec_start and eq_pos, and can never be a real position: both lie
@@ -232,9 +234,9 @@ pub class Lexer {
         var error_token: Token
     }
 
-    /// \brief transient context for number lexing
+    /// transient context for number lexing
     struct NumberCtx {
-        /// \brief tracks what was last seen while lexing a number
+        /// tracks what was last seen while lexing a number
         enum LastWasState derives u8 {
             None,
             Digit,
@@ -267,10 +269,14 @@ pub class Lexer {
         var is_tuple_index: bool = false
     }
 
-    /// \brief checks if character is a valid digit in the given base
-    /// \param c input character
-    /// \param base numeric base (2, 8, 10, 16)
-    /// \returns true if c is a digit allowed for `base` (2, 8, 10, 16)
+    /// checks if character is a valid digit in the given base
+    ///
+    /// ### Parameters
+    /// - `c`: input character
+    /// - `base`: numeric base (2, 8, 10, 16)
+    ///
+    /// ### Returns
+    /// true if c is a digit allowed for `base` (2, 8, 10, 16)
     priv inline static fn is_base_digit(c: char, base: u8) -> bool {
         match base {
             case 2 {
@@ -287,25 +293,34 @@ pub class Lexer {
         }
     }
 
-    /// \brief checks if character is a valid exponent character for the given base
-    /// \param c input character
-    /// \param base numeric base (10, 16)
-    /// \returns true if `c` starts an exponent for the given base
+    /// checks if character is a valid exponent character for the given base
+    ///
+    /// ### Parameters
+    /// - `c`: input character
+    /// - `base`: numeric base (10, 16)
+    ///
+    /// ### Returns
+    /// true if `c` starts an exponent for the given base
     priv inline static fn is_exponent_char(c: char, base: u8) -> bool {
         return base == 10 && (c == 'e' || c == 'E') || base == 16 && (c == 'p' || c == 'P')
     }
 
-    /// \brief checks if character is a decimal digit
-    /// \param c input character
-    /// \returns true if `c` is a decimal digit
+    /// checks if character is a decimal digit
+    ///
+    /// ### Parameters
+    /// - `c`: input character
+    ///
+    /// ### Returns
+    /// true if `c` is a decimal digit
     priv inline static fn is_decimal_digit(c: char) -> bool {
         return c >= '0' && c <= '9'
     }
 
     /// # LEXER TEST API
 
-    /// \brief batch API. drives the streaming API to exhaustion.
-    /// \details the batch path is a client of the stream path, not a fork of it.
+    /// batch API. drives the streaming API to exhaustion.
+    ///
+    /// the batch path is a client of the stream path, not a fork of it.
     fn lex(self, fid: u32) -> bool {
         if !self.open(fid) {
             return false
@@ -321,10 +336,14 @@ pub class Lexer {
 
     /// # LEXER API
 
-    /// \brief gets the next token from the input stream
-    /// \param start starting source location of the token
-    /// \param decode decoded character at the current cursor position
-    /// \returns next token
+    /// gets the next token from the input stream
+    ///
+    /// ### Parameters
+    /// - `start`: starting source location of the token
+    /// - `decode`: decoded character at the current cursor position
+    ///
+    /// ### Returns
+    /// next token
     priv inline fn get_token(self,
                              const start:  SourceLocation,
                              const decode: kairo::DecodeResult) -> Token {
@@ -366,19 +385,19 @@ pub class Lexer {
         return self.create_unrecognized_token(start)
     }
 
-    /// \brief places this Lexer's "Lex" timing row explicitly.
+    /// places this Lexer's "Lex" timing row explicitly.
     ///
-    /// \details Call BEFORE open(), which otherwise picks a default position.
-    ///          Needed because a Lexer can be driven by two unrelated passes:
-    ///          the DepScanner's import scan and the preprocessor's walk. They
-    ///          tokenize the same bytes for different reasons and have to show
-    ///          up as separate rows, or the fact that the work happens twice
-    ///          is invisible.
+    /// Call BEFORE open(), which otherwise picks a default position.
+    /// Needed because a Lexer can be driven by two unrelated passes:
+    /// the DepScanner's import scan and the preprocessor's walk. They
+    /// tokenize the same bytes for different reasons and have to show
+    /// up as separate rows, or the fact that the work happens twice
+    /// is invisible.
     pub fn bind_time_region(self, rec: unsafe *kairo::KTimeRecord) {
         self._t_lex = rec
     }
 
-    /// \brief begin streaming a fid. imm table live immediately after this returns.
+    /// begin streaming a fid. imm table live immediately after this returns.
     pub fn open(self, fid: u32) -> bool {
         if self._state != Self::StreamState::Closed {
             kairo::Logger::error(
@@ -454,8 +473,9 @@ pub class Lexer {
         return true
     }
 
-    /// \brief pull one token. false = stream exhausted.
-    /// \details never blocks. lex errors emit TkError inline + diagnostics; stream continues.
+    /// pull one token. false = stream exhausted.
+    ///
+    /// never blocks. lex errors emit TkError inline + diagnostics; stream continues.
     pub fn next(self, out: *Token) -> bool {
         if self._state != Self::StreamState::Streaming {
             return false
@@ -499,10 +519,14 @@ pub class Lexer {
         // The imm table's lifetime is the TCM slot's, not the stream's.
     }
 
-    /// \brief lexes a slice of the current file between start and end positions
-    /// \param start starting position (inclusive)
-    /// \param end ending position (exclusive)
-    /// \returns token buffer containing lexed tokens
+    /// lexes a slice of the current file between start and end positions
+    ///
+    /// ### Parameters
+    /// - `start`: starting position (inclusive)
+    /// - `end`: ending position (exclusive)
+    ///
+    /// ### Returns
+    /// token buffer containing lexed tokens
     /// \template N TokenBuffer chunk size
     pub fn <eval N: usize> lex_slice(self, start: u32, end: u32) -> unsafe *TokenBuffer<N> {
         var sub = Lexer(self._sm, self._pool, self._diag, self._imm_tbl)
@@ -524,14 +548,19 @@ pub class Lexer {
         return tokens
     }
 
-    /// \brief a default destructor pretty self-explanatory
+    /// a default destructor pretty self-explanatory
     fn Lexer(self) = delete
 
-    /// \brief default constructor
-    /// \details initializes lexer with source manager and thread pool
-    /// \param sm source manager pointer
-    /// \param pool thread pool pointer
-    /// \returns initialized lexer
+    /// default constructor
+    ///
+    /// initializes lexer with source manager and thread pool
+    ///
+    /// ### Parameters
+    /// - `sm`: source manager pointer
+    /// - `pool`: thread pool pointer
+    ///
+    /// ### Returns
+    /// initialized lexer
     fn Lexer(self,
              sm:      unsafe *SourceManager,
              pool:    unsafe *ThreadPool,
@@ -544,12 +573,16 @@ pub class Lexer {
         kairo::Logger::info(kairo::Logger::Stage::Lexer, "Lexer: initialized")
     }
 
-    /// \brief destructor
+    /// destructor
     fn op finally (self) = default
 
-    /// \brief loads the file buffer for the given file ID
-    /// \param fid file ID to load
-    /// \returns true on success
+    /// loads the file buffer for the given file ID
+    ///
+    /// ### Parameters
+    /// - `fid`: file ID to load
+    ///
+    /// ### Returns
+    /// true on success
     priv inline fn load_file(self, fid: u32) -> bool {
         if self._sm == &null {
             return false
@@ -589,16 +622,16 @@ pub class Lexer {
         return self.file_data() + self._cursor
     }
 
-    /// \brief bytes readable at the cursor, 0 at EOF.
+    /// bytes readable at the cursor, 0 at EOF.
     ///
-    /// \details this is a READ LENGTH, not an index distance. handing it to
-    ///          decode_utf8 guarantees the decoder never touches a byte past
-    ///          file_size(). the previous remaining_offset() returned
-    ///          `size - cursor - 1` and every caller added 1 back "for the null
-    ///          terminator"   there is no null terminator. MemoryBuffer is a
-    ///          non-owning view over an mmap'd region of exactly size() bytes,
-    ///          so at cursor == size that +1 handed the decoder a length of 1
-    ///          over a pointer already at one-past-the-end.
+    /// this is a READ LENGTH, not an index distance. handing it to
+    /// decode_utf8 guarantees the decoder never touches a byte past
+    /// file_size(). the previous remaining_offset() returned
+    /// `size - cursor - 1` and every caller added 1 back "for the null
+    /// terminator"   there is no null terminator. MemoryBuffer is a
+    /// non-owning view over an mmap'd region of exactly size() bytes,
+    /// so at cursor == size that +1 handed the decoder a length of 1
+    /// over a pointer already at one-past-the-end.
     priv inline fn remaining_bytes(self) -> usize {
         const size: usize = self.file_size()
         if self._cursor >= size {
@@ -608,8 +641,8 @@ pub class Lexer {
         return size - self._cursor
     }
 
-    /// \note plain member reads. Set once by load_file (whole buffer) or by
-    ///       lex_slice (the sub-range), the only two ways a stream begins.
+    /// **Note:** plain member reads. Set once by load_file (whole buffer) or by
+    /// lex_slice (the sub-range), the only two ways a stream begins.
     priv inline fn file_size(self) -> usize {
         return self._size
     }
@@ -618,22 +651,22 @@ pub class Lexer {
         return self.cached_data
     }
 
-    /// \brief moves the cursor forward, never past end-of-buffer.
+    /// moves the cursor forward, never past end-of-buffer.
     ///
-    /// \details INVARIANT: 0 <= _cursor <= file_size(). Landing exactly ON
-    ///          file_size() is the EOF position and is legal   is_eof() reports
-    ///          true there, current_data() forms a one-past-the-end pointer that
-    ///          is never dereferenced, remaining_bytes() reports 0, and
-    ///          VirtualFileManager::get_loc accepts off == seg->size. Going PAST
-    ///          it is not legal: the scan loops in lex_name/scan_number_body/
-    ///          scan_text_body/lex_*_comment/lex_whitespace derive their `end`
-    ///          pointer from file_size() and run raw pointers against it, so an
-    ///          over-advanced cursor reads outside the mapping.
+    /// INVARIANT: 0 <= _cursor <= file_size(). Landing exactly ON
+    /// file_size() is the EOF position and is legal   is_eof() reports
+    /// true there, current_data() forms a one-past-the-end pointer that
+    /// is never dereferenced, remaining_bytes() reports 0, and
+    /// VirtualFileManager::get_loc accepts off == seg->size. Going PAST
+    /// it is not legal: the scan loops in lex_name/scan_number_body/
+    /// scan_text_body/lex_*_comment/lex_whitespace derive their `end`
+    /// pointer from file_size() and run raw pointers against it, so an
+    /// over-advanced cursor reads outside the mapping.
     ///
-    /// \note the clamp is to file_size(), not `file_size() - 1`: one byte short
-    ///       of EOF, is_eof() never becomes true and every `while !is_eof()`
-    ///       scanner spins on the last byte; it also underflows on an empty
-    ///       buffer.
+    /// **Note:** the clamp is to file_size(), not `file_size() - 1`: one byte short
+    /// of EOF, is_eof() never becomes true and every `while !is_eof()`
+    /// scanner spins on the last byte; it also underflows on an empty
+    /// buffer.
     priv inline fn advance_cursor(self, count: usize = 1) {
         const size: usize = self.file_size()
         const room: usize = if (self._cursor < size) => (size - self._cursor) else => 0
@@ -642,16 +675,16 @@ pub class Lexer {
         self._cursor += step
     }
 
-    /// \brief writes a raw-pointer scan back into the member cursor.
+    /// writes a raw-pointer scan back into the member cursor.
     ///
-    /// \details the scan loops keep the position in a local `const u8*` so the
-    ///          compiler can hold it in a register; this is how that position
-    ///          re-enters the object. \p base is the buffer origin the scan was
-    ///          derived from.
+    /// the scan loops keep the position in a local `const u8*` so the
+    /// compiler can hold it in a register; this is how that position
+    /// re-enters the object. `base` is the buffer origin the scan was
+    /// derived from.
     ///
-    /// \warning must be called before ANY helper that reads _cursor
-    ///          (get_source_location, create_source_range, peek_char32, a
-    ///          diagnostic, or a nested scanner), not merely before returning.
+    /// **Warning:** must be called before ANY helper that reads _cursor
+    /// (get_source_location, create_source_range, peek_char32, a
+    /// diagnostic, or a nested scanner), not merely before returning.
     priv inline fn commit_cursor(self,
                                  const base: kairo::std::ConstPtr<u8>,
                                  const pos:  kairo::std::ConstPtr<u8>) {
@@ -660,18 +693,19 @@ pub class Lexer {
 
     /// # LEXER INTERNALS
 
-    /// \brief decodes the character at \p p, without a call for ASCII.
+    /// decodes the character at `p`, without a call for ASCII.
     ///
-    /// \details decode_utf8_lut already has this exact test three instructions
-    ///          in, so this is not a cheaper CHECK - it removes the call needed
-    ///          to reach it. UTF8View::decode_utf8 lives behind an FFI header
-    ///          and does not inline into the lexer: `sample` shows it as its
-    ///          own frame on the hot path. Real source is >95% ASCII, so this
-    ///          keeps the overwhelmingly common character entirely inside the
-    ///          caller's scan loop.
+    /// decode_utf8_lut already has this exact test three instructions
+    /// in, so this is not a cheaper CHECK - it removes the call needed
+    /// to reach it. UTF8View::decode_utf8 lives behind an FFI header
+    /// and does not inline into the lexer: `sample` shows it as its
+    /// own frame on the hot path. Real source is >95% ASCII, so this
+    /// keeps the overwhelmingly common character entirely inside the
+    /// caller's scan loop.
     ///
-    /// \param avail bytes readable at \p p. Zero is EOF and yields len 0, which
-    ///        is what every scan loop breaks on.
+    /// ### Parameters
+    /// - `avail`: bytes readable at `p`. Zero is EOF and yields len 0, which
+    ///   is what every scan loop breaks on.
     inline static fn decode_at(const p:     kairo::std::ConstPtr<u8>,
                                const avail: usize) -> kairo::DecodeResult {
         if avail == 0 {
@@ -962,14 +996,14 @@ pub class Lexer {
     }
 
 
-    /// \brief position -> SourceLocation, without the SourceManager round trip.
+    /// position -> SourceLocation, without the SourceManager round trip.
     ///
-    /// \details Identical to _sm->get_loc(_fid, pos) for any pos this lexer can
-    ///          produce. get_loc's four guards are all invariants here rather
-    ///          than per-token questions: the fid is valid and un-evicted for
-    ///          the life of the stream (open() would have failed), pos <=
-    ///          file_size() is the advance_cursor invariant, and the 4 GB cap
-    ///          is checked once for the whole file in open().
+    /// Identical to _sm->get_loc(_fid, pos) for any pos this lexer can
+    /// produce. get_loc's four guards are all invariants here rather
+    /// than per-token questions: the fid is valid and un-evicted for
+    /// the life of the stream (open() would have failed), pos <=
+    /// file_size() is the advance_cursor invariant, and the 4 GB cap
+    /// is checked once for the whole file in open().
     priv inline fn get_source_location(self) -> SourceLocation {
         return SourceLocation::from_raw(self._loc_base + (self._cursor as u32))
     }
@@ -1039,8 +1073,8 @@ pub class Lexer {
         return kairo::CharClass::Illegal
     }
 
-    /// \brief \p c lies in one of the ranges of \p t, a UnicodeTables
-    ///        table: inclusive [first, last] pairs, ascending. Bisection.
+    /// `c` lies in one of the ranges of `t`, a UnicodeTables
+    /// table: inclusive [first, last] pairs, ascending. Bisection.
     static fn in_ranges(t: [const u32;], c: u32) -> bool {
         var lo: usize = 0
         var hi: usize = t.len / 2
@@ -1314,11 +1348,11 @@ pub class Lexer {
         return ctx
     }
 
-    /// \details scans at most 16 characters per call and reports whether the
-    ///          caller should come back for more. The cursor lives
-    ///          in a local pointer for the whole call, so decoding one
-    ///          character at a time costs less than staging sixteen
-    ///          DecodeResults and then re-walking them through advance_cursor.
+    /// scans at most 16 characters per call and reports whether the
+    /// caller should come back for more. The cursor lives
+    /// in a local pointer for the whole call, so decoding one
+    /// character at a time costs less than staging sixteen
+    /// DecodeResults and then re-walking them through advance_cursor.
     priv inline fn scan_number_body(self, @inout ctx: Self::NumberCtx) -> bool {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         const end:  kairo::std::ConstPtr<u8> = base + self.file_size()
@@ -1527,18 +1561,18 @@ pub class Lexer {
         return tok
     }
 
-    /// \brief true when the previous token can terminate a postfix chain, which
-    ///        makes a following `.` a member-access operator rather than the
-    ///        leading dot of a float literal.
+    /// true when the previous token can terminate a postfix chain, which
+    /// makes a following `.` a member-access operator rather than the
+    /// leading dot of a float literal.
     ///
-    /// \details `t.0` must lex as `t` `.` `0`, but `x = .5` must still lex `.5`
-    ///          as a float. Only what came before the dot distinguishes them.
-    ///          `Name` covers identifiers and keywords alike deliberately, so
-    ///          `self.0` works. A keyword followed by `.` + digit (`return.5`)
-    ///          is a parse error under either reading, so the conflation costs
-    ///          nothing but the wording of a diagnostic nobody will hit.
-    ///          `Text` is a string/char literal, which likewise ends a postfix
-    ///          chain (`"ab".len()`).
+    /// `t.0` must lex as `t` `.` `0`, but `x = .5` must still lex `.5`
+    /// as a float. Only what came before the dot distinguishes them.
+    /// `Name` covers identifiers and keywords alike deliberately, so
+    /// `self.0` works. A keyword followed by `.` + digit (`return.5`)
+    /// is a parse error under either reading, so the conflation costs
+    /// nothing but the wording of a diagnostic nobody will hit.
+    /// `Text` is a string/char literal, which likewise ends a postfix
+    /// chain (`"ab".len()`).
     priv inline fn _prev_can_end_postfix(self) -> bool {
         match self._last_kind {
             case LastTokenKind::Name {
@@ -1883,27 +1917,27 @@ pub class Lexer {
         return head
     }
 
-    /// \brief lexes the string literal adjacent to the one just lexed, the
-    ///        next segment of its chain; a non-string token when none follows.
+    /// lexes the string literal adjacent to the one just lexed, the
+    /// next segment of its chain; a non-string token when none follows.
     ///
-    /// \details `"a" "b"`, including split across newlines, is one logical
-    ///          string. Each segment keeps its own imm entry - body range,
-    ///          prefix, suffix, f-string exprs - and lex_text links the entries
-    ///          head-to-tail through StringData::next, so a diagnostic can
-    ///          still blame the exact segment a byte came from rather than the
-    ///          fused whole. Only the head token reaches the parser.
+    /// `"a" "b"`, including split across newlines, is one logical
+    /// string. Each segment keeps its own imm entry - body range,
+    /// prefix, suffix, f-string exprs - and lex_text links the entries
+    /// head-to-tail through StringData::next, so a diagnostic can
+    /// still blame the exact segment a byte came from rather than the
+    /// fused whole. Only the head token reaches the parser.
     ///
-    /// \note    Only `"` chains: a char literal is a single codepoint. A
-    ///          continuation may carry any string prefix (`"a" r"b"`,
-    ///          `f"a{x}" f"b{y}"`); each segment is lexed under its own
-    ///          prefix, so its escapes and holes are its own, and the
-    ///          consumers read every segment's prefix_kind. A prefixed
-    ///          continuation that did not chain would be a second token: a
-    ///          new statement whose value was discarded.
+    /// **Note:** Only `"` chains: a char literal is a single codepoint. A
+    /// continuation may carry any string prefix (`"a" r"b"`,
+    /// `f"a{x}" f"b{y}"`); each segment is lexed under its own
+    /// prefix, so its escapes and holes are its own, and the
+    /// consumers read every segment's prefix_kind. A prefixed
+    /// continuation that did not chain would be a second token: a
+    /// new statement whose value was discarded.
     ///
-    /// \warning the cursor is restored when no adjacent literal follows. The
-    ///          newline after a lone string is a statement terminator and must
-    ///          survive this lookahead.
+    /// **Warning:** the cursor is restored when no adjacent literal follows. The
+    /// newline after a lone string is a statement terminator and must
+    /// survive this lookahead.
     priv inline fn lex_adjacent_segment(self) -> Token {
         var saved = self._cursor
 
@@ -1944,14 +1978,14 @@ pub class Lexer {
         return seg
     }
 
-    /// \brief the length of the string prefix at the cursor (`f`, `r`, `b`,
-    ///        or two of them, either case) when a `"` follows it directly,
-    ///        else 0.
+    /// the length of the string prefix at the cursor (`f`, `r`, `b`,
+    /// or two of them, either case) when a `"` follows it directly,
+    /// else 0.
     ///
-    /// \details decides, without consuming, that the name at the cursor is a
-    ///          prefix and not a word, by the same test lex_name lexes it with.
-    ///          A `'` after it is a char literal, which never chains, so it is
-    ///          0 here.
+    /// decides, without consuming, that the name at the cursor is a
+    /// prefix and not a word, by the same test lex_name lexes it with.
+    /// A `'` after it is a char literal, which never chains, so it is
+    /// 0 here.
     priv inline fn string_prefix_len(self) -> isize {
         var unsafe *p = self.current_data()
         var        n  = self.remaining_bytes()
@@ -1964,12 +1998,12 @@ pub class Lexer {
         return 0
     }
 
-    /// \brief the PFX_* bits of the \p n bytes at \p p when they spell a
-    ///        string prefix: `f`, `r`, `b`, or two different ones, either
-    ///        case. 0 for anything else, `ff` and `rr` included.
+    /// the PFX_* bits of the `n` bytes at `p` when they spell a
+    /// string prefix: `f`, `r`, `b`, or two different ones, either
+    /// case. 0 for anything else, `ff` and `rr` included.
     ///
-    /// \details `br` and `bf` are prefixes here so that the literal after
-    ///          them is lexed as one; init_text_ctx reports them.
+    /// `br` and `bf` are prefixes here so that the literal after
+    /// them is lexed as one; init_text_ctx reports them.
     priv inline fn text_prefix_bits(self, p: kairo::std::ConstPtr<u8>, n: usize) -> u8 {
         if n == 0 || n > 2 {
             return 0
@@ -2088,13 +2122,13 @@ pub class Lexer {
         return ctx
     }
 
-    /// \details split into a raw-pointer fast path for literal content and a
-    ///          cursor-backed slow path (scan_text_special) for the five bytes
-    ///          that can do something other than "advance one character".
-    ///          Everything interesting in a string literal   diagnostics,
-    ///          f-string expression offsets, the escape scanner   reads
-    ///          _cursor, so the cursor is committed before the slow path runs
-    ///          and the scan pointer is re-derived from it afterwards.
+    /// split into a raw-pointer fast path for literal content and a
+    /// cursor-backed slow path (scan_text_special) for the five bytes
+    /// that can do something other than "advance one character".
+    /// Everything interesting in a string literal   diagnostics,
+    /// f-string expression offsets, the escape scanner   reads
+    /// _cursor, so the cursor is committed before the slow path runs
+    /// and the scan pointer is re-derived from it afterwards.
     priv inline fn scan_text_body(self, @inout ctx: Self::TextCtx) {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         const end:  kairo::std::ConstPtr<u8> = base + self.file_size()
@@ -2143,14 +2177,15 @@ pub class Lexer {
         ).first(_r012)->emit()
     }
 
-    /// \brief handles the one character scan_text_body's fast path refused.
+    /// handles the one character scan_text_body's fast path refused.
     ///
-    /// \details every branch here needs a live _cursor, so the caller commits
-    ///          before calling and re-reads _cursor after. Advances through
-    ///          advance_cursor.
+    /// every branch here needs a live _cursor, so the caller commits
+    /// before calling and re-reads _cursor after. Advances through
+    /// advance_cursor.
     ///
-    /// \returns false once the closing delimiter has been consumed and the
-    ///          literal is complete; true to keep scanning.
+    /// ### Returns
+    /// false once the closing delimiter has been consumed and the
+    /// literal is complete; true to keep scanning.
     priv inline fn scan_text_special(self,
                                      @inout ctx: Self::TextCtx,
                                      d:          kairo::DecodeResult) -> bool {
@@ -2262,15 +2297,15 @@ pub class Lexer {
         return true
     }
 
-    /// \brief one character inside a hole.
+    /// one character inside a hole.
     ///
-    /// \details beyond the nesting that finds the closing `}`, this records
-    ///          the two things the hole's TOKENS cannot carry: where a format
-    ///          spec begins (`{x:>4}`) and whether the hole is self-documenting
-    ///          (`{x=}`). Both are decided by the byte, at nesting depth 1 and
-    ///          outside any bracket, so `{f(a: 1)}`, `{m["k"]}`, `{Foo::bar}`
-    ///          and `{a == b}` stay whole expressions. The spec bytes are never
-    ///          lexed: `>4`, `#x`, `?` and `08.3` are not tokens.
+    /// beyond the nesting that finds the closing `}`, this records
+    /// the two things the hole's TOKENS cannot carry: where a format
+    /// spec begins (`{x:>4}`) and whether the hole is self-documenting
+    /// (`{x=}`). Both are decided by the byte, at nesting depth 1 and
+    /// outside any bracket, so `{f(a: 1)}`, `{m["k"]}`, `{Foo::bar}`
+    /// and `{a == b}` stay whole expressions. The spec bytes are never
+    /// lexed: `>4`, `#x`, `?` and `08.3` are not tokens.
     priv inline fn scan_format_expr(self, @inout ctx: Self::TextCtx, d: kairo::DecodeResult) {
         var top = ctx.in_format_depth == 1
             && ctx.in_bracket_depth == 0
@@ -2342,8 +2377,9 @@ pub class Lexer {
         }
     }
 
-    /// \brief scans a string literal inside an f-string expression
-    /// \details skips to matching quote, handling escapes but not nested f-strings
+    /// scans a string literal inside an f-string expression
+    ///
+    /// skips to matching quote, handling escapes but not nested f-strings
     priv inline fn scan_string_in_fstring_expr(self, quote: char) {
         // opening quote already consumed
         while !self.is_eof() {
@@ -2412,13 +2448,13 @@ pub class Lexer {
         }
     }
 
-    /// \brief reports each run of non-ASCII bytes in the body of the byte
-    ///        string \p ctx as S097E.
+    /// reports each run of non-ASCII bytes in the body of the byte
+    /// string `ctx` as S097E.
     ///
-    /// \details A byte string's source text is ASCII: what a character
-    ///          above U+007F would mean (which encoding's bytes) is not
-    ///          left to the file's. One pass over the finished body, off
-    ///          scan_text_body's per-character path.
+    /// A byte string's source text is ASCII: what a character
+    /// above U+007F would mean (which encoding's bytes) is not
+    /// left to the file's. One pass over the finished body, off
+    /// scan_text_body's per-character path.
     priv fn check_byte_text(self, @inout ctx: Self::TextCtx) {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         var i   = ((ctx.body_start.raw() - self._loc_base) as usize)
@@ -2443,10 +2479,10 @@ pub class Lexer {
         }
     }
 
-    /// \brief lexes each hole's EXPRESSION and records what the tokens
-    ///        cannot carry. The expression stops at the `=` of `{x=}`, else
-    ///        at the `:` of a spec, else at the `}`; only that slice is
-    ///        lexed. The spec is handed on as a byte range for X to parse.
+    /// lexes each hole's EXPRESSION and records what the tokens
+    /// cannot carry. The expression stops at the `=` of `{x=}`, else
+    /// at the `:` of a spec, else at the `}`; only that slice is
+    /// lexed. The spec is handed on as a byte range for X to parse.
     priv inline fn emit_fstring_exprs(self, @inout ctx: Self::TextCtx) {
         if !ctx.is_format {
             return
@@ -2516,17 +2552,17 @@ pub class Lexer {
         return tok
     }
 
-    /// \brief the character at the cursor starts no token.
+    /// the character at the cursor starts no token.
     ///
-    /// \details It is lexed as a name all the same, so the parser sees one
-    ///          identifier and not a hole. lex_name reports a character no
-    ///          name can contain (illegal_run); a character that may continue
-    ///          a name but not start one (a combining mark, a non-ASCII
-    ///          digit) is reported here, since lex_name takes it silently.
-    ///          An ASCII character (`$`, a backtick) and a byte that is not
-    ///          UTF-8 (reported as S072E, decoded as one byte) take the name
-    ///          path unreported: lex_name makes the first an unknown token
-    ///          (lex_illegal_ascii) and the second part of a name.
+    /// It is lexed as a name all the same, so the parser sees one
+    /// identifier and not a hole. lex_name reports a character no
+    /// name can contain (illegal_run); a character that may continue
+    /// a name but not start one (a combining mark, a non-ASCII
+    /// digit) is reported here, since lex_name takes it silently.
+    /// An ASCII character (`$`, a backtick) and a byte that is not
+    /// UTF-8 (reported as S072E, decoded as one byte) take the name
+    /// path unreported: lex_name makes the first an unknown token
+    /// (lex_illegal_ascii) and the second part of a name.
     priv fn lex_illegal(self, start: SourceLocation, decode: kairo::DecodeResult) -> Token {
         if decode.len > 1 && Lexer::in_ranges(UnicodeTables::XID_CONTINUE, decode.chr as u32) {
             var range = SourceRange::from_bounds(start, decode.len as u32)
@@ -2540,15 +2576,15 @@ pub class Lexer {
         return self.lex_name(start)
     }
 
-    /// \brief the run of ASCII characters at the cursor that no token holds
-    ///        (Ascii::is_illegal_ascii), as one TkUnknown token whose imm is the run
-    ///        interned as a name.
+    /// the run of ASCII characters at the cursor that no token holds
+    /// (Ascii::is_illegal_ascii), as one TkUnknown token whose imm is the run
+    /// interned as a name.
     ///
-    /// \details Not reported here: a macro body or argument may hold any
-    ///          token, and stringify! makes text of it, so only a run that
-    ///          reaches the parser is an error. PPWalker::_emit reports it
-    ///          there, once, as S011E, and hands the parser a name (the imm
-    ///          is its spelling), as a non-ASCII run is one (illegal_run).
+    /// Not reported here: a macro body or argument may hold any
+    /// token, and stringify! makes text of it, so only a run that
+    /// reaches the parser is an error. PPWalker::_emit reports it
+    /// there, once, as S011E, and hands the parser a name (the imm
+    /// is its spelling), as a non-ASCII run is one (illegal_run).
     priv fn lex_illegal_ascii(self, start: SourceLocation) -> Token {
         const      base: kairo::std::ConstPtr<u8> = self.file_data()
         const      end:  kairo::std::ConstPtr<u8> = base + self.file_size()
@@ -2567,14 +2603,14 @@ pub class Lexer {
         return token
     }
 
-    /// \brief the length in bytes of the run of characters at \p p that no
-    ///        token can contain, reported once as S011E; 0 when \p p starts
-    ///        no such run.
+    /// the length in bytes of the run of characters at `p` that no
+    /// token can contain, reported once as S011E; 0 when `p` starts
+    /// no such run.
     ///
-    /// \details Such a character is non-ASCII and neither XID_Continue nor
-    ///          White_Space: a symbol, an emoji, punctuation, a format
-    ///          control. A byte that is not UTF-8 ends the run: it decodes
-    ///          as one byte, and validate_utf8 has reported it.
+    /// Such a character is non-ASCII and neither XID_Continue nor
+    /// White_Space: a symbol, an emoji, punctuation, a format
+    /// control. A byte that is not UTF-8 ends the run: it decodes
+    /// as one byte, and validate_utf8 has reported it.
     priv fn illegal_run(self, p: kairo::std::ConstPtr<u8>, end: kairo::std::ConstPtr<u8>) -> usize {
         var n:     usize = 0
         var first: u32   = 0
@@ -2607,7 +2643,7 @@ pub class Lexer {
         return n
     }
 
-    /// The low byte of \p v as two lower-case hex digits: the `NN` of `\xNN`.
+    /// The low byte of `v` as two lower-case hex digits: the `NN` of `\xNN`.
     static fn hex2(v: u32) -> string {
         var out = ""
         for var shift: u32 = 8; shift > 0; shift -= 4 {
@@ -2622,7 +2658,7 @@ pub class Lexer {
         return out
     }
 
-    /// \p c in upper-case hex, at least four digits: the `XXXX` of `U+XXXX`.
+    /// `c` in upper-case hex, at least four digits: the `XXXX` of `U+XXXX`.
     static fn hex4(c: u32) -> string {
         var out        = ""
         var shift: u32 = 24
@@ -2707,17 +2743,19 @@ pub class Lexer {
         return token
     }
 
-    /// \details table lookup (ASCII_LEX_FLAGS): one load and a mask.
+    /// table lookup (ASCII_LEX_FLAGS): one load and a mask.
     inline static fn is_valid_symbol(c: kairo::DecodeResult) -> bool {
         return kairo::is_operator_char(c.chr, c.len)
     }
 
-    /// \brief classifies a character for identifier/keyword scanning.
-    /// \returns 0 not a name character, 1 keyword-safe ASCII, 2 identifier-only.
+    /// classifies a character for identifier/keyword scanning.
     ///
-    /// \details table lookup (ASCII_LEX_FLAGS). This is called once per
-    ///          character by lex_name's scan loop, so the body must stay small
-    ///          enough to inline into it.
+    /// ### Returns
+    /// 0 not a name character, 1 keyword-safe ASCII, 2 identifier-only.
+    ///
+    /// table lookup (ASCII_LEX_FLAGS). This is called once per
+    /// character by lex_name's scan loop, so the body must stay small
+    /// enough to inline into it.
     ///
     ///          One byte is ASCII, the end of the buffer, or a byte that is
     ///          not UTF-8 (name_char_kind keeps that one in the name). A
@@ -2735,13 +2773,13 @@ pub class Lexer {
         return 0
     }
 
-    /// \brief checks the escape after the backslash at \p start and moves the
-    ///        cursor past it; false once an error is reported.
+    /// checks the escape after the backslash at `start` and moves the
+    /// cursor past it; false once an error is reported.
     ///
-    /// \details What each escape means is Immediate::Escape's, the table the
-    ///          literal decoders read too, so the lexer accepts exactly what
-    ///          they decode. Escape reads bytes, so a non-ASCII character ends
-    ///          a digit run and is not a digit.
+    /// What each escape means is Immediate::Escape's, the table the
+    /// literal decoders read too, so the lexer accepts exactly what
+    /// they decode. Escape reads bytes, so a non-ASCII character ends
+    /// a digit run and is not a digit.
     priv inline fn is_valid_escape(self,
                                    start:     SourceLocation,
                                    is_byte:   bool,
@@ -2936,12 +2974,12 @@ pub class Lexer {
         return true
     }
 
-    /// \brief errors emitted by THIS lexer's most recent lex() run.
+    /// errors emitted by THIS lexer's most recent lex() run.
     ///
-    /// \details the DiagEngine is shared across the whole compilation, so its
-    ///          raw counts are cumulative; comparing against the baseline
-    ///          captured at lex() entry gives the per-run delta. Anything else
-    ///          makes one file's (or one test's) errors bleed into the next.
+    /// the DiagEngine is shared across the whole compilation, so its
+    /// raw counts are cumulative; comparing against the baseline
+    /// captured at lex() entry gives the per-run delta. Anything else
+    /// makes one file's (or one test's) errors bleed into the next.
     inline fn has_errors(self) -> bool {
         return self.error_count() > 0
     }
@@ -2980,7 +3018,7 @@ pub class Lexer {
 }
 
 // TODO(replace with kairo test blocks)
-/// \p bench also runs the hot-loop benchmark, which lexes two 1 GiB buffers.
+/// `bench` also runs the hot-loop benchmark, which lexes two 1 GiB buffers.
 pub fn Test(bench: bool = false) -> i32 {
     io::println("=== Lexer Test Suite ===\n ")
 

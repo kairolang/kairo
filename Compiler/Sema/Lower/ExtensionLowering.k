@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------- Sema/Lower/ExtensionLowering.k --- ///
 ///
-///   \brief A call to an extension member becomes the free-function call it
-///          is: the receiver is passed as argument zero.
+/// A call to an extension member becomes the free-function call it
+/// is: the receiver is passed as argument zero.
 ///
 ///   \detail
 ///     Every extension member is a static member of its extension scope,
@@ -274,7 +274,7 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
 
     /// # calls through an interface bound
 
-    /// The interface \p f is a requirement of, or null. The typer binds a
+    /// The interface `f` is a requirement of, or null. The typer binds a
     /// call on a bounded `T` to the requirement itself (Compiler/Spec/Generics.md#partial-selection).
     priv fn _requirement_of(self, f: unsafe *FunctionDecl) -> unsafe *InterfaceDecl {
         if f == &null || f->semantic_dc == &null {
@@ -373,7 +373,7 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
     }
 
     /// The dependent Self a static requirement is named through as the LAST
-    /// step of \p ch: a bounded parameter (`T::make`) or an associated type
+    /// step of `ch`: a bounded parameter (`T::make`) or an associated type
     /// (`T::Item::make`); null for any other head.
     priv fn _static_self(self, ch: unsafe *ChainExpr) -> unsafe *Type {
         if ch->base == &null {
@@ -520,8 +520,8 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
     }
 
     /// The canonical instance of the interface the call's witness belongs
-    /// to: the bound on \p me whose composed requirement list contains
-    /// callee \p f (InterfaceComposition). An inherited requirement goes
+    /// to: the bound on `me` whose composed requirement list contains
+    /// callee `f` (InterfaceComposition). An inherited requirement goes
     /// through the BOUND's witness -- `Stream_witness<T>::read` -- since every
     /// interface's list holds what it derives. Self must be a generic
     /// parameter: a concrete receiver is bound to the implementing decl, or
@@ -562,7 +562,7 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
         )
     }
 
-    /// Interface instance \p t's composed list contains requirement \p f.
+    /// Interface instance `t`'s composed list contains requirement `f`.
     priv fn _has_requirement(self, t: unsafe *Type, f: unsafe *FunctionDecl) -> bool {
         if t == &null || !isa<RecordType>(t) {
             return false
@@ -738,7 +738,7 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
         return self.sc->types->pointer(pointee)
     }
 
-    /// True when \p e names an object C++ will take the address of.
+    /// True when `e` names an object C++ will take the address of.
     priv fn _addressable(self, e_in: unsafe *Expr) -> bool {
         var unsafe *e = self.tu.strip_parens(e_in)
         if e == &null {
@@ -829,8 +829,8 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
         return use
     }
 
-    /// `&e`, or with \p materialize the address of \p e's materialized
-    /// temporary (`__kairo_tmp(e)`). Keeps \p e's cv: a const object's
+    /// `&e`, or with `materialize` the address of `e`'s materialized
+    /// temporary (`__kairo_tmp(e)`). Keeps `e`'s cv: a const object's
     /// address is a `*const T`.
     priv fn _addr(self, e: unsafe *Expr, materialize: bool) -> unsafe *Expr {
         if e->type_ == &null {
@@ -853,7 +853,7 @@ pub class ExtensionLowering derives ASTWriter<ExtensionLowering> {
         return u
     }
 
-    /// `*p`, an lvalue of what \p p points to.
+    /// `*p`, an lvalue of what `p` points to.
     priv fn _deref(self, p: unsafe *Expr) -> unsafe *Expr {
         var unsafe *pt = if (p->type_ != &null) => (self.tu.pointee(
                              canon_unqual(p->type_),

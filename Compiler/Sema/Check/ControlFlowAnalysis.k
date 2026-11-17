@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------- Sema/Check/ControlFlowAnalysis.k --- ///
 ///
-///   \brief Divergence facts (FallThrough) and the unreachable-code warning
-///          (ControlFlowAnalysis, SC003W).
+/// Divergence facts (FallThrough) and the unreachable-code warning
+/// (ControlFlowAnalysis, SC003W).
 ///
 ///   \detail
 ///     No CFG object: every question here is asked of the statement tree,
@@ -32,7 +32,7 @@
 ///     decides whether the function can continue past it, and the loop rule
 ///     above asks exactly that.
 ///
-///     Unknowns are the caller's call (\c unknown_ends_path): a recovery
+///     Unknowns are the caller's call (`unknown_ends_path`): a recovery
 ///     node, an `inline` foreign block, and a match that is not exhaustive
 ///     (already SC120E) hide control flow this helper cannot see. A
 ///     missing-return check wants them to END the path (an error on top of
@@ -91,7 +91,7 @@ import Token::Token::Token
 /// inside a DeclStmt, and so is an `if`/`match` expression arm.
 /// Missing one is a false SC003W whose fix-it deletes live code.
 ///
-/// \c depth counts loops entered below the one under inspection: an
+/// `depth` counts loops entered below the one under inspection: an
 /// unlabeled break at depth 0 is ours, a labeled one is ours at any depth
 /// when it names us. `match` and `try` are not loops (a `break` in them
 /// targets the enclosing loop). A closure or a nested function is a
@@ -170,14 +170,14 @@ pub class FallThrough {
         self._unknown_ends = true
     }
 
-    /// \p unknown_ends_path: see "Unknowns" in the file header.
+    /// `unknown_ends_path`: see "Unknowns" in the file header.
     fn FallThrough(self, sc: unsafe *SemaContext, unknown_ends_path: bool) {
         self.sc            = sc
         self._tu           = TypeUtil(sc)
         self._unknown_ends = unknown_ends_path
     }
 
-    /// Can control leave \p s at its bottom and continue with the next
+    /// Can control leave `s` at its bottom and continue with the next
     /// statement? See the file header for the rule per statement.
     fn falls_through(self, s: unsafe *Stmt) -> bool {
         if s == &null {
@@ -309,7 +309,7 @@ pub class FallThrough {
 
     /// # loops
 
-    /// \p label is the imm of a LabeledStmt wrapping \p s, or -1.
+    /// `label` is the imm of a LabeledStmt wrapping `s`, or -1.
     priv fn _loop_falls_through(self, s: unsafe *Stmt, label: u32) -> bool {
         if s == &null {
             return true
@@ -661,7 +661,7 @@ pub class ControlFlowAnalysis derives RecursiveASTVisitor<ControlFlowAnalysis> {
         self._report_at(cut->range, self._why(cut), first->range, last->range)
     }
 
-    /// The warning over the region \p first .. \p last, its note at \p cut.
+    /// The warning over the region `first` .. `last`, its note at `cut`.
     priv fn _report_at(self,
                        cut:       SourceRange,
                        const why: string,
@@ -748,7 +748,7 @@ pub class ControlFlowAnalysis derives RecursiveASTVisitor<ControlFlowAnalysis> {
         }
     }
 
-    /// Is there a `label!` anywhere in \p s? Only asked of dead statements,
+    /// Is there a `label!` anywhere in `s`? Only asked of dead statements,
     /// which are rare, so the walk is not worth caching.
     priv fn _contains_label(self, s: unsafe *Stmt) -> bool {
         if s == &null {

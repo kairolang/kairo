@@ -11,11 +11,11 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-/// Severities are ordered by increasing impact: \c Ignored through \c Fatal.
+/// Severities are ordered by increasing impact: `Ignored` through `Fatal`.
 /// The suffix character appended to a diagnostic ID corresponds to the first
-/// letter of the severity name (e.g. \c E for \c Error, \c W for \c Warning).
+/// letter of the severity name (e.g. `E` for `Error`, `W` for `Warning`).
 ///
-/// \note \c Count is a sentinel not a valid severity.
+/// **Note:** `Count` is a sentinel not a valid severity.
 pub enum DiagSeverity derives u8 {
     /// Diagnostic is suppressed entirely.
     Ignored,
@@ -45,8 +45,8 @@ pub enum DiagSeverity derives u8 {
     Count,
 }
 
-/// The word every renderer prints for \p sev ("error", "note", ...);
-/// "unknown" for \c Count.
+/// The word every renderer prints for `sev` ("error", "note", ...);
+/// "unknown" for `Count`.
 pub fn diag_severity_name(sev: DiagSeverity) -> string {
     match sev {
         case DiagSeverity::Fatal {

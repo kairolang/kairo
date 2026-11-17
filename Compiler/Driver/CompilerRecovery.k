@@ -34,17 +34,17 @@ import Driver::CompilerInstance::CompilerInstance
 import std::io
 
 extend CompilerInstance {
-    /// \brief whether an action whose parse reported errors may still run
-    ///        Sema, for a tool's index; marks the files Sema must skip.
+    /// whether an action whose parse reported errors may still run
+    /// Sema, for a tool's index; marks the files Sema must skip.
     ///
-    /// \details False, and nothing marked, outside the mode: the action
-    ///          fails right after the parse, as it always has. In the mode
-    ///          the run goes on only when every error since \p errors_at_start
-    ///          is one file's own (its parse sink counted it): an error the
-    ///          dependency scan or the PP reported straight to the engine
-    ///          (a lexing error, an import that did not resolve) belongs to
-    ///          no file, and Sema over a graph missing a piece reports what
-    ///          that piece would have declared as undeclared.
+    /// False, and nothing marked, outside the mode: the action
+    /// fails right after the parse, as it always has. In the mode
+    /// the run goes on only when every error since `errors_at_start`
+    /// is one file's own (its parse sink counted it): an error the
+    /// dependency scan or the PP reported straight to the engine
+    /// (a lexing error, an import that did not resolve) belongs to
+    /// no file, and Sema over a graph missing a piece reports what
+    /// that piece would have declared as undeclared.
     ///
     ///          A file with a syntax error is skipped, and so is every file
     ///          that imports one, directly or through others: its uses of the
@@ -221,7 +221,7 @@ extend CompilerInstance {
         return true
     }
 
-    /// \p f's functions whose bodies hold its syntax errors become their
+    /// `f`'s functions whose bodies hold its syntax errors become their
     /// signatures alone.
     priv fn _drop_recovered_bodies(self, gs: unsafe *GlobalDisambigTable, f: u32) {
         var unsafe *rtu = gs->get_context(f)->tu
@@ -253,21 +253,21 @@ extend CompilerInstance {
         }
     }
 
-    /// \brief admit_past_syntax_errors for a live check's re-check of \p fids
-    ///        (Tooling/LiveCheck.k, LiveCheck::past_syntax): each of them
-    ///        has just been parsed again, in an instance whose other files
-    ///        are checked and stay as they are.
+    /// admit_past_syntax_errors for a live check's re-check of `fids`
+    /// (Tooling/LiveCheck.k, LiveCheck::past_syntax): each of them
+    /// has just been parsed again, in an instance whose other files
+    /// are checked and stay as they are.
     ///
-    /// \details True when every file of \p fids that has syntax errors has
-    ///          them all inside function bodies that can be dropped; those
-    ///          bodies are then dropped, and Sema checks the files as their
-    ///          signatures. False, and nothing touched, when one has an error
-    ///          anywhere else: that file, and so every file that imports it,
-    ///          cannot be checked (the caller leaves them as they were).
-    ///          \p broken gets the files that had errors and \p errors
-    ///          their number, for the caller to match against what the
-    ///          engine was handed. The builtin root and --prelude /
-    ///          --force-include never get here: LiveCheck refuses both.
+    /// True when every file of `fids` that has syntax errors has
+    /// them all inside function bodies that can be dropped; those
+    /// bodies are then dropped, and Sema checks the files as their
+    /// signatures. False, and nothing touched, when one has an error
+    /// anywhere else: that file, and so every file that imports it,
+    /// cannot be checked (the caller leaves them as they were).
+    /// `broken` gets the files that had errors and `errors`
+    /// their number, for the caller to match against what the
+    /// engine was handed. The builtin root and --prelude /
+    /// --force-include never get here: LiveCheck refuses both.
     pub fn admit_bodies_in_place(self,
                                  gs:         unsafe *GlobalDisambigTable,
                                  const fids: cxx::std::vector<u32>,
@@ -301,7 +301,7 @@ extend CompilerInstance {
         return true
     }
 
-    /// Every error of \p ctx's file is inside a function body the parser kept
+    /// Every error of `ctx`'s file is inside a function body the parser kept
     /// it in, and each such function can stand as its signature alone. Not:
     /// an out-of-line member definition (the class's ring expects it to be
     /// one), an `eval` / `const` function or an `inline` one (their bodies

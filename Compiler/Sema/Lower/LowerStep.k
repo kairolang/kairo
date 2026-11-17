@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------------- Sema/Lower/LowerStep.k --- ///
 ///
-///   \brief The lowering schedule, as an order the passes check.
+/// The lowering schedule, as an order the passes check.
 ///
 ///   \detail
 ///     Sema::_stage_lowerings runs the lowerings in one fixed order, and

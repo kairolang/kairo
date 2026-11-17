@@ -1081,15 +1081,13 @@ pub class TypeExpr derives Type {
 ///    var y:   i32                          1 segment, is_simple() = true
 ///
 pub class ChainType derives Type {
-    /// \enum SegmentSeparator
-    /// \brief the operator prefixing a segment in the type path.
+    /// the operator prefixing a segment in the type path.
     pub enum SegmentSeparator derives u8 {
         None = 0,   ///< first segment in the chain.
         ColonColon, ///< `::` scope resolution.
     }
 
-    /// \enum SegmentKind
-    /// \brief cached categorization of the segment's type node.
+    /// cached categorization of the segment's type node.
     pub enum SegmentKind derives u8 {
         Named = 0,  ///< simple identifier (`string`, `Underlying`).
         GenericApp, ///< generic instantiation (`Foo<i32>`, `Map<K, V>`).
@@ -1097,8 +1095,7 @@ pub class ChainType derives Type {
         ///  template instantiation.
     }
 
-    /// \struct GenericArg
-    /// \brief a single argument in a generic argument list, optionally named.
+    /// a single argument in a generic argument list, optionally named.
     ///
     /// positional: `Vec<i32>`       -> name = null, type = i32
     /// named:      `Map<Key: str>`  -> name = "Key", type = str
@@ -1108,8 +1105,7 @@ pub class ChainType derives Type {
         pub var ty:         unsafe *Type ///< the type argument.
     }
 
-    /// \struct ChainSegment
-    /// \brief a single component in the type path.
+    /// a single component in the type path.
     pub struct ChainSegment {
         pub var name:          unsafe *NamedIdentExpr ///< the identifier for this segment.
         pub var generic_args:  FrozenList<GenericArg> ///< generic arguments, empty if non-generic.
@@ -1123,7 +1119,7 @@ pub class ChainType derives Type {
 
     pub var segments: FrozenList<Self::ChainSegment>
 
-    /// \brief allocates a new ChainType from a temporary vector of segments.
+    /// allocates a new ChainType from a temporary vector of segments.
     pub static fn create(ctx: unsafe *ASTContext, range: SourceRange) -> unsafe *ChainType {
         var unsafe *node = ctx->alloc<ChainType>()
         node->kind  = TypeKind::ChainType
@@ -1133,8 +1129,8 @@ pub class ChainType derives Type {
         return node
     }
 
-    /// \brief creates a ChainType node tagged as a RecoveryType for error
-    ///        resilience.
+    /// creates a ChainType node tagged as a RecoveryType for error
+    /// resilience.
     pub static fn create_error(ctx: *ASTContext, range: SourceRange) -> unsafe *ChainType {
         var unsafe *node = ctx->alloc<ChainType>()
         node->kind          = TypeKind::RecoveryType
@@ -1179,7 +1175,7 @@ pub class ChainType derives Type {
         return self.segments.get(0)
     }
 
-    /// \brief returns true if the chain starts with a leading `::`.
+    /// returns true if the chain starts with a leading `::`.
     pub fn accesses_global_scope(self) -> bool {
         if self.segments.is_empty() {
             return false
@@ -1188,7 +1184,7 @@ pub class ChainType derives Type {
         return self.segments[0].sep == Self::SegmentSeparator::ColonColon
     }
 
-    /// \brief returns true if any segment carries generic arguments.
+    /// returns true if any segment carries generic arguments.
     pub fn has_generic_args(self) -> bool {
         return self.segments.any(
             fn(x: unsafe *Self::ChainSegment) -> bool {
@@ -1197,7 +1193,7 @@ pub class ChainType derives Type {
         )
     }
 
-    /// \brief returns true if any segment is marked dependent.
+    /// returns true if any segment is marked dependent.
     fn has_dependent_segments(self) -> bool {
         return self.segments.any(
             fn(x: unsafe *Self::ChainSegment) -> bool {
@@ -1206,24 +1202,24 @@ pub class ChainType derives Type {
         )
     }
 
-    /// \brief returns true if this is a single unqualified name with no
-    ///        generics (e.g., just `i32` or `Foo`). fast path for sema.
+    /// returns true if this is a single unqualified name with no
+    /// generics (e.g., just `i32` or `Foo`). fast path for sema.
     pub fn is_simple(self) -> bool {
         return self.segments.size() == 1
             && self.segments[0].sep == Self::SegmentSeparator::None
             && self.segments[0].generic_args.is_empty()
     }
 
-    /// \brief returns true if this is a single name with generic args
-    ///        (e.g., `Vec<i32>`). replaces GenericInstanceType check.
+    /// returns true if this is a single name with generic args
+    /// (e.g., `Vec<i32>`). replaces GenericInstanceType check.
     fn is_generic_instance(self) -> bool {
         return self.segments.size() == 1
             && self.segments[0].sep == Self::SegmentSeparator::None
             && !self.segments[0].generic_args.is_empty()
     }
 
-    /// \brief returns the identifier of the final segment.
-    ///        this is the actual type name in most resolution paths.
+    /// returns the identifier of the final segment.
+    /// this is the actual type name in most resolution paths.
     pub fn trailing_name(self) -> unsafe *NamedIdentExpr {
         var unsafe *seg = self.last()
         if seg == &null {

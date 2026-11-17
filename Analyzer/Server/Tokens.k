@@ -68,11 +68,11 @@ import Workspace::CompileCommandsLoader::{
 import std::io
 
 extend Server {
-    /// Answers a semanticTokens request (full, delta or range) from \p now,
+    /// Answers a semanticTokens request (full, delta or range) from `now`,
     /// the five-integer encoding of the whole file: the index's (decoded once
     /// per snapshot), or the lexical tokens of a buffer that does not parse.
-    /// One token at (\p line, \p ch), appended to \p out in the protocol's
-    /// relative encoding; \p pl / \p pc are the last one's position.
+    /// One token at (`line`, `ch`), appended to `out` in the protocol's
+    /// relative encoding; `pl` / `pc` are the last one's position.
     priv fn tok_put_(self,
                      out:  *[i64],
                      pl:   *i64,
@@ -91,19 +91,19 @@ extend Server {
         *pc = ch
     }
 
-    /// \brief the tokens of buffer \p di when entry \p ei's index (cache
-    ///        slot \p k) is of an older text of it: LanguageServer.md
-    ///        section 9.
+    /// the tokens of buffer `di` when entry `ei`'s index (cache
+    /// slot `k`) is of an older text of it: LanguageServer.md
+    /// section 9.
     ///
-    /// \details The index's semantic tokens for every line the edits left
-    ///          alone (\p sh: the lines both texts start with and the lines
-    ///          both end with, each byte for byte the same, so a token's
-    ///          column and length stand and only its line moves), and
-    ///          between them the syntax pass's lexical tokens of the
-    ///          buffer's current text for the lines that changed. In
-    ///          position order by construction: prefix, middle, suffix. So
-    ///          a half-typed line costs the colours of that line's names and
-    ///          of no other.
+    /// The index's semantic tokens for every line the edits left
+    /// alone (`sh`: the lines both texts start with and the lines
+    /// both end with, each byte for byte the same, so a token's
+    /// column and length stand and only its line moves), and
+    /// between them the syntax pass's lexical tokens of the
+    /// buffer's current text for the lines that changed. In
+    /// position order by construction: prefix, middle, suffix. So
+    /// a half-typed line costs the colours of that line's names and
+    /// of no other.
     fn merged_tokens(self, ei: usize, k: usize, di: usize, sh: *const LineShift) -> [i64] {
         var out: [i64]
         var pl:  i64          = 0

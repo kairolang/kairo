@@ -26,8 +26,7 @@ import Command::FlagRegistry::{
 }
 import Command::ParsedArgs::ParsedArgs
 
-///
-/// \brief Selects the highest-priority pipeline action.
+/// Selects the highest-priority pipeline action.
 ///
 /// Precedence (highest -> lowest):
 ///   Preprocess > SyntaxOnly > TypeCheckOnly > EmitObjOnly
@@ -35,7 +34,6 @@ import Command::ParsedArgs::ParsedArgs
 ///
 /// Post-stage dump flags (print_tokens, print_macros, print_ast, ...) are
 /// orthogonal to the primary action and can be combined with any of them.
-///
 pub enum FrontendActionKind derives u8 {
     EmitObj,       ///< compile + link (default)
     EmitObjOnly,   ///< compile to .o, no link              (-c)
@@ -50,9 +48,9 @@ pub enum FrontendActionKind derives u8 {
 /// The --emit set, split once and read by both the frontend (what codegen
 /// writes) and the linker options (whether the run links).
 ///
-/// \details One parser, so the frontend and the linker options agree on the
-///          set: an empty item names no kind (`obj,` is the item `obj`) and a
-///          repeat names its kind once (`asm,asm` is one item).
+/// One parser, so the frontend and the linker options agree on the
+/// set: an empty item names no kind (`obj,` is the item `obj`) and a
+/// repeat names its kind once (`asm,asm` is one item).
 pub class EmitKinds {
     pub var emit_obj:     bool = false
     pub var emit_asm:     bool = false
@@ -62,8 +60,8 @@ pub class EmitKinds {
     /// them (CompilerLink's _plan_outputs).
     pub var unknown: cxx::std::vector<string>
 
-    /// Splits \p raw (the --emit value) on commas. \p dash_s is -S: alone
-    /// (\p emit_given false) it replaces the default obj, beside an explicit
+    /// Splits `raw` (the --emit value) on commas. `dash_s` is -S: alone
+    /// (`emit_given` false) it replaces the default obj, beside an explicit
     /// --emit it adds asm.
     pub static fn parse(const raw: string, dash_s: bool, emit_given: bool) -> EmitKinds {
         var k     = EmitKinds()
@@ -132,7 +130,7 @@ pub class EmitKinds {
 
     /// Whether this set asks for a link. obj alone does: objects are what a
     /// link is made of. One other kind does not: the run stops at it and -o
-    /// (\p has_output) names it. Several kinds link only under -o, which
+    /// (`has_output`) names it. Several kinds link only under -o, which
     /// cannot name any one of them and so is the executable, the kinds
     /// written beside it (CompilerLink's _plan_outputs). No kind (`--emit=`)
     /// links nothing; codegen reports that it has nothing to write.
@@ -321,7 +319,7 @@ pub class FrontendOptions {
         return if (v.is_empty()) => (dfl) else => v
     }
 
-    /// \p emit is EmitKinds::parse of --emit and -S, parsed once for this
+    /// `emit` is EmitKinds::parse of --emit and -S, parsed once for this
     /// and the linker options.
     static fn from_args(@inout args: ParsedArgs, const emit: EmitKinds) -> FrontendOptions {
         var o = FrontendOptions()

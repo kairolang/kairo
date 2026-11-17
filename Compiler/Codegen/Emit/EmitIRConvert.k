@@ -74,7 +74,7 @@ import Codegen::Emit::EmitIRStmts
 import Codegen::Emit::Spell::Speller
 
 extend EmitIR {
-    /// Emit \p e where a value of \p want is required: the exactness cast
+    /// Emit `e` where a value of `want` is required: the exactness cast
     /// if the canonicals differ. Initializers, returns and arguments all go
     /// through here.
     prot fn _value(self,
@@ -157,7 +157,7 @@ extend EmitIR {
 
     /// True when clang would see a conversion Kairo already decided. Both
     /// sides concrete; identity is by canonical with top-level cv ignored. A
-    /// parameter that IS one of \p subst's generic parameters is read as the
+    /// parameter that IS one of `subst`'s generic parameters is read as the
     /// instance's argument for it; any other dependent parameter is left to
     /// the instantiation.
     prot fn _needs_cast(self,
@@ -428,7 +428,7 @@ extend EmitIR {
         return true
     }
 
-    /// The non-generic free function or static member \p e names as a
+    /// The non-generic free function or static member `e` names as a
     /// value (`f`, `ns::f`, `T::make`), or null.
     priv fn _fn_ref_decl(self, e: unsafe *Expr) -> unsafe *FunctionDecl {
         var unsafe *x = e
@@ -501,7 +501,7 @@ extend EmitIR {
         return f
     }
 
-    /// \p t's inner canonical when \p t is a `T?`, else null.
+    /// `t`'s inner canonical when `t` is a `T?`, else null.
     priv fn _nullable_inner(self, t: unsafe *Type) -> unsafe *Type {
         if t == &null || !isa<NullableType>(t) {
             return &null
@@ -519,8 +519,8 @@ extend EmitIR {
         return canon_unqual(inn)
     }
 
-    /// _fn_effect_value's owned wrapper lambda of \p h as \p w, holding
-    /// \p e -- or, when \p src is not empty, that C++ text in its place.
+    /// _fn_effect_value's owned wrapper lambda of `h` as `w`, holding
+    /// `e` -- or, when `src` is not empty, that C++ text in its place.
     priv fn _fn_effect_wrap(self,
                             e:         unsafe *Expr,
                             w:         unsafe *FunctionPointerType,
@@ -719,7 +719,7 @@ extend EmitIR {
         return cast<BuiltinType>(u)->info()->is_integer()
     }
 
-    /// \p e is the `&null` literal, through parentheses or an implicit retyping.
+    /// `e` is the `&null` literal, through parentheses or an implicit retyping.
     priv fn _is_null_literal(self, e: unsafe *Expr) -> bool {
         var unsafe *x = e
         while x != &null {
@@ -997,7 +997,7 @@ extend EmitIR {
         self._cast_to(n->target, n->operand, kind)
     }
 
-    /// \p t is a plain (non-ADT) enum, Kairo's or a C/C++ one.
+    /// `t` is a plain (non-ADT) enum, Kairo's or a C/C++ one.
     priv fn _is_plain_enum(self, t: unsafe *Type) -> bool {
         if t == &null {
             return false
@@ -1055,8 +1055,8 @@ extend EmitIR {
         self._cg->sink->spell(n->range, "))")
     }
 
-    /// True when some pointee level of \p src carries a qualifier the same
-    /// level of \p dst lacks. Walks while both sides are pointers, so
+    /// True when some pointee level of `src` carries a qualifier the same
+    /// level of `dst` lacks. Walks while both sides are pointers, so
     /// `*const u8 -> *void` is a drop at the first level although the
     /// pointees differ, and an integer source never is.
     priv fn _drops_quals(self, src: unsafe *Type, dst: unsafe *Type) -> bool {
@@ -1095,8 +1095,8 @@ extend EmitIR {
         }
     }
 
-    /// \p t is a pointer whose pointee is a record.
-    /// True when \p t is a pointer whose pointee is a non-void builtin
+    /// `t` is a pointer whose pointee is a record.
+    /// True when `t` is a pointer whose pointee is a non-void builtin
     /// scalar (`*const u8`, `*c_char`).
     priv fn _scalar_pointee(self, t: unsafe *Type) -> bool {
         if t == &null {

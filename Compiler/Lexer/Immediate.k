@@ -51,10 +51,11 @@ pub type ImmFloat = f128
 
 
 pub module Immediate {
-    /// \brief digit value of an ASCII code point in any base up to 36:
-    ///        '0'-'9' -> 0-9, 'A'-'Z' and 'a'-'z' -> 10-35, else 0xFF.
-    /// \details was a 128-entry table spelled as a C++ aggregate initializer;
-    ///          the ranges say the same thing in Kairo.
+    /// digit value of an ASCII code point in any base up to 36:
+    /// '0'-'9' -> 0-9, 'A'-'Z' and 'a'-'z' -> 10-35, else 0xFF.
+    ///
+    /// was a 128-entry table spelled as a C++ aggregate initializer;
+    /// the ranges say the same thing in Kairo.
     pub inline static fn digit_table_value(c: usize) -> u8 {
         if c >= 48 && c <= 57 { // '0'-'9'
             return (c - 48) as u8
@@ -71,8 +72,8 @@ pub module Immediate {
         return 0xFF
     }
 
-    /// \brief value of a hex digit byte: '0'-'9' -> 0-9, 'A'-'F' and 'a'-'f'
-    ///        -> 10-15, 0xFF for any other byte.
+    /// value of a hex digit byte: '0'-'9' -> 0-9, 'A'-'F' and 'a'-'f'
+    /// -> 10-15, 0xFF for any other byte.
     pub inline static fn hex_digit_lut(b: u8) -> u8 {
         if b >= 48 && b <= 57 { // '0'-'9'
             return b - 48
@@ -89,10 +90,14 @@ pub module Immediate {
         return 0xFF
     }
 
-    /// \brief fast digit lookup with base validation
-    /// \param c character to look up
-    /// \param base numeric base (2, 8, 10, 16)
-    /// \returns digit value or 0xFF if invalid
+    /// fast digit lookup with base validation
+    ///
+    /// ### Parameters
+    /// - `c`: character to look up
+    /// - `base`: numeric base (2, 8, 10, 16)
+    ///
+    /// ### Returns
+    /// digit value or 0xFF if invalid
     pub inline static fn get_digit_value(c: u8, base: u8) -> u8 {
         if c >= 128 {
             return 0xFF
@@ -106,10 +111,14 @@ pub module Immediate {
         return val
     }
 
-    /// \brief determines bit width and signedness from integer suffix
-    /// \param suffix the suffix text (e.g., "u64", "i32")
-    /// \param is_unsigned output: set to true if unsigned suffix
-    /// \returns bit width, or 0 if no valid suffix
+    /// determines bit width and signedness from integer suffix
+    ///
+    /// ### Parameters
+    /// - `suffix`: the suffix text (e.g., "u64", "i32")
+    /// - `is_unsigned`: output: set to true if unsigned suffix
+    ///
+    /// ### Returns
+    /// bit width, or 0 if no valid suffix
     pub static fn parse_int_suffix(const suffix: string, @inout is_unsigned: bool) -> u16 {
         var len = suffix.size()
         if len == 0 {
@@ -155,9 +164,13 @@ pub module Immediate {
         return bits as u16
     }
 
-    /// \brief determines bit width from float suffix
-    /// \param suffix the suffix text (e.g., "f32", "f64", "f128")
-    /// \returns bit width, or 0 if no valid suffix
+    /// determines bit width from float suffix
+    ///
+    /// ### Parameters
+    /// - `suffix`: the suffix text (e.g., "f32", "f64", "f128")
+    ///
+    /// ### Returns
+    /// bit width, or 0 if no valid suffix
     pub static fn parse_float_suffix(const suffix: string) -> u32 {
         var len = suffix.size()
         if len == 0 {
@@ -258,13 +271,15 @@ pub module Immediate {
             self.flags = s.bits
         }
 
-        /// Replaces every flag with \p s.
+        /// Replaces every flag with `s`.
         pub inline fn assign_flags(self, s: FlagSet<IntFlags, u8>) {
             self.flags = s.bits
         }
 
-        /// \brief decodes the literal text into value_lo/value_hi/big.
-        /// \param tbl the owning table, whose in-flight counter brackets the run.
+        /// decodes the literal text into value_lo/value_hi/big.
+        ///
+        /// ### Parameters
+        /// - `tbl`: the owning table, whose in-flight counter brackets the run.
         fn evaluate(self, sm: unsafe *SourceManager, tbl: unsafe *ImmediateTable) {
             tbl->begin_evaluation()
 
@@ -524,13 +539,15 @@ pub module Immediate {
             self.flags = s.bits
         }
 
-        /// Replaces every flag with \p s.
+        /// Replaces every flag with `s`.
         pub inline fn assign_flags(self, s: FlagSet<FloatFlags, u8>) {
             self.flags = s.bits
         }
 
-        /// \brief decodes the literal text into value_ieee / big_float.
-        /// \param tbl the owning table, whose in-flight counter brackets the run.
+        /// decodes the literal text into value_ieee / big_float.
+        ///
+        /// ### Parameters
+        /// - `tbl`: the owning table, whose in-flight counter brackets the run.
         fn evaluate(self, sm: unsafe *SourceManager, tbl: unsafe *ImmediateTable) {
             tbl->begin_evaluation()
 
@@ -804,8 +821,9 @@ pub module Immediate {
             tbl->end_evaluation()
         }
 
-        /// \brief computes ImmFloat value from parsed components
-        /// \details used when value fits in extended precision
+        /// computes ImmFloat value from parsed components
+        ///
+        /// used when value fits in extended precision
         priv fn compute_float(self,
                               integer_part:   u64,
                               frac_numerator: u64,
@@ -859,8 +877,9 @@ pub module Immediate {
             return result
         }
 
-        /// \brief computes approximate ImmFloat value when ImmBigFloat is used
-        /// \details provides a best-effort approximation even for huge values
+        /// computes approximate ImmFloat value when ImmBigFloat is used
+        ///
+        /// provides a best-effort approximation even for huge values
         priv fn compute_float_approx(self,
                                      integer_part:     u64,
                                      frac_numerator:   u64,
@@ -1045,15 +1064,15 @@ pub module Immediate {
         Octal,   ///< `\o`, `\oo`, `\ooo`: 1 to 3 octal digits, the first is the letter
     }
 
-    /// \brief one backslash escape: the single table of what an escape
-    ///        means, for the lexer that validates escapes and for every pass
-    ///        that decodes literal text.
+    /// one backslash escape: the single table of what an escape
+    /// means, for the lexer that validates escapes and for every pass
+    /// that decodes literal text.
     ///
-    /// \details Bytes only: a digit is an ASCII byte, so a non-ASCII
-    ///          character ends a digit run. Hex digits stop at `want`, octal
-    ///          ones at 3. Nothing is checked beyond the digit run: a short
-    ///          run, a value above U+10FFFF or a surrogate is the caller's to
-    ///          judge.
+    /// Bytes only: a digit is an ASCII byte, so a non-ASCII
+    /// character ends a digit run. Hex digits stop at `want`, octal
+    /// ones at 3. Nothing is checked beyond the digit run: a short
+    /// run, a value above U+10FFFF or a surrogate is the caller's to
+    /// judge.
     pub class Escape {
         pub var kind:   EscapeKind = EscapeKind::Unknown
         pub var value:  u32        = 0 ///< the code point; the digits' value as far as they were read
@@ -1061,8 +1080,8 @@ pub module Immediate {
         pub var digits: usize      = 0 ///< hex or octal digits read (Octal counts its letter)
         pub var want:   usize      = 0 ///< hex digits the form takes: 2, 4 or 8; 0 for every other kind
 
-        /// Reads the escape at \p p, the \p n bytes after a backslash. With
-        /// \p n == 0 it is Unknown with len 0.
+        /// Reads the escape at `p`, the `n` bytes after a backslash. With
+        /// `n` == 0 it is Unknown with len 0.
         pub fn Escape(self, p: kairo::std::ConstPtr<u8>, n: usize) {
             if n == 0 {
                 return
@@ -1142,7 +1161,7 @@ pub module Immediate {
         }
     }
 
-    /// \brief appends code point \p cp to \p out as UTF-8.
+    /// appends code point `cp` to `out` as UTF-8.
     pub fn push_utf8(cp: u32, out: unsafe *cxx::std::vector<u8>) {
         if cp < 0x80 {
             out->push_back(cp as u8)
@@ -1168,16 +1187,16 @@ pub module Immediate {
         out->push_back((0x80 | cp & 0x3F) as u8)
     }
 
-    /// \brief appends literal text \p p (\p n bytes, between the quotes) to
-    ///        \p out with every escape decoded; \p raw copies it verbatim.
+    /// appends literal text `p` (`n` bytes, between the quotes) to
+    /// `out` with every escape decoded; `raw` copies it verbatim.
     ///
-    /// \details Every escape is written as UTF-8, `\xHH` and octal included
-    ///          (`\xFF` is the two bytes of U+00FF). In a byte string
-    ///          (\p bytes) an escape is one byte instead, its value: the
-    ///          lexer admits none above 0xFF there. False on an escape
-    ///          that is not complete (Escape::complete: an unknown letter, a short
-    ///          digit run, a backslash at the end), which the lexer has
-    ///          already reported for source text.
+    /// Every escape is written as UTF-8, `\xHH` and octal included
+    /// (`\xFF` is the two bytes of U+00FF). In a byte string
+    /// (`bytes`) an escape is one byte instead, its value: the
+    /// lexer admits none above 0xFF there. False on an escape
+    /// that is not complete (Escape::complete: an unknown letter, a short
+    /// digit run, a backslash at the end), which the lexer has
+    /// already reported for source text.
     pub fn decode_escapes(p:     kairo::std::ConstPtr<u8>,
                           n:     usize,
                           raw:   bool,
@@ -1217,15 +1236,15 @@ pub module Immediate {
         pub var macro_name:    u32         ///< which macro produced this token
     }
 
-    /// \brief descriptor for one interned identifier within a file (fid).
+    /// descriptor for one interned identifier within a file (fid).
     ///
-    /// \details Unlike the literal sheets (IntData/StringData/CharData/...)
-    ///          which are append-only pools holding one slot per occurrence,
-    ///          the identifier sheet is an *interner*: identical spellings
-    ///          collapse to a single index via ImmediateTable::intern_ident.
-    ///          A Token of identifier kind stores that index in its `imm` slot,
-    ///          so identifier equality becomes an O(1) u32 compare within a
-    ///          file.
+    /// Unlike the literal sheets (IntData/StringData/CharData/...)
+    /// which are append-only pools holding one slot per occurrence,
+    /// the identifier sheet is an *interner*: identical spellings
+    /// collapse to a single index via ImmediateTable::intern_ident.
+    /// A Token of identifier kind stores that index in its `imm` slot,
+    /// so identifier equality becomes an O(1) u32 compare within a
+    /// file.
     ///
     ///          The text itself is not stored here; it lives as raw UTF-8 in
     ///          ImmediateTable::ident_blob. This descriptor is just the
@@ -1242,12 +1261,12 @@ pub module Immediate {
         }
     }
 
-    /// \brief one slot of the identifier interner's open-addressed hash table.
+    /// one slot of the identifier interner's open-addressed hash table.
     ///
-    /// \details 8 bytes (~8 per cache line). `idx == u32::MAX` marks an empty
-    ///          slot. Collisions are resolved by linear probing; the stored
-    ///          `hash` lets a probe reject non-matching entries with a single
-    ///          u32 compare before ever touching the byte blob.
+    /// 8 bytes (~8 per cache line). `idx == u32::MAX` marks an empty
+    /// slot. Collisions are resolved by linear probing; the stored
+    /// `hash` lets a probe reject non-matching entries with a single
+    /// u32 compare before ever touching the byte blob.
     pub class InternBucket {
         pub var hash: u32 = 0
         pub var idx:  u32 = u32::MAX ///< u32::MAX == empty slot
@@ -1291,30 +1310,30 @@ pub class ImmediateTable {
     var ident_live:     u32                                       = 0 ///< number of occupied buckets (load factor)
     var source_manager: unsafe *SourceManager                     = &null
 
-    /// \brief number of evaluate() calls currently in flight against this table.
+    /// number of evaluate() calls currently in flight against this table.
     ///
-    /// \details A COUNTER, not a flag. The predecessor was a bool that every
-    ///          immediate set on entry and cleared on exit, which is wrong the
-    ///          moment two evaluations overlap: the first one to finish clears
-    ///          the flag while the second is still running, and
-    ///          wait_for_evaluation returns early on live data. A counter only
-    ///          reads zero when nothing is in flight.
+    /// A COUNTER, not a flag. The predecessor was a bool that every
+    /// immediate set on entry and cleared on exit, which is wrong the
+    /// moment two evaluations overlap: the first one to finish clears
+    /// the flag while the second is still running, and
+    /// wait_for_evaluation returns early on live data. A counter only
+    /// reads zero when nothing is in flight.
     priv var _evaluating: kairo::std::Atomic<u32> = kairo::std::Atomic<u32>(0)
-    /// \brief guards the identifier sheet (\c ident_buckets, \c ident_descs)
-    ///        against a reader on another thread.
+    /// guards the identifier sheet (`ident_buckets`, `ident_descs`)
+    /// against a reader on another thread.
     ///
-    /// \details A table is written by its owner (the file's lexer, then its
-    ///          parser and Sema interning synthesized names) while other
-    ///          threads probe it: a parse worker's generic-name fallback reads
-    ///          an imported file's table (a probe races a bucket
-    ///          vector the owner is regrowing), and with parallel Sema
-    ///          a TU reads the tables of everything it imports. Writers
-    ///          take it exclusively; find_ident shares it. Uncontended it is
-    ///          one atomic per intern, and only cross-file probes contend.
-    ///          The *_copy writers take it too, around their synth_names (and
-    ///          string sheet) push: a table another file's thread writes into
-    ///          (the builtin root's, by TupleRecords; a header TU's, by a
-    ///          foreign fill) then needs no outside lock to be safe.
+    /// A table is written by its owner (the file's lexer, then its
+    /// parser and Sema interning synthesized names) while other
+    /// threads probe it: a parse worker's generic-name fallback reads
+    /// an imported file's table (a probe races a bucket
+    /// vector the owner is regrowing), and with parallel Sema
+    /// a TU reads the tables of everything it imports. Writers
+    /// take it exclusively; find_ident shares it. Uncontended it is
+    /// one atomic per intern, and only cross-file probes contend.
+    /// The *_copy writers take it too, around their synth_names (and
+    /// string sheet) push: a table another file's thread writes into
+    /// (the builtin root's, by TupleRecords; a header TU's, by a
+    /// foreign fill) then needs no outside lock to be safe.
     priv var _ident_mu: kairo::std::SharedMutex
 
     pub fn initialize(self, sm: unsafe *SourceManager) {
@@ -1390,14 +1409,15 @@ pub class ImmediateTable {
         )
     }
 
-    /// \brief marks one evaluate() as entered. Pairs with end_evaluation().
+    /// marks one evaluate() as entered. Pairs with end_evaluation().
     fn begin_evaluation(self) {
         self._evaluating.fetch_add(1, kairo::std::MemoryOrder::relaxed)
     }
 
-    /// \brief marks one evaluate() as finished.
-    /// \note release, so a waiter that observes zero also observes every write
-    ///       the evaluation made to its immediate.
+    /// marks one evaluate() as finished.
+    ///
+    /// **Note:** release, so a waiter that observes zero also observes every write
+    /// the evaluation made to its immediate.
     fn end_evaluation(self) {
         self._evaluating.fetch_sub(1, kairo::std::MemoryOrder::release)
     }
@@ -1489,16 +1509,16 @@ pub class ImmediateTable {
 
 
 
-    /// \brief interns an identifier from its raw UTF-8 bytes and precomputed hash.
+    /// interns an identifier from its raw UTF-8 bytes and precomputed hash.
     ///
-    /// \details This is the hot path. The lexer already folds a 32-bit hash
-    ///          while scanning the identifier, so it is passed in rather than
-    ///          recomputed here. Lookups are allocation-free: the open-addressed
-    ///          table is probed by `hash`, a single u32 compare rejects
-    ///          mismatches, and only a true hash match triggers a byte compare
-    ///          against the stored bytes. The identifier text is copied into the
-    ///          blob exactly once, on first sight (a miss); every repeat
-    ///          occurrence costs only a probe and a memcmp, never an allocation.
+    /// This is the hot path. The lexer already folds a 32-bit hash
+    /// while scanning the identifier, so it is passed in rather than
+    /// recomputed here. Lookups are allocation-free: the open-addressed
+    /// table is probed by `hash`, a single u32 compare rejects
+    /// mismatches, and only a true hash match triggers a byte compare
+    /// against the stored bytes. The identifier text is copied into the
+    /// blob exactly once, on first sight (a miss); every repeat
+    /// occurrence costs only a probe and a memcmp, never an allocation.
     ///
     ///          The returned index is stable for the table's lifetime and is
     ///          what a Token of identifier kind stores in its `imm` slot, making
@@ -1506,12 +1526,15 @@ pub class ImmediateTable {
     ///          identifier count is bounded by the file size, so it can never
     ///          reach MAX_IMMEDIATES; that guard is defensive only.
     ///
-    /// \param data raw UTF-8 bytes of the identifier (need not be NUL-terminated).
-    /// \param len  byte length of the identifier.
-    /// \param hash folded 32-bit hash of those bytes (caller-supplied, e.g. the
-    ///             lexer's running HashState). Must be produced consistently for
-    ///             a given spelling so identical identifiers collide and dedup.
-    /// \return the interned index into the identifier sheet.
+    /// ### Parameters
+    /// - `data`: raw UTF-8 bytes of the identifier (need not be NUL-terminated).
+    /// - `len`: byte length of the identifier.
+    /// - `hash`: folded 32-bit hash of those bytes (caller-supplied, e.g. the
+    ///   lexer's running HashState). Must be produced consistently for
+    ///   a given spelling so identical identifiers collide and dedup.
+    ///
+    /// ### Returns
+    /// the interned index into the identifier sheet.
     pub fn intern_ident(self, data: unsafe *const u8, len: usize, hash: u32) -> u32 {
         var wlock = kairo::std::LockGuard(self._ident_mu)
         if self.ident_mask == 0 {
@@ -1561,10 +1584,10 @@ pub class ImmediateTable {
         return idx
     }
 
-    // Unlocked on purpose: \p idx was handed out under `_ident_mu`
+    // Unlocked on purpose: `idx` was handed out under `_ident_mu`
     // (or before the table was shared), ArenaList appends in place and keeps
     // every old descriptor table in its arena, so a concurrent push can grow
-    // the list but never move or free slot \p idx. Same for get<T>.
+    // the list but never move or free slot `idx`. Same for get<T>.
     pub fn get_ident(self, idx: u32) -> string {
         var unsafe *d = self.ident_descs->get(idx as usize)
         return string(
@@ -1573,20 +1596,21 @@ pub class ImmediateTable {
         )
     }
 
-    /// \brief NON-MUTATING identifier probe: index of \p data if already
-    ///        interned, else \c u32::MAX. Never inserts, never grows the
-    ///        table safe against a FROZEN table read by other threads.
+    /// NON-MUTATING identifier probe: index of `data` if already
+    /// interned, else `u32::MAX`. Never inserts, never grows the
+    /// table safe against a FROZEN table read by other threads.
     ///
-    /// \details The cross-TU import boundary (SymbolTable::lookup_foreign) uses
-    ///          this: a spelling from the importing TU is probed against the
-    ///          SOURCE TU's frozen imm table. A miss means the name was never
-    ///          interned in the source and is therefore provably absent from
-    ///          its symbol tables no insert is warranted or permitted. Mirrors
-    ///          intern_ident's open-addressed probe exactly, minus every write.
+    /// The cross-TU import boundary (SymbolTable::lookup_foreign) uses
+    /// this: a spelling from the importing TU is probed against the
+    /// SOURCE TU's frozen imm table. A miss means the name was never
+    /// interned in the source and is therefore provably absent from
+    /// its symbol tables no insert is warranted or permitted. Mirrors
+    /// intern_ident's open-addressed probe exactly, minus every write.
     ///
-    /// \param data raw UTF-8 bytes (need not be NUL-terminated).
-    /// \param len  byte length.
-    /// \param hash folded 32-bit hash of those bytes (same hashing as intern).
+    /// ### Parameters
+    /// - `data`: raw UTF-8 bytes (need not be NUL-terminated).
+    /// - `len`: byte length.
+    /// - `hash`: folded 32-bit hash of those bytes (same hashing as intern).
     pub fn find_ident(self, data: unsafe *const u8, len: usize, hash: u32) -> u32 {
         var rlock = kairo::std::SharedLock(self._ident_mu)
         if self.ident_mask == 0 {
@@ -1610,14 +1634,14 @@ pub class ImmediateTable {
         }
     }
 
-    /// \brief string-keyed convenience over find_ident (hashes for the caller).
-    ///        Returns \c u32::MAX on miss. NON-MUTATING.
+    /// string-keyed convenience over find_ident (hashes for the caller).
+    /// Returns `u32::MAX` on miss. NON-MUTATING.
     ///
-    /// \details `string` is wchar-backed; identifiers were interned from UTF-8
-    ///          source bytes. Convert to a string (UTF-8) FIRST so the hash and
-    ///          byte-compare match what the lexer produced this mirrors
-    ///          intern_ident_copy exactly, minus the synth_names store (a probe
-    ///          needs no persistent copy). Cold path (import boundary only).
+    /// `string` is wchar-backed; identifiers were interned from UTF-8
+    /// source bytes. Convert to a string (UTF-8) FIRST so the hash and
+    /// byte-compare match what the lexer produced this mirrors
+    /// intern_ident_copy exactly, minus the synth_names store (a probe
+    /// needs no persistent copy). Cold path (import boundary only).
     pub fn find_ident(self, const s: string) -> u32 {
         // string::raw is const: read s in place (the copy this made was a
         // heap allocation per probe, for nothing).
@@ -1627,16 +1651,16 @@ pub class ImmediateTable {
         return self.find_ident(r, l, (h as u32))
     }
 
-    /// \brief interns an identifier spelling that has no backing source buffer.
+    /// interns an identifier spelling that has no backing source buffer.
     ///
-    /// \details copies the bytes into table-owned storage (\c synth_names),
-    ///          then interns through the normal path so synthesized and lexed
-    ///          spellings of the same identifier collapse to one index.
-    ///          Use for compiler-synthesized identifiers: PP builtins
-    ///          (unique_id!), gensym, sema-generated names.
+    /// copies the bytes into table-owned storage (`synth_names`),
+    /// then interns through the normal path so synthesized and lexed
+    /// spellings of the same identifier collapse to one index.
+    /// Use for compiler-synthesized identifiers: PP builtins
+    /// (unique_id!), gensym, sema-generated names.
     ///
-    /// \note hashing matches the lexer's incremental hash (compute_hash), so
-    ///       a synthesized `foo` and a lexed `foo` intern to the same slot.
+    /// **Note:** hashing matches the lexer's incremental hash (compute_hash), so
+    /// a synthesized `foo` and a lexed `foo` intern to the same slot.
     pub fn intern_ident_copy(self, const s: string) -> u32 {
         // Already interned (most calls: the import fold re-keys every name
         // it reaches): answer from the probe, skipping the copy into
@@ -1667,18 +1691,18 @@ pub class ImmediateTable {
         return self.intern_ident(r, l, (h as u32))
     }
 
-    /// \brief creates a StringData slot whose text is table-owned (no backing
-    ///        source range).
+    /// creates a StringData slot whose text is table-owned (no backing
+    /// source range).
     ///
-    /// \details copies the bytes into \c synth_names (ArenaList never moves, so
-    ///          the raw pointer stays stable for the table's lifetime). Unlike
-    ///          intern_ident_copy this is NOT an interner the string sheet is
-    ///          an append-only pool, one slot per occurrence, matching lexed
-    ///          string literals. Use for compiler-synthesized string text:
-    ///          stringify! over synthesized tokens, file!, diagnostics.
+    /// copies the bytes into `synth_names` (ArenaList never moves, so
+    /// the raw pointer stays stable for the table's lifetime). Unlike
+    /// intern_ident_copy this is NOT an interner the string sheet is
+    /// an append-only pool, one slot per occurrence, matching lexed
+    /// string literals. Use for compiler-synthesized string text:
+    /// stringify! over synthesized tokens, file!, diagnostics.
     ///
-    /// \note the caller may additionally set `body` on the returned slot when
-    ///       the text also happens to be a contiguous source slice.
+    /// **Note:** the caller may additionally set `body` on the returned slot when
+    /// the text also happens to be a contiguous source slice.
     pub fn intern_string_copy(self, const s: string) -> u32 {
         var wlock = kairo::std::LockGuard(self._ident_mu)
         if self.synth_names == &null {
@@ -1695,10 +1719,10 @@ pub class ImmediateTable {
         return idx
     }
 
-    /// \brief a StringData slot over raw BYTES the compiler minted: the
-    ///        decoded body of a lowered literal. Same storage and same
-    ///        contract as intern_string_copy; takes bytes because a `string`
-    ///        is wide and would re-encode anything past 0x7F.
+    /// a StringData slot over raw BYTES the compiler minted: the
+    /// decoded body of a lowered literal. Same storage and same
+    /// contract as intern_string_copy; takes bytes because a `string`
+    /// is wide and would re-encode anything past 0x7F.
     pub fn intern_bytes_copy(self, data: kairo::std::ConstPtr<u8>, len: usize) -> u32 {
         var wlock = kairo::std::LockGuard(self._ident_mu)
         if self.synth_names == &null {
@@ -1721,8 +1745,8 @@ pub class ImmediateTable {
         return idx
     }
 
-    /// \brief authoritative text of a string literal slot: owned bytes when
-    ///        present, otherwise the source slice behind `body`.
+    /// authoritative text of a string literal slot: owned bytes when
+    /// present, otherwise the source slice behind `body`.
     pub fn string_text(self, idx: u32, sm: unsafe *SourceManager) -> string {
         var unsafe *d = self.string_literals->get(idx as usize)
         if d->owned_ptr != &null {
@@ -1754,22 +1778,22 @@ pub class ImmediateTable {
         return true
     }
 
-    /// \brief byte length of an interned identifier.
+    /// byte length of an interned identifier.
     fn ident_len(self, idx: u32) -> usize {
         return self.ident_descs->get(idx as usize)->len as usize
     }
 
-    /// \brief number of unique identifiers interned for this file.
+    /// number of unique identifiers interned for this file.
     fn ident_count(self) -> usize {
         return self.ident_descs->size()
     }
 
-    /// \brief seeds or doubles the bucket table and rehashes the live entries.
+    /// seeds or doubles the bucket table and rehashes the live entries.
     ///
-    /// \details Buckets carry their own hash, so rehashing never re-reads
-    ///          identifier bytes -- it just re-probes each occupied slot into the
-    ///          larger table. Descriptor indices (the values stored in `imm`) are
-    ///          unaffected; only the hash->index acceleration structure moves.
+    /// Buckets carry their own hash, so rehashing never re-reads
+    /// identifier bytes -- it just re-probes each occupied slot into the
+    /// larger table. Descriptor indices (the values stored in `imm`) are
+    /// unaffected; only the hash->index acceleration structure moves.
     priv fn _ident_grow(self) {
         var old_cap: u32 = 0
         if self.ident_mask != 0 {
@@ -1859,12 +1883,13 @@ pub class ImmediateTable {
     }
 }
 
-/// \brief the segment after \p seg in its chain of adjacent literals, or
-///        null at the end of the chain or with no table.
+/// the segment after `seg` in its chain of adjacent literals, or
+/// null at the end of the chain or with no table.
 ///
-/// \param tbl the table that holds \p seg: for a literal from an imported
-///            macro's body that is the defining file's, not the file being
-///            compiled.
+/// ### Parameters
+/// - `tbl`: the table that holds `seg`: for a literal from an imported
+///   macro's body that is the defining file's, not the file being
+///   compiled.
 pub fn next_string_segment(tbl: unsafe *ImmediateTable,
                            seg: unsafe *Immediate::StringData) -> unsafe *Immediate::StringData {
     if seg == &null || tbl == &null || seg->next == u32::MAX {
@@ -1874,18 +1899,19 @@ pub fn next_string_segment(tbl: unsafe *ImmediateTable,
     return tbl->get<Immediate::StringData>(seg->next)
 }
 
-/// \brief appends the decoded bytes of the string literal whose first
-///        segment is \p head to \p out: every segment of the chain, in
-///        order.
+/// appends the decoded bytes of the string literal whose first
+/// segment is `head` to `out`: every segment of the chain, in
+/// order.
 ///
-/// \details A segment with owned text (stringify!, file!) is already
-///          decoded and is copied; any other segment is its body, decoded
-///          per its own Raw and Bytes prefix. Reads only: the chain, and the table,
-///          are left as they are. False when a segment does not decode
-///          (see decode_escapes); \p out then holds the bytes before it.
+/// A segment with owned text (stringify!, file!) is already
+/// decoded and is copied; any other segment is its body, decoded
+/// per its own Raw and Bytes prefix. Reads only: the chain, and the table,
+/// are left as they are. False when a segment does not decode
+/// (see decode_escapes); `out` then holds the bytes before it.
 ///
-/// \param tbl the table that holds the chain (see next_string_segment);
-///            null reads \p head alone.
+/// ### Parameters
+/// - `tbl`: the table that holds the chain (see next_string_segment);
+///   null reads `head` alone.
 pub fn string_chain_bytes(tbl:  unsafe *ImmediateTable,
                           sm:   unsafe *SourceManager,
                           head: unsafe *Immediate::StringData,

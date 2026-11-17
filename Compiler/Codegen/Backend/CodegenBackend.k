@@ -1,10 +1,10 @@
 /// --- The Kairo Project ------------- Codegen/Backend/CodegenBackend.k --- ///
 ///
-///   \brief The codegen DRIVER: entry point, stage schedule, state. Zero
-///          emission logic. Mirrors Sema.k's discipline exactly: every time
-///          an emit_* helper wants to land here, it is an emitter (own file
-///          under Emit/, borrows *CodegenContext, writes to TokenSink)
-///          never a method on this class.
+/// The codegen DRIVER: entry point, stage schedule, state. Zero
+/// emission logic. Mirrors Sema.k's discipline exactly: every time
+/// an emit_* helper wants to land here, it is an emitter (own file
+/// under Emit/, borrows *CodegenContext, writes to TokenSink)
+/// never a method on this class.
 ///
 ///   Import rule (the anti-rot law of this layer):
 ///     - Backend/ is the ONLY directory that imports emitters: this file
@@ -105,12 +105,11 @@ import Support::TimeReport::{
     time_clock,
 }
 
-/// \class CodegenBackend
-/// \brief One TU's codegen. Each run() compiles on a CompilerInstance of its
-///        own -- a copy of the backend's invocation, the TU's VFS, the TU's
-///        ClangDiagAdapter as the client -- so TUs run on several workers at
-///        once (CodegenJob) and every clang diagnostic flows into the TU's
-///        BufferedDiagSink with Kairo spans.
+/// One TU's codegen. Each run() compiles on a CompilerInstance of its
+/// own -- a copy of the backend's invocation, the TU's VFS, the TU's
+/// ClangDiagAdapter as the client -- so TUs run on several workers at
+/// once (CodegenJob) and every clang diagnostic flows into the TU's
+/// BufferedDiagSink with Kairo spans.
 pub class CodegenBackend derives TokenFiller {
     priv var _be:        unsafe *ClangBackend
     priv var _ctx:       unsafe *ASTContext
@@ -351,7 +350,7 @@ pub class CodegenBackend derives TokenFiller {
         return true
     }
 
-    /// One ExecuteAction for \p kind on a fresh CompilerInstance. Fresh per
+    /// One ExecuteAction for `kind` on a fresh CompilerInstance. Fresh per
     /// run, not one per worker: under the merged PCH a TU's own setup is
     /// about 0.2 ms (measured), and nothing then carries
     /// from one TU to the next -- no Reset() of the diagnostic counters, no
@@ -549,8 +548,8 @@ pub class CodegenBackend derives TokenFiller {
         return ok
     }
 
-    /// Runs \p act in \p ci over this TU's stream (\p inj is the action's
-    /// own injector) and closes clang's timing capture \p clang_time. The
+    /// Runs `act` in `ci` over this TU's stream (`inj` is the action's
+    /// own injector) and closes clang's timing capture `clang_time`. The
     /// agreement record is read here, while the action that owns it lives.
     priv fn _execute(self,
                      ci:         unsafe *clang::CompilerInstance,
@@ -581,7 +580,7 @@ pub class CodegenBackend derives TokenFiller {
         }
     }
 
-    /// The agreement walk's findings for the run \p inj drove, reported by
+    /// The agreement walk's findings for the run `inj` drove, reported by
     /// the first run only: every run of one TU walks the same stream.
     priv fn _agree_report(self, inj: *KairoInject) {
         if self._agree_said {
@@ -604,10 +603,9 @@ pub class CodegenBackend derives TokenFiller {
 pub
 const CODEGEN_GROUP: u8 = 11
 
-/// \class CodegenRun
-/// \brief What every TU of one _codegen shares, read-only during the
-///        fan-out: the backend, the plan's tables, the merged PCH and the
-///        bytes each TU's VFS mounts.
+/// What every TU of one _codegen shares, read-only during the
+/// fan-out: the backend, the plan's tables, the merged PCH and the
+/// bytes each TU's VFS mounts.
 pub class CodegenRun {
     pub var be:        unsafe *ClangBackend
     pub var psym:      unsafe *PreprocessorSymbolTable
@@ -657,12 +655,11 @@ pub class CodegenRun {
     }
 }
 
-/// \class CodegenJob
-/// \brief One Kairo TU's codegen: everything the driver decided for it, and
-///        what came back. run() is the whole per-TU compile and runs on any
-///        thread; the driver reads `ok`, `written` and drains `sink` after the
-///        join, in TU order, so output and diagnostics do not depend on which
-///        worker finished first.
+/// One Kairo TU's codegen: everything the driver decided for it, and
+/// what came back. run() is the whole per-TU compile and runs on any
+/// thread; the driver reads `ok`, `written` and drains `sink` after the
+/// join, in TU order, so output and diagnostics do not depend on which
+/// worker finished first.
 pub class CodegenJob {
     pub var fid:   FileID
     pub var ctx:   unsafe *ASTContext
@@ -803,16 +800,16 @@ pub class CodegenJob {
         }
     }
 
-    /// \brief the incremental cache's hash of this TU's stream: the fill
-    ///        CodegenBackend::fill runs, the whole stream (no interface PCH
-    ///        pruning, no record), into a HashSink instead of clang.
+    /// the incremental cache's hash of this TU's stream: the fill
+    /// CodegenBackend::fill runs, the whole stream (no interface PCH
+    /// pruning, no record), into a HashSink instead of clang.
     ///
-    /// \details Any thread, as the fan-out's fills are: it reads what Sema
-    ///          finished and prepare_shared filled, and writes only its own
-    ///          context and this TU's diag_sink. What that fill reports is
-    ///          the TU's codegen-time diagnostics: kept for a TU the cache
-    ///          serves (they are its replay), dropped for one that compiles
-    ///          (diag_mark).
+    /// Any thread, as the fan-out's fills are: it reads what Sema
+    /// finished and prepare_shared filled, and writes only its own
+    /// context and this TU's diag_sink. What that fill reports is
+    /// the TU's codegen-time diagnostics: kept for a TU the cache
+    /// serves (they are its replay), dropped for one that compiles
+    /// (diag_mark).
     pub fn hash_stream(self, r: *CodegenRun, with_locs: bool) {
         self.diag_mark = self.ctx->diag_sink.size()
         var hs   = HashSink(self.ctx->sm, self.ctx->tcm, with_locs)
@@ -877,12 +874,11 @@ pub class CodegenJob {
     }
 }
 
-/// \class CodegenQueue
-/// \brief The TUs of one fan-out, handed out one at a time to whichever
-///        worker asks next (work()). Biggest first: the user's TU is often
-///        several times the rest, and started last it would be the whole
-///        tail. Which worker ran a TU never shows: each writes only its own
-///        CodegenJob, and the driver reads them in TU order after the join.
+/// The TUs of one fan-out, handed out one at a time to whichever
+/// worker asks next (work()). Biggest first: the user's TU is often
+/// several times the rest, and started last it would be the whole
+/// tail. Which worker ran a TU never shows: each writes only its own
+/// CodegenJob, and the driver reads them in TU order after the join.
 pub class CodegenQueue {
     pub var  run:    *CodegenRun
     priv var _jobs:  cxx::std::vector<unsafe *CodegenJob>

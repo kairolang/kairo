@@ -187,7 +187,7 @@ pub class Doc {
         return d
     }
 
-    /// \p child with its broken lines at the column it starts at (rule 8.3's
+    /// `child` with its broken lines at the column it starts at (rule 8.3's
     /// clause layouts: `catch` under `try`, `else` under `if`).
     static fn align(child: Doc) -> Doc {
         var d = Doc()
@@ -212,7 +212,7 @@ pub class Doc {
         return d
     }
 
-    /// \p flat when it fits on the rest of the line, else \p broken (rule
+    /// `flat` when it fits on the rest of the line, else `broken` (rule
     /// 7.5's one-line type body). Unlike if_break, the broken form's hard
     /// lines do not force the choice.
     static fn choice(flat: Doc, broken: Doc) -> Doc {
@@ -224,7 +224,7 @@ pub class Doc {
         return d
     }
 
-    /// A group whose flat form must also end by column \p cap (rule 4.1's
+    /// A group whose flat form must also end by column `cap` (rule 4.1's
     /// 80-column limit for calls).
     static fn group_cap(child: Doc, cap: i32) -> Doc {
         var d = Doc::group(child)
@@ -264,8 +264,8 @@ pub class Doc {
         return d
     }
 
-    /// Rule 4.1 list. \p keys / \p vals: one pair per item; an empty key is
-    /// an item with no `name:` (its value is the whole item). \p flat is the
+    /// Rule 4.1 list. `keys` / `vals`: one pair per item; an empty key is
+    /// an item with no `name:` (its value is the whole item). `flat` is the
     /// one-line form, built by the caller so the renderer's fit test reads it.
     static fn list(const open:  string,
                    const close: string,
@@ -288,7 +288,7 @@ pub class Doc {
         return d
     }
 
-    /// Section 11 run. \p cells is row-major, \p cols per row; \p seps[c] sits
+    /// Section 11 run. `cells` is row-major, `cols` per row; `seps[c]` sits
     /// in front of column c. An empty cell pads to its column only when a
     /// later cell of the row is not empty.
     static fn table(cells: cxx::std::vector<Doc>,

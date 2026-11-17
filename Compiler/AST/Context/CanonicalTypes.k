@@ -1,8 +1,8 @@
 /// --- The Kairo Project ----------------- AST/Context/CanonicalTypes.k --- ///
 ///
-///   \brief THE canonical type store. One per build, owned by
-///          GlobalDisambigTable. Hands out uniqued, fully-desugared Type nodes
-///          so that `a->canonical == b->canonical` is type identity.
+/// THE canonical type store. One per build, owned by
+/// GlobalDisambigTable. Hands out uniqued, fully-desugared Type nodes
+/// so that `a->canonical == b->canonical` is type identity.
 ///
 ///   \detail
 ///     Base.k states the invariant this class exists to make true:
@@ -107,10 +107,10 @@ import Support::EvalHash::{
 import Support::FlagSet::FlagSet
 import Token::TokenKind::TokenKind
 
-/// \brief 64-bit mixer (splitmix64 finalizer). Used to fold component pointers
-///        into a bucket key. Only ever a HINT: every bucket hit is confirmed by
-///        a structural compare, so a collision costs a comparison, never a
-///        wrong answer.
+/// 64-bit mixer (splitmix64 finalizer). Used to fold component pointers
+/// into a bucket key. Only ever a HINT: every bucket hit is confirmed by
+/// a structural compare, so a collision costs a comparison, never a
+/// wrong answer.
 pub fn canon_mix(x: u64) -> u64 {
     var z = x + GOLDEN_RATIO_MIX
     z = (z ^ z >> 30) * SPLITMIX64_MUL1
@@ -126,10 +126,7 @@ pub fn canon_hash_u64(h: u64, v: u64) -> u64 {
     return canon_mix(h ^ v)
 }
 
-///
-/// \class CanonicalTypeStore
-/// \brief Uniquing tables + the arena the canonical nodes live in.
-///
+/// Uniquing tables + the arena the canonical nodes live in.
 pub class CanonicalTypeStore {
     /// How a lang item orders an expanded enum pack (DeclFacts::PackSetOrder;
     /// the Panic item's type-id order). Set once by the driver, before Sema.
@@ -192,29 +189,30 @@ pub class CanonicalTypeStore {
         self._table.reserve(256)
     }
 
-    /// \brief Build the builtin singletons. Idempotent and lock-guarded: the
-    ///        driver may call it once, or every SemaContext may call it
-    ///        defensively, and the result is the same.
+    /// Build the builtin singletons. Idempotent and lock-guarded: the
+    /// driver may call it once, or every SemaContext may call it
+    /// defensively, and the result is the same.
     ///
-    /// \param ptr_bits target pointer width, for usize/isize. Everything else
-    ///        has a width fixed by its name.
-    /// \param int64_is_long whether the target's int64_t is `long` rather
-    ///        than `long long` (LLP64, Darwin, every 32-bit target). Spells
-    ///        i64/u64.
-    /// \param ld_bits, ld_align sizeof / alignof(long double) in bits on the
-    ///        target. f80's STORAGE: 80 value bits occupy 96 on i386 and 128
-    ///        on x86_64, and the row's `bits` column is the value width.
-    ///        0 means unfilled and keeps the x86_64 128/128.
-    /// \param wchar_bits sizeof(wchar_t) in bits, for c_wchar (32, or 16 on
-    ///        Windows). 0 means unfilled and keeps 32.
-    /// \param aligns each builtin's alignment in bits, indexed by
-    ///        BuiltinKind (TargetOptions::builtin_align). A missing or 0 row aligns
-    ///        that builtin to its width.
+    /// ### Parameters
+    /// - `ptr_bits`: target pointer width, for usize/isize. Everything else
+    ///   has a width fixed by its name.
+    /// - `int64_is_long`: whether the target's int64_t is `long` rather
+    ///   than `long long` (LLP64, Darwin, every 32-bit target). Spells
+    ///   i64/u64.
+    /// - `ld_bits,`: ld_align sizeof / alignof(long double) in bits on the
+    ///   target. f80's STORAGE: 80 value bits occupy 96 on i386 and 128
+    ///   on x86_64, and the row's `bits` column is the value width.
+    ///   0 means unfilled and keeps the x86_64 128/128.
+    /// - `wchar_bits`: sizeof(wchar_t) in bits, for c_wchar (32, or 16 on
+    ///   Windows). 0 means unfilled and keeps 32.
+    /// - `aligns`: each builtin's alignment in bits, indexed by
+    ///   BuiltinKind (TargetOptions::builtin_align). A missing or 0 row aligns
+    ///   that builtin to its width.
     ///
-    /// \details the i64/u64 spellings are written into BuiltinTable itself,
-    ///          not onto the nodes: every emitter reads builtin_info()->cxx,
-    ///          and the table is as build-wide as this store. First caller
-    ///          wins here, so the table is written exactly once.
+    /// the i64/u64 spellings are written into BuiltinTable itself,
+    /// not onto the nodes: every emitter reads builtin_info()->cxx,
+    /// and the table is as build-wide as this store. First caller
+    /// wins here, so the table is written exactly once.
     pub fn init(self,
                 ptr_bits:      usize,
                 int64_is_long: bool,
@@ -307,8 +305,8 @@ pub class CanonicalTypeStore {
         return self._builtins[i]
     }
 
-    /// The canonical nominal type for \p decl instantiated at \p args.
-    /// \p decl MUST be the canonical redecl link (the definition where one
+    /// The canonical nominal type for `decl` instantiated at `args`.
+    /// `decl` MUST be the canonical redecl link (the definition where one
     /// exists) -- passing a forward declaration forks the entity in two.
     pub fn record(self,
                   decl:    unsafe *Decl,
@@ -316,10 +314,10 @@ pub class CanonicalTypeStore {
         return self.record_in(decl, args_in, &null)
     }
 
-    /// \p decl, a record nested in a generic one, seen through the
-    /// enclosing record \p outer (`L<i32>::P`; RecordType::outer). Null
-    /// \p outer is record(): the plain type, flagged InGenericOwner when
-    /// \p decl's owners are generic (it then names their current
+    /// `decl`, a record nested in a generic one, seen through the
+    /// enclosing record `outer` (`L<i32>::P`; RecordType::outer). Null
+    /// `outer` is record(): the plain type, flagged InGenericOwner when
+    /// `decl`'s owners are generic (it then names their current
     /// instantiation).
     pub fn record_in(self,
                      decl:    unsafe *Decl,
@@ -420,8 +418,8 @@ pub class CanonicalTypeStore {
         return ty
     }
 
-    /// The cv-qualified form of \p inner. \p quals is a QUAL_* bitset. Zero
-    /// returns \p inner unchanged; an already-qualified \p inner folds, so
+    /// The cv-qualified form of `inner`. `quals` is a QUAL_* bitset. Zero
+    /// returns `inner` unchanged; an already-qualified `inner` folds, so
     /// qualified(CONST, qualified(VOLATILE, T)) is ONE node carrying both
     /// bits and a QualifiedType never wraps a QualifiedType. Layout is the
     /// inner's: a qualifier changes what may be done with the object, not
@@ -603,7 +601,7 @@ pub class CanonicalTypeStore {
         return ty
     }
 
-    /// `[T; N]` for a generic VALUE parameter N (\p param, its canonical
+    /// `[T; N]` for a generic VALUE parameter N (`param`, its canonical
     /// GenericParamType): dependent, keyed on (element, param), substituted
     /// to array() per instance (Compiler/Spec/Eval.md#generic-value-parameters).
     pub fn array_of_param(self, element: unsafe *Type, param: unsafe *Type) -> unsafe *Type {
@@ -805,7 +803,7 @@ pub class CanonicalTypeStore {
 
     /// A string literal in a computed value (ValueOp::Str, Compiler/Spec/Eval.md#eval-classes):
     /// keyed on its decoded bytes, so two literals with the same bytes are
-    /// one node wherever they are written; \p ty is the string record.
+    /// one node wherever they are written; `ty` is the string record.
     pub fn value_str(self, const bytes: cxx::std::vector<u8>, ty: unsafe *Type) -> unsafe *Type {
         var n = bytes.size()
         var h = canon_hash_u64(0, (TypeKind::TypeExpr as u8))
@@ -878,14 +876,14 @@ pub class CanonicalTypeStore {
         return t
     }
 
-    /// \p modes is parallel to \p params, or null for all-Value (every
+    /// `modes` is parallel to `params`, or null for all-Value (every
     /// caller that has no modes to offer -- an imported C++ function type,
     /// which spells reference kinds as types, not modes -- passes null).
     /// Modes are in the key: `fn(@inout i32)` and `fn(i32)` are two
     /// entities, because a closure's type IS this canonical and the mode
     /// must survive `apply(f: fn(i32) -> i32)`.
     ///
-    /// So is the panic effect (Compiler/Spec/Panic.md#declared-sets): \p panics, and \p pset, the
+    /// So is the panic effect (Compiler/Spec/Panic.md#declared-sets): `panics`, and `pset`, the
     /// canonical set (null or empty for a bare `panic` with no set known).
     /// `fn() panic(E) -> i32` and `fn() -> i32` are two types, converted by
     /// subset (Conversion's fn rung); a call through a value of one adds
@@ -893,7 +891,7 @@ pub class CanonicalTypeStore {
     /// canonical_set: each type once, in the one order): the store only
     /// compares it element by element, it cannot spell types to sort them.
     ///
-    /// And so is \p raw: `unsafe fn(A) -> R` is the plain function pointer
+    /// And so is `raw`: `unsafe fn(A) -> R` is the plain function pointer
     /// `R(*)(A)`, one word, which a capturing closure cannot be; `fn(A) ->
     /// R` is the `__kairo_fn` value, three words, which holds either. Two
     /// canonicals, because the C++ spelling (an ABI) differs; a raw one
@@ -1061,8 +1059,8 @@ pub class CanonicalTypeStore {
         return ty
     }
 
-    /// An associated type of \p base through interface instance \p iface
-    /// (AssocType). Dependent by construction, whatever \p base is: even
+    /// An associated type of `base` through interface instance `iface`
+    /// (AssocType). Dependent by construction, whatever `base` is: even
     /// `record(Graph)`, a non-dependent record, stands for every conformer
     /// while it is the interface's Self.
     pub fn assoc(self,
@@ -1155,7 +1153,7 @@ pub class CanonicalTypeStore {
         return ty
     }
 
-    /// Fill \p a's bound cache (AssocType::bounds) with \p bs. The store
+    /// Fill `a`'s bound cache (AssocType::bounds) with `bs`. The store
     /// owns the storage; Substitution::bound_ifaces computes the list.
     pub fn set_assoc_bounds(self, a: unsafe *AssocType, const bs: cxx::std::vector<unsafe *Type>) {
         if a == &null {
@@ -1306,9 +1304,11 @@ pub class CanonicalTypeStore {
     /// Shared body for the one-component kinds. Each has exactly one child
     /// slot at a different field name, so the probe and the fill switch on
     /// kind; everything else is identical.
-    /// \param is_unsafe PointerType's key bit. Every other kind passes false,
-    ///        which folds a constant into the hash and leaves their keys
-    ///        unchanged relative to each other.
+    ///
+    /// ### Parameters
+    /// - `is_unsafe`: PointerType's key bit. Every other kind passes false,
+    ///   which folds a constant into the hash and leaves their keys
+    ///   unchanged relative to each other.
     priv fn _unary(self,
                    k:         TypeKind,
                    child:     unsafe *Type,
@@ -1558,8 +1558,8 @@ pub class CanonicalTypeStore {
         return &null
     }
 
-    /// \p t's twin with \p raw set: the same signature and effect, the
-    /// other spelling. \p t itself when it is not a canonical `fn` type or
+    /// `t`'s twin with `raw` set: the same signature and effect, the
+    /// other spelling. `t` itself when it is not a canonical `fn` type or
     /// already is that kind.
     pub fn fn_with_raw(self, t: unsafe *Type, raw: bool) -> unsafe *Type {
         if t == &null || t->kind != TypeKind::FunctionPointerType {
@@ -1780,7 +1780,7 @@ pub class CanonicalTypeStore {
         return out
     }
 
-    /// Record \p r as what \p n is to C++, once. TUs lower in parallel and
+    /// Record `r` as what `n` is to C++, once. TUs lower in parallel and
     /// all reach the same interned record, so a second writer is a no-op,
     /// never a different answer.
     pub fn set_nullable_lowered(self, n: unsafe *NullableType, r: unsafe *Type) {
@@ -1806,9 +1806,9 @@ pub class CanonicalTypeStore {
 
     /// ## a live check's sweep (Tooling/LiveCheck.k, before it frees trees)
 
-    /// Does \p c itself name something of a dead tree: a declaration (or an
-    /// expression) whose address is in \p dead, or a dropped instance's node
-    /// (\p shells)? These are the kinds whose KEY holds such an address.
+    /// Does `c` itself name something of a dead tree: a declaration (or an
+    /// expression) whose address is in `dead`, or a dropped instance's node
+    /// (`shells`)? These are the kinds whose KEY holds such an address.
     priv fn _names_dead(self,
                         c:      unsafe *Type,
                         dead:   unsafe *kairo::AddrRanges,
@@ -1849,7 +1849,7 @@ pub class CanonicalTypeStore {
         }
     }
 
-    /// The canonical nodes \p c is built from.
+    /// The canonical nodes `c` is built from.
     priv fn _parts(self, c: unsafe *Type, out: unsafe *cxx::std::vector<unsafe *Type>) {
         match c->kind {
             case TypeKind::RecordType {
@@ -1916,23 +1916,24 @@ pub class CanonicalTypeStore {
         }
     }
 
-    /// \brief takes out of the table every canonical that names something
-    ///        of a dead tree, and every canonical built from one; their
-    ///        addresses go into \p gone. Returns how many.
+    /// takes out of the table every canonical that names something
+    /// of a dead tree, and every canonical built from one; their
+    /// addresses go into `gone`. Returns how many.
     ///
-    /// \details A record type is keyed by its declaration's ADDRESS (so are
-    ///          a generic parameter, an associated type and a value
-    ///          argument). While the tree is allocated the entry is merely
-    ///          unreachable; once it is freed a new declaration lands on
-    ///          the address and would be handed the old canonical. The
-    ///          nodes stay in the arena (nothing kept names them: a file
-    ///          that could is re-read with the tree), with what pointed
-    ///          into the tree cleared.
+    /// A record type is keyed by its declaration's ADDRESS (so are
+    /// a generic parameter, an associated type and a value
+    /// argument). While the tree is allocated the entry is merely
+    /// unreachable; once it is freed a new declaration lands on
+    /// the address and would be handed the old canonical. The
+    /// nodes stay in the arena (nothing kept names them: a file
+    /// that could is re-read with the tree), with what pointed
+    /// into the tree cleared.
     ///
-    /// \param mark_only  only say which (\p gone); the table is not touched.
-    ///                   A retraction's: the trees are still read (a queued
-    ///                   file's, until its turn), the rows that name them
-    ///                   must go now.
+    /// ### Parameters
+    /// - `mark_only`: only say which (`gone`); the table is not touched.
+    ///   A retraction's: the trees are still read (a queued
+    ///   file's, until its turn), the rows that name them
+    ///   must go now.
     pub fn sweep(self,
                  dead:      unsafe *kairo::AddrRanges,
                  shells:    unsafe *llvm::DenseSet<u64>,
@@ -2034,7 +2035,7 @@ pub class CanonicalTypeStore {
         return gone->size() as usize
     }
 
-    /// The arena's blocks, into \p out under \p label.
+    /// The arena's blocks, into `out` under `label`.
     pub fn ranges_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
         var lock = kairo::std::LockGuard(self._arena_mu)
         self._arena.ranges_into(out, label)

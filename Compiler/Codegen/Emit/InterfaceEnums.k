@@ -57,7 +57,7 @@ import Codegen::Emit::Spell::{
 import Codegen::EmitPlan
 
 extend InterfaceEmitter {
-    /// `max(floor, alignof(P)...)` over \p lay's payload structs, the pack
+    /// `max(floor, alignof(P)...)` over `lay`'s payload structs, the pack
     /// variant's expanded: the initializer of `__kairo_payload_offset`.
     priv fn _payload_offset_init(self,
                                  en:  unsafe *Declarations::EnumDecl,
@@ -87,9 +87,9 @@ extend InterfaceEmitter {
         return "::" + LowerTargets::max_align() + "<" + ps + ">(" + f"{en->adt_union_align}" + ")"
     }
 
-    /// The tag element \p k (a C++ expression: a template parameter) of
-    /// \p en's pack-expanded variant \p v is stored as, typed as the tag
-    /// enum \p tt: the variant's position plus k, or under type-id tags
+    /// The tag element `k` (a C++ expression: a template parameter) of
+    /// `en`'s pack-expanded variant `v` is stored as, typed as the tag
+    /// enum `tt`: the variant's position plus k, or under type-id tags
     /// the element's id. EnumLayoutQuery::tag_value is the same rule.
     priv fn _pack_tag(self,
                       en:       unsafe *Declarations::EnumDecl,
@@ -114,7 +114,7 @@ extend InterfaceEmitter {
         )
     }
 
-    /// The payload struct template of pack-expanded variant \p v, applied
+    /// The payload struct template of pack-expanded variant `v`, applied
     /// to its pack, unexpanded: `__kairo_Err_t<E>`, the pattern a fold or
     /// a `__kairo_pu<...>` expands.
     prot fn _pack_payload(self, ps: unsafe *Declarations::StructDecl, en: unsafe *Decl) -> string {
@@ -125,7 +125,7 @@ extend InterfaceEmitter {
         ) + ">"
     }
 
-    /// The payload struct an ADT union member \p m holds, or null.
+    /// The payload struct an ADT union member `m` holds, or null.
     prot fn _member_payload(self,
                             m: unsafe *Declarations::FieldDecl) -> unsafe *Declarations::StructDecl {
         if m == &null || m->type_ == &null || m->type_->canonical == &null {
@@ -438,7 +438,7 @@ extend InterfaceEmitter {
     /// no union, the payload struct as the one member, each dataless
     /// variant a pattern of its field from `__kairo_niche<F>`. Written for a
     /// non-generic ADT whose verdict was niche, and as the partial
-    /// specialization beside every niche-shaped generic one (\p spec). The
+    /// specialization beside every niche-shaped generic one (`spec`). The
     /// special members are the defaulted ones (the field is trivially
     /// copied and destroyed, which is the rule's condition), so the
     /// destroy and construct helpers, which switch on a tag, are not
@@ -639,7 +639,7 @@ extend InterfaceEmitter {
         }
     }
 
-    /// The payload struct variant \p v's union member is typed as.
+    /// The payload struct variant `v`'s union member is typed as.
     prot fn _payload_struct_of(self, v: unsafe *Declarations::EnumVariantDecl) -> unsafe *Decl {
         var unsafe *t              = v->adt_member->type_
         var        c: unsafe *Type = &null
@@ -714,7 +714,7 @@ extend InterfaceEmitter {
         return ""
     }
 
-    /// `__kairo_niche<E>` for plain enum \p en (EnumNiche): the values past
+    /// `__kairo_niche<E>` for plain enum `en` (EnumNiche): the values past
     /// its variants. At global scope, where the trait is, so the enum is
     /// spelled qualified.
     prot fn _enum_niche_trait(self, en: unsafe *Declarations::EnumDecl) {
@@ -795,7 +795,7 @@ extend InterfaceEmitter {
         return s
     }
 
-    /// The C++ constraint that selects \p m's form among the three a generic
+    /// The C++ constraint that selects `m`'s form among the three a generic
     /// ADT declares; "" for a non-generic one, which declares only the form
     /// its facts chose (a constraint on a non-templated function is
     /// ill-formed). Built from the flag names: C++ mechanics, never a Kairo
@@ -834,8 +834,8 @@ extend InterfaceEmitter {
         }
     }
 
-    /// \p v's enumerator in the record's `__kairo_Tag`, by leaf: the tag
-    /// enum's own variant at \p v's position, never \p v's name. They differ
+    /// `v`'s enumerator in the record's `__kairo_Tag`, by leaf: the tag
+    /// enum's own variant at `v`'s position, never `v`'s name. They differ
     /// when the variant is named like a type parameter (`T` inside
     /// `template <class T>` shadows it), which EnumLayoutLowering::_tag_enum
     /// renames; the tag is positional, so only the spelling moves.
@@ -869,7 +869,7 @@ extend InterfaceEmitter {
         return self._spell->leaf(unsafe (v as unsafe *Decl))
     }
 
-    /// The payload struct holding \p v, by leaf, read off its union member.
+    /// The payload struct holding `v`, by leaf, read off its union member.
     priv fn _payload_leaf(self, v: unsafe *Declarations::EnumVariantDecl) -> string {
         var unsafe *t              = v->adt_member->type_
         var        c: unsafe *Type = &null
@@ -1122,7 +1122,7 @@ extend InterfaceEmitter {
 
     /// The `default:` of Destroy / ConstructFrom for a pack-expanded variant
     /// (always last): a tag past its own is element (tag - its tag), which
-    /// the union's helper \p fn reaches by that runtime index; \p from is
+    /// the union's helper `fn` reaches by that runtime index; `from` is
     /// the source object's prefix for ConstructFrom. "" without one.
     priv fn _pack_default(self,
                           en:         unsafe *Declarations::EnumDecl,
@@ -1150,7 +1150,7 @@ extend InterfaceEmitter {
         return "if (" + tag + " >= " + tv + ") { " + mem + "." + fn_ + "(" + tag + " - " + tv + arg + "); } "
     }
 
-    /// Variant \p v's field constructor (AdtCtorForm::Fields / Both): each
+    /// Variant `v`'s field constructor (AdtCtorForm::Fields / Both): each
     /// field by value, moved into the payload's braced initializer -- a
     /// prvalue initializing the union member, so nothing past the parameter
     /// is copied, and the runtime is the lambda form's: every field is

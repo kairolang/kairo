@@ -88,7 +88,7 @@ extend Server {
         w->end_object()
     }
 
-    /// The function symbol of file node \p f whose body holds (line, ch).
+    /// The function symbol of file node `f` whose body holds (line, ch).
     fn enclosing_fn(const self, s: *const JsonDoc, f: u32, line: i64, ch: i64) -> u32 {
         var best = JSON_NONE()
         var c    = s->first(s->get(f, SK_SYMBOLS))
@@ -113,7 +113,7 @@ extend Server {
         return best
     }
 
-    /// Incoming or outgoing calls of the function \p item names.
+    /// Incoming or outgoing calls of the function `item` names.
     fn calls(self, d: *const JsonDoc, item: u32, incoming: bool, const id: string) {
         var path = self.path_of(d->get_str(item, K_URI))
         var sel  = d->get(d->get(item, K_SELECTION_RANGE), K_START)
@@ -281,9 +281,9 @@ extend Server {
     }
 
     /// Types one edge from the declaration at (path, line, ch): what it
-    /// derives (\p up) or what derives it. As hierarchy items, or as plain
-    /// Locations for "go to implementation". (path, line) is in \p sh's
-    /// index's lines when \p sh is active, and every result is placed on the
+    /// derives (`up`) or what derives it. As hierarchy items, or as plain
+    /// Locations for "go to implementation". (path, line) is in `sh`'s
+    /// index's lines when `sh` is active, and every result is placed on the
     /// buffer's lines through it (Lookup.k, LineShift).
     fn related_types(self,
                      const path: string,
@@ -392,9 +392,11 @@ extend Server {
     }
 
     /// "N references" above each function and type of the file.
-    /// \param sh  the index is of an older text of the buffer (inactive: it
-    ///            is not): a lens is placed on the buffer's line, and one
-    ///            whose line the edits changed is not sent.
+    ///
+    /// ### Parameters
+    /// - `sh`: the index is of an older text of the buffer (inactive: it
+    ///   is not): a lens is placed on the buffer's line, and one
+    ///   whose line the edits changed is not sent.
     fn code_lens(self,
                  s:          *const JsonDoc,
                  f:          u32,

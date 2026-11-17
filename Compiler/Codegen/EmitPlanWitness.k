@@ -63,7 +63,7 @@ import Codegen::EmitPlanRoots
 extend EmitPlan {
     /// # Witnesses (Compiler/Spec/Witnesses.md#emission)
 
-    /// \p iface's primary and concept, created on first touch. Its deps are the
+    /// `iface`'s primary and concept, created on first touch. Its deps are the
     /// by-value records its forwarders' signatures name (an inline definition
     /// lays them out); a concept conjoins its bases' concepts, so their
     /// primaries come first.
@@ -102,7 +102,7 @@ extend EmitPlan {
         return k
     }
 
-    /// \p row's specialization, when the primary does not serve it (§7b.4):
+    /// `row`'s specialization, when the primary does not serve it (§7b.4):
     /// after the primary, the conformer complete, and every extension scope
     /// it forwards to defined.
     fn _witness_row(self, row: unsafe *ConformanceRow) {
@@ -264,7 +264,7 @@ extend EmitPlan {
         }
     }
 
-    /// `std::hash<K>` for a Kairo record K that conforms to Hash: \p e is that
+    /// `std::hash<K>` for a Kairo record K that conforms to Hash: `e` is that
     /// imported instance, which a C++ container keyed by K names as its default
     /// hasher (`unordered_map<K, V, std::hash<K>, ...>`, as the registry spells
     /// it). The primary is disabled for a type C++ knows nothing of, so this TU
@@ -361,8 +361,8 @@ extend EmitPlan {
         self._witness_dep(self._witnesses.size() - 1, row->conformer)
     }
 
-    /// The rows \p d DECLARES (`class X impl I`, `extend X impl I`), where \p d
-    /// is emitted: there both X and I are complete -- \p d defines or extends
+    /// The rows `d` DECLARES (`class X impl I`, `extend X impl I`), where `d`
+    /// is emitted: there both X and I are complete -- `d` defines or extends
     /// X and names I -- and a C++ host instantiating a bounded template with X
     /// finds the specialization in the header that defines X, though no Kairo
     /// instance ever paired them (§7b.6). A header leaves out a row whose X or
@@ -387,7 +387,7 @@ extend EmitPlan {
         }
     }
 
-    /// The primaries of every interface \p f's bounds name: its template head
+    /// The primaries of every interface `f`'s bounds name: its template head
     /// carries their concepts (Speller::requires_clause), so its declaration
     /// needs them, not only its body. A primary record's head carries none
     /// (Speller::defers_bounds), but its member bodies still call through
@@ -435,7 +435,7 @@ extend EmitPlan {
         }
     }
 
-    /// Requirement \p f's by-value records, as a forwarder's are.
+    /// Requirement `f`'s by-value records, as a forwarder's are.
     fn _witness_sig(self, k: usize, f: unsafe *Declarations::FunctionDecl) {
         self._witness_dep(k, f->return_type)
         if f->panic_result != &null {
@@ -459,7 +459,7 @@ extend EmitPlan {
         }
     }
 
-    /// A by-value record \p t is a Complete dependency of witness \p k. An
+    /// A by-value record `t` is a Complete dependency of witness `k`. An
     /// interface (the requirement's own `Self`) is spelled as Self, never laid
     /// out; an imported record is the header's. `T?` is its record to C++
     /// (NullableTypeLowering), held by value.

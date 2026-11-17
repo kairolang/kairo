@@ -1,11 +1,11 @@
 /// --- The Kairo Project -------------------- Sema/Incremental/Plan.k --- ///
 ///
-///   \brief Incremental Sema's invalidation rules, in the compiler
-///          (Compiler/Spec/IncrementalSema.md#invalidation-rules): from the
-///          facts a previous run stored per module (its interface and its
-///          dependency rows) and the interfaces of the present run, the set
-///          of modules that must be re-checked, each with the rule that put
-///          it there.
+/// Incremental Sema's invalidation rules, in the compiler
+/// (Compiler/Spec/IncrementalSema.md#invalidation-rules): from the
+/// facts a previous run stored per module (its interface and its
+/// dependency rows) and the interfaces of the present run, the set
+/// of modules that must be re-checked, each with the rule that put
+/// it there.
 ///
 ///   This is M(m) evaluated over the stored rows: what Scripts/incr_oracle.py
 ///   computes in Python from the two dumps, on the same rules R0 to R7, so
@@ -79,20 +79,19 @@ pub fn plan_join(v: *cxx::std::vector<string>, const sep: string) -> string {
     return out
 }
 
-/// \class PlanModule
-/// \brief What one run knows about one module, as the rules read it.
+/// What one run knows about one module, as the rules read it.
 ///
-/// \details Every list is sorted. A line of the stored form is a one-letter
-///          tag, a tab and the fields, tab-separated:
-///            E  id, scope, name, I, body hash, extended type, refs
-///            C  scope, extended type, names
-///            S  a module of the surface
-///            N  module, scope, name          (a name row)
-///            O  module whose overlay, name   (an overlay row)
-///            D  part, id                     (a declaration row)
-///            F  a file the diagnostics name besides the module's own
-///          then `diag <bytes>`, the diagnostics as the run rendered them,
-///          and `end`.
+/// Every list is sorted. A line of the stored form is a one-letter
+/// tag, a tab and the fields, tab-separated:
+///   E  id, scope, name, I, body hash, extended type, refs
+///   C  scope, extended type, names
+///   S  a module of the surface
+///   N  module, scope, name          (a name row)
+///   O  module whose overlay, name   (an overlay row)
+///   D  part, id                     (a declaration row)
+///   F  a file the diagnostics name besides the module's own
+/// then `diag <bytes>`, the diagnostics as the run rendered them,
+/// and `end`.
 pub class PlanModule {
     pub var name:    string                   = ""
     pub var path:    string                   = ""
@@ -223,8 +222,7 @@ fn plan_absent() -> string {
     return "?absent"
 }
 
-/// \class PlanLists
-/// \brief key -> list of strings, compared as one sorted, joined string.
+/// key -> list of strings, compared as one sorted, joined string.
 class PlanLists {
     var index: llvm::StringMap<u32>
     var keys:  cxx::std::vector<string>
@@ -289,8 +287,7 @@ class PlanLists {
     }
 }
 
-/// \class PlanIndex
-/// \brief One run's interfaces, indexed the way the rules ask.
+/// One run's interfaces, indexed the way the rules ask.
 class PlanIndex {
     var names:  PlanLists ///< module \t scope \t name -> [id \x1e I]
     var bodies: PlanLists ///< module \t scope \t name -> [id \x1e body]
@@ -411,8 +408,7 @@ class PlanIndex {
     }
 }
 
-/// \class PlanDiff
-/// \brief What changed between two indexes, as the sets the rules test.
+/// What changed between two indexes, as the sets the rules test.
 class PlanDiff {
     var names:       llvm::StringSet<llvm::MallocAllocator> ///< module \t scope \t name
     var ext:         llvm::StringSet<llvm::MallocAllocator> ///< extended type \t name
@@ -582,9 +578,8 @@ class PlanDiff {
     }
 }
 
-/// \class IncrPlan
-/// \brief The modules to re-check, in the order the rules found them, each
-///        with the first rule that names it.
+/// The modules to re-check, in the order the rules found them, each
+/// with the first rule that names it.
 pub class IncrPlan {
     pub var  mods: cxx::std::vector<string>
     pub var  why:  cxx::std::vector<string>
@@ -607,7 +602,7 @@ pub class IncrPlan {
     }
 }
 
-/// The modules of \p a and \p b are the same set.
+/// The modules of `a` and `b` are the same set.
 pub fn incr_plan_same_graph(a: *cxx::std::vector<PlanModule>,
                             b: *cxx::std::vector<PlanModule>) -> bool {
     if a->size() != b->size() {
@@ -656,22 +651,23 @@ fn plan_surface(a: *PlanIndex, b: *PlanIndex, const m: string) -> cxx::std::vect
     return out
 }
 
-/// \brief the re-check set.
+/// the re-check set.
 ///
-/// \param old      every module as the previous run recorded it (its rows
-///                 are the ones evaluated).
-/// \param now      every module as the present run found it: the same set
-///                 (incr_plan_same_graph); only interfaces and surfaces are
-///                 read.
-/// \param edited   the modules whose text changed (R0).
-/// \param changed  the paths of those files (R8).
+/// ### Parameters
+/// - `old`: every module as the previous run recorded it (its rows
+///   are the ones evaluated).
+/// - `now`: every module as the present run found it: the same set
+///   (incr_plan_same_graph); only interfaces and surfaces are
+///   read.
+/// - `edited`: the modules whose text changed (R0).
+/// - `changed`: the paths of those files (R8).
 ///
-/// \details R0 to R7 are Scripts/incr_oracle.py's, line for line. R8 is this
-///          function's own: a module whose recorded diagnostics name a
-///          position in a file whose text changed is re-checked, because a
-///          position is in no hash (open hole 1) and the note would be
-///          replayed with a stale line. Its reason starts with "R8", which
-///          is how a comparison with the oracle leaves it out.
+/// R0 to R7 are Scripts/incr_oracle.py's, line for line. R8 is this
+/// function's own: a module whose recorded diagnostics name a
+/// position in a file whose text changed is re-checked, because a
+/// position is in no hash (open hole 1) and the note would be
+/// replayed with a stale line. Its reason starts with "R8", which
+/// is how a comparison with the oracle leaves it out.
 pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                  now:     *cxx::std::vector<PlanModule>,
                  edited:  *cxx::std::vector<string>,
@@ -957,12 +953,13 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
     }
 }
 
-/// \brief what the plan claims and a full run can check: every module it
-///        leaves out has the interface and the diagnostics the previous run
-///        recorded for it.
+/// what the plan claims and a full run can check: every module it
+/// leaves out has the interface and the diagnostics the previous run
+/// recorded for it.
 ///
-/// \return the number of modules for which that is false; \p first names
-///         the first, with what differs.
+/// ### Returns
+/// the number of modules for which that is false; `first` names
+/// the first, with what differs.
 pub fn incr_plan_verify(old:          *cxx::std::vector<PlanModule>,
                         now:          *cxx::std::vector<PlanModule>,
                         plan:         *IncrPlan,

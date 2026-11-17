@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------- Sema/Check/CallConvCheck.k --- ///
 ///
-///   \brief Where `@preserve_most` / `@preserve_all` / `@preserve_none` may
-///          stand (functions-declarations.mdx, "Calling conventions").
+/// Where `@preserve_most` / `@preserve_all` / `@preserve_none` may
+/// stand (functions-declarations.mdx, "Calling conventions").
 ///
 ///   \detail
 ///     A calling convention changes which registers a call clobbers, so
@@ -81,7 +81,7 @@ import Sema::SemaContext::{
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
-/// The FunctionDecl::call_conv value attribute \p name sets, or 0.
+/// The FunctionDecl::call_conv value attribute `name` sets, or 0.
 pub fn call_conv_of_attr(const name: string) -> u8 {
     if name == LangAttrs::preserve_most() {
         return 1
@@ -187,7 +187,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
         return true
     }
 
-    /// The method set rule: \p cd's overrides against the methods they
+    /// The method set rule: `cd`'s overrides against the methods they
     /// override. A plain virtual with no base has nothing to agree with.
     fn visit_class_decl(self, cd: unsafe *ClassDecl) -> bool {
         if cd == &null || cd->is_poisoned() || decl_is_imported(unsafe (cd as unsafe *Decl)) {
@@ -263,7 +263,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
         return true
     }
 
-    /// `override` on \p m, whose parameter list matches no base virtual of
+    /// `override` on `m`, whose parameter list matches no base virtual of
     /// its name and arity as C++ declares them (SI8): a Kairo `x: D` is a
     /// by-value `D`, not the `const D&` a C++ base takes, so clang says the
     /// method overrides nothing. Reported only when such a base method
@@ -351,7 +351,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
 
     /// # the rules
 
-    /// What \p f is, when it is a kind no convention may be set on; "" when
+    /// What `f` is, when it is a kind no convention may be set on; "" when
     /// it may carry one.
     priv fn _forbidden_kind(self, f: unsafe *FunctionDecl) -> string {
         var unsafe *dc = f->semantic_dc
@@ -431,7 +431,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
         return ci->target.triple.copy()
     }
 
-    /// \p f is visible to C or C++: an `ffi` declaration, or a function no
+    /// `f` is visible to C or C++: an `ffi` declaration, or a function no
     /// enclosing scope makes private, written or by default. `internal`
     /// still reaches the module's header (another file of the module
     /// includes it), so only `priv`, or a function local to another, keeps

@@ -1,8 +1,8 @@
 /// --- The Kairo Project ----------------- Codegen/Backend/EmitHeader.k --- ///
 ///
-///   \brief The module's C++ interop header: the same InterfaceEmitter over
-///          a header-mode plan, into a TextSink, written to
-///          `<dir>/<module path>.hh`.
+/// The module's C++ interop header: the same InterfaceEmitter over
+/// a header-mode plan, into a TextSink, written to
+/// `<dir>/<module path>.hh`.
 ///
 ///   Not a clang action: no PP, no PCH. It needs sema's resolved links and
 ///   nothing else, so it can run right after sema, per TU, and the entry
@@ -49,7 +49,7 @@ pub class EmitCXXHeader {
     /// kals' clangd bridge (--emit-headers-line-directives): `#line` before
     /// every emitted line naming the Kairo declaration it comes from, so a
     /// jump from C++ lands in the .k file; text with no Kairo counterpart
-    /// sits under `#line` naming \ref header_name. Off for every other
+    /// sits under `#line` naming `header_name`. Off for every other
     /// caller: a user-requested header is plain C++, and kcc injects tokens
     /// that already carry Kairo locations.
     pub var line_directives: bool   = false
@@ -58,7 +58,7 @@ pub class EmitCXXHeader {
     /// --emit-headers-layout (kals' clangd bridge; implies line_directives):
     /// each declaration on the PHYSICAL line it has in the .k file, since
     /// clangd reports physical lines (TextSink::finish_layout). What the
-    /// emitter invents goes to \ref prelude, written beside the header as
+    /// emitter invents goes to `prelude`, written beside the header as
     /// `<header>.prelude` and included from its second line by absolute
     /// path (clangd may present the header under the .k file's name, so a
     /// relative include would resolve against the wrong directory).
@@ -227,7 +227,7 @@ pub class EmitCXXHeader {
         return out
     }
 
-    /// The path under \p dir this TU's header lands at.
+    /// The path under `dir` this TU's header lands at.
     pub fn path_under(self, const dir: string) -> string {
         var unsafe *tu = self._ctx->tu
         var cg = CodegenContext(self._ctx, &null, self._psym, self._instances)

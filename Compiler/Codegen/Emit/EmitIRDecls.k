@@ -252,7 +252,7 @@ extend EmitIR {
 
     /// One foreign template or inline body, in its owner's wrapper. The tokens live in
     /// the template's file; the sink maps every registered fid. A member
-    /// goes out of line on its record (\p f is already the defining link);
+    /// goes out of line on its record (`f` is already the defining link);
     /// an extension member still needs its extension (the receiver
     /// parameter and the extension's template parameters).
     prot fn _visible_body(self, f: unsafe *FunctionDecl) {
@@ -271,7 +271,7 @@ extend EmitIR {
         self._free_fn(f, &null)
     }
 
-    /// Open the wrapper InterfaceEmitter declared \p d in.
+    /// Open the wrapper InterfaceEmitter declared `d` in.
     /// The named namespace, plus an unnamed one nested in it for a decl with
     /// no linkage outside its file -- never for an extension member, whose
     /// scope struct lives in the named one whatever its visibility. Returns
@@ -306,7 +306,7 @@ extend EmitIR {
         }
     }
 
-    /// Whether a definition under template head \p head is spelled C++
+    /// Whether a definition under template head `head` is spelled C++
     /// `inline`: every one is. An instance named in its home TU is an
     /// explicit instantiation there and `extern template` in every other
     /// TU, and an explicit instantiation declaration suppresses the implicit
@@ -322,7 +322,7 @@ extend EmitIR {
         return !head.is_empty() && !head.starts_with("template <>")
     }
 
-    /// A free function, or an extension member (\p ext non-null): the
+    /// A free function, or an extension member (`ext` non-null): the
     /// out-of-line definition of its scope's static member, receiver first
     /// (`void __kairo_ext_Vec::push(Vec* self, ...)`; no `static` out of line).
     priv fn _free_fn(self, n: unsafe *FunctionDecl, ext: unsafe *ExtensionDecl) {
@@ -505,7 +505,7 @@ extend EmitIR {
         self._close_ns(m->range, wrap)
     }
 
-    /// The member specializations of class method \p f
+    /// The member specializations of class method `f`
     /// (Compiler/Spec/Generics.md#member-specializations), ahead of its own
     /// body: `if constexpr (<its arguments>) { return <its function>(this,
     /// args...); }` each, the ones that fix both the class's and the
@@ -700,12 +700,12 @@ extend EmitIR {
         }
     }
 
-    /// The `operator[]` forwarder to split subscript form \p m's named member
+    /// The `operator[]` forwarder to split subscript form `m`'s named member
     /// (Speller::subscript_forwarded; InterfaceEmitter declares it), here,
-    /// beside \p m's own definition: out of the class, where a by-value
+    /// beside `m`'s own definition: out of the class, where a by-value
     /// result or operand (`Slice<T>`, `Range<usize>`) is complete, and with
-    /// \p m's own inline-ness and owner template head, so it is wherever
-    /// \p m's definition is.
+    /// `m`'s own inline-ness and owner template head, so it is wherever
+    /// `m`'s definition is.
     priv fn _subscript_forwarder_def(self,
                                      m:     unsafe *FunctionDecl,
                                      owner: unsafe *Decl,
@@ -863,7 +863,7 @@ extend EmitIR {
     }
 
     /// `inline constexpr T const R::k = R::__kairo_init_k();` for the eval
-    /// field whose consteval thunk \p m is, right after the thunk's body: a
+    /// field whose consteval thunk `m` is, right after the thunk's body: a
     /// constant expression may call a consteval function only once it is
     /// defined, so InterfaceEmitter, which writes the other statics after
     /// the class, leaves this one here. The thunk is an eval fn, so its body

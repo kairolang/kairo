@@ -11,17 +11,13 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+/// integer limits for every builtin width, under one set of names.
 ///
-/// \file Limits.k
-/// \brief integer limits for every builtin width, under one set of names.
-///
-/// \details
 /// each constant is the language limit (`u32::MAX`, `i64::MIN`, ...) with the
 /// type it has always had here; the names predate those limits and the
 /// compiler sources still use them. `U32_MAX` is `u32`, so it widens into a
 /// `u64` expression for a range check (`v > U32_MAX`) or a low-32 mask
 /// (`v & U32_MAX`).
-///
 
 /// # unsigned maxima
 

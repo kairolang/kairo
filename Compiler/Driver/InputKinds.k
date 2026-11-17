@@ -96,9 +96,9 @@ pub class InputKind {
     }
 }
 
-/// \brief the extension of \p path without its dot: "cc" for a/b.cc, "" for
-///        none. Path::extension() keeps the dot (llvm::sys::path semantics);
-///        every comparison below is against the bare spelling clang uses.
+/// the extension of `path` without its dot: "cc" for a/b.cc, "" for
+/// none. Path::extension() keeps the dot (llvm::sys::path semantics);
+/// every comparison below is against the bare spelling clang uses.
 pub fn input_ext(const path: string) -> string {
     var e = Path(path).extension()
     if e.size() > 0 && e[0] == ('.' as u8) {
@@ -119,8 +119,8 @@ pub fn _is_link_ext(const ext: string) -> bool {
         || ext == "res"
 }
 
-/// \brief the class of a clang type id. Ordered most specific first: a CUDA
-///        header is offload before it is a header.
+/// the class of a clang type id. Ordered most specific first: a CUDA
+/// header is offload before it is a header.
 pub fn _class_of_type(k: *InputKind) {
     var ty = k->ty
     if ty == clang::driver::types::TY_INVALID {
@@ -175,12 +175,13 @@ pub fn _is_versioned_so(const path: string) -> bool {
     return !(cxx::std::string::npos == at)
 }
 
-/// \brief classifies one input.
+/// classifies one input.
 ///
-/// \param xlang the -x value in force when this input appeared on the command
-///        line: "" or "none" means by extension, "kairo"/"k" a Kairo file,
-///        anything else a clang type name (`c`, `c++`, `objective-c++`,
-///        `ir`, `c++-header`, ...).
+/// ### Parameters
+/// - `xlang`: the -x value in force when this input appeared on the command
+///   line: "" or "none" means by extension, "kairo"/"k" a Kairo file,
+///   anything else a clang type name (`c`, `c++`, `objective-c++`,
+///   `ir`, `c++-header`, ...).
 pub fn classify_input(const path: string, const xlang: string) -> InputKind {
     var k = InputKind()
     k.path = path.copy()

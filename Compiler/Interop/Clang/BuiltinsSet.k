@@ -197,7 +197,7 @@ pub class BuiltinsSet {
         return true
     }
 
-    /// Is \p name one of the target's predefined macros. Read-only; any thread.
+    /// Is `name` one of the target's predefined macros. Read-only; any thread.
     pub fn predefined(self, const name: string) -> bool {
         if !self._ready {
             return false
@@ -206,7 +206,7 @@ pub class BuiltinsSet {
         return self._predef.find(kairo::sref(name)) != self._predef.end()
     }
 
-    /// The builtin ID \p name has here, or 0. Read-only; any thread.
+    /// The builtin ID `name` has here, or 0. Read-only; any thread.
     pub fn id_of(self, const name: string) -> u32 {
         if !self._ready {
             return 0

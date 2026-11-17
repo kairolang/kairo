@@ -240,14 +240,14 @@ import std::io
 
 /// Shared resource hub for a single compilation.
 ///
-/// Owns all subsystems and drives \c FrontendAction execution via
-/// \c execute(). Destruction releases all resources in reverse-dependency
+/// Owns all subsystems and drives `FrontendAction` execution via
+/// `execute()`. Destruction releases all resources in reverse-dependency
 /// order.
 ///
-/// Built either from argv (the driver's path) or from a \c CompilerInvocation
+/// Built either from argv (the driver's path) or from a `CompilerInvocation`
 /// the caller filled in (the tooling path). The invocation is an INPUT, not an
 /// output of construction: argv parsing lives in
-/// \c CompilerInvocation::from_args, and the argv constructor is a caller of
+/// `CompilerInvocation::from_args`, and the argv constructor is a caller of
 /// it. Same split as clang's CreateFromArgs / setInvocation.
 pub class CompilerInstance {
     /// # Owned resources
@@ -354,12 +354,12 @@ pub class CompilerInstance {
 
     /// # Constructors
 
-    /// Constructs all subsystems from \p argv.
+    /// Constructs all subsystems from `argv`.
     ///
     /// A thin delegator: every line of argv handling lives in
-    /// \c CompilerInvocation::from_args, and this hands the result to the
+    /// `CompilerInvocation::from_args`, and this hands the result to the
     /// invocation constructor below. Observable behaviour   including
-    /// \c args_ok()   is unchanged from when the parsing was inline here.
+    /// `args_ok()`   is unchanged from when the parsing was inline here.
     ///
     /// Construction order rationale:
     ///   - DiagEngine before consumers: consumers register into it.
@@ -389,11 +389,11 @@ pub class CompilerInstance {
         self._adopt(unsafe &inv)
     }
 
-    /// \brief constructs from kairo CLI words that did not come from main's
-    ///        argv: kcc's translation of a clang command line (Driver/Kcc.k,
-    ///        FlagTranslator::from_driver). The same parser as the argv
-    ///        path, reporting into this instance's engine, so args_ok() and
-    ///        flush_errors() behave as they do for `kairo`.
+    /// constructs from kairo CLI words that did not come from main's
+    /// argv: kcc's translation of a clang command line (Driver/Kcc.k,
+    /// FlagTranslator::from_driver). The same parser as the argv
+    /// path, reporting into this instance's engine, so args_ok() and
+    /// flush_errors() behave as they do for `kairo`.
     fn CompilerInstance(self, @inout words: cxx::std::vector<string>) {
         self._boot_diagnostics()
         self._cmd = kairo::std::create<Command>(0, &null, self._diag)
@@ -417,34 +417,35 @@ pub class CompilerInstance {
         self._adopt(unsafe &inv)
     }
 
-    /// \brief constructs from a caller-built invocation. Reads no argv.
+    /// constructs from a caller-built invocation. Reads no argv.
     ///
-    /// \details The programmatic entry point. A tool that already knows its
-    ///          options fills a \c CompilerInvocation and passes it here rather
-    ///          than rendering the options back into flag strings for the CLI
-    ///          parser to re-read.
+    /// The programmatic entry point. A tool that already knows its
+    /// options fills a `CompilerInvocation` and passes it here rather
+    /// than rendering the options back into flag strings for the CLI
+    /// parser to re-read.
     ///
-    /// \par OWNERSHIP: \p inv is COPIED.
-    ///      The instance holds its own \c CompilerInvocation, so \p inv may be
+    /// \par OWNERSHIP: `inv` is COPIED.
+    ///      The instance holds its own `CompilerInvocation`, so `inv` may be
     ///      a stack temporary and may be modified or destroyed the moment this
     ///      returns. Copied rather than borrowed on purpose: the invocation is
     ///      a handful of small value types with no non-copyable state, the copy
     ///      happens once per compilation, and a borrowed one with no stated
     ///      lifetime is a dangler waiting to happen. Read the live copy back
-    ///      through \c invocation(); mutations to \p inv afterwards are NOT
+    ///      through `invocation()`; mutations to `inv` afterwards are NOT
     ///      seen.
     ///
     /// \par Diagnostics
     ///      Do not depend on argv. The engine and its consumers are stood up
-    ///      here exactly as on the argv path, and \c _apply_invocation() maps
+    ///      here exactly as on the argv path, and `_apply_invocation()` maps
     ///      the same policy fields onto them.
     ///
-    /// \param inv  may be null, in which case \c args_ok() reports false and
-    ///             the instance is inert   the same shape as a failed CLI
-    ///             parse.
+    /// ### Parameters
+    /// - `inv`: may be null, in which case `args_ok()` reports false and
+    ///   the instance is inert   the same shape as a failed CLI
+    ///   parse.
     ///
-    /// \note \c print_help() is a no-op here: there is no flag table and no
-    ///       argv[0] to name in the USAGE line.
+    /// **Note:** `print_help()` is a no-op here: there is no flag table and no
+    /// argv[0] to name in the USAGE line.
     fn CompilerInstance(self, inv: unsafe *CompilerInvocation) {
         self._boot_diagnostics()
         self._cmd = &null
@@ -465,7 +466,7 @@ pub class CompilerInstance {
         )
     }
 
-    /// Takes ownership of \p inv (by copy) and stands up everything whose
+    /// Takes ownership of `inv` (by copy) and stands up everything whose
     /// construction depends on it. Shared tail of both constructors.
     priv fn _adopt(self, inv: unsafe *CompilerInvocation) {
         if inv != &null {
@@ -684,9 +685,9 @@ pub class CompilerInstance {
         return &self._inv
     }
 
-    /// \brief the builtin root the import resolver registers: --builtins-dir
-    ///        as given, else <resource-dir>/builtin (ResourceLayout) made
-    ///        absolute; "" with neither.
+    /// the builtin root the import resolver registers: --builtins-dir
+    /// as given, else <resource-dir>/builtin (ResourceLayout) made
+    /// absolute; "" with neither.
     prot fn _builtin_root(self) -> string {
         var root = ResourceLayout::builtin_root_of(unsafe &self._inv)
         if root.is_empty() || !self.invocation()->pp.builtins_dir.is_empty() {
@@ -696,8 +697,8 @@ pub class CompilerInstance {
         return Path(root).full_path()
     }
 
-    /// \brief the std root, as _builtin_root: --std-dir as given, else
-    ///        <resource-dir>/std made absolute; "" with neither.
+    /// the std root, as _builtin_root: --std-dir as given, else
+    /// <resource-dir>/std made absolute; "" with neither.
     prot fn _std_root(self) -> string {
         var root = ResourceLayout::std_root_of(unsafe &self._inv)
         if root.is_empty() || !self.invocation()->pp.std_dir.is_empty() {
@@ -743,8 +744,8 @@ pub class CompilerInstance {
         return self._builtins
     }
 
-    /// \brief true if \p fid is a C++ header Sema/Foreign imported: a TU whose
-    ///        decls came from clang, with no Kairo source behind it.
+    /// true if `fid` is a C++ header Sema/Foreign imported: a TU whose
+    /// decls came from clang, with no Kairo source behind it.
     pub fn is_foreign_fid(self, fid: u32) -> bool {
         var unsafe *ctx = self._g_scope->get_context(fid)
         if ctx == &null {
@@ -755,10 +756,10 @@ pub class CompilerInstance {
         return tu != &null && tu->is_foreign
     }
 
-    /// \brief the name a Kairo TU's outputs take under the object dir when
-    ///        its module path is one segment (or none, by its file stem):
-    ///        that name, or `<stem>.k` when a C/C++ input of the build has
-    ///        that stem and so writes `<stem>.o` itself (_plan_outputs).
+    /// the name a Kairo TU's outputs take under the object dir when
+    /// its module path is one segment (or none, by its file stem):
+    /// that name, or `<stem>.k` when a C/C++ input of the build has
+    /// that stem and so writes `<stem>.o` itself (_plan_outputs).
     fn kairo_object_stem(self, stem: string) -> string {
         for *k in self._inputs {
             if k->cls != InputClass::Source {
@@ -773,21 +774,21 @@ pub class CompilerInstance {
         return stem
     }
 
-    /// \brief true when a C++ or Objective-C++ input includes a .k
-    ///        (_discover_includes found one): the include is emitted from
-    ///        its analysed and lowered tree, so the Kairo inputs go through
-    ///        sema even when the action stops earlier for C++ (--preprocess,
-    ///        --syntax-only). All of them, not only the included ones: an
-    ///        included file may be claimed by an importer's action.
+    /// true when a C++ or Objective-C++ input includes a .k
+    /// (_discover_includes found one): the include is emitted from
+    /// its analysed and lowered tree, so the Kairo inputs go through
+    /// sema even when the action stops earlier for C++ (--preprocess,
+    /// --syntax-only). All of them, not only the included ones: an
+    /// included file may be claimed by an importer's action.
     fn kairo_feeds_includes(self) -> bool {
         return self._includes_kairo
     }
 
-    /// \brief true the first time \p fid is asked for: the asking action
-    ///        parses, checks and emits it. Inputs share their imports (every
-    ///        one reaches builtin), and the PP hands each action its whole
-    ///        graph; a fid an earlier action took is already through every
-    ///        stage, its tables frozen and its object written.
+    /// true the first time `fid` is asked for: the asking action
+    /// parses, checks and emits it. Inputs share their imports (every
+    /// one reaches builtin), and the PP hands each action its whole
+    /// graph; a fid an earlier action took is already through every
+    /// stage, its tables frozen and its object written.
     fn claim_fid(self, fid: u32) -> bool {
         var k = (fid as u64)
         if self._claimed.contains(k) {
@@ -813,12 +814,12 @@ pub class CompilerInstance {
         return !self.invocation()->args.get_string("explain").is_empty()
     }
 
-    /// \brief whether this instance's invocation is usable.
+    /// whether this instance's invocation is usable.
     ///
-    /// \details On the argv path this is exactly "did the flags parse". On the
-    ///          invocation path there are no flags to parse, so it reports
-    ///          whether the supplied invocation was usable   false for a null
-    ///          one, or for one a caller explicitly marked not-ok.
+    /// On the argv path this is exactly "did the flags parse". On the
+    /// invocation path there are no flags to parse, so it reports
+    /// whether the supplied invocation was usable   false for a null
+    /// one, or for one a caller explicitly marked not-ok.
     pub fn args_ok(self) -> bool {
         return self.invocation()->ok
     }
@@ -845,7 +846,7 @@ pub class CompilerInstance {
 
     /// The ICE hook: drain every TU's buffered sink into the engine, then
     /// render the engine's console consumer, as the end of a run would.
-    /// \p ci is the CompilerInstance execute() registered.
+    /// `ci` is the CompilerInstance execute() registered.
     priv static fn _flush_for_ice(ci: unsafe *void) {
         var unsafe *self_ = unsafe (ci as unsafe *CompilerInstance)
         if self_ == &null || self_->_diag == &null {
@@ -1005,7 +1006,8 @@ pub class CompilerInstance {
     /// lexer only reads UTF-8, so any other value would be silently
     /// mis-decoded rather than honoured).
     ///
-    /// \return false after reporting; the caller must stop.
+    /// ### Returns
+    /// false after reporting; the caller must stop.
     fn apply_input_options(self) -> bool {
         var enc = self.invocation()->input_encoding.copy()
         var is_utf8 = enc.is_empty()
@@ -1037,13 +1039,13 @@ pub class CompilerInstance {
         return true
     }
 
-    /// \brief wires the batch-scoped subsystems: ImportResolver, PreProcessor,
-    ///        and the shared ClangBackend.
+    /// wires the batch-scoped subsystems: ImportResolver, PreProcessor,
+    /// and the shared ClangBackend.
     ///
-    /// \details Must run before execute() or any Frontend/ parse entry point;
-    ///          execute() asserts on it. Named to match that assert   it was
-    ///          `index()`, which collided with the unrelated ASTParse Index
-    ///          pass and described neither of the three things it builds.
+    /// Must run before execute() or any Frontend/ parse entry point;
+    /// execute() asserts on it. Named to match that assert   it was
+    /// `index()`, which collided with the unrelated ASTParse Index
+    /// pass and described neither of the three things it builds.
     pub fn initialize(self, const cwd: Path) {
         self._report_root_warnings()
         {
@@ -1186,16 +1188,17 @@ pub class CompilerInstance {
 
     /// Compiles all input files described by the invocation.
     ///
-    /// Builds an \c ImportResolver from the search paths in the invocation,
-    /// then runs a \c FrontendAction for each input file. A fatal diagnostic
-    /// in any file sets \c BatchResult::aborted and skips remaining files.
-    /// \brief why this run cannot be recorded or replayed, "" when it can.
+    /// Builds an `ImportResolver` from the search paths in the invocation,
+    /// then runs a `FrontendAction` for each input file. A fatal diagnostic
+    /// in any file sets `BatchResult::aborted` and skips remaining files.
     ///
-    /// \details A record stands for one Kairo input whose only outputs are
-    ///          the objects the link takes (or none, under
-    ///          --type-check-only): anything else the frontend writes or
-    ///          prints (a dump, an .s beside the link, the `kairo: wrote`
-    ///          lines) would be missing from a replay.
+    /// why this run cannot be recorded or replayed, "" when it can.
+    ///
+    /// A record stands for one Kairo input whose only outputs are
+    /// the objects the link takes (or none, under
+    /// --type-check-only): anything else the frontend writes or
+    /// prints (a dump, an .s beside the link, the `kairo: wrote`
+    /// lines) would be missing from a replay.
     priv fn _incr_ineligible(self, order: *cxx::std::vector<InputKind>) -> string {
         var *fe = &self.invocation()->frontend
         if self.incr_words.empty() {
@@ -1262,8 +1265,8 @@ pub class CompilerInstance {
         return ""
     }
 
-    /// \brief sets the records up for this run and decides: true when the
-    ///        frontend is skipped (a hit, without --incr-verify).
+    /// sets the records up for this run and decides: true when the
+    /// frontend is skipped (a hit, without --incr-verify).
     priv fn _incr_begin(self, order: *cxx::std::vector<InputKind>) -> bool {
         var *fe = &self.invocation()->frontend
         if LinkFS::env(EnvNames::kairo_incr_sema()) == "1" {
@@ -1328,9 +1331,9 @@ pub class CompilerInstance {
         return hit && !self.incr.verify
     }
 
-    /// \brief the recorded run's result for the input \p path: its
-    ///        objects, its diagnostics (as text, ahead of this run's own)
-    ///        and its warning count.
+    /// the recorded run's result for the input `path`: its
+    /// objects, its diagnostics (as text, ahead of this run's own)
+    /// and its warning count.
     priv fn _incr_replay(self, const path: string) -> TUResult {
         var tr = TUResult()
         tr.path        = Path(path).full_path()
@@ -1349,8 +1352,8 @@ pub class CompilerInstance {
         return tr
     }
 
-    /// \brief a TU's share of the diagnostics, for its record: the console
-    ///        consumer's count, and the text of a range of it.
+    /// a TU's share of the diagnostics, for its record: the console
+    /// consumer's count, and the text of a range of it.
     pub fn incr_diag_count(self) -> usize {
         if renders_through_basic(self.invocation()->diag.error_format) {
             return self._basic->count()
@@ -1372,14 +1375,15 @@ pub class CompilerInstance {
         return self._pretty->render_range(a, b)
     }
 
-    /// \brief the re-check set for this run's changes, from the rows the
-    ///        previous run stored (Sema/Incremental/Plan.k): printed under
-    ///        --print-incr-plan and, under --incr-verify, proven against
-    ///        this (full) run: every module the plan leaves out must have
-    ///        the interface and the diagnostics of its record.
+    /// the re-check set for this run's changes, from the rows the
+    /// previous run stored (Sema/Incremental/Plan.k): printed under
+    /// --print-incr-plan and, under --incr-verify, proven against
+    /// this (full) run: every module the plan leaves out must have
+    /// the interface and the diagnostics of its record.
     ///
-    /// \return false when that proof failed (U001E): the records are then
-    ///         left as they were.
+    /// ### Returns
+    /// false when that proof failed (U001E): the records are then
+    /// left as they were.
     priv fn _incr_plan(self) -> bool {
         var show = self.invocation()->frontend.print_incr_plan
         if !(show || self.incr.verify) {
@@ -1486,9 +1490,9 @@ pub class CompilerInstance {
         return false
     }
 
-    /// \brief after the loop of a run that did not skip: under
-    ///        --incr-verify compares it with the records it would have
-    ///        replayed; then writes them, marked when it had an error.
+    /// after the loop of a run that did not skip: under
+    /// --incr-verify compares it with the records it would have
+    /// replayed; then writes them, marked when it had an error.
     priv fn _incr_end(self, result: *BatchResult, hit: bool) {
         if !self.incr.on || hit {
             return
@@ -1600,7 +1604,7 @@ pub class CompilerInstance {
         self.incr.write()
     }
 
-    /// Results are collected into the returned \c BatchResult.
+    /// Results are collected into the returned `BatchResult`.
     fn execute(self) -> BatchResult {
         eval if defined!(DEBUG) {
             if !(self._imp != &null) {
@@ -1819,15 +1823,15 @@ pub class CompilerInstance {
         return result
     }
 
-    /// \brief the module path \p path takes as an input: the one an import
-    ///        of it gets (ImportResolver::input_module_path), so a file is one
-    ///        module, one namespace and one object path whether it is
-    ///        compiled, imported or included, and `kcc -c lib/y.k` emits the
-    ///        `lib::y::f` an importer compiled in another run calls.
-    ///        Empty for a pathless file -- one outside every
-    ///        search dir, or one whose path a named library owns -- which
-    ///        keeps the pathless rules (Speller::is_entry_tu).
-    /// The module path the driver gives input \p path (ParseAPI's as_module).
+    /// the module path `path` takes as an input: the one an import
+    /// of it gets (ImportResolver::input_module_path), so a file is one
+    /// module, one namespace and one object path whether it is
+    /// compiled, imported or included, and `kcc -c lib/y.k` emits the
+    /// `lib::y::f` an importer compiled in another run calls.
+    /// Empty for a pathless file -- one outside every
+    /// search dir, or one whose path a named library owns -- which
+    /// keeps the pathless rules (Speller::is_entry_tu).
+    /// The module path the driver gives input `path` (ParseAPI's as_module).
     pub fn input_module_path(self, const path: string) -> ModulePath {
         return self._input_module_path(path)
     }

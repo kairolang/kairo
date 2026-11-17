@@ -1,7 +1,7 @@
 /// --- The Kairo Project -------------------------- Lib/std/rt/Float8.k --- ///
 ///
-///   \brief The two OCP FP8 formats as classes: F8E4M3 and F8E5M2, what C++
-///          spells `f8e4m3` and `f8e5m2`.
+/// The two OCP FP8 formats as classes: F8E4M3 and F8E5M2, what C++
+/// spells `f8e4m3` and `f8e5m2`.
 ///
 ///   \detail
 ///        LLVM has no IR type at 8 bits of float (llvm/IR/Type.h's TypeID
@@ -218,8 +218,7 @@ priv fn f8_to_f32_(b: u8, mant: u32, bias: i32, fnz: bool) -> f32 {
 
 // === F8E4M3 ===================================================================
 
-/// \class F8E4M3
-/// \brief OCP E4M3, finite-only. 1 sign / 4 exponent / 3 mantissa, bias 7.
+/// OCP E4M3, finite-only. 1 sign / 4 exponent / 3 mantissa, bias 7.
 ///
 ///        Layout:  S EEEE MMM
 ///        Max finite:   448.0    (S.1111.110)
@@ -540,9 +539,8 @@ pub class F8E4M3 {
 
 // === F8E5M2 ===================================================================
 
-/// \class F8E5M2
-/// \brief OCP E5M2. 1 sign / 5 exponent / 2 mantissa, bias 15. IEEE-shaped:
-///        infinities AND NaN both present, unlike E4M3FN.
+/// OCP E5M2. 1 sign / 5 exponent / 2 mantissa, bias 15. IEEE-shaped:
+/// infinities AND NaN both present, unlike E4M3FN.
 ///
 ///        Layout:  S EEEEE MM
 ///        Max finite:   57344.0  (S.11110.11)

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------- Sema/Type/GenericArrayCopy.k --- ///
 ///
-///   \brief A generic body that copies a value of a type parameter which a
-///          call binds to a fixed array.
+/// A generic body that copies a value of a type parameter which a
+/// call binds to a fixed array.
 ///
 ///   \detail
 ///     An array is not a value type (collections.mdx): it is initialized
@@ -76,7 +76,7 @@ pub class GenericArrayCopyScan derives RecursiveASTVisitor<GenericArrayCopyScan>
         self._bindings = bindings
     }
 
-    /// \p t is exactly a type parameter bound to a fixed array: recorded.
+    /// `t` is exactly a type parameter bound to a fixed array: recorded.
     pub fn array_param(self, t: unsafe *Type) -> bool {
         if t == &null {
             return false
@@ -146,7 +146,7 @@ pub class GenericArrayCopyScan derives RecursiveASTVisitor<GenericArrayCopyScan>
         return true
     }
 
-    /// The type of the place \p e: its own, or, before the body is typed,
+    /// The type of the place `e`: its own, or, before the body is typed,
     /// the declared type of the binding it names.
     priv fn _place_type(self, e: unsafe *Expr) -> unsafe *Type {
         var unsafe *x = e

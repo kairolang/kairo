@@ -49,7 +49,7 @@ pub class ByteWriter {
         self.put_u32le((v >> 32) as u32)
     }
 
-    /// Overwrites the four bytes at \p at: a length prefix reserved before
+    /// Overwrites the four bytes at `at`: a length prefix reserved before
     /// its payload was written.
     pub fn patch_u32le(self, at: usize, v: u32) {
         self.buf[at]     = (v & 0xFF) as u8
@@ -172,7 +172,7 @@ pub class ByteReader {
         return ((u >> 1) as i64) ^ (-((u & 1) as i64))
     }
 
-    /// The next \p n bytes, in place; null (and `failed`) when fewer remain.
+    /// The next `n` bytes, in place; null (and `failed`) when fewer remain.
     pub fn get_bytes(self, n: usize) -> unsafe *const u8 {
         if n > self.remaining() {
             self.failed = true

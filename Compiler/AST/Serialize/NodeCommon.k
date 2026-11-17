@@ -23,7 +23,7 @@ import AST::Node::Base::Expr
 import AST::Serialize::Archive::ASTArchive
 import Location::SourceRange::SourceRange
 
-/// The annotations of node \p n (any family: all five derive Annotation).
+/// The annotations of node `n` (any family: all five derive Annotation).
 /// `presence` is not stored: add_annotation derives it from the entries,
 /// and the writer checks that the node's own bits are those.
 pub fn <N: type> io_annotations(ar: unsafe *ASTArchive, n: unsafe *N) {

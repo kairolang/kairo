@@ -36,11 +36,11 @@ import Parser::ASTParse::ASTParse
 import Support::FileIO::Path::Path
 
 extend CompilerInstance {
-    /// \brief adds every .k a C++ or Objective-C++ input includes, and the
-    ///        command line does not name, as a Kairo input after the named
-    ///        ones (KairoIncludeScan). After _plan_outputs: a discovered
-    ///        file is no output -o can name, and before _kairo_order, which
-    ///        loads the inputs.
+    /// adds every .k a C++ or Objective-C++ input includes, and the
+    /// command line does not name, as a Kairo input after the named
+    /// ones (KairoIncludeScan). After _plan_outputs: a discovered
+    /// file is no output -o can name, and before _kairo_order, which
+    /// loads the inputs.
     prot fn _discover_includes(self) {
         var scan = KairoIncludeScan(self._quote_dirs(), self._angle_dirs())
         var any  = false
@@ -177,13 +177,13 @@ extend CompilerInstance {
         return quote
     }
 
-    /// \brief _inputs, with every Kairo input another one imports moved
-    ///        after the rest (stable otherwise).
+    /// _inputs, with every Kairo input another one imports moved
+    /// after the rest (stable otherwise).
     ///
-    /// \details An input takes the path an import gives it
-    ///          (_input_module_path), so this order does not decide a file's
-    ///          identity; the importer claims the file it reaches first
-    ///          (claim_fid). The fid-0 placeholder below is needed either way.
+    /// An input takes the path an import gives it
+    /// (_input_module_path), so this order does not decide a file's
+    /// identity; the importer claims the file it reaches first
+    /// (claim_fid). The fid-0 placeholder below is needed either way.
     prot fn _kairo_order(self) -> cxx::std::vector<InputKind> {
         var nk: usize = 0
         for *k in self._inputs {
@@ -273,13 +273,13 @@ extend CompilerInstance {
         return first
     }
 
-    /// \brief frees everything \p fid produced at \p from and every LATER stage.
+    /// frees everything `fid` produced at `from` and every LATER stage.
     ///
-    /// \details The one entry point tools should use to reclaim a file. Batch
-    ///          compilation never needs it   the process exits   but anything
-    ///          that walks many files (kfmt over a tree) or re-processes one
-    ///          (LSP on edit) does, because nothing is otherwise reclaimed
-    ///          until the CompilerInstance dies.
+    /// The one entry point tools should use to reclaim a file. Batch
+    /// compilation never needs it   the process exits   but anything
+    /// that walks many files (kfmt over a tree) or re-processes one
+    /// (LSP on edit) does, because nothing is otherwise reclaimed
+    /// until the CompilerInstance dies.
     ///
     /// ORDERING. Artifacts are torn down newest-stage-first, because every
     /// stage's output points into the stages before it:
@@ -295,14 +295,15 @@ extend CompilerInstance {
     /// therefore MUST take the AST with it, and this ordering is what
     /// guarantees it.
     ///
-    /// \return false if nothing was released   unknown fid, or the guard below
-    ///         refused.
+    /// ### Returns
+    /// false if nothing was released   unknown fid, or the guard below
+    /// refused.
     ///
-    /// \note REFUSES while another loaded file still imports \p fid.
-    ///       TranslationUnit::import_edges holds a *Decl into the imported
-    ///       file's arena, so releasing it out from under a live importer
-    ///       dangles those edges. Release leaves of the import graph first, or
-    ///       release the whole batch.
+    /// **Note:** REFUSES while another loaded file still imports `fid`.
+    /// TranslationUnit::import_edges holds a *Decl into the imported
+    /// file's arena, so releasing it out from under a live importer
+    /// dangles those edges. Release leaves of the import graph first, or
+    /// release the whole batch.
     pub fn release(self, fid: u32, from: TUStage) -> bool {
         // A header TU is nobody's to reclaim alone: its decls are shared by
         // every importer through the ForeignRegistry, and tearing down its
@@ -359,11 +360,11 @@ extend CompilerInstance {
         return did
     }
 
-    /// \brief re-reads \p fid from disk and drops everything derived from it.
+    /// re-reads `fid` from disk and drops everything derived from it.
     ///
-    /// \details The edit path. Releases this fid's artifacts (AST, context,
-    ///          tokens, imm table, walked mark, macros), then re-maps the file
-    ///          so the next parse sees the new bytes.
+    /// The edit path. Releases this fid's artifacts (AST, context,
+    /// tokens, imm table, walked mark, macros), then re-maps the file
+    /// so the next parse sees the new bytes.
     ///
     ///          Identity is KEPT: the fid, and every index keyed on it, is the
     ///          same afterwards. That is what makes an edit cheap   the rest of
@@ -375,7 +376,8 @@ extend CompilerInstance {
     ///          back under a new fid on the next load, which is the churn this
     ///          whole path exists to avoid.
     ///
-    /// \return false if \p fid is unknown, virtual, or could not be re-read.
+    /// ### Returns
+    /// false if `fid` is unknown, virtual, or could not be re-read.
     pub fn invalidate(self, fid: u32) -> bool {
         // Dependents FIRST, and this is not an optimization.
         //
@@ -442,24 +444,25 @@ extend CompilerInstance {
         return self._sm->invalidate(fid)
     }
 
-    /// \brief invalidate() for a live check: \p fid's context is taken out
-    ///        of the table and KEPT (\c retired), its tokens, walked mark and
-    ///        macros are dropped, and its bytes re-read. The fid stays.
+    /// invalidate() for a live check: `fid`'s context is taken out
+    /// of the table and KEPT (`retired`), its tokens, walked mark and
+    /// macros are dropped, and its bytes re-read. The fid stays.
     ///
-    /// \details The caller has already done this for every file that
-    ///          imports \p fid (the refresh set), or \p fid has none: no kept
-    ///          tree may point into a file that is re-read. Not destroyed
-    ///          here: a queued file's old tree may still point into it, and
-    ///          address-keyed stores would meet its addresses again
-    ///          (GlobalDisambigTable::detach). release_retired ends it,
-    ///          once the queue is empty and those stores are swept.
+    /// The caller has already done this for every file that
+    /// imports `fid` (the refresh set), or `fid` has none: no kept
+    /// tree may point into a file that is re-read. Not destroyed
+    /// here: a queued file's old tree may still point into it, and
+    /// address-keyed stores would meet its addresses again
+    /// (GlobalDisambigTable::detach). release_retired ends it,
+    /// once the queue is empty and those stores are swept.
     ///
-    /// \param bytes  with \p given, the file's new text: a tool's buffer
-    ///               (kept alive by the caller, not copied; null when it
-    ///               is empty).
-    /// \param reread when \p bytes is null: re-read the disk (a mapped
-    ///               file); false keeps the bytes the file has (a buffer
-    ///               whose text did not change).
+    /// ### Parameters
+    /// - `bytes`: with `given`, the file's new text: a tool's buffer
+    ///   (kept alive by the caller, not copied; null when it
+    ///   is empty).
+    /// - `reread`: when `bytes` is null: re-read the disk (a mapped
+    ///   file); false keeps the bytes the file has (a buffer
+    ///   whose text did not change).
     pub fn detach_for_refresh(self,
                               fid:    u32,
                               bytes:  kairo::std::ConstPtr<u8>,
@@ -514,8 +517,8 @@ extend CompilerInstance {
         return total
     }
 
-    /// The arena blocks of the kept contexts, into \p out: one label per
-    /// file when \p named (a debug line's), else all under label 0.
+    /// The arena blocks of the kept contexts, into `out`: one label per
+    /// file when `named` (a debug line's), else all under label 0.
     pub fn retired_ranges(self,
                           out:   unsafe *kairo::AddrRanges,
                           own:   unsafe *kairo::AddrRanges,
@@ -546,15 +549,18 @@ extend CompilerInstance {
         }
     }
 
-    /// \brief ends the contexts detach_for_refresh kept. The caller has
-    ///        taken every address of theirs out of the build-wide stores
-    ///        (FrontendAction::sweep_retired) and no file still to be
-    ///        re-checked holds a tree that points into one.
+    /// ends the contexts detach_for_refresh kept. The caller has
+    /// taken every address of theirs out of the build-wide stores
+    /// (FrontendAction::sweep_retired) and no file still to be
+    /// re-checked holds a tree that points into one.
     ///
-    /// \param quarantine  overwrite and keep them instead of freeing
-    ///                    (ASTContext::quarantine): the use-after-free
-    ///                    check's mode.
-    /// \return the bytes of their arena blocks.
+    /// ### Parameters
+    /// - `quarantine`: overwrite and keep them instead of freeing
+    ///   (ASTContext::quarantine): the use-after-free
+    ///   check's mode.
+    ///
+    /// ### Returns
+    /// the bytes of their arena blocks.
     pub fn release_retired(self, quarantine: bool) -> usize {
         var total: usize = 0
         for var i: usize = 0; i < self.retired.size(); ++i {
@@ -602,7 +608,7 @@ extend CompilerInstance {
         return f"ast {ast / 1024} KB, sema {sem / 1024} KB, pp {pp / 1024} KB, index {ix / 1024} KB, strings {st / 1024} KB, scratch {scr / 1024} KB, codegen {cg / 1024} KB"
     }
 
-    /// \brief fids whose TU holds a resolved import edge directly into \p fid.
+    /// fids whose TU holds a resolved import edge directly into `fid`.
     fn importers_of(self, fid: u32) -> cxx::std::vector<u32> {
         var out = cxx::std::vector<u32>()
 
@@ -637,13 +643,13 @@ extend CompilerInstance {
         return out
     }
 
-    /// \brief every fid that transitively imports \p fid, nearest first.
+    /// every fid that transitively imports `fid`, nearest first.
     ///
-    /// \details The blast radius of changing \p fid's bytes. Transitive because
-    ///          the dependency is transitive: if C imports B and B imports A,
-    ///          C's AST was built against A's symbols through B.
+    /// The blast radius of changing `fid`'s bytes. Transitive because
+    /// the dependency is transitive: if C imports B and B imports A,
+    /// C's AST was built against A's symbols through B.
     ///
-    ///          Excludes \p fid itself. Cycle-safe   a fid already queued is
+    ///          Excludes `fid` itself. Cycle-safe   a fid already queued is
     ///          not queued again, so an import cycle terminates.
     pub fn transitive_importers(self, fid: u32) -> cxx::std::vector<u32> {
         var out  = cxx::std::vector<u32>()
@@ -673,10 +679,10 @@ extend CompilerInstance {
         return out
     }
 
-    /// \brief drops \p fid completely, identity included. See SourceManager::evict.
+    /// drops `fid` completely, identity included. See SourceManager::evict.
     ///
-    /// \details For a deleted file or reclaiming memory   NOT for an edit. The
-    ///          fid is retired; loading the same path afterwards mints a new one.
+    /// For a deleted file or reclaiming memory   NOT for an edit. The
+    /// fid is retired; loading the same path afterwards mints a new one.
     fn evict(self, fid: u32) -> bool {
         self.release(fid, TUStage::Lexing)
 
@@ -687,15 +693,16 @@ extend CompilerInstance {
         return self._sm->evict(fid)
     }
 
-    /// \brief index-parses then full-parses a single \p fid, on this thread.
+    /// index-parses then full-parses a single `fid`, on this thread.
     ///
-    /// \details The per-fid body of FrontendAction::_parse, without the fan-out.
-    ///          The batch path spreads these across the pool and runs an ordered
-    ///          diagnostic flusher behind them so a multi-file build reports in
-    ///          fid order; with one file there is nothing to order or overlap,
-    ///          and the caller drains the sink itself.
+    /// The per-fid body of FrontendAction::_parse, without the fan-out.
+    /// The batch path spreads these across the pool and runs an ordered
+    /// diagnostic flusher behind them so a multi-file build reports in
+    /// fid order; with one file there is nothing to order or overlap,
+    /// and the caller drains the sink itself.
     ///
-    /// \return false if \p fid has no context (not preprocessed).
+    /// ### Returns
+    /// false if `fid` has no context (not preprocessed).
     pub fn parse_one(self, fid: u32) -> bool {
         var unsafe *ctx = self._g_scope->get_context(fid)
         if ctx == &null {
@@ -722,9 +729,9 @@ extend CompilerInstance {
         return true
     }
 
-    /// \brief the Index half of parse_one alone: \p fid's hoisted table,
-    ///        which the full parse of every file that imports it reads. A
-    ///        caller re-parsing several files indexes all of them first.
+    /// the Index half of parse_one alone: `fid`'s hoisted table,
+    /// which the full parse of every file that imports it reads. A
+    /// caller re-parsing several files indexes all of them first.
     pub fn index_one(self, fid: u32) -> bool {
         var unsafe *gs   = unsafe (self._g_scope as unsafe *GlobalDisambigTable)
         var unsafe *ictx = gs->begin_index(fid)
@@ -738,12 +745,12 @@ extend CompilerInstance {
         return true
     }
 
-    /// \brief import edges of \p fid whose target has no live context.
+    /// import edges of `fid` whose target has no live context.
     ///
-    /// \details After a single-file reparse this counts imports the edit ADDED:
-    ///          preprocess_one does not resolve them, so their targets were
-    ///          never loaded. Non-zero means the unit is only partially
-    ///          resolved and a full parse_file() is needed to make it whole.
+    /// After a single-file reparse this counts imports the edit ADDED:
+    /// preprocess_one does not resolve them, so their targets were
+    /// never loaded. Non-zero means the unit is only partially
+    /// resolved and a full parse_file() is needed to make it whole.
     pub fn unresolved_import_count(self, fid: u32) -> usize {
         var unsafe *ctx = self._g_scope->get_context(fid)
         if ctx == &null {
@@ -775,12 +782,12 @@ extend CompilerInstance {
         return n
     }
 
-    /// \brief true if any OTHER live context holds a resolved import edge into
-    ///        \p fid.
+    /// true if any OTHER live context holds a resolved import edge into
+    /// `fid`.
     ///
-    /// \details Lives here rather than on GlobalDisambigTable because walking
-    ///          import_edges needs TranslationUnit, which that module cannot
-    ///          import without a cycle.
+    /// Lives here rather than on GlobalDisambigTable because walking
+    /// import_edges needs TranslationUnit, which that module cannot
+    /// import without a cycle.
     priv fn _has_inbound_edges(self, fid: u32) -> bool {
         var fids = self._g_scope->all_fids()
 

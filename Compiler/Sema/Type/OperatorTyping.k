@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------- Sema/Type/OperatorTyping.k --- ///
 ///
-///   \brief Unary, binary and assignment operators. Builtin operands follow
-///          the lattice's §6 unification; anything else is a user operator
-///          found under its op_name key and resolved as a call with the
-///          receiver operand bound to `self`.
+/// Unary, binary and assignment operators. Builtin operands follow
+/// the lattice's §6 unification; anything else is a user operator
+/// found under its op_name key and resolved as a call with the
+/// receiver operand bound to `self`.
 ///
 ///   \detail
 ///     §6, verbatim: for operands A != B, if W(A->B) and not W(B->A) the
@@ -201,7 +201,7 @@ pub class <T: type> OperatorTyping {
 
     /// # shift counts (SHIFT spec §1, §4)
 
-    /// The count of a builtin shift on integer \p lt, checked once its
+    /// The count of a builtin shift on integer `lt`, checked once its
     /// operands are typed. A count that evaluates at compile time must be in
     /// [0, W): past the width it is SC001E here, though at run time it would
     /// be taken modulo the register width -- a constant that large is a
@@ -323,9 +323,9 @@ pub class <T: type> OperatorTyping {
         return t->is_dependent() || t->is_instantiation_dependent()
     }
 
-    /// The interfaces a bounded generic parameter \p t promises, as their
+    /// The interfaces a bounded generic parameter `t` promises, as their
     /// canonical instances (`T impl Same`, `T impl Container<U>`), or none
-    /// when \p t is not a bare parameter or has no interface bound. An
+    /// when `t` is not a bare parameter or has no interface bound. An
     /// operator on such an operand is the bound's requirement, as a member
     /// call on it is (ChainBinding's dependent path): binding it here is what
     /// sends it through the interface's witness (Compiler/Spec/Witnesses.md#call-sites).
@@ -335,7 +335,7 @@ pub class <T: type> OperatorTyping {
         return Substitution(self.dyn()->sc).bound_ifaces(t)
     }
 
-    /// Where a bounded parameter \p t's operators come from: bound_ifaces,
+    /// Where a bounded parameter `t`'s operators come from: bound_ifaces,
     /// then the bases its `derives` bounds name (Substitution::bound_scopes). A
     /// base's operator is an ordinary member, bound and emitted as one; an
     /// interface's is a requirement, called through the witness.
@@ -450,7 +450,7 @@ pub class <T: type> OperatorTyping {
         return decl_is_instance(d) && decl_is_imported(decl_instantiated_from(d))
     }
 
-    /// \p t is an enum imported from C++. Its comparisons are C++'s
+    /// `t` is an enum imported from C++. Its comparisons are C++'s
     /// built-in candidates, which compete with every operator ADL finds
     /// in its namespace; a user `operator==` template there that cannot take
     /// the enum is no reason to refuse `e == E::a`.
@@ -498,7 +498,7 @@ pub class <T: type> OperatorTyping {
 
     /// # user operators: candidates
 
-    /// The cv of the object \p t denotes: through any C++ reference (a
+    /// The cv of the object `t` denotes: through any C++ reference (a
     /// reference is its referee), not through a pointer. MemberTyping reads a
     /// method call's receiver the same way.
     priv fn _object_quals(self, t: unsafe *Type) -> u8 {
@@ -565,10 +565,10 @@ pub class <T: type> OperatorTyping {
         return false
     }
 
-    /// Everything named \p name that applies with \p recv_ty as the receiver:
-    /// members and extension members into \p cands, free operators into
-    /// \p frees. \p other is the other operand's type or null. For `++`/`--`
-    /// \p want_postfix (0 prefix, 1 postfix, -1 either) drops the wrong fixity:
+    /// Everything named `name` that applies with `recv_ty` as the receiver:
+    /// members and extension members into `cands`, free operators into
+    /// `frees`. `other` is the other operand's type or null. For `++`/`--`
+    /// `want_postfix` (0 prefix, 1 postfix, -1 either) drops the wrong fixity:
     /// `op l++` and `op r++` share a cell and differ only there.
     priv fn _gather(self,
                     name:         DeclName,
@@ -675,7 +675,7 @@ pub class <T: type> OperatorTyping {
         self._filter_fixity(&*frees, want_postfix == 1)
     }
 
-    /// Move the non-methods member lookup found (hidden friends) to \p frees.
+    /// Move the non-methods member lookup found (hidden friends) to `frees`.
     priv fn _move_friends(self,
                           @inout cands: cxx::std::vector<unsafe *Decl>,
                           frees:        unsafe *cxx::std::vector<unsafe *Decl>) {
@@ -730,7 +730,7 @@ pub class <T: type> OperatorTyping {
         (v) = keep
     }
 
-    /// \p t, references and nullability peeled, is a record or an enum: an
+    /// `t`, references and nullability peeled, is a record or an enum: an
     /// operand that lets C++ consider operator functions at all.
     priv fn _class_or_enum(self, t: unsafe *Type) -> bool {
         if t == &null {
@@ -831,14 +831,14 @@ pub class <T: type> OperatorTyping {
         }
     }
 
-    /// Resolve `op <k0 k1>` with \p recv as the receiver operand and \p args
-    /// as the rest. \p found reports whether ANY candidate existed, so the
+    /// Resolve `op <k0 k1>` with `recv` as the receiver operand and `args`
+    /// as the rest. `found` reports whether ANY candidate existed, so the
     /// caller falls back (a derived operator, builtin equality) only when the
-    /// type declared nothing. On Selected: records the winner on \p n and
+    /// type declared nothing. On Selected: records the winner on `n` and
     /// returns the call's result type; on failure the node is poisoned or
     /// marked unknown and null comes back.
     ///
-    /// \p viable_only: a candidate set none of which takes these operands
+    /// `viable_only`: a candidate set none of which takes these operands
     /// counts as not found, silently -- C++20's rule for the operators it
     /// rewrites (`!=` from `==`, `<` from `<=>`), where a viable rewritten
     /// candidate wins over a non-viable direct one.
@@ -902,7 +902,7 @@ pub class <T: type> OperatorTyping {
             fargs.push_back(margs[i])
         }
 
-        // \p copy_recv: the operator runs on a COPY of the receiver (a
+        // `copy_recv`: the operator runs on a COPY of the receiver (a
         // derived `a + b` is `copy a, += b`), a fresh mutable value whatever
         // `a`'s own cv: a `const a: string` still adds.
         var unsafe *rcv = self._receiver_of(recv)
@@ -975,9 +975,9 @@ pub class <T: type> OperatorTyping {
         return rt
     }
 
-    /// The conversion of \p recv, the left operand of the infix operator
-    /// \p n, whose result declares \p name; empty when there is none, when
-    /// two apply, or when \p n is another form. Infix only, and never
+    /// The conversion of `recv`, the left operand of the infix operator
+    /// `n`, whose result declares `name`; empty when there is none, when
+    /// two apply, or when `n` is another form. Infix only, and never
     /// `in`: a unary or compound-assignment operator would act on the
     /// conversion's temporary, and `in` reads its right operand.
     priv fn _operand_hop(self,
@@ -1050,7 +1050,7 @@ pub class <T: type> OperatorTyping {
 
     /// # binary
 
-    /// \p t, unless \p e is a cast. A cast types its operand against its own
+    /// `t`, unless `e` is a cast. A cast types its operand against its own
     /// target and never reads the expected type, so withholding it changes
     /// nothing but the redundant-cast lint: an operand is not a slot that
     /// already takes the source, and there the cast is what picks the width
@@ -1066,7 +1066,7 @@ pub class <T: type> OperatorTyping {
     /// A left-leaning chain of one-line arithmetic or bitwise operators
     /// (`1 + 1 + 1 + ...`) recurses once per term through the left operand,
     /// and a few thousand terms overflow the stack. Such an operator
-    /// types its left operand first and hands it \p expected unchanged, so the
+    /// types its left operand first and hands it `expected` unchanged, so the
     /// chain is typed bottom-up here instead, in the order the recursion would
     /// have: each node's own typing then finds its left operand done.
     priv fn _prewarm_left_spine(self, n: unsafe *BinaryOperatorExpr, expected: unsafe *Type) {
@@ -1870,13 +1870,13 @@ pub class <T: type> OperatorTyping {
     }
 
     /// What a context-typed LEFT operand is typed against, the right one
-    /// \p rt already typed. Where operands unify (arithmetic, bitwise,
-    /// comparison) it is \p rt, as a context-typed right operand gets the
+    /// `rt` already typed. Where operands unify (arithmetic, bitwise,
+    /// comparison) it is `rt`, as a context-typed right operand gets the
     /// left's. `===` reads through the nullable (_identity_down). A shift's
-    /// result is its left operand's type, so the expected type \p d decides
+    /// result is its left operand's type, so the expected type `d` decides
     /// it when there is one (`var m: u16 = 1 << s`); without one, an integer
     /// count does (`1 << 4u8` is a u8 shift, USER 2026-10-28), never a
-    /// default i32 the count says nothing about. `??` and `in`: \p d.
+    /// default i32 the count says nothing about. `??` and `in`: `d`.
     priv fn _context_left_down(self,
                                k:           TokenKind,
                                numeric_ctx: bool,
@@ -1902,7 +1902,7 @@ pub class <T: type> OperatorTyping {
 
     /// What the right side of `x ?? y` is typed against: `x`'s `T`, the arm
     /// it joins (Compiler/Spec/Nullables.md#coalesce), so `f32? ?? 0.5` is `f32` and `u8? ?? 7`
-    /// is `u8`, as `if x? => x else 7` would be. \p d for every other
+    /// is `u8`, as `if x? => x else 7` would be. `d` for every other
     /// operator.
     priv fn _coalesce_down(self, k: TokenKind, lt: unsafe *Type, d: unsafe *Type) -> unsafe *Type {
         if k == TokenKind::OpEqualEqualEqual {
@@ -1923,7 +1923,7 @@ pub class <T: type> OperatorTyping {
 
     /// What a literal on one side of `===` is typed against: the value the
     /// other side holds (`u8? === 7` compares two `u8`), the pointee when
-    /// that is a nullable pointer (Compiler/Spec/Nullables.md#identity). \p d when \p other is
+    /// that is a nullable pointer (Compiler/Spec/Nullables.md#identity). `d` when `other` is
     /// not nullable.
     priv fn _identity_down(self, other: unsafe *Type, d: unsafe *Type) -> unsafe *Type {
         if other == &null {
@@ -1946,8 +1946,8 @@ pub class <T: type> OperatorTyping {
         return canon_unqual(inner)
     }
 
-    /// `a OP b` with \p lt (a's type) a nullable whose own extension
-    /// declares `op OP`. \p claimed is false when it declares none:
+    /// `a OP b` with `lt` (a's type) a nullable whose own extension
+    /// declares `op OP`. `claimed` is false when it declares none:
     /// the operands are then read as values, as before. Selected only
     /// where T has no such operator itself (a member, an extension member,
     /// a free operator, or a builtin one): which of the two a nullable
@@ -2055,7 +2055,7 @@ pub class <T: type> OperatorTyping {
         return rt_out
     }
 
-    /// \p d is a member of an `extend T?` block (ChainBinding::
+    /// `d` is a member of an `extend T?` block (ChainBinding::
     /// binds_nullable_member's test, on a decl).
     priv fn _of_nullable_extension(self, d: unsafe *Decl) -> bool {
         if d == &null
@@ -2123,10 +2123,10 @@ pub class <T: type> OperatorTyping {
         self.dyn()->flow.store_cond(n, r)
     }
 
-    /// The ADT enum a value of \p t is -- the pattern, for an instance of a
-    /// generic one, as MatchLowering reaches it -- or null. \p t itself, not
+    /// The ADT enum a value of `t` is -- the pattern, for an instance of a
+    /// generic one, as MatchLowering reaches it -- or null. `t` itself, not
     /// under a nullable: `Pt?` is no ADT here.
-    /// Anything named `op ==` or `op <=>` applies to \p t: the user
+    /// Anything named `op ==` or `op <=>` applies to `t`: the user
     /// operators an ADT's `==` would bind before its tag compare.
     priv fn _declares_eq(self, t: unsafe *Type) -> bool {
         var c = cxx::std::vector<unsafe *Decl>()
@@ -2169,7 +2169,7 @@ pub class <T: type> OperatorTyping {
         return en
     }
 
-    /// \p a and \p b are one pointer type up to the pointee's cv: the
+    /// `a` and `b` are one pointer type up to the pointee's cv: the
     /// same kind (safe or raw) and the same pointee. What C++ takes for
     /// `<` and `-` on pointers (the composite pointer type), so `*const T`
     /// orders against `*T`; a safe pointer never meets a raw one silently.
@@ -2187,7 +2187,7 @@ pub class <T: type> OperatorTyping {
         return canon_unqual(pa) == canon_unqual(pb)
     }
 
-    /// The builtin operators on a pointer left operand \p lt:
+    /// The builtin operators on a pointer left operand `lt`:
     ///   `p + n`, `p - n`  any integer n, the pointer moved n * sizeof T --
     ///                     C++'s own pointer arithmetic, so `unsafe *u8 +
     ///                     usize` is byte arithmetic. Both pointer kinds
@@ -2197,7 +2197,7 @@ pub class <T: type> OperatorTyping {
     ///                     Tether checks an offset, never a difference, so
     ///                     pointers.mdx sends `p1 - p2` to `unsafe *T`.
     ///   `<` `<=` `>` `>=` bool, two pointers of one type, either kind.
-    /// \p claimed false leaves the pair to the paths after (a dependent or
+    /// `claimed` false leaves the pair to the paths after (a dependent or
     /// record right operand). EmitIR spells all of them as C++'s operator:
     /// no pointer type has a wrap form (EmitIR::_wraps).
     priv fn _type_pointer_op(self,
@@ -2266,7 +2266,7 @@ pub class <T: type> OperatorTyping {
         return &null
     }
 
-    /// \p t, or its referee when it is a C++ reference.
+    /// `t`, or its referee when it is a C++ reference.
     priv fn _ref_value(self, t: unsafe *Type) -> unsafe *Type {
         var unsafe *c = canon_unqual(t)
         if c != &null && (isa<CXXLValueRefType>(c) || isa<CXXRValueRefType>(c)) {
@@ -2431,10 +2431,10 @@ pub class <T: type> OperatorTyping {
         return &null
     }
 
-    /// The `==` of `===`'s expansion, on the unwrapped types \p li / \p ri:
+    /// The `==` of `===`'s expansion, on the unwrapped types `li` / `ri`:
     /// the same answers `a == b` gets on two values (a user `op ==`, one
     /// derived from `op <=>`, an ADT's tag compare, builtin equality),
-    /// recorded on \p n. False after reporting an error.
+    /// recorded on `n`. False after reporting an error.
     priv fn _identity_eq(self, n: *BinaryOperatorExpr, li: unsafe *Type, ri: unsafe *Type) -> bool {
         var lb = self.dyn()->tu.kind_of(li) != BuiltinKind::COUNT
         var rb = self.dyn()->tu.kind_of(ri) != BuiltinKind::COUNT
@@ -2552,7 +2552,7 @@ pub class <T: type> OperatorTyping {
     }
 
     /// resolve_user_op for `===`'s `==`, against the UNWRAPPED operand types
-    /// \p li / \p ri rather than the operands' own `T?`: the expansion
+    /// `li` / `ri` rather than the operands' own `T?`: the expansion
     /// compares the narrowed values. No argument is converted here (the
     /// operands are nullable; the values exist only in the expansion), so
     /// finish_call_args, whose check_convertible would read each `T?` as a
@@ -2900,7 +2900,7 @@ pub class <T: type> OperatorTyping {
         n->poison()
     }
 
-    /// \p expected is `*const T` (either kind): `&x[i]` there is a read.
+    /// `expected` is `*const T` (either kind): `&x[i]` there is a read.
     priv fn _wants_const_pointer(self, expected: unsafe *Type) -> bool {
         if expected == &null {
             return false
@@ -3258,8 +3258,8 @@ pub class <T: type> OperatorTyping {
         }
     }
 
-    /// `x == null` / `null != x` and the rest: \p lit the literal side,
-    /// \p other the operand compared. Against a nullable it is the null
+    /// `x == null` / `null != x` and the rest: `lit` the literal side,
+    /// `other` the operand compared. Against a nullable it is the null
     /// test, `bool`, and the literal takes the nullable's type (so `&null`
     /// against a `(*T)?` is that nullable's null, 1.3, and `&null` against
     /// an `i32?` is the literal's own error). A dependent operand defers,
@@ -3269,7 +3269,7 @@ pub class <T: type> OperatorTyping {
     /// never null), and C++ would not even accept it. `&null` against a
     /// non-nullable is not this test at all (`raw != &null` on an `unsafe
     /// *T` is a pointer comparison): `*done` stays false and the caller
-    /// types the node as any other `==`; \p other's type is memoized.
+    /// types the node as any other `==`; `other`'s type is memoized.
     priv fn _type_null_compare(self,
                                n:     unsafe *BinaryOperatorExpr,
                                lit:   unsafe *NullLiteralExpr,
@@ -3582,12 +3582,12 @@ pub class <T: type> OperatorTyping {
         return &null
     }
 
-    /// The binding a const place \p x is part of: `cb` for `cb[i]`,
+    /// The binding a const place `x` is part of: `cb` for `cb[i]`,
     /// `c.f`, `c.f.g[i]` or `t.0` when every object on the way is const, so
     /// a write through it names the binding rather than "a const place".
-    /// \p via_ptr is set when the binding is a pointer and \p x a field of
+    /// `via_ptr` is set when the binding is a pointer and `x` a field of
     /// what it points to (`pc->f`, `pc->f.g`): the pointee is what is const.
-    /// Null when \p x is no element or field, when the object is `self`
+    /// Null when `x` is no element or field, when the object is `self`
     /// (the `const self` rule has its own wording), or when the const came
     /// from elsewhere (an `op []` returning `*const T` on a mutable
     /// container, a call's result).
@@ -3675,8 +3675,7 @@ pub class <T: type> OperatorTyping {
     /// `const` Binding Rule"; pointers.mdx, "Const Pointers"): a `const` or
     /// `eval` binding, a `const` parameter, or a place whose type is const
     /// (`*p` through a `*const T`, a `for *x` binder over a const range, a
-    /// `const T&` result). \p n is the write (`=`, `op=`, `++`, `--`), \p
-    /// lhs what it writes. Without this the write reached clang as CL001E,
+    /// `const T&` result). `n` is the write (`=`, `op=`, `++`, `--`), `lhs` what it writes. Without this the write reached clang as CL001E,
     /// or compiled silently where the binding's top-level const is not
     /// emitted (a `const c: *i32` parameter).
     /// A const FIELD is CtorInitCheck's (SC171E): a constructor of its own
@@ -3686,7 +3685,9 @@ pub class <T: type> OperatorTyping {
     /// `const self` method), and a write to it is reported here; a
     /// `mutable var` field is not const there, as C++ `mutable` is not, and
     /// neither is what a pointer held by the object points to.
-    /// \return whether it reported (the caller stops typing \p n).
+    ///
+    /// ### Returns
+    /// whether it reported (the caller stops typing `n`).
     priv fn _reject_const_write(self, n: unsafe *Expr, lhs: unsafe *Expr, verb: string) -> bool {
         var x = self.dyn()->tu.strip_parens(lhs)
         if x == &null {
@@ -3826,10 +3827,12 @@ pub class <T: type> OperatorTyping {
         return true
     }
 
-    /// SC071E for a write to \p f, a field of `self` reached in a
-    /// `const self` method (\p x is the place, \p n the write): the
+    /// SC071E for a write to `f`, a field of `self` reached in a
+    /// `const self` method (`x` is the place, `n` the write): the
     /// object is const, and so is the field unless it is `mutable var`.
-    /// \return whether it reported.
+    ///
+    /// ### Returns
+    /// whether it reported.
     priv fn _reject_const_self_field_write(self,
                                            n:    unsafe *Expr,
                                            x:    unsafe *Expr,
@@ -3869,7 +3872,7 @@ pub class <T: type> OperatorTyping {
         return true
     }
 
-    /// \p d's type as written, or null: what a fix-it on its slot edits.
+    /// `d`'s type as written, or null: what a fix-it on its slot edits.
     priv fn _written_type_of(self, d: unsafe *Decl) -> unsafe *Type {
         if d == &null {
             return &null

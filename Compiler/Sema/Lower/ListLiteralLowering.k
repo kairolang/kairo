@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------- Sema/Lower/ListLiteralLowering.k --- ///
 ///
-///   \brief Render every list literal as ExprTyper decided to build it.
+/// Render every list literal as ExprTyper decided to build it.
 ///
 ///   \detail
 ///     ExprTyper typed the literal as its target, bound the constructors
@@ -250,7 +250,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         return w
     }
 
-    /// The backings minted under \p w, then \p body, then what fills its local.
+    /// The backings minted under `w`, then `body`, then what fills its local.
     priv fn _close_window(self,
                           w:    Self::Window,
                           body: cxx::std::vector<unsafe *Stmt>) -> cxx::std::vector<unsafe *Stmt> {
@@ -573,7 +573,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         )
     }
 
-    /// The HashSet / HashMap lang record \p ty built from \p elems: its
+    /// The HashSet / HashMap lang record `ty` built from `elems`: its
     /// default constructor when there are none, else its one-slice
     /// constructor over a full-expression backing array, as a vector's.
     priv fn _hashed(self,
@@ -621,14 +621,14 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
 
     /// # elements that cannot be copied
 
-    /// MoveCheck marked \p n as built through TypeUtil::literal_build.
+    /// MoveCheck marked `n` as built through TypeUtil::literal_build.
     priv fn _built(self, n: unsafe *Expr) -> bool {
         return self.sc->built_literals.count(n as usize as u64) != 0
     }
 
-    /// The literal \p n, a lang record \p k, built element by element:
-    /// \p vals are the elements, and for a map \p keys are their keys, of
-    /// type \p kt. In the local \p n initializes when MoveCheck marked it
+    /// The literal `n`, a lang record `k`, built element by element:
+    /// `vals` are the elements, and for a map `keys` are their keys, of
+    /// type `kt`. In the local `n` initializes when MoveCheck marked it
     /// so and its DeclStmt sits in a statement list; else in a local of a
     /// statement expression, moved out as its value.
     priv fn _build(self,
@@ -714,7 +714,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         return self.synth.stmt_expr(n, &stmts, ty)
     }
 
-    /// `vd.reserve(N)`, then one `add` per element, onto \p out. A map's
+    /// `vd.reserve(N)`, then one `add` per element, onto `out`. A map's
     /// key is evaluated before its value: when both have an effect the key
     /// is bound first, the two being arguments of one call.
     priv fn _fill_calls(self,
@@ -806,7 +806,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     priv var _add_inst:     unsafe *InstanceEntry = &null
 
     /// A member of an `extend` block is called as ExtensionLowering leaves
-    /// it, `m(&vd, args...)`: that pass has run. Pushes `&vd` when \p m is
+    /// it, `m(&vd, args...)`: that pass has run. Pushes `&vd` when `m` is
     /// one, ahead of the arguments the caller pushes next.
     priv fn _receiver_first(self,
                             at:          SourceRange,
@@ -822,8 +822,8 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         }
     }
 
-    /// `vd.m(args)` with instance \p inst, in the form _receiver_first
-    /// prepared \p args for.
+    /// `vd.m(args)` with instance `inst`, in the form _receiver_first
+    /// prepared `args` for.
     priv fn _built_call(self,
                         at:          SourceRange,
                         vd:          unsafe *VariableDecl,
@@ -867,7 +867,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
 
     /// # pieces
 
-    /// The literal's elements as a braced-init-list typed \p arr_ty. The list
+    /// The literal's elements as a braced-init-list typed `arr_ty`. The list
     /// is shared, not copied: the literal node is dropped from the tree.
     priv fn _init_list(self,
                        n:      unsafe *ListLiteralExpr,
@@ -880,7 +880,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         return il
     }
 
-    /// `Slice(data, len)` typed \p slice_ty, over the storage X chose.
+    /// `Slice(data, len)` typed `slice_ty`, over the storage X chose.
     priv fn _slice(self,
                    n:        unsafe *ListLiteralExpr,
                    slice_ty: unsafe *Type,
@@ -988,7 +988,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         return self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
     }
 
-    /// An explicit cast to the canonical \p to. EmitIR renders `static_cast`.
+    /// An explicit cast to the canonical `to`. EmitIR renders `static_cast`.
     priv fn _cast(self, at: SourceRange, operand: unsafe *Expr, to: unsafe *Type) -> unsafe *Expr {
         var unsafe *c = TypeCastExpr::create(self.ctx, at, operand, to)
         c->type_          = to
@@ -996,7 +996,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         return c
     }
 
-    /// A constructor call typed \p ty: LowerSynth's, so its post-
+    /// A constructor call typed `ty`: LowerSynth's, so its post-
     /// SequenceLowering order check sees it. `Slice(data, len)` has at most
     /// one operand with an effect (data; len is a literal), a Vector's one
     /// argument is the Slice, so the check never fires here.

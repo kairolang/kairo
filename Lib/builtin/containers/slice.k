@@ -16,12 +16,12 @@ import base::range::*
 ///
 /// The view does not keep its elements alive and does not own them; it is a pointer and a length.
 ///
-/// \see Vector
+/// See `Vector`.
 pub struct <T> Slice {
     /// Pointer to the first element.
     var data: *T
     /// Number of elements in the view.
-    var len:  usize
+    var len: usize
 
     /// Creates a view of `len` elements starting at `data`.
     ///
@@ -33,7 +33,7 @@ pub struct <T> Slice {
 
     /// Returns the element at index `i` as a place, so `s[i] = x` assigns through the view.
     ///
-    /// \note This operator does no bounds check of its own (it indexes the pointer);
+    /// **Note:** This operator does no bounds check of its own (it indexes the pointer);
     /// `Vector`'s `[]` does.
     pub inline fn op [] (const self, i: usize) -> *T {
         return &self.data[i]
@@ -45,10 +45,17 @@ pub struct <T> Slice {
     pub inline fn op [] (const self, r: Range<usize>) -> [T;] {
         var hi = r.end
         if r.inclusive {
-            if r.end >= self.len { __builtin_trap() }
+            if r.end >= self.len {
+                __builtin_trap()
+            }
+
             hi = r.end + 1
         }
-        if (r.begin > hi) || (hi > self.len) { __builtin_trap() }
+
+        if (r.begin > hi) || (hi > self.len) {
+            __builtin_trap()
+        }
+
         return Slice<T>(&self.data[r.begin], hi - r.begin)
     }
 
@@ -56,7 +63,10 @@ pub struct <T> Slice {
     ///
     /// \panics when `a > len` (traps).
     pub inline fn op [] (const self, r: RangeFrom<usize>) -> [T;] {
-        if r.begin > self.len { __builtin_trap() }
+        if r.begin > self.len {
+            __builtin_trap()
+        }
+
         return Slice<T>(&self.data[r.begin], self.len - r.begin)
     }
 
@@ -66,10 +76,17 @@ pub struct <T> Slice {
     pub inline fn op [] (const self, r: RangeTo<usize>) -> [T;] {
         var hi = r.end
         if r.inclusive {
-            if r.end >= self.len { __builtin_trap() }
+            if r.end >= self.len {
+                __builtin_trap()
+            }
+
             hi = r.end + 1
         }
-        if hi > self.len { __builtin_trap() }
+
+        if hi > self.len {
+            __builtin_trap()
+        }
+
         return Slice<T>(self.data, hi)
     }
 }

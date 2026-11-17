@@ -1,8 +1,8 @@
 /// --- The Kairo Project --------------------- Codegen/Emit/WrapForms.k --- ///
 ///
-///   \brief Kairo's builtin operators on an operand whose type C++ decides:
-///          a duck generic body's (EmitIR) and a witness's native operator
-///          (EmitWitness), spelled by one set of forms.
+/// Kairo's builtin operators on an operand whose type C++ decides:
+/// a duck generic body's (EmitIR) and a witness's native operator
+/// (EmitWitness), spelled by one set of forms.
 ///
 ///   \detail
 ///     Integer `+ - *`, unary `-` and `~`, and the shifts wrap; division
@@ -35,7 +35,7 @@ import Token::TokenKind::TokenKind
 
 pub class WrapForms {
     /// `using T = ...; if constexpr (T is a non-bool integer) { using U = ...;`
-    /// opened inside the lambda; \p a names the bound operand T is read off.
+    /// opened inside the lambda; `a` names the bound operand T is read off.
     pub static fn open(s: unsafe *EmitSink, at: SourceRange, const a: string, d: u32) {
         var tt = LowerTargets::wrap_tmp("T", d)
         var uu = LowerTargets::wrap_tmp("U", d)
@@ -56,8 +56,8 @@ pub class WrapForms {
         return "static_cast<" + ty + ">(" + x + ")"
     }
 
-    /// The integer arm's value of op \p k on bound operands \p a and \p b (the
-    /// lambda's T and U at depth \p d), returned.
+    /// The integer arm's value of op `k` on bound operands `a` and `b` (the
+    /// lambda's T and U at depth `d`), returned.
     pub static fn int_arm(s:       unsafe *EmitSink,
                           at:      SourceRange,
                           k:       TokenKind,
@@ -168,7 +168,7 @@ pub class WrapForms {
         )
     }
 
-    /// T's own op \p k on \p a and \p b, as text (shifts are punctuators).
+    /// T's own op `k` on `a` and `b`, as text (shifts are punctuators).
     pub static fn native(s:       unsafe *EmitSink,
                          at:      SourceRange,
                          k:       TokenKind,
@@ -206,14 +206,14 @@ pub class WrapForms {
             || k == TokenKind::OpGreaterEqual
     }
 
-    /// The C++ test that \p S (a witness's `Self`) has op \p k of
-    /// \p arity operands (the receiver aside) built in, as Kairo's builtin
+    /// The C++ test that `S` (a witness's `Self`) has op `k` of
+    /// `arity` operands (the receiver aside) built in, as Kairo's builtin
     /// of that C++ type has it (ConformanceChecking::_builtin_op_result):
     /// what lets a type C++ instantiates a bounded template with, which no
     /// Kairo row names, meet the bound through its own operator. "" when
     /// no builtin has the operator.
     ///
-    /// \p float_order: the library lets a float meet `<=>` (the two-word
+    /// `float_order`: the library lets a float meet `<=>` (the two-word
     /// library's Ord; an unordered pair answers Equal).
     pub static fn witness_gate(k:           TokenKind,
                                arity:       usize,
@@ -285,9 +285,9 @@ pub class WrapForms {
         return ""
     }
 
-    /// The value of builtin op \p k on receiver \p r and, for \p arity 1,
-    /// operand \p o, as the witness member returns it: the form Kairo's own
-    /// operator takes on the receiver's type, \p ret naming the result
+    /// The value of builtin op `k` on receiver `r` and, for `arity` 1,
+    /// operand `o`, as the witness member returns it: the form Kairo's own
+    /// operator takes on the receiver's type, `ret` naming the result
     /// (`Ordering` for `<=>`). A compound assignment is the binary form
     /// stored back, as a value-less `(void)` expression.
     pub static fn witness_op(s:         unsafe *EmitSink,

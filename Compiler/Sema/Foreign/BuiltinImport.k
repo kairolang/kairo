@@ -1,9 +1,9 @@
 /// --- The Kairo Project ----------------- Sema/Foreign/BuiltinImport.k --- ///
 ///
-///   \brief A name clang knows as a builtin is a foreign function the TU did
-///          not have to import. This mints the Kairo FunctionDecl for one, on
-///          the first use anywhere in the build, from the prototype clang
-///          gives it.
+/// A name clang knows as a builtin is a foreign function the TU did
+/// not have to import. This mints the Kairo FunctionDecl for one, on
+/// the first use anywhere in the build, from the prototype clang
+/// gives it.
 ///
 ///   \detail
 ///     Consulted by N(b) only after every Kairo source missed (locals, the DC
@@ -131,7 +131,7 @@ pub class BuiltinImport {
         return self._ready
     }
 
-    /// Is \p name a predefined macro of the target (Compiler/Spec/Eval.md#defined).
+    /// Is `name` a predefined macro of the target (Compiler/Spec/Eval.md#defined).
     fn macro_predefined(self, const name: string) -> bool {
         if self._oracle == &null {
             return false
@@ -562,7 +562,7 @@ pub class BuiltinImport {
         return out
     }
 
-    /// Consume one type's prefixes and base at \p i; return the base char.
+    /// Consume one type's prefixes and base at `i`; return the base char.
     priv static fn _skip_type(const ts: string, i: unsafe *usize, sgn: unsafe *bool) -> u8 {
         var n = ts.size()
         while *i < n {

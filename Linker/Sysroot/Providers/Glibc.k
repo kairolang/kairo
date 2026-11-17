@@ -211,8 +211,8 @@ pub class GlibcProvider derives SysrootProvider {
         return GlibcProvider::link_stubs(ctx, lib, fmt, &libs, &all, &out)
     }
 
-    /// The stub DSOs of \p libs (symbols \p all, index for index) into
-    /// \p lib, then the libc.so / libm.so scripts and the dev links.
+    /// The stub DSOs of `libs` (symbols `all`, index for index) into
+    /// `lib`, then the libc.so / libm.so scripts and the dev links.
     pub static fn link_stubs(ctx:         *StageCtx,
                              const lib:   string,
                              const fmt:   string,
@@ -754,9 +754,9 @@ pub class GlibcProvider derives SysrootProvider {
     }
 
     /// One release of a merged abilist (glibc_abilists.py project): the
-    /// entries whose releases hold \p v, @ / @@ by the newest-is-default
-    /// rule unless a .compat row active at \p v says compat, the absolute
-    /// version-name symbol of every node defined by \p v; \p nodes gets
+    /// entries whose releases hold `v`, @ / @@ by the newest-is-default
+    /// rule unless a .compat row active at `v` says compat, the absolute
+    /// version-name symbol of every node defined by `v`; `nodes` gets
     /// those nodes in order.
     pub static fn project(const abilist:    string,
                           const nodes_text: string,
@@ -800,7 +800,7 @@ pub class GlibcProvider derives SysrootProvider {
     }
 
     /// `2.17`, `2.17-2.33`, `2.34-newest`, or a comma list of those: whether
-    /// \p v is in it (a bare release means from it to the newest).
+    /// `v` is in it (a bare release means from it to the newest).
     pub static fn in_ranges(const spec: string, const v: string) -> bool {
         for *r in SysUtil::split(spec, (',' as u8)) {
             var dash = LinkText::find(r->copy(), "-", 0)
@@ -1162,7 +1162,7 @@ pub class GlibcProvider derives SysrootProvider {
         )
     }
 
-    /// Where the trailing dotted number of \p v starts; v.size() if none.
+    /// Where the trailing dotted number of `v` starts; v.size() if none.
     priv static fn _ver_digits(const v: string) -> usize {
         var i = v.size()
         while i > 0

@@ -30,14 +30,10 @@ import Command::FlagRegistry::{
 }
 import Command::ParsedArgs::ParsedArgs
 
-///
-/// \class LangOptions
-///
-/// \brief Language semantics and standard configuration.
+/// Language semantics and standard configuration.
 ///
 /// Deserialised from ParsedArgs once by CompilerInvocation::from_args().
 /// Nothing downstream reads raw flag keys after this point.
-///
 pub class LangOptions {
     pub var edition: string = "2026"
 
@@ -141,7 +137,7 @@ pub class LangOptions {
     pub var max_extend_chain:      i32 = DEFAULT_MAX_EXTEND_CHAIN
 
     /// Whether the C++ a build writes and compiles has exceptions: -fexceptions,
-    /// or by default a hosted target (\p hosted: the triple names an OS, not
+    /// or by default a hosted target (`hosted`: the triple names an OS, not
     /// --freestanding, not kernel mode), which has an unwinder; -fno-exceptions
     /// turns them off anywhere. The one rule: FlagTranslator passes it to
     /// clang, Sema rejects a C++ exception arm without it (Compiler/Spec/Panic.md#c-exception-arms).

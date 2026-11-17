@@ -105,7 +105,7 @@ pub class SysRecipe {
         return true
     }
 
-    /// The raw value of \p key in \p table ("" = top level); null when
+    /// The raw value of `key` in `table` ("" = top level); null when
     /// the recipe has no such key.
     pub fn value(self, const table: string, const key: string) -> unsafe *TomlValue {
         for var i: usize = 0; i < self.raw_keys.size(); ++i {
@@ -127,7 +127,7 @@ pub class SysRecipe {
         return v->text.copy()
     }
 
-    /// A bool key; \p dflt when absent or not a bool.
+    /// A bool key; `dflt` when absent or not a bool.
     pub fn flag(self, const table: string, const key: string, dflt: bool) -> bool {
         var v = self.value(table, key)
         if v == &null || v->kind != 2 {
@@ -147,7 +147,7 @@ pub class SysRecipe {
         return v->list
     }
 
-    /// The keys of \p table, in file order.
+    /// The keys of `table`, in file order.
     pub fn keys_of(self, const table: string) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         for var i: usize = 0; i < self.raw_keys.size(); ++i {
@@ -159,8 +159,8 @@ pub class SysRecipe {
         return out
     }
 
-    /// \p tmpl with {per_arch.<var>}, {triple}, {arch}, {libc_version} and
-    /// {os_version} filled for \p t. {triple} is the recipe's own `triple`
+    /// `tmpl` with {per_arch.<var>}, {triple}, {arch}, {libc_version} and
+    /// {os_version} filled for `t`. {triple} is the recipe's own `triple`
     /// template, itself expanded (glibc's names go through it).
     pub fn expand(self, const tmpl: string, t: *SysTarget) -> string {
         var s = tmpl.copy()
@@ -189,7 +189,7 @@ pub class SysRecipe {
         return SysUtil::fill(s, "os_version", self.os_version)
     }
 
-    /// The SYSROOT.toml text for \p t; "" when the recipe has no [toml].
+    /// The SYSROOT.toml text for `t`; "" when the recipe has no [toml].
     /// Keys in table order, `f"{key:<13} = {value}"`, templates expanded
     /// (FORMAT.md "[toml] rendering"). Here and not in the generator: the
     /// providers that compile against a libc-headers root render it too.
@@ -334,7 +334,7 @@ pub class QuirkSet {
         return true
     }
 
-    /// The quirks whose match keys all hold for \p t. \p probe holds the
+    /// The quirks whose match keys all hold for `t`. `probe` holds the
     /// probe facts that are true (`int128`).
     pub fn matching(self,
                     t:            *SysTarget,
@@ -456,7 +456,7 @@ pub class ShareTree {
     /// what to recreate in a root, FORMAT.md "schema 2").
     pub var schema: string
 
-    /// \p flag (--share), else $KAIRO_SYSROOT_SHARE, else
+    /// `flag` (--share), else $KAIRO_SYSROOT_SHARE, else
     /// <prefix>/share/kairo/sysroot with <prefix> the dir above bin/.
     pub static fn locate(const flag: string) -> string {
         if !flag.is_empty() {
@@ -520,7 +520,7 @@ pub class ShareTree {
         return self.schema == "1"
     }
 
-    /// The registered tree_sha256 of input dir \p rel; "" when unlisted.
+    /// The registered tree_sha256 of input dir `rel`; "" when unlisted.
     pub fn registered(self, const rel: string) -> string {
         for var i: usize = 0; i < self.input_dirs.size(); ++i {
             if self.input_dirs[i] == rel {
@@ -542,7 +542,7 @@ pub class ShareTree {
         return p
     }
 
-    /// \p p as an absolute path (resolved against the working directory
+    /// `p` as an absolute path (resolved against the working directory
     /// only when it is relative). The stages hand input paths to
     /// -ffile-prefix-map, which a relative path does not match: the compiler
     /// records the headers it finds absolute, and the share's location then

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------------- Lib/builtin/num/f512_t.k --- ///
 ///
-///   \brief `f512`, IEEE 754 "binary512", as a library class: the C++ spelling
-///          of the `f512` type keyword (AST/Node/CanonicalNodes.k).
+/// `f512`, IEEE 754 "binary512", as a library class: the C++ spelling
+/// of the `f512` type keyword (AST/Node/CanonicalNodes.k).
 ///
 ///   \detail
 ///     Sign, 23-bit exponent (bias 4194303), 488-bit fraction with a
@@ -415,7 +415,7 @@ pub class F512 {
     /// sign, `_` between digits), correctly rounded, into `*out`; false
     /// (out untouched) when `s` is not a float.
     ///
-    /// \note Not `-> F512?`: a nullable return from a builtin class with
+    /// **Note:** Not `-> F512?`: a nullable return from a builtin class with
     /// this alignment does not compile yet (P721).
     pub static fn parse(const s: string, out: *F512) -> bool {
         var v: u512 = 0

@@ -46,7 +46,8 @@ pub class <T> YieldPromise {
 
     /// Handles `yield v`: records the address of `v` and suspends.
     ///
-    /// \param v  Taken `@inout`: the reader sees the generator's own value, not a copy.
+    /// ### Parameters
+    /// - `v`: Taken `@inout`: the reader sees the generator's own value, not a copy.
     pub inline fn yield_value(self, @inout v: T) -> Suspend {
         self.cur = &v
         return Suspend {}
@@ -55,9 +56,10 @@ pub class <T> YieldPromise {
     /// Handles `yield e` of a temporary (`yield i * i`, `yield (a, b)`, a value converted to `T`):
     /// records its address and suspends.
     ///
-    /// \param v  Taken `@move` (`T&&`): the temporary lives to the end of the full `co_yield`
-    ///           expression, which spans the suspension, so the reader sees it until the next
-    ///           resume. `@inout` alone cannot bind a temporary (P317, P324).
+    /// ### Parameters
+    /// - `v`: Taken `@move` (`T&&`): the temporary lives to the end of the full `co_yield`
+    ///   expression, which spans the suspension, so the reader sees it until the next
+    ///   resume. `@inout` alone cannot bind a temporary (P317, P324).
     pub inline fn yield_value(self, @move v: T) -> Suspend {
         self.cur = &v
         return Suspend {}
@@ -76,7 +78,7 @@ pub class <T> YieldPromise {
 /// A function containing `yield` returns one; a `for` loop over it drives `resume()` and reads
 /// `current()`. Move-only; destroying the handle destroys the coroutine frame.
 ///
-/// \see YieldPromise
+/// See `YieldPromise`.
 pub class <T> Yield {
     /// The promise type clang's coroutine machinery looks up.
     pub type promise_type = YieldPromise<T>
@@ -105,7 +107,7 @@ pub class <T> Yield {
     /// when
     /// `current()` holds a new value.
     ///
-    /// \note Resuming a finished generator is undefined in clang's coroutine model; stop at the
+    /// **Note:** Resuming a finished generator is undefined in clang's coroutine model; stop at the
     /// first false.
     pub inline fn resume(self) -> bool {
         unsafe {

@@ -12,53 +12,53 @@
 /// ------------------------------------------------------------------------ ///
 
 /// Each category has a short alphabetic code that appears in the diagnostic ID
-/// string: \c S001E means category \c Syntax, code \c 001, severity \c Error.
+/// string: `S001E` means category `Syntax`, code `001`, severity `Error`.
 ///
-/// \note \c Count is a sentinel not a valid category.
+/// **Note:** `Count` is a sentinel not a valid category.
 pub enum DiagCategory derives u8 {
-    /// Parser and lexer diagnostics. Code: \c S
+    /// Parser and lexer diagnostics. Code: `S`
     Syntax,
 
-    /// Diagnostics not yet assigned to a category. Code: \c U
+    /// Diagnostics not yet assigned to a category. Code: `U`
     ///
-    /// \warning This is a temporary fallback and should never appear in
+    /// **Warning:** This is a temporary fallback and should never appear in
     /// production diagnostics. All diagnostics must be triaged into a
     /// real category before stabilisation.
     Uncategorized,
 
-    /// Code generation diagnostics. Code: \c C
+    /// Code generation diagnostics. Code: `C`
     CodeGen,
 
-    /// Memory model and allocation diagnostics. Code: \c M
+    /// Memory model and allocation diagnostics. Code: `M`
     Memory,
 
-    /// Name and symbol resolution diagnostics. Code: \c R
+    /// Name and symbol resolution diagnostics. Code: `R`
     Resolution,
 
-    /// Linker diagnostics. Code: \c L
+    /// Linker diagnostics. Code: `L`
     Linker,
 
-    /// Semantic analysis diagnostics. Code: \c SC
+    /// Semantic analysis diagnostics. Code: `SC`
     Semantic,
 
-    /// Portability diagnostics. Code: \c P
+    /// Portability diagnostics. Code: `P`
     Portability,
 
-    /// Diagnostics originating from Clang during lowering to LLVM IR. Code: \c CL
+    /// Diagnostics originating from Clang during lowering to LLVM IR. Code: `CL`
     Lowering,
 
-    /// Optimisation-pass diagnostics. Code: \c OPT
+    /// Optimisation-pass diagnostics. Code: `OPT`
     Optimization,
 
-    /// Internal compiler errors and assertions. Code: \c I
+    /// Internal compiler errors and assertions. Code: `I`
     Internal,
 
     /// Sentinel total number of categories. Not a valid category.
     Count,
 }
 
-/// The letters that start a code of \p cat (`SC` for Semantic, `OPT` for
-/// Optimization); "" for \c Count.
+/// The letters that start a code of `cat` (`SC` for Semantic, `OPT` for
+/// Optimization); "" for `Count`.
 pub fn diag_category_prefix(cat: DiagCategory) -> string {
     match cat {
         case DiagCategory::Syntax {

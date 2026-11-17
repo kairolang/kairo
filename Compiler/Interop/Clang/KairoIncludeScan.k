@@ -39,10 +39,9 @@ ffi "c++" import "vector"
 
 import Support::FileIO::Path::Path
 
-/// \class KairoIncludeScan
-/// \brief Every `#include "*.k"` reachable from the files scan() is given,
-///        through their quoted includes. One per build: a header two inputs
-///        share is scanned once.
+/// Every `#include "*.k"` reachable from the files scan() is given,
+/// through their quoted includes. One per build: a header two inputs
+/// share is scanned once.
 pub class KairoIncludeScan {
     /// The .k files found, absolute, in first-seen order, each once.
     pub var found: cxx::std::vector<string>
@@ -59,7 +58,7 @@ pub class KairoIncludeScan {
         self._angle = angle
     }
 
-    /// \brief scans \p path and every quoted header it reaches.
+    /// scans `path` and every quoted header it reaches.
     pub fn scan(self, const path: string) {
         var abs = Path::absolute_if_exists(path.copy())
         for var i: usize = 0; i < self._seen.size(); ++i {
@@ -132,7 +131,7 @@ pub class KairoIncludeScan {
         }
     }
 
-    /// The file a directive names, between quotes or angles (\p angled
+    /// The file a directive names, between quotes or angles (`angled`
     /// says which), or "" for a macro-spelled one.
     priv fn _include_name(self,
                           text:   llvm::StringRef,
@@ -163,7 +162,7 @@ pub class KairoIncludeScan {
         return ""
     }
 
-    /// \p here (when not ""), then \p dirs; "" when none holds \p name. An
+    /// `here` (when not ""), then `dirs`; "" when none holds `name`. An
     /// absolute name is itself or nothing.
     priv fn _resolve_in(self,
                         const here: string,

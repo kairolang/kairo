@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------- Sema/Check/PatternChecking.k --- ///
 ///
-///   \brief Exhaustiveness and dead arms for every `match`, and the facts
-///          MatchLowering and ReturnPathCheck read off a match.
+/// Exhaustiveness and dead arms for every `match`, and the facts
+/// MatchLowering and ReturnPathCheck read off a match.
 ///
 ///   \detail
 ///     Usefulness over a pattern matrix (Maranget, "Warnings for pattern
@@ -177,7 +177,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
 
     /// # one match
 
-    /// \p null_arm: a match on `T?` whose arm 0 is `case null` (Compiler/Spec/Nullables.md
+    /// `null_arm`: a match on `T?` whose arm 0 is `case null` (Compiler/Spec/Nullables.md
     /// 3.6). That arm is no row: it answers the null the other arms never
     /// see, and they were typed against `T`, so the column is `T` (a
     /// `bool?` with `case null`, `true`, `false` is exhaustive).
@@ -463,7 +463,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
 
     /// The heads of every row, an alternation's alternatives each a head;
     /// false when some head is not a constant of the column's one domain
-    /// (\p d, from the first typed head), which leaves the general path.
+    /// (`d`, from the first typed head), which leaves the general path.
     priv fn _flat_rows(self,
                        @inout rows: cxx::std::vector<PatRow>,
                        @inout out:  cxx::std::vector<cxx::std::vector<Ctor>>,
@@ -541,7 +541,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         return true
     }
 
-    /// \p p's alternatives, nested alternations flattened, in order.
+    /// `p`'s alternatives, nested alternations flattened, in order.
     priv fn _flat_alts(self,
                        p:   unsafe *AstPattern,
                        out: unsafe *cxx::std::vector<unsafe *AstPattern>) {
@@ -574,7 +574,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         return "o" + c.key
     }
 
-    /// \p distinct different constants cover all of \p d.
+    /// `distinct` different constants cover all of `d`.
     priv fn _flat_complete(self, d: Domain, distinct: u64) -> bool {
         match d.kind {
             case DomainKind::ClosedEnum {
@@ -735,8 +735,8 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
 
     /// # usefulness
 
-    /// Is \p q useful against \p rows0? \p closed: closed enums are complete
-    /// when every variant is listed. \p want: build the witness.
+    /// Is `q` useful against `rows0`? `closed`: closed enums are complete
+    /// when every variant is listed. `want`: build the witness.
     priv fn _useful(self,
                     rows0:  unsafe *cxx::std::vector<PatRow>,
                     q:      unsafe *cxx::std::vector<unsafe *AstPattern>,
@@ -965,7 +965,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         return r
     }
 
-    /// Specialize rows and q by \p c, recurse, and wrap the sub-witness.
+    /// Specialize rows and q by `c`, recurse, and wrap the sub-witness.
     priv fn _useful_ctor(self,
                          rows:    unsafe *cxx::std::vector<PatRow>,
                          const q: cxx::std::vector<unsafe *AstPattern>,
@@ -1003,7 +1003,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         return r
     }
 
-    /// Some Int head of column 0 contains segment \p s.
+    /// Some Int head of column 0 contains segment `s`.
     priv fn _segment_covered(self, const rows: cxx::std::vector<PatRow>, const s: Ctor) -> bool {
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]

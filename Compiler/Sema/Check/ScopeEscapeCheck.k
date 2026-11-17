@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------------- Sema/Check/ScopeEscapeCheck.k --- ///
 ///
-///   \brief A pointer from an open AllocatorScope that outlives it:
-///          the intraprocedural check that stands in until Tether.
+/// A pointer from an open AllocatorScope that outlives it:
+/// the intraprocedural check that stands in until Tether.
 ///
 ///   \detail
 ///     `var s = AllocatorScope<A>()` routes every allocation in the rest of
@@ -307,7 +307,7 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
 
     /// # queries
 
-    /// The depth of the open scope \p e is a pointer from, or 0 when it is
+    /// The depth of the open scope `e` is a pointer from, or 0 when it is
     /// not one: a producer call takes the innermost scope, a local holding
     /// a scoped pointer answers the scope that pointer came from.
     priv fn _escapes(self, e_in: unsafe *Expr) -> u32 {
@@ -344,8 +344,8 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         return 0
     }
 
-    /// Where a store to \p target lands, if that outlives the scope at
-    /// depth \p origin: the phrase for the warning, or "" when the target
+    /// Where a store to `target` lands, if that outlives the scope at
+    /// depth `origin`: the phrase for the warning, or "" when the target
     /// dies with the scope (or cannot be told).
     priv fn _outlives(self, target: unsafe *Expr, origin: u32) -> string {
         if target == &null {
@@ -410,8 +410,8 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         return ""
     }
 
-    /// A store through \p base (`*b = p`, `b->f = p`, `b.f = p`, `b[i] =
-    /// p`) outlives the scope at depth \p origin when b does: a global, a
+    /// A store through `base` (`*b = p`, `b->f = p`, `b.f = p`, `b[i] =
+    /// p`) outlives the scope at depth `origin` when b does: a global, a
     /// parameter, or a local of an outer block.
     priv fn _base_outlives(self, base_in: unsafe *Expr, origin: u32) -> string {
         if base_in == &null {
@@ -457,7 +457,7 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
     }
 
     /// A local of this function declared in a block outside the one of the
-    /// scope at depth \p origin (that scope's own block, and deeper, die with
+    /// scope at depth `origin` (that scope's own block, and deeper, die with
     /// it).
     priv fn _outer_local(self, d: unsafe *Decl, origin: u32) -> bool {
         for var i: usize = 0; i < self._locals.size(); ++i {
@@ -512,8 +512,8 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
 
     /// # reporting
 
-    /// \p what: the rest of "a pointer from the allocator scope <what>".
-    /// \p origin: the depth of the scope the pointer is from.
+    /// `what`: the rest of "a pointer from the allocator scope <what>".
+    /// `origin`: the depth of the scope the pointer is from.
     priv fn _warn(self, at_e: unsafe *Expr, const what: string, origin: u32) {
         if at_e == &null {
             return

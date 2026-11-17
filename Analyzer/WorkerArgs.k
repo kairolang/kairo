@@ -31,7 +31,7 @@ pub const WA_AS_MODULE: string = "--as-module"
 pub const WA_CWD: string = "--cwd"
 /// `<dir>`: index every file under the project, not only the graph's.
 pub const WA_ROOT: string = "--root"
-/// `<path> <file>`: the buffer for \p path is the text of \p file.
+/// `<path> <file>`: the buffer for `path` is the text of `file`.
 pub const WA_OVERLAY: string = "--overlay"
 /// `<file>`: where the count of checked files is written as it goes.
 pub const WA_PROGRESS: string = "--progress"

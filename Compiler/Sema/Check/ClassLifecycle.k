@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------ Sema/Check/ClassLifecycle.k --- ///
 ///
-///   \brief Per record: copyable, movable, trivially so, destructible -- and
-///          the one OOP rule those facts decide, the virtual-destructor rule.
+/// Per record: copyable, movable, trivially so, destructible -- and
+/// the one OOP rule those facts decide, the virtual-destructor rule.
 ///
 ///   \detail
 ///     For an IMPORTED record the facts are clang's (FFILinkage::
@@ -435,7 +435,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         self.bind(sc)
     }
 
-    /// Wire an already-constructed instance to \p sc. The way an owner
+    /// Wire an already-constructed instance to `sc`. The way an owner
     /// that holds this by value sets it up: _facts_arena cannot be
     /// assigned, so `x = ClassLifecycle(sc)` does not compile.
     fn bind(self, sc: unsafe *SemaContext) {
@@ -460,7 +460,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
     /// # facts
 
-    /// The facts for the entity \p d belongs to. Any record kind, any TU. An
+    /// The facts for the entity `d` belongs to. Any record kind, any TU. An
     /// unfilled instance of an imported template is filled first (clang's
     /// facts); a concrete Kairo instance has its own, its pattern's members
     /// over its arguments (file header, Instances). Anything else unfilled
@@ -490,7 +490,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         var unsafe *f = self._facts_arena.Allocate(1)
         cxx::std::construct_at(f)
         // Published BEFORE _compute: its in_progress mark is how a cyclic
-        // recursion back to \p d is caught.
+        // recursion back to `d` is caught.
         self._facts[key] = f
         var unsafe *saved = self._sub
         self._sub = &null
@@ -574,7 +574,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         self._settle_non_transfer(f)
     }
 
-    /// The part that keeps imported record \p d's deleted copy from being
+    /// The part that keeps imported record `d`'s deleted copy from being
     /// generated, or "": a by-value field of a Kairo type (worded as the
     /// member fold words it), a type argument of the instance that cannot be copied
     /// (`tuple<Mv, i32>` holds it in a base the import does not keep), else
@@ -629,7 +629,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return self._held_uncopyable(d)
     }
 
-    /// Why imported instance \p d holds a value it cannot copy (see
+    /// Why imported instance `d` holds a value it cannot copy (see
     /// _imported_elements), or "" when it declares none.
     priv fn _held_uncopyable(self, d: unsafe *Decl) -> string {
         var unsafe *dc = NameLookup::context_of(d)
@@ -690,7 +690,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         self._facts.clear()
     }
 
-    /// \p d's registry entry when it is an instance of a KAIRO generic at
+    /// `d`'s registry entry when it is an instance of a KAIRO generic at
     /// concrete arguments -- the one kind of record whose facts are its own
     /// but computed from another's members. Null for an imported template's
     /// (clang's facts) and for anything still dependent.
@@ -714,8 +714,8 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return e
     }
 
-    /// \p t as the instance being computed sees it (`T` of `Opt<Mv>` is Mv),
-    /// or \p t itself: outside an instance, or where a substitution does not
+    /// `t` as the instance being computed sees it (`T` of `Opt<Mv>` is Mv),
+    /// or `t` itself: outside an instance, or where a substitution does not
     /// go through, in which case the component stays Unknown, as the
     /// pattern's is.
     priv fn _through(self, t: unsafe *Type) -> unsafe *Type {
@@ -935,7 +935,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         f->why_not_relocatable = why.copy()
     }
 
-    /// The declaration \p d's attributes are written on: an instance's are
+    /// The declaration `d`'s attributes are written on: an instance's are
     /// its pattern's.
     priv fn _pattern(self, d: unsafe *Decl) -> unsafe *Decl {
         var unsafe *pat = self.sc->body_of(d)
@@ -943,8 +943,8 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     }
 
     /// facts_of_type for a reader that acts on the answer (file header,
-    /// Asked too early). For a CONCRETE \p t every fact is definite from T
-    /// on, so an open one is an ICE naming \p caller rather than a guess.
+    /// Asked too early). For a CONCRETE `t` every fact is definite from T
+    /// on, so an open one is an ICE naming `caller` rather than a guess.
     /// A dependent type, and a record inside a generic owner (a non-generic
     /// ADT nested in a generic class), are open legitimately and come back
     /// as they are.
@@ -1705,11 +1705,11 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
     /// # `@relocatable`
 
-    /// What stops `@relocatable` on \p d (a pattern, or an instance's body
-    /// read through \p sub and named \p dn): one failure per base and
+    /// What stops `@relocatable` on `d` (a pattern, or an instance's body
+    /// read through `sub` and named `dn`): one failure per base and
     /// by-value field that is not relocatable, else the record's own
-    /// reason. A part \p sub leaves Unknown is skipped, and so is one the
-    /// pattern already answered No for when \p sub is set: the declaration
+    /// reason. A part `sub` leaves Unknown is skipped, and so is one the
+    /// pattern already answered No for when `sub` is set: the declaration
     /// reported it.
     priv fn _relocatable_failures(self,
                                   d:          unsafe *Decl,
@@ -1863,7 +1863,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
     /// # transfer-constructor shapes
 
-    /// Classify every constructor of \p d, reject the shapes C++ would read
+    /// Classify every constructor of `d`, reject the shapes C++ would read
     /// as a transfer constructor Kairo did not declare as one, and stamp the
     /// accepted ones (see the file header). The one writer of both: this is
     /// where the transfer constructor is found, so the rule and the stamp
@@ -2233,8 +2233,8 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
     }
 
-    /// Rule 6 for one defaulted transfer ctor \p x of \p n: the first base,
-    /// then the first field, that cannot be transferred the way \p x does,
+    /// Rule 6 for one defaulted transfer ctor `x` of `n`: the first base,
+    /// then the first field, that cannot be transferred the way `x` does,
     /// in the order C++ constructs them. One error per constructor.
     priv fn _check_defaulted_transfer(self,
                                       n:        unsafe *ClassDecl,
@@ -2320,8 +2320,8 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
     }
 
-    /// Why a component with facts \p c cannot be transferred by a defaulted
-    /// copy (\p is_copy) or move, or "" when it can or cannot be told yet.
+    /// Why a component with facts `c` cannot be transferred by a defaulted
+    /// copy (`is_copy`) or move, or "" when it can or cannot be told yet.
     priv fn _untransferable(self, c: unsafe *LifecycleFacts, is_copy: bool) -> string {
         // An Unknown is the pattern's; each instance is asked again (instance_failures).
         if is_copy {
@@ -2371,8 +2371,8 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
     /// The rules a generic class's declaration could not decide -- an
     /// Unknown fact skips them (file header, Unknown) -- asked again of
-    /// instance \p e with its own facts (file header, Instances), appended
-    /// to \p out: rule 6 (a defaulted transfer over a component the
+    /// instance `e` with its own facts (file header, Instances), appended
+    /// to `out`: rule 6 (a defaulted transfer over a component the
     /// instance cannot transfer that way), rule 5 (its category against
     /// each base's), the virtual-destructor rule. Only what the pattern did
     /// NOT already report, so a failure the declaration shows is never
@@ -2528,9 +2528,9 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
     }
 
-    /// Rule 6 for defaulted transfer \p x of \p n's instance \p iname (its
-    /// arguments in \p sub): the first base, then the first field, that the
-    /// instance cannot transfer the way \p x does and the pattern did not
+    /// Rule 6 for defaulted transfer `x` of `n`'s instance `iname` (its
+    /// arguments in `sub`): the first base, then the first field, that the
+    /// instance cannot transfer the way `x` does and the pattern did not
     /// already report. One failure per constructor, as the rule has.
     priv fn _instance_defaulted(self,
                                 n:           unsafe *ClassDecl,
@@ -2627,7 +2627,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
     }
 
-    /// \p t (a canonical) under \p sub, or \p t where it does not go through.
+    /// `t` (a canonical) under `sub`, or `t` where it does not go through.
     priv fn _inst_type(self, sub: *Substitution, t: unsafe *Type) -> unsafe *Type {
         if t == &null {
             return t
@@ -2642,7 +2642,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return if (s != &null) => (canon_unqual(s)) else => c
     }
 
-    /// The record a base edge names under \p sub: an instance's own base.
+    /// The record a base edge names under `sub`: an instance's own base.
     priv fn _inst_base(self, sub: *Substitution, t: unsafe *Type) -> unsafe *Decl {
         if t == &null || t->canonical == &null {
             return &null
@@ -2673,7 +2673,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         f->assignable = a
     }
 
-    /// The transfer constructor \p d's `op =` is derived from: the first
+    /// The transfer constructor `d`'s `op =` is derived from: the first
     /// `@copy` / `@move` constructor that takes `Self` (the shape
     /// _check_transfer_shapes accepts and stamps). Null when none is
     /// written: C++'s implicit assignment is then the derived one. A marker
@@ -2759,7 +2759,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return false
     }
 
-    /// How \p d's `op =`, derived from \p x, is given to C++.
+    /// How `d`'s `op =`, derived from `x`, is given to C++.
     priv fn _assign_form(self, d: unsafe *Decl, x: unsafe *FunctionDecl) -> AssignForm {
         if x == &null {
             return AssignForm::Implicit
@@ -2791,7 +2791,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return AssignForm::Body
     }
 
-    /// The transfers \p d declares beside its destructor when it writes no
+    /// The transfers `d` declares beside its destructor when it writes no
     /// transfer constructor (Declarations.k ImplicitTransfer). C++ declares
     /// no implicit move beside a user-declared destructor, so a MOVE record
     /// left to C++ falls back to its copy, which a move-only part deletes.
@@ -2963,14 +2963,14 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return m->op_token[0].kind == TokenKind::KwFinally
     }
 
-    /// The `@copy` constructor that makes a copy of Kairo record \p d_in
+    /// The `@copy` constructor that makes a copy of Kairo record `d_in`
     /// need a non-const source that is not a temporary, or null: the
     /// record's own `@copy fn X(self, other: Self)` (C++ `X(X&)`; a class
     /// declares one transfer constructor, so it then has no move either),
     /// or, for a record that declares no transfer constructor, that of a
     /// base or a by-value field: C++ then gives it `X(X&)` and defines its
-    /// move as deleted. \p via is set to the first field on that path, and
-    /// left null for the record's own constructor or a base's; \p owner to
+    /// move as deleted. `via` is set to the first field on that path, and
+    /// left null for the record's own constructor or a base's; `owner` to
     /// the record that declares the constructor. An imported record is
     /// clang's to diagnose; a dependent field decides nothing.
     pub fn mutable_source_copy(self,
@@ -3086,7 +3086,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return &null
     }
 
-    /// The source parameter of transfer constructor \p m (the first after
+    /// The source parameter of transfer constructor `m` (the first after
     /// `self`), or null.
     pub static fn copy_source_param(m: unsafe *FunctionDecl) -> unsafe *ParamDecl {
         if m == &null {
@@ -3199,7 +3199,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     }
 }
 
-/// THE ClassLifecycle of \p sc's run: Sema owns it and publishes it on
+/// THE ClassLifecycle of `sc`'s run: Sema owns it and publishes it on
 /// SemaContext::lifecycle, untyped there because this file imports that one.
 /// Every reader comes through here, so the facts are one memo per TU.
 pub fn lifecycle_of(sc: unsafe *SemaContext) -> unsafe *ClassLifecycle {
@@ -3210,7 +3210,7 @@ pub fn lifecycle_of(sc: unsafe *SemaContext) -> unsafe *ClassLifecycle {
     return unsafe (sc->lifecycle as unsafe *ClassLifecycle)
 }
 
-/// \p t is a record whose category is MOVE, so passing a value of it moves
+/// `t` is a record whose category is MOVE, so passing a value of it moves
 /// the value (Doc: Ownership, Function Parameters). Overload resolution
 /// binds such an lvalue as an xvalue and MoveCheck counts the move, both
 /// from this one answer. A category that hangs on a generic parameter is

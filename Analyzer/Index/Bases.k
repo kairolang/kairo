@@ -262,7 +262,7 @@ extend IndexWalker {
         }
     }
 
-    /// Records \p d's base edges and, for an interface that derives others,
+    /// Records `d`'s base edges and, for an interface that derives others,
     /// the inlay hint that spells out what it inherits.
     fn bases_of_(self, d: unsafe *Decl) {
         var inherited: [unsafe *Decl]

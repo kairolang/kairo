@@ -1,6 +1,6 @@
 /// --- The Kairo Project --------------- Sema/Check/EvalUsageChecking.k --- ///
 ///
-///   \brief What an eval context may contain (Compiler/Spec/Eval.md#eval-for, §6).
+/// What an eval context may contain (Compiler/Spec/Eval.md#eval-for, §6).
 ///
 ///   \detail
 ///     C++ computes every eval value (Compiler/Spec/Eval.md#c-computes), so a mistake left to it is
@@ -185,7 +185,7 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
         self._tu = tu
     }
 
-    /// \p d named at \p r: an eval item, and a member's owner (C++ looks
+    /// `d` named at `r`: an eval item, and a member's owner (C++ looks
     /// into a complete class only).
     fn named(self, d: unsafe *Decl, r: SourceRange) {
         if d == &null {
@@ -230,7 +230,7 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
         self.items.push_back(d)
     }
 
-    /// Record \p d needed complete (its outermost record: a nested one is
+    /// Record `d` needed complete (its outermost record: a nested one is
     /// defined inside it), once.
     fn rec(self, d0: unsafe *Decl, r: SourceRange) {
         if d0 == &null {
@@ -268,7 +268,7 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
         self.at.push_back(r)
     }
 
-    /// The records \p t holds by value: laid out wherever a value of it is.
+    /// The records `t` holds by value: laid out wherever a value of it is.
     fn rec_type(self, t: unsafe *Type, r: SourceRange) {
         if t == &null {
             return
@@ -306,7 +306,7 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
         }
     }
 
-    /// The eval items computed value \p t names (Compiler/Spec/Eval.md#value-nodes): an eval
+    /// The eval items computed value `t` names (Compiler/Spec/Eval.md#value-nodes): an eval
     /// fn or an eval class's constructor it calls, an eval constant it
     /// reads. A class it constructs is needed complete.
     fn values(self, t: unsafe *Type, r: SourceRange) {
@@ -426,7 +426,7 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
     }
 }
 
-/// \p f's record has an eval constructor (an eval class, Compiler/Spec/Eval.md#eval-classes).
+/// `f`'s record has an eval constructor (an eval class, Compiler/Spec/Eval.md#eval-classes).
 /// The check below holds such a field's default to the eval rules, and
 /// FieldInitLowering makes the default's thunk `constexpr` by the same
 /// answer.
@@ -586,7 +586,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         return true
     }
 
-    /// \p rd as the type of value parameter \p n (Compiler/Spec/Eval.md#eval-classes, USER): every
+    /// `rd` as the type of value parameter `n` (Compiler/Spec/Eval.md#eval-classes, USER): every
     /// field `pub`, none a pointer to mutable memory, every field's type
     /// structural in turn, every constructor `eval`, no destructor written.
     /// C++ compares template arguments of class type member by member, and
@@ -617,7 +617,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         b.emit()
     }
 
-    /// The first reason \p rd is not structural, into \p why / \p at.
+    /// The first reason `rd` is not structural, into `why` / `at`.
     priv fn _structural(self,
                         rd:    unsafe *Decl,
                         why:   unsafe *string,
@@ -978,8 +978,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
     }
 
-    /// \p t is a collection, which has no compile-time form yet (Compiler/Spec/Eval.md
-    /// 2b): reported at \p at. A string has one (2a).
+    /// `t` is a collection, which has no compile-time form yet (Compiler/Spec/Eval.md
+    /// 2b): reported at `at`. A string has one (2a).
     priv fn _no_eval_form(self, at: SourceRange, t: unsafe *Type) -> bool {
         var what = self._wide_float(t)
         if what.size() == 0 {
@@ -1007,7 +1007,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         return true
     }
 
-    /// "an 'f256' value" / "an 'f512' value" when \p t is one, else "". The
+    /// "an 'f256' value" / "an 'f512' value" when `t` is one, else "". The
     /// two are library classes whose every operation, literals included,
     /// is a run-time call into num/softfloat.k: C++ has no
     /// compile-time form of them, and clang would say so only about the
@@ -1089,7 +1089,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
     }
 
-    /// \p d's user-written `op delete`, or null.
+    /// `d`'s user-written `op delete`, or null.
     priv fn _user_dtor(self, d: unsafe *Decl) -> unsafe *Declarations::FunctionDecl {
         if d == &null {
             return &null
@@ -1800,8 +1800,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
     /// # eval-able
 
-    /// \p e must be eval-able (file header); reported at its first part that
-    /// is not, as \p what.
+    /// `e` must be eval-able (file header); reported at its first part that
+    /// is not, as `what`.
     priv fn _need_eval(self, e: unsafe *Expr, const what: string) {
         if e == &null || e->is_poisoned() {
             return
@@ -1836,7 +1836,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         return self._first_runtime(e) == &null
     }
 
-    /// The first sub-expression of \p e0 that is not eval-able, or null.
+    /// The first sub-expression of `e0` that is not eval-able, or null.
     priv fn _first_runtime(self, e0: unsafe *Expr) -> unsafe *Expr {
         if e0 == &null {
             return &null
@@ -2043,7 +2043,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         return self.tu.is_foreign(d)
     }
 
-    /// The non-eval variable \p e names, for a note; null if none.
+    /// The non-eval variable `e` names, for a note; null if none.
     priv fn _plain_var(self, e: unsafe *Expr) -> unsafe *Declarations::VariableDecl {
         if e == &null || !isa<NamedIdentExpr>(e) {
             return &null
@@ -2142,7 +2142,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
     }
 
-    /// \p seeds and every item they read, transitively, into \p out.
+    /// `seeds` and every item they read, transitively, into `out`.
     priv fn _closure(self,
                      seeds: unsafe *cxx::std::vector<unsafe *Decl>,
                      out:   unsafe *cxx::std::vector<unsafe *Decl>) {
@@ -2171,7 +2171,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         v.push_back(d)
     }
 
-    /// The items computed values in \p t name (a declaration's type).
+    /// The items computed values in `t` name (a declaration's type).
     priv fn _type_items(self, t: unsafe *Type, out: unsafe *cxx::std::vector<unsafe *Decl>) {
         var n = EvalNeeds(unsafe &self.tu)
         n.rec_type(t, SourceRange::invalid())
@@ -2184,7 +2184,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
     }
 
-    /// The types written in \p r's own definition: fields, bases, method
+    /// The types written in `r`'s own definition: fields, bases, method
     /// signatures (C++ reads all of them inside the class body).
     priv fn _member_types(self,
                           r:            unsafe *Decl,
@@ -2248,7 +2248,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
     }
 
-    /// The records \p r needs complete before its definition: by-value
+    /// The records `r` needs complete before its definition: by-value
     /// fields and bases, and what the items its types name need.
     priv fn _rec_edges(self, r: unsafe *Decl, out: unsafe *cxx::std::vector<unsafe *Decl>) {
         var ts = cxx::std::vector<unsafe *Type>()
@@ -2303,7 +2303,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
     }
 
-    /// Whether record \p from reaches \p goal through _rec_edges.
+    /// Whether record `from` reaches `goal` through _rec_edges.
     priv fn _rec_reaches(self,
                          from: unsafe *Decl,
                          goal: unsafe *Decl,
@@ -2420,8 +2420,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
     }
 
-    /// \p r's types, or the value predicates of its `requires`, name a
-    /// value C++ computes from items that need \p r complete (or a record
+    /// `r`'s types, or the value predicates of its `requires`, name a
+    /// value C++ computes from items that need `r` complete (or a record
     /// that does): SC001E at the first one. A generic record is checked on
     /// its primary: an instance its items name (`sizeof R<1>`) is mapped to
     /// the pattern (EvalNeeds::rec), and every instance's definition
@@ -2470,7 +2470,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
     }
 
-    /// The VALUE conjuncts of requires clause \p e (not `T impl I` / `T
+    /// The VALUE conjuncts of requires clause `e` (not `T impl I` / `T
     /// derives B`), as _check_requires splits them.
     static fn _value_preds(e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
         if e == &null || e->is_poisoned() {
@@ -2492,8 +2492,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         out->push_back(e)
     }
 
-    /// Whether items \p seeds, read at \p at, reach one that needs \p r
-    /// complete (or a record that reaches \p r); reported when they do.
+    /// Whether items `seeds`, read at `at`, reach one that needs `r`
+    /// complete (or a record that reaches `r`); reported when they do.
     priv fn _check_seeds(self,
                          r:          unsafe *Decl,
                          seeds:      unsafe *cxx::std::vector<unsafe *Decl>,
@@ -2532,7 +2532,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         return false
     }
 
-    /// _rec_reaches, with \p seen already holding the start record.
+    /// _rec_reaches, with `seen` already holding the start record.
     priv fn _rec_reaches_from(self,
                               from: unsafe *Decl,
                               goal: unsafe *Decl,

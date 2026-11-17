@@ -1,8 +1,8 @@
 /// --- The Kairo Project ---------- Sema/Expand/PrimitiveLimitDesugar.k --- ///
 ///
-///   \brief `i32::MAX`, `f64::EPSILON`, `f32::INFINITY`, `u8::BITS`: each
-///          primitive's associated constants, replaced by the literal they
-///          are before anything resolves a name.
+/// `i32::MAX`, `f64::EPSILON`, `f32::INFINITY`, `u8::BITS`: each
+/// primitive's associated constants, replaced by the literal they
+/// are before anything resolves a name.
 ///
 ///   \detail
 ///     Nothing about a primitive's limits waits on resolution. A primitive
@@ -241,7 +241,7 @@ pub class PrimitiveLimitDesugar derives ASTWriter<PrimitiveLimitDesugar> {
         a->ty = TypeExpr::create(self.sc->ctx, ct->range, e)
     }
 
-    /// \p b's \p k as the literal it is, or null after the error saying why
+    /// `b`'s `k` as the literal it is, or null after the error saying why
     /// it has none.
     priv fn _mint(self, range: SourceRange, b: BuiltinKind, k: PrimLimit) -> unsafe *Expr {
         var sp   = builtin_info(b)->spelling.copy()

@@ -74,21 +74,24 @@ import std::c_char
 import std::env
 import std::io
 
-/// \brief raw argv scan for the timing switches, before any option machinery
-///        exists.
+/// raw argv scan for the timing switches, before any option machinery
+/// exists.
 ///
-/// \details The timer has to be armed before \c CompilerInstance is
-///          constructed   that constructor spawns the whole ThreadPool and
-///          wires every subsystem, and it is not cheap. But the flags are not
-///          parsed until that same constructor runs, so the ordinary path
-///          cannot answer "is timing on" early enough. Hence a hand scan.
+/// The timer has to be armed before `CompilerInstance` is
+/// constructed   that constructor spawns the whole ThreadPool and
+/// wires every subsystem, and it is not cheap. But the flags are not
+/// parsed until that same constructor runs, so the ordinary path
+/// cannot answer "is timing on" early enough. Hence a hand scan.
 ///
 ///          This decides ONLY whether to arm, and whether tracing is wanted.
 ///          The trace PATH still comes from the real parse afterwards; this is
 ///          deliberately not a second command-line parser.
 ///
-/// \param trace_out set when any form of --time-trace is present.
-/// \return true if timing should be armed.
+/// ### Parameters
+/// - `trace_out`: set when any form of --time-trace is present.
+///
+/// ### Returns
+/// true if timing should be armed.
 pub fn _scan_timing_flags(argc:      i32,
                           argv:      unsafe *(unsafe *c_char),
                           trace_out: unsafe *bool) -> bool {
@@ -128,10 +131,10 @@ pub fn _scan_timing_flags(argc:      i32,
     return on
 }
 
-/// \brief writes the timing report to \p path instead of stderr.
+/// writes the timing report to `path` instead of stderr.
 ///
-/// \details --stats-file. The report engine takes any FILE*; the Kairo
-///          wrapper (time_print) only knows stderr, hence the direct call.
+/// --stats-file. The report engine takes any FILE*; the Kairo
+/// wrapper (time_print) only knows stderr, hence the direct call.
 pub fn _time_print_to(const path: string) -> bool {
     var        p  = path.copy()
     var        ok = false

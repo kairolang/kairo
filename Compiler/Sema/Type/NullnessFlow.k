@@ -1,8 +1,8 @@
 /// --- The Kairo Project --------------------- Sema/Type/NullnessFlow.k --- ///
 ///
-///   \brief The nullness analysis (Compiler/Spec/Nullables.md#nullness-analysis, §4, §5):
-///          what each nullable place holds at each point of a body, and
-///          the one classifier every spelling of the null test goes through.
+/// The nullness analysis (Compiler/Spec/Nullables.md#nullness-analysis, §4, §5):
+/// what each nullable place holds at each point of a body, and
+/// the one classifier every spelling of the null test goes through.
 ///
 ///   \detail
 ///     `x?` is the null test; every other spelling desugars to it (2.1, 2.2):
@@ -185,7 +185,7 @@ pub struct NullTest {
     var present: bool         = true
 }
 
-/// \p e without the parentheses around it.
+/// `e` without the parentheses around it.
 pub fn null_flow_strip_parens(e: unsafe *Expr) -> unsafe *Expr {
     var unsafe *x = e
     while x != &null && isa<Expressions::ParenExpr>(x) {
@@ -195,7 +195,7 @@ pub fn null_flow_strip_parens(e: unsafe *Expr) -> unsafe *Expr {
     return x
 }
 
-/// \p e is the `null` (or `&null`) literal, through parentheses: that
+/// `e` is the `null` (or `&null`) literal, through parentheses: that
 /// literal, else null. Untyped on purpose: OperatorTyping asks before it
 /// types the operands, so a `null` against a non-nullable gets the null
 /// comparison's error, not the literal's "cannot infer".
@@ -208,7 +208,7 @@ pub fn null_literal_of(e: unsafe *Expr) -> unsafe *NullLiteralExpr {
     return cast<NullLiteralExpr>(x)
 }
 
-/// \p t read as a value: a C++ `T&` / `T&&` is its `T`, cv kept.
+/// `t` read as a value: a C++ `T&` / `T&&` is its `T`, cv kept.
 pub fn null_flow_referee(t: unsafe *Type) -> unsafe *Type {
     if t == &null {
         return &null
@@ -225,7 +225,7 @@ pub fn null_flow_referee(t: unsafe *Type) -> unsafe *Type {
     return t
 }
 
-/// \p t is a nullable, read as a value (a C++ `T?&` is its `T?`).
+/// `t` is a nullable, read as a value (a C++ `T?&` is its `T?`).
 pub fn null_flow_type_is_nullable(t: unsafe *Type) -> bool {
     if t == &null {
         return false
@@ -235,7 +235,7 @@ pub fn null_flow_type_is_nullable(t: unsafe *Type) -> bool {
     return c != &null && isa<NullableType>(c)
 }
 
-/// \p e has a nullable type, read as a value (a C++ `T?&` is its `T?`).
+/// `e` has a nullable type, read as a value (a C++ `T?&` is its `T?`).
 pub fn null_flow_is_nullable(e: unsafe *Expr) -> bool {
     if e == &null {
         return false
@@ -244,7 +244,7 @@ pub fn null_flow_is_nullable(e: unsafe *Expr) -> bool {
     return null_flow_type_is_nullable(e->type_)
 }
 
-/// The canonical of \p t through one nullable: `(*T)?` is `*T`, `T` is `T`.
+/// The canonical of `t` through one nullable: `(*T)?` is `*T`, `T` is `T`.
 /// What a pointer or scalar test asks of a value that may be nullable.
 pub fn null_flow_through_nullable(t: unsafe *Type) -> unsafe *Type {
     var unsafe *c = canon_unqual(t)
@@ -255,7 +255,7 @@ pub fn null_flow_through_nullable(t: unsafe *Type) -> unsafe *Type {
     return c
 }
 
-/// The null test \p e is, or one with no operand. See the file header for
+/// The null test `e` is, or one with no operand. See the file header for
 /// the spellings.
 pub fn null_test_of(e: unsafe *Expr) -> NullTest {
     var        out = NullTest{}
@@ -348,7 +348,7 @@ pub enum NullWhy derives u8 {
     Caught,   ///< changed at `at` in a `try` that may have thrown after it.
 }
 
-/// A pointer to \p place, taken by the `&` at \p node (at \p at), that no
+/// A pointer to `place`, taken by the `&` at `node` (at `at`), that no
 /// consumer has accounted for yet: until one does (an `@inout` marker, a
 /// `*const` parameter), any call may write through it, and so may any
 /// write the analysis cannot place (`*p = ...`).
@@ -358,7 +358,7 @@ pub struct NullEscape {
     var at:    SourceRange
 }
 
-/// One fact: \p place holds \p state here.
+/// One fact: `place` holds `state` here.
 pub struct NullFact {
     var place:  cxx::std::vector<unsafe *Decl>
     var state:  Nullness                       = Nullness::Maybe
@@ -415,7 +415,7 @@ pub struct NullCarrier {
     var places: cxx::std::vector<cxx::std::vector<unsafe *Decl>>
 }
 
-/// Where a write through a pointer lands: \p known, the places a
+/// Where a write through a pointer lands: `known`, the places a
 /// carrier carries (none: storage no place is under); else anywhere a
 /// pointer escaped to.
 pub struct NullThrough {
@@ -437,7 +437,7 @@ pub struct NullLoop {
     var label:  string                    = "" ///< the loop's label, or empty.
 }
 
-/// \p a and \p b name the same place.
+/// `a` and `b` name the same place.
 pub fn null_place_eq(a: unsafe *cxx::std::vector<unsafe *Decl>,
                      b: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
     if a->size() != b->size() {
@@ -453,7 +453,7 @@ pub fn null_place_eq(a: unsafe *cxx::std::vector<unsafe *Decl>,
     return true
 }
 
-/// \p p is \p root or a path under it.
+/// `p` is `root` or a path under it.
 pub fn null_place_under(const p:    cxx::std::vector<unsafe *Decl>,
                         const root: cxx::std::vector<unsafe *Decl>) -> bool {
     if p.size() < root.size() {
@@ -478,7 +478,7 @@ pub fn null_join_state(a: Nullness, b: Nullness) -> Nullness {
     return Nullness::Maybe
 }
 
-/// The index of \p place's fact in \p env, or -1.
+/// The index of `place`'s fact in `env`, or -1.
 pub fn null_env_find(env: unsafe *NullEnv, place: unsafe *cxx::std::vector<unsafe *Decl>) -> i64 {
     for var i: usize = 0; i < env->facts.size(); ++i {
         if null_place_eq(unsafe &env->facts[i].place, place) {
@@ -489,7 +489,7 @@ pub fn null_env_find(env: unsafe *NullEnv, place: unsafe *cxx::std::vector<unsaf
     return -1
 }
 
-/// \p env with \p f as \p f.place's fact, the old one replaced. Paths under
+/// `env` with `f` as `f.place`'s fact, the old one replaced. Paths under
 /// it keep theirs: a test does not change them.
 pub fn null_env_put(env: unsafe *NullEnv, f: NullFact) {
     var i = null_env_find(env, unsafe &f.place)
@@ -501,8 +501,8 @@ pub fn null_env_put(env: unsafe *NullEnv, f: NullFact) {
     env->facts.push_back(f)
 }
 
-/// Drop the fact of \p place and of every path under it: what an
-/// assignment to \p place does to them before it sets its own.
+/// Drop the fact of `place` and of every path under it: what an
+/// assignment to `place` does to them before it sets its own.
 pub fn null_env_kill_under(env: unsafe *NullEnv, place: unsafe *cxx::std::vector<unsafe *Decl>) {
     var keep = cxx::std::vector<NullFact>()
     for var i: usize = 0; i < env->facts.size(); ++i {
@@ -514,8 +514,8 @@ pub fn null_env_kill_under(env: unsafe *NullEnv, place: unsafe *cxx::std::vector
     env->facts = keep
 }
 
-/// The facts of \p place and every path under it (only the paths strictly
-/// under it when \p strict) become Maybe, noted \p why at \p at: what a
+/// The facts of `place` and every path under it (only the paths strictly
+/// under it when `strict`) become Maybe, noted `why` at `at`: what a
 /// write the analysis cannot see the value of does (3.4). The facts are
 /// kept, Maybe, so the access error can say what ended the check.
 pub fn null_env_weaken_under(env:    *NullEnv,
@@ -539,7 +539,7 @@ pub fn null_env_weaken_under(env:    *NullEnv,
     }
 }
 
-/// The env at a merge of \p a and \p b. A dead side contributes nothing. A
+/// The env at a merge of `a` and `b`. A dead side contributes nothing. A
 /// place proven on one side only is Maybe after; a Maybe keeps its note.
 pub fn null_env_join(a: unsafe *NullEnv, b: unsafe *NullEnv) -> NullEnv {
     if a->dead {
@@ -598,7 +598,7 @@ pub fn null_env_join(a: unsafe *NullEnv, b: unsafe *NullEnv) -> NullEnv {
     return out
 }
 
-/// \p d is a global or a static: a VariableDecl outside every function
+/// `d` is a global or a static: a VariableDecl outside every function
 /// body, or one declared `static` in one. Any call may write it (3.8).
 pub fn null_flow_is_global(d: unsafe *Decl) -> bool {
     if d == &null {
@@ -633,8 +633,8 @@ pub fn null_flow_is_global(d: unsafe *Decl) -> bool {
         && k != DeclContextKind::Block
 }
 
-/// The decl at the root of the storage \p e names, through parentheses,
-/// `.` / `->` chains and subscripts; null when \p e names none (a call, a
+/// The decl at the root of the storage `e` names, through parentheses,
+/// `.` / `->` chains and subscripts; null when `e` names none (a call, a
 /// dereference). Used only for the conservative "this root may be written
 /// somewhere" scans.
 pub fn null_root_decl(e: unsafe *Expr) -> unsafe *Decl {
@@ -663,7 +663,7 @@ pub fn null_root_decl(e: unsafe *Expr) -> unsafe *Decl {
     return &null
 }
 
-/// The place \p e names, or an empty one: a local, parameter or global
+/// The place `e` names, or an empty one: a local, parameter or global
 /// (VariableDecl / ParamDecl), or `*x` where `x` is a closure's pointer
 /// capture of one (3.7: the dereference is the variable, so its place is
 /// the variable's decl; the name `x` itself is the pointer, no place),
@@ -727,7 +727,7 @@ pub fn null_place_of(e: unsafe *Expr) -> cxx::std::vector<unsafe *Decl> {
     return null_chain_place(c, c->steps.size() - 1) // every step
 }
 
-/// The place `c.base` + steps 0..=\p upto names, or an empty one.
+/// The place `c.base` + steps 0..=`upto` names, or an empty one.
 pub fn null_chain_place(c: unsafe *ChainExpr, upto: usize) -> cxx::std::vector<unsafe *Decl> {
     var out = cxx::std::vector<unsafe *Decl>()
     if c->base == &null || upto >= c->steps.size() {
@@ -759,7 +759,7 @@ pub fn null_chain_place(c: unsafe *ChainExpr, upto: usize) -> cxx::std::vector<u
     return root
 }
 
-/// \p into with every place of \p from it does not hold yet.
+/// `into` with every place of `from` it does not hold yet.
 pub fn null_places_union(into: unsafe *cxx::std::vector<cxx::std::vector<unsafe *Decl>>,
                          from: unsafe *cxx::std::vector<cxx::std::vector<unsafe *Decl>>) {
     for var i: usize = 0; i < from->size(); ++i {
@@ -777,7 +777,7 @@ pub fn null_places_union(into: unsafe *cxx::std::vector<cxx::std::vector<unsafe 
     }
 }
 
-/// The carrier of \p d in \p list, or -1.
+/// The carrier of `d` in `list`, or -1.
 pub fn null_carrier_find(const list: cxx::std::vector<NullCarrier>, d: unsafe *Decl) -> i64 {
     if d == &null {
         return -1
@@ -792,7 +792,7 @@ pub fn null_carrier_find(const list: cxx::std::vector<NullCarrier>, d: unsafe *D
     return -1
 }
 
-/// \p d is a local or a parameter (not a global or static): a carrier can
+/// `d` is a local or a parameter (not a global or static): a carrier can
 /// only be one, since anything else is reachable from any call.
 pub fn null_flow_is_local(d: unsafe *Decl) -> bool {
     if d == &null || (!isa<VariableDecl>(d)) && !isa<ParamDecl>(d) {
@@ -802,9 +802,9 @@ pub fn null_flow_is_local(d: unsafe *Decl) -> bool {
     return !null_flow_is_global(d)
 }
 
-/// The places a closure \p c can write when it is called: what it captures
+/// The places a closure `c` can write when it is called: what it captures
 /// by non-const pointer (named, or every outer local it names under `|*|`)
-/// and what each carrier it captures by copy carries (\p carriers).
+/// and what each carrier it captures by copy carries (`carriers`).
 pub fn null_closure_places(c:        unsafe *Expressions::ClosureExpr,
                            carriers: unsafe *cxx::std::vector<NullCarrier>) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
     var out = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
@@ -950,7 +950,7 @@ pub fn null_scan_join(a: *NullScanState, b: *NullScanState) -> NullScanState {
     return out
 }
 
-/// \p t is a builtin scalar (through a nullable): an operator on it is the
+/// `t` is a builtin scalar (through a nullable): an operator on it is the
 /// builtin one, whose result is never null.
 pub fn null_scan_is_scalar(t: unsafe *Type) -> bool {
     if t == &null {
@@ -961,7 +961,7 @@ pub fn null_scan_is_scalar(t: unsafe *Type) -> bool {
     return c != &null && isa<BuiltinType>(c)
 }
 
-/// The declared type of the decl \p d names, if it is known yet.
+/// The declared type of the decl `d` names, if it is known yet.
 pub fn null_scan_decl_type(d: unsafe *Decl) -> unsafe *Type {
     if d == &null {
         return &null
@@ -985,7 +985,7 @@ pub fn null_scan_decl_type(d: unsafe *Decl) -> unsafe *Type {
     return &null
 }
 
-/// \p f is known to return no nullable: a declared, non-dependent,
+/// `f` is known to return no nullable: a declared, non-dependent,
 /// non-nullable return type (a block body with none returns nothing).
 pub fn null_scan_returns_value(d: unsafe *Decl) -> bool {
     if d == &null || !isa<FunctionDecl>(d) {
@@ -1005,7 +1005,7 @@ pub fn null_scan_returns_value(d: unsafe *Decl) -> bool {
     return !null_flow_type_is_nullable(t)
 }
 
-/// Every decl \p cell holds returns no nullable.
+/// Every decl `cell` holds returns no nullable.
 pub fn null_scan_cell_returns_value(cell: unsafe *OverloadCell) -> bool {
     if cell == &null || cell->size() == 0 {
         return false
@@ -1020,7 +1020,7 @@ pub fn null_scan_cell_returns_value(cell: unsafe *OverloadCell) -> bool {
     return true
 }
 
-/// \p d is a function with no `@inout` parameter.
+/// `d` is a function with no `@inout` parameter.
 pub fn null_scan_no_inout(d: unsafe *Decl) -> bool {
     if d == &null || !isa<FunctionDecl>(d) {
         return false
@@ -1050,7 +1050,7 @@ pub fn null_scan_cell_no_inout(cell: unsafe *OverloadCell) -> bool {
     return true
 }
 
-/// \p d is a method taking a `const self`.
+/// `d` is a method taking a `const self`.
 pub fn null_scan_const_method(d: unsafe *Decl) -> bool {
     if d == &null || !isa<FunctionDecl>(d) {
         return false
@@ -1078,7 +1078,7 @@ pub fn null_scan_cell_const(cell: unsafe *OverloadCell) -> bool {
     return true
 }
 
-/// \p e, an operand, is known to be a builtin scalar: a numeric, `bool` or
+/// `e`, an operand, is known to be a builtin scalar: a numeric, `bool` or
 /// character literal, or a place declared as one (or as one's nullable).
 pub fn null_scan_scalar_operand(e: unsafe *Expr) -> bool {
     var unsafe *x = null_flow_strip_parens(e)
@@ -1101,7 +1101,7 @@ pub fn null_scan_scalar_operand(e: unsafe *Expr) -> bool {
     return null_scan_is_scalar(null_scan_decl_type(p[p.size() - 1]))
 }
 
-/// Read before typing, \p rhs is known to be no null (Compiler/Spec/Nullables.md#definitions-and-conditions's
+/// Read before typing, `rhs` is known to be no null (Compiler/Spec/Nullables.md#definitions-and-conditions's
 /// rows, on what the syntax and the declarations already say): a literal,
 /// `&e`, an initializer, a call to a function declared to return a `T`, a
 /// constructor, a place declared `T`, a builtin operator on scalars, a cast
@@ -1259,7 +1259,7 @@ pub fn null_scan_rhs_value(rhs: unsafe *Expr) -> bool {
     return false
 }
 
-/// \p e is a bare `&x`, the shape of the `@inout` marker: its operand.
+/// `e` is a bare `&x`, the shape of the `@inout` marker: its operand.
 pub fn mode_marker_like(e: unsafe *Expr) -> unsafe *Expr {
     if e == &null || !isa<Expressions::UnaryOperatorExpr>(e) {
         return &null
@@ -1273,7 +1273,7 @@ pub fn mode_marker_like(e: unsafe *Expr) -> unsafe *Expr {
     return u->operand
 }
 
-/// The function \p d takes its argument \p i `@inout` (\p recv: called
+/// The function `d` takes its argument `i` `@inout` (`recv`: called
 /// through a receiver, so a method's `self` is no argument).
 pub fn null_scan_inout_at(d: unsafe *Decl, i: usize, recv: bool) -> bool {
     if d == &null || !isa<FunctionDecl>(d) {
@@ -1338,8 +1338,8 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
 
     fn NullLoopScan(self) { }
 
-    /// The back edge of the loop over \p body (with \p update run after
-    /// it), labeled \p label: the join of the end of the body and every
+    /// The back edge of the loop over `body` (with `update` run after
+    /// it), labeled `label`: the join of the end of the body and every
     /// `continue` to it, then the update.
     priv fn _init(self) {
         self.st = NullScanState{}
@@ -1353,7 +1353,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         self.all = self.st
     }
 
-    /// What a `catch` arm may start with after \p body (or \p value) ran
+    /// What a `catch` arm may start with after `body` (or `value`) ran
     /// any part of the way: every effect anywhere in it, unordered.
     fn run_unordered(self, body: unsafe *Stmt, value: unsafe *Expr) -> NullScanState {
         self._init()
@@ -1445,7 +1445,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         }
     }
 
-    /// `q = rhs`: \p q itself takes the value, every path under it is lost.
+    /// `q = rhs`: `q` itself takes the value, every path under it is lost.
     priv fn _write(self, q: unsafe *cxx::std::vector<unsafe *Decl>, value: bool, at: SourceRange) {
         for var i: usize = 0; i < self.cands.size(); ++i {
             var *p = &self.cands[i]
@@ -1465,8 +1465,8 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         }
     }
 
-    /// \p q and every path under it (only those strictly under it, when
-    /// \p strict) may hold anything.
+    /// `q` and every path under it (only those strictly under it, when
+    /// `strict`) may hold anything.
     priv fn _lose(self, q: unsafe *cxx::std::vector<unsafe *Decl>, strict: bool, at: SourceRange) {
         if q->size() == 0 {
             return
@@ -1486,7 +1486,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         }
     }
 
-    /// Every place of \p set may hold anything, and stays so at the head.
+    /// Every place of `set` may hold anything, and stays so at the head.
     priv fn _lose_sticky(self,
                          @inout set: cxx::std::vector<cxx::std::vector<unsafe *Decl>>,
                          at:         SourceRange) {
@@ -1511,7 +1511,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         }
     }
 
-    /// The places \p d carries, if it is a carrier.
+    /// The places `d` carries, if it is a carrier.
     priv fn _carried(self, d: unsafe *Decl) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
         var k = null_carrier_find(self.carriers, d)
         if k < 0 {
@@ -1532,7 +1532,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         return out
     }
 
-    /// The places the value \p e carries, read before typing: `&place`, a
+    /// The places the value `e` carries, read before typing: `&place`, a
     /// carrier's name, a closure.
     priv fn _carry_of(self, e: unsafe *Expr) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
         var        out = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
@@ -1574,7 +1574,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         return out
     }
 
-    /// \p d now (also) holds what \p value carries.
+    /// `d` now (also) holds what `value` carries.
     priv fn _carry_into(self, d: unsafe *Decl, value: unsafe *Expr) {
         if !null_flow_is_local(d) {
             return
@@ -1596,7 +1596,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         null_places_union(unsafe &self.carriers[k as usize].places, unsafe &set)
     }
 
-    /// \p e is a receiver a call may take as mutable `self`.
+    /// `e` is a receiver a call may take as mutable `self`.
     priv fn _lose_inside(self, e: unsafe *Expr, at: SourceRange) {
         var q = null_place_of(e)
         self._lose(unsafe &q, true, at)
@@ -1880,8 +1880,8 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         return false
     }
 
-    /// Every candidate of the call through \p callee takes its argument
-    /// \p i `@inout` (so a `&e` there is the marker, not a pointer).
+    /// Every candidate of the call through `callee` takes its argument
+    /// `i` `@inout` (so a `&e` there is the marker, not a pointer).
     priv fn _all_inout_at(self, callee: unsafe *Expr, i: usize) -> bool {
         if callee == &null {
             return false
@@ -1924,7 +1924,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         return true
     }
 
-    /// The call through \p callee may take an argument `@inout`.
+    /// The call through `callee` may take an argument `@inout`.
     priv fn _may_inout(self, callee: unsafe *Expr) -> bool {
         if callee == &null {
             return true
@@ -1975,7 +1975,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
 
     /// ## statements
 
-    /// The loop a `break` / `continue` with \p label (empty: none) leaves,
+    /// The loop a `break` / `continue` with `label` (empty: none) leaves,
     /// as an index into `loops`; -1 when it leaves the scanned loop's
     /// enclosing ones.
     priv fn _target(self, has_label: bool, label: Token) -> i64 {
@@ -2005,10 +2005,10 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         return l
     }
 
-    /// A loop nested in the scanned body: one pass over \p body from the
+    /// A loop nested in the scanned body: one pass over `body` from the
     /// state before it, its head the join of that and the back edge (one
     /// pass is enough: an effect is a constant or nothing, so a second pass
-    /// adds no path), the state after it the head (\p may_skip: the
+    /// adds no path), the state after it the head (`may_skip`: the
     /// condition, or an exhausted range) joined with every `break`.
     priv fn _nested(self,
                     cond:     unsafe *Expr,
@@ -2268,7 +2268,7 @@ pub class NullnessFlow {
 
     /// ## frames
 
-    /// A function or closure (\p closure) body begins: nothing is known in
+    /// A function or closure (`closure`) body begins: nothing is known in
     /// it. The enclosing body's state is kept for leave().
     fn enter(self, closure: unsafe *Expressions::ClosureExpr = &null) {
         var fr = NullFrame{}
@@ -2288,9 +2288,9 @@ pub class NullnessFlow {
         self._carriers = cxx::std::vector<NullCarrier>()
     }
 
-    /// Where the body of \p c starts (3.7): a by-copy capture is the
+    /// Where the body of `c` starts (3.7): a by-copy capture is the
     /// closure's own copy, made when the closure was, so it has the state
-    /// it had there (\p outer), less anything the body assigns it (the copy
+    /// it had there (`outer`), less anything the body assigns it (the copy
     /// persists from one call to the next). A by-pointer capture is the
     /// original, which anything may write while the closure waits: nothing
     /// is known about it. Globals start Maybe, as in any body.
@@ -2406,7 +2406,7 @@ pub class NullnessFlow {
 
     /// ## the state
 
-    /// \p place's fact here. An address-taken root is never narrowed, and
+    /// `place`'s fact here. An address-taken root is never narrowed, and
     /// unreachable code reads every place as NonNull (nothing runs there).
     fn get(self, place: unsafe *cxx::std::vector<unsafe *Decl>) -> NullFact {
         var f = NullFact{}
@@ -2429,7 +2429,7 @@ pub class NullnessFlow {
         return f
     }
 
-    /// The env merged with \p other (3.1).
+    /// The env merged with `other` (3.1).
     fn join(self, a: unsafe *NullEnv, b: unsafe *NullEnv) -> NullEnv {
         return null_env_join(a, b)
     }
@@ -2447,9 +2447,9 @@ pub class NullnessFlow {
         self.env = self.dead_env()
     }
 
-    /// \p place, and every path under it, may now hold anything (3.4): it
+    /// `place`, and every path under it, may now hold anything (3.4): it
     /// was passed `@inout`, or a pointer to it was written through. Noted
-    /// \p why at \p at. A nullable place with no fact gets a Maybe one, so
+    /// `why` at `at`. A nullable place with no fact gets a Maybe one, so
     /// the access error names this write rather than the declaration.
     fn weaken(self, place: unsafe *cxx::std::vector<unsafe *Decl>, why: NullWhy, at: SourceRange) {
         if self.env.dead || place->size() == 0 {
@@ -2468,7 +2468,7 @@ pub class NullnessFlow {
         }
     }
 
-    /// Every path strictly under \p place may now hold anything, \p place
+    /// Every path strictly under `place` may now hold anything, `place`
     /// itself not: a call took it as mutable `self` (3.4), which can write
     /// its fields but not make the value itself null.
     fn weaken_inside(self, place: unsafe *cxx::std::vector<unsafe *Decl>, at: SourceRange) {
@@ -2479,9 +2479,9 @@ pub class NullnessFlow {
         null_env_weaken_under(&self.env, place, true, NullWhy::MutSelf, at)
     }
 
-    /// `&e`, typed: \p n, a `*T` to \p pointee. Until a consumer accounts
+    /// `&e`, typed: `n`, a `*T` to `pointee`. Until a consumer accounts
     /// for the pointer (unescape), it may be kept anywhere, so any call or
-    /// unplaced write may write \p e's place through it (3.4, 3.7). A
+    /// unplaced write may write `e`'s place through it (3.4, 3.7). A
     /// `*const T` cannot write and is not followed.
     fn address_taken(self, n: unsafe *Expressions::UnaryOperatorExpr, pointee: unsafe *Type) {
         if n == &null || pointee != &null && canon_has_const(pointee) {
@@ -2502,7 +2502,7 @@ pub class NullnessFlow {
         self._escapes.push_back(esc)
     }
 
-    /// The pointer \p node made is accounted for: it was the `@inout`
+    /// The pointer `node` made is accounted for: it was the `@inout`
     /// marker (whose write the call weakens itself) or went to a `*const`.
     fn unescape(self, node: unsafe *Expr) {
         var keep = cxx::std::vector<NullEscape>()
@@ -2515,8 +2515,8 @@ pub class NullnessFlow {
         self._escapes = keep
     }
 
-    /// \p arg is an argument to an `@inout` parameter, written with the
-    /// marker \p marker (null: unmarked): the callee may write it (3.4).
+    /// `arg` is an argument to an `@inout` parameter, written with the
+    /// marker `marker` (null: unmarked): the callee may write it (3.4).
     /// The marker's pointer goes nowhere else, so it is no escape.
     fn inout_arg(self, arg: unsafe *Expr, marker: unsafe *Expr) {
         if marker != &null {
@@ -2537,8 +2537,8 @@ pub class NullnessFlow {
         self.weaken(unsafe &place, NullWhy::Inout, arg->range)
     }
 
-    /// \p arg is passed to a parameter of type \p pt. A `&e` to a `*const`
-    /// parameter cannot write \p e: its pointer is no escape.
+    /// `arg` is passed to a parameter of type `pt`. A `&e` to a `*const`
+    /// parameter cannot write `e`: its pointer is no escape.
     fn pass_pointer(self, arg: unsafe *Expr, pt: unsafe *Type) {
         if arg == &null || pt == &null {
             return
@@ -2554,7 +2554,7 @@ pub class NullnessFlow {
         }
     }
 
-    /// The call \p callee (a chain whose last step is a method taking a
+    /// The call `callee` (a chain whose last step is a method taking a
     /// mutable `self`) may write any field of its receiver (3.4): every
     /// path under the receiver's place is Maybe after it. A receiver that is
     /// no place (`(*p).m()`, `p->m()`) is wherever a pointer points.
@@ -2601,7 +2601,7 @@ pub class NullnessFlow {
 
     /// ## aliases (3.7)
 
-    /// The places the typed value \p e carries: `&place` (unless it is a
+    /// The places the typed value `e` carries: `&place` (unless it is a
     /// `*const`), a carrier's name, a closure that captures by pointer, the
     /// arms of an if-expression, a cast's operand.
     fn carry_of(self, e: unsafe *Expr) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
@@ -2695,7 +2695,7 @@ pub class NullnessFlow {
         }
     }
 
-    /// \p n names \p d. A carrier's value may go anywhere from here, as a
+    /// `n` names `d`. A carrier's value may go anywhere from here, as a
     /// fresh `&` may (address_taken): until a consumer accounts for it (a
     /// dereference, `->`, a call of it, a copy into a local, a `*const`
     /// parameter), what it carries has escaped.
@@ -2709,7 +2709,7 @@ pub class NullnessFlow {
         self._escape_set(n, set, n->range)
     }
 
-    /// The value \p e (a `&`, a carrier's name, a closure, or an
+    /// The value `e` (a `&`, a carrier's name, a closure, or an
     /// if-expression of them) went somewhere the analysis follows.
     fn consumed(self, e: unsafe *Expr) {
         var unsafe *x = null_flow_strip_parens(e)
@@ -2734,7 +2734,7 @@ pub class NullnessFlow {
         }
     }
 
-    /// The closure \p c is made here: calling it may write what it captures
+    /// The closure `c` is made here: calling it may write what it captures
     /// by pointer and what the carriers it copies carry. Like a `&`, the
     /// value has escaped until a consumer accounts for it.
     fn closure_made(self, c: unsafe *Expressions::ClosureExpr) {
@@ -2748,8 +2748,8 @@ pub class NullnessFlow {
         self._escape_set(unsafe (c as unsafe *Expr), set, c->range)
     }
 
-    /// The local \p d is given \p value (of type \p t): it now also holds
-    /// what \p value carries, and the value went no further. A `*const`
+    /// The local `d` is given `value` (of type `t`): it now also holds
+    /// what `value` carries, and the value went no further. A `*const`
     /// local carries nothing.
     priv fn _carry_into(self, d: unsafe *Decl, value: unsafe *Expr, t: unsafe *Type) {
         if !null_flow_is_local(d) || value == &null {
@@ -2781,7 +2781,7 @@ pub class NullnessFlow {
         )
     }
 
-    /// Where a write to \p target lands, when \p target is no place.
+    /// Where a write to `target` lands, when `target` is no place.
     priv fn _through(self, target: unsafe *Expr) -> NullThrough {
         var        out = NullThrough{}
         var unsafe *x  = null_flow_strip_parens(target)
@@ -2833,7 +2833,7 @@ pub class NullnessFlow {
         return out
     }
 
-    /// A write through the pointer value \p p.
+    /// A write through the pointer value `p`.
     priv fn _via(self, p: unsafe *Expr) -> NullThrough {
         var out = NullThrough{}
         out.places = self.carry_of(p)
@@ -2845,7 +2845,7 @@ pub class NullnessFlow {
         return out
     }
 
-    /// \p target, no place, is written (\p strict: only its fields, by a
+    /// `target`, no place, is written (`strict`: only its fields, by a
     /// mutable `self`): what it is reached through may be changed.
     priv fn _write_via(self, target: unsafe *Expr, strict: bool, at: SourceRange) {
         var th = self._through(target)
@@ -2864,7 +2864,7 @@ pub class NullnessFlow {
         }
     }
 
-    /// The call through \p callee, a function value, ran: a closure that
+    /// The call through `callee`, a function value, ran: a closure that
     /// carries places may have written them. The call is no escape.
     fn call_value(self, callee: unsafe *Expr, at: SourceRange) {
         var unsafe *x = null_flow_strip_parens(callee)
@@ -2883,7 +2883,7 @@ pub class NullnessFlow {
         }
     }
 
-    /// \p lhs is written in place (`a += b`, `++a`): a place keeps what it
+    /// `lhs` is written in place (`a += b`, `++a`): a place keeps what it
     /// holds (a narrowed one is written through its value); anything else
     /// is a write the analysis cannot place.
     fn modified(self, lhs: unsafe *Expr) {
@@ -2897,7 +2897,7 @@ pub class NullnessFlow {
         }
     }
 
-    /// The user operator \p fd ran with \p operand as its receiver (its
+    /// The user operator `fd` ran with `operand` as its receiver (its
     /// left side): a method taking a mutable `self` may write any field of
     /// it, as mutable_self_call.
     fn operator_call(self, fd: unsafe *Decl, operand: unsafe *Expr, at: SourceRange) {
@@ -2956,7 +2956,7 @@ pub class NullnessFlow {
 
     /// A call ran: it may have written any global (3.8), and any place a
     /// pointer was taken to (3.7). Their facts become Maybe, a global's
-    /// noted at \p at, an escaped place's at its `&`.
+    /// noted at `at`, an escaped place's at its `&`.
     fn after_call(self, at: SourceRange) {
         if self.env.dead {
             return
@@ -2977,7 +2977,7 @@ pub class NullnessFlow {
 
     /// ## definitions and assignments (3.2)
 
-    /// The state a nullable takes from the value \p rhs it is given: `null`
+    /// The state a nullable takes from the value `rhs` it is given: `null`
     /// is Null; any non-nullable value (a `T` converted, `&e`, a narrowed
     /// read) is NonNull; a nullable place passes its own state on; anything
     /// else (a call returning `T?`) is Maybe.
@@ -3048,7 +3048,7 @@ pub class NullnessFlow {
         self._set(f)
     }
 
-    /// `lhs = rhs`, typed. A nullable place takes \p rhs's state; any place
+    /// `lhs = rhs`, typed. A nullable place takes `rhs`'s state; any place
     /// loses the facts under it (`o = make()` forgets `o.cache`).
     fn assign(self, lhs: unsafe *Expr, rhs: unsafe *Expr, at: SourceRange) {
         var place = null_place_of(lhs)
@@ -3092,7 +3092,7 @@ pub class NullnessFlow {
 
     /// ## conditions (3.3)
 
-    /// \p e's true and false sets, \p e typed. A null test on a place
+    /// `e`'s true and false sets, `e` typed. A null test on a place
     /// narrows it each way; `!` swaps; `&&` / `||` answer what they stored
     /// while typed; `true` / `false` make one side unreachable; anything
     /// else refines nothing.
@@ -3180,8 +3180,8 @@ pub class NullnessFlow {
         return c
     }
 
-    /// \p e, when it is a nullable place, \p state in \p env, decided by the
-    /// test at \p at (`===`'s true set; a `match` arm, Compiler/Spec/Nullables.md#match).
+    /// `e`, when it is a nullable place, `state` in `env`, decided by the
+    /// test at `at` (`===`'s true set; a `match` arm, Compiler/Spec/Nullables.md#match).
     fn put_state(self, env: unsafe *NullEnv, e: unsafe *Expr, state: Nullness, at: SourceRange) {
         if env->dead || !null_flow_is_nullable(e) {
             return
@@ -3201,7 +3201,7 @@ pub class NullnessFlow {
         null_env_put(env, f)
     }
 
-    /// `unwrap!(e)` was just typed: past it, a place \p e names holds a
+    /// `unwrap!(e)` was just typed: past it, a place `e` names holds a
     /// value, since on null the program ended there (Compiler/Spec/Nullables.md#unwrap), as
     /// after `if !e? { abort }`.
     fn unwrapped(self, e: unsafe *Expr, at: SourceRange) {
@@ -3219,7 +3219,7 @@ pub class NullnessFlow {
         null_env_put(unsafe &self.env, f)
     }
 
-    /// Record \p e's sets (an `&&` / `||`, computed while it was typed).
+    /// Record `e`'s sets (an `&&` / `||`, computed while it was typed).
     fn store_cond(self, e: *Expr, const c: NullCond) {
         self._conds[e as usize as u64] = (self._cond_list.size() as u64)
         self._cond_list.push_back(c)
@@ -3227,12 +3227,12 @@ pub class NullnessFlow {
 
     /// ## loops (3.5, conservatively)
 
-    /// The next loop statement is labeled \p name (`outer: while ...`).
+    /// The next loop statement is labeled `name` (`outer: while ...`).
     fn label_next(self, const name: string) {
         self._label = name.copy()
     }
 
-    /// The head of a loop over \p body, with \p update (a `for`'s) run on
+    /// The head of a loop over `body`, with `update` (a `for`'s) run on
     /// the back edge after it (3.5). The body is typed once, from here, so
     /// the state here must hold on every back edge too: a place proven here
     /// stays proven only when no path through the body (and the update)
@@ -3321,7 +3321,7 @@ pub class NullnessFlow {
         return out
     }
 
-    /// `break` (`break label` when \p label is not empty): this state
+    /// `break` (`break label` when `label` is not empty): this state
     /// reaches the end of the loop it leaves. A label naming no loop here
     /// gives it to each (a join only weakens).
     fn on_break(self, const label: string) {
@@ -3414,7 +3414,7 @@ pub class NullnessFlow {
         return out
     }
 
-    /// The declared type of \p place's last decl, or null.
+    /// The declared type of `place`'s last decl, or null.
     priv fn _place_type(self, const place: cxx::std::vector<unsafe *Decl>) -> unsafe *Type {
         if place.size() == 0 {
             return &null
@@ -3425,7 +3425,7 @@ pub class NullnessFlow {
 
     /// ## uses (§4)
 
-    /// \p e, a use of the nullable \p place, was just typed: remember the
+    /// `e`, a use of the nullable `place`, was just typed: remember the
     /// state the place has HERE, for the consumer that may read its value.
     fn note_read(self, e: unsafe *Expr, place: unsafe *cxx::std::vector<unsafe *Decl>) {
         if e == &null || place->size() == 0 {
@@ -3457,9 +3457,9 @@ pub class NullnessFlow {
         return inner
     }
 
-    /// The consumer of \p e needs its VALUE (§4): a NULL_READ_* state.
-    /// NARROWED leaves \p e (through its parentheses) typed `T`; REFUSED
-    /// poisons it, and is the answer only when \p must, else NONE.
+    /// The consumer of `e` needs its VALUE (§4): a NULL_READ_* state.
+    /// NARROWED leaves `e` (through its parentheses) typed `T`; REFUSED
+    /// poisons it, and is the answer only when `must`, else NONE.
     fn read_value(self, e: unsafe *Expr, must: bool) -> u8 {
         if e == &null || e->is_poisoned() {
             return NULL_READ_NONE
@@ -3520,7 +3520,7 @@ pub class NullnessFlow {
         return NULL_READ_REFUSED
     }
 
-    /// A `.` / `->` step \p i of \p c reads the value before it, which is
+    /// A `.` / `->` step `i` of `c` reads the value before it, which is
     /// nullable: the base (i == 0) or the field path through step i-1.
     /// Answers as read_value does; NARROWED leaves the narrowed type on the
     /// base node or on step i-1's resolved_type.
@@ -3551,11 +3551,11 @@ pub class NullnessFlow {
         return NULL_READ_REFUSED
     }
 
-    /// A `.` / `->` step \p i of \p c reads a nullable that is no place,
+    /// A `.` / `->` step `i` of `c` reads a nullable that is no place,
     /// and read_prefix left it alone. When the prefix looks like one but
     /// goes through a subscript or a `->` (`xs[i].cache.v`, `p->cache.v`),
     /// say why no check narrows it and what to write instead (true:
-    /// reported, \p c poisoned). A call's result (`mk().v`) keeps the plain
+    /// reported, `c` poisoned). A call's result (`mk().v`) keeps the plain
     /// "no member" answer: nothing about it suggests a check would hold.
     fn refuse_unplaced(self, c: unsafe *ChainExpr, i: usize) -> bool {
         if c == &null || c->base == &null {
@@ -3637,8 +3637,8 @@ pub class NullnessFlow {
         self._refuse_at(x, x->range, f, self.narrowed_type(x->type_))
     }
 
-    /// Report (or hold, inside a trap) the read of \p f.place at \p r, and
-    /// poison \p x.
+    /// Report (or hold, inside a trap) the read of `f.place` at `r`, and
+    /// poison `x`.
     priv fn _refuse_at(self, x: unsafe *Expr, r: SourceRange, f: NullFact, inner: unsafe *Type) {
         x->poison()
         var tb = self._traps_base()
@@ -3657,7 +3657,7 @@ pub class NullnessFlow {
         self._emit(x, r, f, &null)
     }
 
-    /// The SC001E itself. \p trap, when set, adds the 4.1 fix-it.
+    /// The SC001E itself. `trap`, when set, adds the 4.1 fix-it.
     priv fn _emit(self, x: unsafe *Expr, r: SourceRange, const f: NullFact, trap: *NullTrap?) {
         var nm  = self.place_name(f.place)
         var msg = f"'{nm}' may be null here; check it with 'if {nm}?' first"
@@ -3772,7 +3772,7 @@ pub class NullnessFlow {
         return n
     }
 
-    /// The current body is a closure's and \p d is declared outside it: a
+    /// The current body is a closure's and `d` is declared outside it: a
     /// capture (closure_declares; a decl from another file is outside too).
     priv fn _captured(self, d: unsafe *Decl) -> bool {
         if self._frames.empty() {
@@ -3787,7 +3787,7 @@ pub class NullnessFlow {
         return !closure_declares(c, d)
     }
 
-    /// \p d is a variable a closure around this body captures by pointer,
+    /// `d` is a variable a closure around this body captures by pointer,
     /// so the place rooted at it is `*x` (null_place_of). The walk is
     /// ExprTyper::_capture_view's: an inner closure that copies an outer
     /// one's pointer capture holds the pointer too.
@@ -3833,7 +3833,7 @@ pub class NullnessFlow {
         return false
     }
 
-    /// A place rooted at \p d may be written by code the analysis does not
+    /// A place rooted at `d` may be written by code the analysis does not
     /// see, at any call: a global or static (3.8), or `*x` through a pointer
     /// capture, whose variable anything holding a pointer to it may write
     /// while the closure runs (3.7). Such a fact is `global`: every call
@@ -3844,7 +3844,7 @@ pub class NullnessFlow {
 
     /// ## the 4.1 trap
 
-    /// The `||` \p n is about to type its right side. When its left side is
+    /// The `||` `n` is about to type its right side. When its left side is
     /// an unparenthesized `t && y` whose `t` tests a place present, start
     /// holding the access errors of the right side. True when a trap was
     /// pushed (trap_end() must follow).

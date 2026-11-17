@@ -24,8 +24,11 @@
 /// The result is built by one move construction from `x`; `var y = std::move(x)` constructs
 /// `y` in place from it, with no further move or copy.
 ///
-/// \param x  the value to move out
-/// \returns the value `x` held
+/// ### Parameters
+/// - `x`: the value to move out
+///
+/// ### Returns
+/// the value `x` held
 /// \example
 /// ```kairo
 /// import std
@@ -57,8 +60,11 @@ priv interface Copy {
 /// neither, such as a move-only class with no `copy()`, is a compile error naming both
 /// ways to make it copyable.
 ///
-/// \param x  the value to copy; it is borrowed, so it stays usable after the call
-/// \returns a new value equal to `x`
+/// ### Parameters
+/// - `x`: the value to copy; it is borrowed, so it stays usable after the call
+///
+/// ### Returns
+/// a new value equal to `x`
 /// \example
 /// ```kairo
 /// import std

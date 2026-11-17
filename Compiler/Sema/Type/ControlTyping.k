@@ -1,9 +1,9 @@
 /// --- The Kairo Project -------------------- Sema/Type/ControlTyping.k --- ///
 ///
-///   \brief Every expression kind that is neither an operator, a call, a
-///          member access, a cast nor a literal: value-producing control
-///          flow, closures, initializers, and the keyword unaries that
-///          desugar through lang items.
+/// Every expression kind that is neither an operator, a call, a
+/// member access, a cast nor a literal: value-producing control
+/// flow, closures, initializers, and the keyword unaries that
+/// desugar through lang items.
 ///
 ///   \detail
 ///     Branch joins (if / match / try) use Conversion::join: identical or
@@ -136,7 +136,7 @@ pub class <T: type> ControlTyping {
 
     /// # joins
 
-    /// Join \p t into \p acc; on failure diagnose at \p at and return false.
+    /// Join `t` into `acc`; on failure diagnose at `at` and return false.
     priv fn _join_into(self,
                        acc:        unsafe *(unsafe *Type),
                        t:          unsafe *Type,
@@ -351,7 +351,7 @@ pub class <T: type> ControlTyping {
 
     /// # match on a nullable (Compiler/Spec/Nullables.md#match)
 
-    /// \p p is the `null` literal pattern.
+    /// `p` is the `null` literal pattern.
     priv fn _null_pattern(self, p: unsafe *AstPattern) -> bool {
         if p == &null || p->kind != PatternKind::LiteralPattern {
             return false
@@ -360,7 +360,7 @@ pub class <T: type> ControlTyping {
         return null_literal_of(cast<LiteralPattern>(p)->value) != &null
     }
 
-    /// \p p is, or has as an alternative, the `null` literal pattern.
+    /// `p` is, or has as an alternative, the `null` literal pattern.
     priv fn _has_null_pattern(self, p: unsafe *AstPattern) -> bool {
         if self._null_pattern(p) {
             return true
@@ -390,7 +390,7 @@ pub class <T: type> ControlTyping {
         return false
     }
 
-    /// The `null_arm` of a match on \p st: whether its first arm is `case
+    /// The `null_arm` of a match on `st`: whether its first arm is `case
     /// null`, alone and unguarded, so every later arm, `default` included,
     /// matches only a value. A match on a `T?` that does not answer null
     /// first is an error (DECIDED, Compiler/Spec/Nullables.md#match): with a fix-it inserting
@@ -480,7 +480,7 @@ pub class <T: type> ControlTyping {
         return false
     }
 
-    /// The match on \p st is on a `T?` and does not answer null first: the
+    /// The match on `st` is on a `T?` and does not answer null first: the
     /// error match_null_first reported. Its scrutinee is poisoned once the
     /// arms are typed.
     fn match_null_missed(self, null_arm: bool, st: unsafe *Type) -> bool {
@@ -489,12 +489,12 @@ pub class <T: type> ControlTyping {
             && self.dyn()->tu.nullable_inner(self.dyn()->tu.as_value(st)) != &null
     }
 
-    /// Arm \p i of a match on \p st enters: sets the nullness state its body
-    /// starts from (out of \p entry) and returns the column its patterns are
+    /// Arm `i` of a match on `st` enters: sets the nullness state its body
+    /// starts from (out of `entry`) and returns the column its patterns are
     /// typed against. A `T?` scrutinee: the `case null` arm sees the place
     /// Null and matches the `T?`; every other arm sees it NonNull and matches
     /// the unwrapped `T` (`case var v` binds a `T`, `1..=3` is an integer
-    /// range). A `case null` after the first arm is an error when \p null_arm
+    /// range). A `case null` after the first arm is an error when `null_arm`
     /// already answered null (unless `T` is itself nullable: then it is
     /// `T`'s own null).
     fn match_arm_enter(self,
@@ -580,7 +580,7 @@ pub class <T: type> ControlTyping {
     /// a MatchStmt nothing lowered. When an arm names a constant of a
     /// non-dependent enum, that enum is the column: the instance either
     /// yields it or the lowered `==` fails in C++, as the written test would.
-    /// Returns \p st untouched when it is known or nothing names an enum.
+    /// Returns `st` untouched when it is known or nothing names an enum.
     fn match_infer_column(self,
                           scrutinee: unsafe *Expr,
                           cases:     unsafe *FrozenList<MatchCase>,
@@ -913,7 +913,7 @@ pub class <T: type> ControlTyping {
         return r
     }
 
-    /// The integer `X` when \p expected is the range record \p n's form
+    /// The integer `X` when `expected` is the range record `n`'s form
     /// builds, at `X`: `Range<X>` for `a..b` and `a..=b`, `RangeFrom<X>` for
     /// `a..` and `..`, `RangeTo<X>` for `..b` and `..=b`. Null otherwise: no
     /// expected type, another record, or a dependent element.
@@ -1131,7 +1131,7 @@ pub class <T: type> ControlTyping {
         )
     }
 
-    /// \p n's free bindings (FreeVarScan, the scan ClosureCaptures decides
+    /// `n`'s free bindings (FreeVarScan, the scan ClosureCaptures decides
     /// from) hold no local, parameter or `self` of a function around it:
     /// the lambda would have an empty capture list.
     priv fn _captures_nothing(self, n: unsafe *Expressions::ClosureExpr) -> bool {
@@ -1411,7 +1411,7 @@ pub class <T: type> ControlTyping {
 
     /// # enum variants
 
-    /// Type \p e as a head -- the path before an initializer's braces or a
+    /// Type `e` as a head -- the path before an initializer's braces or a
     /// pattern's payload -- rather than as a value. A variant it names is
     /// what the initializer builds or the pattern matches, so it must not
     /// become a construction of its own (type_variant_value).
@@ -1428,7 +1428,7 @@ pub class <T: type> ControlTyping {
     }
 
     /// A variant named as a value -- `Opt::None`, `Opt<i32>::None`, or a bare
-    /// `None` inside its enum -- already typed \p t, the enum, by MemberTyping
+    /// `None` inside its enum -- already typed `t`, the enum, by MemberTyping
     /// or _type_ident. An ADT's variant is a construction, checked as `.None`
     /// is: only one without a payload may be written without braces. A plain
     /// enum's stays the value it names; so does a head (type_head), and a
@@ -1584,16 +1584,16 @@ pub class <T: type> ControlTyping {
         )
     }
 
-    /// Check one variant construction, written as \p n, and record it: the
-    /// variant on \p n (`variant_decl`) and on each field the payload field
+    /// Check one variant construction, written as `n`, and record it: the
+    /// variant on `n` (`variant_decl`) and on each field the payload field
     /// it fills (`field_decl`). VariantInitLowering builds the node from
-    /// those. \p rec is the enum type the construction has: the head's, or
+    /// those. `rec` is the enum type the construction has: the head's, or
     /// the expected type for `.V`.
     ///
     /// The payload FieldDecls are read off the variant itself, not looked up
     /// in a scope: they are the variant's own, and the enum's layout and the
     /// match lowering both key on their identity. Each written field is
-    /// matched by name and typed against its field seen through \p rec, as
+    /// matched by name and typed against its field seen through `rec`, as
     /// _init_fields does for a generic record. A field the payload lacks is
     /// _init_fields' SC040E; a field given twice, a field left out, braces on
     /// a variant without a payload and none on one with a payload are SC131E.
@@ -1824,7 +1824,7 @@ pub class <T: type> ControlTyping {
         return rec
     }
 
-    /// The element of pack-expanded \p v a construction builds: the one
+    /// The element of pack-expanded `v` a construction builds: the one
     /// whose type every pack-typed field's value has exactly, else the one
     /// they all convert to; -1 after reporting none or several. Each value
     /// is then checked against the element picked.
@@ -1946,7 +1946,7 @@ pub class <T: type> ControlTyping {
         )
     }
 
-    /// The position of the variant named \p name in \p en, or -1.
+    /// The position of the variant named `name` in `en`, or -1.
     priv fn _variant_index(self, en: *EnumDecl, const name: string) -> i32 {
         for var i: usize = 0; i < en->variants.size(); ++i {
             var unsafe *v = en->variants[i]
@@ -2084,7 +2084,7 @@ pub class <T: type> ControlTyping {
     /// The leading statements go through the ordinary statement typer, in
     /// order, BEFORE the value: `e` may read a local whose type they infer.
     /// The value is typed here rather than by dispatching the whole block,
-    /// because only this arm can hand it \p expected -- `var x: u8 = ({ 5 })`
+    /// because only this arm can hand it `expected` -- `var x: u8 = ({ 5 })`
     /// must type the literal as u8, and type_of is memoized, so a later
     /// dispatch could not correct it.
     ///

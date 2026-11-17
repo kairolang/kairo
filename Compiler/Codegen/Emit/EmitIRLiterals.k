@@ -309,7 +309,7 @@ extend EmitIR {
         return true
     }
 
-    /// The C++ for the integer `hi:lo` (negated when \p neg), cast to \p ty
+    /// The C++ for the integer `hi:lo` (negated when `neg`), cast to `ty`
     /// when one is given. Every piece is a literal C++ reads at its full
     /// width: a magnitude of 2^64 or more is composed in `unsigned
     /// __int128` (multiplication, not `<<`: spell() fuses `<<` only after
@@ -354,7 +354,7 @@ extend EmitIR {
     /// negated value itself, exactly typed, instead of a negation C++ does
     /// in its own type. `-128i8` negated after the cast is the int 128, and
     /// initializing an i8 with it is a constant-conversion warning; the i64
-    /// and i128 minimums overflow outright. Null when \p n is not that.
+    /// and i128 minimums overflow outright. Null when `n` is not that.
     prot fn _negated_int_lit(self, n: unsafe *UnaryOperatorExpr) -> unsafe *IntegerLiteralExpr {
         if !n->is_prefix() || n->op_token.kind != TokenKind::OpMinus {
             return &null
@@ -587,7 +587,7 @@ extend EmitIR {
         self._cg->sink->spell(at, self._spell._type(ty) + f"::from_bits({b})")
     }
 
-    /// A braced-init-list of array type. \p bare is the declarator form:
+    /// A braced-init-list of array type. `bare` is the declarator form:
     /// `= { a, b }` on a variable, and an array nested directly inside another
     /// (C++ cannot initialize an array element from an array prvalue).
     /// Everywhere else it is the array PRVALUE `::__kairo_array<T, N>{ a, b }`,

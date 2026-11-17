@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------- Sema/Incremental/Facts.k --- ///
 ///
-///   \brief Incremental Sema, phase 1: a declaration's identity (DeclId), a
-///          file's interface hashes at SemaPhase::Checked, and its
-///          dependency rows. Compiler/Spec/IncrementalSema.md is the design
-///          and defines every term used here.
+/// Incremental Sema, phase 1: a declaration's identity (DeclId), a
+/// file's interface hashes at SemaPhase::Checked, and its
+/// dependency rows. Compiler/Spec/IncrementalSema.md is the design
+/// and defines every term used here.
 ///
 ///   Nothing here feeds back into Sema: this file reads the checked tree and
 ///   the TU's DepLog and produces strings for --dump-interface / --dump-deps.
@@ -139,7 +139,7 @@ pub fn incr_hash(const s: string) -> string {
     )
 }
 
-/// The text of [a, b) in \p ctx's sources, or "" when the bounds are not an
+/// The text of [a, b) in `ctx`'s sources, or "" when the bounds are not an
 /// ordered pair in one buffer (a synthesized node, an imported C++ one).
 pub fn incr_text(ctx: unsafe *ASTContext, a: SourceLocation, b: SourceLocation) -> string {
     if ctx == &null || (!a.is_valid()) || (!b.is_valid()) {
@@ -338,7 +338,7 @@ fn _incr_seg(ctx: unsafe *ASTContext, d: unsafe *Decl) -> string {
     return s
 }
 
-/// \brief A declaration's DeclId: `<module>#<scope>/.../<decl>`.
+/// A declaration's DeclId: `<module>#<scope>/.../<decl>`.
 ///
 /// The module is the path of the file the declaration's scope chain ends in,
 /// so a member defined out of line in another file has its class's id. An
@@ -389,7 +389,7 @@ pub fn incr_decl_id(d_in: unsafe *Decl, psym: unsafe *PreprocessorSymbolTable) -
     return incr_module(ctx, psym) + "#" + chain
 }
 
-/// The scope id of \p dc as rows and name sets spell it: "" for a file
+/// The scope id of `dc` as rows and name sets spell it: "" for a file
 /// scope, else its owner's DeclId.
 pub fn incr_scope_id(dc: unsafe *DeclContext, psym: unsafe *PreprocessorSymbolTable) -> string {
     if dc == &null || dc->dc_kind == DeclContextKind::TranslationUnit {
@@ -409,7 +409,7 @@ pub fn incr_scope_id(dc: unsafe *DeclContext, psym: unsafe *PreprocessorSymbolTa
     return incr_decl_id(o, psym)
 }
 
-/// Every record declaration the canonical type \p c_in mentions, depth
+/// Every record declaration the canonical type `c_in` mentions, depth
 /// first, in the order they appear: a record, then its arguments, then the
 /// type it is nested in. A type's structural string, a layout row and a
 /// retraction all read records in this order.
@@ -502,8 +502,7 @@ pub fn incr_type_records(c_in:  unsafe *Type,
 
 /// # A file's facts
 
-/// \class FileFacts
-/// \brief What phase 1 knows about one file, as the strings the dumps print.
+/// What phase 1 knows about one file, as the strings the dumps print.
 pub class FileFacts {
     pub var fid:      u32    = 0
     pub var mod_path: string = ""
@@ -534,15 +533,14 @@ pub class FileFacts {
     pub var diag_files: cxx::std::vector<string>
 }
 
-/// \class IncrFacts
-/// \brief Builds one TU's FileFacts at Checked.
+/// Builds one TU's FileFacts at Checked.
 ///
-/// \details The interface is every declaration a scope's symbol table names
-///          (so the name sets and the declarations cannot disagree), every
-///          extension's members, and the out-of-line definitions. Visibility
-///          does not filter: an importer's lookup finds a `priv` name and
-///          reports it, and overload resolution ranks a `priv` candidate
-///          before access is checked, so both are facts an importer reads.
+/// The interface is every declaration a scope's symbol table names
+/// (so the name sets and the declarations cannot disagree), every
+/// extension's members, and the out-of-line definitions. Visibility
+/// does not filter: an importer's lookup finds a `priv` name and
+/// reports it, and overload resolution ranks a `priv` candidate
+/// before access is checked, so both are facts an importer reads.
 pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
     pub var  sc:   unsafe *SemaContext
     pub var  ctx:  unsafe *ASTContext
@@ -710,8 +708,8 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
         return f"v{v as u8}"
     }
 
-    /// Every name \p dc declares, each declaration under it, and the scopes
-    /// those own. \p ext is the extended type when \p dc is an extension's.
+    /// Every name `dc` declares, each declaration under it, and the scopes
+    /// those own. `ext` is the extended type when `dc` is an extension's.
     priv fn _scope(self, dc: unsafe *DeclContext, const scope: string, const ext: string) {
         if dc == &null || dc->dc_symbols == &null {
             return
@@ -1221,9 +1219,8 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
 
 /// # A file's dependency rows
 
-/// \class FileDeps
-/// \brief One file's resolved dependency log, as the strings --dump-deps
-///        prints. Everything is sorted and unique.
+/// One file's resolved dependency log, as the strings --dump-deps
+/// prints. Everything is sorted and unique.
 pub class FileDeps {
     /// `{"module", "scope", "name"}` objects: a lookup that consulted that
     /// scope of that file, found or not.
@@ -1258,7 +1255,7 @@ fn _incr_name_row(const mod_name: string, const scope: string, const name: strin
     ) + ", \"name\": " + incr_json(name) + "}"
 }
 
-/// The files whose file scope \p tu's overlay can hold names of: everything
+/// The files whose file scope `tu`'s overlay can hold names of: everything
 /// it imports, and from there on only what is re-exported.
 fn _incr_surface(tu:   unsafe *TranslationUnit,
                  g:    unsafe *GlobalDisambigTable,
@@ -1314,7 +1311,7 @@ fn _incr_surface(tu:   unsafe *TranslationUnit,
     _incr_unique(&*out)
 }
 
-/// Turns \p tu's raw DepLog into rows. \p overlays maps an overlay's address
+/// Turns `tu`'s raw DepLog into rows. `overlays` maps an overlay's address
 /// to the TU it belongs to (the log holds the address only).
 pub fn incr_resolve_deps(tu:       unsafe *TranslationUnit,
                          g:        unsafe *GlobalDisambigTable,

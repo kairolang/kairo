@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------- Sema/Check/CRTPHookCheck.k --- ///
 ///
-///   \brief Warn when a derived class's method looks like the CRTP hook its
-///          base calls through `self.dyn()` but takes different parameter
-///          types, so the base's call silently runs the base's own hook
-///          (SC278W).
+/// Warn when a derived class's method looks like the CRTP hook its
+/// base calls through `self.dyn()` but takes different parameter
+/// types, so the base's call silently runs the base's own hook
+/// (SC278W).
 ///
 ///   \detail
 ///     A generic base reaches the class that derives it through a method
@@ -117,10 +117,7 @@ pub struct CRTPCall {
     pub var at:    SourceRange
 }
 
-///
-/// \class CRTPCallScan
-/// \brief Every `R()->name(args)` call shape in the bodies it walks.
-///
+/// Every `R()->name(args)` call shape in the bodies it walks.
 pub class CRTPCallScan derives RecursiveASTVisitor<CRTPCallScan> {
     pub var ctx:   unsafe *ASTContext         = &null
     pub var calls: cxx::std::vector<CRTPCall>
@@ -275,8 +272,8 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
 
     /// # the class's bases
 
-    /// The class patterns \p cd derives, transitively, each once, reached as
-    /// a CRTP base of \p root: an edge `B<X>` whose arguments name \p root
+    /// The class patterns `cd` derives, transitively, each once, reached as
+    /// a CRTP base of `root`: an edge `B<X>` whose arguments name `root`
     /// or a type parameter (a mixin passing its own along). A non-generic
     /// base is kept too: it may declare the hook a generic base above it
     /// calls.
@@ -329,7 +326,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         }
     }
 
-    /// Some argument of the base instance \p rt is \p root itself or a type
+    /// Some argument of the base instance `rt` is `root` itself or a type
     /// parameter: the shape a dyn method can cast `self` down to.
     priv fn _crtp_args(self, root: unsafe *ClassDecl, rt: unsafe *RecordType) -> bool {
         var unsafe *want = NameLookup::representative(
@@ -357,7 +354,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
 
     /// # dyn methods and hooks
 
-    /// The names of \p cd's dyn methods, added to \p out.
+    /// The names of `cd`'s dyn methods, added to `out`.
     priv fn _dyn_names(self, cd: unsafe *ClassDecl, out: unsafe *cxx::std::vector<string>) {
         if cd->generic_params.size() == 0 {
             return
@@ -384,8 +381,8 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         }
     }
 
-    /// A call of \p name with \p arity arguments through a dyn method, in a
-    /// body of \p cd or of one of \p bases; the first one found into \p out.
+    /// A call of `name` with `arity` arguments through a dyn method, in a
+    /// body of `cd` or of one of `bases`; the first one found into `out`.
     priv fn _hook_call(self,
                        cd:         unsafe *ClassDecl,
                        bases:      *cxx::std::vector<unsafe *ClassDecl>,
@@ -430,7 +427,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         return false
     }
 
-    /// The call shapes in \p cd's method bodies, scanned once per pattern.
+    /// The call shapes in `cd`'s method bodies, scanned once per pattern.
     priv fn _calls_of(self, cd: unsafe *ClassDecl) -> unsafe *cxx::std::vector<CRTPCall> {
         for var i: usize = 0; i < self._scanned.size(); ++i {
             if self._scanned[i] == cd {
@@ -456,7 +453,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
 
     /// # the comparison
 
-    /// \p m (of the class) has a hook's name and arity: warn unless a base's
+    /// `m` (of the class) has a hook's name and arity: warn unless a base's
     /// method of that name and arity takes the same parameters.
     priv fn _check(self,
                    m:          unsafe *FunctionDecl,
@@ -565,8 +562,8 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         w.emit()
     }
 
-    /// \p a and \p b take the same parameters after `self`, in the same
-    /// modes, with the same `self` constness: \p a overrides or hides \p b.
+    /// `a` and `b` take the same parameters after `self`, in the same
+    /// modes, with the same `self` constness: `a` overrides or hides `b`.
     priv fn _same(self, a: unsafe *FunctionDecl, b: unsafe *FunctionDecl) -> bool {
         if self._self_const(a) != self._self_const(b) {
             return false
@@ -602,7 +599,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         return true
     }
 
-    /// \p a and \p b are one C++ parameter type: equal canonicals, or
+    /// `a` and `b` are one C++ parameter type: equal canonicals, or
     /// pointers that differ only in safety (`*T` and `unsafe *T` are both
     /// `T*`, so the derived one does hide the base's in C++), level by
     /// level with the pointees' qualifiers. A parameter's own top-level
@@ -635,7 +632,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         return false
     }
 
-    /// Every differing parameter of \p a and \p b reaches the same pointee
+    /// Every differing parameter of `a` and `b` reaches the same pointee
     /// through the same number of pointers: only safety, nullability or
     /// `const` differ, and a rewrite of the type to the base's is the fix.
     priv fn _qual_only(self, a: unsafe *FunctionDecl, b: unsafe *FunctionDecl) -> bool {
@@ -664,7 +661,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         return differs && self._self_const(a) == self._self_const(b)
     }
 
-    /// \p t with pointers, nullables and cv stripped; \p depth counts the
+    /// `t` with pointers, nullables and cv stripped; `depth` counts the
     /// pointers.
     priv fn _core(self, t: unsafe *Type, depth: *u32) -> unsafe *Type {
         var unsafe *u = canon_unqual(t)
@@ -690,7 +687,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         return u
     }
 
-    /// The spelling of the innermost written type of \p written (`MatchCase`
+    /// The spelling of the innermost written type of `written` (`MatchCase`
     /// in `*MatchCase?`): the name as the derived file spells it, which the
     /// base's spelling (`Statements::MatchCase`) may not resolve to here.
     priv fn _core_spelling(self, written: unsafe *Type) -> string {
@@ -732,7 +729,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
         return text
     }
 
-    /// The canonical \p t spelled around \p core (its innermost record).
+    /// The canonical `t` spelled around `core` (its innermost record).
     priv fn _spell_like(self, t: unsafe *Type, const core: string) -> string {
         var unsafe *u  = canon_unqual(t)
         var unsafe *nt = dyn_cast<NullableType>(u)
@@ -768,7 +765,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
             && canon_has_const(p->type_->canonical)
     }
 
-    /// Some parameter type of \p f is unresolved or names a type parameter.
+    /// Some parameter type of `f` is unresolved or names a type parameter.
     priv fn _dependent_sig(self, f: unsafe *FunctionDecl) -> bool {
         for var i: usize = 1; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]

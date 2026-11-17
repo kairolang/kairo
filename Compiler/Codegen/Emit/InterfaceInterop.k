@@ -46,7 +46,7 @@ import Location::SourceRange::SourceRange
 extend InterfaceEmitter {
     /// # C++ factories (Compiler/Spec/Interop.md#constructing-adt-variants-from-c)
     ///
-    /// `static E V(fields...)` per variant of ADT \p en, for C++ that
+    /// `static E V(fields...)` per variant of ADT `en`, for C++ that
     /// includes the module (a header, `#include "x.k"`): the tag form
     /// `E{::__kairo_vt<I>{}, ...}` is the record's internal shape, not an API.
     /// Never in the module's own object (PlanMode::Preamble): no Kairo code
@@ -160,7 +160,7 @@ extend InterfaceEmitter {
 
     /// # C++ allocation operators (Compiler/Spec/Codegen.md#c-allocation-operators)
     ///
-    /// Class-scope `operator new` / `operator delete` for record \p d (a
+    /// Class-scope `operator new` / `operator delete` for record `d` (a
     /// class, a struct, an ADT enum; generic or not), so a C++ `new X` /
     /// `delete p` / `new X[n]` / `delete[] p` takes its storage from Kairo's
     /// allocator rather than C++'s global heap, and a C++ global `operator

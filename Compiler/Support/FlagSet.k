@@ -46,17 +46,17 @@ pub class <E impl FlagBit<U>, U: type> FlagSet {
         self.bits = f.bit()
     }
 
-    /// \p f is in the set.
+    /// `f` is in the set.
     pub inline fn has(const self, f: E) -> bool {
         return (self.bits & f.bit()) != 0
     }
 
-    /// Any of \p o's flags is in the set.
+    /// Any of `o`'s flags is in the set.
     pub inline fn has_any(const self, o: Self) -> bool {
         return (self.bits & o.bits) != 0
     }
 
-    /// Every one of \p o's flags is in the set (the empty set is in any).
+    /// Every one of `o`'s flags is in the set (the empty set is in any).
     pub inline fn has_all(const self, o: Self) -> bool {
         return (self.bits & o.bits) == o.bits
     }
@@ -70,7 +70,7 @@ pub class <E impl FlagBit<U>, U: type> FlagSet {
         return self.bits == o.bits
     }
 
-    /// This set with \p f added, by value: builds a set in an argument
+    /// This set with `f` added, by value: builds a set in an argument
     /// (`FlagSet<E, u8>(E::A).plus(E::B)`, what `A | B` was).
     pub inline fn plus(const self, f: E) -> Self {
         var r = FlagSet<E, U>()
@@ -91,7 +91,7 @@ pub class <E impl FlagBit<U>, U: type> FlagSet {
         self.bits = self.bits | o.bits
     }
 
-    /// The difference, in place: \p o's flags cleared.
+    /// The difference, in place: `o`'s flags cleared.
     pub inline fn clear_all(self, o: Self) {
         self.bits = self.bits & ~o.bits
     }

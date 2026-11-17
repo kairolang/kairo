@@ -1,8 +1,8 @@
 /// --- The Kairo Project --------------- Sema/Lower/FieldInitLowering.k --- ///
 ///
-///   \brief A field's initializer becomes its C++ default member initializer:
-///          a constant spelled in the class, or a call of a member function
-///          whose body is the initializer.
+/// A field's initializer becomes its C++ default member initializer:
+/// a constant spelled in the class, or a call of a member function
+/// whose body is the initializer.
 ///
 ///   \detail
 ///       class A { var n: i32 = 5   var d: i32 = add(tick(1), tick(2)) }
@@ -200,7 +200,7 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
     }
 
     /// Each initializer folded or turned into a thunk, the thunks appended
-    /// to \p methods in field order. A record reached a second time (a
+    /// to `methods` in field order. A record reached a second time (a
     /// nested one written inside a visibility group) finds every
     /// initializer already consumed and changes nothing.
     priv fn _lower_fields(self,
@@ -302,7 +302,7 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
         return th
     }
 
-    /// `fn <name>(self) -> <rt> { return <e> }` in \p f's record: the thunk
+    /// `fn <name>(self) -> <rt> { return <e> }` in `f`'s record: the thunk
     /// of a field's whole initializer, or of one element of it.
     priv fn _thunk(self,
                    f:          unsafe *FieldDecl,
@@ -391,7 +391,7 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
         f->init_fold = FieldFold::Elems
     }
 
-    /// The record \p f belongs to has an eval constructor (an eval class,
+    /// The record `f` belongs to has an eval constructor (an eval class,
     /// Compiler/Spec/Eval.md#eval-classes).
     priv fn _eval_class(self, f: unsafe *FieldDecl) -> bool {
         var unsafe *dc    = f->semantic_dc

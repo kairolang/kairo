@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------- Sema/Foreign/HeaderIndex.k --- ///
 ///
-///   \brief Driver-thread index of a built HeaderSet: mint a Kairo fid, an
-///          ASTContext and a TranslationUnit per header clang touched (in
-///          the order it touched them), then two passes of DeclImport over
-///          the clang TU, then freeze every table this set created.
+/// Driver-thread index of a built HeaderSet: mint a Kairo fid, an
+/// ASTContext and a TranslationUnit per header clang touched (in
+/// the order it touched them), then two passes of DeclImport over
+/// the clang TU, then freeze every table this set created.
 ///
 ///   \par Order
 ///     Fids are minted from HeaderSet::files in first-touch order, so the
@@ -135,7 +135,7 @@ pub class HeaderIndex {
         return self._target(fid, path)
     }
 
-    /// A DeclImport wired to \p hs and this index's targets. index() builds
+    /// A DeclImport wired to `hs` and this index's targets. index() builds
     /// one per set; ForeignInstantiate builds one per fill and switches it to
     /// fill mode (DeclImport::in_fill).
     fn importer_for(self, hs: unsafe *HeaderSet) -> DeclImport {
@@ -152,7 +152,7 @@ pub class HeaderIndex {
         return di
     }
 
-    /// A TypeImport against \p hs's AST. \p kctx interns opaque names; \p fid
+    /// A TypeImport against `hs`'s AST. `kctx` interns opaque names; `fid`
     /// is the home of any registry entry it mints.
     fn type_importer_for(self,
                          hs:   unsafe *HeaderSet,

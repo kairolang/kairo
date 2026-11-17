@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------------- Sema/Type/LiteralTyping.k --- ///
 ///
-///   \brief Literal typing (lattice §5): expected-type-first, defaults of
-///          i32 / f64, fit checked AT the literal. Not a conversion and never
-///          consults the lattice.
+/// Literal typing (lattice §5): expected-type-first, defaults of
+/// i32 / f64, fit checked AT the literal. Not a conversion and never
+/// consults the lattice.
 ///
 ///   \detail
 ///     An unsuffixed integer literal has no type of its own. With an expected
@@ -123,7 +123,7 @@ pub class <T: type> LiteralTyping {
 
     /// # classification
 
-    /// Fill \p a's literal shape if \p e is an untyped literal (through parens
+    /// Fill `a`'s literal shape if `e` is an untyped literal (through parens
     /// and a leading unary minus). Returns true when it is.
     fn literal_shape(self, e_in: *Expr, a: *ArgInfo) -> bool {
         var e   = self.dyn()->tu.strip_parens(e_in)
@@ -174,7 +174,7 @@ pub class <T: type> LiteralTyping {
         return false
     }
 
-    /// \p e is integer arithmetic over untyped integer literals only
+    /// `e` is integer arithmetic over untyped integer literals only
     /// (`256 * 1024`, `(1 << 20) - 1`): still untyped, so it takes the type
     /// its parameter asks for, as one literal does (primitives.md §5: a
     /// parameter is an expected type). Ranked by its folded value; once
@@ -201,7 +201,7 @@ pub class <T: type> LiteralTyping {
         return true
     }
 
-    /// Fold \p e_in into \p out when it is untyped integer literals under
+    /// Fold `e_in` into `out` when it is untyped integer literals under
     /// builtin binary integer operators, every step non-negative and below
     /// 2^62, so no step overflows i64; anything else is not folded (and
     /// stays the i32 arithmetic it was).
@@ -307,7 +307,7 @@ pub class <T: type> LiteralTyping {
         return self.literal_shape(e, &a)
     }
 
-    /// \p e has no type of its own: whatever it is typed against decides it.
+    /// `e` has no type of its own: whatever it is typed against decides it.
     /// The shapes arg_info defers to selection -- an untyped scalar literal
     /// (`1`, `-1`, `2.5`, `null`, `&null`), a list literal and `.V` -- and
     /// for the same reason: until something gives one an expected type, its
@@ -735,8 +735,8 @@ pub class <T: type> LiteralTyping {
         return self.dyn()->tu.builtin(BuiltinKind::F64)
     }
 
-    /// The N of a suffix spelled `<lead>N` (\p lead or \p up, then N, all
-    /// decimal digits), or 0 when \p sfx is not one.
+    /// The N of a suffix spelled `<lead>N` (`lead` or `up`, then N, all
+    /// decimal digits), or 0 when `sfx` is not one.
     priv fn _suffix_width(self, const sfx: string, lead: u8, up: u8) -> u32 {
         if sfx.size() < 2 {
             return 0
@@ -888,7 +888,7 @@ pub class <T: type> LiteralTyping {
         return s
     }
 
-    /// The suffix of the chain \p n heads, into \p out (an invalid token
+    /// The suffix of the chain `n` heads, into `out` (an invalid token
     /// when no segment has one); false after an error. C++'s rule:
     /// a suffix on any segment is the whole joined string's, so `"12"
     /// "3"_km` is `"123"_km`, and segments that spell DIFFERENT suffixes
@@ -970,7 +970,7 @@ pub class <T: type> LiteralTyping {
         return true
     }
 
-    /// The chain's text as ONE literal carrying \p sfx, or "" when the
+    /// The chain's text as ONE literal carrying `sfx`, or "" when the
     /// segments cannot be joined by text alone: a segment the compiler made
     /// (stringify!, file!: no source body), an f segment (its holes), one
     /// whose prefix differs from the head's (`"a" r"\n"` decodes `\n` two
@@ -1020,7 +1020,7 @@ pub class <T: type> LiteralTyping {
         return pre + "\"" + body + "\"" + sfx
     }
 
-    /// \p seg is written `"..."`: one quote on each side of its body. Read
+    /// `seg` is written `"..."`: one quote on each side of its body. Read
     /// at the closing side, which a triple-quoted body ends in three of: the
     /// byte before a head's opening quote may be the start of the file.
     priv fn _single_quoted(self,
@@ -1041,7 +1041,7 @@ pub class <T: type> LiteralTyping {
             && (close.size() == 1 || close[1] != ('"' as u8))
     }
 
-    /// \p text ends in an octal escape of fewer than three digits: a
+    /// `text` ends in an octal escape of fewer than three digits: a
     /// backslash an even run of backslashes does not escape, then one or two
     /// of 0-7.
     priv fn _open_octal(self, const text: string) -> bool {
@@ -1070,7 +1070,7 @@ pub class <T: type> LiteralTyping {
         return slashes % 2 == 1
     }
 
-    /// Where \p seg's text starts: its prefix, else its opening quote.
+    /// Where `seg`'s text starts: its prefix, else its opening quote.
     priv fn _segment_start(self, seg: unsafe *Immediate::StringData) -> SourceLocation {
         if seg->prefix.range.is_valid() {
             return seg->prefix.range.start
@@ -1079,7 +1079,7 @@ pub class <T: type> LiteralTyping {
         return seg->body.start.with_offset(-1)
     }
 
-    /// Where \p seg's text ends: after its suffix, else its closing quote.
+    /// Where `seg`'s text ends: after its suffix, else its closing quote.
     priv fn _segment_end(self, seg: unsafe *Immediate::StringData) -> SourceLocation {
         if seg->suffix.range.is_valid() {
             return seg->suffix.range.end
@@ -1225,8 +1225,8 @@ pub class <T: type> LiteralTyping {
         return &null
     }
 
-    /// `&null` typed into the safe pointer \p to. The slot it lands in is
-    /// the innermost null target whose value \p n is: its declaration gets
+    /// `&null` typed into the safe pointer `to`. The slot it lands in is
+    /// the innermost null target whose value `n` is: its declaration gets
     /// the note, and its written type the fix-it -- `*T?`, the pointer that
     /// may be absent. `unsafe *T` is named in the note rather than offered:
     /// it drops the tracking, which is not a choice a fix-it should make.
@@ -1274,7 +1274,7 @@ pub class <T: type> LiteralTyping {
         e->poison()
     }
 
-    /// \p e is the value \p root produces, through parentheses, the arms
+    /// `e` is the value `root` produces, through parentheses, the arms
     /// of an `if` expression and the fallback of a `??` -- the shapes whose
     /// result IS one of their operands, so the operand lands in the slot.
     priv fn _value_of(self, root: *Expr, e: *Expr) -> bool {
@@ -1457,10 +1457,10 @@ pub class <T: type> LiteralTyping {
         return self.dyn()->sc->types->array(elem, count as u64)
     }
 
-    /// The two-word library builds the non-empty literal \p n, a lang
-    /// record \p k of type \p ct, as the empty container filled element by
+    /// The two-word library builds the non-empty literal `n`, a lang
+    /// record `k` of type `ct`, as the empty container filled element by
     /// element: bind `reserve` and the add (`push(a)`, `insert(a)`,
-    /// `insert(a, b)`) on \p ct, as a written call would be, into
+    /// `insert(a, b)`) on `ct`, as a written call would be, into
     /// SemaContext::literal_calls. True on the other library, which copies
     /// the elements out of a backing array instead.
     priv fn _bind_literal_build(self,
@@ -1517,7 +1517,7 @@ pub class <T: type> LiteralTyping {
         return true
     }
 
-    /// The member \p name of \p recv that takes \p args, with its instance.
+    /// The member `name` of `recv` that takes `args`, with its instance.
     priv fn _bind_member(self,
                          at:         unsafe *Expr,
                          recv:       unsafe *Type,
@@ -1562,8 +1562,8 @@ pub class <T: type> LiteralTyping {
         return true
     }
 
-    /// A lang record's constructor BY SHAPE: \p nparams non-self parameters,
-    /// and for \p from_slice the single one is a Slice. Found through the lang
+    /// A lang record's constructor BY SHAPE: `nparams` non-self parameters,
+    /// and for `from_slice` the single one is a Slice. Found through the lang
     /// item, never by name.
     priv fn _lang_ctor(self, k: WellKnownType, nparams: usize, from_slice: bool) -> unsafe *Decl {
         return self.dyn()->tu.lang_ctor(k, nparams, from_slice)
@@ -1784,7 +1784,7 @@ pub class <T: type> LiteralTyping {
     }
 
     /// The put row for a hole's value type. A record leaves `kind` as None
-    /// with its candidates in \p repr / \p conv; the caller ranks them.
+    /// with its candidates in `repr` / `conv`; the caller ranks them.
     /// A value whose type is a generic body's comes back `deferred`.
     priv fn _classify_hole(self,
                            e:    *Expr,
@@ -1909,7 +1909,7 @@ pub class <T: type> LiteralTyping {
         return true // kind stays None; the caller ranks.
     }
 
-    /// `fn repr(self) -> string` and `fn op as(self) -> string` on \p v, own
+    /// `fn repr(self) -> string` and `fn op as(self) -> string` on `v`, own
     /// members and extensions alike, in that order of preference. Through
     /// ExprTyper's MemberLookup, whose extension index is built once at
     /// construction.
@@ -2323,7 +2323,7 @@ pub class <T: type> LiteralTyping {
     /// An array is initialized from a list literal and from nothing else:
     /// copying one is not an initialization C++ has. A variable's
     /// initializer and an aggregate initializer's field value both land
-    /// here; true when \p value was rejected.
+    /// here; true when `value` was rejected.
     fn reject_array_copy(self, value: *Expr, t: unsafe *Type) -> bool {
         var unsafe *c = canon_unqual(t)
         if c == &null || !isa<FixedArrayType>(c) {

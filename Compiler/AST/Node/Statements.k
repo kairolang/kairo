@@ -160,7 +160,7 @@ pub enum FFILang derives u8 {
 }
 
 /// The language a word after `ffi` / `inline` names, matched without case
-/// (`"C"` is `"c"`); None for a word that names none. \p word is the
+/// (`"C"` is `"c"`); None for a word that names none. `word` is the
 /// string literal's contents. The one table (the parser stamps from it);
 /// C++ is also every C++ source and header extension, written as the
 /// language.
@@ -782,10 +782,9 @@ pub class SwitchDispatchStmt derives Stmt {
     }
 }
 
-/// \enum EvalTaken
-/// \brief The side of an `eval if typeof T == U` X decided
-///        (ConditionalStmt::eval_taken). Undecided includes every statement
-///        that is no such `eval if`, and one decided only per instance.
+/// The side of an `eval if typeof T == U` X decided
+/// (ConditionalStmt::eval_taken). Undecided includes every statement
+/// that is no such `eval if`, and one decided only per instance.
 pub enum EvalTaken derives u8 {
     Undecided = 0,
     Then, ///< the else side was dropped.

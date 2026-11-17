@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------------------ Sema/SemaDump.k --- ///
 ///
-///   \brief `--print-sema`: a readable dump of everything sema has decided
-///          about a TU so far.
+/// `--print-sema`: a readable dump of everything sema has decided
+/// about a TU so far.
 ///
 ///   \detail
 ///     The sema-side counterpart to `--print-ast` (syntax), `--print-symbols`
@@ -141,8 +141,8 @@ import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
 import std::io
 
-/// \brief `line:col` for a location, or `?:?` when unmapped. Every row in the
-///        dump is anchored this way so a reader can jump straight to it.
+/// `line:col` for a location, or `?:?` when unmapped. Every row in the
+/// dump is anchored this way so a reader can jump straight to it.
 pub fn sema_dump_loc(ctx: unsafe *ASTContext, loc: SourceLocation) -> string {
     if ctx == &null {
         return "?:?"
@@ -182,9 +182,9 @@ pub fn sema_dump_pattern_kind_str(k: PatternKind) -> string {
     }
 }
 
-/// \brief Source-shaped word for a decl kind (`fn`, `class`, `param`, ...).
-///        The dump reads better with the spelling the user wrote than with
-///        the node class name; AST class names are what --print-ast is for.
+/// Source-shaped word for a decl kind (`fn`, `class`, `param`, ...).
+/// The dump reads better with the spelling the user wrote than with
+/// the node class name; AST class names are what --print-ast is for.
 pub fn sema_dump_kind_str(k: DeclKind) -> string {
     match k {
         case DeclKind::FunctionDecl {
@@ -231,7 +231,7 @@ pub fn sema_dump_kind_str(k: DeclKind) -> string {
     }
 }
 
-/// \brief The decl's own spelled name, or "" for the unnamed kinds.
+/// The decl's own spelled name, or "" for the unnamed kinds.
 pub fn sema_dump_decl_name(ctx_in: unsafe *ASTContext, d: unsafe *Decl) -> string {
     if d == &null || ctx_in == &null {
         return ""
@@ -311,9 +311,9 @@ pub fn sema_dump_decl_name(ctx_in: unsafe *ASTContext, d: unsafe *Decl) -> strin
     return ""
 }
 
-/// \brief One-line identity for a decl: `kind name @ line:col`. Deliberately
-///        NOT the full DeclPrinter rendering   a binding row wants a compact
-///        target, and a method body's worth of text in a table cell is noise.
+/// One-line identity for a decl: `kind name @ line:col`. Deliberately
+/// NOT the full DeclPrinter rendering   a binding row wants a compact
+/// target, and a method body's worth of text in a table cell is noise.
 pub fn sema_dump_decl_brief(ctx_in: unsafe *ASTContext, d: unsafe *Decl) -> string {
     if d == &null {
         return "<null>"
@@ -335,9 +335,9 @@ pub fn sema_dump_decl_brief(ctx_in: unsafe *ASTContext, d: unsafe *Decl) -> stri
     return f"{kind} {name} @ {at}{pois}"
 }
 
-/// \brief Which lookup source answered, in N's own search order. The single
-///        most useful column on a binding row: `local` vs `scope` vs
-///        `overlay` is usually the whole explanation for a surprise.
+/// Which lookup source answered, in N's own search order. The single
+/// most useful column on a binding row: `local` vs `scope` vs
+/// `overlay` is usually the whole explanation for a surprise.
 pub fn sema_dump_via_str(v: TraceVia) -> string {
     match v {
         case TraceVia::Local {
@@ -354,7 +354,7 @@ pub fn sema_dump_via_str(v: TraceVia) -> string {
     }
 }
 
-/// \brief Source-shaped word for a lexical frame.
+/// Source-shaped word for a lexical frame.
 pub fn sema_dump_scope_kind_str(k: TraceScopeKind) -> string {
     match k {
         case TraceScopeKind::Function {
@@ -375,9 +375,9 @@ pub fn sema_dump_scope_kind_str(k: TraceScopeKind) -> string {
     }
 }
 
-/// \brief The access operator a deferred chain step was reached through, so
-///        `.x` and `::x` are told apart on sight   they are resolved by very
-///        different rules in T.
+/// The access operator a deferred chain step was reached through, so
+/// `.x` and `::x` are told apart on sight   they are resolved by very
+/// different rules in T.
 pub fn sema_dump_sep_str(k: TraceSep) -> string {
     match k {
         case TraceSep::Dot {
@@ -449,14 +449,11 @@ pub fn sema_dump_phase_str(p: SemaPhase) -> string {
     }
 }
 
-///
-/// \class SemaDump
-/// \brief Renders the sema state of one TU. Construct, `run()`, done.
+/// Renders the sema state of one TU. Construct, `run()`, done.
 ///
 ///        Scope paths (`<tu>::Counter::bump`) are maintained during the walk
 ///        so a binding row says WHERE it was written, not just what it bound
 ///        to   the single most useful column when chasing a wrong shadow.
-///
 pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     pub var sc:   unsafe *SemaContext
     pub var ctx:  unsafe *ASTContext
@@ -583,8 +580,9 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         return n
     }
 
-    /// \return 1 when the item is bound, 0 otherwise, so the caller can decide
-    ///         whether the section is worth printing at all.
+    /// ### Returns
+    /// 1 when the item is bound, 0 otherwise, so the caller can decide
+    /// whether the section is worth printing at all.
     priv fn _lang_row(self, emit: bool, k: WellKnownType, const spelling: string) -> usize {
         var unsafe *d = self.sc->well_known->get(k)
         if !emit {
@@ -700,8 +698,9 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         }
     }
 
-    /// \return how many scopes actually printed, so the caller can say
-    ///         "nothing" rather than printing a bare header.
+    /// ### Returns
+    /// how many scopes actually printed, so the caller can say
+    /// "nothing" rather than printing a bare header.
     priv fn _tables_in(self, dc: unsafe *DeclContext, const qual: string) -> usize {
         if dc == &null {
             return 0
@@ -777,8 +776,8 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     }
 
     /// Table order is hash order: stable per run, but meaningless to a reader
-    /// and it churns the moment a name is added. \p out receives indices into
-    /// \p rows ordered by where the decl was WRITTEN, so the section reads
+    /// and it churns the moment a name is added. `out` receives indices into
+    /// `rows` ordered by where the decl was WRITTEN, so the section reads
     /// down the source file. Permuting INDICES rather than entries keeps the
     /// sort off the entries themselves, which hold an observer into the
     /// frozen table. Rows at one position keep their table order: each key
@@ -851,8 +850,8 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         self._p.newline()
     }
 
-    /// Every link in \p d's redeclaration ring, in insertion order, or
-    /// nothing when the ring is just \p d.
+    /// Every link in `d`'s redeclaration ring, in insertion order, or
+    /// nothing when the ring is just `d`.
     ///
     /// The cell cannot show this. An out-of-line definition is in NO symbol
     /// table (that is the whole reason N(a) keeps tu->out_of_line), so a
@@ -1608,7 +1607,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
 
     /// # scope-path tracking
 
-    /// Appends \p name to the scope path; returns the path to restore.
+    /// Appends `name` to the scope path; returns the path to restore.
     priv fn _enter_scope(self, name: Token) -> string {
         var saved = self._scope.copy()
         self._scope = f"{self._scope}::{self.ctx->get_spelling(name)}"
@@ -2076,7 +2075,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         )
     }
 
-    /// `Enum::Variant` for \p v.
+    /// `Enum::Variant` for `v`.
     priv fn _variant_name(self, v: unsafe *Decl) -> string {
         var unsafe *dc = v->semantic_dc
         var unsafe *en = if (dc != &null) => (dc->owner_decl()) else => &null

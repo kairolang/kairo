@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------- Sema/Lower/CopyMoveLowering.k --- ///
 ///
-///   \brief Select and insert @copy / @move constructors at each use.
+/// Select and insert @copy / @move constructors at each use.
 ///
 ///   \detail
 ///     Replaces C++'s rule of five: every initialization, assignment, and

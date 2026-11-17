@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------- Sema/Lower/NullTestLowering.k --- ///
 ///
-///   \brief Every null test becomes a call of the Null's `is_null()`.
+/// Every null test becomes a call of the Null's `is_null()`.
 ///
 ///   \detail
 ///     Compiler/Spec/Nullables.md#null-test, 2.2, §5 step 2. Each spelling `null_test_of`
@@ -135,7 +135,7 @@ pub class NullTestLowering derives ASTWriter<NullTestLowering> {
         )
     }
 
-    /// \p n, the test \p t classified, as `x.is_null()` or `!x.is_null()`.
+    /// `n`, the test `t` classified, as `x.is_null()` or `!x.is_null()`.
     /// The operand is lowered first: it may hold a test of its own
     /// (`f(a?)?`).
     priv fn _lower(self, n: unsafe *Expr, t: NullTest) -> unsafe *Expr {

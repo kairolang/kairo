@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------------- Sema/Check/MoveCheck.k --- ///
 ///
-///   \brief Moves: the type must be movable, and a moved-from binding may
-///          not be read again until it is reassigned.
+/// Moves: the type must be movable, and a moved-from binding may
+/// not be read again until it is reassigned.
 ///
 ///   \detail
 ///     (a) At a call whose parameter is `@move`, the argument's type must be
@@ -361,7 +361,7 @@ pub class MovePlace {
     pub var opaque: bool  = false
     fn MovePlace(self) { }
 
-    /// The place \p self points at.
+    /// The place `self` points at.
     fn through(self) {
         if self.elem {
             return
@@ -378,7 +378,7 @@ pub class MovePlace {
         self.segs.push_back(none)
     }
 
-    /// The field \p f of \p self, declared by \p fd.
+    /// The field `f` of `self`, declared by `fd`.
     fn field(self, const f: string, fd: unsafe *Decl) {
         if self.elem {
             return
@@ -411,7 +411,7 @@ pub class PendingMove {
     fn PendingMove(self) { }
 }
 
-/// \p inner is \p outer or a part of it.
+/// `inner` is `outer` or a part of it.
 pub fn path_within(const inner: string, const outer: string) -> bool {
     if outer.size() == 0 || inner == outer {
         return true
@@ -420,12 +420,12 @@ pub fn path_within(const inner: string, const outer: string) -> bool {
     return inner.starts_with(outer + ".")
 }
 
-/// \p a and \p b name overlapping storage: one is the other or a part of it.
+/// `a` and `b` name overlapping storage: one is the other or a part of it.
 pub fn path_overlaps(const a: string, const b: string) -> bool {
     return path_within(a, b) || path_within(b, a)
 }
 
-/// A read of \p read touches the moved part \p moved: it is that part or
+/// A read of `read` touches the moved part `moved`: it is that part or
 /// inside it, or it holds the part by value. Storage that only points at
 /// the part (`p`, with `p->a` moved) is read without touching it.
 pub fn read_touches(const moved: string, const read: string) -> bool {
@@ -441,7 +441,7 @@ pub fn read_touches(const moved: string, const read: string) -> bool {
     return star == usize::MAX || star < read.size()
 }
 
-/// \p a and \p b are the same range.
+/// `a` and `b` are the same range.
 pub fn same_range(a: SourceRange, b: SourceRange) -> bool {
     return a.start == b.start && a.end == b.end
 }
@@ -473,7 +473,7 @@ pub class CondLink {
         return false
     }
 
-    /// \p o is the same link: the same local, from the same call, over the
+    /// `o` is the same link: the same local, from the same call, over the
     /// same parts.
     fn same(self, const o: CondLink) -> bool {
         if self.d != o.d
@@ -561,7 +561,7 @@ pub class MoveState {
         return false
     }
 
-    /// The MoveKind::Finalize part of \p d, or usize(-1).
+    /// The MoveKind::Finalize part of `d`, or usize(-1).
     fn finalized_at(self, d: unsafe *Decl) -> usize {
         for var i: usize = 0; i < self.moved.size(); ++i {
             if self.moved[i].d == d && self.moved[i].kind == MoveKind::Finalize {
@@ -572,7 +572,7 @@ pub class MoveState {
         return usize::MAX
     }
 
-    /// A declaration of \p d: a new binding, nothing of the last one left
+    /// A declaration of `d`: a new binding, nothing of the last one left
     /// (a `finally()` of it, and a link, included: clear drops the link).
     fn forget(self, d: unsafe *Decl) {
         self.clear(d, "")
@@ -637,7 +637,7 @@ pub class MoveState {
         return usize::MAX
     }
 
-    /// The first moved part a read of \p path under \p d touches.
+    /// The first moved part a read of `path` under `d` touches.
     fn overlap_of(self, d: unsafe *Decl, const path: string) -> usize {
         for var i: usize = 0; i < self.moved.size(); ++i {
             if self.moved[i].d == d && read_touches(self.moved[i].path, path) {
@@ -668,7 +668,7 @@ pub class MoveState {
         }
     }
 
-    /// An assignment to \p path under \p d: that storage, and every part
+    /// An assignment to `path` under `d`: that storage, and every part
     /// of it, holds a live value again, and a later move-then-use of it is a
     /// NEW mistake that must be reported, so the binding's report is dropped
     /// along with the move.
@@ -1285,14 +1285,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return n
     }
 
-    /// The body leaves here, by the outcome \p kind (a MOVE_ON_* bit, or
+    /// The body leaves here, by the outcome `kind` (a MOVE_ON_* bit, or
     /// several when the outcome is not known): what is moved-from in
     /// storage it does not own (_outlives) stays so for the caller.
     priv fn _exit(self, kind: u8) {
         self._exit_by(kind, &null)
     }
 
-    /// _exit, by a panic of type \p ty when \p kind has MOVE_ON_PANIC
+    /// _exit, by a panic of type `ty` when `kind` has MOVE_ON_PANIC
     /// (null: a type not known statically).
     priv fn _exit_by(self, kind: u8, ty: unsafe *Type) {
         if self._st.dead {
@@ -1335,8 +1335,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// `return v`, or an expression body's value \p v: the body leaves
-    /// with the outcome \p v is (_return_kind). A value that is a call's
+    /// `return v`, or an expression body's value `v`: the body leaves
+    /// with the outcome `v` is (_return_kind). A value that is a call's
     /// outcome (_forwards) leaves once per outcome of the call, from the
     /// state that outcome reaches (_cond), so the function moves what its
     /// callee moves on the outcome it returns: `return q.push(&v)` leaves
@@ -1369,7 +1369,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        // \p v is a call, a bool or a local holding a result: the value
+        // `v` is a call, a bool or a local holding a result: the value
         // itself moves nothing, so neither path needs it walked again.
         var f = r.f
         self._st = r.t
@@ -1382,8 +1382,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st.dead = true
     }
 
-    /// The function's outcome at `return v` is that of a call in \p v,
-    /// whose own outcome \p kind does not settle: in a `bool` function a
+    /// The function's outcome at `return v` is that of a call in `v`,
+    /// whose own outcome `kind` does not settle: in a `bool` function a
     /// condition _cond splits on a call (_splittable); in a `T?` function a
     /// call of the same `T?` type, its result returned as it is.
     priv fn _forwards(self, v: unsafe *Expr, kind: u8) -> bool {
@@ -1405,7 +1405,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return rt != &null && vt != &null && canon_unqual(rt) == canon_unqual(vt)
     }
 
-    /// \p e is a condition _cond splits on a call's outcome: a call, alone
+    /// `e` is a condition _cond splits on a call's outcome: a call, alone
     /// or under `!`, `&&`, `||`, a postfix `?` or a comparison with `null`.
     priv fn _splittable(self, e: unsafe *Expr) -> bool {
         var unsafe *x = self._tu.strip_parens(e)
@@ -1457,7 +1457,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             || (self._is_null_literal(l) && self._null_tested(rr))
     }
 
-    /// \p e is what a test against null splits on (_cond): a call, or a
+    /// `e` is what a test against null splits on (_cond): a call, or a
     /// local holding a `T?` call's link.
     priv fn _null_tested(self, e: unsafe *Expr) -> bool {
         var unsafe *x = self._tu.strip_parens(e)
@@ -1465,7 +1465,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             && (isa<Expressions::CallExpr>(x) || self._link_index(x, true) != usize::MAX)
     }
 
-    /// \p v, a `T?` value _null_tested splits on, walked as the value
+    /// `v`, a `T?` value _null_tested splits on, walked as the value
     /// returned: its state when it is not null, and when it is.
     priv fn _null_cond(self, v: unsafe *Expr) -> CondStates {
         return self._null_split(
@@ -1475,7 +1475,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
     }
 
-    /// The outcome a `return` of \p v is (MoveOut::when): read from a
+    /// The outcome a `return` of `v` is (MoveOut::when): read from a
     /// `true` / `false` literal in a `bool` function, and from a `null`
     /// literal, or a value whose type cannot be null, in a `T?` function.
     /// Any other value may be either outcome of its type.
@@ -1516,7 +1516,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return MOVE_ON_OTHER
     }
 
-    /// \p t's canonical type, or \p t when it has none.
+    /// `t`'s canonical type, or `t` when it has none.
     priv fn _canon(self, t: unsafe *Type) -> unsafe *Type {
         if t != &null && t->canonical != &null {
             return t->canonical
@@ -1525,7 +1525,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return t
     }
 
-    /// \p mp is storage the body being walked does not own: a closure's
+    /// `mp` is storage the body being walked does not own: a closure's
     /// by-pointer capture, the function's `self` (not a destructor's, which
     /// ends the object), an `@inout` or C++ `T&` parameter, or what any
     /// parameter points at.
@@ -1576,7 +1576,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return false
     }
 
-    /// Files `_out` on \p n (FunctionDecl::move_out), replacing what an
+    /// Files `_out` on `n` (FunctionDecl::move_out), replacing what an
     /// earlier walk of the same node left.
     priv fn _record_out(self, n: unsafe *FunctionDecl) {
         var outs = cxx::std::vector<MoveOut>()
@@ -1625,7 +1625,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         n->move_out_state = MoveOutState::Body
     }
 
-    /// \p def's body is walked before the call that needs what it leaves
+    /// `def`'s body is walked before the call that needs what it leaves
     /// moved-from. Only a body of this TU, and once per run: what an
     /// earlier run left on the node is not read. Another TU's function is
     /// walked by its own TU, which is finished unless the two import each
@@ -1644,7 +1644,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._depth -= 1
     }
 
-    /// The call \p n is to \p f, a function declared in Kairo with no
+    /// The call `n` is to `f`, a function declared in Kairo with no
     /// definition Kairo can read (implemented in C or C++). What cannot be
     /// read is taken at its worst: every argument the body could move out
     /// of is moved-from after the call -- a non-const receiver, an `@inout`
@@ -1751,7 +1751,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// The call \p n is to \p f, a C or C++ function. A MOVE argument bound
+    /// The call `n` is to `f`, a C or C++ function. A MOVE argument bound
     /// to a `T&` / `T*` to non-const, or a MOVE object a non-const method
     /// runs on, is moved-from after the call when the callee's body moves
     /// out of it (ForeignInstantiate::cxx_moves_out). One whose body cannot
@@ -1849,8 +1849,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// What the C++ call \p n to \p f does to \p pl, reached through clang
-    /// parameter \p idx (-1 the receiver): moved-from, borrowed, or
+    /// What the C++ call `n` to `f` does to `pl`, reached through clang
+    /// parameter `idx` (-1 the receiver): moved-from, borrowed, or
     /// borrowed on an assumption.
     priv fn _cxx_verdict(self,
                          n:          unsafe *Expressions::CallExpr,
@@ -1921,9 +1921,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st.mark(mp)
     }
 
-    /// The assumption a call to \p name makes when what the walk could not
+    /// The assumption a call to `name` makes when what the walk could not
     /// read is library functions with no visible body (CxxMoveKind::
-    /// Assumed): it borrows \p shown, under -fstrict-cxx-moves too.
+    /// Assumed): it borrows `shown`, under -fstrict-cxx-moves too.
     priv static fn _library_assumption(const v:     CxxMoveVerdict,
                                        const name:  string,
                                        const shown: string) -> string {
@@ -1970,7 +1970,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                else => f"it passes it to '{v.blocker}', whose body is not visible"
     }
 
-    /// A value of type \p t can be left moved-from: only a MOVE type can,
+    /// A value of type `t` can be left moved-from: only a MOVE type can,
     /// since taking a COPY value out of its storage copies it.
     priv fn _may_be_moved(self, t: unsafe *Type) -> bool {
         return t != &null && moves_on_pass(self.sc, t)
@@ -2002,7 +2002,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return t
     }
 
-    /// \p pl becomes moved-from at \p at, by a call to \p f, whose body
+    /// `pl` becomes moved-from at `at`, by a call to `f`, whose body
     /// cannot be read: the note at the declaration says how to state what
     /// it does.
     priv fn _mark_place(self,
@@ -2026,10 +2026,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st.mark(mp)
     }
 
-    /// The call \p n to \p f: each part \p f leaves moved-from
+    /// The call `n` to `f`: each part `f` leaves moved-from
     /// (FunctionDecl::move_out) is that part of the argument it was reached
     /// through, returned with the outcomes on which it is moved-from for
-    /// the caller to mark (_apply). \p ps / \p es are the parameters bound
+    /// the caller to mark (_apply). `ps` / `es` are the parameters bound
     /// and their arguments. An argument that names no place marks nothing.
     /// A function with no readable body marks its worst case here, on every
     /// outcome (_call_unseen).
@@ -2158,7 +2158,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return cm
     }
 
-    /// Marks each part of \p cm that is moved-from on an outcome in \p on
+    /// Marks each part of `cm` that is moved-from on an outcome in `on`
     /// (MOVE_ON_* bits): the outcomes that reach the current path. The note
     /// names the outcome when only one of them moves it.
     priv fn _apply(self, const cm: CallMarks, on: u8) {
@@ -2190,7 +2190,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// The current path may leave by a panic here, with the parts of \p cm
+    /// The current path may leave by a panic here, with the parts of `cm`
     /// a panic of the call leaves moved-from: the state goes to the catch
     /// arms of each enclosing `try` up to one that catches everything, and
     /// past them out of the body when the body may panic. The current path
@@ -2199,8 +2199,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._panic_path_of(cm, false, cxx::std::vector<unsafe *Type>())
     }
 
-    /// _panic_path for a call that panics only with the types of \p set
-    /// when \p known (its declared set), and with any type otherwise. The
+    /// _panic_path for a call that panics only with the types of `set`
+    /// when `known` (its declared set), and with any type otherwise. The
     /// path is taken once per type the panic can be known to have, marked
     /// with the parts moved on a panic of that type (MoveOut::pcount), so a
     /// typed catch arm receives only those; with the set not known, once
@@ -2256,8 +2256,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st = saved
     }
 
-    /// The parts of \p cm moved-from by a panic of type \p ty: those a
-    /// panic of any type moves, and, when \p ty is known, those its type
+    /// The parts of `cm` moved-from by a panic of type `ty`: those a
+    /// panic of any type moves, and, when `ty` is known, those its type
     /// moves.
     priv fn _panic_marks(self, const cm: CallMarks, ty: unsafe *Type) -> CallMarks {
         var out = CallMarks{}
@@ -2280,7 +2280,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return out
     }
 
-    /// The type a `panic` of \p p raises, or null when it is not known
+    /// The type a `panic` of `p` raises, or null when it is not known
     /// statically: a type parameter, or a rethrow of what a bare arm caught.
     priv fn _panic_type(self, p: unsafe *Expr) -> unsafe *Type {
         if p == &null || p->is_poisoned() || p->type_ == &null {
@@ -2304,7 +2304,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     }
 
     /// One arm of a `try`, by its filter (null for a bare arm) and its
-    /// binding, onto \p fr (TryFrame::arm_any, arm_ty, types).
+    /// binding, onto `fr` (TryFrame::arm_any, arm_ty, types).
     priv fn _arm_of(self, @inout fr: TryFrame, filter: unsafe *Type, bind: unsafe *Decl) {
         var one              = cxx::std::vector<unsafe *Type>()
         var c:  unsafe *Type = &null
@@ -2331,11 +2331,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         fr.arm_ty.push_back(one)
     }
 
-    /// A panic of type \p ty (null: not known statically) leaves the
+    /// A panic of type `ty` (null: not known statically) leaves the
     /// current path (it is dead after): the pending finally bodies of the
     /// blocks it leaves run over it, each enclosing `try` it reaches takes
     /// the state for its catch arms, up to one with a bare arm or an arm of
-    /// exactly \p ty, and one that passes them all leaves the body (_exit).
+    /// exactly `ty`, and one that passes them all leaves the body (_exit).
     priv fn _leave_by_panic(self, ty: unsafe *Type) {
         if self._st.dead {
             return
@@ -2378,7 +2378,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st.dead = true
     }
 
-    /// A call to \p f, or through a value of type \p fp, can leave by a
+    /// A call to `f`, or through a value of type `fp`, can leave by a
     /// panic: either is marked `panic`. A call whose callee is neither is
     /// taken to.
     priv fn _may_panic(self, f: unsafe *FunctionDecl, fp: unsafe *FunctionPointerType) -> bool {
@@ -2412,7 +2412,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return saved
     }
 
-    /// ...and leaves nothing behind: \p saved, _enter_body's, back.
+    /// ...and leaves nothing behind: `saved`, _enter_body's, back.
     priv fn _leave_body(self, const saved: BodyFlow) {
         if !self._blocks.empty() {
             kairo::std::ice_fail("MoveCheck: a block frame outlived its body")
@@ -2428,7 +2428,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
     /// The modes of the locals of the body whose walk ends here: a C++
     /// exception may leave it where the walk does not see unless it is
-    /// `noexcept`: a function by FunctionDecl::no_unwind, a closure (\p f
+    /// `noexcept`: a function by FunctionDecl::no_unwind, a closure (`f`
     /// null) unless the build is -funwind (EmitIR's closure head).
     priv fn _settle_locals(self, f: unsafe *FunctionDecl) {
         var may_unwind = if (f == &null) => (self.sc->opts.unwind_all) else => !f->no_unwind
@@ -2438,7 +2438,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// Block \p i is left on the current path: a local it declared that is
+    /// Block `i` is left on the current path: a local it declared that is
     /// not ended on every path here is alive at an exit of its scope.
     priv fn _exit_check(self, i: usize) {
         if self._st.dead || i >= self._block_locals.size() {
@@ -2456,7 +2456,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// The blocks below index \p from down to index \p to are left.
+    /// The blocks below index `from` down to index `to` are left.
     priv fn _exit_check_between(self, from: usize, to: usize) {
         var i = from
         while i > to {
@@ -2643,7 +2643,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return out
     }
 
-    /// The call initialising \p n when a later test of \p n can stand for
+    /// The call initialising `n` when a later test of `n` can stand for
     /// a test of the call: a local of the body, the call its whole
     /// initializer, of type `bool` or `T?`, and the local declared with
     /// that type or none.
@@ -2675,7 +2675,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return cast<Expressions::CallExpr>(x)
     }
 
-    /// The call \p n initialises the local being declared (_link_target):
+    /// The call `n` initialises the local being declared (_link_target):
     /// what it marks on every outcome, of what was whole before it, is
     /// kept for the local's link.
     priv fn _link_from(self, n: unsafe *Expressions::CallExpr, const cm: CallMarks) {
@@ -3143,7 +3143,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._arm_any[top] = 1
     }
 
-    /// \p fallthrough: the construct may run no arm at all (an `if` with no
+    /// `fallthrough`: the construct may run no arm at all (an `if` with no
     /// `else`), so the entry state is one of the paths.
     priv fn _arms_finish(self, fallthrough: bool) {
         var top   = self._arm_acc.size() - 1
@@ -3439,7 +3439,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// visible to a read on iteration two. `continue` states join the back
     /// edge; `break` states join the exit. The exit is reachable without
     /// entering the body at all (a false condition), so the entry state is
-    /// a path too -- when \p finite. With a condition, the body starts from
+    /// a path too -- when `finite`. With a condition, the body starts from
     /// its true state and the loop is left from its false state, at the
     /// entry, at the second pass's head, and once more over the second
     /// pass's back edge. An infinite loop (`loop`, `while
@@ -3495,9 +3495,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st = out
     }
 
-    /// Walk the pending bodies of block \p i, last declared first -- LIFO
+    /// Walk the pending bodies of block `i`, last declared first -- LIFO
     /// with the block's locals -- over the current state. Each body is a
-    /// block of its own and opens its own frame on top; block \p i stays
+    /// block of its own and opens its own frame on top; block `i` stays
     /// open, since the caller is still inside it structurally.
     priv fn _run_block_finallys(self, i: usize) {
         var k = self._blocks[i].size()
@@ -3515,8 +3515,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._exit_check(i)
     }
 
-    /// The state catch arm \p arm of a `try` starts from. A panic reaches
-    /// the arms only from the points \p met recorded (_leave_by_panic):
+    /// The state catch arm `arm` of a `try` starts from. A panic reaches
+    /// the arms only from the points `met` recorded (_leave_by_panic):
     /// every call and user operator that may panic, every `panic`, every
     /// iteration of a `for`. An arm takes the points whose panic it can
     /// catch: all of them for a bare arm, those of its filter's type or of
@@ -3552,13 +3552,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return entry
     }
 
-    /// A jump out of every block from the innermost down to index \p to:
+    /// A jump out of every block from the innermost down to index `to`:
     /// their pending bodies run, innermost block first.
     priv fn _run_finallys_to(self, to: usize) {
         self._run_finallys_between(self._blocks.size(), to)
     }
 
-    /// The blocks below index \p from down to index \p to are left:
+    /// The blocks below index `from` down to index `to` are left:
     /// their pending bodies run, innermost block first.
     priv fn _run_finallys_between(self, from: usize, to: usize) {
         var i = from
@@ -3912,7 +3912,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// Walks the condition \p e and returns the state on each of its
+    /// Walks the condition `e` and returns the state on each of its
     /// outcomes. A call that is the condition, or its operand under `!`,
     /// `&&`, `||`, a postfix `?` or a comparison with `null`, marks what
     /// its callee leaves moved-from only on the branch whose outcomes move
@@ -4021,8 +4021,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return r
     }
 
-    /// The index of \p e's link (CondLink) when \p e names a local that
-    /// holds one of the kind \p nul; usize(-1) otherwise.
+    /// The index of `e`'s link (CondLink) when `e` names a local that
+    /// holds one of the kind `nul`; usize(-1) otherwise.
     priv fn _link_index(self, e: unsafe *Expr, nul: bool) -> usize {
         var unsafe *x = self._tu.strip_parens(e)
         if x == &null || !isa<NamedIdentExpr>(x) {
@@ -4042,9 +4042,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return i
     }
 
-    /// The local \p n, holding link \p li, is tested: what its call marked
+    /// The local `n`, holding link `li`, is tested: what its call marked
     /// is taken back and marked again on each branch by the outcomes that
-    /// reach it (\p on_t, \p on_f), as _split_call marks a call's. A part
+    /// reach it (`on_t`, `on_f`), as _split_call marks a call's. A part
     /// marked since by anything else keeps that mark on both. The link
     /// stays: the test changes neither the local nor the parts.
     priv fn _link_cond(self,
@@ -4080,8 +4080,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return r
     }
 
-    /// \p e, a call or a local holding a `T?` call's link (_null_tested),
-    /// tested against null: \p on_t and \p on_f are the returns that make
+    /// `e`, a call or a local holding a `T?` call's link (_null_tested),
+    /// tested against null: `on_t` and `on_f` are the returns that make
     /// the test true and false.
     priv fn _null_split(self, e: unsafe *Expr, on_t: u8, on_f: u8) -> CondStates {
         var unsafe *x = self._tu.strip_parens(e)
@@ -4097,7 +4097,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
     }
 
-    /// The call \p c is a condition: \p on_t and \p on_f are the returns
+    /// The call `c` is a condition: `on_t` and `on_f` are the returns
     /// that make it true and false.
     priv fn _split_call(self, c: unsafe *Expressions::CallExpr, on_t: u8, on_f: u8) -> CondStates {
         var r = CondStates{}
@@ -4128,7 +4128,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return e != &null && isa<NullLiteralExpr>(e) && !cast<NullLiteralExpr>(e)->is_ref
     }
 
-    /// \p e passed to \p p (null for a pack tail) in \p mode. By value
+    /// `e` passed to `p` (null for a pack tail) in `mode`. By value
     /// means a Kairo `x: T`, a C++ `T`, a pack tail, or a C++ `T&&`, which a
     /// MOVE argument binds as an xvalue (CallTyping::arg_info). A C++
     /// `const T&` / `T&` borrows. A COPY argument is copied, or against a
@@ -4296,7 +4296,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     }
 
     /// The value parameter of the setter (`op []=` with no return type) the
-    /// plain `=` \p asn stores through, or null: its last parameter.
+    /// plain `=` `asn` stores through, or null: its last parameter.
     priv fn _setter_value_param(self,
                                 asn: unsafe *Expressions::AssignOperatorExpr) -> unsafe *ParamDecl {
         var unsafe *sx = setter_store_target(asn)
@@ -4315,7 +4315,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return out
     }
 
-    /// A user operator \p opd marked `panic` may leave the path by a panic.
+    /// A user operator `opd` marked `panic` may leave the path by a panic.
     priv fn _operator_panics(self, opd: unsafe *Decl) {
         var unsafe *f = dyn_cast<FunctionDecl>(opd)
         if f != &null && f->is_panic() {
@@ -4323,7 +4323,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// \p p is a C++ `T&` or `const T&` parameter.
+    /// `p` is a C++ `T&` or `const T&` parameter.
     priv fn _lref_param(self, p: unsafe *ParamDecl) -> bool {
         if p->type_ == &null {
             return false
@@ -4333,7 +4333,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return isa<CXXLValueRefType>(canon_unqual(t))
     }
 
-    /// \p p is a C++ `T&&` parameter (a forwarding reference included).
+    /// `p` is a C++ `T&&` parameter (a forwarding reference included).
     priv fn _rref_param(self, p: unsafe *ParamDecl) -> bool {
         if p->type_ == &null {
             return false
@@ -4434,13 +4434,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
     }
 
-    /// A transfer of \p e (passed by value, initialized from, assigned,
+    /// A transfer of `e` (passed by value, initialized from, assigned,
     /// returned): a MOVE value moves (Doc: Ownership, Function Parameters).
     /// Only an lvalue is recorded -- C++ moves a temporary on its own --
     /// and not a const one, which cannot be moved from. The site goes to
     /// SemaContext::move_sites, where CopyMoveLowering casts it, and the
     /// binding, or the part of it, is moved-from.
-    /// \p dest is the type of what the value initializes or is assigned
+    /// `dest` is the type of what the value initializes or is assigned
     /// to, when the caller knows it: only a transfer into the same type is
     /// a real one (MoveKind::Transfer); a converting constructor or `op =`
     /// may take the source by reference.
@@ -4448,7 +4448,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._transfer_checked(e, how, true, MoveKind::Transfer, dest)
     }
 
-    /// _transfer; \p copies is false when the receiving slot is a reference
+    /// _transfer; `copies` is false when the receiving slot is a reference
     /// (no copy happens, so _uncopyable_place has nothing to reject).
     priv fn _transfer_checked(self,
                               e:         unsafe *Expr,
@@ -4493,7 +4493,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // copied: a transfer that copies is refused here, not
         // left to clang. `self.r` in a `const self` method and `p.r` of a
         // `const p` are const by their root (place_has_const_root). A slot
-        // that only borrows (\p copies false) takes no copy.
+        // that only borrows (`copies` false) takes no copy.
         if self._const_place(x) || self._const_root(e) || place_has_const_root(x) {
             if copies {
                 self._no_copy(
@@ -4510,7 +4510,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._mark(e, how, kind, dest)
     }
 
-    /// ExprTyper accepted an implicit conversion of \p e through a
+    /// ExprTyper accepted an implicit conversion of `e` through a
     /// conversion operator of its own type (SemaContext::implicit_convs).
     priv fn _converted_by_op_as(self, e: unsafe *Expr) -> bool {
         if self.sc->implicit_convs.empty() {
@@ -4616,7 +4616,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// `@copy` whose `other` is not const, C++ `X(X&)`, and no move): from a
     /// const place, from a temporary that is assigned (the derived `op =`
     /// takes `X&`; a temporary that initializes is built in place and never
-    /// copied), or, with \p returned, a returned local or by-value
+    /// copied), or, with `returned`, a returned local or by-value
     /// parameter, which C++ treats as an rvalue. SC302E with the `const`
     /// fix at the constructor. True when reported.
     priv fn _mutable_copy_place(self, e: unsafe *Expr, const how: string, returned: bool) -> bool {
@@ -4713,7 +4713,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return ""
     }
 
-    /// \p x names a local variable or a by-value parameter of the function
+    /// `x` names a local variable or a by-value parameter of the function
     /// being checked: what C++ moves from when it is returned by name.
     priv fn _returned_local(self, x: unsafe *Expr) -> bool {
         if !isa<NamedIdentExpr>(x) || self._fn == &null {
@@ -4790,9 +4790,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return true
     }
 
-    /// The facts of the record \p t names (through a C++ reference) when it
+    /// The facts of the record `t` names (through a C++ reference) when it
     /// definitely cannot be copied; null otherwise, an Unknown included. A
-    /// tuple's are its elements' (\p tf holds them).
+    /// tuple's are its elements' (`tf` holds them).
     priv fn _uncopyable_facts(self,
                               t:  unsafe *Type,
                               tf: unsafe *LifecycleFacts,
@@ -4858,7 +4858,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return true
     }
 
-    /// \p e is an element reached through a user or library `op []`
+    /// `e` is an element reached through a user or library `op []`
     /// (`v[i]` of a `[T]` or a class), parens aside. A builtin array's or a
     /// pointer's subscript is not one: `arr[0] = arr[1]` compiles
     /// as a move, and is not refused here, like every other such move.
@@ -4869,7 +4869,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             && cast<Expressions::SubscriptExpr>(x)->resolved_op != &null
     }
 
-    /// \p t is a C++ `T&`, as written or canonical.
+    /// `t` is a C++ `T&`, as written or canonical.
     priv fn _is_lref(self, t: unsafe *Type) -> bool {
         if t == &null {
             return false
@@ -5005,7 +5005,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// Part \p i of \p n's tuple yield is a pointer (`-> yield (*const K, *V)`),
+    /// Part `i` of `n`'s tuple yield is a pointer (`-> yield (*const K, *V)`),
     /// so a `const *k` binder takes it without copying what it points at.
     priv fn _tuple_yield_pointer_part(self,
                                       n: unsafe *Statements::RangedForStmt,
@@ -5021,8 +5021,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return i < forms.size() && forms[i] != Statements::IterYield::Value
     }
 
-    /// One plain binder \p bn of \p n, a copy of its element or part:
-    /// refused (SC182E) when that cannot be copied. \p pointer_part: \p bn
+    /// One plain binder `bn` of `n`, a copy of its element or part:
+    /// refused (SC182E) when that cannot be copied. `pointer_part`: `bn`
     /// destructures a pointer part of a tuple yield, so `const *` before its
     /// name binds the pointer.
     priv fn _for_binder_copy(self,
@@ -5283,8 +5283,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return n
     }
 
-    /// How the non-empty vector, set or map literal \p e (a lang record
-    /// \p k of \p a elements, a map of \p a keys and \p b values) takes
+    /// How the non-empty vector, set or map literal `e` (a lang record
+    /// `k` of `a` elements, a map of `a` keys and `b` values) takes
     /// its elements. True when it is built by TypeUtil::literal_build and
     /// each element is moved in, which the caller records element by
     /// element. False when the container copies the elements out of a
@@ -5353,7 +5353,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return false
     }
 
-    /// Why a value of type \p t cannot be copied, or "" when it can (an
+    /// Why a value of type `t` cannot be copied, or "" when it can (an
     /// Unknown included): the record's own facts, or a declared `@copy`
     /// whose `requires` the instance does not meet (_dropped_copy_place).
     priv fn _why_no_copy(self, t: unsafe *Type) -> string {
@@ -5386,7 +5386,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return f"copying it copies each '{es}', and '{es}' cannot be copied"
     }
 
-    /// The element \p e of a literal (\p what) that takes its elements by
+    /// The element `e` of a literal (`what`) that takes its elements by
     /// move: a transfer into it. A const element cannot be moved from, and
     /// only an explicit copy can stand in its place.
     priv fn _move_elem(self, e: unsafe *Expr, const what: string) {
@@ -5439,7 +5439,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     }
 
     /// The copy-out build of a vector, set or map literal: SC182E when
-    /// \p elem cannot be copied (true), else the deprecated-copy warning.
+    /// `elem` cannot be copied (true), else the deprecated-copy warning.
     priv fn _literal_elems(self, e: unsafe *Expr, elem: unsafe *Type, const what: string) -> bool {
         if elem == &null || e->is_poisoned() {
             return false
@@ -5484,7 +5484,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return true
     }
 
-    /// \p rd declares a `@copy` constructor with a `requires` clause: the
+    /// `rd` declares a `@copy` constructor with a `requires` clause: the
     /// only shape _dropped_copy_place has to evaluate, checked first so
     /// every other copy skips the evaluation.
     priv fn _has_constrained_copy(self, rd: unsafe *Decl) -> bool {
@@ -5510,7 +5510,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return false
     }
 
-    /// The `@copy ... = delete` a Kairo class or struct \p rd declares
+    /// The `@copy ... = delete` a Kairo class or struct `rd` declares
     /// itself, or null (an imported record, or one not copyable for another
     /// reason -- a field, a base, a move constructor alone -- which keeps
     /// the old path).
@@ -5662,7 +5662,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._keep_reuse(e, e)
     }
 
-    /// \p read follows \p site, a transfer whose instance decides whether it
+    /// `read` follows `site`, a transfer whose instance decides whether it
     /// moved; once per site.
     priv fn _keep_reuse(self, site: unsafe *Expr, read: unsafe *Expr) {
         for var r: usize = 0; r < self._reuse_site.size(); ++r {
@@ -5676,9 +5676,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._reuse_decl.push_back(&null)
     }
 
-    /// A read of \p path under \p d: every pending transfer out of storage
+    /// A read of `path` under `d`: every pending transfer out of storage
     /// it overlaps was not the last use, so it stays a copy.
-    /// \p at is the read, kept with the site for the instance check
+    /// `at` is the read, kept with the site for the instance check
     /// (_reuse_site): at a MOVE instance the read is a use after move.
     priv fn _demote_pending(self, d: unsafe *Decl, const path: string, at: unsafe *Expr) {
         var k: usize = 0
@@ -5712,7 +5712,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// \p e is a part of a const binding (`other.v` in a copy constructor's
+    /// `e` is a part of a const binding (`other.v` in a copy constructor's
     /// `const other`): its fields are not typed const, but C++ makes them
     /// so, and a `T&&` cast of one does not compile.
     priv fn _const_root(self, e: unsafe *Expr) -> bool {
@@ -5735,7 +5735,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return false
     }
 
-    /// \p e, or the binding it is a part of (`x`, `x.f`, `x[i]`, through
+    /// `e`, or the binding it is a part of (`x`, `x.f`, `x[i]`, through
     /// any steps), has its address taken: see _addr.
     priv fn _mark_addr(self, e: unsafe *Expr) {
         var unsafe *x = self._tu.strip_parens(e)
@@ -5802,7 +5802,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return false
     }
 
-    /// The storage \p e names becomes moved-from: a binding, a part of one
+    /// The storage `e` names becomes moved-from: a binding, a part of one
     /// (`p.a.b`, `self.r`), what a pointer in one points at (`p->r`, `*p`),
     /// or, for an element (`v[i]`, `h.items[0].s`), the container it is in.
     /// A temporary or a call's result records nothing.
@@ -5869,7 +5869,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             && self._tu.pointee(u->operand->type_) != &null
     }
 
-    /// The place \p e names (MovePlace); its `d` is null when \p e is not
+    /// The place `e` names (MovePlace); its `d` is null when `e` is not
     /// rooted at a tracked binding.
     priv fn _place(self, e: unsafe *Expr) -> MovePlace {
         var        out = MovePlace()
@@ -5983,7 +5983,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return out
     }
 
-    /// The source text of \p e, for a note.
+    /// The source text of `e`, for a note.
     priv fn _spelled(self, e: unsafe *Expr) -> string {
         return self.sc->ctx->get_spelling(e->range)
     }
@@ -6001,7 +6001,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return false
     }
 
-    /// \p a and \p b are one type, cv aside; false when either is unknown.
+    /// `a` and `b` are one type, cv aside; false when either is unknown.
     priv fn _same_type(self, a: unsafe *Type, b: unsafe *Type) -> bool {
         if a == &null || b == &null {
             return false
@@ -6134,7 +6134,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
     }
 
-    /// Decides what `finally()` on \p d does (CallExpr::finalize: Ends or
+    /// Decides what `finally()` on `d` does (CallExpr::finalize: Ends or
     /// NoEffect), or reports why it cannot run and poisons the call.
     priv fn _finally_legal(self,
                            n:          unsafe *Expressions::CallExpr,
@@ -6235,7 +6235,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return true
     }
 
-    /// `x = e` with \p pl the whole local `x` of this body: an assignment
+    /// `x = e` with `pl` the whole local `x` of this body: an assignment
     /// revives a finalized local as it revives a moved-from one, but the
     /// storage holds no object, so it is a construction (the old value's
     /// destructor and `op =` do not run). The states it is reached in are
@@ -6273,7 +6273,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return true
     }
 
-    /// A read of, or a store into, \p n after the `finally()` \p mp: SC303E.
+    /// A read of, or a store into, `n` after the `finally()` `mp`: SC303E.
     /// The caller keeps it to one per binding (MoveState::reported).
     priv fn _finalized_use(self, n: unsafe *NamedIdentExpr, const mp: MovedPart) {
         var b = self.sc->diag->report(
@@ -6293,7 +6293,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self.n_errored += 1
     }
 
-    /// _deprecated_copy for a transfer of the lvalue \p e: a temporary is
+    /// _deprecated_copy for a transfer of the lvalue `e`: a temporary is
     /// built in place and copies nothing.
     priv fn _deprecated_copy_place(self, e: unsafe *Expr, const how: string) {
         if e == &null || e->is_poisoned() || e->type_ == &null {
@@ -6313,11 +6313,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
     }
 
-    /// SC354W at \p at when a copy of a \p t runs a `@copy` constructor
+    /// SC354W at `at` when a copy of a `t` runs a `@copy` constructor
     /// marked `@deprecated` (LifecycleFacts::deprecated_copy): the copies
     /// nothing in the source names, which the plain deprecation warning,
-    /// reported at a use of the name, never sees. \p why says what copies
-    /// here. \p src is the copied expression when `.copy()` after it is the
+    /// reported at a use of the name, never sees. `why` says what copies
+    /// here. `src` is the copied expression when `.copy()` after it is the
     /// rewrite, else null. Nothing inside the constructor itself is
     /// reported.
     priv fn _deprecated_copy(self,
@@ -6489,7 +6489,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._read_part(n, d, "", "")
     }
 
-    /// A read of \p path under \p d, through the name \p n; \p shown is the
+    /// A read of `path` under `d`, through the name `n`; `shown` is the
     /// storage read as source text ("" for the binding itself). An error
     /// when it touches a moved part (read_touches): the part itself,
     /// something inside it, or storage that holds the part by value.

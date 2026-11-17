@@ -24,11 +24,8 @@ import Memory::MemoryBuffer::MemoryBuffer
 import Support::FileIO::Path::Path
 import std::c_char
 
+/// simd-optimized source line index for fast line/column resolution.
 ///
-/// \file SourceLineTable.hlx
-/// \brief simd-optimized source line index for fast line/column resolution.
-///
-/// \details
 /// `SourceLineTable` maintains a global, atomic table mapping file offsets
 /// to line starts. each file gets its own entry (`FileEntry`) containing
 /// a vector of newline offsets and metadata.
@@ -46,23 +43,20 @@ import std::c_char
 /// this table is used by `SourceManager` and `FullSourceLocation` to
 /// provide accurate human-readable diagnostics.
 ///
-/// \note
-///   - no internal locking; relies on atomic ops and external sync for writes.
-///   - cross-architecture simd support with conditional compilation.
+/// **Note:**
+/// - no internal locking; relies on atomic ops and external sync for writes.
+/// - cross-architecture simd support with conditional compilation.
 ///
-/// \see SourceManager, FullSourceLocation, VirtualFileManager
-///
+/// See SourceManager, FullSourceLocation, VirtualFileManager.
 
+/// where one file's line index is, as a single atomic byte.
 ///
-/// \enum LineEntryState
-/// \brief where one file's line index is, as a single atomic byte.
-///
-/// \details The entry records more than "ready or not" so that a file
-///          nobody will ever index, one whose build is queued, and a second
-///          claim on an in-flight build are distinguishable. Those are
-///          exactly the states the loader/pool races live in,
-///          so they are named, and the transitions below are the only
-///          writers (each one asserts its source state in a debug build):
+/// The entry records more than "ready or not" so that a file
+/// nobody will ever index, one whose build is queued, and a second
+/// claim on an in-flight build are distinguishable. Those are
+/// exactly the states the loader/pool races live in,
+/// so they are named, and the transitions below are the only
+/// writers (each one asserts its source state in a debug build):
 ///
 ///            Absent/Stale -> Queued     try_claim(Queued)  reserve_build, under _load_mu
 ///            Absent/Stale -> Building   try_claim(Building) build_index, under _load_mu
@@ -72,7 +66,6 @@ import std::c_char
 ///
 ///          Queued and Building are always counted in _builds, so after
 ///          _drain_builds() no entry may be in either.
-///
 pub enum LineEntryState derives u8 {
     Absent,   ///< registered; no build claimed it.
     Queued,   ///< reserve_build claimed it; a pool task will scan it.
@@ -81,15 +74,12 @@ pub enum LineEntryState derives u8 {
     Stale,    ///< invalidate withdrew the old index; the rebuild follows under _load_mu.
 }
 
-///
-/// \class SourceLineTable
-/// \brief maintains file-to-line offset mapping with simd acceleration.
+/// maintains file-to-line offset mapping with simd acceleration.
 ///
 /// each registered file gets a `FileEntry` with a precomputed vector of
 /// line-start offsets. entries are indexed by file ID.
 ///
 /// uses relaxed atomic storage to allow concurrent access and safe teardown.
-///
 pub class SourceLineTable {
     priv var _file_table: kairo::std::Atomic<unsafe *cxx::std::vector<unsafe *Self::FileEntry>> = kairo::std::Atomic<unsafe *cxx::std::vector<unsafe *Self::FileEntry>>(
         &null,
@@ -100,13 +90,10 @@ pub class SourceLineTable {
     priv var _file_count: kairo::std::Atomic<u64> = kairo::std::Atomic<u64>(0)
     priv var _builds:     kairo::std::Atomic<u64> = kairo::std::Atomic<u64>(0)
 
-    ///
-    /// \class FileEntry
-    /// \brief represents one file's line index data.
+    /// represents one file's line index data.
     ///
     /// stores file size, line count, file id, build state,
     /// and pointer to a vector of newline offsets.
-    ///
     class FileEntry {
         pub var line_count: kairo::std::Atomic<u32> = kairo::std::Atomic<u32>(0) ///< number of lines.
         pub var file_size:  u32 ///< total size in bytes.
@@ -122,31 +109,21 @@ pub class SourceLineTable {
             &null,
         )
 
-        ///
-        /// \brief default constructor.
-        ///
+        /// default constructor.
         fn FileEntry(self) = default
 
-        ///
-        /// \brief copy constructor deleted to prevent copies.
-        ///
+        /// copy constructor deleted to prevent copies.
         @copy fn FileEntry(self, const other: Self) = delete
 
-        ///
-        /// \brief copy assignment operator deleted to prevent copies.
-        ///
+        /// copy assignment operator deleted to prevent copies.
 
-        ///
-        /// \brief constructs a FileEntry with given id and size.
-        ///
+        /// constructs a FileEntry with given id and size.
         fn FileEntry(self, id: u32, size: u32) {
             self.file_id   = id
             self.file_size = size
         }
 
-        ///
-        /// \brief checks if the entry is ready (index built).
-        ///
+        /// checks if the entry is ready (index built).
         fn is_ready(self) -> bool {
             return self._state.load(
                 kairo::std::MemoryOrder::acquire,
@@ -164,16 +141,16 @@ pub class SourceLineTable {
             return s == (LineEntryState::Queued as u8) || s == (LineEntryState::Building as u8)
         }
 
+        /// claims an entry at rest (Absent or Stale) for a build,
+        /// moving it to `to` (Queued or Building).
         ///
-        /// \brief claims an entry at rest (Absent or Stale) for a build,
-        ///        moving it to \p to (Queued or Building).
+        /// A CAS rather than a test-then-store: an is_ready()
+        /// check would let a second claim through while the first build
+        /// is still in flight. Only the lock makes that impossible today,
+        /// so a debug build reports it instead of building twice.
         ///
-        /// \details A CAS rather than a test-then-store: an is_ready()
-        ///          check would let a second claim through while the first build
-        ///          is still in flight. Only the lock makes that impossible today,
-        ///          so a debug build reports it instead of building twice.
-        ///
-        /// \return false if the entry is Ready (nothing to build) or in flight.
+        /// ### Returns
+        /// false if the entry is Ready (nothing to build) or in flight.
         fn try_claim(self, to: LineEntryState) -> bool {
             var from = LineEntryState::Absent as u8
             if self._state.compare_exchange_strong(&from, to as u8) {
@@ -196,12 +173,12 @@ pub class SourceLineTable {
             return false
         }
 
+        /// the pool task's start: Queued to Building.
         ///
-        /// \brief the pool task's start: Queued to Building.
-        ///
-        /// \return false (and an ICE in a debug build) if the entry is not
-        ///         Queued: its reservation did not come from reserve_build, or
-        ///         someone touched it while the task waited in the queue.
+        /// ### Returns
+        /// false (and an ICE in a debug build) if the entry is not
+        /// Queued: its reservation did not come from reserve_build, or
+        /// someone touched it while the task waited in the queue.
         fn begin_scan(self) -> bool {
             var from = LineEntryState::Queued as u8
             if self._state.compare_exchange_strong(
@@ -220,11 +197,10 @@ pub class SourceLineTable {
             return false
         }
 
+        /// publishes the computed line offsets: Building to Ready.
         ///
-        /// \brief publishes the computed line offsets: Building to Ready.
-        ///
-        /// \details lines and line_count are stored first, then the state with
-        ///          release, so a reader that sees Ready sees both.
+        /// lines and line_count are stored first, then the state with
+        /// release, so a reader that sees Ready sees both.
         fn publish_lines(self, lines: unsafe *cxx::std::vector<u32>, count: u32) {
             eval if defined!(DEBUG) {
                 var s = self._state.load(kairo::std::MemoryOrder::acquire)
@@ -243,14 +219,13 @@ pub class SourceLineTable {
             )
         }
 
+        /// withdraws the published index before its vector is freed:
+        /// any state at rest to Stale.
         ///
-        /// \brief withdraws the published index before its vector is freed:
-        ///        any state at rest to Stale.
-        ///
-        /// \details Stored before line_count and lines are cleared, so a
-        ///          reader that raced in sees "not ready" rather than a live
-        ///          pointer to a vector about to be deleted. The caller has
-        ///          drained _builds, so nothing may be in flight.
+        /// Stored before line_count and lines are cleared, so a
+        /// reader that raced in sees "not ready" rather than a live
+        /// pointer to a vector about to be deleted. The caller has
+        /// drained _builds, so nothing may be in flight.
         fn withdraw(self) {
             eval if defined!(DEBUG) {
                 if self.in_flight() {
@@ -271,9 +246,7 @@ pub class SourceLineTable {
         }
     }
 
-    ///
-    /// \brief constructs the global table with initial capacity.
-    ///
+    /// constructs the global table with initial capacity.
     fn SourceLineTable(self) {
         self._file_table.store(
             Self::_new_table(),
@@ -281,15 +254,15 @@ pub class SourceLineTable {
         )
     }
 
-    /// \brief an empty file table, sized for a typical import graph.
+    /// an empty file table, sized for a typical import graph.
     priv static fn _new_table() -> unsafe *cxx::std::vector<unsafe *Self::FileEntry> {
         var unsafe *tbl = unsafe (@create cxx::std::vector<unsafe *Self::FileEntry>() as unsafe *cxx::std::vector<unsafe *Self::FileEntry>)
         tbl->reserve(256)
         return tbl
     }
 
-    /// \brief \p fid's entry, or null when the table is torn down, \p fid is
-    ///        past its end, or its slot is empty.
+    /// `fid`'s entry, or null when the table is torn down, `fid` is
+    /// past its end, or its slot is empty.
     priv inline fn _entry(self, fid: u32) -> unsafe *Self::FileEntry {
         var unsafe *tbl = self._file_table.load(
             kairo::std::MemoryOrder::acquire,
@@ -302,7 +275,7 @@ pub class SourceLineTable {
         return (*tbl)[fid]
     }
 
-    /// \brief \p fid's entry if its line index is published, else null.
+    /// `fid`'s entry if its line index is published, else null.
     priv inline fn _ready_entry(self, fid: u32) -> unsafe *Self::FileEntry {
         var unsafe *entry = self._entry(fid)
         if entry == &null || !entry->is_ready() {
@@ -312,10 +285,10 @@ pub class SourceLineTable {
         return entry
     }
 
-    /// \brief frees \p entry and its line vector.
+    /// frees `entry` and its line vector.
     ///
-    /// \note The caller has drained _builds and unlinked or is discarding
-    ///       the slot that held \p entry.
+    /// **Note:** The caller has drained _builds and unlinked or is discarding
+    /// the slot that held `entry`.
     priv static fn _free_entry(entry: unsafe *Self::FileEntry) {
         var unsafe *lines = entry->lines.load(kairo::std::MemoryOrder::acquire)
         if lines != &null {
@@ -325,10 +298,10 @@ pub class SourceLineTable {
         @destroy unsafe (entry as *Self::FileEntry)
     }
 
-    /// \brief frees every entry of the current table and the table itself,
-    ///        leaving _file_table dangling for the caller to replace.
+    /// frees every entry of the current table and the table itself,
+    /// leaving _file_table dangling for the caller to replace.
     ///
-    /// \note The caller has drained _builds.
+    /// **Note:** The caller has drained _builds.
     priv fn _free_table(self) {
         var unsafe *tbl = self._file_table.load(
             kairo::std::MemoryOrder::acquire,
@@ -347,16 +320,12 @@ pub class SourceLineTable {
         @destroy unsafe (tbl as *cxx::std::vector<unsafe *Self::FileEntry>)
     }
 
-    ///
-    /// \brief destructor, cleans all file entries and buffers.
-    ///
+    /// destructor, cleans all file entries and buffers.
     fn op finally (self) {
         self.shutdown()
     }
 
-    ///
-    /// \brief releases all memory and resets table state.
-    ///
+    /// releases all memory and resets table state.
     fn shutdown(self) {
         /// wait for any active builds to finish
         self._drain_builds()
@@ -370,9 +339,7 @@ pub class SourceLineTable {
         self._file_count.store(0, kairo::std::MemoryOrder::release)
     }
 
-    ///
-    /// \brief registers a new file entry in the line table.
-    ///
+    /// registers a new file entry in the line table.
     fn register_file(self, fid: u32, size: u32) {
         var unsafe *tbl = self._file_table.load(
             kairo::std::MemoryOrder::acquire,
@@ -411,12 +378,11 @@ pub class SourceLineTable {
         return self._file_count.load(kairo::std::MemoryOrder::relaxed) as usize
     }
 
+    /// blocks until no background build is touching the table.
     ///
-    /// \brief blocks until no background build is touching the table.
-    ///
-    /// \details The reclamation protocol, such as it is. Entries are published
-    ///          through atomics and read without a lock, so freeing one while a
-    ///          build is in flight is a use-after-free.
+    /// The reclamation protocol, such as it is. Entries are published
+    /// through atomics and read without a lock, so freeing one while a
+    /// build is in flight is a use-after-free.
     ///
     ///          There is deliberately no RCU/hazard-pointer scheme here. Freeing
     ///          a line index is a RARE event   a file actually changed on disk,
@@ -432,28 +398,26 @@ pub class SourceLineTable {
         }
     }
 
+    /// _drain_builds() for a caller about to unmap file bytes.
     ///
-    /// \brief _drain_builds() for a caller about to unmap file bytes.
-    ///
-    /// \details SourceManager::invalidate needs the drain BEFORE the
-    ///          VirtualFileManager replaces the mapping; invalidate() below
-    ///          drains too, but by then the old bytes are already gone.
-    ///
+    /// SourceManager::invalidate needs the drain BEFORE the
+    /// VirtualFileManager replaces the mapping; invalidate() below
+    /// drains too, but by then the old bytes are already gone.
     fn drain_builds(self) {
         self._drain_builds()
     }
 
+    /// rebuilds `fid`'s line index after its bytes changed.
     ///
-    /// \brief rebuilds \p fid's line index after its bytes changed.
+    /// Keeps the entry (and therefore the fid) and swaps its contents.
+    /// Takes the size from `bytes`, since an edit changes it.
     ///
-    /// \details Keeps the entry (and therefore the fid) and swaps its contents.
-    ///          Takes the size from \p bytes, since an edit changes it.
+    /// ### Parameters
+    /// - `bytes`: the NEW contents, resolved by the caller under
+    ///   SourceManager::_load_mu.
     ///
-    /// \param bytes the NEW contents, resolved by the caller under
-    ///        SourceManager::_load_mu.
-    ///
-    /// \return false if \p fid has no entry.
-    ///
+    /// ### Returns
+    /// false if `fid` has no entry.
     fn invalidate(self, fid: u32, bytes: MemoryBuffer) -> bool {
         self._drain_builds()
 
@@ -479,11 +443,10 @@ pub class SourceLineTable {
         return true
     }
 
+    /// drops `fid`'s entry entirely. Pairs with evict().
     ///
-    /// \brief drops \p fid's entry entirely. Pairs with evict().
-    ///
-    /// \return false if \p fid had no entry.
-    ///
+    /// ### Returns
+    /// false if `fid` had no entry.
     fn drop_file(self, fid: u32) -> bool {
         self._drain_builds()
 
@@ -512,14 +475,12 @@ pub class SourceLineTable {
         return true
     }
 
+    /// builds `fid`'s line index from `bytes`, on the calling thread.
     ///
-    /// \brief builds \p fid's line index from \p bytes, on the calling thread.
-    ///
-    /// \details For callers holding SourceManager::_load_mu, which is what
-    ///          makes looking the entry up by fid safe: register_file resizes
-    ///          _file_table under that lock. A pool task must go through
-    ///          reserve_build() / run_reserved_build() instead.
-    ///
+    /// For callers holding SourceManager::_load_mu, which is what
+    /// makes looking the entry up by fid safe: register_file resizes
+    /// _file_table under that lock. A pool task must go through
+    /// reserve_build() / run_reserved_build() instead.
     fn build_index(self, fid: u32, bytes: MemoryBuffer) {
         self._builds.fetch_add(1, kairo::std::MemoryOrder::acq_rel)
         finally {
@@ -541,13 +502,12 @@ pub class SourceLineTable {
         self._scan(entry, bytes)
     }
 
+    /// claims `fid`'s index build for a pool task. Runs on the
+    /// caller's thread, under SourceManager::_load_mu, BEFORE the task
+    /// is enqueued.
     ///
-    /// \brief claims \p fid's index build for a pool task. Runs on the
-    ///        caller's thread, under SourceManager::_load_mu, BEFORE the task
-    ///        is enqueued.
-    ///
-    /// \details Two things are settled here rather than in the task, because
-    ///          the task runs without the lock:
+    /// Two things are settled here rather than in the task, because
+    /// the task runs without the lock:
     ///
     ///          - The entry is resolved now. The task must not index
     ///            _file_table, which register_file resizes under the lock.
@@ -559,8 +519,8 @@ pub class SourceLineTable {
     ///          Every non-null return must reach exactly one
     ///          run_reserved_build(), or _drain_builds never returns.
     ///
-    /// \return the entry to fill, or null if there is nothing to build.
-    ///
+    /// ### Returns
+    /// the entry to fill, or null if there is nothing to build.
     fn reserve_build(self, fid: u32) -> unsafe *Self::FileEntry {
         // The claim and the count go together: an entry that reads Queued is
         // always one _drain_builds waits for. Bumped before the CAS so a
@@ -579,10 +539,8 @@ pub class SourceLineTable {
         return entry
     }
 
-    ///
-    /// \brief the pool half of reserve_build(): fills \p entry from \p bytes,
-    ///        then releases the reservation.
-    ///
+    /// the pool half of reserve_build(): fills `entry` from `bytes`,
+    /// then releases the reservation.
     fn run_reserved_build(self, entry: unsafe *Self::FileEntry, bytes: MemoryBuffer) {
         finally {
             self._builds.fetch_sub(1, kairo::std::MemoryOrder::acq_rel)
@@ -595,18 +553,15 @@ pub class SourceLineTable {
         self._scan(entry, bytes)
     }
 
+    /// builds the line index for a file using simd or scalar fallback.
     ///
-    /// \brief builds the line index for a file using simd or scalar fallback.
-    ///
-    /// \details
     /// scans for newline bytes (`'\n'`) and records their offsets.
     /// architecture-specific branches use AVX512, AVX2, SSE2, or NEON.
     /// automatically falls back to scalar if no simd is available.
     ///
-    /// reads only \p entry and \p buff   never _file_table, never the
+    /// reads only `entry` and `buff`   never _file_table, never the
     /// VirtualFileManager   so it is safe off the loader's thread. the caller
-    /// accounts for _builds and has moved \p entry to Building.
-    ///
+    /// accounts for _builds and has moved `entry` to Building.
     priv fn _scan(self, entry: unsafe *Self::FileEntry, buff: MemoryBuffer) {
         var fid = entry->file_id
 
@@ -802,16 +757,12 @@ pub class SourceLineTable {
         entry->publish_lines(lines, count)
     }
 
-    ///
-    /// \brief checks if the file entry is ready (index built).
-    ///
+    /// checks if the file entry is ready (index built).
     fn is_ready(self, fid: u32) -> bool {
         return self._ready_entry(fid) != &null
     }
 
-    ///
-    /// \brief busy-waits until the file entry is ready, with backoff.
-    ///
+    /// busy-waits until the file entry is ready, with backoff.
     fn wait_until_ready(self, fid: u32) {
         // check if fid is even registered before waiting
         var unsafe *entry = self._entry(fid)
@@ -860,13 +811,10 @@ pub class SourceLineTable {
         )
     }
 
+    /// resolves line and column for a given file id and offset.
     ///
-    /// \brief resolves line and column for a given file id and offset.
-    ///
-    /// \details
     /// performs a binary search on the line offsets to find the
     /// corresponding line number and column within that line.
-    ///
     fn get_line_col(self, fid: u32, offset: u32, const file_name: Path) -> FullSourceLocation {
         var unsafe *entry = self._ready_entry(fid)
         if entry == &null {
@@ -908,9 +856,7 @@ pub class SourceLineTable {
         )
     }
 
-    ///
-    /// \brief dumps the internal state of the source line table.
-    ///
+    /// dumps the internal state of the source line table.
     fn op as (self) -> string {
         var out = f"SourceLineTable(\n"
         out += f"  _file_count: {self._file_count}\n"
@@ -938,13 +884,14 @@ pub class SourceLineTable {
         return out + ")"
     }
 
+    /// gets the starting offset of a line.
     ///
-    /// \brief gets the starting offset of a line.
+    /// ### Parameters
+    /// - `fid`: file id.
+    /// - `line_num`: 1-based line number.
     ///
-    /// \param fid file id.
-    /// \param line_num 1-based line number.
-    /// \return byte offset of line start, or 0 if invalid.
-    ///
+    /// ### Returns
+    /// byte offset of line start, or 0 if invalid.
     fn get_line_offset(self, fid: u32, line_num: u32) -> u32 {
         var unsafe *entry = self._ready_entry(fid)
         if entry == &null {
@@ -968,13 +915,14 @@ pub class SourceLineTable {
         return (*lines)[line_num - 1]
     }
 
+    /// gets the ending offset of a line (start of next line or EOF).
     ///
-    /// \brief gets the ending offset of a line (start of next line or EOF).
+    /// ### Parameters
+    /// - `fid`: file id.
+    /// - `line_num`: 1-based line number.
     ///
-    /// \param fid file id.
-    /// \param line_num 1-based line number.
-    /// \return byte offset where line ends (exclusive).
-    ///
+    /// ### Returns
+    /// byte offset where line ends (exclusive).
     fn get_line_end_offset(self, fid: u32, line_num: u32) -> u32 {
         var unsafe *entry = self._ready_entry(fid)
         if entry == &null {
@@ -1004,12 +952,9 @@ pub class SourceLineTable {
         return (*lines)[line_num] - 1
     }
 
+    /// resets the table to initial state.
     ///
-    /// \brief resets the table to initial state.
-    ///
-    /// \details
     /// waits for active builds, destroys all entries, reallocates table.
-    ///
     fn reset(self) {
         // wait for any active builds
         self._drain_builds()

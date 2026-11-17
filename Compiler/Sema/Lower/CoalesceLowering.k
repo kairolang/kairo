@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------------- Sema/Lower/CoalesceLowering.k --- ///
 ///
-///   \brief The nullable operators that choose a value, and a `match` on a
-///          `T?`, become the if-expressions Compiler/Spec/Nullables.md#operator-typing / 3.6 write.
+/// The nullable operators that choose a value, and a `match` on a
+/// `T?`, become the if-expressions Compiler/Spec/Nullables.md#operator-typing / 3.6 write.
 ///
 ///   \detail
 ///     Compiler/Spec/Nullables.md#coalesce-2.6, §5 step 1:
@@ -104,8 +104,8 @@ import Sema::SemaContext::{
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
-/// The operand of an expansion, ready to be read twice: \p test is what the
-/// null test asks, \p value the marked read for the then-arm. \p decl is the
+/// The operand of an expansion, ready to be read twice: `test` is what the
+/// null test asks, `value` the marked read for the then-arm. `decl` is the
 /// local a non-place operand was bound to (null for a place), whose DeclStmt
 /// the caller places in front of the expansion.
 pub struct CoalesceOperand {
@@ -279,8 +279,8 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         )
     }
 
-    /// One operand of `===`: its test (when nullable) pushed on \p tests, and
-    /// the value the `==` reads returned, dereferenced when \p deref.
+    /// One operand of `===`: its test (when nullable) pushed on `tests`, and
+    /// the value the `==` reads returned, dereferenced when `deref`.
     priv fn _identity_side(self,
                            e:            unsafe *Expr,
                            deref:        bool,
@@ -322,7 +322,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         return d
     }
 
-    /// `l && r`, typed bool; just \p r when \p l is null.
+    /// `l && r`, typed bool; just `r` when `l` is null.
     priv fn _and(self, at: SourceRange, l: unsafe *Expr, r: unsafe *Expr) -> unsafe *Expr {
         if l == &null {
             return r
@@ -489,7 +489,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         return self._safe(ce, n)
     }
 
-    /// Compiler/Spec/Nullables.md#safe-access for the chain \p c (the callee of \p call, when not
+    /// Compiler/Spec/Nullables.md#safe-access for the chain `c` (the callee of `call`, when not
     /// null): every `?.` / `?->` step tests the value before it, left to
     /// right, and the then-arm is the chain with each of those reads marked
     /// narrowed and its separator made `.` / `->`:
@@ -616,8 +616,8 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         return self.synth.stmt_expr(orig, &stmts, ty)
     }
 
-    /// A new read of \p c's base: the bound local, or the name again.
-    /// \p marked reads it as the value a `?.` on it proved.
+    /// A new read of `c`'s base: the bound local, or the name again.
+    /// `marked` reads it as the value a `?.` on it proved.
     priv fn _base_read(self,
                        c:      unsafe *ChainExpr,
                        bvd:    unsafe *VariableDecl,
@@ -646,9 +646,9 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         return e
     }
 
-    /// \p c's base and its first \p k steps of \p acc (separators already
-    /// made plain, earlier reads marked), as a new chain typed \p ty; the
-    /// base alone when \p k is 0.
+    /// `c`'s base and its first `k` steps of `acc` (separators already
+    /// made plain, earlier reads marked), as a new chain typed `ty`; the
+    /// base alone when `k` is 0.
     priv fn _prefix(self,
                     c:           unsafe *ChainExpr,
                     bvd:         unsafe *VariableDecl,
@@ -756,7 +756,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         )
     }
 
-    /// `if !test? { unwrap_failed("<message>", <len>) }` for \p n.
+    /// `if !test? { unwrap_failed("<message>", <len>) }` for `n`.
     priv fn _abort_unless(self, n: unsafe *UnwrapExpr, #test: unsafe *Expr) -> unsafe *Stmt {
         // The message, whole: the expression as written and where it is.
         var at   = n->range
@@ -768,7 +768,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
 
     /// # the shared pieces
 
-    /// \p e, a nullable, made readable twice: a place is read again (a
+    /// `e`, a nullable, made readable twice: a place is read again (a
     /// fresh node per use), anything else is bound to a `__kairo_<hint>K`
     /// local first and its value moved out.
     priv fn _operand(self,
@@ -808,8 +808,8 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         return out
     }
 
-    /// A NEW read of the place \p x (a name or a pure field path), marked
-    /// as the nullness analysis marks a proven read: typed \p inner, its
+    /// A NEW read of the place `x` (a name or a pure field path), marked
+    /// as the nullness analysis marks a proven read: typed `inner`, its
     /// `T?` in narrowed_from (on the name, or on the chain's last step).
     priv fn _marked_copy(self,
                          x:     unsafe *Expr,
@@ -860,7 +860,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         return ce
     }
 
-    /// One more node naming what \p n names.
+    /// One more node naming what `n` names.
     priv fn _copy_name(self, n: unsafe *NamedIdentExpr) -> unsafe *Expr {
         var unsafe *id = NamedIdentExpr::create(self.ctx, n->range, n->name)
         id->resolved_decl = n->resolved_decl
@@ -886,7 +886,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         return q
     }
 
-    /// `if test? => then else other`, typed \p ty.
+    /// `if test? => then else other`, typed `ty`.
     priv fn _select(self,
                     at:    SourceRange,
                     #test: unsafe *Expr,
@@ -906,7 +906,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         return ie
     }
 
-    /// \p e in place of \p orig: alone when the operand was a place, else
+    /// `e` in place of `orig`: alone when the operand was a place, else
     /// after the local it was bound to, as a statement expression.
     priv fn _wrap(self,
                   orig:  unsafe *Expr,

@@ -111,7 +111,7 @@ extend Speller {
         return s + "::" + self.leaf(r)
     }
 
-    /// `typename ::ns::I_witness<B, A...>::Node` for associated type \p a.
+    /// `typename ::ns::I_witness<B, A...>::Node` for associated type `a`.
     ///
     /// The witness is the BOUND's (`G impl Big`, Big derives Graph:
     /// `Big_witness<G>::Node`), since rows -- and so specializations -- exist
@@ -204,8 +204,8 @@ extend Speller {
         return Speller::_member_type(q, true, leaf, targs)
     }
 
-    /// The bound of associated type \p base (its cached, substituted
-    /// bounds) whose interface requires \p a's associated type, or null.
+    /// The bound of associated type `base` (its cached, substituted
+    /// bounds) whose interface requires `a`'s associated type, or null.
     priv fn _assoc_bound_of(self, base: unsafe *AssocType, a: unsafe *AssocType) -> unsafe *Type {
         if base->bounds_state != (BoundsState::Done as u8) {
             return &null
@@ -240,7 +240,7 @@ extend Speller {
         return &null
     }
 
-    /// The bound of \p g whose interface requires \p a's associated type
+    /// The bound of `g` whose interface requires `a`'s associated type
     /// (itself or through what it derives), or null.
     priv fn _assoc_bound(self, g: unsafe *GenericParamType, a: unsafe *AssocType) -> unsafe *Type {
         if g->owner == &null {
@@ -301,7 +301,7 @@ extend Speller {
     }
 
     /// `<Self, A...>`: a witness's or concept's arguments for interface
-    /// instance \p iface, Self already spelled as \p self_s.
+    /// instance `iface`, Self already spelled as `self_s`.
     fn witness_args(self,
                     const self_s: string,
                     iface:        unsafe *Type,
@@ -316,7 +316,7 @@ extend Speller {
         return s + ">"
     }
 
-    /// The arguments of interface instance \p iface, in parameter order.
+    /// The arguments of interface instance `iface`, in parameter order.
     fn iface_args(self, iface: unsafe *Type) -> cxx::std::vector<unsafe *Type> {
         var        v  = cxx::std::vector<unsafe *Type>()
         var unsafe *c = canon_unqual(iface)
@@ -349,10 +349,10 @@ extend Speller {
         return v
     }
 
-    /// ` requires (::ns::I_c<T> && ...)` for \p d's interface bounds, one
+    /// ` requires (::ns::I_c<T> && ...)` for `d`'s interface bounds, one
     /// conjunct per `P impl I<A...>` in clause order, or "". Only bounds on
-    /// \p d's OWN template parameters (template_params: an extension
-    /// member's extension's, then its own), read off \p d's clause and, for
+    /// `d`'s OWN template parameters (template_params: an extension
+    /// member's extension's, then its own), read off `d`'s clause and, for
     /// an extension member, its extension's: a class's bound is the class
     /// head's, never repeated on a member that adds no parameter. Every
     /// declaration of the entity -- forward declaration, definition, an
@@ -495,7 +495,7 @@ extend Speller {
         return s
     }
 
-    /// \p d is a generic record PRIMARY, whose interface bounds stay off its
+    /// `d` is a generic record PRIMARY, whose interface bounds stay off its
     /// template head (requires_clause). A partial specialization keeps its
     /// clause: there it selects, and dropping it would let C++ pick the
     /// partial where Kairo did not. Functions keep theirs (their concept is
@@ -517,7 +517,7 @@ extend Speller {
         return k == Declarations::SpecKind::Primary || k == Declarations::SpecKind::None
     }
 
-    /// Kairo class \p d0 has a virtual destructor: its own `virtual` /
+    /// Kairo class `d0` has a virtual destructor: its own `virtual` /
     /// `override fn op finally`, or a Kairo base's (C++ makes the derived one
     /// virtual then, written or not). Such a class carries the hidden
     /// `__kairo_layout()` (InterfaceEmitter::_layout_virtual) that
@@ -588,7 +588,7 @@ extend Speller {
         return false
     }
 
-    /// The class the first `derives` bound of type parameter \p g names, read
+    /// The class the first `derives` bound of type parameter `g` names, read
     /// off its owner's requires clause (where RequiresDesugar keeps every
     /// bound); null when it has none.
     static fn param_bound(g: unsafe *GenericParamType) -> unsafe *RecordType {
@@ -643,7 +643,7 @@ extend Speller {
         return &null
     }
 
-    /// A Kairo base of \p d0 has a virtual destructor, so \p d0's
+    /// A Kairo base of `d0` has a virtual destructor, so `d0`'s
     /// `__kairo_layout()` overrides that base's and says so.
     static fn layout_overrides(d0: unsafe *Decl) -> bool {
         if d0 == &null {
@@ -686,8 +686,8 @@ extend Speller {
     }
 
     /// `static_assert(::ns::I_c<A, ...>, "...");` for each interface bound
-    /// requires_clause kept off primary record \p d's head, at instance
-    /// \p ie: written beside the home's explicit instantiation, where the
+    /// requires_clause kept off primary record `d`'s head, at instance
+    /// `ie`: written beside the home's explicit instantiation, where the
     /// arguments are complete, so a C++ disagreement with Kairo's check is
     /// still an error there. A pack parameter's bound is not pinned (no one
     /// argument to spell).
@@ -747,7 +747,7 @@ extend Speller {
     }
 
     /// `static_assert(::ns::I_c<T>, "...");` for each interface bound of the
-    /// generic record primary whose constructor \p f is, spelled over the
+    /// generic record primary whose constructor `f` is, spelled over the
     /// record's own parameters: the record's C++ head carries none of them
     /// (defers_bounds: a head clause is checked where the template-id is
     /// named, over a CRTP base or a `*Holder<Node>` inside Node while the
@@ -814,7 +814,7 @@ extend Speller {
         return out
     }
 
-    /// Every VALUE predicate of requires clause \p e (conjuncts that are not
+    /// Every VALUE predicate of requires clause `e` (conjuncts that are not
     /// `T impl I` / `T derives B`), in clause order.
     static fn value_predicates(e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
         if e == &null {
@@ -836,7 +836,7 @@ extend Speller {
         out->push_back(e)
     }
 
-    /// The value predicates of generic record \p d's `requires` that its
+    /// The value predicates of generic record `d`'s `requires` that its
     /// template head cannot carry (_pred_text is "": one naming an eval
     /// constant or fn, which the head -- written in tier 0, before any of
     /// them is declared -- cannot name). They are static_asserts in the
@@ -873,7 +873,7 @@ extend Speller {
         return out
     }
 
-    /// The value predicates of method \p m's `requires` as a C++20 trailing
+    /// The value predicates of method `m`'s `requires` as a C++20 trailing
     /// requires-clause (` requires (...)`), or "" when they stay its body's
     /// static_asserts (EmitIR::_body). Every home of a generic record writes
     /// its explicit instantiation (`template class B<X>;`), which
@@ -922,7 +922,7 @@ extend Speller {
     }
 
     /// ` requires (::ns::I_c<P> && ...`, unclosed, for each `P impl I` of
-    /// member \p m's clause whose P is a parameter of \p owner, or "". The
+    /// member `m`'s clause whose P is a parameter of `owner`, or "". The
     /// instance that does not meet it has no such member, so its body is
     /// never instantiated there.
     priv fn _owner_impl_conjuncts(self,
@@ -1123,7 +1123,7 @@ extend Speller {
         )
     }
 
-    /// Generic function \p f's value predicates go in its template head
+    /// Generic function `f`'s value predicates go in its template head
     /// (requires_clause) rather than its body's static_asserts (EmitIR::
     /// _body): when every one spells. C++ then selects among overloads by
     /// the same clauses Kairo did (`requires T impl I` beside `requires
@@ -1151,7 +1151,7 @@ extend Speller {
     }
 
     /// C++ text of a self-contained predicate (requires_clause), or "".
-    /// \p concepts admits `P impl I` as `I_c<P>`: a function's head and a
+    /// `concepts` admits `P impl I` as `I_c<P>`: a function's head and a
     /// member's trailing clause are checked where they are called, after
     /// every class is complete; a record's head is not (defers_bounds).
     priv fn _pred_text(self, e0: unsafe *Expr, concepts: bool = false) -> string {
@@ -1305,7 +1305,7 @@ extend Speller {
         return dyn_cast<Declarations::GenericParamDecl>(id->resolved_decl)
     }
 
-    /// The associated type conjunct \p c constrains (`J::Item impl Eq`), or
+    /// The associated type conjunct `c` constrains (`J::Item impl Eq`), or
     /// null when its left side names none.
     static fn _bound_assoc(c: unsafe *ConstraintExpr) -> unsafe *AssocType {
         var unsafe *ch = dyn_cast<ChainExpr>(c->lhs)
@@ -1321,7 +1321,7 @@ extend Speller {
         return dyn_cast<AssocType>(canon_unqual(st->resolved_type))
     }
 
-    /// The generic parameter associated type \p a is reached from at any
+    /// The generic parameter associated type `a` is reached from at any
     /// depth (`J` of `J::Item::Key`), or null.
     static fn _assoc_root(a: unsafe *AssocType) -> unsafe *Declarations::GenericParamDecl {
         var unsafe *b = canon_unqual(a->base)
@@ -1343,7 +1343,7 @@ extend Speller {
                else => &null
     }
 
-    /// Every `impl` conjunct of requires clause \p e, in clause order.
+    /// Every `impl` conjunct of requires clause `e`, in clause order.
     static fn impl_bounds(e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) {
         if e == &null {
             return
@@ -1363,7 +1363,7 @@ extend Speller {
         }
     }
 
-    /// Generic parameter \p gp of \p owner by name (rename_tparams).
+    /// Generic parameter `gp` of `owner` by name (rename_tparams).
     fn tparam_name(self,
                    gp:    unsafe *Declarations::GenericParamDecl,
                    owner: unsafe *Decl) -> string {

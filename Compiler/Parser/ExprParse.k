@@ -90,8 +90,8 @@ import Token::TokenKind::{
 }
 import Token::TokenSpan::TokenSpan
 
-/// \brief the boundary _sync_expr (and TypeParse::_sync_type) recovers to.
-///        At module scope so the type parser can name it.
+/// the boundary _sync_expr (and TypeParse::_sync_type) recovers to.
+/// At module scope so the type parser can name it.
 pub enum SyncCtx derives u8 {
     TopLevel, ///< sync to newline, ;, EOF
     Paren,    ///< sync to ) at depth 0
@@ -100,12 +100,12 @@ pub enum SyncCtx derives u8 {
     Comma,    ///< sync to , or closing delimiter
 }
 
-/// \brief what, besides `;` / newline / EOF, terminates an expression: one bit
-///        each. A stop set is a FlagSet of them (ExprParse<T>::ExprStop),
-///        passed into parse_expr so the Pratt loop knows when to stop; the
-///        empty set stops at `;` / newline / EOF only. At module scope, not
-///        nested in ExprParse<T>: the FlagBit extension needs a type it can
-///        name, and an enum nested in a class template is not one.
+/// what, besides `;` / newline / EOF, terminates an expression: one bit
+/// each. A stop set is a FlagSet of them (ExprParse<T>::ExprStop),
+/// passed into parse_expr so the Pratt loop knows when to stop; the
+/// empty set stops at `;` / newline / EOF only. At module scope, not
+/// nested in ExprParse<T>: the FlagBit extension needs a type it can
+/// name, and an enum nested in a class template is not one.
 enum ExprStopBit derives u8 {
     StopAngle       = 1 << 0, ///< also stop at > >> at depth 0 (generic param defaults)
     StopParen       = 1 << 1, ///< also stop at ) at depth 0
@@ -124,13 +124,13 @@ extend ExprStopBit impl FlagBit<u8> {
 
 // TODO(DUCK-GENERIC): T uses _consume_mode, _is_terminator_tok, _parse_and_validate_op_spelling, _parse_closure_sig, _parse_generic_args, _parse_match_core, _peek_mode, pay_close, _reject_mode_binding, _starts_decl_kw, advance, advance_raw, ... (48). Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> ExprParse {
-    /// \brief token kinds that can start a primary expression: identifiers,
-    ///        builtins, and `self`.
+    /// token kinds that can start a primary expression: identifiers,
+    /// builtins, and `self`.
     ///
-    /// \details Matches over constants (is_builtin), not a per-parser
-    ///          `std::set` built in every ExprParse and probed as a red-black
-    ///          tree on each test; the kinds are hashes (no dense range for a
-    ///          bitset), so clang lowers this to a compare tree.
+    /// Matches over constants (is_builtin), not a per-parser
+    /// `std::set` built in every ExprParse and probed as a red-black
+    /// tree on each test; the kinds are hashes (no dense range for a
+    /// bitset), so clang lowers this to a compare tree.
     static fn _is_expr_ident_kind(k: TokenKind) -> bool {
         return k == TokenKind::LitIdentifier || k == TokenKind::KwSelf || is_builtin(k)
     }
@@ -149,22 +149,22 @@ pub class <T: type> ExprParse {
     /// statement arm, so the value-form rules that follow it are not reported.
     pub var _arm_was_stmts: bool = false
 
-    /// \brief SyncCtx, as the expression parser names it.
+    /// SyncCtx, as the expression parser names it.
     type ExprSyncCtx = SyncCtx
 
-    /// \brief one stop bit (ExprStopBit above), as the parsers name it:
-    ///        `T::ExprStopKind::StopComma`.
+    /// one stop bit (ExprStopBit above), as the parsers name it:
+    /// `T::ExprStopKind::StopComma`.
     type ExprStopKind = ExprStopBit
-    /// \brief a stop set: what tokens terminate an expression.
+    /// a stop set: what tokens terminate an expression.
     type ExprStop = FlagSet<ExprStopBit, u8>
 
-    /// \brief the stop set of \p f alone; `.plus(g)` adds more (what
-    ///        `F | G` was before the enum closed).
+    /// the stop set of `f` alone; `.plus(g)` adds more (what
+    /// `F | G` was before the enum closed).
     inline fn stop_on(self, f: Self::ExprStopKind) -> Self::ExprStop {
         return FlagSet<ExprStopBit, u8>(f)
     }
 
-    /// \brief the empty stop set: stop at `;` / newline / EOF only.
+    /// the empty stop set: stop at `;` / newline / EOF only.
     inline fn no_stop(self) -> Self::ExprStop {
         return FlagSet<ExprStopBit, u8>()
     }
@@ -181,13 +181,13 @@ pub class <T: type> ExprParse {
 
     //  Sync / recovery
 
-    /// \brief skips tokens to a recovery boundary of \p ctx, tracking
-    ///        `()` / `[]` / `{}` depth from the given starting depths, and
-    ///        stops ON the boundary without consuming it: a closer at depth
-    ///        0, `;`, and at depth 0 a `,` (Comma, Paren, Square) or a
-    ///        newline (TopLevel). \p stop_at_newline stops at any newline at
-    ///        depth 0; \p stop_at_arrow (type positions) at a `->` there. At
-    ///        most 64 tokens are skipped.
+    /// skips tokens to a recovery boundary of `ctx`, tracking
+    /// `()` / `[]` / `{}` depth from the given starting depths, and
+    /// stops ON the boundary without consuming it: a closer at depth
+    /// 0, `;`, and at depth 0 a `,` (Comma, Paren, Square) or a
+    /// newline (TopLevel). `stop_at_newline` stops at any newline at
+    /// depth 0; `stop_at_arrow` (type positions) at a `->` there. At
+    /// most 64 tokens are skipped.
     inline fn _sync_expr(self,
                          ctx:             Self::ExprSyncCtx,
                          paren_depth:     i32  = 0,
@@ -311,8 +311,8 @@ pub class <T: type> ExprParse {
 
     //  Entry point
 
-    /// \brief operator precedence levels for the Pratt parser.
-    ///        higher number = tighter binding.
+    /// operator precedence levels for the Pratt parser.
+    /// higher number = tighter binding.
     enum Precedence derives u8 {
         None        = 0,
         Assign      = 1,  // = += -= *= /= %= &= |= ^= <<= >>=
@@ -359,9 +359,9 @@ pub class <T: type> ExprParse {
         return lhs
     }
 
-    /// \brief A `where` guard on a function head: an expression that stops
-    ///        before an assignment operator and never reads `{` as a struct
-    ///        literal.
+    /// A `where` guard on a function head: an expression that stops
+    /// before an assignment operator and never reads `{` as a struct
+    /// literal.
     ///
     /// Both stops are the body's: `where ok { ... }` opens the body, not
     /// `ok { ... }`, and `where x > 0 = x` is an expression body, not an
@@ -396,10 +396,10 @@ pub class <T: type> ExprParse {
         return lhs
     }
 
-    /// \brief Pratt precedence climbing loop. Consumes binary operators
-    ///        whose precedence is strictly greater than `min_prec` and
-    ///        builds left-associative or right-associative BinaryOperatorExpr
-    ///        / AssignOperatorExpr nodes.
+    /// Pratt precedence climbing loop. Consumes binary operators
+    /// whose precedence is strictly greater than `min_prec` and
+    /// builds left-associative or right-associative BinaryOperatorExpr
+    /// / AssignOperatorExpr nodes.
     priv fn _parse_expr_prec(self,
                              lhs_in:   unsafe *Expr,
                              min_prec: Self::Precedence,
@@ -567,10 +567,10 @@ pub class <T: type> ExprParse {
         return lhs
     }
 
-    /// \brief parses a single primary expression for pattern position: the lead
-    ///        of a range bound or a constructor head. Stops before postfix `(`,
-    ///        `..`, `.` the pattern parser owns those. Returns null/recovery
-    ///        on no production.
+    /// parses a single primary expression for pattern position: the lead
+    /// of a range bound or a constructor head. Stops before postfix `(`,
+    /// `..`, `.` the pattern parser owns those. Returns null/recovery
+    /// on no production.
     pub fn parse_pattern_lead(self) -> unsafe *Expr {
         var unsafe *base = self._parse_primary_expr(self.no_stop())
         if base == &null {
@@ -611,16 +611,16 @@ pub class <T: type> ExprParse {
         return base
     }
 
-    /// \brief after `..` / `..=`: does an upper bound follow?
+    /// after `..` / `..=`: does an upper bound follow?
     ///
-    /// \details the bound is optional (`a[i..]`), so what follows decides. A
-    ///          closer, `,`, `;` or a newline ends the range in every
-    ///          context, and so does a keyword that can only begin a
-    ///          statement. `{` ends it where a brace cannot open a literal
-    ///          (an `if`/`while` condition, a `for` header): there it is the
-    ///          body, and reading it as a bound took the body for an operand.
-    ///          `=>` ends it as well: it introduces an arm's value and can
-    ///          never begin one (`case 5.. => 1`, `if x in 0.. => a ...`).
+    /// the bound is optional (`a[i..]`), so what follows decides. A
+    /// closer, `,`, `;` or a newline ends the range in every
+    /// context, and so does a keyword that can only begin a
+    /// statement. `{` ends it where a brace cannot open a literal
+    /// (an `if`/`while` condition, a `for` header): there it is the
+    /// body, and reading it as a bound took the body for an operand.
+    /// `=>` ends it as well: it introduces an arm's value and can
+    /// never begin one (`case 5.. => 1`, `if x in 0.. => a ...`).
     priv fn _range_has_upper(self, stop: Self::ExprStop) -> bool {
         if self.dyn()->is_eof() || self._should_stop(stop) {
             return false
@@ -666,9 +666,9 @@ pub class <T: type> ExprParse {
         )
     }
 
-    /// \brief parses a range expression: lhs .. rhs | lhs ..= rhs
-    ///        also handles prefix ranges: ..rhs | ..=rhs
-    ///        range has its own precedence level and is non-associative.
+    /// parses a range expression: lhs .. rhs | lhs ..= rhs
+    /// also handles prefix ranges: ..rhs | ..=rhs
+    /// range has its own precedence level and is non-associative.
     priv fn _parse_range_expr(self, lhs: unsafe *Expr, stop: Self::ExprStop) -> unsafe *Expr {
         var op_tok       = self.dyn()->current_ptr()
         var op_range     = op_tok->range
@@ -710,8 +710,8 @@ pub class <T: type> ExprParse {
         )
     }
 
-    /// \brief returns the infix precedence for a token kind, or Precedence::None
-    ///        if the token is not a binary operator.
+    /// returns the infix precedence for a token kind, or Precedence::None
+    /// if the token is not a binary operator.
     priv fn _infix_precedence(self, k: TokenKind) -> Self::Precedence {
         // assignment
         if k == TokenKind::OpEqual
@@ -829,7 +829,7 @@ pub class <T: type> ExprParse {
         return Self::Precedence::None
     }
 
-    /// \brief returns true if the token is an assignment operator.
+    /// returns true if the token is an assignment operator.
     priv fn _is_assign_op(self, k: TokenKind) -> bool {
         return k == TokenKind::OpEqual
             || k == TokenKind::OpPlusEqual
@@ -844,8 +844,8 @@ pub class <T: type> ExprParse {
             || k == TokenKind::OpGreaterGreaterEqual
     }
 
-    /// \brief checks if the current token is a stop token for the given context.
-    ///        returns true if the expression should terminate here.
+    /// checks if the current token is a stop token for the given context.
+    /// returns true if the expression should terminate here.
     priv fn _should_stop(self, stop: Self::ExprStop) -> bool {
         if self.dyn()->is_eof() {
             return true
@@ -877,16 +877,16 @@ pub class <T: type> ExprParse {
         return false
     }
 
-    /// \brief true if the current token continues a value expression, i.e. it is
-    ///        an infix operator or a postfix opener (call/index/member).
+    /// true if the current token continues a value expression, i.e. it is
+    /// an infix operator or a postfix opener (call/index/member).
     ///
-    /// \details used by the type parser to disambiguate a value generic argument
-    ///          (`Foo<i32, N + 1>`, `Foo<i32, bar()>`) from a type argument: a
-    ///          clean type parse that stops here on an operator means the arg was
-    ///          really a value expression that merely began with a type-shaped
-    ///          token. The generic-list terminators `,` `>` `>>` are deliberately
-    ///          excluded (`>`/`>>` are operators in the precedence table but here
-    ///          they close the list, not continue an expression).
+    /// used by the type parser to disambiguate a value generic argument
+    /// (`Foo<i32, N + 1>`, `Foo<i32, bar()>`) from a type argument: a
+    /// clean type parse that stops here on an operator means the arg was
+    /// really a value expression that merely began with a type-shaped
+    /// token. The generic-list terminators `,` `>` `>>` are deliberately
+    /// excluded (`>`/`>>` are operators in the precedence table but here
+    /// they close the list, not continue an expression).
     pub fn at_value_expr_continuation(self) -> bool {
         var k = self.dyn()->ig_kind()
 
@@ -920,7 +920,7 @@ pub class <T: type> ExprParse {
 
     //  Cast expressions
 
-    /// \brief a unary expression followed by any number of `as` casts.
+    /// a unary expression followed by any number of `as` casts.
     ///
     /// `as` binds looser than every prefix operator and tighter than every
     /// binary one (Rust's table), so `&x as *const T` casts the ADDRESS,
@@ -963,14 +963,14 @@ pub class <T: type> ExprParse {
 
     //  Unary expressions
 
-    /// \brief parses an attribute applied to an expression.
-    ///  Grammar:  '@' identifier ( '(' call-args? ')' )? unary-expr
+    /// parses an attribute applied to an expression.
+    /// Grammar:  '@' identifier ( '(' call-args? ')' )? unary-expr
     ///
-    /// \details an expression attribute is an attribute like any other
-    ///          (attributes.mdx, `@create T(args)`), so its head is the
-    ///          declaration attribute's grammar (ASTParse::
-    ///          consume_leading_annotations): a name, and an argument list
-    ///          exactly when `(` follows the name.
+    /// an expression attribute is an attribute like any other
+    /// (attributes.mdx, `@create T(args)`), so its head is the
+    /// declaration attribute's grammar (ASTParse::
+    /// consume_leading_annotations): a name, and an argument list
+    /// exactly when `(` follows the name.
     ///
     ///          The operand binds as a keyword prefix's does (`await`,
     ///          `thread`): one unary expression, postfix chain included. So
@@ -1195,9 +1195,10 @@ pub class <T: type> ExprParse {
         return ae
     }
 
-    /// \brief `@cxx::new T(args)`, `@cxx::new [T; n]`, `@cxx::delete p`,
-    ///        `@cxx::delete [] p` (c-cpp-memory.mdx).
-    /// \details precondition: `@` consumed, current token is `cxx`, then `::`.
+    /// `@cxx::new T(args)`, `@cxx::new [T; n]`, `@cxx::delete p`,
+    /// `@cxx::delete [] p` (c-cpp-memory.mdx).
+    ///
+    /// precondition: `@` consumed, current token is `cxx`, then `::`.
     priv fn _parse_cxx_mem_expr(self, at_range: SourceRange, stop: Self::ExprStop) -> unsafe *Expr {
         self.dyn()->advance() // `cxx`
         self.dyn()->advance() // `::`
@@ -1310,7 +1311,7 @@ pub class <T: type> ExprParse {
     }
 
     /// `delete` already consumed: the optional `[]` and the operand.
-    /// \p is_cxx: written `@cxx::delete`; false is a bare `delete`, parsed
+    /// `is_cxx`: written `@cxx::delete`; false is a bare `delete`, parsed
     /// only so the statement recovers (S091E was reported).
     priv fn _parse_delete_tail(self,
                                kw_range: SourceRange,
@@ -1356,7 +1357,7 @@ pub class <T: type> ExprParse {
         return de
     }
 
-    /// \brief parses prefix unary operators then delegates to postfix.
+    /// parses prefix unary operators then delegates to postfix.
     ///
     /// prefix ops: ! + - ~ & * ++ --
     /// keyword prefixes: await spawn thread eval unsafe delete sizeof alignof typeof
@@ -1670,10 +1671,10 @@ pub class <T: type> ExprParse {
         return self._parse_postfix_expr(stop)
     }
 
-    /// \brief `const &x` after its `const`. precondition: the current token
-    ///        is the `&`, and \p cur_range is the `const`. The node is the
-    ///        `&x` the operand makes, with `const_addr` set; its range starts
-    ///        at `const`.
+    /// `const &x` after its `const`. precondition: the current token
+    /// is the `&`, and `cur_range` is the `const`. The node is the
+    /// `&x` the operand makes, with `const_addr` set; its range starts
+    /// at `const`.
     inline fn _parse_const_addr(self,
                                 cur_range: SourceRange,
                                 stop:      Self::ExprStop) -> unsafe *Expr {
@@ -1705,8 +1706,8 @@ pub class <T: type> ExprParse {
 
     //  sizeof / alignof / typeof
 
-    /// \brief `sizeof T` / `sizeof(T)`, or the same with `alignof` when
-    ///        \p is_align.
+    /// `sizeof T` / `sizeof(T)`, or the same with `alignof` when
+    /// `is_align`.
     inline fn _parse_size_align_expr(self, is_align: bool) -> unsafe *Expr {
         var word:    string = if (is_align) => ("alignof") else => "sizeof"
         var kw_range        = self.dyn()->current_ptr()->range
@@ -1828,10 +1829,10 @@ pub class <T: type> ExprParse {
         )
     }
 
-    /// \brief parses `defined!(NAME)` (Compiler/Spec/Eval.md#defined). The preprocessor only
-    ///        lets a well-formed one through, so a malformed one here was
-    ///        written some way the PP did not see (a macro's output).
-    ///  Grammar:  'defined' '!' '(' identifier ')'
+    /// parses `defined!(NAME)` (Compiler/Spec/Eval.md#defined). The preprocessor only
+    /// lets a well-formed one through, so a malformed one here was
+    /// written some way the PP did not see (a macro's output).
+    /// Grammar:  'defined' '!' '(' identifier ')'
     inline fn _parse_defined_intrinsic(self) -> unsafe *Expr {
         var kw_range = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `defined`
@@ -1870,8 +1871,8 @@ pub class <T: type> ExprParse {
         ))
     }
 
-    /// \brief parses the unwrap intrinsic (Compiler/Spec/Nullables.md#unwrap).
-    ///  Grammar:  'unwrap' '!' '(' expr ')'
+    /// parses the unwrap intrinsic (Compiler/Spec/Nullables.md#unwrap).
+    /// Grammar:  'unwrap' '!' '(' expr ')'
     inline fn _parse_unwrap_intrinsic(self) -> unsafe *Expr {
         var kw_range = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `unwrap`
@@ -1926,9 +1927,9 @@ pub class <T: type> ExprParse {
         )
     }
 
-    /// \brief parses a type-fact intrinsic (Compiler/Spec/Eval.md#deferred-conditions). A malformed one
-    ///        is reported and reads as `false`, as a malformed `defined!` does.
-    ///  Grammar:  ('is_trivially_copyable' | 'is_trivially_destructible') '!' '(' type ')'
+    /// parses a type-fact intrinsic (Compiler/Spec/Eval.md#deferred-conditions). A malformed one
+    /// is reported and reads as `false`, as a malformed `defined!` does.
+    /// Grammar:  ('is_trivially_copyable' | 'is_trivially_destructible') '!' '(' type ')'
     inline fn _parse_type_trait_intrinsic(self) -> unsafe *Expr {
         var kw_range = self.dyn()->current_ptr()->range
         var fact = Expressions::type_trait_of(
@@ -1978,7 +1979,7 @@ pub class <T: type> ExprParse {
 
     //  Postfix expression loop
 
-    /// \brief parses a primary expression then loops consuming postfix ops.
+    /// parses a primary expression then loops consuming postfix ops.
     ///
     /// postfix ops:
     ///   . -> :: ?. ?->           -> accumulate ChainExpr steps
@@ -2153,8 +2154,8 @@ pub class <T: type> ExprParse {
 
     //  Chain step parsing
 
-    /// \brief parses a single access step: separator + identifier + optional
-    ///        generic args.
+    /// parses a single access step: separator + identifier + optional
+    /// generic args.
     ///
     /// precondition: current token is one of . -> :: ?. ?->
     inline fn _parse_access_step(self) -> ChainExpr::Step {
@@ -2385,31 +2386,35 @@ pub class <T: type> ExprParse {
         return result
     }
 
-    /// \brief validates a LitInt as a tuple index and extracts its value.
+    /// validates a LitInt as a tuple index and extracts its value.
     ///
-    /// \details rejects anything that isn't a plain decimal ordinal: `t.0x1`,
-    ///          `t.1u8`, `t.1_0`, `t.01`. Each is a typo with a plausible wrong
-    ///          reading, so silently accepting one is worse than erroring.
-    ///          Reads the flags the lexer already computed in `finalize_number`
-    ///          rather than reclassifying the token.
+    /// rejects anything that isn't a plain decimal ordinal: `t.0x1`,
+    /// `t.1u8`, `t.1_0`, `t.01`. Each is a typo with a plausible wrong
+    /// reading, so silently accepting one is worse than erroring.
+    /// Reads the flags the lexer already computed in `finalize_number`
+    /// rather than reclassifying the token.
     ///
-    /// \param tok       the macro-resolved LitInt token (imm indexes the imm table).
-    /// \param out       receives the ordinal on success; untouched on failure.
-    /// \param too_large set only when the failure is "does not fit u32", so the
-    ///                  caller can name the value instead of talking about
-    ///                  prefixes and separators. Never cleared here   the
-    ///                  caller initialises it.
-    /// \returns false if the token is not a valid tuple index.
-    /// \brief what separates a tuple index from its access operator: 0
-    ///        nothing (`t.0`), 1 whitespace on one line (S054E), 2 a line
-    ///        break (not an index; the caller's identifier path reports).
+    /// ### Parameters
+    /// - `tok`: the macro-resolved LitInt token (imm indexes the imm table).
+    /// - `out`: receives the ordinal on success; untouched on failure.
+    /// - `too_large`: set only when the failure is "does not fit u32", so the
+    ///   caller can name the value instead of talking about
+    ///   prefixes and separators. Never cleared here   the
+    ///   caller initialises it.
     ///
-    /// \details both tokens of a macro body (`t.1` in an imported macro)
-    ///          carry the invocation's range, so their ranges said "spaced"
-    ///          for every expanded index. A wrapped token is judged where it
-    ///          was written. An operator and an index written in two places
-    ///          (the body's `.`, the argument's `1`; or two files) had no
-    ///          spacing written between them, and are adjacent.
+    /// ### Returns
+    /// false if the token is not a valid tuple index.
+    ///
+    /// what separates a tuple index from its access operator: 0
+    /// nothing (`t.0`), 1 whitespace on one line (S054E), 2 a line
+    /// break (not an index; the caller's identifier path reports).
+    ///
+    /// both tokens of a macro body (`t.1` in an imported macro)
+    /// carry the invocation's range, so their ranges said "spaced"
+    /// for every expanded index. A wrapped token is judged where it
+    /// was written. An operator and an index written in two places
+    /// (the body's `.`, the argument's `1`; or two files) had no
+    /// spacing written between them, and are adjacent.
     priv fn _tuple_index_gap(self, sep: Token, idx: Token) -> u8 {
         var ctx = self.dyn()->ctx
         var wrapped = (sep.kind as u32) == (TokenKind::TkMacroExpand as u32)
@@ -2466,7 +2471,7 @@ pub class <T: type> ExprParse {
         return 1
     }
 
-    /// \p tok is the index token as the stream holds it, wrapped or not: a
+    /// `tok` is the index token as the stream holds it, wrapped or not: a
     /// wrapped one's imm is its expansion record, and its payload is in the
     /// table of the file that wrote the literal (ASTContext::get_payload_table).
     priv fn _read_tuple_index(self, raw: Token, out: unsafe *u32, too_large: unsafe *bool) -> bool {
@@ -2537,9 +2542,9 @@ pub class <T: type> ExprParse {
         return true
     }
 
-    /// \brief true for a token that may follow a member step's generic
-    ///        arguments (`.f<T>(`, `.f<T>.g`, `.f<T>,` ...); anything else
-    ///        after a `<...>` that parsed makes it a comparison instead.
+    /// true for a token that may follow a member step's generic
+    /// arguments (`.f<T>(`, `.f<T>.g`, `.f<T>,` ...); anything else
+    /// after a `<...>` that parsed makes it a comparison instead.
     static fn _follows_generic_args(k: TokenKind) -> bool {
         return k == TokenKind::OpLParen
             || k == TokenKind::OpDot
@@ -2586,21 +2591,23 @@ pub class <T: type> ExprParse {
         // fall through: guard dtor pops suppress and rolls cursor back
     }
 
-    /// \brief tentatively splits a `<<` after `op` into the `<` operator plus a
-    ///        generic-args opener: `(k.op<)<i32>(..)`.
+    /// tentatively splits a `<<` after `op` into the `<` operator plus a
+    /// generic-args opener: `(k.op<)<i32>(..)`.
     ///
-    /// \details the lexer fuses `op<` + `<` into `op` `<<`. When generic args
-    ///          are actually present, the first `<` is the overloaded operator
-    ///          and the second opens the generic list. We rewrite the physical
-    ///          `<<` token in place to a single `<` covering only its second
-    ///          column, then run the normal generic-args parse. On success the
-    ///          op token is the synthesized `<` over the first column. On
-    ///          failure we restore the `<<` token (TentativeGuard does NOT
-    ///          snapshot the token buffer) and return false so the caller falls
-    ///          back to reading `<<` as the shift operator.
+    /// the lexer fuses `op<` + `<` into `op` `<<`. When generic args
+    /// are actually present, the first `<` is the overloaded operator
+    /// and the second opens the generic list. We rewrite the physical
+    /// `<<` token in place to a single `<` covering only its second
+    /// column, then run the normal generic-args parse. On success the
+    /// op token is the synthesized `<` over the first column. On
+    /// failure we restore the `<<` token (TentativeGuard does NOT
+    /// snapshot the token buffer) and return false so the caller falls
+    /// back to reading `<<` as the shift operator.
     ///
     /// precondition: current token is `<<`, `op` already consumed.
-    /// \returns true if the split reading committed (result is fully populated).
+    ///
+    /// ### Returns
+    /// true if the split reading committed (result is fully populated).
     inline fn _try_op_less_less_split(self,
                                       result:    *ChainExpr::Step,
                                       op_start:  SourceRange,
@@ -2660,8 +2667,8 @@ pub class <T: type> ExprParse {
         return false
     }
 
-    /// \brief flushes accumulated chain steps into a ChainExpr wrapping base.
-    ///        if no steps are pending, returns base unchanged.
+    /// flushes accumulated chain steps into a ChainExpr wrapping base.
+    /// if no steps are pending, returns base unchanged.
     inline fn _flush_chain(self,
                            base:         unsafe *Expr,
                            @inout steps: kairo::std::StackBuf<ChainExpr::Step, 8>,
@@ -2684,8 +2691,8 @@ pub class <T: type> ExprParse {
 
     //  Call expression
 
-    /// \brief parses a function call: callee ( args )
-    ///        supports named arguments: foo(x: 10, y: 20)
+    /// parses a function call: callee ( args )
+    /// supports named arguments: foo(x: 10, y: 20)
     ///
     /// precondition: current token is `(`
     inline fn _parse_call_expr(self, callee: unsafe *Expr) -> unsafe *Expr {
@@ -2743,8 +2750,8 @@ pub class <T: type> ExprParse {
         return ce
     }
 
-    /// \brief parses comma-separated call arguments.
-    ///        handles named args (name: expr) and positional args (expr).
+    /// parses comma-separated call arguments.
+    /// handles named args (name: expr) and positional args (expr).
     ///
     /// named args are parsed as AssignOperatorExpr with lhs=NamedIdentExpr
     /// and rhs=value. sema distinguishes named vs positional by checking
@@ -2890,9 +2897,9 @@ pub class <T: type> ExprParse {
         }
     }
 
-    /// \brief returns true if the token kind is a declaration/statement keyword
-    ///        that should never appear inside a call argument list.
-    ///        lets arg parsing bail out when sync has overshot.
+    /// returns true if the token kind is a declaration/statement keyword
+    /// that should never appear inside a call argument list.
+    /// lets arg parsing bail out when sync has overshot.
     priv fn _is_decl_keyword(self, k: TokenKind) -> bool {
         return k == TokenKind::KwClass
             || k == TokenKind::KwStruct
@@ -2920,7 +2927,7 @@ pub class <T: type> ExprParse {
 
     //  Subscript expression
 
-    /// \brief parses a subscript: base [ index ]
+    /// parses a subscript: base [ index ]
     ///
     /// precondition: current token is `[`
     inline fn _parse_subscript_expr(self, base: unsafe *Expr) -> unsafe *Expr {
@@ -2987,15 +2994,15 @@ pub class <T: type> ExprParse {
 
     //  Type cast
 
-    /// \brief speculatively parses `as Type` / `as unsafe *Type`.
+    /// speculatively parses `as Type` / `as unsafe *Type`.
     ///
-    /// \details handles the cast-vs-context-binding ambiguity. On a clean type
-    ///          parse with no trailing `{`, commits and returns the cast. On
-    ///          failure the type recovers (e.g. `(var a, ...)`), or a `{`
-    ///          follows the parsed type (`as const x { ... }`, a binding header,
-    ///          since a cast is never followed by a brace) rolls the cursor
-    ///          back to `as`, discards speculative diagnostics, and returns null
-    ///          so the statement layer routes to context binding.
+    /// handles the cast-vs-context-binding ambiguity. On a clean type
+    /// parse with no trailing `{`, commits and returns the cast. On
+    /// failure the type recovers (e.g. `(var a, ...)`), or a `{`
+    /// follows the parsed type (`as const x { ... }`, a binding header,
+    /// since a cast is never followed by a brace) rolls the cursor
+    /// back to `as`, discards speculative diagnostics, and returns null
+    /// so the statement layer routes to context binding.
     ///
     /// precondition: current token is `as`.
     inline fn _try_type_cast(self, operand: unsafe *Expr, stop: Self::ExprStop) -> unsafe *Expr {
@@ -3050,7 +3057,7 @@ pub class <T: type> ExprParse {
 
     //  Primary expression dispatch
 
-    /// \brief dispatches the current token to the correct primary production.
+    /// dispatches the current token to the correct primary production.
     ///
     /// handles: integer/float/string/char/bool/null literals, identifiers
     /// (with optional generic args), parenthesized expressions and tuple
@@ -3361,11 +3368,11 @@ pub class <T: type> ExprParse {
         return self._error_expr(cur_range)
     }
 
-    /// \brief true for a token that closes or terminates something the
-    ///        current expression sits in: a closing bracket of any kind, a
-    ///        statement terminator, the end of the file. Recovery never
-    ///        consumes one of these on a failed operand; see the no-match
-    ///        path of the primary parser.
+    /// true for a token that closes or terminates something the
+    /// current expression sits in: a closing bracket of any kind, a
+    /// statement terminator, the end of the file. Recovery never
+    /// consumes one of these on a failed operand; see the no-match
+    /// path of the primary parser.
     priv inline static fn _ends_enclosing(k: TokenKind) -> bool {
         return k == TokenKind::OpRBrace
             || k == TokenKind::OpRParen
@@ -3375,23 +3382,23 @@ pub class <T: type> ExprParse {
             || k == TokenKind::TkEof
     }
 
-    /// \brief true on a closing bracket of any kind.
+    /// true on a closing bracket of any kind.
     priv inline fn _at_closer(self) -> bool {
         var k = self.dyn()->ig_kind()
         return k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare
     }
 
-    /// \brief true on a closer that closes a bracket still open before it
-    ///        (ASTParse::closer_is_owned): one some construct around the
-    ///        cursor is waiting for, not a stray one.
+    /// true on a closer that closes a bracket still open before it
+    /// (ASTParse::closer_is_owned): one some construct around the
+    /// cursor is waiting for, not a stray one.
     priv inline fn _at_owned_closer(self) -> bool {
         return self._at_closer() && self.dyn()->closer_is_owned()
     }
 
-    /// \brief S052E for a list element that is not there at all (`[1, , 3]`,
-    ///        `f(1, , 2)`): parse_expr returns null, unreported, when it
-    ///        starts on a stop token. Recovery keeps the `,` and the list's
-    ///        own closer, so no later error fires for the hole; report it here.
+    /// S052E for a list element that is not there at all (`[1, , 3]`,
+    /// `f(1, , 2)`): parse_expr returns null, unreported, when it
+    /// starts on a stop token. Recovery keeps the `,` and the list's
+    /// own closer, so no later error fires for the hole; report it here.
     priv fn _report_missing_element(self) {
         // after a depth abort S063E already said why; at the end of the file
         // the unclosed list or block is what gets reported
@@ -3409,8 +3416,8 @@ pub class <T: type> ExprParse {
 
     //  Identifier expression (with optional generic args)
 
-    /// \brief parses a bare identifier, optionally followed by generic args
-    ///        if the hoisted scope indicates it's generic.
+    /// parses a bare identifier, optionally followed by generic args
+    /// if the hoisted scope indicates it's generic.
     ///
     /// foo       -> NamedIdentExpr("foo")
     /// Bar<i32>  -> NamedIdentExpr("Bar", generic_args=[i32])
@@ -3487,15 +3494,15 @@ pub class <T: type> ExprParse {
 
     //  Leading-dot variant: .Variant | .Variant { field: value, ... }
 
-    /// \brief parses `.Variant`, a variant of the enum the expected type
-    ///        names, alone or with its payload in braces.
+    /// parses `.Variant`, a variant of the enum the expected type
+    /// names, alone or with its payload in braces.
     ///
-    /// \details nothing is looked up: as for the `.Variant` pattern, which enum
-    ///          is a sema fact. Both forms are a NamedInitializerExpr with no
-    ///          head, `is_dotted` set and `has_braces` saying which was written.
-    ///          Where NoStructLiteral holds the `{` is left for the caller, as
-    ///          the postfix loop leaves it after a path: in `if x == .A { }`
-    ///          it is the block.
+    /// nothing is looked up: as for the `.Variant` pattern, which enum
+    /// is a sema fact. Both forms are a NamedInitializerExpr with no
+    /// head, `is_dotted` set and `has_braces` saying which was written.
+    /// Where NoStructLiteral holds the `{` is left for the caller, as
+    /// the postfix loop leaves it after a path: in `if x == .A { }`
+    /// it is the block.
     ///
     /// precondition: current token is `.`
     priv fn _parse_dotted_variant(self, stop: Self::ExprStop) -> unsafe *Expr {
@@ -3631,9 +3638,9 @@ pub class <T: type> ExprParse {
 
     //  Parenthesized expression / tuple literal
 
-    /// \brief parses (expr) or (expr, expr, ...)
-    ///        single expr -> unwrapped (no GroupingExpr since CST not needed)
-    ///        comma-separated -> TupleLiteralExpr
+    /// parses (expr) or (expr, expr, ...)
+    /// single expr -> unwrapped (no GroupingExpr since CST not needed)
+    /// comma-separated -> TupleLiteralExpr
     /// TODO apply the same nl logic to <> [] and {} parse functions
     inline fn _parse_paren_expr(self) -> unsafe *Expr {
         var lparen_range = self.dyn()->current_ptr()->range
@@ -3707,13 +3714,13 @@ pub class <T: type> ExprParse {
         return first
     }
 
-    /// \brief finishes a statement expression after its `(`; current is `{`.
-    ///  Grammar:  '(' '{' stmt* expr-stmt '}' ')'
+    /// finishes a statement expression after its `(`; current is `{`.
+    /// Grammar:  '(' '{' stmt* expr-stmt '}' ')'
     ///
-    /// \details the value is the last statement, so it MUST be an
-    ///          ExpressionStmt; anything else (including an empty block) is a
-    ///          hard error and yields a RecoveryExpr, so Sema never sees a
-    ///          StmtExpr without a value slot.
+    /// the value is the last statement, so it MUST be an
+    /// ExpressionStmt; anything else (including an empty block) is a
+    /// hard error and yields a RecoveryExpr, so Sema never sees a
+    /// StmtExpr without a value slot.
     inline fn _finish_stmt_expr(self, lparen_range: SourceRange) -> *Expr {
         var lbrace_range = self.dyn()->current_ptr()->range
 
@@ -3792,7 +3799,7 @@ pub class <T: type> ExprParse {
         return Expressions::StmtExpr::create(self.dyn()->ctx, full_range, body)
     }
 
-    /// \brief finishes parsing a tuple literal after the first element and comma.
+    /// finishes parsing a tuple literal after the first element and comma.
     inline fn _finish_tuple_literal(self,
                                     start_range: SourceRange,
                                     first:       unsafe *Expr) -> unsafe *Expr {
@@ -3869,11 +3876,11 @@ pub class <T: type> ExprParse {
 
     //  Container type head: [T]::name, {K: V}::name, {T}::name
 
-    /// \brief a container type before `::`, as the head of a path: the
-    ///        builtin record it spells, named with its element types, the
-    ///        head `Vector<T>::name` has. N binds the head to that record
-    ///        (NamedIdentExpr::container_head). No list, map or set literal
-    ///        is followed by `::`, so the literal forms keep their parse.
+    /// a container type before `::`, as the head of a path: the
+    /// builtin record it spells, named with its element types, the
+    /// head `Vector<T>::name` has. N binds the head to that record
+    /// (NamedIdentExpr::container_head). No list, map or set literal
+    /// is followed by `::`, so the literal forms keep their parse.
     priv fn _parse_container_type_head(self) -> unsafe *Expr {
         var        open = self.dyn()->current()
         var unsafe *ty  = self.dyn()->parse_type()
@@ -4149,10 +4156,10 @@ pub class <T: type> ExprParse {
 
     //  Brace expression: set/map literal or anon initializer
 
-    /// \brief parses { ... } which could be:
-    ///        - set literal:        {1, 2, 3}
-    ///        - map literal:        {"a": 1, "b": 2}
-    ///        - anon initializer:   { .x: 1, .y: 2 }
+    /// parses { ... } which could be:
+    /// - set literal:        {1, 2, 3}
+    /// - map literal:        {"a": 1, "b": 2}
+    /// - anon initializer:   { .x: 1, .y: 2 }
     inline fn _parse_brace_expr(self) -> unsafe *Expr {
         var lbrace_range = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `{`
@@ -4503,14 +4510,15 @@ pub class <T: type> ExprParse {
         return ai
     }
 
-    /// \brief true if `e` is a type path that may precede a `{ ... }`
-    ///        named initializer.
-    /// \details accepts a bare identifier (NamedIdentExpr) or a chain whose
-    ///          steps are all name/`::`/generic-instantiation (ChainExpr).
-    ///          Rejects call results, subscripts, literals, and operator
-    ///          expressions those can never name a type to initialize.
-    ///          This is a *syntactic* gate; sema still verifies the path
-    ///          actually resolves to an initializable aggregate.
+    /// true if `e` is a type path that may precede a `{ ... }`
+    /// named initializer.
+    ///
+    /// accepts a bare identifier (NamedIdentExpr) or a chain whose
+    /// steps are all name/`::`/generic-instantiation (ChainExpr).
+    /// Rejects call results, subscripts, literals, and operator
+    /// expressions those can never name a type to initialize.
+    /// This is a *syntactic* gate; sema still verifies the path
+    /// actually resolves to an initializable aggregate.
     priv fn _is_initializable_path(self, e: unsafe *Expr) -> bool {
         if e == &null {
             return false
@@ -4531,26 +4539,26 @@ pub class <T: type> ExprParse {
         return false
     }
 
-    /// \brief parses a named (struct/aggregate) initializer.
-    ///  Grammar:  path '{' (init_field (',' init_field)*)? ','? '}'
-    ///    init_field := identifier ':' expr
+    /// parses a named (struct/aggregate) initializer.
+    /// Grammar:  path '{' (init_field (',' init_field)*)? ','? '}'
+    /// init_field := identifier ':' expr
     ///
-    /// \details precondition: `path` is the already-parsed type path and the
-    ///          current token is `{`. Field values are parsed with StopComma|
-    ///          StopBrace so a `,` or the closing `}` terminates each value;
-    ///          NoStructLiteral is intentionally NOT propagated inward a
-    ///          nested `Inner { ... }` as a field value is legal and desired.
-    ///          A trailing comma is permitted. Empty `{}` is allowed (zero-field
-    ///          aggregate / default init).
+    /// precondition: `path` is the already-parsed type path and the
+    /// current token is `{`. Field values are parsed with StopComma|
+    /// StopBrace so a `,` or the closing `}` terminates each value;
+    /// NoStructLiteral is intentionally NOT propagated inward a
+    /// nested `Inner { ... }` as a field value is legal and desired.
+    /// A trailing comma is permitted. Empty `{}` is allowed (zero-field
+    /// aggregate / default init).
     priv fn _parse_named_initializer(self,
                                      path: unsafe *Expr,
                                      stop: Self::ExprStop) -> unsafe *Expr {
         return self._parse_init_braces(path, path->range)
     }
 
-    /// \brief the `{ ... }` of a named initializer whose head spans
-    ///        \p start_range. \p path is that head, or null for the dotted
-    ///        form, which has none (_parse_dotted_variant).
+    /// the `{ ... }` of a named initializer whose head spans
+    /// `start_range`. `path` is that head, or null for the dotted
+    /// form, which has none (_parse_dotted_variant).
     ///
     /// precondition: current token is `{`.
     priv fn _parse_init_braces(self, path: unsafe *Expr, start_range: SourceRange) -> unsafe *Expr {
@@ -4634,11 +4642,12 @@ pub class <T: type> ExprParse {
         return node
     }
 
-    /// \brief parses a single `name : value` initializer field.
-    /// \details returns an InitField with value == null on failure (caller
-    ///          recovers). The field value is parsed with comma/brace stops so
-    ///          it ends at the field boundary; nested named initializers in the
-    ///          value are allowed (NoStructLiteral is not set on this call).
+    /// parses a single `name : value` initializer field.
+    ///
+    /// returns an InitField with value == null on failure (caller
+    /// recovers). The field value is parsed with comma/brace stops so
+    /// it ends at the field boundary; nested named initializers in the
+    /// value are allowed (NoStructLiteral is not set on this call).
     priv fn _parse_init_field(self) -> Expressions::InitField {
         var result = Expressions::InitField{}
         result.name  = Token()
@@ -4693,9 +4702,10 @@ pub class <T: type> ExprParse {
         return result
     }
 
-    /// \brief recovery: skip to the next field boundary inside an initializer.
-    /// \details delimiter-aware; stops at depth-0 `,` or `}` so a malformed
-    ///          field value doesn't swallow the rest of the initializer.
+    /// recovery: skip to the next field boundary inside an initializer.
+    ///
+    /// delimiter-aware; stops at depth-0 `,` or `}` so a malformed
+    /// field value doesn't swallow the rest of the initializer.
     priv fn _sync_init_field(self) {
         var   depth_paren:  i32 = 0
         var   depth_square: i32 = 0
@@ -4744,7 +4754,7 @@ pub class <T: type> ExprParse {
     // control keyword is always a statement block; the braced value arm is the
     // removed spelling and only survives as recovery (_recover_braced_branch).
 
-    /// \brief what a braced arm stood for, which decides the S073E fix-it.
+    /// what a braced arm stood for, which decides the S073E fix-it.
     enum BraceArm derives u8 {
         Value,      ///< an arm value: `{ v }` becomes `=> v`.
         TryOperand, ///< a `try` operand: `{ v }` becomes `v`.
@@ -4753,13 +4763,14 @@ pub class <T: type> ExprParse {
         ArrowValue, ///< `=> { v }`: the arrow is already consumed; the braces go.
     }
 
-    /// \brief true when the `{` that follows the current `=>` holds one
-    ///        element and nothing that marks a literal. Consumes nothing.
-    /// \details `=> { v }` is how an arm is written in languages whose arms
-    ///          are blocks, and it would otherwise parse as a one-element set.
-    ///          `assigns` is set when that element is an assignment.
-    ///          A `,` or `:` at the brace's own depth, a leading `.` and an
-    ///          empty brace are literals and are left alone.
+    /// true when the `{` that follows the current `=>` holds one
+    /// element and nothing that marks a literal. Consumes nothing.
+    ///
+    /// `=> { v }` is how an arm is written in languages whose arms
+    /// are blocks, and it would otherwise parse as a one-element set.
+    /// `assigns` is set when that element is an assignment.
+    /// A `,` or `:` at the brace's own depth, a leading `.` and an
+    /// empty brace are literals and are left alone.
     priv fn _arrow_brace_is_single(self, assigns: *bool) -> bool {
         *assigns = false
         var i = self.dyn()->c_idx + 1   // past the `=>`
@@ -4818,13 +4829,14 @@ pub class <T: type> ExprParse {
         return false
     }
 
-    /// \brief true when the `{` that follows the current `=>` opens statements
-    ///        rather than a set or map literal. Consumes nothing.
-    /// \details a literal separates its elements with `,` and never has a `;`
-    ///          at its own depth, so a `;`, a statement-only opener, or a line
-    ///          that ends without `,` in front of another element can only be a
-    ///          block. Without this the arm parses as a set literal and the user
-    ///          is told about a missing `}` instead of the arm rule.
+    /// true when the `{` that follows the current `=>` opens statements
+    /// rather than a set or map literal. Consumes nothing.
+    ///
+    /// a literal separates its elements with `,` and never has a `;`
+    /// at its own depth, so a `;`, a statement-only opener, or a line
+    /// that ends without `,` in front of another element can only be a
+    /// block. Without this the arm parses as a set literal and the user
+    /// is told about a missing `}` instead of the arm rule.
     priv fn _arrow_brace_is_block(self) -> bool {
         var i = self.dyn()->c_idx + 1   // past the `=>`
         var n = self.dyn()->span.size()
@@ -4894,10 +4906,10 @@ pub class <T: type> ExprParse {
         return false
     }
 
-    /// \brief the kind of the next token that is not a newline, `skip` real
-    ///        tokens ahead of the cursor. Consumes nothing. Comments are
-    ///        stepped over too: the cursor never rests on one, so neither may
-    ///        the lookahead.
+    /// the kind of the next token that is not a newline, `skip` real
+    /// tokens ahead of the cursor. Consumes nothing. Comments are
+    /// stepped over too: the cursor never rests on one, so neither may
+    /// the lookahead.
     pub fn _peek_kind_past_nl(self, skip: usize = 0) -> TokenKind {
         // Past EOF c_idx still names the last token, which was consumed: a
         // scan from it answered `}` after `{ { }` ran off the end, and the
@@ -4924,12 +4936,13 @@ pub class <T: type> ExprParse {
         return TokenKind::TkEof
     }
 
-    /// \brief if the next non-newline token is `k`, consume the newlines in
-    ///        front of it and return true; otherwise consume nothing.
-    /// \details only ever asked for `=>`, `else` and `catch`. None of them can
-    ///          begin a statement, and the value forms require their `else`,
-    ///          so looking past a newline for one can never take the start of
-    ///          the next statement.
+    /// if the next non-newline token is `k`, consume the newlines in
+    /// front of it and return true; otherwise consume nothing.
+    ///
+    /// only ever asked for `=>`, `else` and `catch`. None of them can
+    /// begin a statement, and the value forms require their `else`,
+    /// so looking past a newline for one can never take the start of
+    /// the next statement.
     pub fn _skip_nl_if_next(self, k: TokenKind) -> bool {
         if self._peek_kind_past_nl() != k {
             return false
@@ -4939,15 +4952,16 @@ pub class <T: type> ExprParse {
         return true
     }
 
-    /// \brief '=>' NL* value.
-    /// \details precondition: current token is `=>`. The value runs as far
-    ///          right as `stop` lets it, so callers pass the flags of the
-    ///          context the whole construct sits in: without them the last arm
-    ///          of `f(if c => 1 else => 2, 3)` swallows `, 3`. Newlines inside
-    ///          the value follow the ordinary expression rules. `bare_try`
-    ///          marks the value as a slot where a nested `try` takes the arms
-    ///          that follow it (see _parse_try_catch_expr). Returns null, after
-    ///          reporting, when no value follows.
+    /// '=>' NL* value.
+    ///
+    /// precondition: current token is `=>`. The value runs as far
+    /// right as `stop` lets it, so callers pass the flags of the
+    /// context the whole construct sits in: without them the last arm
+    /// of `f(if c => 1 else => 2, 3)` swallows `, 3`. Newlines inside
+    /// the value follow the ordinary expression rules. `bare_try`
+    /// marks the value as a slot where a nested `try` takes the arms
+    /// that follow it (see _parse_try_catch_expr). Returns null, after
+    /// reporting, when no value follows.
     pub fn _parse_arm_value(self, stop: Self::ExprStop, bare_try: bool = false) -> unsafe *Expr {
         var arrow = self.dyn()->current_ptr()->range
         self._arm_was_stmts = false
@@ -4995,12 +5009,13 @@ pub class <T: type> ExprParse {
         return value
     }
 
-    /// \brief a `try` expression arm that leaves (Compiler/Spec/Panic.md#try-and-arms):
-    ///        `=> return [v]`, `=> break [label]`, `=> continue [label]`.
-    /// \details precondition: current token is `=>`. The jump is wrapped in
-    ///          a StmtExpr marked `is_jump`, its body that one statement; X
-    ///          types it `!`. A bare `return` ends where a statement would,
-    ///          or at the next `catch`, `)` or `,` of the enclosing form.
+    /// a `try` expression arm that leaves (Compiler/Spec/Panic.md#try-and-arms):
+    /// `=> return [v]`, `=> break [label]`, `=> continue [label]`.
+    ///
+    /// precondition: current token is `=>`. The jump is wrapped in
+    /// a StmtExpr marked `is_jump`, its body that one statement; X
+    /// types it `!`. A bare `return` ends where a statement would,
+    /// or at the next `catch`, `)` or `,` of the enclosing form.
     priv fn _parse_jump_arm(self, stop: Self::ExprStop) -> unsafe *Expr {
         self.dyn()->advance(T::SkipNL::After) // consume `=>`
         var start              = self.dyn()->current_ptr()->range
@@ -5065,9 +5080,9 @@ pub class <T: type> ExprParse {
         return se
     }
 
-    /// \brief S074E: the arm's `=>` is missing. Fix-it inserts it at the
-    ///        cursor; then the value is parsed as if it were there, so a lone
-    ///        forgotten `=>` costs one diagnostic and no cascade.
+    /// S074E: the arm's `=>` is missing. Fix-it inserts it at the
+    /// cursor; then the value is parsed as if it were there, so a lone
+    /// forgotten `=>` costs one diagnostic and no cascade.
     pub fn _expect_arrow_recover(self, const after: string, stop: Self::ExprStop) -> unsafe *Expr {
         var at = self.dyn()->current_range() // the arm may be missing at EOF
         var b = self.dyn()->diag->report(
@@ -5092,8 +5107,8 @@ pub class <T: type> ExprParse {
         return self.parse_expr(stop)
     }
 
-    /// \brief a token that can only begin a statement, never a value, so a
-    ///        braced arm starting with it is a statement body.
+    /// a token that can only begin a statement, never a value, so a
+    /// braced arm starting with it is a statement body.
     priv fn _starts_statement_only(self, k: TokenKind) -> bool {
         return k == TokenKind::KwVar
             || k == TokenKind::KwConst
@@ -5103,21 +5118,21 @@ pub class <T: type> ExprParse {
             || self._is_decl_keyword(k)
     }
 
-    /// \brief line of a location, for fix-its that must not join lines.
+    /// line of a location, for fix-its that must not join lines.
     priv fn _line_of(self, loc: SourceLocation) -> u32 {
         return self.dyn()->ctx->sm->get_line_col(loc).line
     }
 
-    /// \brief RECOVERY ONLY: a braced value arm `{ expr }`, the removed
-    ///        spelling of a value arm (or of a `try` operand).
+    /// RECOVERY ONLY: a braced value arm `{ expr }`, the removed
+    /// spelling of a value arm (or of a `try` operand).
     ///
-    /// \details precondition: current token is `{`. Reports S073E, then
-    ///          parses the braces so the enclosing node is still built and
-    ///          later diagnostics still fire. When the braces hold exactly one
-    ///          expression the fix-it rewrites the arm to `=> expr` (`expr`
-    ///          for a `try` operand); anything else is skipped to the matching
-    ///          `}`, gets no fix-it, and yields a recovery node. Never returns
-    ///          null.
+    /// precondition: current token is `{`. Reports S073E, then
+    /// parses the braces so the enclosing node is still built and
+    /// later diagnostics still fire. When the braces hold exactly one
+    /// expression the fix-it rewrites the arm to `=> expr` (`expr`
+    /// for a `try` operand); anything else is skipped to the matching
+    /// `}`, gets no fix-it, and yields a recovery node. Never returns
+    /// null.
     ///
     ///          Every brace is parsed ONCE. A body that opens with a
     ///          statement-only token is skipped unparsed; otherwise its first
@@ -5259,8 +5274,8 @@ pub class <T: type> ExprParse {
         return self._error_expr(lbrace | rbrace)
     }
 
-    /// \brief recovery: skip to the `}` matching an already-consumed `{`,
-    ///        consume it, and return its range. Delimiter-aware.
+    /// recovery: skip to the `}` matching an already-consumed `{`,
+    /// consume it, and return its range. Delimiter-aware.
     priv fn _skip_to_matching_brace(self) -> SourceRange {
         var depth: i32 = 0
         while !self.dyn()->is_eof() {
@@ -5294,7 +5309,7 @@ pub class <T: type> ExprParse {
     //  reader, so S077E requires parentheses; as an operator's operand the parse
     //  is merely easy to misread, so S078W only warns.
 
-    /// \brief an `if` or `try` expression that is not wrapped in `( )`.
+    /// an `if` or `try` expression that is not wrapped in `( )`.
     pub fn _is_open_form(self, e: unsafe *Expr) -> bool {
         if e == &null || is_recovery(e) {
             return false
@@ -5307,15 +5322,17 @@ pub class <T: type> ExprParse {
         return !self._was_parenthesized(e)
     }
 
-    /// \brief grouping parens leave no node behind (_parse_paren_expr returns
-    ///        the inner expression), so the open forms written inside them are
-    ///        recorded by identity as they are unwrapped.
-    /// \details no parse mode builds ParenExpr today (Verbatim fidelity is
-    ///          unimplemented). If one does, the node at every check site is
-    ///          then the ParenExpr itself, which _is_open_form already rejects,
-    ///          so S077E / S078W / S079W come out the same either way.
-    /// \brief \p e was written inside grouping `( )` (an `if`, `try` or binary
-    ///        operator: the kinds recorded as their parens are unwrapped).
+    /// grouping parens leave no node behind (_parse_paren_expr returns
+    /// the inner expression), so the open forms written inside them are
+    /// recorded by identity as they are unwrapped.
+    ///
+    /// no parse mode builds ParenExpr today (Verbatim fidelity is
+    /// unimplemented). If one does, the node at every check site is
+    /// then the ParenExpr itself, which _is_open_form already rejects,
+    /// so S077E / S078W / S079W come out the same either way.
+    ///
+    /// `e` was written inside grouping `( )` (an `if`, `try` or binary
+    /// operator: the kinds recorded as their parens are unwrapped).
     pub fn is_parenthesized(self, e: unsafe *Expr) -> bool {
         return self._was_parenthesized(e)
     }
@@ -5336,15 +5353,15 @@ pub class <T: type> ExprParse {
         return if (isa<Expressions::TryCatchExpr>(e)) => ("a 'try'") else => "an 'if'"
     }
 
-    /// \brief the two zero-width insertions that wrap `e` in parentheses.
+    /// the two zero-width insertions that wrap `e` in parentheses.
     priv fn _paren_fixits(self, b: *DiagBuilder, e: *Expr) {
         b->insert(e->range.start, "(", "insert '('")
         b->insert(e->range.end, ")", "insert ')'")
     }
 
-    /// \brief S077E when `e` is an unparenthesized `if`/`try` in a position
-    ///        that must not hold one (an `if` arm or condition, a `where`
-    ///        guard, a `try` operand or non-final catch arm, a scrutinee).
+    /// S077E when `e` is an unparenthesized `if`/`try` in a position
+    /// that must not hold one (an `if` arm or condition, a `where`
+    /// guard, a `try` operand or non-final catch arm, a scrutinee).
     pub fn _require_parens(self, e: unsafe *Expr) {
         if !self._is_open_form(e) {
             return
@@ -5361,9 +5378,9 @@ pub class <T: type> ExprParse {
         b.emit()
     }
 
-    /// \brief S077E for a `try` nested bare inside another `try`. It took
-    ///        every `catch` after it, so the split the user meant cannot be
-    ///        recovered and there is no fix-it.
+    /// S077E for a `try` nested bare inside another `try`. It took
+    /// every `catch` after it, so the split the user meant cannot be
+    /// recovered and there is no fix-it.
     priv fn _report_try_in_try(self, inner: unsafe *Expr) {
         var b = self.dyn()->diag->report(
             DiagID::S077E,
@@ -5380,9 +5397,10 @@ pub class <T: type> ExprParse {
         b.emit()
     }
 
-    /// \brief S078W when an operator's operand is an unparenthesized `if`/`try`.
-    /// \details assignment operators and initializers never come here: their
-    ///          right side runs to the end of the expression anyway.
+    /// S078W when an operator's operand is an unparenthesized `if`/`try`.
+    ///
+    /// assignment operators and initializers never come here: their
+    /// right side runs to the end of the expression anyway.
     priv fn _warn_open_operand(self, e: unsafe *Expr) {
         if !self._is_open_form(e) {
             return
@@ -5400,19 +5418,19 @@ pub class <T: type> ExprParse {
         b.emit()
     }
 
-    /// \brief parses an expression-form if.
-    ///  Grammar:  'if' cond NL* '=>' NL* value
-    ///            (NL* 'else' NL* 'if' cond NL* '=>' NL* value)*
-    ///            NL* 'else' NL* '=>' NL* value
-    ///    cond  := expr (NoStructLiteral)
-    ///    value := expr (the stop flags of the surrounding context)
+    /// parses an expression-form if.
+    /// Grammar:  'if' cond NL* '=>' NL* value
+    ///     (NL* 'else' NL* 'if' cond NL* '=>' NL* value)*
+    ///     NL* 'else' NL* '=>' NL* value
+    /// cond  := expr (NoStructLiteral)
+    /// value := expr (the stop flags of the surrounding context)
     ///
-    /// \details called from _parse_primary_expr on KwIf. Conditions parse with
-    ///          NoStructLiteral so `if Foo => ...` is not read as a named init.
-    ///          The final `else` is mandatory and parser-enforced. The rest of
-    ///          the construct is _finish_if_expr, shared with the statement
-    ///          parser, which only learns it holds a value form once it sees
-    ///          the `=>` after the condition.
+    /// called from _parse_primary_expr on KwIf. Conditions parse with
+    /// NoStructLiteral so `if Foo => ...` is not read as a named init.
+    /// The final `else` is mandatory and parser-enforced. The rest of
+    /// the construct is _finish_if_expr, shared with the statement
+    /// parser, which only learns it holds a value form once it sees
+    /// the `=>` after the condition.
     priv fn _parse_if_expr(self, stop: Self::ExprStop) -> unsafe *Expr {
         var start_range = self.dyn()->current_ptr()->range
 
@@ -5445,8 +5463,8 @@ pub class <T: type> ExprParse {
         return node
     }
 
-    /// \brief one arm of an `if` expression after its condition (or `else`):
-    ///        `=> value`, the removed `{ value }`, or S074E.
+    /// one arm of an `if` expression after its condition (or `else`):
+    /// `=> value`, the removed `{ value }`, or S074E.
     priv fn _parse_if_arm(self, stop: Self::ExprStop, const after: string) -> unsafe *Expr {
         if self._skip_nl_if_next(TokenKind::OpFatArrow) {
             return self._parse_arm_value(stop)
@@ -5459,11 +5477,12 @@ pub class <T: type> ExprParse {
         return self._expect_arrow_recover(after, stop)
     }
 
-    /// \brief the `if` expression after its primary condition: the then-arm,
-    ///        the else-if arms and the mandatory final else.
-    /// \details precondition: the condition is parsed and checked; the caller
-    ///          owns enter_depth/exit_depth. `stop` is the context's flags,
-    ///          used for every arm value.
+    /// the `if` expression after its primary condition: the then-arm,
+    /// the else-if arms and the mandatory final else.
+    ///
+    /// precondition: the condition is parsed and checked; the caller
+    /// owns enter_depth/exit_depth. `stop` is the context's flags,
+    /// used for every arm value.
     pub fn _finish_if_expr(self,
                            start_range: SourceRange,
                            condition:   *Expr,
@@ -5601,17 +5620,17 @@ pub class <T: type> ExprParse {
         return node
     }
 
-    /// \brief parses an expression-form try/catch.
-    ///  Grammar:  'try' NL* operand catch_arm+
-    ///    operand   := expr (the stop flags of the surrounding context)
-    ///    catch_arm := NL* 'catch' ('var'|'const')? ident? (':' type)? NL* '=>' NL* value
+    /// parses an expression-form try/catch.
+    /// Grammar:  'try' NL* operand catch_arm+
+    /// operand   := expr (the stop flags of the surrounding context)
+    /// catch_arm := NL* 'catch' ('var'|'const')? ident? (':' type)? NL* '=>' NL* value
     ///
-    /// \details there is no `=>` after the operand: it ends at `catch`, which
-    ///          is a keyword, not an operator. A bare `try {` here is always
-    ///          the removed braced form (S073E); a brace expression is tried by
-    ///          parenthesizing it. At least one catch arm is required. A default
-    ///          arm (filter == null) is terminal: anything after it is an error
-    ///          (this also rejects multiple defaults).
+    /// there is no `=>` after the operand: it ends at `catch`, which
+    /// is a keyword, not an operator. A bare `try {` here is always
+    /// the removed braced form (S073E); a brace expression is tried by
+    /// parenthesizing it. At least one catch arm is required. A default
+    /// arm (filter == null) is terminal: anything after it is an error
+    /// (this also rejects multiple defaults).
     ///
     ///          A `try` that is itself the bare operand or catch-arm value of an
     ///          enclosing `try` takes every `catch` that follows, since arms are
@@ -5744,7 +5763,7 @@ pub class <T: type> ExprParse {
         return node
     }
 
-    /// \brief a nested-bare `try` that kept taking arms past its default.
+    /// a nested-bare `try` that kept taking arms past its default.
     priv fn _overran_default(self, t: unsafe *Expressions::TryCatchExpr) -> bool {
         var n = t->catch_arms.size()
         for var i: usize = 0; i + 1 < n; ++i {
@@ -5756,20 +5775,20 @@ pub class <T: type> ExprParse {
         return false
     }
 
-    /// \brief parses an expression-form match.
-    ///  Grammar:  'match' expr(NoStructLiteral) '{' arm* '}'
-    ///    arm      := 'case' pattern (',' pattern)* ('where' expr)? NL* '=>' NL* value
-    ///              | 'default' NL* '=>' NL* value
-    ///    value    := expr (stop = StopBrace)
+    /// parses an expression-form match.
+    /// Grammar:  'match' expr(NoStructLiteral) '{' arm* '}'
+    /// arm      := 'case' pattern (',' pattern)* ('where' expr)? NL* '=>' NL* value
+    ///       | 'default' NL* '=>' NL* value
+    /// value    := expr (stop = StopBrace)
     ///
-    /// \details the scrutinee, braces, patterns and guards are shared with the
-    ///          statement form through _parse_match_core. Every block arm here
-    ///          is the removed braced spelling and reports S073E; its value is
-    ///          recovered by _recover_case_to_expr. Mixed arms are covered by
-    ///          those per-arm errors, so S075E is never added on top. A match
-    ///          value is closed by its `}` and never extends past it, so no
-    ///          readability rule applies to it. Exhaustiveness is NOT checked
-    ///          here; sema owns coverage.
+    /// the scrutinee, braces, patterns and guards are shared with the
+    /// statement form through _parse_match_core. Every block arm here
+    /// is the removed braced spelling and reports S073E; its value is
+    /// recovered by _recover_case_to_expr. Mixed arms are covered by
+    /// those per-arm errors, so S075E is never added on top. A match
+    /// value is closed by its `}` and never extends past it, so no
+    /// readability rule applies to it. Exhaustiveness is NOT checked
+    /// here; sema owns coverage.
     priv fn _parse_match_expr(self) -> unsafe *Expr {
         var start_range = self.dyn()->current_ptr()->range
 
@@ -5801,12 +5820,13 @@ pub class <T: type> ExprParse {
         return node
     }
 
-    /// \brief RECOVERY ONLY: a block arm in an expression-form match.
-    /// \details reports S073E on the arm's block. When the block holds exactly
-    ///          one ExpressionStmt, the fix-it rewrites `{ e }` to `=> e` and
-    ///          that expression becomes the case value, so the MatchExpr is
-    ///          still well-formed. Otherwise the note points at the statement
-    ///          forms and the case keeps both body and expression null.
+    /// RECOVERY ONLY: a block arm in an expression-form match.
+    ///
+    /// reports S073E on the arm's block. When the block holds exactly
+    /// one ExpressionStmt, the fix-it rewrites `{ e }` to `=> e` and
+    /// that expression becomes the case value, so the MatchExpr is
+    /// still well-formed. Otherwise the note points at the statement
+    /// forms and the case keeps both body and expression null.
     priv fn _recover_case_to_expr(self, src: *MatchCase) -> MatchCase {
         var out = MatchCase{}
         out.patterns   = src->patterns   // FrozenList copy; same arena nodes.
@@ -5871,15 +5891,15 @@ pub class <T: type> ExprParse {
         return out
     }
 
-    /// \brief parses one catch arm of a try expression.
-    ///  Grammar:  NL* 'catch' ('var'|'const')? ident? (':' type)? NL* '=>' NL* value
+    /// parses one catch arm of a try expression.
+    /// Grammar:  NL* 'catch' ('var'|'const')? ident? (':' type)? NL* '=>' NL* value
     ///
-    /// \details forms: `catch => v` (bare default), `catch e => v` /
-    ///          `catch var e => v` / `catch const e => v` (untyped default,
-    ///          mutable unless const), `catch e: T => v` (typed). Mutability
-    ///          defaults to mutable; `const` overrides. The value takes the
-    ///          context's stop flags and ends at the next `catch`. Returns an
-    ///          arm with a null body on failure.
+    /// forms: `catch => v` (bare default), `catch e => v` /
+    /// `catch var e => v` / `catch const e => v` (untyped default,
+    /// mutable unless const), `catch e: T => v` (typed). Mutability
+    /// defaults to mutable; `const` overrides. The value takes the
+    /// context's stop flags and ends at the next `catch`. Returns an
+    /// arm with a null body on failure.
     priv fn _parse_catch_arm_expr(self,
                                   stop: Self::ExprStop) -> Expressions::TryCatchExpr::CatchArm {
         var result = Expressions::TryCatchExpr::CatchArm{}
@@ -5980,8 +6000,8 @@ pub class <T: type> ExprParse {
         return result
     }
 
-    /// \brief recovery: skip to the next `catch`, a closing brace at depth 0, or
-    ///        a statement boundary, after a malformed catch arm. Delimiter-aware.
+    /// recovery: skip to the next `catch`, a closing brace at depth 0, or
+    /// a statement boundary, after a malformed catch arm. Delimiter-aware.
     priv fn _sync_to_brace_or_catch(self) {
         var   depth: i32 = 0
         var   iters: u32 = 0
@@ -6015,12 +6035,12 @@ pub class <T: type> ExprParse {
 
     //  Generic disambiguation helper
 
-    /// \brief checks if a name refers to a generic type/function in hoisted scope.
-    ///        used to disambiguate `<` as generic args vs comparison operator.
+    /// checks if a name refers to a generic type/function in hoisted scope.
+    /// used to disambiguate `<` as generic args vs comparison operator.
     ///
-    /// \details scans ALL entries for the name, not first(): a mixed overload
-    ///          set (non-generic + generic under one name) is generic if ANY
-    ///          overload is the entry insertion order must not decide.
+    /// scans ALL entries for the name, not first(): a mixed overload
+    /// set (non-generic + generic under one name) is generic if ANY
+    /// overload is the entry insertion order must not decide.
     inline fn _is_generic_name(self, tok: Token) -> bool {
         var hr = self.dyn()->ctx->hoisted->lookup_tok(tok)
         if hr.found() {
@@ -6045,25 +6065,25 @@ pub class <T: type> ExprParse {
         return tok.kind != TokenKind::BiSelf
     }
 
-    /// \brief three-state `<`-disambiguation verdict for a head-position name
-    ///        (rules 3/4 of the disambiguation model).
+    /// three-state `<`-disambiguation verdict for a head-position name
+    /// (rules 3/4 of the disambiguation model).
     ///
-    /// \details lookup order is lexical-first locals shadow globals:
-    ///          1. LexicalScope binding (params, locals). A var bound to a
-    ///             generic closure (`var f = fn <T> ...`) is Generic; a
-    ///             generic-param binding (is_tparam, rule 2) is Generic;
-    ///             any other local binding is a plain VALUE -> NotGeneric.
-    ///          2. Hoisted table. Any generic overload -> Generic. All
-    ///             entries Variables -> NotGeneric (a var can never take
-    ///             generic args; commit comparison, rule 4). Known
-    ///             non-generic fn/op/type -> Unknown: assume generic WHEN
-    ///             THE SHAPE FITS (tentative), because "foo takes no
-    ///             generic arguments" is the right diagnostic for
-    ///             `foo<a>(10)`, while `foo < limit` still rolls back to a
-    ///             comparison. An unconditional generic commit here would
-    ///             re-break the `foo < limit` shape.
-    ///          3. Unknown -> the caller runs the tentative parse (also
-    ///             covers unqualified imported generics).
+    /// lookup order is lexical-first locals shadow globals:
+    /// 1. LexicalScope binding (params, locals). A var bound to a
+    ///    generic closure (`var f = fn <T> ...`) is Generic; a
+    ///    generic-param binding (is_tparam, rule 2) is Generic;
+    ///    any other local binding is a plain VALUE -> NotGeneric.
+    /// 2. Hoisted table. Any generic overload -> Generic. All
+    ///    entries Variables -> NotGeneric (a var can never take
+    ///    generic args; commit comparison, rule 4). Known
+    ///    non-generic fn/op/type -> Unknown: assume generic WHEN
+    ///    THE SHAPE FITS (tentative), because "foo takes no
+    ///    generic arguments" is the right diagnostic for
+    ///    `foo<a>(10)`, while `foo < limit` still rolls back to a
+    ///    comparison. An unconditional generic commit here would
+    ///    re-break the `foo < limit` shape.
+    /// 3. Unknown -> the caller runs the tentative parse (also
+    ///    covers unqualified imported generics).
     enum GenericVerdict derives u8 {
         Generic,    ///< commit `<` as generic arguments.
         NotGeneric, ///< commit `<` as a comparison operator.
@@ -6125,14 +6145,14 @@ pub class <T: type> ExprParse {
         return Self::GenericVerdict::Unknown
     }
 
-    /// \brief lazy import-edge fallback for unqualified generic disambiguation.
+    /// lazy import-edge fallback for unqualified generic disambiguation.
     ///
-    /// \details On a hoisted-table MISS, walk this fid's import edges (written
-    ///          by the PP in declaration order, Compiler/Spec/Pipeline.md #2 lazy-not-merge)
-    ///          and ask each edge's SOURCE fid whether the probed name is a
-    ///          generic. Full mode only the index barrier (CompilerInstance
-    ///          wait_group(5)) guarantees every imported fid is already indexed
-    ///          in the GlobalDisambigTable, so `lookup_in(fid, name)` is safe.
+    /// On a hoisted-table MISS, walk this fid's import edges (written
+    /// by the PP in declaration order, Compiler/Spec/Pipeline.md #2 lazy-not-merge)
+    /// and ask each edge's SOURCE fid whether the probed name is a
+    /// generic. Full mode only the index barrier (CompilerInstance
+    /// wait_group(5)) guarantees every imported fid is already indexed
+    /// in the GlobalDisambigTable, so `lookup_in(fid, name)` is safe.
     ///
     ///          Edge shape rules (unqualified probe):
     ///            - wildcard  `import a::*`      : probe the name UNMAPPED.
@@ -6229,10 +6249,10 @@ pub class <T: type> ExprParse {
         return false
     }
 
-    /// \brief cross-file "is this name a generic in fid?" boolean.
-    ///        Reads `is_generic()` off the source fid's frozen DisambigEntry a
-    ///        pure name-domain bool, no cross-TU imm hazard (the source table
-    ///        interns the string itself).
+    /// cross-file "is this name a generic in fid?" boolean.
+    /// Reads `is_generic()` off the source fid's frozen DisambigEntry a
+    /// pure name-domain bool, no cross-TU imm hazard (the source table
+    /// interns the string itself).
     inline fn _src_name_is_generic(self,
                                    gs:         *GlobalDisambigTable,
                                    fid:        u32,
@@ -6252,13 +6272,13 @@ pub class <T: type> ExprParse {
     }
 
 
-    /// \brief parses a closure expression.
-    ///  Grammar:  'fn' ('<' generic_params '>')? ('|' captures '|')?
-    ///            ('(' params ')')? fn_modifiers? ('->' type)? (block | '=' expr)
+    /// parses a closure expression.
+    /// Grammar:  'fn' ('<' generic_params '>')? ('|' captures '|')?
+    ///     ('(' params ')')? fn_modifiers? ('->' type)? (block | '=' expr)
     ///
-    /// \details called from _parse_primary_expr on KwFn. Delegates signature
-    ///          parsing to DeclParse::_parse_closure_sig via dyn(), then parses
-    ///          the body as either a block or an expression body.
+    /// called from _parse_primary_expr on KwFn. Delegates signature
+    /// parsing to DeclParse::_parse_closure_sig via dyn(), then parses
+    /// the body as either a block or an expression body.
     priv fn _parse_closure_expr(self) -> unsafe *Expr {
         var start = self.dyn()->current_ptr()->range
 

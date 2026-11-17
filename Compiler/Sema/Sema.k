@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------------------------- Sema/Sema.k --- ///
 ///
-///   \brief The sema DRIVER: entry point, pass schedule, phase gates.
+/// The sema DRIVER: entry point, pass schedule, phase gates.
 ///
 ///   This class holds STATE AND SCHEDULE ONLY zero semantic logic. Every
 ///   time a check_* / resolve_* helper wants to land here, it is either a
@@ -140,13 +140,12 @@ import std::io
 // The driver is the ONLY file that imports passes; passes import
 // SemaContext and never this file (import-cycle rule, see SemaContext.k).
 
-/// \enum SemaRun
-/// \brief Where a Sema is in the steps a driver runs it in, beside
-///        `sc.phase`. The phase names the last stage that finished; these are
-///        the facts it cannot hold: a stage done in part on purpose (T's
-///        pre-pass for an import cycle's lockstep, the typed checks of a split
-///        run, which leave the phase at TypesResolved), and a hard stop, after
-///        which the phase still names the stage that stopped.
+/// Where a Sema is in the steps a driver runs it in, beside
+/// `sc.phase`. The phase names the last stage that finished; these are
+/// the facts it cannot hold: a stage done in part on purpose (T's
+/// pre-pass for an import cycle's lockstep, the typed checks of a split
+/// run, which leave the phase at TypesResolved), and a hard stop, after
+/// which the phase still names the stage that stopped.
 ///
 ///        Running -> TypesPreDone -> FrontDone, in that order, and any of them
 ///        -> Stopped, which is final: run_to refuses a Stopped Sema, because a
@@ -271,7 +270,7 @@ pub class Sema {
         return self.run_to(SemaPhase::Complete)
     }
 
-    /// Run up to and including \p target. Partial runs are for tests and
+    /// Run up to and including `target`. Partial runs are for tests and
     /// IDE queries (hover needs N, not codegen lowering). Each stage
     /// advances sc.phase; a re-entrant call continues from the current
     /// phase rather than re-running completed stages.
@@ -305,7 +304,7 @@ pub class Sema {
         )
     }
 
-    /// One pass of the schedule, in its own time region: \p P is built on
+    /// One pass of the schedule, in its own time region: `P` is built on
     /// this TU's context and run.
     priv fn <P: type> _pass(self, const region: string) {
         var _p = TimeRegion(region)
@@ -482,7 +481,7 @@ pub class Sema {
 
     /// # Gates
 
-    /// True if the pipeline should continue past \p reached toward \p target.
+    /// True if the pipeline should continue past `reached` toward `target`.
     priv fn _gate(self, reached: SemaPhase, target: SemaPhase) -> bool {
         // already past this stage (re-entrant run_to continuation)?
         if (self.sc.phase as u8) > (reached as u8) {
@@ -492,7 +491,7 @@ pub class Sema {
         return (target as u8) > (reached as u8)
     }
 
-    /// True if \p done_phase was already reached: the stage is complete
+    /// True if `done_phase` was already reached: the stage is complete
     /// from a previous run_to and must no-op (re-running a stage would
     /// both redo work and trip advance_phase's monotonicity assert).
     priv fn _already(self, done_phase: SemaPhase) -> bool {

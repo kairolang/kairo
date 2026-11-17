@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------- Sema/Lower/MatchLowering.k --- ///
 ///
-///   \brief Every `match` becomes labels, gotos and switches over a
-///          once-evaluated scrutinee: PatternCompilation's decision DAG,
-///          rendered. This pass decides nothing about the patterns.
+/// Every `match` becomes labels, gotos and switches over a
+/// once-evaluated scrutinee: PatternCompilation's decision DAG,
+/// rendered. This pass decides nothing about the patterns.
 ///
 ///   \detail
 ///     Statement form:
@@ -490,7 +490,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// # the scrutinee
 
-    /// Bind \p e0 once. A tuple literal binds each element instead, in order;
+    /// Bind `e0` once. A tuple literal binds each element instead, in order;
     /// an element no pattern reaches is still evaluated.
     priv fn _bind_scrutinee(self,
                             e0:  unsafe *Expr,
@@ -551,7 +551,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         }
     }
 
-    /// The Field occurrence of \p f under \p parent, or -1 when no pattern
+    /// The Field occurrence of `f` under `parent`, or -1 when no pattern
     /// reached it (its element is still evaluated, into a local nothing reads).
     priv fn _find_occ_field(self, parent: u32, f: unsafe *FieldDecl) -> i32 {
         if f == &null {
@@ -666,7 +666,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         return self.layout.has_layout(en)
     }
 
-    /// No value of \p en is outside its variants: an ADT (no cast writes a
+    /// No value of `en` is outside its variants: an ADT (no cast writes a
     /// tag) or a closed plain enum (`as` into it is checked, CastTyping). An
     /// `@open` enum, and every imported one, may hold any value of its
     /// underlying type, so its complete match keeps UnmatchedPolicy.
@@ -684,7 +684,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     priv fn _variant_of(self, o: u32, index: u32) -> unsafe *EnumVariantDecl {
         var unsafe *en = self._enum_at(o)
-        return adt_variant_at(en, index as usize) // \p index is expanded (EnumLayoutQuery).
+        return adt_variant_at(en, index as usize) // `index` is expanded (EnumLayoutQuery).
     }
 
     /// # arms
@@ -822,7 +822,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         return canon_unqual(self._referee(vd->type_))
     }
 
-    /// The statements that point \p arm's slots at node \p i's occurrences.
+    /// The statements that point `arm`'s slots at node `i`'s occurrences.
     priv fn _set_slots(self, arm: u32, i: u32, @inout out: cxx::std::vector<unsafe *Stmt>) {
         if !self._arms[arm as usize].slots {
             return
@@ -859,7 +859,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         )
     }
 
-    /// \p vd's initializer for arm \p arm: its occurrence on the
+    /// `vd`'s initializer for arm `arm`: its occurrence on the
     /// representative path, or through its slot.
     priv fn _binder_init(self, arm: u32, vd: unsafe *VariableDecl) -> unsafe *Expr {
         var *a = &self._arms[arm as usize]
@@ -1178,7 +1178,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// # nodes
 
-    /// Node \p i's code. Every path through it ends in a goto (or the
+    /// Node `i`'s code. Every path through it ends in a goto (or the
     /// noreturn policy call), so the order nodes are emitted in is free.
     priv fn _node(self, i: u32, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
         var n = self._t->nodes[i as usize]
@@ -1202,7 +1202,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         }
     }
 
-    /// Taking arm \p arm from node \p i: point the slots, then jump to the
+    /// Taking arm `arm` from node `i`: point the slots, then jump to the
     /// arm (statement form) or record it and jump to the join (value form).
     priv fn _accept(self, arm: u32, i: u32, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
         self._set_slots(arm, i, &*out)
@@ -1612,7 +1612,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// # tests
 
-    /// The condition under which the value at \p occ takes edge \p e.
+    /// The condition under which the value at `occ` takes edge `e`.
     priv fn _cond(self, occ: u32, e: DEdge) -> unsafe *Expr {
         match e.kind {
             case CtorKind::Bool {
@@ -1867,7 +1867,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         )
     }
 
-    /// Key \p key of \p d as a literal of type \p t: the bias undone, a
+    /// Key `key` of `d` as a literal of type `t`: the bias undone, a
     /// negative value as `(-mag)`, and i64's minimum as `(-(2^63 - 1) - 1)`,
     /// since `2^63` has no signed 64-bit literal.
     priv fn _int_value(self, d: Domain, key: u64, t: unsafe *Type) -> unsafe *Expr {
@@ -1912,7 +1912,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// # occurrences
 
-    /// The value at occurrence \p o, a fresh tree on every call: a node has
+    /// The value at occurrence `o`, a fresh tree on every call: a node has
     /// one parent.
     priv fn _occ(self, o: u32) -> unsafe *Expr {
         var unsafe *local = self._locals[o as usize]
@@ -1970,7 +1970,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// # jumps
 
-    /// The label a jump to node \p i lands on: the fail block, an arm
+    /// The label a jump to node `i` lands on: the fail block, an arm
     /// (statement form, a leaf with nothing to do first), or the node's own
     /// label, queueing the node.
     priv fn _target(self, i: i32) -> Token {
@@ -2020,8 +2020,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     }
 
     /// `switch (v) { case ...: goto ...; default: goto <other>; }`; a
-    /// negative \p other, or one that is a Fail node, puts UnmatchedPolicy
-    /// in the default itself -- the ADT one when \p adt, the switch being
+    /// negative `other`, or one that is a Fail node, puts UnmatchedPolicy
+    /// in the default itself -- the ADT one when `adt`, the switch being
     /// over a tag (_policy).
     priv fn _dispatch(self,
                       value:       unsafe *Expr,
@@ -2045,7 +2045,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     }
 
     /// `__builtin_trap();` or `__builtin_unreachable();`, by UnmatchedPolicy:
-    /// for an ADT's tag or a closed plain enum (\p adt, _holds_only_variants)
+    /// for an ADT's tag or a closed plain enum (`adt`, _holds_only_variants)
     /// the policy that defaults to unreachable, for anything else the one
     /// that follows -O. Sema proved the match covers every variant, and no
     /// value of the enum holds another, so the trap only kept a range check
@@ -2164,7 +2164,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         return self.synth.bool_binary(self._at, l, r, TokenKind::OpEqualEqual)
     }
 
-    /// `l && r`; a null \p l is `r`.
+    /// `l && r`; a null `l` is `r`.
     priv fn _and(self, l: unsafe *Expr, r: unsafe *Expr) -> unsafe *Expr {
         if l == &null {
             return r

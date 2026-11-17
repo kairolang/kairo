@@ -1,8 +1,8 @@
 /// --- The Kairo Project --------------------- Sema/Type/VariadicEnum.k --- ///
 ///
-///   \brief A pack-expanded variant (`Err { e: E }...`) read at one instance:
-///          which elements it has, what each one's payload holds, and which
-///          one a payload type picks (Compiler/Spec/Panic.md#the-result-type, enums-adt.mdx).
+/// A pack-expanded variant (`Err { e: E }...`) read at one instance:
+/// which elements it has, what each one's payload holds, and which
+/// one a payload type picks (Compiler/Spec/Panic.md#the-result-type, enums-adt.mdx).
 ///
 ///   \detail
 ///     The variant is declared once; at `R<i32, string, f64>` it is one
@@ -68,7 +68,7 @@ pub class VariadicEnum {
         self.tu = TypeUtil(sc)
     }
 
-    /// The ADT pattern behind \p t when it has a pack-expanded variant.
+    /// The ADT pattern behind `t` when it has a pack-expanded variant.
     fn enum_of(self, t: unsafe *Type) -> unsafe *EnumDecl {
         if t == &null {
             return &null
@@ -87,7 +87,7 @@ pub class VariadicEnum {
         return en
     }
 
-    /// The pack's elements at instance \p t, in \p out; false when \p t is
+    /// The pack's elements at instance `t`, in `out`; false when `t` is
     /// no variadic ADT, or a dependent one (whose elements C++ decides).
     fn elems(self, t: unsafe *Type, out: unsafe *cxx::std::vector<unsafe *Type>) -> bool {
         var unsafe *en = self.enum_of(t)
@@ -109,7 +109,7 @@ pub class VariadicEnum {
         return true
     }
 
-    /// How many constructors \p en has at \p t: its variants, the
+    /// How many constructors `en` has at `t`: its variants, the
     /// pack-expanded one counted once per element (none for an empty pack).
     fn ctor_count(self, en: unsafe *EnumDecl, t: unsafe *Type) -> usize {
         if en == &null {
@@ -129,7 +129,7 @@ pub class VariadicEnum {
         return n - 1 + es.size()
     }
 
-    /// \p f names the pack, bare: its type at element k is the element.
+    /// `f` names the pack, bare: its type at element k is the element.
     fn is_pack_field(self, f: unsafe *FieldDecl) -> bool {
         if f == &null || f->type_ == &null || f->type_->canonical == &null {
             return false
@@ -142,7 +142,7 @@ pub class VariadicEnum {
         return g != &null && g->is_pack
     }
 
-    /// Payload field \p f's type at element \p k of instance \p rec (any
+    /// Payload field `f`'s type at element `k` of instance `rec` (any
     /// field of a variadic ADT: one that is not the pack reads through the
     /// instance's other arguments).
     fn field_at(self, rec: unsafe *Type, f: unsafe *FieldDecl, k: usize) -> unsafe *Type {
@@ -163,8 +163,7 @@ pub class VariadicEnum {
         return ded.member_through(rec, f->type_->canonical)
     }
 
-    /// `Err { e: string }, Err { e: f64 }`: every expansion of \p v at \p
-    /// rec, for a note naming the candidates.
+    /// `Err { e: string }, Err { e: f64 }`: every expansion of `v` at `rec`, for a note naming the candidates.
     fn describe(self, rec: unsafe *Type, v: unsafe *EnumVariantDecl) -> string {
         var es = cxx::std::vector<unsafe *Type>()
         if !self.elems(rec, unsafe &es) {
@@ -199,7 +198,7 @@ pub class VariadicEnum {
         return s
     }
 
-    /// The element whose type is exactly \p t, or -1.
+    /// The element whose type is exactly `t`, or -1.
     fn exact(self, rec: unsafe *Type, t: unsafe *Type) -> i32 {
         var es = cxx::std::vector<unsafe *Type>()
         if t == &null || !self.elems(rec, unsafe &es) {

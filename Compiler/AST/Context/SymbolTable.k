@@ -34,16 +34,15 @@ import Token::TokenKind::{
     canonical_operator_kind,
 }
 
-/// \enum DeclNameKind
-/// \brief Discriminates the kind of a lookup key.
+/// Discriminates the kind of a lookup key.
 ///
-/// \details Names are pure name-domain data: constructing a DeclName never
-///          requires type information, which keeps name resolution strictly
-///          ahead of type resolution. Constructors/destructors are keyed
-///          context-relatively (the queried DeclContext identifies the type),
-///          unlike Clang's CanQualType-keyed constructor names   Kairo ctors
-///          are only declarable inside the type body, so no global key is
-///          ever needed.
+/// Names are pure name-domain data: constructing a DeclName never
+/// requires type information, which keeps name resolution strictly
+/// ahead of type resolution. Constructors/destructors are keyed
+/// context-relatively (the queried DeclContext identifies the type),
+/// unlike Clang's CanQualType-keyed constructor names   Kairo ctors
+/// are only declarable inside the type body, so no global key is
+/// ever needed.
 pub enum DeclNameKind derives u8 {
     /// Plain identifier. payload = this TU's imm ident index.
     Identifier = 0,
@@ -60,12 +59,11 @@ pub enum DeclNameKind derives u8 {
 /// Where DeclName::as_key puts the kind.
 const DECL_NAME_KIND_SHIFT: u64 = 32
 
-/// \class DeclName
-/// \brief 8-byte lookup key for SymbolTable. kind + u32 payload.
+/// 8-byte lookup key for SymbolTable. kind + u32 payload.
 ///
-/// \invariant Identifier payloads are PER-TU imm indices. A DeclName built
-///            in TU A never keys a table of TU B import folding re-interns
-///            (Compiler/Spec/Pipeline.md hard invariant #2).
+/// **Invariant:** Identifier payloads are PER-TU imm indices. A DeclName built
+/// in TU A never keys a table of TU B import folding re-interns
+/// (Compiler/Spec/Pipeline.md hard invariant #2).
 pub class DeclName {
     pub var kind:    DeclNameKind = DeclNameKind::Identifier
     pub var payload: u32          = u32::MAX
@@ -198,16 +196,15 @@ pub class DeclName {
     }
 }
 
-/// \class OverloadCell
-/// \brief All decls bound to one DeclName within one scope. SmallVec<*Decl,1>
-///        in spirit: most names bind exactly one decl, so the first pointer
-///        is inline and the heap vec only exists for overload sets.
+/// All decls bound to one DeclName within one scope. SmallVec<*Decl,1>
+/// in spirit: most names bind exactly one decl, so the first pointer
+/// is inline and the heap vec only exists for overload sets.
 ///
-/// \details Pre-NameResolution a cell is a RAW append-only stack: fwd decl +
-///          definition, primary + specializations, duplicate names all just
-///          pile in. The parser records; sema judges (redefinition errors,
-///          Redeclarable chain linking, and overload validation are N(a)'s
-///          job, nowhere else).
+/// Pre-NameResolution a cell is a RAW append-only stack: fwd decl +
+/// definition, primary + specializations, duplicate names all just
+/// pile in. The parser records; sema judges (redefinition errors,
+/// Redeclarable chain linking, and overload validation are N(a)'s
+/// job, nowhere else).
 pub class OverloadCell {
     pub var first: unsafe *Decl ///< first decl appended; non-null once the cell exists.
     pub var rest:  cxx::std::vector<unsafe *Decl> ///< 2nd+ decls; empty in the common case.
@@ -254,8 +251,7 @@ pub class OverloadCell {
     }
 }
 
-/// \class SymbolTable
-/// \brief Per-DeclContext leaf map: DeclName -> OverloadCell.
+/// Per-DeclContext leaf map: DeclName -> OverloadCell.
 ///
 /// \par Lifecycle
 ///   parse:  ASTParse::_build_symbols appends every named decl of the scope.
@@ -371,17 +367,17 @@ pub class SymbolTable {
     /// scope by another handle; the dump treats both as the file scope.
     pub var dep_scope: unsafe *void = &null
 
-    /// \brief Cross-TU boundary lookup (ImportResolution ONLY).
+    /// Cross-TU boundary lookup (ImportResolution ONLY).
     ///
-    /// \details Frozen tables are keyed by PER-TU imm indices (Compiler/Spec/Pipeline.md
-    ///          hard invariant #2): a raw u32 from the importing TU is
-    ///          meaningless in the source TU. At the import boundary we spell
-    ///          the importing token and re-intern it against the SOURCE TU's
-    ///          imm table to obtain the source-local imm, then key the source
-    ///          frozen table with it. One string trip per imported name, at I
-    ///          time only the hot unqualified path (SymbolTable::lookup /
-    ///          NameLookup primitives) stays integer-keyed and is never touched
-    ///          by this.
+    /// Frozen tables are keyed by PER-TU imm indices (Compiler/Spec/Pipeline.md
+    /// hard invariant #2): a raw u32 from the importing TU is
+    /// meaningless in the source TU. At the import boundary we spell
+    /// the importing token and re-intern it against the SOURCE TU's
+    /// imm table to obtain the source-local imm, then key the source
+    /// frozen table with it. One string trip per imported name, at I
+    /// time only the hot unqualified path (SymbolTable::lookup /
+    /// NameLookup primitives) stays integer-keyed and is never touched
+    /// by this.
     ///
     ///          The probe into the source imm table is NON-MUTATING
     ///          (ImmediateTable::find_ident): a miss means the spelling was
@@ -391,10 +387,13 @@ pub class SymbolTable {
     ///          (operator keys are build-stable and compared cross-TU directly;
     ///          ctors are context-relative).
     ///
-    /// \param tbl       the SOURCE TU's frozen SymbolTable (the scope to search).
-    /// \param src_imms  the SOURCE TU's imm table (tcm->get_imm_table_for_fid).
-    /// \param spelling  the imported name as spelled in the importing TU.
-    /// \return the matching OverloadCell in \p tbl, or null (absent/foreign).
+    /// ### Parameters
+    /// - `tbl`: the SOURCE TU's frozen SymbolTable (the scope to search).
+    /// - `src_imms`: the SOURCE TU's imm table (tcm->get_imm_table_for_fid).
+    /// - `spelling`: the imported name as spelled in the importing TU.
+    ///
+    /// ### Returns
+    /// the matching OverloadCell in `tbl`, or null (absent/foreign).
     pub static fn lookup_foreign(tbl:            unsafe *SymbolTable,
                                  src_imms:       unsafe *ImmediateTable,
                                  const spelling: string) -> unsafe *OverloadCell {

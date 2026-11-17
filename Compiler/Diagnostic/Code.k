@@ -21,10 +21,10 @@ import Diagnostic::Registry::{
 }
 import Diagnostic::Severity::DiagSeverity
 
-/// A resolved diagnostic code, pairing a \c DiagID with its cached \c DiagMeta.
+/// A resolved diagnostic code, pairing a `DiagID` with its cached `DiagMeta`.
 ///
-/// \c DiagCode is the primary handle passed through the diagnostic pipeline.
-/// It is cheap to copy \c DiagMeta is a small struct and avoids repeated
+/// `DiagCode` is the primary handle passed through the diagnostic pipeline.
+/// It is cheap to copy `DiagMeta` is a small struct and avoids repeated
 /// registry lookups after construction.
 ///
 /// Ordering follows category -> severity -> number, matching the sort order
@@ -35,20 +35,20 @@ pub class DiagCode {
 
     /// # Constructors
 
-    /// Constructs an invalid \c DiagCode. All fields are zeroed / \c Invalid.
+    /// Constructs an invalid `DiagCode`. All fields are zeroed / `Invalid`.
     fn DiagCode(self) {
         self._id   = DiagID::Invalid
         self._meta = diag_meta(DiagID::Invalid)
     }
 
-    /// Constructs from a \c DiagID, resolving metadata via the registry.
+    /// Constructs from a `DiagID`, resolving metadata via the registry.
     pub fn DiagCode(self, _id: DiagID) {
         self._id   = _id
         self._meta = diag_meta(_id)
     }
 
-    /// Constructs from pre-resolved \c DiagMeta. The \c DiagID is recovered
-    /// from \c meta.hash.
+    /// Constructs from pre-resolved `DiagMeta`. The `DiagID` is recovered
+    /// from `meta.hash`.
     fn DiagCode(self, const _meta: DiagMeta) {
         self._meta = _meta
         self._id   = (_meta.hash as DiagID)
@@ -90,7 +90,7 @@ pub class DiagCode {
 
     /// # Conversions
 
-    /// Formats the code as a diagnostic ID string, e.g. \c "SC041E".
+    /// Formats the code as a diagnostic ID string, e.g. `"SC041E"`.
     pub fn op as (self) -> string {
         return self._meta as string
     }
@@ -128,17 +128,17 @@ pub class DiagCode {
     }
 }
 
-/// \brief the DiagID for a code as a user writes it: as a diagnostic prints
-///        it (C195W) or as its table spells it (C0195W).
+/// the DiagID for a code as a user writes it: as a diagnostic prints
+/// it (C195W) or as its table spells it (C0195W).
 ///
-/// \details a code is its category, number and severity -- what DiagCode
-///          compares -- but the registry is keyed on the table's spelling,
-///          and the tables do not share a width: Clang's numbers are four
-///          digits, Kairo's three, and a diagnostic prints at least three.
-///          Matching the text alone missed every Clang code below 1000 as
-///          printed. So the number's padding is dropped and each table width
-///          is tried; gen_diag.py rejects two codes that share category,
-///          number and severity, so at most one of them is registered.
+/// a code is its category, number and severity -- what DiagCode
+/// compares -- but the registry is keyed on the table's spelling,
+/// and the tables do not share a width: Clang's numbers are four
+/// digits, Kairo's three, and a diagnostic prints at least three.
+/// Matching the text alone missed every Clang code below 1000 as
+/// printed. So the number's padding is dropped and each table width
+/// is tried; gen_diag.py rejects two codes that share category,
+/// number and severity, so at most one of them is registered.
 pub fn diag_from_code(const text: string) -> DiagID {
     var id = diag_from_string(text.copy())
     if !diag_explain(id).is_empty() {

@@ -66,7 +66,7 @@ pub struct LLDRun {
 }
 
 pub class LLDRunner {
-    /// \p argv[0] carries the flavor: ld.lld, ld64.lld, lld-link, wasm-ld.
+    /// `argv[0]` carries the flavor: ld.lld, ld64.lld, lld-link, wasm-ld.
     static fn run(@inout argv:    cxx::std::vector<string>,
                   const kld_path: string,
                   force_process:  bool) -> LLDRun {

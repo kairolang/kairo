@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------- Sema/Check/ConstraintSet.k --- ///
 ///
-///   \brief The partitioned constraints of one decl, and nothing else.
+/// The partitioned constraints of one decl, and nothing else.
 ///
 ///   \detail
 ///     A leaf on purpose. ConstraintExtraction BUILDS these; SemaContext
@@ -27,11 +27,9 @@ import AST::Node::Base::{
 }
 import AST::Node::Expressions::ConstraintExpr
 
-///
-/// \class ConstraintSet
-/// \brief The partitioned constraints of one decl. Built by
-///        ConstraintExtraction; read by the bound table, definition-side
-///        checking, call-site conformance, and monomorphization.
+/// The partitioned constraints of one decl. Built by
+/// ConstraintExtraction; read by the bound table, definition-side
+/// checking, call-site conformance, and monomorphization.
 ///
 ///   impl_constraints    : structural interface bounds  (T impl Foo)
 ///   derives_constraints : nominal base/lineage bounds   (T derives Base)
@@ -40,7 +38,6 @@ import AST::Node::Expressions::ConstraintExpr
 /// Each ConstraintExpr pointer aliases the node in the requires clause; this
 /// set is an index, not a copy. The owning decl is recorded so downstream
 /// passes can key back to it.
-///
 pub class ConstraintSet {
     pub var owner:               unsafe *Decl                             = &null
     pub var impl_constraints:    cxx::std::vector<unsafe *ConstraintExpr>

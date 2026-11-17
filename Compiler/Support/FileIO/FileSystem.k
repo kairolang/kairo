@@ -11,11 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+/// type aliases and enums for filesystem abstractions.
 ///
-/// \file FileTypes.k
-/// \brief type aliases and enums for filesystem abstractions.
-///
-/// \details
 /// defines unified aliases and enums for working with the filesystem across
 /// the kairo runtime. used by file i/o, virtual file management, and compiler
 /// subsystems that depend on portable file handling semantics.
@@ -24,8 +21,7 @@
 ///   - type aliases for filesystem paths and entry types
 ///   - simple enumeration for file output modes
 ///
-/// \see Path, VirtualFileManager
-///
+/// See Path, VirtualFileManager.
 
 ffi "c++" import "llvm/Support/FileSystem.h"
 

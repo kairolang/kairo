@@ -185,8 +185,8 @@ extend Server {
         self.notify(M_KALS_COMPLETED, w.out)
     }
 
-    /// A completion as a process of its own: a compile of entry \p ei's
-    /// graph with the marked buffer \p mpath in \p path's place.
+    /// A completion as a process of its own: a compile of entry `ei`'s
+    /// graph with the marked buffer `mpath` in `path`'s place.
     fn complete_by_run_(self,
                         ei:          usize,
                         const id:    string,
@@ -219,7 +219,7 @@ extend Server {
         self.jobs.push(j)
     }
 
-    /// One completion item. \p edit is the range it replaces: stated on every
+    /// One completion item. `edit` is the range it replaces: stated on every
     /// item, because an editor left to guess the range guesses by its own
     /// idea of a word, which is not Kairo's inside a string or after `::`
     /// (Zed drops such items as "out of expected range").

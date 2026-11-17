@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------- Sema/Resolve/NameResolution.k --- ///
 ///
-///   \brief Phase N: bind every identifier use to its declaration.
+/// Phase N: bind every identifier use to its declaration.
 ///
 ///   \detail
 ///     Two halves, one pass (run in order, not interleaved):
@@ -181,12 +181,10 @@ import Token::TokenKind::{
     token_kind_to_readable_string,
 }
 
-///
-/// \class LocalScope
-/// \brief One executable-scope frame of the N(b) lexical stack: the
-///        body locals declared so far in this block/function, in
-///        declaration order. Executable scopes have no dc_symbols, so
-///        this stack is the ONLY place body locals are findable.
+/// One executable-scope frame of the N(b) lexical stack: the
+/// body locals declared so far in this block/function, in
+/// declaration order. Executable scopes have no dc_symbols, so
+/// this stack is the ONLY place body locals are findable.
 ///
 ///        Lookup walks frames innermost-first (shadowing); within a
 ///        frame, a local is visible only AFTER its DeclStmt is walked
@@ -194,7 +192,6 @@ import Token::TokenKind::{
 ///
 ///        Storage is parallel vecs with a linear scan. Frames are small;
 ///        do NOT build a hash map until a profile says so.
-///
 pub class LocalScope {
     pub var names: cxx::std::vector<u32>
     pub var decls: cxx::std::vector<unsafe *Decl>
@@ -206,7 +203,7 @@ pub class LocalScope {
         self.decls.push_back(d)
     }
 
-    /// Index of \p imm in this frame, latest-first, or usize(-1) on miss.
+    /// Index of `imm` in this frame, latest-first, or usize(-1) on miss.
     /// Latest-first so a same-frame reuse resolves to the newest binding
     /// even in the (diagnosed) redefinition case.
     fn index_of(self, imm: u32) -> usize {
@@ -244,13 +241,10 @@ pub class SavedTypeBody {
     fn SavedTypeBody(self) { }
 }
 
-///
-/// \class ShadowHit
-/// \brief What a binding HID: the decl the next lookup source out would have
-///        answered with, and which source that was. Computed ONLY when the
-///        trace is on   it costs a second lookup per binding, and nothing in
-///        the compiler's behavior depends on the answer.
-///
+/// What a binding HID: the decl the next lookup source out would have
+/// answered with, and which source that was. Computed ONLY when the
+/// trace is on   it costs a second lookup per binding, and nothing in
+/// the compiler's behavior depends on the answer.
 pub class ShadowHit {
     pub var decl:     unsafe *Decl        = &null
     pub var via:      TraceVia            = TraceVia::None
@@ -264,19 +258,16 @@ pub class ShadowHit {
     }
 }
 
-///
-/// \class NameHit
-/// \brief One `_resolve_name` outcome. Deliberately NOT a
-///        SemaLookupResult: a local binding has no OverloadCell to point
-///        at (locals are excluded from symbol tables) and synthesizing one
-///        would mean handing out a pointer to a stack temporary.
+/// One `_resolve_name` outcome. Deliberately NOT a
+/// SemaLookupResult: a local binding has no OverloadCell to point
+/// at (locals are excluded from symbol tables) and synthesizing one
+/// would mean handing out a pointer to a stack temporary.
 ///
 ///        Exactly three states:
 ///          miss      -> found == false
 ///          unique    -> found, decl != null, cell == null
 ///          overloaded-> found, decl == null, cell != null (aliases the
 ///                       FROZEN cell; never a copy)
-///
 pub class NameHit {
     pub var found:       bool                 = false
     pub var decl:        unsafe *Decl         = &null
@@ -312,9 +303,7 @@ pub class NameHit {
     }
 }
 
-///
-/// \class NameBindingVerifier
-/// \brief N's exit test, as code.
+/// N's exit test, as code.
 ///
 ///        THE invariant: no NamedIdentExpr reachable from tu->program is
 ///        left with BOTH binding slots null unless N poisoned it -- and N
@@ -331,7 +320,6 @@ pub class NameHit {
 ///        check silently does nothing. A violation is a bug in
 ///        N, so it is reported as an error   loudly, where a test will see
 ///        it   rather than left to surface as a null deref in T or codegen.
-///
 pub class NameBindingVerifier derives RecursiveASTVisitor<NameBindingVerifier> {
     pub var sc:         unsafe *SemaContext
     pub var violations: usize               = 0
@@ -409,10 +397,8 @@ pub class NameBindingVerifier derives RecursiveASTVisitor<NameBindingVerifier> {
     }
 }
 
-///
-/// \class NameResolution
-/// \brief The N pass. One instance per TU per run; stateless across
-///        runs (LSP rebuilds, batch runs once).
+/// The N pass. One instance per TU per run; stateless across
+/// runs (LSP rebuilds, batch runs once).
 ///
 ///        State is exactly two cursors:
 ///          cur_dc -- the innermost TABLE-OWNING scope (type/module/TU
@@ -422,7 +408,6 @@ pub class NameBindingVerifier derives RecursiveASTVisitor<NameBindingVerifier> {
 ///                    popped by traverse_compound_stmt /
 ///                    traverse_function_decl / traverse_closure_expr.
 ///                    Checked BEFORE unqualified (NameLookup contract).
-///
 pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     pub var sc: unsafe *SemaContext
 
@@ -1038,8 +1023,8 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self._spell_builtin_as(BuiltinKind::F8E5M2, WellKnownType::F8E5M2)
     }
 
-    /// Builtin \p b is spelled in C++ as lang item \p k's declaration
-    /// (BuiltinType::lang_decl), when \p k is bound: a TU that uses \p b
+    /// Builtin `b` is spelled in C++ as lang item `k`'s declaration
+    /// (BuiltinType::lang_decl), when `k` is bound: a TU that uses `b`
     /// declares it (EmitPlan), and codegen, which has no route to
     /// well_known, reads it off the build-wide builtin singleton.
     priv fn _spell_builtin_as(self, b: BuiltinKind, k: WellKnownType) {
@@ -1292,7 +1277,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
     }
 
-    /// `class`, `struct` or `union`, as the keyword that declares \p d;
+    /// `class`, `struct` or `union`, as the keyword that declares `d`;
     /// empty for any other kind.
     priv fn _record_keyword(self, d: unsafe *Decl) -> string {
         if isa<Declarations::ClassDecl>(d) {
@@ -1633,7 +1618,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
     }
 
-    /// The first `<name>N` (N = 2, 3, ...) that names nothing in \p dc: a
+    /// The first `<name>N` (N = 2, 3, ...) that names nothing in `dc`: a
     /// spelling never interned is free outright. Empty after a bound no
     /// file reaches, rather than a loop with none.
     priv fn _free_name(self, dc: unsafe *DeclContext, const name: string) -> string {
@@ -2236,7 +2221,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self.locals.pop_back()
     }
 
-    /// Enter the body of type \p owner, whose scope is \p dc: its generic
+    /// Enter the body of type `owner`, whose scope is `dc`: its generic
     /// parameters are declared (resolved from the enclosing scope), it is
     /// the current scope, and the function depth is 0, since a type body
     /// is not executable code.
@@ -2469,7 +2454,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         return out
     }
 
-    /// Declare \p v, a name a body statement introduces: a statement's
+    /// Declare `v`, a name a body statement introduces: a statement's
     /// `var` / `const`, or a binder (a destructuring declaration's, a
     /// `for`'s, a `catch`'s, a pattern's). Its rebinding number is read
     /// first, before the name enters its frame, so every such name that
@@ -2483,7 +2468,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
     }
 
-    /// Push \p d into the innermost frame under \p imm. A same-frame
+    /// Push `d` into the innermost frame under `imm`. A same-frame
     /// duplicate is a redefinition; this is the sole home of that
     /// diagnostic for body locals (N(a) owns the decl-table half).
     ///
@@ -2571,11 +2556,11 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
     /// ## shadowing (trace-only)
 
-    /// What a binding introduced in frame \p from_frame hides: the outer
+    /// What a binding introduced in frame `from_frame` hides: the outer
     /// lexical frames innermost-first, then the DC chain and overlay   the
     /// same order _resolve_name searches, resumed one step further out.
     ///
-    /// Pass usize(-1) for \p from_frame to skip the lexical frames entirely
+    /// Pass usize(-1) for `from_frame` to skip the lexical frames entirely
     /// (a name that bound through a TABLE hides no local by definition; the
     /// local would have won).
     ///
@@ -2609,7 +2594,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     }
 
     /// The table/overlay half of the same question, starting the DC walk at
-    /// \p from. Used on its own to answer "what did this FIELD hide?" by
+    /// `from`. Used on its own to answer "what did this FIELD hide?" by
     /// resuming from the answering scope's parent.
     priv fn _shadowed_from_dc(self, imm: u32, from: unsafe *DeclContext) -> ShadowHit {
         var out = ShadowHit()
@@ -3377,7 +3362,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     /// could report is T's, which resolves the same target properly right
     /// after and owns the diagnostic.
     ///
-    /// \p outer is the scope the `extend` itself was written in -- the target
+    /// `outer` is the scope the `extend` itself was written in -- the target
     /// is resolved THERE, not inside the extension body.
     priv fn _extension_target_dc(self,
                                  n:     unsafe *Declarations::ExtensionDecl,
@@ -3669,7 +3654,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         )
     }
 
-    /// False when no overlay target for \p imm is visible here: a private
+    /// False when no overlay target for `imm` is visible here: a private
     /// one never is (it is another file's), a protected one only from a
     /// file of its own module (AST/VisibilityFacts.k). The visibility is
     /// the decl's, its file's default applied (ImportResolution::_cell_vis).
@@ -3880,7 +3865,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         return n
     }
 
-    /// VariableDecl::rebind for a statement's local named \p imm, read
+    /// VariableDecl::rebind for a statement's local named `imm`, read
     /// before it enters its frame: one more than the visible local it
     /// hides, innermost frame first, or 0 when it hides none.
     priv fn _rebind_of(self, imm: u32) -> u32 {

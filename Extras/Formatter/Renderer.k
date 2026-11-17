@@ -38,13 +38,13 @@ pub fn spaces(n: i32) -> string {
     return s
 }
 
-/// Display width of \p s: code points, not bytes, so a `é` in a comment or a
+/// Display width of `s`: code points, not bytes, so a `é` in a comment or a
 /// string does not push its line over the limit early.
 pub fn width_of(const s: string) -> i32 {
     return s.codepoints() as i32
 }
 
-/// Rule 14.4: the last line of \p out holds only closers (`}`, `)`, `]`),
+/// Rule 14.4: the last line of `out` holds only closers (`}`, `)`, `]`),
 /// then at most one `;` or `,`, then at most a comment.
 pub fn closer_only_line(out: string) -> bool {
     var i = out.size()
@@ -191,7 +191,7 @@ pub class Renderer {
         return 1000000
     }
 
-    /// Width of \p doc printed flat; unfittable when it holds a hard break.
+    /// Width of `doc` printed flat; unfittable when it holds a hard break.
     static fn flat_width(doc: unsafe *Doc) -> i32 {
         if doc->hard {
             return Renderer::unfittable()
@@ -607,7 +607,7 @@ pub class Renderer {
         Renderer::_push_seq(stack, unsafe &seq)
     }
 
-    /// One list item: its key padded to \p kw (when \p keys), then its value.
+    /// One list item: its key padded to `kw` (when `keys`), then its value.
     priv static fn _item(seq:  unsafe *cxx::std::vector<Cmd>,
                          d:    unsafe *Doc,
                          i:    usize,
@@ -927,7 +927,7 @@ pub class Renderer {
         Renderer::_push_seq(stack, unsafe &seq)
     }
 
-    /// Does \p next fit in \p rem0 columns, followed by the rest of its line?
+    /// Does `next` fit in `rem0` columns, followed by the rest of its line?
     /// The rest is the pending stack, read from the top down in its own modes.
     priv static fn _fits(const next: Cmd, stack: unsafe *cxx::std::vector<Cmd>, rem0: i32) -> bool {
         var rem  = rem0

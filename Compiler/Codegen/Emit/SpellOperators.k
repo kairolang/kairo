@@ -123,7 +123,7 @@ extend Speller {
         return "operator" + sym
     }
 
-    /// A witness member's name for requirement \p f: its leaf, or for an
+    /// A witness member's name for requirement `f`: its leaf, or for an
     /// operator the name an extension member of the same operator has --
     /// a witness member is static, so it cannot be an `operator==` either
     /// (Compiler/Spec/Witnesses.md#the-c-shape).
@@ -245,7 +245,7 @@ extend Speller {
         return ""
     }
 
-    /// \p f, a form of a split subscript (OperatorFacts::in_split_subscript),
+    /// `f`, a form of a split subscript (OperatorFacts::in_split_subscript),
     /// gets a C++ `operator[]` forwarder to its named member, so C++
     /// code subscripts the type as it always did: the place form's on a
     /// mutable object, a read form's (`const` when it takes `const self`)
@@ -359,7 +359,7 @@ extend Speller {
         return OperatorFacts::is_place(f)
     }
 
-    /// The C++ return type of \p f: a place operator's `*T` / `*const T`
+    /// The C++ return type of `f`: a place operator's `*T` / `*const T`
     /// becomes `T&` / `const T&`, so C++ code can write `v[i] = x` on a Kairo
     /// type and an imported `T&` and a Kairo place are one ABI. Everything
     /// else, a value `op []` included, is the declared type. The pointee of `*const T` is the `const T`
@@ -409,7 +409,7 @@ extend Speller {
         return self._type(cast<PointerType>(c)->pointee, subst, scope) + "&"
     }
 
-    /// The return type a declaration or a definition of \p f is written
+    /// The return type a declaration or a definition of `f` is written
     /// with: its Panic result when PanicLowering gave it one
     /// (Compiler/Spec/Panic.md#paniclowering), `void` when it never returns
     /// or declares no type, else return_spelling's.
@@ -451,7 +451,7 @@ extend Speller {
         return Speller::rep(dc->dc_owner)
     }
 
-    /// \p t as C++ spells it: a keyword form's symbol, any other token's own text.
+    /// `t` as C++ spells it: a keyword form's symbol, any other token's own text.
     priv fn _op_sym(self, t: Token, ctx: unsafe *ASTContext) -> string {
         var s = OperatorFacts::cxx_symbol(t.kind)
         if s.size() > 0 {

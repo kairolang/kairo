@@ -535,7 +535,7 @@ extend EmitPlan {
         }
     }
 
-    /// True when entry \p who must follow entry \p dep. A scope follows its
+    /// True when entry `who` must follow entry `dep`. A scope follows its
     /// deps; nothing waits on a scope (a friend line needs only tier 0).
     fn _entry_needs(self, who: unsafe *PlanEntry, dep: unsafe *PlanEntry) -> bool {
         if who->eval_item != &null || dep->eval_item != &null {
@@ -619,7 +619,7 @@ extend EmitPlan {
         return self._needs_complete(who->decl, dep->decl)
     }
 
-    /// True when specialization \p who must follow specialization \p dep. A
+    /// True when specialization `who` must follow specialization `dep`. A
     /// full specialization's inline forwarders call an extension's members
     /// at the conformer's arguments, and C++ checks that call's bounds where
     /// the forwarder is written: `Iterator_witness<Skip<Gen<i32>>>::next`
@@ -645,9 +645,9 @@ extend EmitPlan {
         )
     }
 
-    /// True when \p part is a generic argument of record \p whole, at any
-    /// depth; with \p by_template, when an argument is an instance of
-    /// \p part's template (`Gen<i32>` for a generic row's `Gen<T>`).
+    /// True when `part` is a generic argument of record `whole`, at any
+    /// depth; with `by_template`, when an argument is an instance of
+    /// `part`'s template (`Gen<i32>` for a generic row's `Gen<T>`).
     fn _type_names_arg(self,
                        whole:       unsafe *Type,
                        part:        unsafe *Type,
@@ -742,7 +742,7 @@ extend EmitPlan {
         }
     }
 
-    /// True when \p who's definition requires \p dep's definition first. An
+    /// True when `who`'s definition requires `dep`'s definition first. An
     /// ADT's definition is its layout record's (adt_record); LayoutSpine sees
     /// through its anonymous union and payload structs.
     fn _needs_complete(self, who: unsafe *Decl, dep: unsafe *Decl) -> bool {

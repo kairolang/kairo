@@ -1,6 +1,6 @@
 /// --- The Kairo Project --------------- Sema/Check/ValueCategoryPass.k --- ///
 ///
-///   \brief VERIFY that every typed expression carries a value category.
+/// VERIFY that every typed expression carries a value category.
 ///
 ///   \detail
 ///     The categories are ASSIGNED inline, by ExprTyper, as it types, and not

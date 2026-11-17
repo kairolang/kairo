@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------- Sema/Verify/LoopContextCheck.k --- ///
 ///
-///   \brief Verify break/continue appear in a legal context. Pure
-///          structural check: no names, no types, no symbol tables.
+/// Verify break/continue appear in a legal context. Pure
+/// structural check: no names, no types, no symbol tables.
 ///
 ///   \detail
 ///     Stage1 semantics: `match` has no fallthrough, so `break` inside a
@@ -72,7 +72,7 @@ pub class LoopContextCheck derives RecursiveASTVisitor<LoopContextCheck> {
         self.run(self.sc->tu)
     }
 
-    /// Is \p label the name of any enclosing loop label above the barrier?
+    /// Is `label` the name of any enclosing loop label above the barrier?
     priv fn _label_visible(self, label: Token) -> bool {
         var i: usize = self.labels.size()
         while i > self.label_floor {

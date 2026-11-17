@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------ Codegen/Sink/TokenStreamPrinter.k --- ///
 ///
-///   \brief --print-cg: show what codegen handed clang.
+/// --print-cg: show what codegen handed clang.
 ///
 ///   Two views over the same TokenSink:
 ///
@@ -37,7 +37,7 @@ import std::io
 pub class TokenStreamPrinter {
     /// # Shared: one token's spelling
 
-    /// The text clang will see for token \p i.
+    /// The text clang will see for token `i`.
     static fn spelling(sink: unsafe *TokenSink, i: usize) -> string {
         var unsafe *t = sink->get_token(i)
         // Only a literal's arena bytes are its spelling. A name, keyword or

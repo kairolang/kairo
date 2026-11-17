@@ -11,7 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-/// \p s as one shell word: unchanged when no shell would split or expand
+/// `s` as one shell word: unchanged when no shell would split or expand
 /// it, otherwise in single quotes, each quote inside spelled '\''.
 pub fn shell_quote(s: string) -> string {
     if s.is_empty() {

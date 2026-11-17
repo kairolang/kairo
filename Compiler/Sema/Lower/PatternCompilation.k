@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------- Sema/Lower/PatternCompilation.k --- ///
 ///
-///   \brief Every match's rows become a decision DAG: which occurrence of
-///          the scrutinee to test, in what order, and which arm each
-///          outcome reaches. MatchLowering renders it and decides nothing.
+/// Every match's rows become a decision DAG: which occurrence of
+/// the scrutinee to test, in what order, and which arm each
+/// outcome reaches. MatchLowering renders it and decides nothing.
 ///
 ///   \detail
 ///     Maranget, "Compiling Pattern Matching to Good Decision Trees" (ML
@@ -354,7 +354,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
     /// ## one match
 
-    /// \p null_arm (Compiler/Spec/Nullables.md#match): arm 0 is `case null`, which this tree
+    /// `null_arm` (Compiler/Spec/Nullables.md#match): arm 0 is `case null`, which this tree
     /// never reaches; CoalesceLowering answers it before the match, whose
     /// scrutinee it makes the unwrapped value. So the rows start at arm 1
     /// (arm numbers kept) and the root is `T`.
@@ -553,7 +553,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return (self._occs.size() - 1) as u32
     }
 
-    /// A typed head at \p occ refines its type: a field declared `T` in a
+    /// A typed head at `occ` refines its type: a field declared `T` in a
     /// generic record is `i32` in the instance the pattern was typed in.
     priv fn _note_type(self, occ: u32, p: unsafe *AstPattern) {
         if p == &null || p->type_ == &null {
@@ -566,7 +566,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         }
     }
 
-    /// The sub-occurrences constructor \p c opens at \p occ in domain \p d.
+    /// The sub-occurrences constructor `c` opens at `occ` in domain `d`.
     priv fn _sub_occs(self, occ: u32, const c: Ctor, d: Domain) -> cxx::std::vector<u32> {
         var out = cxx::std::vector<u32>()
         match c.kind {
@@ -659,7 +659,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return id
     }
 
-    /// Leaf or Guard for \p r, every column of which is a wildcard.
+    /// Leaf or Guard for `r`, every column of which is a wildcard.
     priv fn _accept(self, r: *CRow, const occs: cxx::std::vector<u32>, fail: i32) -> u32 {
         var n = DNode{}
         n.kind  = if (r->guarded) => (DKind::Guard) else => DKind::Leaf
@@ -886,7 +886,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return best
     }
 
-    /// Distinct heads in column \p c, counted by spelling. A tiebreak only.
+    /// Distinct heads in column `c`, counted by spelling. A tiebreak only.
     priv fn _distinct_heads(self, const rows: cxx::std::vector<CRow>, c: usize) -> usize {
         var seen: llvm::StringMap<u32>
         for var i: usize = 0; i < rows.size(); ++i {
@@ -946,7 +946,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return Domain{}
     }
 
-    /// Rows surviving \p c at the head occurrence, head replaced by the
+    /// Rows surviving `c` at the head occurrence, head replaced by the
     /// constructor's fields. A binder head is recorded before it is dropped.
     priv fn _specialize(self,
                         @inout rows: cxx::std::vector<CRow>,
@@ -984,7 +984,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return out
     }
 
-    /// _specialize over the rows \p idx names (ascending): an edge's own
+    /// _specialize over the rows `idx` names (ascending): an edge's own
     /// heads and the wildcard rows, bucketed by the caller in one pass, so
     /// a switch over n heads is O(rows) and not O(rows * edges).
     priv fn _specialize_idx(self,
@@ -1000,7 +1000,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return self._specialize(&sub, *occs, c)
     }
 
-    /// \p a and \p b, both ascending, merged.
+    /// `a` and `b`, both ascending, merged.
     priv fn _merge_idx(self,
                        @inout a: cxx::std::vector<u32>,
                        const b:  cxx::std::vector<u32>) -> cxx::std::vector<u32> {
@@ -1059,7 +1059,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         r->binds.push_back(b)
     }
 
-    /// `occs` with the head replaced by \p sub.
+    /// `occs` with the head replaced by `sub`.
     priv fn _with_sub(self,
                       const occs: cxx::std::vector<u32>,
                       const sub:  cxx::std::vector<u32>) -> cxx::std::vector<u32> {
@@ -1475,7 +1475,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return out
     }
 
-    /// Rows whose Int head contains segment \p s, by index.
+    /// Rows whose Int head contains segment `s`, by index.
     priv fn _covering_rows(self,
                            const rows: cxx::std::vector<CRow>,
                            const s:    Ctor) -> cxx::std::vector<u32> {
@@ -1804,9 +1804,9 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return cont
     }
 
-    /// Walk \p p at \p occ, appending its tests in pre-order (a variant's
+    /// Walk `p` at `occ`, appending its tests in pre-order (a variant's
     /// tag before its payload) and its binders; an alternation forks the
-    /// row. Every fork lands in \p out.
+    /// row. Every fork lands in `out`.
     priv fn _flatten(self,
                      p:          unsafe *AstPattern,
                      occ:        u32,

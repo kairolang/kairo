@@ -73,7 +73,7 @@ import Location::SourceRange::SourceRange
 import Token::TokenKind::TokenKind
 
 extend EmitIR {
-    /// \p e has a `<T: type>` parameter's type: an operator on it is
+    /// `e` has a `<T: type>` parameter's type: an operator on it is
     /// whatever the instance's type declares, a panicking user operator
     /// included, which the duck body cannot handle (as for a
     /// member call).
@@ -193,7 +193,7 @@ extend EmitIR {
         return !isa<InterfaceDecl>(d)
     }
 
-    /// \p t is a generic parameter (or a witness's member type) of the body:
+    /// `t` is a generic parameter (or a witness's member type) of the body:
     /// its arithmetic is decided per instance.
     priv fn _dependent_arith(self, t: unsafe *Type) -> bool {
         if t == &null || t->canonical == &null {
@@ -230,7 +230,7 @@ extend EmitIR {
         self._bind_depth = d
     }
 
-    /// A dependent place written by op \p k (`+=`, or `++`/`--` with \p v
+    /// A dependent place written by op `k` (`+=`, or `++`/`--` with `v`
     /// null): `({ auto& p = (place); [&]() { <int: p = wrap(p OP v)> else
     /// <p OP= v> }(); p; })`, the old value kept for a postfix that is read.
     priv fn _dep_update(self,
@@ -643,8 +643,8 @@ extend EmitIR {
         self._cg->sink->spell(n->range, ")")
     }
 
-    /// Operand \p e of a builtin binary operator whose other operand is
-    /// \p other. An f8e4m3 / f8e5m2 beside a wider float is widened to it
+    /// Operand `e` of a builtin binary operator whose other operand is
+    /// `other`. An f8e4m3 / f8e5m2 beside a wider float is widened to it
     /// (the conversion lattice's W) in so many words: the f8 formats are
     /// classes in C++, where `a + w` would weigh the class's `operator+`
     /// against the built-in one and find the call ambiguous. Every other
@@ -673,7 +673,7 @@ extend EmitIR {
         return b == BuiltinKind::F8E4M3 || b == BuiltinKind::F8E5M2
     }
 
-    /// An arithmetic or bitwise binary operator \p k as its compound form's
+    /// An arithmetic or bitwise binary operator `k` as its compound form's
     /// kind, or TkUnknown for any other (a comparison, a logical operator).
     priv fn _compound_op_of_binary(self, k: TokenKind) -> TokenKind {
         match k {
@@ -686,9 +686,9 @@ extend EmitIR {
         }
     }
 
-    /// An operator no Sema rule bound (\p ro null) whose operand the instance
+    /// An operator no Sema rule bound (`ro` null) whose operand the instance
     /// types: left as written, it needs the C++ operator its type may not
-    /// declare, the second of the pair OperatorLowering derives from. \p ck
+    /// declare, the second of the pair OperatorLowering derives from. `ck`
     /// is the compound twin, TkUnknown for an operator with none.
     priv fn _derived_dependent_op(self,
                                   ro: unsafe *Decl,

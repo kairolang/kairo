@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------- Sema/Check/OperatorSignatureCheck.k --- ///
 ///
-///   \brief The rules an operator DECLARATION obeys, checked once, here, so
-///          no lowering ever meets a shape it cannot render.
+/// The rules an operator DECLARATION obeys, checked once, here, so
+/// no lowering ever meets a shape it cannot render.
 ///
 ///   \detail
 ///     - `=` is generated from the constructors and `===` is a builtin on
@@ -457,7 +457,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         f->poison()
     }
 
-    /// The first `op []=` of \p f's own type, or null.
+    /// The first `op []=` of `f`'s own type, or null.
     priv fn _first_set_of(self, f: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
         var unsafe *dc = f->semantic_dc
         if dc == &null || !dc->is_type_scope() {
@@ -660,7 +660,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         }
     }
 
-    /// \p g (`op []`) and \p s (`op []=`) taking one index type name one
+    /// `g` (`op []`) and `s` (`op []=`) taking one index type name one
     /// element, const aside.
     priv fn _agree(self, g: unsafe *FunctionDecl, s: unsafe *FunctionDecl) {
         var unsafe *gi = self._index_of(g)
@@ -810,7 +810,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         return "a value ('T')"
     }
 
-    /// \p k is OperatorFacts::single_kind: TkUnknown for `[]` / `()`.
+    /// `k` is OperatorFacts::single_kind: TkUnknown for `[]` / `()`.
     priv fn _arity_ok(self, k: TokenKind, n: usize) -> bool {
         if k == TokenKind::OpPlus || k == TokenKind::OpMinus || k == TokenKind::KwIn {
             return n <= 1
@@ -1059,8 +1059,8 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
         self._pairs_across(dc, dc, at)
     }
 
-    /// For every compound operator declared in \p a, its base operator must
-    /// not be declared in \p b.
+    /// For every compound operator declared in `a`, its base operator must
+    /// not be declared in `b`.
     priv fn _pairs_across(self, a: unsafe *DeclContext, b: unsafe *DeclContext, at: *Decl) {
         if a == &null || b == &null || a->dc_symbols == &null || b->dc_symbols == &null {
             return
@@ -1123,7 +1123,7 @@ pub class OperatorSignatureCheck derives RecursiveASTVisitor<OperatorSignatureCh
             || k == TokenKind::KwNotEq
     }
 
-    /// A comparison declared in \p a beside an `op <=>` in \p b. Legal --
+    /// A comparison declared in `a` beside an `op <=>` in `b`. Legal --
     /// an `op ==` cheaper than a three-way compare is a real reason to write
     /// one -- but the declared operator wins every use (OperatorTyping looks
     /// it up first), so the one derived from `<=>` is never reached, and a C++

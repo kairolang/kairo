@@ -92,7 +92,7 @@ import Token::TokenKind::{
 import Token::TokenText::TokenText
 
 extend IndexWalker {
-    /// `name:` before each argument of a call to \p d, as an editor shows a
+    /// `name:` before each argument of a call to `d`, as an editor shows a
     /// parameter hint. Not where it would say nothing: an argument that is
     /// already named, or is a variable called what the parameter is.
     fn param_hints_(self, c: unsafe *Expressions::CallExpr, d: unsafe *Decl) {

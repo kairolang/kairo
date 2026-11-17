@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------ Sema/Expand/EvalIfFolding.k --- ///
 ///
-///   \brief `eval if` folded like `#if`: the untaken branches are discarded,
-///          the taken branch's declarations are hoisted into the enclosing
-///          scope -- before name resolution, or, for a declaration-scope
-///          condition that reads a type fact, once types are resolved.
+/// `eval if` folded like `#if`: the untaken branches are discarded,
+/// the taken branch's declarations are hoisted into the enclosing
+/// scope -- before name resolution, or, for a declaration-scope
+/// condition that reads a type fact, once types are resolved.
 ///
 ///   \detail
 ///     Compiler/Spec/Eval.md#folding-eval-if. One writer, two evaluators, two slots:
@@ -179,8 +179,7 @@ import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
-/// \enum FoldKind
-/// \brief What folding a condition came to.
+/// What folding a condition came to.
 pub enum FoldKind derives u8 {
     /// It does not fold: the reason is EvalIfFolding's `_why`, or none for
     /// an integer that overflowed.
@@ -213,10 +212,9 @@ fn fold_deferred(const v: FoldVal) -> bool {
     return v.kind == FoldKind::Deferred
 }
 
-/// \enum FoldMode
-/// \brief Which fold EvalIfFolding is running: run() is Early; run_late()
-///        is Late, then LateFinal for its last round, where nothing may
-///        wait any more and a wait is a failure, reported with its reason.
+/// Which fold EvalIfFolding is running: run() is Early; run_late()
+/// is Late, then LateFinal for its last round, where nothing may
+/// wait any more and a wait is a failure, reported with its reason.
 pub enum FoldMode derives u8 {
     Early = 0, ///< E: type facts defer.
     Late,      ///< T: the type facts are answered.
@@ -305,7 +303,7 @@ pub class LateFoldRebind derives RecursiveASTVisitor<LateFoldRebind> {
         return false
     }
 
-    /// \p n's name looked up again in the scope \p was (a discarded
+    /// `n`'s name looked up again in the scope `was` (a discarded
     /// declaration) was declared in: its new table holds the survivors only.
     /// One is bound as N binds one; several stay a cell, as N leaves an
     /// overload set; none is the undeclared name it now is.
@@ -639,7 +637,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         return out
     }
 
-    /// A function-body `eval if` _choose did not decide (\p r: 2 waits on
+    /// A function-body `eval if` _choose did not decide (`r`: 2 waits on
     /// a type fact, 0 does not fold). E leaves one that waits to the late
     /// fold, which sees resolved types; what the late fold cannot decide
     /// either stays C++ `if constexpr`, which clang decides with its own
@@ -673,7 +671,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
     }
 
-    /// The late fold of a function-body `eval if`: \p taken stays a block,
+    /// The late fold of a function-body `eval if`: `taken` stays a block,
     /// since N bound its names in the branch's own scope, after a static
     /// assertion of each decided condition (_body_pins). The untaken
     /// branches are neither typed nor emitted, as in E's fold.
@@ -808,7 +806,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         *items = buf
     }
 
-    /// Which branch \p n takes, into `_taken` (null: none). 1 when decided;
+    /// Which branch `n` takes, into `_taken` (null: none). 1 when decided;
     /// 0 when the condition does not fold (reported, unless in a function
     /// body); 2 when it waits -- for the late fold (E), or for another
     /// deferred `eval if` (a late round). An else-if chain waits at its first
@@ -990,7 +988,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         return &null
     }
 
-    /// `T, U`: \p d's generic parameters as written.
+    /// `T, U`: `d`'s generic parameters as written.
     priv fn _param_list(self, d: unsafe *Decl) -> string {
         var gps = decl_generic_params(d)
         var s   = ""
@@ -1009,8 +1007,8 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
     /// # deferred (file header, Type facts)
 
-    /// \p head waits: in E it is deferred and filed; in a late round it waits
-    /// for the next one. \p record is the class or struct whose body holds
+    /// `head` waits: in E it is deferred and filed; in a late round it waits
+    /// for the next one. `record` is the class or struct whose body holds
     /// it, or null.
     priv fn _wait(self, head: unsafe *ConditionalStmt, record: unsafe *Decl) {
         if self._late() {
@@ -1039,7 +1037,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
     /// E's half of a deferred `eval if` at declaration scope. Its branches
     /// are walked here because nothing else in E reaches them; a class's
-    /// (\p record) become members' shapes now; then it is filed, so N(a),
+    /// (`record`) become members' shapes now; then it is filed, so N(a),
     /// RedeclMerge and the late fold know which declarations exclude each
     /// other.
     priv fn _defer_node(self, head: unsafe *ConditionalStmt, record: unsafe *Decl) {
@@ -1207,7 +1205,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
     }
 
-    /// Every declaration under each branch of \p head (filed at \p at), a
+    /// Every declaration under each branch of `head` (filed at `at`), a
     /// nested `eval if`'s included: one row per (declaration, branch).
     priv fn _file_arms(self, at: usize, head: unsafe *Stmt) {
         var unsafe *c = cast<ConditionalStmt>(head)
@@ -1271,7 +1269,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         return b
     }
 
-    /// Clang's answer for \p name (Compiler/Spec/Eval.md#defined): the TU's HeaderSet when
+    /// Clang's answer for `name` (Compiler/Spec/Eval.md#defined): the TU's HeaderSet when
     /// it has ffi headers (its preprocessor holds the target's predefines
     /// and every header's #defines), else the target's predefines alone.
     /// Kairo's own macros never get here: the preprocessor answered those.
@@ -1306,7 +1304,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     }
 
     /// Not decided yet (FoldVal::deferred). In the last late round (_force)
-    /// nothing may wait any more: it is a failure, with \p why.
+    /// nothing may wait any more: it is a failure, with `why`.
     priv fn _defer(self, at: unsafe *Expr, const why: string) -> FoldVal {
         if self._final() {
             return self._no(at, why)
@@ -1647,7 +1645,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         )
     }
 
-    /// -1, 0, 1 as \p a is below, equal to, above \p b.
+    /// -1, 0, 1 as `a` is below, equal to, above `b`.
     priv fn _cmp(self, a: Declarations::IntConst, b: Declarations::IntConst) -> i32 {
         if a.neg != b.neg {
             return if (a.neg) => (-1) else => (1)
@@ -1667,7 +1665,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
     /// # type facts (late)
 
-    /// `sizeof` / `alignof` of \p ta, from the layout Sema predicts for the
+    /// `sizeof` / `alignof` of `ta`, from the layout Sema predicts for the
     /// types whose layout is target arithmetic (EnumLayoutQuery::size_of).
     /// Any other layout is C++'s to choose, so a declaration-scope
     /// condition cannot read it.
@@ -1760,7 +1758,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     }
 
     /// The record whose member set a still-deferred `eval if` decides, when
-    /// \p t's facts or layout read it: \p t itself, or a record it holds by
+    /// `t`'s facts or layout read it: `t` itself, or a record it holds by
     /// value (field, base, array element, type argument). Null when none
     /// does. A pointer stops the walk: what it points at is no part of the
     /// fact. Very deep by-value nesting is cut off and reads as held, which
@@ -1889,7 +1887,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         return f"it reads the members of '{self._tu.decl_name(d)}', which an 'eval if' that is not decided yet chooses"
     }
 
-    /// \p d's value as this fold read it through a type fact, for codegen to
+    /// `d`'s value as this fold read it through a type fact, for codegen to
     /// assert against clang's (VariableDecl::fold_pin, Compiler/Spec/Eval.md#deferred-conditions): a
     /// disagreement then fails the build instead of Kairo keeping a branch
     /// C++ would not. This TU's constants only: another TU's definition is
@@ -1986,7 +1984,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         return v
     }
 
-    /// \p tok looked up from the innermost scope, as N would, skipping what
+    /// `tok` looked up from the innermost scope, as N would, skipping what
     /// this pass discarded. A body local is in no table, so it is not found.
     priv fn _lookup(self, tok: Token, at: unsafe *Expr) -> unsafe *Decl {
         var nm  = self.ctx->get_spelling(tok)
@@ -2006,7 +2004,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         return self._one_live(r.cell, nm)
     }
 
-    /// The one declaration of \p cell this pass has not discarded. When
+    /// The one declaration of `cell` this pass has not discarded. When
     /// every one left sits in a branch of an `eval if` that is not decided
     /// yet, which of them exists is that `eval if`'s to say: null, with
     /// _pending_name set, so the condition waits for it.
@@ -2113,7 +2111,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
     /// # discarding
 
-    /// Every declaration in \p s's branches other than \p keep, nested
+    /// Every declaration in `s`'s branches other than `keep`, nested
     /// `eval if`s included.
     priv fn _drop_untaken(self, s: unsafe *Stmt, keep: unsafe *CompoundStmt) {
         if s == &null {
@@ -2198,7 +2196,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         self._dirty.push_back(dc)
     }
 
-    /// The untaken branches' local fns and classes leave \p dc's list
+    /// The untaken branches' local fns and classes leave `dc`'s list
     /// (StmtParse::_attach_local_decl put every branch's there).
     priv fn _drop_from_dc(self, dc: unsafe *DeclContext) {
         if self._dropped.size() == 0 {
@@ -2317,7 +2315,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         dc->dc_decls = rest
     }
 
-    /// The branch fields (\p fb past its first \p kept entries, which are
+    /// The branch fields (`fb` past its first `kept` entries, which are
     /// the class's own fields in order) moved to where they were written:
     /// each goes before the first own field that starts after it, so
     /// `class C { var a  eval if X { var b }  var c }` is laid out a, b, c
@@ -2435,7 +2433,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
     /// # tables
 
-    /// \p dc's table without the discarded declarations, and with each class
+    /// `dc`'s table without the discarded declarations, and with each class
     /// branch's VariableDecl replaced by its FieldDecl; frozen and swapped in.
     priv fn _rebuild_table(self, dc: unsafe *DeclContext) {
         var unsafe *old = dc->dc_symbols

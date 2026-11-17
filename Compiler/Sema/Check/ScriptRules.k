@@ -1,8 +1,8 @@
 /// --- The Kairo Project --------------------- Sema/Check/ScriptRules.k --- ///
 ///
-///   \brief What makes a file a script, and which of its top-level bindings
-///          are DEFERRED: the questions every pass that treats a script's
-///          top level as main's body asks, answered once (Compiler/Spec/ScriptMode.md#script-files-2).
+/// What makes a file a script, and which of its top-level bindings
+/// are DEFERRED: the questions every pass that treats a script's
+/// top level as main's body asks, answered once (Compiler/Spec/ScriptMode.md#script-files-2).
 ///
 ///   \detail
 ///     A script is the program's ROOT file (SemaContext::script_root, the
@@ -254,7 +254,7 @@ pub class ScriptRules {
         return true
     }
 
-    /// An integer ConstEval folds and that fits \p t (a `-1`, an `eval`
+    /// An integer ConstEval folds and that fits `t` (a `-1`, an `eval`
     /// name, `1 << 4`).
     priv fn _constant_int(self, x: unsafe *Expr, t: unsafe *Type) -> bool {
         if !self.tu.is_integer(t) {

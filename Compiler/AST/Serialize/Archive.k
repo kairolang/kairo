@@ -503,7 +503,7 @@ pub class ASTArchive {
         }
     }
 
-    /// A list's length: written from \p have, or read (bounded by what the
+    /// A list's length: written from `have`, or read (bounded by what the
     /// stream could still hold).
     pub fn len_(self, have: usize) -> usize {
         if self.reading() {
@@ -575,7 +575,7 @@ pub class ASTArchive {
         return self._file_hash(self.fid)
     }
 
-    /// Index of fid \p f in the file table (0 is this file), adding it on
+    /// Index of fid `f` in the file table (0 is this file), adding it on
     /// first use.
     pub fn file_ref(self, f: u32) -> u32 {
         if f == self.fid {
@@ -922,7 +922,7 @@ pub class ASTArchive {
         self._tok_in(&t, u32::MAX)
     }
 
-    /// \p rec_fid: the file whose table holds the expansion records of a
+    /// `rec_fid`: the file whose table holds the expansion records of a
     /// chain being walked (unwrap_expansion pins it for the whole chain);
     /// u32::MAX for a token met in the tree, whose own range decides.
     priv fn _tok_in(self, @inout t: Token, rec_fid: u32) {
@@ -1339,7 +1339,7 @@ pub class ASTArchive {
         }
     }
 
-    /// Payload index of slot \p imm of sheet \p cls in file \p home's
+    /// Payload index of slot `imm` of sheet `cls` in file `home`'s
     /// table, writing its record the first time it is met.
     priv fn _payload_ref(self, cls: u8, home: u32, imm: u32) -> u32 {
         var key = ((home as u64) << 36) | ((cls as u64) << 32) | (imm as u64)
@@ -1490,7 +1490,7 @@ pub class ASTArchive {
     //  nodes
 
     /// The first half of writing a reference to the node at family base
-    /// pointer \p p: 0 for null, id + 2 for a node already written, and 1
+    /// pointer `p`: 0 for null, id + 2 for a node already written, and 1
     /// the first time, when the node gets its id and the caller must write
     /// the node itself next (true).
     priv fn _begin_write(self, cat: u8, p: unsafe *void) -> bool {
@@ -1517,7 +1517,7 @@ pub class ASTArchive {
         return true
     }
 
-    /// The first half of reading one: \p out is null, the node the id
+    /// The first half of reading one: `out` is null, the node the id
     /// names, or a newly allocated node whose fields the caller must read
     /// next (true).
     priv fn _begin_read(self, cat: u8, @inout out: unsafe *void) -> bool {
@@ -1756,7 +1756,7 @@ pub class ASTArchive {
 
     //  lists
 
-    /// Storage for a list read from the stream: \p n default-constructed
+    /// Storage for a list read from the stream: `n` default-constructed
     /// elements in the AST arena.
     pub fn <T: type> alloc_list(self, @inout l: FrozenList<T>, n: usize) {
         if n == 0 {
@@ -1885,7 +1885,7 @@ pub class ASTArchive {
         }
     }
 
-    /// The general form: \p ok says the slot still holds its default.
+    /// The general form: `ok` says the slot still holds its default.
     pub fn sema_is(self, ok: bool, const what: string) {
         if self.reading() {
             return

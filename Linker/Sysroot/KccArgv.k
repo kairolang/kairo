@@ -18,14 +18,14 @@
 ffi "c++" import "vector"
 
 pub class KccArgv {
-    /// \brief appends `--target=<triple> --sysroot=<sysroot> -Xkairo
-    ///        --sysroot-exact` to \p argv.
+    /// appends `--target=<triple> --sysroot=<sysroot> -Xkairo
+    /// --sysroot-exact` to `argv`.
     ///
-    /// \details Always --sysroot, so kcc's own sysroot hook never re-enters
-    ///          ksys for the target being built, and --sysroot-exact, so a
-    ///          root bundled beside kcc for the same triple never replaces
-    ///          the stage's own headers. kcc takes kairo-only words
-    ///          through -Xkairo.
+    /// Always --sysroot, so kcc's own sysroot hook never re-enters
+    /// ksys for the target being built, and --sysroot-exact, so a
+    /// root bundled beside kcc for the same triple never replaces
+    /// the stage's own headers. kcc takes kairo-only words
+    /// through -Xkairo.
     pub static fn push_target(@inout argv:   cxx::std::vector<string>,
                               const triple:  string,
                               const sysroot: string) {

@@ -43,8 +43,8 @@ import std::c_char
 /// temporary name unique, across threads too.
 var _TEMP_SEQ: u64 = 0
 
-/// The private name a publish of \p path writes first:
-/// `<path>.tmp-<pid>-<n>.tmp`, in \p path's directory so the rename stays
+/// The private name a publish of `path` writes first:
+/// `<path>.tmp-<pid>-<n>.tmp`, in `path`'s directory so the rename stays
 /// on one filesystem. Both ends mark it (see is_leftover_temp), and it
 /// never ends in an entry's own suffix (`.o`), so a sweep of entries by
 /// suffix skips it.
@@ -58,10 +58,10 @@ pub fn temp_path_for(const path: string) -> string {
     return f"{path}.tmp-{llvm::sys::Process::getProcessId()}-{n}.tmp"
 }
 
-/// Moves \p from to \p to, a file or a directory. Atomic on one
-/// filesystem. A file replaces an existing file at \p to; a directory
-/// fails if \p to is a non-empty directory. False when the move fails;
-/// \p from is then left where it was.
+/// Moves `from` to `to`, a file or a directory. Atomic on one
+/// filesystem. A file replaces an existing file at `to`; a directory
+/// fails if `to` is a non-empty directory. False when the move fails;
+/// `from` is then left where it was.
 pub fn rename_path(const from: string, const to: string) -> bool {
     var ec = llvm::sys::fs::rename(
         llvm::Twine(kairo::sref(from)),
@@ -86,9 +86,9 @@ pub fn rename_path(const from: string, const to: string) -> bool {
     return false
 }
 
-/// Writes \p bytes to \p path atomically (exact bytes, no newline
+/// Writes `bytes` to `path` atomically (exact bytes, no newline
 /// translation): through temp_path_for and rename_path. On failure the
-/// temporary is removed and \p path is untouched.
+/// temporary is removed and `path` is untouched.
 pub fn publish_bytes(const path: string, const bytes: string) -> bool {
     var tmp = temp_path_for(path)
     if !Path::write_file(tmp, bytes) {
@@ -104,8 +104,8 @@ pub fn publish_bytes(const path: string, const bytes: string) -> bool {
     return true
 }
 
-/// Copies the file \p from to \p to atomically, as publish_bytes writes.
-/// On failure the temporary is removed and \p to is untouched.
+/// Copies the file `from` to `to` atomically, as publish_bytes writes.
+/// On failure the temporary is removed and `to` is untouched.
 pub fn publish_copy(const from: string, const to: string) -> bool {
     var tmp = temp_path_for(to)
     var ec = llvm::sys::fs::copy_file(
@@ -126,10 +126,10 @@ pub fn publish_copy(const from: string, const to: string) -> bool {
     return true
 }
 
-/// The last modification time and the size of \p path, symlinks followed.
-/// \p mtime is nanoseconds since the Unix epoch, the clock now_ns reads, so
+/// The last modification time and the size of `path`, symlinks followed.
+/// `mtime` is nanoseconds since the Unix epoch, the clock now_ns reads, so
 /// the two subtract to an age. False, with both left unchanged, when
-/// \p path cannot be stat'd.
+/// `path` cannot be stat'd.
 pub fn file_stat(const path: string, @inout mtime: u64, @inout size: u64) -> bool {
     var st: llvm::sys::fs::file_status
     var ec = llvm::sys::fs::status(llvm::Twine(kairo::sref(path)), &st, true)
@@ -150,7 +150,7 @@ pub fn now_ns() -> u64 {
     ).count() as u64)
 }
 
-/// True when the directory entry \p name is something an interrupted
+/// True when the directory entry `name` is something an interrupted
 /// publish left: a temporary (`.tmp-` anywhere, or a `.tmp` suffix), a
 /// stale tree moved aside before a replace (`.stale-`), or a copy made to
 /// publish a tree that could not be renamed (`.copy-`). Never a cache
@@ -163,8 +163,8 @@ pub fn is_leftover_temp(const name: string) -> bool {
         || find(name, ".copy-", 0) != usize::MAX
 }
 
-/// Removes every entry directly in \p dir that is_leftover_temp names and
-/// that was last modified more than \p max_age_ns ago: a file, or a
+/// Removes every entry directly in `dir` that is_leftover_temp names and
+/// that was last modified more than `max_age_ns` ago: a file, or a
 /// directory with everything under it. An entry that cannot be stat'd is
 /// kept. Returns how many were removed.
 pub fn sweep_leftover_temps(const dir: string, max_age_ns: u64) -> usize {

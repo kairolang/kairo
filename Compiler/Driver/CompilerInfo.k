@@ -213,8 +213,8 @@ extend CompilerInstance {
         return EXIT_OK
     }
 
-    /// \brief the registered target for \p tt (\p triple normalized), for
-    ///        the info queries; &null after reporting P004F.
+    /// the registered target for `tt` (`triple` normalized), for
+    /// the info queries; &null after reporting P004F.
     priv fn _info_target(self, const triple: string, tt: *llvm::Triple) -> unsafe *llvm::Target {
         var err: cxx::std::string
         var T: unsafe *llvm::Target = unsafe (llvm::TargetRegistry::lookupTarget(*tt, &err) as unsafe *llvm::Target)
@@ -238,9 +238,9 @@ extend CompilerInstance {
         return &null
     }
 
-    /// \brief a TargetMachine for \p T on \p tt, generic CPU and no
-    ///        features, which the caller deletes; &null after reporting
-    ///        P005F.
+    /// a TargetMachine for `T` on `tt`, generic CPU and no
+    /// features, which the caller deletes; &null after reporting
+    /// P005F.
     priv fn _info_target_machine(self,
                                  T:            unsafe *llvm::Target,
                                  tt:           *llvm::Triple,
@@ -465,7 +465,7 @@ extend CompilerInstance {
         return EXIT_OK
     }
 
-    /// Handles info-query flags. Currently implements \c --print-cfg;
+    /// Handles info-query flags. Currently implements `--print-cfg`;
     /// all other flags are no-ops until their subsystems exist.
     fn run_info_query(self) -> i32 {
         if self.invocation()->args.get_bool("print-targets") {
@@ -552,16 +552,16 @@ extend CompilerInstance {
     /// configuration and starts nothing.
     //  --print-from-clang
 
-    /// \brief the reverse map, made visible: the clang command line given as
-    ///        the inputs (after `--`) as kairo CLI words, and the words kairo
-    ///        has no flag for. The kairo words are then parsed by the real
-    ///        kairo parser, so a row that maps to a flag that does not exist
-    ///        fails here, not first in kcc.
+    /// the reverse map, made visible: the clang command line given as
+    /// the inputs (after `--`) as kairo CLI words, and the words kairo
+    /// has no flag for. The kairo words are then parsed by the real
+    /// kairo parser, so a row that maps to a flag that does not exist
+    /// fails here, not first in kcc.
     ///
-    /// \details Two lines, each word shell-quoted:
-    ///            kairo: <kairo words>
-    ///            clang-only: <clang words>
-    ///          Exit 1 if clang's table or kairo's parser rejected a word.
+    /// Two lines, each word shell-quoted:
+    ///   kairo: <kairo words>
+    ///   clang-only: <clang words>
+    /// Exit 1 if clang's table or kairo's parser rejected a word.
     fn print_from_clang(self) -> i32 {
         var clang_argv = self.invocation()->input_files
         var kw         = cxx::std::vector<string>()
@@ -605,13 +605,14 @@ extend CompilerInstance {
 
     //  --print-clang-query
 
-    /// \brief kcc's answer to the probes build systems send their C compiler
-    ///        (-dumpversion, -print-resource-dir, --print-libgcc-file-name):
-    ///        clang's own driver answers, against kairo's target and resource
-    ///        directory, so the output is what clang prints for this toolchain.
-    /// \details no input is needed (and none is given, so the "no input
-    ///          files" error the parser queued is left undrained on purpose:
-    ///          a probe's stdout is its whole interface).
+    /// kcc's answer to the probes build systems send their C compiler
+    /// (-dumpversion, -print-resource-dir, --print-libgcc-file-name):
+    /// clang's own driver answers, against kairo's target and resource
+    /// directory, so the output is what clang prints for this toolchain.
+    ///
+    /// no input is needed (and none is given, so the "no input
+    /// files" error the parser queued is left undrained on purpose:
+    /// a probe's stdout is its whole interface).
     fn print_clang_query(self) -> i32 {
         var unsafe *be = kairo::std::create<ClangBackend>(
             self._sm,
@@ -647,7 +648,7 @@ extend CompilerInstance {
         return EXIT_OK
     }
 
-    /// \p with_link: --print-jobs, which also prints the planned link.
+    /// `with_link`: --print-jobs, which also prints the planned link.
     fn print_clang_args(self, with_link: bool) -> i32 {
         // A failed parse leaves the invocation at its defaults, so the line
         // would show a target and level the user did not ask for.

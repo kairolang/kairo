@@ -230,7 +230,7 @@ extend EmitPlan {
 
     /// # Extension scopes
 
-    /// The scope \p x contributes to, created on first touch; \p reach marks it
+    /// The scope `x` contributes to, created on first touch; `reach` marks it
     /// reachable. Index-based: the closure below can grow _scopes.
     ///
     /// Filled COMPLETELY at creation, never from the use that touched it: with
@@ -359,8 +359,8 @@ extend EmitPlan {
         return k
     }
 
-    /// Walk \p cand (modules, visibility groups) for every extend block of
-    /// scope \p k, adding its members in source order.
+    /// Walk `cand` (modules, visibility groups) for every extend block of
+    /// scope `k`, adding its members in source order.
     fn _fill_scope(self, k: usize, cand: unsafe *Decl) {
         if cand == &null || cand->is_poisoned() {
             return
@@ -441,7 +441,7 @@ extend EmitPlan {
         }
     }
 
-    /// \p x's target is scope \p k's: the same layout decl for a record, the
+    /// `x`'s target is scope `k`'s: the same layout decl for a record, the
     /// same canonical type for a builtin. Namespace is the caller's to compare.
     fn _same_scope(self, k: usize, x: unsafe *Declarations::ExtensionDecl) -> bool {
         var unsafe *c = canon_unqual(x->target->canonical)
@@ -453,7 +453,7 @@ extend EmitPlan {
         return s->target == &null && s->target_ty == c
     }
 
-    /// A by-value record \p t is a Complete dependency of scope \p k, recorded
+    /// A by-value record `t` is a Complete dependency of scope `k`, recorded
     /// as the tier-1 entry that defines it (an outermost type, a primary).
     fn _scope_dep(self, k: usize, t: unsafe *Type) {
         if t == &null || t->canonical == &null {
@@ -493,9 +493,9 @@ extend EmitPlan {
         return lw
     }
 
-    /// A NESTED record anywhere in a member signature \p t -- behind pointers,
+    /// A NESTED record anywhere in a member signature `t` -- behind pointers,
     /// references, arrays, as a generic argument -- makes its outermost owner a
-    /// Complete dep of scope \p k: a member type is named only through a
+    /// Complete dep of scope `k`: a member type is named only through a
     /// complete enclosing class.
     fn _scope_sig_dep(self, k: usize, t: unsafe *Type) {
         if t == &null {

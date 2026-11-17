@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------- Lib/builtin/num/f128_ext.k --- ///
 ///
-///   \brief The methods of `f128`: `extend f128`.
+/// The methods of `f128`: `extend f128`.
 ///
 ///   \detail
 ///     `extend f128`: the methods every float has (num/float_ext.k has the

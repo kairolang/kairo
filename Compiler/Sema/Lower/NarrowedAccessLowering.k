@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------- Sema/Lower/NarrowedAccessLowering.k --- ///
 ///
-///   \brief Every narrowed read of a nullable becomes a call of the
-///          Null's unchecked `__value()`.
+/// Every narrowed read of a nullable becomes a call of the
+/// Null's unchecked `__value()`.
 ///
 ///   \detail
 ///     Compiler/Spec/Nullables.md#narrowed-reads, §5 step 3. The nullness analysis (Sema/Type/
@@ -238,7 +238,7 @@ pub class NarrowedAccessLowering derives ASTWriter<NarrowedAccessLowering> {
         return self.transform_chain_expr(rest)
     }
 
-    /// `recv.__value()`, typed \p t as the lvalue it is. The `const`
+    /// `recv.__value()`, typed `t` as the lvalue it is. The `const`
     /// accessor on a const nullable, so the C++ overload and the decl the
     /// call names agree.
     priv fn _value_of(self, recv: unsafe *Expr, t: unsafe *Type, r: SourceRange) -> unsafe *Expr {

@@ -1,7 +1,7 @@
 /// --- The Kairo Project -------------------- Sema/Foreign/DeclImport.k --- ///
 ///
-///   \brief clang::Decl -> Kairo Decl, into the TU of the header it came
-///          from. Two passes over the same decls, called by HeaderIndex:
+/// clang::Decl -> Kairo Decl, into the TU of the header it came
+/// from. Two passes over the same decls, called by HeaderIndex:
 ///
 ///            declare(d)  mint the Kairo node, register its USR, put its
 ///                        NAME in the right table. No types, no members.
@@ -219,8 +219,8 @@ pub class DeclImport {
 
     fn DeclImport(self) { }
 
-    /// Enter fill mode for \p spec, which imports into \p shell's scope on
-    /// header \p target; \p own_usr non-null makes it a VariantFill (see
+    /// Enter fill mode for `spec`, which imports into `shell`'s scope on
+    /// header `target`; `own_usr` non-null makes it a VariantFill (see
     /// `_fill_usr`; the caller owns the table and outlives the fill). Once
     /// per importer, before any declare.
     fn begin_fill(self,
@@ -345,7 +345,7 @@ pub class DeclImport {
         return self._target_for(self._set->kfid_for(loc.first))
     }
 
-    /// Which header's context owns the interner for a token ranged at \p at:
+    /// Which header's context owns the interner for a token ranged at `at`:
     /// the file the range is IN, always. Fill mode and `frozen` do not enter
     /// into it -- interning a spelling writes no table. Null for a range in
     /// no file we track.
@@ -385,7 +385,7 @@ pub class DeclImport {
     }
 
     /// Every token DeclImport makes goes through here, so its text and its
-    /// range agree on a TU (_home_at). \p t answers only for a range in no
+    /// range agree on a TU (_home_at). `t` answers only for a range in no
     /// tracked file, where no TU can read it back by range anyway.
     priv fn _tok(self,
                  t:       unsafe *HeaderTarget,
@@ -424,7 +424,7 @@ pub class DeclImport {
 
     /// # tables
 
-    /// The table a decl in clang context \p dc goes into, on header \p t:
+    /// The table a decl in clang context `dc` goes into, on header `t`:
     /// the TU for the global namespace, a ModuleDecl for a namespace, the
     /// record's own context for a member.
     fn scope_for(self,
@@ -506,7 +506,7 @@ pub class DeclImport {
         return dc->dc_symbols
     }
 
-    /// Debug: \p d was minted by this fill.
+    /// Debug: `d` was minted by this fill.
     priv fn _minted_here(self, d: unsafe *Decl) -> bool {
         for var i: usize = 0; i < self._fill_minted.size(); ++i {
             if self._fill_minted[i] == d {
@@ -517,7 +517,7 @@ pub class DeclImport {
         return false
     }
 
-    /// Append \p d under \p name in \p dc's table unless already there.
+    /// Append `d` under `name` in `dc`'s table unless already there.
     /// A fill writes into a frozen HEADER on purpose -- into tables it just
     /// created (the shell's, a nested record's), never one the set froze.
     fn bind(self,
@@ -556,8 +556,8 @@ pub class DeclImport {
         tbl->append(name, d)
     }
 
-    /// One error per entity (\p dc) that a second header defines
-    /// differently: Kairo keeps the first definition, so the member \p d of
+    /// One error per entity (`dc`) that a second header defines
+    /// differently: Kairo keeps the first definition, so the member `d` of
     /// the second is not imported, and the program cannot be compiled as
     /// one C++ translation unit either. Index mode only (driver thread).
     priv fn _conflicting_definition(self,
@@ -603,7 +603,7 @@ pub class DeclImport {
         b.emit()
     }
 
-    /// The clang name behind imported \p d, or `?`.
+    /// The clang name behind imported `d`, or `?`.
     priv fn _clang_name_of(self, d: unsafe *Decl) -> string {
         if d == &null || decl_clang(d) == &null {
             return "?"
@@ -673,7 +673,7 @@ pub class DeclImport {
         return m
     }
 
-    /// The Kairo decl registered for \p usr: this variant fill's own first.
+    /// The Kairo decl registered for `usr`: this variant fill's own first.
     priv fn _find(self, usr: llvm::StringRef) -> unsafe *Decl {
         if self._mode == ImportMode::VariantFill {
             var it = self._fill_usr->find(usr)
@@ -685,7 +685,7 @@ pub class DeclImport {
         return self.reg->find(usr)
     }
 
-    /// Register \p d under \p usr (first one wins); a variant fill's member
+    /// Register `d` under `usr` (first one wins); a variant fill's member
     /// goes to the fill's own table.
     priv fn _put(self, usr: llvm::StringRef, d: unsafe *Decl) -> unsafe *Decl {
         if self._own && self._mode == ImportMode::VariantFill {
@@ -696,7 +696,7 @@ pub class DeclImport {
         return self.reg->put(usr, d)
     }
 
-    /// \p d is declared inside the specialization a fill is importing.
+    /// `d` is declared inside the specialization a fill is importing.
     priv fn _in_fill_spec(self, d: unsafe *clang::Decl) -> bool {
         if self._fill_spec == &null {
             return false
@@ -821,11 +821,11 @@ pub class DeclImport {
         return kd
     }
 
-    /// A friend function declared in the class \p cls -- the hidden friend
+    /// A friend function declared in the class `cls` -- the hidden friend
     /// `friend bool operator==(const It&, const It&) { ... }` every libc++
     /// node-based iterator compares through. Its entity belongs to the
     /// enclosing namespace, but C++ finds it ONLY by argument-dependent lookup
-    /// through \p cls, so its name is bound in the class's table and nowhere
+    /// through `cls`, so its name is bound in the class's table and nowhere
     /// else. It is not a member (no `self`); operator lookup takes such a
     /// function from a class table as a free candidate (OperatorTyping::_gather).
     fn declare_friend(self,
@@ -1128,7 +1128,7 @@ pub class DeclImport {
             }
         }
 
-        // In a fill, \p parent can be a published namespace (a hidden
+        // In a fill, `parent` can be a published namespace (a hidden
         // friend's): safe only because nothing but fills reads a header
         // scope's dc_decls during Sema (the file header).
         parent->add_decl(out)
@@ -1435,7 +1435,7 @@ pub class DeclImport {
         }
     }
 
-    /// `struct` / `class` / `union` / `enum` when \p nd is a named tag whose
+    /// `struct` / `class` / `union` / `enum` when `nd` is a named tag whose
     /// name an ORDINARY decl of the same scope also declares, "" otherwise.
     /// Asked of clang's own lookup over the whole set, so a tag in one header
     /// and the variable hiding it in another (glibc's `struct timezone` in
@@ -1505,8 +1505,8 @@ pub class DeclImport {
         )
     }
 
-    /// The identifier key for \p dc's table. A table is keyed by ITS OWN
-    /// TU's imms (hard invariant #2), and the TU owning \p dc need not be the
+    /// The identifier key for `dc`'s table. A table is keyed by ITS OWN
+    /// TU's imms (hard invariant #2), and the TU owning `dc` need not be the
     /// header being walked: a class template forward-declared in one header
     /// and defined in another (all of libc++: <__fwd/vector.h>) gets its
     /// members from the second header, into the first header's decl.
@@ -1748,8 +1748,8 @@ pub class DeclImport {
         }
     }
 
-    /// Every Kairo decl owning a template parameter list that encloses \p d
-    /// (\p d's own included), outermost first: index = clang depth. A method
+    /// Every Kairo decl owning a template parameter list that encloses `d`
+    /// (`d`'s own included), outermost first: index = clang depth. A method
     /// of a class template sees the class at depth 0; a member template of
     /// it adds itself at depth 1.
     priv fn _template_owners(self,
@@ -1777,7 +1777,7 @@ pub class DeclImport {
         }
     }
 
-    /// The Kairo decl for \p c when \p c owns a template parameter list: a
+    /// The Kairo decl for `c` when `c` owns a template parameter list: a
     /// template (registered under its templated decl's USR too), a record or
     /// function a template describes, or a partial specialization.
     priv fn _tpl_owner(self, c: unsafe *clang::Decl) -> unsafe *Decl {

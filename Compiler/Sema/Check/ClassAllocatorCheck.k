@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------- Sema/Check/ClassAllocatorCheck.k --- ///
 ///
-///   \brief A class's own allocator (`op new` / `static fn op delete`)
-///          is not part of Kairo; and the destructor's old spelling,
-///          `fn op delete(self)`.
+/// A class's own allocator (`op new` / `static fn op delete`)
+/// is not part of Kairo; and the destructor's old spelling,
+/// `fn op delete(self)`.
 ///
 ///   \detail
 ///     A class cannot carry the allocator its objects come from:

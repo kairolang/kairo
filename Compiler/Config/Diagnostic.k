@@ -33,7 +33,7 @@ pub enum ErrorFormat derives u8 {
     Json,       ///< BasicDiagConsumer in JSON mode, one object per line
 }
 
-/// The flag's spelling of \p f, as --error-format takes it.
+/// The flag's spelling of `f`, as --error-format takes it.
 pub fn error_format_name(f: ErrorFormat) -> string {
     if f == ErrorFormat::Basic {
         return "basic"
@@ -46,7 +46,7 @@ pub fn error_format_name(f: ErrorFormat) -> string {
     return "pretty"
 }
 
-/// \p s as a format into \p out; false (and \p out untouched) for a
+/// `s` as a format into `out`; false (and `out` untouched) for a
 /// spelling with no consumer.
 pub fn error_format_of(const s: string, @inout out: ErrorFormat) -> bool {
     if s == error_format_name(ErrorFormat::Pretty) {
@@ -68,11 +68,7 @@ pub fn renders_through_basic(f: ErrorFormat) -> bool {
     return f == ErrorFormat::Basic || f == ErrorFormat::Json
 }
 
-///
-/// \class DiagnosticOptions
-///
-/// \brief Controls diagnostic formatting, filtering, and budget limits.
-///
+/// Controls diagnostic formatting, filtering, and budget limits.
 pub class DiagnosticOptions {
     /// # severity overrides
 
@@ -85,7 +81,7 @@ pub class DiagnosticOptions {
     /// --error-format as given, for the message that refuses it and for
     /// the incremental record's f.diag line.
     pub var format: string = error_format_name(ErrorFormat::Pretty)
-    /// What \c format names; Pretty when it names nothing (\c format_known
+    /// What `format` names; Pretty when it names nothing (`format_known`
     /// false), which CompilerSetup refuses before anything renders.
     pub var error_format: ErrorFormat = ErrorFormat::Pretty
     pub var format_known: bool        = true

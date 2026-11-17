@@ -28,13 +28,12 @@ import AST::Context::SymbolTable::{
 import AST::Node::Base::Decl
 import Memory::ArenaList::ArenaList
 
-/// \enum DeclContextKind
-/// \brief Discriminates the kind of scope a DeclContext represents.
+/// Discriminates the kind of scope a DeclContext represents.
 ///
-/// \details Every scope-owning AST node carries one of these. Used for
-///          `enclosing(kind)` walks, lookup rules that differ by scope
-///          (e.g. type scopes vs function scopes), and diagnostics that
-///          report what kind of scope a name was or wasn't found in.
+/// Every scope-owning AST node carries one of these. Used for
+/// `enclosing(kind)` walks, lookup rules that differ by scope
+/// (e.g. type scopes vs function scopes), and diagnostics that
+/// report what kind of scope a name was or wasn't found in.
 ///
 ///          This is distinct from ScopeKind (LexicalScope.k): ScopeKind
 ///          drives parser-time lexical name resolution and shadowing;
@@ -153,10 +152,10 @@ pub class DeclContext {
     /// the hoisted scope node. Returns not_found if the scope isn't wired
     /// or the name isn't present.
     ///
-    /// \warning the hoisted table holds PARSER-RELEVANT entries only: all
-    ///          type decls, and generic functions/operators. Variables,
-    ///          non-generic callables, and macros are never hoisted. Sema
-    ///          must not use this as a member table; it builds its own.
+    /// **Warning:** the hoisted table holds PARSER-RELEVANT entries only: all
+    /// type decls, and generic functions/operators. Variables,
+    /// non-generic callables, and macros are never hoisted. Sema
+    /// must not use this as a member table; it builds its own.
     fn lookup_local(self, name: u32) -> LookupResult {
         if self.dc_scope == &null {
             return LookupResult::not_found()

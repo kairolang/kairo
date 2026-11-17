@@ -86,7 +86,7 @@ pub class SysProps {
         self.vals.push_back(v)
     }
 
-    /// "" when \p k is not a property.
+    /// "" when `k` is not a property.
     pub fn get(self, const k: string) -> string {
         for var i: usize = 0; i < self.keys.size(); ++i {
             if self.keys[i] == k {
@@ -212,7 +212,7 @@ pub class SysNames {
         return "bundle"
     }
 
-    /// The target \p family / \p arch names, glibc at \p glibc.
+    /// The target `family` / `arch` names, glibc at `glibc`.
     pub static fn make(const family: string, const arch: string, const glibc: string) -> SysTarget {
         var t = SysTarget{}
         t.family   = family.copy()
@@ -270,7 +270,7 @@ pub class SysNames {
         return t
     }
 
-    /// Every target the table knows, glibc at \p glibc.
+    /// Every target the table knows, glibc at `glibc`.
     pub static fn all(const glibc: string) -> cxx::std::vector<SysTarget> {
         var out = cxx::std::vector<SysTarget>()
         for *f in SysNames::families() {
@@ -282,7 +282,7 @@ pub class SysNames {
         return out
     }
 
-    /// \p input without its glibc version, the version in \p ver ("" when
+    /// `input` without its glibc version, the version in `ver` ("" when
     /// it names none). Both spellings: ours, `-glibc<X.Y>` (the name's), and
     /// Zig's `.<X.Y>` after a gnu environment (`aarch64-linux-gnu.2.28`).
     /// What is left is a plain triple, which llvm::Triple and clang read:
@@ -315,9 +315,9 @@ pub class SysNames {
         return spelled
     }
 
-    /// \p input (a name or a clang triple) to the one target it means.
-    /// False with \p why set when it means none, or several (\p cands then
-    /// holds their names). \p glibc_default is the version a glibc input
+    /// `input` (a name or a clang triple) to the one target it means.
+    /// False with `why` set when it means none, or several (`cands` then
+    /// holds their names). `glibc_default` is the version a glibc input
     /// without `-glibc<X.Y>` gets.
     pub static fn parse(const input:         string,
                         const glibc_default: string,
@@ -394,7 +394,7 @@ pub class SysNames {
     }
 
     /// A triple the table does not list, as the family its OS and
-    /// environment name. False with \p why empty when it names none of ours
+    /// environment name. False with `why` empty when it names none of ours
     /// (the caller then says the input is no target), or set when it names
     /// one in a form no root is made in.
     priv static fn _generic(const spelled: string,
@@ -574,7 +574,7 @@ pub class SysNames {
         return v
     }
 
-    /// \p t's properties, from its recipe id, arch and clang_triple (after
+    /// `t`'s properties, from its recipe id, arch and clang_triple (after
     /// the recipe and the quirks): the twin of runtimes_template.py
     /// props_of(), then threads and exceptions (descriptive; no rule reads
     /// them yet).

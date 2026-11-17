@@ -1,6 +1,6 @@
 /// --- The Kairo Project ----------------------- Sema/Check/InitCheck.k --- ///
 ///
-///   \brief Check initializer forms against the type being initialized.
+/// Check initializer forms against the type being initialized.
 ///
 ///   \detail
 ///     Covers named initializers, AnonInitializerExpr, aggregate init,
@@ -382,7 +382,7 @@ pub class InitCheck derives RecursiveASTVisitor<InitCheck> {
         b.emit()
     }
 
-    /// Empty when \p t has a default value; otherwise the reason, phrased
+    /// Empty when `t` has a default value; otherwise the reason, phrased
     /// to follow "and" in _check_default_init's message. TypeUtil owns the
     /// answer: CtorInitCheck asks the same question of a field.
     priv fn _why_no_default(self, t: unsafe *Type) -> string {

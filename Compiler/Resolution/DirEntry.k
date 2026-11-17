@@ -258,16 +258,14 @@ pub class DirEntry {
         return &null
     }
 
+    /// the children, sorted by name.
     ///
-    /// \brief the children, sorted by name.
-    ///
-    /// \details Every walk over children goes through this. The map's own
-    ///          order is hash order, and the entries came from readdir, whose
-    ///          order differs between filesystems (ext4, APFS, NTFS): any
-    ///          "first match" or collected list taken straight off the map
-    ///          was platform-dependent. Name is the one order every host
-    ///          agrees on. Names are the map's keys, so they never tie.
-    ///
+    /// Every walk over children goes through this. The map's own
+    /// order is hash order, and the entries came from readdir, whose
+    /// order differs between filesystems (ext4, APFS, NTFS): any
+    /// "first match" or collected list taken straight off the map
+    /// was platform-dependent. Name is the one order every host
+    /// agrees on. Names are the map's keys, so they never tie.
     fn sorted_children(self) -> cxx::std::vector<unsafe *DirEntry> {
         // Views of the map's own key bytes: stable while the map is not
         // written, which nothing here does.

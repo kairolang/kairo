@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------ Sema/Verify/PatternBindingCheck.k --- ///
 ///
-///   \brief Verify binding structure inside patterns. Pure lexical check:
-///          Token.imm comparison, no names, no types.
+/// Verify binding structure inside patterns. Pure lexical check:
+/// Token.imm comparison, no names, no types.
 ///
 ///   \detail
 ///     Checks owned here:
@@ -67,7 +67,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
         self.run(self.sc->tu)
     }
 
-    /// Collect every binding name token in \p p. For a nested alternation,
+    /// Collect every binding name token in `p`. For a nested alternation,
     /// the first alternative stands for the whole (see header).
     priv fn _collect(self, p: unsafe *AstPattern, out: unsafe *cxx::std::vector<Token>) {
         if p == &null {
@@ -109,7 +109,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
         }
     }
 
-    /// _collect over each pattern of \p ps, in order.
+    /// _collect over each pattern of `ps`, in order.
     priv fn _collect_each(self,
                           const ps: FrozenList<unsafe *AstPattern>,
                           out:      unsafe *cxx::std::vector<Token>) {
@@ -118,7 +118,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
         }
     }
 
-    /// Report each name bound more than once in \p v (at the later token).
+    /// Report each name bound more than once in `v` (at the later token).
     priv fn _dup_check(self, const v: cxx::std::vector<Token>) {
         for var i: usize = 1; i < v.size(); i++ {
             for var j: usize = 0; j < i; j++ {
@@ -170,7 +170,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
         return true
     }
 
-    /// The shared core: \p alts are sibling alternatives (an alternation's
+    /// The shared core: `alts` are sibling alternatives (an alternation's
     /// list, or a case's pattern list same FrozenList shape, same rules).
     priv fn _check_alternatives(self, const alts: FrozenList<unsafe *AstPattern>) {
         var first_set = cxx::std::vector<Token>()

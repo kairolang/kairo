@@ -28,9 +28,7 @@ import AST::Context::ASTContext::ASTContext
 import Memory::ArenaAllocator::ArenaAllocator
 import Memory::ArenaList::ArenaList
 
-///
-/// \class FrozenList<T>
-/// \brief Non-owning, immutable view over a contiguous arena-allocated array.
+/// Non-owning, immutable view over a contiguous arena-allocated array.
 ///
 /// Created by freezing an ArenaList<T> into the node arena via
 /// ArenaList::freeze(). Once frozen, the array is fixed: no push, no pop.
@@ -45,19 +43,16 @@ import Memory::ArenaList::ArenaList
 ///   StringLiteralExpr::strings
 ///   ArgList::args
 ///   etc.
-///
 // TODO(DUCK-GENERIC): T uses op ==. Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> FrozenList {
     pub var items: unsafe *T = &null
     pub var count: usize     = 0
 
-    ///
-    /// \brief Freeze an ArenaList into a FrozenList, allocating the
+    /// Freeze an ArenaList into a FrozenList, allocating the
     /// contiguous backing array from the given arena.
     ///
     /// The ArenaList can be destroyed after this callthe FrozenList
     /// is fully independent.
-    ///
     pub fn from_list(self, l: *ArenaList<T>, arena: unsafe *ArenaAllocator) {
         self.count = l->size()
         self.items = l->freeze(arena)
@@ -110,18 +105,14 @@ pub class <T: type> FrozenList {
         return self.items + self.count
     }
 
-    ///
-    /// \brief Create directly from a raw pointer + count.
+    /// Create directly from a raw pointer + count.
     /// Use when you already have an arena-allocated array.
-    ///
     pub fn from_raw(self, items: unsafe *T, count: usize) {
         self.items = items
         self.count = count
     }
 
-    ///
-    /// \brief Empty FrozenListnull items, zero count.
-    ///
+    /// Empty FrozenListnull items, zero count.
     pub static fn empty() -> FrozenList<T> {
         var fl: FrozenList<T>
         fl.items = &null
@@ -129,9 +120,7 @@ pub class <T: type> FrozenList {
         return fl
     }
 
-    ///
-    /// \brief Bounds-checked element access. Returns null if OOB.
-    ///
+    /// Bounds-checked element access. Returns null if OOB.
     pub fn get(const self, index: usize) -> unsafe *T {
         if index >= self.count {
             return &null
@@ -144,9 +133,7 @@ pub class <T: type> FrozenList {
         return self.items + index
     }
 
-    ///
-    /// \brief Bounds-checked subscript. Asserts if OOB.
-    ///
+    /// Bounds-checked subscript. Asserts if OOB.
     pub fn op [](const self, index: usize) -> T {
         eval if defined!(DEBUG) {
             if !(index < self.count) {
@@ -157,9 +144,7 @@ pub class <T: type> FrozenList {
         return *(self.items + index)
     }
 
-    ///
-    /// \brief First element. Null if empty.
-    ///
+    /// First element. Null if empty.
     fn front(const self) -> unsafe *T {
         if self.count == 0 {
             return &null
@@ -168,9 +153,7 @@ pub class <T: type> FrozenList {
         return self.items
     }
 
-    ///
-    /// \brief Last element. Null if empty.
-    ///
+    /// Last element. Null if empty.
     fn back(const self) -> unsafe *T {
         if self.count == 0 {
             return &null
@@ -187,10 +170,8 @@ pub class <T: type> FrozenList {
         return self.count == 0
     }
 
-    ///
-    /// \brief Linear searchreturns index of first match, usize::MAX if not found.
+    /// Linear searchreturns index of first match, usize::MAX if not found.
     /// Comparison uses == operator on T.
-    ///
     fn find(const self, val: T) -> usize {
         for var i: usize = 0; i < self.count; ++i {
             if self.items[i] == val {
@@ -201,10 +182,8 @@ pub class <T: type> FrozenList {
         return usize::MAX // not found
     }
 
-    ///
-    /// \brief Returns true if any element satisfies the predicate.
+    /// Returns true if any element satisfies the predicate.
     /// pred must be a callable: fn(*T) -> bool
-    ///
     fn any(const self, pred: fn(unsafe *T) -> bool) -> bool {
         for var i: usize = 0; i < self.count; ++i {
             if pred(self.items + i) {
@@ -215,9 +194,7 @@ pub class <T: type> FrozenList {
         return false
     }
 
-    ///
-    /// \brief Returns true if all elements satisfy the predicate.
-    ///
+    /// Returns true if all elements satisfy the predicate.
     fn all(const self, pred: fn(unsafe *T) -> bool) -> bool {
         for var i: usize = 0; i < self.count; ++i {
             if !pred(self.items + i) {

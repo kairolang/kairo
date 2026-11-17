@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------- Sema/Check/ConformanceChecking.k --- ///
 ///
-///   \brief Interface conformance at the instantiation site, and the
-///          conformance table it fills.
+/// Interface conformance at the instantiation site, and the
+/// conformance table it fills.
 ///
 ///   \detail
 ///     Compiler/Spec/Generics.md#partial-selection, "The conformance table". Wherever a generic's
@@ -247,10 +247,10 @@ pub struct PredFalse {
 /// ([temp.constr.normal]), as ConformanceChecking::more_constrained compares
 /// them. `P impl I` with a concrete `I` is identified by what it tests, as
 /// the concept `I_c<P>` it is emitted as is: P by its position in the
-/// candidate's own parameter list (\c param), or by the parameter itself
-/// when it is another declaration's (\c gp, a class's). Every other atom,
+/// candidate's own parameter list (`param`), or by the parameter itself
+/// when it is another declaration's (`gp`, a class's). Every other atom,
 /// a negation, a value predicate, a `derives` test or a dependent bound, is
-/// identified by where it is written (\c expr), as C++ identifies an atomic
+/// identified by where it is written (`expr`), as C++ identifies an atomic
 /// constraint that is not a concept-id by its appearance in the source.
 /// ClauseAtom::param of an extension's parameter: its index past this, so
 /// it meets no parameter of the member's own.
@@ -480,7 +480,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
-    /// The instance of the generic operator operator node \p e resolved
+    /// The instance of the generic operator operator node `e` resolved
     /// to (OperatorTyping::_record, MemberTyping), or null.
     priv fn _op_instance(self, e: unsafe *Expr) -> unsafe *InstanceEntry {
         match e->kind {
@@ -527,8 +527,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         self._check_member_requires_on(f, rt, c->range, c->instance)
     }
 
-    /// _check_member_requires for method \p f0 called on a receiver of type
-    /// \p rt, reported at \p at. \p inst is the call's own instance (a
+    /// _check_member_requires for method `f0` called on a receiver of type
+    /// `rt`, reported at `at`. `inst` is the call's own instance (a
     /// generic member's, an extension member's), or null: its arguments
     /// bind the member's and the extension's parameters.
     priv fn _check_member_requires_on(self,
@@ -622,9 +622,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         b.emit()
     }
 
-    /// The first `P impl I` of method \p f's clause that its argument does
-    /// not meet, P a parameter of the record \p rec is an instance of, or
-    /// of what else \p d binds (the member's own, its extension's).
+    /// The first `P impl I` of method `f`'s clause that its argument does
+    /// not meet, P a parameter of the record `rec` is an instance of, or
+    /// of what else `d` binds (the member's own, its extension's).
     /// `bound` is null when every decidable one holds; `rows` then has
     /// theirs.
     priv fn _impl_blocker(self,
@@ -694,7 +694,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return out
     }
 
-    /// What \p d makes the type conjunct \p c constrains: a parameter's
+    /// What `d` makes the type conjunct `c` constrains: a parameter's
     /// argument, or an associated type read at the arguments (`J::Item`
     /// with J := Gen is Gen's Item). Null when nothing is bound or the
     /// result is still dependent.
@@ -731,8 +731,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return if (x != &null) => (canon_unqual(x)) else => &null
     }
 
-    /// The instance a member called on \p rec is emitted with: the call's
-    /// own (\p inst) when it has one, else the record's.
+    /// The instance a member called on `rec` is emitted with: the call's
+    /// own (`inst`) when it has one, else the record's.
     priv fn _member_home(self,
                          inst: unsafe *InstanceEntry,
                          rec:  unsafe *Type) -> unsafe *InstanceEntry {
@@ -797,7 +797,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return c
     }
 
-    /// The value conjuncts of clause \p e (not `impl` / `derives`).
+    /// The value conjuncts of clause `e` (not `impl` / `derives`).
     priv fn _value_preds(self, e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
         var leaves = cxx::std::vector<unsafe *Expr>()
         conjuncts(e, unsafe &leaves)
@@ -808,7 +808,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// Predicate \p e under \p d: literals, `!` `&&` `||`, comparisons and
+    /// Predicate `e` under `d`: literals, `!` `&&` `||`, comparisons and
     /// integer arithmetic, `sizeof` / `alignof` of a builtin or a pointer,
     /// the trivially-copyable / -destructible facts (`is_..!(T)` and the
     /// `__builtin_is_...<T>()` lang items), from ClassLifecycle, and a
@@ -1062,7 +1062,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return out
     }
 
-    /// \p t with \p d's bindings, canonical, or null while still dependent.
+    /// `t` with `d`'s bindings, canonical, or null while still dependent.
     priv fn _subst(self, t: unsafe *Type, d: unsafe *Deduction) -> unsafe *Type {
         if t == &null || t->canonical == &null {
             return &null
@@ -1081,7 +1081,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return c
     }
 
-    /// A triviality fact of concrete \p t, from ClassLifecycle.
+    /// A triviality fact of concrete `t`, from ClassLifecycle.
     priv fn _trait(self, t: unsafe *Type, copyable: bool) -> PartialPredValue {
         var out = PartialPredValue{}
         if t == &null {
@@ -1207,7 +1207,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// # what a class may derive
 
-    /// SC353E for a base edge of \p cd that names no class a class may
+    /// SC353E for a base edge of `cd` that names no class a class may
     /// derive (classes-inheritance.mdx): a primitive or any other type that
     /// is no record, an interface (conformance is `impl`), a Kairo struct,
     /// union or enum, or a `final` class. An imported C++ class or struct
@@ -1365,7 +1365,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// \p cd declares a `@copy` or `@move` constructor with a body.
+    /// `cd` declares a `@copy` or `@move` constructor with a body.
     priv fn _writes_transfer(self, cd: unsafe *Declarations::ClassDecl) -> bool {
         for var i: usize = 0; i < cd->methods.size(); ++i {
             var unsafe *m = cd->methods[i]
@@ -1382,11 +1382,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return false
     }
 
-    /// The first member a class from \p arg up to (not including) \p bound
-    /// declares that takes the place of one \p bound has: a field of the
+    /// The first member a class from `arg` up to (not including) `bound`
+    /// declares that takes the place of one `bound` has: a field of the
     /// same name, or a method with the same name and parameter types as a
     /// non-virtual one. The body of a class deriving its parameter binds
-    /// such a name in \p bound, while each instance's C++ finds the nearer
+    /// such a name in `bound`, while each instance's C++ finds the nearer
     /// one, so the two would differ. An override of a virtual is the one
     /// redeclaration that agrees. Empty when there is none; otherwise the
     /// reason, naming both. Imported classes are not read: C++ hides by
@@ -1494,7 +1494,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return "op " + OperatorFacts::symbol(m)
     }
 
-    /// \p a and \p b take the same parameters after `self`, by canonical type.
+    /// `a` and `b` take the same parameters after `self`, by canonical type.
     priv fn _same_params(self,
                          a: unsafe *Declarations::FunctionDecl,
                          b: unsafe *Declarations::FunctionDecl) -> bool {
@@ -1531,7 +1531,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
-    /// Live instance \p e of a class that derives its type parameter: the
+    /// Live instance `e` of a class that derives its type parameter: the
     /// argument becomes a base, so it has to be a class a class may derive
     /// (SC352E, at the use, with the chain): not `final`, built from
     /// nothing, since the base of such a class is always
@@ -1709,7 +1709,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// Interface type \p have is \p want or derives it.
+    /// Interface type `have` is `want` or derives it.
     priv fn _iface_derives(self, have: unsafe *Type, want: unsafe *Type, depth: u32) -> bool {
         if have == &null || want == &null || depth > 32 {
             return false
@@ -1778,12 +1778,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return self.sc->types->record(rep, unsafe &args)
     }
 
-    /// A DECLARED conformance of \p x to \p base, written on \p by: its
+    /// A DECLARED conformance of `x` to `base`, written on `by`: its
     /// row, recorded so EmitPlan can admit the witness specialization where
-    /// \p by is emitted, with no Kairo instance to reach it -- a C++ host
+    /// `by` is emitted, with no Kairo instance to reach it -- a C++ host
     /// instantiating a bounded template with X is the use Kairo never sees
     /// (Compiler/Spec/Witnesses.md#emission). A GENERIC conformance (`extend <E> Wrap<E> impl
-    /// I`, `class <T> Box impl I`) is one row over \p by's own parameters,
+    /// I`, `class <T> Box impl I`) is one row over `by`'s own parameters,
     /// the partial specialization's. A row that does not hold is left
     /// unreported: the impl-only rule is not built, and a host's
     /// instantiation then fails at the concept, as a structural one does.
@@ -1802,7 +1802,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
-        // Dependent on anything but \p by's own parameters (an enclosing
+        // Dependent on anything but `by`'s own parameters (an enclosing
         // generic's), it is not one partial specialization.
         if (c->is_dependent() || iface->is_dependent()) && !isa<RecordType>(c) {
             return
@@ -1816,7 +1816,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         self.sc->instances->declare_row(by, row)
     }
 
-    /// Every record instance in \p t, its arguments included (`Vec<Box<M>>`).
+    /// Every record instance in `t`, its arguments included (`Vec<Box<M>>`).
     priv fn _check_type(self, t: unsafe *Type, at: SourceRange, depth: u32) {
         if t == &null || depth > 16 {
             return
@@ -2132,7 +2132,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         c->poison()
     }
 
-    /// The object a value of type \p t is: through a C++ reference, unqualified.
+    /// The object a value of type `t` is: through a C++ reference, unqualified.
     priv fn _object(self, t: unsafe *Type) -> unsafe *Type {
         var unsafe *c = self._canon(t)
         if c == &null {
@@ -2165,7 +2165,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     priv var _rangeless:    cxx::std::vector<unsafe *InstanceEntry>
     priv var _rangeless_at: cxx::std::vector<SourceRange>
 
-    /// \p e is used at \p site: a root of the discovery fixpoint. Its bounds
+    /// `e` is used at `site`: a root of the discovery fixpoint. Its bounds
     /// are checked here, once for the build -- a non-conforming instance is
     /// reported at its first use, however many times it is named -- and
     /// what its body reaches is walked by discover.
@@ -2281,7 +2281,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         self._check_bounds(e)
     }
 
-    /// Fill live \p e's rows from its primary's `impl` bounds, reporting at
+    /// Fill live `e`'s rows from its primary's `impl` bounds, reporting at
     /// its use (InstanceEntry::use_at, a reached one's root's) a bound its
     /// argument does not meet. False when one did not: such an instance's
     /// body is not walked (it is marked walked here). The rows found are
@@ -2369,7 +2369,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// Whether record instance \p rt has no member \p m: its `requires`
+    /// Whether record instance `rt` has no member `m`: its `requires`
     /// is known false there, a value predicate or an `impl` conjunct. C++
     /// drops such a member (Speller::member_requires), so what its body
     /// uses is no use of the instance.
@@ -2387,16 +2387,16 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return self._impl_blocker(m, rt, unsafe &d).bound != &null
     }
 
-    /// True when one of \p f's `requires` value predicates is known false
-    /// under \p d; an undecidable one does not count.
+    /// True when one of `f`'s `requires` value predicates is known false
+    /// under `d`; an undecidable one does not count.
     priv fn _requires_false_at(self,
                                f: unsafe *Declarations::FunctionDecl,
                                d: unsafe *Deduction) -> bool {
         return self._requires_blocker(f, d).known
     }
 
-    /// Method \p f has a `requires` clause that is decidably false for the
-    /// concrete record \p x, or a `P impl I` in it that \p x's argument
+    /// Method `f` has a `requires` clause that is decidably false for the
+    /// concrete record `x`, or a `P impl I` in it that `x`'s argument
     /// does not meet: the instance has no such member.
     priv fn _dropped_from(self, f: unsafe *Declarations::FunctionDecl, x: unsafe *Type) -> bool {
         if f->requires_clause == &null || f->generic_params.size() > 0 || !f->is_method() {
@@ -2442,7 +2442,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return out
     }
 
-    /// Value predicate \p p known false under \p d. Beyond _vp: the
+    /// Value predicate `p` known false under `d`. Beyond _vp: the
     /// transfer facts (_transfer_pred_false), and a disjunction of false
     /// sides, which is how a container's copy guards its recursive case
     /// (`(!__builtin_is_complete<T>()) || __builtin_is_constructible<T,
@@ -2494,7 +2494,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return out
     }
 
-    /// `__builtin_is_complete<X>()` known true under \p d: X is a concrete
+    /// `__builtin_is_complete<X>()` known true under `d`: X is a concrete
     /// Kairo record. One is complete wherever an instance's member is judged
     /// (a body, not the record's own definition, the case the predicate
     /// guards); an imported record may be only declared, so it stays
@@ -2527,8 +2527,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return rd != &null && !decl_is_imported(NameLookup::representative(rd))
     }
 
-    /// The `@copy` constructor record type \p rt's declaration declares,
-    /// when its `requires` is known false at \p rt, and the type argument
+    /// The `@copy` constructor record type `rt`'s declaration declares,
+    /// when its `requires` is known false at `rt`, and the type argument
     /// whose copy it needed: C++ drops that constructor from the instance
     /// (Speller::member_requires), so the instance has no copy although
     /// ClassLifecycle, reading the declaration, calls it COPY (`[Mv]`).
@@ -2582,10 +2582,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     }
 
     /// `__builtin_is_constructible<X, const X>()` (or `<X, X>`) known false
-    /// under \p d: X cannot be copied (or neither copied nor moved). The
+    /// under `d`: X cannot be copied (or neither copied nor moved). The
     /// copy/move form is what a container member's `requires` spells, and
     /// the one the move check has to agree with C++ on.
-    /// \return X then, else null.
+    ///
+    /// ### Returns
+    /// X then, else null.
     priv fn _transfer_pred_false(self, p: unsafe *Expr, d: unsafe *Deduction) -> unsafe *Type {
         var unsafe *c = dyn_cast<CallExpr>(self.tu.strip_parens(p))
         if c == &null || c->args.size() != 0 {
@@ -2642,8 +2644,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return if (d != &null) => (d) else => f
     }
 
-    /// \p h's demoted transfers at instance \p e (\p d its bindings;
-    /// \p prim the generic function, whose pack's elements are \p e's
+    /// `h`'s demoted transfers at instance `e` (`d` its bindings;
+    /// `prim` the generic function, whose pack's elements are `e`'s
     /// trailing arguments, or null for a record's method).
     priv fn _reuse_in(self,
                       e:    unsafe *InstanceEntry,
@@ -2737,9 +2739,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// The first element of the pack \p x expands that cannot be copied
-    /// at instance \p e, or null. Only a pack parameter of \p prim's own
-    /// (`...xs: T`, its one trailing variadic): its elements are \p e's
+    /// The first element of the pack `x` expands that cannot be copied
+    /// at instance `e`, or null. Only a pack parameter of `prim`'s own
+    /// (`...xs: T`, its one trailing variadic): its elements are `e`'s
     /// arguments from the type pack's position on (instance args are flat).
     priv fn _reuse_pack_element(self,
                                 e:    unsafe *InstanceEntry,
@@ -2829,9 +2831,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// \p e's rows from its primary's `impl` bounds as this TU sees them,
-    /// appended to \p rows; a bound not met is reported at \p at, with
-    /// \p chain's instantiation chain when non-null. False when one was not.
+    /// `e`'s rows from its primary's `impl` bounds as this TU sees them,
+    /// appended to `rows`; a bound not met is reported at `at`, with
+    /// `chain`'s instantiation chain when non-null. False when one was not.
     priv fn _bound_rows(self,
                         e:     unsafe *InstanceEntry,
                         at:    SourceRange,
@@ -2933,12 +2935,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return ok
     }
 
-    /// The rows of the `impl` bounds of the extension \p prim is a member
+    /// The rows of the `impl` bounds of the extension `prim` is a member
     /// of (`extend <K impl I> Box<K>`, `extend <K> Box<K> requires K impl
-    /// I`) at instance \p e, appended to \p rows, as _bound_rows does for
+    /// I`) at instance `e`, appended to `rows`, as _bound_rows does for
     /// the member's own: a conformance the compiler provides (Copyable on
     /// a COPY type, Hash on a pointer) has its witness emitted only where
-    /// an instance carries its row. A bound not met is reported at \p at;
+    /// an instance carries its row. A bound not met is reported at `at`;
     /// false then.
     priv fn _extension_rows(self,
                             e:     unsafe *InstanceEntry,
@@ -2983,9 +2985,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return ok
     }
 
-    /// The value predicates of \p prim's `requires` (every conjunct that is
+    /// The value predicates of `prim`'s `requires` (every conjunct that is
     /// not a top-level `T impl I` / `T derives B`, which the rows above
-    /// check) at instance \p e: one known false is SC300E at \p at, naming
+    /// check) at instance `e`: one known false is SC300E at `at`, naming
     /// the conjunct and why. A predicate the evaluator cannot decide (a
     /// struct's `sizeof`, an `eval fn`) is left to the emitted C++.
     priv fn _value_preds_ok(self,
@@ -3038,7 +3040,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// # a whole `requires` clause under a deduction
 
-    /// The first conjunct of \p f's `requires` known false under \p d, top-
+    /// The first conjunct of `f`'s `requires` known false under `d`, top-
     /// level conformances included, and why; `known` false when every
     /// conjunct holds or cannot be decided. OverloadResolution asks it of
     /// each viable generic candidate: a known-false clause makes the
@@ -3119,11 +3121,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// # constraint ordering
 
-    /// [temp.constr.order]: whether \p a's associated constraints are more
-    /// constrained than \p b's, for two generic candidates whose template
+    /// [temp.constr.order]: whether `a`'s associated constraints are more
+    /// constrained than `b`'s, for two generic candidates whose template
     /// heads and parameter lists are otherwise equivalent (OverloadResolution
-    /// asks it to break a tie partial ordering leaves). \p a is at least as
-    /// constrained as \p b when \p b has no constraint, or when both have
+    /// asks it to break a tie partial ordering leaves). `a` is at least as
+    /// constrained as `b` when `b` has no constraint, or when both have
     /// and a's subsumes b's; more constrained when that holds one way only.
     /// Inline bounds are clause conjuncts, so `<T impl I>` counts as
     /// `requires T impl I`.
@@ -3162,7 +3164,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             )
     }
 
-    /// Clause \p e is made only of what the emitted C++ template head
+    /// Clause `e` is made only of what the emitted C++ template head
     /// carries (Speller::requires_clause, Speller::fn_preds_in_head):
     /// conformances to a concrete interface, which are concepts there, and
     /// value predicates over literals, value parameters, `sizeof` and
@@ -3260,7 +3262,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             || k == TokenKind::OpGreaterGreater
     }
 
-    /// \p f's `requires` clause, its bounds included; null when it has none.
+    /// `f`'s `requires` clause, its bounds included; null when it has none.
     priv fn _clause_of(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Expr {
         if f == &null {
             return &null
@@ -3325,8 +3327,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
-    /// \p e as clauses of atom ids (into \p atoms): disjunctive normal
-    /// form when \p dnf (a disjunction of conjunctions), conjunctive
+    /// `e` as clauses of atom ids (into `atoms`): disjunctive normal
+    /// form when `dnf` (a disjunction of conjunctions), conjunctive
     /// otherwise. Parentheses are transparent ([temp.constr.normal]/1.1);
     /// `&&` and `||` are the only connectives, and anything under `!` is one
     /// atom. False when the form outgrows CLAUSE_NORMAL_MAX.
@@ -3467,7 +3469,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
-    /// The id of atom \p e of \p f's clause in \p atoms, added when new;
+    /// The id of atom `e` of `f`'s clause in `atoms`, added when new;
     /// equal ids are identical atoms (ClauseAtom).
     priv fn _atom_id(self,
                      f:     unsafe *Declarations::FunctionDecl,
@@ -3532,7 +3534,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return (atoms->size() - 1) as u32
     }
 
-    /// `P impl I` / `P derives B` under \p d: known when P's argument and the
+    /// `P impl I` / `P derives B` under `d`: known when P's argument and the
     /// bound are concrete. A conformance is decided by the same table the
     /// bounds are (conforms), a `derives` by the argument's bases.
     priv fn _constraint_vp(self,
@@ -3585,7 +3587,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return out
     }
 
-    /// SC162E for the first conformance in \p f's clause, under \p d, that
+    /// SC162E for the first conformance in `f`'s clause, under `d`, that
     /// stays undecided only because its witness is hidden from this file
     /// (a member that is not `pub`, an extension not imported:
     /// _constraint_vp). Overload resolution
@@ -3681,8 +3683,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
-    /// The parameter of an enclosing generic that \p d binds the parameter
-    /// conjunct \p c constrains to (an open type: the call is in a generic
+    /// The parameter of an enclosing generic that `d` binds the parameter
+    /// conjunct `c` constrains to (an open type: the call is in a generic
     /// body and its argument has that parameter's type), or null.
     priv fn _open_param(self,
                         c: unsafe *ConstraintExpr,
@@ -3722,7 +3724,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return g
     }
 
-    /// `P impl I` / `P derives B` where \p d binds P to an open parameter
+    /// `P impl I` / `P derives B` where `d` binds P to an open parameter
     /// (_open_param): it holds when that parameter's declared bounds grant
     /// it, a bound that is `I` (or an interface deriving a non-generic `I`),
     /// or a base that is or derives `B`. A generic body is checked against
@@ -3800,8 +3802,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return self._clause_grants(g, c, rhs)
     }
 
-    /// Whether interface bound \p have grants \p rhs: it is \p rhs, or
-    /// derives a non-generic \p rhs.
+    /// Whether interface bound `have` grants `rhs`: it is `rhs`, or
+    /// derives a non-generic `rhs`.
     priv fn _iface_grants(self, have: unsafe *Type, rhs: unsafe *Type) -> bool {
         if have == rhs {
             return true
@@ -3835,7 +3837,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return false
     }
 
-    /// The top-level conjuncts of \p f's clause that \p d leaves undecided
+    /// The top-level conjuncts of `f`'s clause that `d` leaves undecided
     /// because they test an open parameter (_open_param): what a call in a
     /// generic body cannot choose a candidate by. A conformance the
     /// parameter's bounds grant is decided.
@@ -3853,7 +3855,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// Every top-level conjunct of \p f's clause is known true under \p d
+    /// Every top-level conjunct of `f`'s clause is known true under `d`
     /// (no clause holds). OverloadResolution orders candidates by their
     /// constraints only then: one it cannot decide here (an open parameter,
     /// the `sizeof` of a class) may be false where C++ decides it, and C++
@@ -3874,7 +3876,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
-    /// \p d binds one of \p f's generic parameters to a dependent type: the
+    /// `d` binds one of `f`'s generic parameters to a dependent type: the
     /// call is in a generic body and an argument's type is open there.
     priv fn _binds_open(self, f: unsafe *Declarations::FunctionDecl, d: unsafe *Deduction) -> bool {
         var unsafe *fd = unsafe (f as unsafe *Decl)
@@ -3893,7 +3895,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return false
     }
 
-    /// Conjunct \p c under \p d.
+    /// Conjunct `c` under `d`.
     priv fn _conjunct_vp(self, c: unsafe *Expr, d: unsafe *Deduction) -> PartialPredValue {
         var unsafe *e = self.tu.strip_parens(c)
         if isa<ConstraintExpr>(e) {
@@ -3903,8 +3905,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return self._vp(e, d, 0)
     }
 
-    /// \p e tests an open parameter: a conformance or `derives` of one,
-    /// under any connective, or any other predicate of a candidate \p f
+    /// `e` tests an open parameter: a conformance or `derives` of one,
+    /// under any connective, or any other predicate of a candidate `f`
     /// whose arguments include one (_binds_open).
     priv fn _tests_open(self,
                         f:     unsafe *Declarations::FunctionDecl,
@@ -3934,10 +3936,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return self._binds_open(f, d)
     }
 
-    /// How open conjunct \p c reads in a note, and whether a bound on the
+    /// How open conjunct `c` reads in a note, and whether a bound on the
     /// open parameter can establish it: `'T' implements 'I'` can (the bound
-    /// `T impl I`, in \p bound when \p I is nameable from this file, with
-    /// \p hidden set when it is not), `'T' does not implement 'I'` and any
+    /// `T impl I`, in `bound` when `I` is nameable from this file, with
+    /// `hidden` set when it is not), `'T' does not implement 'I'` and any
     /// other predicate cannot.
     pub fn open_conjunct_text(self,
                               c:      unsafe *Expr,
@@ -3988,7 +3990,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return f"'{ps}' {how}s '{rs}'"
     }
 
-    /// The declaration bound type \p t names, or null.
+    /// The declaration bound type `t` names, or null.
     priv fn _record_of_bound(self, t: unsafe *Type) -> unsafe *Decl {
         if t == &null || !isa<RecordType>(t) {
             return &null
@@ -3997,7 +3999,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return NameLookup::representative(cast<RecordType>(t)->decl)
     }
 
-    /// `T = i32, U = *A`: \p owner's parameters as \p d binds them, those
+    /// `T = i32, U = *A`: `owner`'s parameters as `d` binds them, those
     /// it binds.
     priv fn _bindings_text(self, owner: unsafe *Decl, d: unsafe *Deduction) -> string {
         var s   = ""
@@ -4028,7 +4030,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return s
     }
 
-    /// The concrete argument \p d binds to the parameter conjunct \p c
+    /// The concrete argument `d` binds to the parameter conjunct `c`
     /// constrains, or null (a pack, an unbound or dependent argument).
     priv fn _constraint_arg(self, c: unsafe *ConstraintExpr, d: unsafe *Deduction) -> unsafe *Type {
         var unsafe *id = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(c->lhs))
@@ -4061,8 +4063,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return canon_unqual(cx)
     }
 
-    /// `: it has no 'copy'`, naming the first requirement of \p iface that
-    /// \p x does not meet (a transfer requirement by its category), or "".
+    /// `: it has no 'copy'`, naming the first requirement of `iface` that
+    /// `x` does not meet (a transfer requirement by its category), or "".
     priv fn _missing_text(self, x: unsafe *Type, iface: unsafe *Type) -> string {
         var unsafe *row = self.conforms(x, iface)
         if row == &null || row->ok {
@@ -4097,7 +4099,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return ""
     }
 
-    /// Why \p e holds under \p d, when it is a conformance or a conjunction
+    /// Why `e` holds under `d`, when it is a conformance or a conjunction
     /// of them (the operand of a false `!`), or "".
     priv fn _why_true(self, e0: unsafe *Expr, d: unsafe *Deduction, depth: u32) -> string {
         var unsafe *e = self.tu.strip_parens(e0)
@@ -4136,7 +4138,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return ""
     }
 
-    /// Why predicate \p e, known false under \p d, is false: a conformance
+    /// Why predicate `e`, known false under `d`, is false: a conformance
     /// names the argument and the bound, a negated one says it holds, a
     /// disjunction gives both sides; anything else is false at the
     /// arguments it names.
@@ -4192,7 +4194,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// The kind bounds `T: class` / `struct` / `enum` / `union`
     /// (generics.mdx: they restrict T to that category of declaration) at
-    /// instance \p e. Without this check, `fn <T: class>
+    /// instance `e`. Without this check, `fn <T: class>
     /// f(x: T)` would accept `f(1)`. A dependent argument is the enclosing generic's
     /// to meet; `: type` (Duck) and no bound restrict nothing. SC292E.
     priv fn _kind_bounds_ok(self,
@@ -4269,7 +4271,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return ""
     }
 
-    /// The kind bound canonical \p t meets: the declaration behind a record
+    /// The kind bound canonical `t` meets: the declaration behind a record
     /// type, Any for every other type (a builtin, a pointer, `T?`, ...).
     priv static fn _kind_of_type(t: unsafe *Type) -> Declarations::GenericParamKindBound {
         var unsafe *c = canon_unqual(t)
@@ -4301,7 +4303,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return Declarations::GenericParamKindBound::Any
     }
 
-    /// Every `derives` conjunct of \p e, in clause order (_impl_bounds' other
+    /// Every `derives` conjunct of `e`, in clause order (_impl_bounds' other
     /// half).
     priv fn _derives_bounds(self,
                             e:   unsafe *Expr,
@@ -4315,7 +4317,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// Live record instance \p e's lifecycle (Compiler/Spec/Ownership.md#instances-of-generic-records): a rule its
+    /// Live record instance `e`'s lifecycle (Compiler/Spec/Ownership.md#instances-of-generic-records): a rule its
     /// generic class's declaration could not decide (an Unknown fact) that
     /// the instance's own facts fail, reported at its use with its chain
     /// (D6). Once per build, with the bounds; a failure the declaration
@@ -4492,7 +4494,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// Instance \p e's argument for \p gp, a parameter of \p prim or of its
+    /// Instance `e`'s argument for `gp`, a parameter of `prim` or of its
     /// extension: instance arguments run in Speller::template_params order,
     /// an extension's first.
     priv fn _arg_of(self,
@@ -4517,11 +4519,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return if (k < e->args.size()) => (canon_unqual(e->args[k])) else => &null
     }
 
-    /// Walk live \p e's primary's body (a record's: its methods, and its
+    /// Walk live `e`'s primary's body (a record's: its methods, and its
     /// fields' types) for the dependent uses that become instances
-    /// under \p e's arguments. Each is minted, linked (InstanceEntry::reached:
-    /// every plan holding \p e homes or `extern`s it, and admits its rows,
-    /// Compiler/Spec/Witnesses.md#emission) and made live one hop below \p e, which checks its
+    /// under `e`'s arguments. Each is minted, linked (InstanceEntry::reached:
+    /// every plan holding `e` homes or `extern`s it, and admits its rows,
+    /// Compiler/Spec/Witnesses.md#emission) and made live one hop below `e`, which checks its
     /// bounds; its own reach is the worklist's next batch. The cycle state
     /// is the entry's (`checked`), never the decl's: every function instance
     /// shares its primary's decl.
@@ -4669,9 +4671,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// Every record instance in substituted type \p t, as _check_type finds
-    /// them, each linked as reached by \p outer and made live below it at
-    /// \p at. False when the chain ran past the depth limit (reported).
+    /// Every record instance in substituted type `t`, as _check_type finds
+    /// them, each linked as reached by `outer` and made live below it at
+    /// `at`. False when the chain ran past the depth limit (reported).
     priv fn _take_type(self,
                        outer: unsafe *InstanceEntry,
                        t:     unsafe *Type,
@@ -4774,7 +4776,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return lim as u32
     }
 
-    /// Live \p e, at the depth limit, needs \p next at \p at in its body: the
+    /// Live `e`, at the depth limit, needs `next` at `at` in its body: the
     /// chain is too long (D4). One error per root, at the root's use, naming
     /// the chain's first three and last three instances.
     priv fn _too_deep_at(self, e: unsafe *InstanceEntry, const next: string, at: SourceRange) {
@@ -4836,7 +4838,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         b.emit()
     }
 
-    /// The instantiation chain of reached instance \p e, on \p b, an error
+    /// The instantiation chain of reached instance `e`, on `b`, an error
     /// reported at its root's use (Compiler/Spec/Generics.md#instance-diagnostics): one note per hop, innermost
     /// first, "in instantiation of 'X<A>' required here" at the use in the
     /// body that needed X<A>. Past N = --cmax-generic-backtrace hops
@@ -4844,7 +4846,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// last floor(N/2) are shown, with a note counting the rest. Each hop is one instance (the chain is the `via`
     /// links, acyclic), and an instance's failure is reported once, at the
     /// first use that needed it, so a second use of a failing instance adds
-    /// nothing. Nothing for a root (\p e used directly). Public: a fact that
+    /// nothing. Nothing for a root (`e` used directly). Public: a fact that
     /// fails for an instance (a lifecycle failure) reports at `use_at` with this.
     fn chain_notes(self, b: unsafe *DiagBuilder, e: unsafe *InstanceEntry) {
         var        hops = cxx::std::vector<unsafe *InstanceEntry>()
@@ -4895,7 +4897,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// \p e as the user reads it: `Wrap<Metric>`, `inner<Wrap<Metric>>`.
+    /// `e` as the user reads it: `Wrap<Metric>`, `inner<Wrap<Metric>>`.
     priv fn _inst_name(self, e: unsafe *InstanceEntry) -> string {
         if e->decl != &null && !isa<Declarations::FunctionDecl>(e->primary) {
             var unsafe *t = self.sc->types->record(e->decl, unsafe &e->args)
@@ -4924,7 +4926,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return s
     }
 
-    /// \p e's arguments bound to \p prim's parameters (an extension
+    /// `e`'s arguments bound to `prim`'s parameters (an extension
     /// member's extension's first; a record method's body sees its record's).
     priv fn _bind_instance(self, d: *Deduction, e: unsafe *InstanceEntry, prim: unsafe *Decl) {
         var        k: usize = 0
@@ -4984,11 +4986,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
     }
 
-    /// \p row and the rows of its interface's `derives` closure, each once:
+    /// `row` and the rows of its interface's `derives` closure, each once:
     /// a call bound to a base's requirement goes through the BASE's witness
     /// (Compiler/Spec/Witnesses.md#interfaces-case-by-case), so the instance needs that row too, and a base
-    /// requirement \p x does not meet is the bound's failure, reported at
-    /// \p at like the bound's own. False when one was reported.
+    /// requirement `x` does not meet is the bound's failure, reported at
+    /// `at` like the bound's own. False when one was reported.
     priv fn _push_closure(self,
                           row:        unsafe *ConformanceRow,
                           x:          unsafe *Type,
@@ -5011,11 +5013,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// ## the table
 
-    /// THE row for (\p x, \p iface): the table's, else built by the
+    /// THE row for (`x`, `iface`): the table's, else built by the
     /// requirement match below and recorded. Never null for an interface
-    /// type; `ok` false when some requirement has no implementation on \p x.
+    /// type; `ok` false when some requirement has no implementation on `x`.
     ///
-    /// \p declared is the `impl` that declares it, for a GENERIC row (\p x
+    /// `declared` is the `impl` that declares it, for a GENERIC row (`x`
     /// over that decl's own parameters): the row is born with it, since
     /// codegen spells the partial specialization's head from it.
     ///
@@ -5163,7 +5165,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     // SemaContext (sees_extension_file): member and operator lookup filter
     // by the same set.
 
-    /// Table row \p row is usable in this TU: each implementing decl that is
+    /// Table row `row` is usable in this TU: each implementing decl that is
     /// an extension member is in this TU's extension-visible set (an own
     /// member is visible wherever its type is). Remembered on the row
     /// (seen_by), so a second ask is one lookup.
@@ -5184,7 +5186,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
-    /// \p d may implement a requirement here: not an extension member, or
+    /// `d` may implement a requirement here: not an extension member, or
     /// one in a file this TU imports or gets re-exported (sees_extension_file).
     priv fn _sees(self, d: unsafe *Decl) -> bool {
         if decl_extension_of(d) == &null {
@@ -5199,10 +5201,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return extension_visible(self.sc, decl_extension_of(d), fid)
     }
 
-    /// Whether \p w, the member found to implement a requirement of
-    /// \p idecl on \p x, may: a `pub` one always; a `priv` or `prot` one
-    /// only when \p x's record declares `impl` of the interface (or one
-    /// deriving it) in \p w's own file -- on the record, or on an `extend`
+    /// Whether `w`, the member found to implement a requirement of
+    /// `idecl` on `x`, may: a `pub` one always; a `priv` or `prot` one
+    /// only when `x`'s record declares `impl` of the interface (or one
+    /// deriving it) in `w`'s own file -- on the record, or on an `extend`
     /// there. The witness that forwards to it is C++ code outside the
     /// record (`I_witness<X>::m`), which reaches a private member only as
     /// a friend, and a record befriends the witnesses of what its own file
@@ -5271,8 +5273,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return false
     }
 
-    /// \p d, or a decl inside it (a module block, a visibility group), is
-    /// an `extend` of \p rec that declares `impl` of \p idecl.
+    /// `d`, or a decl inside it (a module block, a visibility group), is
+    /// an `extend` of `rec` that declares `impl` of `idecl`.
     priv fn _ext_declares(self,
                           d:     unsafe *Decl,
                           rec:   unsafe *Decl,
@@ -5328,7 +5330,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return self._impl_edges_name(&x->implements, idecl)
     }
 
-    /// An edge of \p list names \p idecl or an interface deriving it.
+    /// An edge of `list` names `idecl` or an interface deriving it.
     priv fn _impl_edges_name(self,
                              list:  *FrozenList<Declarations::InheritEdge>,
                              idecl: unsafe *Declarations::InterfaceDecl) -> bool {
@@ -5380,11 +5382,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return false
     }
 
-    /// The GENERIC declared row that covers concrete \p row of instance \p x:
+    /// The GENERIC declared row that covers concrete `row` of instance `x`:
     /// declared on x's pattern (`class <T> Box impl I`) or by a generic
     /// extension of it (`extend <E> Wrap<E> impl I`), its conformer and
-    /// interface at x's arguments \p x and \p iface, and its witnesses
-    /// \p row's. Then its partial specialization is \p row's witness, and a
+    /// interface at x's arguments `x` and `iface`, and its witnesses
+    /// `row`'s. Then its partial specialization is `row`'s witness, and a
     /// full one would only repeat it. Null otherwise: a non-instance, an
     /// explicit specialization's own members, a conformance only structural.
     priv fn _covering(self,
@@ -5459,8 +5461,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return &null
     }
 
-    /// _covering for one `impl` edge \p base of \p by, whose conformer is
-    /// \p gx: its generic row when that covers \p row, else null.
+    /// _covering for one `impl` edge `base` of `by`, whose conformer is
+    /// `gx`: its generic row when that covers `row`, else null.
     priv fn _covers(self,
                     by:    unsafe *Decl,
                     gx:    unsafe *Type,
@@ -5508,7 +5510,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return g
     }
 
-    /// \p d as one entity across a pattern and its instances: a constructor
+    /// `d` as one entity across a pattern and its instances: a constructor
     /// slot's witness is the record, `Wrap` in a generic row and `Wrap<i32>`
     /// in a concrete one.
     priv fn _entity(self, d: unsafe *Decl) -> unsafe *Decl {
@@ -5519,8 +5521,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return NameLookup::representative(self.tu.pattern_of(d))
     }
 
-    /// \p idecl's requirement decls and, for each, the interface instance it
-    /// came through, at \p iface's arguments. The composed list
+    /// `idecl`'s requirement decls and, for each, the interface instance it
+    /// came through, at `iface`'s arguments. The composed list
     /// (InterfaceComposition); an interface it never composed (it was
     /// poisoned) contributes its own methods.
     priv fn _reqs(self,
@@ -5544,10 +5546,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// The arguments \p x binds a GENERIC extension's parameters to, when
-    /// \p f is its member (`extend <E> Wrap<E>` reached through `Wrap<i32>`:
-    /// [i32]), appended to \p out; nothing for any other \p f. False when
-    /// the target does not match \p x or leaves a parameter unbound.
+    /// The arguments `x` binds a GENERIC extension's parameters to, when
+    /// `f` is its member (`extend <E> Wrap<E>` reached through `Wrap<i32>`:
+    /// [i32]), appended to `out`; nothing for any other `f`. False when
+    /// the target does not match `x` or leaves a parameter unbound.
     priv fn _ext_args(self,
                       f:          unsafe *Declarations::FunctionDecl,
                       x:          unsafe *Type,
@@ -5750,9 +5752,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return &null
     }
 
-    /// The member of \p x that implements requirement \p m of \p iface, or
+    /// The member of `x` that implements requirement `m` of `iface`, or
     /// null. Every candidate member lookup finds is a decl the row could
-    /// forward to; the one whose signature is \p m's exactly wins.
+    /// forward to; the one whose signature is `m`'s exactly wins.
     priv fn _implementation(self,
                             x:     unsafe *Type,
                             iface: unsafe *Type,
@@ -5916,12 +5918,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return if (got != &null && got == self._canon(want)) => (m) else => &null
     }
 
-    /// The result of builtin operator \p k on \p c with \p arity operands
-    /// besides the receiver, each a \p c, or null when \p c has no such
+    /// The result of builtin operator `k` on `c` with `arity` operands
+    /// besides the receiver, each a `c`, or null when `c` has no such
     /// operator built in: OperatorTyping's builtin rules, restricted to
     /// what the emitted C++ computes as Kairo does. `void` for a compound
     /// assignment, which a builtin has when its binary operator gives back
-    /// \p c. Not granted: a float's `%` and `<=>` (no C++ form gives
+    /// `c`. Not granted: a float's `%` and `<=>` (no C++ form gives
     /// Kairo's answer), `^^`, `byte` beyond `==`, `++`/`--`, and any
     /// operator but `==` on a float the library implements as a class
     /// (`f8e4m3`, `f8e5m2`, `f256`, `f512`), which has no C++ operator for
@@ -6067,7 +6069,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return c != &null && self._is_copy_type(c)
     }
 
-    /// Requirement \p m of \p idecl is the Copyable lang item's `copy`.
+    /// Requirement `m` of `idecl` is the Copyable lang item's `copy`.
     priv fn _is_copy_requirement(self,
                                  idecl: unsafe *Declarations::InterfaceDecl,
                                  m:     unsafe *Declarations::FunctionDecl) -> bool {
@@ -6089,7 +6091,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             && self.tu.decl_name(unsafe (m as unsafe *Decl)) == "copy"
     }
 
-    /// \p c is a COPY type a value of which can be made from another: its
+    /// `c` is a COPY type a value of which can be made from another: its
     /// lifecycle category is Copy and its copy constructor is not dropped
     /// at this instance. An array is not one: it is no value, and is built
     /// from a list literal only.
@@ -6111,12 +6113,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return f.category == LifecycleCategory::Copy && self.dropped_copy(c).ctor == &null
     }
 
-    /// What supplies associated-type requirement \p ta of \p iface on
-    /// \p x: \p x's alias of that name, or \p ta itself when an explicit
+    /// What supplies associated-type requirement `ta` of `iface` on
+    /// `x`: `x`'s alias of that name, or `ta` itself when an explicit
     /// conformance takes its default; null when nothing does (structural
-    /// conformance never takes a default). The type goes in \p out --
+    /// conformance never takes a default). The type goes in `out` --
     /// Substitution::assoc_witness's answer, the same one every use reads.
-    /// A dependent \p x (a generic row's `Wrap<E>`) reads its alias through
+    /// A dependent `x` (a generic row's `Wrap<E>`) reads its alias through
     /// E, which the partial specialization spells. A generic associated
     /// type (`type <K> Map`) is supplied by a generic alias of the same
     /// arity, and its type is that alias at its own parameters, which the
@@ -6155,11 +6157,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return ta
     }
 
-    /// \p t, supplied for associated type \p ta by conformer \p x through
-    /// \p iface, meets every `impl` bound \p ta declares, read for \p x as
-    /// every use reads them (Substitution::clause_bounds: `Self` is \p x,
+    /// `t`, supplied for associated type `ta` by conformer `x` through
+    /// `iface`, meets every `impl` bound `ta` declares, read for `x` as
+    /// every use reads them (Substitution::clause_bounds: `Self` is `x`,
     /// the interface's parameters its arguments, another associated type
-    /// \p x's). A bound still dependent after that is not checked here, nor
+    /// `x's`). A bound still dependent after that is not checked here, nor
     /// is a generic associated type's alias at its own parameters.
     priv fn _assoc_bounds_met(self,
                               t:           unsafe *Type,
@@ -6202,7 +6204,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
-    /// The constructor of \p x that meets constructor requirement \p m, or
+    /// The constructor of `x` that meets constructor requirement `m`, or
     /// null. Looked up as CallTyping's `_ctor_call` looks up `X(args)`: X's
     /// OWN table under DeclName::ctor(), never member lookup, whose walk
     /// reaches a base's constructors and no extension can add one. A record
@@ -6310,7 +6312,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// _signature_matches for a constructor: no receiver constness and no
     /// return type to compare, and a generic record's parameters in the
-    /// candidate bound from \p x, as `Box<i32>(n)` binds them.
+    /// candidate bound from `x`, as `Box<i32>(n)` binds them.
     priv fn _ctor_matches(self,
                           f:     unsafe *Declarations::FunctionDecl,
                           m:     unsafe *Declarations::FunctionDecl,
@@ -6359,8 +6361,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return true
     }
 
-    /// Constructor \p f's parameter type \p t as `X(args)` sees it: the
-    /// record's parameters bound to \p x's arguments, \p f's own left as
+    /// Constructor `f`'s parameter type `t` as `X(args)` sees it: the
+    /// record's parameters bound to `x`'s arguments, `f`'s own left as
     /// themselves. Top-level cv dropped.
     priv fn _as_ctor_param(self,
                            t: unsafe *Type,
@@ -6481,9 +6483,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         )
     }
 
-    /// Candidate \p f's type \p t as reached through \p x: a generic
-    /// extension's parameters bound from \p x (its target unified with it),
-    /// \p f's own parameters left as themselves. Top-level cv dropped.
+    /// Candidate `f`'s type `t` as reached through `x`: a generic
+    /// extension's parameters bound from `x` (its target unified with it),
+    /// `f`'s own parameters left as themselves. Top-level cv dropped.
     priv fn _as_candidate(self,
                           t: unsafe *Type,
                           f: unsafe *Declarations::FunctionDecl,
@@ -6527,10 +6529,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return if (s != &null) => (canon_unqual(s)) else => c
     }
 
-    /// Requirement type \p t as conformer \p x sees it: the interface's own
-    /// parameters bound to \p iface's arguments, a GENERIC requirement's own
-    /// parameters to candidate \p f's by position (`fn <U> put(u: U)` and
-    /// `fn <V> put(v: V)` are one signature), then `Self` replaced by \p x.
+    /// Requirement type `t` as conformer `x` sees it: the interface's own
+    /// parameters bound to `iface`'s arguments, a GENERIC requirement's own
+    /// parameters to candidate `f`'s by position (`fn <U> put(u: U)` and
+    /// `fn <V> put(v: V)` are one signature), then `Self` replaced by `x`.
     /// Top-level cv dropped, as for any signature compare.
     priv fn _as_conformer(self,
                           t:     unsafe *Type,
@@ -6624,7 +6626,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// ## bounds
 
-    /// Every `impl` conjunct of \p e, in clause order (RequiresDesugar hoisted
+    /// Every `impl` conjunct of `e`, in clause order (RequiresDesugar hoisted
     /// the inline bounds in; ConstraintExtraction splits it the same way).
     priv fn _impl_bounds(self,
                          e:   unsafe *Expr,
@@ -6638,7 +6640,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
     }
 
-    /// The generic parameter of \p owner that conjunct \p c constrains, or
+    /// The generic parameter of `owner` that conjunct `c` constrains, or
     /// null (a conjunct on an enclosing record's parameter).
     priv fn _param_named(self,
                          c:     unsafe *ConstraintExpr,
@@ -6666,7 +6668,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return &null
     }
 
-    /// The bound's interface at instance \p e: `T impl Container<U>` with
+    /// The bound's interface at instance `e`: `T impl Container<U>` with
     /// U bound to e's argument.
     priv fn _bound_iface(self,
                          c:     unsafe *ConstraintExpr,
@@ -6695,8 +6697,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return if (s != &null) => (canon_unqual(s)) else => &null
     }
 
-    /// Base interface \p base, written in a `derives` edge of \p derived's
-    /// declaration, at \p derived's arguments.
+    /// Base interface `base`, written in a `derives` edge of `derived`'s
+    /// declaration, at `derived`'s arguments.
     priv fn _through_iface(self, base: unsafe *Type, derived: unsafe *Type) -> unsafe *Type {
         if !base->is_dependent() {
             return base
@@ -6747,8 +6749,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return s
     }
 
-    /// `Counter(i32, Counter)`: constructor requirement \p m as conformer
-    /// \p x would declare it, Self and the interface's parameters replaced.
+    /// `Counter(i32, Counter)`: constructor requirement `m` as conformer
+    /// `x` would declare it, Self and the interface's parameters replaced.
     priv fn _ctor_spelling(self,
                            m:     unsafe *Declarations::FunctionDecl,
                            x:     unsafe *Type,
@@ -6776,7 +6778,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         return s + ")"
     }
 
-    /// \p e, when given, is the instance whose bound failed: a reached one
+    /// `e`, when given, is the instance whose bound failed: a reached one
     /// gets its instantiation chain (chain_notes).
     priv fn _report(self,
                     at:    SourceRange,
@@ -7127,7 +7129,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         d.emit()
     }
 
-    /// Why \p x does not meet the Copyable lang item, on \p d: it has a
+    /// Why `x` does not meet the Copyable lang item, on `d`: it has a
     /// `copy` of another shape, which stands in place of its copy
     /// constructor; or it is an array; or it is not a COPY type, and then
     /// the method to declare is named.
@@ -7179,7 +7181,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         )
     }
 
-    /// Detached \p row found an implementation of (\p xs, \p is) that this
+    /// Detached `row` found an implementation of (`xs`, `is`) that this
     /// TU sees and that differs from the table's (ConformanceRow::clash):
     /// one conformance with two implementations, which no TU's C++ can hold
     /// both of (one witness specialization per conformance, ODR).

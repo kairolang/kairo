@@ -11,11 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+/// lightweight scoped timer for profiling and benchmarking.
 ///
-/// \file Timer.k
-/// \brief lightweight scoped timer for profiling and benchmarking.
-///
-/// \details
 /// `Timer` measures elapsed execution time using `steady_clock`, printing the
 /// result automatically on destruction. intended for quick profiling of hot paths
 /// or scoped operations (e.g., parsing, compilation stages, i/o).
@@ -32,11 +29,10 @@
 /// } // automatically prints: "lex phase elapsed: 213 µs (0.213 ms)"
 /// ```
 ///
-/// \note
+/// **Note:**
 /// meant for short-lived scopes, not for long-term scheduling or wall-clock use.
 ///
-/// \see libcxx::chrono::steady_clock
-///
+/// See `libcxx::chrono::steady_clock`.
 
 ffi "c++" import "chrono"
 
@@ -47,11 +43,10 @@ pub class Timer {
     priv var _label:   string ///< label printed on stop.
     priv var _stopped: bool                                       = false ///< stop() has printed; the destructor must not print again.
 
+    /// constructs and starts a new timer.
     ///
-    /// \brief constructs and starts a new timer.
-    ///
-    /// \param label optional descriptive name (default: `"Timer"`).
-    ///
+    /// ### Parameters
+    /// - `label`: optional descriptive name (default: `"Timer"`).
     inline fn Timer(self) {
         var label: string = "Timer"
         self._start = cxx::std::chrono::steady_clock::now()
@@ -66,9 +61,7 @@ pub class Timer {
     // Not transferable: the destructor stops and prints it, so a copy would report the same region twice.
     @copy fn Timer(self, const other: Self) = delete
 
-    ///
-    /// \brief destructor; automatically stops and prints elapsed time.
-    ///
+    /// destructor; automatically stops and prints elapsed time.
     inline fn op finally (self) {
         self.stop()
     }
@@ -91,14 +84,11 @@ pub class Timer {
         return (self.elapsed_ns() as f64) / 1000000.0
     }
 
+    /// prints elapsed time since start.
     ///
-    /// \brief prints elapsed time since start.
-    ///
-    /// \details
     /// stops the timer and prints a formatted line with both µs and ms
     /// precision. Prints once: a later stop(), or the destructor's, does
     /// nothing until reset().
-    ///
     pub inline fn stop(self) {
         if self._stopped {
             return
@@ -112,9 +102,7 @@ pub class Timer {
         io::println(f"{self._label} elapsed: {ns} ns ({us} µs / {ms} ms)\n")
     }
 
-    ///
-    /// \brief resets the timer's start point to the current time.
-    ///
+    /// resets the timer's start point to the current time.
     inline fn reset(self) {
         self._start   = cxx::std::chrono::steady_clock::now()
         self._stopped = false

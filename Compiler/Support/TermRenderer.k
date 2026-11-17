@@ -84,7 +84,7 @@ pub class TermRenderer {
         return if self._color => (code) else => ""
     }
 
-    /// The longest prefix of \p s that fits in \p max_cols terminal columns,
+    /// The longest prefix of `s` that fits in `max_cols` terminal columns,
     /// measured as display_width measures; a zero-width character after the
     /// last one that fits stays with it.
     priv fn clip_to_width(self, const s: string, max_cols: u32) -> string {
@@ -362,7 +362,7 @@ pub class TermRenderer {
             || cp >= 0x30000 && cp <= 0x3FFFD
     }
 
-    /// Terminal columns \p s occupies: UTF-8 is decoded, an East Asian
+    /// Terminal columns `s` occupies: UTF-8 is decoded, an East Asian
     /// Wide / Fullwidth codepoint is 2 columns, a combining mark, zero-width
     /// format character (ZWJ, ZWSP, BOM) or variation selector is 0, anything
     /// else 1. Each byte of invalid UTF-8 counts as 1, so a malformed line
@@ -379,8 +379,8 @@ pub class TermRenderer {
         return w
     }
 
-    /// The columns of the character at byte \p i of \p s (see
-    /// display_width), and in \p len its length in bytes, at least 1.
+    /// The columns of the character at byte `i` of `s` (see
+    /// display_width), and in `len` its length in bytes, at least 1.
     priv fn char_width(self, const s: string, i: usize, @inout len: usize) -> u32 {
         var n       = s.size()
         var b0      = ((s[i]) as u32)

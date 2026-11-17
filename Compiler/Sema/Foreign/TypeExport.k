@@ -1,7 +1,7 @@
 /// --- The Kairo Project -------------------- Sema/Foreign/TypeExport.k --- ///
 ///
-///   \brief Kairo CANONICAL type -> clang::QualType, against ONE HeaderSet's
-///          ASTContext. The inverse of TypeImport::_map.
+/// Kairo CANONICAL type -> clang::QualType, against ONE HeaderSet's
+/// ASTContext. The inverse of TypeImport::_map.
 ///
 ///   \detail
 ///     Exists for ForeignInstantiate: to ask clang for `cont<i32>` it has to
@@ -165,7 +165,7 @@ pub class TypeExport {
     /// sets it: deduce_call's SFINAE verdict on `make_shared<clang::X>()`
     /// from <memory>'s set, which never saw X. A fill must keep failing so it
     /// retries in the demanding TU's set (a blob there would name the wrong
-    /// instance). \p used_opaque reports it was taken; it implies used_standin.
+    /// instance). `used_opaque` reports it was taken; it implies used_standin.
     pub var allow_opaque_args: bool = false
     pub var used_opaque:       bool = false
 
@@ -189,7 +189,7 @@ pub class TypeExport {
         self.set  = set
     }
 
-    /// The clang type for canonical \p t, or a null QualType.
+    /// The clang type for canonical `t`, or a null QualType.
     fn to_clang(self, t: unsafe *Type) -> clang::QualType {
         if t == &null {
             return clang::QualType()
@@ -426,7 +426,7 @@ pub class TypeExport {
         return ty.getCanonicalType()
     }
 
-    /// Append \p a to \p ali as a written argument would be. False when a
+    /// Append `a` to `ali` as a written argument would be. False when a
     /// value argument has no expression. PRE: sema_lock() held.
     fn add_arg_loc(self,
                    @inout ali: clang::TemplateArgumentListInfo,
@@ -461,13 +461,13 @@ pub class TypeExport {
         return true
     }
 
-    /// Argument \p i of a template-id of \p ct, for canonical \p t, or a
+    /// Argument `i` of a template-id of `ct`, for canonical `t`, or a
     /// null TemplateArgument. A type goes through to_clang. A value argument
     /// (`4` of `array<i32, 4>`) is an exact integer with no C++ type of its
     /// own -- the registry keys on the number alone (TypeImport::_args) --
     /// so it takes the type of the parameter it binds: `size_t` for array's
     /// extent, `bool` for SmallVectorTemplateBase's flag, an enum for an
-    /// enum parameter. \p prior is the arguments before it, for a parameter
+    /// enum parameter. `prior` is the arguments before it, for a parameter
     /// typed by an earlier one (`integral_constant<T, T v>`).
     fn to_clang_arg(self,
                     ct:           unsafe *clang::ClassTemplateDecl,
@@ -562,7 +562,7 @@ pub class TypeExport {
         return clang::TemplateArgument(*self.cctx, v, pt)
     }
 
-    /// The (canonical, integral or enum) type of \p tpl's \p i-th parameter
+    /// The (canonical, integral or enum) type of `tpl`'s `i-th` parameter
     /// when it is a non-type one, or null. Past the end, the trailing pack's.
     priv fn _value_param_type(self,
                               tpl:          unsafe *clang::TemplateParameterList,
@@ -830,7 +830,7 @@ pub class TypeExport {
         )
     }
 
-    /// An opaque struct with \p t's size and alignment, for an imported
+    /// An opaque struct with `t`'s size and alignment, for an imported
     /// record type that only another set's AST can spell; null otherwise.
     priv fn _opaque_like(self, t: unsafe *Type) -> clang::QualType {
         var unsafe *c = canon_unqual(t)
@@ -918,7 +918,7 @@ pub class TypeExport {
         )
     }
 
-    /// \p ct, a class template of ANOTHER set's AST, re-found in this one;
+    /// `ct`, a class template of ANOTHER set's AST, re-found in this one;
     /// null when this set never declared it. ForeignInstantiate's fallback
     /// set for an instance the primary's set cannot spell.
     fn refind_template(self,
@@ -937,7 +937,7 @@ pub class TypeExport {
         return TypeExport::class_template_of(unsafe (rf as unsafe *clang::Decl))
     }
 
-    /// \p ftd, a function template of ANOTHER set's AST, re-found in this
+    /// `ftd`, a function template of ANOTHER set's AST, re-found in this
     /// one; null when this set never declared it. An overload set shares the
     /// qualified path (`std::move(T&&)` beside the algorithm `std::move(It,
     /// It, Out)`), so the one whose declaration sits at the same header
@@ -1016,7 +1016,7 @@ pub class TypeExport {
         return &null
     }
 
-    /// \p d, a clang decl of ANOTHER set's AST, re-found in this set's AST by
+    /// `d`, a clang decl of ANOTHER set's AST, re-found in this set's AST by
     /// its qualified path -- namespaces (inline ones included, as written in
     /// its parents), then its name, of the same decl kind -- or null.
     priv fn _refind(self, d: unsafe *clang::Decl) -> unsafe *clang::NamedDecl {
@@ -1169,11 +1169,11 @@ pub class TypeExport {
         return self._standin_instance(nd, args)
     }
 
-    /// What a stand-in for \p d holds, or false for a shape with none (an
+    /// What a stand-in for `d` holds, or false for a shape with none (an
     /// interface, a class with a base, a plain enum -- which is an enum,
     /// _standin_enum -- or an ADT with a pack-expanded variant, which has
-    /// no fixed field list). \p out gets the field types in order (a null
-    /// entry fails _define), \p tag a leading tag field's type or stays null.
+    /// no fixed field list). `out` gets the field types in order (a null
+    /// entry fails _define), `tag` a leading tag field's type or stays null.
     ///
     /// An ADT mirrors its declaration, not EnumLayoutLowering's record: a
     /// fill runs during typing and that pass has not built the record yet
@@ -1203,7 +1203,7 @@ pub class TypeExport {
 
         if isa<ClassDecl>(d) {
             // Bases are mirrored as C++ bases by a caller that asks for them
-            // (\p bases, _standin_of); one that does not still refuses. A
+            // (`bases`, _standin_of); one that does not still refuses. A
             // virtual base's subobject placement is not modelled.
             var *dl = &cast<ClassDecl>(d)->derives_list
             if dl->size() > 0 {
@@ -1272,7 +1272,7 @@ pub class TypeExport {
         return fd->type_->canonical
     }
 
-    /// The clang integer for builtin integer kind \p k, as _builtin spells it.
+    /// The clang integer for builtin integer kind `k`, as _builtin spells it.
     priv fn _int_type(self, k: BuiltinKind) -> clang::QualType {
         var bits = builtin_info(k)->bits
         if bits == 0 {
@@ -1283,7 +1283,7 @@ pub class TypeExport {
         return self._int_of(bits as u32, sgn)
     }
 
-    /// The clang integer of \p bits and sign. 64 bits is the TARGET's int64_t /
+    /// The clang integer of `bits` and sign. 64 bits is the TARGET's int64_t /
     /// uint64_t, the type CanonicalTypes spells i64 / u64 as (Int64Type): by
     /// width alone it was `long` on every LP64 target, but Darwin's int64_t is
     /// `long long`, so cxx::std::vector<u64>'s element was `unsigned long`
@@ -1311,7 +1311,7 @@ pub class TypeExport {
 
     /// The speller for the name EmitIR gives a Kairo decl. Speller only
     /// reads decl facts, the TU's imm table and the PP symbols, so a
-    /// sink-less context is enough. False if \p d has no TU to spell from
+    /// sink-less context is enough. False if `d` has no TU to spell from
     /// or is nested in a type (the owner would need a stand-in of its own).
     priv fn _spell_for(self,
                        d:           unsafe *Decl,
@@ -1335,7 +1335,7 @@ pub class TypeExport {
         return true
     }
 
-    /// The namespace \p segs names in this AST, declared as needed; null
+    /// The namespace `segs` names in this AST, declared as needed; null
     /// when a header's non-namespace already owns a segment's name.
     priv fn _namespace_for(self,
                            const segs: cxx::std::vector<string>) -> unsafe *clang::DeclContext {
@@ -1371,9 +1371,9 @@ pub class TypeExport {
         return dc
     }
 
-    /// Define \p rd with \p tag (when not null) and then \p fields, each
+    /// Define `rd` with `tag` (when not null) and then `fields`, each
     /// type through to_clang (and so through the substitution in force).
-    /// False, with \p rd marked invalid, when a field has no clang type:
+    /// False, with `rd` marked invalid, when a field has no clang type:
     /// all or nothing, or a stand-in found by name later would have the
     /// wrong shape.
     priv fn _define(self,
@@ -1510,7 +1510,7 @@ pub class TypeExport {
         return true
     }
 
-    /// Declare on stand-in \p rd the transfer constructors Kairo record \p d
+    /// Declare on stand-in `rd` the transfer constructors Kairo record `d`
     /// writes (`@copy` / `@move`, deleted or not), each with the `op =`
     /// InterfaceEmitter derives beside it and a default constructor, exactly
     /// as the emitted class declares them. Without them the stand-in
@@ -1532,7 +1532,7 @@ pub class TypeExport {
     /// declared too, so a transfer, which suppresses the implicit one, does
     /// not change the default-constructibility (or its triviality) the
     /// stand-in had.
-    /// PRE: \p rd is being defined; sema_lock() held.
+    /// PRE: `rd` is being defined; sema_lock() held.
     priv fn _mirror_transfers(self, d: unsafe *Decl, rd: unsafe *clang::CXXRecordDecl) {
         var unsafe *pat = NameLookup::representative(decl_pattern(d))
         var lst: unsafe *FrozenList<unsafe *FunctionDecl> = &null
@@ -1596,7 +1596,7 @@ pub class TypeExport {
         }
     }
 
-    /// \p m's source parameter (the first after `self`) is `const`.
+    /// `m`'s source parameter (the first after `self`) is `const`.
     static fn _const_source(m: unsafe *FunctionDecl) -> bool {
         for var j: usize = 0; j < m->params.size(); ++j {
             var unsafe *q = m->params[j]
@@ -1610,7 +1610,7 @@ pub class TypeExport {
         return false
     }
 
-    /// A `noexcept` function type of \p ret over \p param (none when null),
+    /// A `noexcept` function type of `ret` over `param` (none when null),
     /// as EmitIR declares every special member.
     priv fn _mirror_fn_type(self, ret: clang::QualType, param: clang::QualType) -> clang::QualType {
         var ps: llvm::SmallVector<clang::QualType, 1>
@@ -1627,7 +1627,7 @@ pub class TypeExport {
         )
     }
 
-    /// The one parameter of a mirrored member, of type \p t, owned by \p f.
+    /// The one parameter of a mirrored member, of type `t`, owned by `f`.
     priv fn _mirror_param(self, f: unsafe *clang::FunctionDecl, t: clang::QualType) {
         var loc = clang::SourceLocation()
         var unsafe *p = clang::ParmVarDecl::Create(
@@ -1647,10 +1647,10 @@ pub class TypeExport {
         f->setParams(llvm::ArrayRef<unsafe *clang::ParmVarDecl>(ps))
     }
 
-    /// \p f declared as \p body says, then added to \p rd. Defaulted or
+    /// `f` declared as `body` says, then added to `rd`. Defaulted or
     /// deleted is set before addDecl, which is where the record reads which
     /// members are user-declared and user-provided; such a member is then
-    /// finished as Sema finishes one (triviality \p trivial,
+    /// finished as Sema finishes one (triviality `trivial`,
     /// finishedDefaultedOrDeletedMember), or the record's trivial bits for
     /// it would stay unset.
     priv fn _mirror_add(self,
@@ -1677,8 +1677,8 @@ pub class TypeExport {
         }
     }
 
-    /// A public `noexcept` constructor of \p rd taking \p param (the
-    /// default constructor when null), \p body as _mirror_add takes it.
+    /// A public `noexcept` constructor of `rd` taking `param` (the
+    /// default constructor when null), `body` as _mirror_add takes it.
     priv fn _mirror_ctor(self,
                          rd:      unsafe *clang::CXXRecordDecl,
                          param:   clang::QualType,
@@ -1715,7 +1715,7 @@ pub class TypeExport {
         self._mirror_add(rd, c, body, trivial)
     }
 
-    /// `rd& operator=(param) noexcept`, \p body as _mirror_add takes it.
+    /// `rd& operator=(param) noexcept`, `body` as _mirror_add takes it.
     priv fn _mirror_assign(self,
                            rd:      unsafe *clang::CXXRecordDecl,
                            param:   clang::QualType,
@@ -1785,7 +1785,7 @@ pub class TypeExport {
         rd->addDecl(cf)
     }
 
-    /// The stand-in for plain Kairo enum \p en: a scoped enum with a fixed
+    /// The stand-in for plain Kairo enum `en`: a scoped enum with a fixed
     /// underlying type, the one InterfaceEmitter writes (`enum class E :
     /// u32`; EnumNiche's enum_niche_kind is that rule). No enumerators:
     /// phase A only needs a complete enum of the right width, and no header
@@ -1863,8 +1863,8 @@ pub class TypeExport {
         )
     }
 
-    /// The stand-in for plain Kairo record \p d in this set's AST, declared
-    /// on first use and found by name after that. Null QualType when \p d
+    /// The stand-in for plain Kairo record `d` in this set's AST, declared
+    /// on first use and found by name after that. Null QualType when `d`
     /// is a shape it cannot mirror, or when its name is already taken there.
     /// PRE: sema_lock() held (it mutates the AST).
     priv fn _standin(self, d_in: unsafe *Decl, rt: unsafe *RecordType) -> clang::QualType {
@@ -1880,8 +1880,8 @@ pub class TypeExport {
         return self._standin_of(NameLookup::representative(d_in))
     }
 
-    /// _standin for non-generic record \p d, nested in a record or not.
-    /// Where \p d's stand-in is declared, and its \p leaf name there: its
+    /// _standin for non-generic record `d`, nested in a record or not.
+    /// Where `d`'s stand-in is declared, and its `leaf` name there: its
     /// namespace, or for a member type (a record or plain enum declared in a
     /// record) inside the owner's stand-in, spelled `::stem::Owner::Inner`
     /// as EmitIR spells it. Refused before, which left every container of a
@@ -1921,9 +1921,9 @@ pub class TypeExport {
         return self._namespace_for(segs)
     }
 
-    /// The clang declaration of \p usr is \p d's stand-in: registered to
-    /// it, or one a live check orphaned when it re-read \p d's file, which
-    /// \p d now adopts (ForeignRegistry::adopt).
+    /// The clang declaration of `usr` is `d`'s stand-in: registered to
+    /// it, or one a live check orphaned when it re-read `d`'s file, which
+    /// `d` now adopts (ForeignRegistry::adopt).
     priv fn _ours(self, usr: llvm::StringRef, d: unsafe *Decl) -> bool {
         var unsafe *have = self.reg->find(usr)
         if have == d {
@@ -1999,9 +1999,9 @@ pub class TypeExport {
         return self._standin_body(d, rd, dc, tag, fields, kbases)
     }
 
-    /// Define stand-in \p rd of \p d (declared in \p dc, empty so far):
+    /// Define stand-in `rd` of `d` (declared in `dc`, empty so far):
     /// its bases, then its fields, then register it. Null on failure, with
-    /// \p rd abandoned (_abandon) and taken out of \p dc.
+    /// `rd` abandoned (_abandon) and taken out of `dc`.
     priv fn _standin_body(self,
                           d:               unsafe *Decl,
                           rd:              unsafe *clang::CXXRecordDecl,
@@ -2092,7 +2092,7 @@ pub class TypeExport {
         )
     }
 
-    /// \p d declares a virtual (or override, or pure) method itself.
+    /// `d` declares a virtual (or override, or pure) method itself.
     priv fn _own_virtual(self, d: unsafe *Decl) -> bool {
         var unsafe *cd = dyn_cast<ClassDecl>(
             NameLookup::representative(decl_pattern(d)),
@@ -2120,7 +2120,7 @@ pub class TypeExport {
         return false
     }
 
-    /// \p t spelled for a stand-in's layout (a field, a base): never through
+    /// `t` spelled for a stand-in's layout (a field, a base): never through
     /// allow_opaque_args. That flag is the asker's (deduce_call's verdict on
     /// the template), and it reported a FIELD's blob as the argument's
     /// (used_opaque): `cxx::std::move(a)` for a Kairo class `Ar` holding
@@ -2137,7 +2137,7 @@ pub class TypeExport {
         return q
     }
 
-    /// Record type \p t has a vtable: an imported class clang calls dynamic,
+    /// Record type `t` has a vtable: an imported class clang calls dynamic,
     /// or a Kairo class with a virtual method of its own or in a base.
     priv fn _dynamic(self, t: unsafe *Type, depth: u32) -> bool {
         if depth > 64 {
@@ -2200,7 +2200,7 @@ pub class TypeExport {
         return gp->value_type->canonical
     }
 
-    /// The stand-in TEMPLATE for Kairo generic primary \p prim: declared
+    /// The stand-in TEMPLATE for Kairo generic primary `prim`: declared
     /// with its type parameters, never defined. Every instance is an
     /// explicit specialization of it. Found by name after the first use.
     /// Null for a shape with no stand-in, or a taken name.
@@ -2361,7 +2361,7 @@ pub class TypeExport {
         return ct
     }
 
-    /// `G<int>` for an instance of Kairo generic \p prim_in at \p args: an
+    /// `G<int>` for an instance of Kairo generic `prim_in` at `args`: an
     /// explicit specialization of the stand-in template, defined with the
     /// pattern's fields where each parameter is read as this instance's
     /// argument. clang's specialization table answers the second use, and
@@ -2561,7 +2561,7 @@ pub class TypeExport {
         return rd
     }
 
-    /// \p rd's bases, in order; \p virt[i] is `derives virtual`. Each must be
+    /// `rd`'s bases, in order; `virt[i]` is `derives virtual`. Each must be
     /// a complete, valid record. Built without Sema (no CheckBaseSpecifier):
     /// nothing here is the user's to be told about, and setBases is what
     /// derives the class's own bits from them.
@@ -2604,9 +2604,9 @@ pub class TypeExport {
         return true
     }
 
-    /// Field \p i of \p rd, of type \p ft: \p nsdmi when the emitted field
+    /// Field `i` of `rd`, of type `ft`: `nsdmi` when the emitted field
     /// has a default member initializer (only its presence is mirrored; no
-    /// expression is attached), \p is_pub its access, \p align its
+    /// expression is attached), `is_pub` its access, `align` its
     /// `@align(N)` (0: none). Access is set before addDecl, which is where
     /// clang reads it.
     pub fn twin_field(self,
@@ -2644,7 +2644,7 @@ pub class TypeExport {
         rd->addDecl(cf)
     }
 
-    /// A virtual method of \p rd's own: what makes it polymorphic, exactly as
+    /// A virtual method of `rd`'s own: what makes it polymorphic, exactly as
     /// the emitted class's first virtual does. No body and no override
     /// links; a second one in a derived twin overrides nothing and changes
     /// no layout (the vtable pointer is the primary base's).
@@ -2701,7 +2701,7 @@ pub class TypeExport {
         rd->addDecl(dd)
     }
 
-    /// Complete \p rd, with the record's `@packed` / `@align(N)` as the
+    /// Complete `rd`, with the record's `@packed` / `@align(N)` as the
     /// GNU attributes AttrFacts::record_attr writes.
     pub fn twin_end(self,
                     rd:     unsafe *clang::CXXRecordDecl,
@@ -2725,7 +2725,7 @@ pub class TypeExport {
         )
     }
 
-    /// A non-POD record of \p size bytes aligned to \p align: an ADT or a
+    /// A non-POD record of `size` bytes aligned to `align`: an ADT or a
     /// `T?` as a field. Both are emitted with user-provided constructors, so
     /// non-POD is their bit too; their size is the compiler's own
     /// (EnumLayoutQuery::size_of). Only as a FIELD: a base reads its data
@@ -2826,7 +2826,7 @@ pub class TypeExport {
         return q
     }
 
-    /// A constant array of \p n twins of \p el.
+    /// A constant array of `n` twins of `el`.
     pub fn twin_array(self, el: clang::QualType, n: u64) -> clang::QualType {
         return self.cctx->getConstantArrayType(
             el,
@@ -2837,7 +2837,7 @@ pub class TypeExport {
         )
     }
 
-    /// \p q is a record clang can lay out: defined, complete, valid, not
+    /// `q` is a record clang can lay out: defined, complete, valid, not
     /// dependent. A scalar or an enum always is.
     pub static fn twin_usable(q: clang::QualType) -> bool {
         if q.isNull() {
@@ -2856,7 +2856,7 @@ pub class TypeExport {
             && !def->isDependentContext()
     }
 
-    /// \p q is a record clang calls POD (C++03, which the Itanium layout
+    /// `q` is a record clang calls POD (C++03, which the Itanium layout
     /// reads); false for anything else.
     pub static fn twin_pod(q: clang::QualType) -> bool {
         if q.isNull() {
@@ -2871,7 +2871,7 @@ pub class TypeExport {
         return rd->getDefinition()->isPOD()
     }
 
-    /// sizeof / alignof of \p q in this set's ASTContext.
+    /// sizeof / alignof of `q` in this set's ASTContext.
     pub fn twin_measure(self, q: clang::QualType, size: unsafe *u64, align: unsafe *u64) -> bool {
         if !TypeExport::twin_usable(q) {
             return false

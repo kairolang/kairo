@@ -15,11 +15,11 @@ ffi "c++" import "vector"
 
 import Driver::TUResult::TUResult
 
-/// Aggregate result returned by \c CompilerInstance::execute().
+/// Aggregate result returned by `CompilerInstance::execute()`.
 ///
-/// Collects per-file \c TUResult records and accumulates totals across all
-/// input files. \c aborted is set when any file emits a fatal diagnostic,
-/// causing \c execute() to skip remaining files.
+/// Collects per-file `TUResult` records and accumulates totals across all
+/// input files. `aborted` is set when any file emits a fatal diagnostic,
+/// causing `execute()` to skip remaining files.
 pub class BatchResult {
     pub var tu_results:     cxx::std::vector<TUResult> ///< One entry per input file, in order.
     pub var elapsed_ms:     f64                        = 0.0 ///< Total wall time for the batch.

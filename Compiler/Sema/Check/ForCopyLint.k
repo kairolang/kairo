@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------------- Sema/Check/ForCopyLint.k --- ///
 ///
-///   \brief Warn when the loop variable of a by-value `for x in v` is written
-///          and the write is never read: it could only have been meant for
-///          the element (library/core/containers.mdx, `Vector.op in`).
+/// Warn when the loop variable of a by-value `for x in v` is written
+/// and the write is never read: it could only have been meant for
+/// the element (library/core/containers.mdx, `Vector.op in`).
 ///
 ///   \detail
 ///     `for x in v` binds a copy of each element; `for *x in v` binds a
@@ -91,7 +91,7 @@ import Sema::SemaContext::{
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
-/// The place \p e names is the binder \p d itself or a field path of it
+/// The place `e` names is the binder `d` itself or a field path of it
 /// (`d`, `d.a`, `d.a.b`, parentheses allowed). A `->`, a call, a subscript
 /// or a static field leaves the copy: the write lands somewhere shared.
 fn for_copy_place(e: unsafe *Expr, d: unsafe *Decl) -> bool {
@@ -134,7 +134,7 @@ fn for_copy_place(e: unsafe *Expr, d: unsafe *Decl) -> bool {
     return true
 }
 
-/// \p e mentions \p d at its root (`&x.a` takes the copy's address too).
+/// `e` mentions `d` at its root (`&x.a` takes the copy's address too).
 fn for_copy_rooted(e: unsafe *Expr, d: unsafe *Decl) -> bool {
     var unsafe *x = strip_parens(e)
 
@@ -152,11 +152,8 @@ fn for_copy_rooted(e: unsafe *Expr, d: unsafe *Decl) -> bool {
     return head != &null && head->resolved_decl == d
 }
 
-///
-/// \class ForCopyScan
-/// \brief One binder's uses in one loop body, in evaluation order: the RHS
-///        of an assignment is walked before its target is recorded.
-///
+/// One binder's uses in one loop body, in evaluation order: the RHS
+/// of an assignment is walked before its target is recorded.
 pub class ForCopyScan derives RecursiveASTVisitor<ForCopyScan> {
     pub var  target:      unsafe *Decl = &null
     pub var  first_write: SourceRange
@@ -299,10 +296,7 @@ pub class ForCopyScan derives RecursiveASTVisitor<ForCopyScan> {
     }
 }
 
-///
-/// \class ForCopyLint
-/// \brief The pass. Read-only: emits warnings, writes nothing to the AST.
-///
+/// The pass. Read-only: emits warnings, writes nothing to the AST.
 pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
     pub var  sc:  unsafe *SemaContext
     priv var _tu: TypeUtil
@@ -376,7 +370,7 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
         }
     }
 
-    /// Binder \p i of \p n could not be a `*x` over a record's `op in`
+    /// Binder `i` of `n` could not be a `*x` over a record's `op in`
     /// (StmtTyping::_iter_yield_rule): what it binds is read-only (the const
     /// form, a `*const T`) or, in a tuple yield, a value element. A loop
     /// over a mutable object that read through `op in (const self)` would
@@ -438,7 +432,7 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
         return f->is_const() || canon_has_const(self._tu.pointee(pt))
     }
 
-    /// \p n's iterable is const to its `op in` (a const binding or
+    /// `n`'s iterable is const to its `op in` (a const binding or
     /// parameter, a field through `const self`, a `const T&`).
     priv fn _const_iterable(self, n: unsafe *RangedForStmt) -> bool {
         if n->iterable == &null || n->iterable->type_ == &null {

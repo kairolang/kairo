@@ -107,7 +107,7 @@ extend Server {
         }
     }
 
-    /// True when the knob says the next launch of \p kind is to fail.
+    /// True when the knob says the next launch of `kind` is to fail.
     fn debug_refuse_(self, const kind: string) -> bool {
         for var i: usize = 0; i < self.dbg_fail_kind.size(); ++i {
             if (self.dbg_fail_kind[i] == kind) && (self.dbg_fail_left[i] > 0) {
@@ -123,7 +123,7 @@ extend Server {
         return false
     }
 
-    /// Buffer \p i's text as a scratch file a worker reads as its overlay,
+    /// Buffer `i`'s text as a scratch file a worker reads as its overlay,
     /// written again only when the buffer changed since (sync it first).
     /// The file it replaces is removed once no worker runs.
     fn overlay_of_(self, i: usize) -> string {
@@ -146,7 +146,7 @@ extend Server {
         return Path::join_str(self.tmp, f"k{self.seq}{suffix}")
     }
 
-    /// Starts \p argv with its output in \p log. False when it could not start.
+    /// Starts `argv` with its output in `log`. False when it could not start.
     fn launch(self, @inout argv: [string], const log: string, pi: *llvm::sys::ProcessInfo) -> bool {
         // LLVM's process API takes ArrayRefs; SmallVector is the container
         // that makes one without a C++ std container in this tree.
@@ -189,12 +189,12 @@ extend Server {
         return now_ms() < self.launch_after_ms
     }
 
-    /// Starts job \p j's worker, \p argv, for a start function. The caller
+    /// Starts job `j`'s worker, `argv`, for a start function. The caller
     /// makes its owner's "started" transition (the entry no longer due, the
     /// buffer's pass begun, the bridge row clean) only on Started: on Refused
     /// the work is still due and is tried again, LAUNCH_RETRY_MS later and
     /// doubling, so neither a passing failure drops it nor a binary that
-    /// cannot start is spawned on every loop turn. \p kind names it in the
+    /// cannot start is spawned on every loop turn. `kind` names it in the
     /// log and to KALS_DEBUG_LAUNCH_FAIL.
     fn launch_job(self, @inout argv: [string], j: *Job, const kind: string) -> LaunchResult {
         if self.launch_held() {
@@ -242,7 +242,7 @@ extend Server {
         return LaunchResult::Started
     }
 
-    /// Runs \p argv to completion with its output in \p log; its exit code, or
+    /// Runs `argv` to completion with its output in `log`; its exit code, or
     /// -1 when it could not start. For kfmt, which answers in milliseconds.
     fn run_and_wait(self, @inout argv: [string], const log: string) -> i32 {
         var pi: llvm::sys::ProcessInfo
@@ -260,7 +260,7 @@ extend Server {
         return done.ReturnCode
     }
 
-    /// The worker command for entry \p ei. \p marked_path / \p marked_tmp
+    /// The worker command for entry `ei`. `marked_path` / `marked_tmp`
     /// substitute one buffer's text (a completion request's marked copy).
     fn worker_argv(self,
                    ei:                usize,
@@ -318,7 +318,7 @@ extend Server {
         return argv
     }
 
-    /// Workers of \p kind in flight.
+    /// Workers of `kind` in flight.
     fn running(const self, kind: JobKind) -> usize {
         var n: usize = 0
         for var i: usize = 0; i < self.jobs.size(); ++i {
@@ -330,7 +330,7 @@ extend Server {
         return n
     }
 
-    /// May entry \p ei start now? One worker is always allowed. A second runs
+    /// May entry `ei` start now? One worker is always allowed. A second runs
     /// beside it only when BOTH graphs are known to be small: a worker is a
     /// whole compile, and two of a large tree is tens of GB.
     fn can_start(const self, ei: usize) -> bool {

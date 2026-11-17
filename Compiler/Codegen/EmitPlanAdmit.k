@@ -182,14 +182,14 @@ extend EmitPlan {
         }
     }
 
-    /// \p d is in the set at Complete for the declarations themselves (a
+    /// `d` is in the set at Complete for the declarations themselves (a
     /// layout, a signature's default argument), not only for a body.
     fn decl_complete(self, d: unsafe *Decl) -> bool {
         var at = self._index_of(d)
         return at != usize::MAX && self._decl_need[at] == (PlanNeed::Complete as u8)
     }
 
-    /// \p d is reached from the declarations at any strength.
+    /// `d` is reached from the declarations at any strength.
     fn decl_reached(self, d: unsafe *Decl) -> bool {
         var at = self._index_of(d)
         return at != usize::MAX && self._decl_need[at] != u8::MAX
@@ -276,7 +276,7 @@ extend EmitPlan {
         }
     }
 
-    /// `Box<Foo>`: the primary at \p need, each argument at \p need only
+    /// `Box<Foo>`: the primary at `need`, each argument at `need` only
     /// where the primary stores it by value, else Fwd; the instance itself
     /// recorded for tier 3.
     fn _admit_instance(self, e: unsafe *InstanceEntry, need: PlanNeed) {
@@ -432,7 +432,7 @@ extend EmitPlan {
 
     /// Follow a type to the records it needs at the strength the SHAPE
     /// dictates: an indirection weakens to Fwd, the by-value spine keeps
-    /// \p need.
+    /// `need`.
     fn _admit_type(self, t: unsafe *Type, need: PlanNeed) {
         if t == &null {
             return
@@ -500,7 +500,7 @@ extend EmitPlan {
 
             // No Vector/Set/Map/Tuple arms: they are RecordTypes and admit
             // through the record path, which already walks their generic
-            // arguments (a tuple's elements are by value, so at \p need).
+            // arguments (a tuple's elements are by value, so at `need`).
             case TypeKind::FixedArrayType {
                 self._admit_type(cast<FixedArrayType>(c)->element, need)
                 self._admit_type(
@@ -863,7 +863,7 @@ extend EmitPlan {
         self._admit_type(n->panic_result, PlanNeed::Complete)
     }
 
-    /// Extensions targeting \p d written in d's OWN file: their scope is the
+    /// Extensions targeting `d` written in d's OWN file: their scope is the
     /// definition's friend struct (Compiler/Spec/Generics.md#partial-selection), so it must be declared
     /// before it. Touched, not reached. Found by walking that file's program;
     /// an extension index lives in sema and codegen keeps no second one.
@@ -955,7 +955,7 @@ extend EmitPlan {
         return self.layout_decl(cast<RecordType>(c)->decl)
     }
 
-    /// What \p e's body reaches once its arguments are known (`outer<M>`
+    /// What `e`'s body reaches once its arguments are known (`outer<M>`
     /// calling `inner(Wrap<T>{...})`: `inner<Wrap<M>>`, `Wrap<M>`) is named in
     /// no tree, yet this TU compiles that body or links against it: hold each
     /// reached instance too, so tier 3 writes its explicit instantiation in its

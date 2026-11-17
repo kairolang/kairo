@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------------- AST/Node/CanonicalNodes.k --- ///
 ///
-///   \brief The two type nodes the PARSER never produces: BuiltinType and
-///          RecordType. Both exist only as canonical forms, created solely by
-///          CanonicalTypeStore.
+/// The two type nodes the PARSER never produces: BuiltinType and
+/// RecordType. Both exist only as canonical forms, created solely by
+/// CanonicalTypeStore.
 ///
 ///   \detail
 ///     Every other TypeKind is a piece of SYNTAX, `*T`, `[T]`, `Foo::Bar<U>`
@@ -68,9 +68,8 @@ import AST::Node::Casting::{
 }
 import Token::TokenKind::TokenKind
 
-/// \enum BuiltinKind
-/// \brief The primitive value types. One singleton Type node per entry, owned
-///        by CanonicalTypeStore and shared build-wide.
+/// The primitive value types. One singleton Type node per entry, owned
+/// by CanonicalTypeStore and shared build-wide.
 ///
 /// \detail
 ///   Ordering is arbitrary and is NOT an ABI: the store indexes an array by
@@ -108,7 +107,6 @@ import Token::TokenKind::TokenKind
 ///     legalized   LLVM has the type and splits it; free multi-word codegen.
 ///     libcall     LLVM has the type and calls compiler-rt; correct, slow.
 ///     corelib     LLVM has NO type; kairo::rt struct, arithmetic in f32/f64.
-///
 pub enum BuiltinKind derives u8 {
     /// The empty type. Not a value type: no storage, no literals, legal only
     /// as a return type and as the pointee of an untyped pointer.
@@ -351,12 +349,11 @@ pub enum BuiltinKind derives u8 {
 pub
 const TOTAL_BUILTINS_COUNT: u8 = (BuiltinKind::COUNT as u8)
 
-/// \enum FloatImpl
-/// \brief How a float type's operations are implemented. ORTHOGONAL to bit
-///        layout: f16 is IEEE-shaped and Native, f128 is IEEE-shaped and
-///        Libcall. Callers that want to know "will this be fast" ask this;
-///        callers that want to know "what does a bit pattern mean" ask
-///        FloatLayout's fields.
+/// How a float type's operations are implemented. ORTHOGONAL to bit
+/// layout: f16 is IEEE-shaped and Native, f128 is IEEE-shaped and
+/// Libcall. Callers that want to know "will this be fast" ask this;
+/// callers that want to know "what does a bit pattern mean" ask
+/// FloatLayout's fields.
 pub enum FloatImpl derives u8 {
     None,    ///< not a float.
     Native,  ///< an LLVM IR type exists; emit it and stop.
@@ -364,8 +361,7 @@ pub enum FloatImpl derives u8 {
     Corelib, ///< no IR type at all; kairo::rt struct, arithmetic in f32/f64.
 }
 
-/// \enum FloatSem
-/// \brief APFloat semantics selector.
+/// APFloat semantics selector.
 ///
 /// \detail
 ///   The one part of a float's identity that MUST be a tag. It names an
@@ -394,8 +390,7 @@ pub enum FloatSem derives u8 {
     Binary512, ///< binary512 (see BuiltinKind::F512). No APFloat equivalent.
 }
 
-/// \struct FloatLayout
-/// \brief The shape of a float, in fields rather than in a name.
+/// The shape of a float, in fields rather than in a name.
 ///
 /// \detail
 ///   Exists so that conversion rank, exactness and diagnostics are COMPUTED
@@ -427,7 +422,7 @@ pub eval fn float_layout_none() -> FloatLayout {
     }
 }
 
-/// \brief True when every value of \p from is exactly representable in \p to.
+/// True when every value of `from` is exactly representable in `to`.
 ///
 /// \detail
 ///   Width is NOT the answer and the 16-bit pair is the proof: bf16 -> f16
@@ -459,11 +454,11 @@ pub fn float_widens_exactly(from: *FloatLayout, to: *FloatLayout) -> bool {
     return to->exp >= from->exp && to->mant >= from->mant
 }
 
-/// \brief The precision of \p f in bits: the stored mantissa and the
-///        implicit leading bit (x87 stores its leading bit, so its 64 are
-///        the precision already). 0 for a row with no layout.
+/// The precision of `f` in bits: the stored mantissa and the
+/// implicit leading bit (x87 stores its leading bit, so its 64 are
+/// the precision already). 0 for a row with no layout.
 ///
-/// An integer of at most this many bits converts into \p f exactly.
+/// An integer of at most this many bits converts into `f` exactly.
 pub fn float_precision(f: *FloatLayout) -> usize {
     if f->sem == FloatSem::None || f->exp == 0 {
         return 0
@@ -492,8 +487,7 @@ const BF_TARGET_GATED: u8 = 16 ///< availability decided from TargetInfo; TypeRe
 pub
 const BF_TARGET_CXX: u8 = 32 ///< cxx == ""; store fills from the triple.
 
-/// \struct BuiltinInfo
-/// \brief One row per BuiltinKind.
+/// One row per BuiltinKind.
 ///
 /// \detail
 ///   `kind` is redundant with the row index and is present ONLY so
@@ -549,9 +543,8 @@ pub class BuiltinInfo {
     }
 }
 
-/// \var BuiltinTable
-/// \brief Static description of every builtin, indexed by BuiltinKind. One row
-///        per enumerator, TOTAL_BUILTINS_COUNT rows, order matches the enum.
+/// Static description of every builtin, indexed by BuiltinKind. One row
+/// per enumerator, TOTAL_BUILTINS_COUNT rows, order matches the enum.
 ///
 /// \detail
 ///   The table is the single source of truth for the four facts a builtin
@@ -1139,9 +1132,9 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
     return rows
 }
 
-/// \brief THE builtin accessor. Every per-builtin fact (spelling, C++
-///        emission, width, category, float layout) is a field or predicate
-///        on the returned row; there are deliberately no per-field wrappers.
+/// THE builtin accessor. Every per-builtin fact (spelling, C++
+/// emission, width, category, float layout) is a field or predicate
+/// on the returned row; there are deliberately no per-field wrappers.
 ///
 /// \detail `bits` answers "how wide", never "which type": three widths carry
 ///         more than one entry (see BuiltinKind's WIDTH IS NOT IDENTITY note),
@@ -1159,14 +1152,14 @@ pub fn builtin_info(b: BuiltinKind) -> *BuiltinInfo {
     return &BuiltinTable[(b as u8) as usize]
 }
 
-/// \brief Map a type-position token kind to its builtin, or COUNT when the
-///        token does not name one.
+/// Map a type-position token kind to its builtin, or COUNT when the
+/// token does not name one.
 ///
-/// \details This is the WHOLE of builtin "lookup". `i32` is not a name: it
-///          never enters a SymbolTable, never rides the import overlay, and is
-///          never shadowable. TypeResolution asks this question of a
-///          ChainType's first segment before it asks the symbol tables
-///          anything, which is also why `var i32 = 3` cannot break `var x: i32`.
+/// This is the WHOLE of builtin "lookup". `i32` is not a name: it
+/// never enters a SymbolTable, never rides the import overlay, and is
+/// never shadowable. TypeResolution asks this question of a
+/// ChainType's first segment before it asks the symbol tables
+/// anything, which is also why `var i32 = 3` cannot break `var x: i32`.
 ///
 ///          Deliberately NOT a scan of BuiltinTable. This runs on every
 ///          type-position token in every parse; a switch is a jump table and a
@@ -1242,12 +1235,12 @@ pub fn builtin_for_token(k: TokenKind) -> BuiltinKind {
     }
 }
 
-/// \brief The builtin a C typedef imports as when its width is the target's
-///        pointer width, or COUNT for any other name: `size_t` and
-///        `uintptr_t` are `usize`, `ptrdiff_t`, `intptr_t` and `ssize_t` are
-///        `isize` (TypeImport::_pointer_sized walks a typedef chain asking
-///        this). The names are C's, so they are spelled here beside the
-///        C++ spellings of the rows they map to.
+/// The builtin a C typedef imports as when its width is the target's
+/// pointer width, or COUNT for any other name: `size_t` and
+/// `uintptr_t` are `usize`, `ptrdiff_t`, `intptr_t` and `ssize_t` are
+/// `isize` (TypeImport::_pointer_sized walks a typedef chain asking
+/// this). The names are C's, so they are spelled here beside the
+/// C++ spellings of the rows they map to.
 pub fn builtin_for_c_typedef(const name: string) -> BuiltinKind {
     if name == "size_t" || name == "uintptr_t" {
         return BuiltinKind::USize
@@ -1260,7 +1253,7 @@ pub fn builtin_for_c_typedef(const name: string) -> BuiltinKind {
     return BuiltinKind::COUNT
 }
 
-/// Whether \p b is one of C++'s character types that Kairo has no keyword
+/// Whether `b` is one of C++'s character types that Kairo has no keyword
 /// for (`char`, `wchar_t`, `char16_t`, `char8_t`): characters, not
 /// numbers, so `as` converts them to and from the integers, they compare
 /// and order, and they do no arithmetic. Kairo's own `char` (char32_t) is
@@ -1272,9 +1265,9 @@ pub fn is_c_character(b: BuiltinKind) -> bool {
         || b == BuiltinKind::CChar8
 }
 
-/// \brief Every row lands at the index its `kind` names, carries a spelling
-///        and a C++ emission, round-trips through builtin_for_token(), and
-///        no two float rows claim the same APFloat semantics.
+/// Every row lands at the index its `kind` names, carries a spelling
+/// and a C++ emission, round-trips through builtin_for_token(), and
+/// no two float rows claim the same APFloat semantics.
 ///
 /// \detail
 ///   A table is only safer than a switch if a wrong insert fails the build.
@@ -1575,7 +1568,7 @@ pub fn canon_quals(t: unsafe *Type) -> u8 {
     return cast<QualifiedType>(t)->quals
 }
 
-/// \p t with its top-level qualifiers removed; \p t itself for any other
+/// `t` with its top-level qualifiers removed; `t` itself for any other
 /// kind. ONE level: `*const i32` stays `*const i32`.
 pub fn canon_unqual(t: unsafe *Type) -> unsafe *Type {
     if t == &null || !isa<QualifiedType>(t) {

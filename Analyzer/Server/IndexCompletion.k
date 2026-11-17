@@ -121,8 +121,7 @@ pub struct Cand {
     var at: usize = usize::MAX
 }
 
-/// \class CompReq
-/// \brief one completion request being answered from the index.
+/// one completion request being answered from the index.
 pub class CompReq {
     pub var di:     usize     = 0          ///< the buffer
     pub var ei:     usize     = 0          ///< its entry
@@ -156,7 +155,7 @@ pub class CompReq {
 
     pub fn CompReq(self) = default
 
-    /// Adds \p c unless a candidate has its label already: overloads share
+    /// Adds `c` unless a candidate has its label already: overloads share
     /// one item, and the first found is the nearest.
     pub fn add(self, const c: Cand) -> bool {
         if c.label.is_empty() {
@@ -301,7 +300,7 @@ fn number_type_(const x: string) -> string {
     return "i32"
 }
 
-/// One past the quoted literal that opens at byte \p q of \p x (its quote
+/// One past the quoted literal that opens at byte `q` of `x` (its quote
 /// is `x[q]`): escapes skipped, and an f-string's `{...}` too, which may
 /// hold quotes of its own. x.size() + 1 when it does not close.
 fn literal_end_(const x: string, q: usize) -> usize {
@@ -347,7 +346,7 @@ fn is_type_kind(k: i64) -> bool {
         || (k == CIK_TEXT)
 }
 
-/// The first line of the code block of hover text \p md: a declaration as
+/// The first line of the code block of hover text `md`: a declaration as
 /// hover prints it.
 fn hover_head(const md: string) -> string {
     var p: usize = 0
@@ -374,14 +373,14 @@ fn hover_head(const md: string) -> string {
 extend Server {
     // --- the request ------------------------------------------------------
 
-    /// \brief answers completion request \p id on buffer \p di from the
-    ///        index. False when it cannot: the caller asks the compiler
-    ///        (the live worker's copy, or a run).
+    /// answers completion request `id` on buffer `di` from the
+    /// index. False when it cannot: the caller asks the compiler
+    /// (the live worker's copy, or a run).
     ///
-    /// \details It cannot when the entry has no tables yet (its first check
-    ///          has not landed), when the file has no rows, and for a member
-    ///          whose receiver the tables do not type: an index, a literal,
-    ///          a C or C++ value, a call of a generic function.
+    /// It cannot when the entry has no tables yet (its first check
+    /// has not landed), when the file has no rows, and for a member
+    /// whose receiver the tables do not type: an index, a literal,
+    /// a C or C++ value, a call of a generic function.
     fn index_complete_(self,
                        di:       usize,
                        d:        *const JsonDoc,
@@ -498,7 +497,7 @@ extend Server {
         return true
     }
 
-    /// Sends \p req's candidates as the answer to \p id. \p edit is the
+    /// Sends `req`'s candidates as the answer to `id`. `edit` is the
     /// range each replaces: stated once for the list where the client
     /// reads it there (`itemDefaults.editRange`), else on every item. An
     /// item of a declared name carries where (`data`), for its `///` block
@@ -653,7 +652,7 @@ extend Server {
 
     // --- rows -------------------------------------------------------------
 
-    /// Row \p r of table \p ti as a candidate.
+    /// Row `r` of table `ti` as a candidate.
     fn row_cand_(self, req: *CompReq, ti: usize, r: i64, sort: u32) -> Cand {
         var *tb = &self.entries[req->ei].tb
         var c   = Cand{}
@@ -695,15 +694,16 @@ extend Server {
         return c
     }
 
-    /// What a use of candidate \p c is, as a receiver: the scope it opens
+    /// What a use of candidate `c` is, as a receiver: the scope it opens
     /// (a type, a module), or the record its type is. Not ok when the
     /// tables do not say (a C or C++ type, a generic's parameter).
     ///
-    /// \param called the name is followed by its arguments. A function's
-    ///               name is its result only when it is called, and only
-    ///               when every function of that name there returns the
-    ///               same record: which overload a call picks is the
-    ///               compiler's to say.
+    /// ### Parameters
+    /// - `called`: the name is followed by its arguments. A function's
+    ///   name is its result only when it is called, and only
+    ///   when every function of that name there returns the
+    ///   same record: which overload a call picks is the
+    ///   compiler's to say.
     fn cand_recv_(self, req: *CompReq, const c: Cand, called: bool) -> Recv {
         var out = Recv{}
         if c.local {
@@ -871,7 +871,7 @@ extend Server {
         return out
     }
 
-    /// What \p n subscripts of candidate \p c (called first when \p called)
+    /// What `n` subscripts of candidate `c` (called first when `called`)
     /// are, as a receiver (`boxes[0].`, `self.rows[i].`, `make()[k].`):
     /// cand_recv_ when there is none. A declaration of a table says it
     /// itself (`DC_EFILE`, from the compiler's type: one subscript of a
@@ -994,7 +994,7 @@ extend Server {
         return cur
     }
 
-    /// What a subscript of a value of record \p rec is: the result its
+    /// What a subscript of a value of record `rec` is: the result its
     /// `op []` overloads agree on, which its own row carries (`DC_EFILE`
     /// of a type's row, Tables.k). Not ok when it declares none, they
     /// differ, or the result is no record of the tables.
@@ -1035,23 +1035,23 @@ extend Server {
         return self.entries[req->ei].tb.t[req->ti].mod.copy()
     }
 
-    /// Whether the file that asks is in the module of table \p ti's file
+    /// Whether the file that asks is in the module of table `ti`'s file
     /// (VisibilityFacts.k, same_module: one module directory, not none).
     fn same_module_(self, req: *CompReq, ti: usize) -> bool {
         var m = self.entries[req->ei].tb.t[ti].mod.copy()
         return (!m.is_empty()) && (m == self.use_mod_(req))
     }
 
-    /// \brief whether the cursor may name member row \p r of table \p ti.
+    /// whether the cursor may name member row `r` of table `ti`.
     ///
-    /// \details AccessCheck's rule (Sema/Resolve/AccessCheck.k), read off
-    ///          the rows: `pub` everywhere; `priv` in the member's file and
-    ///          in its own class; `prot` also in the files of its module
-    ///          and in a class deriving from the member's, which reaches an
-    ///          instance member only through an object of its own kind
-    ///          (\p through). A member of an `extend` block answers from
-    ///          the block's file and the type it extends. \p owner is that
-    ///          type's row.
+    /// AccessCheck's rule (Sema/Resolve/AccessCheck.k), read off
+    /// the rows: `pub` everywhere; `priv` in the member's file and
+    /// in its own class; `prot` also in the files of its module
+    /// and in a class deriving from the member's, which reaches an
+    /// instance member only through an object of its own kind
+    /// (`through`). A member of an `extend` block answers from
+    /// the block's file and the type it extends. `owner` is that
+    /// type's row.
     fn may_name_(self, req: *CompReq, ti: usize, r: i64, owner: Recv, through: Recv) -> bool {
         var *tb = &self.entries[req->ei].tb
         var v   = tb->t[ti].vis[r as usize]
@@ -1111,7 +1111,7 @@ extend Server {
     }
 
     /// Whether a member reached through a `derives` edge of visibility
-    /// \p ev written by class \p holder may be named: a `priv` edge is the
+    /// `ev` written by class `holder` may be named: a `priv` edge is the
     /// holder's file and class, a `prot` one also its module and the
     /// classes deriving from it (AccessCheck::_check_edges).
     fn edge_ok_(self, req: *CompReq, holder: Recv, ev: i64) -> bool {
@@ -1143,8 +1143,8 @@ extend Server {
         return false
     }
 
-    /// Whether this file sees the `extend` blocks of table \p et's file,
-    /// for a record of table \p target: its own, the builtin library's,
+    /// Whether this file sees the `extend` blocks of table `et`'s file,
+    /// for a record of table `target`: its own, the builtin library's,
     /// those it imports (the block's `sees`), and one written beside the
     /// type it extends (MemberLookup.k, extension_visible).
     fn sees_ext_(self, req: *CompReq, et: usize, target: usize) -> bool {
@@ -1162,13 +1162,14 @@ extend Server {
         return false
     }
 
-    /// \brief adds what receiver \p recv declares to \p req: its own
-    ///        members, the members of the `extend` blocks this file sees,
-    ///        then its bases', each when the cursor may name it.
+    /// adds what receiver `recv` declares to `req`: its own
+    /// members, the members of the `extend` blocks this file sees,
+    /// then its bases', each when the cursor may name it.
     ///
-    /// \param through the receiver the list was asked of (\p recv itself at
-    ///                depth 0); \p edge_ok false: a `derives` edge on the
-    ///                way hides everything behind it from here.
+    /// ### Parameters
+    /// - `through`: the receiver the list was asked of (`recv` itself at
+    ///   depth 0); `edge_ok` false: a `derives` edge on the
+    ///   way hides everything behind it from here.
     fn members_into_(self, req: *CompReq, recv: Recv, through: Recv, depth: u32, sort: u32) {
         if (!recv.ok) || (depth > 8) {
             return
@@ -1281,7 +1282,7 @@ extend Server {
 
     // --- where the cursor is ----------------------------------------------
 
-    /// The row of the type that block \p bi of \p req declares, through the
+    /// The row of the type that block `bi` of `req` declares, through the
     /// types it is nested in; of the type an `extend` block extends.
     fn block_type_(self, req: *CompReq, bi: usize) -> Recv {
         var out = Recv{}
@@ -1373,7 +1374,7 @@ extend Server {
         }
     }
 
-    /// The receiver a type or module NAME \p path (`a::B`) names from this
+    /// The receiver a type or module NAME `path` (`a::B`) names from this
     /// file: the file's own declarations, then what it imports.
     fn type_name_recv_(self, req: *CompReq, const path: string) -> Recv {
         var out            = Recv{}
@@ -1439,13 +1440,13 @@ extend Server {
 
     /// The locals and parameters in scope at the cursor, nearest first.
     ///
-    /// \details From the index, the declarations on the lines of the
-    ///          enclosing function that the buffer still has as the index
-    ///          read them (LineShift); from the text, the ones on the lines
-    ///          typed since (`var` / `const` / `for .. in` / `catch`, and
-    ///          the header's parameters when the header changed). A
-    ///          declaration is in scope when the block it is declared in,
-    ///          or the block its header opens, is still open at the cursor.
+    /// From the index, the declarations on the lines of the
+    /// enclosing function that the buffer still has as the index
+    /// read them (LineShift); from the text, the ones on the lines
+    /// typed since (`var` / `const` / `for .. in` / `catch`, and
+    /// the header's parameters when the header changed). A
+    /// declaration is in scope when the block it is declared in,
+    /// or the block its header opens, is still open at the cursor.
     fn local_candidates_(self, req: *CompReq) {
         var *text = &self.docs.docs[req->di].text
         var *lm   = &self.docs.docs[req->di].lines
@@ -1665,7 +1666,7 @@ extend Server {
         }
     }
 
-    /// The names the text declares in [\p from, \p to) of the buffer.
+    /// The names the text declares in [`from`, `to`) of the buffer.
     fn lex_locals_(self, req: *CompReq, from: usize, to: usize, found: *[Cand], offs: *[usize]) {
         if from >= to {
             return
@@ -1711,7 +1712,7 @@ extend Server {
         }
     }
 
-    /// The type initialiser \p init plainly has, as text, "" when that is
+    /// The type initialiser `init` plainly has, as text, "" when that is
     /// not plain from the text alone: a construction of a class or struct
     /// (`T(...)`, `T<U>(...)`, `T { ... }`, the head looked up as cand_recv_
     /// looks it up, so `make(...)` is no construction) as written, or a
@@ -1813,7 +1814,7 @@ extend Server {
     }
 
     /// The file's own declarations: its top level and what its `module`
-    /// blocks hold. \p lexical adds the names the text declares at its top
+    /// blocks hold. `lexical` adds the names the text declares at its top
     /// level that the table (of the last text that was checked) lacks.
     fn file_candidates_(self, req: *CompReq, lexical: bool) {
         if req->ti != usize::MAX {
@@ -2067,7 +2068,7 @@ extend Server {
         }
     }
 
-    /// Drops the candidates from \p from on that are not types.
+    /// Drops the candidates from `from` on that are not types.
     fn keep_types_(self, req: *CompReq, from: usize) {
         var all = req->out.copy()
         req->reset()
@@ -2185,7 +2186,7 @@ extend Server {
         return !req->out.is_empty()
     }
 
-    /// After `b::`, \p b a primitive: its associated constants (the
+    /// After `b::`, `b` a primitive: its associated constants (the
     /// compiler's table, Index/Primitives.k), then the members of the
     /// `extend` blocks of it this file sees, whose rows spell the
     /// primitive (`DC_DETAIL` of a DF_EXT row, Tables.k). As the marker
@@ -2226,7 +2227,7 @@ extend Server {
         }
     }
 
-    /// What the chain \p steps is, as a receiver: its head, then each
+    /// What the chain `steps` is, as a receiver: its head, then each
     /// further step looked up among the members of what is before it. Not
     /// ok when a step is not found or the tables do not type it.
     fn chain_recv_(self, req: *CompReq, steps: *const [RecvStep]) -> Recv {
@@ -2305,10 +2306,10 @@ extend Server {
         }
     }
 
-    /// The directories an `ffi import "..."` of buffer \p di is looked up
+    /// The directories an `ffi import "..."` of buffer `di` is looked up
     /// in: the file's own, then the include directories of its entry's
     /// compile (the driver words a snapshot carries: `-I`, `-isystem` and
-    /// their kin), C++'s for \p cxx.
+    /// their kin), C++'s for `cxx`.
     fn include_dirs_(self, di: usize, cxx: bool) -> [string] {
         var out: [string]
         out.push(Path::parent_of(self.docs.docs[di].path))

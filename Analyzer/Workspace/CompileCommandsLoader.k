@@ -66,8 +66,8 @@ pub class Project {
 
     fn Project(self) = default
 
-    /// Looks for the project file in \p start and each directory above it.
-    /// With none found, the project is \p start itself with no entries: every
+    /// Looks for the project file in `start` and each directory above it.
+    /// With none found, the project is `start` itself with no entries: every
     /// file is then its own entry with no flags, which is what a single
     /// script wants.
     fn load(self, const start: string) {

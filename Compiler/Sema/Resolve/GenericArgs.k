@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------- Sema/Resolve/GenericArgs.k --- ///
 ///
-///   \brief Applying a written generic-argument list to a primary's
-///          parameters: arity (defaults and a trailing pack counted), then
-///          positional + named arguments into parameter order, defaults
-///          filled, pack tail gathered.
+/// Applying a written generic-argument list to a primary's
+/// parameters: arity (defaults and a trailing pack counted), then
+/// positional + named arguments into parameter order, defaults
+/// filled, pack tail gathered.
 ///
 ///   \detail
 ///     The single implementation of applying an argument list. TypeResolve
@@ -85,9 +85,9 @@ pub class GenericArgs {
         self.sc = sc
     }
 
-    /// \p given arguments against \p gps. A parameter with a default is not
-    /// required, and a pack takes any surplus. \p nm names \p d in the
-    /// message; \p site is the argument list's range.
+    /// `given` arguments against `gps`. A parameter with a default is not
+    /// required, and a pack takes any surplus. `nm` names `d` in the
+    /// message; `site` is the argument list's range.
     fn check_arity(self,
                    d:        unsafe *Decl,
                    const nm: string,
@@ -168,13 +168,13 @@ pub class GenericArgs {
         return true
     }
 
-    /// Positional + named \p gargs into parameter order, defaults filled,
+    /// Positional + named `gargs` into parameter order, defaults filled,
     /// pack tail gathered. Out: one canonical per NON-pack param slot, then
     /// the pack's args flat (the store keys on the whole vector; a pack of
     /// two is two entries). Named args that name nothing, or name a slot
     /// twice, are errors.
     ///
-    /// Whether \p cty is the kind of argument \p gp takes: a value (a
+    /// Whether `cty` is the kind of argument `gp` takes: a value (a
     /// canonical value_arg, or a value parameter standing in) for an `eval`
     /// parameter, a type for a type parameter. Reported when not.
     priv fn _kind_fits(self,
@@ -222,7 +222,7 @@ pub class GenericArgs {
         return false
     }
 
-    /// \p stand_in: a dependent argument with no canonical (a raw dependent
+    /// `stand_in`: a dependent argument with no canonical (a raw dependent
     /// composite) takes the parameter itself instead of failing. X and
     /// ChainBinding want that -- the result is a dependent pattern either
     /// way -- and T does not: its null slot is a poisoned type.
@@ -421,11 +421,11 @@ pub class GenericArgs {
         return true
     }
 
-    /// The registry entry for \p primary instantiated with the complete,
-    /// concrete argument list \p args: the explicit or partial
+    /// The registry entry for `primary` instantiated with the complete,
+    /// concrete argument list `args`: the explicit or partial
     /// specialization registered for them, else the implicit instance,
-    /// minted on first mention. The entry is asked for from \p sc's file,
-    /// with \p primary's names read in the file that declares it.
+    /// minted on first mention. The entry is asked for from `sc`'s file,
+    /// with `primary`'s names read in the file that declares it.
     /// Null when the registry refuses the instance.
     static fn instance(sc:      unsafe *SemaContext,
                        primary: unsafe *Decl,

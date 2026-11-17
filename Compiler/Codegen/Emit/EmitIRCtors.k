@@ -66,7 +66,7 @@ import Location::SourceRange::SourceRange
 
 extend EmitIR {
     /// The slot record's definition, the pre-function, the slot constructor
-    /// and the public constructor that delegates to it, for \p m, whose body
+    /// and the public constructor that delegates to it, for `m`, whose body
     /// CtorInitLowering cut into `{ {S_pre} {S_post} }`.
     prot fn _split_ctor(self, m: unsafe *FunctionDecl, owner: unsafe *Decl) {
         var unsafe *b = m->body_block
@@ -262,8 +262,8 @@ extend EmitIR {
         self._close_ns(m->range, wrap)
     }
 
-    /// Index of \p d in the live split constructor's slots, or usize(-1). A
-    /// field counts only when \p fields: after S_pre the object exists.
+    /// Index of `d` in the live split constructor's slots, or usize(-1). A
+    /// field counts only when `fields`: after S_pre the object exists.
     prot fn _slot_of(self, d: unsafe *Decl, fields: bool) -> usize {
         if self._ci_fn == &null || d == &null {
             return usize::MAX
@@ -298,7 +298,7 @@ extend EmitIR {
         )
     }
 
-    /// Slot \p i's type. A field of a base of the owner (spelled \p q) is
+    /// Slot `i`'s type. A field of a base of the owner (spelled `q`) is
     /// `decltype(Q::f)`: its declared type is written in the base's terms
     /// (a generic base's `T`), and C++ reads it through the derived class.
     priv fn _slot_type(self, i: usize, const q: string) -> string {
@@ -314,7 +314,7 @@ extend EmitIR {
         return self._spell._type(cast<VariableDecl>(d)->type_)
     }
 
-    /// \p f, a field in a slot of the live split constructor, is not one of
+    /// `f`, a field in a slot of the live split constructor, is not one of
     /// its record's own: it is a base's.
     prot fn _inherited_field(self, f: unsafe *FieldDecl) -> bool {
         var own = decl_fields(self._ci_owner)
@@ -350,7 +350,7 @@ extend EmitIR {
         self._cg->sink->spell(v->name.range, ")")
     }
 
-    /// The field \p e names when it is exactly `self.f`, else null.
+    /// The field `e` names when it is exactly `self.f`, else null.
     prot fn _self_field(self, e: unsafe *Expr) -> unsafe *FieldDecl {
         var unsafe *c = dyn_cast<ChainExpr>(e)
         if c == &null || c->steps.size() != 1 || !self._base_is_self(c->base) {
@@ -437,7 +437,7 @@ extend EmitIR {
         return f
     }
 
-    /// How many of \p stmts, from the first, are base initializers.
+    /// How many of `stmts`, from the first, are base initializers.
     prot fn _lead_base_inits(self, const stmts: FrozenList<unsafe *Stmt>) -> usize {
         var k: usize = 0
         while k < stmts.size() && self._base_init_ctor((stmts)[k]) != &null {
@@ -447,8 +447,8 @@ extend EmitIR {
         return k
     }
 
-    /// ` : Animal(4), ...` after constructor \p m's head, from the base
-    /// initializers leading \p stmts; true when there was one. C++ builds a
+    /// ` : Animal(4), ...` after constructor `m`'s head, from the base
+    /// initializers leading `stmts`; true when there was one. C++ builds a
     /// base before the body runs and has no way to construct one from a
     /// statement, so the call becomes its mem-initializer, which is also
     /// what makes a virtual base's initializer in an intermediate class
@@ -488,7 +488,7 @@ extend EmitIR {
         return true
     }
 
-    /// The instance of generic method \p f's class that object \p obj is,
+    /// The instance of generic method `f`'s class that object `obj` is,
     /// or has as a base -- what `Box<i32>::get(obj)` names, which the bare
     /// callee spells as the template. Null when neither (clang then
     /// reports the template, as before).
@@ -519,7 +519,7 @@ extend EmitIR {
         )
     }
 
-    /// The base \p f constructs, spelled as \p owner's base list names it
+    /// The base `f` constructs, spelled as `owner`'s base list names it
     /// (`GB<int>`, not the template); a virtual base further up is found
     /// through the bases in between.
     priv fn _base_init_type(self,

@@ -125,7 +125,7 @@ pub class <T: type> Redeclarable {
         self._redecl_next  = head
     }
 
-    /// Repoint EVERY link's canonical at \p c. NameResolution N(a) calls this
+    /// Repoint EVERY link's canonical at `c`. NameResolution N(a) calls this
     /// once per chain, after linking, to make the definition the canonical
     /// decl ("definition if one exists, else first decl"). The ring itself is
     /// untouched, so `first_decl` / `most_recent_decl` keep their meaning.

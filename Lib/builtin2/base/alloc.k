@@ -1,10 +1,10 @@
 /// --- The Kairo Project --------------------- Lib/builtin/base/alloc.k --- ///
 ///
-///   \brief The allocator model: typed uninitialized storage, the allocation
-///          front end and the AllocatorScope guard, over the byte layer in
-///          alloc_raw.k (the allocator interfaces, the OOM hook, Global /
-///          System, the scope stack and alloc_raw / free_raw / resize_raw),
-///          which this file re-exports.
+/// The allocator model: typed uninitialized storage, the allocation
+/// front end and the AllocatorScope guard, over the byte layer in
+/// alloc_raw.k (the allocator interfaces, the OOM hook, Global /
+/// System, the scope stack and alloc_raw / free_raw / resize_raw),
+/// which this file re-exports.
 ///
 ///   \detail
 ///     Three layers, each knowing only about the one below it:
@@ -214,7 +214,8 @@ pub class <T> UninitializedSlice {
 /// Allocates `size` bytes from allocator `A`. Returns `&null` on failure; a zero `size` returns
 /// `dangling(align)` without calling `A`.
 ///
-/// \param align  A power of two (asserted).
+/// ### Parameters
+/// - `align`: A power of two (asserted).
 pub inline fn <A impl Allocator> alloc_bytes(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align), "alignment must be a power of two"
     if size == 0 {
@@ -237,7 +238,8 @@ pub inline fn <A impl Allocator> free_bytes(ptr: unsafe *u8, size: usize, align:
 
 /// Allocates `size` zeroed bytes from allocator `A`. Returns `&null` on failure.
 ///
-/// \param align  A power of two (asserted).
+/// ### Parameters
+/// - `align`: A power of two (asserted).
 pub inline fn <A impl FullAllocator> alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align), "alignment must be a power of two"
     if size == 0 {

@@ -12,7 +12,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 ///
-/// \invariant Recovery node casting contract:
+/// **Invariant:** Recovery node casting contract:
 ///
 /// When kind == ExprKind::RecoveryExpr and recovery_kind == ExprKind::X,
 /// the node was allocated as X and it is ALWAYS safe to cast:
@@ -25,7 +25,6 @@
 ///
 /// DO NOT allocate a bare Expr and set recovery_kindthe cast will
 /// read out of bounds. Always use the concrete node's create_error().
-///
 ffi "c++" import "Native/Types.hh"
 
 import AST::ASTSupport::{
@@ -790,7 +789,7 @@ pub class NamedInitializerExpr derives Expr {
     }
 }
 
-/// The EnumVariantDecl X recorded on \p e as the variant it builds, or null.
+/// The EnumVariantDecl X recorded on `e` as the variant it builds, or null.
 /// A construction is written as one of three nodes -- an initializer
 /// (`E::V { .. }`, `.V`), a path (`Opt::None`), a bare name (`None` inside its
 /// enum) -- and each carries the fact as its own `variant_decl`. One reader
@@ -1848,7 +1847,7 @@ pub enum TypeTraitKind derives u8 {
     TriviallyDestructible,
 }
 
-/// The fact the intrinsic \p name spells (without its `!`), or None.
+/// The fact the intrinsic `name` spells (without its `!`), or None.
 pub fn type_trait_of(const name: string) -> TypeTraitKind {
     if name == LangIntrinsics::is_trivially_copyable() {
         return TypeTraitKind::TriviallyCopyable
@@ -1861,7 +1860,7 @@ pub fn type_trait_of(const name: string) -> TypeTraitKind {
     return TypeTraitKind::None
 }
 
-/// \p k as Kairo spells it, without its `!`.
+/// `k` as Kairo spells it, without its `!`.
 pub fn type_trait_spelling(k: TypeTraitKind) -> string {
     if k == TypeTraitKind::TriviallyCopyable {
         return LangIntrinsics::is_trivially_copyable()
@@ -1874,7 +1873,7 @@ pub fn type_trait_spelling(k: TypeTraitKind) -> string {
     return ""
 }
 
-/// The clang builtin that computes \p k: what C++ answers for the same type.
+/// The clang builtin that computes `k`: what C++ answers for the same type.
 pub fn type_trait_cxx(k: TypeTraitKind) -> string {
     if k == TypeTraitKind::TriviallyCopyable {
         return "__is_trivially_copyable"

@@ -1,6 +1,6 @@
 /// --- The Kairo Project -------------------------- AST/Kind/StmtKind.k --- ///
 ///
-///   \brief Discriminator enum for all statement-position AST nodes.
+/// Discriminator enum for all statement-position AST nodes.
 ///
 ///   \detail
 ///     Every concrete Stmt subclass declares a static `stmt_kind()` that
@@ -32,7 +32,6 @@
 ///     Exception handling
 ///     Scope / context modifiers
 ///     Compile-time blocks
-///
 
 pub enum StmtKind derives u8 {
     /// # Sentinel

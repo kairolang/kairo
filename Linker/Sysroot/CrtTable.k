@@ -427,8 +427,8 @@ pub class SysCrt {
         return LinkFS::write(path, "!<arch>\n")
     }
 
-    /// Lays the [files] / [headers] row \p how (`gen:<path>` from \p gen,
-    /// `src:<path>` from \p src) at \p to.
+    /// Lays the [files] / [headers] row `how` (`gen:<path>` from `gen`,
+    /// `src:<path>` from `src`) at `to`.
     pub static fn put_ref(const how:  string,
                           const src:  string,
                           const gen:  string,

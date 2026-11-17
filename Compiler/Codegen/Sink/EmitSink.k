@@ -1,8 +1,8 @@
 /// --- The Kairo Project ---------------------- Codegen/Sink/EmitSink.k --- ///
 ///
-///   \brief The surface every emitter writes through. Two sinks derive it:
-///          TokenSink (located clang tokens, the per-TU preamble + bodies)
-///          and TextSink (bytes, the interop header and --print-cxx).
+/// The surface every emitter writes through. Two sinks derive it:
+/// TokenSink (located clang tokens, the per-TU preamble + bodies)
+/// and TextSink (bytes, the interop header and --print-cxx).
 ///
 ///   \par Why a base class and not two emitters
 ///     The interface emitter produces the SAME declaration text for a
@@ -53,7 +53,7 @@ pub class EmitSink {
     /// costs the ICE its source location.
     pub var ice_ctx: unsafe *ASTContext = &null
 
-    /// ICE naming the Kairo source at \p at (CodegenICE).
+    /// ICE naming the Kairo source at `at` (CodegenICE).
     fn ice_at(self, at: SourceRange, const msg: string) {
         codegen_ice(self.ice_ctx, at, msg)
     }
@@ -128,13 +128,13 @@ pub class EmitSink {
     /// Layout hint. TextSink breaks the line; TokenSink ignores it.
     virtual fn brk(self) { }
 
-    /// The token just written closes the call at \p at, which Sema bound to
-    /// the declaration written at \p decl and named by \p name. TokenSink
+    /// The token just written closes the call at `at`, which Sema bound to
+    /// the declaration written at `decl` and named by `name`. TokenSink
     /// keeps it for the Sema agreement pass (Compiler/Spec/SemaAgreement.md);
     /// a sink with no clang behind it has nothing to compare.
     virtual fn agree_call(self, at: SourceRange, decl: SourceRange, name: SourceRange) { }
     /// The declaration of the last agree_call is declared more than once:
-    /// \p name is the name token of another of its declarations.
+    /// `name` is the name token of another of its declarations.
     virtual fn agree_alt(self, name: SourceRange) { }
     /// Sema found the declaration of the last agree_call by
     /// argument-dependent lookup (CallExpr::via_adl).
@@ -175,7 +175,7 @@ pub class EmitSink {
         return self.synth(t.range, k)
     }
 
-    /// `<<` (\p left) or `>>` as one shift token. A shift is never passed
+    /// `<<` (`left`) or `>>` as one shift token. A shift is never passed
     /// to spell(), which reads the two characters as two angle brackets
     /// anywhere but directly after the word `operator`.
     fn shift(self, at: SourceRange, left: bool) -> bool {
@@ -269,7 +269,7 @@ pub class EmitSink {
 
     /// # spell(): C++ text -> tokens
 
-    /// Tokenize \p text and emit every token anchored at \p at. Accepts
+    /// Tokenize `text` and emit every token anchored at `at`. Accepts
     /// identifiers/keywords, integer and string literals, and the punctuators a
     /// declaration can contain. Anything else is an emitter bug.
     ///
@@ -578,7 +578,7 @@ pub class EmitSink {
         return any
     }
 
-    /// `__attribute__` / `__attribute` starts at \p i of \p text, as a
+    /// `__attribute__` / `__attribute` starts at `i` of `text`, as a
     /// whole word.
     priv fn _attr_word_at(self, text: string, i: usize) -> bool {
         var j = i

@@ -61,11 +61,10 @@ import Tooling::ToolDiagnostics::{
 }
 import std::c_char
 
-/// \enum ParseFidelity
-/// \brief what the caller needs the AST to be faithful TO.
+/// what the caller needs the AST to be faithful TO.
 ///
-/// \details "run the preprocessor or not" is the wrong knob, because the PP
-///          does three separable jobs:
+/// "run the preprocessor or not" is the wrong knob, because the PP
+/// does three separable jobs:
 ///
 ///            1. lex, materialize the token span, create the ASTContext + TU
 ///            2. consume imports/macro-defs into the TU, resolve the graph
@@ -94,7 +93,6 @@ pub enum ParseFidelity derives u8 {
     Verbatim,
 }
 
-/// \class ParseOptions
 pub struct ParseOptions {
     pub var fidelity: ParseFidelity = ParseFidelity::Semantic
 
@@ -119,17 +117,16 @@ pub struct ParseOptions {
     pub var as_module: bool = false
 }
 
-/// \class ParsedUnit
-/// \brief one file's parse result: the fid, the context, and the TU.
+/// one file's parse result: the fid, the context, and the TU.
 ///
-/// \details fid/ctx/tu always travel together   every consumer that has a TU
-///          immediately needs the ctx to resolve tokens through   so they are
-///          returned together rather than making callers re-derive ctx from
-///          global_scope()->get_context(fid).
+/// fid/ctx/tu always travel together   every consumer that has a TU
+/// immediately needs the ctx to resolve tokens through   so they are
+/// returned together rather than making callers re-derive ctx from
+/// global_scope()->get_context(fid).
 ///
-/// \note NON-OWNING. Every pointer here is borrowed: the ASTContext belongs to
-///       the CI's GlobalDisambigTable, and the TU lives in that context's
-///       pp_alloc. This struct owns nothing and destroying it frees nothing.
+/// **Note:** NON-OWNING. Every pointer here is borrowed: the ASTContext belongs to
+/// the CI's GlobalDisambigTable, and the TU lives in that context's
+/// pp_alloc. This struct owns nothing and destroying it frees nothing.
 ///
 ///       Valid until the CompilerInstance is destroyed, or until release() is
 ///       called on this fid   whichever comes first. After release() every
@@ -213,17 +210,16 @@ pub class ParsedUnit {
 /// class body cannot forward-reference a free function.
 pub fn release_all(ci: unsafe *CompilerInstance, from: TUStage) -> usize
 
-/// \class OwnedUnit
-/// \brief a ParsedUnit that owns the CompilerInstance behind it.
+/// a ParsedUnit that owns the CompilerInstance behind it.
 ///
-/// \details ParsedUnit borrows everything from a CI the caller stood up. This
-///          owns that CI, so ctx/tu stay valid for as long as this value lives
-///          and die with it. The one-shot case: parse a file, read the AST,
-///          drop it.
+/// ParsedUnit borrows everything from a CI the caller stood up. This
+/// owns that CI, so ctx/tu stay valid for as long as this value lives
+/// and die with it. The one-shot case: parse a file, read the AST,
+/// drop it.
 ///
-/// \warning MOVE ONLY. Copying would double-destroy the instance. Everything
-///          reached through unit.ctx or unit.tu dangles after this goes out
-///          of scope.
+/// **Warning:** MOVE ONLY. Copying would double-destroy the instance. Everything
+/// reached through unit.ctx or unit.tu dangles after this goes out
+/// of scope.
 pub class OwnedUnit {
     pub var  unit: ParsedUnit
     priv var _ci:  unsafe *CompilerInstance = &null
@@ -249,11 +245,11 @@ pub class OwnedUnit {
         self._release()
     }
 
-    /// \brief takes ownership of \p ci. It is destroyed with this value.
+    /// takes ownership of `ci`. It is destroyed with this value.
     ///
-    /// \details Exists because the entry points below are free functions and
-    ///          cannot touch \c _ci directly. Passing a CI that something else
-    ///          also owns is a double-free.
+    /// Exists because the entry points below are free functions and
+    /// cannot touch `_ci` directly. Passing a CI that something else
+    /// also owns is a double-free.
     fn adopt(self, ci: unsafe *CompilerInstance) {
         if self._ci == ci {
             return
@@ -301,10 +297,10 @@ pub class OwnedUnit {
     }
 }
 
-/// \brief loads \p path into the SourceManager and returns its fid.
+/// loads `path` into the SourceManager and returns its fid.
 ///
-/// \details Idempotent for an already-loaded path   SourceManager returns the
-///          existing fid. \c u32(-1) on failure.
+/// Idempotent for an already-loaded path   SourceManager returns the
+/// existing fid. `u32(-1)` on failure.
 pub fn load(ci: unsafe *CompilerInstance, const path: Path) -> u32 {
     if ci == &null {
         return u32::MAX
@@ -313,11 +309,11 @@ pub fn load(ci: unsafe *CompilerInstance, const path: Path) -> u32 {
     return ci->sm()->load_file(path)
 }
 
-/// \brief maps ParseOptions::stop_at onto the invocation's frontend action.
+/// maps ParseOptions::stop_at onto the invocation's frontend action.
 ///
-/// \details The stage gates already exist   FrontendOptions::stops_at_parse()
-///          and friends, checked by FrontendAction::run(). This just selects
-///          the action kind that produces the gate the caller asked for.
+/// The stage gates already exist   FrontendOptions::stops_at_parse()
+/// and friends, checked by FrontendAction::run(). This just selects
+/// the action kind that produces the gate the caller asked for.
 pub fn _apply_stop_at(ci: unsafe *CompilerInstance, stop_at: TUStage) -> FrontendActionKind {
     var *fe = &ci->invocation()->frontend
     var old = fe->action
@@ -333,22 +329,23 @@ pub fn _apply_stop_at(ci: unsafe *CompilerInstance, stop_at: TUStage) -> Fronten
     return old
 }
 
-/// \brief runs the frontend over \p path and returns its AST.
+/// runs the frontend over `path` and returns its AST.
 ///
-/// \details Reuses FrontendAction rather than reimplementing the pipeline, so
-///          tools get exactly the compiler's load/preprocess/parse behaviour
-///          and stay correct as it evolves.
+/// Reuses FrontendAction rather than reimplementing the pipeline, so
+/// tools get exactly the compiler's load/preprocess/parse behaviour
+/// and stay correct as it evolves.
 ///
-/// \pre CompilerInstance::initialize(cwd) must have run   it builds the
-///      ImportResolver and PreProcessor this depends on.
-/// \brief the module path a tool checks the entry \p path under: none (a
-///        pathless entry, as a program's main file is) unless \p as_module
-///        asks for the driver's name, or the file lies in a library.
+/// **Precondition:** CompilerInstance::initialize(cwd) must have run   it builds the
+/// ImportResolver and PreProcessor this depends on.
 ///
-/// \details A library's file is the module its path names whatever the
-///          caller asks, as it is to `kairo`: the builtin files, the lang
-///          items and the library-only rules are found by that path, and a
-///          pathless builtin file is checked as user code.
+/// the module path a tool checks the entry `path` under: none (a
+/// pathless entry, as a program's main file is) unless `as_module`
+/// asks for the driver's name, or the file lies in a library.
+///
+/// A library's file is the module its path names whatever the
+/// caller asks, as it is to `kairo`: the builtin files, the lang
+/// items and the library-only rules are found by that path, and a
+/// pathless builtin file is checked as user code.
 pub fn entry_module_path(ci:         unsafe *CompilerInstance,
                          const path: Path,
                          as_module:  bool) -> ModulePath {
@@ -456,12 +453,12 @@ pub fn parse_file(ci: unsafe *CompilerInstance, path: Path, opts: ParseOptions) 
     return u
 }
 
-/// \brief parse_file for a fid already loaded into the SourceManager.
+/// parse_file for a fid already loaded into the SourceManager.
 ///
-/// \details A fid is not something a caller can hold before calling   it comes
-///          from load()   so this resolves back to the path and defers. The
-///          SourceManager hands back the same fid for an already-loaded file,
-///          so nothing is re-read.
+/// A fid is not something a caller can hold before calling   it comes
+/// from load()   so this resolves back to the path and defers. The
+/// SourceManager hands back the same fid for an already-loaded file,
+/// so nothing is re-read.
 pub fn parse_fid(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> ParsedUnit {
     if ci == &null {
         return ParsedUnit::failure(fid, TUStage::Failed)
@@ -475,15 +472,15 @@ pub fn parse_fid(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> 
     return parse_file(ci, Path(name), opts)
 }
 
-/// \brief releases everything \p unit produced, from \p from onward.
+/// releases everything `unit` produced, from `from` onward.
 ///
-/// \details Thin wrapper over CompilerInstance::release for callers holding a
-///          ParsedUnit. Nothing is reclaimed until the CI dies otherwise, so a
-///          tool walking a tree MUST call this per file or it holds every AST
-///          it has ever parsed.
+/// Thin wrapper over CompilerInstance::release for callers holding a
+/// ParsedUnit. Nothing is reclaimed until the CI dies otherwise, so a
+/// tool walking a tree MUST call this per file or it holds every AST
+/// it has ever parsed.
 ///
-/// \warning Invalidates unit.ctx, unit.tu, and every node reached through
-///          them. Refuses while another live TU still imports this fid.
+/// **Warning:** Invalidates unit.ctx, unit.tu, and every node reached through
+/// them. Refuses while another live TU still imports this fid.
 pub fn release(ci: *CompilerInstance?, @inout unit: ParsedUnit, from: TUStage) -> bool {
     if ci == &null {
         return false
@@ -496,11 +493,11 @@ pub fn release(ci: *CompilerInstance?, @inout unit: ParsedUnit, from: TUStage) -
     return ci->release(unit.fid, from)
 }
 
-/// \brief parses in-memory source, no file on disk.
+/// parses in-memory source, no file on disk.
 ///
-/// \details Identical to parse_file downstream   only the SourceManager entry
-///          point differs (load_virtual vs load_file). \p vname is the logical
-///          name diagnostics and ranges report against.
+/// Identical to parse_file downstream   only the SourceManager entry
+/// point differs (load_virtual vs load_file). `vname` is the logical
+/// name diagnostics and ranges report against.
 ///
 ///          This replaces Parser/ParseSource.k, which tried to own its own
 ///          ThreadPool/VFM/SourceManager/PP stack and was never finished. A
@@ -508,10 +505,10 @@ pub fn release(ci: *CompilerInstance?, @inout unit: ParsedUnit, from: TUStage) -
 ///          go through the same pipeline as a real file so tests exercise what
 ///          the compiler actually does.
 ///
-/// \warning \p code IS NOT COPIED. VirtualFileManager::register_virtual calls
-///          attach_raw() on the pointer, so the SourceManager holds a VIEW.
-///          \p code must outlive the returned unit   until release(), or until
-///          the CompilerInstance dies.
+/// **Warning:** `code` IS NOT COPIED. VirtualFileManager::register_virtual calls
+/// attach_raw() on the pointer, so the SourceManager holds a VIEW.
+/// `code` must outlive the returned unit   until release(), or until
+/// the CompilerInstance dies.
 ///
 ///          It is a narrow libcxx::string rather than a Kairo string because
 ///          the buffer is a BYTE view; Kairo's string is wchar-backed and its
@@ -537,11 +534,11 @@ pub fn parse_string(ci:          unsafe *CompilerInstance,
     return parse_fid(ci, fid, opts)
 }
 
-/// \brief stands up a CompilerInstance from \p inv, parses one file, returns both.
+/// stands up a CompilerInstance from `inv`, parses one file, returns both.
 ///
-/// \details The one-shot entry point. parse_file() needs a caller-owned CI that
-///          has already had initialize(cwd) run on it; this does that setup and
-///          hands back a value that owns its own teardown.
+/// The one-shot entry point. parse_file() needs a caller-owned CI that
+/// has already had initialize(cwd) run on it; this does that setup and
+/// hands back a value that owns its own teardown.
 ///
 ///          There are deliberately no per-flag parameters here   no `includes`,
 ///          no `defines`. Options go in the invocation, which is the typed
@@ -552,17 +549,18 @@ pub fn parse_string(ci:          unsafe *CompilerInstance,
 ///              inv.include_dirs.push_back("Compiler");
 ///              var o = parse_once(Path("x.k"), &inv, TUStage::Parsing);
 ///
-/// \details \p inv is COPIED into the instance (see CompilerInstance(inv)), so
-///          a stack temporary is fine and nothing has to outlive the call.
+/// `inv` is COPIED into the instance (see CompilerInstance(inv)), so
+/// a stack temporary is fine and nothing has to outlive the call.
 ///
 ///          Diagnostics are always captured   a one-shot caller has no other
 ///          way to see them, since the CI is gone before it could ask. Read
 ///          them off `result.unit.diags`.
 ///
-/// \param inv      the options for this parse. May be null   the result is a
-///                 failure unit.
-/// \param stop_at  last stage to run. Parsing for syntax tools, Sema if you
-///                 need types resolved.
+/// ### Parameters
+/// - `inv`: the options for this parse. May be null   the result is a
+///   failure unit.
+/// - `stop_at`: last stage to run. Parsing for syntax tools, Sema if you
+///   need types resolved.
 pub fn parse_once(const path: Path, inv: *CompilerInvocation, stop_at: TUStage) -> OwnedUnit {
     var unsafe *ci = kairo::std::create<CompilerInstance>(inv)
 
@@ -584,18 +582,18 @@ pub fn parse_once(const path: Path, inv: *CompilerInvocation, stop_at: TUStage) 
     return o
 }
 
-/// \brief parse_once for a caller that has an argv rather than an invocation.
+/// parse_once for a caller that has an argv rather than an invocation.
 ///
-/// \details Delegates: argv becomes a CompilerInvocation via
-///          CompilerInvocation::from_args, and everything past that point is
-///          the overload above. \p argv is read here and not retained   the
-///          invocation holds owned copies   so the caller's buffers may die as
-///          soon as this returns.
+/// Delegates: argv becomes a CompilerInvocation via
+/// CompilerInvocation::from_args, and everything past that point is
+/// the overload above. `argv` is read here and not retained   the
+/// invocation holds owned copies   so the caller's buffers may die as
+/// soon as this returns.
 ///
-/// \note from_args needs somewhere to report flag errors and there is no
-///       CompilerInstance yet, so this stands up a throwaway DiagEngine with a
-///       collector on it. A bad command line therefore comes back as a failure
-///       unit whose `diags` hold the flag errors, rather than as silence.
+/// **Note:** from_args needs somewhere to report flag errors and there is no
+/// CompilerInstance yet, so this stands up a throwaway DiagEngine with a
+/// collector on it. A bad command line therefore comes back as a failure
+/// unit whose `diags` hold the flag errors, rather than as silence.
 pub fn parse_once(const path: Path,
                   argc:       i32,
                   argv:       unsafe *(unsafe *c_char),
@@ -621,16 +619,16 @@ pub fn parse_once(const path: Path,
     return parse_once(path, &inv, stop_at)
 }
 
-/// \brief parse_once with the common defaults: stock options, stop after parse.
+/// parse_once with the common defaults: stock options, stop after parse.
 pub fn parse_once(const path: Path) -> OwnedUnit {
     var inv = CompilerInvocation()
     return parse_once(path, &inv, TUStage::Parsing)
 }
 
-/// \brief re-reads and re-parses ONE fid. Nothing else in the graph is touched.
+/// re-reads and re-parses ONE fid. Nothing else in the graph is touched.
 ///
-/// \details The edit path, and deliberately a narrow one. Given a fid that is
-///          already part of a parsed graph, this:
+/// The edit path, and deliberately a narrow one. Given a fid that is
+/// already part of a parsed graph, this:
 ///
 ///            1. releases that fid's artifacts (AST, context, tokens, imm
 ///               table, walked mark, macros),
@@ -647,7 +645,7 @@ pub fn parse_once(const path: Path) -> OwnedUnit {
 ///      graph, no wave executor. Consequences the caller must accept:
 ///
 ///        - An import ADDED by the edit is not resolved and its file is not
-///          loaded. Names from it will not resolve. \c added_imports on the
+///          loaded. Names from it will not resolve. `added_imports` on the
 ///          result reports how many edges the file now has that are not backed
 ///          by a live context, so this is detectable rather than silent.
 ///        - An import REMOVED by the edit leaves the formerly-imported file
@@ -659,11 +657,13 @@ pub fn parse_once(const path: Path) -> OwnedUnit {
 ///      In short: correct for edits inside a file's own body, which is the
 ///      common keystroke. For an edit to the import block, run parse_file().
 ///
-/// \pre \p fid must already be loaded (a previous parse_file/load).
-/// \pre No other parse may be in flight   this re-maps a buffer other threads
-///      could be reading.
+/// **Precondition:** `fid` must already be loaded (a previous parse_file/load).
 ///
-/// \return a ParsedUnit for \p fid alone; \c fids holds just this fid.
+/// **Precondition:** No other parse may be in flight   this re-maps a buffer other threads
+/// could be reading.
+///
+/// ### Returns
+/// a ParsedUnit for `fid` alone; `fids` holds just this fid.
 pub fn reparse(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> ParsedUnit {
     if ci == &null {
         return ParsedUnit::failure(fid, TUStage::Failed)
@@ -784,19 +784,20 @@ pub fn reparse(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> Pa
     return u
 }
 
-/// \brief releases every registered fid, dependency order handled internally.
+/// releases every registered fid, dependency order handled internally.
 ///
-/// \details release() refuses while another live TU still imports the fid, so
-///          a caller sweeping a whole batch has to release LEAVES LAST   the
-///          importers first. Rather than make every caller know the graph
-///          order, repeat until a full pass frees nothing: each pass removes
-///          the current importers and exposes the next layer.
+/// release() refuses while another live TU still imports the fid, so
+/// a caller sweeping a whole batch has to release LEAVES LAST   the
+/// importers first. Rather than make every caller know the graph
+/// order, repeat until a full pass frees nothing: each pass removes
+/// the current importers and exposes the next layer.
 ///
 ///          A tool walking a directory needs this. Nothing is reclaimed until
 ///          the CompilerInstance dies otherwise, so kfmt over a large tree
 ///          would hold every AST it has ever parsed.
 ///
-/// \return the number of fids released.
+/// ### Returns
+/// the number of fids released.
 pub fn release_all(ci: unsafe *CompilerInstance, from: TUStage) -> usize {
     if ci == &null {
         return 0

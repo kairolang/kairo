@@ -32,16 +32,12 @@ pub class ImmPage {
     pub var e: cxx::std::array<kairo::std::Atomic<unsafe *ImmediateTable>, 4096> = cxx::std::array<kairo::std::Atomic<unsafe *ImmediateTable>, 4096>()
 }
 
+/// per-fid cache of lexers and their token buffers.
 ///
-/// \class TokenCacheManager
-/// \brief per-fid cache of lexers and their token buffers.
-///
-/// \details
 /// fids are dense sequential u32s minted by the VirtualFileManager, so the
 /// cache is a flat slot vector indexed by fid no hashing. lexing (discovery
 /// phase) is serial by design; the shared mutex exists for the parallel
 /// phases that follow: expansion.
-///
 pub class TokenCacheManager {
     enum SlotState derives u8 {
         NotLexed  = 0,
@@ -92,7 +88,7 @@ pub class TokenCacheManager {
         }
     }
 
-    /// Mirrors slot \p fid's imm into _imm_dir. Caller holds _lex_mu exclusively.
+    /// Mirrors slot `fid`'s imm into _imm_dir. Caller holds _lex_mu exclusively.
     priv fn _publish_imm(self, fid: u32, imm: unsafe *ImmediateTable) {
         var pi = (fid as usize) >> 12
         if pi >= 1024 {
@@ -129,8 +125,8 @@ pub class TokenCacheManager {
         self._slots.reserve(1024) // 16KB
     }
 
-    /// \brief transient scan-only stream. NEVER touches _slots the PP later
-    ///        opens the real stream on this fid and asserts NotLexed.
+    /// transient scan-only stream. NEVER touches _slots the PP later
+    /// opens the real stream on this fid and asserts NotLexed.
     pub fn open_scan_stream(self, fid: u32) -> Self::ScanStream {
         var        s    = Self::ScanStream()
         var unsafe *imm = kairo::std::create<ImmediateTable>()
@@ -174,10 +170,11 @@ pub class TokenCacheManager {
         }
     }
 
-    /// \brief opens a forward-only token stream for fid.
-    /// \details slot transitions NotLexed -> Streaming. get_tokens(fid) returns
-    ///          null (and asserts) until close_stream() moves it to Ready.
-    ///          returns null on failure (slot -> Failed).
+    /// opens a forward-only token stream for fid.
+    ///
+    /// slot transitions NotLexed -> Streaming. get_tokens(fid) returns
+    /// null (and asserts) until close_stream() moves it to Ready.
+    /// returns null on failure (slot -> Failed).
     pub fn open_stream(self, fid: u32) -> unsafe *Lexer {
         var wlock = kairo::std::UniqueLock(self._lex_mu)
 
@@ -219,9 +216,10 @@ pub class TokenCacheManager {
         return lexer
     }
 
-    /// \brief the stream consumer (PP) hands back the expanded buffer.
-    /// \details slot transitions Streaming -> Ready. lexer is destroyed;
-    ///          the ImmediateTable is NOT indices are stable forever.
+    /// the stream consumer (PP) hands back the expanded buffer.
+    ///
+    /// slot transitions Streaming -> Ready. lexer is destroyed;
+    /// the ImmediateTable is NOT indices are stable forever.
     pub fn close_stream(self, fid: u32, tokens: unsafe *TokenBuffer<512>) {
         var wlock = kairo::std::UniqueLock(self._lex_mu)
 
@@ -269,8 +267,8 @@ pub class TokenCacheManager {
         return self._slots[fid].tokens
     }
 
-    /// \brief imm table for fid. valid from open_stream() onward, for the
-    ///        lifetime of the TCM. append-safe while the stream is live.
+    /// imm table for fid. valid from open_stream() onward, for the
+    /// lifetime of the TCM. append-safe while the stream is live.
     pub fn get_imm_table_for_fid(self, fid: u32) -> unsafe *ImmediateTable {
         // Lock-free: see _imm_dir. Valid even while Streaming.
         var pi = (fid as usize) >> 12
@@ -340,10 +338,10 @@ pub class TokenCacheManager {
         self._slots.clear()
     }
 
-    /// \brief drops one fid's lex products: tokens, lexer, and imm table.
+    /// drops one fid's lex products: tokens, lexer, and imm table.
     ///
-    /// \details The slot is reset IN PLACE, never erased   `_slots` is indexed
-    ///          by fid, so erasing would renumber every later file.
+    /// The slot is reset IN PLACE, never erased   `_slots` is indexed
+    /// by fid, so erasing would renumber every later file.
     ///
     ///          CALLER CONTRACT: every AST built from this fid must already be
     ///          gone. Tokens address identifiers by `imm` index into this
@@ -352,7 +350,8 @@ pub class TokenCacheManager {
     ///          CompilerInstance::release enforces the ordering; do not call
     ///          this directly out of order.
     ///
-    /// \return false if the fid was never lexed (nothing to do).
+    /// ### Returns
+    /// false if the fid was never lexed (nothing to do).
     pub fn release(self, fid: u32) -> bool {
         var wlock = kairo::std::UniqueLock(self._lex_mu)
 

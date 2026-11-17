@@ -64,13 +64,12 @@ import Token::TokenKind::{
     token_kind_to_readable_string,
 }
 
-/// \class TypeParse
-/// \brief CRTP mixin providing type expression parsing for the Kairo parser.
+/// CRTP mixin providing type expression parsing for the Kairo parser.
 ///
-/// \details concrete parser type `T` (always `ASTParse`) derives
-///          `TypeParse::<T>` to inherit all type-position productions. the
-///          mixin owns no state beyond a monotonic `inferred_type_counter`
-///          and a static token-kind lookup table used for leaf-type dispatch.
+/// concrete parser type `T` (always `ASTParse`) derives
+/// `TypeParse::<T>` to inherit all type-position productions. the
+/// mixin owns no state beyond a monotonic `inferred_type_counter`
+/// and a static token-kind lookup table used for leaf-type dispatch.
 ///
 /// \par grammar coverage
 /// handles pointer types (`*T`, `*const T`, `**T`), parenthesized groupings and
@@ -113,7 +112,7 @@ import Token::TokenKind::{
 /// integer literals full constant folding is deferred until the expression
 /// parser is complete.
 ///
-/// \see ASTParse, TypeQual, Type, TupleType, PointerType, FixedArrayType
+/// See ASTParse, TypeQual, Type, TupleType, PointerType, FixedArrayType.
 // TODO(DUCK-GENERIC): T uses _consume_mode, _peek_mode, advance, advance_raw, apply_annotations_to_node, apply_quals, at_value_expr_continuation, c_idx, check, check_peek, check_prev, consume_leading_annotations, ... (32). Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> TypeParse {
     var inferred_type_counter: u32 = 0
@@ -131,13 +130,15 @@ pub class <T: type> TypeParse {
     /// rollback cannot leave a debt behind that a later list pays wrongly.
     pub var _angle_debt: u8 = 0
 
-    /// \brief a nested generic consumed `>>`: the enclosing list's `>` is gone.
+    /// a nested generic consumed `>>`: the enclosing list's `>` is gone.
     pub inline fn owe_close(self) {
         self._angle_debt = 1
     }
 
-    /// \brief settles the debt if there is one.
-    /// \return true if a `>` was owed (the caller's list is closed).
+    /// settles the debt if there is one.
+    ///
+    /// ### Returns
+    /// true if a `>` was owed (the caller's list is closed).
     pub inline fn pay_close(self) -> bool {
         if self._angle_debt == 0 {
             return false
@@ -147,14 +148,14 @@ pub class <T: type> TypeParse {
         return true
     }
 
-    /// \brief drops a debt without using it: after a list nothing encloses
-    ///        (a `>>` there owes no one), and the defensive clears at a list's
-    ///        start, where a debt can only be stale.
+    /// drops a debt without using it: after a list nothing encloses
+    /// (a `>>` there owes no one), and the defensive clears at a list's
+    /// start, where a debt can only be stale.
     pub inline fn forgive_close(self) {
         self._angle_debt = 0
     }
 
-    /// \brief is a `>` owed? Settles nothing.
+    /// is a `>` owed? Settles nothing.
     pub inline fn owes_close(self) -> bool {
         return self._angle_debt != 0
     }
@@ -169,8 +170,8 @@ pub class <T: type> TypeParse {
             || is_builtin(k)
     }
 
-    /// \brief ExprParse::_sync_expr in a type position, where a `->` at
-    ///        depth 0 is a boundary too.
+    /// ExprParse::_sync_expr in a type position, where a `->` at
+    /// depth 0 is a boundary too.
     inline fn _sync_type(self,
                          ctx:             SyncCtx,
                          paren_depth:     i32  = 0,
@@ -187,9 +188,9 @@ pub class <T: type> TypeParse {
         )
     }
 
-    /// \brief ExprParse::_sync_expr_progress in a type position (a `->` at
-    ///        depth 0 is a boundary too): returns true when the cursor is
-    ///        left on an owned closer or EOF.
+    /// ExprParse::_sync_expr_progress in a type position (a `->` at
+    /// depth 0 is a boundary too): returns true when the cursor is
+    /// left on an owned closer or EOF.
     priv fn _sync_type_progress(self,
                                 ctx:             SyncCtx,
                                 paren_depth:     i32  = 0,
@@ -206,38 +207,42 @@ pub class <T: type> TypeParse {
         )
     }
 
-    /// \brief performs a static downcast of `self` to the generic parser type
-    ///        `T`.
+    /// performs a static downcast of `self` to the generic parser type
+    /// `T`.
     ///
-    /// \details this is a CRTP helper that allows `TypeParse` to access the
-    ///          full
-    ///          state and methods of the concrete parser implementation
-    ///          (usually `ASTParse`) without virtual dispatch overhead.
+    /// this is a CRTP helper that allows `TypeParse` to access the
+    /// full
+    /// state and methods of the concrete parser implementation
+    /// (usually `ASTParse`) without virtual dispatch overhead.
     ///
-    /// \return a pointer to the derived `T` instance.
+    /// ### Returns
+    /// a pointer to the derived `T` instance.
     inline fn dyn(self) -> unsafe *T {
         return unsafe ((&self) as *T)
     }
 
-    /// \brief creates a placeholder error type for failed type resolutions.
+    /// creates a placeholder error type for failed type resolutions.
     ///
-    /// \details constructs a `ChainType` in the error state via
-    ///          `ChainType::create_error`.
-    ///          this node serves as a sentinel in the AST to prevent further
-    ///          cascading errors during semantic analysis after a primary parse
-    ///          failure.
+    /// constructs a `ChainType` in the error state via
+    /// `ChainType::create_error`.
+    /// this node serves as a sentinel in the AST to prevent further
+    /// cascading errors during semantic analysis after a primary parse
+    /// failure.
     ///
-    /// \param range  the source location where the type resolution failed.
-    /// \return a pointer to the newly allocated error-state type node.
+    /// ### Parameters
+    /// - `range`: the source location where the type resolution failed.
+    ///
+    /// ### Returns
+    /// a pointer to the newly allocated error-state type node.
     inline fn _error_type(self, range: SourceRange) -> *Type {
         return Types::ChainType::create_error(self.dyn()->ctx, range)
     }
 
-    /// \brief top-level entry point for parsing a type expression.
+    /// top-level entry point for parsing a type expression.
     ///
-    /// \details handles the full lifecycle of type parsing, including
-    ///          annotation processing,
-    ///          qualifier application, and primary type resolution.
+    /// handles the full lifecycle of type parsing, including
+    /// annotation processing,
+    /// qualifier application, and primary type resolution.
     ///
     /// examples:
     /// ```
@@ -249,23 +254,27 @@ pub class <T: type> TypeParse {
     /// qualifiers (e.g., `const`, `unsafe`), then descends into primary type
     /// parsing.
     ///
-    /// \param is_inferred if true, skips parsing and creates an `InferredType`
-    ///        node.
-    ///                     used for `var` declarations without explicit types.
-    /// \param skip_newline if true, the parser will ignore leading newlines
-    ///        before the
-    ///                     type tokens.
-    /// \return a pointer to the parsed `Type` node, or `null` on exhaustion or
-    ///         error.
-    /// \p no_nullable leaves a trailing `?` for the caller: a pointer's
+    /// ### Parameters
+    /// - `is_inferred`: if true, skips parsing and creates an `InferredType`
+    ///   node.
+    ///    used for `var` declarations without explicit types.
+    /// - `skip_newline`: if true, the parser will ignore leading newlines
+    ///   before the
+    ///   type tokens.
+    ///
+    /// ### Returns
+    /// a pointer to the parsed `Type` node, or `null` on exhaustion or
+    /// error.
+    /// `no_nullable` leaves a trailing `?` for the caller: a pointer's
     /// pointee is parsed that way, so `*T?` is a nullable POINTER, `(*T)?`,
     /// as nullables.md and pointers.md write it. A pointer to a nullable is
     /// spelled `*(T?)`.
-    /// \brief a bound's type: an `impl` / `derives` bound of a generic
-    ///        parameter, an inherit list, or a `requires` constraint. Only
-    ///        here may the path be rooted, `::m::I`; see the gate in
-    ///        the primary dispatch. Generic arguments inside the bound
-    ///        inherit it.
+    ///
+    /// a bound's type: an `impl` / `derives` bound of a generic
+    /// parameter, an inherit list, or a `requires` constraint. Only
+    /// here may the path be rooted, `::m::I`; see the gate in
+    /// the primary dispatch. Generic arguments inside the bound
+    /// inherit it.
     fn parse_bound_type(self) -> unsafe *Type {
         var saved = self.dyn()->rooted_type_ok
         self.dyn()->rooted_type_ok = true
@@ -370,25 +379,27 @@ pub class <T: type> TypeParse {
         return ty
     }
 
-    /// \brief dispatches the current token to the correct primary type
-    ///        production.
+    /// dispatches the current token to the correct primary type
+    /// production.
     ///
-    /// \details this is the central recursion point for type parsing after any
-    ///          leading
-    ///          qualifiers (like `const` or `unsafe`) or annotations have been
-    ///          consumed by `parse_type`. it handles structural types
-    ///          (pointers, arrays, functions) and leaf types (built-ins,
-    ///          identifiers).
+    /// this is the central recursion point for type parsing after any
+    /// leading
+    /// qualifiers (like `const` or `unsafe`) or annotations have been
+    /// consumed by `parse_type`. it handles structural types
+    /// (pointers, arrays, functions) and leaf types (built-ins,
+    /// identifiers).
     ///
-    /// \param skip_newline if true, leading `TkNewLine` tokens are consumed and
-    ///        ignored.
-    ///                      useful in contexts where a type is expected across
-    ///                      a line boundary, such as after an assignment
-    ///                      operator.
+    /// ### Parameters
+    /// - `skip_newline`: if true, leading `TkNewLine` tokens are consumed and
+    ///   ignored.
+    ///    useful in contexts where a type is expected across
+    ///    a line boundary, such as after an assignment
+    ///    operator.
     ///
-    /// \return a pointer to the parsed `Type` node, or `_error_type` if no
-    ///         valid
-    ///         type production could be matched. returns null only on `is_eof`.
+    /// ### Returns
+    /// a pointer to the parsed `Type` node, or `_error_type` if no
+    /// valid
+    /// type production could be matched. returns null only on `is_eof`.
     fn parse_primary_type(self, skip_newline: bool = false, gen_arg: bool = false) -> unsafe *Type {
         if self.dyn()->is_eof() {
             return &null
@@ -645,19 +656,19 @@ pub class <T: type> TypeParse {
         return ty
     }
 
-    /// \brief parses parenthesized type constructs including groupings `(T)`
-    ///        and tuples `(T1, T2, ...)`.
+    /// parses parenthesized type constructs including groupings `(T)`
+    /// and tuples `(T1, T2, ...)`.
     ///
-    /// \details entry point for types starting with `(`. if only one type is
-    ///          present, it is
-    ///          treated as a grouping expression and the inner type is returned
-    ///          unwrapped. if a comma follows the first type, it transitions to
-    ///          tuple parsing.
+    /// entry point for types starting with `(`. if only one type is
+    /// present, it is
+    /// treated as a grouping expression and the inner type is returned
+    /// unwrapped. if a comma follows the first type, it transitions to
+    /// tuple parsing.
     ///
-    /// \note empty tuples `()` are syntactically valid but semantically illegal
-    ///       in Kairo;
-    ///       this method emits a diagnostic suggesting `void` and returns a
-    ///       recovery type.
+    /// **Note:** empty tuples `()` are syntactically valid but semantically illegal
+    /// in Kairo;
+    /// this method emits a diagnostic suggesting `void` and returns a
+    /// recovery type.
     ///
     /// FIXME: handle the case where `parse_type` returns an error type
     /// (recovery node) instead of null by using `isa_recovery(...)`.
@@ -718,22 +729,25 @@ pub class <T: type> TypeParse {
         return first
     }
 
-    /// \brief completes the parsing of a tuple type after the first element.
+    /// completes the parsing of a tuple type after the first element.
     ///
-    /// \details called when `parse_type` encounters a comma after an initial
-    ///          type within
-    ///          parentheses, e.g., `(T,`. this method handles subsequent
-    ///          elements, trailing commas, and closing delimiter verification.
+    /// called when `parse_type` encounters a comma after an initial
+    /// type within
+    /// parentheses, e.g., `(T,`. this method handles subsequent
+    /// elements, trailing commas, and closing delimiter verification.
     ///
     /// for a single parenthesized type like `(int)`, the parser never enters
     /// this method. a tuple must have at least two elements, such as `(int,
     /// void)`.
     ///
-    /// \param start_range  source range starting from the opening `(`.
-    /// \param first        the already-parsed first element of the tuple.
-    /// \return a `TupleType` node, or a `TupleType` error node if parsing fails
-    ///         or
-    ///         arity constraints are violated.
+    /// ### Parameters
+    /// - `start_range`: source range starting from the opening `(`.
+    /// - `first`: the already-parsed first element of the tuple.
+    ///
+    /// ### Returns
+    /// a `TupleType` node, or a `TupleType` error node if parsing fails
+    /// or
+    /// arity constraints are violated.
     inline fn _finish_tuple_type(self,
                                  start_range: SourceRange,
                                  first:       unsafe *Type) -> *Types::TupleType {
@@ -806,8 +820,8 @@ pub class <T: type> TypeParse {
             ).first(start_range)->emit()
         }
 
-        /// \note Kairo requires tuples to have N >= 2 elements. single-element
-        ///       parenthesized expressions are desugared to their inner type.
+        /// **Note:** Kairo requires tuples to have N >= 2 elements. single-element
+        /// parenthesized expressions are desugared to their inner type.
         if vals.size() == 1 {
             self.dyn()->diag->report(
                 DiagID::S055E,
@@ -870,27 +884,28 @@ pub class <T: type> TypeParse {
         return tt
     }
 
-    /// \brief parses types delimited by square brackets, including vectors
-    ///        `[T]` and arrays `[T; N]`.
+    /// parses types delimited by square brackets, including vectors
+    /// `[T]` and arrays `[T; N]`.
     ///
-    /// \details this method handles the logic for constructing sequence-based
-    ///          types after an opening `[`
-    ///          is encountered. the parser distinguishes between two primary
-    ///          forms:
-    ///          - `VectorType`: a dynamically sized or slice-like sequence,
-    ///            written as `[T]`.
-    ///          - `ArrayType`: a fixed-size sequence, written as `[T; N]`,
-    ///            delegated to `_finish_array_type`.
+    /// this method handles the logic for constructing sequence-based
+    /// types after an opening `[`
+    /// is encountered. the parser distinguishes between two primary
+    /// forms:
+    /// - `VectorType`: a dynamically sized or slice-like sequence,
+    ///   written as `[T]`.
+    /// - `ArrayType`: a fixed-size sequence, written as `[T; N]`,
+    ///   delegated to `_finish_array_type`.
     ///
-    /// \note if a comma is encountered (e.g., `[T, U]`), the parser emits a
-    ///       diagnostic suggesting
-    ///       tuple syntax `(T, U)` but recovers by treating it as an erroneous
-    ///       array type.
+    /// **Note:** if a comma is encountered (e.g., `[T, U]`), the parser emits a
+    /// diagnostic suggesting
+    /// tuple syntax `(T, U)` but recovers by treating it as an erroneous
+    /// array type.
     ///
-    /// \return a `VectorType`, an `ArrayType`, or a recovery error node. never
-    ///         returns `&null`
-    ///         unless a fatal internal inconsistency occurs during element
-    ///         parsing.
+    /// ### Returns
+    /// a `VectorType`, an `ArrayType`, or a recovery error node. never
+    /// returns `&null`
+    /// unless a fatal internal inconsistency occurs during element
+    /// parsing.
     inline fn _parse_square_type(self) -> unsafe *Type {
         // precondition: current token is `[`
         var lsquare_ptr = self.dyn()->current_ptr()
@@ -998,32 +1013,35 @@ pub class <T: type> TypeParse {
         return st
     }
 
-    /// \brief completes the parsing of a `FixedArrayType` after the element
-    ///        type has been consumed.
+    /// completes the parsing of a `FixedArrayType` after the element
+    /// type has been consumed.
     ///
-    /// \details handles the trailing portion of the array type syntax `[T; N]`.
-    ///          this method is
-    ///          invoked when the parser is positioned at the semicolon
-    ///          separating the element type from the size expression. it
-    ///          supports three primary outcomes:
-    ///            1. a complete array type with a constant size expression `[T;
-    ///               42]`.
-    ///            2. an incomplete array type `[T; ]`, typically used in
-    ///               contexts where the
-    ///               size is inferred or provided later.
-    ///            3. an error node for recovery when the size expression is
-    ///               missing or invalid.
+    /// handles the trailing portion of the array type syntax `[T; N]`.
+    /// this method is
+    /// invoked when the parser is positioned at the semicolon
+    /// separating the element type from the size expression. it
+    /// supports three primary outcomes:
+    ///   1. a complete array type with a constant size expression `[T;
+    ///      42]`.
+    ///   2. an incomplete array type `[T; ]`, typically used in
+    ///      contexts where the
+    ///      size is inferred or provided later.
+    ///   3. an error node for recovery when the size expression is
+    ///      missing or invalid.
     ///
-    /// \param start_range the source range of the opening `[` and possibly
-    ///        preceding tokens.
-    /// \param elem_type    the already-parsed element type `T`.
-    /// \param is_error if true, indicates a grammar violation was already
-    ///        detected prior
-    ///                     to calling this method; the method will continue to
-    ///                     sync and return an error node rather than a valid
-    ///                     type.
-    /// \return a pointer to the constructed `FixedArrayType`, or `&null` on
-    ///         fatal failure.
+    /// ### Parameters
+    /// - `start_range`: the source range of the opening `[` and possibly
+    ///   preceding tokens.
+    /// - `elem_type`: the already-parsed element type `T`.
+    /// - `is_error`: if true, indicates a grammar violation was already
+    ///   detected prior
+    ///       to calling this method; the method will continue to
+    ///       sync and return an error node rather than a valid
+    ///       type.
+    ///
+    /// ### Returns
+    /// a pointer to the constructed `FixedArrayType`, or `&null` on
+    /// fatal failure.
     inline fn _finish_array_type(self,
                                  start_range: SourceRange,
                                  elem_type:   *Type,
@@ -1127,23 +1145,23 @@ pub class <T: type> TypeParse {
         return at
     }
 
-    /// \brief parses types enclosed in braces, primarily `SetType` and
-    ///        `MapType`.
+    /// parses types enclosed in braces, primarily `SetType` and
+    /// `MapType`.
     ///
-    /// \details handles the syntactic disambiguation between set types `{T}`
-    ///          and
-    ///          map types `{K: V}`. the parser first attempts to parse a single
-    ///          type; if followed by a colon `:`, it transitions to map-type
-    ///          parsing.
+    /// handles the syntactic disambiguation between set types `{T}`
+    /// and
+    /// map types `{K: V}`. the parser first attempts to parse a single
+    /// type; if followed by a colon `:`, it transitions to map-type
+    /// parsing.
     ///
     /// \example
     /// ```kairo
     /// var s: {u32}; // SetType var m: {string: i32}; // MapType
     /// ```
     ///
-    /// \note empty braced types `{}` are prohibited to avoid ambiguity with
-    ///       empty blocks or future syntax; `void` should be used if a
-    ///       unit-like type is intended in a braced context.
+    /// **Note:** empty braced types `{}` are prohibited to avoid ambiguity with
+    /// empty blocks or future syntax; `void` should be used if a
+    /// unit-like type is intended in a braced context.
     inline fn _parse_braced_type(self) -> unsafe *Type {
         // precondition: current token is `{`
         var lbrace_ptr  = self.dyn()->current_ptr()
@@ -1265,21 +1283,22 @@ pub class <T: type> TypeParse {
         )
     }
 
-    /// \details completes the parsing of a map type literal `{K: V}`
-    ///          after the
-    ///          key type and the colon separator have been identified.
+    /// completes the parsing of a map type literal `{K: V}`
+    /// after the
+    /// key type and the colon separator have been identified.
     ///
-    /// \param start_range  range starting from the opening `{`.
-    /// \param key_type     the already-parsed key type `K`.
-    /// \param is_error if true, forces the return of an error-kind
-    ///        `MapType`
-    ///                     regardless of whether the value type parses
-    ///                     successfully.
+    /// ### Parameters
+    /// - `start_range`: range starting from the opening `{`.
+    /// - `key_type`: the already-parsed key type `K`.
+    /// - `is_error`: if true, forces the return of an error-kind
+    ///   `MapType`
+    ///       regardless of whether the value type parses
+    ///       successfully.
     ///
-    /// \note expects the lexer to be positioned at the `:` separator.
-    ///       handles
-    ///       recovery for missing value types, extraneous commas, and
-    ///       nested colons.
+    /// **Note:** expects the lexer to be positioned at the `:` separator.
+    /// handles
+    /// recovery for missing value types, extraneous commas, and
+    /// nested colons.
     inline fn _finish_map_type(self,
                                start_range: SourceRange,
                                key_type:    *Type,
@@ -1425,20 +1444,21 @@ pub class <T: type> TypeParse {
         return mt
     }
 
-    /// \brief parses a pointer type declaration starting with the `*`
-    ///        sigil.
+    /// parses a pointer type declaration starting with the `*`
+    /// sigil.
     ///
-    /// \details handles simple pointers `*T`, multi-level pointers `**T`, and
-    ///          qualified
-    ///          pointers such as `*const T`. because `parse_type` is called
-    ///          recursively for the pointee, qualifier associativity is
-    ///          naturally handled by the descent: `*const T` is parsed as a
-    ///          pointer to a `const T`.
+    /// handles simple pointers `*T`, multi-level pointers `**T`, and
+    /// qualified
+    /// pointers such as `*const T`. because `parse_type` is called
+    /// recursively for the pointee, qualifier associativity is
+    /// naturally handled by the descent: `*const T` is parsed as a
+    /// pointer to a `const T`.
     ///
-    /// \return a `PointerType` node. if parsing fails or hits a code completion
-    ///         token,
-    ///          returns a `PointerType` marked with error flags to suppress
-    ///          redundant diagnostics during sema.
+    /// ### Returns
+    /// a `PointerType` node. if parsing fails or hits a code completion
+    /// token,
+    ///  returns a `PointerType` marked with error flags to suppress
+    ///  redundant diagnostics during sema.
     inline fn _parse_pointer_type(self) -> unsafe *Types::PointerType {
         // precondition: current token is `*`
         var star_ptr    = self.dyn()->current_ptr()
@@ -1493,22 +1513,22 @@ pub class <T: type> TypeParse {
         return pty
     }
 
-    /// \brief parses a function pointer type such as `fn(i32) -> bool`.
+    /// parses a function pointer type such as `fn(i32) -> bool`.
     ///
-    /// \details entry point for the `fn` keyword in a type context. handles
-    ///          optional
-    ///          generic parameter placeholders (currently skipped), the
-    ///          parameter list, trailing function qualifiers (e.g., `const`,
-    ///          `panic`, `async`), and the optional return type arrow.
+    /// entry point for the `fn` keyword in a type context. handles
+    /// optional
+    /// generic parameter placeholders (currently skipped), the
+    /// parameter list, trailing function qualifiers (e.g., `const`,
+    /// `panic`, `async`), and the optional return type arrow.
     ///
     /// ```kairo
     /// var callback: fn(u32, u32) -> bool; var worker: fn() async panic;
     /// ```
     ///
-    /// \note does not support named parameters; only types are permitted within
-    ///       the
-    ///       parentheses. if a name is detected immediately following `fn`, the
-    ///       parser assumes a declaration was intended and attempts to recover.
+    /// **Note:** does not support named parameters; only types are permitted within
+    /// the
+    /// parentheses. if a name is detected immediately following `fn`, the
+    /// parser assumes a declaration was intended and attempts to recover.
     inline fn _parse_fn_ptr_type(self) -> unsafe *Types::FunctionPointerType {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `fn`
@@ -1684,17 +1704,17 @@ pub class <T: type> TypeParse {
         return fpt
     }
 
-    /// \brief parses the declared panic set `(E1, E2)` after a `panic`
-    ///        specifier (Compiler/Spec/Panic.md#declared-sets) into \p out.
+    /// parses the declared panic set `(E1, E2)` after a `panic`
+    /// specifier (Compiler/Spec/Panic.md#declared-sets) into `out`.
     ///
-    /// \details the caller has consumed `panic` and calls this only when `(`
-    ///          is the very next token, on the same line. That position is
-    ///          where the specifier can be, never a statement, so the list is
-    ///          always the set and never a tuple or a `panic (expr)`
-    ///          statement: in a function header, a closure header (both after
-    ///          the parameter list, before `->` and the body), and a `fn`
-    ///          type. `panic` then a newline then `(` is NOT a set: a
-    ///          bodiless declaration ends at the newline, as everywhere.
+    /// the caller has consumed `panic` and calls this only when `(`
+    /// is the very next token, on the same line. That position is
+    /// where the specifier can be, never a statement, so the list is
+    /// always the set and never a tuple or a `panic (expr)`
+    /// statement: in a function header, a closure header (both after
+    /// the parameter list, before `->` and the body), and a `fn`
+    /// type. `panic` then a newline then `(` is NOT a set: a
+    /// bodiless declaration ends at the newline, as everywhere.
     ///
     ///          Each element is a type. One that fails to parse is dropped
     ///          and the list recovers at the next `,` / `)`. `panic()` names
@@ -1798,25 +1818,27 @@ pub class <T: type> TypeParse {
         }
     }
 
-    /// \brief parses the parameter type list for a function pointer type.
+    /// parses the parameter type list for a function pointer type.
     ///
-    /// \details handles the comma-separated list of types within `fn(...)`
-    ///          pointer
-    ///          syntax. unlike formal function declarations, function pointer
-    ///          types do not support named parameters or default values.
+    /// handles the comma-separated list of types within `fn(...)`
+    /// pointer
+    /// syntax. unlike formal function declarations, function pointer
+    /// types do not support named parameters or default values.
     ///
-    /// \param out buffer to collect successfully parsed parameter types.
-    /// \param start_range the source location of the opening parenthesis, used
-    ///        for
-    ///                     error context if the list is never closed.
+    /// ### Parameters
+    /// - `out`: buffer to collect successfully parsed parameter types.
+    /// - `start_range`: the source location of the opening parenthesis, used
+    ///   for
+    ///    error context if the list is never closed.
     ///
-    /// \note if an `=` token is encountered, it is treated as a syntax error
-    ///       (default
-    ///       values are illegal in function pointer signatures) and the parser
-    ///       synchronizes to the next parameter or the end of the list.
+    /// **Note:** if an `=` token is encountered, it is treated as a syntax error
+    /// (default
+    /// values are illegal in function pointer signatures) and the parser
+    /// synchronizes to the next parameter or the end of the list.
     ///
-    /// \param modes parallel to \p out: one entry pushed with every type, so a
-    ///        parameter dropped in recovery drops its mode too.
+    /// ### Parameters
+    /// - `modes`: parallel to `out`: one entry pushed with every type, so a
+    ///   parameter dropped in recovery drops its mode too.
     inline fn _parse_fn_ptr_params(self,
                                    out:         unsafe *kairo::std::StackBuf<unsafe *Type, 8>,
                                    modes:       unsafe *kairo::std::StackBuf<ParamMode, 8>,
@@ -2027,17 +2049,18 @@ pub class <T: type> TypeParse {
     }
 
 
-    /// \brief parses a chain type starting from an identifier or builtin token.
+    /// parses a chain type starting from an identifier or builtin token.
     ///
-    /// \details builds a `ChainType` with one or more segments. handles:
-    ///   - simple names: `i32`, `Foo`
-    ///   - scoped paths: `std::vec`, `Foo::Bar::Baz`
-    ///   - generic instantiations: `Vec<i32>`, `Map<K, V>`
-    ///   - named generic arguments: `Map<Key: str, Value: i32>`
-    ///   - mixed chains: `std::Map<K, V>::Iterator<const K>`
+    /// builds a `ChainType` with one or more segments. handles:
+    /// - simple names: `i32`, `Foo`
+    /// - scoped paths: `std::vec`, `Foo::Bar::Baz`
+    /// - generic instantiations: `Vec<i32>`, `Map<K, V>`
+    /// - named generic arguments: `Map<Key: str, Value: i32>`
+    /// - mixed chains: `std::Map<K, V>::Iterator<const K>`
     ///
-    /// \return a new `ChainType` node. single-segment chains with no generics
-    ///         will have `is_simple() == true` for sema fast-pathing.
+    /// ### Returns
+    /// a new `ChainType` node. single-segment chains with no generics
+    /// will have `is_simple() == true` for sema fast-pathing.
     inline fn _parse_qual_type(self) -> unsafe *Types::ChainType {
         var start_range = self.dyn()->current_ptr()->range
 
@@ -2105,12 +2128,15 @@ pub class <T: type> TypeParse {
         return ct
     }
 
-    /// \brief parses a single segment of a chain type: identifier + optional
-    ///        generic argument list.
+    /// parses a single segment of a chain type: identifier + optional
+    /// generic argument list.
     ///
-    /// \param sep  the separator that preceded this segment (`None` for first,
-    ///             `ColonColon` for subsequent).
-    /// \return a populated `ChainSegment`. `.name` is null on failure.
+    /// ### Parameters
+    /// - `sep`: the separator that preceded this segment (`None` for first,
+    ///   `ColonColon` for subsequent).
+    ///
+    /// ### Returns
+    /// a populated `ChainSegment`. `.name` is null on failure.
     inline fn _parse_chain_segment(self,
                                    sep: Types::ChainType::SegmentSeparator) -> Types::ChainType::ChainSegment {
         var result = Types::ChainType::ChainSegment{}
@@ -2152,17 +2178,20 @@ pub class <T: type> TypeParse {
         return result
     }
 
-    /// \brief parses a generic argument list `<T1, T2, ..., TN>` with optional
-    ///        named bindings `<Key: str, Value: i32>`.
+    /// parses a generic argument list `<T1, T2, ..., TN>` with optional
+    /// named bindings `<Key: str, Value: i32>`.
     ///
-    /// \details each argument is either:
-    ///   - positional: a bare type like `i32` or `Vec<u8>`
-    ///   - named: `Name: Type` matching a generic parameter name
+    /// each argument is either:
+    /// - positional: a bare type like `i32` or `Vec<u8>`
+    /// - named: `Name: Type` matching a generic parameter name
     ///
     /// named and positional can be mixed; sema enforces ordering.
     ///
-    /// \param out  buffer to collect parsed generic arguments.
-    /// \return true if the argument list closed successfully.
+    /// ### Parameters
+    /// - `out`: buffer to collect parsed generic arguments.
+    ///
+    /// ### Returns
+    /// true if the argument list closed successfully.
     inline fn _parse_generic_args(
         self,
         out: unsafe *kairo::std::StackBuf<Types::ChainType::GenericArg, 4>,
@@ -2325,9 +2354,9 @@ pub class <T: type> TypeParse {
         return false // EOF inside the list
     }
 
-    /// \brief at the list's closer, `>` or `>>`: consumes it, pops the
-    ///        list's newline guard and returns true. A `>>` also closes the
-    ///        enclosing list, which owe_close records for it.
+    /// at the list's closer, `>` or `>>`: consumes it, pops the
+    /// list's newline guard and returns true. A `>>` also closes the
+    /// enclosing list, which owe_close records for it.
     inline fn _close_generic_args(self) -> bool {
         if self.dyn()->check(TokenKind::OpGreaterGreater) {
             self.owe_close()
@@ -2340,10 +2369,10 @@ pub class <T: type> TypeParse {
         return true
     }
 
-    /// \brief synchronizes past a malformed generic argument list.
+    /// synchronizes past a malformed generic argument list.
     ///
-    /// \details skips tokens tracking nested `<`/`>` pairs until the list's
-    ///          own closer or a statement-level delimiter is found.
+    /// skips tokens tracking nested `<`/`>` pairs until the list's
+    /// own closer or a statement-level delimiter is found.
     inline fn _sync_generic_args(self) {
         var depth: u32 = 1
 
@@ -2381,20 +2410,21 @@ pub class <T: type> TypeParse {
         }
     }
 
-    /// \brief parses a constant-expression for an array bound, e.g. the `N` in
-    ///        `[T; N]`.
+    /// parses a constant-expression for an array bound, e.g. the `N` in
+    /// `[T; N]`.
     ///
-    /// \details delegates to the full expression parser so any value expression
-    ///          is accepted as a bound: integer literals (`[T; 4]`), const names
-    ///          (`[T; N]`), and folded operands (`[T; sizeof i32]`,
-    ///          `[T; N + 1]`). `StopSquare|StopComma` keeps `parse_expr` from
-    ///          consuming the closing `]` or a stray `,` (the caller diagnoses
-    ///          the comma case). Whether the bound is a compile-time constant is
-    ///          a semantic question deferred to sema; the parser only builds the
-    ///          expression node.
+    /// delegates to the full expression parser so any value expression
+    /// is accepted as a bound: integer literals (`[T; 4]`), const names
+    /// (`[T; N]`), and folded operands (`[T; sizeof i32]`,
+    /// `[T; N + 1]`). `StopSquare|StopComma` keeps `parse_expr` from
+    /// consuming the closing `]` or a stray `,` (the caller diagnoses
+    /// the comma case). Whether the bound is a compile-time constant is
+    /// a semantic question deferred to sema; the parser only builds the
+    /// expression node.
     ///
-    /// \return the size expression node, or `&null` if no expression could be
-    ///         parsed.
+    /// ### Returns
+    /// the size expression node, or `&null` if no expression could be
+    /// parsed.
     inline fn _parse_const_expr(self) -> unsafe *Expr {
         var expr = self.dyn()->parse_expr(
             self.dyn()->stop_on(T::ExprStopKind::StopSquare).plus(

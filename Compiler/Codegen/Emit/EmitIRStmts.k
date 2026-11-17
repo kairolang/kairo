@@ -463,7 +463,7 @@ extend EmitIR {
         self._cg->sink->synth_at_end(n->range, clang::tok::semi)
     }
 
-    /// \p v under its parens when it is a plain name, else null: the value
+    /// `v` under its parens when it is a plain name, else null: the value
     /// C++ moves out of a `return` on its own (_ret_move).
     priv fn _returned_name(self, v: unsafe *Expr) -> unsafe *Expr {
         var unsafe *x = v
@@ -538,7 +538,7 @@ extend EmitIR {
         self._cg->sink->synth_at_end(n->range, clang::tok::semi)
     }
 
-    /// \p e is a lowered `x[i]` through a place `op []` C++ sees as a
+    /// `e` is a lowered `x[i]` through a place `op []` C++ sees as a
     /// `const T&` (Speller::return_spelling), which neither `yield_value`
     /// binds: the form returns `*const T`, or it is a `self` form on a
     /// receiver const by its root (`self.items[0]` in a `const self`
@@ -640,9 +640,9 @@ extend EmitIR {
         )
     }
 
-    /// The weight written on one branch of \p n, as a BranchHint: the `if`'s
+    /// The weight written on one branch of `n`, as a BranchHint: the `if`'s
     /// own `@likely` / `@unlikely` (LangAttrs) for the then-branch, the
-    /// `else`'s for \p of_else. An `eval if` has no branch to weigh.
+    /// `else`'s for `of_else`. An `eval if` has no branch to weigh.
     priv fn _branch_hint(self, n: unsafe *ConditionalStmt, of_else: bool) -> u8 {
         if of_else {
             return n->else_hint
@@ -673,7 +673,7 @@ extend EmitIR {
         return BranchHint::None as u8
     }
 
-    /// \p n is written `@unpredictable if`.
+    /// `n` is written `@unpredictable if`.
     priv fn _unpredictable(self, n: unsafe *ConditionalStmt) -> bool {
         if n->is_eval || !n->has_attribute() {
             return false
@@ -691,7 +691,7 @@ extend EmitIR {
         return k != u32::MAX && n->has_attribute_named(k)
     }
 
-    /// C++'s attribute for BranchHint \p h, or "".
+    /// C++'s attribute for BranchHint `h`, or "".
     priv fn _hint_attr(self, h: u8) -> string {
         if h == (BranchHint::Likely as u8) {
             return "[[likely]]"

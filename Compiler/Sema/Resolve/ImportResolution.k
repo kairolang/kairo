@@ -1,10 +1,10 @@
 /// --- The Kairo Project -------------- Sema/Resolve/ImportResolution.k --- ///
 ///
-///   \brief Phase I. Build this TU's import_overlay from its ImportDecls, so
-///          every name visible in the TU is findable in a local table or the
-///          overlay. After I the TU is SELF-CONTAINED: later phases only
-///          READ other TUs; the only cross-TU writes go to the locked canonical
-///          store and instantiation registry (Compiler/Spec/Imports.md#import-resolution).
+/// Phase I. Build this TU's import_overlay from its ImportDecls, so
+/// every name visible in the TU is findable in a local table or the
+/// overlay. After I the TU is SELF-CONTAINED: later phases only
+/// READ other TUs; the only cross-TU writes go to the locked canonical
+/// store and instantiation registry (Compiler/Spec/Imports.md#import-resolution).
 ///
 ///   One error, one home (hard invariant #3):
 ///     - import EXISTENCE (selective miss)  -> here (R015).
@@ -184,7 +184,9 @@ pub class ImportResolution {
     /// pair then never saw each other's transitive re-exports. The driver
     /// calls this on every TU of the cycle until no overlay grows; each
     /// round adds only targets the overlay does not already hold.
-    /// \returns true when this TU's overlay grew.
+    ///
+    /// ### Returns
+    /// true when this TU's overlay grew.
     pub fn refold_reexports(self) -> bool {
         var unsafe *tu = self.sc->tu
         if tu == &null || tu->import_overlay == &null {
@@ -582,7 +584,7 @@ pub class ImportResolution {
         return cell
     }
 
-    /// \p src_tu defines a macro spelled \p name (`macro name! ...`), at
+    /// `src_tu` defines a macro spelled `name` (`macro name! ...`), at
     /// any visibility: the hint only names the spelling, and a private
     /// one is then the preprocessor's R011E.
     priv fn _declares_macro(self, src_tu: unsafe *TranslationUnit, const name: string) -> bool {
@@ -704,12 +706,13 @@ pub class ImportResolution {
         self._fold_all_cells(id, overlay, src_syms, fid, false)
     }
 
-    /// \param skip_std true ONLY from the bare-ffi fold, where `std` is now
-    ///        reached through `cxx::std` instead. It is a parameter rather
-    ///        than a check inside the loop because this function has three
-    ///        callers: the bare ffi fold, `import foo::*`, and a `*` item in a
-    ///        selective import. Skipping the name unconditionally would also
-    ///        skip it for `import kairo::std::*`.
+    /// ### Parameters
+    /// - `skip_std`: true ONLY from the bare-ffi fold, where `std` is now
+    ///   reached through `cxx::std` instead. It is a parameter rather
+    ///   than a check inside the loop because this function has three
+    ///   callers: the bare ffi fold, `import foo::*`, and a `*` item in a
+    ///   selective import. Skipping the name unconditionally would also
+    ///   skip it for `import kairo::std::*`.
     priv fn _fold_all_cells(self,
                             id:       unsafe *ImportDecl,
                             overlay:  unsafe *ImportOverlay,
@@ -991,7 +994,7 @@ pub class ImportResolution {
         return false
     }
 
-    /// The imported tag named \p nm in any closure header of \p tu's ffi
+    /// The imported tag named `nm` in any closure header of `tu`'s ffi
     /// imports: a hidden one first (its internal key), then a visible one.
     priv fn _find_header_tag(self, tu: unsafe *TranslationUnit, const nm: string) -> unsafe *Decl {
         var hidden_keys = cxx::std::vector<string>()
@@ -1353,7 +1356,7 @@ pub class ImportResolution {
         }
     }
 
-    /// The ImportDecl an eager R016E is reported at: \p t's own unless that
+    /// The ImportDecl an eager R016E is reported at: `t`'s own unless that
     /// is the synthesized prelude import, then the first written import
     /// among the entry's targets. Null when neither exists.
     priv fn _blame_import(self,

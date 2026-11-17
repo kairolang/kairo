@@ -90,7 +90,7 @@ pub class DriverIncludeSource derives KairoIncludeSource {
     }
 
     /// Turns the Sema agreement pass on for the Kairo streams of every
-    /// host TU: \p repair and \p count_unrecorded as
+    /// host TU: `repair` and `count_unrecorded` as
     /// KairoInject::agree_start.
     pub fn agree_start(self, repair: bool, count_unrecorded: bool) {
         if self.agree == &null {

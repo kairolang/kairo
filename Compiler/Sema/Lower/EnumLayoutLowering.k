@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------- Sema/Lower/EnumLayoutLowering.k --- ///
 ///
-///   \brief An ADT enum gets the record C++ sees: a tag, its payloads in an
-///          anonymous union, a constructor per variant, and the special
-///          members its payloads allow.
+/// An ADT enum gets the record C++ sees: a tag, its payloads in an
+/// anonymous union, a constructor per variant, and the special
+/// members its payloads allow.
 ///
 ///   \detail
 ///     Every ADT pattern gets one StructDecl, EnumDecl::adt_layout, which
@@ -332,7 +332,7 @@ pub class EnumLayoutQuery {
         self.synth = LowerSynth(sc)
     }
 
-    /// The ADT pattern behind the value type \p t (an instance answers its
+    /// The ADT pattern behind the value type `t` (an instance answers its
     /// pattern: an instance shares its pattern's record), or null.
     fn adt_of(self, t: unsafe *Type) -> unsafe *Declarations::EnumDecl {
         if t == &null {
@@ -352,7 +352,7 @@ pub class EnumLayoutQuery {
         return en
     }
 
-    /// A payload field's type at an instance of \p en with arguments \p args:
+    /// A payload field's type at an instance of `en` with arguments `args`:
     /// a parameter of the enum's is its argument, a type that names none is
     /// itself, and a pointer is a pointer whatever it points at -- which is
     /// all a layout question asks of one. Null for anything else built from
@@ -364,8 +364,8 @@ pub class EnumLayoutQuery {
         return self._type_at(unsafe (en as unsafe *Decl), args, ft)
     }
 
-    /// field_type_at for any generic record \p owner: its parameters read
-    /// as \p args, a pointer as itself, a type naming none as itself.
+    /// field_type_at for any generic record `owner`: its parameters read
+    /// as `args`, a pointer as itself, a type naming none as itself.
     priv fn _type_at(self,
                      owner_d:    unsafe *Decl,
                      const args: FrozenList<unsafe *Type>,
@@ -415,13 +415,13 @@ pub class EnumLayoutQuery {
         return ft
     }
 
-    /// EnumLayoutLowering built \p en's record: every query below has an
+    /// EnumLayoutLowering built `en`'s record: every query below has an
     /// answer.
     fn has_layout(self, en: unsafe *Declarations::EnumDecl) -> bool {
         return en != &null && en->is_adt && en->adt_layout != &null
     }
 
-    /// Whether variant \p index has a payload to read. Every \p index
+    /// Whether variant `index` has a payload to read. Every `index`
     /// below is EXPANDED (adt_variant_at): a variant's position, or for
     /// element k of the pack-expanded variant at position p, p + k -- its
     /// tag. Without a pack-expanded variant the two are the same.
@@ -436,13 +436,13 @@ pub class EnumLayoutQuery {
         return self.has_layout(en) && !en->adt_explicit_tags
     }
 
-    /// The discriminant variant \p index is stored as in a value of type
-    /// \p t: an ordinary variant's position; element k of a pack-expanded
+    /// The discriminant variant `index` is stored as in a value of type
+    /// `t`: an ordinary variant's position; element k of a pack-expanded
     /// variant, the variant's position plus k, or under type-id tags
     /// (AdtLayoutKnobs, the Panic lang item) the panic type id of the
-    /// element's type at \p t (PanicSets). InterfaceEmitter's constructor
+    /// element's type at `t` (PanicSets). InterfaceEmitter's constructor
     /// and destroy / copy helpers store and read the same values: this is
-    /// the one rule, and \p t must be concrete for an element's.
+    /// the one rule, and `t` must be concrete for an element's.
     fn tag_value(self, t: unsafe *Type, en: unsafe *Declarations::EnumDecl, index: u32) -> u64 {
         var unsafe *v = adt_variant_at(en, index as usize)
         if v == &null {
@@ -478,7 +478,7 @@ pub class EnumLayoutQuery {
         return id
     }
 
-    /// Where every payload of a value of type \p t starts, for an ADT
+    /// Where every payload of a value of type `t` starts, for an ADT
     /// whose union a lang item aligns (AdtLayoutKnobs::union_floor):
     /// `max(floor, alignof(payloads))`, which is also the union's own
     /// alignment, so the tag word before it never moves it further. The
@@ -502,7 +502,7 @@ pub class EnumLayoutQuery {
 
     /// # shape
 
-    /// The layout of ADT values of type \p t. A non-generic ADT's is its
+    /// The layout of ADT values of type `t`. A non-generic ADT's is its
     /// declaration's. A generic one's is per instance and C++ picks it
     /// (InterfaceEmitter's constrained specialization); this predicts the
     /// pick from the same facts, and says Opaque where it cannot.
@@ -536,7 +536,7 @@ pub class EnumLayoutQuery {
         return if (verdict == LifecycleTri::Yes) => (AdtShape::Niche) else => AdtShape::Tagged
     }
 
-    /// Whether a niche-shaped \p en whose one payload field has type \p ft
+    /// Whether a niche-shaped `en` whose one payload field has type `ft`
     /// is laid out niche-filled, or Unknown. The rule (spec
     /// ENUMLAYOUT §5.2): the field holds a niche of at least as many
     /// patterns as there are dataless variants, and is trivially copied and
@@ -557,7 +557,7 @@ pub class EnumLayoutQuery {
 
     /// # niche_of
 
-    /// How many bit patterns a value of type \p t never holds, as the C++
+    /// How many bit patterns a value of type `t` never holds, as the C++
     /// trait `__kairo_niche<T>` counts them (InterfaceEmitter), or
     /// niche_unknown(). v1 rows (spec ENUMLAYOUT §5.1):
     ///
@@ -694,7 +694,7 @@ pub class EnumLayoutQuery {
         return 0
     }
 
-    /// A niche-filled ADT type \p c's one payload field type.
+    /// A niche-filled ADT type `c`'s one payload field type.
     priv fn _niche_field_type(self,
                               c:  unsafe *Type,
                               en: unsafe *Declarations::EnumDecl) -> unsafe *Type {
@@ -707,7 +707,7 @@ pub class EnumLayoutQuery {
         return self.field_type_at(en, args, pv->payload[0]->type_)
     }
 
-    /// \p t is trivially copied and destroyed, or Unknown. Read off
+    /// `t` is trivially copied and destroyed, or Unknown. Read off
     /// the structure for what C++ decides by the structure (an ADT is
     /// trivial exactly when its payloads are: its special members are
     /// defaulted then), off ClassLifecycle for a record.
@@ -788,7 +788,7 @@ pub class EnumLayoutQuery {
         )
     }
 
-    /// The size and alignment in bytes of a value of type \p t, for the
+    /// The size and alignment in bytes of a value of type `t`, for the
     /// types whose layout is plain arithmetic: builtins, pointers, plain
     /// enums, and ADTs made of them. False for anything else; nothing then
     /// pins a size. Public for kals, whose hover shows this size (and
@@ -1119,7 +1119,7 @@ pub class EnumLayoutQuery {
         return true
     }
 
-    /// Foreign mode: \p d_in is an imported record (or a filled instance
+    /// Foreign mode: `d_in` is an imported record (or a filled instance
     /// shell of an imported template) whose clang layout DeclImport kept.
     priv fn _foreign_size(self, d_in: unsafe *Decl, size: unsafe *u64, align: unsafe *u64) -> bool {
         var unsafe *d = d_in
@@ -1225,7 +1225,7 @@ pub class EnumLayoutQuery {
         return true
     }
 
-    /// \p d, or one of its fields, carries an attribute (a layout one or
+    /// `d`, or one of its fields, carries an attribute (a layout one or
     /// not: the instance path does not tell them apart).
     priv fn _any_attr(self, d: unsafe *Decl) -> bool {
         if d->has_attribute() {
@@ -1276,7 +1276,7 @@ pub class EnumLayoutQuery {
     /// built per query and never reused (TypeExport's twin_begin). What
     /// cannot be mirrored exactly is refused, never guessed.
 
-    /// \p c is a Kairo record (or an instance of a generic one) only a twin
+    /// `c` is a Kairo record (or an instance of a generic one) only a twin
     /// answers: a class with a base or a virtual method of its own, a
     /// pattern with a layout attribute behind an instance, or a `@packed`
     /// record with a field of record type (clang does not pack a non-POD
@@ -1331,7 +1331,7 @@ pub class EnumLayoutQuery {
         return self._packed_record_member(d)
     }
 
-    /// \p pat is a `@packed` Kairo record with a field of record type (or
+    /// `pat` is a `@packed` Kairo record with a field of record type (or
     /// an array of one, or a `T?`). Whether clang packs that member is its
     /// POD verdict on the member's EMITTED class -- a default member
     /// initializer the emitter writes (`{}` on every number), a constructor,
@@ -1461,9 +1461,9 @@ pub class EnumLayoutQuery {
         return false
     }
 
-    /// The twin of a field's or base's type \p t: a scalar as itself, a
+    /// The twin of a field's or base's type `t`: a scalar as itself, a
     /// Kairo record as its own twin, an ADT or `T?` as a non-POD blob of the
-    /// compiler's size, an imported type as clang has it. \p unc is set
+    /// compiler's size, an imported type as clang has it. `unc` is set
     /// when the result is a record whose POD bit is not certain (see
     /// _twin_record); null on anything else.
     priv fn _twin_type(self,
@@ -1558,7 +1558,7 @@ pub class EnumLayoutQuery {
         return self._twin_record(tx, c, memo, depth, unc)
     }
 
-    /// A non-POD blob of \p c's size and alignment (an ADT, a `T?`).
+    /// A non-POD blob of `c`'s size and alignment (an ADT, a `T?`).
     priv fn _twin_blob(self, tx: unsafe *TypeExport, c: unsafe *Type) -> clang::QualType {
         var s: u64 = 0
         var a: u64 = 0
@@ -1569,7 +1569,7 @@ pub class EnumLayoutQuery {
         return tx->twin_blob(s, a)
     }
 
-    /// The twin of Kairo struct, class or union type \p c (an instance:
+    /// The twin of Kairo struct, class or union type `c` (an instance:
     /// its pattern's members at its arguments), as InterfaceEmitter::
     /// _record_def writes the class:
     ///
@@ -1587,7 +1587,7 @@ pub class EnumLayoutQuery {
     ///     one): only its effect on the POD bit is mirrored;
     ///   - `@packed` / `@align` on the record.
     ///
-    /// \p unc: the POD bit clang gives the twin may differ from the emitted
+    /// `unc`: the POD bit clang gives the twin may differ from the emitted
     /// class's -- some input was not certain (a compiler-made field's
     /// access, a constrained `op =`) and the twin came out POD, the
     /// side that input could flip. It only matters where the POD bit is
@@ -1749,7 +1749,7 @@ pub class EnumLayoutQuery {
         return q
     }
 
-    /// The anonymous union field \p f of \p pat (`union { ... }` in the
+    /// The anonymous union field `f` of `pat` (`union { ... }` in the
     /// emitted class, _anon_union_field): a union of its members, none
     /// with an initializer, each public.
     priv fn _twin_anon_union(self,
@@ -1943,7 +1943,7 @@ pub class EnumLayoutQuery {
         return -1
     }
 
-    /// \p m is a constructor of \p owner: a method named after it.
+    /// `m` is a constructor of `owner`: a method named after it.
     priv fn _twin_is_ctor(self,
                           m:     unsafe *Declarations::FunctionDecl,
                           owner: unsafe *Decl) -> bool {
@@ -2009,7 +2009,7 @@ pub class EnumLayoutQuery {
         return 0
     }
 
-    /// \p d declares a virtual method itself (TypeExport::_own_virtual).
+    /// `d` declares a virtual method itself (TypeExport::_own_virtual).
     priv fn _twin_own_virtual(self, d: unsafe *Decl) -> bool {
         var unsafe *cd = dyn_cast<Declarations::ClassDecl>(d)
         if cd == &null {
@@ -2218,7 +2218,7 @@ pub class EnumLayoutQuery {
         return self._tag_lvalue(at, x, en)
     }
 
-    /// The stored tag of a tagged \p en value \p x: `x.__kairo_tag`, or in
+    /// The stored tag of a tagged `en` value `x`: `x.__kairo_tag`, or in
     /// the common prefix, `x.__kairo_t.__kairo_tag`.
     priv fn _tag_lvalue(self,
                         at: SourceRange,
@@ -2254,7 +2254,7 @@ pub class EnumLayoutQuery {
         )
     }
 
-    /// Variant \p index's discriminant in a value of type \p t, as a case
+    /// Variant `index`'s discriminant in a value of type `t`, as a case
     /// label of tag_word.
     fn tag_case(self,
                 at:    SourceRange,
@@ -2268,7 +2268,7 @@ pub class EnumLayoutQuery {
         )
     }
 
-    /// `x` holds variant \p index. Niche-filled: a dataless variant is its
+    /// `x` holds variant `index`. Niche-filled: a dataless variant is its
     /// pattern in the field (`x.__kairo_Value.v == nullptr`), the payload
     /// variant every pattern's absence.
     fn variant_test(self,
@@ -2346,7 +2346,7 @@ pub class EnumLayoutQuery {
         return r
     }
 
-    /// `x.__kairo_<V>.<field>`, typed \p ty (the occurrence's type: an
+    /// `x.__kairo_<V>.<field>`, typed `ty` (the occurrence's type: an
     /// instance's field type, not the pattern's).
     fn field_ref(self,
                  at:    SourceRange,
@@ -2414,8 +2414,7 @@ pub class EnumLayoutQuery {
         )
     }
 
-    /// The lvalue \p e of type \p ft holds its niche pattern \p i (or, \p
-    /// neg, does not). Each row is the C++ trait's `test` for the same type
+    /// The lvalue `e` of type `ft` holds its niche pattern `i` (or, `neg`, does not). Each row is the C++ trait's `test` for the same type
     /// (InterfaceEmitter), written out so a reader of the C++ sees the
     /// compare: null for a pointer, `N + i` for a plain enum or a tagged
     /// ADT's tag, and a niche-filled ADT's own field at its pattern past
@@ -2503,7 +2502,7 @@ pub class EnumLayoutQuery {
 
     /// # the Panic lang item (Compiler/Spec/Panic.md#layout; PanicLowering)
 
-    /// The Panic lang item a result type \p t is an instance of, or null.
+    /// The Panic lang item a result type `t` is an instance of, or null.
     fn panic_adt(self, t: unsafe *Type) -> unsafe *Declarations::EnumDecl {
         var unsafe *en = self.adt_of(t)
         if en == &null || !PanicSets(self.sc).is_panic(en) {
@@ -2519,10 +2518,10 @@ pub class EnumLayoutQuery {
         return en
     }
 
-    /// The expanded index of error type \p e in the panic result type \p t:
+    /// The expanded index of error type `e` in the panic result type `t`:
     /// the pack variant's position plus e's place in t's canonical set
     /// (§1.3). The set is the FORMED type's, so the index is the one C++
-    /// reads (`__kairo_get<K>`). ICE when \p e is not in it: every caller
+    /// reads (`__kairo_get<K>`). ICE when `e` is not in it: every caller
     /// tests a type the set was checked to hold.
     fn panic_elem_index(self, t: unsafe *Type, e: unsafe *Type) -> u32 {
         var unsafe *en = self.panic_adt(t)
@@ -2566,7 +2565,7 @@ pub class EnumLayoutQuery {
         )
     }
 
-    /// `x` holds error \p e: the tag compared with e's type id, the one
+    /// `x` holds error `e`: the tag compared with e's type id, the one
     /// compare a `catch e: E` is in every set that holds E.
     fn panic_holds(self, at: SourceRange, x: unsafe *Expr, e: unsafe *Type) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(x->type_)
@@ -2592,7 +2591,7 @@ pub class EnumLayoutQuery {
         return self.variant_test(at, x, en, self.panic_elem_index(x->type_, e))
     }
 
-    /// \p t names a type parameter among its elements: its canonical order
+    /// `t` names a type parameter among its elements: its canonical order
     /// is C++'s to compute at each instance (Speller spells it through the
     /// sorting alias), so no element index or tag of Sema's applies.
     priv fn _panic_dependent(self, t: unsafe *Type) -> bool {
@@ -2621,7 +2620,7 @@ pub class EnumLayoutQuery {
         return n
     }
 
-    /// The Ok value of \p x, an lvalue of \p ty (the result's T).
+    /// The Ok value of `x`, an lvalue of `ty` (the result's T).
     fn panic_value_ref(self, at: SourceRange, x: unsafe *Expr, ty: unsafe *Type) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(x->type_)
         if en == &null {
@@ -2641,7 +2640,7 @@ pub class EnumLayoutQuery {
         )
     }
 
-    /// Error \p e held by \p x, an lvalue of \p e: the union's element at
+    /// Error `e` held by `x`, an lvalue of `e`: the union's element at
     /// e's place in the set.
     fn panic_error_ref(self, at: SourceRange, x: unsafe *Expr, e: unsafe *Type) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(x->type_)
@@ -2673,7 +2672,7 @@ pub class EnumLayoutQuery {
         )
     }
 
-    /// The site word of \p x (§1.4), an lvalue `u32`.
+    /// The site word of `x` (§1.4), an lvalue `u32`.
     fn panic_site_ref(self, at: SourceRange, x: unsafe *Expr) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(x->type_)
         if en == &null || en->adt_site_field == &null {
@@ -2686,7 +2685,7 @@ pub class EnumLayoutQuery {
         return self.synth.field_of(at, x, sf, sf->type_)
     }
 
-    /// `Ok { value: v }` as the panic result \p t; \p v null for a `void`
+    /// `Ok { value: v }` as the panic result `t`; `v` null for a `void`
     /// T, whose unit payload is built empty (§1.6).
     fn panic_ok(self, at: SourceRange, t: unsafe *Type, v: unsafe *Expr) -> unsafe *Expr {
         var unsafe *en = self.panic_adt(t)
@@ -2718,8 +2717,8 @@ pub class EnumLayoutQuery {
         return n
     }
 
-    /// `Err { error: v }` holding error type \p e, as the panic result \p t,
-    /// with site id \p site in its word 0 (§1.4; 0 for none).
+    /// `Err { error: v }` holding error type `e`, as the panic result `t`,
+    /// with site id `site` in its word 0 (§1.4; 0 for none).
     fn panic_err(self,
                  at:   SourceRange,
                  t:    unsafe *Type,
@@ -2935,8 +2934,8 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         return out
     }
 
-    /// \p e is an unsuffixed numeric literal (or one negated) that C++
-    /// reads at another type than \p k, the one Sema gave it: an integer
+    /// `e` is an unsuffixed numeric literal (or one negated) that C++
+    /// reads at another type than `k`, the one Sema gave it: an integer
     /// literal is an `int` to C++ unless typed i32, a floating one a
     /// `double` unless typed f64 (EmitIR::_int_lit spells them bare).
     priv fn _literal_retyped(self, e: unsafe *Expr, k: BuiltinKind) -> bool {
@@ -3085,7 +3084,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         return lit
     }
 
-    /// Which Kairo-only type query \p d is, or COUNT.
+    /// Which Kairo-only type query `d` is, or COUNT.
     priv fn _kairo_trait_kind(self, d: unsafe *Decl) -> WellKnownType {
         if self._is_lang(d, WellKnownType::IsSafePointer) {
             return WellKnownType::IsSafePointer
@@ -3712,7 +3711,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         return tag
     }
 
-    /// \p en's layout overrides (AdtLayoutKnobs), by identity with the lang
+    /// `en`'s layout overrides (AdtLayoutKnobs), by identity with the lang
     /// item that wants them -- never by name: a user may declare an enum
     /// called Panic. The Panic lang item (Compiler/Spec/Panic.md#layout): type-id tags in
     /// a u32, the u32 site beside it (word 0, one 64-bit store), the union
@@ -3737,7 +3736,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         return k
     }
 
-    /// \p en can keep its tag in its payloads' common prefix (spec
+    /// `en` can keep its tag in its payloads' common prefix (spec
     /// ENUMLAYOUT §6): every payload field a builtin, a pointer or a plain
     /// enum, so every payload struct is standard-layout -- the
     /// common-initial-sequence read needs that -- and trivially copied, so
@@ -3786,7 +3785,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         return true
     }
 
-    /// \p en could be laid out without a tag (spec ENUMLAYOUT §5.2): exactly
+    /// `en` could be laid out without a tag (spec ENUMLAYOUT §5.2): exactly
     /// one variant carries a payload, that payload is one field (v1: a
     /// record's first-field niche, which would lift this, is answered but
     /// not laid out -- EnumLayoutQuery::niche_of), at least one variant has
@@ -3828,7 +3827,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         return true
     }
 
-    /// Build the layout of every ADT \p t holds by value first, so a
+    /// Build the layout of every ADT `t` holds by value first, so a
     /// non-generic enum's verdict reads its field's real shape whatever
     /// order the walk meets the declarations in. By-value ADT cycles are
     /// TypeCycleCheck's to reject, so this terminates.
@@ -3876,7 +3875,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         return adt_declared_tag_kind(en)
     }
 
-    /// How variant \p v is constructed (AdtCtorForm). A non-generic ADT knows
+    /// How variant `v` is constructed (AdtCtorForm). A non-generic ADT knows
     /// its fields' facts: every one trivially copied and destroyed, the field
     /// constructor alone, else the lambda one. A generic ADT's are per
     /// instance, so it gets both, the field constructor constrained on them.
@@ -3915,7 +3914,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         return Declarations::AdtCtorForm::Fields
     }
 
-    /// \p t moves as its bytes and is destroyed as nothing, and is no array
+    /// `t` moves as its bytes and is destroyed as nothing, and is no array
     /// (_ctor_form).
     priv fn _moves(self, t: unsafe *Type) -> bool {
         if t == &null || t->canonical == &null {
@@ -3940,7 +3939,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
 
     /// `struct __kairo_<V>_t` over the variant's own payload FieldDecls (file
     /// header). is_adt_payload is what gives it its placement operator new.
-    /// A prefix-tagged ADT's (\p prefix_tag, the tag enum's type) starts
+    /// A prefix-tagged ADT's (`prefix_tag`, the tag enum's type) starts
     /// with a tag of its own: the common initial sequence the union's
     /// tag-only member reads.
     priv fn _payload_struct(self,
@@ -4267,7 +4266,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         )
     }
 
-    /// A generic ADT's three forms of \p role, in the order InterfaceEmitter
+    /// A generic ADT's three forms of `role`, in the order InterfaceEmitter
     /// writes them.
     priv fn _three(self,
                    ldc:     unsafe *DeclContext,
@@ -4314,7 +4313,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         )
     }
 
-    /// A function with no Kairo body, rendered from \p role and \p form.
+    /// A function with no Kairo body, rendered from `role` and `form`.
     /// Never an operator, whatever C++ it becomes (`~E`, `operator=`): its
     /// name is an identifier token, which is all a minted decl can spell. A
     /// defaulted or deleted form carries that body kind; the others none.

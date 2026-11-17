@@ -18,10 +18,11 @@ import string::*
 /// out in a single `write(2)`, so concurrent lines from different threads are not split.
 /// Longer lines take two writes (the text, then the newline). Write errors are ignored.
 ///
-/// \param s   the text to write
-/// \example
-/// ```kairo
-/// import std::io
+/// ### Parameters
+/// - `s`: the text to write
+///   \example
+///   ```kairo
+///   import std::io
 ///
 /// fn main() -> i32 {
 ///     io::println("hello")
@@ -36,7 +37,8 @@ pub fn println(const s: string) {
 ///
 /// Unbuffered, like `println`. Write errors are ignored.
 ///
-/// \param s   the text to write
+/// ### Parameters
+/// - `s`: the text to write
 pub fn print(const s: string) {
     write_all_(1, s.data(), s.size())
 }
@@ -46,14 +48,16 @@ pub fn print(const s: string) {
 /// Same single-write behaviour as `println`. Because neither stream is buffered, output to
 /// stdout and stderr interleaves in call order when both go to the same place (`2>&1`).
 ///
-/// \param s   the text to write
+/// ### Parameters
+/// - `s`: the text to write
 pub fn eprintln(const s: string) {
     write_line_(2, s)
 }
 
 /// Writes `s` to standard error without a trailing newline.
 ///
-/// \param s   the text to write
+/// ### Parameters
+/// - `s`: the text to write
 pub fn eprint(const s: string) {
     write_all_(2, s.data(), s.size())
 }

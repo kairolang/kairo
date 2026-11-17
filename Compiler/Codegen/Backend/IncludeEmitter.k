@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------- Codegen/Backend/IncludeEmitter.k --- ///
 ///
-///   \brief The third consumer of a plan, beside CodegenBackend (an object)
-///          and EmitCXXHeader (a header): the tokens `#include "foo.k"`
-///          splices into a C++ TU. A Backend/ file because it imports
-///          emitters (see CodegenBackend.k's import rule).
+/// The third consumer of a plan, beside CodegenBackend (an object)
+/// and EmitCXXHeader (a header): the tokens `#include "foo.k"`
+/// splices into a C++ TU. A Backend/ file because it imports
+/// emitters (see CodegenBackend.k's import rule).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -65,14 +65,13 @@ import Location::SourceManager::FileID
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Support::FlagSet::FlagSet
 
-/// \class IncludedDecls
-/// \brief What the earlier `#include "*.k"` lines of one C++ TU already
-///        put in it, so a later one leaves that out. Each stream carries
-///        every declaration its module's interface reaches, own and foreign,
-///        so two modules that share a third, or the builtin root, would
-///        otherwise define its records twice. A header guards those with
-///        `#ifndef`; a token stream has no directive, so the guard is kept
-///        here, one per host TU (Driver/KairoIncludes.k clears it at end_tu).
+/// What the earlier `#include "*.k"` lines of one C++ TU already
+/// put in it, so a later one leaves that out. Each stream carries
+/// every declaration its module's interface reaches, own and foreign,
+/// so two modules that share a third, or the builtin root, would
+/// otherwise define its records twice. A header guards those with
+/// `#ifndef`; a token stream has no directive, so the guard is kept
+/// here, one per host TU (Driver/KairoIncludes.k clears it at end_tu).
 ///
 ///        Keyed by decl: one build is one session, so geo::Point is the same
 ///        node whether geo.k or a module importing it is being emitted, and
@@ -110,7 +109,7 @@ pub class IncludedDecls {
         self._lines.clear()
     }
 
-    /// True the first time directive line \p l is offered.
+    /// True the first time directive line `l` is offered.
     fn admit_line(self, const l: string) -> bool {
         for var i: usize = 0; i < self._lines.size(); ++i {
             if self._lines[i] == l {
@@ -122,7 +121,7 @@ pub class IncludedDecls {
         return true
     }
 
-    /// True the first time body \p f is offered.
+    /// True the first time body `f` is offered.
     fn admit_body(self, f: unsafe *FunctionDecl) -> bool {
         var key = (f as usize as u64)
         if self._bodies.contains(key) {
@@ -133,13 +132,13 @@ pub class IncludedDecls {
         return true
     }
 
-    /// Whether body or eval binding \p d was already offered (admit_body,
+    /// Whether body or eval binding `d` was already offered (admit_body,
     /// admit_eval_var), without offering it.
     fn has_body(self, d: unsafe *Decl) -> bool {
         return self._bodies.contains(d as usize as u64)
     }
 
-    /// True the first time eval binding \p v's definition is offered
+    /// True the first time eval binding `v`'s definition is offered
     /// (EmitPlan::include_eval_vars). Keyed with the bodies: a decl's
     /// address is unique whatever its kind.
     fn admit_eval_var(self, v: unsafe *VariableDecl) -> bool {
@@ -152,7 +151,7 @@ pub class IncludedDecls {
         return true
     }
 
-    /// Whether \p e was already admitted, without offering it: the read-only
+    /// Whether `e` was already admitted, without offering it: the read-only
     /// probe a TU compiled against the interface PCH makes (InterfacePCH),
     /// from any worker. The keys are admit()'s.
     fn has(self, plan: unsafe *EmitPlan, e: unsafe *PlanEntry) -> bool {
@@ -196,7 +195,7 @@ pub class IncludedDecls {
         }
     }
 
-    /// The other direction: what \p ie wrote is the host TU's now.
+    /// The other direction: what `ie` wrote is the host TU's now.
     fn take(self, ie: unsafe *InterfaceEmitter) {
         self.written = ie->written
         self.tid_seen.clear()
@@ -210,7 +209,7 @@ pub class IncludedDecls {
         }
     }
 
-    /// True the first time \p e is offered: it is new to the host TU.
+    /// True the first time `e` is offered: it is new to the host TU.
     fn admit(self, plan: unsafe *EmitPlan, e: unsafe *PlanEntry) -> bool {
         if e->witness != &null {
             // One primary or specialization per key, whichever include wrote it.
@@ -241,7 +240,7 @@ pub class IncludedDecls {
     }
 }
 
-/// \p tu's ffi header set into \p sets, once.
+/// `tu`'s ffi header set into `sets`, once.
 pub fn _add_set(tu: unsafe *TranslationUnit, @inout sets: cxx::std::vector<unsafe *HeaderSet>) {
     if tu == &null || tu->header_set == &null {
         return
@@ -261,7 +260,7 @@ pub fn _add_set(tu: unsafe *TranslationUnit, @inout sets: cxx::std::vector<unsaf
     sets.push_back(hs)
 }
 
-/// \p hs's direct includes as lines, as a Kairo TU gets a set it cannot
+/// `hs`'s direct includes as lines, as a Kairo TU gets a set it cannot
 /// take as its PCH (CodegenBackend::run): by resolved path, the `ffi "c"`
 /// ones inside extern "C".
 pub fn _set_lines(hs:           unsafe *HeaderSet,
@@ -290,15 +289,14 @@ pub fn _set_lines(hs:           unsafe *HeaderSet,
     }
 }
 
-/// \class IncludeEmitter
-/// \brief The tokens a C++ TU gets for `#include "foo.k"`
-///        (Interop/Clang/KairoInclude.k): foo.k's interface -- an Include plan:
-///        its pub declarations and what they reach, own and foreign --
-///        emitted into a TokenSink bound to the HOST's preprocessor, then
-///        the template and inline bodies the host compiles itself
-///        (EmitPlan::include_bodies). No other body (they are foo.o's and
-///        the other modules' objects'), no tok::eof (it would end the host
-///        TU).
+/// The tokens a C++ TU gets for `#include "foo.k"`
+/// (Interop/Clang/KairoInclude.k): foo.k's interface -- an Include plan:
+/// its pub declarations and what they reach, own and foreign --
+/// emitted into a TokenSink bound to the HOST's preprocessor, then
+/// the template and inline bodies the host compiles itself
+/// (EmitPlan::include_bodies). No other body (they are foo.o's and
+/// the other modules' objects'), no tok::eof (it would end the host
+/// TU).
 pub class IncludeEmitter {
     /// Why the last emit() failed.
     pub var error: string
@@ -307,7 +305,7 @@ pub class IncludeEmitter {
     pub var agree: bool = false
 
     /// The C++ TU being compiled (clang's main file) is under the module
-    /// directory of the Kairo file \p ctx: the same nearest module.k.
+    /// directory of the Kairo file `ctx`: the same nearest module.k.
     priv fn _host_in_module(self,
                             csm: unsafe *clang::SourceManager,
                             ctx: unsafe *ASTContext) -> bool {
@@ -330,28 +328,29 @@ pub class IncludeEmitter {
         return module_dir_of_path(host) == dir
     }
 
-    /// \brief appends foo.k's interface to \p out.
+    /// appends foo.k's interface to `out`.
     ///
-    /// \param locmap  bound to \p ci (ClangLocMap::rebind), so every Kairo fid
-    ///                is a FileID in the host's SourceManager.
-    /// \param keep    receives the sink: it owns state the tokens' locations
-    ///                were built from, and lives as long as the host TU.
-    /// \param lines   receives the `#include` lines the tokens need, for the
-    ///                hook to enter ahead of them (a token stream has no line
-    ///                for a directive): the system headers
-    ///                (TokenSink::system_header), then the ffi header set of
-    ///                every module a declaration or body here comes from,
-    ///                by the paths phase A resolved them to. Each once per
-    ///                host TU.
-    /// \param seen    what the host TU's earlier includes emitted; left out
-    ///                here, and this include's entries added.
-    /// \param program the interface PCH's stream (InterfacePCH) instead of a
-    ///                kcc include: a Preamble plan, so every declaration of
-    ///                the module is there, priv ones too (its own object's
-    ///                bodies name them), and no ffi header set lines (the
-    ///                merged header PCH below it holds every set).
-    /// \param pre     the TU's Preamble plan, already run (program mode), or
-    ///                null to plan here.
+    /// ### Parameters
+    /// - `locmap`: bound to `ci` (ClangLocMap::rebind), so every Kairo fid
+    ///   is a FileID in the host's SourceManager.
+    /// - `keep`: receives the sink: it owns state the tokens' locations
+    ///   were built from, and lives as long as the host TU.
+    /// - `lines`: receives the `#include` lines the tokens need, for the
+    ///   hook to enter ahead of them (a token stream has no line
+    ///   for a directive): the system headers
+    ///   (TokenSink::system_header), then the ffi header set of
+    ///   every module a declaration or body here comes from,
+    ///   by the paths phase A resolved them to. Each once per
+    ///   host TU.
+    /// - `seen`: what the host TU's earlier includes emitted; left out
+    ///   here, and this include's entries added.
+    /// - `program`: the interface PCH's stream (InterfacePCH) instead of a
+    ///   kcc include: a Preamble plan, so every declaration of
+    ///   the module is there, priv ones too (its own object's
+    ///   bodies name them), and no ffi header set lines (the
+    ///   merged header PCH below it holds every set).
+    /// - `pre`: the TU's Preamble plan, already run (program mode), or
+    ///   null to plan here.
     pub fn emit(self,
                 ci:        unsafe *clang::CompilerInstance,
                 locmap:    unsafe *ClangLocMap,
@@ -514,7 +513,7 @@ pub class IncludeEmitter {
             }
         }
 
-        if !program { // no set lines (see \p program).
+        if !program { // no set lines (see `program`).
             var sets = cxx::std::vector<unsafe *HeaderSet>()
             for var i: usize = 0; i < plan->entries.size(); ++i {
                 _add_set(Speller::tu_of(plan->entries[i].decl), &sets)

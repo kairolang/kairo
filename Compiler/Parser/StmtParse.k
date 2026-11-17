@@ -69,22 +69,22 @@ import Token::Token::Token
 import Token::TokenKind::TokenKind
 import std::c_char
 
-/// \brief the body form of one match arm; parser-local. The AST records it
-///        only as which of MatchCase::body / MatchCase::expression is set.
+/// the body form of one match arm; parser-local. The AST records it
+/// only as which of MatchCase::body / MatchCase::expression is set.
 pub enum ArmForm derives u8 {
     Block, ///< `{ ... }`: a statement arm.
     Value, ///< `=> value`: a value arm.
 }
 
-/// \brief the arm forms of a whole match.
+/// the arm forms of a whole match.
 pub enum MatchForm derives u8 {
     AllBlock, ///< every arm is a block (or there are none): a statement.
     AllValue, ///< every arm is a value: a value, even in statement position.
     Mixed,    ///< both kinds; an error in statement position.
 }
 
-/// \brief what _parse_match_core hands back to the statement and the
-///        expression parser, which each build their own node from it.
+/// what _parse_match_core hands back to the statement and the
+/// expression parser, which each build their own node from it.
 pub struct MatchCore {
     var ok:          bool ///< false after a reported structural failure.
     var scrutinee:   unsafe *Expr
@@ -97,8 +97,7 @@ pub struct MatchCore {
 
 // TODO(DUCK-GENERIC): T uses _assume_ahead, _attach_trailing, _depth_aborted, _else_attr_kind, _expect_arrow_recover, _finish_if_expr, _is_terminator_tok, _mods_lead_to_fn, _parse_arm_value, _parse_call_args, _peek_kind_past_nl, _reject_mode_binding, ... (52). Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> StmtParse {
-    /// \enum StmtSyncCtx
-    /// \brief sync contexts for statement-level error recovery.
+    /// sync contexts for statement-level error recovery.
     enum StmtSyncCtx derives u8 {
         TopLevel, ///< sync to newline / ; / EOF
         Block,    ///< sync to } at depth 0, or a statement lead-in
@@ -117,19 +116,21 @@ pub class <T: type> StmtParse {
 
     //  Statement-boundary helpers
 
-    /// \brief consumes the optional statement terminator (newline or `;`).
-    /// \details statements are newline-terminated; an explicit `;` is also
-    ///          accepted. Multiple blank lines collapse. Never errors absence
-    ///          of a terminator before `}` or EOF is legal.
+    /// consumes the optional statement terminator (newline or `;`).
+    ///
+    /// statements are newline-terminated; an explicit `;` is also
+    /// accepted. Multiple blank lines collapse. Never errors absence
+    /// of a terminator before `}` or EOF is legal.
     inline fn _consume_terminator(self) {
         while self.dyn()->_is_terminator_tok(self.dyn()->current_ptr()) {
             self.dyn()->advance_raw()
         }
     }
 
-    /// \brief true if the resolved current token can begin a declaration.
-    /// \details used by parse_stmt to route into the decl parser. Mirrors
-    ///          ExprParse::_is_decl_keyword but is the positive dispatch gate.
+    /// true if the resolved current token can begin a declaration.
+    ///
+    /// used by parse_stmt to route into the decl parser. Mirrors
+    /// ExprParse::_is_decl_keyword but is the positive dispatch gate.
     inline fn _starts_decl(self, k: TokenKind) -> bool {
         return k == TokenKind::KwFn
             || k == TokenKind::KwClass
@@ -151,14 +152,14 @@ pub class <T: type> StmtParse {
 
     //  Block parsing
 
-    /// \brief parses a brace-delimited statement sequence into a CompoundStmt.
-    ///  Grammar:  '{' (stmt terminator?)* '}'
+    /// parses a brace-delimited statement sequence into a CompoundStmt.
+    /// Grammar:  '{' (stmt terminator?)* '}'
     ///
-    /// \details precondition: current token is `{`. Pushes a Block scope,
-    ///          parses statements until `}` or EOF, pops the scope. On a
-    ///          missing close brace, emits a diagnostic and returns what was
-    ///          parsed so far. The body FrozenList is always populated (even
-    ///          when empty) via from_buf.
+    /// precondition: current token is `{`. Pushes a Block scope,
+    /// parses statements until `}` or EOF, pops the scope. On a
+    /// missing close brace, emits a diagnostic and returns what was
+    /// parsed so far. The body FrozenList is always populated (even
+    /// when empty) via from_buf.
     fn parse_compound(self,
                       scope_kind: ScopeKind = ScopeKind::Block) -> unsafe *Statements::CompoundStmt {
         if !self.dyn()->check(TokenKind::OpLBrace) {
@@ -259,15 +260,15 @@ pub class <T: type> StmtParse {
 
     //  Top-level statement dispatch
 
-    /// \brief parses `@assume(cond)`.
-    ///  Grammar:  '@' 'assume' '(' expr ')'   then a newline, `;`, `}` or EOF
+    /// parses `@assume(cond)`.
+    /// Grammar:  '@' 'assume' '(' expr ')'   then a newline, `;`, `}` or EOF
     ///
-    /// \details builds the call `__builtin_assume(cond)` in an ExpressionStmt;
-    ///          name resolution binds it to the Assume lang item, which codegen
-    ///          spells as clang's builtin. It attaches to nothing: what follows
-    ///          on its line is an error (an attribute reading as if it
-    ///          applied to `foo()` would hide that it does not), and the rest
-    ///          of the line is skipped so it cannot cascade.
+    /// builds the call `__builtin_assume(cond)` in an ExpressionStmt;
+    /// name resolution binds it to the Assume lang item, which codegen
+    /// spells as clang's builtin. It attaches to nothing: what follows
+    /// on its line is an error (an attribute reading as if it
+    /// applied to `foo()` would hide that it does not), and the rest
+    /// of the line is skipped so it cannot cascade.
     priv fn _parse_assume(self) -> unsafe *Stmt {
         var at_r = self.dyn()->current_ptr()->range
         self.dyn()->advance() // `@`
@@ -337,16 +338,16 @@ pub class <T: type> StmtParse {
         return unsafe (Statements::ExpressionStmt::create(self.dyn()->ctx, full, unsafe (ce as unsafe *Expr)) as unsafe *Stmt)
     }
 
-    /// \brief parses a single statement.
-    ///  Grammar (dispatch):
-    ///    block | if | while | loop | for | match | return | break | continue
-    ///    | panic | yield | assert | try | finally | unsafe-block | eval-block
-    ///    | label!/jump! | inline-block | labeled-loop | decl | destructuring-decl
-    ///    | expr-stmt | context-binding
+    /// parses a single statement.
+    /// Grammar (dispatch):
+    /// block | if | while | loop | for | match | return | break | continue
+    /// | panic | yield | assert | try | finally | unsafe-block | eval-block
+    /// | label!/jump! | inline-block | labeled-loop | decl | destructuring-decl
+    /// | expr-stmt | context-binding
     ///
-    /// \details consumes leading annotations (e.g. @likely, doc comments) and
-    ///          stamps them onto the produced node. Dispatch is on the resolved
-    ///          current token. Returns null only at EOF.
+    /// consumes leading annotations (e.g. @likely, doc comments) and
+    /// stamps them onto the produced node. Dispatch is on the resolved
+    /// current token. Returns null only at EOF.
     fn parse_stmt(self) -> unsafe *Stmt {
         if self.dyn()->is_eof() {
             return &null
@@ -383,10 +384,11 @@ pub class <T: type> StmtParse {
         return s
     }
 
-    /// \brief a local function declaration (`fn`, or modifiers leading to
-    ///        one) as its DeclStmt, or null when parse_decl declined it.
-    /// \details A local `fn` belongs to the function it is written in, as a
-    ///          local type does (_parse_decl_stmt): codegen hoists both.
+    /// a local function declaration (`fn`, or modifiers leading to
+    /// one) as its DeclStmt, or null when parse_decl declined it.
+    ///
+    /// A local `fn` belongs to the function it is written in, as a
+    /// local type does (_parse_decl_stmt): codegen hoists both.
     priv fn _parse_local_fn(self) -> unsafe *Stmt {
         var unsafe *d = self.dyn()->parse_decl(true)
         if d == &null {
@@ -456,7 +458,7 @@ pub class <T: type> StmtParse {
         }
     }
 
-    /// \brief routes the current token to its statement production.
+    /// routes the current token to its statement production.
     priv fn _dispatch_stmt(self) -> unsafe *Stmt {
         var cur_ptr = self.dyn()->current_ptr()
         if cur_ptr == &null {
@@ -647,16 +649,16 @@ pub class <T: type> StmtParse {
 
     //  Expression statement  /  context binding
 
-    /// \brief parses an expression statement, or a context binding if the
-    ///        expression is followed by a dangling `as` (left unconsumed by
-    ///        the expr parser because it saw `as var` / `as const`).
-    ///  Grammar:  expr
-    ///          | expr 'as' binding_spec block        (context binding)
+    /// parses an expression statement, or a context binding if the
+    /// expression is followed by a dangling `as` (left unconsumed by
+    /// the expr parser because it saw `as var` / `as const`).
+    /// Grammar:  expr
+    ///   | expr 'as' binding_spec block        (context binding)
     ///
-    /// \details the expr parser, on encountering `as` followed by `var`/`const`,
-    ///          rolls back its tentative cast and returns the LHS with the cursor
-    ///          sitting on `as`. We observe that dangling `as` here no shared
-    ///          flag is needed and route to context-binding parsing.
+    /// the expr parser, on encountering `as` followed by `var`/`const`,
+    /// rolls back its tentative cast and returns the LHS with the cursor
+    /// sitting on `as`. We observe that dangling `as` here no shared
+    /// flag is needed and route to context-binding parsing.
     priv fn _parse_expr_or_context(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
 
@@ -679,14 +681,14 @@ pub class <T: type> StmtParse {
         return es
     }
 
-    /// \brief completes a context binding after the LHS and the dangling `as`.
-    ///  Grammar:  <already parsed expr> 'as' binding_spec block
-    ///    binding_spec := ('var'|'const') (binding | '(' binding (',' binding)* ')')
+    /// completes a context binding after the LHS and the dangling `as`.
+    /// Grammar:  <already parsed expr> 'as' binding_spec block
+    /// binding_spec := ('var'|'const') (binding | '(' binding (',' binding)* ')')
     ///
-    /// \details precondition: current token is `as`. Consumes `as`, parses the
-    ///          binding spec, then REQUIRES a block. A missing block is a hard
-    ///          error (the construct is neither a valid cast nor a valid context
-    ///          block, since a cast would never have a var/const binding).
+    /// precondition: current token is `as`. Consumes `as`, parses the
+    /// binding spec, then REQUIRES a block. A missing block is a hard
+    /// error (the construct is neither a valid cast nor a valid context
+    /// block, since a cast would never have a var/const binding).
     priv fn _parse_context_binding(self, value: *Expr, start_range: SourceRange) -> *Stmt {
         var as_range = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `as`
@@ -747,31 +749,35 @@ pub class <T: type> StmtParse {
 
     //  Binding spec  (shared: destructuring decl, ranged-for, context binding)
 
-    /// \brief parses a binding spec into `out`.
-    ///  Grammar:  ('var'|'const') (binding | '(' binding (',' binding)* ')')
-    ///            with the leading keyword optional when \p keyword_required
-    ///            is false
-    ///    binding := ('var'|'const')? shorthand? (identifier | '_')
-    ///    shorthand := 'unsafe'? '*' | '?'      (suffix '?' handled per-binding)
+    /// parses a binding spec into `out`.
+    /// Grammar:  ('var'|'const') (binding | '(' binding (',' binding)* ')')
+    ///     with the leading keyword optional when `keyword_required`
+    ///     is false
+    /// binding := ('var'|'const')? shorthand? (identifier | '_')
+    /// shorthand := 'unsafe'? '*' | '?'      (suffix '?' handled per-binding)
     ///
-    /// \details the leading 'var'/'const' sets the default mutability; a
-    ///          per-element 'var'/'const' overrides it. A single bare binding
-    ///          (no parens) is permitted: `as var f`. Returns false on a
-    ///          malformed spec (caller recovers). The leading keyword is
-    ///          consumed by the CALLER for decls (which need to know it for
-    ///          plain non-destructuring decls); for context binding and for
-    ///          loops, this function reads it. To keep one path, this function
-    ///          reads the leading keyword itself and reports it via the first
-    ///          binding's resolution.
+    /// the leading 'var'/'const' sets the default mutability; a
+    /// per-element 'var'/'const' overrides it. A single bare binding
+    /// (no parens) is permitted: `as var f`. Returns false on a
+    /// malformed spec (caller recovers). The leading keyword is
+    /// consumed by the CALLER for decls (which need to know it for
+    /// plain non-destructuring decls); for context binding and for
+    /// loops, this function reads it. To keep one path, this function
+    /// reads the leading keyword itself and reports it via the first
+    /// binding's resolution.
     ///
-    /// \param out         buffer to collect parsed bindings.
-    ///          Without \p keyword_required (a for loop's bindings) an absent
-    ///          leading keyword is the mutable default, not an error.
+    /// ### Parameters
+    /// - `out`: buffer to collect parsed bindings.
+    ///   Without `keyword_required` (a for loop's bindings) an absent
+    ///   leading keyword is the mutable default, not an error.
     ///
-    /// \param out              buffer to collect parsed bindings.
-    /// \param ctx_range        range for diagnostics (the `as`/`for`/decl keyword).
-    /// \param keyword_required whether the leading 'var'/'const' must be written.
-    /// \return true if the spec parsed and closed cleanly.
+    /// ### Parameters
+    /// - `out`: buffer to collect parsed bindings.
+    /// - `ctx_range`: range for diagnostics (the `as`/`for`/decl keyword).
+    /// - `keyword_required`: whether the leading 'var'/'const' must be written.
+    ///
+    /// ### Returns
+    /// true if the spec parsed and closed cleanly.
     fn _parse_binding_spec(self,
                            out:              unsafe *kairo::std::StackBuf<Statements::Binding, 4>,
                            ctx_range:        SourceRange,
@@ -863,14 +869,14 @@ pub class <T: type> StmtParse {
     }
 
 
-    /// \brief parses a single binding element.
-    ///  Grammar:  ('var'|'const')? ('unsafe'? '*')? (identifier | '_') '?'?
+    /// parses a single binding element.
+    /// Grammar:  ('var'|'const')? ('unsafe'? '*')? (identifier | '_') '?'?
     ///
-    /// \details a per-element 'var'/'const' overrides `default_const`.
-    ///          Shorthand qualifiers (`*`, `unsafe *`, trailing `?`) reshape the
-    ///          inferred type; sema applies them. `_` produces a discard.
-    ///          On a missing identifier, returns a Binding with name == null
-    ///          (and is_discard == false) so the caller can detect failure.
+    /// a per-element 'var'/'const' overrides `default_const`.
+    /// Shorthand qualifiers (`*`, `unsafe *`, trailing `?`) reshape the
+    /// inferred type; sema applies them. `_` produces a discard.
+    /// On a missing identifier, returns a Binding with name == null
+    /// (and is_discard == false) so the caller can detect failure.
     priv fn _parse_binding(self, default_const: bool) -> Statements::Binding {
         var result = Statements::Binding{}
         result.name        = &null
@@ -972,14 +978,14 @@ pub class <T: type> StmtParse {
 
     //  var / const  -> plain decl vs destructuring decl
 
-    /// \brief routes a `var`/`const` lead-in to a destructuring decl or a plain
-    ///        declaration.
-    ///  Grammar:  ('var'|'const') '(' ... ')' '=' expr      (tuple destructure)
-    ///          | ('var'|'const') '{' ... '}' '=' expr      (struct destructure)
-    ///          | ('var'|'const') <plain decl ...>          (-> DeclParse)
+    /// routes a `var`/`const` lead-in to a destructuring decl or a plain
+    /// declaration.
+    /// Grammar:  ('var'|'const') '(' ... ')' '=' expr      (tuple destructure)
+    ///   | ('var'|'const') '{' ... '}' '=' expr      (struct destructure)
+    ///   | ('var'|'const') <plain decl ...>          (-> DeclParse)
     ///
-    /// \details peeks one token past the keyword. `(` or `{` => destructuring;
-    ///          anything else => plain decl handled by the decl parser.
+    /// peeks one token past the keyword. `(` or `{` => destructuring;
+    /// anything else => plain decl handled by the decl parser.
     priv fn _parse_var_or_destructure(self) -> unsafe *Stmt {
         var is_const = self.dyn()->check(TokenKind::KwConst)
 
@@ -1002,15 +1008,15 @@ pub class <T: type> StmtParse {
         return self._parse_decl_stmt()
     }
 
-    /// \brief parses a destructuring declaration.
-    ///  Grammar:  ('var'|'const') tuple_pat  '=' expr
-    ///          | ('var'|'const') struct_pat '=' expr
-    ///    tuple_pat  := '(' binding (',' binding)* ')'
-    ///    struct_pat := '{' binding (',' binding)* '}'
+    /// parses a destructuring declaration.
+    /// Grammar:  ('var'|'const') tuple_pat  '=' expr
+    ///   | ('var'|'const') struct_pat '=' expr
+    /// tuple_pat  := '(' binding (',' binding)* ')'
+    /// struct_pat := '{' binding (',' binding)* '}'
     ///
-    /// \details precondition: current token is `var`/`const`, next is `(`/`{`.
-    ///          For struct destructuring, binding names must match field names
-    ///          (sema-checked). The RHS is a full expression.
+    /// precondition: current token is `var`/`const`, next is `(`/`{`.
+    /// For struct destructuring, binding names must match field names
+    /// (sema-checked). The RHS is a full expression.
     priv fn _parse_destructure(self, is_const: bool, dkind: Statements::DestructureKind) -> *Stmt {
         var start_range = self.dyn()->current_ptr()->range
 
@@ -1143,14 +1149,14 @@ pub class <T: type> StmtParse {
 
     //  Declaration statement  (delegates to DeclParse)
 
-    /// \brief wraps a declaration parsed by DeclParse in a DeclStmt.
-    ///  Grammar:  decl
+    /// wraps a declaration parsed by DeclParse in a DeclStmt.
+    /// Grammar:  decl
     ///
-    /// \details DeclParse::parse_decl owns annotation/qualifier consumption for
-    ///          the decl itself; parse_stmt already stripped leading
-    ///          annotations, so any consumed here are decl-specific (e.g. `pub`
-    ///          on a local). NOTE: parse_decl is currently a stub returning
-    ///          null; this path produces a recovery DeclStmt until it lands.
+    /// DeclParse::parse_decl owns annotation/qualifier consumption for
+    /// the decl itself; parse_stmt already stripped leading
+    /// annotations, so any consumed here are decl-specific (e.g. `pub`
+    /// on a local). NOTE: parse_decl is currently a stub returning
+    /// null; this path produces a recovery DeclStmt until it lands.
     priv fn _parse_decl_stmt(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
 
@@ -1180,15 +1186,15 @@ pub class <T: type> StmtParse {
 
     //  Conditional
 
-    /// \brief parses an if statement with else-if chaining.
-    ///  Grammar:  'if' expr block ('else' 'if' expr block)* ('else' block)?
-    ///          | 'if' expr NL* '=>' ...                   (value form, see below)
+    /// parses an if statement with else-if chaining.
+    /// Grammar:  'if' expr block ('else' 'if' expr block)* ('else' block)?
+    ///   | 'if' expr NL* '=>' ...                   (value form, see below)
     ///
-    /// \details precondition: current token is `if`. The condition is parsed
-    ///          with struct-literal suppression so `if Foo { }` is not misread
-    ///          as a named initializer (NoStructLiteral stop bit). `else_` is a
-    ///          *Stmt: either the next ConditionalStmt (an `else if`) or a
-    ///          CompoundStmt (the final `else`).
+    /// precondition: current token is `if`. The condition is parsed
+    /// with struct-literal suppression so `if Foo { }` is not misread
+    /// as a named initializer (NoStructLiteral stop bit). `else_` is a
+    /// *Stmt: either the next ConditionalStmt (an `else if`) or a
+    /// CompoundStmt (the final `else`).
     ///
     ///          A `=>` after the condition makes it a value-form `if` used as a
     ///          statement (`if c => f() else => g()`): the rest is the
@@ -1375,8 +1381,8 @@ pub class <T: type> StmtParse {
 
     //  While / Loop
 
-    /// \brief parses a while loop.
-    ///  Grammar:  'while' expr block
+    /// parses a while loop.
+    /// Grammar:  'while' expr block
     priv fn _parse_while(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `while`
@@ -1420,8 +1426,8 @@ pub class <T: type> StmtParse {
         return node
     }
 
-    /// \brief parses an unconditional loop.
-    ///  Grammar:  'loop' block
+    /// parses an unconditional loop.
+    /// Grammar:  'loop' block
     priv fn _parse_loop(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `loop`
@@ -1451,18 +1457,18 @@ pub class <T: type> StmtParse {
 
     //  For  (ranged and C-style)
 
-    /// \brief parses a for loop, dispatching between ranged and C-style forms.
-    ///  Grammar:  'for' binding_spec 'in' expr block          (ranged)
-    ///          | 'for' decl_stmt ';' expr ';' expr block     (C-style)
+    /// parses a for loop, dispatching between ranged and C-style forms.
+    /// Grammar:  'for' binding_spec 'in' expr block          (ranged)
+    ///   | 'for' decl_stmt ';' expr ';' expr block     (C-style)
     ///
-    /// \details precondition: current token is `for` (the `eval` prefix, if any,
-    ///          was already consumed by the dispatcher, hence `is_eval`).
-    ///          Disambiguation: after `for`, a `var`/`const` followed eventually
-    ///          by `in` is ranged; a `var`/`const` followed by an initializer and
-    ///          `;` is C-style. We detect the C-style form by the presence of an
-    ///          `=` initializer or a `;` before any `in` within the header. The
-    ///          split: tentatively scan the header keyword shape
-    ///          ranged headers never contain `;`. We peek for that.
+    /// precondition: current token is `for` (the `eval` prefix, if any,
+    /// was already consumed by the dispatcher, hence `is_eval`).
+    /// Disambiguation: after `for`, a `var`/`const` followed eventually
+    /// by `in` is ranged; a `var`/`const` followed by an initializer and
+    /// `;` is C-style. We detect the C-style form by the presence of an
+    /// `=` initializer or a `;` before any `in` within the header. The
+    /// split: tentatively scan the header keyword shape
+    /// ranged headers never contain `;`. We peek for that.
     priv fn _parse_for(self, is_eval: bool) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
 
@@ -1551,18 +1557,18 @@ pub class <T: type> StmtParse {
         return self._parse_indexed_for(start_range, is_eval)
     }
 
-    /// \brief parses a C-style three-part for loop.
-    ///  Grammar:  'for' decl_stmt? ';' expr ';' expr block
+    /// parses a C-style three-part for loop.
+    /// Grammar:  'for' decl_stmt? ';' expr ';' expr block
     ///
-    /// \details the init clause may be empty: `for ; c; s`
-    ///          loops over a variable declared before it, and unlike the
-    ///          `while` it would otherwise be, a `continue` still runs `s`.
+    /// the init clause may be empty: `for ; c; s`
+    /// loops over a variable declared before it, and unlike the
+    /// `while` it would otherwise be, a `continue` still runs `s`.
     ///
-    /// \details precondition: cursor is at the start of the init clause (after
-    ///          `for`). The init is a variable declaration scoped to the loop
-    ///          (a DeclStmt). `cond` and `update` are bare expressions. The
-    ///          enclosing scope (ForLoop) was already pushed by _parse_for and
-    ///          is popped here.
+    /// precondition: cursor is at the start of the init clause (after
+    /// `for`). The init is a variable declaration scoped to the loop
+    /// (a DeclStmt). `cond` and `update` are bare expressions. The
+    /// enclosing scope (ForLoop) was already pushed by _parse_for and
+    /// is popped here.
     priv fn _parse_indexed_for(self, start_range: SourceRange, is_eval: bool) -> *Stmt {
         // init clause: a var/const decl (DeclParse owns it), or nothing.
         var empty_init              = self.dyn()->check(TokenKind::OpSemicolon)
@@ -1672,14 +1678,14 @@ pub class <T: type> StmtParse {
 
     //  Match
 
-    /// \brief parses a match in statement position.
-    ///  Grammar:  'match' expr '{' arm* '}'           (see _parse_match_core)
+    /// parses a match in statement position.
+    /// Grammar:  'match' expr '{' arm* '}'           (see _parse_match_core)
     ///
-    /// \details the arms decide what the statement is. All `{ }` blocks: a
-    ///          MatchStmt, as before. All `=> value`: still a value, so it
-    ///          becomes ExpressionStmt(MatchExpr) and the expression-form rules
-    ///          (mandatory exhaustiveness included) apply to it in sema. Both:
-    ///          S075E, with a note at the first arm of the other form.
+    /// the arms decide what the statement is. All `{ }` blocks: a
+    /// MatchStmt, as before. All `=> value`: still a value, so it
+    /// becomes ExpressionStmt(MatchExpr) and the expression-form rules
+    /// (mandatory exhaustiveness included) apply to it in sema. Both:
+    /// S075E, with a note at the first arm of the other form.
     pub fn _parse_match(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
 
@@ -1736,19 +1742,19 @@ pub class <T: type> StmtParse {
         return node
     }
 
-    /// \brief the part of `match` shared by both positions: scrutinee, braces
-    ///        and arms.
-    ///  Grammar:  'match' expr(NoStructLiteral) '{' arm* '}'
-    ///    arm      := 'case' pattern (',' pattern)* ('where' expr(NoStructLiteral))? NL* arm_body
-    ///              | 'default' NL* arm_body
-    ///    arm_body := block                       // statement arm
-    ///              | '=>' NL* value              // value arm, value stop = StopBrace
+    /// the part of `match` shared by both positions: scrutinee, braces
+    /// and arms.
+    /// Grammar:  'match' expr(NoStructLiteral) '{' arm* '}'
+    /// arm      := 'case' pattern (',' pattern)* ('where' expr(NoStructLiteral))? NL* arm_body
+    ///       | 'default' NL* arm_body
+    /// arm_body := block                       // statement arm
+    ///       | '=>' NL* value              // value arm, value stop = StopBrace
     ///
-    /// \details precondition: current token is `match`. The caller turns the
-    ///          result into a MatchStmt or a MatchExpr by `form`. `ok` is false
-    ///          on a structural failure (already reported), with `range`
-    ///          covering what was consumed. A `,` after an arm is the Rust
-    ///          spelling: S076E, removed by the fix-it, and parsing continues.
+    /// precondition: current token is `match`. The caller turns the
+    /// result into a MatchStmt or a MatchExpr by `form`. `ok` is false
+    /// on a structural failure (already reported), with `range`
+    /// covering what was consumed. A `,` after an arm is the Rust
+    /// spelling: S076E, removed by the fix-it, and parsing continues.
     pub fn _parse_match_core(self, start_range: SourceRange) -> MatchCore {
         var core = MatchCore{}
         core.ok          = false
@@ -1878,16 +1884,16 @@ pub class <T: type> StmtParse {
         return core
     }
 
-    /// \brief parses a single match case or default arm.
-    ///  Grammar:  'case' pattern (',' pattern)* ('where' expr)? NL* arm_body
-    ///          | 'default' NL* arm_body
-    ///    arm_body := block | '=>' NL* value
+    /// parses a single match case or default arm.
+    /// Grammar:  'case' pattern (',' pattern)* ('where' expr)? NL* arm_body
+    ///   | 'default' NL* arm_body
+    /// arm_body := block | '=>' NL* value
     ///
-    /// \details `{` makes a statement arm (`body`), `=>` a value arm
-    ///          (`expression`), and `form` says which. On success exactly one
-    ///          of the two is non-null; both null is a structural parse
-    ///          failure (caller recovers). Pattern alternatives share one arm;
-    ///          the `where` guard, if present, applies to the whole arm.
+    /// `{` makes a statement arm (`body`), `=>` a value arm
+    /// (`expression`), and `form` says which. On success exactly one
+    /// of the two is non-null; both null is a structural parse
+    /// failure (caller recovers). Pattern alternatives share one arm;
+    /// the `where` guard, if present, applies to the whole arm.
     priv fn _parse_match_case(self, form: *ArmForm) -> Statements::MatchCase {
         var result = Statements::MatchCase{}
         result.guard      = &null
@@ -1994,23 +2000,24 @@ pub class <T: type> StmtParse {
         return result
     }
 
-    /// \brief STUB: pattern parsing seam.
-    /// \details PatternParse is not yet implemented. This consumes a single
-    ///          conservative token run (until `,`, `where`, `{`, or a stop
-    ///          token) so the surrounding match-arm structure parses, and
-    ///          returns null. Replace with a real `dyn()->parse_pattern()`
-    ///          call once PatternParse exists.
+    /// STUB: pattern parsing seam.
+    ///
+    /// PatternParse is not yet implemented. This consumes a single
+    /// conservative token run (until `,`, `where`, `{`, or a stop
+    /// token) so the surrounding match-arm structure parses, and
+    /// returns null. Replace with a real `dyn()->parse_pattern()`
+    /// call once PatternParse exists.
     priv fn _parse_pattern(self) -> *AstPattern {
         return self.dyn()->parse_pattern()
     }
 
     //  Jump / signal statements
 
-    /// \brief parses a return statement.
-    ///  Grammar:  'return' | 'return' expr
+    /// parses a return statement.
+    /// Grammar:  'return' | 'return' expr
     ///
-    /// \details a value is present unless the next token ends the statement
-    ///          (newline, `;`, `}`, EOF).
+    /// a value is present unless the next token ends the statement
+    /// (newline, `;`, `}`, EOF).
     priv fn _parse_return(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `return` (do NOT skip newlines: bare return)
@@ -2046,9 +2053,9 @@ pub class <T: type> StmtParse {
         return node
     }
 
-    /// \brief parses a break statement, or a continue statement when
-    ///        \p is_continue.
-    ///  Grammar:  ('break' | 'continue') identifier?
+    /// parses a break statement, or a continue statement when
+    /// `is_continue`.
+    /// Grammar:  ('break' | 'continue') identifier?
     priv fn _parse_break_continue(self, is_continue: bool) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance() // consume `break` / `continue` (no NL skip: optional label is same-line)
@@ -2080,8 +2087,8 @@ pub class <T: type> StmtParse {
         )
     }
 
-    /// \brief parses a panic statement, or a yield statement when \p is_yield.
-    ///  Grammar:  ('panic' | 'yield') expr
+    /// parses a panic statement, or a yield statement when `is_yield`.
+    /// Grammar:  ('panic' | 'yield') expr
     priv fn _parse_panic_yield(self, is_yield: bool) -> unsafe *Stmt {
         var word:       string = if (is_yield) => ("yield") else => "panic"
         var start_range        = self.dyn()->current_ptr()->range
@@ -2110,12 +2117,12 @@ pub class <T: type> StmtParse {
         return Statements::PanicStmt::create(self.dyn()->ctx, full, value)
     }
 
-    /// \brief parses a runtime or static assertion.
-    ///  Grammar:  'assert' 'static'? expr (',' expr)?
+    /// parses a runtime or static assertion.
+    /// Grammar:  'assert' 'static'? expr (',' expr)?
     ///
-    /// \details `assert static` produces a StaticAssertStmt; plain `assert`
-    ///          produces a RuntimeAssertStmt. The optional second operand is a
-    ///          diagnostic message expression.
+    /// `assert static` produces a StaticAssertStmt; plain `assert`
+    /// produces a RuntimeAssertStmt. The optional second operand is a
+    /// diagnostic message expression.
     priv fn _parse_assert(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `assert`
@@ -2182,13 +2189,13 @@ pub class <T: type> StmtParse {
 
     //  Try / catch  (finally is separate)
 
-    /// \brief parses a try/catch statement.
-    ///  Grammar:  'try' block ('catch' catch_filter? block)+
-    ///    catch_filter := identifier (':' type)?
+    /// parses a try/catch statement.
+    /// Grammar:  'try' block ('catch' catch_filter? block)+
+    /// catch_filter := identifier (':' type)?
     ///
-    /// \details `finally` is NOT consumed here; `try {} finally {}` is a
-    ///          TryCatchStmt followed by a separate FinallyStmt. At least one
-    ///          catch arm is expected; absence is reported but recovered.
+    /// `finally` is NOT consumed here; `try {} finally {}` is a
+    /// TryCatchStmt followed by a separate FinallyStmt. At least one
+    /// catch arm is expected; absence is reported but recovered.
     priv fn _parse_try_catch(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `try`
@@ -2238,12 +2245,12 @@ pub class <T: type> StmtParse {
         return node
     }
 
-    /// \brief parses one catch arm.
-    ///  Grammar:  'catch' (identifier (':' type)?)? block
+    /// parses one catch arm.
+    /// Grammar:  'catch' (identifier (':' type)?)? block
     ///
-    /// \details forms: `catch { }` (bare), `catch e { }` (binding only),
-    ///          `catch e: Type { }` (binding + filter). Returns an arm with a
-    ///          null body on parse failure.
+    /// forms: `catch { }` (bare), `catch e { }` (binding only),
+    /// `catch e: Type { }` (binding + filter). Returns an arm with a
+    /// null body on parse failure.
     priv fn _parse_catch_arm(self) -> Statements::CatchArm {
         var result = Statements::CatchArm{}
         result.filter  = &null
@@ -2304,8 +2311,8 @@ pub class <T: type> StmtParse {
         return result
     }
 
-    /// \brief parses a standalone finally statement.
-    ///  Grammar:  'finally' block
+    /// parses a standalone finally statement.
+    /// Grammar:  'finally' block
     priv fn _parse_finally(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `finally`
@@ -2335,13 +2342,13 @@ pub class <T: type> StmtParse {
 
     //  Unsafe / eval blocks
 
-    /// \brief parses an unsafe block.
-    ///  Grammar:  'unsafe' block
+    /// parses an unsafe block.
+    /// Grammar:  'unsafe' block
     ///
-    /// \details precondition: current is `unsafe`, peek is `{` (the dispatcher
-    ///          checked). Pushes a Block scope via parse_compound; the unsafe
-    ///          context itself (AMT suspension) is a sema concern keyed on the
-    ///          node kind.
+    /// precondition: current is `unsafe`, peek is `{` (the dispatcher
+    /// checked). Pushes a Block scope via parse_compound; the unsafe
+    /// context itself (AMT suspension) is a sema concern keyed on the
+    /// node kind.
     priv fn _parse_unsafe_block(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `unsafe`
@@ -2356,13 +2363,13 @@ pub class <T: type> StmtParse {
         return node
     }
 
-    /// \brief parses a decl-only eval block.
-    ///  Grammar:  'eval' '{' decl* '}'
+    /// parses a decl-only eval block.
+    /// Grammar:  'eval' '{' decl* '}'
     ///
-    /// \details precondition: current is `eval`, peek is `{`. Only declarations
-    ///          are legal inside; a non-decl statement is a sema error (the
-    ///          parser still consumes it for recovery, but only decls are
-    ///          retained in the body list).
+    /// precondition: current is `eval`, peek is `{`. Only declarations
+    /// are legal inside; a non-decl statement is a sema error (the
+    /// parser still consumes it for recovery, but only decls are
+    /// retained in the body list).
     priv fn _parse_eval_block(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         self.dyn()->advance(T::SkipNL::After) // consume `eval`
@@ -2433,8 +2440,8 @@ pub class <T: type> StmtParse {
 
     //  label! / jump! intrinsics
 
-    /// \brief parses a label intrinsic, or a jump intrinsic when \p is_jump.
-    ///  Grammar:  ('label' | 'jump') '!' '(' identifier ')'
+    /// parses a label intrinsic, or a jump intrinsic when `is_jump`.
+    /// Grammar:  ('label' | 'jump') '!' '(' identifier ')'
     priv fn _parse_label_jump(self, is_jump: bool) -> unsafe *Stmt {
         var word:       string = if (is_jump) => ("jump") else => "label"
         var noun:       string = if (is_jump) => ("target") else => "label"
@@ -2503,14 +2510,14 @@ pub class <T: type> StmtParse {
 
     //  Inline foreign block
 
-    /// \brief parses an inline foreign block.
-    ///  Grammar:  'inline' string_literal '{' <opaque> '}'
+    /// parses an inline foreign block.
+    /// Grammar:  'inline' string_literal '{' <opaque> '}'
     ///
-    /// \details the language is taken from the string literal ("asm"/"c"/"c++").
-    ///          The body is opaque to the Kairo parser; we record only the span
-    ///          between the braces and skip the raw tokens with brace-balanced
-    ///          counting. The lexer is expected to have tokenized the body as a
-    ///          raw run; here we balance braces to find the matching `}`.
+    /// the language is taken from the string literal ("asm"/"c"/"c++").
+    /// The body is opaque to the Kairo parser; we record only the span
+    /// between the braces and skip the raw tokens with brace-balanced
+    /// counting. The lexer is expected to have tokenized the body as a
+    /// raw run; here we balance braces to find the matching `}`.
     ///
     ///          Only `inline "asm"` is part of the language. Every other
     ///          language, `"c++"` and `"c"` above all, is S095E here, once,
@@ -2618,11 +2625,12 @@ pub class <T: type> StmtParse {
         return node
     }
 
-    /// \brief maps an inline-block or ffi language string token to FFILang.
-    /// \details recognizes "asm", "c", "c++". Unrecognized strings are reported
-    ///          with a diagnostic; sema makes the final call. A prefixed
-    ///          string is reported (S064E after `ffi`, S060E after `inline`)
-    ///          and classified by its text, so nothing cascades.
+    /// maps an inline-block or ffi language string token to FFILang.
+    ///
+    /// recognizes "asm", "c", "c++". Unrecognized strings are reported
+    /// with a diagnostic; sema makes the final call. A prefixed
+    /// string is reported (S064E after `ffi`, S060E after `inline`)
+    /// and classified by its text, so nothing cascades.
     pub fn parse_ffi_lang(self,
                           raw:       Token,
                           rng:       SourceRange,
@@ -2692,11 +2700,11 @@ pub class <T: type> StmtParse {
 
     //  Labeled loop
 
-    /// \brief parses a labeled loop statement.
-    ///  Grammar:  identifier ':' (while_stmt | ranged_for | indexed_for | loop_stmt)
+    /// parses a labeled loop statement.
+    /// Grammar:  identifier ':' (while_stmt | ranged_for | indexed_for | loop_stmt)
     ///
-    /// \details precondition: current is an identifier, peek is `:`. Only loops
-    ///          may be labeled; labeling any other statement is reported.
+    /// precondition: current is an identifier, peek is `:`. Only loops
+    /// may be labeled; labeling any other statement is reported.
     priv fn _parse_labeled_stmt(self) -> unsafe *Stmt {
         var start_range = self.dyn()->current_ptr()->range
         var label       = self.dyn()->current()
@@ -2741,11 +2749,12 @@ pub class <T: type> StmtParse {
 
     //  Recovery
 
-    /// \brief consumes tokens until a statement boundary or a stop delimiter.
-    /// \details delimiter-aware: tracks ()/[]/{} depth so it does not stop on a
-    ///          closer that belongs to a nested construct. Stops at depth 0 on
-    ///          a statement terminator (newline / `;`), a `}` (end of block), a
-    ///          statement lead-in keyword, or EOF. Capped at MAX_SYNC tokens.
+    /// consumes tokens until a statement boundary or a stop delimiter.
+    ///
+    /// delimiter-aware: tracks ()/[]/{} depth so it does not stop on a
+    /// closer that belongs to a nested construct. Stops at depth 0 on
+    /// a statement terminator (newline / `;`), a `}` (end of block), a
+    /// statement lead-in keyword, or EOF. Capped at MAX_SYNC tokens.
     fn _sync_stmt(self, ctx: Self::StmtSyncCtx, paren_depth: i32) {
         var   balance_paren:   i32 = paren_depth
         var   balance_square:  i32 = 0

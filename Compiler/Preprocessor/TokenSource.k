@@ -34,10 +34,9 @@ import Token::Token::Token
 import Token::TokenBuffer::TokenBuffer
 import Token::TokenKind::TokenKind
 
-/// \struct InvokeHop
-/// \brief one active splice frame's contribution to a token's macro-origin
-///        chain: where that level was invoked, and which macro produced it.
-///        OUTERMOST-first order (see TokenSource::next_with_origin).
+/// one active splice frame's contribution to a token's macro-origin
+/// chain: where that level was invoked, and which macro produced it.
+/// OUTERMOST-first order (see TokenSource::next_with_origin).
 pub struct InvokeHop {
     var loc:  SourceRange
     var name: SymbolID
@@ -97,9 +96,11 @@ pub class TokenSource {
         self._ring.reserve(4)
     }
 
-    /// \param max_token_count 0 = unlimited. \param diag used to report S065E once,
-    ///        past the cap; pass &null (the other ctor) to enforce nothing, as the
-    ///        DAG scanner's scan-only pass does its budget belongs to the real walk.
+    /// ### Parameters
+    /// - `max_token_count`: 0 = unlimited.
+    /// - `diag`: used to report S065E once,
+    ///   past the cap; pass &null (the other ctor) to enforce nothing, as the
+    ///   DAG scanner's scan-only pass does its budget belongs to the real walk.
     fn TokenSource(self, lexer: unsafe *Lexer, max_token_count: i32, diag: unsafe *DiagEngine) {
         self._lexer           = lexer
         self._max_token_count = max_token_count
@@ -124,7 +125,7 @@ pub class TokenSource {
         self._drop_comments = !on
     }
 
-    /// Read frame 0 from \p toks -- every token the lexer produced for the
+    /// Read frame 0 from `toks` -- every token the lexer produced for the
     /// file, its TkEof last -- instead of from the lexer. A file on an import
     /// cycle is lexed once and walked twice (PreProcessor::_prelex_cycles):
     /// first for its macro definitions, then for real. Call before the first
@@ -139,7 +140,7 @@ pub class TokenSource {
         self._replay_at = 0
     }
 
-    /// Debug builds: \p what changes how frame 0 is read, which only means
+    /// Debug builds: `what` changes how frame 0 is read, which only means
     /// something before its first token was pulled.
     priv fn _check_unpulled(self, const what: string) {
         if self._pulled_count != 0 || self._eof_seen {
@@ -151,13 +152,14 @@ pub class TokenSource {
 
     /// # frame stack (== expansion chain)
 
-    /// \param parent_chain the chain to inherit, captured by the CALLER at
-    ///        invocation-DETECTION time (InvocationInfo.parent_chain), not
-    ///        derived here from `self._frames`. By the time push_splice runs
-    ///        (end of _expand, after its own depth()/budget checks), an
-    ///        exhausted parent frame may already have been popped by one of
-    ///        THOSE checks reading self._frames here would silently lose it.
-    ///        See TokenSource::current_chain / PPWalker::_detect_invocation.
+    /// ### Parameters
+    /// - `parent_chain`: the chain to inherit, captured by the CALLER at
+    ///   invocation-DETECTION time (InvocationInfo.parent_chain), not
+    ///   derived here from `self._frames`. By the time push_splice runs
+    ///   (end of _expand, after its own depth()/budget checks), an
+    ///   exhausted parent frame may already have been popped by one of
+    ///   THOSE checks reading self._frames here would silently lose it.
+    ///   See TokenSource::current_chain / PPWalker::_detect_invocation.
     fn push_splice(self,
                    tokens:             unsafe *(TokenBuffer<512>),
                    name:               SymbolID,
@@ -248,9 +250,9 @@ pub class TokenSource {
         return SourceRange::invalid()
     }
 
-    /// \brief the chain a NEW push_splice, called right now, should inherit as
-    ///        its parent: the current top frame's own already-resolved chain,
-    ///        or empty if no frame is active.
+    /// the chain a NEW push_splice, called right now, should inherit as
+    /// its parent: the current top frame's own already-resolved chain,
+    /// or empty if no frame is active.
     ///
     ///        Deliberately does NOT call _pop_dead() first: this is meant to
     ///        be read at invocation-DETECTION time (PPWalker::_detect_invocation,
@@ -271,8 +273,8 @@ pub class TokenSource {
         }
     }
 
-    /// \brief like next(), but ALSO returns the pulled token's full macro-origin
-    ///        chain (empty for a frame-0/non-macro token).
+    /// like next(), but ALSO returns the pulled token's full macro-origin
+    /// chain (empty for a frame-0/non-macro token).
     ///
     ///        Reads the TOP frame's `chain` field, which push_splice already
     ///        resolved in full at push time -- NOT a live walk of `_frames`.
@@ -403,10 +405,11 @@ pub class TokenSource {
         return self._ring[n]
     }
 
-    /// \brief true when `peek(n)` would look past the end of the active
-    ///        splice frame, where it answers TkUnknown forever.
-    /// \details a scan that stops only on TkEof never ends inside a frame:
-    ///          an unclosed `m!(` in a macro body spun _detect_invocation.
+    /// true when `peek(n)` would look past the end of the active
+    /// splice frame, where it answers TkUnknown forever.
+    ///
+    /// a scan that stops only on TkEof never ends inside a frame:
+    /// an unclosed `m!(` in a macro body spun _detect_invocation.
     fn peek_leaves_frame(self, n: usize) -> bool {
         self._pop_dead()
         if self._frames.size() == 0 {

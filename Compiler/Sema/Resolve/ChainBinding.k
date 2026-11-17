@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------ Sema/Resolve/ChainBinding.k --- ///
 ///
-///   \brief Bind every chain step: `a.b`, `p->x`, `Foo::Bar`, `m::f`.
+/// Bind every chain step: `a.b`, `p->x`, `Foo::Bar`, `m::f`.
 ///
 ///   \detail
 ///     N binds the HEAD of a chain (an ordinary unqualified name) and hands
@@ -135,8 +135,7 @@ import Token::TokenKind::{
     token_kind_to_readable_string,
 }
 
-/// \enum AnchorKind
-/// \brief What the LEFT side of a step denotes.
+/// What the LEFT side of a step denotes.
 pub enum AnchorKind derives u8 {
     Module = 0,     ///< a module/TU scope: `::` steps do plain table lookup.
     Type,           ///< a type: `::` steps do member lookup (statics, nested, variants).
@@ -146,7 +145,6 @@ pub enum AnchorKind derives u8 {
     Errored,        ///< already diagnosed; stay silent.
 }
 
-/// \class Anchor
 pub class Anchor {
     pub var kind: AnchorKind = AnchorKind::Errored
     /// Module: every scope the base denotes. More than one when a name is
@@ -657,7 +655,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
     }
 
-    /// _type_anchor for a member type reached through \p through (`::P` on
+    /// _type_anchor for a member type reached through `through` (`::P` on
     /// the type anchor `L<i32>`): seen through it, `L<i32>::P` (GH#91),
     /// rather than the pattern's P.
     priv fn _type_anchor_seen(self, d: unsafe *Decl, through: unsafe *Type) -> Anchor {
@@ -794,7 +792,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// uses the SAME binder rather than a copy of it, which is the whole reason
     /// these three are public.
 
-    /// Bind one `::`/`.` step against \p a, exactly as run() would.
+    /// Bind one `::`/`.` step against `a`, exactly as run() would.
     /// PRE: prepare() has been called on this instance.
     fn bind_step(self,
                  chain:   unsafe *ChainExpr,
@@ -806,7 +804,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return r
     }
 
-    /// Anchor for a value of canonical type \p canonical. \p d is optional and
+    /// Anchor for a value of canonical type `canonical`. `d` is optional and
     /// only feeds diagnostics ("declared here").
     fn anchor_for_value(self, d: unsafe *Decl, canonical: unsafe *Type) -> Anchor {
         return self._value_anchor_from(d, canonical)
@@ -1241,7 +1239,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return self._commit(st, loc, unsafe &cands, owner, &null, ty)
     }
 
-    /// The object a `.` / `->` step on \p a reads is const: \p a's own cv,
+    /// The object a `.` / `->` step on `a` reads is const: `a`'s own cv,
     /// read through a C++ reference, or its pointee's after an arrow.
     priv fn _object_const(self, const a: Anchor, st: unsafe *ChainExpr::Step) -> bool {
         var unsafe *t = a.ty
@@ -1274,7 +1272,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return p != &null && isa<PointerType>(p)
     }
 
-    /// Binds \p st, a name \p ty lacks, to the member \p hop found on a
+    /// Binds `st`, a name `ty` lacks, to the member `hop` found on a
     /// conversion's result, and records the conversion on the step. Which
     /// conversion depends on the receiver's constness, which only the
     /// typer's anchor carries for every receiver: the declared-type walk
@@ -1362,9 +1360,9 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         )
     }
 
-    /// The record a `.`/`->`/`?.`/`?->` step actually reads from: \p a's
+    /// The record a `.`/`->`/`?.`/`?->` step actually reads from: `a`'s
     /// canonical with a C++ reference, the `?` of a maybe-separator and the
-    /// pointer of an arrow peeled off. Null unless \p a is a Value anchor,
+    /// pointer of an arrow peeled off. Null unless `a` is a Value anchor,
     /// and null when the separator does not fit (an arrow on a non-pointer,
     /// a dot on a pointer); _bind_step diagnoses those. Shared with the
     /// idempotent re-run in traverse_chain_expr so the receiver a field is
@@ -1412,10 +1410,10 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return ty
     }
 
-    /// `x.copy()` where \p ty, the type of `x`, has no member `copy`: the
-    /// Copyable lang item's requirement goes in \p out, which a COPY type
+    /// `x.copy()` where `ty`, the type of `x`, has no member `copy`: the
+    /// Copyable lang item's requirement goes in `out`, which a COPY type
     /// meets through its copy constructor. Bound for every concrete type;
-    /// whether \p ty is COPY is ConformanceChecking's to say at the call
+    /// whether `ty` is COPY is ConformanceChecking's to say at the call
     /// (_check_copy_call), once the lifecycle facts are known, and its error
     /// names what the type lacks. Not for a dependent type, whose category
     /// is its instance's: a bounded parameter reads `copy` off its bound.
@@ -1462,7 +1460,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         )
     }
 
-    /// `.copy()` on a \p ty that depends on a type parameter and has no
+    /// `.copy()` on a `ty` that depends on a type parameter and has no
     /// member `copy`, with the Copyable lang item declared: the one miss
     /// _copyable_member leaves, which has its own message.
     priv fn _copy_of_dependent(self, ty: unsafe *Type, const spelled: string) -> bool {
@@ -1477,7 +1475,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return f"no member named 'copy' in '{tn}': '.copy()' through a copy constructor is not available on a type that depends on a type parameter; write 'copy(x)', whose bound each instance checks"
     }
 
-    /// \p st is bound to the Copyable lang item's `copy`: on a bounded
+    /// `st` is bound to the Copyable lang item's `copy`: on a bounded
     /// parameter through its bound, on any other type by _copyable_member.
     /// CallTyping asks: `p.copy()` on a pointer has the pointer as `Self`.
     fn binds_lang_copy(self, st: unsafe *ChainExpr::Step) -> bool {
@@ -1494,7 +1492,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return owner != &null && NameLookup::representative(owner) == NameLookup::representative(cd)
     }
 
-    /// \p st is bound to a member an `extend T?` declares: a member of the
+    /// `st` is bound to a member an `extend T?` declares: a member of the
     /// nullable itself, so a `.` on it reads no value. MemberTyping
     /// asks before it narrows a nullable receiver or reports it unchecked.
     fn binds_nullable_member(self, st: unsafe *ChainExpr::Step) -> bool {
@@ -1523,8 +1521,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             && isa<NullableType>(canon_unqual(x->target->canonical))
     }
 
-    /// MemberTyping's question before it reads nullable receiver \p cur at
-    /// \p st: is the step a member of `extend T?`? A step this binder left
+    /// MemberTyping's question before it reads nullable receiver `cur` at
+    /// `st`: is the step a member of `extend T?`? A step this binder left
     /// unbound (a field path, `h.n.f()`) is bound here first, on the
     /// nullable, when such an extension declares the name.
     fn nullable_member_step(self,
@@ -1770,8 +1768,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// Everything below is the middle case doing real work; the other two are
     /// one branch each.
 
-    /// \class ParamBounds
-    /// \brief What a generic parameter's declaration lets a body see.
+    /// What a generic parameter's declaration lets a body see.
     class ParamBounds {
         pub var duck:       bool                                   = false ///< `: type`: defer everything.
         pub var interfaces: cxx::std::vector<unsafe *Decl> ///< `impl I` bounds.
@@ -1800,7 +1797,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return gps[g->param_index as usize]
     }
 
-    /// The bounds \p gp's declaration promised. The requires clause is the
+    /// The bounds `gp`'s declaration promised. The requires clause is the
     /// SINGLE source of truth for conformance: RequiresDesugar hoisted every
     /// inline `impl`/`derives` into it and cleared the inline lists, and
     /// ConstraintExtraction filed the partition in sc->bounds. Only the kind
@@ -1966,7 +1963,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return n
     }
 
-    /// \p e0 holds `typeof P` with P a generic parameter.
+    /// `e0` holds `typeof P` with P a generic parameter.
     priv fn _typeof_param(self, e0: unsafe *Expr) -> bool {
         var unsafe *e = strip_parens(e0)
 
@@ -1997,7 +1994,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return false
     }
 
-    /// Pushes each `P impl I` conjunct of \p e0 whose P is a generic
+    /// Pushes each `P impl I` conjunct of `e0` whose P is a generic
     /// parameter and whose I names a record.
     priv fn _narrow_from(self, e0: unsafe *Expr) {
         var unsafe *e = strip_parens(e0)
@@ -2040,7 +2037,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         self._narrowed.push_back(Narrowing(gp, d))
     }
 
-    /// Whether conjunct \p c constrains \p gp. The lhs is an ordinary
+    /// Whether conjunct `c` constrains `gp`. The lhs is an ordinary
     /// identifier N bound like any other, so this is a pointer compare and not
     /// a name compare: `fn <T> f() requires T impl I` inside `class <T> C`
     /// constrains the FUNCTION's T, and the two T are different entities.
@@ -2059,7 +2056,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return id->resolved_decl == gp
     }
 
-    /// Whether clause conjunct \p c constrains \p gp: the same declaration,
+    /// Whether clause conjunct `c` constrains `gp`: the same declaration,
     /// or the same slot of the same owner seen through a redeclaration.
     priv fn _clause_on(self,
                        c:  unsafe *ConstraintExpr,
@@ -2093,7 +2090,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             )
     }
 
-    /// The record decl of canonical \p c0, or null.
+    /// The record decl of canonical `c0`, or null.
     priv fn _record_decl_of_canon(self, c0: unsafe *Type) -> unsafe *Decl {
         var unsafe *c = canon_unqual(c0)
         if c == &null || !isa<RecordType>(c) {
@@ -2246,7 +2243,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return self._bind_through_bounds(st, a, unsafe &b, pname, at, loc)
     }
 
-    /// \p gp is a base of the class that declares it (`class <A derives
+    /// `gp` is a base of the class that declares it (`class <A derives
     /// Base> Hooked derives A`).
     priv fn _is_own_base(self, gp: unsafe *Declarations::GenericParamDecl) -> bool {
         if gp == &null || gp->owner == &null {
@@ -2276,8 +2273,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return false
     }
 
-    /// The member \p st names among bounds \p b (a parameter's, or an
-    /// associated type's own), \p pname spelling what they bound.
+    /// The member `st` names among bounds `b` (a parameter's, or an
+    /// associated type's own), `pname` spelling what they bound.
     priv fn _bind_through_bounds(self,
                                  st:          unsafe *ChainExpr::Step,
                                  const a:     Anchor,
@@ -2397,7 +2394,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return self._commit(st, loc, unsafe &cands, self._bound_owner(b), &null)
     }
 
-    /// Whether \p d is reachable through `::`: a static fn, a static field or
+    /// Whether `d` is reachable through `::`: a static fn, a static field or
     /// variable, or a nested type. Mirrors NameResolution's static/instance
     /// split (a FunctionDecl that is not a method is static).
     priv fn _is_scope_member(self, d: unsafe *Decl) -> bool {
@@ -2469,7 +2466,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return owner
     }
 
-    /// The first member step through `: type` parameter \p gp. Its presence
+    /// The first member step through `: type` parameter `gp`. Its presence
     /// is what tells FlagGates that deleting the bound would turn this body
     /// into an R051E (an opaque `T` has no members), so the fix-it is off.
     priv fn _note_duck_use(self, gp: unsafe *Declarations::GenericParamDecl, at: SourceRange) {
@@ -2507,7 +2504,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         self._err(id, at, msg)
     }
 
-    /// R025E for a member lookup miss on \p ty. When an `extend` of the type
+    /// R025E for a member lookup miss on `ty`. When an `extend` of the type
     /// in a file this TU does not import declares the name, the miss is the
     /// extension-visibility rule (MemberLookup::extension_visible), so say
     /// which file and offer the import.
@@ -2611,8 +2608,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         b.emit()
     }
 
-    /// The miss of \p name on \p ty is a specialization's: its members are
-    /// the specialization's own, and the primary declares \p name. Says so,
+    /// The miss of `name` on `ty` is a specialization's: its members are
+    /// the specialization's own, and the primary declares `name`. Says so,
     /// at the member and at the specialization: a `View<const T>` that
     /// declares only the read members is how a type takes its mutators away
     /// from a const element, and "no member" alone reads as a typo.
@@ -2672,7 +2669,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return c->tu
     }
 
-    /// The file \p from_fid (a module.k) re-exports \p target through a
+    /// The file `from_fid` (a module.k) re-exports `target` through a
     /// chain of `pub import`s, the only edges that carry a file to an
     /// importer outside the module.
     priv fn _pub_reaches(self, from_fid: u32, target: u32) -> bool {
@@ -2717,7 +2714,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return false
     }
 
-    /// The fix-it that adds \p line to \p tu's file: on a new line after
+    /// The fix-it that adds `line` to `tu`'s file: on a new line after
     /// the import that ends last in the text, or, in a file with none,
     /// after the comment block it opens with. Not after the last entry of
     /// tu->imports: that list is not in source order, and its tail holds
@@ -2813,7 +2810,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         b->insert(sm->get_loc(fid, 0), line + "\n", f"add \x27{line}\x27")
     }
 
-    /// The `a::b::c` that imports file \p to from \p from's directory, or
+    /// The `a::b::c` that imports file `to` from `from`'s directory, or
     /// "" when it is not under it (then no fix-it: a search-root spelling
     /// would be a guess).
     priv fn _import_spelling(self, const from: Path, const to: Path) -> string {
@@ -2901,7 +2898,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
     }
 
-    /// The builtin type \p id names when \p n's first step is a `::` to a
+    /// The builtin type `id` names when `n`'s first step is a `::` to a
     /// member an extension of it declares, visible here; null otherwise.
     priv fn _primitive_static_head(self,
                                    id: unsafe *NamedIdentExpr,

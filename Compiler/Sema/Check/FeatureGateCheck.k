@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------------- Sema/Check/FeatureGateCheck.k --- ///
 ///
-///   \brief Reports constructs that type-check but have no lowering yet,
-///          as one error each: "<construct> is not yet supported" (SC116E).
+/// Reports constructs that type-check but have no lowering yet,
+/// as one error each: "<construct> is not yet supported" (SC116E).
 ///
 ///   \detail
 ///     A lowering pass has no diagnostics of its own: by the time it runs,
@@ -136,8 +136,8 @@ import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 
-/// The first generic parameter \p local names that belongs to a declaration
-/// AROUND it, not to \p local or to anything declared in it. Types (a
+/// The first generic parameter `local` names that belongs to a declaration
+/// AROUND it, not to `local` or to anything declared in it. Types (a
 /// written `T`, `*T`, `Box<T>`: every node the walk reaches, by its
 /// canonical) and value parameters (a bare `N`) both count.
 pub class OuterGenericScan derives RecursiveASTVisitor<OuterGenericScan> {
@@ -146,7 +146,7 @@ pub class OuterGenericScan derives RecursiveASTVisitor<OuterGenericScan> {
 
     fn OuterGenericScan(self) { }
 
-    /// \p owner is \p local itself or declared somewhere inside it.
+    /// `owner` is `local` itself or declared somewhere inside it.
     priv fn _inside(self, owner: unsafe *Decl) -> bool {
         var unsafe *d = owner
         while d != &null {
@@ -628,8 +628,8 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
         return true
     }
 
-    /// Reports \p t when it names an interface as a value type. \p d is the
-    /// declaration \p t is written on, or null for an expression's type
+    /// Reports `t` when it names an interface as a value type. `d` is the
+    /// declaration `t` is written on, or null for an expression's type
     /// argument.
     priv fn _no_interface_type(self, d: unsafe *Decl, t: unsafe *Type) {
         if t == &null || t->is_poisoned() || t->canonical == &null || !t->range.is_valid() {
@@ -674,8 +674,8 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
         b.emit()
     }
 
-    /// The interface \p c names as a value type, looking through pointers
-    /// (\p via_ptr set), nullables, arrays and generic arguments.
+    /// The interface `c` names as a value type, looking through pointers
+    /// (`via_ptr` set), nullables, arrays and generic arguments.
     priv fn _interface_in(self,
                           c0:      unsafe *Type,
                           depth:   u32,

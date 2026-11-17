@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------ Sema/Expand/DeclaredQuery.k --- ///
 ///
-///   \brief `__builtin_is_declared<P>()`: whether the path P names a
-///          declaration in the scope the call is written in.
+/// `__builtin_is_declared<P>()`: whether the path P names a
+/// declaration in the scope the call is written in.
 ///
 ///   \detail
 ///     The one query whose operand may fail to resolve: every other one
@@ -96,8 +96,7 @@ import Sema::SemaContext::SemaContext
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
-/// \class DeclaredQuery
-/// \brief The form and the lookup of one `__builtin_is_declared<P>()`.
+/// The form and the lookup of one `__builtin_is_declared<P>()`.
 pub class DeclaredQuery {
     pub var sc: unsafe *SemaContext
     /// The last resolve() missed only because every declaration a step
@@ -119,7 +118,7 @@ pub class DeclaredQuery {
         return imms != &null && imms->find_ident(declared_query_name()) != u32::MAX
     }
 
-    /// \p e as a `__builtin_is_declared...(...)` call, parentheses dropped,
+    /// `e` as a `__builtin_is_declared...(...)` call, parentheses dropped,
     /// or null. Only the callee's spelling decides: the name is reserved
     /// (the `__builtin_` prefix), so no declaration can be meant.
     fn call_of(self, e: unsafe *Expr) -> unsafe *CallExpr {
@@ -145,11 +144,11 @@ pub class DeclaredQuery {
         return c
     }
 
-    /// The path \p c asks about, as its segments' spellings, into \p segs.
+    /// The path `c` asks about, as its segments' spellings, into `segs`.
     /// False, with SC341E, when the call is not `__builtin_is_declared<P>()`
-    /// with one path P of plain names. \p primitive is set when P is a
+    /// with one path P of plain names. `primitive` is set when P is a
     /// primitive type's keyword, which names no declaration and is always
-    /// there (\p segs is then empty).
+    /// there (`segs` is then empty).
     fn path_of(self,
                c:                unsafe *CallExpr,
                segs:             unsafe *cxx::std::vector<string>,
@@ -222,10 +221,10 @@ pub class DeclaredQuery {
         b.emit()
     }
 
-    /// The declarations the path \p segs names when looked up from \p from
-    /// (a scope of any TU; its own TU's overlay answers last), into \p out.
+    /// The declarations the path `segs` names when looked up from `from`
+    /// (a scope of any TU; its own TU's overlay answers last), into `out`.
     /// False when a step names nothing. No diagnostic either way.
-    /// \p dropped: declarations to read as absent (EvalIfFolding's untaken
+    /// `dropped`: declarations to read as absent (EvalIfFolding's untaken
     /// branches), or null.
     fn resolve(self,
                from:       unsafe *DeclContext,
@@ -258,7 +257,7 @@ pub class DeclaredQuery {
         return self.resolve_from(unsafe &cur, segs, 1, dropped, out)
     }
 
-    /// resolve() from step \p at on, \p cur being what the steps before it
+    /// resolve() from step `at` on, `cur` being what the steps before it
     /// named.
     fn resolve_from(self,
                     cur:        unsafe *cxx::std::vector<unsafe *Decl>,
@@ -331,7 +330,7 @@ pub class DeclaredQuery {
         return true
     }
 
-    /// \p d is more than a name to point at. A class, struct or union that
+    /// `d` is more than a name to point at. A class, struct or union that
     /// is only forward-declared (`class basic_string;` in `<iosfwd>`, a
     /// Kairo `struct Node`) is declared in the letter and useless in
     /// practice: it has no size, no members and no constructor, so code
@@ -387,7 +386,7 @@ pub class DeclaredQuery {
         return true
     }
 
-    /// The cell of the name spelled \p nm in the one scope \p dc, whichever
+    /// The cell of the name spelled `nm` in the one scope `dc`, whichever
     /// TU owns it: a scope's table is keyed by its own TU's interner, so the
     /// spelling is looked up there.
     priv fn _in(self, dc: unsafe *DeclContext, const nm: string) -> unsafe *OverloadCell {
@@ -412,9 +411,9 @@ pub class DeclaredQuery {
         return r.cell
     }
 
-    /// \p cell's declarations that exist, appended to \p out: not null, not
-    /// in \p dropped. False when none is, or when every one that is sits in
-    /// an undecided `eval if` branch and \p dropped is given (a condition
+    /// `cell`'s declarations that exist, appended to `out`: not null, not
+    /// in `dropped`. False when none is, or when every one that is sits in
+    /// an undecided `eval if` branch and `dropped` is given (a condition
     /// being folded: `pending` is then set, and it waits).
     priv fn _live(self,
                   cell:    unsafe *OverloadCell,
@@ -475,7 +474,7 @@ pub class DeclaredQuery {
     }
 
     /// resolve() over every C++ header of the build instead of one file's
-    /// scope: the declarations \p segs names in any header some file of
+    /// scope: the declarations `segs` names in any header some file of
     /// the build imports. `cxx` has one member, C++'s `std`; any other head
     /// is a name a header declares at its top level, as a bare ffi import
     /// folds it into the importing file's scope. Header declarations are
@@ -547,7 +546,7 @@ pub class DeclaredQuery {
         )
     }
 
-    /// The conditional extension \p e exists in this TU: every path its
+    /// The conditional extension `e` exists in this TU: every path its
     /// clause asks about names, from this file's scope, one of the
     /// declarations it named for the extension's own file. Identity, not
     /// only presence: the extension's signatures were resolved against
@@ -629,7 +628,7 @@ pub class DeclaredQuery {
         return out
     }
 
-    /// SC342E at \p c: the query cannot be asked where it is written.
+    /// SC342E at `c`: the query cannot be asked where it is written.
     fn refuse(self, c: unsafe *Expr, const why: string) {
         var b = self.sc->diag->report(
             DiagID::SC342E,
@@ -642,9 +641,8 @@ pub class DeclaredQuery {
     }
 }
 
-/// \class DeclaredQueryFolding
-/// \brief Phase E, after EvalIfFolding: each `__builtin_is_declared<P>()`
-///        becomes its answer.
+/// Phase E, after EvalIfFolding: each `__builtin_is_declared<P>()`
+/// becomes its answer.
 pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
     pub var  sc: unsafe *SemaContext
     priv var _q: DeclaredQuery
@@ -884,7 +882,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
         return out
     }
 
-    /// The operands of \p e's `&&` tree, parentheses dropped.
+    /// The operands of `e`'s `&&` tree, parentheses dropped.
     priv fn _conjuncts(self, e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
         var unsafe *x = e
         while x != &null && isa<ParenExpr>(x) {
@@ -906,8 +904,8 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
         out->push_back(x)
     }
 
-    /// Bind each path of \p paths in the scope of the block \p n, to the
-    /// declarations of \p decls and to nothing else: `cxx::std::string`
+    /// Bind each path of `paths` in the scope of the block `n`, to the
+    /// declarations of `decls` and to nothing else: `cxx::std::string`
     /// becomes a module `cxx` holding a module `std` holding the one name
     /// `string`. A name beside it in the real namespace stays undeclared in
     /// the block, so the block resolves the same in every build where it
@@ -941,8 +939,8 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
         dc->set_symbols(nt)
     }
 
-    /// One level of _bind_paths: into \p tbl, every distinct step at depth
-    /// \p depth of the paths that start with \p prefix (their steps so far,
+    /// One level of _bind_paths: into `tbl`, every distinct step at depth
+    /// `depth` of the paths that start with `prefix` (their steps so far,
     /// each followed by `::`).
     priv fn _bind_level(self,
                         tbl:          unsafe *SymbolTable,
@@ -1062,7 +1060,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
         return BooleanLiteralExpr::create(self.ctx, n->range, value)
     }
 
-    /// \p c asks about a path the enclosing conditional extension's clause
+    /// `c` asks about a path the enclosing conditional extension's clause
     /// asks about.
     priv fn _in_gate(self, c: unsafe *CallExpr) -> bool {
         var unsafe *x = dyn_cast<Declarations::ExtensionDecl>(
@@ -1106,7 +1104,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
         return false
     }
 
-    /// \p e holds a query call, at any depth of `!`, `&&`, `||` and
+    /// `e` holds a query call, at any depth of `!`, `&&`, `||` and
     /// parentheses.
     priv fn _mentions(self, e: unsafe *Expr) -> bool {
         var unsafe *x = e

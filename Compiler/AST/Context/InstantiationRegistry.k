@@ -1,9 +1,9 @@
 /// --- The Kairo Project ---------- AST/Context/InstantiationRegistry.k --- ///
 ///
-///   \brief THE instantiation registry: (primary, canonical args) -> the decl
-///          that IS that instance. One per build, beside the canonical type
-///          store, for the same reason: RecordType::decl is a pointer identity
-///          and pointers only compare inside one domain.
+/// THE instantiation registry: (primary, canonical args) -> the decl
+/// that IS that instance. One per build, beside the canonical type
+/// store, for the same reason: RecordType::decl is a pointer identity
+/// and pointers only compare inside one domain.
 ///
 ///   \detail
 ///     Compiler/Spec/Pipeline.md hard invariant #12. A CONCRETE `Foo<i32>` has
@@ -132,12 +132,11 @@ import Location::SourceRange::SourceRange
 import Memory::ArenaAllocator::ArenaAllocator
 import Token::TokenKind::TokenKind
 
-/// \class ConformanceRow
-/// \brief `(conformer, interface)` and, for each of the interface's OWN
-///        requirements, the decl that implements it (Compiler/Spec/Generics.md#partial-selection, "The
-///        conformance table"). Sema records the decls and nothing else;
-///        EmitWitness decides from their spellings whether the row needs a
-///        specialization (Compiler/Spec/Witnesses.md#when-a-row-needs-a-specialization).
+/// `(conformer, interface)` and, for each of the interface's OWN
+/// requirements, the decl that implements it (Compiler/Spec/Generics.md#partial-selection, "The
+/// conformance table"). Sema records the decls and nothing else;
+/// EmitWitness decides from their spellings whether the row needs a
+/// specialization (Compiler/Spec/Witnesses.md#when-a-row-needs-a-specialization).
 ///
 ///   Kept here, beside the instances, for the reason the registry is one
 ///   per build: a row TU A found is the row every TU holding the same
@@ -217,7 +216,7 @@ pub class ConformanceRow {
     pub var clash:  unsafe *ConformanceRow = &null
     pub fn ConformanceRow(self) { }
 
-    /// Witness \p i's extension arguments, appended to \p out.
+    /// Witness `i`'s extension arguments, appended to `out`.
     pub fn ext_args_of(self, i: usize, @inout out: cxx::std::vector<unsafe *Type>) {
         var at: usize = 0
         for var k: usize = 0; k < i && k < self.ext_arg_count.size(); ++k {
@@ -235,20 +234,19 @@ pub class ConformanceRow {
 }
 
 /// One step of a `requires` clause evaluated by InstantiationRegistry
-/// (requires_holds): \p v when \p known.
+/// (requires_holds): `v` when `known`.
 pub struct PartialPredValue {
     pub var known: bool = false
     pub var v:     i64  = 0
 }
 
-/// \enum InstanceLatch
-/// \brief An InstanceEntry's one-shot facts: each goes true once per build,
-///        for the first claimant only (InstantiationRegistry::claim). T and
-///        the driver's Conformance meet the same build-wide entry, so a plain
-///        check-then-set let two of them both report SC157E / SC158E, or both
-///        compute its panic facts. Every claim is the driver's, in group
-///        order: a parallel T front only records the mention, and the driver
-///        claims it at the group's turn (FrontendAction::_settle_once).
+/// An InstanceEntry's one-shot facts: each goes true once per build,
+/// for the first claimant only (InstantiationRegistry::claim). T and
+/// the driver's Conformance meet the same build-wide entry, so a plain
+/// check-then-set let two of them both report SC157E / SC158E, or both
+/// compute its panic facts. Every claim is the driver's, in group
+/// order: a parallel T front only records the mention, and the driver
+/// claims it at the group's turn (FrontendAction::_settle_once).
 pub enum InstanceLatch derives u8 {
     Ambiguity = 0, ///< ambiguity_reported: SC157E at a naming site.
     Undecided,     ///< undecided_reported: SC158E at a naming site.
@@ -256,19 +254,18 @@ pub enum InstanceLatch derives u8 {
     PanicDone,     ///< panic_done: PanicLowering computed its panic facts.
 }
 
-/// \enum InstLiveness
-/// \brief Where an InstanceEntry is in M1's discovery (Compiler/Spec/Generics.md#m1-enumeration):
-///        minted (nothing has needed it: a losing candidate's substitution,
-///        say, whose bounds must not be checked), live (a use needs it; its
-///        reach not walked yet: drain hands it out), walked (its reach is in
-///        the registry and bound-checked). Forward only, under the registry
-///        lock: mark_live, set_checked. The one way back is a live check's
-///        re-arm (Sema/Incremental/Retract.k), which runs with nothing else
-///        in flight. `depth` stays the chain length, nonzero exactly when
-///        the entry is past Minted (_check_live). `failed` is not a state of
-///        this: it is the bounds verdict, written by mark_failed only and
-///        read without the lock by Conformance, which mark_live must not
-///        race on the same byte.
+/// Where an InstanceEntry is in M1's discovery (Compiler/Spec/Generics.md#m1-enumeration):
+/// minted (nothing has needed it: a losing candidate's substitution,
+/// say, whose bounds must not be checked), live (a use needs it; its
+/// reach not walked yet: drain hands it out), walked (its reach is in
+/// the registry and bound-checked). Forward only, under the registry
+/// lock: mark_live, set_checked. The one way back is a live check's
+/// re-arm (Sema/Incremental/Retract.k), which runs with nothing else
+/// in flight. `depth` stays the chain length, nonzero exactly when
+/// the entry is past Minted (_check_live). `failed` is not a state of
+/// this: it is the bounds verdict, written by mark_failed only and
+/// read without the lock by Conformance, which mark_live must not
+/// race on the same byte.
 pub enum InstLiveness derives u8 {
     Minted = 0,
     Live,
@@ -283,11 +280,10 @@ pub enum AdtShape derives u8 {
     NicheFilled,
 }
 
-/// \class InstanceEntry
-/// \brief One concrete instance of a generic type. Both halves of "an
-///        instantiation" hang here: the CHECKING-side decl (what RecordType
-///        points at, what M2 fills) and the EMIT-side fact (the explicit
-///        instantiation directive EmitPlan writes, once, in `home_fid`).
+/// One concrete instance of a generic type. Both halves of "an
+/// instantiation" hang here: the CHECKING-side decl (what RecordType
+/// points at, what M2 fills) and the EMIT-side fact (the explicit
+/// instantiation directive EmitPlan writes, once, in `home_fid`).
 pub class InstanceEntry {
     pub var primary:     unsafe *Decl                   = &null ///< the primary's representative.
     pub var args:        cxx::std::vector<unsafe *Type> ///< canonical, parameter order, packs flat.
@@ -537,7 +533,7 @@ pub class InstantiationRegistry {
     }
 
     /// Get-or-create. On create, mints the implicit instantiation node.
-    /// \p ctx is the PRIMARY's context (NameLookup::ctx_of(primary)) -- the
+    /// `ctx` is the PRIMARY's context (NameLookup::ctx_of(primary)) -- the
     /// node's names are the primary's names, interned in the primary's TU.
     /// PRE: every arg canonical and non-dependent. Callers that cannot
     /// promise that (T on a dependent use) must not call this.
@@ -643,9 +639,9 @@ pub class InstantiationRegistry {
 
     /// # Partial specializations
 
-    /// \p spec is a REPRESENTATIVE: its parameters' GenericParamType owner
+    /// `spec` is a REPRESENTATIVE: its parameters' GenericParamType owner
     /// is that decl, and matching binds by owner identity. Entries already
-    /// minted for \p primary are re-selected: T registers a TU's specs before
+    /// minted for `primary` are re-selected: T registers a TU's specs before
     /// it resolves anything else in it, so a re-selection here only ever
     /// moves an instance no body has been typed against yet.
     pub fn register_partial(self, primary: unsafe *Decl, spec: unsafe *Decl) {
@@ -674,7 +670,7 @@ pub class InstantiationRegistry {
 
     /// # Function specializations in another module
 
-    /// \p spec specializes \p primary (a representative) from a module other
+    /// `spec` specializes `primary` (a representative) from a module other
     /// than the primary's. Idempotent.
     pub fn register_fn_spec(self, primary: unsafe *Decl, spec: unsafe *Decl) {
         if primary == &null || spec == &null {
@@ -698,8 +694,8 @@ pub class InstantiationRegistry {
         (*slot)->push_back(spec)
     }
 
-    /// Every specialization register_fn_spec recorded for \p primary, in
-    /// registration order, appended to \p out.
+    /// Every specialization register_fn_spec recorded for `primary`, in
+    /// registration order, appended to `out`.
     pub fn fn_specs_of(self, primary: unsafe *Decl, out: unsafe *cxx::std::vector<unsafe *Decl>) {
         if primary == &null || out == &null {
             return
@@ -726,8 +722,8 @@ pub class InstantiationRegistry {
         return it->second
     }
 
-    /// Every user-written specialization of \p primary, partial and
-    /// explicit, appended to \p out: partials in registration order, then
+    /// Every user-written specialization of `primary`, partial and
+    /// explicit, appended to `out`: partials in registration order, then
     /// the explicit ones in NO defined order (hash order, as collect()).
     /// EmitPlan declares them wherever it declares the primary -- a TU that
     /// sees `Store` but not `Store<bool>` would instantiate the primary for
@@ -755,8 +751,8 @@ pub class InstantiationRegistry {
         }
     }
 
-    /// The partial specialization of \p primary that \p args select, with
-    /// its parameters' bindings in \p out_args; null for the primary (none
+    /// The partial specialization of `primary` that `args` select, with
+    /// its parameters' bindings in `out_args`; null for the primary (none
     /// matched, or an ambiguity -- the instance path reports that one).
     /// For a DEPENDENT use (`Store<*P>` as an extension's receiver, a
     /// partial's own Self), which has no entry to cache on: the args'
@@ -779,9 +775,9 @@ pub class InstantiationRegistry {
     /// ## matching (under the lock; pure: reads canonical types only)
 
     /// C++ partial-specialization selection, simplified: every partial whose
-    /// pattern matches \p args, then the one strictly more specialized than
+    /// pattern matches `args`, then the one strictly more specialized than
     /// each other match ([temp.class.order]); two with no order between them
-    /// are ambiguous, reported through \p amb_a / \p amb_b. An IMPORTED
+    /// are ambiguous, reported through `amb_a` / `amb_b`. An IMPORTED
     /// primary's instances are clang's to fill, partial included
     /// (ForeignInstantiate), so it never selects here.
     priv fn _select(self,
@@ -894,8 +890,8 @@ pub class InstantiationRegistry {
         }
     }
 
-    /// \p spec's pattern against \p args; \p binds gets one type per
-    /// generic param of \p spec, all of them bound or the match fails (a
+    /// `spec`'s pattern against `args`; `binds` gets one type per
+    /// generic param of `spec`, all of them bound or the match fails (a
     /// parameter the pattern never names cannot be deduced, which C++
     /// rejects at the declaration).
     priv fn _matches(self,
@@ -933,7 +929,7 @@ pub class InstantiationRegistry {
         return true
     }
 
-    /// \p a is strictly more specialized than \p b: b's pattern matches a's
+    /// `a` is strictly more specialized than `b`: b's pattern matches a's
     /// (a's parameters standing as opaque types) and not the reverse. Two
     /// EQUIVALENT patterns are ordered by their constraints, [temp.constr.
     /// order] simplified to presence (Compiler/Spec/Generics.md#where-groups-on-generic-functions): the one with a
@@ -964,7 +960,7 @@ pub class InstantiationRegistry {
 
     /// ## requires-selected partials (Compiler/Spec/Generics.md#where-groups-on-generic-functions)
 
-    /// \p spec's `requires` clause at \p binds (its parameters' bindings):
+    /// `spec`'s `requires` clause at `binds` (its parameters' bindings):
     /// 1 holds, 0 does not, -1 undecidable here. No clause: 1. What this
     /// layer decides is pure and lock-free (it runs inside selection):
     /// integer and bool literals; `sizeof` / `alignof` of a builtin, a
@@ -1180,8 +1176,8 @@ pub class InstantiationRegistry {
         return out
     }
 
-    /// Size and alignment in bytes of \p t with \p spec's parameters read
-    /// through \p binds, for the types whose layout is target arithmetic
+    /// Size and alignment in bytes of `t` with `spec`'s parameters read
+    /// through `binds`, for the types whose layout is target arithmetic
     /// only (EnumLayoutQuery::size_of's first rows); false for anything
     /// else, records included.
     priv fn _layout(self,
@@ -1406,13 +1402,13 @@ pub class InstantiationRegistry {
 
     /// # Conformance rows
 
-    /// The row for (\p conformer, \p iface), or null if none was recorded.
+    /// The row for (`conformer`, `iface`), or null if none was recorded.
     pub fn row_find(self, conformer: unsafe *Type, iface: unsafe *Type) -> unsafe *ConformanceRow {
         var rlock = kairo::std::SharedLock(self._mu)
         return self._row_probe(conformer, iface)
     }
 
-    /// Record \p r (built by the caller, outside the lock) unless a row for
+    /// Record `r` (built by the caller, outside the lock) unless a row for
     /// its key already exists; either way returns THE row for the key, so
     /// two TUs that both built one agree on a single identity.
     pub fn row_add(self, r: unsafe *ConformanceRow) -> unsafe *ConformanceRow {
@@ -1435,8 +1431,8 @@ pub class InstantiationRegistry {
         return row
     }
 
-    /// Every table row whose conformer is \p conformer (canonically, either
-    /// side unqualified), in the order they were added, appended to \p out.
+    /// Every table row whose conformer is `conformer` (canonically, either
+    /// side unqualified), in the order they were added, appended to `out`.
     pub fn rows_of(self,
                    conformer: unsafe *Type,
                    out:       unsafe *cxx::std::vector<unsafe *ConformanceRow>) {
@@ -1458,7 +1454,7 @@ pub class InstantiationRegistry {
         }
     }
 
-    /// A copy of \p r that is NOT recorded: one TU's requirement match that
+    /// A copy of `r` that is NOT recorded: one TU's requirement match that
     /// must not become the table's row (it failed, or it clashes with the
     /// table's; ConformanceRow::hidden / clash). Lives as long as the table.
     pub fn row_detached(self, r: unsafe *ConformanceRow) -> unsafe *ConformanceRow {
@@ -1473,7 +1469,7 @@ pub class InstantiationRegistry {
         return row
     }
 
-    /// \p row is usable in TU \p fid (ConformanceRow::seen_by), once.
+    /// `row` is usable in TU `fid` (ConformanceRow::seen_by), once.
     pub fn row_mark_visible(self, row: unsafe *ConformanceRow, fid: u32) {
         if row == &null {
             return
@@ -1489,7 +1485,7 @@ pub class InstantiationRegistry {
         row->seen_by.push_back(fid)
     }
 
-    /// TU \p fid is already known to be able to use \p row.
+    /// TU `fid` is already known to be able to use `row`.
     pub fn row_visible_in(self, row: unsafe *ConformanceRow, fid: u32) -> bool {
         if row == &null {
             return false
@@ -1558,7 +1554,7 @@ pub class InstantiationRegistry {
         return row
     }
 
-    /// Record \p row as declared by \p by. Once per pair: a decl's TU
+    /// Record `row` as declared by `by`. Once per pair: a decl's TU
     /// checks it once, but a re-run must not double the list.
     pub fn declare_row(self, by: unsafe *Decl, row: unsafe *ConformanceRow) {
         if by == &null || row == &null {
@@ -1576,7 +1572,7 @@ pub class InstantiationRegistry {
         l->push_back(row)
     }
 
-    /// The rows \p by declared, in declaration order, appended to \p out.
+    /// The rows `by` declared, in declaration order, appended to `out`.
     pub fn declared_rows(self,
                          by:  unsafe *Decl,
                          out: unsafe *cxx::std::vector<unsafe *ConformanceRow>) {
@@ -1595,8 +1591,8 @@ pub class InstantiationRegistry {
         }
     }
 
-    /// \p inner is reached by \p outer's body (ConformanceChecking's reach).
-    /// Once per pair; \p inner keeps its first reacher. An instance that
+    /// `inner` is reached by `outer`'s body (ConformanceChecking's reach).
+    /// Once per pair; `inner` keeps its first reacher. An instance that
     /// reaches itself (`f<T>` calling `f<T>`) records nothing.
     pub fn add_reach(self, outer: unsafe *InstanceEntry, inner: unsafe *InstanceEntry) {
         if outer == &null || inner == &null || outer == inner {
@@ -1616,7 +1612,7 @@ pub class InstantiationRegistry {
         }
     }
 
-    /// \p e's reached instances, in reach order, appended to \p out. A copy:
+    /// `e`'s reached instances, in reach order, appended to `out`. A copy:
     /// a later TU's reach may still append to the entry's own list.
     pub fn reached_of(self,
                       e:   unsafe *InstanceEntry,
@@ -1631,7 +1627,7 @@ pub class InstantiationRegistry {
         }
     }
 
-    /// Union \p rows, what one TU's check of \p e found, into its
+    /// Union `rows`, what one TU's check of `e` found, into its
     /// program-wide list (InstanceEntry::rows, Compiler/Spec/Interfaces.md#program-wide-rows-per-tu-visibility): each row once,
     /// a new one after every earlier one, so the order is first-found order
     /// and the same on every run. Never a first-writer: a TU that checks
@@ -1662,14 +1658,14 @@ pub class InstantiationRegistry {
         e->rows_done = true
     }
 
-    /// \brief Take \p l for \p e: true to the first caller only, which then
-    ///        does the work the latch guards (reports, computes). The only
-    ///        writer of the four latches, bar Retract's live-check re-arm,
-    ///        which runs with the pool quiescent.
+    /// Take `l` for `e`: true to the first caller only, which then
+    /// does the work the latch guards (reports, computes). The only
+    /// writer of the four latches, bar Retract's live-check re-arm,
+    /// which runs with the pool quiescent.
     ///
-    /// \details A shared probe first: after the first TU every caller finds
-    ///          the latch set, and the panic sweeps ask once per entry per
-    ///          TU, so they should not queue on the exclusive lock.
+    /// A shared probe first: after the first TU every caller finds
+    /// the latch set, and the panic sweeps ask once per entry per
+    /// TU, so they should not queue on the exclusive lock.
     pub fn claim(self, e: unsafe *InstanceEntry, l: InstanceLatch) -> bool {
         if e == &null {
             return false
@@ -1689,7 +1685,7 @@ pub class InstantiationRegistry {
         return true
     }
 
-    /// \p l is already taken for \p e: a later claim is sure to lose. A
+    /// `l` is already taken for `e`: a later claim is sure to lose. A
     ///    false answer can go stale at once (another thread may take it),
     ///    which is why a front that sees one only records the mention.
     pub fn taken(self, e: unsafe *InstanceEntry, l: InstanceLatch) -> bool {
@@ -1826,24 +1822,24 @@ pub class InstantiationRegistry {
         }
     }
 
-    /// \brief takes out of the conformance tables every row that names
-    ///        something of a dead tree (\p dead: its address ranges; \p
-    ///        types: the canonicals CanonicalTypeStore::sweep took out; the
-    ///        dropped entries' nodes) or another such row, and clears what
-    ///        the dropped entries and their nodes still point at. Returns
-    ///        how many rows went.
+    /// takes out of the conformance tables every row that names
+    /// something of a dead tree (`dead`: its address ranges; `types`: the canonicals CanonicalTypeStore::sweep took out; the
+    /// dropped entries' nodes) or another such row, and clears what
+    /// the dropped entries and their nodes still point at. Returns
+    /// how many rows went.
     ///
-    /// \details A row holds the declarations that implement a conformance;
-    ///          the declared rows are keyed by the declaring declaration's
-    ///          address. A file whose `impl` is re-read declares its rows
-    ///          again; a freed tree's row would be read at a freed address,
-    ///          and its key met by a new declaration.
+    /// A row holds the declarations that implement a conformance;
+    /// the declared rows are keyed by the declaring declaration's
+    /// address. A file whose `impl` is re-read declares its rows
+    /// again; a freed tree's row would be read at a freed address,
+    /// and its key met by a new declaration.
     ///
-    /// \param rows_only  a retraction's call (\p dead: the trees about to be
-    ///                   re-read, still allocated): the rows leave the
-    ///                   tables, so the re-check builds them from the new
-    ///                   text, and nothing is cleared yet (a queued file's
-    ///                   old tree may hold one until its turn).
+    /// ### Parameters
+    /// - `rows_only`: a retraction's call (`dead`: the trees about to be
+    ///   re-read, still allocated): the rows leave the
+    ///   tables, so the re-check builds them from the new
+    ///   text, and nothing is cleared yet (a queued file's
+    ///   old tree may hold one until its turn).
     pub fn sweep_dead(self,
                       dead:      unsafe *kairo::AddrRanges,
                       types:     unsafe *llvm::DenseSet<u64>,
@@ -2008,19 +2004,19 @@ pub class InstantiationRegistry {
         return nrows
     }
 
-    /// The arena's blocks, into \p out under \p label.
+    /// The arena's blocks, into `out` under `label`.
     pub fn ranges_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
         var lock = kairo::std::LockGuard(self._arena_mu)
         self._arena.ranges_into(out, label)
     }
 
-    /// \brief removes \p dead from the registry: the table, the node map,
-    ///        the worklist, and every surviving entry's links to them.
+    /// removes `dead` from the registry: the table, the node map,
+    /// the worklist, and every surviving entry's links to them.
     ///
-    /// \details For a live check that re-reads the files those entries
-    ///          name (Sema/Incremental/Retract.k). The entries and their
-    ///          nodes stay allocated in the registry's arena: an address
-    ///          handed out again could be met by a stale key.
+    /// For a live check that re-reads the files those entries
+    /// name (Sema/Incremental/Retract.k). The entries and their
+    /// nodes stay allocated in the registry's arena: an address
+    /// handed out again could be met by a stale key.
     pub fn drop_entries(self, dead: *cxx::std::vector<unsafe *InstanceEntry>) {
         if dead->empty() {
             return
@@ -2114,8 +2110,8 @@ pub class InstantiationRegistry {
         }
     }
 
-    /// collect(), stopping at the first entry keyed after \p rank: the
-    /// entries a one-thread run holds when the group of \p rank asks
+    /// collect(), stopping at the first entry keyed after `rank`: the
+    /// entries a one-thread run holds when the group of `rank` asks
     /// (`_order` is sorted by key). Past it are only later groups' mints,
     /// whose fronts may be running beside the caller. u64::MAX is collect().
     pub fn collect_upto(self, rank: u64, @inout out: cxx::std::vector<unsafe *InstanceEntry>) {
@@ -2134,7 +2130,7 @@ pub class InstantiationRegistry {
         return self._order.size()
     }
 
-    /// A use at \p at of \p e, which is live already: nothing to do in a
+    /// A use at `at` of `e`, which is live already: nothing to do in a
     /// run, and what a live check's re-check records (relive_log).
     pub fn note_reuse(self, e: unsafe *InstanceEntry, at: SourceRange) {
         if self.relive_log == &null || e == &null {
@@ -2146,8 +2142,8 @@ pub class InstantiationRegistry {
         self.relive_at->push_back(at)
     }
 
-    /// Make \p e live at depth 1, used at \p at (\p via null), or one hop
-    /// below live \p via, through the use \p via_at in its body. Once: the
+    /// Make `e` live at depth 1, used at `at` (`via` null), or one hop
+    /// below live `via`, through the use `via_at` in its body. Once: the
     /// first need fixes the depth, the range and the hop. True when it was
     /// not live before.
     pub fn mark_live(self,
@@ -2188,7 +2184,7 @@ pub class InstantiationRegistry {
     }
 
     /// THE worklist's next batch (Compiler/Spec/Generics.md#m1-enumeration): every live entry whose reach
-    /// is not walked yet, in mint order, appended to \p out. Walking a batch
+    /// is not walked yet, in mint order, appended to `out`. Walking a batch
     /// makes more entries live -- minted at the end of the order, or older
     /// ones newly needed -- and they come back on the next call, so draining
     /// until this yields nothing is the discovery fixpoint. Deterministic:
@@ -2290,8 +2286,8 @@ pub class InstantiationRegistry {
         return &null
     }
 
-    /// \p args with an expanded enum pack's duplicates gone
-    /// (decl_dedup_pack_args), in \p scratch when anything was dropped.
+    /// `args` with an expanded enum pack's duplicates gone
+    /// (decl_dedup_pack_args), in `scratch` when anything was dropped.
     priv fn _set_args(self,
                       primary: unsafe *Decl,
                       args:    unsafe *cxx::std::vector<unsafe *Type>,
@@ -2412,7 +2408,7 @@ pub class InstantiationRegistry {
         return as_ < bs
     }
 
-    /// A request for \p e that came earlier in the one-thread order than
+    /// A request for `e` that came earlier in the one-thread order than
     /// the one that minted it takes it over: its key, its home. Under the lock.
     priv fn _claim(self, e: unsafe *InstanceEntry, kr: u64, ks: u64, fid: u32) {
         self._record(e, fid)
@@ -2435,7 +2431,7 @@ pub class InstantiationRegistry {
         self._insert_ordered(e)
     }
 
-    /// Insert \p e at its key's place. Almost always the end: requests come
+    /// Insert `e` at its key's place. Almost always the end: requests come
     /// in order but for the groups running beside each other.
     priv fn _insert_ordered(self, e: unsafe *InstanceEntry) {
         var hi        = self._order.size()
@@ -2471,7 +2467,7 @@ pub class InstantiationRegistry {
         self._order[lo] = e
     }
 
-    /// \p e's index in the worklist, by its key; size() if absent.
+    /// `e`'s index in the worklist, by its key; size() if absent.
     priv fn _find_ordered(self, e: unsafe *InstanceEntry) -> usize {
         var lo: usize = 0
         var hi        = self._order.size()
@@ -2523,7 +2519,7 @@ pub class InstantiationRegistry {
         self._floor_rank = r
     }
 
-    /// Ranks for one action's \p n groups, after every earlier action's:
+    /// Ranks for one action's `n` groups, after every earlier action's:
     /// the registry is the build's, and a batch runs one action per input,
     /// in turn. Returns the base: the action's group g ranks
     /// ((base + g + 1) << 32), and its floor afterwards is
@@ -2535,7 +2531,7 @@ pub class InstantiationRegistry {
         return base
     }
 
-    /// Record \p at in \p fid as where \p e's panic set was formed, if no
+    /// Record `at` in `fid` as where `e`'s panic set was formed, if no
     /// request earlier in the one-thread order has (PanicSets::note_formed;
     /// the register-cliff remark's anchor).
     pub fn note_formed(self, e: unsafe *InstanceEntry, fid: u32, at: SourceRange) {
@@ -2557,7 +2553,7 @@ pub class InstantiationRegistry {
         e->formed_seq  = ks
     }
 
-    /// The calling thread is about to fill \p shell's entry \p e: start
+    /// The calling thread is about to fill `shell`'s entry `e`: start
     /// recording its requests. Returns what end_fill restores.
     pub fn begin_fill(self, e: unsafe *InstanceEntry, fid: i64, alt: unsafe *void) -> unsafe *void {
         var unsafe **slot = kairo::sema_fill_record()
@@ -2593,7 +2589,7 @@ pub class InstantiationRegistry {
         }
     }
 
-    /// \p e's shell is filled already, by a TU later in the one-thread order
+    /// `e`'s shell is filled already, by a TU later in the one-thread order
     /// than the caller: make the requests that fill made, as the caller's
     /// own fill would have, so their homes and order are the caller's. A
     /// no-op for any later caller.

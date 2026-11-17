@@ -1,11 +1,11 @@
 /// --- The Kairo Project ---------------- Diagnostic/FileDiagnostics.k --- ///
 ///
-///   \brief Diagnostics kept per file, as objects
-///          (Compiler/Spec/IncrementalSema.md, change 4): every diagnostic the
-///          engine delivers, with the file whose check produced it.
+/// Diagnostics kept per file, as objects
+/// (Compiler/Spec/IncrementalSema.md, change 4): every diagnostic the
+/// engine delivers, with the file whose check produced it.
 ///
 ///   The owner is the TU whose sink was being drained when the diagnostic
-///   arrived (the driver sets \c current around each drain), so an
+///   arrived (the driver sets `current` around each drain), so an
 ///   instance's diagnostic belongs to the file that checked the instance,
 ///   and one the driver reports itself has no owner (""). The objects are
 ///   the engine's: valid until it frees them (clear_retained, or the
@@ -49,7 +49,7 @@ pub class FileDiagConsumer derives DiagConsumer {
         self.owners.push_back(self.current)
     }
 
-    /// The driver is about to drain \p path's sink.
+    /// The driver is about to drain `path`'s sink.
     pub fn enter(self, const path: string) {
         self.current = path.copy()
         for var i: usize = 0; i < self.order.size(); ++i {
@@ -61,7 +61,7 @@ pub class FileDiagConsumer derives DiagConsumer {
         self.order.push_back(path)
     }
 
-    /// The diagnostics \p path owns, in delivery order.
+    /// The diagnostics `path` owns, in delivery order.
     pub fn of(self, const path: string) -> cxx::std::vector<unsafe *Diagnostic> {
         var out = cxx::std::vector<unsafe *Diagnostic>()
         for var i: usize = 0; i < self.diags.size(); ++i {

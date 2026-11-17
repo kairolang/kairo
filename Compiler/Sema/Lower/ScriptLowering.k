@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------ Sema/Lower/ScriptLowering.k --- ///
 ///
-///   \brief A root file with top-level statements and no `fn main` is a
-///          script: its statements become the body of a synthesized
-///          `fn main() -> i32`, and the bindings among them stay globals.
+/// A root file with top-level statements and no `fn main` is a
+/// script: its statements become the body of a synthesized
+/// `fn main() -> i32`, and the bindings among them stay globals.
 ///
 ///   \detail
 ///     Compiler/Spec/ScriptMode.md holds the design; in short:
@@ -146,7 +146,7 @@ import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
 /// One read of a variable, or one direct call of a function, that
-/// ScriptUseScan saw. \p definite: reached on every path through the walked
+/// ScriptUseScan saw. `definite`: reached on every path through the walked
 /// code (no branch, loop or closure above it, and no exit before it).
 pub struct ScriptUse {
     var decl:     unsafe *Decl = &null
@@ -228,8 +228,8 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
     // scrutinee, an iterable, a left operand) is as definite as the
     // construct itself; the rest is one level deeper.
 
-    /// Enters a construct whose \p lead always runs and whose other
-    /// children may not. A null \p lead: every child may not run.
+    /// Enters a construct whose `lead` always runs and whose other
+    /// children may not. A null `lead`: every child may not run.
     priv fn _enter(self, lead: unsafe *Expr) {
         self._cond += 1
         self._lead = lead
@@ -643,7 +643,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         return ok
     }
 
-    /// The deferred global \p d is, as an index into the three lists; -1
+    /// The deferred global `d` is, as an index into the three lists; -1
     /// when it is none.
     priv fn _index_of(self, d: unsafe *Decl) -> i64 {
         if d == &null {
@@ -838,7 +838,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     }
 
     /// `g = <init>`, the deferred initializer at its line: walked as main's
-    /// statement at ordinal \p ord, so a read in it of g itself or of a
+    /// statement at ordinal `ord`, so a read in it of g itself or of a
     /// later global is the before-init error. The node is the initializer
     /// itself, moved: one node, one parent, and CopyMoveLowering's `T&&`
     /// cast on it comes along.
@@ -989,7 +989,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         return out
     }
 
-    /// \p n names a capture of the closure being walked (ASTWriter keeps
+    /// `n` names a capture of the closure being walked (ASTWriter keeps
     /// a capture's name a NamedIdentExpr, and a guarded read is not one).
     priv fn _capture_name(self, n: unsafe *NamedIdentExpr) -> bool {
         if self._closures.empty() {
@@ -1142,7 +1142,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         )
     }
 
-    /// `&e`, typed `*T` with \p e's cv kept: a `const T` read is a
+    /// `&e`, typed `*T` with `e`'s cv kept: a `const T` read is a
     /// `const T*` in C++, and LowerSynth::addr_of drops the cv.
     priv fn _addr(self, e: unsafe *Expr) -> unsafe *Expr {
         var unsafe *c = e->type_
@@ -1197,7 +1197,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         return self.synth.crash_if(at, no, call)
     }
 
-    /// The storage of global \p g read whole: typed `T?`, an lvalue. One
+    /// The storage of global `g` read whole: typed `T?`, an lvalue. One
     /// node per use.
     priv fn _storage_use(self, g: usize, at: SourceRange) -> unsafe *Expr {
         var unsafe *v  = self._deferred[g]
@@ -1209,7 +1209,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
         return e
     }
 
-    /// `null` typed \p t: NullableTypeLowering makes it that record's null.
+    /// `null` typed `t`: NullableTypeLowering makes it that record's null.
     priv fn _null(self, at: SourceRange, t: unsafe *Type) -> unsafe *Expr {
         var unsafe *z = NullLiteralExpr::create(self.ctx, at, false)
         var unsafe *e = unsafe (z as unsafe *Expr)

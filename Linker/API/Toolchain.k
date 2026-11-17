@@ -1405,7 +1405,7 @@ pub class Toolchain {
 
     /// # Queries (valid after resolve)
 
-    /// \p name in the crt dir, then the library dirs. Absolute names are
+    /// `name` in the crt dir, then the library dirs. Absolute names are
     /// checked as given. "" when not found.
     fn find_lib_file(self, name: string) -> string {
         if LinkText::starts_with(name.copy(), "/") {
@@ -1431,7 +1431,7 @@ pub class Toolchain {
 
     /// crtbegin/crtend, clang's lookup order: compiler-rt's when that is the
     /// runtime and it exists, else GCC's, else the library dirs (the BSDs
-    /// ship them in base). \p variant is "", "S" or "T". "" when none: a
+    /// ship them in base). `variant` is "", "S" or "T". "" when none: a
     /// target without them links without them.
     fn crt_object(self, const stem: string, const variant: string) -> string {
         if self.rtlib == "compiler-rt" && !self.rt_dir.is_empty() {
@@ -1911,7 +1911,7 @@ pub class Toolchain {
         return a
     }
 
-    /// The highest dotted-numeric entry in \p dir, or "".
+    /// The highest dotted-numeric entry in `dir`, or "".
     static fn newest_version(const dir: string) -> string {
         if !LinkFS::is_dir(dir) {
             return ""
@@ -2030,7 +2030,7 @@ pub class Toolchain {
         return digits > 0 && groups <= 3
     }
 
-    /// The -platform_version name, or "" when \p os is not an Apple OS.
+    /// The -platform_version name, or "" when `os` is not an Apple OS.
     static fn darwin_platform(const os: string, const env: string) -> string {
         if env == "macabi" {
             return "mac-catalyst"
@@ -2178,7 +2178,7 @@ pub class Toolchain {
         return ""
     }
 
-    /// The SDK for \p platform, or "". SDKROOT counts only when its real
+    /// The SDK for `platform`, or "". SDKROOT counts only when its real
     /// name is for this platform: a macOS SDKROOT left in the environment
     /// must not satisfy an iOS link.
     pub static fn find_sdk(const platform: string) -> string {
@@ -2231,7 +2231,7 @@ pub class Toolchain {
         return ""
     }
 
-    /// The string value of top-level-looking \p key in \p text. Enough JSON
+    /// The string value of top-level-looking `key` in `text`. Enough JSON
     /// for SDKSettings.json, nothing more. "" when absent.
     static fn json_string(text: string, const key: string) -> string {
         var pat = "\"" + key + "\""
@@ -2256,17 +2256,17 @@ pub class Toolchain {
 
     /// # Shared helpers
 
-    /// \brief \p triple with the float ABI the sysroots are built for made
-    ///        explicit: 32-bit ARM Linux spelled with a bare gnu or musl
-    ///        environment becomes gnueabihf / musleabihf.
+    /// `triple` with the float ABI the sysroots are built for made
+    /// explicit: 32-bit ARM Linux spelled with a bare gnu or musl
+    /// environment becomes gnueabihf / musleabihf.
     ///
-    /// \details clang reads the float ABI off the environment alone, and a
-    ///          bare gnu/musl on ARM means soft-float. That is an ABI break
-    ///          against every armv7 sysroot (all hard-float, as Debian armhf
-    ///          and Alpine are), and soft-float also turns __bf16 off, so
-    ///          builtin's bf16 does not compile. An explicit gnueabi /
-    ///          musleabi is left alone: that is a deliberate soft-float ask.
-    ///          Anything else is returned exactly as spelled.
+    /// clang reads the float ABI off the environment alone, and a
+    /// bare gnu/musl on ARM means soft-float. That is an ABI break
+    /// against every armv7 sysroot (all hard-float, as Debian armhf
+    /// and Alpine are), and soft-float also turns __bf16 off, so
+    /// builtin's bf16 does not compile. An explicit gnueabi /
+    /// musleabi is left alone: that is a deliberate soft-float ask.
+    /// Anything else is returned exactly as spelled.
     pub static fn canonical_triple(triple: string) -> string {
         var tt = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
         if !tt.isARM() && !tt.isThumb() || !tt.isOSLinux() {
@@ -2287,19 +2287,19 @@ pub class Toolchain {
         )
     }
 
-    /// \brief \p triple with the OS version made explicit where clang's
-    ///        default for a bare one is older than anything a Kairo program
-    ///        runs on.
+    /// `triple` with the OS version made explicit where clang's
+    /// default for a bare one is older than anything a Kairo program
+    /// runs on.
     ///
-    /// \details A macOS triple with no version (`x86_64-apple-macosx`,
-    ///          `arm64-apple-darwin`) makes clang assume Mac OS X 10.4, which
-    ///          has no thread-local storage: Lib/builtin's allocator state is
-    ///          thread_local, so every Kairo program failed CL001E. The
-    ///          floor is the deployment target the darwin roots are built for
-    ///          (darwin-sysroot.sh, the recipe's min_macos): 11.0 on arm64 /
-    ///          arm64e, the first macOS for Apple silicon, and 10.15 on
-    ///          x86_64. A triple that names any version keeps it, a host's
-    ///          `arm64-apple-darwin25.6.0` included.
+    /// A macOS triple with no version (`x86_64-apple-macosx`,
+    /// `arm64-apple-darwin`) makes clang assume Mac OS X 10.4, which
+    /// has no thread-local storage: Lib/builtin's allocator state is
+    /// thread_local, so every Kairo program failed CL001E. The
+    /// floor is the deployment target the darwin roots are built for
+    /// (darwin-sysroot.sh, the recipe's min_macos): 11.0 on arm64 /
+    /// arm64e, the first macOS for Apple silicon, and 10.15 on
+    /// x86_64. A triple that names any version keeps it, a host's
+    /// `arm64-apple-darwin25.6.0` included.
     ///
     ///          Nothing else needs one: FreeBSD and NetBSD read version 0 as
     ///          "current" in clang's driver (libc++, init_array), Linux, wasm
@@ -2325,7 +2325,7 @@ pub class Toolchain {
         )
     }
 
-    /// The macOS deployment floor for \p triple's arch: "11.0" (arm64,
+    /// The macOS deployment floor for `triple`'s arch: "11.0" (arm64,
     /// arm64e), "10.15" (x86_64), "" for an arch no root is built for.
     pub static fn macos_floor(const triple: string) -> string {
         var tt = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))

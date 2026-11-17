@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------- Sema/Lower/RangeLowering.k --- ///
 ///
-///   \brief Every range that reaches here becomes the record ExprTyper typed.
+/// Every range that reaches here becomes the record ExprTyper typed.
 ///
 ///   \detail
 ///     IterLowering consumed the ranges written as a loop's iterable. Every

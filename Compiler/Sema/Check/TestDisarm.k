@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------------- Sema/Check/TestDisarm.k --- ///
 ///
-///   \brief --test-disarm-moved-locals: a TEST HARNESS for the plumbing that
-///          lets a provider skip a moved-from local's destructor.
+/// --test-disarm-moved-locals: a TEST HARNESS for the plumbing that
+/// lets a provider skip a moved-from local's destructor.
 ///
 ///   \detail
 ///     Not the feature. Skipping the destructor of a moved-from local needs
@@ -132,7 +132,7 @@ fn _straight(s: unsafe *Stmt) -> bool {
             || s->kind == StmtKind::ReturnStmt)
 }
 
-/// The block \p b ends: each candidate of \p ends that \p b declares is
+/// The block `b` ends: each candidate of `ends` that `b` declares is
 /// accepted (LocalEndRow::disarm_ok) when the shape in the file header
 /// holds, and ruled out otherwise.
 pub fn test_disarm_scan(ends: unsafe *LocalEnds, b: unsafe *CompoundStmt) {

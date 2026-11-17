@@ -51,7 +51,7 @@ pub class StageCtx {
     pub var done_names: cxx::std::vector<string>
     pub var done_dirs:  cxx::std::vector<string>
 
-    /// The product dir (out/) of the earlier stage \p name; "" if it has not run.
+    /// The product dir (out/) of the earlier stage `name`; "" if it has not run.
     pub fn product(self, const name: string) -> string {
         for var i: usize = 0; i < self.done_names.size(); ++i {
             if self.done_names[i] == name {
@@ -62,7 +62,7 @@ pub class StageCtx {
         return ""
     }
 
-    /// The verified input dir registry.toml names \p rel ("runtimes",
+    /// The verified input dir registry.toml names `rel` ("runtimes",
     /// "runtimes-recipe"); "" when plan() did not verify one.
     pub fn input_dir(self, const rel: string) -> string {
         for var i: usize = 0; i < self.input_names.size() && i < self.inputs.size(); ++i {
@@ -74,7 +74,7 @@ pub class StageCtx {
         return ""
     }
 
-    /// The verified input dir \p path lies in (the longest that holds it);
+    /// The verified input dir `path` lies in (the longest that holds it);
     /// "" when it lies in none.
     pub fn input_root(self, const path: string) -> string {
         var best = ""
@@ -88,7 +88,7 @@ pub class StageCtx {
         return best
     }
 
-    /// Copies the share dir \p from into \p to as a root must hold it: the
+    /// Copies the share dir `from` into `to` as a root must hold it: the
     /// files, then the links and case-colliding names its input records
     /// (SysRun::materialise). Every provider copies input subdirs this way.
     pub fn materialise(self, const from: string, const to: string, @inout out: SysOutcome) -> bool {
@@ -100,13 +100,13 @@ pub class StageCtx {
         return true
     }
 
-    /// The absolute share path of the recipe template \p tmpl (a [libc]
+    /// The absolute share path of the recipe template `tmpl` (a [libc]
     /// value such as "glibc/{libc_version}/{arch}/crt"), expanded.
     pub fn share_path(self, const tmpl: string) -> string {
         return self.share.copy() + "/" + self.recipe.expand(tmpl, &self.target)
     }
 
-    /// The toolchain binary \p name (kcc, kld) beside the others.
+    /// The toolchain binary `name` (kcc, kld) beside the others.
     pub fn tool(self, const name: string) -> string {
         var exe = self.tools.copy() + "/" + name
         eval if defined!(_WIN32) {
@@ -137,9 +137,9 @@ pub class SysrootProvider {
         return ""
     }
 
-    /// Whether this provider can build \p t from \p r. The default is the
+    /// Whether this provider can build `t` from `r`. The default is the
     /// recipe's arch list; a provider with more to check (an --input, the
-    /// host) refines it. False sets \p out to the refusal.
+    /// host) refines it. False sets `out` to the refusal.
     pub virtual fn supports(self, t: *SysTarget, r: *SysRecipe, @inout out: SysOutcome) -> bool {
         if !r->arches.empty() && !SysUtil::contains(&r->arches, t->arch) {
             return out.refuse(f"{t->family} has no port for {t->arch}", "")
@@ -148,7 +148,7 @@ pub class SysrootProvider {
         return true
     }
 
-    /// Stage libc-headers: the C library's headers into \p dst.
+    /// Stage libc-headers: the C library's headers into `dst`.
     pub virtual fn headers(self,
                            ctx:        *StageCtx,
                            const dst:  string,
@@ -159,7 +159,7 @@ pub class SysrootProvider {
         )
     }
 
-    /// Stage libc-libs: libc, crt objects and import libraries into \p dst.
+    /// Stage libc-libs: libc, crt objects and import libraries into `dst`.
     pub virtual fn libs(self, ctx: *StageCtx, const dst: string, @inout out: SysOutcome) -> bool {
         return out.refuse(
             f"the {self.id()} provider cannot build libraries yet",

@@ -97,7 +97,7 @@ import Token::TokenKind::{
 import Token::TokenText::TokenText
 
 extend IndexWalker {
-    /// The type a constructor constructs, or null when \p d is not one. A
+    /// The type a constructor constructs, or null when `d` is not one. A
     /// constructor is a function declared in a type under the type's name.
     fn ctor_owner_(self, d: unsafe *Decl) -> unsafe *Decl {
         if (d == &null) || (!isa<Declarations::FunctionDecl>(d)) || (d->semantic_dc == &null) {
@@ -128,7 +128,7 @@ extend IndexWalker {
         return owner
     }
 
-    /// Fills \p r's definition half from \p d.
+    /// Fills `r`'s definition half from `d`.
     fn target_(self, d: unsafe *Decl, r: *RefRow) {
         r->hover = self.hover_(d)
         r->kind  = self.kind_of_(d)
@@ -182,7 +182,7 @@ extend IndexWalker {
         }
     }
 
-    /// The type a use of \p d has: a variable's, a field's, a parameter's, or
+    /// The type a use of `d` has: a variable's, a field's, a parameter's, or
     /// what a function returns. Null for a declaration that IS a type.
     fn value_type_(self, d: unsafe *Decl) -> unsafe *Type {
         if isa<Declarations::VariableDecl>(d) {
@@ -204,7 +204,7 @@ extend IndexWalker {
         return &null
     }
 
-    /// What a subscript of a value of type \p t_in is: the element of a
+    /// What a subscript of a value of type `t_in` is: the element of a
     /// `[T]`, `[T; N]`, `[T;]`, the value of a `{K: V}`. Null for anything
     /// else: a pointer's or a nullable's subscript is not `v[i]` of the
     /// value, and a type's own `op []` is not read here.
@@ -273,7 +273,7 @@ extend IndexWalker {
         return &null
     }
 
-    /// Records the declaration \p d itself: its token, a self-edge (so hover
+    /// Records the declaration `d` itself: its token, a self-edge (so hover
     /// and highlight work on a declaration), and its outline row.
     fn declare_(self, d: unsafe *Decl) {
         if (d == &null) || d->is_implicit {
@@ -368,8 +368,8 @@ extend IndexWalker {
         self.globals_.push(d)
     }
 
-    /// The declaration an import binds under \p bound, recorded as a use at
-    /// \p shown (and at the alias, when the two differ). False when the
+    /// The declaration an import binds under `bound`, recorded as a use at
+    /// `shown` (and at the alias, when the two differ). False when the
     /// overlay binds nothing there, or a module.
     fn import_name_(self, bound: Token, shown: Token) -> bool {
         if (self.sc == &null) || (self.sc->tu == &null) || (self.sc->tu->import_overlay == &null) {
@@ -533,7 +533,7 @@ extend IndexWalker {
 
     // --- overloads -------------------------------------------------------
 
-    /// True when \p f shares its name with another declaration in its scope.
+    /// True when `f` shares its name with another declaration in its scope.
     fn is_overloaded_(self, f: unsafe *Declarations::FunctionDecl) -> bool {
         var unsafe *d = unsafe (f as unsafe *Decl)
         if (d->semantic_dc == &null) || (d->semantic_dc->dc_symbols == &null) {
@@ -560,7 +560,7 @@ extend IndexWalker {
         return cell->size() > 1
     }
 
-    /// Adds the call-site modifiers for callee \p d at name token \p tok.
+    /// Adds the call-site modifiers for callee `d` at name token `tok`.
     fn mark_call_(self, tok_in: Token, d: unsafe *Decl) {
         if (d == &null) || (!isa<Declarations::FunctionDecl>(d)) {
             return
@@ -614,8 +614,8 @@ extend IndexWalker {
         self.extra_mods_[off] = m
     }
 
-    /// Adds \p m to the token at \p tok_in, an operator the lexical pass
-    /// leaves unclassified: it becomes an `operator` token carrying \p m.
+    /// Adds `m` to the token at `tok_in`, an operator the lexical pass
+    /// leaves unclassified: it becomes an `operator` token carrying `m`.
     fn op_mod_(self, tok_in: Token, m: u32) {
         var tok = self.ast_()->unwrap_token(tok_in)
         var off = self.own_off_(tok.range.start)
@@ -633,7 +633,7 @@ extend IndexWalker {
         self.tok_(off, tok.range.size() as u32, TT_OPERATOR(), 0)
     }
 
-    /// The `&` written for argument \p e_in: the address-of or `@inout`
+    /// The `&` written for argument `e_in`: the address-of or `@inout`
     /// marker beneath a named argument's label, parentheses and `unsafe`;
     /// null when the argument is anything else.
     fn arg_amp_(self, e_in: unsafe *Expr) -> unsafe *Expressions::UnaryOperatorExpr {
@@ -662,12 +662,12 @@ extend IndexWalker {
         return u
     }
 
-    /// \p t is a `const T` (a canonical's qualifier or a written `const`).
+    /// `t` is a `const T` (a canonical's qualifier or a written `const`).
     fn is_const_type_(self, t: unsafe *Type) -> bool {
         return (t != &null) && (canon_has_const(t) || t->is_const())
     }
 
-    /// What the `&` of an argument passed to a parameter of type \p t_in
+    /// What the `&` of an argument passed to a parameter of type `t_in`
     /// tells the reader: `pointer` for a pointer (through a `?`), with
     /// `unsafe` for `unsafe *T` and `readonly` for a const pointee;
     /// `inout` + `mutates` for a C++ `T&`. 0 for any other type, which takes
@@ -752,8 +752,8 @@ extend IndexWalker {
         return true
     }
 
-    /// Tags the `&` of each argument of call \p c by the parameter of callee
-    /// \p d it binds to (style table): `inout` + `mutates` for an `@inout`
+    /// Tags the `&` of each argument of call `c` by the parameter of callee
+    /// `d` it binds to (style table): `inout` + `mutates` for an `@inout`
     /// parameter or a C++ `T&`; `pointer` (+ `mutates` for a writable place)
     /// for `*T`; `pointer` + `unsafe` for `unsafe *T`; `pointer` + `readonly`
     /// for `*const T`, never `mutates`. The arguments are matched to the
@@ -823,7 +823,7 @@ extend IndexWalker {
         }
     }
 
-    /// A user-defined operator at \p tok: an operator token that reads as a
+    /// A user-defined operator at `tok`: an operator token that reads as a
     /// call, and jumps to the `op` function.
     fn user_op_(self, tok: Token, d: unsafe *Decl) {
         if d == &null {
@@ -867,7 +867,7 @@ extend IndexWalker {
         return self.ast_()->get_spelling(n->name) == completion_marker()
     }
 
-    /// \p as_items: each is a completion item (the marker's list); else a
+    /// `as_items`: each is a completion item (the marker's list); else a
     /// scope row of the file's block (Tables.k), the same names in the same
     /// order.
     fn overlay_rows_(self, tu: unsafe *TranslationUnit, as_items: bool) {

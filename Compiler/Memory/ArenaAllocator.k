@@ -104,7 +104,7 @@ pub class ArenaAllocator {
         self.head       = &null
     }
 
-    /// \p blk_sz is the steady block size, reached by doubling from
+    /// `blk_sz` is the steady block size, reached by doubling from
     /// ARENA_FIRST_BLOCK: nothing is allocated until the first alloc(). Every
     /// ASTContext holds four sized arenas (ast 1 MiB, pp and index 64 KiB,
     /// strings), and the self-build makes ~1,550 of them for header files
@@ -130,7 +130,7 @@ pub class ArenaAllocator {
         other.head      = &null
     }
 
-    /// init() without the block: the first alloc() makes it, \p blk_sz big.
+    /// init() without the block: the first alloc() makes it, `blk_sz` big.
     /// For an owner that may never allocate (ArenaList's own arena).
     fn init_lazy(self, blk_sz: usize) {
         if self.head != &null {
@@ -155,7 +155,7 @@ pub class ArenaAllocator {
         self.destroy()
     }
 
-    /// Make every alloc() take \p mu, which outlives this arena: for an
+    /// Make every alloc() take `mu`, which outlives this arena: for an
     /// arena more than one thread allocates from (see the file header).
     pub fn shared(self, mu: unsafe *kairo::std::Mutex) {
         self._lock = mu
@@ -212,7 +212,7 @@ pub class ArenaAllocator {
         )
     }
 
-    /// Every block's address range, into \p out under \p label (a live
+    /// Every block's address range, into `out` under `label` (a live
     /// check's sweep and self-check: is this address one of mine).
     pub fn ranges_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
         for var unsafe *b = self.head; b != &null; b = b->next {
@@ -220,7 +220,7 @@ pub class ArenaAllocator {
         }
     }
 
-    /// Each block's own record (it names the block), into \p out.
+    /// Each block's own record (it names the block), into `out`.
     pub fn records_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
         for var unsafe *b = self.head; b != &null; b = b->next {
             out->add(
@@ -231,7 +231,7 @@ pub class ArenaAllocator {
         }
     }
 
-    /// Overwrites every block with \p fill: the arena is dead and kept (a
+    /// Overwrites every block with `fill`: the arena is dead and kept (a
     /// live check's quarantine), and whatever still reads it reads this.
     pub fn poison(self, fill: u8) {
         for var unsafe *b = self.head; b != &null; b = b->next {

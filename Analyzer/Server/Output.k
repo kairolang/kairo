@@ -71,7 +71,7 @@ extend Server {
     /// A line for the person using the editor: it goes to the client's log
     /// for this server (`window/logMessage`, the "Kairo" output channel in
     /// VS Code, the language server log in Zed), to stderr, and to the
-    /// trace. \p level is LSP's MessageType: 1 error, 2 warning, 3 info, 4 log.
+    /// trace. `level` is LSP's MessageType: 1 error, 2 warning, 3 info, 4 log.
     fn say(self, level: i64, const s: string) {
         io::eprintln("kals: " + s)
         self.trace("log " + s)
@@ -168,7 +168,7 @@ extend Server {
         self.t.send(w.out)
     }
 
-    /// The same, with \p params (JSON).
+    /// The same, with `params` (JSON).
     fn request_with(self, const method: string, const params: string) {
         self.seq += 1
         var w = JsonWriter()
@@ -182,8 +182,8 @@ extend Server {
         self.t.send(w.out)
     }
 
-    /// One `$/progress` notification for \p token: \p kind is begin, report
-    /// or end; \p pct < 0 leaves the percentage out (indeterminate).
+    /// One `$/progress` notification for `token`: `kind` is begin, report
+    /// or end; `pct` < 0 leaves the percentage out (indeterminate).
     fn progress(self, const token: string, const kind: string, const message: string, pct: i64) {
         var w = JsonWriter()
         w.begin_object()

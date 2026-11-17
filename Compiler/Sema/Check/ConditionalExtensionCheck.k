@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----- Sema/Check/ConditionalExtensionCheck.k --- ///
 ///
-///   \brief A conditional extension's members are used, in the extension's
-///          own file, only from inside it.
+/// A conditional extension's members are used, in the extension's
+/// own file, only from inside it.
 ///
 ///   \detail
 ///     An extension whose `requires` clause asks `__builtin_is_declared`
@@ -159,7 +159,7 @@ pub class ConditionalExtensionCheck derives RecursiveASTVisitor<ConditionalExten
         return true
     }
 
-    /// \p d is named at \p at: report it when it is a member of a
+    /// `d` is named at `at`: report it when it is a member of a
     /// conditional block of this file that the position is not inside.
     priv fn _use(self, d: unsafe *Decl, at: SourceRange) {
         var unsafe *x = decl_extension_of(d)
@@ -202,7 +202,7 @@ pub class ConditionalExtensionCheck derives RecursiveASTVisitor<ConditionalExten
         b.emit()
     }
 
-    /// Every path \p inner asks about, \p outer asks about too.
+    /// Every path `inner` asks about, `outer` asks about too.
     priv fn _covers(self,
                     outer: unsafe *Declarations::ExtensionGate,
                     inner: unsafe *Declarations::ExtensionGate) -> bool {

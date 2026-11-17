@@ -44,7 +44,7 @@ pub struct BuiltinRow {
     var targets: string = ""
 }
 
-/// Where keyword \p k can start. The spelling is the compiler's; where a
+/// Where keyword `k` can start. The spelling is the compiler's; where a
 /// word may stand is not something its table says, so it is said here, and
 /// a word this does not name is offered everywhere.
 fn word_context(k: TokenKind) -> u32 {
@@ -193,7 +193,7 @@ pub fn builtin_macros() -> [BuiltinRow] {
     return out
 }
 
-/// Whether \p list, words separated by spaces, holds \p w.
+/// Whether `list`, words separated by spaces, holds `w`.
 pub fn has_word(const list: string, const w: string) -> bool {
     var i: usize = 0
     while i < list.size() {
@@ -222,7 +222,7 @@ fn first_byte(const s: string, c: u8) -> usize {
     return usize::MAX
 }
 
-/// \p usage (`align(N)`, `paste!(a, b)`) as a snippet: each argument a
+/// `usage` (`align(N)`, `paste!(a, b)`) as a snippet: each argument a
 /// placeholder (`align(${1:N})`). A usage with no arguments is itself.
 pub fn usage_snippet(const usage: string) -> string {
     var open = first_byte(usage, '(' as u8)

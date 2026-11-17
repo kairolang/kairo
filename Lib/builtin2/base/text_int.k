@@ -203,12 +203,12 @@ inline fn range_from(start: usize, cap: usize) -> TextRange = TextRange {
 
 /// Writes the decimal text of `v` at the end of `buf[0 .. cap)`.
 ///
-/// \pre `cap >= U32_TEXT_MAX` (10); `buf` is valid for writes of `cap` bytes.
+/// **Precondition:** `cap >= U32_TEXT_MAX` (10); `buf` is valid for writes of `cap` bytes.
 prot inline fn u32_to_text(v: u32, buf: unsafe *u8, cap: usize) -> TextRange {
     return range_from(put_u32(buf, cap, v), cap)
 }
 
-/// \pre `cap >= U64_TEXT_MAX` (20).
+/// **Precondition:** `cap >= U64_TEXT_MAX` (20).
 prot inline fn u64_to_text(v: u64, buf: unsafe *u8, cap: usize) -> TextRange {
     return range_from(put_u64(buf, cap, v), cap)
 }
@@ -216,7 +216,7 @@ prot inline fn u64_to_text(v: u64, buf: unsafe *u8, cap: usize) -> TextRange {
 /// The magnitude is taken in the unsigned type, so the minimum value needs
 /// no special case.
 ///
-/// \pre `cap >= I32_TEXT_MAX` (11).
+/// **Precondition:** `cap >= I32_TEXT_MAX` (11).
 prot inline fn i32_to_text(v: i32, buf: unsafe *u8, cap: usize) -> TextRange {
     var neg = v < 0
     var mag = if neg => 0u32 - (v as u32) else => v as u32
@@ -229,7 +229,7 @@ prot inline fn i32_to_text(v: i32, buf: unsafe *u8, cap: usize) -> TextRange {
     return range_from(p, cap)
 }
 
-/// \pre `cap >= I64_TEXT_MAX` (20).
+/// **Precondition:** `cap >= I64_TEXT_MAX` (20).
 prot inline fn i64_to_text(v: i64, buf: unsafe *u8, cap: usize) -> TextRange {
     var neg = v < 0
     var mag = if neg => 0u64 - (v as u64) else => v as u64
@@ -242,35 +242,35 @@ prot inline fn i64_to_text(v: i64, buf: unsafe *u8, cap: usize) -> TextRange {
     return range_from(p, cap)
 }
 
-/// \pre `cap >= U8_TEXT_MAX` (3).
+/// **Precondition:** `cap >= U8_TEXT_MAX` (3).
 prot inline fn u8_to_text(v: u8, buf: unsafe *u8, cap: usize) -> TextRange = u32_to_text(
     v,
     buf,
     cap,
 )
 
-/// \pre `cap >= U16_TEXT_MAX` (5).
+/// **Precondition:** `cap >= U16_TEXT_MAX` (5).
 prot inline fn u16_to_text(v: u16, buf: unsafe *u8, cap: usize) -> TextRange = u32_to_text(
     v,
     buf,
     cap,
 )
 
-/// \pre `cap >= I8_TEXT_MAX` (4).
+/// **Precondition:** `cap >= I8_TEXT_MAX` (4).
 prot inline fn i8_to_text(v: i8, buf: unsafe *u8, cap: usize) -> TextRange = i32_to_text(
     v,
     buf,
     cap,
 )
 
-/// \pre `cap >= I16_TEXT_MAX` (6).
+/// **Precondition:** `cap >= I16_TEXT_MAX` (6).
 prot inline fn i16_to_text(v: i16, buf: unsafe *u8, cap: usize) -> TextRange = i32_to_text(
     v,
     buf,
     cap,
 )
 
-/// \pre `cap >= U64_TEXT_MAX` (20) covers every target.
+/// **Precondition:** `cap >= U64_TEXT_MAX` (20) covers every target.
 prot inline fn usize_to_text(v: usize, buf: unsafe *u8, cap: usize) -> TextRange {
     eval if sizeof usize == 8 {
         return u64_to_text(v as u64, buf, cap)
@@ -279,7 +279,7 @@ prot inline fn usize_to_text(v: usize, buf: unsafe *u8, cap: usize) -> TextRange
     }
 }
 
-/// \pre `cap >= I64_TEXT_MAX` (20) covers every target.
+/// **Precondition:** `cap >= I64_TEXT_MAX` (20) covers every target.
 prot inline fn isize_to_text(v: isize, buf: unsafe *u8, cap: usize) -> TextRange {
     eval if sizeof usize == 8 {
         return i64_to_text(v as i64, buf, cap)
@@ -505,7 +505,7 @@ inline fn parse_digits(p:          unsafe *const u8,
 /// loop; anything else, every failure included, takes the general path, so
 /// the fast path decides no error.
 ///
-/// \pre `p` is valid for reads of `n` bytes.
+/// **Precondition:** `p` is valid for reads of `n` bytes.
 prot inline fn parse_unsigned(p:          unsafe *const u8,
                               n:          usize,
                               max:        u64,
@@ -536,7 +536,7 @@ prot inline fn parse_unsigned(p:          unsafe *const u8,
 
 /// Parses `[+-]digits` as a value in `[-max - 1, max]`.
 ///
-/// \pre `p` is valid for reads of `n` bytes; `max` is `2^k - 1` for the
+/// **Precondition:** `p` is valid for reads of `n` bytes; `max` is `2^k - 1` for the
 /// type's `k` value bits.
 prot inline fn parse_signed(p:          unsafe *const u8,
                             n:          usize,

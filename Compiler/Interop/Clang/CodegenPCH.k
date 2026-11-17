@@ -38,11 +38,8 @@ import Interop::Clang::ClangInstance::{
 import Interop::Clang::HeaderSet::HeaderSet
 import Support::TimeReport::TimeRegion
 
-///
-/// \class CodegenPCHAction
-/// \brief Writes CodegenPCH's bytes. A plain prefix parse: nothing walks the
-///        AST afterwards, so no callbacks and no instance kept alive.
-///
+/// Writes CodegenPCH's bytes. A plain prefix parse: nothing walks the
+/// AST afterwards, so no callbacks and no instance kept alive.
 pub class CodegenPCHAction derives clang::ASTFrontendAction {
     pub var _buf: cxx::std::shared_ptr<clang::PCHBuffer>
 
@@ -51,10 +48,8 @@ pub class CodegenPCHAction derives clang::ASTFrontendAction {
     override fn getTranslationUnitKind(self) -> clang::TranslationUnitKind
 }
 
-///
-/// \class CodegenPCH
-/// \brief Phase B's one implicit PCH: every header set a TU's emission
-///        needs, in one parse.
+/// Phase B's one implicit PCH: every header set a TU's emission
+/// needs, in one parse.
 ///
 /// clang loads one implicit PCH per TU, so with a PCH per set every set but
 /// the first was `#include`d as text by every TU. The first was the TU's
@@ -66,7 +61,6 @@ pub class CodegenPCHAction derives clang::ASTFrontendAction {
 /// Built from the same text phase B's textual wrappers replay, so it parses
 /// what the TUs' textual wrappers parse; a failed build leaves `ok` false and
 /// the TUs fall back to the wrappers.
-///
 pub class CodegenPCH {
     pub var pch:  cxx::std::shared_ptr<clang::PCHBuffer>
     pub var ok:   bool                                   = false

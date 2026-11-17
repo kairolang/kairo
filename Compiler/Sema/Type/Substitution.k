@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------------- Sema/Type/Substitution.k --- ///
 ///
-///   \brief Generic-parameter bindings and their substitution into a type:
-///          `Foo<i32>` seeds T := i32, and `[T]` then reads `[i32]`.
+/// Generic-parameter bindings and their substitution into a type:
+/// `Foo<i32>` seeds T := i32, and `[T]` then reads `[i32]`.
 ///
 ///   \detail
 ///     The half of deduction that needs no argument: an instance's own
@@ -82,9 +82,9 @@ pub class DeducedBinding {
     fn DeducedBinding(self) { }
 }
 
-/// \p t with every type \p same equates read as one type: \p same is
+/// `t` with every type `same` equates read as one type: `same` is
 /// pairs (kept, replaced) as SemaContext::same_types holds them, and null
-/// names that list itself. \p t when nothing applies.
+/// names that list itself. `t` when nothing applies.
 pub fn unified_through(sc:   unsafe *SemaContext,
                        t:    unsafe *Type,
                        same: unsafe *cxx::std::vector<unsafe *Type>) -> unsafe *Type {
@@ -154,8 +154,8 @@ pub class Substitution {
         return &null
     }
 
-    /// Argument \p i of record \p r when it is the stand-in for a default
-    /// of an imported primary (the primary's own parameter) and \p placed,
+    /// Argument `i` of record `r` when it is the stand-in for a default
+    /// of an imported primary (the primary's own parameter) and `placed`,
     /// the arguments before it already substituted, are all concrete: that
     /// default over them (`allocator<i32>` for `vector<i32, _Allocator>`).
     /// Null otherwise, and the argument is substituted as any other.
@@ -232,9 +232,9 @@ pub class Substitution {
         return true
     }
 
-    /// Bind \p from's generic parameters to \p to's, position by position,
-    /// so substitute() reads a type written over \p from's parameters as one
-    /// over \p to's: two same-shape generic declarations compared up to the
+    /// Bind `from`'s generic parameters to `to`'s, position by position,
+    /// so substitute() reads a type written over `from`'s parameters as one
+    /// over `to`'s: two same-shape generic declarations compared up to the
     /// names of their parameters (a generic `where` group, Compiler/Spec/Generics.md#where-groups-on-generic-functions).
     /// False when the lists differ in length or a position differs in kind
     /// (`: class` against none, a type against a value parameter). Value
@@ -391,7 +391,7 @@ pub class Substitution {
         self.packs.push_back(b)
     }
 
-    /// The elements of pack (owner, index), appended to \p out in order;
+    /// The elements of pack (owner, index), appended to `out` in order;
     /// false when the pack was never opened.
     fn pack_elems(self,
                   owner: unsafe *Decl,
@@ -426,7 +426,7 @@ pub class Substitution {
         self._bind_bases(rec, 0)
     }
 
-    /// \p rec's own parameters only (bind_from_record without the bases).
+    /// `rec`'s own parameters only (bind_from_record without the bases).
     fn bind_own(self, rec: unsafe *Type) {
         var unsafe *d = self.tu.record_decl(rec)
         if d == &null {
@@ -472,12 +472,12 @@ pub class Substitution {
         }
     }
 
-    /// \p owner's generic parameters \p gps bound to the positional
-    /// arguments \p args (defaults already filled in, GenericArgs::collect):
+    /// `owner`'s generic parameters `gps` bound to the positional
+    /// arguments `args` (defaults already filled in, GenericArgs::collect):
     /// each parameter takes the next argument and a pack takes every one
     /// left, none being an empty pack. False when a parameter that is not a
     /// pack has no argument; the parameters before it stay bound. Keyed by
-    /// \p owner as given: a caller whose body may name a redeclaration's
+    /// `owner` as given: a caller whose body may name a redeclaration's
     /// parameters binds the representative as well.
     pub fn bind_params(self,
                        owner:      unsafe *Decl,
@@ -511,7 +511,7 @@ pub class Substitution {
         return true
     }
 
-    /// Every generic base of record \p rec, read through \p rec's arguments
+    /// Every generic base of record `rec`, read through `rec`'s arguments
     /// hop by hop (derives_from's walk), binds its pattern's parameters.
     priv fn _bind_bases(self, rec: unsafe *Type, depth: u32) {
         if depth > 32 {
@@ -545,7 +545,7 @@ pub class Substitution {
 
     /// # substitute
 
-    /// \p t with every bound generic param replaced. Null when a param is
+    /// `t` with every bound generic param replaced. Null when a param is
     /// still unbound or a component is not canonical. A concrete record
     /// result goes through the registry so `Foo<i32>` is the instance decl.
     fn substitute(self, t: unsafe *Type) -> unsafe *Type {
@@ -906,11 +906,11 @@ pub class Substitution {
         }
     }
 
-    /// The record nested type \p d belongs to, as the current bindings see
+    /// The record nested type `d` belongs to, as the current bindings see
     /// it: its owner over the owner's own parameters, substituted (`L<K>`
     /// under K := i32 is the instance `L<i32>`; an owner that is itself
     /// nested recurses). Null when nothing changes, i.e. the owners'
-    /// parameters are not bound here: \p d then stays the current
+    /// parameters are not bound here: `d` then stays the current
     /// instantiation's.
     priv fn _owner_through(self, d: unsafe *Decl) -> unsafe *Type {
         var unsafe *o = decl_type_owner(NameLookup::representative(d))
@@ -940,7 +940,7 @@ pub class Substitution {
         return s
     }
 
-    /// \p own: `I<T...>` over I's OWN parameters is Self too. That is what
+    /// `own`: `I<T...>` over I's OWN parameters is Self too. That is what
     /// `Self` (and `self`) canonicalizes to in a GENERIC interface
     /// (TypeResolve::_self_record), so a member read through its receiver
     /// needs it; a caller comparing already-substituted signatures does not
@@ -1132,8 +1132,8 @@ pub class Substitution {
         }
     }
 
-    /// \p r's arguments are exactly \p rep's own parameters, in order: the
-    /// type \p rep's body denotes itself by, not an instance of it.
+    /// `r`'s arguments are exactly `rep`'s own parameters, in order: the
+    /// type `rep`'s body denotes itself by, not an instance of it.
     fn own_args(self, r: unsafe *RecordType, rep: unsafe *Decl) -> bool {
         var gps = decl_generic_params(rep)
         if gps.size() != r->args.size() {
@@ -1157,14 +1157,14 @@ pub class Substitution {
 
     /// # associated types
 
-    /// What associated type \p assoc, named through interface instance
-    /// \p iface, IS for \p x. Still abstract -- an AssocType -- while \p x
+    /// What associated type `assoc`, named through interface instance
+    /// `iface`, IS for `x`. Still abstract -- an AssocType -- while `x`
     /// is (a generic parameter, another associated type, an interface's own
     /// Self). For a conformer: its own alias of that name (a member,
     /// inherited or added by an extension), read through its arguments;
     /// else, when it conforms EXPLICITLY, the requirement's default with
-    /// Self := \p x. Structural conformance never takes a default
-    /// (interfaces.md, Defaults). Null when \p x supplies neither:
+    /// Self := `x`. Structural conformance never takes a default
+    /// (interfaces.md, Defaults). Null when `x` supplies neither:
     /// ConformanceChecking reports that, and a use reads as unknown.
     ///
     /// THE one rule. The conformance match (`-> Self::Node` against
@@ -1194,7 +1194,7 @@ pub class Substitution {
 
         var unsafe *td = dyn_cast<TypeAliasDecl>(req)
         // A generic associated type (`type <K> Map`) is supplied by a generic
-        // alias of the same arity (`type <K> Map = Bag<K>`), read at \p args.
+        // alias of the same arity (`type <K> Map = Bag<K>`), read at `args`.
         // No arguments asks for the alias itself, over its own parameters:
         // what a conformance row records and a witness spells as a member
         // alias template.
@@ -1237,7 +1237,7 @@ pub class Substitution {
             if c->is_dependent() {
                 // `class <T> Box impl Graph { type Node = T }` reached as
                 // Box<i32>: the alias through the instance's arguments, and
-                // a generic one's own parameters through \p args.
+                // a generic one's own parameters through `args`.
                 var s = Substitution(self.sc)
                 if isa<RecordType>(x) {
                     s.bind_from_record(x)
@@ -1337,15 +1337,15 @@ pub class Substitution {
     /// An alias a generic extension declares (`extend <I impl It> D<I> {
     /// type Item = I::Item }`) is written over the extension's parameters,
     /// not the record's: each one the extension's target names as a bare
-    /// argument (`D<I>`) is \p x's argument in that position.
+    /// argument (`D<I>`) is `x`'s argument in that position.
     fn _bind_extension_args(self, ta: unsafe *TypeAliasDecl, x: unsafe *RecordType) {
         self.bind_extension_of(unsafe (ta as unsafe *Decl), x)
     }
 
-    /// The parameters of the generic extension that declares \p d
+    /// The parameters of the generic extension that declares `d`
     /// (`extend <T> Bag<T> { fn push(self, v: T) }`), each one the
-    /// extension's target names as a bare argument bound to \p x's argument
-    /// in that position. Nothing when \p d is not an extension's member.
+    /// extension's target names as a bare argument bound to `x`'s argument
+    /// in that position. Nothing when `d` is not an extension's member.
     fn bind_extension_of(self, d: unsafe *Decl, x: unsafe *RecordType) {
         if d == &null || x == &null {
             return
@@ -1407,7 +1407,7 @@ pub class Substitution {
 
     /// # bounds of a dependent type
 
-    /// The interfaces a value of dependent type \p t may be used through:
+    /// The interfaces a value of dependent type `t` may be used through:
     /// a checked generic parameter's bounds (the bound table), or an
     /// associated type's own (`type Item impl Display`), read through what
     /// it was reached by. ONE rule for every dependent head, however deep:
@@ -1428,7 +1428,7 @@ pub class Substitution {
         return out
     }
 
-    /// bound_ifaces of associated type \p a from its declaration alone.
+    /// bound_ifaces of associated type `a` from its declaration alone.
     priv fn _declared_assoc_ifaces(self, a: unsafe *AssocType) -> cxx::std::vector<unsafe *Type> {
         var out = cxx::std::vector<unsafe *Type>()
         if a->bounds_state == (BoundsState::Done as u8) {
@@ -1483,13 +1483,13 @@ pub class Substitution {
         return out
     }
 
-    /// The scopes a dependent head \p t's operators (and `op []`) are looked
+    /// The scopes a dependent head `t`'s operators (and `op []`) are looked
     /// up in: its interface bounds (bound_ifaces above, a parameter's or an
     /// associated type's at any depth), then the bases a parameter's
     /// `derives` bounds name, as a member step through T reads both
     /// (ChainBinding's ParamBounds). A base's operator is an ordinary
     /// member; an interface's a requirement, called through the witness.
-    /// Empty when \p t has neither.
+    /// Empty when `t` has neither.
     fn bound_scopes(self, t: unsafe *Type) -> cxx::std::vector<unsafe *Type> {
         var out = self.bound_ifaces(t)
         var bs  = self.tu.bound_bases(t)
@@ -1502,13 +1502,13 @@ pub class Substitution {
         return out
     }
 
-    /// Associated type \p ta's `impl` bounds read for \p base: Self :=
+    /// Associated type `ta`'s `impl` bounds read for `base`: Self :=
     /// base (an interface's own spelling `I<V>` included), the declaring
-    /// interface's parameters := \p iface's arguments, \p ta's own (a
-    /// generic associated type's) := \p args. A bound naming Self or another
+    /// interface's parameters := `iface`'s arguments, `ta`'s own (a
+    /// generic associated type's) := `args`. A bound naming Self or another
     /// associated type (`type Item impl Ord<Self::Key>`) is thereby
     /// `Ord<T::Key>` for `T::Item`, and `Ord<i64>` for a
-    /// concrete conformer. \p ready is cleared when part of the clause is
+    /// concrete conformer. `ready` is cleared when part of the clause is
     /// not resolved yet.
     fn clause_bounds(self,
                      ta:    unsafe *TypeAliasDecl,
@@ -1573,7 +1573,7 @@ pub class Substitution {
         return out
     }
 
-    /// Bind every generic parameter \p t mentions to itself: a dependent
+    /// Bind every generic parameter `t` mentions to itself: a dependent
     /// receiver (`T`, `T::Item`) stands for itself in a callee's signature,
     /// which this call's deduction never binds.
     fn bind_identity(self, t: unsafe *Type) {
@@ -1614,8 +1614,8 @@ pub class Substitution {
         }
     }
 
-    /// `X::name` (or `X::name<A...>`) on dependent head \p t: the associated
-    /// type the first of \p t's bounds that declares \p name, at that
+    /// `X::name` (or `X::name<A...>`) on dependent head `t`: the associated
+    /// type the first of `t`'s bounds that declares `name`, at that
     /// arity, gives; or null. Expression position's twin of
     /// TypeResolve::_assoc_through, which also reports the ambiguity of two
     /// bounds declaring it; this reads the same composed requirement lists.
@@ -1666,8 +1666,8 @@ pub class Substitution {
         return &null
     }
 
-    /// The instance of composed requirement \p r's DECLARING interface as
-    /// bound \p bound sees it (TypeUtil::assoc_iface's normal form): the
+    /// The instance of composed requirement `r`'s DECLARING interface as
+    /// bound `bound` sees it (TypeUtil::assoc_iface's normal form): the
     /// bound itself or a non-generic declarer directly; one inherited from
     /// a generic interface through the requirement's source, read at the
     /// bound's arguments (`IntSource` -> `Source<i32>`).
@@ -1696,8 +1696,8 @@ pub class Substitution {
         return src
     }
 
-    /// Some bound of dependent head \p t declares a constructor requirement
-    /// taking \p arity arguments: what lets a generic body build a value of
+    /// Some bound of dependent head `t` declares a constructor requirement
+    /// taking `arity` arguments: what lets a generic body build a value of
     /// it (`T()`, `T::Node{}`; interfaces.md, Generic Bodies).
     fn bounds_construct(self, t: unsafe *Type, arity: usize) -> bool {
         var bs = self.bound_ifaces(t)
@@ -1754,10 +1754,10 @@ pub class Substitution {
         return false
     }
 
-    /// The default an interface \p x EXPLICITLY declares gives requirement
-    /// \p req when that interface is not req's own (a derived interface's
+    /// The default an interface `x` EXPLICITLY declares gives requirement
+    /// `req` when that interface is not req's own (a derived interface's
     /// `type Node = ...`, merged into its composed requirement), or null.
-    /// \p homes receives that interface and every interface it derives, the
+    /// `homes` receives that interface and every interface it derives, the
     /// Selfs the default may name. Two of x's interfaces giving DIFFERENT
     /// defaults is null too: which one applies would depend on the path
     /// (interfaces.md, "Associated types and inheritance"), so neither does,
@@ -1779,9 +1779,9 @@ pub class Substitution {
         return tys[0]
     }
 
-    /// Every distinct default \p x's declared interfaces give requirement
-    /// \p req other than its own: the canonical into \p tys, the written
-    /// default (for its range) into \p nodes, the interface into \p ins.
+    /// Every distinct default `x`'s declared interfaces give requirement
+    /// `req` other than its own: the canonical into `tys`, the written
+    /// default (for its range) into `nodes`, the interface into `ins`.
     /// Each is read for x (_read_derived_default), so two interfaces giving
     /// the same type over their own parameters (`A<i32>`'s `U`, `B<i32>`'s
     /// `V`) agree and `A<i32>`, `B<i64>` do not.
@@ -1863,8 +1863,8 @@ pub class Substitution {
         }
     }
 
-    /// Derived default \p c, written in interface \p id, as conformer \p x
-    /// reads it through \p edge, the instance of \p id it declares. The
+    /// Derived default `c`, written in interface `id`, as conformer `x`
+    /// reads it through `edge`, the instance of `id` it declares. The
     /// default is over id's OWN parameters (`interface <U> Wrapped derives
     /// Source<U> { type Item = U }`), which the requirement's instance
     /// (`Source<i32>`) never binds; the edge (`Wrapped<N>`, read through
@@ -1925,7 +1925,7 @@ pub class Substitution {
         }
     }
 
-    /// \p d and every interface it derives, representatives, once each.
+    /// `d` and every interface it derives, representatives, once each.
     priv fn _iface_closure(self,
                            d:     unsafe *Decl,
                            out:   unsafe *cxx::std::vector<unsafe *Decl>,
@@ -1963,7 +1963,7 @@ pub class Substitution {
         }
     }
 
-    /// \p x declares that it conforms to \p iface (or to an interface
+    /// `x` declares that it conforms to `iface` (or to an interface
     /// deriving it): `impl` on its declaration, or an `extend x impl`. A
     /// conformance only found structurally at a use is not one.
     fn conforms_explicitly(self, x: unsafe *Type, iface: unsafe *Type, ml: *MemberLookup) -> bool {
@@ -2034,7 +2034,7 @@ pub class Substitution {
         return false
     }
 
-    /// Interface type \p t is \p want or derives it.
+    /// Interface type `t` is `want` or derives it.
     priv fn _iface_reaches(self, t: unsafe *Type, want: unsafe *Decl, depth: u32) -> bool {
         if depth > 32 {
             return false
@@ -2075,7 +2075,7 @@ pub class Substitution {
         return false
     }
 
-    /// Member type \p mt as seen through receiver \p recv (`Foo<i32>`'s
+    /// Member type `mt` as seen through receiver `recv` (`Foo<i32>`'s
     /// field `var x: T` reads as i32). Non-dependent members pass through.
     fn member_through(self, recv: unsafe *Type, mt: unsafe *Type) -> unsafe *Type {
         if mt == &null {
@@ -2091,13 +2091,13 @@ pub class Substitution {
         return if (s != &null) => (s) else => mt
     }
 
-    /// What `x->m` reads `m` from when \p ty (x's type, carrying the
+    /// What `x->m` reads `m` from when `ty` (x's type, carrying the
     /// object's cv) is a record: the pointee of what its `op ->` returns,
     /// with `->` applied again while that result is itself a record
     /// ([over.ref]/2, [over.match.oper]/2: `x->m` is `(x.operator->())->m`).
     /// That is how a C++ iterator or smart pointer is read (`it->second`),
     /// and operator-overloading.md promises it for a Kairo `op ->`. Null
-    /// when \p ty is no record or declares no `op ->`, which leaves the
+    /// when `ty` is no record or declares no `op ->`, which leaves the
     /// R027E "'->' requires a pointer" to the caller. A const receiver takes
     /// the `const self` overload where there is one.
     ///
@@ -2167,7 +2167,7 @@ pub class Substitution {
 
     /// # derived-to-base
 
-    /// True when record type \p derived is \p base or reaches it through
+    /// True when record type `derived` is `base` or reaches it through
     /// `derives` edges. Types, not decls: an instance's bases are its
     /// pattern's declared list READ THROUGH ITS ARGUMENTS, so `Const<i32>`
     /// of `class <T> Const derives Source<T>` reaches `Source<i32>` and not
@@ -2255,7 +2255,7 @@ pub class Substitution {
         return false
     }
 
-    /// Every base record of record type \p d, transitively, each read
+    /// Every base record of record type `d`, transitively, each read
     /// through the record it is a base of (as _derives_walk reads them),
     /// nearest first. For deduction from a derived argument
     /// ([temp.deduct.call]/4.3): `getline(basic_istream<C, T>&, ...)` with
@@ -2302,7 +2302,7 @@ pub class Substitution {
         }
     }
 
-    /// The record edge \p e of record type \p of names, read through \p of's
+    /// The record edge `e` of record type `of` names, read through `of`'s
     /// own arguments: `Mixin<T>` on `class Seven<T>` is `Mixin<i32>` for
     /// `Seven<i32>`. The one hop of every walk over a record's bases
     /// (derives_from, base_records, bind_from_record); each hop takes fresh
@@ -2316,7 +2316,7 @@ pub class Substitution {
         }
 
         var unsafe *c = canon_unqual(e->base->canonical)
-        // A base that is \p of's own type parameter: its argument, or the
+        // A base that is `of`'s own type parameter: its argument, or the
         // class its bound names while the argument is itself a parameter.
         // The first of several bound classes; a walk that needs them all
         // asks TypeUtil::param_edge_bases.

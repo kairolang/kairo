@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------- Sema/Resolve/AccessCheck.k --- ///
 ///
-///   \brief Enforce pub/priv/prot visibility on every resolved reference.
+/// Enforce pub/priv/prot visibility on every resolved reference.
 ///
 ///   \detail
 ///     Runs after expression typing so it checks what was actually chosen
@@ -160,7 +160,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         self._tu = TypeUtil(sc)
     }
 
-    /// \p d's visibility as this pass reads it: the keyword it or an
+    /// `d`'s visibility as this pass reads it: the keyword it or an
     /// earlier redeclaration wrote, else the default of where it is
     /// declared. For tooling that records it (the language server's
     /// declaration tables).
@@ -172,8 +172,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         return self._effective(d, self._owner(d))
     }
 
-    /// Whether a use of \p d written inside \p f (null: outside every
-    /// function), reached through a value or type \p through (null: by a
+    /// Whether a use of `d` written inside `f` (null: outside every
+    /// function), reached through a value or type `through` (null: by a
     /// bare name), is one this pass refuses. Reports nothing. For tooling
     /// that offers names before they are written (the language server's
     /// completion list): what it offers is then what this pass admits, by
@@ -361,7 +361,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         return self._named_record(id->resolved_decl)
     }
 
-    /// The record \p d names as a type, as a pattern representative: a
+    /// The record `d` names as a type, as a pattern representative: a
     /// class itself, or the class an alias stands for. Null for every other
     /// declaration, so a value step (a field, a variable) names none.
     priv fn _named_record(self, d: unsafe *Decl) -> unsafe *Decl {
@@ -562,11 +562,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
     /// # the rule
 
-    /// Report \p d used at \p at when the use site may not see it; \p through
+    /// Report `d` used at `at` when the use site may not see it; `through`
     /// is the type it was reached through (inheritance visibility, and the
     /// object a subclass reaches a `prot` member through), or null.
-    /// \p construction: \p d is the constructor a construction selected.
-    /// \p via: the record a `::` path names \p d through (`Der` in
+    /// `construction`: `d` is the constructor a construction selected.
+    /// `via`: the record a `::` path names `d` through (`Der` in
     /// `Der::make()`), or null. It is judged for inheritance visibility
     /// only: a path through a type reaches no object, so the `prot`
     /// own-object rule never reads it.
@@ -613,8 +613,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         self._check_edges(d, owner, at, through, via)
     }
 
-    /// Whether the use site may see a member of \p owner at visibility \p v
-    /// whose home is \p d's file: 0 it may; 1 it is outside the member's
+    /// Whether the use site may see a member of `owner` at visibility `v`
+    /// whose home is `d`'s file: 0 it may; 1 it is outside the member's
     /// reach; 2 a subclass reaches an instance `prot` member through an
     /// object that is not of its own class; 3 a subclass builds a
     /// standalone object through a `prot` constructor.
@@ -674,10 +674,10 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         return why
     }
 
-    /// \p d is reached by subclass \p user through a \p through that C++
+    /// `d` is reached by subclass `user` through a `through` that C++
     /// lets it reach a protected member by: a static member, a nested type
     /// or a constructor named by `::` need no object; an instance member
-    /// needs one whose class is \p user or derives from it.
+    /// needs one whose class is `user` or derives from it.
     priv fn _prot_object_ok(self,
                             d:       unsafe *Decl,
                             user:    unsafe *Decl,
@@ -727,7 +727,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             && self._name(d) == self._tu.decl_name(dc->owner_decl())
     }
 
-    /// The record (or extension target) \p d is a member of, as a pattern
+    /// The record (or extension target) `d` is a member of, as a pattern
     /// representative; null for anything that is not a member.
     priv fn _owner(self, d: unsafe *Decl) -> unsafe *Decl {
         if d->semantic_dc == &null {
@@ -764,7 +764,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         return &null
     }
 
-    /// \p d's own visibility, the default applied (AST/VisibilityFacts.k):
+    /// `d`'s own visibility, the default applied (AST/VisibilityFacts.k):
     /// `priv`, or `prot` in a module; under the old rule a class's
     /// variables `priv` and everything else `pub`.
     priv fn _effective(self, d: unsafe *Decl, owner: unsafe *Decl) -> VisibilityKind {
@@ -777,7 +777,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         return default_visibility_of(d, home)
     }
 
-    /// The keyword \p d's redeclaration chain wrote, or None.
+    /// The keyword `d`'s redeclaration chain wrote, or None.
     priv fn _written(self, d: unsafe *Decl) -> VisibilityKind {
         return visibility_decl(d)->visibility
     }
@@ -871,7 +871,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         b.emit()
     }
 
-    /// Why an unmarked declaration of \p home is what it is.
+    /// Why an unmarked declaration of `home` is what it is.
     priv fn _default_why(self, home: unsafe *TranslationUnit) -> string {
         if tu_module_dir(home).is_empty() {
             return "a declaration with no visibility keyword is 'priv' when its file has no module.k above it"
@@ -880,7 +880,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         return "a declaration with no visibility keyword is 'prot', visible in the files of its module (the directory of the nearest module.k)"
     }
 
-    /// SC272W, chained to a refusal: \p v is `prot` and its file is in no
+    /// SC272W, chained to a refusal: `v` is `prot` and its file is in no
     /// module, so the use failed only for want of a module.k.
     priv fn _no_module_warning(self,
                                b:        *DiagBuilder,
@@ -899,7 +899,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         )->child_first(at)
     }
 
-    /// The file \p d's visibility is relative to: its class's, read off the
+    /// The file `d`'s visibility is relative to: its class's, read off the
     /// pattern (an instance's members are minted wherever it is used), or
     /// an extension's own.
     priv fn _home(self, d: unsafe *Decl, owner: unsafe *Decl) -> unsafe *TranslationUnit {
@@ -911,7 +911,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         return NameLookup::tu_of(NameLookup::context_of(owner))
     }
 
-    /// \p d reaches \p base through `derives` edges, by pattern entity.
+    /// `d` reaches `base` through `derives` edges, by pattern entity.
     priv fn _derives(self,
                      d:     unsafe *Decl,
                      base:  unsafe *Decl,
@@ -966,10 +966,10 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
     /// # inheritance visibility
 
-    /// A member of \p owner reached through a record that derives it with a
+    /// A member of `owner` reached through a record that derives it with a
     /// `priv` or `prot` edge on the way: the edge's class is the member's
     /// home for this use, at the edge's visibility. The record is the one
-    /// \p through is a value of, or \p via for a member named through a
+    /// `through` is a value of, or `via` for a member named through a
     /// type (a static, a nested type, an enumerator): one rule for both.
     priv fn _check_edges(self,
                          d:       unsafe *Decl,
@@ -1073,7 +1073,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         return c
     }
 
-    /// One `derives` path from \p d up to \p base: the edges, and for each
+    /// One `derives` path from `d` up to `base`: the edges, and for each
     /// the class that wrote it.
     priv fn _path(self,
                   d:     unsafe *Decl,

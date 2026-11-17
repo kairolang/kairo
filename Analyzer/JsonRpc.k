@@ -15,13 +15,12 @@ ffi "c" import "kals_io.h"
 
 import std::io
 
-/// \class Transport
-/// \brief Content-Length framed messages over stdin/stdout.
+/// Content-Length framed messages over stdin/stdout.
 ///
-/// \details Reads are non-blocking past a timeout: `wait(ms)` returns as soon
-///          as one whole message is buffered, or after \p ms with none. The
-///          server's loop runs on that timeout, which is what lets it notice a
-///          finished worker while the editor is silent.
+/// Reads are non-blocking past a timeout: `wait(ms)` returns as soon
+/// as one whole message is buffered, or after `ms` with none. The
+/// server's loop runs on that timeout, which is what lets it notice a
+/// finished worker while the editor is silent.
 pub class Transport {
     pub var closed: bool = false ///< stdin reached EOF or failed: the editor is gone
 

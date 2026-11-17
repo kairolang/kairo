@@ -13,7 +13,7 @@ prot eval CHAR_TEXT_MAX: usize = 4
 /// Writes the UTF-8 encoding of `c` at `buf[0 ..)` and returns its length,
 /// 1 to 4.
 ///
-/// \pre `buf` is valid for writes of `CHAR_TEXT_MAX` (4) bytes; `c` is a
+/// **Precondition:** `buf` is valid for writes of `CHAR_TEXT_MAX` (4) bytes; `c` is a
 /// Unicode scalar value, which every `char` is.
 prot fn char_to_utf8(c: char, buf: unsafe *u8) -> usize {
     var v: u32 = c
@@ -55,7 +55,7 @@ prot fn char_to_utf8(c: char, buf: unsafe *u8) -> usize {
 /// at most U+10FFFF, and complete. Anything else is `InvalidChar` at 0;
 /// bytes after a well-formed first sequence are `Trailing` at its length.
 ///
-/// \pre `p` is valid for reads of `n` bytes.
+/// **Precondition:** `p` is valid for reads of `n` bytes.
 prot fn parse_char(p: unsafe *const u8, n: usize, @inout err: ParseError) -> char {
     err.at   = 0
     err.kind = ParseErrorKind::None
@@ -114,7 +114,7 @@ prot fn parse_char(p: unsafe *const u8, n: usize, @inout err: ParseError) -> cha
 /// Text that does not start with one of the two words is `InvalidChar` at
 /// 0; bytes after the word are `Trailing` at its length.
 ///
-/// \pre `p` is valid for reads of `n` bytes.
+/// **Precondition:** `p` is valid for reads of `n` bytes.
 prot fn parse_bool(p: unsafe *const u8, n: usize, @inout err: ParseError) -> bool {
     err.at   = 0
     err.kind = ParseErrorKind::None

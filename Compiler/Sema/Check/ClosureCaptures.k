@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------- Sema/Check/ClosureCaptures.k --- ///
 ///
-///   \brief What every closure captures, and how: the decision EmitIR renders
-///          as the lambda's capture list.
+/// What every closure captures, and how: the decision EmitIR renders
+/// as the lambda's capture list.
 ///
 ///   \detail
 ///     closures.md, Capture Modes. A closure's FREE bindings (FreeVarScan,
@@ -218,7 +218,7 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         return out
     }
 
-    /// \p f's free locals: every one belongs to a function around it.
+    /// `f`'s free locals: every one belongs to a function around it.
     priv fn _inner_fn(self, f: unsafe *FunctionDecl) {
         if f->is_poisoned() || f->is_implicit {
             return
@@ -378,7 +378,7 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         n->caps_resolved = true
     }
 
-    /// \p n and every closure around it copy the script variable \p d:
+    /// `n` and every closure around it copy the script variable `d`:
     /// under a `|*|` one the name is that closure's pointer view
     /// (ExprTyper::_capture_view), which the inner closure reads in place.
     priv fn _open_copy(self, n: unsafe *ClosureExpr, d: unsafe *Decl) -> bool {
@@ -421,7 +421,7 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
             || dc->dc_kind == DeclContextKind::Lambda
     }
 
-    /// The capture-list entry naming \p d, or usize(-1).
+    /// The capture-list entry naming `d`, or usize(-1).
     priv fn _named_index(self, n: unsafe *ClosureExpr, d: unsafe *Decl) -> usize {
         for var i: usize = 0; i < n->captures.size(); ++i {
             var unsafe *c = n->captures.get(i)
@@ -459,8 +459,8 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         return moves_on_pass(self.sc, t->canonical)
     }
 
-    /// The nearest enclosing closure that captures \p d holds it by pointer,
-    /// or sees it as one: then \p d's name in this closure is that pointer.
+    /// The nearest enclosing closure that captures `d` holds it by pointer,
+    /// or sees it as one: then `d`'s name in this closure is that pointer.
     priv fn _via_ptr(self, d: unsafe *Decl) -> bool {
         var i = self._open.size()
         while i > 0 {
@@ -481,7 +481,7 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
 
     /// # the error
 
-    /// \p d is used in \p n, and \p n's list (`||` or a named one) does not
+    /// `d` is used in `n`, and `n`'s list (`||` or a named one) does not
     /// capture it.
     priv fn _not_captured(self,
                           n:      unsafe *ClosureExpr,

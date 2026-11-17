@@ -39,12 +39,12 @@ pub fn progress_on() -> bool {
     return kairo::ProgressMeter::mode() != 0
 }
 
-/// A phase of \p total units begins; counters restart at zero.
+/// A phase of `total` units begins; counters restart at zero.
 pub fn progress_begin(phase: i32, total: usize) {
     kairo::ProgressMeter::begin(phase, total)
 }
 
-/// \p n units finished, \p file the one that did. Any thread.
+/// `n` units finished, `file` the one that did. Any thread.
 pub fn progress_tick(phase: i32, const file: string, n: usize = 1) {
     if kairo::ProgressMeter::mode() == 0 {
         return
@@ -54,7 +54,7 @@ pub fn progress_tick(phase: i32, const file: string, n: usize = 1) {
     kairo::ProgressMeter::tick(phase, f.c_str(), n)
 }
 
-/// \p n units need no work (codegen: the object cache held them); they count
+/// `n` units need no work (codegen: the object cache held them); they count
 /// as done and as reused.
 pub fn progress_reuse(phase: i32, n: usize) {
     kairo::ProgressMeter::reuse(phase, n)

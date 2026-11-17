@@ -1,9 +1,9 @@
 /// --- The Kairo Project ---------------- Sema/Type/ArgumentDeduction.k --- ///
 ///
-///   \brief Structural unification of a parameter's canonical against an
-///          argument's canonical, binding the generic parameters of ONE owner.
-///          Substituting the bindings back into a type is Substitution's
-///          (Sema/Type/Substitution.k), which Deduction derives.
+/// Structural unification of a parameter's canonical against an
+/// argument's canonical, binding the generic parameters of ONE owner.
+/// Substituting the bindings back into a type is Substitution's
+/// (Sema/Type/Substitution.k), which Deduction derives.
 ///
 ///   \detail
 ///     A parameter type like `[T]` canonicalizes to `vector(generic_param(f,
@@ -157,7 +157,7 @@ pub class Deduction derives Substitution {
         }
     }
 
-    /// Every param of \p owner has a binding.
+    /// Every param of `owner` has a binding.
     fn is_complete(self, owner: unsafe *Decl) -> bool {
         var gps = self.tu.generic_params_of(owner)
         for var i: usize = 0; i < gps.size(); ++i {
@@ -187,7 +187,8 @@ pub class Deduction derives Substitution {
 
     /// # unify
 
-    /// \return the rank of the match, None on failure.
+    /// ### Returns
+    /// the rank of the match, None on failure.
     fn unify(self, param: unsafe *Type, arg: unsafe *Type, top: bool) -> ImplicitRank {
         if param == &null || arg == &null {
             return ImplicitRank::None
@@ -625,7 +626,7 @@ pub class Deduction derives Substitution {
     /// `basic_istream<char, ...>` base; matched only against the arg's own
     /// record, every stream argument was SC063E. The first base that unifies
     /// wins, and the binding ranks as a conversion (derived-to-base).
-    /// \p mark: the bindings to roll back to before each attempt.
+    /// `mark`: the bindings to roll back to before each attempt.
     priv fn _unify_from_base(self, p: unsafe *Type, a: unsafe *Type, mark: usize) -> ImplicitRank {
         var unsafe *pc = canon_unqual(p)
         var unsafe *ac = canon_unqual(a)
@@ -673,7 +674,7 @@ pub class Deduction derives Substitution {
     /// every one of those `record(I)` is really the parameter: the method is
     /// being called on a `T`, so what it takes and returns is a `T`.
     ///
-    /// A structural rewrite through the store, and nothing else in \p t
+    /// A structural rewrite through the store, and nothing else in `t`
     /// changes. Deliberately NOT folded into substitute(): that one maps
     /// generic params to deduced arguments and is driven by `is_dependent`,
     /// while `record(I)` for a non-generic I is not dependent at all. Two
@@ -681,15 +682,15 @@ pub class Deduction derives Substitution {
     ///
     /// Only a BARE `record(I)` is the receiver. `I<X>` names a different
     /// entity and its arguments are rewritten in place instead.
-    /// \p t -- a parameter or return type of member \p f -- as the call site
-    /// sees it, given the value \p receiver it was reached through. THE home
+    /// `t` -- a parameter or return type of member `f` -- as the call site
+    /// sees it, given the value `receiver` it was reached through. THE home
     /// of the Self rule: overload resolution needs it to judge viability
     /// (`fn merge(self, other: Self)` reached through a `T impl Drawable`
     /// takes a T, and ranking the argument against `Drawable` would reject
     /// the call outright) and CallTyping needs it again on the winner, so
     /// neither owns it.
     ///
-    /// A no-op unless \p f is declared in an interface: `Self` in a class body
+    /// A no-op unless `f` is declared in an interface: `Self` in a class body
     /// already means that class, and the receiver IS that class.
     fn through_receiver(self,
                         f:        unsafe *FunctionDecl,
@@ -714,12 +715,12 @@ pub class Deduction derives Substitution {
     // replace_self / own_args: Substitution's (the base class), since an
     // associated type's default is read with Self := the conformer there.
 
-    /// The instance of requirement \p f's DECLARING interface that a
-    /// qualified call names through interface instance \p q: `Sub<i32>::get`,
+    /// The instance of requirement `f`'s DECLARING interface that a
+    /// qualified call names through interface instance `q`: `Sub<i32>::get`,
     /// with `interface <T> Sub derives Container<T>`, calls Container<i32>'s
     /// `get`. The composed list says which instance a requirement came
     /// through (Requirement::source), over q's interface's parameters. Null
-    /// when \p f is no requirement of q's interface.
+    /// when `f` is no requirement of q's interface.
     fn declaring_instance(self, f: unsafe *FunctionDecl, q: unsafe *Type) -> unsafe *Type {
         if f == &null || q == &null || f->semantic_dc == &null {
             return &null

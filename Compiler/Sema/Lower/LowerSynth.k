@@ -1,11 +1,11 @@
 /// --- The Kairo Project ---------------------- Sema/Lower/LowerSynth.k --- ///
 ///
-///   \brief What every lowering mints: identifier tokens interned into THIS
-///          file's table, integer literals with a fresh Immediate::IntData
-///          slot, byte literals over decoded text with a fresh StringData
-///          slot, fresh `__kairo_` locals and the names that read them,
-///          member and free-function calls, statement expressions, and
-///          the purity test SequenceLowering orders arguments by.
+/// What every lowering mints: identifier tokens interned into THIS
+/// file's table, integer literals with a fresh Immediate::IntData
+/// slot, byte literals over decoded text with a fresh StringData
+/// slot, fresh `__kairo_` locals and the names that read them,
+/// member and free-function calls, statement expressions, and
+/// the purity test SequenceLowering orders arguments by.
 ///
 ///   One copy. Three passes each carried their own `_ident_token`, and the
 ///   `Token` invariant (16 bytes, an imm index into the owning file's table,
@@ -139,7 +139,7 @@ pub class LowerSynth {
         return t
     }
 
-    /// An integer literal typed \p kind, its IntData slot minted and written
+    /// An integer literal typed `kind`, its IntData slot minted and written
     /// straight in: no source text, so EmitIR spells it from the value.
     fn int_literal(self, range: SourceRange, value: u64, kind: BuiltinKind) -> unsafe *Expr {
         var unsafe *tbl = self.sc->imm_table()
@@ -171,7 +171,7 @@ pub class LowerSynth {
     }
 
     /// A string literal over BYTES this pass minted -- a decoded body -- typed
-    /// \p ty (a pointer type; EmitIR spells it as a C++ literal from the
+    /// `ty` (a pointer type; EmitIR spells it as a C++ literal from the
     /// bytes). The token carries a fresh StringData slot whose owned text is
     /// the bytes.
     fn bytes_literal(self,
@@ -218,7 +218,7 @@ pub class LowerSynth {
         return vd
     }
 
-    /// local(), placed: its DeclStmt pushed on \p stmts. The bind-once step
+    /// local(), placed: its DeclStmt pushed on `stmts`. The bind-once step
     /// of an expansion that reads an operand more than once.
     fn bind(self,
             range:      SourceRange,
@@ -247,7 +247,7 @@ pub class LowerSynth {
         return use
     }
 
-    /// An explicit cast to the canonical \p to. Default renders `static_cast`,
+    /// An explicit cast to the canonical `to`. Default renders `static_cast`,
     /// Unsafe `reinterpret_cast`. Not `cast`: a member by that name hides
     /// Casting.k's `cast::<T>` for every method of this class.
     fn cast_to(self,
@@ -269,7 +269,7 @@ pub class LowerSynth {
         return c
     }
 
-    /// A value of canonical type \p c is a C++ class object: a class, struct,
+    /// A value of canonical type `c` is a C++ class object: a class, struct,
     /// union or ADT enum. An enum with no payload is a C++ `enum class`, an
     /// integer that copies as cheaply as it moves.
     fn is_class_value(self, c: unsafe *Type) -> bool {
@@ -284,7 +284,7 @@ pub class LowerSynth {
         return en == &null || en->is_adt
     }
 
-    /// \p e as an rvalue of \p t: `static_cast<T &&>(e)`, the move out of a
+    /// `e` as an rvalue of `t`: `static_cast<T &&>(e)`, the move out of a
     /// place nothing reads again.
     fn rref(self, at: SourceRange, e: unsafe *Expr, t: unsafe *Type) -> unsafe *Expr {
         return self.cast_to(
@@ -329,7 +329,7 @@ pub class LowerSynth {
         return u
     }
 
-    /// `*e`, an lvalue of \p t.
+    /// `*e`, an lvalue of `t`.
     fn deref(self, at: SourceRange, e: unsafe *Expr, t: unsafe *Type) -> unsafe *Expr {
         var unsafe *u = UnaryOperatorExpr::create(
             self.sc->ctx,
@@ -358,7 +358,7 @@ pub class LowerSynth {
         return blk
     }
 
-    /// What a call of \p f yields, read from the decl: `!` for a function
+    /// What a call of `f` yields, read from the decl: `!` for a function
     /// that does not return, `void` for one that declares no result.
     fn result_type(self, f: unsafe *FunctionDecl) -> unsafe *Type {
         if f->is_noreturn {
@@ -394,7 +394,7 @@ pub class LowerSynth {
         }
     }
 
-    /// \p n names its fields in an order other than the one its struct or
+    /// `n` names its fields in an order other than the one its struct or
     /// class declares them in. False when that cannot be told: no record
     /// type, or a field that names no declared field.
     fn out_of_order(self, n: unsafe *NamedInitializerExpr) -> bool {
@@ -446,7 +446,7 @@ pub class LowerSynth {
         return !in_order
     }
 
-    /// \p n's field indices in the order the fields were written.
+    /// `n`'s field indices in the order the fields were written.
     fn written_order(self, n: unsafe *VariantInitExpr) -> cxx::std::vector<usize> {
         var out   = cxx::std::vector<usize>()
         var count = n->fields.size()
@@ -461,9 +461,9 @@ pub class LowerSynth {
         return out
     }
 
-    /// `({ stmts; n })` with \p n rebuilt over \p bound, one value per field
-    /// in declaration order. \p stmts computed them in the order written,
-    /// so the written order of \p n is declaration order from here on.
+    /// `({ stmts; n })` with `n` rebuilt over `bound`, one value per field
+    /// in declaration order. `stmts` computed them in the order written,
+    /// so the written order of `n` is declaration order from here on.
     fn variant_over(self,
                     n:            unsafe *VariantInitExpr,
                     const bound:  cxx::std::vector<unsafe *Expr>,
@@ -484,7 +484,7 @@ pub class LowerSynth {
         return self.stmt_expr(unsafe (n as unsafe *Expr), &stmts, n->type_)
     }
 
-    /// `&e`, typed `*T` for an \p e of T. A C++ `T&` (an `operator*` result)
+    /// `&e`, typed `*T` for an `e` of T. A C++ `T&` (an `operator*` result)
     /// names its referee, as OperatorTyping's `&` reads it: `*T`, never a
     /// pointer to a reference.
     fn addr_of(self, e: unsafe *Expr) -> unsafe *Expr {
@@ -509,7 +509,7 @@ pub class LowerSynth {
         return u
     }
 
-    /// `base.<field>`, an lvalue of \p ty. The step names the FieldDecl; the
+    /// `base.<field>`, an lvalue of `ty`. The step names the FieldDecl; the
     /// token spells it in this file.
     fn field_of(self,
                 range: SourceRange,
@@ -539,11 +539,11 @@ pub class LowerSynth {
         return chain
     }
 
-    /// `recv.<method>(args)` typed \p ty. An operator method (`op as`) gets
+    /// `recv.<method>(args)` typed `ty`. An operator method (`op as`) gets
     /// an Operator step spelled from the decl; a named one a Name step whose
     /// token spells the name in this file. Same shape OperatorLowering mints.
     ///
-    /// \p ordered: the caller knows the order of the operands is
+    /// `ordered`: the caller knows the order of the operands is
     /// unobservable (see _mint_check); only read once SequenceLowering ran.
     fn member_call(self,
                    range:       SourceRange,
@@ -598,9 +598,9 @@ pub class LowerSynth {
         return call
     }
 
-    /// A constructor call typed \p ty. The callee names the ctor decl; EmitIR
+    /// A constructor call typed `ty`. The callee names the ctor decl; EmitIR
     /// spells the TYPE from the call's own canonical, never from this token.
-    /// \p ordered as member_call's.
+    /// `ordered` as member_call's.
     fn ctor_call(self,
                  range:       SourceRange,
                  ctor:        unsafe *Decl,
@@ -660,9 +660,9 @@ pub class LowerSynth {
         codegen_ice(self.sc->ctx, call->range, msg) // I003E at the call, then the ICE.
     }
 
-    /// `f(args)`, a call of the free function \p f (a lang item a lowering
-    /// calls) typed \p ty: the node shape of ctor_call, the callee naming
-    /// \p f by its own name.
+    /// `f(args)`, a call of the free function `f` (a lang item a lowering
+    /// calls) typed `ty`: the node shape of ctor_call, the callee naming
+    /// `f` by its own name.
     fn free_call(self,
                  range:   SourceRange,
                  f:       unsafe *Decl,
@@ -675,10 +675,10 @@ pub class LowerSynth {
 
     /// `unwrap_failed("<text>", <len>)`, typed `!`: the crash family's one
     /// compiler entry (the UnwrapFailed lang item over rt/crash.c, Compiler/Spec/Panic.md
-    /// §2.8). \p text is the whole message -- what failed and its
+    /// §2.8). `text` is the whole message -- what failed and its
     /// file:line:col -- because nothing may be formatted at crash time: the
     /// runtime writes these bytes and a newline and aborts. No newline here;
-    /// the runtime owns it. \p who names the calling pass in the ICE.
+    /// the runtime owns it. `who` names the calling pass in the ICE.
     fn crash_call(self, range: SourceRange, const text: string, const who: string) -> unsafe *Expr {
         var unsafe *d = self.sc->well_known->get(WellKnownType::UnwrapFailed)
         if d == &null {
@@ -721,7 +721,7 @@ pub class LowerSynth {
         )
     }
 
-    /// `if cond { <call> }`, \p call a `-> !` call (crash_call's).
+    /// `if cond { <call> }`, `call` a `-> !` call (crash_call's).
     fn crash_if(self, range: SourceRange, cond: unsafe *Expr, call: unsafe *Expr) -> unsafe *Stmt {
         var unsafe *blk = CompoundStmt::create(self.sc->ctx, range)
         var        body = ListBuilder<unsafe *Stmt>(self.sc->ctx)
@@ -730,7 +730,7 @@ pub class LowerSynth {
         return ConditionalStmt::create(self.sc->ctx, range, cond, blk, &null)
     }
 
-    /// `({ stmts })` in place of \p orig, a prvalue of \p ty.
+    /// `({ stmts })` in place of `orig`, a prvalue of `ty`.
     fn stmt_expr(self,
                  orig:         unsafe *Expr,
                  @inout stmts: ListBuilder<unsafe *Stmt>,
@@ -746,7 +746,7 @@ pub class LowerSynth {
 
     /// # text
 
-    /// The extent C++ gives string literal \p sl as `const char[N]`: its
+    /// The extent C++ gives string literal `sl` as `const char[N]`: its
     /// decoded bytes, every chained part, plus the terminator. 0 when
     /// an escape does not decode, which the caller reads as "no literal".
     /// Typing needs it before StringLowering has built the bytes.
@@ -770,8 +770,8 @@ pub class LowerSynth {
         return (out.size() as u64) + 1
     }
 
-    /// The bytes of \p range decoded: every escape the lexer accepts, into
-    /// UTF-8 (Immediate::decode_escapes). \p raw copies verbatim. False for
+    /// The bytes of `range` decoded: every escape the lexer accepts, into
+    /// UTF-8 (Immediate::decode_escapes). `raw` copies verbatim. False for
     /// an escape that is not whole, which the lexer has already rejected; the
     /// caller ICEs.
     fn decode_text(self, range: SourceRange, raw: bool, out: unsafe *cxx::std::vector<u8>) -> bool {
@@ -789,7 +789,7 @@ pub class LowerSynth {
         )
     }
 
-    /// The raw bytes of \p range, no decoding.
+    /// The raw bytes of `range`, no decoding.
     fn copy_text(self, range: SourceRange, @inout out: cxx::std::vector<u8>) {
         if !range.is_valid() {
             return
@@ -810,12 +810,12 @@ pub class LowerSynth {
         }
     }
 
-    /// Codepoints in \p bytes: every byte that is not a continuation byte.
+    /// Codepoints in `bytes`: every byte that is not a continuation byte.
     ///
     /// Requires valid UTF-8, which SourceManager::validate_utf8 (source bytes)
     /// plus decode_escapes' encoding (every escape is written as a full
     /// UTF-8 sequence) guarantee; on anything else the count is wrong, not an
-    /// error. Debug builds re-decode \p bytes to catch a path that bypassed
+    /// error. Debug builds re-decode `bytes` to catch a path that bypassed
     /// validation.
     static fn cp_count(const bytes: cxx::std::vector<u8>) -> usize {
         eval if defined!(DEBUG) {
@@ -853,7 +853,7 @@ pub class LowerSynth {
         return unsafe (bytes.data() as kairo::std::ConstPtr<u8>)
     }
 
-    /// No side effect and no dependence on one: reading \p e before or after
+    /// No side effect and no dependence on one: reading `e` before or after
     /// another operand changes nothing. Conservative: anything not listed is
     /// impure. SequenceLowering orders by it; OperatorLowering decides by it
     /// whether a compound assignment's left side is bound once first.
@@ -872,7 +872,7 @@ pub class LowerSynth {
         return LowerSynth::_pure(e, &self)
     }
 
-    /// \p e is `recv.m()` with m a pure accessor (is_pure_accessor) and no
+    /// `e` is `recv.m()` with m a pure accessor (is_pure_accessor) and no
     /// arguments; null otherwise, else the receiver.
     fn accessor_receiver(self, e: unsafe *Expr) -> unsafe *Expr {
         var unsafe *c = dyn_cast<CallExpr>(e)
@@ -898,7 +898,7 @@ pub class LowerSynth {
         return ch->base
     }
 
-    /// \p d is one of the pure accessors (PureAccessors), by identity: the
+    /// `d` is one of the pure accessors (PureAccessors), by identity: the
     /// Null layout's IsNull / ValueRef / ValueCref members (roles only
     /// that lang item's record carries, AdtRole), any ADT layout's
     /// `__kairo_which()` (AdtRole::Which), or one of string's
@@ -960,7 +960,7 @@ pub class LowerSynth {
         }
     }
 
-    /// The one walk behind pure() and pure_read(): \p acc null is the
+    /// The one walk behind pure() and pure_read(): `acc` null is the
     /// strict test, non-null admits its pure accessors.
     priv static fn _pure(e: unsafe *Expr, acc: *LowerSynth?) -> bool {
         if e == &null {

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------------- Sema/Type/CallTyping.k --- ///
 ///
-///   \brief `callee(args)`: what the callee denotes, the candidate set that
-///          gives, the arguments against it, and the result type.
+/// `callee(args)`: what the callee denotes, the candidate set that
+/// gives, the arguments against it, and the result type.
 ///
 ///   \detail
 ///     Callee shapes, in the order they are recognised:
@@ -135,7 +135,7 @@ import Token::TokenKind::{
     is_annotation,
 }
 
-/// The operand of a `&e` written as a call argument, or null when \p e is
+/// The operand of a `&e` written as a call argument, or null when `e` is
 /// not that shape. Bare `&e` only: `(&e)` is address-of, as in C++. One
 /// decoder, three readers (arg_info, finish_call_args, _call_through).
 pub fn mode_marker_operand(e: unsafe *Expr) -> unsafe *Expr {
@@ -155,7 +155,7 @@ pub fn mode_marker_operand(e: unsafe *Expr) -> unsafe *Expr {
     return u->operand
 }
 
-/// \p e as written is `const &x`, which is never the `&` marker: it is a
+/// `e` as written is `const &x`, which is never the `&` marker: it is a
 /// `*const T` wherever it is passed. Null otherwise.
 pub fn const_addr_arg(e: unsafe *Expr) -> unsafe *UnaryOperatorExpr {
     var unsafe *u = dyn_cast<UnaryOperatorExpr>(e)
@@ -180,7 +180,7 @@ pub class <T: type> CallTyping {
 
     /// # argument plumbing
 
-    /// Type \p e now unless it is an untyped literal, and describe it.
+    /// Type `e` now unless it is an untyped literal, and describe it.
     ///
     /// A named argument has no node of its own: `f(x: 1)` is parsed as an
     /// AssignOperatorExpr whose operator token is `:` and whose lhs is a bare
@@ -282,11 +282,11 @@ pub class <T: type> CallTyping {
         return a
     }
 
-    /// \p e is an `if` expression every arm of which is an lvalue of type
-    /// \p join, the expression's own: the arms are emitted as written, so
+    /// `e` is an `if` expression every arm of which is an lvalue of type
+    /// `join`, the expression's own: the arms are emitted as written, so
     /// the C++ conditional is an lvalue. An arm that converts to the join,
     /// reads a narrowed nullable or never returns is no lvalue of it. One
-    /// const arm makes the conditional const (\p any_const), as
+    /// const arm makes the conditional const (`any_const`), as
     /// [expr.cond]/4 converts the other arm to it.
     fn if_of_lvalues(self, e: unsafe *Expr, join: unsafe *Type, any_const: *bool) -> bool {
         var x = self.dyn()->tu.strip_parens(e)
@@ -376,7 +376,7 @@ pub class <T: type> CallTyping {
         return false
     }
 
-    /// `const &x` given to an `@inout` parameter (\p what names it): the
+    /// `const &x` given to an `@inout` parameter (`what` names it): the
     /// parameter writes the variable, and `const &x` is a pointer to const.
     /// The fix-it drops `const `, leaving the `&x` marker.
     fn _const_addr_to_inout(self, u: unsafe *UnaryOperatorExpr, what: string) {
@@ -425,7 +425,7 @@ pub class <T: type> CallTyping {
     /// place a memoized expression type is rewritten, and only after
     /// selection, which is the only point the answer exists.
     ///
-    /// \p pt is the substituted parameter canonical, or null when still
+    /// `pt` is the substituted parameter canonical, or null when still
     /// dependent; the binding is re-checked against it so a deduced
     /// `@inout x: T` is judged on the type it actually became.
     priv fn _commit_marker(self, a: *ArgInfo, pt: unsafe *Type) {
@@ -471,8 +471,8 @@ pub class <T: type> CallTyping {
         }
     }
 
-    /// Parameter \p p is a forwarding reference a string literal deduces as
-    /// a C string at: `T&&` (or a pack's `T&&...`) unsubstituted, or \p pt
+    /// Parameter `p` is a forwarding reference a string literal deduces as
+    /// a C string at: `T&&` (or a pack's `T&&...`) unsubstituted, or `pt`
     /// already substituted to `const char*&&`. The CallTyping side of
     /// OverloadResolution::_forwards_cstr, which judged the call so.
     priv fn _forwards_cstr_slot(self, p: unsafe *ParamDecl, pt: unsafe *Type) -> bool {
@@ -509,7 +509,7 @@ pub class <T: type> CallTyping {
         return false
     }
 
-    /// \p i is in \p xs.
+    /// `i` is in `xs`.
     priv fn _listed(self, xs: *cxx::std::vector<usize>, i: usize) -> bool {
         for var k: usize = 0; k < xs->size(); ++k {
             if (*xs)[k] == i {
@@ -550,7 +550,7 @@ pub class <T: type> CallTyping {
         }
     }
 
-    /// The type parameter \p p of the selected \p f takes in the call \p r
+    /// The type parameter `p` of the selected `f` takes in the call `r`
     /// resolved: `Self` and the receiver's and the call's generic arguments
     /// substituted, as finish_call_args reads each argument's slot. Null
     /// when it is still dependent.
@@ -898,8 +898,8 @@ pub class <T: type> CallTyping {
         }
     }
 
-    /// A call that binds a type parameter of \p f to a fixed array, where
-    /// \p f's body copies a value of that parameter or returns one:
+    /// A call that binds a type parameter of `f` to a fixed array, where
+    /// `f`'s body copies a value of that parameter or returns one:
     /// the body was typed once, over T, and only this instance copies an
     /// array, which is not copyable (SC083E, as for a concrete one). Said at
     /// the argument T is deduced from (else the first), naming the generic,
@@ -1008,7 +1008,7 @@ pub class <T: type> CallTyping {
         at->poison()
     }
 
-    /// \p p, a Kairo parameter whose declared type is generic, takes \p pt,
+    /// `p`, a Kairo parameter whose declared type is generic, takes `pt`,
     /// a fixed array, by value: the case SC045E rejects on a declared
     /// `[T; N]`. A declared array type was reported at the declaration.
     priv fn _array_by_value(self,
@@ -1028,11 +1028,11 @@ pub class <T: type> CallTyping {
         return dt != &null && !isa<FixedArrayType>(canon_unqual(dt))
     }
 
-    /// \p t with an interface member's `Self` read as the receiver, BEFORE
+    /// `t` with an interface member's `Self` read as the receiver, BEFORE
     /// the deduction substitutes: a generic interface's Self is `I<T>` over
     /// its own parameters, and once `Container<i32>::get` binds T it reads
     /// `I<i32>`, which the Self rule no longer recognizes. A dependent
-    /// receiver (a bound's T) goes first only for a parameter \p (any): a
+    /// receiver (a bound's T) goes first only for a parameter `(any)`: a
     /// parameter left dependent is the instance's to check either way, while
     /// a return type has to substitute, and call_result_type says why that
     /// fails once Self is the caller's T.
@@ -1052,7 +1052,7 @@ pub class <T: type> CallTyping {
         return r->ded.through_receiver(f, r->receiver, t)
     }
 
-    /// The declared return type of \p f after deduction. Expression-bodied
+    /// The declared return type of `f` after deduction. Expression-bodied
     /// functions without an annotation are inferred on demand.
     fn call_result_type(self, f: *FunctionDecl, r: *OvlResult) -> unsafe *Type {
         if f->is_noreturn {
@@ -1183,7 +1183,7 @@ pub class <T: type> CallTyping {
         return rt
     }
 
-    /// \p owner's deduced arguments, dependent ones included; false only on
+    /// `owner`'s deduced arguments, dependent ones included; false only on
     /// an unbound parameter or a pack.
     priv fn _loose_args(self,
                         r:          *OvlResult,
@@ -1207,7 +1207,7 @@ pub class <T: type> CallTyping {
         return true
     }
 
-    /// \p f's `impl` bounds where the call binds one of its parameters to a
+    /// `f`'s `impl` bounds where the call binds one of its parameters to a
     /// bounds-checked parameter of the CALLER (`one(x)` with `x: T` inside
     /// `fn <T> fwd`), a forwarded pack's elements included (`print_all(
     /// args...)`). The caller's body is checked once, against its own bounds
@@ -1511,7 +1511,7 @@ pub class <T: type> CallTyping {
         }
     }
 
-    /// Whether the caller's parameter type \p x promises \p iface through
+    /// Whether the caller's parameter type `x` promises `iface` through
     /// its bounds: the interface itself (at any arguments: a dependent
     /// mismatch is the instance's), or one deriving it. A `derives` bound is
     /// taken on trust: whether the base conforms is not read here.
@@ -1555,8 +1555,8 @@ pub class <T: type> CallTyping {
         return false
     }
 
-    /// R051E for an unbounded \p cgp (with the fix-it adding the bound),
-    /// R025E when it has bounds and none is \p iface: ExprTyper::needs_bound's
+    /// R051E for an unbounded `cgp` (with the fix-it adding the bound),
+    /// R025E when it has bounds and none is `iface`: ExprTyper::needs_bound's
     /// split, for a call instead of an operator.
     priv fn _report_forwarded(self,
                               n:     *CallExpr,
@@ -1611,7 +1611,7 @@ pub class <T: type> CallTyping {
         }
     }
 
-    /// \p owner's deduced arguments, appended to \p out in parameter order,
+    /// `owner`'s deduced arguments, appended to `out` in parameter order,
     /// a type pack flat (its elements, as InstanceEntry::args keeps them);
     /// false on an unbound or still-dependent binding.
     priv fn _bound_args(self,
@@ -1655,7 +1655,7 @@ pub class <T: type> CallTyping {
 
     /// # the call
 
-    /// \p ce is `x.finally` / `x.op finally`: the callee of the explicit
+    /// `ce` is `x.finally` / `x.op finally`: the callee of the explicit
     /// early destructor call.
     priv fn _is_finally_callee(self, ce: unsafe *ChainExpr) -> bool {
         if ce->steps.size() == 0 {
@@ -1998,11 +1998,11 @@ pub class <T: type> CallTyping {
 
     /// ## a class's own allocator
 
-    /// `x?.f(args)` whose call typed \p r: the expression is `if x? =>
+    /// `x?.f(args)` whose call typed `r`: the expression is `if x? =>
     /// x.f(args) else null` (Compiler/Spec/Nullables.md#safe-access), so `R?`, and `R` itself when
     /// it is already nullable (the one flattening, 1.5). A `void` method is
     /// a statement either way; a `-> !` one is `void` too, since on null
-    /// the expression completes. \p r is kept on the node for the lowering.
+    /// the expression completes. `r` is kept on the node for the lowering.
     priv fn _safe_call_result(self, n: *CallExpr, r: unsafe *Type) -> unsafe *Type {
         if r == &null || n->is_poisoned() {
             return r
@@ -2028,7 +2028,7 @@ pub class <T: type> CallTyping {
         return self.dyn()->sc->types->nullable(self.dyn()->tu.as_value(r))
     }
 
-    /// \p t is an interface's own type: `I` as a call's qualifier.
+    /// `t` is an interface's own type: `I` as a call's qualifier.
     priv fn _is_interface_type(self, t: unsafe *Type) -> bool {
         if t == &null {
             return false
@@ -2041,7 +2041,7 @@ pub class <T: type> CallTyping {
             )
     }
 
-    /// \p d is none of \p cands (as a `where` group's lead and as a
+    /// `d` is none of `cands` (as a `where` group's lead and as a
     /// redeclaration chain's representative): ADL added it.
     priv fn _outside(self, const cands: cxx::std::vector<unsafe *Decl>, d: unsafe *Decl) -> bool {
         var unsafe *want = NameLookup::representative(d)
@@ -2125,7 +2125,7 @@ pub class <T: type> CallTyping {
         n->args.from_buf(all.data(), all.size(), self.dyn()->sc->ctx)
     }
 
-    /// A fresh, untyped copy of the literal \p e (its token and immediate
+    /// A fresh, untyped copy of the literal `e` (its token and immediate
     /// data shared, both immutable), or null for anything else.
     priv fn _copy_literal(self, e: *Expr, at: SourceRange) -> unsafe *Expr {
         var ctx               = self.dyn()->sc->ctx
@@ -2366,9 +2366,11 @@ pub class <T: type> CallTyping {
         return &null
     }
 
-    /// Resolve against \p cands, promote the winner onto \p ident or \p step.
-    /// \param adl  the callee was an unqualified name: widen \p cands with
-    ///             argument-dependent lookup before resolving.
+    /// Resolve against `cands`, promote the winner onto `ident` or `step`.
+    ///
+    /// ### Parameters
+    /// - `adl`: the callee was an unqualified name: widen `cands` with
+    ///   argument-dependent lookup before resolving.
     priv fn _call_candidates(self,
                              n:            unsafe *CallExpr,
                              cands:        unsafe *cxx::std::vector<unsafe *Decl>,
@@ -2956,7 +2958,7 @@ pub class <T: type> CallTyping {
     /// break leaves ctor_decl null, and the emitted `Box<T>(args)` lets
     /// clang pick per instance (Compiler/Spec/Generics.md#member-types-of-a-generic-instance). Only a head with no
     /// record to name -- an unbounded `T::Inner` -- stays unknown.
-    /// \p d is a type alias whose body Sema cannot resolve until an instance
+    /// `d` is a type alias whose body Sema cannot resolve until an instance
     /// fixes a generic parameter (the alias names a member of a `: type`
     /// parameter): a sema gap that is not an error.
     priv fn _dependent_alias(self, d: *Decl) -> bool {

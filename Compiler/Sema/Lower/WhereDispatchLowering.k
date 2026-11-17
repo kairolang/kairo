@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------- Sema/Lower/WhereDispatchLowering.k --- ///
 ///
-///   \brief Fold each `where` dispatch group into one function that tests
-///          the guards and calls the matching candidate.
+/// Fold each `where` dispatch group into one function that tests
+/// the guards and calls the matching candidate.
 ///
 ///   \detail
 ///       fn categorize(x: i32) -> string where x > 100 { return "high" }
@@ -243,7 +243,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
 
     /// # one group
 
-    /// Mint every member's candidate, then make \p lead the dispatcher.
+    /// Mint every member's candidate, then make `lead` the dispatcher.
     priv fn _fold(self, lead: unsafe *FunctionDecl) {
         var order = cxx::std::vector<unsafe *FunctionDecl>() // dispatch order (WhereGuardCheck)
         for var i: usize = 0; i < self.sc->where_groups.size(); ++i {
@@ -330,7 +330,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         lead->is_this_definition = true
     }
 
-    /// \p m's position among \p order in source order: the k of its name.
+    /// `m`'s position among `order` in source order: the k of its name.
     /// Members one macro invocation made are all at that invocation; they
     /// rank in dispatch order among themselves, so no two members of a group
     /// share a k.
@@ -369,8 +369,8 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         )
     }
 
-    /// A candidate: \p m's parameters, body and contract under \p name,
-    /// private, where \p m was declared. \p m keeps nothing of either.
+    /// A candidate: `m`'s parameters, body and contract under `name`,
+    /// private, where `m` was declared. `m` keeps nothing of either.
     priv fn _mint(self, m: unsafe *FunctionDecl, name: Token) -> unsafe *FunctionDecl {
         var unsafe *c = FunctionDecl::create_synth(
             self.ctx,
@@ -425,7 +425,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         return c
     }
 
-    /// A parameter of the dispatcher shaped like \p p: name, type, mode,
+    /// A parameter of the dispatcher shaped like `p`: name, type, mode,
     /// receiver-ness, const-ness, position. Never a default (WhereGuardCheck
     /// gates them).
     priv fn _clone_param(self, p: unsafe *ParamDecl) -> unsafe *ParamDecl {
@@ -441,7 +441,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         return q
     }
 
-    /// \p g with its references to \p from moved to \p to, by position.
+    /// `g` with its references to `from` moved to `to`, by position.
     priv fn _retarget(self,
                       g:          unsafe *Expr,
                       const from: FrozenList<unsafe *ParamDecl>,
@@ -455,7 +455,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         return rm.run_on_expr(g)
     }
 
-    /// The statements that call \p c with \p lead's parameters and leave:
+    /// The statements that call `c` with `lead`'s parameters and leave:
     /// `return c(args)`, or `c(args); return` when there is no value.
     priv fn _forward(self,
                      lead: unsafe *FunctionDecl,
@@ -512,7 +512,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         return out
     }
 
-    /// The candidate's generic arguments written on \p call's callee: the
+    /// The candidate's generic arguments written on `call`'s callee: the
     /// dispatcher's own parameters, in order (`__kairo_where_f_1<T, N>(n)`
     /// inside `template <class T, int N> f`). The call has no instance, so
     /// EmitIR spells these as written (_written_args_str), and nothing is
@@ -553,7 +553,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         }
     }
 
-    /// A read of the dispatcher's parameter \p p, typed as X types one.
+    /// A read of the dispatcher's parameter `p`, typed as X types one.
     priv fn _use(self, p: unsafe *ParamDecl, at: SourceRange) -> unsafe *Expr {
         var unsafe *use = NamedIdentExpr::create(self.ctx, at, p->name)
         use->resolved_decl = p

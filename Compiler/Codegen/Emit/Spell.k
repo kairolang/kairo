@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------------- Codegen/Emit/Spell.k --- ///
 ///
-///   \brief The ONE C++ speller: canonical type -> text, decl -> qualified
-///          name, decl -> namespace path. Both emitters call it; there is
-///          no second copy anywhere, because two spellers drift and the
-///          drift is a silent link error.
+/// The ONE C++ speller: canonical type -> text, decl -> qualified
+/// name, decl -> namespace path. Both emitters call it; there is
+/// no second copy anywhere, because two spellers drift and the
+/// drift is a silent link error.
 ///
 ///   \par Where its parts are
 ///     This file holds the class: its fields, construction and the namespace
@@ -131,7 +131,7 @@ class NsTops {
 
     fn NsTops(self) { }
 
-    /// \p s's C++ spelling: the recorded one, else the entry-point rule
+    /// `s`'s C++ spelling: the recorded one, else the entry-point rule
     /// alone (no build decided it: a tool's bare parse, or a TU outside the
     /// graph), which is also what the build's decision gives such a name
     /// whenever no header claims its `_` forms.
@@ -157,7 +157,7 @@ class NsTops {
         return c
     }
 
-    /// The Kairo top segment whose C++ spelling is \p c (identity if none).
+    /// The Kairo top segment whose C++ spelling is `c` (identity if none).
     fn kairo_of(self, const c: string) -> string {
         if self._n.load() != 0 {
             var lock = kairo::std::LockGuard(self._mu)
@@ -182,7 +182,7 @@ class NsTops {
         return false
     }
 
-    /// \p c is already some OTHER segment's renamed spelling.
+    /// `c` is already some OTHER segment's renamed spelling.
     fn is_target(self, const c: string) -> bool {
         var lock = kairo::std::LockGuard(self._mu)
         for var i: usize = 0; i < self._to.size(); ++i {
@@ -214,7 +214,7 @@ pub class Speller {
     prot var _cg: unsafe *CodegenContext
 
     /// While EmitWitness spells a witness member: the interface whose bare
-    /// `Self` (an argument-less record of it) is spelled \c self_spelling --
+    /// `Self` (an argument-less record of it) is spelled `self_spelling` --
     /// `__kairo_Self` in the primary, the conformer in a specialization.
     /// Null everywhere else, where an interface type is still an ICE.
     pub var self_iface: unsafe *Decl = &null
@@ -278,7 +278,7 @@ pub class Speller {
         self._cg = cg
     }
 
-    /// ICE naming the Kairo source at \p at (CodegenICE). A canonical type
+    /// ICE naming the Kairo source at `at` (CodegenICE). A canonical type
     /// carries no range; pass the written node or the owning decl's.
     prot fn _ice(self, at: SourceRange, const msg: string) {
         codegen_ice(self._cg->ctx, at, msg)

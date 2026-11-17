@@ -100,25 +100,26 @@ pub class ClangJobs {
         self._clang_exe = clang_exe.copy()
     }
 
-    /// \brief compiles one input: \p words is a clang driver command line
-    ///        without argv[0] (FlagTranslator::to_driver + the backend's
-    ///        roots + the action + `-x <lang> <src> -o <out>`).
+    /// compiles one input: `words` is a clang driver command line
+    /// without argv[0] (FlagTranslator::to_driver + the backend's
+    /// roots + the action + `-x <lang> <src> -o <out>`).
     ///
-    /// \return false on any failure, with clang's diagnostics printed.
+    /// ### Returns
+    /// false on any failure, with clang's diagnostics printed.
     pub fn run(self, @inout words: cxx::std::vector<string>) -> bool {
         return self._drive(&words, true)
     }
 
-    /// \brief what run() would execute, as `clang -cc1 ...` lines in
-    ///        planned, without executing anything (clang's -###).
+    /// what run() would execute, as `clang -cc1 ...` lines in
+    /// planned, without executing anything (clang's -###).
     pub fn plan(self, @inout words: cxx::std::vector<string>) -> bool {
         self.planned.clear()
         return self._drive(&words, false)
     }
 
-    /// \brief a driver query (-dumpversion, -print-resource-dir, ...): clang
-    ///        prints its answer while the Compilation is built, and plans no
-    ///        job, which run() and plan() would report as an error.
+    /// a driver query (-dumpversion, -print-resource-dir, ...): clang
+    /// prints its answer while the Compilation is built, and plans no
+    /// job, which run() and plan() would report as an error.
     pub fn query(self, @inout words: cxx::std::vector<string>) -> bool {
         return self._drive(&words, false, true)
     }
@@ -260,7 +261,7 @@ pub class ClangJobs {
     }
 
     /// One `clang -cc1as` job (an .s, or the assemble step of an .S), in-process
-    /// through clang's own cc1as_main (Native/Cc1As.hh). \p args excludes
+    /// through clang's own cc1as_main (Native/Cc1As.hh). `args` excludes
     /// "-cc1as", as clang's driver passes them. Its diagnostics go to stderr
     /// with the "clang -cc1as" prefix, as clang prints them.
     priv fn _cc1as(self, const args: cxx::std::vector<kairo::std::ConstPtr<c_char>>) -> bool {
@@ -302,8 +303,8 @@ pub class ClangJobs {
         return true
     }
 
-    /// Which words of \p cmd's cc1 line came from CPATH, C_INCLUDE_PATH or
-    /// CPLUS_INCLUDE_PATH, when \p strip (a hermetic --target build): clang's
+    /// Which words of `cmd`'s cc1 line came from CPATH, C_INCLUDE_PATH or
+    /// CPLUS_INCLUDE_PATH, when `strip` (a hermetic --target build): clang's
     /// driver reads them from the environment itself, and a cross build
     /// must not see the build machine's header dirs. CPATH is clang's
     /// combined -I<dir>, after the command line's own -I, so its LAST match

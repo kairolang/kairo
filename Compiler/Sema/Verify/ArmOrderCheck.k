@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------ Sema/Verify/ArmOrderCheck.k --- ///
 ///
-///   \brief Verify try-catch arm ordering.
-///          an arm lexically after a bare `catch` can never fire, and two
-///          bare `catch` arms can never both be meaningful.
+/// Verify try-catch arm ordering.
+/// an arm lexically after a bare `catch` can never fire, and two
+/// bare `catch` arms can never both be meaningful.
 ///
 ///   \detail
 ///     The statement form only. In a try EXPRESSION a default arm is

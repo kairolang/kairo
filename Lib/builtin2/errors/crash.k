@@ -24,8 +24,9 @@ import string::*
 /// stderr and aborts. `-> !` makes the failing arm `Never`. Not a panic: no `try` catches it and
 /// it is in no panic set.
 ///
-/// \param msg  Pointer to `len` bytes of message.
-/// \safety `msg` must be valid for reads of `len` bytes (a null `msg` is an empty message).
+/// ### Parameters
+/// - `msg`: Pointer to `len` bytes of message.
+///   \safety `msg` must be valid for reads of `len` bytes (a null `msg` is an empty message).
 pub fn unwrap_failed(msg: *const u8, len: usize) -> ! {
     unsafe {
         kairo_rt_crash(msg as unsafe *const u8, len)
@@ -40,7 +41,7 @@ pub fn unwrap_failed(msg: *const u8, len: usize) -> ! {
 /// method. A literal costs no allocation. `-> !`, so a call ends its path for the flow checks.
 /// Not a panic.
 ///
-/// \see crash!
+/// See `crash!`.
 pub fn crash_with(msg: string = "") -> ! {
     unsafe {
         kairo_rt_crash(msg.data() as unsafe *const u8, msg.size())

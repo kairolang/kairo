@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------------- Sema/Check/PackChecking.k --- ///
 ///
-///   \brief Where a type pack, a pack parameter and a pack-expanded variant
-///          may appear (Compiler/Spec/Panic.md#the-result-type, functions-parameters.mdx, enums-adt.mdx
-///          "Variadic enums").
+/// Where a type pack, a pack parameter and a pack-expanded variant
+/// may appear (Compiler/Spec/Panic.md#the-result-type, functions-parameters.mdx, enums-adt.mdx
+/// "Variadic enums").
 ///
 ///   \detail
 ///     A type pack `...T` stands for several types, so it has no meaning on
@@ -119,10 +119,7 @@ pub class BarePackFinder derives RecursiveASTVisitor<BarePackFinder> {
     }
 }
 
-///
-/// \class PackChecking
-/// \brief The pass. Diagnoses and poisons; rewrites nothing.
-///
+/// The pass. Diagnoses and poisons; rewrites nothing.
 pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
     pub var  sc:  unsafe *SemaContext
     priv var _tu: TypeUtil
@@ -171,7 +168,7 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
         return "?"
     }
 
-    /// A bare pack in a declaration's written type \p t; \p what names the
+    /// A bare pack in a declaration's written type `t`; `what` names the
     /// position ("a field", "a return type", ...).
     priv fn _check_type(self, t: unsafe *Type, const what: string, owner: unsafe *Decl) -> bool {
         var unsafe *b = self._bare(t)
@@ -605,7 +602,7 @@ pub class PackChecking derives RecursiveASTVisitor<PackChecking> {
         return true
     }
 
-    /// \p e names a type pack parameter, or null.
+    /// `e` names a type pack parameter, or null.
     priv fn _type_pack_param(self, e: unsafe *Expr) -> unsafe *ParamDecl {
         var unsafe *u = self._tu.strip_parens(e)
         if u == &null || !isa<NamedIdentExpr>(u) {

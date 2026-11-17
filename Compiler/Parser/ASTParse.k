@@ -148,12 +148,11 @@ pub struct PendingComment {
     var range: SourceRange    = SourceRange::invalid()
 }
 
-/// \struct ParserCheckpoint
-/// \brief everything a speculative parse can move, taken by
-///        ASTParse::checkpoint() and applied by ASTParse::rewind().
+/// everything a speculative parse can move, taken by
+/// ASTParse::checkpoint() and applied by ASTParse::rewind().
 ///
-/// \details What a rollback restores is deliberately narrower than what is
-///          recorded:
+/// What a rollback restores is deliberately narrower than what is
+/// recorded:
 ///
 ///          - restored by every rewind: the cursor and the `>>` debt (a debt
 ///            run up inside the speculation belongs to tokens being given
@@ -177,13 +176,12 @@ pub struct ParserCheckpoint {
     pub var no_comment_skip: bool  = false
 }
 
-/// \class ASTParse
-/// \brief the primary recursive-descent parser for the Kairo language.
+/// the primary recursive-descent parser for the Kairo language.
 ///
-/// \details `ASTParse` implements the Kairo grammar by deriving from specialized
-///          parse mixins (`ExprParse`, `StmtParse`, etc.). it maintains the
-///          token cursor, manages lexical scopes, and handles macro expansion
-///          resolution during the parse.
+/// `ASTParse` implements the Kairo grammar by deriving from specialized
+/// parse mixins (`ExprParse`, `StmtParse`, etc.). it maintains the
+/// token cursor, manages lexical scopes, and handles macro expansion
+/// resolution during the parse.
 ///
 /// result of a parse is a `TranslationUnit` containing the top-level `Program`
 /// node and any accumulated diagnostics.
@@ -260,15 +258,14 @@ pub class ASTParse
 
     /// # Index mode (merged indexer)
 
-    /// \enum ParseMode
-    /// \brief selects between the full parse and the table-building index pass.
+    /// selects between the full parse and the table-building index pass.
     ///
-    /// \details Index mode drives the SAME decl grammar as Full, but decl
-    ///          productions cut after their heads (name, generics, spec
-    ///          pattern) and token-skip signatures/bodies, so nothing heavy is
-    ///          materialized and no expression parsing runs against the
-    ///          half-built DisambigTable. Statement positions are never walked
-    ///          into, so no phantom-global hoists arise from them.
+    /// Index mode drives the SAME decl grammar as Full, but decl
+    /// productions cut after their heads (name, generics, spec
+    /// pattern) and token-skip signatures/bodies, so nothing heavy is
+    /// materialized and no expression parsing runs against the
+    /// half-built DisambigTable. Statement positions are never walked
+    /// into, so no phantom-global hoists arise from them.
     pub enum ParseMode derives u8 {
         Full,  ///< normal parse: builds the AST, emits diagnostics.
         Index, ///< pre-pass: populates ctx->hoisted, suppresses diagnostics.
@@ -309,9 +306,9 @@ pub class ASTParse
     var _sym_tables: cxx::std::vector<unsafe *SymbolTable> ///< tables created by _build_symbols; frozen at parse exit.
 
 
-    /// \brief a speculative parse with its diagnostics suppressed, rolled
-    ///        back on scope exit unless committed. Rolls back the checkpoint
-    ///        (rewind) and also nl_depth and the pending comments.
+    /// a speculative parse with its diagnostics suppressed, rolled
+    /// back on scope exit unless committed. Rolls back the checkpoint
+    /// (rewind) and also nl_depth and the pending comments.
     class TentativeGuard {
         priv var _parser:    *ASTParse
         priv var _cp:        ParserCheckpoint
@@ -324,8 +321,8 @@ pub class ASTParse
             p->diag->push_suppress()
         }
 
-        /// \brief commits the speculative parse: cursor is kept, diagnostics
-        ///        emitted after this point are no longer suppressed.
+        /// commits the speculative parse: cursor is kept, diagnostics
+        /// emitted after this point are no longer suppressed.
         fn commit(self) {
             self._committed = true
         }
@@ -345,14 +342,14 @@ pub class ASTParse
         }
     }
 
-    /// \brief RAII swap of the token cursor onto a foreign TokenBuffer (an
-    ///        f-string interpolation hole), restoring the main stream on exit.
-    ///        Mirrors Lexer::lex_slice's state-stash, but unconditional via
-    ///        op delete so no early-return/throw leaks a half-swapped cursor.
+    /// RAII swap of the token cursor onto a foreign TokenBuffer (an
+    /// f-string interpolation hole), restoring the main stream on exit.
+    /// Mirrors Lexer::lex_slice's state-stash, but unconditional via
+    /// op delete so no early-return/throw leaks a half-swapped cursor.
     ///
-    /// \warning no TentativeGuard may straddle this, a c_idx saved in the outer
-    ///          stream is meaningless in the hole stream. Hole parsing must begin
-    ///          and end fully inside the guard's lifetime.
+    /// **Warning:** no TentativeGuard may straddle this, a c_idx saved in the outer
+    /// stream is meaningless in the hole stream. Hole parsing must begin
+    /// and end fully inside the guard's lifetime.
     class StreamGuard {
         priv var _p:              *ASTParse
         priv var _span:           TokenSpan
@@ -397,13 +394,14 @@ pub class ASTParse
         }
     }
 
-    /// \brief initializes a parser for a specific context and token stream.
+    /// initializes a parser for a specific context and token stream.
     ///
-    /// \param ctx      the ASTContext which provides tokens and memory arenas.
-    /// \param cc       optional completion consumer for IDE features.
-    /// \param g_scope  the global scope used for hoisting top-level declarations.
-    /// \param mode     Full (default) or Index; Index allocates ctx->hoisted
-    ///                 and expects index() to be called instead of parse().
+    /// ### Parameters
+    /// - `ctx`: the ASTContext which provides tokens and memory arenas.
+    /// - `cc`: optional completion consumer for IDE features.
+    /// - `g_scope`: the global scope used for hoisting top-level declarations.
+    /// - `mode`: Full (default) or Index; Index allocates ctx->hoisted
+    ///   and expects index() to be called instead of parse().
     pub fn ASTParse(self,
                     ctx:     unsafe *ASTContext,
                     cc:      unsafe *CodeCompleteConsumer,
@@ -452,14 +450,14 @@ pub class ASTParse
         self.error_count_base = self.diag->error_count()
     }
 
-    /// \brief executes the full parse of the token stream.
+    /// executes the full parse of the token stream.
     ///
-    /// \details top-level loop. Annotations are consumed ONCE per item and
-    ///          stamped on the routed node. Routing: decl lead-ins go to
-    ///          _parse_top_decl, everything else to _parse_top_stmt. See
-    ///          _routes_to_decl for the var/const/eval/fn carve-outs.
-    ///          After the loop, _wire_scopes connects named DeclContexts to
-    ///          their hoisted DisambigNodes so sema lookup_local works.
+    /// top-level loop. Annotations are consumed ONCE per item and
+    /// stamped on the routed node. Routing: decl lead-ins go to
+    /// _parse_top_decl, everything else to _parse_top_stmt. See
+    /// _routes_to_decl for the var/const/eval/fn carve-outs.
+    /// After the loop, _wire_scopes connects named DeclContexts to
+    /// their hoisted DisambigNodes so sema lookup_local works.
     pub fn parse(self) -> unsafe *TranslationUnit {
         // A reparse of a PP-built TU (release_from(Parsing), then parse_one)
         // reuses it: its decl list still names the previous parse's decls,
@@ -604,35 +602,35 @@ pub class ASTParse
         return self.tu
     }
 
-    /// \brief restores, on a tree that was NOT parsed here, everything
-    ///        parse() derives from the finished tree: the scope links into
-    ///        the hoisted table, the per-scope symbol tables with the
-    ///        lexical / semantic context stamps and the out-of-line list,
-    ///        and the file's own module declaration.
+    /// restores, on a tree that was NOT parsed here, everything
+    /// parse() derives from the finished tree: the scope links into
+    /// the hoisted table, the per-scope symbol tables with the
+    /// lexical / semantic context stamps and the out-of-line list,
+    /// and the file's own module declaration.
     ///
-    /// \details The serialized AST (Compiler/Spec/Serialization.md) stores the
-    ///          tree and none of these: they are functions of it, and one
-    ///          implementation of them, this one, is what keeps a reloaded
-    ///          tree's tables identical to a parsed one's. `ctx->tu` must be
-    ///          the reloaded TU (this parser adopted it in its constructor)
-    ///          and `ctx->hoisted` the file's index.
+    /// The serialized AST (Compiler/Spec/Serialization.md) stores the
+    /// tree and none of these: they are functions of it, and one
+    /// implementation of them, this one, is what keeps a reloaded
+    /// tree's tables identical to a parsed one's. `ctx->tu` must be
+    /// the reloaded TU (this parser adopted it in its constructor)
+    /// and `ctx->hoisted` the file's index.
     pub fn rebuild_derived(self) {
         self._wire_scopes()
         self._build_symbols()
         self._synthesize_module_self()
     }
 
-    /// \brief Create the synthetic per-file ModuleDecl (A2: shares the TU's
-    ///        symbol table) so a plain `import bar` binds a REAL *Decl and
-    ///        `bar::foo` resolves through one uniform module path.
+    /// Create the synthetic per-file ModuleDecl (A2: shares the TU's
+    /// symbol table) so a plain `import bar` binds a REAL *Decl and
+    /// `bar::foo` resolves through one uniform module path.
     ///
-    /// \details Runs AFTER _build_symbols so tu->dc_symbols exists to share.
-    ///          The module name is the LEAF segment of ctx->module_base (the
-    ///          file's resolved module path). An empty base = the root/main
-    ///          file: no name to bind, left anonymous (module_self stays null).
-    ///          The node's dc_symbols is aliased to the TU's table (read-only
-    ///          post-freeze), and its full module_path is carried for a future
-    ///          codegen uniqueness fix (see ModuleDecl::module_path).
+    /// Runs AFTER _build_symbols so tu->dc_symbols exists to share.
+    /// The module name is the LEAF segment of ctx->module_base (the
+    /// file's resolved module path). An empty base = the root/main
+    /// file: no name to bind, left anonymous (module_self stays null).
+    /// The node's dc_symbols is aliased to the TU's table (read-only
+    /// post-freeze), and its full module_path is carried for a future
+    /// codegen uniqueness fix (see ModuleDecl::module_path).
     priv fn _synthesize_module_self(self) {
         var base = self.ctx->module_base
         if base.segments.size() == 0 { // anonymous root file.
@@ -696,16 +694,16 @@ pub class ASTParse
         self.tu->module_self = md
     }
 
-    /// \brief true when the cursor sits on a bare `module a::b` pin: `module`,
-    ///        a path, then a terminator or EOF.
+    /// true when the cursor sits on a bare `module a::b` pin: `module`,
+    /// a path, then a terminator or EOF.
     ///
-    /// \details Lookahead over the raw span, so a block `module foo { }` is
-    ///          left untouched for parse_decl. Only `{` (or anything else that
-    ///          is not a terminator) after the path means "not a pin"; that
-    ///          keeps `module foo` followed by junk on the block path, whose
-    ///          S050E already says what is missing. Comments are skipped: the
-    ///          lexer leaves them in the span, and `module foo // why` is
-    ///          still a pin.
+    /// Lookahead over the raw span, so a block `module foo { }` is
+    /// left untouched for parse_decl. Only `{` (or anything else that
+    /// is not a terminator) after the path means "not a pin"; that
+    /// keeps `module foo` followed by junk on the block path, whose
+    /// S050E already says what is missing. Comments are skipped: the
+    /// lexer leaves them in the span, and `module foo // why` is
+    /// still a pin.
     priv fn _is_module_pin(self) -> bool {
         var i     = self.c_idx
         var n     = self.span.size()
@@ -767,15 +765,15 @@ pub class ASTParse
         return state >= 2
     }
 
-    /// \brief consumes a bare `module a::b` pin and records its path on the TU.
+    /// consumes a bare `module a::b` pin and records its path on the TU.
     ///
-    /// \details Recorded, not acted on: what the pin MEANS is the resolver's
-    ///          (ImportProbe reads module.k's first declaration itself, without
-    ///          a parse), and WHERE it may appear is ModulePinCheck::pin_allowed's
-    ///          (module.k only, today). Accepted in every file all the same, so
-    ///          that rule can change without touching the parser. Only the
-    ///          first pin of a file is kept; the range of a second is kept
-    ///          for ModulePinCheck to report.
+    /// Recorded, not acted on: what the pin MEANS is the resolver's
+    /// (ImportProbe reads module.k's first declaration itself, without
+    /// a parse), and WHERE it may appear is ModulePinCheck::pin_allowed's
+    /// (module.k only, today). Accepted in every file all the same, so
+    /// that rule can change without touching the parser. Only the
+    /// first pin of a file is kept; the range of a second is kept
+    /// for ModulePinCheck to report.
     priv fn _parse_module_pin(self) {
         var start = self._current->range
         var keep  = self.tu->pin_segments.size() == 0
@@ -806,8 +804,8 @@ pub class ASTParse
         }
     }
 
-    /// \brief S063E at the first token of a top-level item that failed
-    ///        without a diagnostic of its own.
+    /// S063E at the first token of a top-level item that failed
+    /// without a diagnostic of its own.
     priv fn _report_unparsed_item(self, at: usize) {
         var unsafe *tok = if (at < self.span.size()) => (self.span.get(at)) else => self._current
         if tok == &null {
@@ -822,10 +820,10 @@ pub class ASTParse
         )
     }
 
-    /// \brief moves the cursor past a top-level item that failed: from where
-    ///        the production stopped (never before the item's start) to the
-    ///        next line or declaration. Always makes progress, so the loop
-    ///        cannot spin on the token it just reported.
+    /// moves the cursor past a top-level item that failed: from where
+    /// the production stopped (never before the item's start) to the
+    /// next line or declaration. Always makes progress, so the loop
+    /// cannot spin on the token it just reported.
     priv fn _skip_failed_item(self, before: usize) {
         if self.c_idx < before {
             self._restore_cursor(before)
@@ -834,14 +832,14 @@ pub class ASTParse
         self.sync_top_level_progress()
     }
 
-    /// \brief decl-vs-stmt routing for the top-level loop.
+    /// decl-vs-stmt routing for the top-level loop.
     ///
-    /// \details var/const take the stmt path (it owns the plain-decl vs
-    ///          destructuring split), except `const static` / `const thread`
-    ///          / `const eval`: those are the same declaration as `static
-    ///          const` (DeclParse::_parse_storage_head), so they route where
-    ///          `static` does and both orders build the same tree. `thread`
-    ///          and `eval` are decls only when they open one (see below).
+    /// var/const take the stmt path (it owns the plain-decl vs
+    /// destructuring split), except `const static` / `const thread`
+    /// / `const eval`: those are the same declaration as `static
+    /// const` (DeclParse::_parse_storage_head), so they route where
+    /// `static` does and both orders build the same tree. `thread`
+    /// and `eval` are decls only when they open one (see below).
     priv fn _routes_to_decl(self, k: TokenKind) -> bool {
         if k == TokenKind::KwConst {
             return self.check_peek(TokenKind::KwStatic)
@@ -875,15 +873,16 @@ pub class ASTParse
         return true
     }
 
-    /// \brief parses one top-level declaration and lands it in tu->dc_decls
-    ///        (source order) AND program->items.
+    /// parses one top-level declaration and lands it in tu->dc_decls
+    /// (source order) AND program->items.
     ///
-    /// \details `fn` at top level may be a named decl or an anonymous closure
-    ///          (`fn ()|&| { }()` as an IIFE). parse_decl speculates and returns
-    ///          null with the cursor rolled back to `fn` when it's the latter;
-    ///          we hand off to the statement path, which owns the expression.
+    /// `fn` at top level may be a named decl or an anonymous closure
+    /// (`fn ()|&| { }()` as an IIFE). parse_decl speculates and returns
+    /// null with the cursor rolled back to `fn` when it's the latter;
+    /// we hand off to the statement path, which owns the expression.
     ///
-    /// \return false to stop the top-level loop (fatal or unroutable).
+    /// ### Returns
+    /// false to stop the top-level loop (fatal or unroutable).
     priv fn _parse_top_decl(self,
                             program: unsafe *Program,
                             annot:   unsafe *Self::PendingAnnotations,
@@ -918,12 +917,13 @@ pub class ASTParse
         return true
     }
 
-    /// \brief parses one top-level statement (script-style top level is legal).
+    /// parses one top-level statement (script-style top level is legal).
     ///
-    /// \details DeclStmt unwraps so annotations land on the inner decl, not
-    ///          the statement wrapper.
+    /// DeclStmt unwraps so annotations land on the inner decl, not
+    /// the statement wrapper.
     ///
-    /// \return false to stop the top-level loop (null).
+    /// ### Returns
+    /// false to stop the top-level loop (null).
     priv fn _parse_top_stmt(self,
                             program: unsafe *Program,
                             annot:   unsafe *Self::PendingAnnotations) -> bool {
@@ -954,9 +954,9 @@ pub class ASTParse
         return true
     }
 
-    /// \brief S048E: annotations/attributes cannot apply to a visibility group.
-    ///        one note per additional annotation so each gets its own caret
-    ///        instead of one fused multi-line span.
+    /// S048E: annotations/attributes cannot apply to a visibility group.
+    /// one note per additional annotation so each gets its own caret
+    /// instead of one fused multi-line span.
     priv fn _diag_annot_on_vis_group(self, annot: unsafe *Self::PendingAnnotations) {
         if annot->empty() {
             return
@@ -987,12 +987,12 @@ pub class ASTParse
 
     //  Hoisted-scope wiring (post-parse)
 
-    /// \brief connects each named DeclContext in the tree to its DisambigNode in
-    ///        the hoisted trie, descending both in lockstep. Decls the indexer
-    ///        didn't hoist (locals, anonymous modules) are skipped lexical
-    ///        lookup covers them. A missing trie node for a hoisted-eligible
-    ///        type is an indexer/parser disagreement; we stay silent here and
-    ///        let sema's resolve-or-error path surface it with context.
+    /// connects each named DeclContext in the tree to its DisambigNode in
+    /// the hoisted trie, descending both in lockstep. Decls the indexer
+    /// didn't hoist (locals, anonymous modules) are skipped lexical
+    /// lookup covers them. A missing trie node for a hoisted-eligible
+    /// type is an indexer/parser disagreement; we stay silent here and
+    /// let sema's resolve-or-error path surface it with context.
     fn _wire_scopes(self) {
         var unsafe *root = self.ctx->hoisted->root()
         self.tu->set_scope(root)
@@ -1056,37 +1056,37 @@ pub class ASTParse
 
     //  Symbol table build (post-parse)
 
-    /// \brief builds the REAL per-DeclContext symbol tables (dc_symbols) in
-    ///        one walk over the completed TU, then freezes them. This is the
-    ///        table sema resolves against; dc_scope/DisambigTable stays a
-    ///        parser-only phase artifact. See Sema/RESOLUTION.md #1.
+    /// builds the REAL per-DeclContext symbol tables (dc_symbols) in
+    /// one walk over the completed TU, then freezes them. This is the
+    /// table sema resolves against; dc_scope/DisambigTable stays a
+    /// parser-only phase artifact. See Sema/RESOLUTION.md #1.
     ///
-    /// \details Rules:
-    ///        - append-only multimap, ZERO diagnostics. Duplicate names,
-    ///          fwd-decl + definition, primary + specializations: all just
-    ///          stack in the cell. NameResolution links Redeclarable
-    ///          chains and reports redefinitions later.
-    ///        - `fn Class::method` out-of-line defs land in
-    ///          tu->out_of_line, never in a table (attachment is N(a)'s
-    ///          job).
-    ///        - locals and params are EXCLUDED: the walk never descends
-    ///          into Function/Lambda/Block contexts. Body resolution
-    ///          walks its own lexical stack; params come off the
-    ///          FunctionDecl signature.
-    ///        - anonymous containers (anonymous modules, visibility
-    ///          groups, eval blocks, ffi blocks) get no table of their
-    ///          own; their decls land in the enclosing DC's table.
-    ///        - a fn in a type scope whose name equals the type's name
-    ///          keys as DeclName::ctor() context-relative, no type info
-    ///          in the key. Operators key on the packed op-token kinds.
-    ///        - extension members go in the ExtensionDecl's OWN table;
-    ///          folding them into the target type is sema's job.
-    ///        - top-level `var`/`const` route through the stmt path
-    ///          (DeclStmt) and never hit tu->dc_decls, so they are picked
-    ///          up from program->items separately.
-    ///        - after the walk, every created table is frozen. FROZEN
-    ///          MEANS FROZEN: later phases grow overlays, node links, or
-    ///          registries never these tables.
+    /// Rules:
+    /// - append-only multimap, ZERO diagnostics. Duplicate names,
+    /// fwd-decl + definition, primary + specializations: all just
+    /// stack in the cell. NameResolution links Redeclarable
+    /// chains and reports redefinitions later.
+    /// - `fn Class::method` out-of-line defs land in
+    /// tu->out_of_line, never in a table (attachment is N(a)'s
+    /// job).
+    /// - locals and params are EXCLUDED: the walk never descends
+    /// into Function/Lambda/Block contexts. Body resolution
+    /// walks its own lexical stack; params come off the
+    /// FunctionDecl signature.
+    /// - anonymous containers (anonymous modules, visibility
+    /// groups, eval blocks, ffi blocks) get no table of their
+    /// own; their decls land in the enclosing DC's table.
+    /// - a fn in a type scope whose name equals the type's name
+    /// keys as DeclName::ctor() context-relative, no type info
+    /// in the key. Operators key on the packed op-token kinds.
+    /// - extension members go in the ExtensionDecl's OWN table;
+    /// folding them into the target type is sema's job.
+    /// - top-level `var`/`const` route through the stmt path
+    /// (DeclStmt) and never hit tu->dc_decls, so they are picked
+    /// up from program->items separately.
+    /// - after the walk, every created table is frozen. FROZEN
+    /// MEANS FROZEN: later phases grow overlays, node links, or
+    /// registries never these tables.
     fn _build_symbols(self) {
         var unsafe *tu_dc = unsafe (self.tu as unsafe *DeclContext)
         self._collect_symbols(tu_dc, tu_dc, u32::MAX)
@@ -1166,14 +1166,14 @@ pub class ASTParse
         }
     }
 
-    /// \brief indexes EVERY branch of a declaration-scope `eval if` into the
-    ///        enclosing table, as if hoisted. Which branch is taken is
-    ///        Sema's (EvalIfFolding, phase E), and a table is frozen here:
-    ///        so the parser records them all -- member tables, dc links and
-    ///        all -- and the fold builds the scope a new table without the
-    ///        untaken ones (Compiler/Spec/Eval.md#folding-eval-if). A nested `eval if` in a branch
-    ///        is indexed the same way; anything else in a branch is not a
-    ///        declaration.
+    /// indexes EVERY branch of a declaration-scope `eval if` into the
+    /// enclosing table, as if hoisted. Which branch is taken is
+    /// Sema's (EvalIfFolding, phase E), and a table is frozen here:
+    /// so the parser records them all -- member tables, dc links and
+    /// all -- and the fold builds the scope a new table without the
+    /// untaken ones (Compiler/Spec/Eval.md#folding-eval-if). A nested `eval if` in a branch
+    /// is indexed the same way; anything else in a branch is not a
+    /// declaration.
     priv fn _index_eval_branches(self,
                                  s:              unsafe *Stmt,
                                  walk_dc:        unsafe *DeclContext,
@@ -1241,8 +1241,8 @@ pub class ASTParse
         }
     }
 
-    /// \brief lazily allocates the SymbolTable for \p dc and registers it
-    ///        for the freeze sweep at the end of _build_symbols.
+    /// lazily allocates the SymbolTable for `dc` and registers it
+    /// for the freeze sweep at the end of _build_symbols.
     priv fn _symtab_for(self, dc: unsafe *DeclContext) -> unsafe *SymbolTable {
         if dc->dc_symbols == &null {
             var unsafe *t = self.ctx->alloc_init_cleanup<SymbolTable>(self.ctx)
@@ -1253,10 +1253,10 @@ pub class ASTParse
         return dc->dc_symbols
     }
 
-    /// \brief appends \p d under \p name in \p table_dc's table and stamps
-    ///        the dual-context links (lexical = where written, semantic =
-    ///        lookup home). They differ for anonymous-module members
-    ///        and for extension members once sema folds them.
+    /// appends `d` under `name` in `table_dc`'s table and stamps
+    /// the dual-context links (lexical = where written, semantic =
+    /// lookup home). They differ for anonymous-module members
+    /// and for extension members once sema folds them.
     priv fn _append_symbol(self,
                            table_dc: unsafe *DeclContext,
                            lex_dc:   unsafe *DeclContext,
@@ -1267,9 +1267,9 @@ pub class ASTParse
         d->semantic_dc = table_dc
     }
 
-    /// \brief identifier-keyed append. Silently skips recovery/synthetic
-    ///        names that fail imm resolution sema surfaces those with
-    ///        context; a half-keyed table entry helps no one.
+    /// identifier-keyed append. Silently skips recovery/synthetic
+    /// names that fail imm resolution sema surfaces those with
+    /// context; a half-keyed table entry helps no one.
     priv fn _append_ident_symbol(self,
                                  table_dc: unsafe *DeclContext,
                                  lex_dc:   unsafe *DeclContext,
@@ -1283,12 +1283,12 @@ pub class ASTParse
         self._append_symbol(table_dc, lex_dc, DeclName::ident(im), d)
     }
 
-    /// \brief the name half of indexing a scope-owning decl. In a real scope
-    ///        the name goes in \p table_dc's table. In an EXECUTABLE scope
-    ///        (a `class Local` inside a function body) there is no table by
-    ///        design -- N's lexical stack and T's ltypes find the NAME -- so
-    ///        only the dual-context links are stamped; the decl's own body is
-    ///        still indexed by the caller.
+    /// the name half of indexing a scope-owning decl. In a real scope
+    /// the name goes in `table_dc`'s table. In an EXECUTABLE scope
+    /// (a `class Local` inside a function body) there is no table by
+    /// design -- N's lexical stack and T's ltypes find the NAME -- so
+    /// only the dual-context links are stamped; the decl's own body is
+    /// still indexed by the caller.
     priv fn _table_or_link(self,
                            table_dc: unsafe *DeclContext,
                            lex_dc:   unsafe *DeclContext,
@@ -1304,10 +1304,10 @@ pub class ASTParse
         d->semantic_dc = table_dc
     }
 
-    /// \brief indexes the BODIES of scope-owning decls written at statement
-    ///        scope (StmtParse::_attach_local_decl put them in the function's
-    ///        dc_decls). Their names are not tabled; their members are, in
-    ///        their own tables, so `l.v` on a local class resolves.
+    /// indexes the BODIES of scope-owning decls written at statement
+    /// scope (StmtParse::_attach_local_decl put them in the function's
+    /// dc_decls). Their names are not tabled; their members are, in
+    /// their own tables, so `l.v` on a local class resolves.
     priv fn _index_local_scopes(self, fn_dc: unsafe *DeclContext) {
         if fn_dc == &null {
             return
@@ -1323,11 +1323,11 @@ pub class ASTParse
         }
     }
 
-    /// \brief DeclName for `fn op <x>` from its operator tokens. The `l`/`r`
-    ///        fixity marker on `++`/`--` is a fact about the decl, not part of
-    ///        its name: `op l++` and `op r++` share one cell, and X picks by
-    ///        fixity. AST/OperatorFacts.k keys the sema side by the same rule;
-    ///        the parser cannot import it, so the three lines live twice.
+    /// DeclName for `fn op <x>` from its operator tokens. The `l`/`r`
+    /// fixity marker on `++`/`--` is a fact about the decl, not part of
+    /// its name: `op l++` and `op r++` share one cell, and X picks by
+    /// fixity. AST/OperatorFacts.k keys the sema side by the same rule;
+    /// the parser cannot import it, so the three lines live twice.
     priv fn _op_decl_name(self, f: unsafe *FunctionDecl) -> DeclName {
         var n        = f->op_token.size()
         var i: usize = 0
@@ -1356,20 +1356,20 @@ pub class ASTParse
         return DeclName::op_name_of(k0, k1, k2)
     }
 
-    /// \brief walks \p walk_dc's owned decls, appending each named decl to
-    ///        \p table_dc's table. \p owner_name_imm is the imm of the
-    ///        enclosing TYPE's name when table_dc is a type scope (ctor
-    ///        detection), u32(-1) otherwise.
+    /// walks `walk_dc`'s owned decls, appending each named decl to
+    /// `table_dc`'s table. `owner_name_imm` is the imm of the
+    /// enclosing TYPE's name when table_dc is a type scope (ctor
+    /// detection), u32(-1) otherwise.
     ///
-    /// \details a TYPE body's dc_decls holds nested type decls PLUS the
-    ///          VisibilityGroupDecl wrappers, and a wrapper's `members` are
-    ///          pointers back into the type's fields/methods lists and back
-    ///          into dc_decls (see DeclParse::_parse_member_vis_group, which
-    ///          pushes each grouped member into BOTH). Indexing the wrapper
-    ///          there would append every grouped member a second time and
-    ///          hand N a cell that redefines a decl against itself, so the
-    ///          wrapper is skipped   the same rule RecursiveASTVisitor::
-    ///          _rav_dc_nested and ASTPrinter::_collect_type_members follow.
+    /// a TYPE body's dc_decls holds nested type decls PLUS the
+    /// VisibilityGroupDecl wrappers, and a wrapper's `members` are
+    /// pointers back into the type's fields/methods lists and back
+    /// into dc_decls (see DeclParse::_parse_member_vis_group, which
+    /// pushes each grouped member into BOTH). Indexing the wrapper
+    /// there would append every grouped member a second time and
+    /// hand N a cell that redefines a decl against itself, so the
+    /// wrapper is skipped   the same rule RecursiveASTVisitor::
+    /// _rav_dc_nested and ASTPrinter::_collect_type_members follow.
     ///
     ///          At MODULE/TU scope the wrapper IS the only container (a
     ///          top-level `pub { ... }` never projects its members anywhere
@@ -1393,16 +1393,17 @@ pub class ASTParse
         }
     }
 
-    /// \brief routes one decl into the tables. Pass-through containers
-    ///        (visibility groups, eval blocks, ffi blocks) recurse with the
-    ///        SAME table_dc; scope-owning named decls append themselves and
-    ///        recurse into their own context.
+    /// routes one decl into the tables. Pass-through containers
+    /// (visibility groups, eval blocks, ffi blocks) recurse with the
+    /// SAME table_dc; scope-owning named decls append themselves and
+    /// recurse into their own context.
     ///
-    /// \param tabled false when \p d was written at STATEMENT scope (a
-    ///        `class Local` / `fn inner` inside a body, reached through
-    ///        _index_local_scopes). Its NAME then goes in no table -- N's
-    ///        lexical stack and T's ltypes find it -- but its own body is
-    ///        still indexed so its members have a table to be looked up in.
+    /// ### Parameters
+    /// - `tabled`: false when `d` was written at STATEMENT scope (a
+    ///   `class Local` / `fn inner` inside a body, reached through
+    ///   _index_local_scopes). Its NAME then goes in no table -- N's
+    ///   lexical stack and T's ltypes find it -- but its own body is
+    ///   still indexed so its members have a table to be looked up in.
     priv fn _index_symbol_decl(self,
                                d:              unsafe *Decl,
                                walk_dc:        unsafe *DeclContext,
@@ -1688,16 +1689,16 @@ pub class ASTParse
 
     //  Index mode (merged indexer)
 
-    /// \brief Index-mode entry point: walks the token stream with the REAL
-    ///        decl grammar (shallow: heads only, bodies token-skipped) and
-    ///        populates ctx->hoisted from the returned decl nodes.
+    /// Index-mode entry point: walks the token stream with the REAL
+    /// decl grammar (shallow: heads only, bodies token-skipped) and
+    /// populates ctx->hoisted from the returned decl nodes.
     ///
-    /// \details replaces ASTIndex. One grammar, two depths: decl productions
-    ///          check `mode` and cut after their heads; this loop and
-    ///          _index_hoist_decl own all table population. Statement
-    ///          positions are token-skipped wholesale, so a `var` inside a
-    ///          for-header or destructure RHS can never hoist a phantom
-    ///          global.
+    /// replaces ASTIndex. One grammar, two depths: decl productions
+    /// check `mode` and cut after their heads; this loop and
+    /// _index_hoist_decl own all table population. Statement
+    /// positions are token-skipped wholesale, so a `var` inside a
+    /// for-header or destructure RHS can never hoist a phantom
+    /// global.
     ///
     ///          Diagnostics are suppressed for the whole pass: the Full parse
     ///          that follows re-parses everything and owns every diagnostic;
@@ -1764,7 +1765,7 @@ pub class ASTParse
         self.diag->pop_suppress()
     }
 
-    /// \brief inserts one entry at the current _index_path scope.
+    /// inserts one entry at the current _index_path scope.
     priv fn _index_insert(self, const name: string, entry: DisambigEntry) {
         if name == "" {
             return
@@ -1777,14 +1778,14 @@ pub class ASTParse
         }
     }
 
-    /// \brief builds a DisambigEntry for \p d and inserts it, recursing into
-    ///        container decls (modules, visibility groups, eval/ffi blocks,
-    ///        type bodies via dc_decls) with the scope path maintained.
+    /// builds a DisambigEntry for `d` and inserts it, recursing into
+    /// container decls (modules, visibility groups, eval/ffi blocks,
+    /// type bodies via dc_decls) with the scope path maintained.
     ///
-    /// \details genericness comes from TemplateParams::is_generic() on the
-    ///          node: has_type_params() || spec_kind == Primary. Explicit and
-    ///          Partial specializations therefore never mark a name generic
-    ///          on their own.
+    /// genericness comes from TemplateParams::is_generic() on the
+    /// node: has_type_params() || spec_kind == Primary. Explicit and
+    /// Partial specializations therefore never mark a name generic
+    /// on their own.
     fn _index_hoist_decl(self, d: unsafe *Decl, foreign: bool) {
         if d == &null {
             return
@@ -1973,9 +1974,9 @@ pub class ASTParse
         // would pollute the table.)
     }
 
-    /// \brief hoists a type entry, then recurses into its dc_decls with the
-    ///        type's name pushed onto the scope path so members land in the
-    ///        child trie node (which _wire_scopes later connects to the DC).
+    /// hoists a type entry, then recurses into its dc_decls with the
+    /// type's name pushed onto the scope path so members land in the
+    /// child trie node (which _wire_scopes later connects to the DC).
     priv fn _index_hoist_type_scope(self,
                                     dc:       unsafe *DeclContext,
                                     name_tok: Token,
@@ -2011,9 +2012,9 @@ pub class ASTParse
 
     //  Index-mode token skippers: dumb bracket-balanced skips, no grammar.
 
-    /// \brief skips to the end of the current decl/statement: a `;`/newline at
-    ///        depth 0, or an unmatched `}` (left unconsumed the enclosing
-    ///        walker owns it). Brace/paren/bracket contents are crossed whole.
+    /// skips to the end of the current decl/statement: a `;`/newline at
+    /// depth 0, or an unmatched `}` (left unconsumed the enclosing
+    /// walker owns it). Brace/paren/bracket contents are crossed whole.
     fn _index_skip_stmt(self) {
         var depth: u32 = 0
         while !self.is_eof() {
@@ -2042,10 +2043,12 @@ pub class ASTParse
         }
     }
 
-    /// \brief crosses a type-decl head's tail (heritage, impl, requires) to
-    ///        the body without parsing it.
-    /// \return true with the `{` consumed, or false at a decl end (newline,
-    ///         `;`, unmatched `}` left unconsumed) forward declaration.
+    /// crosses a type-decl head's tail (heritage, impl, requires) to
+    /// the body without parsing it.
+    ///
+    /// ### Returns
+    /// true with the `{` consumed, or false at a decl end (newline,
+    /// `;`, unmatched `}` left unconsumed) forward declaration.
     fn _index_skip_to_body(self) -> bool {
         var depth: u32 = 0
         while !self.is_eof() {
@@ -2079,8 +2082,8 @@ pub class ASTParse
         return false
     }
 
-    /// \brief precondition: just inside a `{`. Skips to and consumes the
-    ///        matching `}`.
+    /// precondition: just inside a `{`. Skips to and consumes the
+    /// matching `}`.
     fn _index_skip_block(self) {
         var depth: u32 = 0
         while !self.is_eof() {
@@ -2126,8 +2129,9 @@ pub class ASTParse
         return *self._peek
     }
 
-    /// \brief provides direct access to the current token pointer.
-    /// \warning not for general use; preferred for diagnostics or macro walking.
+    /// provides direct access to the current token pointer.
+    ///
+    /// **Warning:** not for general use; preferred for diagnostics or macro walking.
     pub inline fn current_ptr(self) -> unsafe *Token {
         return self._current
     }
@@ -2140,13 +2144,14 @@ pub class ASTParse
         return self._peek
     }
 
-    /// \brief the range of the current token, or past EOF a one-byte range
-    ///        just after the last token consumed.
-    /// \details for diagnostics that report "expected X here": the cursor is
-    ///          null once the parser steps off the last token, and
-    ///          `current_ptr()->range` there is a null load (fuzzer finds on
-    ///          `if if main`, `for `). Anchoring on the previous token keeps
-    ///          the error on the line the input actually stopped at.
+    /// the range of the current token, or past EOF a one-byte range
+    /// just after the last token consumed.
+    ///
+    /// for diagnostics that report "expected X here": the cursor is
+    /// null once the parser steps off the last token, and
+    /// `current_ptr()->range` there is a null load (fuzzer finds on
+    /// `if if main`, `for `). Anchoring on the previous token keeps
+    /// the error on the line the input actually stopped at.
     pub inline fn current_range(self) -> SourceRange {
         if self._current != &null {
             return self._current->range
@@ -2161,8 +2166,7 @@ pub class ASTParse
 
     //  Cursor movement
 
-    /// \enum SkipNL
-    /// \brief controls newline skipping behavior during cursor movement.
+    /// controls newline skipping behavior during cursor movement.
     enum SkipNL derives u8 {
         None,   ///< treat newlines as significant tokens.
         Before, ///< consume newlines before performing the move.
@@ -2186,7 +2190,7 @@ pub class ASTParse
 
     /// # public API
 
-    /// \brief moves the cursor forward one token.
+    /// moves the cursor forward one token.
     pub inline fn advance(self, const skip: Self::SkipNL = Self::SkipNL::None) {
         match skip {
             case Self::SkipNL::Before {
@@ -2207,7 +2211,7 @@ pub class ASTParse
         }
     }
 
-    /// \brief moves the cursor backward one token.
+    /// moves the cursor backward one token.
     pub inline fn retreat(self, const skip: Self::SkipNL = Self::SkipNL::None) {
         match skip {
             case Self::SkipNL::Before {
@@ -2269,8 +2273,9 @@ pub class ASTParse
         self._prev = if (self.c_idx > 0) => (self.span.get(self.c_idx - 1)) else => &null
     }
 
-    /// \brief syncs `_current` and `_peek` from c_idx.
-    /// \note must be called after any direct mutation of `c_idx`.
+    /// syncs `_current` and `_peek` from c_idx.
+    ///
+    /// **Note:** must be called after any direct mutation of `c_idx`.
     inline fn _sync_cursor(self) {
         self._current = if (self.c_idx < self.span.size()) => (self.span.get(
                             self.c_idx,
@@ -2282,24 +2287,24 @@ pub class ASTParse
                      else => &null
     }
 
-    /// \brief a keyword that may still name a member: after `fn` in a type
-    ///        body or after `Class::` in an out-of-line definition, and
-    ///        after `.`, `->`, `?.`, `?->` and `::`.
+    /// a keyword that may still name a member: after `fn` in a type
+    /// body or after `Class::` in an out-of-line definition, and
+    /// after `.`, `->`, `?.`, `?->` and `::`.
     ///
-    /// \details only `test`, whose one job is to open a top-level test
-    ///          block (DeclParse::_parse_test). C++ names its own methods
-    ///          `test` (`std::bitset::test`), and in none of these positions
-    ///          can a test block start, so nothing is ambiguous. A top-level
-    ///          `fn test()` stays an error. A keyword that is a statement or
-    ///          a declaration in its own right does not join this list
-    ///          without a language rule.
+    /// only `test`, whose one job is to open a top-level test
+    /// block (DeclParse::_parse_test). C++ names its own methods
+    /// `test` (`std::bitset::test`), and in none of these positions
+    /// can a test block start, so nothing is ambiguous. A top-level
+    /// `fn test()` stays an error. A keyword that is a statement or
+    /// a declaration in its own right does not join this list
+    /// without a language rule.
     pub inline fn is_member_name_keyword(self, k: TokenKind) -> bool {
         return k == TokenKind::KwTest
     }
 
-    /// \brief \p tok, a keyword in a name position
-    ///        (is_member_name_keyword), as the identifier it spells, at the
-    ///        same range.
+    /// `tok`, a keyword in a name position
+    /// (is_member_name_keyword), as the identifier it spells, at the
+    /// same range.
     pub fn keyword_as_name(self, tok: Token) -> Token {
         var k = self.resolve_kind_deep(unsafe &tok)
         return self.ctx->make_token(
@@ -2369,16 +2374,17 @@ pub class ASTParse
 
     //  Token resolution
 
-    /// \brief resolves macro expansion chains to the underlying token identity.
+    /// resolves macro expansion chains to the underlying token identity.
     ///
-    /// \details if `tok` is a `TkMacroExpand`, this recursively walks the expansion
-    ///          chain to find the original source token kind.
+    /// if `tok` is a `TkMacroExpand`, this recursively walks the expansion
+    /// chain to find the original source token kind.
     ///
-    /// \return a token copy with the resolved kind and imm, but the original range.
+    /// ### Returns
+    /// a token copy with the resolved kind and imm, but the original range.
     ///
-    /// \details mechanism lives in Token::TokenText::unwrap_expansion; this
-    ///          wrapper owns the parser policy: emit I002F on a truncated
-    ///          chain and degrade to TkUnknown.
+    /// mechanism lives in Token::TokenText::unwrap_expansion; this
+    /// wrapper owns the parser policy: emit I002F on a truncated
+    /// chain and degrade to TkUnknown.
     pub inline fn resolve_deep(self, tok: unsafe *Token) -> Token {
         // Past EOF the cursor is null; answer TkEof like ig_kind does rather
         // than load through it. resolve_kind_shallow has the same guard.
@@ -2413,12 +2419,12 @@ pub class ASTParse
         return Token(tok->range, u.kind, u.imm)
     }
 
-    /// \brief shorthand for `resolve_deep(tok).kind`.
+    /// shorthand for `resolve_deep(tok).kind`.
     pub inline fn resolve_kind_deep(self, tok: unsafe *Token) -> TokenKind {
         return self.resolve_deep(tok).kind
     }
 
-    /// \brief performs a single-step macro resolution.
+    /// performs a single-step macro resolution.
     pub inline fn resolve_kind_shallow(self, tok: unsafe *Token) -> TokenKind {
         if tok == &null {
             return TokenKind::TkUnknown
@@ -2434,8 +2440,9 @@ pub class ASTParse
         return unwrap_expansion(*tok, self.ctx->tcm, 1).kind
     }
 
-    /// \brief fully resolves a token and automatically skips `AtComment` tokens.
-    /// \note will advance the cursor if `AtComment` tokens are encountered.
+    /// fully resolves a token and automatically skips `AtComment` tokens.
+    ///
+    /// **Note:** will advance the cursor if `AtComment` tokens are encountered.
     pub inline fn resolve_fully(self, tok: unsafe *Token) -> Token {
         if tok == &null {
             return Token()
@@ -2453,11 +2460,11 @@ pub class ASTParse
 
     //  Token checking unified core + convenience wrappers
 
-    /// \brief the resolved kind of \p tok for the check family, in \p out;
-    ///        false when there is none to compare (null, a comment).
+    /// the resolved kind of `tok` for the check family, in `out`;
+    /// false when there is none to compare (null, a comment).
     ///
-    /// \details A TkError recovery token reports S063E and answers the kind
-    ///          recovery expected (its imm).
+    /// A TkError recovery token reports S063E and answers the kind
+    /// recovery expected (its imm).
     inline fn _checked_kind(self, tok: unsafe *Token, out: *TokenKind) -> bool {
         if tok == &null {
             return false
@@ -2482,31 +2489,31 @@ pub class ASTParse
         return true
     }
 
-    /// \brief checks if the current resolved token matches `kind`.
+    /// checks if the current resolved token matches `kind`.
     pub inline fn check(self, kind: TokenKind) -> bool {
         var k = TokenKind::TkUnknown
         return self._checked_kind(self._current, &k) && k == kind
     }
 
-    /// \brief checks if the current resolved token satisfies a predicate.
+    /// checks if the current resolved token satisfies a predicate.
     pub inline fn check(self, pre: fn (TokenKind) -> bool) -> bool {
         var k = TokenKind::TkUnknown
         return self._checked_kind(self._current, &k) && pre(k)
     }
 
-    /// \brief checks the previous token without advancing the stream.
+    /// checks the previous token without advancing the stream.
     pub inline fn check_prev(self, kind: TokenKind) -> bool {
         var k = TokenKind::TkUnknown
         return self._checked_kind(self._prev, &k) && k == kind
     }
 
-    /// \brief checks the lookahead token without advancing the stream.
+    /// checks the lookahead token without advancing the stream.
     pub inline fn check_peek(self, kind: TokenKind) -> bool {
         var k = TokenKind::TkUnknown
         return self._checked_kind(self._peek, &k) && k == kind
     }
 
-    /// \brief advances the cursor if the current token matches `kind`.
+    /// advances the cursor if the current token matches `kind`.
     pub inline fn match_tok(self, kind: TokenKind) -> bool {
         if self.check(kind) {
             self.advance()
@@ -2516,11 +2523,11 @@ pub class ASTParse
         return false
     }
 
-    /// \brief consumes the expected token or emits a diagnostic and returns a `TkError`.
+    /// consumes the expected token or emits a diagnostic and returns a `TkError`.
     ///
-    /// \details used for mandatory grammar components. if the token does not match,
-    ///          a placeholder error token is returned to allow the parse to continue
-    ///          with local recovery.
+    /// used for mandatory grammar components. if the token does not match,
+    /// a placeholder error token is returned to allow the parse to continue
+    /// with local recovery.
     pub inline fn expect(self, kind: TokenKind) -> Token {
         var unsafe *tok = self._current
         if tok == &null {
@@ -2573,27 +2580,27 @@ pub class ASTParse
 
     //  Macro expansion chain diagnostics
 
-    /// \brief expansion-aware diagnostic emitter for parse errors on a token.
+    /// expansion-aware diagnostic emitter for parse errors on a token.
     ///
-    /// \details if `tok` was produced by a macro expansion, the primary caret
-    ///          is placed on the invocation site (the code the user actually
-    ///          wrote) with the message tagged "(in expansion of macro 'name!')",
-    ///          and the failing position inside the macro body is attached via
-    ///          the expansion-chain notes. otherwise this is exactly
-    ///          `report(id, tok->range.start, msg).first(tok->range).emit()`.
+    /// if `tok` was produced by a macro expansion, the primary caret
+    /// is placed on the invocation site (the code the user actually
+    /// wrote) with the message tagged "(in expansion of macro 'name!')",
+    /// and the failing position inside the macro body is attached via
+    /// the expansion-chain notes. otherwise this is exactly
+    /// `report(id, tok->range.start, msg).first(tok->range).emit()`.
     ///
     ///          the macro name needs no PP symbol table: `invoke_range` covers
     ///          the macro-name identifier at the call site, so its source text
     ///          is the name.
     ///
-    /// \note repeated errors from the same invocation instance keep the tagged
-    ///       primary but drop the note backtrace (see `_last_exp_diag_loc`),
-    ///       so one broken expansion doesn't flood the output.
+    /// **Note:** repeated errors from the same invocation instance keep the tagged
+    /// primary but drop the note backtrace (see `_last_exp_diag_loc`),
+    /// so one broken expansion doesn't flood the output.
     ///
-    /// \note nested case: a token from an inner macro invoked inside another
-    ///       macro's body carries an `invoke_range` pointing into the outer
-    ///       macro's body rather than the user's file; the chain notes cover
-    ///       the remaining hops.
+    /// **Note:** nested case: a token from an inner macro invoked inside another
+    /// macro's body carries an `invoke_range` pointing into the outer
+    /// macro's body rather than the user's file; the chain notes cover
+    /// the remaining hops.
     pub inline fn report_tok(self, id: DiagID, tok: unsafe *Token, const msg: string) {
         if tok == &null {
             self.diag->report(id, msg.copy()).emit()
@@ -2659,12 +2666,13 @@ pub class ASTParse
         builder.emit()
     }
 
-    /// \brief appends notes to a diagnostic builder showing the macro expansion history.
+    /// appends notes to a diagnostic builder showing the macro expansion history.
     ///
-    /// \param skip_innermost drops the note for the FIRST record walked (the
-    ///        innermost invocation). Set by callers that already placed the
-    ///        primary caret on that same invocation range, so the backtrace
-    ///        starts one hop out instead of restating the primary.
+    /// ### Parameters
+    /// - `skip_innermost`: drops the note for the FIRST record walked (the
+    ///   innermost invocation). Set by callers that already placed the
+    ///   primary caret on that same invocation range, so the backtrace
+    ///   starts one hop out instead of restating the primary.
     pub inline fn attach_macro_expansion_chain(self,
                                                builder:        *DiagBuilder,
                                                tok:            unsafe *Token,
@@ -2744,7 +2752,7 @@ pub class ASTParse
             || self._current->kind == TokenKind::TkEof
     }
 
-    /// \brief returns the absolute first token of the stream for indexing.
+    /// returns the absolute first token of the stream for indexing.
     pub inline fn first(self) -> unsafe *Token {
         if self.span.size() > 0 {
             return self.span.get(0)
@@ -2810,26 +2818,26 @@ pub class ASTParse
 
     //  Annotation consumption
 
-    /// \brief at an `@` that starts a statement: true when the attribute (or
-    ///        a same-line run of them) applies to an expression, so the
-    ///        statement is an expression statement over an AttributedExpr.
-    ///  Lookahead:  ( '@' name ( '(' ... ')' )? )+  X
-    ///  true iff X is on the same line and begins an expression: not a
-    ///  newline / `;` / EOF, not `{` or `}`, not a declaration lead, not a
-    ///  statement keyword (`if`, `for`, `match`, `return`, `try`, `default`,
-    ///  ...), not `unsafe {`, and not a loop label (`name:`).
+    /// at an `@` that starts a statement: true when the attribute (or
+    /// a same-line run of them) applies to an expression, so the
+    /// statement is an expression statement over an AttributedExpr.
+    /// Lookahead:  ( '@' name ( '(' ... ')' )? )+  X
+    /// true iff X is on the same line and begins an expression: not a
+    /// newline / `;` / EOF, not `{` or `}`, not a declaration lead, not a
+    /// statement keyword (`if`, `for`, `match`, `return`, `try`, `default`,
+    /// ...), not `unsafe {`, and not a loop label (`name:`).
     ///
-    /// \details `@destroy p` and `@create T()` are expression attributes
-    ///          (attributes.mdx, tether-promotion.mdx); the
-    ///          annotation pass must not take them as statement attributes
-    ///          named `destroy` / `create` on the statement `p` / `T()`, which
-    ///          would accept them silently. What stays a statement attribute is
-    ///          what has no expression to attach to: a declaration (`@copy
-    ///          fn`, `@deprecated var`), a keyword statement (`@likely if`),
-    ///          a block (`@repeat(3) { }`), and an attribute on a line of its
-    ///          own, which attaches to whatever follows (`@always_inline` NL
-    ///          `fn`). Only a plain name: the expression grammar reads no
-    ///          `a::b` attribute path. The guard rolls back unconditionally.
+    /// `@destroy p` and `@create T()` are expression attributes
+    /// (attributes.mdx, tether-promotion.mdx); the
+    /// annotation pass must not take them as statement attributes
+    /// named `destroy` / `create` on the statement `p` / `T()`, which
+    /// would accept them silently. What stays a statement attribute is
+    /// what has no expression to attach to: a declaration (`@copy
+    /// fn`, `@deprecated var`), a keyword statement (`@likely if`),
+    /// a block (`@repeat(3) { }`), and an attribute on a line of its
+    /// own, which attaches to whatever follows (`@always_inline` NL
+    /// `fn`). Only a plain name: the expression grammar reads no
+    /// `a::b` attribute path. The guard rolls back unconditionally.
     pub fn _attr_opens_expr_stmt(self) -> bool {
         var t            = Self::TentativeGuard(&self)
         var destroy_call = false
@@ -2932,8 +2940,8 @@ pub class ASTParse
         // guard dtor rolls back unconditionally (never commit)
     }
 
-    /// \brief an attribute between a branch's `}` and its `else`
-    ///        (_else_attr_kind).
+    /// an attribute between a branch's `}` and its `else`
+    /// (_else_attr_kind).
     enum ElseAttr derives u8 {
         None,     ///< no attribute followed by `else`
         Likely,   ///< `@likely`
@@ -2941,14 +2949,14 @@ pub class ASTParse
         Other,    ///< any other name
     }
 
-    /// \brief what attribute, if any, sits between a branch's `}` and the
-    ///        `else` that follows it.
+    /// what attribute, if any, sits between a branch's `}` and the
+    /// `else` that follows it.
     ///
-    /// \details `} @unlikely else {`, with the attribute and `else` possibly
-    ///          on lines of their own. Only an attribute that IS followed by
-    ///          `else` counts: `@x` before anything else belongs to the next
-    ///          statement, so it must be left unconsumed. The guard rolls back
-    ///          unconditionally; the caller consumes what this found.
+    /// `} @unlikely else {`, with the attribute and `else` possibly
+    /// on lines of their own. Only an attribute that IS followed by
+    /// `else` counts: `@x` before anything else belongs to the next
+    /// statement, so it must be left unconsumed. The guard rolls back
+    /// unconditionally; the caller consumes what this found.
     pub fn _else_attr_kind(self) -> Self::ElseAttr {
         var t = Self::TentativeGuard(&self)
         if self.nl_depth == 0 && self.check(TokenKind::TkNewLine) {
@@ -2982,8 +2990,8 @@ pub class ASTParse
         // guard dtor rolls back unconditionally (never commit)
     }
 
-    /// \brief true at `@set_global_allocator (`. The guard rolls back
-    ///        unconditionally.
+    /// true at `@set_global_allocator (`. The guard rolls back
+    /// unconditionally.
     pub fn _global_alloc_ahead(self) -> bool {
         var t = Self::TentativeGuard(&self)
         if !self.check(TokenKind::OpAt) {
@@ -3006,19 +3014,19 @@ pub class ASTParse
         // guard dtor rolls back unconditionally (never commit)
     }
 
-    /// \brief `@set_global_allocator(A)` at file scope: A as a private
-    ///        TypeAliasDecl of the file (LowerTargets::global_allocator_alias),
-    ///        recorded as TranslationUnit::global_alloc.
+    /// `@set_global_allocator(A)` at file scope: A as a private
+    /// TypeAliasDecl of the file (LowerTargets::global_allocator_alias),
+    /// recorded as TranslationUnit::global_alloc.
     ///
-    /// \details An alias rather than a field holding a Type, so N and T
-    ///          resolve A where it is written, with every diagnostic a
-    ///          written type gets, and EmitPlan lays A out like any type the
-    ///          file names. The argument is a TYPE, parsed by the type parser
-    ///          (`a::Arena<4096>`), not the call-argument grammar the
-    ///          annotation buffer uses. A file sets it once; a link, once
-    ///          (CompilerInstance::_reject_second_global_allocator, and kld
-    ///          for objects built apart). \p annot is what stood before it:
-    ///          nothing there has a declaration to apply to.
+    /// An alias rather than a field holding a Type, so N and T
+    /// resolve A where it is written, with every diagnostic a
+    /// written type gets, and EmitPlan lays A out like any type the
+    /// file names. The argument is a TYPE, parsed by the type parser
+    /// (`a::Arena<4096>`), not the call-argument grammar the
+    /// annotation buffer uses. A file sets it once; a link, once
+    /// (CompilerInstance::_reject_second_global_allocator, and kld
+    /// for objects built apart). `annot` is what stood before it:
+    /// nothing there has a declaration to apply to.
     priv fn _parse_global_allocator(self,
                                     program: unsafe *Program,
                                     annot:   unsafe *Self::PendingAnnotations) {
@@ -3146,10 +3154,10 @@ pub class ASTParse
         self.tu->global_alloc_at = whole
     }
 
-    /// \brief SC001E for an `@set_global_allocator` the annotation buffer
-    ///        took (not at file scope, or after another attribute's
-    ///        target): it applies to nothing there, and dropping it would
-    ///        leave the program on System without a word.
+    /// SC001E for an `@set_global_allocator` the annotation buffer
+    /// took (not at file scope, or after another attribute's
+    /// target): it applies to nothing there, and dropping it would
+    /// leave the program on System without a word.
     priv fn _reject_global_alloc_attr(self, annot: unsafe *Self::PendingAnnotations) {
         if self.mode != Self::ParseMode::Full {
             return
@@ -3175,9 +3183,9 @@ pub class ASTParse
         }
     }
 
-    /// \brief true at `@assume (`: the free-standing `@assume(cond)`
-    ///        statement (StmtParse::_parse_assume), which takes no part in
-    ///        the attribute buffer. The guard rolls back unconditionally.
+    /// true at `@assume (`: the free-standing `@assume(cond)`
+    /// statement (StmtParse::_parse_assume), which takes no part in
+    /// the attribute buffer. The guard rolls back unconditionally.
     pub fn _assume_ahead(self) -> bool {
         var t = Self::TentativeGuard(&self)
         if !self.check(TokenKind::OpAt) {
@@ -3200,22 +3208,24 @@ pub class ASTParse
         // guard dtor rolls back unconditionally (never commit)
     }
 
-    /// \brief consumes doc-comments, @attributes, and visibility keywords
-    ///        before a production into a PendingAnnotations buffer.
+    /// consumes doc-comments, @attributes, and visibility keywords
+    /// before a production into a PendingAnnotations buffer.
     ///
-    /// \details attribute args reuse the call-argument grammar verbatim,
-    ///          including named args (`@ser(do_sum: true)`); the attr pass
-    ///          distinguishes named/positional exactly like call sema does.
-    ///          A visibility keyword followed by `{` is NOT consumed it
-    ///          is the lead-in of a visibility group decl, owned by DeclParse.
+    /// attribute args reuse the call-argument grammar verbatim,
+    /// including named args (`@ser(do_sum: true)`); the attr pass
+    /// distinguishes named/positional exactly like call sema does.
+    /// A visibility keyword followed by `{` is NOT consumed it
+    /// is the lead-in of a visibility group decl, owned by DeclParse.
     ///
-    /// \param stmt_pos the production is a statement (a function body, or
-    ///        file scope), where an `@name` may instead open an expression
-    ///        statement: _attr_opens_expr_stmt decides, and when it does the
-    ///        `@` is left for the expression parser (AttributedExpr).
+    /// ### Parameters
+    /// - `stmt_pos`: the production is a statement (a function body, or
+    ///   file scope), where an `@name` may instead open an expression
+    ///   statement: _attr_opens_expr_stmt decides, and when it does the
+    ///   `@` is left for the expression parser (AttributedExpr).
     ///
-    /// \param file_scope the top-level loop: `@set_global_allocator(` stops
-    ///        the buffer there, for _parse_global_allocator to take.
+    /// ### Parameters
+    /// - `file_scope`: the top-level loop: `@set_global_allocator(` stops
+    ///   the buffer there, for _parse_global_allocator to take.
     pub fn consume_leading_annotations(self,
                                        out:        unsafe *Self::PendingAnnotations,
                                        stmt_pos:   bool = false,
@@ -3361,7 +3371,7 @@ pub class ASTParse
         }
     }
 
-    /// \brief removes the comment entries gathered so far, keeping attributes.
+    /// removes the comment entries gathered so far, keeping attributes.
     priv fn _drop_comment_entries(self, out: unsafe *Self::PendingAnnotations) {
         var kept = cxx::std::vector<AnnotationEntry>()
         for var i: usize = 0; i < out->entries.size(); ++i {
@@ -3373,7 +3383,7 @@ pub class ASTParse
         out->entries = kept
     }
 
-    /// \brief a comment that opens its own line is not a trailing comment.
+    /// a comment that opens its own line is not a trailing comment.
     priv fn _comment_opens_line(self) -> bool {
         if self.c_idx == 0 {
             return true
@@ -3382,17 +3392,17 @@ pub class ASTParse
         return self.resolve_kind_shallow(self.span.get(self.c_idx - 1)) == TokenKind::TkNewLine
     }
 
-    /// \brief the comments directly above the cursor become its leading
-    ///        annotations: the contiguous run of own-line comments that follows
-    ///        the previous code token, minus anything a blank line cuts off.
+    /// the comments directly above the cursor become its leading
+    /// annotations: the contiguous run of own-line comments that follows
+    /// the previous code token, minus anything a blank line cuts off.
     ///
-    /// \details read straight off the token span instead of being remembered
-    ///          while stepping: _advance steps over every comment it lands on,
-    ///          so a pending list could not tell a doc block from a comment
-    ///          buried in the middle of an expression, and a stash would hand
-    ///          such comments to whichever declaration was parsed next. A
-    ///          comment that shares its line with the previous code token is
-    ///          that token's trailing comment (_attach_trailing), never ours.
+    /// read straight off the token span instead of being remembered
+    /// while stepping: _advance steps over every comment it lands on,
+    /// so a pending list could not tell a doc block from a comment
+    /// buried in the middle of an expression, and a stash would hand
+    /// such comments to whichever declaration was parsed next. A
+    /// comment that shares its line with the previous code token is
+    /// that token's trailing comment (_attach_trailing), never ours.
     priv fn _collect_leading_comments(self, out: unsafe *Self::PendingAnnotations) {
         if self._current == &null || self.c_idx == 0 {
             return
@@ -3501,19 +3511,19 @@ pub class ASTParse
         self._pending_trailing.clear()
     }
 
-    /// \brief `@no_warn(CODE)` over the warnings this parse already reported
-    ///        inside \p decl.
+    /// `@no_warn(CODE)` over the warnings this parse already reported
+    /// inside `decl`.
     ///
-    /// \details Sema registers every `@no_warn` scope before its first pass
-    ///          (AttributeCheck::register_suppressions), but the parser's own
-    ///          warnings (S055W on a nested nullable) are reported while the
-    ///          declaration is still being parsed, before its range or its
-    ///          attributes are known, and are drained before Sema runs. So the
-    ///          scope is applied here as well, the moment the declaration is
-    ///          complete: BufferedDiagSink::quiet_in drops the matching
-    ///          warnings still buffered. Only valid warning codes; a bad one is
-    ///          AttributeCheck's error. The lexer and preprocessor report to
-    ///          the engine directly, so their warnings are not covered.
+    /// Sema registers every `@no_warn` scope before its first pass
+    /// (AttributeCheck::register_suppressions), but the parser's own
+    /// warnings (S055W on a nested nullable) are reported while the
+    /// declaration is still being parsed, before its range or its
+    /// attributes are known, and are drained before Sema runs. So the
+    /// scope is applied here as well, the moment the declaration is
+    /// complete: BufferedDiagSink::quiet_in drops the matching
+    /// warnings still buffered. Only valid warning codes; a bad one is
+    /// AttributeCheck's error. The lexer and preprocessor report to
+    /// the engine directly, so their warnings are not covered.
     priv fn _quiet_parse_warnings(self,
                                   decl:  unsafe *Decl,
                                   annot: unsafe *Self::PendingAnnotations) {
@@ -3559,7 +3569,7 @@ pub class ASTParse
         }
     }
 
-    /// \brief transfers annotations and visibility to a declaration.
+    /// transfers annotations and visibility to a declaration.
     pub fn apply_annotations_to_decl(self,
                                      decl:  unsafe *Decl,
                                      annot: unsafe *Self::PendingAnnotations) {
@@ -3804,7 +3814,7 @@ pub class ASTParse
         }
     }
 
-    /// \brief transfers annotations to an expression node.
+    /// transfers annotations to an expression node.
     pub fn apply_annotations_to_node(self,
                                      node:  unsafe *Expr,
                                      annot: unsafe *Self::PendingAnnotations) {
@@ -3819,7 +3829,7 @@ pub class ASTParse
         }
     }
 
-    /// \brief reports a diagnostic error if a visibility modifier is applied to a non-declaration.
+    /// reports a diagnostic error if a visibility modifier is applied to a non-declaration.
     priv fn _diag_vis_on_non_decl(self,
                                   annot:      unsafe *Self::PendingAnnotations,
                                   const what: string) {
@@ -3834,7 +3844,7 @@ pub class ASTParse
         ).first(annot->vis_range)->emit()
     }
 
-    /// \brief transfers annotations to a statement node.
+    /// transfers annotations to a statement node.
     pub fn apply_annotations_to_node(self,
                                      node:  unsafe *Stmt,
                                      annot: unsafe *Self::PendingAnnotations) {
@@ -3898,7 +3908,7 @@ pub class ASTParse
         }
     }
 
-    /// \brief transfers annotations to a type node.
+    /// transfers annotations to a type node.
     pub fn apply_annotations_to_node(self,
                                      node:  unsafe *Type,
                                      annot: unsafe *Self::PendingAnnotations) {
@@ -3915,10 +3925,10 @@ pub class ASTParse
 
     //  Type qualifier consumption
 
-    /// \brief consumes leading type qualifier keywords (const, atomic, etc.).
+    /// consumes leading type qualifier keywords (const, atomic, etc.).
     ///
-    /// \details populates the `PendingQuals` accumulator. these are consumed by
-    ///          type parsing logic to apply to the constructed `Type` node.
+    /// populates the `PendingQuals` accumulator. these are consumed by
+    /// type parsing logic to apply to the constructed `Type` node.
     pub fn consume_leading_quals(self, out: *Self::PendingQuals) {
         out->clear()
 
@@ -3979,7 +3989,7 @@ pub class ASTParse
         }
     }
 
-    /// \brief applies accumulated qualifiers to a constructed type.
+    /// applies accumulated qualifiers to a constructed type.
     pub fn apply_quals(self, ty: *Type, quals: *Self::PendingQuals) {
         if quals->empty() {
             return
@@ -3991,18 +4001,18 @@ pub class ASTParse
         }
     }
 
-    /// \brief where a `const` was written at the TOP of \p ty. A `const` under
-    ///        a pointer (`*const i32`) lands on the pointee's node, not this
-    ///        one, so it does not answer here. Callers test ty->is_const()
-    ///        first; this is only the location.
+    /// where a `const` was written at the TOP of `ty`. A `const` under
+    /// a pointer (`*const i32`) lands on the pointee's node, not this
+    /// one, so it does not answer here. Callers test ty->is_const()
+    /// first; this is only the location.
     pub fn top_const_range(self, ty: *Type) -> SourceRange {
         return ty->qual_range(Self::PendingQuals::TypeQualifier::Flags::IsConst)
     }
 
     //  Recovery primitives
 
-    /// \brief records the state a speculative parse can move. See
-    ///        ParserCheckpoint for what rewind() gives back.
+    /// records the state a speculative parse can move. See
+    /// ParserCheckpoint for what rewind() gives back.
     inline fn checkpoint(self) -> ParserCheckpoint {
         var cp = ParserCheckpoint{}
         cp.cursor     = self.c_idx
@@ -4021,9 +4031,9 @@ pub class ASTParse
         return cp
     }
 
-    /// \brief rolls the cursor and the `>>` debt back to \p cp, and (debug
-    ///        builds) checks that the balanced counters came back by
-    ///        themselves.
+    /// rolls the cursor and the `>>` debt back to `cp`, and (debug
+    /// builds) checks that the balanced counters came back by
+    /// themselves.
     fn rewind(self, cp: ParserCheckpoint) {
         eval if defined!(DEBUG) {
             self._check_balanced(cp)
@@ -4033,11 +4043,11 @@ pub class ASTParse
         self._angle_debt = cp.angle_debt
     }
 
-    /// \brief the debug half of rewind(): a speculation that returns with a
-    ///        depth counter or _no_comment_skip moved has an unbalanced
-    ///        enter/exit inside it, which a rollback would silently carry
-    ///        into the reparse. A fired depth cap unwinds without its exits,
-    ///        so it is the one excuse.
+    /// the debug half of rewind(): a speculation that returns with a
+    /// depth counter or _no_comment_skip moved has an unbalanced
+    /// enter/exit inside it, which a rollback would silently carry
+    /// into the reparse. A fired depth cap unwinds without its exits,
+    /// so it is the one excuse.
     priv fn _check_balanced(self, cp: ParserCheckpoint) {
         if self._depth_aborted {
             return
@@ -4053,40 +4063,43 @@ pub class ASTParse
         }
     }
 
-    /// \brief starts a speculative parse branch (no suppression; see
-    ///        TentativeGuard for the suppressing form).
-    /// \return the checkpoint to hand to tentative_rollback.
+    /// starts a speculative parse branch (no suppression; see
+    /// TentativeGuard for the suppressing form).
+    ///
+    /// ### Returns
+    /// the checkpoint to hand to tentative_rollback.
     inline fn tentative_begin(self) -> ParserCheckpoint {
         return self.checkpoint()
     }
 
-    /// \brief commits a speculative parse: nothing to undo, the parse proceeds.
+    /// commits a speculative parse: nothing to undo, the parse proceeds.
     fn tentative_commit(self, cp: ParserCheckpoint) {
         // no-op: committing keeps every moved field where it is.
     }
 
-    /// \brief reverts to \p cp: cursor and `>>` debt (rewind). nl_depth and
-    ///        the pending comments are left as they are, as they always were
-    ///        for this pair.
+    /// reverts to `cp`: cursor and `>>` debt (rewind). nl_depth and
+    /// the pending comments are left as they are, as they always were
+    /// for this pair.
     fn tentative_rollback(self, cp: ParserCheckpoint) {
         self.rewind(cp)
     }
 
-    /// \brief restores the token cursor to a previously saved index.
+    /// restores the token cursor to a previously saved index.
     fn _restore_cursor(self, idx: usize) {
         self.c_idx = idx
         self._prev = if (idx > 0) => (self.span.get(idx - 1)) else => &null
         self._sync_cursor()
     }
 
-    /// \brief parks the cursor on the final token so every enclosing loop sees
-    ///        EOF and unwinds.
-    /// \details a depth-cap failure jumps to EOF: returning an error node
-    ///          WITHOUT consuming anything would make the caller's loop (top
-    ///          level, block body) re-enter the same construct, fail the same
-    ///          check and spin forever. Jumping to EOF guarantees progress and
-    ///          turns the cap into exactly one diagnostic instead of a retry
-    ///          storm.
+    /// parks the cursor on the final token so every enclosing loop sees
+    /// EOF and unwinds.
+    ///
+    /// a depth-cap failure jumps to EOF: returning an error node
+    /// WITHOUT consuming anything would make the caller's loop (top
+    /// level, block body) re-enter the same construct, fail the same
+    /// check and spin forever. Jumping to EOF guarantees progress and
+    /// turns the cap into exactly one diagnostic instead of a retry
+    /// storm.
     /// Stops the parse after a depth cap fires. Only a flag is set: is_eof()
     /// reads it, so every statement/declaration loop ends on its next check
     /// no matter which token window it is iterating. Moving the cursor
@@ -4100,7 +4113,7 @@ pub class ASTParse
         self._depth_aborted = true
     }
 
-    /// \brief checks and increments the recursion depth counter.
+    /// checks and increments the recursion depth counter.
     fn enter_depth(self) -> bool {
         if self._depth_aborted {
             return false
@@ -4124,15 +4137,15 @@ pub class ASTParse
         return true
     }
 
-    /// \brief decrements the recursion depth counter.
+    /// decrements the recursion depth counter.
     fn exit_depth(self) {
         if self.depth > 0 {
             --self.depth
         }
     }
 
-    /// \brief expression-recursion twin of enter_depth, bounded by
-    ///        --cmax-expr-depth rather than the scope cap.
+    /// expression-recursion twin of enter_depth, bounded by
+    /// --cmax-expr-depth rather than the scope cap.
     fn enter_expr_depth(self) -> bool {
         if self._depth_aborted {
             return false
@@ -4156,7 +4169,7 @@ pub class ASTParse
         return true
     }
 
-    /// \brief decrements the expression recursion depth counter.
+    /// decrements the expression recursion depth counter.
     fn exit_expr_depth(self) {
         if self.expr_depth > 0 {
             --self.expr_depth
@@ -4165,20 +4178,21 @@ pub class ASTParse
 
     //  Scope primitives
 
-    /// \brief pushes a new lexical scope and associates it with `dc`.
+    /// pushes a new lexical scope and associates it with `dc`.
     fn enter_scope(self, kind: ScopeKind, dc: unsafe *DeclContext) -> unsafe *LexicalScope {
         return self.scope.push(kind, dc)
     }
 
-    /// \brief pops the current lexical scope.
+    /// pops the current lexical scope.
     fn exit_scope(self) {
         self.scope.pop()
     }
 
     //  Unified lookup (lexical -> hoisted -> global)
 
-    /// \brief performs a full scope-walking name lookup.
-    /// \note slower than direct hoisted scope access; intended for non-parser consumers.
+    /// performs a full scope-walking name lookup.
+    ///
+    /// **Note:** slower than direct hoisted scope access; intended for non-parser consumers.
     fn lookup(self, const name: string) -> ParentRef {
         var unsafe *local = self.scope.lookup(name)
         if local != &null {
@@ -4195,7 +4209,7 @@ pub class ASTParse
 
     //  Completion hooks
 
-    /// \brief notifies completion consumer of a generic context point.
+    /// notifies completion consumer of a generic context point.
     fn maybe_complete(self, kind: CompletionContextKind) {
         if self.cc == &null {
             return
@@ -4205,7 +4219,7 @@ pub class ASTParse
         self.cc->on_completion(kind, self.scope.current_dc())
     }
 
-    /// \brief triggers member completion for dot or arrow access.
+    /// triggers member completion for dot or arrow access.
     fn maybe_complete_member(self, base: *Expr, is_arrow: bool) {
         if self.cc == &null {
             return
@@ -4214,7 +4228,7 @@ pub class ASTParse
         self.cc->on_member_access(base, is_arrow)
     }
 
-    /// \brief triggers completion for a qualified name (e.g. `namespace::...`).
+    /// triggers completion for a qualified name (e.g. `namespace::...`).
     fn maybe_complete_qualified(self, scope: *DisambigNode) {
         if self.cc == &null {
             return
@@ -4223,7 +4237,7 @@ pub class ASTParse
         self.cc->on_qualified_name(scope)
     }
 
-    /// \brief triggers signature help/parameter hint completion.
+    /// triggers signature help/parameter hint completion.
     fn maybe_complete_sighelp(self, callee: *Expr, arg_index: u32) {
         if self.cc == &null {
             return
@@ -4243,18 +4257,18 @@ pub class ASTParse
         }
     }
 
-    /// \brief single-step advance that keeps a trailing newline for the
-    ///        caller. Consumes closing delimiters so a statement
-    ///        terminator after `)`/`]`/`}`/`>` survives.
+    /// single-step advance that keeps a trailing newline for the
+    /// caller. Consumes closing delimiters so a statement
+    /// terminator after `)`/`]`/`}`/`>` survives.
     ///
-    /// \details "for the caller" is the ENCLOSING context: a closer is
-    ///          consumed after its own nl_pop(), so a still-positive depth
-    ///          means the closer sits inside another bracket, where that
-    ///          newline is no terminator. Left under the cursor it ended the
-    ///          enclosing expression -- `g((y)` newline `+ 1, 2)`, a generic
-    ///          last parameter `seen: vec<u8>` newline `)` -- while the same
-    ///          code with a bare operand parsed. Under
-    ///          suppression the cursor never rests on a newline.
+    /// "for the caller" is the ENCLOSING context: a closer is
+    /// consumed after its own nl_pop(), so a still-positive depth
+    /// means the closer sits inside another bracket, where that
+    /// newline is no terminator. Left under the cursor it ended the
+    /// enclosing expression -- `g((y)` newline `+ 1, 2)`, a generic
+    /// last parameter `seen: vec<u8>` newline `)` -- while the same
+    /// code with a bare operand parsed. Under
+    /// suppression the cursor never rests on a newline.
     pub inline fn advance_raw(self) {
         self._advance()
         if self.nl_depth > 0 {
@@ -4262,22 +4276,22 @@ pub class ASTParse
         }
     }
 
-    /// \brief whether the closer under the cursor closes a bracket the TEXT
-    ///        still has open before it. Walking back, every closer waits for
-    ///        an opener of its own kind, this one at the bottom. An opener
-    ///        pairs with the nearest waiting closer of its kind, and the
-    ///        closers waiting above that one are strays; an opener nothing
-    ///        waits for is unclosed and is stepped over. So in `{ foo(1,`
-    ///        then `}` the `(` is the error and the `}` is still the block's,
-    ///        and in `foo(1 + ]` then `}` the `]` is the stray.
+    /// whether the closer under the cursor closes a bracket the TEXT
+    /// still has open before it. Walking back, every closer waits for
+    /// an opener of its own kind, this one at the bottom. An opener
+    /// pairs with the nearest waiting closer of its kind, and the
+    /// closers waiting above that one are strays; an opener nothing
+    /// waits for is unclosed and is stepped over. So in `{ foo(1,`
+    /// then `}` the `(` is the error and the `}` is still the block's,
+    /// and in `foo(1 + ]` then `}` the `]` is the stray.
     ///
-    /// \details recovery keeps such a closer for the construct that owns it
-    ///          (`var x = 1 +` then the body's `}`) and skips any other one
-    ///          as junk (`n + ) = 1` inside a `{ }`: no `(` is open), which
-    ///          is what it did with every closer before. The walk is on
-    ///          the error path only; past CLOSER_SCAN_LIMIT tokens the closer
-    ///          is taken as owned, the reading that never runs a construct on
-    ///          past its brace.
+    /// recovery keeps such a closer for the construct that owns it
+    /// (`var x = 1 +` then the body's `}`) and skips any other one
+    /// as junk (`n + ) = 1` inside a `{ }`: no `(` is open), which
+    /// is what it did with every closer before. The walk is on
+    /// the error path only; past CLOSER_SCAN_LIMIT tokens the closer
+    /// is taken as owned, the reading that never runs a construct on
+    /// past its brace.
     pub fn closer_is_owned(self) -> bool {
         const CLOSER_SCAN_LIMIT: usize = 1 << 16
 
@@ -4351,12 +4365,12 @@ pub class ASTParse
         return false
     }
 
-    /// \brief closer_is_owned, and for a `}` also that it can end a block
-    ///        here: it ends its line or is followed by what can follow a
-    ///        block (`else`, `catch`, `;`, `,`, a closer). For a failed
-    ///        OPERAND only: `var v = } 0` is junk in the middle of a line,
-    ///        not the body's end. A list's own `}` (`{1, 2,}.size()`) is
-    ///        never asked this.
+    /// closer_is_owned, and for a `}` also that it can end a block
+    /// here: it ends its line or is followed by what can follow a
+    /// block (`else`, `catch`, `;`, `,`, a closer). For a failed
+    /// OPERAND only: `var v = } 0` is junk in the middle of a line,
+    /// not the body's end. A list's own `}` (`{1, 2,}.size()`) is
+    /// never asked this.
     pub fn operand_closer_is_owned(self) -> bool {
         if !self.closer_is_owned() {
             return false
@@ -4379,9 +4393,9 @@ pub class ASTParse
             || nk == TokenKind::KwCatch
     }
 
-    /// \brief true when the token under the cursor is the first on its line
-    ///        (or of the stream): an arm lead `case` / `default` that starts
-    ///        a line is the next arm; one in the middle of a line is junk.
+    /// true when the token under the cursor is the first on its line
+    /// (or of the stream): an arm lead `case` / `default` that starts
+    /// a line is the next arm; one in the middle of a line is junk.
     pub fn starts_line(self) -> bool {
         if self.c_idx == 0 {
             return true
@@ -4390,8 +4404,8 @@ pub class ASTParse
         return self.resolve_kind_shallow(self.span.get(self.c_idx - 1)) == TokenKind::TkNewLine
     }
 
-    /// \brief whether the token right after the closer matching the opener
-    ///        at the cursor is \p kind. Brackets of every kind count together.
+    /// whether the token right after the closer matching the opener
+    /// at the cursor is `kind`. Brackets of every kind count together.
     pub fn closer_followed_by(self, kind: TokenKind) -> bool {
         if self._current == &null {
             return false
@@ -4416,12 +4430,12 @@ pub class ASTParse
         return false
     }
 
-    /// \brief whether the token just consumed is the one the TEXT pairs with
-    ///        the opener at \p open: brackets of every kind counted together
-    ///        from it, the first that brings the count back to zero. A parse
-    ///        that stopped at an inner closer, ran past the right one, or
-    ///        never closed (S057E) did not, and what follows it was not
-    ///        parsed as it would have been without the error.
+    /// whether the token just consumed is the one the TEXT pairs with
+    /// the opener at `open`: brackets of every kind counted together
+    /// from it, the first that brings the count back to zero. A parse
+    /// that stopped at an inner closer, ran past the right one, or
+    /// never closed (S057E) did not, and what follows it was not
+    /// parsed as it would have been without the error.
     pub fn closes_lexically(self, open: usize) -> bool {
         if self._prev == &null || open >= self.span.size() {
             return false
@@ -4446,7 +4460,7 @@ pub class ASTParse
         return false
     }
 
-    /// \brief resolved kind of the next non-newline token, without moving.
+    /// resolved kind of the next non-newline token, without moving.
     pub inline fn peek_past_nl_kind(self) -> TokenKind {
         // c_idx stays on the last token when the cursor steps off the end, so
         // scanning from it would report that (already consumed) token again.

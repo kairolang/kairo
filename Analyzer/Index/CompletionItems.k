@@ -156,7 +156,7 @@ extend IndexWalker {
         self.items.push(it)
     }
 
-    /// Every name declared directly in \p dc.
+    /// Every name declared directly in `dc`.
     fn items_of_context_(self, dc: unsafe *DeclContext, sort: u32) {
         if dc == &null {
             return
@@ -243,7 +243,7 @@ extend IndexWalker {
         return &null
     }
 
-    /// Members reachable through a value of type \p t: its record's own, then
+    /// Members reachable through a value of type `t`: its record's own, then
     /// its bases'. Pointers and qualifiers are looked through, as `.` does.
     fn items_of_type_(self, t_in: unsafe *Type, depth: u32) {
         if (t_in == &null) || (depth > 8) {
@@ -278,7 +278,7 @@ extend IndexWalker {
         self.items_of_record_(d, depth)
     }
 
-    /// What record, enum, interface or module \p d declares itself, in the
+    /// What record, enum, interface or module `d` declares itself, in the
     /// order it is offered: what `.` and `::` can name before its bases and
     /// its extensions. The one list for a completion's items and for the
     /// file's declaration table (Tables.k), so the two cannot differ.
@@ -332,7 +332,7 @@ extend IndexWalker {
         }
     }
 
-    /// The methods of the `extend` blocks of \p d that this file sees
+    /// The methods of the `extend` blocks of `d` that this file sees
     /// (MemberLookup's index, which applies the extension-visibility rule).
     fn items_of_extensions_(self, d: unsafe *Decl, depth: u32) {
         if self.ml_ == &null {
@@ -422,7 +422,7 @@ extend IndexWalker {
         self.ml_         = &null
     }
 
-    /// The cursor is after `b::`, \p b a primitive (`usize::`): its
+    /// The cursor is after `b::`, `b` a primitive (`usize::`): its
     /// associated constants, the compiler's own list (Index/Primitives.k),
     /// then the methods of the `extend` blocks of it this file sees, the
     /// statics a `b::` names among them. The index path lists the
@@ -497,7 +497,7 @@ extend IndexWalker {
         }
     }
 
-    /// The cursor (the marker, at byte \p at of the file) is on a bare
+    /// The cursor (the marker, at byte `at` of the file) is on a bare
     /// name: locals, then the enclosing type, then the file, then what the
     /// file imports.
     fn complete_scope_(self, at: u32) {

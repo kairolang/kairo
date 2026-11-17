@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------- Sema/Lower/SequenceLowering.k --- ///
 ///
-///   \brief Make evaluation order explicit.
+/// Make evaluation order explicit.
 ///
 ///   \detail
 ///     Kairo evaluates left to right: a call's receiver, then its arguments
@@ -305,7 +305,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return lifted
     }
 
-    /// \p e, an operand of a `for` header, bound to a local that \p out
+    /// `e`, an operand of a `for` header, bound to a local that `out`
     /// takes; returns what reads it. As _hoist binds it, marked as the
     /// header's own local is.
     priv fn _bind_header(self,
@@ -328,8 +328,8 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return use
     }
 
-    /// \p e, part of a `for` header's initializer that is evaluated
-    /// whenever the initializer is, with its temporaries moved to \p out in
+    /// `e`, part of a `for` header's initializer that is evaluated
+    /// whenever the initializer is, with its temporaries moved to `out` in
     /// evaluation order: the locals of a block this pass wrote (the block
     /// replaced by its value), a record prvalue a call is made on, and a
     /// value passed to a `const` or reference parameter. Only where the move
@@ -492,9 +492,9 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return host
     }
 
-    /// \p n's receiver, when it is a block in _temp_blocks whose result is a
+    /// `n`'s receiver, when it is a block in _temp_blocks whose result is a
     /// pointer: the receiver is replaced by the block's tail expression and
-    /// the block returned, for transform_call_expr to finish around \p n.
+    /// the block returned, for transform_call_expr to finish around `n`.
     priv fn _temp_block_recv(self,
                              n: unsafe *Expressions::CallExpr) -> unsafe *Expressions::StmtExpr {
         if n->callee == &null || !isa<ChainExpr>(n->callee) {
@@ -665,7 +665,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
     /// `x in xs` through a user `op in`: the call is `xs.op_in(x)` (or
     /// `op_in(xs, x)`), operand zero the source's RIGHT operand, and C++
-    /// evaluates a receiver before the arguments. \p ops is that pair, C++
+    /// evaluates a receiver before the arguments. `ops` is that pair, C++
     /// order; Kairo evaluates `x` first. `x` is bound ahead of the call
     /// when the two can observe each other: one has an effect and the other
     /// has one or reads state. `xs` stays in place, evaluated after the
@@ -917,7 +917,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
     /// # the hoisting rule
 
-    /// \p ops in evaluation order; \p hoist gets, per operand, whether it is
+    /// `ops` in evaluation order; `hoist` gets, per operand, whether it is
     /// bound ahead of the node. False when nothing is: with at most one
     /// operand that has an effect and no state read ahead of it, C++'s
     /// unspecified order cannot be observed. Otherwise every operand before
@@ -963,7 +963,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return any
     }
 
-    /// Pure \p e reads a place an effect elsewhere in the expression could
+    /// Pure `e` reads a place an effect elsewhere in the expression could
     /// change: anything but a literal, an eval constant, or a local whose
     /// value only its own writes change (_escaped), its fields and its
     /// array elements included.
@@ -1064,7 +1064,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         }
     }
 
-    /// Pure place \p e (bound by address, not read) may name another object
+    /// Pure place `e` (bound by address, not read) may name another object
     /// once an effect has run: only through a pointer or an index it reads.
     /// A variable's address is fixed, global or not.
     priv fn _place_moves(self, e_in: unsafe *Expr) -> bool {
@@ -1119,7 +1119,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return true
     }
 
-    /// \p e is typed as an imported `T&` (a call returning one).
+    /// `e` is typed as an imported `T&` (a call returning one).
     priv fn _lref_typed(self, e: unsafe *Expr) -> bool {
         if e == &null || e->type_ == &null {
             return false
@@ -1129,10 +1129,10 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return c != &null && isa<CXXLValueRefType>(c)
     }
 
-    /// Per positional argument of \p n (args are positional after
+    /// Per positional argument of `n` (args are positional after
     /// CallLowering): whether its parameter is an imported `T&` or
-    /// `const T&`, or a Kairo `inout`. \p bound_recv: `obj.m(...)`, whose `self` is no argument.
-    /// \p borrows widens it to every parameter a callee can keep a
+    /// `const T&`, or a Kairo `inout`. `bound_recv`: `obj.m(...)`, whose `self` is no argument.
+    /// `borrows` widens it to every parameter a callee can keep a
     /// reference through: a `const` one and an imported `T&&` too.
     priv fn _lref_params(self,
                          n:          unsafe *Expressions::CallExpr,
@@ -1218,7 +1218,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             || isa<CXXRValueRefType>(c)
     }
 
-    /// \p d is a local or parameter of the function being lowered that no
+    /// `d` is a local or parameter of the function being lowered that no
     /// pointer, `inout` argument or closure can reach.
     priv fn _state_free_local(self, d: unsafe *Decl) -> bool {
         if (!isa<ParamDecl>(d)) && !isa<VariableDecl>(d) {
@@ -1244,12 +1244,12 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return true
     }
 
-    /// Operand \p e bound ahead of its node, in \p stmts; returns what reads
-    /// it. A \p place (an assignment's target, a receiver, an array a
+    /// Operand `e` bound ahead of its node, in `stmts`; returns what reads
+    /// it. A `place` (an assignment's target, a receiver, an array a
     /// subscript indexes, an `inout` argument) is bound by reference, so it
     /// is evaluated once and written through; a value is copied, which is
     /// the snapshot a later effect must not change. A record value bound for
-    /// an argument or a field (\p consumed) is moved into it.
+    /// an argument or a field (`consumed`) is moved into it.
     priv fn _hoist(self,
                    e:        unsafe *Expr,
                    stmts:    unsafe *ListBuilder<unsafe *Stmt>,
@@ -1381,9 +1381,9 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return use
     }
 
-    /// \p e is `R().m(..)` (or `R().m(..).n(..)`, any depth) whose innermost
+    /// `e` is `R().m(..)` (or `R().m(..).n(..)`, any depth) whose innermost
     /// receiver is a record prvalue: that prvalue is bound into its own local
-    /// in \p stmts and the chain's base rewritten to read it.
+    /// in `stmts` and the chain's base rewritten to read it.
     priv fn _extend_receiver_temp(self, e: unsafe *Expr, stmts: unsafe *ListBuilder<unsafe *Stmt>) {
         var unsafe *x                      = self.tu.strip_parens(e)
         var unsafe *call                   = dyn_cast<Expressions::CallExpr>(x)
@@ -1418,7 +1418,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         self._bound_temp = true
     }
 
-    /// \p e is a typed, non-dependent record (no enum) prvalue: a temporary.
+    /// `e` is a typed, non-dependent record (no enum) prvalue: a temporary.
     priv fn _record_prvalue(self, e: unsafe *Expr) -> bool {
         if e == &null || e->is_lvalue() || self._materialized(e) || e->type_ == &null {
             return false
@@ -1436,7 +1436,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return !isa<EnumDecl>(cast<RecordType>(c)->decl)
     }
 
-    /// \p e is a field step that is an imported bit-field: no reference binds
+    /// `e` is a field step that is an imported bit-field: no reference binds
     /// it, so it is never hoisted as a place (_plan leaves its node alone).
     priv fn _bitfield(self, e: unsafe *Expr) -> bool {
         var unsafe *c = dyn_cast<ChainExpr>(self.tu.strip_parens(e))
@@ -1477,7 +1477,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return inner != &null && inner->materialize
     }
 
-    /// \p n, an lvalue, after the bindings in \p stmts: as a statement the
+    /// `n`, an lvalue, after the bindings in `stmts`: as a statement the
     /// node itself ends the block; used as a value or a place, the block
     /// yields its address and is dereferenced, so it stays an lvalue.
     priv fn _close_lvalue(self,
@@ -1611,7 +1611,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return t == &null || t->is_dependent() || t->is_instantiation_dependent()
     }
 
-    /// \p t is a generic parameter or a witness's member type.
+    /// `t` is a generic parameter or a witness's member type.
     static fn dependent_type(t: unsafe *Type) -> bool {
         if t == &null || t->canonical == &null {
             return false
@@ -1650,7 +1650,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         return true
     }
 
-    /// `T __kairo_ordK = e;` into \p stmts; returns the name that reads it.
+    /// `T __kairo_ordK = e;` into `stmts`; returns the name that reads it.
     priv fn _bind(self, e: unsafe *Expr, @inout stmts: ListBuilder<unsafe *Stmt>) -> unsafe *Expr {
         // `__kairo_tmp(p)` / `*__kairo_tmp(p)`: an extension call's prvalue
         // receiver. A pointer local would end the temporary at its own `;`, so

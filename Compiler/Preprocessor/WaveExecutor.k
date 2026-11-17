@@ -40,15 +40,19 @@ pub class WaveExecutor {
         self._pool = pool
     }
 
-    /// \brief Runs waves until no fid is ready.
-    /// \param graph        the dep graph (read only; the countdown is _pending)
-    /// \param task_fn      called once per fid with (fid, mod_path)
-    ///                     MUST be thread-safe: multiple calls run concurrently
-    /// \returns how many fids were dispatched. Fewer than the graph holds
-    ///          means some never became ready -- a cycle in the graph -- and
-    ///          the caller must say so: those files were never walked.
-    /// \p diag non-null: each task's diagnostics are held in a sink of its
-    /// own (DiagCapture) and drained into \p diag when its wave is done, in
+    /// Runs waves until no fid is ready.
+    ///
+    /// ### Parameters
+    /// - `graph`: the dep graph (read only; the countdown is _pending)
+    /// - `task_fn`: called once per fid with (fid, mod_path)
+    ///   MUST be thread-safe: multiple calls run concurrently
+    ///
+    /// ### Returns
+    /// how many fids were dispatched. Fewer than the graph holds
+    /// means some never became ready -- a cycle in the graph -- and
+    /// the caller must say so: those files were never walked.
+    /// `diag` non-null: each task's diagnostics are held in a sink of its
+    /// own (DiagCapture) and drained into `diag` when its wave is done, in
     /// the wave's dispatch order, each file's in source order. The files of
     /// one wave walk side by side, and reported straight to the engine they
     /// interleaved in the order they happened to finish, so which import
@@ -120,8 +124,8 @@ pub class WaveExecutor {
         return dispatched
     }
 
-    /// \brief after run(): \p fid never became ready (a dependency of it was
-    ///        never walked), so it was never dispatched.
+    /// after run(): `fid` never became ready (a dependency of it was
+    /// never walked), so it was never dispatched.
     fn stranded(self, fid: u32) -> bool {
         var it = self._pending.find(fid)
         return it != self._pending.end() && it->second > 0

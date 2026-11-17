@@ -159,7 +159,7 @@ extend Speller {
         return v
     }
 
-    /// \p t is a record whose C++ spelling names, in itself or in a template
+    /// `t` is a record whose C++ spelling names, in itself or in a template
     /// argument, a private or protected member type of a C++ class (an
     /// iterator `begin()` returns, a `SpecIterator` a range is over). C++
     /// code reaches such a type only through `auto`; Kairo's AccessCheck
@@ -229,7 +229,7 @@ extend Speller {
         return false
     }
 
-    /// \p t canonical and unqualified, through a C++ reference to its
+    /// `t` canonical and unqualified, through a C++ reference to its
     /// referee: an imported `operator[]` returning `int&` is an int to the
     /// arithmetic on it.
     static fn strip_ref(t: unsafe *Type) -> unsafe *Type {
@@ -246,7 +246,7 @@ extend Speller {
         return c
     }
 
-    /// Bits of integer \p t (through a reference); the target's for
+    /// Bits of integer `t` (through a reference); the target's for
     /// usize / isize.
     static fn int_width(t: unsafe *Type) -> u32 {
         var unsafe *c = Speller::strip_ref(t)
@@ -257,7 +257,7 @@ extend Speller {
         return c->size_bits as u32
     }
 
-    /// The unsigned type EmitIR does integer \p t's arithmetic in (the wrap
+    /// The unsigned type EmitIR does integer `t`'s arithmetic in (the wrap
     /// forms): never narrower than `unsigned int`, or `unsigned short *
     /// unsigned short` promotes to int and overflows there.
     fn wrap_carrier(self, t: unsafe *Type) -> string {
@@ -283,7 +283,7 @@ extend Speller {
         return builtin_info(BuiltinKind::U512)->cxx.copy()
     }
 
-    /// R, the register width a shift on integer \p t is computed in: 32 for
+    /// R, the register width a shift on integer `t` is computed in: 32 for
     /// up to 32 bits, 64 up to 64, 128 up to 128, a wider `_BitInt`'s own
     /// width -- wrap_carrier's thresholds, so
     /// the count mask `R - 1` is what the carrier's own shift instruction
@@ -305,7 +305,7 @@ extend Speller {
         return w // a `_BitInt` is shifted in its own width.
     }
 
-    /// R_T, the signed integer of width reg_width(\p t): a signed `>>`
+    /// R_T, the signed integer of width reg_width(`t`): a signed `>>`
     /// sign-extends its left operand to it, so a narrow `i8 >> 9` fills
     /// with the sign rather than shifting zeros in from bit 8.
     fn reg_signed(self, t: unsafe *Type) -> string {
@@ -346,7 +346,7 @@ extend Speller {
         return VIS_PUB()
     }
 
-    /// A transfer constructor or the destructor of \p owner.
+    /// A transfer constructor or the destructor of `owner`.
     fn is_special_member(self, f: unsafe *Declarations::FunctionDecl, owner: unsafe *Decl) -> bool {
         if f->is_operator {
             return f->op_token.size() > 0 && f->op_token[0].kind == TokenKind::KwFinally
@@ -387,7 +387,7 @@ extend Speller {
         ) == Speller::rep(DeclFacts::decl_pattern(Speller::rep(owner)))
     }
 
-    /// \p f is a constructor of \p owner: a method named after it.
+    /// `f` is a constructor of `owner`: a method named after it.
     fn is_ctor_of(self, f: unsafe *Declarations::FunctionDecl, owner: unsafe *Decl) -> bool {
         if f->is_operator || !f->is_method() || owner == &null {
             return false
@@ -396,7 +396,7 @@ extend Speller {
         return self.leaf(unsafe (f as unsafe *Decl)) == self.leaf(owner)
     }
 
-    /// \p d emits no constructor: a C++ aggregate (a struct or union always
+    /// `d` emits no constructor: a C++ aggregate (a struct or union always
     /// is one to Kairo; a class only with no constructor of any kind).
     fn is_aggregate_record(self, d: unsafe *Decl) -> bool {
         if isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d) {
@@ -501,7 +501,7 @@ extend Speller {
         return &null
     }
 
-    /// \p f is a Kairo definition of a function C++ declares: an
+    /// `f` is a Kairo definition of a function C++ declares: an
     /// out-of-line `fn W::at` / `fn ns::f` whose chain starts at an imported
     /// declaration. C++ already has the declaration, so nothing
     /// declares it again; EmitIR::_foreign_def writes the definition in the
@@ -558,7 +558,7 @@ extend Speller {
         return tu->fid
     }
 
-    /// \p s as a C++ narrow string literal, quotes included: printable ASCII
+    /// `s` as a C++ narrow string literal, quotes included: printable ASCII
     /// as it is, a quote and a backslash escaped, every other byte octal (three digits,
     /// so a following digit is never read into it).
     static fn c_string(const s: string) -> string {
@@ -587,7 +587,7 @@ extend Speller {
         return d->range
     }
 
-    /// A name token's spelling, read in \p fid's table (imm_name), or
+    /// A name token's spelling, read in `fid`'s table (imm_name), or
     /// through the expansion when a macro body wrote it: a wrapped token's
     /// imm is its MacroExpansionInfo record, not an identifier, and read as
     /// one it named whatever identifier sat at that index (`fn get(o: i32)`
@@ -764,7 +764,7 @@ extend Speller {
     /// `const` goes in the declarator so it qualifies the variable itself:
     /// `int *const p`, not `const int *p`. `eval` is `const` here too; the
     /// definition adds `constexpr` (`extern constexpr` is ill-formed).
-    /// `T __kairo_ginit_x()`: the thunk that initializes \p v when its
+    /// `T __kairo_ginit_x()`: the thunk that initializes `v` when its
     /// initializer reaches a private member (EmitIR::_global_var); its
     /// definition and the friend line (InterfaceEmitter::_friends) share it.
     fn ginit_decl(self, v: unsafe *Declarations::VariableDecl) -> string {
@@ -829,7 +829,7 @@ extend Speller {
             || isa<CharacterLiteralExpr>(e)
     }
 
-    /// Which interface PCH \p tu may share (Compiler/Spec/Codegen.md#the-interface-pch):
+    /// Which interface PCH `tu` may share (Compiler/Spec/Codegen.md#the-interface-pch):
     /// TUs of one flavour spell every declaration with the same text, so
     /// one stream serves them all. This is the ONE place a declaration's
     /// spelling depends on the TU writing it rather than on the decl and the

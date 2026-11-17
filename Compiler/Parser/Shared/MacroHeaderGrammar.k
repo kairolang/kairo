@@ -222,8 +222,8 @@ pub class <T: type> MacroHeaderGrammar {
         return hdr
     }
 
-    /// \brief copies a balanced default-value token run into p->default_toks.
-    ///        stops at `,` or the param list's `)` at depth 0 (unconsumed).
+    /// copies a balanced default-value token run into p->default_toks.
+    /// stops at `,` or the param list's `)` at depth 0 (unconsumed).
     priv fn _collect_default(self, p: *MacroHeaderParam) -> bool {
         var depth:   i32   = 0
         var count:   usize = 0

@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------- Codegen/Emit/EmitWitness.k --- ///
 ///
-///   \brief Interface witnesses: the class template a generic body's call
-///          through an interface bound goes through, its concept, and the
-///          specializations for the conformances the template cannot reach.
+/// Interface witnesses: the class template a generic body's call
+/// through an interface bound goes through, its concept, and the
+/// specializations for the conformances the template cannot reach.
 ///
 ///   \detail
 ///     Compiler/Spec/Witnesses.md is the contract. For `interface Scalable { fn
@@ -170,7 +170,7 @@ pub class EmitWitness {
 
     /// # the members
 
-    /// \p idecl's requirements as witness members, PARALLEL to its composed
+    /// `idecl`'s requirements as witness members, PARALLEL to its composed
     /// requirement list (and so to a row's witnesses): null for an
     /// associated type, which has no member yet. An interface never composed
     /// (poisoned upstream) gives its own methods.
@@ -187,9 +187,9 @@ pub class EmitWitness {
     ///
     /// One inherited through a DEPENDENT instance (`interface <T> F derives
     /// Container<T>`) is two substitutions deep: Container's E is F's T, and
-    /// F's T is the row's argument. Without \p row (the primary, the
+    /// F's T is the row's argument. Without `row` (the primary, the
     /// concept) only the first applies, and it is enough: the text is
-    /// written inside F's template, where F's T is in scope. With \p row (a
+    /// written inside F's template, where F's T is in scope. With `row` (a
     /// specialization) the source as Sema substituted it at the row's
     /// arguments (ConformanceRow::sources, `Container<i32>`) is a concrete
     /// instance, and its entry is both at once -- or, for a generic row, an
@@ -252,7 +252,7 @@ pub class EmitWitness {
 
     /// # the decision (§7b.4)
 
-    /// False when the primary serves \p row: every requirement is met by a
+    /// False when the primary serves `row`: every requirement is met by a
     /// member function of a Kairo record conformer whose C++ signature is
     /// the witness member's forwarded-to signature exactly. Decided from
     /// spellings, never by lookup; an imported member is always
@@ -339,7 +339,7 @@ pub class EmitWitness {
         return false
     }
 
-    /// \p idecl (composed) requires an associated type, generic or not.
+    /// `idecl` (composed) requires an associated type, generic or not.
     fn has_assoc(self, idecl: unsafe *InterfaceDecl) -> bool {
         if idecl == &null || idecl->compose_state != (ComposeState::Done as u8) {
             return false
@@ -354,7 +354,7 @@ pub class EmitWitness {
         return false
     }
 
-    /// \p m's signature names an associated type: the primary has no
+    /// `m`'s signature names an associated type: the primary has no
     /// member type to spell it with.
     priv fn _names_assoc(self, m: unsafe *FunctionDecl) -> bool {
         if Speller::mentions_assoc(m->return_type) {
@@ -371,7 +371,7 @@ pub class EmitWitness {
         return false
     }
 
-    /// Some requirement of \p idecl is a witness member: neither an
+    /// Some requirement of `idecl` is a witness member: neither an
     /// associated type nor a constructor.
     priv fn _has_members(self, idecl: unsafe *InterfaceDecl) -> bool {
         var ms = self.members(idecl)
@@ -385,7 +385,7 @@ pub class EmitWitness {
     }
 
     /// `R (P1, P2) const` of a member, as the member pointer cast spells it,
-    /// with \p m's bare Self spelled \p self_s (empty: \p m has none).
+    /// with `m`'s bare Self spelled `self_s` (empty: `m` has none).
     priv fn _member_sig(self,
                         m:            unsafe *FunctionDecl,
                         subst:        unsafe *InstanceEntry,
@@ -397,7 +397,7 @@ pub class EmitWitness {
         )
     }
 
-    /// \p m's return type as _member_sig spells it, Self read as \p self_s.
+    /// `m`'s return type as _member_sig spells it, Self read as `self_s`.
     priv fn _member_ret(self,
                         m:            unsafe *FunctionDecl,
                         subst:        unsafe *InstanceEntry,
@@ -906,7 +906,7 @@ pub class EmitWitness {
         self._cg->sink->brk()
     }
 
-    /// `template <class K> ` for generic associated type \p ta in \p row:
+    /// `template <class K> ` for generic associated type `ta` in `row`:
     /// the member alias template's parameters are those of the decl that
     /// supplies it (the conformer's `type <K> Map = ...`, or the requirement
     /// for a default), since the row's type is spelled over them. "" for a
@@ -950,7 +950,7 @@ pub class EmitWitness {
 
     /// The call a specialization member makes: the extension member,
     /// qualified, receiver first (none for a static); or the conformer's own
-    /// member, through \p x for a static.
+    /// member, through `x` for a static.
     priv fn _target(self,
                     w:        unsafe *FunctionDecl,
                     m:        unsafe *FunctionDecl,
@@ -1056,7 +1056,7 @@ pub class EmitWitness {
         )
     }
 
-    /// Requirement \p m is declared by lang item \p k's interface: the Hash
+    /// Requirement `m` is declared by lang item `k`'s interface: the Hash
     /// lang item's `hash` and the Copyable lang item's `copy` are the named
     /// requirements whose native form _target spells.
     priv fn _is_lang_slot(self, m: unsafe *FunctionDecl, k: WellKnownType) -> bool {
@@ -1074,8 +1074,8 @@ pub class EmitWitness {
         return hd != &null && owner != &null && Speller::rep(owner) == Speller::rep(hd)
     }
 
-    /// The constraint under which builtin operator requirement \p m is
-    /// met by \p self_s's own operator, or "" (not an operator a builtin
+    /// The constraint under which builtin operator requirement `m` is
+    /// met by `self_s`'s own operator, or "" (not an operator a builtin
     /// can have). The operand is the requirement's single parameter.
     priv fn _native_gate(self, m: unsafe *FunctionDecl, const self_s: string) -> string {
         if !m->is_operator || !m->is_method() || m->op_token.size() != 1 {
@@ -1114,7 +1114,7 @@ pub class EmitWitness {
         return "(" + g + ")"
     }
 
-    /// \p t is requirement \p m's `Self`: its interface's own record
+    /// `t` is requirement `m`'s `Self`: its interface's own record
     /// (TypeResolve::_self_record), as Speller spells it.
     priv fn _self_typed(self, m: unsafe *FunctionDecl, t: unsafe *Type) -> bool {
         if t == &null || m->semantic_dc == &null {
@@ -1137,7 +1137,7 @@ pub class EmitWitness {
     }
 
     /// `decl { return <the builtin operator>; }` for operator requirement
-    /// \p m, its receiver and operand as the member declares them.
+    /// `m`, its receiver and operand as the member declares them.
     priv fn _native_member(self, m: unsafe *FunctionDecl, const decl: string, const ret: string) {
         var at = Speller::at(unsafe (m as unsafe *Decl))
         self._cg->sink->spell(at, decl + " { return ")
@@ -1154,8 +1154,8 @@ pub class EmitWitness {
         self._cg->sink->spell(at, "; }")
     }
 
-    /// The call of member \p name (already carrying any `template` keyword
-    /// and arguments) through receiver \p recv, or through \p self_s for a
+    /// The call of member `name` (already carrying any `template` keyword
+    /// and arguments) through receiver `recv`, or through `self_s` for a
     /// static: `self->m(...)`, `self.operator==(...)`, `S::make(...)`.
     priv fn _member_call(self,
                          m:            unsafe *FunctionDecl,
@@ -1195,8 +1195,8 @@ pub class EmitWitness {
 
     /// # pieces
 
-    /// `static R name(RECV self, P p, ...)` for requirement \p m with Self
-    /// spelled \p self_s.
+    /// `static R name(RECV self, P p, ...)` for requirement `m` with Self
+    /// spelled `self_s`.
     priv fn _member_decl(self,
                          m:            unsafe *FunctionDecl,
                          subst:        unsafe *InstanceEntry,
@@ -1253,7 +1253,7 @@ pub class EmitWitness {
 
     /// Every argument after the receiver, as its own declared type.
     /// The Hasher parameter of the Hash lang item's `hash` requirement
-    /// \p m, when the library's takes one (the two-word library), or null.
+    /// `m`, when the library's takes one (the two-word library), or null.
     priv fn _hasher_param(self, m: unsafe *FunctionDecl) -> unsafe *ParamDecl {
         for var i: usize = 0; i < m->params.size(); ++i {
             var unsafe *p = m->params[i]
@@ -1265,7 +1265,7 @@ pub class EmitWitness {
         return &null
     }
 
-    /// The `hash` requirement of the Hash interface \p iface, or null.
+    /// The `hash` requirement of the Hash interface `iface`, or null.
     priv fn _hash_requirement(self, iface: unsafe *Decl) -> unsafe *FunctionDecl {
         var unsafe *id = dyn_cast<InterfaceDecl>(iface)
         if id == &null {
@@ -1313,8 +1313,8 @@ pub class EmitWitness {
         return s + self_s + (if (m->is_operator) => ("&") else => "*")
     }
 
-    /// `auto (S::*)(P...) const -> R` for \p m with Self spelled \p me, S
-    /// being \p owner; `auto (*)(P...) -> R` when \p owner is empty (a
+    /// `auto (S::*)(P...) const -> R` for `m` with Self spelled `me`, S
+    /// being `owner`; `auto (*)(P...) -> R` when `owner` is empty (a
     /// static member).
     priv fn _pointer_to_member(self,
                                m:           unsafe *FunctionDecl,
@@ -1367,7 +1367,7 @@ pub class EmitWitness {
         )
     }
 
-    /// Spell the bare Self of \p m's interface as \p self_s until restored.
+    /// Spell the bare Self of `m`'s interface as `self_s` until restored.
     priv fn _self_as(self, m: unsafe *FunctionDecl, const self_s: string) {
         var unsafe *dc    = m->semantic_dc
         var unsafe *owner = if (dc != &null) => (dc->owner_decl()) else => &null
@@ -1479,7 +1479,7 @@ pub class EmitWitness {
     }
 
     /// The substitution a requirement inherited through dependent instance
-    /// \p src of interface \p sd is spelled through: sd's parameters bound
+    /// `src` of interface `sd` is spelled through: sd's parameters bound
     /// to src's arguments, which are written in the composing interface's
     /// parameters. Speller spells a substituted argument with no further
     /// substitution, so `T` comes out as the composing interface's own name.

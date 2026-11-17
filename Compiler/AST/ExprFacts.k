@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------------------ AST/ExprFacts.k --- ///
 ///
-///   \brief Reading an expression's shape: the expression inside its
-///          parentheses, and the declaration a call names.
+/// Reading an expression's shape: the expression inside its
+/// parentheses, and the declaration a call names.
 ///
 ///   \detail
 ///     A call's callee is a name (`f(x)`) or a chain whose last step is the
@@ -49,7 +49,7 @@ import Support::FlagSet::{
 }
 import Token::TokenKind::TokenKind
 
-/// \p e without the parentheses around it, however many; null for null.
+/// `e` without the parentheses around it, however many; null for null.
 pub fn strip_parens(e: unsafe *Expr) -> unsafe *Expr {
     var unsafe *x = e
     while x != &null && isa<ParenExpr>(x) {
@@ -61,7 +61,7 @@ pub fn strip_parens(e: unsafe *Expr) -> unsafe *Expr {
 
 /// The slots callee_decl reads besides the callee's own resolved_decl.
 /// With none set the answer is what the callee expression is bound to.
-/// The subscript on the left of the plain `=` \p asn that Sema resolved to
+/// The subscript on the left of the plain `=` `asn` that Sema resolved to
 /// the setter form of `op []=` (OperatorFacts::is_subscript_setter), or
 /// null. The assignment is then one call of that setter, with the
 /// subscript's index and the assignment's right side as its arguments.
@@ -109,10 +109,10 @@ extend CalleeOpt impl FlagBit<u8> {
     }
 }
 
-/// The declaration the callee expression \p callee names: through
+/// The declaration the callee expression `callee` names: through
 /// parentheses, a name's resolved_decl or a chain's last step's. Null for
 /// null, for an unbound name, and for a callee that is neither (a call
-/// through a value). Of \p opts only CandidateCell and StepName apply.
+/// through a value). Of `opts` only CandidateCell and StepName apply.
 pub fn callee_expr_decl(callee: unsafe *Expr,
                         opts:   FlagSet<CalleeOpt, u8> = FlagSet<CalleeOpt, u8>()) -> unsafe *Decl {
     var unsafe *c = strip_parens(callee)
@@ -149,7 +149,7 @@ pub fn callee_expr_decl(callee: unsafe *Expr,
     return &null
 }
 
-/// The declaration \p call calls: the slots \p opts selects, in CalleeOpt's
+/// The declaration `call` calls: the slots `opts` selects, in CalleeOpt's
 /// order, then callee_expr_decl of its callee. Null for a null call. The
 /// result is a function, or whatever else the callee is bound to (a
 /// record, for a construction read without CtorDecl); a caller that wants

@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------------ AST/PrimitiveLimits.k --- ///
 ///
-///   \brief The associated constants of the primitives -- `i32::MAX`,
-///          `f64::EPSILON`, `f32::INFINITY`, `u8::BITS` -- computed from the
-///          builtin table, never from a host `<limits.h>` / `<float.h>`.
+/// The associated constants of the primitives -- `i32::MAX`,
+/// `f64::EPSILON`, `f32::INFINITY`, `u8::BITS` -- computed from the
+/// builtin table, never from a host `<limits.h>` / `<float.h>`.
 ///
 ///   \detail
 ///     Every value is derived from facts CanonicalNodes.k already holds: an
@@ -46,8 +46,7 @@ import AST::Node::CanonicalNodes::{
     builtin_info,
 }
 
-/// \enum PrimLimit
-/// \brief One associated constant. `None` is "not a limit name".
+/// One associated constant. `None` is "not a limit name".
 pub enum PrimLimit derives u8 {
     None = 0,
     Min,          ///< integers: the smallest value; floats: the most negative finite (-MAX)
@@ -69,10 +68,9 @@ pub enum PrimLimit derives u8 {
     Radix,          ///< always 2
 }
 
-/// \struct PrimLimitInt
-/// \brief An integer limit as sign and 128-bit magnitude: the shape a
-///        literal (plus a leading `-`) carries, so `i64::MIN` needs no
-///        value that overflows on the way.
+/// An integer limit as sign and 128-bit magnitude: the shape a
+/// literal (plus a leading `-`) carries, so `i64::MIN` needs no
+/// value that overflows on the way.
 pub struct PrimLimitInt {
     pub var neg: bool
     pub var lo:  u64
@@ -161,7 +159,7 @@ pub class PrimitiveLimits {
         return PrimLimit::None
     }
 
-    /// The source spelling of \p k, for diagnostics.
+    /// The source spelling of `k`, for diagnostics.
     pub static fn name_of(k: PrimLimit) -> string {
         match k {
             case PrimLimit::Min {
@@ -217,7 +215,7 @@ pub class PrimitiveLimits {
             && k != PrimLimit::Bits
     }
 
-    /// Whether \p b has \p k. A limit a format does not have is not
+    /// Whether `b` has `k`. A limit a format does not have is not
     /// defined, never a substitute value (no infinity for f8e4m3).
     pub static fn exists(b: BuiltinKind, k: PrimLimit) -> bool {
         if k == PrimLimit::None {
@@ -244,7 +242,7 @@ pub class PrimitiveLimits {
         return true
     }
 
-    /// The type of \p b's \p k: \p b itself for a value, `u32` for a count,
+    /// The type of `b`'s `k`: `b` itself for a value, `u32` for a count,
     /// `i32` for an exponent.
     pub static fn result_kind(b: BuiltinKind, k: PrimLimit) -> BuiltinKind {
         match k {
@@ -272,7 +270,7 @@ pub class PrimitiveLimits {
         }
     }
 
-    /// The answer is a value of the float \p b itself (spelled by float_cxx),
+    /// The answer is a value of the float `b` itself (spelled by float_cxx),
     /// not an integer.
     pub static fn is_float_valued(b: BuiltinKind, k: PrimLimit) -> bool {
         return PrimitiveLimits::is_layout_float(b) && PrimitiveLimits::result_kind(b, k) == b
@@ -342,8 +340,8 @@ pub class PrimitiveLimits {
 
     /// An integer-valued limit: any limit of an integer or `char`, BITS of
     /// anything, and the descriptive counts and exponents of a float.
-    /// \p width is \p b's value width (the target's for usize / isize);
-    /// \p storage_bits a float's storage width, for its BITS. Integers wider
+    /// `width` is `b`'s value width (the target's for usize / isize);
+    /// `storage_bits` a float's storage width, for its BITS. Integers wider
     /// than 128 bits are the caller's to refuse.
     pub static fn int_value(b:            BuiltinKind,
                             k:            PrimLimit,
@@ -470,7 +468,7 @@ pub class PrimitiveLimits {
         return s
     }
 
-    /// The literal suffix that makes C++ read a literal at \p b; "" for
+    /// The literal suffix that makes C++ read a literal at `b`; "" for
     /// double, and for the library formats (f8*), which take a double.
     static fn _suffix(b: BuiltinKind) -> string {
         match b {
@@ -490,7 +488,7 @@ pub class PrimitiveLimits {
         }
     }
 
-    /// The type tag of clang's `__builtin_inf*` / `__builtin_nan*` for \p b:
+    /// The type tag of clang's `__builtin_inf*` / `__builtin_nan*` for `b`:
     /// bf16 has none and takes float's (then converts); the library formats
     /// (f8*) take double's.
     static fn _builtin_tag(b: BuiltinKind) -> string {
@@ -511,7 +509,7 @@ pub class PrimitiveLimits {
         }
     }
 
-    /// f256 / f512's float-valued limit \p k: the class's static of that
+    /// f256 / f512's float-valued limit `k`: the class's static of that
     /// name, MIN negating MAX (-MAX, as for every float).
     static fn _class_limit(b: BuiltinKind, k: PrimLimit) -> string {
         var cls = builtin_info(b)->cxx.copy()
@@ -539,7 +537,7 @@ pub class PrimitiveLimits {
     }
 
     /// The C++ expression for a float-valued limit (is_float_valued). Every
-    /// finite one is an exact hex-float literal at \p b's own precision;
+    /// finite one is an exact hex-float literal at `b`'s own precision;
     /// bf16, which has no literal suffix, rounds nothing through float.
     pub static fn float_cxx(b: BuiltinKind, k: PrimLimit) -> string {
         if b == BuiltinKind::F256 || b == BuiltinKind::F512 {

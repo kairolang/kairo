@@ -68,7 +68,7 @@ import Workspace::CompileCommandsLoader::{
 import std::io
 
 extend Server {
-    /// Writes symbol \p c with the symbols its range contains as children.
+    /// Writes symbol `c` with the symbols its range contains as children.
     /// Returns the next symbol that is NOT inside it. The snapshot lists
     /// symbols flat in source order, a parent before its members.
     fn symbol(self, s: *const JsonDoc, c: u32, w: *JsonWriter) -> u32 {
@@ -106,7 +106,7 @@ extend Server {
         return n
     }
 
-    /// Writes the Range of bytes [\p a, \p b) of buffer \p i.
+    /// Writes the Range of bytes [`a`, `b`) of buffer `i`.
     fn write_buf_range(self, w: *JsonWriter, i: usize, a: usize, b: usize) {
         var *lm = &self.docs.docs[i].lines
         var *tx = &self.docs.docs[i].text
@@ -263,7 +263,7 @@ extend Server {
         self.respond(id, w.out)
     }
 
-    /// Declarations whose name contains \p query, across every snapshot.
+    /// Declarations whose name contains `query`, across every snapshot.
     fn workspace_symbols(self, const query: string, const id: string) {
         var needle          = lower(query)
         var seen:  [string]

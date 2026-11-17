@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------------------ AST/EnumNiche.k --- ///
 ///
-///   \brief The niche facts both halves of the compiler must agree on: how
-///          many tag values a word holds, and which plain enums carry a
-///          C++ niche trait and how many invalid values it reports.
+/// The niche facts both halves of the compiler must agree on: how
+/// many tag values a word holds, and which plain enums carry a
+/// C++ niche trait and how many invalid values it reports.
 ///
 ///   \detail
 ///     A niche-filled ADT (EnumLayoutLowering) stores its dataless variants
@@ -62,7 +62,7 @@ pub fn niche_count_cap() -> u64 {
     return (1 as u64) << (32 as u64)
 }
 
-/// How many non-negative values a word of builtin kind \p b holds, capped
+/// How many non-negative values a word of builtin kind `b` holds, capped
 /// (niche_count_cap). A target-width integer (bits 0 in the table) is at
 /// least 32 bits.
 pub fn niche_word_values(b: BuiltinKind) -> u64 {
@@ -79,7 +79,7 @@ pub fn niche_word_values(b: BuiltinKind) -> u64 {
     return (1 as u64) << (bits as u64)
 }
 
-/// The builtin kind \p t canonicalizes to, when it is an integer.
+/// The builtin kind `t` canonicalizes to, when it is an integer.
 pub fn niche_int_kind(t: unsafe *Type, out: *BuiltinKind) -> bool {
     if t == &null || t->canonical == &null {
         return false
@@ -112,7 +112,7 @@ pub fn enum_niche_kind(en: unsafe *EnumDecl) -> BuiltinKind {
     return b
 }
 
-/// Plain enum \p en carries `__kairo_niche<E>` (file header).
+/// Plain enum `en` carries `__kairo_niche<E>` (file header).
 pub fn enum_has_niche_trait(en: unsafe *EnumDecl) -> bool {
     if en == &null || en->is_adt || en->is_open || en->is_poisoned() {
         return false
@@ -140,7 +140,7 @@ pub fn enum_has_niche_trait(en: unsafe *EnumDecl) -> bool {
     return niche_word_values(enum_niche_kind(en)) > (en->variants.size() as u64)
 }
 
-/// The trait's count for plain enum \p en: every value of its word past
+/// The trait's count for plain enum `en`: every value of its word past
 /// its N variants. 0 without the trait.
 pub fn enum_niche_count(en: unsafe *EnumDecl) -> u64 {
     if !enum_has_niche_trait(en) {
@@ -150,7 +150,7 @@ pub fn enum_niche_count(en: unsafe *EnumDecl) -> u64 {
     return niche_word_values(enum_niche_kind(en)) - (en->variants.size() as u64)
 }
 
-/// The tag word ADT \p en is laid out with, from its declaration alone:
+/// The tag word ADT `en` is laid out with, from its declaration alone:
 /// the `derives` type when the enum declares one (TypeResolve checked it
 /// holds every tag), else `u8` up to 256 variants and `u16` past that. Tags
 /// stay dense `0..N-1` in declaration order whatever the width:
@@ -176,7 +176,7 @@ pub fn adt_declared_tag_kind(en: unsafe *EnumDecl) -> BuiltinKind {
     return BuiltinKind::U16
 }
 
-/// ADT \p en's tag word, read off its layout's tag field.
+/// ADT `en`'s tag word, read off its layout's tag field.
 pub fn adt_tag_kind(en: unsafe *EnumDecl) -> BuiltinKind {
     var b = BuiltinKind::U8
     if en == &null || en->adt_tag_field == &null {
@@ -251,7 +251,7 @@ pub fn adt_niche_payload_variant(en: unsafe *EnumDecl) -> u32 {
     return 0
 }
 
-/// Variant \p index's pattern: how many dataless variants precede it.
+/// Variant `index`'s pattern: how many dataless variants precede it.
 pub fn adt_niche_pattern_of(en: unsafe *EnumDecl, index: u32) -> u64 {
     var k: u64 = 0
     for var i: usize = 0; i < en->variants.size() && i < (index as usize); ++i {
@@ -264,7 +264,7 @@ pub fn adt_niche_pattern_of(en: unsafe *EnumDecl, index: u32) -> u64 {
     return k
 }
 
-/// How many dataless variants \p en has: the patterns it uses.
+/// How many dataless variants `en` has: the patterns it uses.
 pub fn adt_niche_dataless(en: unsafe *EnumDecl) -> u64 {
     var k: u64 = 0
     for var i: usize = 0; i < en->variants.size(); ++i {

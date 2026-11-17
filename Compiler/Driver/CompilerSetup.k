@@ -271,7 +271,8 @@ extend CompilerInstance {
     /// a loadable SYSROOT.toml is P007E: compiling against half a sysroot
     /// fails much later, far from the cause.
     ///
-    /// \return false if a match was malformed (already reported).
+    /// ### Returns
+    /// false if a match was malformed (already reported).
     priv fn _use_bundled_sysroot(self) -> bool {
         var *tg = &self.invocation()->target
         // --native: the host is the sysroot. The bundle for the host's C
@@ -354,7 +355,8 @@ extend CompilerInstance {
     /// --sysroot. --no-sysroot-build makes the missing root a refusal
     /// either way.
     ///
-    /// \return false on a refusal or failure (reported; _sysroot_status set).
+    /// ### Returns
+    /// false on a refusal or failure (reported; _sysroot_status set).
     priv fn _sysroot_from_generator(self, const want: string) -> bool {
         var *inv = self.invocation()
         var *tg  = &inv->target
@@ -576,7 +578,7 @@ extend CompilerInstance {
         return dir
     }
 
-    /// Whether the bundled sysroot directory \p name is for \p triple.
+    /// Whether the bundled sysroot directory `name` is for `triple`.
     priv static fn _same_bundled_target(const name: string, const triple: string) -> bool {
         if !Toolchain::same_target(name, triple) {
             return false
@@ -626,10 +628,10 @@ extend CompilerInstance {
         return t
     }
 
-    /// \brief the shared clang backend's configuration, from the
-    ///        invocation: target, header roots, optimization and debug
-    ///        info, the user's -W policy. initialize builds the backend from
-    ///        it; --print-clang-args prints what it makes.
+    /// the shared clang backend's configuration, from the
+    /// invocation: target, header roots, optimization and debug
+    /// info, the user's -W policy. initialize builds the backend from
+    /// it; --print-clang-args prints what it makes.
     prot fn _backend_config(self) -> ClangBackendConfig {
         var bcfg = ClangBackendConfig{}
         bcfg.triple = self._effective_triple()
@@ -812,7 +814,7 @@ extend CompilerInstance {
         return bcfg
     }
 
-    /// Installs \p action for a user-spelled diagnostic code. A code the
+    /// Installs `action` for a user-spelled diagnostic code. A code the
     /// engine cannot key (no category prefix, no digits) is reported rather
     /// than dropped, so a typo does not look like it worked.
     priv fn _set_code_policy(self, const code: string, action: DiagAction) {
@@ -904,7 +906,7 @@ extend CompilerInstance {
         return Path::parent_of(Path::parent_of(env::exe_path()))
     }
 
-    /// The highest-versioned directory under \p base holding the clang
+    /// The highest-versioned directory under `base` holding the clang
     /// builtin headers (<ver>/include/stddef.h); "" for none. Highest, the
     /// rule lit.cfg.py and Scripts/stage_tree.py use, so a stale old version
     /// left beside the current one is never picked. Versions compare as
@@ -1068,9 +1070,9 @@ extend CompilerInstance {
         }
     }
 
-    /// The directory beside \p lib_dir (same parent) whose module.k pins
-    /// library \p name, or "". Several qualify: the first by name. Directories
-    /// are compared by real path, so a copy that is \p lib_dir itself is not
+    /// The directory beside `lib_dir` (same parent) whose module.k pins
+    /// library `name`, or "". Several qualify: the first by name. Directories
+    /// are compared by real path, so a copy that is `lib_dir` itself is not
     /// a sibling.
     priv fn _sibling_library_dir(self, const lib_dir: string, const name: string) -> string {
         var want   = split_module_name(name)
@@ -1103,7 +1105,7 @@ extend CompilerInstance {
         return best
     }
 
-    /// The directory of library \p name that a Kairo input lies in, or "".
+    /// The directory of library `name` that a Kairo input lies in, or "".
     ///
     /// An input's library is the nearest directory at or above it whose
     /// module.k pins a name, the same walk the import resolver makes for
@@ -1165,7 +1167,8 @@ extend CompilerInstance {
     /// from lib/builtin it would otherwise run into names none of the
     /// cause. A host of that family is exempt, it has the installed SDK.
     ///
-    /// \return false after reporting that error.
+    /// ### Returns
+    /// false after reporting that error.
     priv fn _check_sysroot(self) -> bool {
         var *inv = self.invocation()
         if inv->lang.freestanding || inv->linker.freestanding {
@@ -1266,24 +1269,25 @@ extend CompilerInstance {
         return true
     }
 
-    /// \brief decides how much of the host system this build sees
-    ///        (TargetOptions::host_mode), finds those dirs, and applies
-    ///        --pkg-config. Once, here; the backend config and the link only
-    ///        read the result.
+    /// decides how much of the host system this build sees
+    /// (TargetOptions::host_mode), finds those dirs, and applies
+    /// --pkg-config. Once, here; the backend config and the link only
+    /// read the result.
     ///
-    /// \details "floor" is the default on a Linux host compiling for its own
-    ///          arch with no --target, --sysroot or --freestanding: the
-    ///          bundled sysroot is the C library, and the host's system dirs
-    ///          come after it. --native is "native". Anything else is
-    ///          hermetic: no host dirs and no host env search paths, so a
-    ///          cross build is the same on every machine.
+    /// "floor" is the default on a Linux host compiling for its own
+    /// arch with no --target, --sysroot or --freestanding: the
+    /// bundled sysroot is the C library, and the host's system dirs
+    /// come after it. --native is "native". Anything else is
+    /// hermetic: no host dirs and no host env search paths, so a
+    /// cross build is the same on every machine.
     ///
     ///          The env search paths are read where clang's driver would add
     ///          them (CPATH and friends in _backend_config, LIBRARY_PATH
     ///          here), and NIX_CFLAGS_COMPILE / NIX_LDFLAGS as Zig reads them:
     ///          on Nix the system dirs are not where the defaults look.
     ///
-    /// \return false after reporting (a failed --pkg-config).
+    /// ### Returns
+    /// false after reporting (a failed --pkg-config).
     priv fn _apply_host_system(self, sysroot_given: bool) -> bool {
         var *inv = self.invocation()
         var *tg  = &inv->target
@@ -1945,7 +1949,7 @@ extend CompilerInstance {
     }
 
     /// Fill TargetOptions' `long double` block and int64_t spelling from
-    /// clang::TargetInfo for \p tt, the same post -m32/-m64 Triple the rest
+    /// clang::TargetInfo for `tt`, the same post -m32/-m64 Triple the rest
     /// of the derived facts came from.
     ///
     /// Asked of clang, not a triple list: both are ABI decisions clang already
@@ -2048,7 +2052,7 @@ extend CompilerInstance {
     }
 }
 
-/// TargetOptions::builtin_align from \p ti: each builtin's row is the alignment
+/// TargetOptions::builtin_align from `ti`: each builtin's row is the alignment
 /// clang gives the C++ type it lowers to. The rows left 0 (F80, which
 /// long_double_align covers, and the builtins lowered to Kairo classes) keep
 /// the width rule.

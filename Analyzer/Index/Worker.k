@@ -98,8 +98,7 @@ fn worker_us() -> i64 {
     return d.count() as i64
 }
 
-/// \class IndexObserver
-/// \brief runs the indexer over each wanted TU as Sema finishes checking it.
+/// runs the indexer over each wanted TU as Sema finishes checking it.
 pub class IndexObserver derives SemaObserver {
     /// Files to index: an absolute path prefix, and paths named outright (the
     /// editor's open buffers). Everything else in the graph, the standard
@@ -157,7 +156,7 @@ pub class IndexObserver derives SemaObserver {
     /// What the walks of one check share (Snapshot.k, ScopeFacts).
     pub var facts: ScopeFacts
 
-    /// A check or a re-check starts: its tables are step \p seq's, and no
+    /// A check or a re-check starts: its tables are step `seq`'s, and no
     /// fact of the one before it is kept (a replaced tree's addresses).
     pub fn begin_step(self, seq: u64) {
         self.seq = seq
@@ -284,7 +283,7 @@ pub class IndexObserver derives SemaObserver {
         }
     }
 
-    /// Under the lock: \p path's table is \p table ("": it has none).
+    /// Under the lock: `path`'s table is `table` ("": it has none).
     priv fn keep_table_(self, const path: string, const table: string) {
         if table.is_empty() {
             return
@@ -357,12 +356,11 @@ pub class IndexObserver derives SemaObserver {
     }
 }
 
-/// \class DiagCollector
-/// \brief every diagnostic of the run, rendered as LSP JSON as it arrives.
+/// every diagnostic of the run, rendered as LSP JSON as it arrives.
 ///
-/// \details ToolDiagConsumer keeps a line and a column; an editor needs the
-///          range, the notes as related locations, and the fix-its as edits,
-///          so this reads the Diagnostic itself.
+/// ToolDiagConsumer keeps a line and a column; an editor needs the
+/// range, the notes as related locations, and the fix-its as edits,
+/// so this reads the Diagnostic itself.
 pub class DiagCollector derives DiagConsumer {
     pub var out:   string = ""
     pub var count: usize  = 0
@@ -413,9 +411,9 @@ pub class DiagCollector derives DiagConsumer {
         return self.files_.size() - 1
     }
 
-    /// Writes an LSP range for \p r and returns its file's index.
+    /// Writes an LSP range for `r` and returns its file's index.
     ///
-    /// \p widen: a zero-width range becomes the character it points at, for
+    /// `widen`: a zero-width range becomes the character it points at, for
     /// a range that is DRAWN. Never for an edit: widened, an insertion
     /// replaced the character after it (`const ther` for `const other`).
     priv fn range_(self, w: *JsonWriter, r: SourceRange, widen: bool) -> usize {
@@ -643,7 +641,7 @@ fn worker_fail(const out_path: string, const why: string) -> i32 {
     return 1
 }
 
-/// `kals --worker <out> --syntax-only <file> ...`: \p file parsed on its own,
+/// `kals --worker <out> --syntax-only <file> ...`: `file` parsed on its own,
 /// with its buffer overlaid. No import is resolved and nothing is checked,
 /// so this costs one file's lex, preprocess and parse; its answer is the
 /// parser's diagnostics, whether the text parses, and the lexical tokens
@@ -686,8 +684,8 @@ fn syntax_main(const out_path: string,
     return 0
 }
 
-/// One syntax pass, as the JSON `syntax_main` writes: \p file parsed with
-/// each of \p real overlaid by the text beside it in \p texts. A fresh
+/// One syntax pass, as the JSON `syntax_main` writes: `file` parsed with
+/// each of `real` overlaid by the text beside it in `texts`. A fresh
 /// CompilerInstance per pass, so a long-lived caller (the syntax server)
 /// carries nothing from one buffer to the next.
 fn syntax_answer(const file:   string,
@@ -855,7 +853,7 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
     return 0
 }
 
-/// \brief the worker's whole run. \p args is argv past `--worker`.
+/// the worker's whole run. `args` is argv past `--worker`.
 pub fn worker_main(@inout args: [string]) -> i32 {
     if args.size() < 1 {
         return 2

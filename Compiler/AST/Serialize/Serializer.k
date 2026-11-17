@@ -363,7 +363,7 @@ priv fn put_section(@inout out: ByteWriter, id: u8, const body: ByteWriter) {
     out.put_writer(body)
 }
 
-/// Writes \p w's bytes to \p path, truncating. False on failure.
+/// Writes `w`'s bytes to `path`, truncating. False on failure.
 pub fn write_ast_file(const path: string, const w: ByteWriter) -> bool {
     var ec: cxx::std::error_code
     var os = llvm::raw_fd_ostream(
@@ -394,7 +394,7 @@ pub class ASTBinWriter {
         return self.ar.error.copy()
     }
 
-    /// Serializes \p tu into `out`. False (with error()) when the tree is
+    /// Serializes `tu` into `out`. False (with error()) when the tree is
     /// not one the format can hold: a Sema slot is set, a canonical type is
     /// reachable, a token's payload cannot be found.
     pub fn write(self,
@@ -484,7 +484,7 @@ pub class ASTBinReader {
         return self.ar.error.copy()
     }
 
-    /// Builds the tree \p data holds in \p ctx, which must have its tokens'
+    /// Builds the tree `data` holds in `ctx`, which must have its tokens'
     /// immediate table and its hoisted (Index) table but no tree: `ctx->tu`
     /// is null on entry and the new TU on success. Null (with error()) for
     /// bytes of another version, of another source text, or damaged.

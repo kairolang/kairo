@@ -11,11 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+/// lightweight encoded handle representing a position in a source file.
 ///
-/// \file SourceLocation.k
-/// \brief lightweight encoded handle representing a position in a source file.
-///
-/// \details
 /// `SourceLocation` is a compact struct that stores a unique 32-bit identifier
 /// representing a specific point in source code. it's designed to be trivially
 /// copyable, hashable, and efficient to compare.
@@ -29,73 +26,69 @@
 /// locations in source files; such as for diagnostics, syntax tree mapping,
 /// and line/column resolution; without storing redundant data.
 ///
-/// \note this class performs no validation on its own; the meaning of `id` is
+/// **Note:** this class performs no validation on its own; the meaning of `id` is
 /// defined by the surrounding systems (e.g., SourceManager or SourceLineTable).
 ///
-/// \see SourceManager, SourceLineTable
-///
+/// See SourceManager, SourceLineTable.
 
 pub class SourceLocation {
     pub var id: u32 = 0 ///< encoded identifier representing file + offset
 
+    /// default constructor, initializes to invalid.
     ///
-    /// \brief default constructor, initializes to invalid.
-    ///
-    /// \note defaulted, not written out. `id` already has its initialiser
-    ///       above, so a user-provided body only stops the type being
-    ///       trivially constructible - which stops from_raw and every
-    ///       aggregate holding one (SourceRange, Token) from folding their
-    ///       zero-init away.
+    /// **Note:** defaulted, not written out. `id` already has its initialiser
+    /// above, so a user-provided body only stops the type being
+    /// trivially constructible - which stops from_raw and every
+    /// aggregate holding one (SourceRange, Token) from folding their
+    /// zero-init away.
     pub fn SourceLocation(self) = default
 
+    /// constructs from a raw 32-bit value.
     ///
-    /// \brief constructs from a raw 32-bit value.
+    /// ### Parameters
+    /// - `raw`: the encoded integer value to use.
     ///
-    /// \param raw the encoded integer value to use.
-    /// \return a new SourceLocation with `id = raw`.
-    ///
+    /// ### Returns
+    /// a new SourceLocation with `id = raw`.
     pub static fn from_raw(raw: u32) -> SourceLocation {
         var loc = SourceLocation()
         loc.id = raw
         return loc
     }
 
+    /// constructs from a file base and offset.
     ///
-    /// \brief constructs from a file base and offset.
+    /// ### Parameters
+    /// - `base`: base id (usually file id).
+    /// - `offset`: byte offset within the file.
     ///
-    /// \param base base id (usually file id).
-    /// \param offset byte offset within the file.
-    /// \return combined SourceLocation.
+    /// ### Returns
+    /// combined SourceLocation.
     ///
-    /// \note base + offset is truncated to 32 bits.
-    ///
+    /// **Note:** base + offset is truncated to 32 bits.
     static fn from_base(base: u32, offset: usize) -> SourceLocation {
         var loc = SourceLocation()
         loc.id = (((base as usize) + offset) as u32)
         return loc
     }
 
-    ///
-    /// \brief returns the raw encoded integer value.
-    ///
+    /// returns the raw encoded integer value.
     pub fn raw(const self) -> u32 {
         return self.id
     }
 
+    /// checks if location is valid.
     ///
-    /// \brief checks if location is valid.
-    ///
-    /// \return true if `id != 0`.
-    ///
+    /// ### Returns
+    /// true if `id != 0`.
     pub fn is_valid(const self) -> bool {
         return self.id != 0 && self.id != 0xFFFFFFFF
     }
 
+    /// checks if location is invalid.
     ///
-    /// \brief checks if location is invalid.
-    ///
-    /// \return true if `id == 0`.
-    ///
+    /// ### Returns
+    /// true if `id == 0`.
     fn is_invalid(const self) -> bool {
         return self.id == 0 || self.id == 0xFFFFFFFF
     }
@@ -104,15 +97,16 @@ pub class SourceLocation {
         return SourceLocation()
     }
 
+    /// returns a new location offset by delta.
     ///
-    /// \brief returns a new location offset by delta.
+    /// ### Parameters
+    /// - `delta`: signed offset to apply.
     ///
-    /// \param delta signed offset to apply.
-    /// \return a new SourceLocation with adjusted `id`.
+    /// ### Returns
+    /// a new SourceLocation with adjusted `id`.
     ///
-    /// \warning aborts if underflow or overflow occurs.
+    /// **Warning:** aborts if underflow or overflow occurs.
     /// FIXME: this is failing for some reason
-    ///
     pub fn with_offset(const self, delta: i64) -> SourceLocation {
         var new_val = (self.id as i64) + delta
 
@@ -130,55 +124,40 @@ pub class SourceLocation {
         return loc
     }
 
-    ///
-    /// \brief equality operator.
-    ///
+    /// equality operator.
     pub fn op == (const self, other: SourceLocation) -> bool {
         return self.id == other.id
     }
 
-    ///
-    /// \brief inequality operator.
-    ///
+    /// inequality operator.
     pub fn op != (const self, other: SourceLocation) -> bool {
         return self.id != other.id
     }
 
-    ///
-    /// \brief less-than comparison.
-    ///
+    /// less-than comparison.
     fn op < (const self, other: SourceLocation) -> bool {
         return self.id < other.id
     }
 
-    ///
-    /// \brief less-than-or-equal comparison.
-    ///
+    /// less-than-or-equal comparison.
     pub fn op <= (const self, other: SourceLocation) -> bool {
         return self.id <= other.id
     }
 
-    ///
-    /// \brief greater-than comparison.
-    ///
+    /// greater-than comparison.
     pub fn op > (const self, other: SourceLocation) -> bool {
         return self.id > other.id
     }
 
-    ///
-    /// \brief greater-than-or-equal comparison.
-    ///
+    /// greater-than-or-equal comparison.
     fn op >= (const self, other: SourceLocation) -> bool {
         return self.id >= other.id
     }
 
 
+    /// returns a simple hash of the location id.
     ///
-    /// \brief returns a simple hash of the location id.
-    ///
-    /// \details
     /// uses a lightweight FNV-1a-like hash mix to distribute bits of `id`.
-    ///
     fn hash(const self) -> u32 {
         var h: u32 = 0x811C9DC5
 
@@ -186,33 +165,34 @@ pub class SourceLocation {
         return h
     }
 
+    /// constructs a location directly from a pointer.
     ///
-    /// \brief constructs a location directly from a pointer.
+    /// ### Parameters
+    /// - `ptr`: pointer to convert into a 32-bit handle.
     ///
-    /// \param ptr pointer to convert into a 32-bit handle.
-    /// \return SourceLocation with encoded pointer value.
+    /// ### Returns
+    /// SourceLocation with encoded pointer value.
     ///
-    /// \note pointer value is truncated to 32 bits.
-    ///
+    /// **Note:** pointer value is truncated to 32 bits.
     static fn from_ptr(ptr: unsafe *void) -> SourceLocation {
         return SourceLocation::from_raw((ptr as usize) as u32)
     }
 
+    /// string conversion operator.
     ///
-    /// \brief string conversion operator.
-    ///
-    /// \return formatted string like `SourceLocation(id: 12345)`.
-    ///
+    /// ### Returns
+    /// formatted string like `SourceLocation(id: 12345)`.
     fn op as (const self) -> string {
         return f"{self.id}"
     }
 
+    /// computes the byte distance between two locations.
     ///
-    /// \brief computes the byte distance between two locations.
+    /// ### Parameters
+    /// - `other`: the location to compute distance to.
     ///
-    /// \param other the location to compute distance to.
-    /// \return absolute difference in raw ids.
-    ///
+    /// ### Returns
+    /// absolute difference in raw ids.
     fn distance_to(const self, other: SourceLocation) -> usize {
         if self.id > other.id {
             return (self.id - other.id) as usize
@@ -221,22 +201,24 @@ pub class SourceLocation {
         return (other.id - self.id) as usize
     }
 
+    /// advances location by n bytes.
     ///
-    /// \brief advances location by n bytes.
+    /// ### Parameters
+    /// - `n`: number of bytes to advance.
     ///
-    /// \param n number of bytes to advance.
-    /// \return new location advanced by n.
-    ///
+    /// ### Returns
+    /// new location advanced by n.
     pub fn advance(const self, n: usize) -> SourceLocation {
         return self.with_offset(n as i64)
     }
 
+    /// retreats location by n bytes.
     ///
-    /// \brief retreats location by n bytes.
+    /// ### Parameters
+    /// - `n`: number of bytes to go back.
     ///
-    /// \param n number of bytes to go back.
-    /// \return new location moved back by n.
-    ///
+    /// ### Returns
+    /// new location moved back by n.
     pub fn retreat(const self, n: usize) -> SourceLocation {
         return self.with_offset(-(n as i64))
     }

@@ -112,7 +112,7 @@ extend IndexWalker {
     // other by file and byte offset of the declared name, which costs no
     // line map of the other file.
 
-    /// Index of \p fid among the files this table's rows name.
+    /// Index of `fid` among the files this table's rows name.
     fn tfile_(self, fid: u32) -> i64 {
         for var i: usize = 0; i < self.t_fids_.size(); ++i {
             if self.t_fids_[i] == fid {
@@ -124,7 +124,7 @@ extend IndexWalker {
         return (self.t_fids_.size() - 1) as i64
     }
 
-    /// \p d's visibility as a VIS_* word, the default applied: as
+    /// `d`'s visibility as a VIS_* word, the default applied: as
     /// AccessCheck reads it (its own reading, `visibility_of`).
     fn vis_of_(self, d: unsafe *Decl) -> i64 {
         var v = d->visibility
@@ -145,7 +145,7 @@ extend IndexWalker {
         return VIS_PUB
     }
 
-    /// Whether the walk has written \p d already: a method is in its
+    /// Whether the walk has written `d` already: a method is in its
     /// class's typed list and in its DeclContext.
     fn t_once_(self, d: unsafe *Decl) -> bool {
         var key = (d as usize) as u64
@@ -157,7 +157,7 @@ extend IndexWalker {
         return true
     }
 
-    /// Where record \p td is declared, as a table key. False for none.
+    /// Where record `td` is declared, as a table key. False for none.
     fn t_key_(self, td: unsafe *Decl, fi: *i64, off: *i64) -> bool {
         if td == &null {
             return false
@@ -582,7 +582,7 @@ extend IndexWalker {
         self.build_table_()
     }
 
-    /// What a scope row says of \p d (Snapshot.k, ScopeFact): the same for
+    /// What a scope row says of `d` (Snapshot.k, ScopeFact): the same for
     /// every file that imports it.
     fn scope_fact_(self, d: unsafe *Decl) -> ScopeFact {
         var f = ScopeFact{}
@@ -737,7 +737,7 @@ extend IndexWalker {
         }
     }
 
-    /// Index of \p fid among the files the scope rows name.
+    /// Index of `fid` among the files the scope rows name.
     fn sfile_(self, fid: u32) -> i64 {
         for var i: usize = 0; i < self.scope_fids_.size(); ++i {
             if self.scope_fids_[i] == fid {

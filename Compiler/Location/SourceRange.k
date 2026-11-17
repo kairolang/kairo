@@ -13,12 +13,9 @@
 
 import Location::SourceLocation::SourceLocation
 
+/// compact representation of a half-open interval between two source
+/// locations.
 ///
-/// \file SourceRange.k
-/// \brief compact representation of a half-open interval between two source
-///        locations.
-///
-/// \details
 /// `SourceRange` models a range of text within a single source file, defined by
 /// a starting and ending `SourceLocation`. the range is **half-open** - meaning
 /// it includes the start position but excludes the end - consistent with how
@@ -31,79 +28,73 @@ import Location::SourceLocation::SourceLocation
 /// `SourceRange` assumes both endpoints are in the same file; it does not
 /// perform cross-file validation on its own.
 ///
-/// \note zero-length or invalid ranges are allowed, but considered non-meaningful
+/// **Note:** zero-length or invalid ranges are allowed, but considered non-meaningful
 /// for operations like merging or containment.
 ///
-/// \see SourceLocation, SourceManager, SourceLineTable
-///
+/// See SourceLocation, SourceManager, SourceLineTable.
 
 pub class SourceRange {
     pub var start: SourceLocation = SourceLocation() ///< inclusive start
     pub var end:   SourceLocation = SourceLocation() ///< exclusive end
 
-    ///
-    /// \brief default constructor, initializes to invalid range.
-    ///
+    /// default constructor, initializes to invalid range.
     pub fn SourceRange(self) = default
 
+    /// constructs a range directly from its two bounds.
     ///
-    /// \brief constructs a range directly from its two bounds.
-    ///
-    /// \details Every factory builds the endpoints directly: default-constructing
-    ///          (zeroing both) and then overwriting them showed up as
-    ///          SourceRange::SourceRange() at 13.7% of main-thread self time
-    ///          on the 1 GiB lex benchmark, because the lexer builds a range
-    ///          for every single token and the constructor was not inlining.
+    /// Every factory builds the endpoints directly: default-constructing
+    /// (zeroing both) and then overwriting them showed up as
+    /// SourceRange::SourceRange() at 13.7% of main-thread self time
+    /// on the 1 GiB lex benchmark, because the lexer builds a range
+    /// for every single token and the constructor was not inlining.
     pub fn SourceRange(self, start: SourceLocation, stop: SourceLocation) {
         self.start = start
         self.end   = stop
     }
 
+    /// constructs a range from two explicit bounds.
     ///
-    /// \brief constructs a range from two explicit bounds.
+    /// ### Parameters
+    /// - `start`: start location.
+    /// - `stop`: end location.
     ///
-    /// \param start start location.
-    /// \param stop  end location.
-    /// \return range covering [start, stop).
-    ///
+    /// ### Returns
+    /// range covering [start, stop).
     pub static fn from_bounds(start: SourceLocation, stop: SourceLocation) -> SourceRange {
         return SourceRange(start, stop)
     }
 
+    /// constructs a range from start location and length.
     ///
-    /// \brief constructs a range from start location and length.
+    /// ### Parameters
+    /// - `start`: start location.
+    /// - `len`: number of bytes to cover.
     ///
-    /// \param start start location.
-    /// \param len   number of bytes to cover.
-    /// \return range covering [start, start+len).
-    ///
+    /// ### Returns
+    /// range covering [start, start+len).
     pub static fn from_bounds(start: SourceLocation, len: u32) -> SourceRange {
         return SourceRange(start, start.with_offset(len))
     }
 
+    /// constructs a single-character range.
     ///
-    /// \brief constructs a single-character range.
+    /// ### Parameters
+    /// - `loc`: source location to cover.
     ///
-    /// \param loc source location to cover.
-    /// \return range covering [loc, loc+1).
-    ///
+    /// ### Returns
+    /// range covering [loc, loc+1).
     pub static fn single(loc: SourceLocation) -> SourceRange {
         return SourceRange(loc, loc.with_offset(1))
     }
 
+    /// checks if range is valid.
     ///
-    /// \brief checks if range is valid.
-    ///
-    /// \details
     /// a range is valid if both endpoints are valid and `start <= end`.
-    ///
     pub fn is_valid(const self) -> bool {
         return self.start.is_valid() && self.end.is_valid() && self.start <= self.end
     }
 
-    ///
-    /// \brief checks if range is invalid.
-    ///
+    /// checks if range is invalid.
     pub fn is_invalid(const self) -> bool {
         return !self.is_valid()
     }
@@ -115,11 +106,10 @@ pub class SourceRange {
         )
     }
 
+    /// returns the size (in bytes) of the range.
     ///
-    /// \brief returns the size (in bytes) of the range.
-    ///
-    /// \return difference between `end` and `start` ids, or 0 if reversed.
-    ///
+    /// ### Returns
+    /// difference between `end` and `start` ids, or 0 if reversed.
     pub fn size(const self) -> u32 {
         if self.end < self.start {
             return 0
@@ -128,38 +118,41 @@ pub class SourceRange {
         return self.end.raw() - self.start.raw()
     }
 
+    /// checks if a location falls within the range.
     ///
-    /// \brief checks if a location falls within the range.
+    /// ### Parameters
+    /// - `loc`: location to test.
     ///
-    /// \param loc location to test.
-    /// \return true if `start <= loc < end`.
-    ///
+    /// ### Returns
+    /// true if `start <= loc < end`.
     pub fn contains(const self, loc: SourceLocation) -> bool {
         return loc >= self.start && loc < self.end
     }
 
+    /// checks if this range overlaps another.
     ///
-    /// \brief checks if this range overlaps another.
+    /// ### Parameters
+    /// - `other`: other range to test.
     ///
-    /// \param other other range to test.
-    /// \return true if intervals intersect.
-    ///
+    /// ### Returns
+    /// true if intervals intersect.
     fn overlaps(const self, other: SourceRange) -> bool {
         return self.start < other.end && other.start < self.end
     }
 
+    /// merges two ranges into their minimal bounding span.
     ///
-    /// \brief merges two ranges into their minimal bounding span.
+    /// ### Parameters
+    /// - `other`: other range to merge with.
     ///
-    /// \param other other range to merge with.
-    /// \return merged range covering both.
+    /// ### Returns
+    /// merged range covering both.
     ///
-    /// \note if one range is invalid, the other is returned unchanged.
+    /// **Note:** if one range is invalid, the other is returned unchanged.
     ///
     /// \example merging two ranges:
     /// lets say two ranges: A = [9, 15) and B = [12, 20)
     /// A.merge(B) would return [9, 20) because it covers all of A and B.
-    ///
     fn merge(const self, other: SourceRange) -> SourceRange {
         if self.is_invalid() {
             return other
@@ -175,36 +168,28 @@ pub class SourceRange {
         )
     }
 
-    ///
-    /// \brief equality operator.
-    ///
+    /// equality operator.
     pub fn op == (const self, other: SourceRange) -> bool {
         return self.start == other.start && self.end == other.end
     }
 
-    ///
-    /// \brief inequality operator.
-    ///
+    /// inequality operator.
     fn op != (const self, other: SourceRange) -> bool {
         return !(self == other)
     }
 
+    /// string conversion operator.
     ///
-    /// \brief string conversion operator.
-    ///
-    /// \return formatted string like `SourceRange(start: <start>, end: <end>)`.
-    ///
+    /// ### Returns
+    /// formatted string like `SourceRange(start: <start>, end: <end>)`.
     fn op as (const self) -> string {
         return f"[{(self.start) as string}, {(self.end) as string})"
     }
 
+    /// computes a hash for this range.
     ///
-    /// \brief computes a hash for this range.
-    ///
-    /// \details
     /// mixes both start and end values using FNV-1a-like hashing for
     /// good distribution in hash tables.
-    ///
     fn hash(const self) -> u32 {
         var h: u32 = 0x811C9DC5
         h = (h ^ self.start.raw()) * 0x01000193
@@ -213,29 +198,29 @@ pub class SourceRange {
         return h
     }
 
-    ///
-    /// \brief checks if range is empty (zero-length).
-    ///
+    /// checks if range is empty (zero-length).
     pub fn is_empty(const self) -> bool {
         return self.start == self.end
     }
 
+    /// returns a range expanded by n bytes on both sides.
     ///
-    /// \brief returns a range expanded by n bytes on both sides.
+    /// ### Parameters
+    /// - `n`: number of bytes to expand.
     ///
-    /// \param n number of bytes to expand.
-    /// \return expanded range.
-    ///
+    /// ### Returns
+    /// expanded range.
     fn expand(const self, n: usize) -> SourceRange {
         return SourceRange(self.start.retreat(n), self.end.advance(n))
     }
 
+    /// returns a range shrunk by n bytes on both sides.
     ///
-    /// \brief returns a range shrunk by n bytes on both sides.
+    /// ### Parameters
+    /// - `n`: number of bytes to shrink.
     ///
-    /// \param n number of bytes to shrink.
-    /// \return shrunk range (or empty if too small).
-    ///
+    /// ### Returns
+    /// shrunk range (or empty if too small).
     fn shrink(const self, n: usize) -> SourceRange {
         var lo = self.start.advance(n)
         var hi = self.end.retreat(n)
@@ -243,12 +228,13 @@ pub class SourceRange {
         return SourceRange(lo, if (lo <= hi) => (hi) else => lo)
     }
 
+    /// returns the intersection of two ranges.
     ///
-    /// \brief returns the intersection of two ranges.
+    /// ### Parameters
+    /// - `other`: range to intersect with.
     ///
-    /// \param other range to intersect with.
-    /// \return intersecting range, or invalid if no overlap.
-    ///
+    /// ### Returns
+    /// intersecting range, or invalid if no overlap.
     fn intersect(const self, other: SourceRange) -> SourceRange {
         if !self.overlaps(other) {
             return SourceRange() // invalid
@@ -260,12 +246,13 @@ pub class SourceRange {
         )
     }
 
+    /// returns a range from start of this to end of other.
     ///
-    /// \brief returns a range from start of this to end of other.
+    /// ### Parameters
+    /// - `other`: range to union with.
     ///
-    /// \param other range to union with.
-    /// \return range covering both (may include gap).
-    ///
+    /// ### Returns
+    /// range covering both (may include gap).
     fn op + (const self, other: SourceRange) -> SourceRange {
         return self.merge(other)
     }

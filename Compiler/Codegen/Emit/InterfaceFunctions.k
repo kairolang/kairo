@@ -239,7 +239,7 @@ extend InterfaceEmitter {
         self._cg->sink->spell(self._at(f), self._free_fn_text(f, ext))
     }
 
-    /// A function declaration. With \p ext, an extension member: a static
+    /// A function declaration. With `ext`, an extension member: a static
     /// member of its scope, its receiver an explicit first parameter
     /// (`Self*` / `const Self*`), its template head the merged one (the
     /// extension's, then its own).
@@ -333,7 +333,7 @@ extend InterfaceEmitter {
         }
     }
 
-    /// \p t may be an operand of a C++ operator overload: anything but a
+    /// `t` may be an operand of a C++ operator overload: anything but a
     /// builtin number/bool/char, a pointer, a raw function pointer, or an
     /// array of those. Unknown or dependent types count as yes, as before.
     priv fn _forwardable_operand(self, t: unsafe *Type) -> bool {
@@ -366,10 +366,10 @@ extend InterfaceEmitter {
         return true
     }
 
-    /// Operand \p p of \p f, an operator of the generic extension \p ext
+    /// Operand `p` of `f`, an operator of the generic extension `ext`
     /// with no parameters of its own, names the extension's parameters.
     /// They are the receiver's (Deduction::bind_from_extension), so the
-    /// forwarder must not deduce them from \p p as well: `op ==(const self,
+    /// forwarder must not deduce them from `p` as well: `op ==(const self,
     /// const o: View<const T>)` on a `View<const i32>` is T := const i32 by
     /// the receiver and T := i32 by `o`, a conflict to C++ alone. A generic
     /// body's infix use of the operator is compiled through the forwarder.
@@ -502,10 +502,10 @@ extend InterfaceEmitter {
         self._cg->sink->spell(self._at(f), s)
     }
 
-    /// \p scope: the record whose body the declaration is in, or null
+    /// `scope`: the record whose body the declaration is in, or null
     /// (Speller::_type).
     ///
-    /// \p defaults: also write each Kairo default as a C++ default argument
+    /// `defaults`: also write each Kairo default as a C++ default argument
     /// calling its thunk. Kairo fills a default at every call it types, but a
     /// call through a `: type` parameter (`self.dyn()->sc->diag->report(..)
     /// .first(r)`) has no callee to fill from; clang resolves it per instance
@@ -584,7 +584,7 @@ extend InterfaceEmitter {
         return s
     }
 
-    /// ` = __kairo_default_f_x()` for parameter \p i of \p f when it is the
+    /// ` = __kairo_default_f_x()` for parameter `i` of `f` when it is the
     /// declaration that wrote a Kairo default (a redeclaration repeating a C++
     /// default is an error, so only the writer's link carries it). Empty
     /// when a later parameter has none: C++ rejects a gap, and a call that
@@ -781,7 +781,7 @@ extend InterfaceEmitter {
         }
     }
 
-    /// The tag of record \p d's body when its template has a partial
+    /// The tag of record `d`'s body when its template has a partial
     /// specialization selected by `requires` (LowerTargets::spec_tag): 0 for
     /// the primary, 1 + the partial's registration index; -1 when no tag is
     /// written. Only such templates carry one: a pattern-only partial is

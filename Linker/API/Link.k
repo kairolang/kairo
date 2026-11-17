@@ -2,7 +2,7 @@
 ///
 ///   The linker API entry points: plan, execute and link.
 ///
-///   \brief The linker API. Three calls:
+/// The linker API. Three calls:
 ///
 ///     plan(job, tc, argv, msgs)   resolve the toolchain, render argv. No lld.
 ///                                 --print-ld-args and --print-dirs stop here.

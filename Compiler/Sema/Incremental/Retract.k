@@ -1,8 +1,8 @@
 /// --- The Kairo Project ----------------- Sema/Incremental/Retract.k --- ///
 ///
-///   \brief Taking a set of files back out of the instantiation registry
-///          before a live check re-checks them (Tooling/LiveCheck.k,
-///          Compiler/Spec/IncrementalSema.md phase 4).
+/// Taking a set of files back out of the instantiation registry
+/// before a live check re-checks them (Tooling/LiveCheck.k,
+/// Compiler/Spec/IncrementalSema.md phase 4).
 ///
 ///   The registry is build-wide and its entries outlive the files that
 ///   caused them. Two things are true of an entry once a set of files is
@@ -54,7 +54,6 @@ import Sema::Incremental::Facts::incr_type_records
 import Sema::Resolve::NameLookup::NameLookup
 import std::io
 
-/// \class RetractStats
 pub class RetractStats {
     pub var entries: usize = 0 ///< in the registry before
     pub var dropped: usize = 0
@@ -81,8 +80,8 @@ pub class RetractStats {
     pub fn RetractStats(self) = default
 }
 
-/// \brief takes the files \p fids (their contexts still in \p gs: call
-///        before they are detached) out of the registry.
+/// takes the files `fids` (their contexts still in `gs`: call
+/// before they are detached) out of the registry.
 pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                          sm:         unsafe *SourceManager,
                          freg:       unsafe *ForeignRegistry,
@@ -399,19 +398,19 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
 }
 
 
-/// \brief the self-check of a live check (KAIRO_LIVE_DEBUG): once a
-///        re-check is done, nothing the purged stores still hold may name a
-///        declaration of a REPLACED tree (\p retired: the contexts
-///        detach_for_refresh kept). Walks the instantiation registry (each
-///        entry's primary, pattern, explicit declaration, and the records
-///        in its arguments) and the foreign registry (each USR's
-///        declaration and its owners), prints what it finds and returns how
-///        many.
+/// the self-check of a live check (KAIRO_LIVE_DEBUG): once a
+/// re-check is done, nothing the purged stores still hold may name a
+/// declaration of a REPLACED tree (`retired`: the contexts
+/// detach_for_refresh kept). Walks the instantiation registry (each
+/// entry's primary, pattern, explicit declaration, and the records
+/// in its arguments) and the foreign registry (each USR's
+/// declaration and its owners), prints what it finds and returns how
+/// many.
 ///
-/// \details What this does NOT walk: the canonical type table, the
-///          conformance rows, tuple records, nullable layouts and
-///          default-argument thunks. A hit here is a retraction that
-///          missed something; no hit says nothing about those.
+/// What this does NOT walk: the canonical type table, the
+/// conformance rows, tuple records, nullable layouts and
+/// default-argument thunks. A hit here is a retraction that
+/// missed something; no hit says nothing about those.
 pub fn verify_retired(gs:            unsafe *GlobalDisambigTable,
                       freg:          unsafe *ForeignRegistry,
                       const retired: cxx::std::vector<unsafe *void>) -> usize {

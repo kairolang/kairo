@@ -15,11 +15,8 @@ ffi "c++" import "Native/Types.hh"
 
 import Support::UTF8View::UTF8View
 
+/// simple read-only byte buffer with utf-8 decoding support.
 ///
-/// \file MemoryBuffer.k
-/// \brief simple read-only byte buffer with utf-8 decoding support.
-///
-/// \details
 /// `MemoryBuffer` is a lightweight wrapper around a pointer to immutable
 /// byte data and its total size. it provides direct byte access and an
 /// iterator-based utf-8 view for character-level decoding.
@@ -30,73 +27,58 @@ import Support::UTF8View::UTF8View
 /// this class performs no ownership or lifetime management- the backing
 /// memory must remain valid for the duration of its use.
 ///
-/// \note
+/// **Note:**
 /// read-only by design; use external writers for mutable operations.
-/// \warning
+///
+/// **Warning:**
 /// not thread-safe without external synchronization.
-///
 
+/// read-only view over raw byte memory.
 ///
-/// \class MemoryBuffer
-/// \brief read-only view over raw byte memory.
-///
-/// \details
 /// provides direct pointer access (`data()`, `size()`) and utf-8 decoding
 /// through the `chars()` method. used heavily by the compiler's source and
 /// file management subsystems.
-///
 pub class MemoryBuffer {
     priv var _data: kairo::std::ConstPtr<u8> = &null ///< pointer to raw data bytes.
     priv var _size: usize                    = 0     ///< total byte size of buffer.
 
-    ///
-    /// \brief default constructor (invalid buffer).
-    ///
+    /// default constructor (invalid buffer).
     pub fn MemoryBuffer(self) = default
 
+    /// constructs from a raw pointer and size.
     ///
-    /// \brief constructs from a raw pointer and size.
-    ///
-    /// \param data pointer to constant byte memory.
-    /// \param size total number of bytes available.
-    ///
+    /// ### Parameters
+    /// - `data`: pointer to constant byte memory.
+    /// - `size`: total number of bytes available.
     pub fn MemoryBuffer(self, data: kairo::std::ConstPtr<u8>, size: usize) {
         self._data = data
         self._size = size
     }
 
-    ///
-    /// \brief assignment operator.
-    ///
+    /// assignment operator.
 
-    ///
-    /// \brief returns pointer to underlying byte data.
-    ///
+    /// returns pointer to underlying byte data.
     pub inline fn data(self) -> kairo::std::ConstPtr<u8> {
         return self._data
     }
 
-    ///
-    /// \brief returns total size of the buffer in bytes.
-    ///
+    /// returns total size of the buffer in bytes.
     pub inline fn size(self) -> usize {
         return self._size
     }
 
+    /// checks if buffer is valid.
     ///
-    /// \brief checks if buffer is valid.
-    ///
-    /// \return true if `_data` is not null and `_size` > 0.
-    ///
+    /// ### Returns
+    /// true if `_data` is not null and `_size` > 0.
     pub inline fn is_valid(self) -> bool {
         return self._data != &null
     }
 
+    /// returns utf-8 decoding view of the buffer.
     ///
-    /// \brief returns utf-8 decoding view of the buffer.
-    ///
-    /// \return `UTF8View` initialized with buffer data.
-    ///
+    /// ### Returns
+    /// `UTF8View` initialized with buffer data.
     inline fn chars(self) -> UTF8View {
         return UTF8View(self._data, self._size)
     }

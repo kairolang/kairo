@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------------- Codegen/CodegenContext.k --- ///
 ///
-///   \brief Durable shared state for all emitters. Emitters borrow a
-///          *CodegenContext; only the Backend driver constructs one.
+/// Durable shared state for all emitters. Emitters borrow a
+/// *CodegenContext; only the Backend driver constructs one.
 ///
 ///   Structural rule (identical to SemaContext.k, same reason): the driver
 ///   imports every emitter; emitters import THIS file and never the driver.

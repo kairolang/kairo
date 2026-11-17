@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------- Sema/Lower/VariantInitLowering.k --- ///
 ///
-///   \brief An enum variant construction becomes the node EmitIR renders.
+/// An enum variant construction becomes the node EmitIR renders.
 ///
 ///   \detail
 ///     X checked each construction against its variant's payload and wrote
@@ -164,7 +164,7 @@ pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
 
     /// # the rewrite
 
-    /// \p n built the variant \p vd from \p fields (none for a name). Left as
+    /// `n` built the variant `vd` from `fields` (none for a name). Left as
     /// it is when poisoned or untyped: a conversion checked after X typed it
     /// (a var's declared type) can poison it, and the pipeline then stops
     /// before codegen.
@@ -261,7 +261,7 @@ pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
         return vi
     }
 
-    /// The enum \p v belongs to. X records the pattern enum's own variant, so
+    /// The enum `v` belongs to. X records the pattern enum's own variant, so
     /// this is the pattern decl, whose list positions are the tags.
     priv fn _enum_of(self, v: unsafe *EnumVariantDecl) -> unsafe *EnumDecl {
         var unsafe *dc                  = v->semantic_dc
@@ -279,7 +279,7 @@ pub class VariantInitLowering derives ASTWriter<VariantInitLowering> {
         return en
     }
 
-    /// \p v's position in \p en's list: its tag.
+    /// `v`'s position in `en`'s list: its tag.
     priv fn _index_of(self, en: unsafe *EnumDecl, v: unsafe *EnumVariantDecl) -> usize {
         for var i: usize = 0; i < en->variants.size(); ++i {
             if en->variants[i] == v {

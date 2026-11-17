@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------------- Codegen/Sink/TokenSink.k --- ///
 ///
-///   \brief THE place clang::Token is constructed. Emitters call the EmitSink
-///          accumulators; nothing else in the compiler builds a clang token.
+/// THE place clang::Token is constructed. Emitters call the EmitSink
+/// accumulators; nothing else in the compiler builds a clang token.
 ///
 ///   \par The three families, and why they are three
 ///     What separates them is NOT whether the C++ spelling matches the Kairo
@@ -85,7 +85,7 @@ pub enum SinkStage derives u8 {
 /// One divergent-literal token awaiting its real ExpansionLoc. Recorded at
 /// emit time (phase 1), consumed by patch_pending (phase 2).
 ///
-/// Each entry opens an expansion of its own unless \c entry_len is 0: then
+/// Each entry opens an expansion of its own unless `entry_len` is 0: then
 /// the token sits inside the expansion the entry before it opened, at its
 /// own offset there (TokenSink::_pair). An expansion is a FileID, and one
 /// FileID is what clang asks of the two halves of a pair it checks.
@@ -120,7 +120,7 @@ pub struct AgreeSite {
     pub var adl: bool = false
 }
 
-/// A redeclaration of site \p site's declaration (EmitSink::agree_alt).
+/// A redeclaration of site `site`'s declaration (EmitSink::agree_alt).
 pub struct AgreeAlt {
     pub var site: u32
     pub var name: SourceRange
@@ -258,12 +258,12 @@ pub class TokenSink derives EmitSink {
         self.agree_alts.push_back(a)
     }
 
-    /// The raw clang location of token \p i. Final after finish().
+    /// The raw clang location of token `i`. Final after finish().
     pub fn token_raw_loc(self, i: usize) -> u32 {
         return self._tokens.get(i)->getLocation().getRawEncoding()
     }
 
-    /// The raw clang location of Kairo's \p loc, 0 when its file is not
+    /// The raw clang location of Kairo's `loc`, 0 when its file is not
     /// registered with clang.
     pub fn clang_raw_loc(self, loc: SourceLocation) -> u32 {
         if !loc.is_valid() {
@@ -403,7 +403,7 @@ pub class TokenSink derives EmitSink {
         return c
     }
 
-    /// The bytes at \p loc in whichever registered file it lives in.
+    /// The bytes at `loc` in whichever registered file it lives in.
     priv fn _bytes(self, loc: SourceLocation, len: u32) -> llvm::StringRef {
         var cloc = self._loc(loc)
         var dec  = self._csm->getDecomposedLoc(cloc)
@@ -490,12 +490,12 @@ pub class TokenSink derives EmitSink {
         return self._arena_tok(clang::tok::numeric_constant, at, &cxx_v)
     }
 
-    /// \p cxx INCLUDES the quotes.
+    /// `cxx` INCLUDES the quotes.
     override fn create_str(self, at: SourceRange, @inout cxx_v: string) -> bool {
         return self._arena_tok(clang::tok::string_literal, at, &cxx_v)
     }
 
-    /// \p cxx INCLUDES the quotes.
+    /// `cxx` INCLUDES the quotes.
     /// The literal's prefix is its kind: clang decodes a character
     /// constant by its token kind, not by its first byte.
     override fn create_char(self, at: SourceRange, @inout cxx_v: string) -> bool {
@@ -559,22 +559,22 @@ pub class TokenSink derives EmitSink {
 
     /// # Construction internals
 
-    /// \brief a location for a borrowed token anchored at [\p loc, +\p len):
-    ///        \p loc itself when free, else the first free byte after it in
-    ///        the same file, else invalid -- then the token must be an arena
-    ///        token with its own expansion location.
+    /// a location for a borrowed token anchored at [`loc`, +`len`):
+    /// `loc` itself when free, else the first free byte after it in
+    /// the same file, else invalid -- then the token must be an arena
+    /// token with its own expansion location.
     ///
-    /// \details every token of one spell() string shares its anchor, so
-    ///          `decltype(sizeof(0))` was seven tokens at ONE location. Clang
-    ///          splices an annotation back into its backtracking cache by
-    ///          searching for the token whose location equals the
-    ///          annotation's start (Preprocessor::AnnotatePreviousCachedTokens).
-    ///          With duplicates it matched the wrong one and corrupted the
-    ///          stream, so any constructor taking a usize failed
-    ///          ("expected function body after function declarator"): the
-    ///          constructor-declarator check is a tentative parse, and it
-    ///          annotates `decltype(...)`. A unique location per token is
-    ///          the invariant; the caret still covers the same Kairo bytes.
+    /// every token of one spell() string shares its anchor, so
+    /// `decltype(sizeof(0))` was seven tokens at ONE location. Clang
+    /// splices an annotation back into its backtracking cache by
+    /// searching for the token whose location equals the
+    /// annotation's start (Preprocessor::AnnotatePreviousCachedTokens).
+    /// With duplicates it matched the wrong one and corrupted the
+    /// stream, so any constructor taking a usize failed
+    /// ("expected function body after function declarator"): the
+    /// constructor-declarator check is a tentative parse, and it
+    /// annotates `decltype(...)`. A unique location per token is
+    /// the invariant; the caret still covers the same Kairo bytes.
     ///
     ///          Moving within the anchor comes before the arena: an arena
     ///          token is a MACRO location, and clang warns when the two halves
@@ -593,7 +593,7 @@ pub class TokenSink derives EmitSink {
     ///
     ///          A NAME anchor (the whole span one identifier: a declaration's
     ///          name, Speller::at) keeps its first byte for the token that
-    ///          spells exactly that name (\p exact). That token's location is
+    ///          spells exactly that name (`exact`). That token's location is
     ///          the declaration's to clang -- "'Point' declared here" -- and
     ///          the wrapper and keywords anchored on the same name would
     ///          otherwise take the byte first and push it somewhere else in
@@ -627,8 +627,8 @@ pub class TokenSink derives EmitSink {
         return self._claim_for(loc, len, exact, self._tokens.size())
     }
 
-    /// _claim for token \p tok: the next one, or one _steal is moving.
-    /// Offsets [1, i] from the anchor keyed \p hkey are all in _used now
+    /// _claim for token `tok`: the next one, or one _steal is moving.
+    /// Offsets [1, i] from the anchor keyed `hkey` are all in _used now
     /// (the walk passed or took each), so the next walk may start past them.
     priv fn _hint_used(self, hkey: u64, i: usize) {
         if i < 1 {
@@ -647,7 +647,7 @@ pub class TokenSink derives EmitSink {
         }
     }
 
-    /// The first raw at or after \p r0 that is not in _used. Every pointer
+    /// The first raw at or after `r0` that is not in _used. Every pointer
     /// on the way is redirected to the answer (path compression), so a run
     /// of taken bytes is crossed once, not once per anchor that meets it.
     priv fn _skip_used(self, r0: u64) -> u64 {
@@ -678,7 +678,7 @@ pub class TokenSink derives EmitSink {
         return r
     }
 
-    /// The first raw at or after \p r0 that is free or a stray, with the
+    /// The first raw at or after `r0` that is free or a stray, with the
     /// same path compression as _skip_used.
     priv fn _skip_settled(self, r0: u64) -> u64 {
         var r = r0
@@ -847,7 +847,7 @@ pub class TokenSink derives EmitSink {
         return SourceLocation::invalid()
     }
 
-    /// The byte \p at is held (an inexact token's, so _steal can move it)
+    /// The byte `at` is held (an inexact token's, so _steal can move it)
     /// by a token whose own anchor does not cover it: one that walked there
     /// because its anchor's bytes were taken. A token at home in its anchor
     /// is never a stray, so two tokens anchored on one span cannot take a
@@ -873,7 +873,7 @@ pub class TokenSink derives EmitSink {
         self._held_list.push_back(h)
     }
 
-    /// The exact token's byte \p at, taken back from the inexact token that
+    /// The exact token's byte `at`, taken back from the inexact token that
     /// holds it, which claims again from its own anchor, or, in a file whose
     /// every byte is taken (a small file with a lot of C++ behind it: the
     /// common case, not the corner), goes to the arena as it would have had
@@ -911,7 +911,7 @@ pub class TokenSink derives EmitSink {
         return true
     }
 
-    /// Token \p h.tok, already emitted at a file byte, given an arena entry
+    /// Token `h.tok`, already emitted at a file byte, given an arena entry
     /// instead (_arena_tok after the fact; patch_pending places it). An
     /// identifier or keyword is spelled by its IdentifierInfo, a punctuator
     /// by its kind. Not a half of a pair _completes_pair checks: moved to a
@@ -968,7 +968,7 @@ pub class TokenSink derives EmitSink {
         return true
     }
 
-    /// [\p loc, +\p len) is one identifier (see _claim).
+    /// [`loc`, +`len`) is one identifier (see _claim).
     priv fn _is_name_span(self, loc: SourceLocation, len: u32) -> bool {
         if len == 0 {
             return false
@@ -985,7 +985,7 @@ pub class TokenSink derives EmitSink {
         return true
     }
 
-    /// The caret length left for a token moved \p at - \p loc bytes into
+    /// The caret length left for a token moved `at` - `loc` bytes into
     /// its anchor: the rest of the anchor, never zero.
     priv fn _rest(self, loc: SourceLocation, at: SourceLocation, len: u32) -> u32 {
         var moved = at.raw() - loc.raw()
@@ -1031,7 +1031,7 @@ pub class TokenSink derives EmitSink {
     }
 
     /// Remember the punctuator just emitted as a possible first half (see
-    /// _completes_pair); \p at is its claimed byte, invalid for the arena.
+    /// _completes_pair); `at` is its claimed byte, invalid for the arena.
     priv fn _opened(self, loc: SourceLocation, len: u32, at: SourceLocation) {
         self._open_end  = self._tokens.size()
         self._open_loc  = loc
@@ -1039,15 +1039,15 @@ pub class TokenSink derives EmitSink {
         self._open_byte = at
     }
 
-    /// \brief whether \p k, as the next token, completes a pair with the
-    ///        last one that clang checks for a split across contexts.
+    /// whether `k`, as the next token, completes a pair with the
+    /// last one that clang checks for a split across contexts.
     ///
-    /// \details the pairs of Parser::checkCompoundToken: `(` `{` and `}` `)`
-    ///          around a statement expression, `[` `[` and `]` `]` around an
-    ///          attribute (`[[noreturn]]` comes through spell()), `::` `*` in
-    ///          a pointer to member. The same pairs elsewhere (`f({...})`,
-    ///          `a[b[i]]`) get the same treatment, which costs nothing: it
-    ///          only decides where a token's location lives.
+    /// the pairs of Parser::checkCompoundToken: `(` `{` and `}` `)`
+    /// around a statement expression, `[` `[` and `]` `]` around an
+    /// attribute (`[[noreturn]]` comes through spell()), `::` `*` in
+    /// a pointer to member. The same pairs elsewhere (`f({...})`,
+    /// `a[b[i]]`) get the same treatment, which costs nothing: it
+    /// only decides where a token's location lives.
     priv fn _completes_pair(self, k: clang::tok::TokenKind) -> bool {
         if self._open_end == 0 || self._open_end != self._tokens.size() {
             return false
@@ -1059,7 +1059,7 @@ pub class TokenSink derives EmitSink {
         )
     }
 
-    /// \p first then \p k is one of the pairs clang checks (_completes_pair).
+    /// `first` then `k` is one of the pairs clang checks (_completes_pair).
     priv fn _checked_pair(self, first: clang::tok::TokenKind, k: clang::tok::TokenKind) -> bool {
         if first == clang::tok::l_paren && k == clang::tok::l_brace {
             return true
@@ -1084,16 +1084,16 @@ pub class TokenSink derives EmitSink {
         return false
     }
 
-    /// \brief the second half of a checked pair, in the first half's
-    ///        location context.
+    /// the second half of a checked pair, in the first half's
+    /// location context.
     ///
-    /// \details clang warns when either half is a macro location and the
-    ///          two are in different FileIDs, and patch_pending gives every
-    ///          arena token an expansion, so a FileID, of its own. Two file
-    ///          bytes are one FileID: nothing to do. Otherwise both halves
-    ///          become ONE expansion over their joined spelling (`({`), each
-    ///          at its own offset in it: one FileID, and still a unique
-    ///          location apiece (see _claim).
+    /// clang warns when either half is a macro location and the
+    /// two are in different FileIDs, and patch_pending gives every
+    /// arena token an expansion, so a FileID, of its own. Two file
+    /// bytes are one FileID: nothing to do. Otherwise both halves
+    /// become ONE expansion over their joined spelling (`({`), each
+    /// at its own offset in it: one FileID, and still a unique
+    /// location apiece (see _claim).
     ///
     ///          A first half that took the file's last free byte gives it
     ///          back and joins the arena: left where it was, it would be a
@@ -1441,7 +1441,7 @@ pub class TokenSink derives EmitSink {
         return ""
     }
 
-    /// Kairo byte offset of token \p i in whichever fid it blames, or
+    /// Kairo byte offset of token `i` in whichever fid it blames, or
     /// u32(-1) if it blames none (scratch, predefines). The printer's fid
     /// column says which file; filtering to the home file here hid every
     /// preamble token's offset behind a `?`.
@@ -1460,7 +1460,7 @@ pub class TokenSink derives EmitSink {
         return dec.second
     }
 
-    /// The Kairo fid token \p i blames, or u32(-1).
+    /// The Kairo fid token `i` blames, or u32(-1).
     fn kairo_fid(self, i: usize) -> u32 {
         var unsafe *t  = self._tokens.get(i)
         var        loc = t->getLocation()

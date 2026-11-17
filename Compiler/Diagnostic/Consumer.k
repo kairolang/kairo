@@ -13,11 +13,11 @@
 
 import Diagnostic::Diagnostic::Diagnostic
 
-/// Abstract sink that receives fully-formed \c Diagnostic objects from
-/// \c DiagEngine.
+/// Abstract sink that receives fully-formed `Diagnostic` objects from
+/// `DiagEngine`.
 ///
 /// Concrete implementations format and route diagnostics to stderr, stdout,
-/// a file, or an in-memory string buffer. The \c finalize_* methods flush
+/// a file, or an in-memory string buffer. The `finalize_*` methods flush
 /// any buffered output to the chosen destination; only one should be called
 /// per consumer lifetime.
 ///
@@ -44,7 +44,7 @@ pub class DiagConsumer {
         0
     }
 
-    /// Flush buffered diagnostics to \p path, overwriting any existing file.
+    /// Flush buffered diagnostics to `path`, overwriting any existing file.
     virtual fn finalize_to_file(self, const path: string) {
         0
     }

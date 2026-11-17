@@ -116,8 +116,7 @@ extend InterfaceEmitter {
 
     /// The tier-0 forward declarations of templates over a class-typed
     /// value parameter (Compiler/Spec/Eval.md#eval-classes, EmitPlan::value_param_record), each
-    /// written as soon as every such class is defined: entries [0, \p
-    /// t0_end) are tier 0, and tier 1 has written its entries before \p at.
+    /// written as soon as every such class is defined: entries [0, `t0_end`) are tier 0, and tier 1 has written its entries before `at`.
     /// C++ needs the class complete at every declaration of the template,
     /// so tier 0 leaves these out, and a record that names `*Widget<...>`
     /// ahead of Widget's definition needs one (EmitPlan::_needs_complete
@@ -159,8 +158,8 @@ extend InterfaceEmitter {
         }
     }
 
-    /// One of \p d's value-parameter classes is defined by tier 1 at or
-    /// after entry \p at: not yet written.
+    /// One of `d`'s value-parameter classes is defined by tier 1 at or
+    /// after entry `at`: not yet written.
     priv fn _vp_class_pending(self, d: unsafe *Decl, at: usize) -> bool {
         for var j: usize = at; j < self._plan->entries.size(); ++j {
             var *e = &self._plan->entries[j]
@@ -180,7 +179,7 @@ extend InterfaceEmitter {
         return false
     }
 
-    /// This stream writes \p d's out-of-line method definitions: a TU's own
+    /// This stream writes `d`'s out-of-line method definitions: a TU's own
     /// record (EmitIR emits every body of its program). A header or an
     /// include carries only the inline and template ones, and a record of
     /// another file is defined in that file's TU.
@@ -232,7 +231,7 @@ extend InterfaceEmitter {
     /// call of its thunk (_field_default); parameter defaults are not
     /// declared. See the file header.
     ///
-    /// Every type written inside the braces is spelled with \p d as its
+    /// Every type written inside the braces is spelled with `d` as its
     /// scope (Speller::_type), so the record's own nested types go out by
     /// leaf: qualified, a nested type of a class template would need the
     /// template's arguments, and inside the body the injected class name
@@ -620,7 +619,7 @@ extend InterfaceEmitter {
         )
     }
 
-    /// `using B::m;` for every method name \p d declares that a direct base
+    /// `using B::m;` for every method name `d` declares that a direct base
     /// B also answers with a method. Kairo MERGES a base's members with the
     /// derived class's (Compiler/Spec/Generics.md#partial-selection, the `needs_using` rule) and
     /// overload resolution picks among all of them; C++ name lookup stops at
@@ -796,8 +795,8 @@ extend InterfaceEmitter {
         return cur
     }
 
-    /// The member names class \p b (and its bases through public edges)
-    /// lets a deriving class of file \p fid inherit: fields and methods,
+    /// The member names class `b` (and its bases through public edges)
+    /// lets a deriving class of file `fid` inherit: fields and methods,
     /// each name once, with the narrowest C++ access of its members, or 255
     /// when one of them is private to another file.
     priv fn _edge_names(self,
@@ -921,8 +920,8 @@ extend InterfaceEmitter {
         return Speller::rep(DeclFacts::decl_pattern(Speller::rep(r->decl)))
     }
 
-    /// Whether class \p b or a base of it has a method spelled \p nm, and at
-    /// what C++ access a using-declaration in a class of file \p fid may
+    /// Whether class `b` or a base of it has a method spelled `nm`, and at
+    /// what C++ access a using-declaration in a class of file `fid` may
     /// bring them in: 0 none; VIS_PUB / VIS_PROT / VIS_PRIV, the narrowest
     /// of the overloads (one using takes the whole set at one level); 255
     /// one the deriving class cannot name -- private, in another file, so
@@ -1099,7 +1098,7 @@ extend InterfaceEmitter {
     /// may carry neither; EmitPlan::file_friends leaves out a function that
     /// needs one). Unqualified, it names, or first declares, the function in
     /// the record's namespace, which file_friends made sure is its own;
-    /// \p qualified, it names one declared ahead of the record
+    /// `qualified`, it names one declared ahead of the record
     /// (EmitPlan::friend_early).
     priv fn _friend_fn_text(self,
                             f:         unsafe *Declarations::FunctionDecl,
@@ -1134,7 +1133,7 @@ extend InterfaceEmitter {
         return s + ";"
     }
 
-    /// `int ::main(int argc, ...) noexcept;` (\p qualified) or the global
+    /// `int ::main(int argc, ...) noexcept;` (`qualified`) or the global
     /// declaration `int main(...) noexcept;` the friend line needs before
     /// it: the definition's own head (EmitIR::_free_fn).
     prot fn _main_decl_text(self,
@@ -1191,7 +1190,7 @@ extend InterfaceEmitter {
         return &null
     }
 
-    /// The value predicates generic record \p d's template head cannot
+    /// The value predicates generic record `d`'s template head cannot
     /// carry (Speller::body_predicates), as static_asserts at the top of
     /// its body, asserted per instance: every instance Sema homed is
     /// explicitly instantiated, so each is checked, as a function's are by

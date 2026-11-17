@@ -1,12 +1,12 @@
 import Json::*
 import Protocol::*
 
-/// \brief `file://` URI -> filesystem path (percent-decoded).
+/// `file://` URI -> filesystem path (percent-decoded).
 ///
-/// \details A Windows URI is `file:///C:/x`: the path is what follows the
-///          third slash, so the leading `/` goes when a drive letter follows.
-///          Anything that is not a file URI comes back unchanged, which keeps
-///          `untitled:` buffers addressable by the same key.
+/// A Windows URI is `file:///C:/x`: the path is what follows the
+/// third slash, so the leading `/` goes when a drive letter follows.
+/// Anything that is not a file URI comes back unchanged, which keeps
+/// `untitled:` buffers addressable by the same key.
 pub fn uri_to_path(const uri: string) -> string {
     var prefix = "file://"
     if !uri.starts_with(prefix) {
@@ -38,7 +38,7 @@ pub fn uri_to_path(const uri: string) -> string {
     return out
 }
 
-/// \brief filesystem path -> `file://` URI. Inverse of uri_to_path.
+/// filesystem path -> `file://` URI. Inverse of uri_to_path.
 pub fn path_to_uri(const path: string) -> string {
     var hex         = "0123456789ABCDEF"
     var out: string = "file://"
@@ -91,13 +91,12 @@ pub fn hex_val(c: u8) -> u32 {
     return 16
 }
 
-/// \class LineMap
-/// \brief byte offset <-> LSP position for one text.
+/// byte offset <-> LSP position for one text.
 ///
-/// \details LSP columns count UTF-16 code units unless the client agreed to
-///          UTF-8 at initialize (`utf8` below). The compiler counts bytes.
-///          Every position that crosses the protocol goes through here, in
-///          one direction or the other; nothing else in the server converts.
+/// LSP columns count UTF-16 code units unless the client agreed to
+/// UTF-8 at initialize (`utf8` below). The compiler counts bytes.
+/// Every position that crosses the protocol goes through here, in
+/// one direction or the other; nothing else in the server converts.
 pub class LineMap {
     pub var starts: [usize]     ///< byte offset of each line's first byte
     pub var size:   usize   = 0
@@ -119,7 +118,7 @@ pub class LineMap {
         return self.starts.size()
     }
 
-    /// Offset one past the last byte of \p line, its terminator excluded.
+    /// Offset one past the last byte of `line`, its terminator excluded.
     fn line_end(const self, const text: string, line: usize) -> usize {
         var end = self.size
         if (line + 1) < self.starts.size() {
@@ -132,7 +131,7 @@ pub class LineMap {
         return end
     }
 
-    /// 0-based line holding byte \p off.
+    /// 0-based line holding byte `off`.
     fn line_of(const self, off: usize) -> usize {
         var lo: usize = 0
         var hi        = self.starts.size()
@@ -191,7 +190,7 @@ pub class LineMap {
         return i
     }
 
-    /// LSP character of byte \p off within its line.
+    /// LSP character of byte `off` within its line.
     fn character(const self, const text: string, off: usize, utf8: bool) -> usize {
         var line = self.line_of(off)
         var i    = self.starts[line]
@@ -221,15 +220,14 @@ pub class LineMap {
     }
 }
 
-/// \class GapText
-/// \brief a buffer's bytes and line starts, editable in time proportional to
-///        the edit.
+/// a buffer's bytes and line starts, editable in time proportional to
+/// the edit.
 ///
-/// \details A whole-string rebuild per didChange would copy and scan the file
-///          on every keystroke (a megabyte for a 1 MB file). Here both the bytes and the line starts are gap
-///          buffers. Edits cluster where the cursor is, so moving a gap is
-///          short; an edit costs its own size, the lines it adds or removes,
-///          and the distance from the previous edit.
+/// A whole-string rebuild per didChange would copy and scan the file
+/// on every keystroke (a megabyte for a 1 MB file). Here both the bytes and the line starts are gap
+/// buffers. Edits cluster where the cursor is, so moving a gap is
+/// short; an edit costs its own size, the lines it adds or removes,
+/// and the distance from the previous edit.
 ///
 ///          Bytes: [0, gs) and [ge, buf.size()) hold the text, the gap
 ///          between them is free.
@@ -307,7 +305,7 @@ pub class GapText {
         return self.size - self.ls[self.lge + (line - self.lgs)]
     }
 
-    /// Offset one past the last byte of \p line, its terminator excluded.
+    /// Offset one past the last byte of `line`, its terminator excluded.
     fn line_end(const self, line: usize) -> usize {
         if (line + 1) >= self.line_count() {
             return self.size
@@ -321,7 +319,7 @@ pub class GapText {
         return end
     }
 
-    /// 0-based line holding byte \p off.
+    /// 0-based line holding byte `off`.
     fn line_of(const self, off: usize) -> usize {
         var lo: usize = 0
         var hi        = self.line_count()
@@ -394,7 +392,7 @@ pub class GapText {
         return out
     }
 
-    /// Moves the byte gap to \p pos.
+    /// Moves the byte gap to `pos`.
     priv fn move_gap_(self, pos: usize) {
         if pos < self.gs {
             var n = self.gs - pos
@@ -419,7 +417,7 @@ pub class GapText {
         }
     }
 
-    /// Makes room for \p need more bytes in the gap.
+    /// Makes room for `need` more bytes in the gap.
     priv fn grow_(self, need: usize) {
         if (self.ge - self.gs) >= need {
             return
@@ -446,7 +444,7 @@ pub class GapText {
     }
 
     /// Moves the line gap so that [0, lgs) are exactly the lines that start
-    /// at or before \p line's start (lines 0..=line).
+    /// at or before `line`'s start (lines 0..=line).
     priv fn move_line_gap_(self, line: usize) {
         var want = line + 1
         while self.lgs > want {
@@ -484,7 +482,7 @@ pub class GapText {
         self.lge = new_cap - tail
     }
 
-    /// Replaces bytes [s, e) with \p insert.
+    /// Replaces bytes [s, e) with `insert`.
     fn replace(self, start: usize, end: usize, const insert: string) {
         var s = start
         var e = end
@@ -543,14 +541,13 @@ pub enum SynReq derives u8 {
     InFlight,
 }
 
-/// \class SyntaxState
-/// \brief one buffer's syntax-only pass: the request, and the last result.
+/// one buffer's syntax-only pass: the request, and the last result.
 ///
-/// \details Both paths, the persistent syntax worker and a process per pass,
-///          go through these transitions, so they apply one rule: a pass is
-///          due when the buffer changed after the newest pass was started,
-///          and an answer lands only for the text the buffer still holds
-///          (an answer for an older text has the old text's positions).
+/// Both paths, the persistent syntax worker and a process per pass,
+/// go through these transitions, so they apply one rule: a pass is
+/// due when the buffer changed after the newest pass was started,
+/// and an answer lands only for the text the buffer still holds
+/// (an answer for an older text has the old text's positions).
 pub class SyntaxState {
     pub var req:     SynReq = SynReq::Idle
     pub var started: u64    = 0 ///< the buffer's changed_at the newest pass was started for (0: none)
@@ -569,12 +566,12 @@ pub class SyntaxState {
 
     fn SyntaxState(self) = default
 
-    /// Is a pass due for a buffer last changed at \p changed_at?
+    /// Is a pass due for a buffer last changed at `changed_at`?
     fn due(const self, changed_at: u64) -> bool {
         return (self.req == SynReq::Idle) && (changed_at > self.started)
     }
 
-    /// A pass of the text as changed at \p changed_at has started.
+    /// A pass of the text as changed at `changed_at` has started.
     fn begin(self, changed_at: u64) {
         self.req     = SynReq::InFlight
         self.started = changed_at
@@ -591,8 +588,8 @@ pub class SyntaxState {
         self.started = 0
     }
 
-    /// Would an answer computed at server revision \p rev land, for a
-    /// buffer last changed at \p changed_at? Not when the buffer changed
+    /// Would an answer computed at server revision `rev` land, for a
+    /// buffer last changed at `changed_at`? Not when the buffer changed
     /// after the pass was sent (stale), nor over a newer landed result.
     fn accepts(const self, rev: u64, changed_at: u64) -> bool {
         if changed_at > rev {
@@ -602,7 +599,7 @@ pub class SyntaxState {
         return (!self.landed) || (rev >= self.at)
     }
 
-    /// The landed result is of the text as changed at \p changed_at.
+    /// The landed result is of the text as changed at `changed_at`.
     fn current(const self, changed_at: u64) -> bool {
         return self.landed && (self.at >= changed_at)
     }
@@ -629,14 +626,13 @@ pub class SyntaxState {
     }
 }
 
-/// \class Document
-/// \brief one open buffer: the editor's text, which wins over the disk.
+/// one open buffer: the editor's text, which wins over the disk.
 ///
-/// \details The text lives in `buf` (GapText). `text` and `lines` are a
-///          materialised copy for the code that scans whole strings (the
-///          text scanners, formatting, a worker's overlay file); sync() makes
-///          them current, and only those requests call it, so a keystroke
-///          never pays for the whole document.
+/// The text lives in `buf` (GapText). `text` and `lines` are a
+/// materialised copy for the code that scans whole strings (the
+/// text scanners, formatting, a worker's overlay file); sync() makes
+/// them current, and only those requests call it, so a keystroke
+/// never pays for the whole document.
 pub class Document {
     pub var uri:      string  = ""
     pub var path:     string  = ""
@@ -726,7 +722,7 @@ pub class Document {
 
     fn Document(self) = default
 
-    /// Records \p text as what entry \p entry's index of revision \p rev
+    /// Records `text` as what entry `entry`'s index of revision `rev`
     /// read for this buffer.
     fn set_indexed(self, const text: string, rev: u64, const entry: string) {
         self.idx_text = text.copy()
@@ -740,7 +736,7 @@ pub class Document {
         self.revision += 1
     }
 
-    /// Replaces [start, end) (byte offsets) with \p insert.
+    /// Replaces [start, end) (byte offsets) with `insert`.
     fn splice(self, start: usize, end: usize, const insert: string) {
         self.buf.replace(start, end, insert)
         self.revision += 1
@@ -759,7 +755,7 @@ pub class Document {
     }
 }
 
-/// FNV-1a over \p text: the `$/kals/text` debug answer, which a test compares
+/// FNV-1a over `text`: the `$/kals/text` debug answer, which a test compares
 /// with its own copy of the buffer.
 pub fn fnv1a(const text: string) -> u64 {
     var h: u64 = 14695981039346656037
@@ -771,11 +767,10 @@ pub fn fnv1a(const text: string) -> u64 {
     return h
 }
 
-/// \class DocumentStore
-/// \brief the open buffers, by URI.
+/// the open buffers, by URI.
 ///
-/// \details A linear list: an editor has a handful of buffers open, and a
-///          lookup happens once per message.
+/// A linear list: an editor has a handful of buffers open, and a
+/// lookup happens once per message.
 pub class DocumentStore {
     pub var docs: [Document]
 
@@ -840,7 +835,7 @@ pub class DocumentStore {
         self.docs.erase(&self.docs[i])
     }
 
-    /// Applies a didChange `contentChanges` array (node \p changes of \p msg)
+    /// Applies a didChange `contentChanges` array (node `changes` of `msg`)
     /// in order. Each change is either a range replacement or the full text.
     fn change(self, i: usize, version: i64, msg: *const JsonDoc, changes: u32) {
         self.docs[i].version = version

@@ -82,7 +82,7 @@ fn blank(c: u8) -> bool {
     return (c == (' ' as u8)) || (c == ('\t' as u8))
 }
 
-/// The identifier that starts at \p p, "" for none.
+/// The identifier that starts at `p`, "" for none.
 fn word_from(const text: string, p: usize) -> string {
     var e = p
     while (e < text.size()) && is_ident_byte(text[e]) {
@@ -92,7 +92,7 @@ fn word_from(const text: string, p: usize) -> string {
     return text.subslice(p, e - p)
 }
 
-/// The identifier that ends at \p e (exclusive), "" for none.
+/// The identifier that ends at `e` (exclusive), "" for none.
 fn word_before(const text: string, e: usize) -> string {
     var s = e
     while (s > 0) && is_ident_byte(text[s - 1]) {
@@ -102,8 +102,8 @@ fn word_before(const text: string, e: usize) -> string {
     return text.subslice(s, e - s)
 }
 
-/// Where the statement or header that holds \p at starts: back to a line
-/// start outside every bracket opened before \p at, or to the `{`, `}` or
+/// Where the statement or header that holds `at` starts: back to a line
+/// start outside every bracket opened before `at`, or to the `{`, `}` or
 /// `;` that ends what came before.
 pub fn stmt_start(const text: string, const cls: [u8], at: usize) -> usize {
     var depth: i64 = 0
@@ -206,7 +206,7 @@ fn is_scope_word(const w: string) -> bool {
         || (w == "macro")
 }
 
-/// Reads the header [\p from, \p to) of a block into \p b: its declaring
+/// Reads the header [`from`, `to`) of a block into `b`: its declaring
 /// word, after any modifiers and attributes, and the name.
 fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *Block) {
     var p = from
@@ -354,7 +354,7 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
     }
 }
 
-/// Every block opened before \p at, in the order of its `{`.
+/// Every block opened before `at`, in the order of its `{`.
 pub fn blocks_before(const text: string, const cls: [u8], at: usize) -> [Block] {
     var out:  [Block]
     var open: [usize]      // indices into `out` of the blocks still open
@@ -390,7 +390,7 @@ pub fn blocks_before(const text: string, const cls: [u8], at: usize) -> [Block] 
 }
 
 /// The outermost function (or `test`) block still open at the cursor
-/// \p blocks were read for; usize::MAX when the cursor is in none.
+/// `blocks` were read for; usize::MAX when the cursor is in none.
 pub fn function_block(const blocks: [Block]) -> usize {
     for var k: usize = 0; k < blocks.size(); ++k {
         if (blocks[k].close == usize::MAX)
@@ -402,10 +402,10 @@ pub fn function_block(const blocks: [Block]) -> usize {
     return usize::MAX
 }
 
-/// Whether a name declared at byte \p o is in scope at the cursor \p blocks
+/// Whether a name declared at byte `o` is in scope at the cursor `blocks`
 /// were read for (blocks_before): the block whose header declares it (a
 /// parameter, a `for` variable, an `if var`, a `case` binding), else the
-/// innermost block around it, is still open. Only blocks from \p from on
+/// innermost block around it, is still open. Only blocks from `from` on
 /// are looked at (the enclosing function's, function_block); a name before
 /// all of them (a type parameter of a type around the function) is in
 /// scope. The index path and the marker path's walk both ask this, so the
@@ -430,7 +430,7 @@ pub fn declared_in_scope(const blocks: [Block], from: usize, o: usize) -> bool {
     return (owner == usize::MAX) || (blocks[owner].close == usize::MAX)
 }
 
-/// Classifies the cursor at byte \p at of \p text.
+/// Classifies the cursor at byte `at` of `text`.
 pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     var s = Site{}
     var n = text.size()
@@ -776,7 +776,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     return s
 }
 
-/// The type name a written type \p t names: past `unsafe`, `const`, `*`,
+/// The type name a written type `t` names: past `unsafe`, `const`, `*`,
 /// `&`, up to its generic arguments or a `?`. May be a path (`a::B`).
 pub fn type_head(const t: string) -> string {
     var p: usize = 0
@@ -802,7 +802,7 @@ pub fn type_head(const t: string) -> string {
     return t.subslice(p, e - p)
 }
 
-/// The type of what a subscript of a value of type \p t gives, as text:
+/// The type of what a subscript of a value of type `t` gives, as text:
 /// the element of `[T]`, `[T; N]`, `[T;]`, the value of `{K: V}`; "" for any
 /// other type (a `?` or a pointer after or before it included: the value
 /// is not subscripted as it is).
@@ -885,8 +885,8 @@ pub fn elem_type_text(const t: string) -> string {
     return t.subslice(a, b - a)
 }
 
-/// The type a declaration's one-line text gives \p name (`var boxes:
-/// [Vault]`, `const n: i32 = 3`, `fn f() -> [T]` with \p result), or "".
+/// The type a declaration's one-line text gives `name` (`var boxes:
+/// [Vault]`, `const n: i32 = 3`, `fn f() -> [T]` with `result`), or "".
 pub fn decl_type_text(const line: string, const name: string, result: bool) -> string {
     if result {
         // The last `->` at the outer depth: the function's result.
@@ -952,7 +952,7 @@ pub fn decl_type_text(const line: string, const name: string, result: bool) -> s
     return line.subslice(p, e - p)
 }
 
-/// The first place at or after \p from where \p w stands as a whole word.
+/// The first place at or after `from` where `w` stands as a whole word.
 fn find_word_(const s: string, const w: string, from: usize) -> usize {
     var k = from
     while (k + w.size()) <= s.size() {
@@ -968,8 +968,8 @@ fn find_word_(const s: string, const w: string, from: usize) -> usize {
     return usize::MAX
 }
 
-/// Reads one declared name at \p p (after `var` / `const` / in a parameter
-/// list) up to \p to: `unsafe *name: T = init`.
+/// Reads one declared name at `p` (after `var` / `const` / in a parameter
+/// list) up to `to`: `unsafe *name: T = init`.
 fn read_decl(const text: string,
              const cls:  [u8],
              p_in:       usize,
@@ -1076,7 +1076,7 @@ fn read_decl(const text: string,
     out->push(d)
 }
 
-/// The names \p text declares in [\p from, \p to): `var` / `const` / `eval`
+/// The names `text` declares in [`from`, `to`): `var` / `const` / `eval`
 /// / `static` declarations, `for x in`, `catch e`. For the lines the index
 /// has no rows of (typed since it was built).
 pub fn lex_decls(const text: string, const cls: [u8], from: usize, to: usize) -> [LexDecl] {
@@ -1122,7 +1122,7 @@ pub fn lex_decls(const text: string, const cls: [u8], from: usize, to: usize) ->
     return out
 }
 
-/// The parameters a function's header [\p from, \p to) declares.
+/// The parameters a function's header [`from`, `to`) declares.
 pub fn lex_params(const text: string, const cls: [u8], from: usize, to: usize) -> [LexDecl] {
     var out: [LexDecl]
     var p              = from
@@ -1172,7 +1172,7 @@ pub struct RecvStep {
     var index: usize  = 0
 }
 
-/// The receiver that ends at \p end (exclusive), as its steps from the
+/// The receiver that ends at `end` (exclusive), as its steps from the
 /// head: `a.b().c` is a, b (called), c; `a[i].b` is a (one subscript), b;
 /// a parenthesised chain (`(a.b).`, `(*p).`) is the chain; a `?` of a safe
 /// access (`x?.`) is passed over. Empty when it is not a chain of names: a
@@ -1400,7 +1400,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
     return out
 }
 
-/// The `///` block above line \p line (0-based) of \p text, the slashes and
+/// The `///` block above line `line` (0-based) of `text`, the slashes and
 /// one space dropped; attribute lines between it and the declaration are
 /// stepped over, as the indexer's own reading does (Hovers.k, doc_).
 pub fn doc_above(const text: string, line: usize) -> string {

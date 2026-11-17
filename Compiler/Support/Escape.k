@@ -34,9 +34,9 @@ pub enum CEscapeStyle {
     Readable,
 }
 
-/// The bytes [\p p, \p p + \p len) escaped for the inside of a C or C++
+/// The bytes [`p`, `p` + `len`) escaped for the inside of a C or C++
 /// narrow string literal, without the quotes: `"` and `\` are backslashed,
-/// and \p style says what happens to the rest.
+/// and `style` says what happens to the rest.
 pub fn c_escape(p: unsafe *const u8, len: usize, style: CEscapeStyle) -> string {
     var out = ""
     for var i: usize = 0; i < len; ++i {
@@ -89,7 +89,7 @@ pub fn c_escape(const s: string, style: CEscapeStyle) -> string {
     return c_escape(unsafe (s.data() as unsafe *const u8), s.size(), style)
 }
 
-/// \p s as a C++ narrow string literal, quotes included, every byte outside
+/// `s` as a C++ narrow string literal, quotes included, every byte outside
 /// printable ASCII in octal (CEscapeStyle::Octal).
 pub fn c_string_literal(const s: string) -> string {
     return "\"" + c_escape(s, CEscapeStyle::Octal) + "\""
@@ -99,11 +99,11 @@ pub fn c_string_literal(p: unsafe *const u8, len: usize) -> string {
     return "\"" + c_escape(p, len, CEscapeStyle::Octal) + "\""
 }
 
-/// \p s as a JSON string, quotes included (RFC 8259 section 7): `"` and `\`
+/// `s` as a JSON string, quotes included (RFC 8259 section 7): `"` and `\`
 /// backslashed, a byte below 0x20 as its two-character escape (backspace,
 /// form feed, line feed, carriage return, tab) or as `\u00XX`, every other
 /// byte as it is. JSON text is UTF-8, so non-ASCII bytes pass through: the
-/// result is valid JSON when \p s is valid UTF-8.
+/// result is valid JSON when `s` is valid UTF-8.
 pub fn json_string(const s: string) -> string {
     var out = "\""
     for var i: usize = 0; i < s.size(); ++i {
@@ -136,10 +136,10 @@ pub fn json_string(const s: string) -> string {
     return out
 }
 
-/// Reads the JSON string that starts at the `"` at \p at in \p s, as
-/// json_string writes one, into \p out (decoded). Returns the index just
+/// Reads the JSON string that starts at the `"` at `at` in `s`, as
+/// json_string writes one, into `out` (decoded). Returns the index just
 /// past its closing quote, or usize::MAX when there is no well-formed
-/// string there (\p out is then unspecified). A `\uXXXX` escape is written
+/// string there (`out` is then unspecified). A `\uXXXX` escape is written
 /// as UTF-8; a surrogate is refused, since json_string never writes one.
 pub fn json_string_read(const s: string, at: usize, @inout out: string) -> usize {
     out = ""

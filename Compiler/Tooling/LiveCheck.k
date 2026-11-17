@@ -1,30 +1,30 @@
 /// --- The Kairo Project -------------------------- Tooling/LiveCheck.k --- ///
 ///
-///   \brief One entry point, checked and kept: the API a process that stays
-///          up calls when a file of the graph changes
-///          (Compiler/Spec/IncrementalSema.md, phase 4).
+/// One entry point, checked and kept: the API a process that stays
+/// up calls when a file of the graph changes
+/// (Compiler/Spec/IncrementalSema.md, phase 4).
 ///
 ///   check() type-checks the entry's graph. replace_file(path) says that
 ///   file's text changed (on disk, or through set_overlay) and brings the
 ///   result up to date. After either, the diagnostics are per file, as
 ///   objects (file_diags()), and flush() prints them as `kairo` would.
 ///
-///   Without \c in_place every replace_file is a full check in a new
-///   CompilerInstance (\c mode "full"). With it, an edit is re-checked in
+///   Without `in_place` every replace_file is a full check in a new
+///   CompilerInstance (`mode` "full"). With it, an edit is re-checked in
 ///   place where that is sound: the edited file and every file that imports
 ///   it, however far (the refresh set), against the rest of the graph as it
-///   stands (\c mode "refresh"). With \c two_tier as well, replace_file
+///   stands (`mode` "refresh"). With `two_tier` as well, replace_file
 ///   re-checks the edited file at once and queues its importers, which
 ///   drain() re-checks a slice at a time. An edit that cannot be re-checked
-///   in place is a full check, with the reason in \c why; in a copy of the
-///   process that is thrown away (\c aside) it is refused instead (\c mode
+///   in place is a full check, with the reason in `why`; in a copy of the
+///   process that is thrown away (`aside`) it is refused instead (`mode`
 ///   "refused", nothing is brought up to date). A full check, and a
 ///   refresh once nothing is queued, are meant to print what a fresh run
 ///   prints, and the oracle compares them with one: --incr-replay, and
 ///   Scripts/incr_replay_check.py, which runs a clean check per step. While
-///   files are queued the result mixes new and old (\c two_tier); a kept
-///   C++ instance can make a refresh wrong (\c strict_cxx); and a
-///   \c past_syntax check in an \c aside copy is not what a run prints.
+///   files are queued the result mixes new and old (`two_tier`); a kept
+///   C++ instance can make a refresh wrong (`strict_cxx`); and a
+///   `past_syntax` check in an `aside` copy is not what a run prints.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -79,12 +79,12 @@ fn _live_us() -> i64 {
     ).count() as i64
 }
 
-/// One overlay of a LiveCheck, by path. \c cur is the text the live
+/// One overlay of a LiveCheck, by path. `cur` is the text the live
 /// instance VIEWS (the source manager does not copy): one heap string per
 /// slot, so its bytes never move and are freed only once the instance views
-/// something else. \c next is the text set since, which the next step that
-/// re-reads the file swaps in. \c gone: the overlay was cleared, the next
-/// step reads the disk. \c disk: the current text is the LiveCheck's copy
+/// something else. `next` is the text set since, which the next step that
+/// re-reads the file swaps in. `gone`: the overlay was cleared, the next
+/// step reads the disk. `disk`: the current text is the LiveCheck's copy
 /// of the disk's (a file that was a buffer cannot go back to a mapping
 /// without a new fid).
 struct LiveOverlay {
@@ -105,7 +105,7 @@ struct GroupSnapshot {
 pub class LiveCheck {
     /// What the last check() / replace_file() / drain() did: "full" (every
     /// file checked, in a new CompilerInstance), "refresh" (re-checked in
-    /// place) or "refused" (\c aside). \c why says why, or how much.
+    /// place) or "refused" (`aside`). `why` says why, or how much.
     pub var mode: string = ""
     pub var why:  string = ""
     /// The last step's counts.
@@ -119,12 +119,12 @@ pub class LiveCheck {
     /// Re-check in place where it is sound: the edited file and every
     /// file that imports it, however far (the refresh set), against the
     /// rest of the graph as it stands. Off, every replace_file is a full
-    /// check. \c mode is then "refresh" and \c why the set's size; an edit
+    /// check. `mode` is then "refresh" and `why` the set's size; an edit
     /// that cannot be re-checked in place is still "full", with the reason.
     pub var in_place: bool = false
-    /// With \c in_place: replace_file re-checks the edited file alone (with
+    /// With `in_place`: replace_file re-checks the edited file alone (with
     /// the queued files it imports) and QUEUES the files that import it;
-    /// drain() re-checks those, a slice at a time. \c pending is how many
+    /// drain() re-checks those, a slice at a time. `pending` is how many
     /// are queued. Until it is 0 the result is the edited files' new one and
     /// the queued files' old one; at 0 it is what a fresh run gives.
     pub var two_tier: bool  = false
@@ -144,20 +144,20 @@ pub class LiveCheck {
     /// Kept C++ template shells the last refresh found filled for the set.
     pub var fills_owned: usize = 0
     /// More about why the last step was a full check, when there is more
-    /// (which instance moved): for a log, not part of \c why.
+    /// (which instance moved): for a log, not part of `why`.
     pub var detail: string = ""
     /// When set, the next step writes --dump-interface there.
     pub var dump_interface: string = ""
-    /// With \c two_tier: a file whose re-parse reports syntax errors is
+    /// With `two_tier`: a file whose re-parse reports syntax errors is
     /// checked as --check-past-syntax-errors checks it, when every error is
     /// inside function bodies that can be dropped
     /// (CompilerInstance::admit_bodies_in_place): those functions are their
     /// signatures, the parser's diagnostics are the file's own, and the
-    /// rest of it is checked. \c dropped_bodies says a step did that.
+    /// rest of it is checked. `dropped_bodies` says a step did that.
     /// Off, such a re-parse is a full check ("a diagnostic from before
     /// Sema"), as it has always been.
     ///
-    /// FOR AN INSTANCE THAT IS THROWN AWAY (\c aside): the files that
+    /// FOR AN INSTANCE THAT IS THROWN AWAY (`aside`): the files that
     /// import the file are queued as for any edit and would be re-checked
     /// against signatures whose bodies were never checked, and the result
     /// is not one a run without the flag prints.
@@ -166,7 +166,7 @@ pub class LiveCheck {
     /// This object lives in a copy of the process that ends after one
     /// replace_file (kairo::aside_fork: a text that is tried and not
     /// kept). A re-check that cannot be done in place is then REFUSED
-    /// (\c mode "refused", \c why the reason) where it would be a full
+    /// (`mode` "refused", `why` the reason) where it would be a full
     /// check: the copy has nothing to bring up to date. The parser's
     /// diagnostics of the refused file are in file_diags(), without an owner.
     pub var aside: bool = false
@@ -185,14 +185,15 @@ pub class LiveCheck {
     /// a full check, the refresh set on a refresh. Installed in each new
     /// instance. A refresh that turns into a full check has called it for
     /// its set before the full check calls it for every file: a host reads
-    /// \c mode before it uses what it collected.
+    /// `mode` before it uses what it collected.
     pub var observer: unsafe *void = &null
 
     /// Overlays, one slot per path (LiveOverlay).
     priv var _ov: cxx::std::vector<LiveOverlay>
 
-    /// \param words  the compile command without its program name: the entry
-    ///               and its flags. --type-check-only is added.
+    /// ### Parameters
+    /// - `words`: the compile command without its program name: the entry
+    ///   and its flags. --type-check-only is added.
     pub fn LiveCheck(self, const words: cxx::std::vector<string>) {
         self._words = words
         self._words.push_back("--type-check-only")
@@ -218,7 +219,7 @@ pub class LiveCheck {
         return self._full("the first check")
     }
 
-    /// \p path's text changed. false when the command line was refused or
+    /// `path`'s text changed. false when the command line was refused or
     /// names no entry; the diagnostics say which.
     pub fn replace_file(self, const path: string) -> bool {
         var why = "re-checking in place is not built"
@@ -265,8 +266,8 @@ pub class LiveCheck {
         return true
     }
 
-    /// \c past_syntax: the diagnostics from index \p n0 on are the re-parse's.
-    /// "" when they are all syntax errors of files of \p group that can be
+    /// `past_syntax`: the diagnostics from index `n0` on are the re-parse's.
+    /// "" when they are all syntax errors of files of `group` that can be
     /// checked without the bodies they are in; those bodies are dropped and
     /// the diagnostics given to their files. Otherwise why not.
     priv fn _admit_bodies(self, const group: cxx::std::vector<u32>, n0: usize) -> string {
@@ -349,8 +350,8 @@ pub class LiveCheck {
         return out
     }
 
-    /// The refresh set of an edit of \p path (into \p set, the file first,
-    /// with the files' names in \p names) and every reason it cannot be
+    /// The refresh set of an edit of `path` (into `set`, the file first,
+    /// with the files' names in `names`) and every reason it cannot be
     /// re-checked in place that is known before anything is touched. ""
     /// when it can be tried.
     priv fn _plan(self,
@@ -489,8 +490,8 @@ pub class LiveCheck {
         return rev
     }
 
-    /// Every file that imports \p root, however far, that \p in_set does
-    /// not hold yet: appended to \p set and \p added, nearest first.
+    /// Every file that imports `root`, however far, that `in_set` does
+    /// not hold yet: appended to `set` and `added`, nearest first.
     priv fn _grow(self,
                   rev:    unsafe *cxx::std::vector<cxx::std::vector<u32>>,
                   root:   u32,
@@ -521,7 +522,7 @@ pub class LiveCheck {
         }
     }
 
-    /// The diagnostics of the files \p names leave the per-file list and
+    /// The diagnostics of the files `names` leave the per-file list and
     /// the engine (its duplicate filter, its counts, the poison scopes
     /// inside them): they go with the files' trees. Returns the size of
     /// the list afterwards.
@@ -578,15 +579,15 @@ pub class LiveCheck {
         return ""
     }
 
-    /// Re-reads, preprocesses, indexes and parses \p group (named \p names,
-    /// \p edited the file whose text changed, u32::MAX for none), whose
-    /// diagnostics _forget has taken out (\p n0 is the per-file list's size
+    /// Re-reads, preprocesses, indexes and parses `group` (named `names`,
+    /// `edited` the file whose text changed, u32::MAX for none), whose
+    /// diagnostics _forget has taken out (`n0` is the per-file list's size
     /// since), and runs Sema on it again through the action. "" when done;
     /// otherwise why this takes a full check, with the instance possibly
     /// left half-refreshed.
     ///
-    /// \p tiered: a re-parse that reports diagnostics may still be checked
-    /// with its broken bodies dropped (\c past_syntax, _admit_bodies). The
+    /// `tiered`: a re-parse that reports diagnostics may still be checked
+    /// with its broken bodies dropped (`past_syntax`, _admit_bodies). The
     /// files are re-read importers first: no live tree may point into a
     /// file being re-read.
     priv fn _recheck(self,
@@ -667,7 +668,7 @@ pub class LiveCheck {
         return ""
     }
 
-    /// Re-checks \p path's refresh set in place. "" when done (\c why then
+    /// Re-checks `path`'s refresh set in place. "" when done (`why` then
     /// says how many files); otherwise the reason this edit takes a full
     /// check, with the instance possibly left half-refreshed: the caller
     /// replaces it.
@@ -730,16 +731,16 @@ pub class LiveCheck {
         self._mem_report("re-check done")
     }
 
-    /// \brief every file of every retraction is re-checked and the result
-    ///        stands: the trees the re-checks replaced are freed, once
-    ///        their addresses are out of the build-wide stores.
+    /// every file of every retraction is re-checked and the result
+    /// stands: the trees the re-checks replaced are freed, once
+    /// their addresses are out of the build-wide stores.
     ///
-    /// \details KAIRO_LIVE_KEEP_RETIRED keeps them (what a live check did
-    ///          before this was built: a way to rule the free out).
-    ///          KAIRO_LIVE_POISON overwrites and keeps them instead, and
-    ///          then searches the heap for a word that still points into
-    ///          one: the use-after-free check, which the oracle runs under
-    ///          (a stale read then reads 0xDD.., not a new tree's node).
+    /// KAIRO_LIVE_KEEP_RETIRED keeps them (what a live check did
+    /// before this was built: a way to rule the free out).
+    /// KAIRO_LIVE_POISON overwrites and keeps them instead, and
+    /// then searches the heap for a word that still points into
+    /// one: the use-after-free check, which the oracle runs under
+    /// (a stale read then reads 0xDD.., not a new tree's node).
     priv fn _release_retired(self) {
         if self._ci->retired.empty() || cxx::std::getenv(r"KAIRO_LIVE_KEEP_RETIRED") != &null {
             return
@@ -895,9 +896,9 @@ pub class LiveCheck {
 
     /// --- two tiers ---------------------------------------------------
     ///
-    /// With \c two_tier an edit of F is two things. replace_file does the
+    /// With `two_tier` an edit of F is two things. replace_file does the
     /// first: the whole refresh set leaves the build-wide stores (as one
-    /// refresh does it), every file of it is queued (\c _q, kept in the
+    /// refresh does it), every file of it is queued (`_q`, kept in the
     /// order Sema runs files, an import cycle's members together:
     /// FrontendAction::group_order_of), and F is re-checked AT ONCE, with the queued
     /// files F imports before it. drain() does the second, a slice at a
@@ -911,7 +912,7 @@ pub class LiveCheck {
     /// turn. A queued file's diagnostics and rows stay as they were until
     /// then.
 
-    /// The files \p fid imports, however far, that are queued; \p fid
+    /// The files `fid` imports, however far, that are queued; `fid`
     /// itself first.
     priv fn _closure(self, fid: u32) -> cxx::std::vector<u32> {
         var out  = cxx::std::vector<u32>()
@@ -946,8 +947,8 @@ pub class LiveCheck {
         return false
     }
 
-    /// Re-checks \p target and the queued files it imports, in Sema's
-    /// order, and takes them off the queue. \p edited: the file whose text
+    /// Re-checks `target` and the queued files it imports, in Sema's
+    /// order, and takes them off the queue. `edited`: the file whose text
     /// changed (u32::MAX for a background slice).
     priv fn _tier_redo(self, target: u32, edited: u32) -> string {
         var group  = self._action->order_of(self._closure(target))
@@ -1006,7 +1007,7 @@ pub class LiveCheck {
         return ""
     }
 
-    /// The first tier of an edit of \p path.
+    /// The first tier of an edit of `path`.
     priv fn _tier_begin(self, const path: string) -> string {
         var fid:  u32 = u32::MAX
         var set       = cxx::std::vector<u32>()
@@ -1075,15 +1076,16 @@ pub class LiveCheck {
         return why
     }
 
-    /// \brief the second tier: re-checks queued files until \p max_files
-    ///        more are done (a file's group is never split) or none is
-    ///        left. \p prefer names files to do first, with what they
-    ///        import (a tool's open buffers); the rest go in Sema's order.
+    /// the second tier: re-checks queued files until `max_files`
+    /// more are done (a file's group is never split) or none is
+    /// left. `prefer` names files to do first, with what they
+    /// import (a tool's open buffers); the rest go in Sema's order.
     ///
-    /// \return true while files are still queued. \c rechecked is what
-    ///         this call re-checked, \c pending what is left; \c mode is
-    ///         "full" when a slice could not be re-checked in place and
-    ///         everything was (\c why says which reason).
+    /// ### Returns
+    /// true while files are still queued. `rechecked` is what
+    /// this call re-checked, `pending` what is left; `mode` is
+    /// "full" when a slice could not be re-checked in place and
+    /// everything was (`why` says which reason).
     pub fn drain(self, max_files: usize, const prefer: cxx::std::vector<string>) -> bool {
         self.rechecked.clear()
         self.detail = ""
@@ -1192,7 +1194,7 @@ pub class LiveCheck {
         return usize::MAX
     }
 
-    /// Detaches \p fid and gives it the text it is re-checked from: the
+    /// Detaches `fid` and gives it the text it is re-checked from: the
     /// overlay set since the last step, the disk when the overlay was
     /// cleared (or the file never had one), and for a buffer nothing
     /// changed (an importer of the edited file) the bytes it has.
@@ -1264,7 +1266,7 @@ pub class LiveCheck {
         }
     }
 
-    /// The bytes to read wherever \p path would be read, from the next
+    /// The bytes to read wherever `path` would be read, from the next
     /// check() or replace_file() that re-reads it on: a refresh whose set
     /// holds the file, or any full check. Copied.
     pub fn set_overlay(self, const path: string, const text: string) {
@@ -1284,7 +1286,7 @@ pub class LiveCheck {
         self._ov[k].gone = false
     }
 
-    /// \p path is read from the disk again, from the next step that
+    /// `path` is read from the disk again, from the next step that
     /// re-reads it on.
     pub fn clear_overlay(self, const path: string) {
         var k = self._slot(path)
@@ -1300,7 +1302,7 @@ pub class LiveCheck {
         self._ov[k].gone = true
     }
 
-    /// Has \p path an overlay set and not yet read, or one cleared and not
+    /// Has `path` an overlay set and not yet read, or one cleared and not
     /// yet dropped?
     pub fn overlay_pending(self, const path: string) -> bool {
         var k = self._slot(path)

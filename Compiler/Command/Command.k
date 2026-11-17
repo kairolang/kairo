@@ -303,9 +303,10 @@ pub class Command {
     /// flags are stored as "c:{name}", so pass that form for them; a Feature's
     /// key is its bare feature name. An unknown key is ignored on purpose: the
     /// list lives in the registry, and a typo there must not abort the compiler.
-    /// \brief tags every positional input with the value \p key has when the
-    ///        input is seen, in each ParsedArgs::inputs entry's lang.
-    ///        clang's -x semantics: it applies to the inputs that FOLLOW it.
+    ///
+    /// tags every positional input with the value `key` has when the
+    /// input is seen, in each ParsedArgs::inputs entry's lang.
+    /// clang's -x semantics: it applies to the inputs that FOLLOW it.
     fn tag_positionals_with(self, const key: string) {
         self._tag_key = key.copy()
     }
@@ -969,7 +970,7 @@ pub class Command {
         }
     }
 
-    /// \brief set a Feature flag cell to enabled (1) or disabled (0)
+    /// set a Feature flag cell to enabled (1) or disabled (0)
     priv fn _apply_feature(self, def: unsafe *FlagDef, enable: bool, result: *ParsedArgs) {
         var *cell = result->_cell(def->key)
         cell->set_i32(if enable => 1 else => 0)
@@ -1305,8 +1306,8 @@ pub class Command {
         return result
     }
 
-    /// \brief parse a vec::<string> as received from main's argv
-    ///        args[0] is the program name and is skipped
+    /// parse a vec::<string> as received from main's argv
+    /// args[0] is the program name and is skipped
     pub fn parse(self) -> ParsedArgs {
         if self._args.size() == 0 {
             self._diag->report(
@@ -1323,9 +1324,9 @@ pub class Command {
         return result
     }
 
-    /// \brief parse words that did not come from main's argv (no program
-    ///        name in front): the kairo words FlagTranslator::from_driver
-    ///        makes of a clang command line. Same parser, same checks.
+    /// parse words that did not come from main's argv (no program
+    /// name in front): the kairo words FlagTranslator::from_driver
+    /// makes of a clang command line. Same parser, same checks.
     pub fn parse_words(self, @inout words: cxx::std::vector<string>) -> ParsedArgs {
         var args: cxx::std::vector<string>
         args.push_back("kairo")
@@ -1338,7 +1339,7 @@ pub class Command {
         return result
     }
 
-    /// \brief split a space-separated string and parse (convenience for tests)
+    /// split a space-separated string and parse (convenience for tests)
     fn parse_string(self, const cmdline: string) -> ParsedArgs {
         var args: cxx::std::vector<string>
         args.push_back("prog") // argv[0] placeholder
@@ -1363,7 +1364,7 @@ pub class Command {
 
 
     /// --help: every flag a user is offered (an unimplemented one tagged).
-    /// --help-hidden (\p hidden_only): the internal ones (mark_hidden) and the
+    /// --help-hidden (`hidden_only`): the internal ones (mark_hidden) and the
     /// not-implemented-yet ones (mark_unimplemented), each tagged with which.
     pub fn print_help(self, hidden_only: bool = false) {
         var COL: usize = 36 // column where descriptions start

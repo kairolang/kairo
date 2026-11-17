@@ -49,9 +49,7 @@ pub
 eval SPLITMIX64_MUL2: u64 = 0x94D049BB133111EB
 
 
-///
-/// \brief Converts a usize value to a hexadecimal string.
-///
+/// Converts a usize value to a hexadecimal string.
 pub inline fn to_hex_string(const value: usize) -> string {
     return string(
         unsafe ((llvm::formatv(r"{0:x-}", value).str().c_str() as unsafe *const u8) as *const u8),
@@ -59,28 +57,30 @@ pub inline fn to_hex_string(const value: usize) -> string {
 }
 
 
+/// Fold a 64-bit hash into a 32-bit hash.
+/// This is useful for reducing the size of the hash for storage
+/// or comparison.
 ///
-/// \brief Fold a 64-bit hash into a 32-bit hash.
-///        This is useful for reducing the size of the hash for storage
-///        or comparison.
+/// ### Parameters
+/// - `hash64`: The 64-bit hash value to fold.
 ///
-/// \param  hash64 The 64-bit hash value to fold.
-/// \return A 32-bit hash value.
-///
+/// ### Returns
+/// A 32-bit hash value.
 pub fn fold_hash(const hash64: u64) -> u32 {
     return (hash64 >> 32 ^ hash64) as u32
 }
 
 
+/// FNV-1a hash step with optional position mixing.
+/// Inlined directly into loops to avoid call overhead.
 ///
-/// \brief FNV-1a hash step with optional position mixing.
-///        Inlined directly into loops to avoid call overhead.
+/// ### Parameters
+/// - `chr`: The character to mix into the hash.
+/// - `hash`: The current hash value.
+/// - `pos`: The position of the character in the string (0-based).
 ///
-/// \param  chr  The character to mix into the hash.
-/// \param  hash The current hash value.
-/// \param  pos  The position of the character in the string (0-based).
-/// \return The updated hash value after mixing in the character.
-///
+/// ### Returns
+/// The updated hash value after mixing in the character.
 pub fn mix_char(chr: u8, hash: u64, pos: usize) -> u64 {
     var h: u64 = hash ^ (chr as u64)
     h *= FNV_PRIME
@@ -89,17 +89,16 @@ pub fn mix_char(chr: u8, hash: u64, pos: usize) -> u64 {
 }
 
 
+/// The spelling hash of the bytes [`str`, `str` + `len`): FNV-1a
+/// with position mixing, folded to 32 bits (fold_hash). A word
+/// token's kind is this value of its spelling.
 ///
-/// \brief The spelling hash of the bytes [\p str, \p str + \p len): FNV-1a
-///        with position mixing, folded to 32 bits (fold_hash). A word
-///        token's kind is this value of its spelling.
+/// ### Returns
+/// The folded hash, or u32::MAX for an empty spelling.
 ///
-/// \return The folded hash, or u32::MAX for an empty spelling.
-///
-/// \note No length cap: the lexer's HashState hashes identifiers of any
-///       length, and this must agree with it for the same spelling (C++
-///       headers carry identifiers well past 255 chars).
-///
+/// **Note:** No length cap: the lexer's HashState hashes identifiers of any
+/// length, and this must agree with it for the same spelling (C++
+/// headers carry identifiers well past 255 chars).
 pub fn compute_hash(str: unsafe *const u8, const len: usize) -> u32 {
     if len == 0 {
         return u32::MAX
@@ -116,10 +115,8 @@ pub fn compute_hash(str: unsafe *const u8, const len: usize) -> u32 {
     )
 }
 
-///
-/// \brief compute_hash of the bytes of \p str; u32::MAX for a null or empty
-///        string.
-///
+/// compute_hash of the bytes of `str`; u32::MAX for a null or empty
+/// string.
 pub fn compute_hash(str: unsafe *const string) -> u32 {
     if str == &null {
         return u32::MAX
@@ -129,25 +126,19 @@ pub fn compute_hash(str: unsafe *const string) -> u32 {
 }
 
 
-///
-/// \brief Stateful incremental hasher compatible with compute_hash.
-///        Can be reused to hash multiple tokens in sequence.
-///
+/// Stateful incremental hasher compatible with compute_hash.
+/// Can be reused to hash multiple tokens in sequence.
 pub class HashState {
     var value: u64   = FNV_OFFSET_BASIS
     var index: usize = 1
 
-    ///
-    /// \brief Mix a single character into the hash state.
-    ///
+    /// Mix a single character into the hash state.
     pub inline fn mix(self, chr: u8) {
         self.value = mix_char(chr, self.value, self.index - 1)
         ++self.index
     }
 
-    ///
-    /// \brief Mix a buffer of chars (1-255 chars).
-    ///
+    /// Mix a buffer of chars (1-255 chars).
     inline fn mix_buffer(self, buf: unsafe *const u8, const len: usize) {
         if len == 0 || len >= 256 || len + self.index > 256 {
             kairo::std::ice_fail("Buffer too long for hashing (max 255 chars)")
@@ -158,18 +149,14 @@ pub class HashState {
         }
     }
 
-    ///
-    /// \brief Finalize the hash into a folded 32-bit value.
-    ///
+    /// Finalize the hash into a folded 32-bit value.
     pub inline fn finalize(self) -> u64 {
         return fold_hash(
             (self.value ^ ((self.index - 1) as u64) * GOLDEN_RATIO_MIX) + RESERVED_LOW & HASH_MAX,
         )
     }
 
-    ///
-    /// \brief Reset the hash state for reuse.
-    ///
+    /// Reset the hash state for reuse.
     inline fn reset(self) {
         self.value = FNV_OFFSET_BASIS
         self.index = 1

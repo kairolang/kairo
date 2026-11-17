@@ -69,7 +69,7 @@ import Workspace::CompileCommandsLoader::{
 import std::io
 
 extend Server {
-    /// Can entry \p ei (usize::MAX: none known yet) answer a request now?
+    /// Can entry `ei` (usize::MAX: none known yet) answer a request now?
     /// The first rows of LanguageServer.md section 9, in one place; a pure
     /// query (feature() calls ensure_entry first).
     fn answerability(const self, ei: usize, const path: string) -> Answer {
@@ -104,7 +104,7 @@ extend Server {
     }
 
     /// The features answered from a snapshot. False: not answerable yet (the
-    /// entry is stale or unknown) and \p stale_ok is off, so park it.
+    /// entry is stale or unknown) and `stale_ok` is off, so park it.
     fn feature(self, const msg: string, stale_ok: bool, give_up: bool) -> bool {
         var d = JsonDoc()
         if !d.parse(msg) {

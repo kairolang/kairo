@@ -1,8 +1,8 @@
 /// --- The Kairo Project --------------------------- Codegen/EmitPlan.k --- ///
 ///
-///   \brief Per emitted TU, work out every declaration the C++ needs, how
-///          much of each (`class X;` or the body-less definition), and the
-///          order they must appear in.
+/// Per emitted TU, work out every declaration the C++ needs, how
+/// much of each (`class X;` or the body-less definition), and the
+/// order they must appear in.
 ///
 ///   \par Where its parts are
 ///     This file holds the plan's types, the class with its fields, run(),
@@ -522,7 +522,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         self._mode  = mode
     }
 
-    /// ICE naming the Kairo source at \p at (CodegenICE).
+    /// ICE naming the Kairo source at `at` (CodegenICE).
     prot fn _ice(self, at: SourceRange, const msg: string) {
         codegen_ice(self._cg->ctx, at, msg)
     }
@@ -651,7 +651,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
     }
 
-    /// TranslationUnit::cxx_escaping for pathless TU \p tu: a Header plan of the
+    /// TranslationUnit::cxx_escaping for pathless TU `tu`: a Header plan of the
     /// file roots at its pub decls and walks its inline and template bodies to
     /// a fixed point, admitting every hidden decl one names -- exactly the set.
     /// The nested plan is a probe (_escaping_probe), so it does not recurse,
@@ -695,7 +695,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         tu->cxx_escaping_done = true
     }
 
-    /// \p d is no root of a Header or Include plan: C++ outside the module may
+    /// `d` is no root of a Header or Include plan: C++ outside the module may
     /// not name it (AST/VisibilityFacts.k). `priv` and `internal` never; `prot`
     /// only for a C++ TU of the module (host_in_module); an unmarked decl is
     /// what its file's default makes it. A hidden decl still gets there when a
@@ -1113,7 +1113,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
     /// # Predicates
 
-    /// \p d is a member of a generic record (its own generic params aside).
+    /// `d` is a member of a generic record (its own generic params aside).
     fn _member_of_template(self, d: unsafe *Decl) -> bool {
         if d == &null || !isa<Declarations::FunctionDecl>(d) || d->semantic_dc == &null {
             return false
@@ -1128,7 +1128,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         return owner != &null && DeclFacts::decl_generic_params(owner).size() > 0
     }
 
-    /// \p d is declared in an interface: a requirement, never a C++ function.
+    /// `d` is declared in an interface: a requirement, never a C++ function.
     fn _is_requirement(self, d: unsafe *Decl) -> bool {
         if d == &null || !isa<Declarations::FunctionDecl>(d) || d->semantic_dc == &null {
             return false
@@ -1202,18 +1202,17 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     }
 }
 
-/// \class PlanLease
-/// \brief A plan run ahead (CodegenJob::make_plan), bound to one stream's
-///        sink for one fill and given back as it was found.
+/// A plan run ahead (CodegenJob::make_plan), bound to one stream's
+/// sink for one fill and given back as it was found.
 ///
-/// \details A fill prunes the plan's entries by what its host already holds
-///          (the interface PCH's keys, an earlier include's), and the same
-///          plan fills again: the interface PCH's stream, then each kind of
-///          the TU's compile, then the compile again without the PCH when
-///          clang had something to say (CodegenJob::run). Left pruned, a
-///          later fill emits a stream missing every declaration the pruning
-///          dropped. op finally restores, so no return between the bind and
-///          the end of the fill can skip it.
+/// A fill prunes the plan's entries by what its host already holds
+/// (the interface PCH's keys, an earlier include's), and the same
+/// plan fills again: the interface PCH's stream, then each kind of
+/// the TU's compile, then the compile again without the PCH when
+/// clang had something to say (CodegenJob::run). Left pruned, a
+/// later fill emits a stream missing every declaration the pruning
+/// dropped. op finally restores, so no return between the bind and
+/// the end of the fill can skip it.
 ///
 ///          The context stays Planned (CodegenPhase): it fills again. Each
 ///          plan is one TU's and its fills run one after another (the
@@ -1263,7 +1262,7 @@ pub class PlanLease {
     }
 }
 
-/// "Does this layout reach \p target by value?" over the by-value spine:
+/// "Does this layout reach `target` by value?" over the by-value spine:
 /// records, tuples, fixed arrays, and a generic ARGUMENT only where the
 /// primary stores that parameter by value. Pointers, references and the
 /// (pre-migration) structural containers stop the walk.
@@ -1447,7 +1446,7 @@ pub class LayoutSpine {
     }
 }
 
-/// \p d_in, or a declaration enclosing it, has a `<T: type>` parameter
+/// `d_in`, or a declaration enclosing it, has a `<T: type>` parameter
 /// (Sema's panic_in_duck): the C++-checked regime, whose member calls
 /// through T EmitIR wraps (LowerTargets::nopanic_call).
 pub fn plan_under_duck(d_in: unsafe *Decl) -> bool {

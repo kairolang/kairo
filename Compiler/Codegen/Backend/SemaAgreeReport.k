@@ -1,9 +1,9 @@
 /// --- The Kairo Project ----------- Codegen/Backend/SemaAgreeReport.k --- ///
 ///
-///   \brief One finding of the Sema agreement pass in the form it is
-///          reported, and that form as text, so the incremental cache can
-///          keep a TU's findings beside its object and say them again
-///          (Compiler/Spec/SemaAgreement.md).
+/// One finding of the Sema agreement pass in the form it is
+/// reported, and that form as text, so the incremental cache can
+/// keep a TU's findings beside its object and say them again
+/// (Compiler/Spec/SemaAgreement.md).
 ///
 ///   A finding is the parts of its diagnostic: where, the message, the
 ///   label and the notes. The walk's run builds them once
@@ -44,7 +44,7 @@ import Support::Ascii::{
     split,
 }
 
-/// A note under a finding. \p labelled: the note underlines \p at;
+/// A note under a finding. `labelled`: the note underlines `at`;
 /// otherwise it only points at its start.
 pub struct AgreeNote {
     pub var at:       SourceRange
@@ -67,7 +67,7 @@ pub fn agree_text_magic() -> string {
     return "kairo-agree-findings 1"
 }
 
-/// Reports \p f into \p ctx's sink.
+/// Reports `f` into `ctx`'s sink.
 pub fn agree_emit(ctx: unsafe *ASTContext, const f: AgreeFinding) {
     var b = ctx->diag_sink.report(
         DiagCode(DiagID::I012W),
@@ -88,7 +88,7 @@ pub fn agree_emit(ctx: unsafe *ASTContext, const f: AgreeFinding) {
     b.emit()
 }
 
-/// \p s on one line: a line break in it would end its record.
+/// `s` on one line: a line break in it would end its record.
 fn _one_line(const s: string) -> string {
     var clean = true
     for var i: usize = 0; i < s.size(); ++i {
@@ -123,7 +123,7 @@ fn _base_name(const path: string) -> string {
     return path.subslice(at, path.size() - at)
 }
 
-/// The content hash of \p fid's bytes, "" when they are not at hand.
+/// The content hash of `fid`'s bytes, "" when they are not at hand.
 fn _file_hash(sm: unsafe *SourceManager, fid: FileID) -> string {
     var buf? = sm->get_buffer(fid)
     if buf == null || !buf.is_valid() {
@@ -135,15 +135,14 @@ fn _file_hash(sm: unsafe *SourceManager, fid: FileID) -> string {
     )
 }
 
-/// \class AgreeFiles
-/// \brief The files a TU's findings point into, each once, in the order
-///        the text lists them.
+/// The files a TU's findings point into, each once, in the order
+/// the text lists them.
 class AgreeFiles {
     pub var fids:  cxx::std::vector<FileID>
     pub var lines: string                   = ""
     pub var ok:    bool                     = true
 
-    /// " <file> <offset> <length>" for \p r, the file by its index here;
+    /// " <file> <offset> <length>" for `r`, the file by its index here;
     /// `-` for the file of an invalid range.
     fn place(self, sm: unsafe *SourceManager, r: SourceRange) -> string {
         if !r.is_valid() {
@@ -173,9 +172,9 @@ class AgreeFiles {
     }
 }
 
-/// \brief \p found as text for the object stored under \p key, or "" when
-///        a file one of them points into has no bytes at hand to identify
-///        it by.
+/// `found` as text for the object stored under `key`, or "" when
+/// a file one of them points into has no bytes at hand to identify
+/// it by.
 pub fn agree_encode(sm:          unsafe *SourceManager,
                     const key:   string,
                     const found: cxx::std::vector<AgreeFinding>) -> string {
@@ -202,13 +201,13 @@ pub fn agree_encode(sm:          unsafe *SourceManager,
     return agree_text_magic() + "\nO " + key + "\n" + files.lines + body + "end\n"
 }
 
-/// Whether \p text is the whole findings text of the object stored under
-/// \p key.
+/// Whether `text` is the whole findings text of the object stored under
+/// `key`.
 pub fn agree_text_whole(const text: string, const key: string) -> bool {
     return text.starts_with(agree_text_magic() + "\nO " + key + "\n") && text.ends_with("\nend\n")
 }
 
-/// The next word of \p line from \p at, which moves past it and the space
+/// The next word of `line` from `at`, which moves past it and the space
 /// after it.
 fn _word(const line: string, @inout at: usize) -> string {
     var start = at
@@ -232,8 +231,8 @@ fn _rest(const line: string, at: usize) -> string {
     return line.subslice(at, line.size() - at)
 }
 
-/// The file of this run that has \p size bytes hashing to \p hash and is
-/// named as \p path's last component: the one at \p path when several do.
+/// The file of this run that has `size` bytes hashing to `hash` and is
+/// named as `path`'s last component: the one at `path` when several do.
 /// u32::MAX when none does.
 fn _find_file(sm:         unsafe *SourceManager,
               size:       usize,
@@ -265,8 +264,8 @@ fn _find_file(sm:         unsafe *SourceManager,
     return best
 }
 
-/// The range " <file> <offset> <length>" names, read from \p line at
-/// \p at. False when it names a file \p fids does not hold.
+/// The range " <file> <offset> <length>" names, read from `line` at
+/// `at`. False when it names a file `fids` does not hold.
 fn _read_place(sm:         unsafe *SourceManager,
                const fids: cxx::std::vector<FileID>,
                const line: string,
@@ -289,10 +288,10 @@ fn _read_place(sm:         unsafe *SourceManager,
     return true
 }
 
-/// \brief the findings \p text holds (agree_encode's, whole for its key),
-///        placed in this run's files. False, with \p out to be ignored,
-///        when a file one of them points into is not among this run's with
-///        the bytes it had: the text describes another source.
+/// the findings `text` holds (agree_encode's, whole for its key),
+/// placed in this run's files. False, with `out` to be ignored,
+/// when a file one of them points into is not among this run's with
+/// the bytes it had: the text describes another source.
 pub fn agree_decode(sm:         unsafe *SourceManager,
                     const text: string,
                     @inout out: cxx::std::vector<AgreeFinding>) -> bool {

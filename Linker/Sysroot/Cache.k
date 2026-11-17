@@ -134,7 +134,7 @@ pub class SysCache {
         return f"{self.root}/locks/{key}.lock"
     }
 
-    /// The finished sysroot \p name points at; "" when there is none (or
+    /// The finished sysroot `name` points at; "" when there is none (or
     /// the entry dangles: its key was removed by gc or rm).
     pub fn lookup(self, const name: string) -> string {
         var entry = f"{self.root}/by-name/{name}"
@@ -154,7 +154,7 @@ pub class SysCache {
         return ""
     }
 
-    /// The key by-name/\p name points at; "" for none.
+    /// The key by-name/`name` points at; "" for none.
     pub fn key_of(self, const name: string) -> string {
         var dir = self.lookup(name)
         if dir.is_empty() {
@@ -164,7 +164,7 @@ pub class SysCache {
         return LinkFS::filename(dir)
     }
 
-    /// Points by-name/\p name at sysroots/\p key, replacing any old entry in
+    /// Points by-name/`name` at sysroots/`key`, replacing any old entry in
     /// one rename so a concurrent lookup sees the old root or the new one.
     pub fn publish(self, const name: string, const key: string) -> bool {
         var dir = f"{self.root}/by-name"
@@ -218,7 +218,7 @@ pub class SysCache {
         return out
     }
 
-    /// Removes by-name/\p name, and its sysroot when no other name points
+    /// Removes by-name/`name`, and its sysroot when no other name points
     /// at it. False when there is no such name.
     pub fn remove_name(self, const name: string) -> bool {
         var entry = f"{self.root}/by-name/{name}"
@@ -236,7 +236,7 @@ pub class SysCache {
     }
 
     /// Drops sysroots no name points at, and stage dirs (finished, partial
-    /// or failed) older than \p max_age_ticks before \p now. Returns what it
+    /// or failed) older than `max_age_ticks` before `now`. Returns what it
     /// removed, one path per entry.
     pub fn gc(self, now: u64, max_age_ticks: u64) -> cxx::std::vector<string> {
         var removed = cxx::std::vector<string>()

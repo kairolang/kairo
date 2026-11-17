@@ -11,12 +11,12 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-/// Pipeline lifecycle stage for a \c FrontendAction.
+/// Pipeline lifecycle stage for a `FrontendAction`.
 ///
-/// Stages are strictly ordered a \c FrontendAction may only advance forward.
+/// Stages are strictly ordered a `FrontendAction` may only advance forward.
 /// A stage method returning false halts the pipeline and leaves the stage at
-/// \c Failed. A fatal diagnostic in any file sets \c BatchResult::aborted,
-/// causing \c execute() to skip all remaining input files.
+/// `Failed`. A fatal diagnostic in any file sets `BatchResult::aborted`,
+/// causing `execute()` to skip all remaining input files.
 // No imports: an enum that names nothing outside itself must stay a leaf.
 // ASTContext imports this file, so an import of Sema here closes a cycle
 // through SemaContext back to ASTContext (287 of the 322 R001W cycles).

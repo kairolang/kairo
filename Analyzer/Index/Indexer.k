@@ -121,8 +121,7 @@ import Token::TokenKind::{
 }
 import Token::TokenText::TokenText
 
-/// \class IndexWalker
-/// \brief the walk over one TU.
+/// the walk over one TU.
 pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     pub var sc:  unsafe *SemaContext
     pub var sm:  unsafe *SourceManager
@@ -275,7 +274,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
 
     /// Drops the locals of the declaration the walk has left: all of them
     /// before a type at file level, and before a function all but the type
-    /// parameters of the types around it (\p keep_type_params).
+    /// parameters of the types around it (`keep_type_params`).
     fn leave_locals_(self, keep_type_params: bool) {
         var kept: [unsafe *Decl]
         var at:   [u32]
@@ -295,7 +294,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         self.locals_at_ = at.copy()
     }
 
-    /// Whether \p d is declared inside a function or a closure (a local
+    /// Whether `d` is declared inside a function or a closure (a local
     /// type's member is), not at file, module or type level.
     fn in_function_(self, d: unsafe *Decl) -> bool {
         var unsafe *dc = d->semantic_dc
@@ -313,7 +312,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
 
     // --- locations -------------------------------------------------------
 
-    /// The FileText for \p fid, loading it on first use. Index into `files`.
+    /// The FileText for `fid`, loading it on first use. Index into `files`.
     fn file_(self, fid: u32) -> usize {
         for var i: usize = 0; i < self.files.size(); ++i {
             if self.files[i].fid == fid {
@@ -341,7 +340,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         return self.files.size() - 1
     }
 
-    /// Byte offset of \p loc when it lies in the indexed file, else u32::MAX.
+    /// Byte offset of `loc` when it lies in the indexed file, else u32::MAX.
     /// A token that came out of a macro body, or from an imported template,
     /// lies elsewhere and has no place in this file's tables.
     fn own_off_(self, loc: SourceLocation) -> u32 {
@@ -496,7 +495,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         return m
     }
 
-    /// \p d carries `@deprecated`, read as AttributeCheck::_deprecation
+    /// `d` carries `@deprecated`, read as AttributeCheck::_deprecation
     /// reads it from the decl and its pattern (an instance). Its third link,
     /// NameLookup::representative, is `prot` to the compiler module.
     fn deprecated_(self, d: unsafe *Decl) -> bool {
@@ -640,7 +639,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         self.toks.push(t)
     }
 
-    /// Is \p d (of token kind \p kd) a type declared in the builtin library?
+    /// Is `d` (of token kind `kd`) a type declared in the builtin library?
     fn builtin_type_(self, d: unsafe *Decl, kd: u32) -> bool {
         if !((kd == TT_CLASS())
             || (kd == TT_STRUCT())
@@ -664,7 +663,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         )
     }
 
-    /// Records a use of \p d at \p tok: a token, and an edge to the declaration.
+    /// Records a use of `d` at `tok`: a token, and an edge to the declaration.
     fn use_(self, tok_in: Token, d: unsafe *Decl, extra: u32) {
         if d == &null {
             return

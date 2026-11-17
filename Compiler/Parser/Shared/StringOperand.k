@@ -33,7 +33,7 @@ pub enum StringOperand {
     Path,
 }
 
-/// The prefix letters \p d carries that a \p what operand does not take,
+/// The prefix letters `d` carries that a `what` operand does not take,
 /// in the order `f`, `b`, `r`; "" when it takes the string as written.
 pub fn refused_prefix(d: unsafe *Immediate::StringData, what: StringOperand) -> string {
     if d == &null {
@@ -56,8 +56,8 @@ pub fn refused_prefix(d: unsafe *Immediate::StringData, what: StringOperand) -> 
     return out
 }
 
-/// The message for a \p what operand of \p construct (`ffi`, `inline`)
-/// written with the refused prefix \p letters.
+/// The message for a `what` operand of `construct` (`ffi`, `inline`)
+/// written with the refused prefix `letters`.
 pub fn refused_prefix_message(what:            StringOperand,
                               const construct: string,
                               const letters:   string) -> string {
@@ -68,15 +68,15 @@ pub fn refused_prefix_message(what:            StringOperand,
     return f"an ffi header path is a plain or raw string; remove the '{letters}' prefix"
 }
 
-/// True when removing \p prefix, a refused string's whole prefix, is the
-/// fix-it: \p letters (refused_prefix) is all of it. A prefix that keeps a
+/// True when removing `prefix`, a refused string's whole prefix, is the
+/// fix-it: `letters` (refused_prefix) is all of it. A prefix that keeps a
 /// letter the operand takes (`rf` on a path) gets none, since dropping all
 /// of it would change what the raw string spells.
 pub fn refused_prefix_fixable(prefix: SourceRange, const letters: string) -> bool {
     return prefix.is_valid() && (prefix.size() as usize) == letters.size()
 }
 
-/// The range a refusal labels: \p lit with its prefix \p prefix in front,
+/// The range a refusal labels: `lit` with its prefix `prefix` in front,
 /// so the diagnostic starts at the letters it asks to remove.
 pub fn prefixed_range(prefix: SourceRange, lit: SourceRange) -> SourceRange {
     if prefix.is_valid() {

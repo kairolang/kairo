@@ -101,7 +101,7 @@ extend EmitPlan {
         return en->adt_layout
     }
 
-    /// The anonymous union that field \p f (`is_anonymous_union`) declares. One
+    /// The anonymous union that field `f` (`is_anonymous_union`) declares. One
     /// resolver for every walk that sees through such a field -- the plan's,
     /// LayoutSpine's and InterfaceEmitter's -- so none of them can disagree on
     /// what the members are. A flag on a field whose type is anything else is a
@@ -127,12 +127,12 @@ extend EmitPlan {
         return u
     }
 
-    /// True iff \p prim's layout reaches its \p idx-th generic parameter by
+    /// True iff `prim`'s layout reaches its `idx-th` generic parameter by
     /// value. `Box<T> { var v: T }` yes; `Box<T> { var p: *T }` no. Memoized.
     /// Recursion through another generic's field bottoms out at a depth cap
     /// and answers "by value", the safe direction (an over-strong edge can
     /// only trip the cycle assert, never miss a definition).
-    /// param_by_value for argument \p i of an instance of \p prim, flat. An
+    /// param_by_value for argument `i` of an instance of `prim`, flat. An
     /// element of a pack-expanded variant's pack is held by value (a pack field
     /// is the pack itself), in the variant's `__kairo_pu` union, which the
     /// field walk does not see through: a header declaring a function that
@@ -187,7 +187,7 @@ extend EmitPlan {
         return ans
     }
 
-    /// An ADT's fields are its layout record's (adt_record). \p prim stays what
+    /// An ADT's fields are its layout record's (adt_record). `prim` stays what
     /// a generic parameter's owner is compared against (_type_reaches_param).
     fn _param_by_value_walk(self, prim: unsafe *Decl, idx: u32) -> bool {
         var unsafe *rec = self.adt_record(prim)
@@ -297,7 +297,7 @@ extend EmitPlan {
                 )
             } case TypeKind::GenericParamType {
                 var unsafe *g = cast<GenericParamType>(c)
-                // Both through layout_decl: walking an ADT's record, \p prim is
+                // Both through layout_decl: walking an ADT's record, `prim` is
                 // that record while T's owner is the enum.
                 return self.layout_decl(g->owner) == self.layout_decl(prim) && g->param_index == idx
             } case TypeKind::RecordType {
@@ -341,8 +341,8 @@ extend EmitPlan {
         }
     }
 
-    /// \p who has a generic value parameter whose type is a record (Compiler/Spec/Eval.md
-    /// 7e): \p dep that record, or with \p dep null, any. C++ needs that class
+    /// `who` has a generic value parameter whose type is a record (Compiler/Spec/Eval.md
+    /// 7e): `dep` that record, or with `dep` null, any. C++ needs that class
     /// complete at every declaration of the template, its forward one included.
     fn value_param_record(self, who: unsafe *Decl, dep: unsafe *Decl) -> bool {
         if who == &null {
@@ -376,14 +376,14 @@ extend EmitPlan {
         return false
     }
 
-    /// \p who's VpNames, walked once and memoized: each class \p dep for
-    /// which \p who's definition names a template over a value parameter of
-    /// class \p dep (value_param_record), in any position -- bases, fields,
+    /// `who`'s VpNames, walked once and memoized: each class `dep` for
+    /// which `who`'s definition names a template over a value parameter of
+    /// class `dep` (value_param_record), in any position -- bases, fields,
     /// method returns and non-self parameters, through pointers and
     /// arguments to a fixed depth -- (vp), and each record it names as the
     /// owner of a nested type (nest). Such a template is declared only once
-    /// \p dep is complete (InterfaceEmitter::_vp_fwd_decls), so \p who's
-    /// definition follows \p dep's even where its layout does not.
+    /// `dep` is complete (InterfaceEmitter::_vp_fwd_decls), so `who`'s
+    /// definition follows `dep`'s even where its layout does not.
     fn _vp_row(self, who: unsafe *Decl) -> usize {
         var key = (who as usize as u64)
         var hit = self._vp_memo.find(key)

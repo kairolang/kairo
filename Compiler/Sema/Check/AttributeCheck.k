@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------ Sema/Check/AttributeCheck.k --- ///
 ///
-///   \brief Every `@name` written on a declaration, statement, expression or
-///          type either means something where it stands or is an error. No
-///          attribute is accepted and silently ignored.
+/// Every `@name` written on a declaration, statement, expression or
+/// type either means something where it stands or is an error. No
+/// attribute is accepted and silently ignored.
 ///
 ///   \detail
 ///     Three entry points, scheduled by Sema:
@@ -182,7 +182,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         return false
     }
 
-    /// The known name closest to \p nm, when it is close enough to be a typo
+    /// The known name closest to `nm`, when it is close enough to be a typo
     /// of it (at most a third of its letters off); "" otherwise.
     priv fn _closest(self, const nm: string) -> string {
         var best          = ""
@@ -354,7 +354,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     }
 
     /// The common tail of every position: the two reserved forms and the
-    /// names nothing knows. True when \p e was one of them (reported).
+    /// names nothing knows. True when `e` was one of them (reported).
     priv fn _reserved_or_unknown(self, e: unsafe *AnnotationEntry, const nm: string) -> bool {
         if nm == LangAttrs::unreachable() {
             self._unsupported(
@@ -432,7 +432,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         return sp
     }
 
-    /// The warning a `@no_warn` code names, or Invalid (\p why says why).
+    /// The warning a `@no_warn` code names, or Invalid (`why` says why).
     priv fn _warning_code(self, const text: string, @inout why: string) -> DiagID {
         if text.size() == 0 {
             (why) = "expects a diagnostic code, such as SC031W"
@@ -841,7 +841,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
 
     /// # @deprecated uses
 
-    /// The imm table of the file \p d is written in, for a decl no scope
+    /// The imm table of the file `d` is written in, for a decl no scope
     /// reaches (a local: AttrFacts::find).
     priv fn _local_table(self, d: unsafe *Decl) -> unsafe *ImmediateTable {
         var unsafe *tcm = self.sc->ctx->tcm
@@ -852,7 +852,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         return tcm->get_imm_table_for_fid(self.sc->ctx->sm->get_fid(d->range))
     }
 
-    /// \p d's `@deprecated`, read from whichever link carries it: the decl,
+    /// `d`'s `@deprecated`, read from whichever link carries it: the decl,
     /// its representative, its pattern (an instance), a function's
     /// canonical declaration. `entry` is null when none does.
     priv fn _deprecation(self, d: unsafe *Decl) -> Deprecation {

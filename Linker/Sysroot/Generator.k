@@ -177,7 +177,7 @@ pub class SysGen {
     }
 
     /// `ksys ensure <target>`: the cached sysroot, built first if need be.
-    /// \p path receives it.
+    /// `path` receives it.
     pub fn ensure(self, const target: string, @inout path: string, @inout out: SysOutcome) -> bool {
         // macOS and MSVC roots are the user's SDK plus the shipped overlay,
         // not the share tree's stages (Sdk.k).
@@ -365,7 +365,7 @@ pub class SysGen {
 
         // The share tree holds the programs and the recipe's run mode; the
         // structural checks need neither, so a missing tree is reported
-        // after them (validate_root refuses on an empty \p share).
+        // after them (validate_root refuses on an empty `share`).
         var sdir   = ShareTree::locate(self.share_flag)
         var recipe = SysRecipe()
         var rpath  = LinkText::join(sdir.copy(), f"families/{t.recipe}.toml")
@@ -403,8 +403,8 @@ pub class SysGen {
         return ok
     }
 
-    /// The checks of `ksys validate` on \p root for target \p t, logs and
-    /// scratch under \p work. One line per step goes to \p rep: a caller
+    /// The checks of `ksys validate` on `root` for target `t`, logs and
+    /// scratch under `work`. One line per step goes to `rep`: a caller
     /// with a path to print on stdout (ensure) must not have it mixed in.
     pub static fn validate_root(const root:  string,
                                 t:           *SysTarget,
@@ -488,7 +488,7 @@ pub class SysGen {
         // it against --target, and a glibc name's -glibc<v> tag is not a
         // triple clang reads.
         // The driver takes a bundled <prefix>/sysroot/<name> over --sysroot:
-        // prove this toolchain builds against \p root before believing a
+        // prove this toolchain builds against `root` before believing a
         // single result.
         var real_root = LinkFS::real(root.copy())
         var probe     = cxx::std::vector<string>()
@@ -732,8 +732,8 @@ pub class SysGen {
 
     /// # The pipeline
 
-    /// parse, probe and (when \p with_inputs) inputs and keys. False with
-    /// \p out set on the first refusal.
+    /// parse, probe and (when `with_inputs`) inputs and keys. False with
+    /// `out` set on the first refusal.
     pub fn plan(self,
                 const target: string,
                 @inout p:     SysPlan,
@@ -1102,8 +1102,8 @@ pub class SysGen {
 
     /// The stages after inputs, then the publish. Each stage is skipped
     /// when its key dir holds `.ok`; a refusal leaves nothing behind, a
-    /// failure leaves `<dir>.failed/log`. \p dest "" publishes into the
-    /// cache as sysroots/<key>, else into \p dest (`ksys build --out`).
+    /// failure leaves `<dir>.failed/log`. `dest` "" publishes into the
+    /// cache as sysroots/<key>, else into `dest` (`ksys build --out`).
     priv fn _run_stages(self,
                         p:          *SysPlan,
                         c:          *SysCache,
@@ -1211,8 +1211,7 @@ pub class SysGen {
         return SysGen::_publish(&ctx, p, c, dest, &out)
     }
 
-    /// --libc-only: the libc-headers and libc-libs products merged into \p
-    /// dest, with the target's SYSROOT.toml. Not a sysroot (no runtimes, no
+    /// --libc-only: the libc-headers and libc-libs products merged into `dest`, with the target's SYSROOT.toml. Not a sysroot (no runtimes, no
     /// validation): never cached, only `ksys build --out`.
     priv static fn _publish_libc(ctx:        *StageCtx,
                                  p:          *SysPlan,
@@ -1409,7 +1408,7 @@ pub class SysGen {
         return true
     }
 
-    /// The SYSROOT.toml text for \p t; "" when the recipe has no [toml].
+    /// The SYSROOT.toml text for `t`; "" when the recipe has no [toml].
     pub static fn render_toml(r: *SysRecipe, t: *SysTarget) -> string {
         return r->render_toml(t)
     }
@@ -1448,7 +1447,7 @@ pub class SysGen {
         return ok
     }
 
-    /// The finished root into sysroots/<key> (or \p dest), with
+    /// The finished root into sysroots/<key> (or `dest`), with
     /// SYSROOT.toml and .kairo-sysroot.json; renamed into place whole, so a
     /// reader sees no root or a complete one.
     priv static fn _publish(ctx:        *StageCtx,
@@ -1574,8 +1573,8 @@ pub class SysGen {
         return out
     }
 
-    /// Whether kcc compiles a declaration of Kairo float type \p ty
-    /// (f16 / bf16 / f128) for \p triple; memoised in \p have / \p lack.
+    /// Whether kcc compiles a declaration of Kairo float type `ty`
+    /// (f16 / bf16 / f128) for `triple`; memoised in `have` / `lack`.
     /// An unknown name is taken as present (the program then shows it).
     priv static fn _has_type(const kcc:    string,
                              const triple: string,
@@ -1661,8 +1660,8 @@ pub class SysGen {
         return out
     }
 
-    /// How validation runs a program for \p t under run mode \p mode:
-    /// \p argv receives the runner prefix (empty = run directly). Returns
+    /// How validation runs a program for `t` under run mode `mode`:
+    /// `argv` receives the runner prefix (empty = run directly). Returns
     /// "" when it can run, else why it cannot (printed as SKIP).
     priv static fn _runner(t:           *SysTarget,
                            const mode:  string,
@@ -1768,8 +1767,8 @@ pub class SysGen {
         return ""
     }
 
-    /// \p s with the path prefix \p from (a stage's .tmp, renamed on
-    /// failure) spelled \p to.
+    /// `s` with the path prefix `from` (a stage's .tmp, renamed on
+    /// failure) spelled `to`.
     priv static fn _moved(const s: string, const from: string, const to: string) -> string {
         var at = LinkText::find(s.copy(), from.copy(), 0)
         if at >= s.size() {
@@ -1817,7 +1816,7 @@ pub class SysGen {
         )
     }
 
-    /// The canonical key object (section 7). \p stage "" is the sysroot's
+    /// The canonical key object (section 7). `stage` "" is the sysroot's
     /// own key, over every quirk; a stage key carries the quirks that touch
     /// that stage only, so a changed quirk rebuilds just those stages.
     priv static fn _key_json(p: *SysPlan, const build_id: string, const stage: string) -> string {
@@ -1902,7 +1901,7 @@ pub class SysGen {
         return stage == "validate" && (!q->assert_compiles.empty() || !q->required_symbols.empty())
     }
 
-    /// tree_sha256 of \p dir, memoised by the tree's names, sizes and mtimes
+    /// tree_sha256 of `dir`, memoised by the tree's names, sizes and mtimes
     /// (4.3): a rebuild does not re-read hundreds of MB of unchanged input.
     priv static fn _verified_sha(c:          *SysCache,
                                  const dir:  string,

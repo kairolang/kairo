@@ -67,17 +67,16 @@ import Workspace::CompileCommandsLoader::{
 }
 import std::io
 
-/// \class LineShift
-/// \brief one buffer's lines against the text its (older) index was computed
-///        from (Document::idx_text): LanguageServer.md section 9.
+/// one buffer's lines against the text its (older) index was computed
+/// from (Document::idx_text): LanguageServer.md section 9.
 ///
-/// \details The lines both texts start with (`pre`) are the same lines in
-///          both; so are the lines both end with (`suf`), moved by the
-///          difference in length. A line in neither is in the changed middle
-///          and has no counterpart. Each mapped line is byte for byte the
-///          same in the two texts, so a column on it needs no conversion.
-///          Inactive: no shift is needed (the index is of this text) or none
-///          is known; every line then maps to itself.
+/// The lines both texts start with (`pre`) are the same lines in
+/// both; so are the lines both end with (`suf`), moved by the
+/// difference in length. A line in neither is in the changed middle
+/// and has no counterpart. Each mapped line is byte for byte the
+/// same in the two texts, so a column on it needs no conversion.
+/// Inactive: no shift is needed (the index is of this text) or none
+/// is known; every line then maps to itself.
 pub class LineShift {
     pub var active:     bool   = false
     pub var path:       string = "" ///< the buffer
@@ -90,7 +89,7 @@ pub class LineShift {
 
     fn LineShift(self) = default
 
-    /// Buffer line \p line as a line of the indexed text; -1: none.
+    /// Buffer line `line` as a line of the indexed text; -1: none.
     fn to_old(const self, line: i64) -> i64 {
         if !self.active {
             return line
@@ -107,7 +106,7 @@ pub class LineShift {
         return -1
     }
 
-    /// Indexed-text lines \p a to \p b are all on one side of the changed
+    /// Indexed-text lines `a` to `b` are all on one side of the changed
     /// middle, so the span between them is the same text in the buffer.
     fn kept(const self, a: i64, b: i64) -> bool {
         if !self.active {
@@ -117,7 +116,7 @@ pub class LineShift {
         return ((a >= 0) && (b < self.pre)) || ((a >= (self.old_n - self.suf)) && (b < self.old_n))
     }
 
-    /// Indexed-text line \p line as a line of the buffer; -1: none.
+    /// Indexed-text line `line` as a line of the buffer; -1: none.
     fn to_new(const self, line: i64) -> i64 {
         if !self.active {
             return line
@@ -136,7 +135,7 @@ pub class LineShift {
 }
 
 extend Server {
-    /// Whether run output \p doc, which indexed files, replaces entry \p ei's
+    /// Whether run output `doc`, which indexed files, replaces entry `ei`'s
     /// last good index. A run over a graph with syntax errors indexes only
     /// what they leave sound: a file is `unchecked` (no rows) or `partial`
     /// (no rows inside the bodies its errors are in) (LanguageServer.md
@@ -155,8 +154,8 @@ extend Server {
             && self.keeps_old_(ei, doc, old, "partial")
     }
 
-    /// No path of \p doc's list \p key has complete rows in entry \p ei's
-    /// index \p old (rows there, and \p old not naming it either).
+    /// No path of `doc`'s list `key` has complete rows in entry `ei`'s
+    /// index `old` (rows there, and `old` not naming it either).
     priv fn keeps_old_(self,
                        ei:        usize,
                        doc:       *const JsonDoc,
@@ -224,7 +223,7 @@ extend Server {
         return false
     }
 
-    /// Node of \p path's object in entry \p ei's snapshot, or JSON_NONE.
+    /// Node of `path`'s object in entry `ei`'s snapshot, or JSON_NONE.
     fn file_node(self, ei: usize, const path: string) -> u32 {
         if (ei >= self.entries.size()) || (!self.entries[ei].has_idx) {
             return JSON_NONE()
@@ -243,7 +242,7 @@ extend Server {
         return JSON_NONE()
     }
 
-    /// The \p n-th element of array node \p arr.
+    /// The `n-th` element of array node `arr`.
     fn nth(const self, s: *const JsonDoc, arr: u32, n: i64) -> u32 {
         var c      = s->first(arr)
         var k: i64 = 0
@@ -255,7 +254,7 @@ extend Server {
         return c
     }
 
-    /// Decodes entry \p ei's `idx` into the cf_/cr_/ct_ tables. Once per
+    /// Decodes entry `ei`'s `idx` into the cf_/cr_/ct_ tables. Once per
     /// installed index: what every request after it reads.
     fn index_cache(self, ei: usize) {
         var *e = &self.entries[ei]
@@ -308,7 +307,7 @@ extend Server {
         }
     }
 
-    /// Slot of file node \p f in entry \p ei's cache, or usize::MAX.
+    /// Slot of file node `f` in entry `ei`'s cache, or usize::MAX.
     fn cache_slot(const self, ei: usize, f: u32) -> usize {
         for var k: usize = 0; k < self.entries[ei].cf_node.size(); ++k {
             if self.entries[ei].cf_node[k] == f {
@@ -319,7 +318,7 @@ extend Server {
         return usize::MAX
     }
 
-    /// The ref row of file node \p f covering (line, ch), or JSON_NONE. The
+    /// The ref row of file node `f` covering (line, ch), or JSON_NONE. The
     /// rows are sorted by position: a binary search for the line, then the
     /// few rows on it.
     fn ref_at(const self, ei: usize, f: u32, line: i64, ch: i64) -> u32 {
@@ -367,7 +366,7 @@ extend Server {
         return JSON_NONE()
     }
 
-    /// The shift for a request on buffer \p di answered from entry \p ei's
+    /// The shift for a request on buffer `di` answered from entry `ei`'s
     /// index, which is older than the buffer. Inactive when the text that
     /// index read for the buffer is not known (the buffer was not overlaid
     /// for that run, or another entry's run recorded it since).
@@ -408,7 +407,7 @@ extend Server {
         return sh
     }
 
-    /// Line \p a of buffer \p di's indexed text and line \p b of its text are
+    /// Line `a` of buffer `di`'s indexed text and line `b` of its text are
     /// the same bytes (line terminators aside).
     priv fn same_line_(self, di: usize, a: usize, b: usize) -> bool {
         var *doc = &self.docs.docs[di]
@@ -429,7 +428,7 @@ extend Server {
         return true
     }
 
-    /// Line \p line of \p path as entry \p e's index has it, placed on the
+    /// Line `line` of `path` as entry `e`'s index has it, placed on the
     /// buffer's lines: -1 when it cannot be (the changed middle, or another
     /// entry's index of an older text of the buffer).
     fn shift_out(const self, sh: *const LineShift, e: usize, const path: string, line: i64) -> i64 {
@@ -448,8 +447,8 @@ extend Server {
         return -1
     }
 
-    /// Line \p line of \p path as \p sh's entry's index has it, as entry \p e's
-    /// index has it: -1 when \p e's index has no counterpart of the line.
+    /// Line `line` of `path` as `sh`'s entry's index has it, as entry `e`'s
+    /// index has it: -1 when `e`'s index has no counterpart of the line.
     fn shift_across(const self,
                     sh:         *const LineShift,
                     e:          usize,
@@ -466,15 +465,15 @@ extend Server {
         return -1
     }
 
-    /// The one-line Range of \p len characters at (\p line, \p ch).
+    /// The one-line Range of `len` characters at (`line`, `ch`).
     fn write_range(self, w: *JsonWriter, line: i64, ch: i64, len: i64) {
         write_lsp_range(w, line, ch, line, ch + len)
     }
 
-    /// Every use of the declaration ref row \p row names, across every
-    /// snapshot, as (uri, line, ch, len) written through \p emit_kind:
+    /// Every use of the declaration ref row `row` names, across every
+    /// snapshot, as (uri, line, ch, len) written through `emit_kind`:
     /// 0 = Location objects, 1 = DocumentHighlight (same file only),
-    /// 2 = TextEdit grouped by uri (rename). \p s's positions are \p sh's
+    /// 2 = TextEdit grouped by uri (rename). `s`'s positions are `sh`'s
     /// index's, and every use is placed on the buffers' lines through it;
     /// one with no place there is left out.
     fn uses(self,

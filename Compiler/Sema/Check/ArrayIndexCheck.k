@@ -1,6 +1,6 @@
 /// --- The Kairo Project ----------------- Sema/Check/ArrayIndexCheck.k --- ///
 ///
-///   \brief A constant index past the end of a fixed array (SC291E).
+/// A constant index past the end of a fixed array (SC291E).
 ///
 ///   \detail
 ///     `var a: [i32; 2]` then `a[5] = 1` or `return a[7]`: the extent and

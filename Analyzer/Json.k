@@ -64,7 +64,7 @@ pub class JsonDoc {
 
     fn JsonDoc(self) = default
 
-    /// Parses \p text. On failure `error` says why and `root` is JSON_NONE.
+    /// Parses `text`. On failure `error` says why and `root` is JSON_NONE.
     fn parse(self, const text: string) -> bool {
         self.nodes.clear()
         self.error = ""
@@ -104,7 +104,7 @@ pub class JsonDoc {
         return self.kind(n) == JsonKind::Object
     }
 
-    /// Member \p key of object \p n, or JSON_NONE.
+    /// Member `key` of object `n`, or JSON_NONE.
     fn get(const self, n: u32, const key: string) -> u32 {
         if self.kind(n) != JsonKind::Object {
             return JSON_NONE()
@@ -200,7 +200,7 @@ pub class JsonDoc {
         return self.boolean(self.get(n, key))
     }
 
-    /// Re-serializes the value at \p n. A request id is echoed with this: it
+    /// Re-serializes the value at `n`. A request id is echoed with this: it
     /// may be a number or a string and has to go back as the kind it came.
     fn dump(const self, n: u32) -> string {
         var w = JsonWriter()
@@ -644,7 +644,7 @@ pub class JsonDoc {
     }
 }
 
-/// Appends code point \p cp to \p out as UTF-8.
+/// Appends code point `cp` to `out` as UTF-8.
 pub fn utf8_append(out: *string, cp: u32) {
     if cp < 0x80 {
         out->push_back(cp as u8)
@@ -663,12 +663,11 @@ pub fn utf8_append(out: *string, cp: u32) {
     }
 }
 
-/// \class JsonWriter
-/// \brief appends JSON text; commas are placed by the writer.
+/// appends JSON text; commas are placed by the writer.
 ///
-/// \details Usage is strictly nested: begin_object, then key + one value per
-///          member, end_object. `raw()` splices text that is already JSON (a
-///          request id being echoed, a fragment the worker pre-rendered).
+/// Usage is strictly nested: begin_object, then key + one value per
+/// member, end_object. `raw()` splices text that is already JSON (a
+/// request id being echoed, a fragment the worker pre-rendered).
 pub class JsonWriter {
     pub var out: string = ""
 
@@ -762,7 +761,7 @@ pub class JsonWriter {
         self.out += "null"
     }
 
-    /// Splices \p json, which must already be one complete JSON value.
+    /// Splices `json`, which must already be one complete JSON value.
     fn raw(self, const json: string) {
         self.sep_()
         self.out += json

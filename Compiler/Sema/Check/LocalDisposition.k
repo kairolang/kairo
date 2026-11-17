@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------- Sema/Check/LocalDisposition.k --- ///
 ///
-///   \brief How each automatic local's destructor runs (LocalDtor), and the
-///          one place that writes it.
+/// How each automatic local's destructor runs (LocalDtor), and the
+/// one place that writes it.
 ///
 ///   \detail
 ///     A block-scope local whose destructor is non-trivial is `T x` in C++,
@@ -69,7 +69,7 @@ import Sema::Check::ClassLifecycle::{
 }
 import Sema::SemaContext::SemaContext
 
-/// The move at \p site is a real transfer of the whole local \p d
+/// The move at `site` is a real transfer of the whole local `d`
 /// (MoveKind::Transfer: a Kairo move construction, move assignment or
 /// return of its value). MoveCheck records it as it marks the move, for a
 /// provider to ask after the walk (is_real_transfer).
@@ -82,8 +82,8 @@ pub fn record_real_transfer(sc: unsafe *SemaContext, site: unsafe *Expr, d: unsa
     sc->real_moves[site as usize as u64] = d as usize as u64
 }
 
-/// The query a provider asks before it disarms: the move at \p site is a
-/// real transfer of the WHOLE local \p v. Every other move MoveCheck
+/// The query a provider asks before it disarms: the move at `site` is a
+/// real transfer of the WHOLE local `v`. Every other move MoveCheck
 /// counts (MoveKind) may leave the object owning its resource.
 pub fn is_real_transfer(sc:   unsafe *SemaContext,
                         site: unsafe *Expr,
@@ -93,10 +93,10 @@ pub fn is_real_transfer(sc:   unsafe *SemaContext,
 }
 
 /// The one call of a provider that proves a move ends a local's lifetime
-/// ("definitely moved"): the move at \p site transfers the whole local
-/// \p v (is_real_transfer), and the moved-from object is not destroyed.
-/// \p mode is what the provider proved for every exit of \p v's scope:
-/// Elided when each is reached only after a site that ended \p v (this
+/// ("definitely moved"): the move at `site` transfers the whole local
+/// `v` (is_real_transfer), and the moved-from object is not destroyed.
+/// `mode` is what the provider proved for every exit of `v`'s scope:
+/// Elided when each is reached only after a site that ended `v` (this
 /// one, another disarmed move, or a `finally()`), Flagged otherwise. The
 /// site is recorded (SemaContext::disarm_sites; CopyMoveLowering puts it
 /// on the cast, TypeCastExpr::disarms) and the mode is joined into the
@@ -127,7 +127,7 @@ pub fn disarm_local_at(sc:   unsafe *SemaContext,
     v->dtor_mode                           = join_local_dtor(v->dtor_mode, mode)
 }
 
-/// The mode that is correct wherever \p a or \p b is: Flagged over
+/// The mode that is correct wherever `a` or `b` is: Flagged over
 /// everything, an ending mode (Elided) over a destroying one, union
 /// storage (Cleanup) over plain.
 pub fn join_local_dtor(a: LocalDtor, b: LocalDtor) -> LocalDtor {
@@ -146,7 +146,7 @@ pub fn join_local_dtor(a: LocalDtor, b: LocalDtor) -> LocalDtor {
     return LocalDtor::Scope
 }
 
-/// Whether \p v's destructor is non-trivial: Yes / No / Unknown (a type
+/// Whether `v`'s destructor is non-trivial: Yes / No / Unknown (a type
 /// that depends on a generic parameter, or none known yet).
 pub fn local_has_dtor(sc: unsafe *SemaContext, v: unsafe *VariableDecl) -> LifecycleTri {
     if v->type_ == &null || v->type_->canonical == &null || v->type_->canonical->is_dependent() {
@@ -165,7 +165,7 @@ pub fn local_has_dtor(sc: unsafe *SemaContext, v: unsafe *VariableDecl) -> Lifec
     return LifecycleTri::Unknown
 }
 
-/// Why \p v, a block-scope local with a non-trivial destructor, cannot be
+/// Why `v`, a block-scope local with a non-trivial destructor, cannot be
 /// stored in a union (""  when it can). Each reason is a local whose C++
 /// declaration has no single `T` to wrap or whose storage is not
 /// automatic.
@@ -219,8 +219,8 @@ pub class LocalEnds {
     pub var rows: cxx::std::vector<LocalEndRow>
     fn LocalEnds(self) { }
 
-    /// \p d is a local this body declares (a DeclStmt of one of its blocks);
-    /// \p refusal as LocalEndRow::refusal.
+    /// `d` is a local this body declares (a DeclStmt of one of its blocks);
+    /// `refusal` as LocalEndRow::refusal.
     fn declare(self, d: unsafe *VariableDecl, const refusal: string) {
         if self.index_of(d) != usize::MAX {
             return
@@ -232,7 +232,7 @@ pub class LocalEnds {
         self.rows.push_back(r)
     }
 
-    /// LocalEndRow::refusal of \p d ("" when it is not a row).
+    /// LocalEndRow::refusal of `d` ("" when it is not a row).
     fn refusal_of(self, d: unsafe *Decl) -> string {
         var i = self.index_of(d)
         return if (i != usize::MAX) => (self.rows[i].refusal) else => ""
@@ -252,7 +252,7 @@ pub class LocalEnds {
         return self.index_of(d) != usize::MAX
     }
 
-    /// A site ends \p d here.
+    /// A site ends `d` here.
     fn ended_at_site(self, d: unsafe *Decl) {
         var i = self.index_of(d)
         if i != usize::MAX {
@@ -260,7 +260,7 @@ pub class LocalEnds {
         }
     }
 
-    /// \p asn constructs \p d again after a `finally()`.
+    /// `asn` constructs `d` again after a `finally()`.
     fn remade_at(self, d: unsafe *Decl, asn: unsafe *Expressions::AssignOperatorExpr) {
         var i = self.index_of(d)
         if i == usize::MAX {
@@ -276,7 +276,7 @@ pub class LocalEnds {
         self.rows[i].remakes.push_back(asn)
     }
 
-    /// An exit of \p d's scope is reached with \p d not ended on every path.
+    /// An exit of `d`'s scope is reached with `d` not ended on every path.
     fn alive_at_exit(self, d: unsafe *Decl) {
         var i = self.index_of(d)
         if i != usize::MAX {
@@ -284,7 +284,7 @@ pub class LocalEnds {
         }
     }
 
-    /// ...and with \p d not disarmed-moved on every path either.
+    /// ...and with `d` not disarmed-moved on every path either.
     fn alive_unmoved_at_exit(self, d: unsafe *Decl) {
         var i = self.index_of(d)
         if i != usize::MAX {
@@ -292,7 +292,7 @@ pub class LocalEnds {
         }
     }
 
-    /// The test provider: \p site is a real transfer of the whole local \p d.
+    /// The test provider: `site` is a real transfer of the whole local `d`.
     /// A second, different one rules both out.
     fn disarm_candidate(self, d: unsafe *Decl, site: unsafe *Expr) {
         var i = self.index_of(d)
@@ -327,7 +327,7 @@ pub class LocalEnds {
         }
     }
 
-    /// Each local's mode, written onto the declaration. \p may_unwind: a C++
+    /// Each local's mode, written onto the declaration. `may_unwind`: a C++
     /// exception can leave the body at a point the walk does not see (an
     /// `@unwind` function, `-funwind`, a closure), so a local some site ends
     /// is never elided there: the hook must still run on that path.

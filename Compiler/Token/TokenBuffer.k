@@ -110,15 +110,15 @@ pub class <eval CHUNK_SIZE: usize> TokenBuffer {
         }
     }
 
-    /// \brief makes one more chunk available to append.
+    /// makes one more chunk available to append.
     ///
-    /// \details The table grows by DOUBLING. Re-allocating one entry larger
-    ///          per chunk and copying the old contents across is O(n^2) bytes
-    ///          against an allocator that never reclaims: every superseded
-    ///          table would stay resident until destroy(). Lexing this
-    ///          repo's Lexer.k (~50k tokens, 98 chunks at CHUNK_SIZE 512) meant
-    ///          98 allocations and ~115 KB copied and abandoned to track 98
-    ///          descriptors. Doubling makes that 5 allocations and ~7 KB.
+    /// The table grows by DOUBLING. Re-allocating one entry larger
+    /// per chunk and copying the old contents across is O(n^2) bytes
+    /// against an allocator that never reclaims: every superseded
+    /// table would stay resident until destroy(). Lexing this
+    /// repo's Lexer.k (~50k tokens, 98 chunks at CHUNK_SIZE 512) meant
+    /// 98 allocations and ~115 KB copied and abandoned to track 98
+    /// descriptors. Doubling makes that 5 allocations and ~7 KB.
     priv fn grow(self) {
         // A chunk retired by pop_back still owns its base. Take it back before
         // allocating anything.

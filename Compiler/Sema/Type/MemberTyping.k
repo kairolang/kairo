@@ -1,6 +1,6 @@
 /// --- The Kairo Project --------------------- Sema/Type/MemberTyping.k --- ///
 ///
-///   \brief Chains and subscripts: the value each step of `a.b->c::d` yields.
+/// Chains and subscripts: the value each step of `a.b->c::d` yields.
 ///
 ///   \detail
 ///     ChainBinding already bound every step whose left side had a DECLARED
@@ -132,11 +132,10 @@ const SUB_RECV: u8 = PlaceCtx::Recv as u8
 pub
 const SUB_STORE: u8 = PlaceCtx::Store as u8
 
-/// \enum ChainKind
-/// \brief What the position a chain walk has reached denotes: the walk's
-///        state (MemberTyping::type_chain), one step at a time. `cur_type`
-///        is meaningful only in Type and `cur` only in Value; a step from
-///        Callable is SC100E and from Unknown stops the walk.
+/// What the position a chain walk has reached denotes: the walk's
+/// state (MemberTyping::type_chain), one step at a time. `cur_type`
+/// is meaningful only in Type and `cur` only in Value; a step from
+/// Callable is SC100E and from Unknown stops the walk.
 pub enum ChainKind derives u8 {
     Value = 0, ///< a value of type `cur`.
     Type,      ///< the type `cur_type` (`Foo::`, `T::Item::`).
@@ -145,11 +144,10 @@ pub enum ChainKind derives u8 {
     Unknown,   ///< dependent or foreign: nothing to say.
 }
 
-/// \class ChainInfo
-/// \brief What the typer learned about one ChainExpr, for CallTyping.
-///        Its flags stay apart rather than one ChainKind: has_receiver
-///        (`.` on a value) is orthogonal to what the last step names, and a
-///        chain that failed sets neither of the other two.
+/// What the typer learned about one ChainExpr, for CallTyping.
+/// Its flags stay apart rather than one ChainKind: has_receiver
+/// (`.` on a value) is orthogonal to what the last step names, and a
+/// chain that failed sets neither of the other two.
 pub class ChainInfo {
     pub var receiver:       unsafe *Type                   = &null ///< value type before the last step, if any.
     pub var has_receiver:   bool                           = false ///< last step was reached through `.`/`->`/`?.`/`?->` on a value.
@@ -173,7 +171,7 @@ pub class <T: type> MemberTyping {
         return unsafe ((&self) as *T)
     }
 
-    /// Step \p i of \p n is `?.` / `?->` on \p val, which is not nullable:
+    /// Step `i` of `n` is `?.` / `?->` on `val`, which is not nullable:
     /// SC001E, with the fix-it that drops the `?`.
     priv fn _not_nullable_step(self, n: unsafe *ChainExpr, i: usize, val: unsafe *Type) {
         var unsafe *st = n->steps.get(i)
@@ -214,7 +212,7 @@ pub class <T: type> MemberTyping {
         self.dyn()->poison_only(n)
     }
 
-    /// \p st's written generic arguments as canonicals, into \p out; false
+    /// `st`'s written generic arguments as canonicals, into `out`; false
     /// when one is unresolved (its own error, or dependent past knowing).
     priv fn _step_type_args(self,
                             st:         unsafe *ChainExpr::Step,
@@ -231,7 +229,7 @@ pub class <T: type> MemberTyping {
         return true
     }
 
-    /// `X::Name` / `X::Name<A>` on dependent head \p head (a bounded
+    /// `X::Name` / `X::Name<A>` on dependent head `head` (a bounded
     /// parameter, or an associated type at any depth): the associated type
     /// one of its bounds declares under that name and arity, or null.
     priv fn _assoc_step(self,
@@ -254,7 +252,7 @@ pub class <T: type> MemberTyping {
     /// `Box<i32>::count`: the record a `::` step names its member through
     /// (ChainExpr::Step::through), when that record is a generic one's
     /// instance or a nested type of one (`L<i32>::P::k`), else null. The
-    /// member's decl is the pattern's, and the arguments are on \p cur_type
+    /// member's decl is the pattern's, and the arguments are on `cur_type`
     /// and nowhere else once this chain is typed. The value-chain twin of
     /// CallTyping::_instance_qualifier.
     priv fn _instance_through(self,
@@ -275,8 +273,8 @@ pub class <T: type> MemberTyping {
         return r
     }
 
-    /// The category of a field step \p st, read off the object it is a field
-    /// of (\p obj_cat, \p cur_kind before the step): a member of a temporary
+    /// The category of a field step `st`, read off the object it is a field
+    /// of (`obj_cat`, `cur_kind` before the step): a member of a temporary
     /// (`g().v`, `b[0].v` on a by-value `op []`, `S{v: 1}.v`) is an xvalue,
     /// as in C++, so no write, `&` or `@inout` binds to it. Without
     /// it the step was an lvalue, Sema accepted `g().v = 2`, and clang
@@ -300,7 +298,7 @@ pub class <T: type> MemberTyping {
         return Expr::ValueCategory::LValue
     }
 
-    /// The method's own `self` parameter when \p n's base is it; null
+    /// The method's own `self` parameter when `n`'s base is it; null
     /// otherwise.
     fn chain_self_param(self, n: unsafe *ChainExpr) -> unsafe *ParamDecl {
         var unsafe *b  = self.dyn()->tu.strip_parens(n->base)
@@ -771,7 +769,7 @@ pub class <T: type> MemberTyping {
                     cur = self.dyn()->ded_scratch()->member_through(seen, ft)
                     // A field is part of its object, so a field of a const
                     // object is const too, as C++ reads `c.f` and, in a
-                    // const member function, `this->f`: \p recv_q is the cv
+                    // const member function, `this->f`: `recv_q` is the cv
                     // of the object the step reads, the pointee's after
                     // `->`. A `mutable var` field stays writable, as C++
                     // `mutable` does, and a static belongs to no object.
@@ -1028,9 +1026,9 @@ pub class <T: type> MemberTyping {
 
     /// # subscript
 
-    /// The cv of the object \p t denotes: through any C++ reference (a
+    /// The cv of the object `t` denotes: through any C++ reference (a
     /// reference is its referee), not through a pointer.
-    /// \p e is the bare identifier `cxx`, bound to this TU's std overlay.
+    /// `e` is the bare identifier `cxx`, bound to this TU's std overlay.
     priv fn _is_cxx_head(self, e: unsafe *Expr) -> bool {
         if !isa<NamedIdentExpr>(e) {
             return false
@@ -1045,8 +1043,8 @@ pub class <T: type> MemberTyping {
         return tu != &null && tu->cxx_module != &null && id->resolved_decl == tu->cxx_module
     }
 
-    /// `b[i]` through the record's own `op []`: \p cands is what the
-    /// lookup on \p recv (the receiver, or an array's slice view) found.
+    /// `b[i]` through the record's own `op []`: `cands` is what the
+    /// lookup on `recv` (the receiver, or an array's slice view) found.
     priv fn _type_subscript_op(self,
                                n:           *SubscriptExpr,
                                bt:          *Type,
@@ -1156,8 +1154,8 @@ pub class <T: type> MemberTyping {
         return rt
     }
 
-    /// The receiver a subscript's `op []` is chosen against: \p recv (the
-    /// container, unqualified) carrying the object's const \p obj_q, so a
+    /// The receiver a subscript's `op []` is chosen against: `recv` (the
+    /// container, unqualified) carrying the object's const `obj_q`, so a
     /// const container offers only its `const self` overload (the
     /// unqualified receiver let the `self` overload win in Sema and clang
     /// pick again from the real object, CL001E on every write). Today the
@@ -1167,8 +1165,8 @@ pub class <T: type> MemberTyping {
         return self._with_object_const(recv, obj_q)
     }
 
-    /// \p t, the type of a field or tuple element, as read from an object
-    /// whose cv is \p obj_q: const when the object is. A member of
+    /// `t`, the type of a field or tuple element, as read from an object
+    /// whose cv is `obj_q`: const when the object is. A member of
     /// reference type names another object, whose const is its own.
     priv fn _member_of_object(self, t: unsafe *Type, obj_q: u8) -> unsafe *Type {
         if t == &null || isa<CXXLValueRefType>(t) || isa<CXXRValueRefType>(t) {
@@ -1178,7 +1176,7 @@ pub class <T: type> MemberTyping {
         return self._with_object_const(t, obj_q)
     }
 
-    /// \p t, const when the object's quals \p obj_q are: an element of a
+    /// `t`, const when the object's quals `obj_q` are: an element of a
     /// const container, or the receiver that container is.
     priv fn _with_object_const(self, t: unsafe *Type, obj_q: u8) -> unsafe *Type {
         if t == &null || (obj_q & QUAL_CONST) == 0 {
@@ -1190,7 +1188,7 @@ pub class <T: type> MemberTyping {
 
     /// # the split subscript
 
-    /// \p e is used as \p ctx (a SUB_* value): marks every subscript it
+    /// `e` is used as `ctx` (a SUB_* value): marks every subscript it
     /// reaches before it is typed, so a split subscript selects its form
     /// once, when it is typed. Through parens, `.field` / `.0` steps and a
     /// subscript's container: writing `x[i].a` or `x[i][j]` writes `x[i]`
@@ -1233,7 +1231,7 @@ pub class <T: type> MemberTyping {
         }
     }
 
-    /// Steps [0, \p upto) of \p ch are `.field` / `.0` steps: the object
+    /// Steps [0, `upto`) of `ch` are `.field` / `.0` steps: the object
     /// they reach is a member of the chain's base.
     fn member_path(self, ch: unsafe *ChainExpr, upto: usize) -> bool {
         if upto > ch->steps.size() {
@@ -1253,13 +1251,12 @@ pub class <T: type> MemberTyping {
         return true
     }
 
-    /// `x[i]` on a split subscript: \p gets are its `op []` (read) forms,
-    /// \p sets its `op []=` forms (place forms and setters), \p obj the
+    /// `x[i]` on a split subscript: `gets` are its `op []` (read) forms,
+    /// `sets` its `op []=` forms (place forms and setters), `obj` the
     /// receiver with the container's const. The form is the use's
     /// (SubscriptExpr::place_ctx), never a fallback from the other: a read
     /// never calls `op []=` and a write never calls `op []`, so the type's
-    /// const pair does not decide, and neither does the return type. \p
-    /// value is the right side of the plain `=` statement \p n is the whole
+    /// const pair does not decide, and neither does the return type. `value` is the right side of the plain `=` statement `n` is the whole
     /// left side of (STORE), or null.
     priv fn _type_split_subscript(self,
                                   n:     *SubscriptExpr,
@@ -1378,7 +1375,7 @@ pub class <T: type> MemberTyping {
         return self._type_subscript_op(n, bt, recv, obj, gets, "op []")
     }
 
-    /// `x[k] = v` through the setter form: \p setters against \p args, the
+    /// `x[k] = v` through the setter form: `setters` against `args`, the
     /// index and the value. The node is the place the statement stores to:
     /// an lvalue of the value parameter's type, with the setter as its
     /// operator, which OperatorLowering turns into one call with the
@@ -1581,10 +1578,10 @@ pub class <T: type> MemberTyping {
         self.dyn()->poison_only(n)
     }
 
-    /// The method call through `ce` resolved to \p w: a split subscript at
+    /// The method call through `ce` resolved to `w`: a split subscript at
     /// the root of its receiver (`x[i].m()`, `x[i].f.m()`), typed with the
     /// place form while the method was unknown (SUB_RECV), keeps it only if
-    /// \p w takes `self`; otherwise the use is a read, and moves to the read
+    /// `w` takes `self`; otherwise the use is a read, and moves to the read
     /// form (`.` reaches the element itself: it never reads through a
     /// pointer, and `->` is not marked a receiver at all). The
     /// two forms name one element (OperatorSignatureCheck::_agree), so only
@@ -1610,13 +1607,13 @@ pub class <T: type> MemberTyping {
     }
 
     /// `for e in x[i]`: as settle_receiver_subscript, for the iteration's
-    /// `op in` \p w (RangedForStmt::iter_op). Null is an iteration with no
+    /// `op in` `w` (RangedForStmt::iter_op). Null is an iteration with no
     /// user operator (an array, a slice): a read.
     fn settle_iterable_subscript(self, iterable: unsafe *Expr, w: unsafe *Decl) {
         self._settle_walk(iterable, self._takes_self(w))
     }
 
-    /// \p w is a method taking a mutable `self`. Null (no method was
+    /// `w` is a method taking a mutable `self`. Null (no method was
     /// chosen: a `fn` value called through a field, an error) is a read.
     priv fn _takes_self(self, w: unsafe *Decl) -> bool {
         var unsafe *wf = if (w != &null) => (dyn_cast<FunctionDecl>(w)) else => &null
@@ -1628,9 +1625,9 @@ pub class <T: type> MemberTyping {
             && !wf->params[0]->is_const
     }
 
-    /// Every subscript mark_subscript_use reached from \p e as a receiver,
+    /// Every subscript mark_subscript_use reached from `e` as a receiver,
     /// in the same walk (parens, `.field` / `.0`, a subscript's container),
-    /// keeps the place form when \p keep, else moves to the read form: a
+    /// keeps the place form when `keep`, else moves to the read form: a
     /// RECV mark is never left standing.
     priv fn _settle_walk(self, e: unsafe *Expr, keep: bool) {
         if keep {
@@ -1664,7 +1661,7 @@ pub class <T: type> MemberTyping {
         }
     }
 
-    /// \p s was typed with the place form while it was only a receiver.
+    /// `s` was typed with the place form while it was only a receiver.
     priv fn _holds_place_form(self, s: unsafe *SubscriptExpr) -> bool {
         if s->place_ctx != SUB_RECV || s->resolved_op == &null || s->is_poisoned() {
             return false
@@ -1674,7 +1671,7 @@ pub class <T: type> MemberTyping {
         return f != &null && OperatorFacts::is_subscript_set(f)
     }
 
-    /// Moves \p s, typed with the place form, to the read form: its
+    /// Moves `s`, typed with the place form, to the read form: its
     /// container first when that was a receiver's container too
     /// (`x[i][j].get()` reads `x[i]` as well). In place: the base and the
     /// index are typed already and stay so.

@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------ Lib/builtin/num/float_ext.k --- ///
 ///
-///   \brief The methods of the native float types: `extend f16` .. `extend f80`.
+/// The methods of the native float types: `extend f16` .. `extend f80`.
 ///
 ///   \detail
 ///     `extend` blocks giving f16, bf16, f32, f64 and f80 the methods f256

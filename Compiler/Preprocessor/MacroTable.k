@@ -196,11 +196,11 @@ pub class MacroTable {
         return n
     }
 
-    /// \brief the entries \p fid defined, in declaration order.
+    /// the entries `fid` defined, in declaration order.
     ///
-    /// \details A snapshot of borrowed pointers taken under the read lock, for
-    ///          --print-macros. The table keeps ownership, so the caller must
-    ///          not hold the result across forget_fid(\p fid).
+    /// A snapshot of borrowed pointers taken under the read lock, for
+    /// --print-macros. The table keeps ownership, so the caller must
+    /// not hold the result across forget_fid(`fid`).
     pub fn entries_of_fid(self, fid: u32) -> cxx::std::vector<unsafe *MacroEntry> {
         var rlock = kairo::std::SharedLock(self._mu)
         var out   = cxx::std::vector<unsafe *MacroEntry>()
@@ -220,16 +220,17 @@ pub class MacroTable {
         return out
     }
 
-    /// \brief drops every macro defined by \p fid, from both indexes.
+    /// drops every macro defined by `fid`, from both indexes.
     ///
-    /// \details MANDATORY before \p fid's ASTContext is destroyed. MacroEntry
-    ///          holds \c decl as an obs<MacroDecl> pointing into that context's
-    ///          arena, so an entry that outlives the context dangles   and
-    ///          register()'s duplicate check would then KEEP the stale entry
-    ///          and destroy the freshly-built replacement, so the table
-    ///          silently converges on all-dangling decls across reparses.
+    /// MANDATORY before `fid`'s ASTContext is destroyed. MacroEntry
+    /// holds `decl` as an obs<MacroDecl> pointing into that context's
+    /// arena, so an entry that outlives the context dangles   and
+    /// register()'s duplicate check would then KEEP the stale entry
+    /// and destroy the freshly-built replacement, so the table
+    /// silently converges on all-dangling decls across reparses.
     ///
-    /// \return number of entries dropped.
+    /// ### Returns
+    /// number of entries dropped.
     fn forget_fid(self, fid: u32) -> usize {
         var wlock = kairo::std::UniqueLock(self._mu)
 

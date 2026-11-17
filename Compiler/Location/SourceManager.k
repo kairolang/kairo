@@ -35,12 +35,9 @@ pub type FileID = u32
 
 /// FIXME: change the use of string paths in get_line_col to Path objects.
 
+/// central coordinator for file loading, buffer access, and location
+/// mapping.
 ///
-/// \file SourceManager.k
-/// \brief central coordinator for file loading, buffer access, and location
-///        mapping.
-///
-/// \details
 /// `SourceManager` acts as the backbone of the compiler's source system. it
 /// maintains the relationship between on-disk files, in-memory buffers, and
 /// compact `SourceLocation` identifiers used throughout parsing and diagnostics.
@@ -58,23 +55,19 @@ pub type FileID = u32
 ///
 /// this provides deterministic mapping and constant-time location resolution.
 ///
-/// \note
+/// **Note:**
 /// this class is *not thread-safe*. concurrent operations must be synchronized
 /// externally.
 ///
-/// \see VirtualFileManager, SourceLineTable, SourceFile, SourceLocation
-///
+/// See VirtualFileManager, SourceLineTable, SourceFile, SourceLocation.
 
-///
-/// \class SourceManager
-/// \brief manages mapping between files, buffers, and source locations.
+/// manages mapping between files, buffers, and source locations.
 ///
 /// provides APIs for:
 ///   - loading files (`load_file`)
 ///   - resolving ids to file/offset (`resolve`)
 ///   - computing line/column (`get_line_col`)
 ///   - fetching views, buffers, and metadata
-///
 pub class SourceManager {
     pub  var _line_table: SourceLineTable ///< global line mapping table
     priv var _files:      cxx::std::vector<unsafe *SourceFile> ///< all loaded files
@@ -83,14 +76,14 @@ pub class SourceManager {
     priv var _load_mu:    kairo::std::Mutex ///< mutex for synchronizing file loads
     priv var _diag:       unsafe *DiagEngine ///< diagnostic engine for reporting errors
 
+    /// constructs a new SourceManager with pool and vfile manager.
     ///
-    /// \brief constructs a new SourceManager with pool and vfile manager.
+    /// ### Parameters
+    /// - `pool`: thread pool used for background indexing.
+    /// - `vfile_mgr`: virtual file manager used for mapping files.
     ///
-    /// \param pool thread pool used for background indexing.
-    /// \param vfile_mgr virtual file manager used for mapping files.
-    ///
-    /// \throws RuntimeError if either argument is null.
-    ///
+    /// ### Panics
+    /// - `RuntimeError`: if either argument is null.
     fn SourceManager(self,
                      pool:      unsafe *ThreadPool,
                      vfile_mgr: unsafe *VirtualFileManager,
@@ -123,15 +116,13 @@ pub class SourceManager {
         )
     }
 
-    ///
-    /// \brief destructor: cleans up all loaded files.
-    ///
+    /// destructor: cleans up all loaded files.
     fn op finally (self) {
         self._line_table.shutdown()
         self._destroy_files()
     }
 
-    /// \brief destroys every loaded SourceFile and empties \c _files.
+    /// destroys every loaded SourceFile and empties `_files`.
     priv fn _destroy_files(self) {
         for var f: *SourceFile? in self._files {
             if f != &null {
@@ -142,17 +133,17 @@ pub class SourceManager {
         self._files.clear()
     }
 
+    /// loads a file and registers it in the global source space.
     ///
-    /// \brief loads a file and registers it in the global source space.
+    /// ### Parameters
+    /// - `path`: file path to load.
     ///
-    /// \param path file path to load.
-    /// \return file id assigned by VirtualFileManager.
+    /// ### Returns
+    /// file id assigned by VirtualFileManager.
     ///
-    /// \details
     /// - avoids duplicates by checking already-loaded paths.
     /// - registers file in the VirtualFileManager and SourceLineTable.
     /// - schedules async line-index build on the thread pool.
-    ///
     pub fn load_file(self, const path: Path, skip_indexing: bool = false) -> FileID /* file_id */ {
         var lock  = kairo::std::LockGuard(self._load_mu) // synchronize file loading
         var known = self._vfile_mgr->fid_for_path(path)
@@ -262,19 +253,18 @@ pub class SourceManager {
         return base_fid
     }
 
+    /// ensures `_files[fid]` holds a live SourceFile for `path`.
     ///
-    /// \brief ensures \c _files[fid] holds a live SourceFile for \p path.
-    ///
-    /// \details \c _files is INDEXED BY FID, so this writes at \p fid rather
-    ///          than appending: fids are not handed out in load order and can be
-    ///          reused, because identity outlives artifacts.
+    /// `_files` is INDEXED BY FID, so this writes at `fid` rather
+    /// than appending: fids are not handed out in load order and can be
+    /// reused, because identity outlives artifacts.
     ///
     ///          Idempotent: a fid that still has its entry is left alone, so
     ///          this doubles as the cache-hit path. A fid whose entry was
     ///          released gets a fresh SourceFile over the SAME mapping   the
     ///          buffer belongs to the VirtualFileManager and did not go away.
     ///
-    /// \note Caller must hold \c _load_mu.
+    /// **Note:** Caller must hold `_load_mu`.
     priv fn _materialize(self, fid: FileID, path: Path) {
         while self._files.size() <= (fid as usize) {
             self._files.push_back(&null)
@@ -297,15 +287,14 @@ pub class SourceManager {
         self._files[fid] = unsafe (@create SourceFile(path, buf) as unsafe *SourceFile)
     }
 
+    /// `fid`'s bytes as a by-value view, or an empty one.
     ///
-    /// \brief \p fid's bytes as a by-value view, or an empty one.
+    /// What every line-index build is handed, so that no build ever
+    /// reads the VirtualFileManager itself. The view stays valid until
+    /// the segment is evicted or re-mapped, and both of those drain
+    /// the line table's builds first.
     ///
-    /// \details What every line-index build is handed, so that no build ever
-    ///          reads the VirtualFileManager itself. The view stays valid until
-    ///          the segment is evicted or re-mapped, and both of those drain
-    ///          the line table's builds first.
-    ///
-    /// \note Caller must hold \c _load_mu.
+    /// **Note:** Caller must hold `_load_mu`.
     priv fn _bytes_of(self, fid: FileID) -> MemoryBuffer {
         var unsafe *buf = self._vfile_mgr->get_buffer(fid)
         if buf == &null || !buf->is_valid() {
@@ -315,18 +304,18 @@ pub class SourceManager {
         return buf->bytes()
     }
 
+    /// loads a virtual (in-memory) file into the source space.
     ///
-    /// \brief loads a virtual (in-memory) file into the source space.
+    /// ### Parameters
+    /// - `fake_path`: logical path to assign to the virtual file.
+    /// - `data`: pointer to raw byte data.
+    /// - `size`: size of the data in bytes.
     ///
-    /// \param fake_path logical path to assign to the virtual file.
-    /// \param data pointer to raw byte data.
-    /// \param size size of the data in bytes.
+    /// ### Returns
+    /// file id assigned by VirtualFileManager.
     ///
-    /// \return file id assigned by VirtualFileManager.
-    ///
-    /// \note The caller is responsible for ensuring the data pointer
-    ///       remains valid for the lifetime of the virtual file.
-    ///
+    /// **Note:** The caller is responsible for ensuring the data pointer
+    /// remains valid for the lifetime of the virtual file.
     pub fn load_virtual(self,
                         const fake_path: Path,
                         data:            kairo::std::ConstPtr<u8>,
@@ -347,14 +336,14 @@ pub class SourceManager {
         return fid
     }
 
-    /// \brief load_virtual under a REAL path: later loads of \p real_path
-    ///        return this buffer instead of the file on disk.
+    /// load_virtual under a REAL path: later loads of `real_path`
+    /// return this buffer instead of the file on disk.
     ///
-    /// \details What a language server needs for an unsaved buffer. See
-    ///          VirtualFileManager::bind_path for what is and is not replaced.
+    /// What a language server needs for an unsaved buffer. See
+    /// VirtualFileManager::bind_path for what is and is not replaced.
     ///
-    /// \note \p data is NOT copied (load_virtual's contract): it must outlive
-    ///       every use of the returned fid.
+    /// **Note:** `data` is NOT copied (load_virtual's contract): it must outlive
+    /// every use of the returned fid.
     pub fn load_overlay(self,
                         const real_path: Path,
                         data:            kairo::std::ConstPtr<u8>,
@@ -364,19 +353,18 @@ pub class SourceManager {
         return fid
     }
 
-    /// \brief load_overlay without the load: \p real_path gets these bytes
-    ///        when the graph first loads it, with the file id its place in
-    ///        the load order gives it (VirtualFileManager::stage_overlay).
+    /// load_overlay without the load: `real_path` gets these bytes
+    /// when the graph first loads it, with the file id its place in
+    /// the load order gives it (VirtualFileManager::stage_overlay).
     pub fn stage_overlay(self, const real_path: Path, data: kairo::std::ConstPtr<u8>, size: usize) {
         var lock = kairo::std::LockGuard(self._load_mu)
         self._vfile_mgr->stage_overlay(real_path, data, size)
     }
 
+    /// drops one fid's loaded file: the SourceFile and its buffer view.
     ///
-    /// \brief drops one fid's loaded file: the SourceFile and its buffer view.
-    ///
-    /// \details Reset IN PLACE, never erased   `_files` is indexed by fid, so
-    ///          erasing would renumber every later file.
+    /// Reset IN PLACE, never erased   `_files` is indexed by fid, so
+    /// erasing would renumber every later file.
     ///
     ///          The line-table entry is deliberately NOT dropped.
     ///          SourceLineTable publishes entries through an atomic table read
@@ -385,14 +373,16 @@ pub class SourceManager {
     ///          file buffer, which is what this reclaims. Revisit if line-table
     ///          residency ever shows up in a profile.
     ///
-    /// \return false if the fid was never loaded.
+    /// ### Returns
+    /// false if the fid was never loaded.
     pub fn release(self, file_id: FileID) -> bool {
         return self._drop_file(file_id)
     }
 
-    /// \brief destroys \p file_id's SourceFile and nulls its slot.
+    /// destroys `file_id`'s SourceFile and nulls its slot.
     ///
-    /// \return false if the fid has no live SourceFile.
+    /// ### Returns
+    /// false if the fid has no live SourceFile.
     priv fn _drop_file(self, file_id: FileID) -> bool {
         if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
             return false
@@ -403,8 +393,8 @@ pub class SourceManager {
         return true
     }
 
-    /// \brief \p file_id's path: its SourceFile's, or the
-    ///        VirtualFileManager's when the SourceFile was released.
+    /// `file_id`'s path: its SourceFile's, or the
+    /// VirtualFileManager's when the SourceFile was released.
     priv fn _path_of(self, file_id: FileID) -> Path {
         if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
             return self._files[file_id]->path
@@ -413,35 +403,34 @@ pub class SourceManager {
         return Path(self._vfile_mgr->get_info(file_id).path.full_path())
     }
 
-    /// \brief rebuilds \p file_id's SourceFile and line index over the
-    ///        bytes the VirtualFileManager now holds for it.
+    /// rebuilds `file_id`'s SourceFile and line index over the
+    /// bytes the VirtualFileManager now holds for it.
     ///
-    /// \note Caller must hold \c _load_mu and have drained the line
-    ///       table's builds before the bytes changed.
+    /// **Note:** Caller must hold `_load_mu` and have drained the line
+    /// table's builds before the bytes changed.
     priv fn _remap(self, file_id: FileID, path: Path) {
         self._drop_file(file_id)
         self._materialize(file_id, path)
         self._line_table.invalidate(file_id, self._bytes_of(file_id))
     }
 
+    /// re-reads `file_id` from disk and rebuilds its line index.
     ///
-    /// \brief re-reads \p file_id from disk and rebuilds its line index.
-    ///
-    /// \details What a reparse of a CHANGED file does. Identity is kept: the
-    ///          fid, and every index keyed on it, survives, so only this file's
-    ///          bytes and line map are rebuilt   not the whole import graph.
+    /// What a reparse of a CHANGED file does. Identity is kept: the
+    /// fid, and every index keyed on it, survives, so only this file's
+    /// bytes and line map are rebuilt   not the whole import graph.
     ///
     ///          Distinct from release(), which drops derived artifacts but
     ///          leaves the bytes alone, and from evict(), which drops the file
     ///          entirely. If the file did NOT change, none of the three is
     ///          needed   that is the point of stable identity.
     ///
-    /// \warning Invalidates every SourceLocation into this file, and any token
-    ///          or AST built from it. Callers must release those artifacts.
+    /// **Warning:** Invalidates every SourceLocation into this file, and any token
+    /// or AST built from it. Callers must release those artifacts.
     ///
-    /// \return false if unknown, virtual, or the re-read failed (previous
-    ///         contents are kept in that case).
-    ///
+    /// ### Returns
+    /// false if unknown, virtual, or the re-read failed (previous
+    /// contents are kept in that case).
     pub fn invalidate(self, file_id: FileID) -> bool {
         var lock = kairo::std::LockGuard(self._load_mu)
 
@@ -458,14 +447,14 @@ pub class SourceManager {
         return true
     }
 
-    /// \brief invalidate() with the new bytes handed over instead of read
-    ///        from the disk: an editor's buffer replacing what \p file_id
-    ///        held, whichever of the disk or an earlier buffer that was.
+    /// invalidate() with the new bytes handed over instead of read
+    /// from the disk: an editor's buffer replacing what `file_id`
+    /// held, whichever of the disk or an earlier buffer that was.
     ///
-    /// \note \p data is NOT copied (load_virtual's contract).
+    /// **Note:** `data` is NOT copied (load_virtual's contract).
     ///
-    /// \warning As invalidate(): every SourceLocation into the file, and any
-    ///          token or AST built from it, is stale.
+    /// **Warning:** As invalidate(): every SourceLocation into the file, and any
+    /// token or AST built from it, is stale.
     pub fn replace_bytes(self,
                          file_id: FileID,
                          data:    kairo::std::ConstPtr<u8>,
@@ -482,23 +471,22 @@ pub class SourceManager {
         return true
     }
 
-    /// Is \p file_id's text a caller-owned buffer and not a mapping of its
+    /// Is `file_id`'s text a caller-owned buffer and not a mapping of its
     /// path? invalidate() refuses such a file.
     pub fn is_virtual(self, file_id: FileID) -> bool {
         return self._vfile_mgr->is_virtual(file_id)
     }
 
+    /// drops `file_id` completely: buffer, mapping, address range,
+    /// line index, and path identity.
     ///
-    /// \brief drops \p file_id completely: buffer, mapping, address range,
-    ///        line index, and path identity.
+    /// The rare path   the file was deleted, or memory is being
+    /// reclaimed. A reparse should call invalidate() instead; this
+    /// retires the fid permanently and a later load of the same path
+    /// gets a NEW one.
     ///
-    /// \details The rare path   the file was deleted, or memory is being
-    ///          reclaimed. A reparse should call invalidate() instead; this
-    ///          retires the fid permanently and a later load of the same path
-    ///          gets a NEW one.
-    ///
-    /// \return false if \p file_id was not loaded.
-    ///
+    /// ### Returns
+    /// false if `file_id` was not loaded.
     pub fn evict(self, file_id: FileID) -> bool {
         var lock = kairo::std::LockGuard(self._load_mu)
         self._drop_file(file_id)
@@ -506,11 +494,11 @@ pub class SourceManager {
         return self._vfile_mgr->evict(file_id)
     }
 
-    /// \brief brackets a preprocessor walk, whose lex workers read the
-    ///        VirtualFileManager unlocked. In a debug build an
-    ///        invalidate/replace/evict between the two is an ICE and a load
-    ///        that misses the cache is logged (VirtualFileManager::
-    ///        _check_not_walking says why not an ICE yet). No-ops in release.
+    /// brackets a preprocessor walk, whose lex workers read the
+    /// VirtualFileManager unlocked. In a debug build an
+    /// invalidate/replace/evict between the two is an ICE and a load
+    /// that misses the cache is logged (VirtualFileManager::
+    /// _check_not_walking says why not an ICE yet). No-ops in release.
     pub fn begin_walk(self) {
         self._vfile_mgr->begin_walk()
     }
@@ -535,9 +523,7 @@ pub class SourceManager {
         return self._vfile_mgr->generation_of(file_id)
     }
 
-    ///
-    /// \brief resolves line and column for a given SourceLocation.
-    ///
+    /// resolves line and column for a given SourceLocation.
     pub fn get_line_col(self, loc: SourceLocation) -> FullSourceLocation {
         var res     = self.resolve(loc)
         var file_id = res.fid
@@ -559,9 +545,7 @@ pub class SourceManager {
         )
     }
 
-    ///
-    /// \brief resolves line/column directly by file id and offset.
-    ///
+    /// resolves line/column directly by file id and offset.
     fn get_line_col(self, file_id: FileID, offset: usize) -> FullSourceLocation {
         return self._line_table.get_line_col(
             file_id,
@@ -591,32 +575,28 @@ pub class SourceManager {
         return self.get_text(line_range)
     }
 
+    /// resolves a SourceLocation -> file/offset pair.
     ///
-    /// \brief resolves a SourceLocation -> file/offset pair.
-    ///
-    /// \return segment info `{fid, offset}` or invalid if not found.
-    ///
+    /// ### Returns
+    /// segment info `{fid, offset}` or invalid if not found.
     pub fn resolve(self, loc: SourceLocation) -> VirtualFileManager::SegmentResolve {
         return self._vfile_mgr->resolve_loc(loc)
     }
 
-    ///
-    /// \brief blocks until line index for file is ready.
-    ///
+    /// blocks until line index for file is ready.
     pub fn wait_for_line_index(self, file_id: FileID) {
         self._line_table.wait_until_ready(file_id)
     }
 
+    /// checks that `fid`'s buffer is well-formed UTF-8, reporting
+    /// S072E once per maximal run of invalid bytes, and S011E once
+    /// per run of NUL bytes.
     ///
-    /// \brief checks that \p fid's buffer is well-formed UTF-8, reporting
-    ///        S072E once per maximal run of invalid bytes, and S011E once
-    ///        per run of NUL bytes.
-    ///
-    /// \details Runs once per file, before lexing, and is linear: ASCII is
-    ///          skipped 16 bytes at a time and only non-ASCII reaches the
-    ///          decoder. A run is merged into one diagnostic because a single
-    ///          corrupt character is often several bad bytes (`ED A0 80`),
-    ///          and one error per byte would bury the real ones.
+    /// Runs once per file, before lexing, and is linear: ASCII is
+    /// skipped 16 bytes at a time and only non-ASCII reaches the
+    /// decoder. A run is merged into one diagnostic because a single
+    /// corrupt character is often several bad bytes (`ED A0 80`),
+    /// and one error per byte would bury the real ones.
     ///
     ///          The verdict is cached on the SourceFile, so the lexer opening
     ///          the same fid again (dependency scan, then the real parse)
@@ -627,7 +607,8 @@ pub class SourceManager {
     ///          Everything downstream that counts code points (LowerSynth::
     ///          cp_count) relies on this having run.
     ///
-    /// \return true if the buffer is valid UTF-8 (or the fid is unknown).
+    /// ### Returns
+    /// true if the buffer is valid UTF-8 (or the fid is unknown).
     pub fn validate_utf8(self, fid: FileID) -> bool {
         var lock = kairo::std::LockGuard(self._load_mu)
         if (fid as usize) >= self._files.size() || self._files[fid] == &null {
@@ -692,8 +673,8 @@ pub class SourceManager {
         return valid
     }
 
-    /// Reports S011E once per run of NUL bytes in [\p base, \p end), the
-    /// bytes of \p fid. A NUL is valid UTF-8 and no token: the lexer skips
+    /// Reports S011E once per run of NUL bytes in [`base`, `end`), the
+    /// bytes of `fid`. A NUL is valid UTF-8 and no token: the lexer skips
     /// it as whitespace between tokens and keeps it as content inside a
     /// string or a comment, so this is the one place it is reported,
     /// wherever it stands.
@@ -727,9 +708,7 @@ pub class SourceManager {
         }
     }
 
-    ///
-    /// \brief retrieves file buffer as MemoryBuffer view.
-    ///
+    /// retrieves file buffer as MemoryBuffer view.
     pub fn get_buffer(self, file_id: FileID) -> MemoryBuffer? {
         if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
             return null
@@ -738,9 +717,7 @@ pub class SourceManager {
         return self._files[file_id]->buffer->bytes()
     }
 
-    ///
-    /// \brief returns full path for file id.
-    ///
+    /// returns full path for file id.
     pub fn get_filename(self, file_id: FileID) -> string {
         if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
             return "<invalid>"
@@ -749,12 +726,12 @@ pub class SourceManager {
         return self._files[file_id]->path.full_path()
     }
 
+    /// returns the DIRECTORY holding a file, for anchored import
+    /// resolution (`self::`, `module::`; ImportResolver::resolve_module_in).
     ///
-    /// \brief returns the DIRECTORY holding a file, for anchored import
-    ///        resolution (`self::`, `module::`; ImportResolver::resolve_module_in).
-    /// \return the parent directory, or an empty Path when \p file_id is
-    ///         unknown (callers treat that as "no importing file").
-    ///
+    /// ### Returns
+    /// the parent directory, or an empty Path when `file_id` is
+    /// unknown (callers treat that as "no importing file").
     pub fn get_file_dir(self, file_id: FileID) -> Path {
         var out = Path()
         if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
@@ -770,38 +747,30 @@ pub class SourceManager {
         return out
     }
 
+    /// fid of an ALREADY-LOADED `path`, or u32(-1). Never loads.
     ///
-    /// \brief fid of an ALREADY-LOADED \p path, or u32(-1). Never loads.
-    ///
-    /// \details For a caller that meets a file by path from outside Kairo (a
-    ///          clang FileID behind a PCH) and must not mint a fid for a file
-    ///          Kairo never loaded. load_file answers a known path the same
-    ///          way, but loads an unknown one.
-    ///
+    /// For a caller that meets a file by path from outside Kairo (a
+    /// clang FileID behind a PCH) and must not mint a fid for a file
+    /// Kairo never loaded. load_file answers a known path the same
+    /// way, but loads an unknown one.
     pub fn find_fid(self, const path: Path) -> FileID {
         var lock = kairo::std::LockGuard(self._load_mu)
         return self._vfile_mgr->fid_for_path(path)
     }
 
-    ///
-    /// \brief returns logical path for SourceLocation
-    ///
+    /// returns logical path for SourceLocation
     pub fn get_filename(self, loc: SourceLocation) -> string {
         var res = self.resolve(loc)
         return self.get_filename((res.fid as u32))
     }
 
-    ///
-    /// \brief returns logical path for SourceRange
-    ///
+    /// returns logical path for SourceRange
     pub fn get_filename(self, range: SourceRange) -> string {
         var res = self.resolve(range.start)
         return self.get_filename((res.fid as u32))
     }
 
-    ///
-    /// \brief returns file extension (if any).
-    ///
+    /// returns file extension (if any).
     fn get_file_extension(self, file_id: FileID) -> string? {
         if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
             return null
@@ -810,24 +779,18 @@ pub class SourceManager {
         return self._files[file_id]->path.extension()
     }
 
-    ///
-    /// \brief fetches file view handle from VirtualFileManager.
-    ///
+    /// fetches file view handle from VirtualFileManager.
     pub fn get_file_view(self, fid: FileID) -> VirtualFileManager::FileHandle {
         return self._vfile_mgr->get_file_view(fid)
     }
 
-    ///
-    /// \brief resolves a raw pointer back to file id + offset.
-    ///
+    /// resolves a raw pointer back to file id + offset.
     fn resolve_ptr(self, ptr: kairo::std::ConstPtr<u8>)
         -> VirtualFileManager::SegmentResolve {
         return self._vfile_mgr->resolve_ptr(unsafe (ptr as unsafe *u8))
     }
 
-    ///
-    /// \brief expands a SourceLocation into a FullSourceLocation.
-    ///
+    /// expands a SourceLocation into a FullSourceLocation.
     pub fn get_full_loc(self, loc: SourceLocation) -> FullSourceLocation {
         if !loc.is_valid() {
             return FullSourceLocation()
@@ -839,9 +802,7 @@ pub class SourceManager {
         return FullSourceLocation(res.fid, lc.line, lc.column, lc.path)
     }
 
-    ///
-    /// \brief convenience wrapper to get SourceLocation from fid+offset.
-    ///
+    /// convenience wrapper to get SourceLocation from fid+offset.
     pub fn get_loc(self, fid: FileID, off: usize) -> SourceLocation {
         return self._vfile_mgr->get_loc(fid, off)
     }
@@ -850,23 +811,17 @@ pub class SourceManager {
         return self._vfile_mgr->get_loc(ptr)
     }
 
-    ///
-    /// \brief returns SourceRange for file id, offset, and length.
-    ///
+    /// returns SourceRange for file id, offset, and length.
     pub fn get_range(self, fid: FileID, off: usize, len: usize) -> SourceRange {
         return self._vfile_mgr->get_range(fid, off, len)
     }
 
-    ///
-    /// \brief returns number of loaded files.
-    ///
+    /// returns number of loaded files.
     pub fn file_count(self) -> usize {
         return self._files.size()
     }
 
-    ///
-    /// \brief retrieves a MemoryBuffer view for a SourceRange.
-    ///
+    /// retrieves a MemoryBuffer view for a SourceRange.
     pub fn get_view(self, range: SourceRange) -> MemoryBuffer {
         // degenerate/invalid ranges (EOF tokens, synthesized nodes, failed
         // resolution) must degrade to an empty view, never UB. every guard
@@ -924,14 +879,15 @@ pub class SourceManager {
         return MemoryBuffer(buf.data() + offset, length)
     }
 
+    /// retrieves a UTF-8 string for a SourceRange.
     ///
-    /// \brief retrieves a UTF-8 string for a SourceRange.
+    /// ### Parameters
+    /// - `range`: source range to fetch.
     ///
-    /// \param range source range to fetch.
-    /// \return UTF-8 string covering the range.
+    /// ### Returns
+    /// UTF-8 string covering the range.
     ///
-    /// \warning This is a very expensive operation. Use only for debugging.
-    ///
+    /// **Warning:** This is a very expensive operation. Use only for debugging.
     pub fn get_text(self, range: SourceRange) -> string {
         // a Kairo string is UTF-8 bytes, so the range is copied verbatim.
         // decoding to code points and pushing them back as u8 turned every non-ASCII character into one invalid byte
@@ -947,15 +903,16 @@ pub class SourceManager {
         )
     }
 
+    /// computes byte distance between two source locations.
     ///
-    /// \brief computes byte distance between two source locations.
+    /// ### Parameters
+    /// - `a`: first location.
+    /// - `b`: second location.
     ///
-    /// \param a first location.
-    /// \param b second location.
-    /// \return absolute byte distance.
+    /// ### Returns
+    /// absolute byte distance.
     ///
-    /// \warning returns 0 if locations are from different files.
-    ///
+    /// **Warning:** returns 0 if locations are from different files.
     fn diff(self, a: SourceLocation, b: SourceLocation) -> usize {
         var res_a = self.resolve(a)
         var res_b = self.resolve(b)
@@ -968,24 +925,23 @@ pub class SourceManager {
         return a.distance_to(b)
     }
 
-    ///
-    /// \brief checks if two locations are in the same file.
-    ///
+    /// checks if two locations are in the same file.
     pub fn same_file(self, a: SourceLocation, b: SourceLocation) -> bool {
         var res_a = self.resolve(a)
         var res_b = self.resolve(b)
         return res_a.fid == res_b.fid
     }
 
+    /// the source byte at a location.
     ///
-    /// \brief the source byte at a location.
+    /// A byte, not a code point: a non-ASCII character yields its
+    /// first byte, which compares unequal to every ASCII character.
     ///
-    /// \details A byte, not a code point: a non-ASCII character yields its
-    ///          first byte, which compares unequal to every ASCII character.
+    /// ### Parameters
+    /// - `loc`: location to read from.
     ///
-    /// \param loc location to read from.
-    /// \return the byte, or 0 if \p loc is invalid or at the end of its file.
-    ///
+    /// ### Returns
+    /// the byte, or 0 if `loc` is invalid or at the end of its file.
     pub fn get_char_at(self, loc: SourceLocation) -> u8 {
         var buf = self.get_view(SourceRange::single(loc))
         if buf.size() == 0 {
@@ -996,12 +952,13 @@ pub class SourceManager {
         return p[0]
     }
 
+    /// finds start of line containing location.
     ///
-    /// \brief finds start of line containing location.
+    /// ### Parameters
+    /// - `loc`: location to search from.
     ///
-    /// \param loc location to search from.
-    /// \return location at start of line.
-    ///
+    /// ### Returns
+    /// location at start of line.
     fn get_line_start(self, loc: SourceLocation) -> SourceLocation {
         if !loc.is_valid() {
             return loc
@@ -1031,12 +988,13 @@ pub class SourceManager {
         return self.get_loc((res.fid as u32), line_start_offset as usize)
     }
 
+    /// finds end of line containing location.
     ///
-    /// \brief finds end of line containing location.
+    /// ### Parameters
+    /// - `loc`: location to search from.
     ///
-    /// \param loc location to search from.
-    /// \return location at end of line (before newline).
-    ///
+    /// ### Returns
+    /// location at end of line (before newline).
     fn get_line_end(self, loc: SourceLocation) -> SourceLocation {
         if !loc.is_valid() {
             return loc
@@ -1066,21 +1024,20 @@ pub class SourceManager {
         return self.get_loc((res.fid as u32), line_end_offset as usize)
     }
 
+    /// extracts entire line containing a location.
     ///
-    /// \brief extracts entire line containing a location.
+    /// ### Parameters
+    /// - `loc`: any location on the line.
     ///
-    /// \param loc any location on the line.
-    /// \return range covering the full line.
-    ///
+    /// ### Returns
+    /// range covering the full line.
     fn get_line_range(self, loc: SourceLocation) -> SourceRange {
         var start = self.get_line_start(loc)
         var end   = self.get_line_end(loc)
         return SourceRange::from_bounds(start, end)
     }
 
-    ///
-    /// \brief checks if range spans multiple lines.
-    ///
+    /// checks if range spans multiple lines.
     fn is_multiline(self, range: SourceRange) -> bool {
         var start_line = self.get_line_col(range.start).line
         var end_line   = self.get_line_col(range.end).line
@@ -1120,14 +1077,11 @@ pub class SourceManager {
         return self.get_file_size((res.fid as u32))
     }
 
+    /// resets the manager to initial state.
     ///
-    /// \brief resets the manager to initial state.
-    ///
-    /// \details
     /// destroys all loaded files, resets byte counter and line table.
     /// also resets the underlying VirtualFileManager.
     /// used for test isolation.
-    ///
     pub fn reset(self) {
         self._line_table.shutdown()
         kairo::Logger::debug(

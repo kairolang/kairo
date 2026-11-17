@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------------- Codegen/CodegenICE.k --- ///
 ///
-///   \brief An ICE that names the Kairo source it was emitting.
+/// An ICE that names the Kairo source it was emitting.
 ///
 ///   \detail
 ///     A bare ICE_IF/ICE_FAIL reports where in the COMPILER it fired. To
@@ -39,7 +39,7 @@ import Location::FullSourceLocation::FullSourceLocation
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 
-/// `path:line:col` of \p loc, or empty when it maps to nothing.
+/// `path:line:col` of `loc`, or empty when it maps to nothing.
 pub fn codegen_ice_loc(ctx: unsafe *ASTContext, loc: SourceLocation) -> string {
     if ctx == &null || ctx->sm == &null {
         return ""
@@ -58,7 +58,7 @@ pub fn codegen_ice_loc(ctx: unsafe *ASTContext, loc: SourceLocation) -> string {
     return f"{full.path.full_path()}:{full.line}:{full.column}"
 }
 
-/// ICE at \p at, reported as \p id. Never returns.
+/// ICE at `at`, reported as `id`. Never returns.
 pub fn codegen_ice(ctx: unsafe *ASTContext, id: DiagID, at: SourceRange, const msg: string) {
     var where_ = codegen_ice_loc(ctx, at.start)
     if where_.size() == 0 {
@@ -81,7 +81,7 @@ pub fn codegen_ice(ctx: unsafe *ASTContext, id: DiagID, at: SourceRange, const m
     kairo::std::ice_fail(f"{msg}, at {where_}")
 }
 
-/// ICE at \p at, reported as I003E (internal invariant violation).
+/// ICE at `at`, reported as I003E (internal invariant violation).
 pub fn codegen_ice(ctx: unsafe *ASTContext, at: SourceRange, const msg: string) {
     codegen_ice(ctx, DiagID::I003E, at, msg)
 }

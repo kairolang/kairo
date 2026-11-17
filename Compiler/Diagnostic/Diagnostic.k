@@ -18,13 +18,13 @@ import Diagnostic::Code::DiagCode
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 
-/// Source annotation attached to a \c Diagnostic.
+/// Source annotation attached to a `Diagnostic`.
 ///
 /// Labels mark source ranges with an underline style and optional message.
-/// The \c PrettyConsumer renders \c StrikeThrough using Unicode combining
+/// The `PrettyConsumer` renders `StrikeThrough` using Unicode combining
 /// characters; all other consumers fall back to ASCII.
 pub struct DiagLabel {
-    /// Underline style applied to \c range in rendered output.
+    /// Underline style applied to `range` in rendered output.
     pub enum Style derives u8 {
         Primary,       ///< Primary caret span.              ^^^
         Secondary,     ///< Secondary span.                  +++
@@ -37,16 +37,16 @@ pub struct DiagLabel {
     pub var style: Self::Style
 }
 
-/// A suggested edit attached to a \c Diagnostic.
+/// A suggested edit attached to a `Diagnostic`.
 ///
-/// Describes a single source replacement: remove \c range and insert
-/// \c replacement in its place. \c message is shown to the user explaining
+/// Describes a single source replacement: remove `range` and insert
+/// `replacement` in its place. `message` is shown to the user explaining
 /// the intent of the fix.
 /// The three fix-it edit shapes, kept explicitly separate rather than inferred
 /// from range/replacement emptiness (which is ambiguous). Renderers key on this.
-///   Add     insert \c replacement at a point (\c range is a zero-width caret)
-///   Remove  delete \c range (\c replacement is empty)
-///   Replace delete \c range and insert \c replacement in its place
+///   Add     insert `replacement` at a point (`range` is a zero-width caret)
+///   Remove  delete `range` (`replacement` is empty)
+///   Replace delete `range` and insert `replacement` in its place
 pub enum FixKind {
     Add,
     Remove,
@@ -63,12 +63,12 @@ pub struct FixIt {
 
 /// A single emitted diagnostic.
 ///
-/// Carries the \c DiagCode, a human-readable message, an optional source
+/// Carries the `DiagCode`, a human-readable message, an optional source
 /// location, zero or more source labels, zero or more fix-it hints, and
 /// zero or more child diagnostics (notes attached to a parent error or
 /// warning).
 ///
-/// Children are owned by the parent and destroyed in \c op delete.
+/// Children are owned by the parent and destroyed in `op` delete.
 /// Vectors are pre-reserved at construction to avoid small-size reallocations
 /// on the common path.
 pub class Diagnostic {

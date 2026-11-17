@@ -24,14 +24,10 @@ import Command::FlagRegistry::{
 }
 import Command::ParsedArgs::ParsedArgs
 
-///
-/// \class PreprocessorOptions
-///
-/// \brief Configuration passed directly into PreProcessor and MacroExpander.
+/// Configuration passed directly into PreProcessor and MacroExpander.
 ///
 /// Contains all tunable limits (macro depth, expansion budget, etc.) and
 /// debug flags so the preprocessor never reads raw flag keys.
-///
 pub class PreprocessorOptions {
     /// # CLI defines: each entry is "NAME" or "NAME=VALUE"
 

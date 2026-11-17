@@ -22,9 +22,8 @@ import Json::{
     JsonDoc,
 }
 
-/// \class DeclTable
-/// \brief one file's declarations (Index/Tables.k writes them, Snapshot.k
-///        names the columns), a column per array: a row is an index.
+/// one file's declarations (Index/Tables.k writes them, Snapshot.k
+/// names the columns), a column per array: a row is an index.
 pub class DeclTable {
     pub var path:    string   = ""
     pub var mod:     string   = ""    ///< the file's module directory, "" for none
@@ -57,7 +56,7 @@ pub class DeclTable {
         return self.name.size()
     }
 
-    /// The row declared at byte \p off, or -1.
+    /// The row declared at byte `off`, or -1.
     pub fn row_at(self, off: i64) -> i64 {
         if off < 0 {
             return -1
@@ -71,7 +70,7 @@ pub class DeclTable {
         return (*hit) as i64
     }
 
-    /// The row declared at (\p line, \p ch), as a ref row names a
+    /// The row declared at (`line`, `ch`), as a ref row names a
     /// declaration, or -1.
     pub fn row_at_pos(self, line: i64, ch: i64) -> i64 {
         for var r: usize = 0; r < self.name.size(); ++r {
@@ -83,7 +82,7 @@ pub class DeclTable {
         return -1
     }
 
-    /// Reads table node \p n of \p d.
+    /// Reads table node `n` of `d`.
     pub fn read(self, d: *const JsonDoc, n: u32) {
         self.path    = d->get_str(n, SK_PATH)
         self.mod     = d->get_str(n, SK_MOD)
@@ -159,13 +158,12 @@ pub struct RowRef {
     var r: i64   = -1
 }
 
-/// \class DeclTables
-/// \brief every table of one entry's graph, by path.
+/// every table of one entry's graph, by path.
 ///
-/// \details A snapshot brings the tables of the files its worker walked
-///          since the last one the server installed (LiveWorker.k,
-///          live_snapshot), or all of them (a run, a first answer):
-///          `merge` replaces a path's table or adds it.
+/// A snapshot brings the tables of the files its worker walked
+/// since the last one the server installed (LiveWorker.k,
+/// live_snapshot), or all of them (a run, a first answer):
+/// `merge` replaces a path's table or adds it.
 pub class DeclTables {
     pub var t: [DeclTable]
 
@@ -186,7 +184,7 @@ pub class DeclTables {
         self.exts_stale_ = true
     }
 
-    /// Index of \p path's table, or usize::MAX.
+    /// Index of `path`'s table, or usize::MAX.
     pub fn find(self, const path: string) -> usize {
         var hit = self.by_path_.get(fnv1a(path))
         if (hit != null) && (self.t[(*hit) as usize].path == path) {
@@ -205,7 +203,7 @@ pub class DeclTables {
         return usize::MAX
     }
 
-    /// Takes the tables of snapshot \p d: all of them replace what is held
+    /// Takes the tables of snapshot `d`: all of them replace what is held
     /// when the snapshot says it has every file's. Returns how many came.
     pub fn merge(self, d: *const JsonDoc) -> usize {
         var arr = d->get(d->root, SK_TABLES)
@@ -274,7 +272,7 @@ pub class DeclTables {
         return n
     }
 
-    /// The row \p tfile / \p toff of table \p ti names (a type, a base, an
+    /// The row `tfile` / `toff` of table `ti` names (a type, a base, an
     /// alias's declaration), or none: a C or C++ declaration, a file the
     /// graph has no table of.
     pub fn follow(self, ti: usize, tfile: i64, toff: i64) -> RowRef {
@@ -316,7 +314,7 @@ pub class DeclTables {
         return const &self.exts_
     }
 
-    /// Whether class row \p d reaches class row \p base through `derives`
+    /// Whether class row `d` reaches class row `base` through `derives`
     /// edges (not itself).
     pub fn derives_from(self, d: RowRef, base: RowRef, depth: u32) -> bool {
         if (d.t >= self.t.size()) || (depth > 16) {

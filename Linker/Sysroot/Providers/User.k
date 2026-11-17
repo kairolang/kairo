@@ -38,7 +38,7 @@ pub class UserProvider derives SysrootProvider {
         return "user"
     }
 
-    /// The file an --input must hold for \p t: proof it is the SDK the
+    /// The file an --input must hold for `t`: proof it is the SDK the
     /// family needs, not some other directory.
     pub static fn marker(t: *SysTarget) -> string {
         if t->family == "darwin" {

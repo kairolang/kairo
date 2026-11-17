@@ -1,9 +1,9 @@
 /// --- The Kairo Project ---------------------- Lib/builtin/alloc_raw.k --- ///
 ///
-///   \brief The allocator model's byte layer: the allocator interfaces, the
-///          OOM hook, the global allocator (Global, System), the per-thread
-///          scope stack AllocatorScope (base/alloc.k) pushes and pops, and
-///          the current-allocator family alloc_raw / free_raw / resize_raw.
+/// The allocator model's byte layer: the allocator interfaces, the
+/// OOM hook, the global allocator (Global, System), the per-thread
+/// scope stack AllocatorScope (base/alloc.k) pushes and pops, and
+/// the current-allocator family alloc_raw / free_raw / resize_raw.
 ///
 ///   \detail
 ///     Split out of base/alloc.k so a builtin type can own memory: it
@@ -42,8 +42,9 @@ import builtin::base::intrinsics::*
 pub interface Allocator {
     /// Returns `size` bytes aligned to `align`, or `&null` on failure.
     ///
-    /// \param size   Nonzero; the front end never forwards a zero-size request.
-    /// \param align  A power of two.
+    /// ### Parameters
+    /// - `size`: Nonzero; the front end never forwards a zero-size request.
+    /// - `align`: A power of two.
     static fn alloc(size: usize, align: usize) -> unsafe *u8
     /// Gives a block back.
     ///
@@ -105,7 +106,8 @@ pub inline fn is_pow2(v: usize) -> bool {
 
 /// Rounds `v` up to the next multiple of `align`.
 ///
-/// \param align  A power of two.
+/// ### Parameters
+/// - `align`: A power of two.
 pub inline fn align_up(v: usize, align: usize) -> usize {
     return (v + align - 1) & ~(align - 1)
 }
@@ -497,9 +499,10 @@ prot inline fn scope_pop(d: usize) {
 ///
 /// A zero `size` returns `dangling(align)`. Pair the block with `free_raw`.
 ///
-/// \param align  A power of two (asserted).
-/// \safety The result is uninitialized memory; free it with `free_raw` using the same `size` and
-/// `align`.
+/// ### Parameters
+/// - `align`: A power of two (asserted).
+///   \safety The result is uninitialized memory; free it with `free_raw` using the same `size` and
+///   `align`.
 pub inline fn alloc_raw(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align) // alignment must be a power of two
     if size == 0 {

@@ -91,9 +91,12 @@ pub fn _kcc_usage() {
     )
 }
 
-/// \brief the kairo words for kcc's command line (\p argc / \p argv, argv[0]
-///        included). \return false with \p error set when clang's option
-///        table rejects a word.
+/// the kairo words for kcc's command line (`argc` / `argv`, argv[0]
+/// included).
+///
+/// ### Returns
+/// false with `error` set when clang's option
+/// table rejects a word.
 pub fn _kcc_words(argc:       i32,
                   argv:       unsafe *(unsafe *c_char),
                   @inout out: cxx::std::vector<string>,
@@ -257,12 +260,13 @@ pub fn _kcc_words(argc:       i32,
     return true
 }
 
-/// \brief whether \p w is a driver probe clang answers with no input (its
-///        HandleImmediateArgs): -dumpversion and the -print-* family.
-/// \details compiler-rt's configure asks for -print-target-triple to
-///          normalise its triple; the rest are what CMake, autoconf
-///          and libtool send. Both clang spellings of each (`-x` and `--x`)
-///          are accepted, as clang accepts them.
+/// whether `w` is a driver probe clang answers with no input (its
+/// HandleImmediateArgs): -dumpversion and the -print-* family.
+///
+/// compiler-rt's configure asks for -print-target-triple to
+/// normalise its triple; the rest are what CMake, autoconf
+/// and libtool send. Both clang spellings of each (`-x` and `--x`)
+/// are accepted, as clang accepts them.
 fn _kcc_is_clang_query(const w: string) -> bool {
     if w == "-dumpversion" || w == "-dumpmachine" {
         return true

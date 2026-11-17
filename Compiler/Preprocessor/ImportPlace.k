@@ -61,18 +61,18 @@ pub fn join_import_segments(const segs: cxx::std::vector<string>) -> string {
     return s
 }
 
-/// Resolves \p segs, written with anchor \p kind in a file whose directory
-/// is \p dir (\p has_dir false for a file with none).
+/// Resolves `segs`, written with anchor `kind` in a file whose directory
+/// is `dir` (`has_dir` false for a file with none).
 ///
-/// Each form looks in one place: the search roots (plain), \p dir
-/// (`self::`) or the module root at or above \p dir (`module::`). The
-/// longest prefix of \p segs that names a module wins; the segments past it
-/// name symbols. A plain import no search root answers is retried in \p dir
+/// Each form looks in one place: the search roots (plain), `dir`
+/// (`self::`) or the module root at or above `dir` (`module::`). The
+/// longest prefix of `segs` that names a module wins; the segments past it
+/// name symbols. A plain import no search root answers is retried in `dir`
 /// alone, after every root has missed every prefix, so a root answer is
 /// never overridden by it.
 ///
-/// With \p diag, each prefix the resolver finds ambiguous is reported at
-/// \p at (R017E across two search directories, R005E for `foo.k` beside
+/// With `diag`, each prefix the resolver finds ambiguous is reported at
+/// `at` (R017E across two search directories, R005E for `foo.k` beside
 /// `foo/module.k`) as it is met; with null, nothing is reported. Reads the
 /// resolver and loads the file found; reports nothing else.
 pub fn resolve_import_place(res:        *ImportResolver,
@@ -133,8 +133,8 @@ pub fn resolve_import_place(res:        *ImportResolver,
     return out
 }
 
-/// The longest prefix of \p segs that names a module and loads: in \p dir
-/// alone (\p in_dir), else in the search roots relative to \p from_dir.
+/// The longest prefix of `segs` that names a module and loads: in `dir`
+/// alone (`in_dir`), else in the search roots relative to `from_dir`.
 fn _import_place_greedy(res:            *ImportResolver,
                         sm:             *SourceManager,
                         const segs:     cxx::std::vector<string>,

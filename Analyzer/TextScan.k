@@ -24,7 +24,7 @@ pub struct Span {
     var kind:  u8    = 0 ///< 0 `{}`, 1 `()`, 2 `[]`, 3 comment run
 }
 
-/// Byte classes of \p text: 0 code, 1 comment, 2 string or char literal.
+/// Byte classes of `text`: 0 code, 1 comment, 2 string or char literal.
 /// One pass, so every scanner below skips the same things the same way.
 pub fn classify(const text: string) -> [u8] {
     var cls: [u8]
@@ -107,7 +107,7 @@ pub fn classify(const text: string) -> [u8] {
     return cls
 }
 
-/// Every matched bracket pair and comment run of \p text, in order of opener.
+/// Every matched bracket pair and comment run of `text`, in order of opener.
 pub fn spans(const text: string) -> [Span] {
     var out:   [Span]
     var cls            = classify(text)
@@ -197,7 +197,7 @@ pub fn spans(const text: string) -> [Span] {
     return out
 }
 
-/// The call the cursor at \p at is inside: the offset of its `(`, and how
+/// The call the cursor at `at` is inside: the offset of its `(`, and how
 /// many top-level commas precede the cursor. `open` is usize::MAX when the
 /// cursor is not inside a call's parentheses.
 pub struct CallSite {
@@ -273,7 +273,7 @@ fn is_blank_byte(c: u8) -> bool {
     return (c == (' ' as u8)) || (c == ('\t' as u8)) || (c == ('\r' as u8))
 }
 
-/// The word of code bytes starting at \p p, or "".
+/// The word of code bytes starting at `p`, or "".
 fn word_at(const text: string, const cls: [u8], p: usize) -> string {
     var e = p
     while (e < text.size()) && (cls[e] == 0) && is_ident_byte(text[e]) {
@@ -323,9 +323,9 @@ fn one_line(const s: string) -> string {
     return out.subslice(0, e)
 }
 
-/// The plan for the class or struct whose declared name holds \p at, with
-/// the interface called \p iname ("" for `I<Name>`). `ok` is false when
-/// \p at is not on such a name, or the type has no public instance method
+/// The plan for the class or struct whose declared name holds `at`, with
+/// the interface called `iname` ("" for `I<Name>`). `ok` is false when
+/// `at` is not on such a name, or the type has no public instance method
 /// (an interface must have a requirement).
 ///
 /// Taken from the class body: every `pub` method that is not `static`, a

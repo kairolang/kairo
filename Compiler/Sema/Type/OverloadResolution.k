@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------- Sema/Type/OverloadResolution.k --- ///
 ///
-///   \brief Pick one function from a candidate set for a call, given the
-///          argument types. A component; ExprTyper calls it, nothing else.
+/// Pick one function from a candidate set for a call, given the
+/// argument types. A component; ExprTyper calls it, nothing else.
 ///
 ///   \detail
 ///     Viability: arity after defaults and packs, every positional and named
@@ -147,9 +147,8 @@ import Sema::Type::TypeUtil::TypeUtil
 import Support::Tuning::DERIVES_WALK_DEPTH_MAX
 import Token::TokenKind::TokenKind
 
-/// \enum LitKind
-/// \brief An argument that is an untyped literal carries its shape so the
-///        resolver can rank it without a type.
+/// An argument that is an untyped literal carries its shape so the
+/// resolver can rank it without a type.
 pub enum LitKind derives u8 {
     None = 0,
     Int,     ///< lo/hi/big/negative meaningful.
@@ -201,7 +200,7 @@ pub fn cxx_lref_inout(f: unsafe *FunctionDecl, p: unsafe *ParamDecl, marked: boo
     return true
 }
 
-/// \p t is an imported opaque type, or a C++ reference, pointer or
+/// `t` is an imported opaque type, or a C++ reference, pointer or
 /// qualified type over one: `std::move`'s `remove_reference_t<T>&&` imports
 /// as a reference to an opaque alias. Such a return type has no Kairo shape
 /// even after Kairo's deduction (substitution leaves the opaque referee
@@ -354,7 +353,7 @@ pub enum ExactFit derives u8 {
     Alias,   ///< a same-width alias of it, or a conversion to C++.
 }
 
-/// \p k bound to a converted temporary instead (None stays None).
+/// `k` bound to a converted temporary instead (None stays None).
 fn ref_bind_on_temp(k: RefBind) -> RefBind {
     if k == RefBind::ConstLRef {
         return RefBind::TempConstLRef
@@ -569,14 +568,13 @@ pub class OvlResult {
     fn OvlResult(self) { }
 }
 
-/// \class OvlCallScope
-/// \brief The ambient context one resolution reads -- call_syntax,
-///        explicit_args, recv_cat, which CallTyping sets for one call --
-///        put back as it was when the scope ends, however it ends. Every
-///        field, not the ones a site remembered to save: typing an argument
-///        is a call of its own, and one that read the outer call's explicit
-///        arguments said "it takes 0 generic argument(s), and 1 were
-///        written" (CallTyping::_call_candidates).
+/// The ambient context one resolution reads -- call_syntax,
+/// explicit_args, recv_cat, which CallTyping sets for one call --
+/// put back as it was when the scope ends, however it ends. Every
+/// field, not the ones a site remembered to save: typing an argument
+/// is a call of its own, and one that read the outer call's explicit
+/// arguments said "it takes 0 generic argument(s), and 1 were
+/// written" (CallTyping::_call_candidates).
 pub class OvlCallScope {
     priv var _ovl:         unsafe *OverloadResolution
     priv var _call_syntax: bool
@@ -638,24 +636,25 @@ pub class OverloadResolution {
         self.tu   = TypeUtil(sc)
     }
 
-    /// \param cands   the decls under the name; non-functions are skipped
-    ///                (a mixed cell was N(a)'s error already).
-    /// \param has_receiver  `obj.m(...)`: the `self` param is bound to the
-    ///                receiver and not matched against args. `Type::m(obj)`
-    ///                passes false and `self` is an ordinary first param.
-    /// \param receiver  the type `obj` has, already stripped of nullable and
-    ///                pointer. Not a duplicate of has_receiver: an interface
-    ///                member's `Self` IS this type, and viability has to see
-    ///                that -- `fn merge(self, other: Self)` reached through a
-    ///                `T impl Drawable` takes a T, so ranking the argument
-    ///                against `Drawable` would reject a correct call. Null
-    ///                when there is no receiver, or when the caller has none
-    ///                to offer.
-    /// \param qualifier  the interface instance a qualified requirement call
-    ///                   names (`Container<i32>::get(b, 0)`): its arguments
-    ///                   are the requirement's interface parameters, decided
-    ///                   before any argument is ranked, as an extension's are
-    ///                   by the receiver. Null on every other call.
+    /// ### Parameters
+    /// - `cands`: the decls under the name; non-functions are skipped
+    ///   (a mixed cell was N(a)'s error already).
+    /// - `has_receiver`: `obj.m(...)`: the `self` param is bound to the
+    ///   receiver and not matched against args. `Type::m(obj)`
+    ///   passes false and `self` is an ordinary first param.
+    /// - `receiver`: the type `obj` has, already stripped of nullable and
+    ///   pointer. Not a duplicate of has_receiver: an interface
+    ///   member's `Self` IS this type, and viability has to see
+    ///   that -- `fn merge(self, other: Self)` reached through a
+    ///   `T impl Drawable` takes a T, so ranking the argument
+    ///   against `Drawable` would reject a correct call. Null
+    ///   when there is no receiver, or when the caller has none
+    ///   to offer.
+    /// - `qualifier`: the interface instance a qualified requirement call
+    ///   names (`Container<i32>::get(b, 0)`): its arguments
+    ///   are the requirement's interface parameters, decided
+    ///   before any argument is ranked, as an extension's are
+    ///   by the receiver. Null on every other call.
     fn resolve(self,
                cands:        unsafe *cxx::std::vector<unsafe *Decl>,
                args:         unsafe *cxx::std::vector<ArgInfo>,
@@ -680,7 +679,7 @@ pub class OverloadResolution {
 
     /// resolve() for a call whose callee is DEPENDENT but nameable -- a
     /// constructor of `Rec<T>` inside a generic body. A parameter still
-    /// dependent after reading it through \p receiver, or a dependent
+    /// dependent after reading it through `receiver`, or a dependent
     /// argument, is viable for anything and unranked: convertibility is the
     /// instance's question, as it is for initializer fields. Concrete pairs
     /// rank normally, so a concrete mismatch is still an error here.
@@ -710,15 +709,15 @@ pub class OverloadResolution {
         )
     }
 
-    /// One overload set drawn from two argument shapes. \p members are judged
-    /// against \p margs exactly as resolve() judges them; \p frees (free
-    /// functions -- an ADL-found `fn op +(a: A, b: B)`) against \p fargs,
+    /// One overload set drawn from two argument shapes. `members` are judged
+    /// against `margs` exactly as resolve() judges them; `frees` (free
+    /// functions -- an ADL-found `fn op +(a: A, b: B)`) against `fargs`,
     /// where the receiver operand is an ordinary first argument. Everything
     /// ranks in ONE candidate list: which list a candidate came from is not a
     /// tiebreak, so a member and a free function at the same rank are an
     /// ordinary ambiguity (the C++ rule for operators). The winner's
-    /// arg_to_param indexes \p fargs iff OvlResult::via_free. \p frees and
-    /// \p fargs may be null.
+    /// arg_to_param indexes `fargs` iff OvlResult::via_free. `frees` and
+    /// `fargs` may be null.
     /// Whether any candidate is viable for these arguments, reporting
     /// nothing. For a caller that has a fallback when none is: C++20's
     /// `a != b` is `!(a == b)` whenever no `operator!=` takes the operands,
@@ -759,8 +758,8 @@ pub class OverloadResolution {
         return false
     }
 
-    /// \p receiver is a dependent instance of an imported class template
-    /// and \p members are its (imported) members.
+    /// `receiver` is a dependent instance of an imported class template
+    /// and `members` are its (imported) members.
     priv fn _dependent_foreign_receiver(self,
                                         receiver: unsafe *Type,
                                         members:  unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
@@ -799,7 +798,7 @@ pub class OverloadResolution {
                      defer:        bool = false,
                      qualifier:    unsafe *Type = &null) -> OvlResult {
         var out = OvlResult()
-        // \p receiver carries the OBJECT's cv (a const object's method call
+        // `receiver` carries the OBJECT's cv (a const object's method call
         // ranks on it, _judge_receiver); everything downstream of the
         // result wants the type the call was made through, unqualified.
         out.receiver = canon_unqual(receiver)
@@ -1106,8 +1105,8 @@ pub class OverloadResolution {
         }
     }
 
-    /// [temp.func.order]: of \p winners, all generic and tied, the one more
-    /// specialized than each of the others, or \p winners unchanged. Only
+    /// [temp.func.order]: of `winners`, all generic and tied, the one more
+    /// specialized than each of the others, or `winners` unchanged. Only
     /// candidates of one kind are ordered (all members or all free), over the
     /// parameters the call's arguments landed on; a pack or C `...` slot
     /// leaves the tie for the ambiguity diagnostic. Two candidates equally
@@ -1160,10 +1159,10 @@ pub class OverloadResolution {
         return ext != &null && decl_generic_params(unsafe (ext as unsafe *Decl)).size() > 0
     }
 
-    /// [temp.func.order]/2-6: \p a is more specialized than \p b when it is
-    /// at least as specialized and \p b is not, or when each is at least as
+    /// [temp.func.order]/2-6: `a` is more specialized than `b` when it is
+    /// at least as specialized and `b` is not, or when each is at least as
     /// specialized as the other, their template heads are equivalent, and
-    /// \p a is more constrained (ConformanceChecking::more_constrained):
+    /// `a` is more constrained (ConformanceChecking::more_constrained):
     /// `requires T impl I` over no clause, `requires T impl I && T impl J`
     /// over `requires T impl I`. The emitted C++ heads carry the same
     /// clauses, so clang's own ordering picks the same candidate.
@@ -1183,7 +1182,7 @@ pub class OverloadResolution {
         return ConformanceChecking(self.sc).more_constrained(a->f, b->f)
     }
 
-    /// \p c's clause is not known to hold for its arguments
+    /// `c`'s clause is not known to hold for its arguments
     /// (ConformanceChecking::clause_decided_true). Constraints order only
     /// candidates whose clauses are decided: C++ orders them after the
     /// clauses have admitted both, so one Kairo cannot decide (an open
@@ -1201,7 +1200,7 @@ pub class OverloadResolution {
         )
     }
 
-    /// \p a and \p b, each at least as specialized as the other, have
+    /// `a` and `b`, each at least as specialized as the other, have
     /// equivalent template parameter lists ([temp.over.link]/6): as many
     /// parameters, of the same kinds, and b's parameters deduce from a's
     /// parameter types position for position (`(x: T, y: U)` against `(x:
@@ -1266,7 +1265,7 @@ pub class OverloadResolution {
         return true
     }
 
-    /// \p c's parameters other than its receiver, defaulted ones included:
+    /// `c`'s parameters other than its receiver, defaulted ones included:
     /// two function parameter lists of different lengths are not
     /// equivalent ([temp.over.link]), whatever the call passes.
     priv fn _own_param_count(self, c: *Candidate) -> usize {
@@ -1281,7 +1280,7 @@ pub class OverloadResolution {
         return n
     }
 
-    /// Whether \p a is at least as specialized as \p b ([temp.deduct.partial]):
+    /// Whether `a` is at least as specialized as `b` ([temp.deduct.partial]):
     /// b's generic parameters deduce from a's parameter types, a's own
     /// generic parameters standing in as the unique types the rule asks for
     /// (a GenericParamType of a's is a type b can bind and never equals one
@@ -1315,7 +1314,7 @@ pub class OverloadResolution {
         return true
     }
 
-    /// The parameter types \p c's arguments landed on, in argument order;
+    /// The parameter types `c`'s arguments landed on, in argument order;
     /// empty if one landed on a pack or C `...` tail, or a type is missing.
     priv fn _ordering_params(self, c: *Candidate) -> cxx::std::vector<unsafe *Type> {
         var params = cxx::std::vector<unsafe *ParamDecl>()
@@ -1363,7 +1362,7 @@ pub class OverloadResolution {
         return canon_unqual(c)
     }
 
-    /// defer mode: whether \p winners leave the choice to the instance. A tie
+    /// defer mode: whether `winners` leave the choice to the instance. A tie
     /// with an assumed candidate in it is not an ambiguity anyone can see
     /// yet. A lone assumed winner is a choice only when it is the ONLY viable
     /// candidate; otherwise the instance may rank it below another.
@@ -1395,7 +1394,7 @@ pub class OverloadResolution {
         return viable > 1
     }
 
-    /// Every one of \p winners is an imported template whose substitution
+    /// Every one of `winners` is an imported template whose substitution
     /// waits on a dependent argument (Verdict::SfinaeDeferred).
     priv fn _sfinae_pending(self,
                             const cs:      cxx::std::vector<Candidate>,
@@ -1444,8 +1443,8 @@ pub class OverloadResolution {
         return keep
     }
 
-    /// \p x beats \p y on reference kind: on no argument does \p y bind
-    /// better, on at least one \p x does. The only "better" there is, and it
+    /// `x` beats `y` on reference kind: on no argument does `y` bind
+    /// better, on at least one `x` does. The only "better" there is, and it
     /// applies only where BOTH bound at Exact ([over.ics.rank]/3.2.3, 3.2.6
     /// reduced): an rvalue argument prefers `T&&` to `const T&`, a non-const
     /// lvalue prefers `T&` to `const T&`. Nothing else is ordered: every
@@ -1557,8 +1556,8 @@ pub class OverloadResolution {
         return keep
     }
 
-    /// \p x beats \p y on integer spelling: on no argument does \p y bind
-    /// its natural C type where \p x binds an alias, on at least one the
+    /// `x` beats `y` on integer spelling: on no argument does `y` bind
+    /// its natural C type where `x` binds an alias, on at least one the
     /// reverse. Kairo maps C integers by width, so an i32 is EXACT against
     /// both `int` and, on LLP64, `long`; to C++ only `int` is identity and
     /// `long` is an integral conversion ([over.ics.rank]/4). Without this,
@@ -1623,8 +1622,8 @@ pub class OverloadResolution {
         return keep
     }
 
-    /// \p x beats \p y on pointee cv: on no argument does \p x's pointer
-    /// parameter point at MORE cv than \p y's of the same pointee, on at
+    /// `x` beats `y` on pointee cv: on no argument does `x`'s pointer
+    /// parameter point at MORE cv than `y`'s of the same pointee, on at
     /// least one it points at less. A derived pointer reaches `*Base` and
     /// `*const Base` alike, both at the Converted rank; C++ orders them
     /// because the first is a subsequence of the second plus a
@@ -1726,8 +1725,8 @@ pub class OverloadResolution {
         return keep
     }
 
-    /// \p x beats \p y on untyped float literals: on no argument does \p y
-    /// bind f64 where \p x binds another float, on at least one the
+    /// `x` beats `y` on untyped float literals: on no argument does `y`
+    /// bind f64 where `x` binds another float, on at least one the
     /// reverse. Kairo's literal takes any float it is given (§5), so both
     /// rank Exact; C++'s `16.0` is a double, an identity to `double` and a
     /// conversion to `float` / `long double`, which is how `std::sqrt(16.0)`
@@ -1761,7 +1760,7 @@ pub class OverloadResolution {
     }
 
     /// ArgJudgment::flit_kind code for a float literal ranked Exact against
-    /// \p pt, read through a reference and a nullable as _rank_literal_arg
+    /// `pt`, read through a reference and a nullable as _rank_literal_arg
     /// reads it. A dependent parameter is not judged: what the literal
     /// deduces there is the generic tiebreak's business, not this one's.
     priv fn _flit_code(self, pt: unsafe *Type) -> ExactFit {
@@ -1786,7 +1785,7 @@ pub class OverloadResolution {
     }
 
     /// ArgJudgment::flit_kind code for an int literal ranked Exact against an
-    /// imported \p pt: Natural C's `int` (i32 spelled `int`, not LLP64's
+    /// imported `pt`: Natural C's `int` (i32 spelled `int`, not LLP64's
     /// `long` alias), Alias any other type (a conversion to C++). Dependent:
     /// not judged.
     priv fn _ilit_code(self, pt: unsafe *Type, alias: bool) -> ExactFit {
@@ -1856,8 +1855,8 @@ pub class OverloadResolution {
         return Substitution(self.sc).derives_from(av, pv)
     }
 
-    /// The proper base of record \p a that is an instance of the pattern
-    /// the dependent `self` type \p pt names, read through \p a's
+    /// The proper base of record `a` that is an instance of the pattern
+    /// the dependent `self` type `pt` names, read through `a`'s
     /// arguments as Substitution::derives_from reads them; null if none.
     priv fn _self_upcast(self, a: unsafe *Type, pt: unsafe *Type) -> unsafe *Type {
         var unsafe *pr = dyn_cast<RecordType>(canon_unqual(pt))
@@ -1987,7 +1986,7 @@ pub class OverloadResolution {
         }
     }
 
-    /// \p x and \p y take the same parameters after `self`, in the same
+    /// `x` and `y` take the same parameters after `self`, in the same
     /// modes, and the same `self` constness. A parameter that names a
     /// generic one of its record reads through what the call deduced
     /// (`GB<i32>`'s `h(self, t: T)` is `h(self, t: i32)`); one that stays
@@ -2115,7 +2114,7 @@ pub class OverloadResolution {
         return t
     }
 
-    /// The record \p f is a member of, as its pattern's representative (an
+    /// The record `f` is a member of, as its pattern's representative (an
     /// instance's members and the pattern's are one class for this
     /// question); null for a free function, an extension member or an
     /// interface requirement.
@@ -2137,9 +2136,9 @@ pub class OverloadResolution {
         return NameLookup::representative(self.tu.pattern_of(owner))
     }
 
-    /// \p d (a pattern representative) reaches \p base through `derives`
+    /// `d` (a pattern representative) reaches `base` through `derives`
     /// edges, by entity: the edge's arguments do not matter, because
-    /// \p base is a pattern too and only the pattern's relation is asked.
+    /// `base` is a pattern too and only the pattern's relation is asked.
     priv fn _class_derives(self,
                            d:     unsafe *Decl,
                            base:  unsafe *Decl,
@@ -2240,7 +2239,7 @@ pub class OverloadResolution {
         return false
     }
 
-    /// The ArgJudgment::bind kind for a parameter of type \p pt.
+    /// The ArgJudgment::bind kind for a parameter of type `pt`.
     priv fn _bind_kind(self, pt: unsafe *Type) -> RefBind {
         if pt == &null {
             return RefBind::None
@@ -2272,8 +2271,8 @@ pub class OverloadResolution {
         return false
     }
 
-    /// Judge every function in \p cands against \p args and append it to
-    /// \p cs, skipping one \p cs already holds (fwd + def are one entity,
+    /// Judge every function in `cands` against `args` and append it to
+    /// `cs`, skipping one `cs` already holds (fwd + def are one entity,
     /// RedeclMerge; and a decl reached as both member and ADL free is one).
     priv fn _collect(self,
                      cs:           unsafe *cxx::std::vector<Candidate>,
@@ -2579,8 +2578,8 @@ pub class OverloadResolution {
 
     /// # one candidate
 
-    /// explicit_args into \p c's deduction, positionally. More arguments than
-    /// \p c has generic parameters, or any for a non-generic one, makes it
+    /// explicit_args into `c`'s deduction, positionally. More arguments than
+    /// `c` has generic parameters, or any for a non-generic one, makes it
     /// not viable; a value where a type parameter is (or the reverse) too.
     priv fn _bind_explicit(self, c: *Candidate) -> bool {
         var n = self.explicit_args.size()
@@ -2687,9 +2686,9 @@ pub class OverloadResolution {
     /// const method's self is `const Record` (TypeResolve's
     /// _synthesize_receiver, and DeclImport through `this`). It binds as a
     /// reference would: a const object cannot bind a plain `self`, and
-    /// either object binds `const self`. \p receiver's own cv is the
+    /// either object binds `const self`. `receiver`'s own cv is the
     /// object's; null means no object is known, and nothing is judged.
-    /// \p f is declared in the body of a partial specialization.
+    /// `f` is declared in the body of a partial specialization.
     priv fn _member_of_partial(self, f: unsafe *FunctionDecl) -> bool {
         if f->semantic_dc == &null {
             return false
@@ -2704,7 +2703,7 @@ pub class OverloadResolution {
         return owner != &null && decl_spec_kind(owner) == SpecKind::Partial
     }
 
-    /// \p f is declared in the body of the pattern \p receiver is a
+    /// `f` is declared in the body of the pattern `receiver` is a
     /// concrete instance of (`Opt<i32>` for a member of `class <T> Opt`).
     /// An inherited member is not: its parameters are its own record's.
     priv fn _member_of_instance(self, f: unsafe *FunctionDecl, receiver: unsafe *Type) -> bool {
@@ -2749,10 +2748,10 @@ pub class OverloadResolution {
         return own != NameLookup::representative(self.tu.pattern_of(r->decl))
     }
 
-    /// The instance of \p c's declaring interface that a bound of the
-    /// parameter \p receiver names, read through the bound's `derives` chain
+    /// The instance of `c`'s declaring interface that a bound of the
+    /// parameter `receiver` names, read through the bound's `derives` chain
     /// (`C impl Wrapped<i32>` declares Container's `get` at
-    /// `Container<Wrap<i32>>`); null when \p receiver is no bounded
+    /// `Container<Wrap<i32>>`); null when `receiver` is no bounded
     /// parameter or no bound declares the candidate. The first bound that
     /// does wins: two bounds reaching one requirement at different
     /// arguments is a conflict the bounds' own checking owns, not this call.
@@ -3588,7 +3587,7 @@ pub class OverloadResolution {
         }
     }
 
-    /// The keyword-only parameter \p a was probably meant for, or usize(-1).
+    /// The keyword-only parameter `a` was probably meant for, or usize(-1).
     ///
     /// Only asked when the argument does NOT fit the pack, so the answer is
     /// "there is a parameter this would have fitted, and it is unreachable
@@ -3653,7 +3652,7 @@ pub class OverloadResolution {
         return c->ded.through_receiver(c->f, canon_unqual(receiver), pt)
     }
 
-    /// \p mode is the parameter's passing mode. `@inout` is judged exactly as
+    /// `mode` is the parameter's passing mode. `@inout` is judged exactly as
     /// a C++ `T&` parameter is (Conversion::ref_binding, [over.ics.ref]): a
     /// mutable lvalue of T binds Exact, a derived object Converted, a
     /// temporary never. `@move` ranks by VALUE: `f(x)` moves, the call site
@@ -4019,8 +4018,8 @@ pub class OverloadResolution {
         }
     }
 
-    /// The enum a `.V` argument takes from parameter type \p pt, or null
-    /// when \p pt is not one. A reference is read through to its referee and
+    /// The enum a `.V` argument takes from parameter type `pt`, or null
+    /// when `pt` is not one. A reference is read through to its referee and
     /// a nullable to its inner type. Ranking and the ambiguity hint both ask,
     /// and must agree on which enum a parameter offers.
     priv fn _variant_enum(self, pt: unsafe *Type) -> unsafe *Type {
@@ -4100,7 +4099,7 @@ pub class OverloadResolution {
         return worst
     }
 
-    /// The lang record a range literal of form \p form builds.
+    /// The lang record a range literal of form `form` builds.
     priv fn _range_record(self, form: u32) -> WellKnownType {
         if (form & RANGE_HAS_END) == 0 {
             return WellKnownType::RangeFrom
@@ -4210,7 +4209,7 @@ pub class OverloadResolution {
         return ImplicitRank::None
     }
 
-    /// \p pt is the (dependent) parameter the default will be unified against;
+    /// `pt` is the (dependent) parameter the default will be unified against;
     /// only a list reads it, to choose which container its default is.
     priv fn _literal_default(self, a: *ArgInfo, pt: unsafe *Type) -> unsafe *Type {
         match a->lit {
@@ -4290,7 +4289,7 @@ pub class OverloadResolution {
     }
 
     /// The type a list literal takes when its parameter is dependent: the
-    /// join of its elements' own defaults, in whichever container \p pt asks
+    /// join of its elements' own defaults, in whichever container `pt` asks
     /// for (an array when it asks for nothing).
     priv fn _list_default(self, lo: usize, n: usize, pt: unsafe *Type) -> unsafe *Type {
         var unsafe *target = canon_unqual(self.tu.strip_nullable(pt))
@@ -4354,7 +4353,7 @@ pub class OverloadResolution {
 
     /// # diagnostics
 
-    /// \p from points at u8 or i8 (or byte) and \p to at C's `char`.
+    /// `from` points at u8 or i8 (or byte) and `to` at C's `char`.
     /// A string literal at a C string parameter of an imported function:
     /// its static, NUL-terminated bytes are the `const char *`
     /// already, so it converts without a `string` being made (CallTyping
@@ -4378,12 +4377,12 @@ pub class OverloadResolution {
         return self.tu.is_c_string_param(pt)
     }
 
-    /// \p a is a string literal at an imported template's forwarding
-    /// reference \p pt (`T&&`, toml++'s `value_or(T&& default)`): T is a C
+    /// `a` is a string literal at an imported template's forwarding
+    /// reference `pt` (`T&&`, toml++'s `value_or(T&& default)`): T is a C
     /// string, never builtin::string, which no C++ template expects (the
     /// rule for `T`). C++ itself deduces `const char(&)[N]`,
     /// which Kairo cannot spell; the decayed pointer is what every such
-    /// template also takes. Also true for \p pt already substituted to
+    /// template also takes. Also true for `pt` already substituted to
     /// `const char*&&`.
     priv fn _forwards_cstr(self, f: unsafe *FunctionDecl, a: *ArgInfo, pt: unsafe *Type) -> bool {
         if f == &null || (!f->is_imported()) || a->marked || pt == &null {
@@ -4418,7 +4417,7 @@ pub class OverloadResolution {
     }
 
     /// The type a by-value parameter of an imported template deduces from
-    /// \p a. To C++ a string literal is `const char[N]`, which a by-value
+    /// `a`. To C++ a string literal is `const char[N]`, which a by-value
     /// `T` deduces as `const char *` ([temp.deduct.call]/2): deduced from
     /// the Kairo `string` instead, `template<class T> f(T)` was instantiated
     /// on builtin::string, which no C++ template expects. CallTyping
@@ -4449,7 +4448,7 @@ pub class OverloadResolution {
         return self.tu.c_string_ptr_type()
     }
 
-    /// \p t is an associated type of a type parameter (`J::Item`), under
+    /// `t` is an associated type of a type parameter (`J::Item`), under
     /// nullables, pointers and qualifiers: a type no argument deduces.
     priv fn _reads_assoc(self, t: unsafe *Type) -> bool {
         var unsafe *u = if (t != &null) => (canon_unqual(t)) else => &null
@@ -4471,7 +4470,7 @@ pub class OverloadResolution {
     }
 
     /// The imported record a C++ user-defined conversion would build for
-    /// parameter \p pt of the imported callee \p f, or null: \p pt by
+    /// parameter `pt` of the imported callee `f`, or null: `pt` by
     /// value, `const T&` or `T&&` (a temporary binds neither `T&` nor a
     /// Kairo `@inout`), T a C++ class.
     priv fn _cxx_conv_target(self,
@@ -4504,7 +4503,7 @@ pub class OverloadResolution {
         return t
     }
 
-    /// \p t names a C++ class: imported, or an instance of an imported
+    /// `t` names a C++ class: imported, or an instance of an imported
     /// template (`std::string` is a registry shell of basic_string, which
     /// is not itself marked imported).
     priv fn _is_cxx_record(self, t: unsafe *Type) -> bool {
@@ -4516,7 +4515,7 @@ pub class OverloadResolution {
         return decl_is_imported(d) || decl_is_imported(self.tu.pattern_of(d))
     }
 
-    /// How C++ would reach the record \p to from \p a with ONE
+    /// How C++ would reach the record `to` from `a` with ONE
     /// user-defined conversion -- `'View(const char *)'` or `'operator B'`
     /// -- or "" when it would not. A standard conversion may precede a
     /// converting constructor ([over.ics.user]), never a second user one,
@@ -4651,7 +4650,7 @@ pub class OverloadResolution {
         return ""
     }
 
-    /// \p e binds looser than a postfix `as`, so a cast appended to it
+    /// `e` binds looser than a postfix `as`, so a cast appended to it
     /// needs parentheses around it.
     priv fn _needs_parens_for_as(self, e: unsafe *Expr) -> bool {
         if e == &null {
@@ -4661,8 +4660,8 @@ pub class OverloadResolution {
         return isa<BinaryOperatorExpr>(e) || isa<AssignOperatorExpr>(e) || isa<RangeExpr>(e)
     }
 
-    /// A `fn` value (\p a: a closure or a variable of `fn` type) offered to
-    /// a raw `unsafe fn` parameter \p pt: the conversion that never holds,
+    /// A `fn` value (`a`: a closure or a variable of `fn` type) offered to
+    /// a raw `unsafe fn` parameter `pt`: the conversion that never holds,
     /// since the value may capture.
     priv fn _raw_fn_from_capturing(self, a: *ArgInfo, pt: unsafe *Type) -> bool {
         if a->ty == &null || pt == &null || a->ty->canonical == &null || pt->canonical == &null {
@@ -4897,9 +4896,9 @@ pub class OverloadResolution {
         return ""
     }
 
-    /// \p margs / \p fargs are the argument lists the winners were judged
+    /// `margs` / `fargs` are the argument lists the winners were judged
     /// against, chosen per winner by Candidate::free as in _ref_tiebreak.
-    /// SC320E for a tie among \p winners when at least one has a clause
+    /// SC320E for a tie among `winners` when at least one has a clause
     /// conjunct that tests an open parameter (a parameter of the generic
     /// whose body makes the call) and its bounds leave undecided
     /// (ConformanceChecking::open_conjuncts). A generic body is checked

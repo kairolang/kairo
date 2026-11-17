@@ -1,9 +1,9 @@
 /// --- The Kairo Project ----------------- Sema/Verify/JumpLabelCheck.k --- ///
 ///
-///   \brief Verify jump!/label! intrinsics: every jump! names a label!
-///          declared in the SAME function, and no function declares the
-///          same label! twice. In a script, no top-level jump! crosses the
-///          line of a deferred script variable.
+/// Verify jump!/label! intrinsics: every jump! names a label!
+/// declared in the SAME function, and no function declares the
+/// same label! twice. In a script, no top-level jump! crosses the
+/// line of a deferred script variable.
 ///
 ///   \detail
 ///     A script's top level is the body of its synthesized main

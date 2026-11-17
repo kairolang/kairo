@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------------------ AST/ParamMode.k --- ///
 ///
-///   \brief Parameter passing modes.
+/// Parameter passing modes.
 ///
 ///   \detail
 ///     Kairo source has no reference types, but it declares, overrides and

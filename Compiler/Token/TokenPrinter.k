@@ -43,7 +43,7 @@ import Token::TokenText::{
 }
 import std::io
 
-/// \brief ANSI SGR escape sequences. all empty-stringed when color is disabled.
+/// ANSI SGR escape sequences. all empty-stringed when color is disabled.
 pub class Sgr {
     pub var reset: string = ""
     pub var dim:   string = ""
@@ -100,8 +100,9 @@ pub class TokenPrinter {
     priv var _sgr:   Sgr
     priv var _color: bool                      = false
 
-    /// \param sm      source manager for text resolution
-    /// \param imm_tbl immediate table for the file being printed (may be null)
+    /// ### Parameters
+    /// - `sm`: source manager for text resolution
+    /// - `imm_tbl`: immediate table for the file being printed (may be null)
     fn TokenPrinter(self, tcm: unsafe *TokenCacheManager) {
         self._tcm   = tcm
         self._sm    = tcm->get_source_manager()
@@ -109,10 +110,11 @@ pub class TokenPrinter {
         self._sgr   = Sgr(self._color)
     }
 
-    /// \param sm      source manager for text resolution
-    /// \param imm_tbl immediate table for the file being printed (may be null)
-    /// \param no_color honors DiagnosticOptions.no_color; when false, still
-    ///        requires a TTY before emitting escapes.
+    /// ### Parameters
+    /// - `sm`: source manager for text resolution
+    /// - `imm_tbl`: immediate table for the file being printed (may be null)
+    /// - `no_color`: honors DiagnosticOptions.no_color; when false, still
+    ///   requires a TTY before emitting escapes.
     pub fn TokenPrinter(self, tcm: unsafe *TokenCacheManager, no_color: bool) {
         self._tcm   = tcm
         self._sm    = tcm->get_source_manager()
@@ -126,8 +128,8 @@ pub class TokenPrinter {
         return result != 0
     }
 
-    /// \brief left indent for a given nesting depth.
-    ///        2 leading spaces + 4 per level, matching the "  [N]" gutter.
+    /// left indent for a given nesting depth.
+    /// 2 leading spaces + 4 per level, matching the "  [N]" gutter.
     priv fn _indent(self, depth: usize) -> string {
         var out: string
         out += "  "
@@ -138,7 +140,7 @@ pub class TokenPrinter {
         return out
     }
 
-    /// \brief prints the whole stream with a header.
+    /// prints the whole stream with a header.
     pub fn print_stream(self, tokens: unsafe *(TokenBuffer<512>), const path: string) {
         var s = self._sgr
 
@@ -156,13 +158,15 @@ pub class TokenPrinter {
         }
     }
 
-    /// \brief prints a single top-level token (depth 0).
+    /// prints a single top-level token (depth 0).
     fn print_token(self, idx: usize, tok: unsafe *Token) {
         self._print_token_at(idx, tok, 0)
     }
 
-    /// \brief prints a token line plus any imm detail, at a given nesting depth.
-    /// \param depth 0 = top-level file token, >0 = inside an f-string hole.
+    /// prints a token line plus any imm detail, at a given nesting depth.
+    ///
+    /// ### Parameters
+    /// - `depth`: 0 = top-level file token, >0 = inside an f-string hole.
     priv fn _print_token_at(self, idx: usize, tok: unsafe *Token, depth: usize) {
         var s   = self._sgr
         var pad = self._indent(depth)
@@ -267,7 +271,7 @@ pub class TokenPrinter {
         }
     }
 
-    /// \brief renders "@ [start, end)" in range color.
+    /// renders "@ [start, end)" in range color.
     priv fn _fmt_range(self, range: SourceRange) -> string {
         var s           = self._sgr
         var out: string
@@ -277,8 +281,8 @@ pub class TokenPrinter {
         return out
     }
 
-    /// \brief picks a color from the token's class using Token::Type predicates,
-    ///        so colors stay correct as new kinds are added.
+    /// picks a color from the token's class using Token::Type predicates,
+    /// so colors stay correct as new kinds are added.
     priv fn _color_for_kind(self, kind: TokenKind) -> string {
         var s = self._sgr
 
@@ -324,8 +328,8 @@ pub class TokenPrinter {
     // sentinel display text comes from Token::TokenText::sentinel_text
     // one vocabulary for dumps, diagnostics, and resolve().
 
-    /// \brief emits an indented detail line for tokens that own an
-    ///        immediate-table entry. no-op for everything else.
+    /// emits an indented detail line for tokens that own an
+    /// immediate-table entry. no-op for everything else.
     priv fn _print_imm_detail(self, tok: Token, depth: usize) {
         var        kind = tok.kind
         var        imm  = tok.imm
@@ -349,7 +353,7 @@ pub class TokenPrinter {
         }
     }
 
-    /// \brief begins a detail line: indent + "`- " connector + label.
+    /// begins a detail line: indent + "`- " connector + label.
     priv fn _field_line(self, const label: string, depth: usize) -> string {
         var s   = self._sgr
         var out = self._indent(depth)
@@ -506,8 +510,8 @@ pub class TokenPrinter {
         self._print_interp_exprs(&d->exprs, depth)
     }
 
-    /// \brief prints each f-string interpolation hole as a nested token stream,
-    ///        one nesting level deeper than the owning string/char.
+    /// prints each f-string interpolation hole as a nested token stream,
+    /// one nesting level deeper than the owning string/char.
     priv fn _print_interp_exprs(
         self,
         @inout exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4>,

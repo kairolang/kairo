@@ -44,7 +44,7 @@ pub struct SysJsonField {
 }
 
 pub class SysUtil {
-    /// sha256 of \p s, 64 lowercase hex.
+    /// sha256 of `s`, 64 lowercase hex.
     pub static fn sha256(const s: string) -> string {
         return SysUtil::_hex(
             llvm::SHA256::hash(llvm::arrayRefFromStringRef(kairo::sref(s))),
@@ -70,10 +70,10 @@ pub class SysUtil {
         )
     }
 
-    /// The share tree's tree_sha256 of \p dir (FORMAT.md). \p follow is
-    /// schema 1's rule; without it (schema 2) a symlink below \p dir is an
-    /// error naming it. \p dir itself may be one: a share view links whole
-    /// inputs in. "" with \p err set on either failure.
+    /// The share tree's tree_sha256 of `dir` (FORMAT.md). `follow` is
+    /// schema 1's rule; without it (schema 2) a symlink below `dir` is an
+    /// error naming it. `dir` itself may be one: a share view links whole
+    /// inputs in. "" with `err` set on either failure.
     pub static fn tree_sha256(const dir: string, follow: bool, @inout err: string) -> string {
         var rels  = cxx::std::vector<string>()
         var links = cxx::std::vector<string>()
@@ -224,7 +224,7 @@ pub class SysUtil {
         return out
     }
 
-    /// Every `{name}` in \p tmpl replaced by \p value.
+    /// Every `{name}` in `tmpl` replaced by `value`.
     pub static fn fill(const tmpl: string, const name: string, const value: string) -> string {
         var pat       = "{" + name + "}"
         var out       = ""
@@ -295,9 +295,9 @@ pub class SysUtil {
         return v
     }
 
-    /// Regular files under \p dir as `/`-joined paths relative to the
-    /// walk's root, symlinks followed when \p follow, else each symlink's
-    /// path into \p links and not descended. Depth-capped: a symlink loop
+    /// Regular files under `dir` as `/`-joined paths relative to the
+    /// walk's root, symlinks followed when `follow`, else each symlink's
+    /// path into `links` and not descended. Depth-capped: a symlink loop
     /// in a share tree must end the walk, not the process.
     priv static fn _walk(const dir:    string,
                          const rel:    string,

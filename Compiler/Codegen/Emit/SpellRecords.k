@@ -51,7 +51,7 @@ import Codegen::Emit::SpellTypes
 extend Speller {
     /// # Specializations of a generic record
 
-    /// \p d is a registered explicit or partial specialization of a record
+    /// `d` is a registered explicit or partial specialization of a record
     /// (TypeResolve sets `instantiated_from` to the primary). A function's
     /// is is_fn_spec.
     static fn is_record_spec(d: unsafe *Decl) -> bool {
@@ -70,7 +70,7 @@ extend Speller {
         return DeclFacts::decl_instantiated_from(d) != &null
     }
 
-    /// \p d is a full specialization of a generic function (`fn <> p<i32>`)
+    /// `d` is a full specialization of a generic function (`fn <> p<i32>`)
     /// paired with its primary (RedeclMerge sets `instantiated_from`): C++'s
     /// explicit specialization `template <> R p<int>(...)` of that primary,
     /// so a call of the primary at those arguments runs its body.
@@ -84,11 +84,11 @@ extend Speller {
             && cast<Declarations::FunctionDecl>(d)->member_spec_of == &null
     }
 
-    /// Every paired specialization of generic function \p prim0, appended
-    /// to \p out in declaration order. A specialization lives in its
+    /// Every paired specialization of generic function `prim0`, appended
+    /// to `out` in declaration order. A specialization lives in its
     /// primary's scope (RedeclMerge pairs within one scope), so that scope's
     /// declarations are all there is to read.
-    /// With \p reg, those written in another module than the primary's too
+    /// With `reg`, those written in another module than the primary's too
     /// (InstantiationRegistry::register_fn_spec), after the scope's own.
     static fn fn_specs_of(prim0: unsafe *Decl,
                           out:   unsafe *cxx::std::vector<unsafe *Decl>,
@@ -172,7 +172,7 @@ extend Speller {
         return f != &null && f->member_spec_of != &null
     }
 
-    /// The member specializations of class method \p m0 the build knows
+    /// The member specializations of class method `m0` the build knows
     /// (InstantiationRegistry::register_fn_spec), in registration order.
     static fn member_specs_of(m0:  unsafe *Decl,
                               out: unsafe *cxx::std::vector<unsafe *Decl>,
@@ -191,8 +191,8 @@ extend Speller {
         }
     }
 
-    /// \p d, or each declaration a visibility group or `eval` block of it
-    /// holds, when it is a specialization of \p prim.
+    /// `d`, or each declaration a visibility group or `eval` block of it
+    /// holds, when it is a specialization of `prim`.
     priv static fn _fn_spec_in(d:    unsafe *Decl,
                                prim: unsafe *Decl,
                                out:  unsafe *cxx::std::vector<unsafe *Decl>) {
@@ -227,7 +227,7 @@ extend Speller {
         }
     }
 
-    /// The specialization of \p prim at canonical \p args, or null: its
+    /// The specialization of `prim` at canonical `args`, or null: its
     /// instance is the specialization's body, so no explicit instantiation
     /// of the primary is written for it.
     static fn fn_spec_for(prim: unsafe *Decl,
@@ -327,7 +327,7 @@ extend Speller {
         return s
     }
 
-    /// `template <class T>` for each generic owner of \p owner, outermost
+    /// `template <class T>` for each generic owner of `owner`, outermost
     /// first: the head of an out-of-line member's definition.
     fn owner_template_head(self, owner: unsafe *Decl) -> string {
         var chain = self.owner_chain(owner)
@@ -356,7 +356,7 @@ extend Speller {
         return s
     }
 
-    /// Type owners from outermost to \p owner inclusive.
+    /// Type owners from outermost to `owner` inclusive.
     fn owner_chain(self, owner: unsafe *Decl) -> cxx::std::vector<unsafe *Decl> {
         var rev = cxx::std::vector<unsafe *Decl>()
         rev.push_back(Speller::rep(owner))
@@ -390,7 +390,7 @@ extend Speller {
         return ty + " " + name
     }
 
-    /// \p r's arguments are exactly \p iface's own parameters, in order.
+    /// `r`'s arguments are exactly `iface`'s own parameters, in order.
     priv fn _own_args(self, r: unsafe *RecordType, iface: unsafe *Decl) -> bool {
         var gps = DeclFacts::decl_generic_params(iface)
         if gps.size() != r->args.size() {
@@ -557,7 +557,7 @@ extend Speller {
         return self._record_name(d, targs, scope)
     }
 
-    /// \p r is the Panic lang item (a type-id-tagged ADT) with an element
+    /// `r` is the Panic lang item (a type-id-tagged ADT) with an element
     /// past its value type that names a type parameter.
     priv fn _dependent_panic_set(self, r: unsafe *RecordType) -> bool {
         if r->args.size() < 2 {
@@ -580,11 +580,11 @@ extend Speller {
         return false
     }
 
-    /// A record's name with its own template arguments \p targs ("" for
+    /// A record's name with its own template arguments `targs` ("" for
     /// none). A type nested in a class template cannot be qualified the way
     /// qual_name does it: `::ns::L::P` names the template `L` without
     /// arguments, which C++ rejects. So, in order:
-    ///   - inside the owner's own body (\p scope), the leaf: the owner's
+    ///   - inside the owner's own body (`scope`), the leaf: the owner's
     ///     scope is in force there, and its injected class name stands for
     ///     the current instantiation;
     ///   - any other place under a generic owner, the member of the owner
@@ -626,7 +626,7 @@ extend Speller {
         return Speller::_member_type(q, true, self.leaf(d), targs)
     }
 
-    /// The record \p d is a member of, or null at namespace scope. An
+    /// The record `d` is a member of, or null at namespace scope. An
     /// extension is not an owner here: it opens no C++ class scope a nested
     /// type could live in.
     prot fn _record_owner(self, d: unsafe *Decl) -> unsafe *Decl {
@@ -638,7 +638,7 @@ extend Speller {
         return Speller::rep(dc->dc_owner)
     }
 
-    /// `::ns::L<K>::Q`: \p d's owners, each generic one spelled with its own
+    /// `::ns::L<K>::Q`: `d`'s owners, each generic one spelled with its own
     /// parameters, i.e. the owner chain as its own template body sees it;
     /// "" when no owner is generic, because then qual_name is already a
     /// complete name. A generic owner past the first is a member template of
@@ -713,7 +713,7 @@ extend Speller {
         return isa<GenericParamType>(canon_unqual(p->type_->canonical))
     }
 
-    /// The C++ name of type pack \p g's template parameter, without the
+    /// The C++ name of type pack `g`'s template parameter, without the
     /// `...` _gparam appends: `static_cast<T&&>(xs)...`.
     fn pack_param_name(self, g: unsafe *GenericParamType) -> string {
         var unsafe *owner = Speller::rep(g->owner)
@@ -728,7 +728,7 @@ extend Speller {
         return self.tparam_name(gps[g->param_index as usize], owner)
     }
 
-    /// \p sigil goes between an unsubstituted pack's name and its `...`
+    /// `sigil` goes between an unsubstituted pack's name and its `...`
     /// (`T&&...`, param_type).
     prot fn _gparam(self,
                     g:           unsafe *GenericParamType,

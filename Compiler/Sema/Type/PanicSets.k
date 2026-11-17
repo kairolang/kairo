@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------------ Sema/Type/PanicSets.k --- ///
 ///
-///   \brief The identities the panic system is built on (Compiler/Spec/Panic.md#canonical-sets,
-///          §1.4): a type's panic type id, the canonical panic set, and a
-///          panic site's id.
+/// The identities the panic system is built on (Compiler/Spec/Panic.md#canonical-sets,
+/// §1.4): a type's panic type id, the canonical panic set, and a
+/// panic site's id.
 ///
 ///   \detail
 ///     A type id is the tag an `Err` holding that type is stored as, in
@@ -95,7 +95,7 @@ import Support::EvalHash::{
     FNV1A64_PRIME,
 }
 
-/// FNV-1a, 32 bits, over \p s, continuing from \p h (start: FNV1A32_OFFSET).
+/// FNV-1a, 32 bits, over `s`, continuing from `h` (start: FNV1A32_OFFSET).
 pub fn panic_fnv32(h_in: u32, const s: string) -> u32 {
     var h = h_in
     for var i: usize = 0; i < s.size(); ++i {
@@ -106,7 +106,7 @@ pub fn panic_fnv32(h_in: u32, const s: string) -> u32 {
     return h
 }
 
-/// FNV-1a, 64 bits, over \p s (the key of a minted name: a guard, a site
+/// FNV-1a, 64 bits, over `s` (the key of a minted name: a guard, a site
 /// record). 64 bits so that two different spellings never share one.
 pub fn panic_fnv64(const s: string) -> u64 {
     var h: u64 = FNV1A64_OFFSET
@@ -118,8 +118,8 @@ pub fn panic_fnv64(const s: string) -> u64 {
     return h
 }
 
-/// The pinned id hash (Compiler/Spec/Panic.md#canonical-sets): FNV-1a 32 of \p s, keeping the low
-/// \p bits bits; while that is 0, one more byte 0xFF is hashed in. 0 is
+/// The pinned id hash (Compiler/Spec/Panic.md#canonical-sets): FNV-1a 32 of `s`, keeping the low
+/// `bits` bits; while that is 0, one more byte 0xFF is hashed in. 0 is
 /// never an id: it is Ok's tag, and "no id".
 pub fn panic_id_of(const s: string, bits: i32) -> u32 {
     var mask: u32 = if (bits >= 32) => (u32::MAX) else => ((1 as u32) << (bits as u32)) - (1 as u32)
@@ -163,7 +163,7 @@ pub class PanicTypeIds derives PackSetOrder {
     /// target: size_t / ptrdiff_t are the fixed-width integer of the pointer
     /// width wherever the target says so (target.usize_is_fixed, as
     /// RedeclMerge::_cxx_lowered reads it), and a type of their own on
-    /// Darwin. \p pw 0 is a hand-built invocation: the 64-bit host.
+    /// Darwin. `pw` 0 is a hand-built invocation: the 64-bit host.
     pub fn size_types(self, pw: usize, usize_fixed: bool, isize_fixed: bool) {
         var w = if (pw != (0 as usize)) => (pw) else => (64)
         self.usize_as = BuiltinKind::COUNT
@@ -233,7 +233,7 @@ pub class PanicTypeIds derives PackSetOrder {
         return en
     }
 
-    /// \p d is the Panic lang item or an instance of it.
+    /// `d` is the Panic lang item or an instance of it.
     pub fn is_panic(self, d: unsafe *Decl) -> bool {
         if d == &null {
             return false
@@ -252,11 +252,11 @@ pub class PanicTypeIds derives PackSetOrder {
         return NameLookup::representative(p) == pe
     }
 
-    /// The spelling \p t's id hashes: its C++ spelling, written here rather
+    /// The spelling `t`'s id hashes: its C++ spelling, written here rather
     /// than by Speller::_type so that it is the same before and after the
     /// lowerings (a `T?` is its Null record either way), needs no emit
     /// state, and takes no lock (record() and the registry call it while
-    /// forming a type). "" when \p t has no id: dependent, a reference, an
+    /// forming a type). "" when `t` has no id: dependent, a reference, an
     /// interface, unresolved.
     pub fn spelling(self, t: unsafe *Type) -> string {
         if t == &null || t->canonical == &null {
@@ -400,7 +400,7 @@ pub class PanicTypeIds derives PackSetOrder {
         return ""
     }
 
-    /// \p t's panic type id, or 0 when it has none (spelling).
+    /// `t`'s panic type id, or 0 when it has none (spelling).
     fn type_id(self, t: unsafe *Type) -> u32 {
         var s = self.spelling(t)
         if s.size() == 0 {
@@ -410,7 +410,7 @@ pub class PanicTypeIds derives PackSetOrder {
         return panic_id_of(s, self.id_bits)
     }
 
-    /// The 64-bit key of \p t's spelling: the guard of its `__kairo_tid`
+    /// The 64-bit key of `t`'s spelling: the guard of its `__kairo_tid`
     /// specialization (LowerTargets::type_id_guard). 0 when it has no id.
     fn type_key(self, t: unsafe *Type) -> u64 {
         var s = self.spelling(t)
@@ -435,11 +435,11 @@ pub class PanicTypeIds derives PackSetOrder {
         return sp.qual_name(d)
     }
 
-    /// PackSetOrder: \p args of the Panic lang item \p d, its pack sorted
+    /// PackSetOrder: `args` of the Panic lang item `d`, its pack sorted
     /// by type id (ties, which only a collision has, by key) -- the
     /// canonical order (Compiler/Spec/Panic.md#canonical-sets). Unchanged when an element has no id
     /// (a dependent instance keeps the order it was written in: its set is
-    /// not formed yet) or \p d is anything else.
+    /// not formed yet) or `d` is anything else.
     fn order(self, d: unsafe *Decl, args: unsafe *cxx::std::vector<unsafe *Type>) {
         if !self.is_panic(d) {
             return
@@ -543,7 +543,7 @@ pub class PanicSets {
 
     /// # sets
 
-    /// \p args (the Panic lang item's) in the canonical order: what every
+    /// `args` (the Panic lang item's) in the canonical order: what every
     /// formation already gets (PanicTypeIds::order); for a caller holding a
     /// list it has not formed into a type yet. Dedup is the type store's.
     fn canonicalize(self, args: unsafe *cxx::std::vector<unsafe *Type>) -> bool {
@@ -557,7 +557,7 @@ pub class PanicSets {
     }
 
     /// The per-set collision error (Compiler/Spec/Panic.md#canonical-sets): two elements of the
-    /// canonical \p args with one id. Reported at \p at, naming both types;
+    /// canonical `args` with one id. Reported at `at`, naming both types;
     /// true when the set is clean.
     fn check_collisions(self, at: SourceRange, const args: cxx::std::vector<unsafe *Type>) -> bool {
         var unsafe *pe = self.panic_enum()
@@ -627,9 +627,9 @@ pub class PanicSets {
         return ok
     }
 
-    /// `Panic<T, E...>` with \p elems as its set: the one way the compiler
+    /// `Panic<T, E...>` with `elems` as its set: the one way the compiler
     /// forms a panic result type. Canonical (canonicalize) and checked
-    /// (check_collisions, at \p at); null when there is no Panic lang item,
+    /// (check_collisions, at `at`); null when there is no Panic lang item,
     /// an element is unresolved, or the set collides.
     fn form(self,
             at:    SourceRange,
@@ -659,7 +659,7 @@ pub class PanicSets {
         return r
     }
 
-    /// Record \p at as where \p t's set was formed, if no TU has yet: the
+    /// Record `at` as where `t`'s set was formed, if no TU has yet: the
     /// register-cliff remark's anchor (InstanceEntry::formed_at).
     fn note_formed(self, at: SourceRange, t: unsafe *Type) {
         if t == &null || self.sc->instances == &null {
@@ -683,7 +683,7 @@ pub class PanicSets {
 
     /// # sites
 
-    /// The site id of a `panic` at \p loc (Compiler/Spec/Panic.md#site-ids): FNV-1a 32 of the
+    /// The site id of a `panic` at `loc` (Compiler/Spec/Panic.md#site-ids): FNV-1a 32 of the
     /// path and the byte offset (`<path>:<offset>`), nonzero, and unique in
     /// this TU -- a site whose id another site of the TU already has is
     /// rehashed (one more 0xFF byte) until it is free. The same location

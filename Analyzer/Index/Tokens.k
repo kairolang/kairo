@@ -100,7 +100,7 @@ import Token::TokenKind::{
 }
 import Token::TokenText::TokenText
 
-/// UTF-16 length of bytes [off, off+len) of \p text.
+/// UTF-16 length of bytes [off, off+len) of `text`.
 pub fn utf16_len(text: *const string, off: usize, len: usize) -> usize {
     var units: usize = 0
     var i            = off
@@ -129,8 +129,8 @@ pub fn utf16_len(text: *const string, off: usize, len: usize) -> usize {
     return units
 }
 
-/// The token type the raw lex alone decides for \p t at [off, off+len) of
-/// \p text: keywords, literals, comments, primitive type names. TT_NONE for
+/// The token type the raw lex alone decides for `t` at [off, off+len) of
+/// `text`: keywords, literals, comments, primitive type names. TT_NONE for
 /// an identifier, which only the walk can classify.
 pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u32) -> u32 {
     *mods = 0
@@ -195,7 +195,7 @@ pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u3
     return TT_NONE()
 }
 
-/// \p word names a builtin macro or a parser `name!` intrinsic (the
+/// `word` names a builtin macro or a parser `name!` intrinsic (the
 /// names the preprocessor reserves, so no user macro shares one).
 pub fn is_builtin_macro_name(const word: string) -> bool {
     var i: usize = 0
@@ -229,8 +229,8 @@ pub fn is_builtin_macro_name(const word: string) -> bool {
     return false
 }
 
-/// The length of the `macro` token for identifier \p t at [off, off+len)
-/// of \p text, its `!` included, or 0 when no `!` follows the name
+/// The length of the `macro` token for identifier `t` at [off, off+len)
+/// of `text`, its `!` included, or 0 when no `!` follows the name
 /// directly. A name followed by `!` is a macro wherever it is written: an
 /// invocation (`name!(...)`, `name! {...}`, `name!`, `a::name!`), a
 /// definition (`macro name!`), an import (`import lib::name!`). Both token
@@ -253,8 +253,8 @@ pub fn macro_token_len(t: Token, text: *const string, off: u32, len: u32) -> u32
     return len + 1
 }
 
-/// The modifiers of the macro name at [off, off+len) of \p text, after a
-/// token of kind \p prev: `declaration` + `definition` after `macro`;
+/// The modifiers of the macro name at [off, off+len) of `text`, after a
+/// token of kind `prev`: `declaration` + `definition` after `macro`;
 /// `defaultLibrary` on an unqualified builtin (a qualified `a::file!` is a
 /// user macro).
 pub fn macro_token_mods(text: *const string, off: u32, len: u32, prev: TokenKind) -> u32 {
@@ -273,7 +273,7 @@ pub fn macro_token_mods(text: *const string, off: u32, len: u32, prev: TokenKind
     return 0
 }
 
-/// Writes \p all (sorted, in bytes of \p f) as the `tokens` array: LSP's
+/// Writes `all` (sorted, in bytes of `f`) as the `tokens` array: LSP's
 /// relative five-integer encoding, one token per line of a multi-line one.
 pub fn encode_tokens(all: *const [SemTok], f: *const FileText, w: *JsonWriter) {
     w->key(SK_TOKENS)
@@ -329,7 +329,7 @@ pub fn encode_tokens(all: *const [SemTok], f: *const FileText, w: *JsonWriter) {
     w->end_array()
 }
 
-/// The `tokens` of file \p fid from the raw lex alone, for a buffer that
+/// The `tokens` of file `fid` from the raw lex alone, for a buffer that
 /// does not parse (the syntax-only worker): no identifier is classified,
 /// and an f-string is one string.
 pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w: *JsonWriter) {
@@ -391,7 +391,7 @@ pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w
     encode_tokens(const &all, f, w)
 }
 
-/// Sorts \p keys ascending (a bottom-up merge sort: the tree has no sort).
+/// Sorts `keys` ascending (a bottom-up merge sort: the tree has no sort).
 pub fn sort_u64(keys: *[u64]) {
     var n = keys->size()
     if n < 2 {
@@ -455,7 +455,7 @@ pub fn sort_u64(keys: *[u64]) {
 extend IndexWalker {
     /// Lexes the file for what the tree does not carry (keywords, literals,
     /// comments, operators) and merges the tree's classifications over the
-    /// identifiers. \p out receives every token, sorted by offset.
+    /// identifiers. `out` receives every token, sorted by offset.
     fn lexical_(self, out: *[SemTok]) {
         // offset -> index into toks, for identifiers the walk classified. A
         // name can be visited twice (a callee is a name and a call); the
@@ -698,10 +698,10 @@ extend IndexWalker {
         return true
     }
 
-    /// The segments chained after string token \p t (`"a" f"b{x}"`):
+    /// The segments chained after string token `t` (`"a" f"b{x}"`):
     /// the lexer makes no token of them, so each is found from its
     /// StringData and emitted like a literal of its own, holes split out.
-    /// \p from is where the token ends; each segment starts at the first
+    /// `from` is where the token ends; each segment starts at the first
     /// byte past the blanks after the one before it.
     fn chained_(self,
                 imm:    unsafe *ImmediateTable,

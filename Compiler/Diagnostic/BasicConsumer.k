@@ -49,23 +49,25 @@ import std::io
 
 /// Plain-text diagnostic consumer no color, no ANSI codes.
 ///
-/// Buffers all received \c Diagnostic pointers and renders them on demand
-/// via one of the \c finalize_* methods. The consumer does not own the
-/// diagnostics; lifetime is managed by \c DiagEngine.
+/// Buffers all received `Diagnostic` pointers and renders them on demand
+/// via one of the `finalize_*` methods. The consumer does not own the
+/// diagnostics; lifetime is managed by `DiagEngine`.
 ///
-/// \c _sm may be null. When null, source snippets and \c --> location lines
+/// `_sm` may be null. When null, source snippets and `-->` location lines
 /// are omitted from output.
 ///
 /// \par Output format
-/// \code
-///   error [SC041E]: message
-///     --> file.k:10:5
-///     10 | <source line>
-///            ^^^ label text
-///      > fix: suggestion
-///      > note [SC021N]: child message
-///         --> file.k:8:1
-/// \endcode
+///
+/// ### Example
+/// ```kairo
+/// error [SC041E]: message
+///   --> file.k:10:5
+///   10 | <source line>
+///          ^^^ label text
+///    > fix: suggestion
+///    > note [SC021N]: child message
+///       --> file.k:8:1
+/// ```
 ///
 /// \par Fix-its
 /// Every fix-it that carries a range is printed on its own line directly after
@@ -73,9 +75,12 @@ import std::io
 /// that note), in clang's
 /// `-fdiagnostics-parseable-fixits` form (1-based columns, end exclusive),
 /// so tests can pin the exact edit and scripts can apply it:
-/// \code
-///   fix-it:"file.k":{3:14-3:16}:"=> "
-/// \endcode
+///
+/// ### Example
+/// ```kairo
+/// fix-it:"file.k":{3:14-3:16}:"=> "
+/// ```
+///
 /// A fix that carries only a message prints nothing extra.
 pub class BasicDiagConsumer derives DiagConsumer {
     /// Pre-rendered text written before the buffer (ModuleRecords' replay).
@@ -90,7 +95,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
         self._sm = sm
     }
 
-    /// Constructs without a \c SourceManager. Source snippets will be omitted.
+    /// Constructs without a `SourceManager`. Source snippets will be omitted.
     fn BasicDiagConsumer(self) {
         self._diags.reserve(32)
         self._sm = &null
@@ -201,7 +206,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
         return f"{filename}:{loc_info.line}:{loc_info.column}: "
     }
 
-    /// One `fix-it:` line per ranged edit of \p diag; see the class comment.
+    /// One `fix-it:` line per ranged edit of `diag`; see the class comment.
     priv fn render_fixits(self, diag: unsafe *Diagnostic) -> string {
         if self._sm == &null {
             return ""
@@ -229,7 +234,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
         return out
     }
 
-    /// One JSON object for \p diag, its strings escaped as RFC 8259 asks
+    /// One JSON object for `diag`, its strings escaped as RFC 8259 asks
     /// (a control byte in a message, from quoted source text, included).
     priv fn render_json(self, diag: unsafe *Diagnostic) -> string {
         var file: string = ""
@@ -265,7 +270,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
         io::eprint(f"{self.stderr_text(diag)}")
     }
 
-    /// \p diag and its notes, one line each, every ranged fix-it after the
+    /// `diag` and its notes, one line each, every ranged fix-it after the
     /// line it belongs to: what each finalize_* writes for it.
     priv fn stderr_text(self, diag: unsafe *Diagnostic) -> string {
         var out = self.render_one(diag) + self.render_fixits(diag)
@@ -278,7 +283,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
         return out
     }
 
-    /// What finalize_to_stderr would write for \p diag, for a tool that
+    /// What finalize_to_stderr would write for `diag`, for a tool that
     /// keeps the diagnostics itself (Tooling/LiveCheck.k).
     pub fn render(self, diag: unsafe *Diagnostic) -> string {
         return self.stderr_text(diag)
@@ -289,7 +294,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
         return self._diags.size()
     }
 
-    /// The stderr text of buffered diagnostics [\p a, \p b).
+    /// The stderr text of buffered diagnostics [`a`, `b`).
     pub fn render_range(self, a: usize, b: usize) -> string {
         var out = ""
         for var i: usize = a; i < b && i < self._diags.size(); ++i {

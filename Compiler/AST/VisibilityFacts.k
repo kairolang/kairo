@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------------ AST/VisibilityFacts.k --- ///
 ///
-///   \brief Where a declaration is visible: the module a file belongs to,
-///          and what a declaration with no visibility keyword is.
+/// Where a declaration is visible: the module a file belongs to,
+/// and what a declaration with no visibility keyword is.
 ///
 ///   \detail
 ///     The rule (classes.mdx Visibility, modules.mdx Visibility Scopes):
@@ -62,7 +62,7 @@ import Config::ResourceLayout::ResourceLayout
 import Resolution::SearchRoot::module_dir_at_or_above
 import Support::FileIO::Path::Path
 
-/// The directory of the module \p file belongs to: the nearest directory at
+/// The directory of the module `file` belongs to: the nearest directory at
 /// or above it that holds a `module.k`, or "" when none does. The walk is
 /// Resolution's (module_dir_at_or_above), so `import module::x` anchors at
 /// the same directory this answers for `prot`.
@@ -76,7 +76,7 @@ pub fn module_dir_of_path(const file: string) -> string {
     )
 }
 
-/// \p tu is builtin or std: the library roots the compiler registers, whose
+/// `tu` is builtin or std: the library roots the compiler registers, whose
 /// unmarked declarations keep the old rule until they are marked.
 fn _is_lib_tu(tu: unsafe *TranslationUnit) -> bool {
     if tu == &null || tu->ctx == &null {
@@ -98,7 +98,7 @@ fn _is_lib_tu(tu: unsafe *TranslationUnit) -> bool {
     return ResourceLayout::is_std_file(ci, tu->ctx->sm->get_filename(tu->fid))
 }
 
-/// \p tu is builtin or std (the library compiles in one fixed mode
+/// `tu` is builtin or std (the library compiles in one fixed mode
 /// whatever the user passes). The stamp when the driver wrote it
 /// (FrontendAction::_sema, before any Sema pass); recomputed, never
 /// written, for a TU nothing stamped (tooling that drives Sema itself).
@@ -114,7 +114,7 @@ pub fn is_library_tu(tu: unsafe *TranslationUnit) -> bool {
     return (!tu->is_foreign) && _is_lib_tu(tu)
 }
 
-/// Records \p tu's facts. The driver calls it for every TU of a build
+/// Records `tu`'s facts. The driver calls it for every TU of a build
 /// before Sema runs; nothing else writes them.
 pub fn stamp_tu_visibility(tu: unsafe *TranslationUnit) {
     if tu == &null || tu->ctx == &null {
@@ -134,7 +134,7 @@ pub fn stamp_tu_visibility(tu: unsafe *TranslationUnit) {
     tu->vis_stamped = true
 }
 
-/// \p tu's module directory, or "" when it is in no module.
+/// `tu`'s module directory, or "" when it is in no module.
 pub fn tu_module_dir(tu: unsafe *TranslationUnit) -> string {
     if tu == &null || tu->is_foreign || tu->ctx == &null {
         return ""
@@ -151,7 +151,7 @@ pub fn tu_module_dir(tu: unsafe *TranslationUnit) -> string {
     return module_dir_of_path(tu->ctx->sm->get_filename(tu->fid))
 }
 
-/// \p a and \p b are files of one module. Never true for files in no
+/// `a` and `b` are files of one module. Never true for files in no
 /// module, even the same one: the caller asks only across files.
 pub fn same_module(a: unsafe *TranslationUnit, b: unsafe *TranslationUnit) -> bool {
     if a == &null || b == &null {
@@ -166,8 +166,8 @@ pub fn same_module(a: unsafe *TranslationUnit, b: unsafe *TranslationUnit) -> bo
     return da == tu_module_dir(b)
 }
 
-/// \p edge, an import written in \p src, re-exports what it brings in to
-/// \p importer: it is `pub`, or it is `prot` and \p importer is a file of
+/// `edge`, an import written in `src`, re-exports what it brings in to
+/// `importer`: it is `pub`, or it is `prot` and `importer` is a file of
 /// src's module (imports.mdx: a `prot import` is for the sibling files of
 /// the module). Names (ImportResolution, MemberLookup) and extensions
 /// (SemaContext::_build_ext_visible) ask this one rule; answering `prot`
@@ -187,7 +187,7 @@ pub fn reexports_to(edge:     unsafe *Decl,
     return edge->is_protected() && same_module(src, importer)
 }
 
-/// The visibility an unmarked top-level declaration of \p tu has: Public
+/// The visibility an unmarked top-level declaration of `tu` has: Public
 /// under the old rule (-fdefault-visibility=pub, builtin, std, a C/C++
 /// header), else Protected in a module and Private outside one.
 pub fn tu_default_vis(tu: unsafe *TranslationUnit) -> VisibilityKind {
@@ -213,14 +213,14 @@ pub fn tu_default_vis(tu: unsafe *TranslationUnit) -> VisibilityKind {
     return VisibilityKind::Protected
 }
 
-/// The TranslationUnit scope \p dc is in, or null (DeclFacts::tu_of).
+/// The TranslationUnit scope `dc` is in, or null (DeclFacts::tu_of).
 pub fn tu_of_scope(dc: unsafe *DeclContext) -> unsafe *TranslationUnit {
     return tu_of(dc)
 }
 
-/// What \p d is when it writes no visibility keyword, \p home being the
+/// What `d` is when it writes no visibility keyword, `home` being the
 /// file it is relative to (a member's class's file: a generic instance's
-/// members are minted wherever it is used; null for \p d's own).
+/// members are minted wherever it is used; null for `d`'s own).
 pub fn default_visibility_of(d:    unsafe *Decl,
                              home: unsafe *TranslationUnit = &null) -> VisibilityKind {
     if d == &null {
@@ -277,7 +277,7 @@ pub fn default_visibility_of(d:    unsafe *Decl,
     return td
 }
 
-/// \p d is an operator (`op +`, `op ==`, `op panic`, ...). What C++ sees of
+/// `d` is an operator (`op +`, `op ==`, `op panic`, ...). What C++ sees of
 /// an unmarked one stays public whatever its default: C++ reaches them
 /// through probes (a `requires`, the panic helpers' `op panic` test), which
 /// turn false silently on a private member instead of failing, so a C++

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------- Sema/Resolve/RedeclMerge.k --- ///
 ///
-///   \brief Phase R: merge FUNCTION redeclarations into a single canonical
-///          decl, now that signatures exist.
+/// Phase R: merge FUNCTION redeclarations into a single canonical
+/// decl, now that signatures exist.
 ///
 ///   \detail
 ///     N(a) merges the redeclarable NON-function kinds (class, struct,
@@ -245,9 +245,7 @@ import Sema::Type::TypeUtil::{
 }
 import Token::TokenKind::TokenKind
 
-///
-/// \class RedeclMerge
-/// \brief The R pass. One instance per TU per run; no cursors, no stack.
+/// The R pass. One instance per TU per run; no cursors, no stack.
 ///
 ///        Unlike N and T this pass keeps NO scope state: it reads canonical
 ///        slots off already-resolved nodes and writes decl-to-decl links.
@@ -702,7 +700,7 @@ pub class RedeclMerge {
         }
     }
 
-    /// \p a and \p b specialize one primary at the same arguments.
+    /// `a` and `b` specialize one primary at the same arguments.
     priv fn _same_spec(self,
                        a: unsafe *Declarations::FunctionDecl,
                        b: unsafe *Declarations::FunctionDecl) -> bool {
@@ -842,8 +840,8 @@ pub class RedeclMerge {
         }
     }
 
-    /// The generic functions named \p imm that the import overlay of \p s's
-    /// file brings in, when \p s is written at that file's top level.
+    /// The generic functions named `imm` that the import overlay of `s`'s
+    /// file brings in, when `s` is written at that file's top level.
     priv fn _imported_prims(self,
                             s:     unsafe *Declarations::FunctionDecl,
                             imm:   u32,
@@ -892,7 +890,7 @@ pub class RedeclMerge {
 
     /// # member specializations
 
-    /// The class \p f's extension extends, and that extension's target, when
+    /// The class `f`'s extension extends, and that extension's target, when
     /// the target is a Kairo class (or struct) record whose body is its
     /// primary's: no partial or explicit specialization of the record
     /// supplies it. Null otherwise.
@@ -933,7 +931,7 @@ pub class RedeclMerge {
         return cls
     }
 
-    /// The class-body methods of \p cls named as \p f.
+    /// The class-body methods of `cls` named as `f`.
     priv fn _class_methods_named(self,
                                  cls: unsafe *Decl,
                                  f:   unsafe *Declarations::FunctionDecl,
@@ -969,8 +967,8 @@ pub class RedeclMerge {
         }
     }
 
-    /// \p f's signature is \p m's with the class's parameters read as \p xs
-    /// and \p m's own as \p ys: the same parameter types and modes, return
+    /// `f`'s signature is `m`'s with the class's parameters read as `xs`
+    /// and `m`'s own as `ys`: the same parameter types and modes, return
     /// type, receiver and qualifiers.
     priv fn _member_sig_matches(self,
                                 cls: unsafe *Decl,
@@ -1049,7 +1047,7 @@ pub class RedeclMerge {
         return mt != &null && canon_unqual(mt) == canon_unqual(fr)
     }
 
-    /// Why \p m cannot be specialized from an extension, or "".
+    /// Why `m` cannot be specialized from an extension, or "".
     priv fn _member_spec_refused(self,
                                  cls: unsafe *Decl,
                                  m:   unsafe *Declarations::FunctionDecl,
@@ -1110,7 +1108,7 @@ pub class RedeclMerge {
 
     /// The target's arguments when they are concrete (`extend G<u8>`), or
     /// the extension's own parameters when the target is the identity
-    /// pattern (`extend <T> G<T>`); false for any other pattern. \p fixed:
+    /// pattern (`extend <T> G<T>`); false for any other pattern. `fixed`:
     /// the target names one instance.
     priv fn _member_target_args(self,
                                 cls:   unsafe *Decl,
@@ -1328,8 +1326,8 @@ pub class RedeclMerge {
         }
     }
 
-    /// \p s's arguments fill \p p's generic parameters one for one, and
-    /// \p s's parameters are \p p's with them substituted, mode for mode.
+    /// `s`'s arguments fill `p`'s generic parameters one for one, and
+    /// `s`'s parameters are `p`'s with them substituted, mode for mode.
     priv fn _spec_matches(self,
                           p: unsafe *Declarations::FunctionDecl,
                           s: unsafe *Declarations::FunctionDecl) -> bool {
@@ -1372,8 +1370,8 @@ pub class RedeclMerge {
         return true
     }
 
-    /// \p p's generic parameters bound to \p s's arguments, on every link
-    /// of \p p's chain: a parameter's canonical names the link that was the
+    /// `p`'s generic parameters bound to `s`'s arguments, on every link
+    /// of `p`'s chain: a parameter's canonical names the link that was the
     /// representative when T resolved it. Null when an argument is not a
     /// resolved concrete type.
     priv fn _spec_substitution(self,
@@ -1408,7 +1406,7 @@ pub class RedeclMerge {
         return unsafe &self._spec_sub
     }
 
-    /// What \p s, already matching \p p's parameters, disagrees with \p p
+    /// What `s`, already matching `p`'s parameters, disagrees with `p`
     /// on, or "" when nothing: C++ gives an explicit specialization the
     /// primary's function type with the arguments substituted, and Kairo
     /// types every call against the primary's declaration.
@@ -1648,7 +1646,7 @@ pub class RedeclMerge {
         }
     }
 
-    /// True when \p d's names live outside this TU: another TU's decl, or
+    /// True when `d`'s names live outside this TU: another TU's decl, or
     /// (post-extraction) a decl clang owns. Mirrors
     /// TypeResolution::_foreign -- same question, same answer.
     priv fn _foreign(self, d: unsafe *Decl) -> bool {
@@ -1660,8 +1658,8 @@ pub class RedeclMerge {
 
     /// Two GENERIC functions whose signatures are one up to the names of
     /// their generic parameters (`fn <T> f(x: T, n: i32)` twice): each
-    /// parameter's canonical, read over \p a's parameters (Substitution::
-    /// bind_alpha), is \p a's, mode for mode. Only a `where` group asks
+    /// parameter's canonical, read over `a`'s parameters (Substitution::
+    /// bind_alpha), is `a`'s, mode for mode. Only a `where` group asks
     /// (Compiler/Spec/Generics.md#where-groups-on-generic-functions); _same_signature keeps saying no to dependent pairs.
     priv fn _alpha_same(self,
                         a: unsafe *Declarations::FunctionDecl,
@@ -1758,8 +1756,8 @@ pub class RedeclMerge {
 
         // Two declarations of one GENERIC function name their parameters
         // independently: each `T` is a GenericParamType owned by its own
-        // decl, so the canonicals never meet by pointer. Read \p b's
-        // signature over \p a's parameters first (Substitution::
+        // decl, so the canonicals never meet by pointer. Read `b`'s
+        // signature over `a`'s parameters first (Substitution::
         // bind_redecl); a pair whose parameter lists cannot be aligned
         // (kinds, value types, packs) is two overloads, as before.
         var gen = a->generic_params.size() > 0
@@ -1882,7 +1880,7 @@ pub class RedeclMerge {
         return true
     }
 
-    /// R(a)'s question: \p a and \p b are declarations of ONE function. The
+    /// R(a)'s question: `a` and `b` are declarations of ONE function. The
     /// signature agrees, and for a generic pair at most one has a body: a
     /// declaration and its definition, the shape generic chains exist for.
     /// Two generic DEFINITIONS of one shape keep their old identity, two
@@ -1910,9 +1908,9 @@ pub class RedeclMerge {
         return f->is_operator && OperatorFacts::op_kind(f) == TokenKind::KwAs
     }
 
-    /// \p t, a type written over \p b's generic parameters, read over \p a's
-    /// (Substitution::bind_redecl): what to compare against a type of \p a.
-    /// \p t unchanged for a non-generic pair, or one that cannot be aligned
+    /// `t`, a type written over `b`'s generic parameters, read over `a`'s
+    /// (Substitution::bind_redecl): what to compare against a type of `a`.
+    /// `t` unchanged for a non-generic pair, or one that cannot be aligned
     /// (the comparison then fails on its own); null if a component does not
     /// substitute.
     priv fn _alpha_ret(self,
@@ -1941,7 +1939,7 @@ pub class RedeclMerge {
     /// inline bounds are in the requires clause by now (RequiresDesugar
     /// hoisted them in E, clearing the lists), so each parameter's bounds are
     /// that clause's `impl` / `derives` conjuncts on it, compared as a set of
-    /// (kind, canonical) with \p cur's read over \p prev's parameters. Any
+    /// (kind, canonical) with `cur`'s read over `prev`'s parameters. Any
     /// other conjunct is an expression, not compared. Empty when they agree;
     /// otherwise the first disagreeing parameter's name.
     priv fn _bounds_differ(self,
@@ -1988,8 +1986,8 @@ pub class RedeclMerge {
         return ""
     }
 
-    /// The bounds the conjuncts \p cs put on \p gp, into \p out: each
-    /// one's canonical (read through \p sub when given) and whether it is
+    /// The bounds the conjuncts `cs` put on `gp`, into `out`: each
+    /// one's canonical (read through `sub` when given) and whether it is
     /// a `derives` bound. False when one did not resolve: it was diagnosed,
     /// and comparing around it would only add a second error.
     priv fn _param_bounds(self,
@@ -2026,7 +2024,7 @@ pub class RedeclMerge {
         return true
     }
 
-    /// Every bound of \p x is one of \p y.
+    /// Every bound of `x` is one of `y`.
     priv fn _bounds_within(self,
                            const x: cxx::std::vector<ParamBound>,
                            const y: cxx::std::vector<ParamBound>) -> bool {
@@ -2069,7 +2067,7 @@ pub class RedeclMerge {
         cur->poison()
     }
 
-    /// True when clang owns \p d: an `ffi` import, from this TU or another
+    /// True when clang owns `d`: an `ffi` import, from this TU or another
     /// (FFILinkage::is_imported -- it carries a USR). Distinct from _foreign,
     /// which asks only "another TU" and is false for a header imported here.
     priv fn _cxx_owned(self, d: unsafe *Declarations::FunctionDecl) -> bool {
@@ -2298,7 +2296,7 @@ pub class RedeclMerge {
         return if (p->is_self) => (c) else => canon_unqual(c)
     }
 
-    /// The canonical \p t is identical to once lowered: `usize` / `isize`
+    /// The canonical `t` is identical to once lowered: `usize` / `isize`
     /// become the fixed-width integer of the pointer width, anything else
     /// is itself. Only where the target says size_t / ptrdiff_t IS that
     /// integer (target.usize_is_fixed): `usize` emits as `decltype(sizeof(0))`,
@@ -2340,7 +2338,7 @@ pub class RedeclMerge {
         return if (ft != &null) => (ft) else => t
     }
 
-    /// \p a and \p b are one C++ type once lowered: _cxx_lowered's
+    /// `a` and `b` are one C++ type once lowered: _cxx_lowered's
     /// integers, and pointers that differ only in safety. C++ spells `*T`
     /// and `unsafe *T` alike as `T*` (safety is a Kairo-only fact), so
     /// `f(p: *B)` beside `f(p: unsafe *B)` is one C++ function twice.

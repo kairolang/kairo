@@ -1,6 +1,6 @@
 /// --- The Kairo Project -------------------- Sema/Lower/IterLowering.k --- ///
 ///
-///   \brief `for x in xs` becomes a plain loop over a once-evaluated iterable.
+/// `for x in xs` becomes a plain loop over a once-evaluated iterable.
 ///
 ///   \detail
 ///     X classified the iterable (`RangedForStmt::iter_kind`), recorded its
@@ -178,7 +178,7 @@ pub class ShiftBinderScan derives RecursiveASTVisitor<ShiftBinderScan> {
 
     fn ShiftBinderScan(self) { }
 
-    /// \p e is the binder, parens aside.
+    /// `e` is the binder, parens aside.
     priv fn _is_binder(self, e: unsafe *Expr) -> bool {
         var unsafe *x = e
         while x != &null && isa<ParenExpr>(x) {
@@ -190,7 +190,7 @@ pub class ShiftBinderScan derives RecursiveASTVisitor<ShiftBinderScan> {
             && cast<NamedIdentExpr>(x)->resolved_decl == self.binder
     }
 
-    /// The local a write through \p e reaches: `x`, `x.f`, `x[i]`.
+    /// The local a write through `e` reaches: `x`, `x.f`, `x[i]`.
     priv fn _root_is_binder(self, e: unsafe *Expr) -> bool {
         var unsafe *x = e
         while x != &null {
@@ -384,7 +384,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
     /// # dispatch
 
-    /// The minted loop, its hidden locals pushed onto \p pre; null leaves the
+    /// The minted loop, its hidden locals pushed onto `pre`; null leaves the
     /// node as it is (untyped or poisoned: already diagnosed, or dependent).
     priv fn _lower(self,
                    n:   unsafe *RangedForStmt,
@@ -832,7 +832,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         )
     }
 
-    /// Slice member \p name as the slice type \p st declares it: `[const
+    /// Slice member `name` as the slice type `st` declares it: `[const
     /// T;]` may be a specialization with members of its own.
     priv fn _slice_member(self, st: unsafe *Type, const name: string) -> unsafe *Decl {
         var unsafe *m = self.tu.own_member(st, name)
@@ -843,8 +843,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         return self._lang_member(WellKnownType::Slice, name)
     }
 
-    /// `s.m`, or `s.m()` when the library declares \p m as an accessor
-    /// (LangMembers::slice_data), typed \p ty.
+    /// `s.m`, or `s.m()` when the library declares `m` as an accessor
+    /// (LangMembers::slice_data), typed `ty`.
     priv fn _slice_read(self,
                         at: SourceRange,
                         s:  unsafe *VariableDecl,
@@ -1182,7 +1182,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         return self._while(at, cond, unsafe &body)
     }
 
-    /// The range object, read through \p rng: `*rng` for an lvalue's
+    /// The range object, read through `rng`: `*rng` for an lvalue's
     /// address, the local itself for a prvalue's copy.
     priv fn _cxx_range_obj(self,
                            at:  SourceRange,
@@ -1248,8 +1248,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
 
     /// # the binder
 
-    /// The binders' declarations, initialized from \p place, the element as
-    /// an lvalue. \p stable: \p place is the element itself, so `*x` may take
+    /// The binders' declarations, initialized from `place`, the element as
+    /// an lvalue. `stable`: `place` is the element itself, so `*x` may take
     /// its address; otherwise (a range counter) `*x` points at a copy.
     ///
     /// `for (k, v) in xs` destructures a tuple element the way TupleLowering
@@ -1446,8 +1446,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         )
     }
 
-    /// \p place, a value a generator yielded, as the initializer of a plain
-    /// binder of type \p bt. The generator gives each value up when it is
+    /// `place`, a value a generator yielded, as the initializer of a plain
+    /// binder of type `bt`. The generator gives each value up when it is
     /// resumed, so a MOVE value is moved into the binder (C++ would copy the
     /// lvalue, and a MOVE record has no copy constructor). A value of a
     /// generic parameter's type moves at the instances that cannot copy it
@@ -1476,7 +1476,7 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         return c
     }
 
-    /// The loop over \p n's `op in (self)` would bind the same binders
+    /// The loop over `n`'s `op in (self)` would bind the same binders
     /// through the type's `op in (const self)`: there is one, and no binder
     /// is a mutable safe pointer (`*x`), the one binder only `self` gives.
     priv fn _reads_through_const(self, n: unsafe *RangedForStmt) -> bool {
@@ -1545,8 +1545,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         return vd
     }
 
-    /// \p vd takes \p src, an expression of the loop's header: when \p src
-    /// can create a temporary, \p vd is marked for SequenceLowering to keep
+    /// `vd` takes `src`, an expression of the loop's header: when `src`
+    /// can create a temporary, `vd` is marked for SequenceLowering to keep
     /// every one alive until the loop ends (VariableDecl::header_scope). A
     /// pure path, and a list of them, creates none.
     priv fn _header(self, vd: unsafe *VariableDecl, src: unsafe *Expr) {

@@ -92,7 +92,7 @@ import Token::TokenKind::{
 }
 
 /// The type a name, a `::` path or a generic application denotes, as the
-/// type parser would have built it: a ChainType in \p ctx, one segment per
+/// type parser would have built it: a ChainType in `ctx`, one segment per
 /// name, each with its generic arguments. Null for any other expression.
 /// It reads no parser state, so code outside the parser can call it.
 pub fn expr_as_type(ctx: unsafe *ASTContext, e: unsafe *Expr) -> unsafe *Type {
@@ -173,8 +173,7 @@ fn _push_type_segment(ctx:        unsafe *ASTContext,
 
 // TODO(DUCK-GENERIC): T uses _consume_mode, _index_skip_block, _index_skip_stmt, _index_skip_to_body, _is_terminator_tok, _peek_mode, pay_close, _reject_mode_binding, _restore_cursor, advance, advance_raw, apply_annotations_to_decl, ... (60). Stage 0 was duck-typed; bound it or keep `: type`.
 pub class <T: type> DeclParse {
-    /// \enum DeclSyncCtx
-    /// \brief sync contexts for declaration-level error recovery.
+    /// sync contexts for declaration-level error recovery.
     enum DeclSyncCtx derives u8 {
         TopLevel, ///< sync to a decl lead-in keyword / newline / EOF.
         TypeBody, ///< inside a class/struct/enum/union body: sync to a member
@@ -189,13 +188,14 @@ pub class <T: type> DeclParse {
         return unsafe ((&self) as *T)
     }
 
-    /// \brief the current token's range, or an empty range at the end of the
-    ///        last token once the cursor has run off the stream.
-    /// \details error recovery reaches EOF mid-decl (`fn h(@move`, `class D
-    ///          derives`, `enum E { pub`), where current_ptr() is null; every
-    ///          decl-path diagnostic and range join reads through here so a
-    ///          truncated head reports at end of input instead of dereferencing
-    ///          null.
+    /// the current token's range, or an empty range at the end of the
+    /// last token once the cursor has run off the stream.
+    ///
+    /// error recovery reaches EOF mid-decl (`fn h(@move`, `class D
+    /// derives`, `enum E { pub`), where current_ptr() is null; every
+    /// decl-path diagnostic and range join reads through here so a
+    /// truncated head reports at end of input instead of dereferencing
+    /// null.
     priv inline fn _cur_range(self) -> SourceRange {
         var cur = self.dyn()->current_ptr()
         if cur != &null {
@@ -210,15 +210,16 @@ pub class <T: type> DeclParse {
         return SourceRange(last->range.end, last->range.end)
     }
 
-    /// \brief the kind of the token just consumed, or TkEof when there is
-    ///        none.
-    /// \details prev_ptr() is null once a recovery path advances a second
-    ///          time past the last token (ASTParse::_advance moves the null
-    ///          cursor into _prev), and a parameter list cut off by EOF
-    ///          (`fn S :: h ( ( self ,`, `fn ( fn ( [`) gets there. The reads
-    ///          after a parameter list or a panic set went through it
-    ///          unguarded; the previous token's range has the same
-    ///          guard in _prev_range().
+    /// the kind of the token just consumed, or TkEof when there is
+    /// none.
+    ///
+    /// prev_ptr() is null once a recovery path advances a second
+    /// time past the last token (ASTParse::_advance moves the null
+    /// cursor into _prev), and a parameter list cut off by EOF
+    /// (`fn S :: h ( ( self ,`, `fn ( fn ( [`) gets there. The reads
+    /// after a parameter list or a panic set went through it
+    /// unguarded; the previous token's range has the same
+    /// guard in _prev_range().
     priv inline fn _prev_kind(self) -> TokenKind {
         var last = self.dyn()->prev_ptr()
         if last == &null {
@@ -228,8 +229,8 @@ pub class <T: type> DeclParse {
         return last->kind
     }
 
-    /// \brief the range of the token just consumed, or _cur_range() when
-    ///        there is none (see _prev_kind).
+    /// the range of the token just consumed, or _cur_range() when
+    /// there is none (see _prev_kind).
     priv inline fn _prev_range(self) -> SourceRange {
         var last = self.dyn()->prev_ptr()
         if last == &null {
@@ -239,11 +240,12 @@ pub class <T: type> DeclParse {
         return last->range
     }
 
-    /// \brief a name, a primitive type's word or a builtin other than `Self`.
-    /// \details Reads the RESOLVED kind, like check(): a token a macro
-    ///          expanded carries the expansion's kind, not the identifier's,
-    ///          so reading the raw kind rejected every name a macro body
-    ///          declared.
+    /// a name, a primitive type's word or a builtin other than `Self`.
+    ///
+    /// Reads the RESOLVED kind, like check(): a token a macro
+    /// expanded carries the expansion's kind, not the identifier's,
+    /// so reading the raw kind rejected every name a macro body
+    /// declared.
     priv inline fn check_is_ident(self) -> bool {
         if self.dyn()->current_ptr() == &null {
             return false
@@ -255,8 +257,9 @@ pub class <T: type> DeclParse {
             || (is_builtin(k) && k != TokenKind::BiSelf)
     }
 
-    /// \brief true if the resolved token can begin a declaration.
-    /// \details mirrors StmtParse::_starts_decl; used both there and here.
+    /// true if the resolved token can begin a declaration.
+    ///
+    /// mirrors StmtParse::_starts_decl; used both there and here.
     inline fn _starts_decl_kw(self, k: TokenKind) -> bool {
         return k == TokenKind::KwFn
             || k == TokenKind::KwClass
@@ -288,24 +291,24 @@ pub class <T: type> DeclParse {
             || k == TokenKind::KwInline
     }
 
-    /// \brief true if the storage keyword under the cursor opens a binding
-    ///        rather than an expression.
-    ///  Lookahead:  KW ( 'const' | 'static' | 'thread' | 'eval' | 'var'
-    ///                 | 'unsafe'? '*'* name '?'? ( ':' | '=' | end ) )
-    ///  where `end` is a newline, `;`, `}` or the end of the file.
+    /// true if the storage keyword under the cursor opens a binding
+    /// rather than an expression.
+    /// Lookahead:  KW ( 'const' | 'static' | 'thread' | 'eval' | 'var'
+    ///          | 'unsafe'? '*'* name '?'? ( ':' | '=' | end ) )
+    /// where `end` is a newline, `;`, `}` or the end of the file.
     ///
-    /// \details `thread` and `eval` each front two things: a declaration
-    ///          (`thread n: i32 = 0`, `eval N = 4`) and a prefix expression
-    ///          (`thread work(&x)`, tether-threading.mdx; `eval f(3)`). Only
-    ///          what follows the name separates them: an expression operand
-    ///          is never followed by `:`, nor by `=` (that would assign to
-    ///          the operand of a spawn), and a spawn of a bare name means
-    ///          nothing, so `thread n` alone is the binding -- Sema then
-    ///          reports it has neither a type nor an initializer (SC046E), as
-    ///          for `static n`, where the expression would pass silently. A
-    ///          second binding keyword is always a binding, so
-    ///          _parse_storage_head gets to name a bad combination. The guard
-    ///          rolls the cursor back unconditionally.
+    /// `thread` and `eval` each front two things: a declaration
+    /// (`thread n: i32 = 0`, `eval N = 4`) and a prefix expression
+    /// (`thread work(&x)`, tether-threading.mdx; `eval f(3)`). Only
+    /// what follows the name separates them: an expression operand
+    /// is never followed by `:`, nor by `=` (that would assign to
+    /// the operand of a spawn), and a spawn of a bare name means
+    /// nothing, so `thread n` alone is the binding -- Sema then
+    /// reports it has neither a type nor an initializer (SC046E), as
+    /// for `static n`, where the expression would pass silently. A
+    /// second binding keyword is always a binding, so
+    /// _parse_storage_head gets to name a bad combination. The guard
+    /// rolls the cursor back unconditionally.
     pub fn _storage_binding_ahead(self) -> bool {
         type ASTTentativeGuard = T::TentativeGuard
         var t = ASTTentativeGuard(self.dyn())
@@ -349,11 +352,11 @@ pub class <T: type> DeclParse {
         // guard dtor rolls back unconditionally (never commit)
     }
 
-    /// \brief _starts_decl_kw, plus `thread` when it opens a binding: the
-    ///        gate for every place that walks declarations (the index pass,
-    ///        a type body's index walk, top-level recovery). `thread` is not
-    ///        in _starts_decl_kw itself because `thread work()` is an
-    ///        expression and the callers of that predicate do not look ahead.
+    /// _starts_decl_kw, plus `thread` when it opens a binding: the
+    /// gate for every place that walks declarations (the index pass,
+    /// a type body's index walk, top-level recovery). `thread` is not
+    /// in _starts_decl_kw itself because `thread work()` is an
+    /// expression and the callers of that predicate do not look ahead.
     pub fn _starts_decl_here(self, k: TokenKind) -> bool {
         if self._starts_decl_kw(k) {
             return true
@@ -364,16 +367,16 @@ pub class <T: type> DeclParse {
 
     //  Entry point
 
-    /// \brief parses a single declaration.
-    ///  Grammar (dispatch):
-    ///    visibility? modifiers? ( fn | class | struct | enum | interface
-    ///      | union | module | extend | type | macro | test | import | ffi
-    ///      | var | const | static | eval )
+    /// parses a single declaration.
+    /// Grammar (dispatch):
+    /// visibility? modifiers? ( fn | class | struct | enum | interface
+    /// | union | module | extend | type | macro | test | import | ffi
+    /// | var | const | static | eval )
     ///
-    /// \details consumes leading doc comments + visibility into a
-    ///          PendingAnnotations buffer, parses the core decl, then stamps
-    ///          annotations + visibility onto it. Returns null at EOF or when
-    ///          the lead token cannot begin a decl.
+    /// consumes leading doc comments + visibility into a
+    /// PendingAnnotations buffer, parses the core decl, then stamps
+    /// annotations + visibility onto it. Returns null at EOF or when
+    /// the lead token cannot begin a decl.
     fn parse_decl(self, allow_closure_fallback: bool = false) -> unsafe *Decl {
         if self.dyn()->is_eof() {
             return &null
@@ -439,11 +442,12 @@ pub class <T: type> DeclParse {
         // guard dtor rolls back unconditionally (never commit)
     }
 
-    /// \brief routes the current token to its declaration production.
-    /// \details visibility and the leading-modifier keywords (override/virtual/
-    ///          final/static) are consumed here into a small modifier set that
-    ///          is threaded into the function/type productions. Anything not a
-    ///          decl lead-in returns null (caller's problem).
+    /// routes the current token to its declaration production.
+    ///
+    /// visibility and the leading-modifier keywords (override/virtual/
+    /// final/static) are consumed here into a small modifier set that
+    /// is threaded into the function/type productions. Anything not a
+    /// decl lead-in returns null (caller's problem).
     priv fn _dispatch_decl(self, allow_closure_fallback: bool = false) -> unsafe *Decl {
         var cur_ptr = self.dyn()->current_ptr()
         if cur_ptr == &null {
@@ -552,8 +556,7 @@ pub class <T: type> DeclParse {
         return &null
     }
 
-    /// \struct LeadMods
-    /// \brief leading modifiers consumed before the decl keyword.
+    /// leading modifiers consumed before the decl keyword.
     struct LeadMods {
         var abi:         Declarations::AbiKind
         var is_final:    bool
@@ -564,16 +567,16 @@ pub class <T: type> DeclParse {
         var range:       SourceRange
     }
 
-    /// \brief if the next non-newline token is \p kind, consume any newlines in
-    ///        front of it and return true; otherwise leave the cursor exactly
-    ///        where it was.
+    /// if the next non-newline token is `kind`, consume any newlines in
+    /// front of it and return true; otherwise leave the cursor exactly
+    /// where it was.
     ///
-    /// \details a decl head may wrap onto a continuation line -
-    ///              struct <P> Foo<P>
-    ///                requires is_ptr<P>() { ... }
-    ///          - but a newline also *terminates* a bodyless decl, so the
-    ///          newlines can only be eaten once we know a continuation keyword
-    ///          follows. Peek first, commit second.
+    /// a decl head may wrap onto a continuation line -
+    ///     struct <P> Foo<P>
+    ///       requires is_ptr<P>() { ... }
+    /// - but a newline also *terminates* a bodyless decl, so the
+    /// newlines can only be eaten once we know a continuation keyword
+    /// follows. Peek first, commit second.
     priv fn _peek_past_nl(self, kind: TokenKind) -> bool {
         if self.dyn()->check(kind) {
             return true
@@ -593,10 +596,10 @@ pub class <T: type> DeclParse {
         return false
     }
 
-    /// \brief true if the modifier run starting at the current token leads to a
-    ///        `fn` declaration head.
+    /// true if the modifier run starting at the current token leads to a
+    /// `fn` declaration head.
     ///
-    /// \details `static`, `inline` and `eval` are each ambiguous on their own:
+    /// `static`, `inline` and `eval` are each ambiguous on their own:
     ///
     ///            static fn f()      -> abi modifier    | static X: T   -> binding
     ///            inline fn f()      -> fn modifier     | inline "c++"  -> ffi block
@@ -607,12 +610,14 @@ pub class <T: type> DeclParse {
     ///          apart, so both `_consume_leading_modifiers` and the type-body
     ///          member dispatch ask this before claiming the keyword. The
     ///          tentative guard rolls the cursor back unconditionally.
-    /// \param require_decl_head when true (decl/statement scope) the `fn` must
-    ///        also be a decl head, so `eval fn (x) { }` stays a closure
-    ///        expression. Type bodies pass false: a `fn` there is always a
-    ///        member, and insisting on a well-formed head would push a
-    ///        malformed one down the field path for three confused diagnostics
-    ///        instead of one good one.
+    ///
+    /// ### Parameters
+    /// - `require_decl_head`: when true (decl/statement scope) the `fn` must
+    ///   also be a decl head, so `eval fn (x) { }` stays a closure
+    ///   expression. Type bodies pass false: a `fn` there is always a
+    ///   member, and insisting on a well-formed head would push a
+    ///   malformed one down the field path for three confused diagnostics
+    ///   instead of one good one.
     pub fn _mods_lead_to_fn(self, require_decl_head: bool = true) -> bool {
         type ASTTentativeGuard = T::TentativeGuard
         var t = ASTTentativeGuard(self.dyn())
@@ -648,16 +653,16 @@ pub class <T: type> DeclParse {
         // guard dtor rolls back unconditionally (never commit)
     }
 
-    /// \brief consumes static/virtual/override/final/inline/eval appearing
-    ///        before a decl keyword. These bind to fn/class productions
-    ///        downstream.
+    /// consumes static/virtual/override/final/inline/eval appearing
+    /// before a decl keyword. These bind to fn/class productions
+    /// downstream.
     ///
-    /// \details `virtual`, `override` and `final` are unambiguous leads and are
-    ///          always claimed (`final` also fronts a class). `static`,
-    ///          `inline` and `eval` are claimed only when a `fn` head follows -
-    ///          otherwise they belong to a binding, an ffi block or an eval
-    ///          block, each of which owns its own production and needs to see
-    ///          its keyword still on the cursor.
+    /// `virtual`, `override` and `final` are unambiguous leads and are
+    /// always claimed (`final` also fronts a class). `static`,
+    /// `inline` and `eval` are claimed only when a `fn` head follows -
+    /// otherwise they belong to a binding, an ffi block or an eval
+    /// block, each of which owns its own production and needs to see
+    /// its keyword still on the cursor.
     priv fn _consume_leading_modifiers(self, require_decl_head: bool = true) -> Self::LeadMods {
         var m = Self::LeadMods{}
         m.abi         = Declarations::AbiKind::None
@@ -736,8 +741,8 @@ pub class <T: type> DeclParse {
 
     //  Visibility group   pub { decl* }
 
-    /// \brief a visibility group's head, the keyword and its `{`, as the
-    ///        group node; the members are the caller's.
+    /// a visibility group's head, the keyword and its `{`, as the
+    /// group node; the members are the caller's.
     priv fn _open_vis_group(self) -> unsafe *Declarations::VisibilityGroupDecl {
         var start = self._cur_range()
         var vis   = VisibilityKind::Public
@@ -756,8 +761,8 @@ pub class <T: type> DeclParse {
         )
     }
 
-    /// \brief a visibility group's `}` (S051E when it is missing) and its
-    ///        members; \p start is the group keyword's range.
+    /// a visibility group's `}` (S051E when it is missing) and its
+    /// members; `start` is the group keyword's range.
     priv fn _close_vis_group(self,
                              vg:      unsafe *Declarations::VisibilityGroupDecl,
                              start:   SourceRange,
@@ -776,17 +781,17 @@ pub class <T: type> DeclParse {
         vg->range = start | self.dyn()->prev().range
     }
 
-    /// \brief parses a visibility group at decl scope.
-    ///  Grammar:  ('pub'|'priv'|'prot') '{' decl* '}'
+    /// parses a visibility group at decl scope.
+    /// Grammar:  ('pub'|'priv'|'prot') '{' decl* '}'
     ///
-    /// \details every member's visibility is stamped from the group keyword.
-    ///          an explicit visibility keyword on a member inside the group is
-    ///          an ERROR the group is an at-a-glance guarantee and local
-    ///          overrides destroy it. nesting another group inside is the same
-    ///          error by construction (the inner keyword is explicit
-    ///          visibility). attributes/doc-comments on the GROUP itself are
-    ///          rejected by parse_decl (see annotation check there); members
-    ///          carry their own annotations normally.
+    /// every member's visibility is stamped from the group keyword.
+    /// an explicit visibility keyword on a member inside the group is
+    /// an ERROR the group is an at-a-glance guarantee and local
+    /// overrides destroy it. nesting another group inside is the same
+    /// error by construction (the inner keyword is explicit
+    /// visibility). attributes/doc-comments on the GROUP itself are
+    /// rejected by parse_decl (see annotation check there); members
+    /// carry their own annotations normally.
     priv fn _parse_visibility_group(self) -> unsafe *Decl {
         var start    = self._cur_range()
         var vg       = self._open_vis_group()
@@ -828,10 +833,10 @@ pub class <T: type> DeclParse {
         return vg
     }
 
-    /// \brief visibility group inside a type body. Same rules as decl scope;
-    ///        members land in the SAME fields/methods buffers as ungrouped
-    ///        members (sema walks one list), and the group node goes into
-    ///        owner->dc_decls for printing fidelity, holding member pointers.
+    /// visibility group inside a type body. Same rules as decl scope;
+    /// members land in the SAME fields/methods buffers as ungrouped
+    /// members (sema walks one list), and the group node goes into
+    /// owner->dc_decls for printing fidelity, holding member pointers.
     priv fn _parse_member_vis_group(
         self,
         owner:              unsafe *DeclContext,
@@ -968,22 +973,22 @@ pub class <T: type> DeclParse {
 
     //  Generic parameter list  <T, T impl Foo, const N: i32, ...T>
 
-    /// \brief parses the leading generic/specialization introducer at a decl
-    ///        head: either `<T, ...>` (type params) or `<>` (specialization
-    ///        marker). See issue #68.
+    /// parses the leading generic/specialization introducer at a decl
+    /// head: either `<T, ...>` (type params) or `<>` (specialization
+    /// marker). See issue #68.
     ///
-    /// \details Precondition: caller has NOT yet checked for `<`. Handles the
-    ///          three head forms:
-    ///            (a) no `<`            -> params empty, sets *intro = None
-    ///            (b) `<>` empty        -> params empty, sets *intro = Explicit
-    ///                                     (the definitive kind primary vs
-    ///                                     explicit vs partial is decided by
-    ///                                     the post-name pattern; `<>` alone
-    ///                                     only tells us "this is specialized")
-    ///            (c) `<T, ...>`        -> fills params, sets *intro = None
-    ///                                     (a `<T>` primary is a plain generic;
-    ///                                     Primary classification for the
-    ///                                     `<> Name<T>` form is set later)
+    /// Precondition: caller has NOT yet checked for `<`. Handles the
+    /// three head forms:
+    ///   (a) no `<`            -> params empty, sets *intro = None
+    ///   (b) `<>` empty        -> params empty, sets *intro = Explicit
+    ///                            (the definitive kind primary vs
+    ///                            explicit vs partial is decided by
+    ///                            the post-name pattern; `<>` alone
+    ///                            only tells us "this is specialized")
+    ///   (c) `<T, ...>`        -> fills params, sets *intro = None
+    ///                            (a `<T>` primary is a plain generic;
+    ///                            Primary classification for the
+    ///                            `<> Name<T>` form is set later)
     ///
     ///          Unlike a bare `_parse_generic_params`, empty `<>` here is NOT
     ///          an error (S049E) it is the specialization introducer. This
@@ -991,7 +996,8 @@ pub class <T: type> DeclParse {
     ///          remains for contexts where empty `<>`
     ///          is genuinely malformed.
     ///
-    /// \returns true if recovery was entered while parsing type params.
+    /// ### Returns
+    /// true if recovery was entered while parsing type params.
     fn _parse_generic_or_spec_intro(
         self,
         out:   unsafe *kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>,
@@ -1016,18 +1022,19 @@ pub class <T: type> DeclParse {
         return self._parse_generic_params(&*out)
     }
 
-    /// \brief parses the post-name specialization argument pattern
-    ///        (`sum<i32>`, `Box<[T]>`, `Box<T>`) into `out` as a list of types.
+    /// parses the post-name specialization argument pattern
+    /// (`sum<i32>`, `Box<[T]>`, `Box<T>`) into `out` as a list of types.
     ///
-    /// \details Precondition: current token is `<` immediately after the decl
-    ///          name, and the head carried a `<>` introducer (so we are in a
-    ///          specialization). Each argument is a full type parsed via
-    ///          `parse_type(gen_arg=true)`; a type variable (`T`), a concrete
-    ///          type (`i32`), or a structured pattern (`[T]`) are all just
-    ///          types here classification into Primary/Explicit/Partial is
-    ///          the caller's job based on whether the args are bare type vars.
+    /// Precondition: current token is `<` immediately after the decl
+    /// name, and the head carried a `<>` introducer (so we are in a
+    /// specialization). Each argument is a full type parsed via
+    /// `parse_type(gen_arg=true)`; a type variable (`T`), a concrete
+    /// type (`i32`), or a structured pattern (`[T]`) are all just
+    /// types here classification into Primary/Explicit/Partial is
+    /// the caller's job based on whether the args are bare type vars.
     ///
-    /// \returns true on clean close, false on recovery.
+    /// ### Returns
+    /// true on clean close, false on recovery.
     fn _parse_spec_args(self, @inout out: kairo::std::StackBuf<unsafe *Type, 4>) -> bool {
         if !self.dyn()->check(TokenKind::OpLess) {
             return false
@@ -1115,10 +1122,10 @@ pub class <T: type> DeclParse {
         return false
     }
 
-    /// \brief coarse *syntactic* classification of a specialization from its
-    ///        post-name argument pattern. See issue #68.
+    /// coarse *syntactic* classification of a specialization from its
+    /// post-name argument pattern. See issue #68.
     ///
-    /// \details The parser can only decide what is decidable from syntax alone:
+    /// The parser can only decide what is decidable from syntax alone:
     ///
     ///            all args are single simple identifiers (`Box<T>`, `Pair<A,B>`)
     ///              -> Primary  (candidate every arg *could* be a type var;
@@ -1149,8 +1156,9 @@ pub class <T: type> DeclParse {
     ///          the ident resolve to a type variable of the primary, or to a
     ///          concrete type?), not a syntactic one.
     ///
-    /// \param head_has_params true when the decl head bound type parameters
-    ///        (`<P> Name<...>`); false for the `<> Name<...>` marker.
+    /// ### Parameters
+    /// - `head_has_params`: true when the decl head bound type parameters
+    ///   (`<P> Name<...>`); false for the `<> Name<...>` marker.
     fn _classify_spec(self,
                       @inout spec_args: kairo::std::StackBuf<unsafe *Type, 4>,
                       head_has_params:  bool) -> Declarations::SpecKind {
@@ -1173,17 +1181,17 @@ pub class <T: type> DeclParse {
         return Declarations::SpecKind::Primary // all simple idents; sema refines vs Explicit
     }
 
-    /// \brief _classify_spec for a RECORD, which can say more: the head's own
-    ///        parameter names are known here, so an all-simple-idents
-    ///        pattern is the primary form only when it is exactly those
-    ///        parameters, in order (`<T> Box<T>`, `<A, B> Pair<A, B>`).
-    ///        Anything else -- a name the head does not bind (`<X> Pair<X,
-    ///        i32>`), a repeat or a reordering (`<A> Pair<A, A>`) -- is a
-    ///        pattern over the head's variables: Partial. Left as Primary it
-    ///        was a second primary to N, a redefinition of the first.
-    ///        Functions keep _classify_spec: a partial function spec is an
-    ///        error, and widening what lands there would change which
-    ///        function forms are rejected.
+    /// _classify_spec for a RECORD, which can say more: the head's own
+    /// parameter names are known here, so an all-simple-idents
+    /// pattern is the primary form only when it is exactly those
+    /// parameters, in order (`<T> Box<T>`, `<A, B> Pair<A, B>`).
+    /// Anything else -- a name the head does not bind (`<X> Pair<X,
+    /// i32>`), a repeat or a reordering (`<A> Pair<A, A>`) -- is a
+    /// pattern over the head's variables: Partial. Left as Primary it
+    /// was a second primary to N, a redefinition of the first.
+    /// Functions keep _classify_spec: a partial function spec is an
+    /// error, and widening what lands there would change which
+    /// function forms are rejected.
     fn _classify_record_spec(
         self,
         spec_args: unsafe *kairo::std::StackBuf<unsafe *Type, 4>,
@@ -1219,9 +1227,9 @@ pub class <T: type> DeclParse {
         return k
     }
 
-    /// \brief true if `ty` is a single-segment `ChainType` naming a bare
-    ///        identifier with no generic args of its own (`T`, `i32`, `Foo`).
-    ///        Structured types (`[T]`, `*T`, `Vec<T>`, `A::B`) return false.
+    /// true if `ty` is a single-segment `ChainType` naming a bare
+    /// identifier with no generic args of its own (`T`, `i32`, `Foo`).
+    /// Structured types (`[T]`, `*T`, `Vec<T>`, `A::B`) return false.
     fn _is_simple_ident_type(self, ty: unsafe *Type) -> bool {
         if ty == &null {
             return false
@@ -1241,16 +1249,16 @@ pub class <T: type> DeclParse {
         return cast<ChainType>(ty)->is_simple() // single unqualified name, no args
     }
 
-    /// \brief parses an optional generic parameter list into `out`.
-    ///  Grammar:  '<' generic_param (',' generic_param)* '>'
-    ///    generic_param := '...'? identifier (':' kind_bound)?
-    ///    kind_bound    := 'class' | 'struct' | 'enum' | 'union' | 'type'
-    ///                     (('impl'|'derives') 'virtual'? vis? type)*
-    ///                     ('=' type)?
-    ///                   | 'const' identifier ':' type ('=' type)?
+    /// parses an optional generic parameter list into `out`.
+    /// Grammar:  '<' generic_param (',' generic_param)* '>'
+    /// generic_param := '...'? identifier (':' kind_bound)?
+    /// kind_bound    := 'class' | 'struct' | 'enum' | 'union' | 'type'
+    ///              (('impl'|'derives') 'virtual'? vis? type)*
+    ///              ('=' type)?
+    ///            | 'const' identifier ':' type ('=' type)?
     ///
-    /// \details precondition: current token is `<` (caller checked). On a
-    ///          malformed list, recovers to `>` and returns what parsed.
+    /// precondition: current token is `<` (caller checked). On a
+    /// malformed list, recovers to `>` and returns what parsed.
     fn _parse_generic_params(
         self,
         @inout out: kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>,
@@ -1356,7 +1364,7 @@ pub class <T: type> DeclParse {
         return false
     }
 
-    /// \brief parses a single generic parameter.
+    /// parses a single generic parameter.
     priv fn _parse_one_generic_param(self, idx: u32) -> unsafe *Declarations::GenericParamDecl {
         self.dyn()->_reject_mode_binding() // `<@move T>`: a generic param is not passed.
         var start = self._cur_range()
@@ -1519,18 +1527,19 @@ pub class <T: type> DeclParse {
         return Declarations::GenericParamKindBound::Any
     }
 
-    /// \brief parses one or more impl/derives bound clauses after a generic
-    ///        param, routing each edge to the matching list.
-    ///  Grammar:  (('impl'|'derives') 'virtual'? visibility? type)+  - each
-    ///  clause is keyword-led. A bare `,` belongs to the generic param list, not
-    ///  the bound list, so we only continue on another impl/derives keyword.
-    ///  `impl` edges go to \p impl_out, `derives` edges to \p derives_out; the
-    ///  keyword that introduced the clause is what decides, preserving the
-    ///  structural-vs-nominal distinction.
-    /// \brief parse_type() returns null without a diagnostic at EOF (`class D
-    ///        derives`, `fn <T impl`); a recovery node or any other null has
-    ///        already been reported, so only the silent case speaks here.
-    ///        Without it a truncated heritage clause was accepted cleanly.
+    /// parses one or more impl/derives bound clauses after a generic
+    /// param, routing each edge to the matching list.
+    /// Grammar:  (('impl'|'derives') 'virtual'? visibility? type)+  - each
+    /// clause is keyword-led. A bare `,` belongs to the generic param list, not
+    /// the bound list, so we only continue on another impl/derives keyword.
+    /// `impl` edges go to `impl_out`, `derives` edges to `derives_out`; the
+    /// keyword that introduced the clause is what decides, preserving the
+    /// structural-vs-nominal distinction.
+    ///
+    /// parse_type() returns null without a diagnostic at EOF (`class D
+    /// derives`, `fn <T impl`); a recovery node or any other null has
+    /// already been reported, so only the silent case speaks here.
+    /// Without it a truncated heritage clause was accepted cleanly.
     priv fn _report_missing_edge_type(self, bty: unsafe *Type, const kw: string) {
         if bty != &null || !self.dyn()->is_eof() {
             return
@@ -1600,18 +1609,18 @@ pub class <T: type> DeclParse {
 
     //  Function declaration
 
-    /// \brief \p t as an operator declaration stores it: through a macro
-    ///        expansion, so `fn op t (...)` with `t` bound to `<` is `<`.
+    /// `t` as an operator declaration stores it: through a macro
+    /// expansion, so `fn op t (...)` with `t` bound to `<` is `<`.
     ///
-    /// \details every reader of `op_token` keys by KIND (OperatorFacts::key,
-    ///          ASTParse::_op_decl_name, RedeclMerge, the codegen spelling,
-    ///          the `op finally` / `op as` tests): a kept TkMacroExpand made
-    ///          every operator from one macro the same table cell (R041E
-    ///          between `op <` and `op ==`). An operator spells from its kind,
-    ///          so the unwrapped token spells the same; the range stays the
-    ///          wrapped one (the invocation). The `l` / `r` marker is an
-    ///          identifier whose imm indexes the table of the file that WROTE
-    ///          it (an imported macro's), so it is re-interned here instead.
+    /// every reader of `op_token` keys by KIND (OperatorFacts::key,
+    /// ASTParse::_op_decl_name, RedeclMerge, the codegen spelling,
+    /// the `op finally` / `op as` tests): a kept TkMacroExpand made
+    /// every operator from one macro the same table cell (R041E
+    /// between `op <` and `op ==`). An operator spells from its kind,
+    /// so the unwrapped token spells the same; the range stays the
+    /// wrapped one (the invocation). The `l` / `r` marker is an
+    /// identifier whose imm indexes the table of the file that WROTE
+    /// it (an imported macro's), so it is re-interned here instead.
     pub fn _stored_op_token(self, t: Token) -> Token {
         if t.kind != TokenKind::TkMacroExpand {
             return t
@@ -1630,7 +1639,8 @@ pub class <T: type> DeclParse {
         return u
     }
 
-    /// \returns false if validation failed
+    /// ### Returns
+    /// false if validation failed
     pub fn _parse_and_validate_op_spelling(self,
                                            out: unsafe *kairo::std::StackBuf<Token, 3>) -> bool {
         // `op delete`, the destructor's pre-0.2.0 spelling: keyed as `op
@@ -1829,15 +1839,16 @@ pub class <T: type> DeclParse {
     }
 
 
-    /// \brief parses a function/method/operator declaration.
-    ///  Grammar:  'fn' generics? (identifier | 'op' operator | qualified-name)
-    ///            '(' params? ')' fn_mods? ('->' return_type)? requires? body
-    ///    body := block | '=' expr | '=' ('default'|'delete'|'virtual') | <none>
+    /// parses a function/method/operator declaration.
+    /// Grammar:  'fn' generics? (identifier | 'op' operator | qualified-name)
+    ///     '(' params? ')' fn_mods? ('->' return_type)? requires? body
+    /// body := block | '=' expr | '=' ('default'|'delete'|'virtual') | <none>
     ///
-    /// \details precondition: current token is `fn`. `lead` carries any
-    ///          static/virtual/override/final consumed before `fn`.
-    /// \brief S093E for a function name that starts with `::`; consumes the
-    ///        `::`. The cursor is on it, an identifier after it.
+    /// precondition: current token is `fn`. `lead` carries any
+    /// static/virtual/override/final consumed before `fn`.
+    ///
+    /// S093E for a function name that starts with `::`; consumes the
+    /// `::`. The cursor is on it, an identifier after it.
     priv fn _report_rooted_fn_name(self) {
         var colons = self._cur_range()
         self.dyn()->advance() // consume `::`
@@ -2309,9 +2320,11 @@ pub class <T: type> DeclParse {
         return unsafe (fd as unsafe *Decl)
     }
 
-    /// \brief parses the `Class::` (or `Class::Inner::`) qualifier path of an
-    ///        out-of-line definition, leaving the cursor on the final segment.
-    /// \returns a ChainExpr representing the qualifier path.
+    /// parses the `Class::` (or `Class::Inner::`) qualifier path of an
+    /// out-of-line definition, leaving the cursor on the final segment.
+    ///
+    /// ### Returns
+    /// a ChainExpr representing the qualifier path.
     priv fn _parse_qualified_fn_name(self, first: Token) -> *Expr {
         var start = first.range
         var base  = NamedIdentExpr::create(self.dyn()->ctx, first.range, first)
@@ -2355,9 +2368,9 @@ pub class <T: type> DeclParse {
         return ce
     }
 
-    /// \brief S071E: `const x: const T`, a \p what ("parameter",
-    ///        "binding") already 'const' with a second 'const' on its type
-    ///        \p ty. The second one is at fault and the fix-it removes it.
+    /// S071E: `const x: const T`, a `what` ("parameter",
+    /// "binding") already 'const' with a second 'const' on its type
+    /// `ty`. The second one is at fault and the fix-it removes it.
     priv fn _report_second_const(self, ty: unsafe *Type, const what: string) {
         var c_range = self.dyn()->top_const_range(ty)
         self.dyn()->diag->report(
@@ -2367,9 +2380,11 @@ pub class <T: type> DeclParse {
         ).first(c_range)->remove(c_range, "remove the second 'const'")->emit()
     }
 
-    /// \brief parses a parameter list `( param (',' param)* )`.
-    ///  Grammar:  param := 'self' | '...'? name ':' type ('=' expr)?
-    /// \returns true if a trailing variadic pack `...name: T` was seen.
+    /// parses a parameter list `( param (',' param)* )`.
+    /// Grammar:  param := 'self' | '...'? name ':' type ('=' expr)?
+    ///
+    /// ### Returns
+    /// true if a trailing variadic pack `...name: T` was seen.
     priv fn _parse_param_list(self,
                               @inout out: kairo::std::StackBuf<unsafe *Declarations::ParamDecl, 4>) -> bool {
         var lparen_tok = self.dyn()->current() // kept whole: expansion-aware diags below need the token, not just the range
@@ -2746,15 +2761,18 @@ pub class <T: type> DeclParse {
         return variadic
     }
 
-    /// \brief Parses the capture list for a closure, supporting value, pointer, and const pointer captures.
-    /// \details Implements the grammar:
-    ///            '|' capture (',' capture)* '|'
-    ///            capture := 'const'? '*'? identifier | '*'
-    /// \returns true only for a list SPELLED empty (`| |`). An entry that
-    ///          failed to parse (S047E) also leaves `out` empty, and keying
-    ///          "captures nothing" on the count read `|3|` as `||`: the
-    ///          closure then drew a follow-on "not captured" error for every
-    ///          free name after the syntax error.
+    /// Parses the capture list for a closure, supporting value, pointer, and const pointer captures.
+    ///
+    /// Implements the grammar:
+    ///   '|' capture (',' capture)* '|'
+    ///   capture := 'const'? '*'? identifier | '*'
+    ///
+    /// ### Returns
+    /// true only for a list SPELLED empty (`| |`). An entry that
+    /// failed to parse (S047E) also leaves `out` empty, and keying
+    /// "captures nothing" on the count read `|3|` as `||`: the
+    /// closure then drew a follow-on "not captured" error for every
+    /// free name after the syntax error.
     pub fn _parse_capture_list(self,
                                @inout out: kairo::std::StackBuf<ClosureExpr::Capture, 4>) -> bool {
         self.dyn()->advance(T::SkipNL::After) // consume opening `|`
@@ -2994,11 +3012,12 @@ pub class <T: type> DeclParse {
             || k == TokenKind::KwOverride
     }
 
-    /// \brief parses trailing function modifiers into fd->modifiers.
-    /// \details a modifier sits on the line of what it follows. A keyword
-    ///          that starts a line opens the next declaration: after a
-    ///          signature with no body, `eval if`, `eval N: T`, `inline fn`
-    ///          or `const x` on the following line is not this function's.
+    /// parses trailing function modifiers into fd->modifiers.
+    ///
+    /// a modifier sits on the line of what it follows. A keyword
+    /// that starts a line opens the next declaration: after a
+    /// signature with no body, `eval if`, `eval N: T`, `inline fn`
+    /// or `const x` on the following line is not this function's.
     priv fn _parse_fn_modifiers(self, fd: *Declarations::FunctionDecl) {
         while !self.dyn()->starts_line() {
             if self.dyn()->check(TokenKind::KwConst) {
@@ -3046,11 +3065,12 @@ pub class <T: type> DeclParse {
         }
     }
 
-    /// \brief diagnoses the C++-style trailing `fn f(self) const` and consumes it.
-    /// \details the const belongs on the receiver: `fn f(const self)`. Recovery
-    ///          still marks the method (and its receiver) const, so a decl
-    ///          paired with a `const self` definition does not cascade into a
-    ///          const-disagreement error on top of this one.
+    /// diagnoses the C++-style trailing `fn f(self) const` and consumes it.
+    ///
+    /// the const belongs on the receiver: `fn f(const self)`. Recovery
+    /// still marks the method (and its receiver) const, so a decl
+    /// paired with a `const self` definition does not cascade into a
+    /// const-disagreement error on top of this one.
     priv fn _reject_trailing_const(self, fd: *Declarations::FunctionDecl) {
         var c_range = self._cur_range()
         self.dyn()->advance() // consume `const`
@@ -3108,8 +3128,8 @@ pub class <T: type> DeclParse {
         fd->modifiers |= Declarations::FnModifier::IsConst
     }
 
-    /// \brief parses the function body, setting body_kind + body_block/expr.
-    ///  Grammar:  block | '=' expr | '=' ('default'|'delete'|'virtual') | <none>
+    /// parses the function body, setting body_kind + body_block/expr.
+    /// Grammar:  block | '=' expr | '=' ('default'|'delete'|'virtual') | <none>
     priv fn _parse_fn_body(self, fd: *Declarations::FunctionDecl) {
         // `= default` / `= delete` / `= expr`
         if self.dyn()->check(TokenKind::OpEqual) {
@@ -3256,8 +3276,7 @@ pub class <T: type> DeclParse {
 
     //  Variable / field declaration
 
-    /// \struct StorageHead
-    /// \brief the keywords that open a binding, read by _parse_storage_head.
+    /// the keywords that open a binding, read by _parse_storage_head.
     struct StorageHead {
         var storage:       Declarations::StorageClass
         var is_thread:     bool
@@ -3265,26 +3284,26 @@ pub class <T: type> DeclParse {
         var saw_const:     bool ///< a `const` was read, whatever it meant (`eval const` sets nothing else).
     }
 
-    /// \brief reads the keywords that open a binding or a field, in either
-    ///        order where `const` combines with a storage keyword.
-    ///  Grammar:  'var'
-    ///          | 'const' ( 'static' 'thread'? | 'thread' | 'eval' )?
-    ///          | 'static' 'thread'? 'const'?
-    ///          | 'thread' 'const'?
-    ///          | 'eval' 'const'?
+    /// reads the keywords that open a binding or a field, in either
+    /// order where `const` combines with a storage keyword.
+    /// Grammar:  'var'
+    ///   | 'const' ( 'static' 'thread'? | 'thread' | 'eval' )?
+    ///   | 'static' 'thread'? 'const'?
+    ///   | 'thread' 'const'?
+    ///   | 'eval' 'const'?
     ///
-    /// \details `static const x` and `const static x` are one declaration
-    ///          (variables.mdx): the storage keyword says where the object
-    ///          lives, `const` that the binding cannot be reassigned. Both
-    ///          orders land on the same node -- `storage` keeps the storage
-    ///          keyword and `const_binding` the const -- so nothing after the
-    ///          parser can tell which was written. `eval` is const already, so
-    ///          `eval const` / `const eval` is plain `eval` and sets nothing.
-    ///          `thread` is `static` storage with `is_thread`, the shape
-    ///          `static thread` always had: every consumer that asks
-    ///          is_static() (`Type::name` lookup, nullness, the C++ spelling)
-    ///          is already right for it. Anything else after the keyword is
-    ///          left for the name check, whose S046E names the real problem.
+    /// `static const x` and `const static x` are one declaration
+    /// (variables.mdx): the storage keyword says where the object
+    /// lives, `const` that the binding cannot be reassigned. Both
+    /// orders land on the same node -- `storage` keeps the storage
+    /// keyword and `const_binding` the const -- so nothing after the
+    /// parser can tell which was written. `eval` is const already, so
+    /// `eval const` / `const eval` is plain `eval` and sets nothing.
+    /// `thread` is `static` storage with `is_thread`, the shape
+    /// `static thread` always had: every consumer that asks
+    /// is_static() (`Type::name` lookup, nullness, the C++ spelling)
+    /// is already right for it. Anything else after the keyword is
+    /// left for the name check, whose S046E names the real problem.
     priv fn _parse_storage_head(self) -> Self::StorageHead {
         var first = self.dyn()->current()
         var h     = self._storage_head_core()
@@ -3385,13 +3404,13 @@ pub class <T: type> DeclParse {
         return h
     }
 
-    /// \brief parses a var/const/static/eval binding as a VariableDecl.
-    ///  Grammar:  ('var'|'const'|'static'|'eval') identifier (':' type)?
-    ///            ('=' expr)?
+    /// parses a var/const/static/eval binding as a VariableDecl.
+    /// Grammar:  ('var'|'const'|'static'|'eval') identifier (':' type)?
+    ///     ('=' expr)?
     ///
-    /// \note destructuring (`var (a, b) = ...`) is handled by StmtParse at
-    ///       statement scope; this path is for plain single-name bindings,
-    ///       including the C-style for-loop init and namespace/local decls.
+    /// **Note:** destructuring (`var (a, b) = ...`) is handled by StmtParse at
+    /// statement scope; this path is for plain single-name bindings,
+    /// including the C-style for-loop init and namespace/local decls.
     fn _parse_var_decl(self) -> unsafe *Decl {
         var start = self._cur_range()
 
@@ -3579,12 +3598,12 @@ pub class <T: type> DeclParse {
         return vd
     }
 
-    /// \brief parses a class/struct/union member field as a FieldDecl.
-    ///  Grammar:  'mutable'? ('var'|'const'|'static'|'eval') name ':' type
-    ///            ('=' expr)?
+    /// parses a class/struct/union member field as a FieldDecl.
+    /// Grammar:  'mutable'? ('var'|'const'|'static'|'eval') name ':' type
+    ///     ('=' expr)?
     ///
-    /// \details fields require an explicit type (no inference at member scope)
-    ///          except where a default initializer is present; sema enforces.
+    /// fields require an explicit type (no inference at member scope)
+    /// except where a default initializer is present; sema enforces.
     priv fn _parse_field(self, idx: u32) -> unsafe *Declarations::FieldDecl {
         var start = self._cur_range()
 
@@ -3751,8 +3770,8 @@ pub class <T: type> DeclParse {
 
     //  Inheritance clauses:  derives <edges> | impl <edges>
 
-    /// \brief an inheritance edge's head, `'virtual'? ('pub' | 'prot' |
-    ///        'priv')?`, into \p edge (no keyword: VisibilityKind::None).
+    /// an inheritance edge's head, `'virtual'? ('pub' | 'prot' |
+    /// 'priv')?`, into `edge` (no keyword: VisibilityKind::None).
     priv fn _parse_edge_head(self, edge: *Declarations::InheritEdge) {
         edge->is_virtual = self.dyn()->match_tok(TokenKind::KwVirtual)
         edge->visibility = (VisibilityKind::None as u8)
@@ -3765,13 +3784,13 @@ pub class <T: type> DeclParse {
         }
     }
 
-    /// \brief parses an inheritance edge list following `derives` or `impl`.
-    ///  Grammar:  ('derives'|'impl') ('virtual'? visibility? type)
-    ///            (',' 'virtual'? visibility? type)*
+    /// parses an inheritance edge list following `derives` or `impl`.
+    /// Grammar:  ('derives'|'impl') ('virtual'? visibility? type)
+    ///     (',' 'virtual'? visibility? type)*
     ///
-    /// \details precondition: current is `derives` or `impl` (caller decides
-    ///          which list it fills). Visibility/virtual modifiers attach
-    ///          per-edge. Stops at `{`, `requires`, or a non-comma token.
+    /// precondition: current is `derives` or `impl` (caller decides
+    /// which list it fills). Visibility/virtual modifiers attach
+    /// per-edge. Stops at `{`, `requires`, or a non-comma token.
     priv fn _parse_inherit_edges(self,
                                  @inout out: kairo::std::StackBuf<Declarations::InheritEdge, 4>) {
         var kw: string = if (self.dyn()->check(TokenKind::KwDerives)) => ("derives") else => "impl"
@@ -3801,12 +3820,12 @@ pub class <T: type> DeclParse {
         }
     }
 
-    /// \brief parses an interface's `derives` clause as an expression over
-    ///        interfaces: `derives X + (Y - Z) & W`, and `derives A, B` as
-    ///        `A + B`. The expression parser does the precedence climbing
-    ///        and reads the leaves (names, `::` chains, generic applications);
-    ///        this checks the shape and turns each leaf into the type
-    ///        derives_list[i] resolves (InterfaceDecl::derives_expr).
+    /// parses an interface's `derives` clause as an expression over
+    /// interfaces: `derives X + (Y - Z) & W`, and `derives A, B` as
+    /// `A + B`. The expression parser does the precedence climbing
+    /// and reads the leaves (names, `::` chains, generic applications);
+    /// this checks the shape and turns each leaf into the type
+    /// derives_list[i] resolves (InterfaceDecl::derives_expr).
     ///
     ///        Its precedence is the expression grammar's: `+`/`-` bind tighter
     ///        than `&`, so `A + B & C` is `(A + B) & C`, and mixing them
@@ -3904,8 +3923,8 @@ pub class <T: type> DeclParse {
         }
     }
 
-    /// Check \p e is `+` / `-` / `&` over interface names, appending each leaf
-    /// as a type to \p out in source order. False after a diagnostic.
+    /// Check `e` is `+` / `-` / `&` over interface names, appending each leaf
+    /// as a type to `out` in source order. False after a diagnostic.
     priv fn _derives_leaves(self,
                             e_in:     unsafe *Expr,
                             out:      unsafe *kairo::std::StackBuf<Declarations::InheritEdge, 4>,
@@ -4037,11 +4056,11 @@ pub class <T: type> DeclParse {
         ).first(at)->emit()
     }
 
-    /// \brief rejects a `where` clause on a type declaration. `where` is
-    ///        runtime-conditional dispatch, which only free functions/methods
-    ///        support; type instantiation and interface conformance are
-    ///        compile-time only and must use `requires`. Consumes and discards
-    ///        the offending clause so parsing can recover into the body.
+    /// rejects a `where` clause on a type declaration. `where` is
+    /// runtime-conditional dispatch, which only free functions/methods
+    /// support; type instantiation and interface conformance are
+    /// compile-time only and must use `requires`. Consumes and discards
+    /// the offending clause so parsing can recover into the body.
     priv fn _reject_where_on_type(self, const kind_word: string) {
         // On its own line too (where.mdx writes `class <T> Buffer` and then
         // `where ...` under it): the newline must not hide the clause, or it
@@ -4064,8 +4083,8 @@ pub class <T: type> DeclParse {
         )
     }
 
-    /// \brief parses the `derives ...` and `impl ...` clauses in either order,
-    ///        filling the provided edge buffers. Either may be absent.
+    /// parses the `derives ...` and `impl ...` clauses in either order,
+    /// filling the provided edge buffers. Either may be absent.
     priv fn _parse_class_heritage(
         self,
         derives_out: unsafe *kairo::std::StackBuf<Declarations::InheritEdge, 4>,
@@ -4100,23 +4119,27 @@ pub class <T: type> DeclParse {
 
     //  Type-scope body  { fields, methods, nested types }
 
-    /// \brief parses a braced member body into the given DeclContext owner,
-    ///        collecting fields and methods into the supplied buffers.
-    ///  Grammar:  '{' (field | method | nested-decl | visibility-group)* '}'
+    /// parses a braced member body into the given DeclContext owner,
+    /// collecting fields and methods into the supplied buffers.
+    /// Grammar:  '{' (field | method | nested-decl | visibility-group)* '}'
     ///
-    /// \param allow_methods  false for structs/unions (no in-body methods).
-    /// \details pushes no scope of its own the caller owns scope lifetime;
-    ///          this only routes members. Nested type decls are appended to
-    ///          the owner's dc_decls via add_decl.
-    /// \brief index-mode type-body walk: parses member decls shallowly (every
-    ///        production cuts after its head in index mode) and lands them in
-    ///        \p owner->dc_decls so the post-parse hoist recursion
-    ///        (ASTParse::_index_hoist_decl) can insert them under the type's
-    ///        scope-path segment. Anything that is not a decl lead-in is
-    ///        token-skipped never walked into.
+    /// ### Parameters
+    /// - `allow_methods`: false for structs/unions (no in-body methods).
     ///
-    /// \pre the opening `{` is consumed (via _index_skip_to_body).
-    /// \post the closing `}` is consumed if present.
+    /// pushes no scope of its own the caller owns scope lifetime;
+    /// this only routes members. Nested type decls are appended to
+    /// the owner's dc_decls via add_decl.
+    ///
+    /// index-mode type-body walk: parses member decls shallowly (every
+    /// production cuts after its head in index mode) and lands them in
+    /// `owner->dc_decls` so the post-parse hoist recursion
+    /// (ASTParse::_index_hoist_decl) can insert them under the type's
+    /// scope-path segment. Anything that is not a decl lead-in is
+    /// token-skipped never walked into.
+    ///
+    /// **Precondition:** the opening `{` is consumed (via _index_skip_to_body).
+    ///
+    /// **Postcondition:** the closing `}` is consumed if present.
     priv fn _index_walk_body(self, owner: *DeclContext) {
         var prev_idx: usize = 0
         var have_prev       = false
@@ -4156,11 +4179,13 @@ pub class <T: type> DeclParse {
     }
 
     /// An inline foreign block where a member belongs (a type body, a
-    /// visibility group in one, a module body; \p scope says which):
+    /// visibility group in one, a module body; `scope` says which):
     /// parsed by StmtParse::_parse_inline_block, which gives every language
     /// but "asm" its one S095E. An `inline "asm"` block is a statement, so
     /// here it is S048E.
-    /// \return true if the cursor was on one (it is consumed).
+    ///
+    /// ### Returns
+    /// true if the cursor was on one (it is consumed).
     priv fn _member_inline_block(self, const scope: string) -> bool {
         if !self.dyn()->check(TokenKind::KwInline)
             || !self.dyn()->check_peek(TokenKind::LitString) {
@@ -4179,12 +4204,12 @@ pub class <T: type> DeclParse {
         return true
     }
 
-    /// \brief true if `fd` names the type it is declared in, i.e. it is a
-    ///        constructor rather than a named method.
+    /// true if `fd` names the type it is declared in, i.e. it is a
+    /// constructor rather than a named method.
     ///
-    /// \details identifiers are interned per file, so the enclosing type's name
-    ///          and a ctor's name share an imm - the same test the symbol
-    ///          indexer uses to key a decl as DeclName::ctor().
+    /// identifiers are interned per file, so the enclosing type's name
+    /// and a ctor's name share an imm - the same test the symbol
+    /// indexer uses to key a decl as DeclName::ctor().
     priv fn _is_ctor_of(self, fd: unsafe *Declarations::FunctionDecl, owner_name: Token) -> bool {
         if fd->is_operator {
             return false
@@ -4199,9 +4224,10 @@ pub class <T: type> DeclParse {
         return fn_imm == owner_imm
     }
 
-    /// \param owner_name the enclosing type's name, used to tell a constructor
-    ///        from a named method in bodies that forbid the latter. Pass an
-    ///        empty Token where the distinction does not apply (extensions).
+    /// ### Parameters
+    /// - `owner_name`: the enclosing type's name, used to tell a constructor
+    ///   from a named method in bodies that forbid the latter. Pass an
+    ///   empty Token where the distinction does not apply (extensions).
     priv fn _parse_member_body(
         self,
         owner:         unsafe *DeclContext,
@@ -4463,10 +4489,9 @@ pub class <T: type> DeclParse {
 
     //  Class, struct and union
 
-    /// \struct RecordSlots
-    /// \brief the members _parse_record writes, read off whichever of the
-    ///        three record kinds it built. Each kind derives its own mixin
-    ///        instantiations, so no base pointer reaches them.
+    /// the members _parse_record writes, read off whichever of the
+    /// three record kinds it built. Each kind derives its own mixin
+    /// instantiations, so no base pointer reaches them.
     struct RecordSlots {
         var generic_params: unsafe *FrozenList<unsafe *Declarations::GenericParamDecl> = &null
         var spec_args:      unsafe *FrozenList<unsafe *Type>                           = &null
@@ -4478,7 +4503,7 @@ pub class <T: type> DeclParse {
         var dc:      unsafe *DeclContext                                    = &null
     }
 
-    /// \brief the record keyword's word, as diagnostics spell it.
+    /// the record keyword's word, as diagnostics spell it.
     priv fn _record_word(self, kw: TokenKind) -> string {
         if kw == TokenKind::KwClass {
             return "class"
@@ -4506,8 +4531,8 @@ pub class <T: type> DeclParse {
         return Declarations::UnionDecl::create_error(self.dyn()->ctx, range)
     }
 
-    /// \brief creates the record \p kw introduces and points \p slots at its
-    ///        members.
+    /// creates the record `kw` introduces and points `slots` at its
+    /// members.
     priv fn _record_create(self,
                            kw:    TokenKind,
                            start: SourceRange,
@@ -4580,18 +4605,18 @@ pub class <T: type> DeclParse {
         }
     }
 
-    /// \brief parses a class, struct or union declaration; \p kw is its
-    ///        keyword, the current token.
-    ///  Grammar:  'final'? 'class' head heritage requires? body?
-    ///            ('struct' | 'union') head ('impl' ...)* requires? body?
-    ///    head     := generics? name spec-args?
-    ///    heritage := ('derives' ... | 'impl' ...)*, either order
-    ///  No body is a forward declaration (a non-definition redecl link that
-    ///  merges with the definition wherever it sits in the scope); under ffi
-    ///  (`ffi "c" struct timezone`) it may instead name the header's tag
-    ///  (ImportResolution::_bind_ffi_forwards keys on the ffi linkage, not on
-    ///  the missing body). A struct or union body admits constructors and
-    ///  operators but no named method; only a class reads lead modifiers.
+    /// parses a class, struct or union declaration; `kw` is its
+    /// keyword, the current token.
+    /// Grammar:  'final'? 'class' head heritage requires? body?
+    ///     ('struct' | 'union') head ('impl' ...)* requires? body?
+    /// head     := generics? name spec-args?
+    /// heritage := ('derives' ... | 'impl' ...)*, either order
+    /// No body is a forward declaration (a non-definition redecl link that
+    /// merges with the definition wherever it sits in the scope); under ffi
+    /// (`ffi "c" struct timezone`) it may instead name the header's tag
+    /// (ImportResolution::_bind_ffi_forwards keys on the ffi linkage, not on
+    /// the missing body). A struct or union body admits constructors and
+    /// operators but no named method; only a class reads lead modifiers.
     priv fn _parse_record(self, kw: TokenKind, lead: unsafe *Self::LeadMods) -> unsafe *Decl {
         var is_class = kw == TokenKind::KwClass
         var start = if (is_class && lead->any) => (lead->range) else => self._cur_range()
@@ -4745,10 +4770,10 @@ pub class <T: type> DeclParse {
         return d
     }
 
-    /// \brief a `virtual fn` with no body is pure virtual, and its class
-    ///        abstract (a bodyless method that is not virtual stays a
-    ///        declaration). FnBodyKind::Virtual is what every later stage
-    ///        reads: TypeUtil's polymorphism, ClassLifecycle, the `= 0`.
+    /// a `virtual fn` with no body is pure virtual, and its class
+    /// abstract (a bodyless method that is not virtual stays a
+    /// declaration). FnBodyKind::Virtual is what every later stage
+    /// reads: TypeUtil's polymorphism, ClassLifecycle, the `= 0`.
     priv fn _mark_abstract(self, cd: unsafe *Declarations::ClassDecl) {
         for var i: usize = 0; i < cd->methods.size(); ++i {
             var unsafe *m = cd->methods[i]
@@ -4765,9 +4790,9 @@ pub class <T: type> DeclParse {
 
     //  Interface
 
-    /// \brief parses an interface declaration.
-    ///  Grammar:  'interface' generics? name (derives ...)? '{' sig* '}'
-    ///    sig := method/operator/ctor/static signature (no body)
+    /// parses an interface declaration.
+    /// Grammar:  'interface' generics? name (derives ...)? '{' sig* '}'
+    /// sig := method/operator/ctor/static signature (no body)
     priv fn _parse_interface(self) -> unsafe *Decl {
         var start = self._cur_range()
 
@@ -4886,8 +4911,8 @@ pub class <T: type> DeclParse {
 
     //  Extension
 
-    /// \brief parses an extension declaration.
-    ///  Grammar:  'extend' generics? type (impl ...)? '{' (method|static)* '}'
+    /// parses an extension declaration.
+    /// Grammar:  'extend' generics? type (impl ...)? '{' (method|static)* '}'
     priv fn _parse_extension(self) -> unsafe *Decl {
         var start = self._cur_range()
 
@@ -4985,10 +5010,10 @@ pub class <T: type> DeclParse {
 
     //  Enum
 
-    /// \brief parses an enum declaration.
-    ///  Grammar:  'enum' generics? name ('derives' int_type)? ('requires' expr)? '{' variant* '}'
-    ///    variant := name ('=' const_expr)?                  (plain)
-    ///             | name '{' field (',' field)* '}'         (ADT payload)
+    /// parses an enum declaration.
+    /// Grammar:  'enum' generics? name ('derives' int_type)? ('requires' expr)? '{' variant* '}'
+    /// variant := name ('=' const_expr)?                  (plain)
+    ///      | name '{' field (',' field)* '}'         (ADT payload)
     priv fn _parse_enum(self) -> unsafe *Decl {
         var start = self._cur_range()
 
@@ -5146,7 +5171,7 @@ pub class <T: type> DeclParse {
         return unsafe (en as unsafe *Decl)
     }
 
-    /// \brief parses one enum variant (plain or ADT-payload).
+    /// parses one enum variant (plain or ADT-payload).
     priv fn _parse_enum_variant(self, idx: u32) -> unsafe *Declarations::EnumVariantDecl {
         if !self.dyn()->check_is_ident() {
             var r = self._cur_range()
@@ -5256,8 +5281,8 @@ pub class <T: type> DeclParse {
 
     //  Type alias
 
-    /// \brief parses a type alias.
-    ///  Grammar:  'type' generics? name '=' type
+    /// parses a type alias.
+    /// Grammar:  'type' generics? name '=' type
     priv fn _parse_type_alias(self) -> unsafe *Decl {
         var start = self._cur_range()
         self.dyn()->advance(T::SkipNL::After) // consume `type`
@@ -5389,7 +5414,7 @@ pub class <T: type> DeclParse {
         return ta
     }
 
-    /// `impl X, Y` on associated type \p name: its bounds as the requires
+    /// `impl X, Y` on associated type `name`: its bounds as the requires
     /// clause every bound is, `N impl X && N impl Y` (ConstraintExpr
     /// conjuncts), so ConstraintExtraction partitions them as it does any
     /// decl's. Null after a diagnostic.
@@ -5441,8 +5466,8 @@ pub class <T: type> DeclParse {
 
     //  Module
 
-    /// \brief parses a module declaration.
-    ///  Grammar:  'inline'? 'module' name? '{' decl* '}'
+    /// parses a module declaration.
+    /// Grammar:  'inline'? 'module' name? '{' decl* '}'
     priv fn _parse_module(self) -> unsafe *Decl {
         var start = self._cur_range()
 
@@ -5540,8 +5565,8 @@ pub class <T: type> DeclParse {
 
     //  Test
 
-    /// \brief parses a test declaration.
-    ///  Grammar:  'test' string_literal block
+    /// parses a test declaration.
+    /// Grammar:  'test' string_literal block
     priv fn _parse_test(self) -> unsafe *Decl {
         var start = self._cur_range()
         self.dyn()->advance(T::SkipNL::After) // consume `test`
@@ -5594,9 +5619,9 @@ pub class <T: type> DeclParse {
 
     //  Macro (token macro vs proc/attribute macro)
 
-    /// \brief parses a macro declaration.
-    ///  Grammar:  'macro' ( name '!' '(' params? ')' '{' raw '}'      (token macro)
-    ///                     | '@' name '(' typed_params? ')' block )   (proc macro)
+    /// parses a macro declaration.
+    /// Grammar:  'macro' ( name '!' '(' params? ')' '{' raw '}'      (token macro)
+    ///              | '@' name '(' typed_params? ')' block )   (proc macro)
     priv fn _parse_macro(self) -> unsafe *Decl {
         var start = self._cur_range()
 
@@ -5696,7 +5721,7 @@ pub class <T: type> DeclParse {
         return mac
     }
 
-    /// \brief parses a procedural / attribute macro `macro @name(...) { }`.
+    /// parses a procedural / attribute macro `macro @name(...) { }`.
     priv fn _parse_proc_macro(self, start: SourceRange) -> unsafe *Decl {
         self.dyn()->advance() // consume `@`
         if !self.dyn()->check_is_ident() {
@@ -5782,24 +5807,24 @@ pub class <T: type> DeclParse {
 
     //  Import
 
-    /// \brief parses an import declaration.
-    ///  Grammar:
-    ///    'import' (('self' | 'module') '::')? path
-    ///      ('::' '{' import_item (',' import_item)* '}')?
-    ///      ('::' '*')?
-    ///      ('as' name)?
-    ///    path        := identifier ('::' identifier)*
-    ///    import_item := sub_path ('as' name)? | '*'
-    ///    sub_path    := identifier ('::' identifier)*
+    /// parses an import declaration.
+    /// Grammar:
+    /// 'import' (('self' | 'module') '::')? path
+    /// ('::' '{' import_item (',' import_item)* '}')?
+    /// ('::' '*')?
+    /// ('as' name)?
+    /// path        := identifier ('::' identifier)*
+    /// import_item := sub_path ('as' name)? | '*'
+    /// sub_path    := identifier ('::' identifier)*
     ///
-    /// \details resolution semantics (enforced by the import resolution pass,
-    ///          not the parser):
-    ///    `import Foo`         the search roots (libraries, -I, std, builtin)
-    ///    `import self::Foo`   the importing file's own directory
-    ///    `import module::Foo` the importing file's module root (nearest module.k)
-    ///    each in one place: Foo.k or Foo/module.k there, both is an error
-    ///    `import Foo::bar`    resolve Foo, then find symbol bar
-    ///    `import module Foo`  removed (S089E, fix-it drops `module`)
+    /// resolution semantics (enforced by the import resolution pass,
+    /// not the parser):
+    /// `import Foo`         the search roots (libraries, -I, std, builtin)
+    /// `import self::Foo`   the importing file's own directory
+    /// `import module::Foo` the importing file's module root (nearest module.k)
+    /// each in one place: Foo.k or Foo/module.k there, both is an error
+    /// `import Foo::bar`    resolve Foo, then find symbol bar
+    /// `import module Foo`  removed (S089E, fix-it drops `module`)
     fn _parse_import(self) -> unsafe *Decl {
         var start = self._cur_range()
 
@@ -5860,16 +5885,15 @@ pub class <T: type> DeclParse {
 
     //  FFI
 
-    /// \brief parses an ffi construct.
-    ///  Grammar:
-    ///    'ffi' string_literal 'import' string_literal ('as' name)?
-    ///    'ffi' string_literal '{' decl* '}'
-    ///    'ffi' string_literal decl
+    /// parses an ffi construct.
+    /// Grammar:
+    /// 'ffi' string_literal 'import' string_literal ('as' name)?
+    /// 'ffi' string_literal '{' decl* '}'
+    /// 'ffi' string_literal decl
     ///
-    /// \details
-    ///   - ffi import      ImportDecl with FFILinkage stamped
-    ///   - ffi { } block   FFIBlockDecl grouping N child decls, each stamped
-    ///   - ffi single decl the decl itself, stamped with FFILinkage
+    /// - ffi import      ImportDecl with FFILinkage stamped
+    /// - ffi { } block   FFIBlockDecl grouping N child decls, each stamped
+    /// - ffi single decl the decl itself, stamped with FFILinkage
     ///
     ///   The parser rejects decl kinds that don't carry the FFILinkage mixin
     ///   (test, macro, enum, etc.). Sema validates deeper constraints (e.g.
@@ -6083,9 +6107,11 @@ pub class <T: type> DeclParse {
         return d
     }
 
-    /// \brief stamps FFILinkage on a decl if it carries the mixin.
-    /// \returns true if the stamp succeeded, false if the decl kind doesn't
-    ///          support foreign linkage.
+    /// stamps FFILinkage on a decl if it carries the mixin.
+    ///
+    /// ### Returns
+    /// true if the stamp succeeded, false if the decl kind doesn't
+    /// support foreign linkage.
     priv fn _stamp_ffi_linkage(self,
                                d:         *Decl,
                                kind:      LinkageKind,
@@ -6166,15 +6192,15 @@ pub class <T: type> DeclParse {
 
     //  eval { decl* }  decl block
 
-    /// \brief index mode: crosses an `eval if` / `eval for` chain without
-    ///        parsing its statements. With \p out, an `eval if`'s branches
-    ///        are walked and the declarations written in them land in
-    ///        \p out; with &null every body is skipped.
+    /// index mode: crosses an `eval if` / `eval for` chain without
+    /// parsing its statements. With `out`, an `eval if`'s branches
+    /// are walked and the declarations written in them land in
+    /// `out`; with &null every body is skipped.
     ///
-    /// \details _index_skip_stmt stops at a `;` or a newline, which a C-style
-    ///          `for` header and an `else` on its own line both contain: here
-    ///          the header runs to the body's `{`, the body to its `}`, and an
-    ///          `else` (same line or the next) continues the chain.
+    /// _index_skip_stmt stops at a `;` or a newline, which a C-style
+    /// `for` header and an `else` on its own line both contain: here
+    /// the header runs to the body's `{`, the body to its `}`, and an
+    /// `else` (same line or the next) continues the chain.
     ///
     ///          The walk exists for the importer's parser: EvalIfFolding
     ///          (phase E) hoists the taken branch's declarations, so an
@@ -6187,7 +6213,7 @@ pub class <T: type> DeclParse {
     ///          any branch makes the name generic, the same over-approximation
     ///          the full-mode symbol index makes (ASTParse::_index_eval_branches).
     ///          The hoist recursion (ASTParse::_index_hoist_decl, EvalBlockDecl)
-    ///          puts \p out in the table as if hoisted.
+    ///          puts `out` in the table as if hoisted.
     priv fn _index_eval_chain(self, out: unsafe *kairo::std::StackBuf<unsafe *Decl, 8>) {
         while !self.dyn()->is_eof() {
             var depth: u32 = 0
@@ -6222,7 +6248,7 @@ pub class <T: type> DeclParse {
             if out == &null {
                 self.dyn()->_index_skip_block() // through the matching `}`
             } else {
-                // The branch body: the loop of _index_walk_body, into \p out.
+                // The branch body: the loop of _index_walk_body, into `out`.
                 // A nested `eval if` is a decl lead-in, so it recurses through
                 // _parse_eval_stmt_decl and is hoisted from its own carrier.
                 var prev_idx: usize = 0
@@ -6279,22 +6305,22 @@ pub class <T: type> DeclParse {
         }
     }
 
-    /// \brief an `eval if` / `eval for` written directly in a module or class
-    ///        body, carried by an EvalBlockDecl whose `stmt` is the statement.
-    ///  Grammar:  'eval' ( if_stmt | for_stmt )
+    /// an `eval if` / `eval for` written directly in a module or class
+    /// body, carried by an EvalBlockDecl whose `stmt` is the statement.
+    /// Grammar:  'eval' ( if_stmt | for_stmt )
     ///
-    /// \details the statement is the statement parser's own, so the node is
-    ///          the one file scope and a function body build (a
-    ///          ConditionalStmt / RangedForStmt / IndexedForStmt with
-    ///          declarations as DeclStmts in its blocks). Those bodies hold
-    ///          declarations only, hence the carrier. Which branch is taken,
-    ///          and putting its declarations into the enclosing scope, is eval
-    ///          semantics, not the parser's: here the branches' declarations
-    ///          stay branch-local (eval_branch_dc keeps a module body from
-    ///          absorbing them), and FeatureGateCheck reports the form as not
-    ///          yet supported. Index mode walks an `eval if`'s branches into
-    ///          the carrier's `body` (_index_eval_chain) and skips an
-    ///          `eval for`, whose body hoists nothing.
+    /// the statement is the statement parser's own, so the node is
+    /// the one file scope and a function body build (a
+    /// ConditionalStmt / RangedForStmt / IndexedForStmt with
+    /// declarations as DeclStmts in its blocks). Those bodies hold
+    /// declarations only, hence the carrier. Which branch is taken,
+    /// and putting its declarations into the enclosing scope, is eval
+    /// semantics, not the parser's: here the branches' declarations
+    /// stay branch-local (eval_branch_dc keeps a module body from
+    /// absorbing them), and FeatureGateCheck reports the form as not
+    /// yet supported. Index mode walks an `eval if`'s branches into
+    /// the carrier's `body` (_index_eval_chain) and skips an
+    /// `eval for`, whose body hoists nothing.
     priv fn _parse_eval_stmt_decl(self) -> unsafe *Decl {
         var start = self._cur_range()
         var eb    = Declarations::EvalBlockDecl::create(self.dyn()->ctx, start)
@@ -6334,8 +6360,8 @@ pub class <T: type> DeclParse {
         return eb
     }
 
-    /// \brief parses a decl-only eval block at namespace/type scope.
-    ///  Grammar:  'eval' '{' decl* '}'
+    /// parses a decl-only eval block at namespace/type scope.
+    /// Grammar:  'eval' '{' decl* '}'
     priv fn _parse_eval_block_decl(self) -> unsafe *Decl {
         var start = self._cur_range()
         self.dyn()->advance(T::SkipNL::After) // consume `eval`
@@ -6390,11 +6416,12 @@ pub class <T: type> DeclParse {
 
     //  Recovery
 
-    /// \brief consumes tokens until a declaration boundary or stop delimiter.
-    /// \details delimiter-aware (tracks ()/[]/{} and <> for generics). Stops
-    ///          at depth 0 on a decl lead-in keyword, a `}` closing the
-    ///          enclosing scope, a newline/`;` at top level, or EOF. Capped at
-    ///          MAX_SYNC tokens.
+    /// consumes tokens until a declaration boundary or stop delimiter.
+    ///
+    /// delimiter-aware (tracks ()/[]/{} and <> for generics). Stops
+    /// at depth 0 on a decl lead-in keyword, a `}` closing the
+    /// enclosing scope, a newline/`;` at top level, or EOF. Capped at
+    /// MAX_SYNC tokens.
     fn _sync_decl(self, ctx: Self::DeclSyncCtx) {
         var   bp:       i32 = 0   // paren
         var   bs:       i32 = 0   // square
@@ -6522,7 +6549,7 @@ pub class <T: type> DeclParse {
 
     // Closures
 
-    /// \brief Parses a complete closure signature with structured error recovery.
+    /// Parses a complete closure signature with structured error recovery.
     pub fn _parse_closure_sig(self) -> (FrozenList<unsafe *Declarations::ParamDecl>, FrozenList<unsafe *Declarations::GenericParamDecl>, FrozenList<ClosureExpr::Capture>, Declarations::FnModifier, unsafe *Type, bool) {
         var gparams:  kairo::std::StackBuf<unsafe *Declarations::GenericParamDecl, 2>
         var params:   kairo::std::StackBuf<unsafe *Declarations::ParamDecl, 4>

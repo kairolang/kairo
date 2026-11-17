@@ -37,9 +37,9 @@ import API::Text::LinkText
 import Sysroot::SysUtil::SysUtil
 
 pub class SysRun {
-    /// Runs \p argv (argv[0] a path) with stdout and stderr both in \p log
+    /// Runs `argv` (argv[0] a path) with stdout and stderr both in `log`
     /// (appended to nothing: the file is replaced). The exit status, or -1
-    /// when the program could not be started; \p log then says why.
+    /// when the program could not be started; `log` then says why.
     pub static fn run(@inout argv: cxx::std::vector<string>, const log: string) -> i32 {
         if argv.empty() {
             return -1
@@ -112,7 +112,7 @@ pub class SysRun {
         return if (n == 0) => (1 as usize) else => n
     }
 
-    /// The target of the symlink \p p; "" when \p p is not one (or on
+    /// The target of the symlink `p`; "" when `p` is not one (or on
     /// Windows, where trees are copied with links followed).
     pub static fn read_link(const p: string) -> string {
         eval if defined!(_WIN32) {
@@ -141,7 +141,7 @@ pub class SysRun {
         )
     }
 
-    /// A symlink at \p at reading \p target (relative targets stay
+    /// A symlink at `at` reading `target` (relative targets stay
     /// relative). False where links cannot be made.
     pub static fn symlink(const target: string, const at: string) -> bool {
         LinkFS::remove(at)
@@ -154,8 +154,8 @@ pub class SysRun {
         return ec.value() == 0
     }
 
-    /// Copies \p from into \p to (merged into what is there), symlinks kept
-    /// as symlinks. \p skip names top-level entries to leave out.
+    /// Copies `from` into `to` (merged into what is there), symlinks kept
+    /// as symlinks. `skip` names top-level entries to leave out.
     pub static fn copy_tree(const from:  string,
                             const to:    string,
                             @inout skip: cxx::std::vector<string>) -> bool {
@@ -171,8 +171,8 @@ pub class SysRun {
         return SysRun::_tree(from, to, &skip, true, 0)
     }
 
-    /// One file, \p from to \p to (parents made), as a hard link when
-    /// \p hard and possible, else a copy. A symlink stays one.
+    /// One file, `from` to `to` (parents made), as a hard link when
+    /// `hard` and possible, else a copy. A symlink stays one.
     pub static fn put_file(const from: string, const to: string, hard: bool) -> bool {
         LinkFS::make_dirs(LinkFS::parent(to))
         var tgt = SysRun::read_link(from)
@@ -200,14 +200,14 @@ pub class SysRun {
         return cec.value() == 0
     }
 
-    /// Copies \p from, a dir inside the share input \p root ("" when it is
-    /// in none), to \p to, then recreates what a schema 2 input records
+    /// Copies `from`, a dir inside the share input `root` ("" when it is
+    /// in none), to `to`, then recreates what a schema 2 input records
     /// instead of holding (FORMAT.md "schema 2"): each <root>/links.tsv row
-    /// under \p from as the same symlink, or as a copy of what the row
+    /// under `from` as the same symlink, or as a copy of what the row
     /// resolves to where no link can be made; each <root>/casefold.tsv row
-    /// renamed back to its real name, or dropped when \p to cannot tell the
+    /// renamed back to its real name, or dropped when `to` cannot tell the
     /// two names apart. Neither file sits under a copied subdir, so neither
-    /// reaches a root. False with \p err set on any failure.
+    /// reaches a root. False with `err` set on any failure.
     pub static fn materialise(const root: string,
                               const from: string,
                               const to:   string,
@@ -334,7 +334,7 @@ pub class SysRun {
         return true
     }
 
-    /// Whether the filesystem holding \p dir folds case: one probe file,
+    /// Whether the filesystem holding `dir` folds case: one probe file,
     /// looked up under its upper-case name.
     pub static fn case_insensitive(const dir: string) -> bool {
         var probe = dir.copy() + "/.kairo-case-probe"
@@ -347,8 +347,8 @@ pub class SysRun {
         return folds
     }
 
-    /// \p rel (input-relative) under the copied subdir \p sub, as a path
-    /// under \p to; "" when \p rel is not under \p sub.
+    /// `rel` (input-relative) under the copied subdir `sub`, as a path
+    /// under `to`; "" when `rel` is not under `sub`.
     priv static fn _mapped(const sub: string, const rel: string, const to: string) -> string {
         if sub.is_empty() {
             return to.copy() + "/" + rel
@@ -365,9 +365,9 @@ pub class SysRun {
         )
     }
 
-    /// The link-free path inside \p root that the recorded link \p rel
+    /// The link-free path inside `root` that the recorded link `rel`
     /// names, through chains and dir links as the OS would resolve them;
-    /// "" when it escapes \p root, loops or dangles. The twin of
+    /// "" when it escapes `root`, loops or dangles. The twin of
     /// Scripts/ship_sysroot_inputs.py resolve_recorded().
     priv static fn _resolve_recorded(const root:  string,
                                      const rel:   string,
@@ -503,14 +503,14 @@ pub class SysJobs {
         return self.failed_log.is_empty()
     }
 
-    /// At most \p n in flight instead of SysRun::jobs(); 0 keeps that.
+    /// At most `n` in flight instead of SysRun::jobs(); 0 keeps that.
     pub fn limit(self, n: usize) {
         if n > 0 {
             self._max = n
         }
     }
 
-    /// Starts \p argv with its output in \p log. False once any job failed.
+    /// Starts `argv` with its output in `log`. False once any job failed.
     pub fn add(self, @inout argv: cxx::std::vector<string>, const log: string) -> bool {
         if !self.ok() {
             return false

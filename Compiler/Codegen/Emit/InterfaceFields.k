@@ -116,7 +116,7 @@ extend InterfaceEmitter {
         return ""
     }
 
-    /// Some dimension of array type \p t has a value parameter's length.
+    /// Some dimension of array type `t` has a value parameter's length.
     priv fn _param_extent(self, t: unsafe *Type) -> bool {
         var unsafe *a = dyn_cast<FixedArrayType>(t)
         if a == &null {
@@ -130,7 +130,7 @@ extend InterfaceEmitter {
         return self._param_extent(canon_unqual(a->element))
     }
 
-    /// `{t0(), t1()}` for array type \p at, each leaf the next of \p f's
+    /// `{t0(), t1()}` for array type `at`, each leaf the next of `f`'s
     /// element thunks (row-major, FieldInitLowering), an inner array its own
     /// braces: `{{t0(), t1()}, {t2(), t3()}}`. Brace elision would accept
     /// the flat list too; the nesting says what the Kairo literal said.
@@ -177,7 +177,7 @@ extend InterfaceEmitter {
         return s + "}"
     }
 
-    /// True when \p f, a field with no initializer, is value-initialized
+    /// True when `f`, a field with no initializer, is value-initialized
     /// by a `{}` default member initializer: a number, a pointer, a plain
     /// enum, a union, a type parameter, an array of those. variables.mdx: a binding
     /// of a type with a default and no initializer is zero-initialized, and
@@ -542,7 +542,7 @@ extend InterfaceEmitter {
         }
     }
 
-    /// In the class, for split constructor \p m (FunctionDecl::ci_split):
+    /// In the class, for split constructor `m` (FunctionDecl::ci_split):
     ///   struct __kairo_ciK;
     ///   static auto __kairo_ctor_preK(__kairo_ciK&& __kairo_s, __kairo_lref<P> p...) -> __kairo_ciK&;
     ///   R(__kairo_ciK& __kairo_s, __kairo_lref<P> p...);
@@ -599,8 +599,8 @@ extend InterfaceEmitter {
         return s
     }
 
-    /// The definitions of \p d's static fields and of every nested record's,
-    /// after \p d's closing brace (file header, Static fields). \p d is the
+    /// The definitions of `d`'s static fields and of every nested record's,
+    /// after `d`'s closing brace (file header, Static fields). `d` is the
     /// outermost record of a tier-1 entry; anything else has no statics.
     prot fn _static_defs(self, d: unsafe *Decl) {
         if !self._has_statics(d) {

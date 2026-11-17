@@ -76,8 +76,8 @@ pub fn _fx_xclang(@inout o: cxx::std::vector<string>, const w: string) {
     o.push_back(w)
 }
 
-/// \brief extracts the numeric part of a diagnostic code: "S025W" -> 25,
-///        "C889" -> 889, 0 when there is no digit.
+/// extracts the numeric part of a diagnostic code: "S025W" -> 25,
+/// "C889" -> 889, 0 when there is no digit.
 pub fn _fx_code_number(const code: string) -> u32 {
     var n           = code.size()
     var i:    usize = 0
@@ -175,13 +175,13 @@ pub fn _fx_row(@inout rows:   cxx::std::vector<RevRow>,
     rows.push_back(r)
 }
 
-/// \brief every clang driver option kairo has a flag for.
+/// every clang driver option kairo has a flag for.
 ///
-/// \details The left column is clang's prefixed option name (what
-///          Option::getPrefixedName returns: `-O`, `--target=`, `-I`), so
-///          joined and separate spellings (-Ifoo, -I foo) are one row. A
-///          clang option with no row is not lost: from_driver returns it as
-///          clang-only, and it reaches the C/C++ compiles verbatim.
+/// The left column is clang's prefixed option name (what
+/// Option::getPrefixedName returns: `-O`, `--target=`, `-I`), so
+/// joined and separate spellings (-Ifoo, -I foo) are one row. A
+/// clang option with no row is not lost: from_driver returns it as
+/// clang-only, and it reaches the C/C++ compiles verbatim.
 ///
 ///          Same decisions as the forward functions below, in the other
 ///          direction. A kairo flag that gains a clang spelling gets its row
@@ -388,8 +388,8 @@ pub fn _fx_reverse_rows() -> cxx::std::vector<RevRow> {
 pub class FlagTranslator {
     /// ## forward: one function per concern
 
-    /// \brief the -ffast-math bundle as cc1 spells it (the driver has the
-    ///        single word -ffast-math, and expands it to exactly this).
+    /// the -ffast-math bundle as cc1 spells it (the driver has the
+    /// single word -ffast-math, and expands it to exactly this).
     static fn fast_math_cc1(const complex_range: string) -> cxx::std::vector<string> {
         var o = cxx::std::vector<string>()
         o.push_back("-menable-no-infs")
@@ -406,18 +406,18 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief the floating-point semantics Kairo's own code has whatever the
-    ///        target's C++ defaults are (IEEE 754, precise model): no
-    ///        contraction, no fast-math, no errno from the math functions.
+    /// the floating-point semantics Kairo's own code has whatever the
+    /// target's C++ defaults are (IEEE 754, precise model): no
+    /// contraction, no fast-math, no errno from the math functions.
     ///
-    /// \details For Kairo's compile line only, ahead of the user's own
-    ///          codegen() words so an explicit --fp-contract / --fp-model /
-    ///          -ffast-math still wins. cc1 spells two of the four by absence:
-    ///          it has no -ffp-model (precise is its default) and no
-    ///          -fno-math-errno (errno is off unless -fmath-errno is given,
-    ///          and probe_filter never keeps that one). Contraction is the
-    ///          one cc1 default the driver changes for C++ (-ffp-contract=on),
-    ///          so it is pinned rather than left to the default.
+    /// For Kairo's compile line only, ahead of the user's own
+    /// codegen() words so an explicit --fp-contract / --fp-model /
+    /// -ffast-math still wins. cc1 spells two of the four by absence:
+    /// it has no -ffp-model (precise is its default) and no
+    /// -fno-math-errno (errno is off unless -fmath-errno is given,
+    /// and probe_filter never keeps that one). Contraction is the
+    /// one cc1 default the driver changes for C++ (-ffp-contract=on),
+    /// so it is pinned rather than left to the default.
     ///
     ///          C/C++ inputs never see these (they take the driver line), and
     ///          the ffi headers compiled in the same clang TU get their C++
@@ -430,28 +430,28 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief the pragma lines that open and close an ffi header region,
-    ///        restoring for it the FP semantics clang++ would give C++ on
-    ///        this target, where kairo_fp_cc1 changed them.
+    /// the pragma lines that open and close an ffi header region,
+    /// restoring for it the FP semantics clang++ would give C++ on
+    /// this target, where kairo_fp_cc1 changed them.
     ///
-    /// \details Pragmas, not flags: the headers and Kairo's code are one
-    ///          clang TU, and only the header text goes through the
-    ///          preprocessor. clang records the FP state each body was
-    ///          parsed under, and instantiates a template under its pattern's
-    ///          state, so header code keeps it wherever Kairo uses it.
+    /// Pragmas, not flags: the headers and Kairo's code are one
+    /// clang TU, and only the header text goes through the
+    /// preprocessor. clang records the FP state each body was
+    /// parsed under, and instantiates a template under its pattern's
+    /// state, so header code keeps it wherever Kairo uses it.
     ///
-    ///          The values are the driver's C++ defaults (\p cxx_contract,
-    ///          \p cxx_math_errno, read from the target probe before
+    ///          The values are the driver's C++ defaults (`cxx_contract`,
+    ///          `cxx_math_errno`, read from the target probe before
     ///          probe_filter drops them), except where the user asked for
     ///          something: then the header follows the user's flag as a
-    ///          C/C++ input would. \p user_cc1 is the user's codegen() words.
+    ///          C/C++ input would. `user_cc1` is the user's codegen() words.
     ///
     ///          float_control(precise, on) is the only pragma that turns errno
     ///          back on; it also sets contraction on, so the contract pragma
     ///          comes after it. The push/pop pair puts Kairo's state back for
     ///          everything after the headers.
     ///
-    ///          \p float_control: the target honours `#pragma float_control`
+    ///          `float_control`: the target honours `#pragma float_control`
     ///          (clang's TargetInfo::hasStrictFP). Where it does not (wasm),
     ///          clang ignores the pragma with a warning per header region,
     ///          so none is written: errno cannot be restored there anyway,
@@ -514,15 +514,15 @@ pub class FlagTranslator {
         close.push_back("#pragma float_control(pop)")
     }
 
-    /// \brief the triple as clang is handed it, which is not always the
-    ///        spelling Kairo accepts and keys its sysroots on.
+    /// the triple as clang is handed it, which is not always the
+    /// spelling Kairo accepts and keys its sysroots on.
     ///
-    /// \details clang 22 deprecates `wasm32-wasi` for `wasm32-wasip1` (the
-    ///          same target, a warning on every driver run). The user's
-    ///          spelling stays the build's triple, so `--target=wasm32-wasi`
-    ///          still finds the `wasm32-wasi` sysroot; only the words that
-    ///          reach clang (the -triple, the driver probe, C/C++ inputs'
-    ///          driver line) say wasip1.
+    /// clang 22 deprecates `wasm32-wasi` for `wasm32-wasip1` (the
+    /// same target, a warning on every driver run). The user's
+    /// spelling stays the build's triple, so `--target=wasm32-wasi`
+    /// still finds the `wasm32-wasi` sysroot; only the words that
+    /// reach clang (the -triple, the driver probe, C/C++ inputs'
+    /// driver line) say wasip1.
     pub static fn clang_triple(triple: string) -> string {
         if triple.ends_with("-wasi") {
             return triple + "p1"
@@ -546,22 +546,23 @@ pub class FlagTranslator {
         return triple
     }
 
-    /// \brief the code-generation flags: target ISA tuning, -f[no-] toggles,
-    ///        floating-point model, hardening and code model, the C++
-    ///        language switches, the runtime model, reproducible-build maps,
-    ///        pass plugins and -mllvm words.
+    /// the code-generation flags: target ISA tuning, -f[no-] toggles,
+    /// floating-point model, hardening and code model, the C++
+    /// language switches, the runtime model, reproducible-build maps,
+    /// pass plugins and -mllvm words.
     ///
-    /// \details Only what the user asked for is written: anything cc1 (or
-    ///          the driver) does by default is left out, so a plain build's
-    ///          line -- and every header-set PCH keyed on it -- does not
-    ///          change. That is also the "kairo flags override only when
-    ///          given" rule C/C++ inputs follow under the driver spelling.
+    /// Only what the user asked for is written: anything cc1 (or
+    /// the driver) does by default is left out, so a plain build's
+    /// line -- and every header-set PCH keyed on it -- does not
+    /// change. That is also the "kairo flags override only when
+    /// given" rule C/C++ inputs follow under the driver spelling.
     ///
     ///          Each spelling was verified against clang -### / clang -cc1
     ///          -help; a flag with no direct spelling is not here.
     ///
-    /// \param missing_plugins receives each --pass-plugin path that is not a
-    ///        file; the caller reports them (this file reports nothing).
+    /// ### Parameters
+    /// - `missing_plugins`: receives each --pass-plugin path that is not a
+    ///   file; the caller reports them (this file reports nothing).
     pub static fn codegen(@inout inv:      CompilerInvocation,
                           const triple:    string,
                           sp:              ClangSpelling,
@@ -1034,9 +1035,9 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief --mcpu and --pic-level. Separate from codegen() because the
-    ///        backend places them first: cc1 takes the last -target-cpu, and
-    ///        --mcpu must beat the cpu the driver probe derived from --march.
+    /// --mcpu and --pic-level. Separate from codegen() because the
+    /// backend places them first: cc1 takes the last -target-cpu, and
+    /// --mcpu must beat the cpu the driver probe derived from --march.
     pub static fn target(@inout tgt: TargetOptions, sp: ClangSpelling) -> cxx::std::vector<string> {
         var o   = cxx::std::vector<string>()
         var cc1 = sp == ClangSpelling::CC1
@@ -1068,10 +1069,10 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief --march, which only the DRIVER spells (cc1 has no -march:
-    ///        the driver turns it into -target-cpu plus one -target-feature
-    ///        per implied extension, which is right only per architecture).
-    ///        For kairo's own TUs it rides the target probe.
+    /// --march, which only the DRIVER spells (cc1 has no -march:
+    /// the driver turns it into -target-cpu plus one -target-feature
+    /// per implied extension, which is right only per architecture).
+    /// For kairo's own TUs it rides the target probe.
     pub static fn march_driver(@inout tgt: TargetOptions) -> cxx::std::vector<string> {
         var o = cxx::std::vector<string>()
         if !tgt.march.is_empty() {
@@ -1081,15 +1082,15 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief the language standard for a C/C++ input of kind \p lang
-    ///        (clang's -x name). cc1 always gets one (it has no default
-    ///        worth having for kairo's interop). Through the driver a C++
-    ///        input always gets --cxx-std too: clang's own default
-    ///        (gnu++17) predates the C++20 an interface needs, and a .cc
-    ///        and the Kairo TUs it links with agree on one standard. A C
-    ///        input gets --c-std only when the user named one, so it
-    ///        compiles under clang's default otherwise. IR, OpenCL and the
-    ///        rest take none.
+    /// the language standard for a C/C++ input of kind `lang`
+    /// (clang's -x name). cc1 always gets one (it has no default
+    /// worth having for kairo's interop). Through the driver a C++
+    /// input always gets --cxx-std too: clang's own default
+    /// (gnu++17) predates the C++20 an interface needs, and a .cc
+    /// and the Kairo TUs it links with agree on one standard. A C
+    /// input gets --c-std only when the user named one, so it
+    /// compiles under clang's default otherwise. IR, OpenCL and the
+    /// rest take none.
     static fn language_std(@inout tgt: TargetOptions,
                            const lang: string,
                            sp:         ClangSpelling) -> cxx::std::vector<string> {
@@ -1120,10 +1121,10 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief header directories the user names for clang (-I, which is
-    ///        also a Kairo search dir, then --ffi-include and --cxx-include)
-    ///        and user macros for clang (--cxx-define / --cxx-undefine).
-    ///        Identical in both spellings.
+    /// header directories the user names for clang (-I, which is
+    /// also a Kairo search dir, then --ffi-include and --cxx-include)
+    /// and user macros for clang (--cxx-define / --cxx-undefine).
+    /// Identical in both spellings.
     pub static fn preprocessor(@inout inv: CompilerInvocation) -> cxx::std::vector<string> {
         var o = cxx::std::vector<string>()
         for var d: string in inv.clang_include_dirs() {
@@ -1141,21 +1142,22 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief the optimization level and the vectorizers.
+    /// the optimization level and the vectorizers.
     ///
-    /// \details cc1: the level as -O<n> (cc1's own parsing then sets
-    ///          everything that hangs off it in step), plus both vectorizers
-    ///          at every level above -O0 unless -fno-vectorize -- cc1 leaves
-    ///          them off and the driver is what normally asks, and Kairo asks
-    ///          at every level, Oz included, unlike clang's
-    ///          shouldEnableVectorizerAtOLevel.
+    /// cc1: the level as -O<n> (cc1's own parsing then sets
+    /// everything that hangs off it in step), plus both vectorizers
+    /// at every level above -O0 unless -fno-vectorize -- cc1 leaves
+    /// them off and the driver is what normally asks, and Kairo asks
+    /// at every level, Oz included, unlike clang's
+    /// shouldEnableVectorizerAtOLevel.
     ///
     ///          Driver: the level, and the vectorizers only when the user
     ///          said so; otherwise the driver's own per-level rule applies to
     ///          C/C++ inputs, as under clang.
     ///
-    /// \param opt_size 0 none, 1 -Os, 2 -Oz.
-    /// \param f_vectorize -1 unset, 0 -fno-vectorize, 1 -fvectorize.
+    /// ### Parameters
+    /// - `opt_size`: 0 none, 1 -Os, 2 -Oz.
+    /// - `f_vectorize`: -1 unset, 0 -fno-vectorize, 1 -fvectorize.
     pub static fn optimization(opt_level:   i32,
                                opt_size:    i32,
                                f_vectorize: i32,
@@ -1189,10 +1191,10 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief -g and its modifiers, as DRIVER words. cc1 never gets these
-    ///        spelled by kairo: the driver picks CodeView or DWARF, the
-    ///        debugger tuning and the info kind per target, and the probe
-    ///        (probe_filter) carries its choice into cc1.
+    /// -g and its modifiers, as DRIVER words. cc1 never gets these
+    /// spelled by kairo: the driver picks CodeView or DWARF, the
+    /// debugger tuning and the info kind per target, and the probe
+    /// (probe_filter) carries its choice into cc1.
     pub static fn debug_driver(debug_info:    bool,
                                dwarf_version: i32,
                                macros:        bool,
@@ -1218,16 +1220,16 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief whether this build emits debug info: -g0 wins over -g
-    ///        wherever it sits.
+    /// whether this build emits debug info: -g0 wins over -g
+    /// wherever it sits.
     pub static fn debug_on(@inout cgo: CodeGenOptions) -> bool {
         return cgo.debug_info && !cgo.no_debug_info
     }
 
-    /// \brief the DWARF version to ask for, 0 for "the target's default".
-    ///        --dwarf-version always has a value (default 5), so it cannot say
-    ///        whether DWARF was asked for; on MSVC it is left out and the
-    ///        driver emits CodeView, which is what link.exe-style PDBs need.
+    /// the DWARF version to ask for, 0 for "the target's default".
+    /// --dwarf-version always has a value (default 5), so it cannot say
+    /// whether DWARF was asked for; on MSVC it is left out and the
+    /// driver emits CodeView, which is what link.exe-style PDBs need.
     pub static fn dwarf_for(@inout cgo: CodeGenOptions, const triple: string) -> i32 {
         var tr = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
         if tr.isWindowsMSVCEnvironment() {
@@ -1237,29 +1239,30 @@ pub class FlagTranslator {
         return cgo.dwarf_version
     }
 
-    /// \brief Whether -fdebug-macro goes to clang for \p triple. LLVM crashes emitting
-    ///        macro debug info for a Mach-O target (a null MCExpr fragment in
-    ///        DwarfDebug::endModule), so a Mach-O build keeps -g without the macro
-    ///        info instead of aborting. Linux, Windows and BSD targets are unaffected.
+    /// Whether -fdebug-macro goes to clang for `triple`. LLVM crashes emitting
+    /// macro debug info for a Mach-O target (a null MCExpr fragment in
+    /// DwarfDebug::endModule), so a Mach-O build keeps -g without the macro
+    /// info instead of aborting. Linux, Windows and BSD targets are unaffected.
     pub static fn macros_for(const macros: bool, const triple: string) -> bool {
         var tr = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
         return macros && !tr.isOSBinFormatMachO()
     }
 
-    /// \brief the whole clang DRIVER line for one C/C++ input of language
-    ///        \p lang (clang's -x name), minus the roots (the backend's
-    ///        sysroot_words), the action, the input and the output.
+    /// the whole clang DRIVER line for one C/C++ input of language
+    /// `lang` (clang's -x name), minus the roots (the backend's
+    /// sysroot_words), the action, the input and the output.
     ///
-    /// \details The "clang's defaults, kairo flags override only when given"
-    ///          rule: every word here is something the user asked for, except
-    ///          --target, which is always the build's effective triple. The
-    ///          driver must never pick its own: it would choose the host's
-    ///          (glibc, msvc), and the C/C++ objects would not match the
-    ///          Kairo objects in the same link. --cxx-flags words go last, so
-    ///          they win.
+    /// The "clang's defaults, kairo flags override only when given"
+    /// rule: every word here is something the user asked for, except
+    /// --target, which is always the build's effective triple. The
+    /// driver must never pick its own: it would choose the host's
+    /// (glibc, msvc), and the C/C++ objects would not match the
+    /// Kairo objects in the same link. --cxx-flags words go last, so
+    /// they win.
     ///
-    /// \param clang_tri the sysroot's own clang_triple (SYSROOT.toml), or ""
-    ///        to derive it from \p triple.
+    /// ### Parameters
+    /// - `clang_tri`: the sysroot's own clang_triple (SYSROOT.toml), or ""
+    ///   to derive it from `triple`.
     pub static fn to_driver(@inout inv:      CompilerInvocation,
                             const triple:    string,
                             const clang_tri: string,
@@ -1335,13 +1338,13 @@ pub class FlagTranslator {
         return o
     }
 
-    /// \brief the diagnostic policy for clang-sourced diagnostics: the bulk
-    ///        switches by their clang names, and each C-code the user
-    ///        allowed, enabled, denied or forbade, as its clang warning group.
-    ///        cc1 and the driver spell these the same.
-    ///          allow  -> -Wno-<grp>   deny/forbid -> -Werror=<grp>
-    ///          warn   -> -W<grp>
-    ///        Native (non-C) codes are skipped; the emit layer governs them.
+    /// the diagnostic policy for clang-sourced diagnostics: the bulk
+    /// switches by their clang names, and each C-code the user
+    /// allowed, enabled, denied or forbade, as its clang warning group.
+    /// cc1 and the driver spell these the same.
+    ///   allow  -> -Wno-<grp>   deny/forbid -> -Werror=<grp>
+    ///   warn   -> -W<grp>
+    /// Native (non-C) codes are skipped; the emit layer governs them.
     pub static fn warnings(@inout d: DiagnosticOptions,
                            sp:       ClangSpelling) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
@@ -1415,15 +1418,15 @@ pub class FlagTranslator {
 
     /// ## the target probe
 
-    /// \brief the cc1 words the driver probe line is filtered down to: the
-    ///        ones that decide the TARGET (CPU, features, ABI, float ABI,
-    ///        char signedness, exception and unwind model, MSVC language
-    ///        mode, debug format), never the rest of the driver's choices.
+    /// the cc1 words the driver probe line is filtered down to: the
+    /// ones that decide the TARGET (CPU, features, ABI, float ABI,
+    /// char signedness, exception and unwind model, MSVC language
+    /// mode, debug format), never the rest of the driver's choices.
     ///
-    /// \details The probe runs clang's driver once per triple because cc1 has
-    ///          no defaults of its own for any of these, and a table here
-    ///          would drift from clang. See ClangBackend::_driver_target_args
-    ///          for why each group is taken.
+    /// The probe runs clang's driver once per triple because cc1 has
+    /// no defaults of its own for any of these, and a table here
+    /// would drift from clang. See ClangBackend::_driver_target_args
+    /// for why each group is taken.
     pub static fn probe_filter(@inout cc1: cxx::std::vector<string>) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         // Flags taking their value as the next word.
@@ -1498,21 +1501,24 @@ pub class FlagTranslator {
 
     /// ## reverse: a clang driver command line as kairo words
 
-    /// \brief splits a clang driver command line into kairo CLI words and the
-    ///        clang words kairo has no flag for.
+    /// splits a clang driver command line into kairo CLI words and the
+    /// clang words kairo has no flag for.
     ///
-    /// \details Tokenized by clang's own option table, so every clang
-    ///          spelling of an option (-Ifoo, -I foo, -I=foo, --target x,
-    ///          --target=x) is one Arg; matched on the option's prefixed
-    ///          name against _fx_reverse_rows. Positional inputs pass
-    ///          through as kairo words in place, so -x keeps applying to the
-    ///          inputs after it. The kairo words are meant for the ordinary
-    ///          kairo parser (Command); the clang-only words reach C/C++
-    ///          compiles verbatim and nothing else.
+    /// Tokenized by clang's own option table, so every clang
+    /// spelling of an option (-Ifoo, -I foo, -I=foo, --target x,
+    /// --target=x) is one Arg; matched on the option's prefixed
+    /// name against _fx_reverse_rows. Positional inputs pass
+    /// through as kairo words in place, so -x keeps applying to the
+    /// inputs after it. The kairo words are meant for the ordinary
+    /// kairo parser (Command); the clang-only words reach C/C++
+    /// compiles verbatim and nothing else.
     ///
-    /// \param argv the clang command line WITHOUT argv[0].
-    /// \return false when clang's table reports a missing value; \p error
-    ///         says which.
+    /// ### Parameters
+    /// - `argv`: the clang command line WITHOUT argv[0].
+    ///
+    /// ### Returns
+    /// false when clang's table reports a missing value; `error`
+    /// says which.
     pub static fn from_driver(@inout argv:       cxx::std::vector<string>,
                               @inout kairo_out:  cxx::std::vector<string>,
                               @inout clang_only: cxx::std::vector<string>,

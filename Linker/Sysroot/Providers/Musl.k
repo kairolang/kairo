@@ -295,8 +295,8 @@ pub class MuslProvider derives SysrootProvider {
         return true
     }
 
-    /// `make install-headers` for ARCH \p ma from the musl tree \p src into
-    /// \p inc. Later writes win, in the Makefile's rule order: include/,
+    /// `make install-headers` for ARCH `ma` from the musl tree `src` into
+    /// `inc`. Later writes win, in the Makefile's rule order: include/,
     /// then the generated bits, then arch/generic/bits, then arch/<ma>/bits.
     pub static fn install_headers(const src: string, const ma: string, const inc: string) -> bool {
         var none = cxx::std::vector<string>()
@@ -390,7 +390,7 @@ pub class MuslProvider derives SysrootProvider {
         return out
     }
 
-    /// The Makefile's ALL_OBJS for ARCH \p ma, sorted as make sorts them,
+    /// The Makefile's ALL_OBJS for ARCH `ma`, sorted as make sorts them,
     /// each with the source its pattern rules would pick.
     pub static fn objects(const src: string, const ma: string) -> cxx::std::vector<MuslObj> {
         var dirs = cxx::std::vector<string>()

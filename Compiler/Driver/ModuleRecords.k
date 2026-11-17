@@ -1,11 +1,11 @@
 /// --- The Kairo Project ----------------------- Driver/ModuleRecords.k --- ///
 ///
-///   \brief Incremental Sema, phase 2 (Compiler/Spec/IncrementalSema.md#phase-2):
-///          per-module records and the run manifest under
-///          <cache-dir>/kairo-cache-v<CACHE_SCHEMA>/mod/, and the all-or-nothing
-///          hit decision that lets a run whose inputs did not change skip the
-///          frontend (parse, Sema, lowering, emit, the object-key fill) and go
-///          to the link with the objects the previous run wrote.
+/// Incremental Sema, phase 2 (Compiler/Spec/IncrementalSema.md#phase-2):
+/// per-module records and the run manifest under
+/// <cache-dir>/kairo-cache-v<CACHE_SCHEMA>/mod/, and the all-or-nothing
+/// hit decision that lets a run whose inputs did not change skip the
+/// frontend (parse, Sema, lowering, emit, the object-key fill) and go
+/// to the link with the objects the previous run wrote.
 ///
 ///   The HIT decision is the whole-input check, not M(m) over dependency
 ///   rows: a hit means every input the previous run read is byte-for-byte
@@ -120,9 +120,9 @@ pub class ModuleRecords {
     pub var old_objects: cxx::std::vector<string>
     pub var old_mods:    cxx::std::vector<string>         ///< "<module>\t<O keys>\t<I(m)>", sorted
     /// What a miss leaves for the re-check plan (Sema/Incremental/Plan.k).
-    /// \c plan_base: the only inputs that moved are Kairo sources of the
-    /// recorded graph (\c changed, their paths), so the stored rows can say
-    /// which modules they reach. Otherwise \c plan_all says why every
+    /// `plan_base`: the only inputs that moved are Kairo sources of the
+    /// recorded graph (`changed`, their paths), so the stored rows can say
+    /// which modules they reach. Otherwise `plan_all` says why every
     /// module is re-checked: the fallbacks, one per kind of input the rows
     /// cannot see (Compiler/Spec/IncrementalSema.md#phase-3).
     pub var plan_base: bool                     = false
@@ -163,15 +163,16 @@ pub class ModuleRecords {
 
     fn ModuleRecords(self) = default
 
-    /// \brief F_sema and the paths, for one input under \p cache_dir.
+    /// F_sema and the paths, for one input under `cache_dir`.
     ///
-    /// \param words  the command line as given (argv, or kcc's words), in
-    ///               order: every flag that can change Sema, the emitted
-    ///               objects or what is printed is in it, so the whole line
-    ///               is keyed rather than a list of the flags that matter (a
-    ///               false miss costs a run, a false hit a miscompile). The
-    ///               observation flags of this feature are left out.
-    /// \param color  the diagnostic renderer's colour decision.
+    /// ### Parameters
+    /// - `words`: the command line as given (argv, or kcc's words), in
+    ///   order: every flag that can change Sema, the emitted
+    ///   objects or what is printed is in it, so the whole line
+    ///   is keyed rather than a list of the flags that matter (a
+    ///   false miss costs a run, a false hit a miscompile). The
+    ///   observation flags of this feature are left out.
+    /// - `color`: the diagnostic renderer's colour decision.
     pub fn setup(self,
                  const cache_dir: string,
                  const words:     cxx::std::vector<string>,
@@ -234,8 +235,8 @@ pub class ModuleRecords {
         return true
     }
 
-    /// \brief true when the manifest says this run's inputs are the ones
-    ///        the previous run read; \c status names the first difference.
+    /// true when the manifest says this run's inputs are the ones
+    /// the previous run read; `status` names the first difference.
     pub fn check(self) -> bool {
         self.hit       = false
         self.plan_base = false
@@ -397,10 +398,10 @@ pub class ModuleRecords {
         return true
     }
 
-    /// \brief the plan record of every module the manifest names, as the
-    ///        recorded run wrote them; false when one is missing or damaged
-    ///        (then there is no plan: every module is re-checked). Read
-    ///        before write() replaces them.
+    /// the plan record of every module the manifest names, as the
+    /// recorded run wrote them; false when one is missing or damaged
+    /// (then there is no plan: every module is re-checked). Read
+    /// before write() replaces them.
     pub fn load_plan(self, out: *cxx::std::vector<PlanModule>) -> bool {
         out->clear()
         for var l: string in self.old_mods {
@@ -421,8 +422,8 @@ pub class ModuleRecords {
         return !out->empty()
     }
 
-    /// \brief a hit whose check rehashed a touched file writes the new
-    ///        mtimes back, so the next hit is stat-only again.
+    /// a hit whose check rehashed a touched file writes the new
+    /// mtimes back, so the next hit is stat-only again.
     pub fn refresh(self) {
         if !self._refreshed {
             return
@@ -439,12 +440,12 @@ pub class ModuleRecords {
         )
     }
 
-    /// \brief the records of a run whose Sema ran: one per module first,
-    ///        then the manifest, each through a private name and a rename,
-    ///        so a crash leaves either the old set or the new one and never
-    ///        a manifest naming records that are not there. A run with an
-    ///        error writes them too, marked (`errors 1`): a baseline for the
-    ///        next run's plan, never a hit.
+    /// the records of a run whose Sema ran: one per module first,
+    /// then the manifest, each through a private name and a rename,
+    /// so a crash leaves either the old set or the new one and never
+    /// a manifest naming records that are not there. A run with an
+    /// error writes them too, marked (`errors 1`): a baseline for the
+    /// next run's plan, never a hit.
     pub fn write(self) -> bool {
         if !LinkFS::make_dirs(self.dir) {
             return false
@@ -548,7 +549,7 @@ pub class ModuleRecords {
         return self.dir + "/" + ObjectCache::hash(name + "\n" + self._manifest) + ".plan"
     }
 
-    /// The manifest's `mod` field for \p row, one of new_mods: the module
+    /// The manifest's `mod` field for `row`, one of new_mods: the module
     /// name, then the tab-separated rest as it is. A name that would break
     /// the line or be read as an escaped one (a byte below 0x20, or a
     /// leading `"`) is written as a JSON string (json_string); every other
@@ -582,7 +583,7 @@ pub class ModuleRecords {
         return if (keys == usize::MAX) => (row.subslice(0, last)) else => row.subslice(0, keys)
     }
 
-    /// The new_mods row a manifest `mod` line \p l records (_mod_field
+    /// The new_mods row a manifest `mod` line `l` records (_mod_field
     /// read back). A name field that is not a well-formed JSON string is
     /// kept as written: the row then names no module this run has, and the
     /// plan for it is a miss, not a wrong hit.
@@ -601,8 +602,8 @@ pub class ModuleRecords {
         return name + field.subslice(end, field.size() - end)
     }
 
-    /// \brief the modules this run recorded, sorted: what verify compares
-    ///        with old_mods.
+    /// the modules this run recorded, sorted: what verify compares
+    /// with old_mods.
     pub fn new_mods(self) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         for var i: usize = 0; i < self.mod_names.size(); ++i {
@@ -616,7 +617,7 @@ pub class ModuleRecords {
         return out
     }
 
-    /// \p name's O keys, comma-joined in codegen job order; "-" for none.
+    /// `name`'s O keys, comma-joined in codegen job order; "-" for none.
     priv fn _object_keys(self, const name: string) -> string {
         var ks = ""
         // A key row is `<module>\t<key>` and a key holds no tab: the name is
@@ -675,7 +676,7 @@ pub class ModuleRecords {
         return kind + f" {mt} {sz} " + h + " " + p + "\n"
     }
 
-    /// "" when the file of manifest line \p i is unchanged; else the reason.
+    /// "" when the file of manifest line `i` is unchanged; else the reason.
     priv fn _check_file(self, i: usize) -> string {
         var l    = self._lines[i].copy()
         var kind = ModuleRecords::_field(l, 0)
@@ -733,7 +734,7 @@ pub class ModuleRecords {
         return ""
     }
 
-    /// The directories whose listing can change what an import of \p p
+    /// The directories whose listing can change what an import of `p`
     /// resolves to: its own, and under every search root the same relative
     /// directory and each of its parents. A module file added at any of
     /// them can shadow, collide with or (foo.k beside foo/module.k) change
@@ -788,7 +789,7 @@ pub class ModuleRecords {
         list->push_back(d)
     }
 
-    /// The hash of \p d's module-relevant entries: every `.k` file and
+    /// The hash of `d`'s module-relevant entries: every `.k` file and
     /// every directory, sorted; "missing" when there is no such directory.
     /// Other files (an output binary written into the working directory)
     /// do not count, or every linking run would miss the next.
@@ -827,7 +828,7 @@ pub class ModuleRecords {
         return h
     }
 
-    /// Space-separated field \p k of \p l.
+    /// Space-separated field `k` of `l`.
     priv static fn _field(const l: string, k: usize) -> string {
         var n:     usize = 0
         var start: usize = 0
@@ -845,7 +846,7 @@ pub class ModuleRecords {
         return ""
     }
 
-    /// Everything from field \p k on: a path may hold spaces.
+    /// Everything from field `k` on: a path may hold spaces.
     priv static fn _field_rest(const l: string, k: usize) -> string {
         var n: usize = 0
         for var i: usize = 0; i < l.size(); ++i {

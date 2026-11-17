@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------- Sema/Check/ShorthandLint.k --- ///
 ///
-///   \brief Warn when an inferred binding is nullable or a pointer and its
-///          declaration does not say so (Compiler/Spec/Nullables.md#declaration-shorthands).
+/// Warn when an inferred binding is nullable or a pointer and its
+/// declaration does not say so (Compiler/Spec/Nullables.md#declaration-shorthands).
 ///
 ///   \detail
 ///     `var x = find()` with `find() -> i32?` gives `x: i32?`, and nothing on
@@ -76,10 +76,7 @@ import Sema::SemaContext::{
 }
 import Sema::Type::TypeUtil::TypeUtil
 
-///
-/// \class ShorthandLint
-/// \brief The pass. Read-only: emits warnings, writes nothing to the AST.
-///
+/// The pass. Read-only: emits warnings, writes nothing to the AST.
 pub class ShorthandLint derives RecursiveASTVisitor<ShorthandLint> {
     pub var  sc:  unsafe *SemaContext
     priv var _tu: TypeUtil

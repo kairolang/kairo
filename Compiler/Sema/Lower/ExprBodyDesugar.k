@@ -1,6 +1,6 @@
 /// --- The Kairo Project ----------------- Sema/Lower/ExprBodyDesugar.k --- ///
 ///
-///   \brief An expression-bodied function becomes the block it abbreviates.
+/// An expression-bodied function becomes the block it abbreviates.
 ///
 ///   \detail
 ///       fn dot(const self, o: Vec2) -> i32 = self.x * o.x    ->  { return self.x * o.x }

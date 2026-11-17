@@ -67,7 +67,7 @@ import std::env
 import std::io
 
 pub class SysSdk {
-    /// Whether \p t is a family this file assembles instead of the
+    /// Whether `t` is a family this file assembles instead of the
     /// generator's stages.
     pub static fn handles(t: *SysTarget) -> bool {
         return t->family == "darwin" || t->family == "windows-msvc"
@@ -96,7 +96,7 @@ pub class SysSdk {
         return LinkFS::parent(LinkFS::parent(env::exe_path()))
     }
 
-    /// The macOS SDK to stage: \p input when given, else the installed one
+    /// The macOS SDK to stage: `input` when given, else the installed one
     /// (macOS hosts only). "" for none.
     pub static fn find_macos_sdk(const input: string) -> string {
         if !input.is_empty() {
@@ -137,7 +137,7 @@ pub class SysSdk {
         return if (sdk.is_empty()) => ("") else => LinkFS::real(sdk.copy())
     }
 
-    /// xwin's arch directory name for \p arch.
+    /// xwin's arch directory name for `arch`.
     pub static fn msvc_arch(const arch: string) -> string {
         if arch == "i686" {
             return "x86"
@@ -146,7 +146,7 @@ pub class SysSdk {
         return arch.copy()
     }
 
-    /// An xwin splat with the SDK headers and \p xa's CRT: \p input, $XWIN,
+    /// An xwin splat with the SDK headers and `xa`'s CRT: `input`, $XWIN,
     /// or the script's cached splat. "" for none.
     pub static fn find_msvc_splat(const input: string, const xa: string) -> string {
         var cands = cxx::std::vector<string>()
@@ -178,8 +178,8 @@ pub class SysSdk {
         return ""
     }
 
-    /// The cached root for \p t, assembled first if need be; \p path
-    /// receives it. \p input is ksys's --input (the SDK or splat), "" to
+    /// The cached root for `t`, assembled first if need be; `path`
+    /// receives it. `input` is ksys's --input (the SDK or splat), "" to
     /// discover one.
     pub static fn ensure(@inout c:    SysCache,
                          t:           *SysTarget,
@@ -895,9 +895,9 @@ pub class SysSdk {
         return SysUtil::sha256(SysUtil::json_object(&fields))
     }
 
-    /// Copies \p from into \p to, links kept, files hard-linked where
-    /// possible. \p top names entries left out at the top level only,
-    /// \p any at every depth (globs with at most one `*`, as tar --exclude
+    /// Copies `from` into `to`, links kept, files hard-linked where
+    /// possible. `top` names entries left out at the top level only,
+    /// `any` at every depth (globs with at most one `*`, as tar --exclude
     /// is used by the scripts).
     priv static fn _copy(const from: string,
                          const to:   string,
@@ -951,7 +951,7 @@ pub class SysSdk {
         return false
     }
 
-    /// \p name against \p pat, which holds at most one `*`.
+    /// `name` against `pat`, which holds at most one `*`.
     priv static fn _glob(const name: string, const pat: string) -> bool {
         var star = LinkText::find(pat.copy(), "*", 0)
         if star >= pat.size() {

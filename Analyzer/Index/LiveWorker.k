@@ -180,10 +180,11 @@ class LiveState {
     pub fn LiveState(self) = default
 }
 
-/// Renders the diagnostics of \p owners (all of them when \p all) into the
+/// Renders the diagnostics of `owners` (all of them when `all`) into the
 /// state's per-owner rows.
 ///
-/// \return whether any row of those owners is another than it was.
+/// ### Returns
+/// whether any row of those owners is another than it was.
 fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [string]) -> bool {
     var unsafe *fd            = live->file_diags()
     var        before: string = ""
@@ -279,7 +280,7 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
 ///
 /// The declaration tables (Tables.k) are of every file, whatever the width,
 /// and are most of a snapshot's bytes; they change only with the file they
-/// are of. So a snapshot carries the ones walked after step \p have, the
+/// are of. So a snapshot carries the ones walked after step `have`, the
 /// last the server says it installed: all of them on a first answer, the
 /// edited file's (and its re-checked importers') after an edit. A snapshot
 /// the server drops is made up for by the next, whose request says what it
@@ -404,7 +405,7 @@ fn live_snapshot(st:    *LiveState,
     return w.out.copy()
 }
 
-/// Takes every buffered request into \p r: the newest buffers and output
+/// Takes every buffered request into `r`: the newest buffers and output
 /// path, the changed lists joined; each older id is answered `superseded`.
 fn live_take(t: *Transport, r: *LiveReq, asks: *[LiveReq]) {
     while t->wait(0) {
@@ -652,7 +653,7 @@ fn live_step(st:   *LiveState,
     )
 }
 
-/// The buffers of \p r that are tried and not kept, in a copy of this
+/// The buffers of `r` that are tried and not kept, in a copy of this
 /// process: see the head of this file. Returns how it went (LiveReq::aside).
 fn live_aside(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver, r: *LiveReq) -> string {
     if r->aside_paths.is_empty()
@@ -807,7 +808,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
 
 /// The end of a step, first tier or slice: the rows and diagnostics of
 /// what was re-checked replace the kept ones, the snapshot is written to
-/// \p out and the answer sent.
+/// `out` and the answer sent.
 fn live_finish(st:         *LiveState,
                live:       *LiveCheck,
                obs:        unsafe *IndexObserver,
@@ -1027,8 +1028,8 @@ fn live_slice(st:   *LiveState,
     )
 }
 
-/// \brief `kals --worker --index-server [--cwd <dir>] [--root <dir>] --
-///        <kairo args> <entry>`. Exits at EOF.
+/// `kals --worker --index-server [--cwd <dir>] [--root <dir>] --
+/// <kairo args> <entry>`. Exits at EOF.
 pub fn index_server_main(@inout args: [string]) -> i32 {
     var st                              = LiveState()
     var words: cxx::std::vector<string>

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------- AST/ForeignReservedWords.k --- ///
 ///
-///   \brief The C++ keyword set for one file, plus the [lex.name]/3
-///          reserved-identifier patterns clang does not flag.
+/// The C++ keyword set for one file, plus the [lex.name]/3
+/// reserved-identifier patterns clang does not flag.
 ///
 ///   \detail
 ///     Kairo emits identical spellings across the C++ boundary (no
@@ -108,7 +108,7 @@ pub class CxxKeywordSet {
     priv var _idx:   llvm::DenseSet<u32> ///< table-local ident indices; never the u32(-1) miss (see build).
     priv var _built: bool                = false
 
-    /// Probe every C++ keyword spelling against \p imms. Misses are the
+    /// Probe every C++ keyword spelling against `imms`. Misses are the
     /// common case (a file uses a handful of names that happen to be C++
     /// keywords, if any) and cost one open-addressed probe each.
     pub fn build(self, imms: unsafe *ImmediateTable) {
@@ -159,7 +159,7 @@ pub class CxxKeywordSet {
     }
 }
 
-/// Whether \p s is reserved by C++ at EVERY scope ([lex.name]/3: a double
+/// Whether `s` is reserved by C++ at EVERY scope ([lex.name]/3: a double
 /// underscore anywhere, or `_` + uppercase), as opposed to a plain leading
 /// `_` + lowercase, which C++ reserves only at global scope and Kairo
 /// reserves everywhere by its own rule (SC005W). Only meaningful when
@@ -179,7 +179,7 @@ pub fn cxx_reserved_everywhere(const s: string) -> bool {
     return false
 }
 
-/// Non-empty reason if \p s matches a [lex.name]/3 reserved pattern. These
+/// Non-empty reason if `s` matches a [lex.name]/3 reserved pattern. These
 /// are shape rules on the spelling, not identity   no interning involved.
 pub fn cxx_reserved_reason(const s: string) -> string {
     var n = s.size()
@@ -207,7 +207,7 @@ pub fn cxx_reserved_reason(const s: string) -> string {
     return ""
 }
 
-/// True if \p s is spelled as a C++ keyword in any language mode clang
+/// True if `s` is spelled as a C++ keyword in any language mode clang
 /// knows, or as one of the [lex.digraph] alternative tokens (`and`, `not`,
 /// ...), which clang lexes as punctuators and so has no keyword spelling
 /// for. String-keyed, for a spelling that is in no ImmediateTable (a file

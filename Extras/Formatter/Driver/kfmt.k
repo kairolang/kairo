@@ -105,7 +105,7 @@ fn is_error(const d: ToolDiag) -> bool {
     return d.severity == DiagSeverity::Error || d.severity == DiagSeverity::Fatal
 }
 
-/// \p fid through the preprocessor and parser alone: no dependency scan, no
+/// `fid` through the preprocessor and parser alone: no dependency scan, no
 /// import graph. Imports stay unresolved, which formatting never needs, and a
 /// module whose files import each other (builtin) formats file by file.
 fn parse_fid(ci: unsafe *CompilerInstance, fid: u32) -> Parsed {
@@ -133,7 +133,7 @@ fn parse_fid(ci: unsafe *CompilerInstance, fid: u32) -> Parsed {
     return u
 }
 
-/// Syntax errors (and fatals) in \p u, printed to stderr when \p show; 0
+/// Syntax errors (and fatals) in `u`, printed to stderr when `show`; 0
 /// when clean. An import that does not resolve from here says nothing
 /// about the text.
 fn syntax_errors(const u: Parsed, show: bool) -> u32 {
@@ -157,7 +157,7 @@ fn syntax_errors(const u: Parsed, show: bool) -> u32 {
     return bad
 }
 
-/// The tree of \p u as the compiler's printer dumps it (no source
+/// The tree of `u` as the compiler's printer dumps it (no source
 /// locations), comment annotations dropped: rule 12.4 may move a comment to
 /// another line, which can change the node it annotates without changing
 /// the code. Comments are compared on their own (check 3).
@@ -222,8 +222,8 @@ pub struct Sig {
     var ffis: cxx::std::vector<string> ///< ffi imports + their comments, in order
 }
 
-/// Comment tokens that travel with import \p im (5.4): the own-line ones
-/// directly above it, and one trailing its last line. Marked in \p used.
+/// Comment tokens that travel with import `im` (5.4): the own-line ones
+/// directly above it, and one trailing its last line. Marked in `used`.
 fn import_comments(f:        *Formatter,
                    const im: ImportInfo,
                    used:     unsafe *cxx::std::vector<u8>) -> string {
@@ -292,7 +292,7 @@ fn import_comments(f:        *Formatter,
     return s
 }
 
-/// Kairo import \p im as a set of `path::item` names, in a canonical order:
+/// Kairo import `im` as a set of `path::item` names, in a canonical order:
 /// `import a::{x, y}`, `import a::{y, x}` and, for one name, the 5.1 forms
 /// all read the same.
 fn import_names(const im: ImportInfo) -> string {
@@ -414,7 +414,7 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
     return g
 }
 
-/// \p s with each run of whitespace outside double quotes made one space:
+/// `s` with each run of whitespace outside double quotes made one space:
 /// the pieces of a chained string (`"a "\n    "b"`) are re-indented with
 /// their statement, and only their text is the code.
 fn squeeze(const s: string) -> string {
@@ -513,10 +513,10 @@ fn first_diff(a: string, b: string) -> string {
     return f"dump line {line}: `{a.subslice(ls, e - ls)}`"
 }
 
-/// Checks 1-5 on \p out, the formatting of a file whose signature and tree
-/// dump are \p a and \p ta (taken before the file was released: the output
+/// Checks 1-5 on `out`, the formatting of a file whose signature and tree
+/// dump are `a` and `ta` (taken before the file was released: the output
 /// is parsed in the same instance, and a file that declares a `module` would
-/// otherwise meet its own macros twice). \p why gets the first failure.
+/// otherwise meet its own macros twice). `why` gets the first failure.
 fn verify(ci:             unsafe *CompilerInstance,
           const name:     string,
           const a:        Sig,
@@ -527,7 +527,7 @@ fn verify(ci:             unsafe *CompilerInstance,
           set:            Settings,
           buf:            unsafe *cxx::std::string,
           why:            unsafe *string) -> bool {
-    // the source manager keeps the pointer, not the bytes: \p buf belongs
+    // the source manager keeps the pointer, not the bytes: `buf` belongs
     // to the caller and outlives the virtual file
     *buf = kairo::std::to_std_string(out)
     var vfid = ci->sm()->load_virtual(
@@ -709,10 +709,11 @@ fn format_one_file(ci:          unsafe *CompilerInstance,
     return 1
 }
 
-/// \return the InitLLVM guard; main destroys it before returning.
+/// ### Returns
+/// the InitLLVM guard; main destroys it before returning.
 ///
-/// \details Kairo.k's init_runtime: see there for why the guard is returned
-///          rather than kept in a static.
+/// Kairo.k's init_runtime: see there for why the guard is returned
+/// rather than kept in a static.
 fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::InitLLVM {
     var unsafe *init_llvm = kairo::std::create<llvm::InitLLVM>(argc, argv)
     llvm::InitializeAllTargetInfos()
@@ -753,7 +754,7 @@ fn usage() {
     )
 }
 
-/// The value of `--name=value` in \p arg, or "" when \p arg is not that flag.
+/// The value of `--name=value` in `arg`, or "" when `arg` is not that flag.
 fn flag_value(const arg: string, const name: string) -> string {
     var p = name.copy() + "="
     if arg.size() <= p.size() || !arg.starts_with(p) {

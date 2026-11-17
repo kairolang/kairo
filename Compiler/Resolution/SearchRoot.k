@@ -134,7 +134,7 @@ pub fn split_module_name(const name: string) -> cxx::std::vector<string> {
     return out
 }
 
-/// The MODULE ROOT of a file in directory \p dir: the nearest directory at
+/// The MODULE ROOT of a file in directory `dir`: the nearest directory at
 /// or above it that holds a `module.k` (pinned or not), or "" when none
 /// does. One walk for both of its readers, so `import module::x` resolves
 /// from exactly the directory whose files share `prot` (AST/VisibilityFacts.k):
@@ -183,7 +183,7 @@ pub fn root_names_equal(const a: cxx::std::vector<string>,
     return true
 }
 
-/// True when \p name is a leading-segment prefix of \p segments. The empty
+/// True when `name` is a leading-segment prefix of `segments`. The empty
 /// name (an unnamed search dir) is a prefix of everything, so callers that must not
 /// match it check `name.size() > 0` first.
 pub fn root_name_matches(const name:     cxx::std::vector<string>,
@@ -221,7 +221,7 @@ pub class ModulePinScanner {
     }
 
     /// Spaces, tabs, `//` to end of line and NESTED `/* */` (the lexer nests
-    /// them); newlines too when \p nl is set.
+    /// them); newlines too when `nl` is set.
     fn skip(self, nl: bool) {
         while self.i < self.n {
             var c = self.at(self.i)

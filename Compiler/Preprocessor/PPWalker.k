@@ -139,7 +139,7 @@ class ArgSplitter {
         self.feed_as(tok, tok.kind)
     }
 
-    /// Feeds \p tok, splitting and nesting as if it were of \p kind.
+    /// Feeds `tok`, splitting and nesting as if it were of `kind`.
     fn feed_as(self, tok: Token, kind: TokenKind) {
         if kind == TokenKind::OpLParen {
             self.paren += 1
@@ -368,10 +368,10 @@ pub class PPWalker {
         self._sink = self._out
     }
 
-    /// \brief the prelude for macros: the file behaves as though it wrote
-    ///        `import builtin::*` (Compiler/Spec/Panic.md#where-nothing-may-leave: `crash!` is a plain macro
-    ///        in Lib/builtin), searched after its own imports so an explicit
-    ///        import, or the file's own macro, of the same name wins.
+    /// the prelude for macros: the file behaves as though it wrote
+    /// `import builtin::*` (Compiler/Spec/Panic.md#where-nothing-may-leave: `crash!` is a plain macro
+    /// in Lib/builtin), searched after its own imports so an explicit
+    /// import, or the file's own macro, of the same name wins.
     fn set_prelude_scope(self, const scope: ModulePath) {
         eval if defined!(DEBUG) {
             self._check_fresh("set_prelude_scope")
@@ -381,13 +381,13 @@ pub class PPWalker {
         self._has_prelude = true
     }
 
-    /// \brief an import the file did not write: a prelude-shaped wildcard
-    ///        of \p target (an f256 / f512 class file). Called after
-    ///        run(), so the TU gets it where the driver's builtin prelude
-    ///        import also lands, after every written one. Its edge orders
-    ///        Sema (the class is typed first, its N binding the lang item),
-    ///        and it binds the class's names as the builtin root's
-    ///        re-export did when every program loaded it.
+    /// an import the file did not write: a prelude-shaped wildcard
+    /// of `target` (an f256 / f512 class file). Called after
+    /// run(), so the TU gets it where the driver's builtin prelude
+    /// import also lands, after every written one. Its edge orders
+    /// Sema (the class is typed first, its N binding the lang item),
+    /// and it binds the class's names as the builtin root's
+    /// re-export did when every program loaded it.
     fn add_implicit_import(self, target: u32) {
         var rng = SourceRange::invalid()
         if self._sm != &null {
@@ -485,7 +485,7 @@ pub class PPWalker {
         self._macros_known = true
     }
 
-    /// Debug builds: \p what configures the read, so it must come before it.
+    /// Debug builds: `what` configures the read, so it must come before it.
     priv fn _check_fresh(self, const what: string) {
         if self._phase != WalkPhase::Fresh {
             kairo::std::ice_fail(
@@ -496,19 +496,19 @@ pub class PPWalker {
 
     /// The macro DEFINITIONS of this file, registered ahead of its walk.
     ///
-    /// \details A file sees an imported macro only once the file defining it
-    ///          has been walked, and the waves walk an importee first. On an
-    ///          import cycle there is no such order: one side of every cycle
-    ///          is walked before a file it imports, and its uses of that
-    ///          file's macros found nothing. So every file on a cycle runs
-    ///          this first (PreProcessor::_prelex_cycles), and the walks then
-    ///          see every macro of the cycle whatever their order. It acts
-    ///          only on what a definition needs: `macro` (and its visibility),
-    ///          and the `module` blocks and braces that give it its scope.
-    ///          Imports are stepped over, silently, so their braces are not
-    ///          read as scopes; nothing is emitted or expanded. A macro
-    ///          body is raw tokens, so no definition needs another file's
-    ///          macros to be read.
+    /// A file sees an imported macro only once the file defining it
+    /// has been walked, and the waves walk an importee first. On an
+    /// import cycle there is no such order: one side of every cycle
+    /// is walked before a file it imports, and its uses of that
+    /// file's macros found nothing. So every file on a cycle runs
+    /// this first (PreProcessor::_prelex_cycles), and the walks then
+    /// see every macro of the cycle whatever their order. It acts
+    /// only on what a definition needs: `macro` (and its visibility),
+    /// and the `module` blocks and braces that give it its scope.
+    /// Imports are stepped over, silently, so their braces are not
+    /// read as scopes; nothing is emitted or expanded. A macro
+    /// body is raw tokens, so no definition needs another file's
+    /// macros to be read.
     fn collect_macros(self) {
         eval if defined!(DEBUG) {
             self._check_fresh("collect_macros")
@@ -769,12 +769,13 @@ pub class PPWalker {
 
     //  Emission single choke point + disallow backstop
 
-    /// \param chain the token's macro-origin chain, as captured atomically by
-    ///        TokenSource::next_with_origin at the moment it was pulled.
-    ///        &null (the default) for tokens that are never origin-wrapped
-    ///        (the poison sentinel, a proc macro's `macro`). The walk's own
-    ///        passthroughs (visibility keywords, braces, `module` paths, the
-    ///        `ffi "lang"` head) go through _emit_next.
+    /// ### Parameters
+    /// - `chain`: the token's macro-origin chain, as captured atomically by
+    ///   TokenSource::next_with_origin at the moment it was pulled.
+    ///   &null (the default) for tokens that are never origin-wrapped
+    ///   (the poison sentinel, a proc macro's `macro`). The walk's own
+    ///   passthroughs (visibility keywords, braces, `module` paths, the
+    ///   `ffi "lang"` head) go through _emit_next.
     priv fn _emit(self, t: Token, chain: unsafe *cxx::std::vector<InvokeHop> = &null) {
         // Sampled, same reasoning as _detect_invocation: the single choke
         // point every token passes through.
@@ -809,11 +810,11 @@ pub class PPWalker {
         self._sink->append(t)
     }
 
-    /// \brief stamps `t` with a real macro-expansion origin: TkMacroExpand at
-    ///        the OUTERMOST invocation's position, `imm` pointing at a chain
-    ///        of MacroExpansionInfo records (one per active frame) that
-    ///        ASTParse::report_tok/attach_macro_expansion_chain already know
-    ///        how to walk back to the true definition-site identity.
+    /// stamps `t` with a real macro-expansion origin: TkMacroExpand at
+    /// the OUTERMOST invocation's position, `imm` pointing at a chain
+    /// of MacroExpansionInfo records (one per active frame) that
+    /// ASTParse::report_tok/attach_macro_expansion_chain already know
+    /// how to walk back to the true definition-site identity.
     ///
     ///        No-op for a token that's already TkMacroExpand (a poison/builtin
     ///        sentinel, or one wrapped by a deeper nested expansion already --
@@ -868,17 +869,17 @@ pub class PPWalker {
         t->range = (chain)[0].loc           // outermost invocation: the token's reportable position
     }
 
-    /// \brief consumes the next source token and emits it with its macro
-    ///        origin, for the walk's own passthroughs (visibility keywords,
-    ///        scope-tracked braces and `module` paths, the `ffi "lang"` head).
+    /// consumes the next source token and emits it with its macro
+    /// origin, for the walk's own passthroughs (visibility keywords,
+    /// scope-tracked braces and `module` paths, the `ffi "lang"` head).
     ///
-    /// \details every token of a macro body reads at the invocation, these
-    ///          included: a `pub` or a `}` emitted unwrapped keeps its
-    ///          body-site range, and a `pub fn get() { ... }` from an
-    ///          imported macro then spans from the invoking file into the
-    ///          defining one, which the codegen token sink reads past the end
-    ///          of the invoking file's buffer (I003E).
-    /// \p t, a run of characters no token holds (Lexer::lex_illegal_ascii)
+    /// every token of a macro body reads at the invocation, these
+    /// included: a `pub` or a `}` emitted unwrapped keeps its
+    /// body-site range, and a `pub fn get() { ... }` from an
+    /// imported macro then spans from the invoking file into the
+    /// defining one, which the codegen token sink reads past the end
+    /// of the invoking file's buffer (I003E).
+    /// `t`, a run of characters no token holds (Lexer::lex_illegal_ascii)
     /// on its way to the parser: reported once, as S011E, and handed on as
     /// the name its imm spells, so the parser goes on as after a non-ASCII
     /// run and reports nothing more. Reported here and not by the lexer: a
@@ -991,7 +992,7 @@ pub class PPWalker {
         return true
     }
 
-    /// The `else` at peek(\p at), after a branch whose chain is \p chain.
+    /// The `else` at peek(`at`), after a branch whose chain is `chain`.
     /// Once a condition of the chain is known true the rest of it is dead
     /// text, conditions included, and is dropped here; Sema then sees the
     /// chain end at the branch before.
@@ -1011,7 +1012,7 @@ pub class PPWalker {
         self._next_branch = if ((chain & CHAIN_OPEN) != 0) => (BRANCH_OPEN) else => BRANCH_LIVE
     }
 
-    /// The condition at peek(\p at) of a chain that is \p chain so far:
+    /// The condition at peek(`at`) of a chain that is `chain` so far:
     /// what its branch is, into _next_branch and _next_chain.
     priv fn _note_cond(self, at: usize, chain: u8) {
         var v = self._cond_value(at)
@@ -1036,7 +1037,7 @@ pub class PPWalker {
         self._next_branch = BRANCH_OPEN
     }
 
-    /// COND_* of the condition whose first token is peek(\p at): the
+    /// COND_* of the condition whose first token is peek(`at`): the
     /// tokens up to the `{` that opens its branch, read where they stand
     /// and not consumed. They are expanded and emitted as any other text
     /// afterwards, so Sema folds the same condition to the same value.
@@ -1124,7 +1125,7 @@ pub class PPWalker {
         return v
     }
 
-    /// A token outside the grammar leaves \p pos where it is, so the
+    /// A token outside the grammar leaves `pos` where it is, so the
     /// caller's "all tokens read" test fails and the condition is open.
     priv fn _cond_unary(self, toks: unsafe *cxx::std::vector<Token>, @inout pos: usize) -> u8 {
         if pos >= toks->size() {
@@ -1219,7 +1220,7 @@ pub class PPWalker {
         }
     }
 
-    /// A macro definition at peek(0), kind \p k, in dead text: defined as
+    /// A macro definition at peek(0), kind `k`, in dead text: defined as
     /// the walk defines one in live text. False when peek(0) starts none.
     priv fn _dead_macro_def(self, k: TokenKind) -> bool {
         var vis = VisibilityKind::Public
@@ -1311,7 +1312,7 @@ pub class PPWalker {
         return self._block_depth() > 0
     }
 
-    /// `eval if` at \p k: its branches' braces are no scope of their own.
+    /// `eval if` at `k`: its branches' braces are no scope of their own.
     priv fn _note_eval_if(self, k: TokenKind) {
         if k == TokenKind::KwEval && self._src->peek(1).kind == TokenKind::KwIf {
             self._branch_next = true
@@ -1558,8 +1559,8 @@ pub class PPWalker {
         // ffi-block interior as special, matching current behavior.
     }
 
-    /// Reports \p tok, the language or the header of an `ffi ... import`
-    /// line, when it carries a prefix a \p what operand does not take.
+    /// Reports `tok`, the language or the header of an `ffi ... import`
+    /// line, when it carries a prefix a `what` operand does not take.
     priv fn _check_ffi_prefix(self, tok: Token, what: StringOperand) {
         if self._quiet || tok.kind != TokenKind::LitString {
             return
@@ -2740,8 +2741,8 @@ pub class PPWalker {
     ///   gives a macro body's hole tokens their origin chain as the body's
     ///   other tokens get theirs.
 
-    /// \p tok's StringData when it is an f-string with holes, read from the
-    /// table of the file that lexed it (\p tbl becomes that table); null
+    /// `tok`'s StringData when it is an f-string with holes, read from the
+    /// table of the file that lexed it (`tbl` becomes that table); null
     /// otherwise. Adjacent literals join whatever their prefixes, so
     /// the holes can sit in any segment of the chain: `"a" f"{x}"` is one.
     priv fn _fstring_data(self,
@@ -2769,7 +2770,7 @@ pub class PPWalker {
         return &null
     }
 
-    /// \p tok is a string literal the lexer made from source (its range is
+    /// `tok` is a string literal the lexer made from source (its range is
     /// its spelling), not one with owned text (file!, stringify!).
     priv fn _lexed_string(self, tok: Token) -> bool {
         var unsafe *tbl = self._tcm->get_imm_table_for_token(tok)
@@ -2781,7 +2782,7 @@ pub class PPWalker {
         return d != &null && !d->has_owned_text()
     }
 
-    /// \p tok is a string literal with an adjacent one chained after it.
+    /// `tok` is a string literal with an adjacent one chained after it.
     priv fn _chained_string(self, tok: Token) -> bool {
         var unsafe *tbl = self._tcm->get_imm_table_for_token(tok)
         if tbl == &null {
@@ -2792,7 +2793,7 @@ pub class PPWalker {
         return d != &null && d->next != u32::MAX
     }
 
-    /// A fresh slot in this file's table with \p d's text and hole specs and
+    /// A fresh slot in this file's table with `d`'s text and hole specs and
     /// no hole buffers yet: the caller pushes one per hole. Fresh, never the
     /// lexed slot written over: a body's literal is shared by every
     /// expansion, and the lexed slot frees its own buffers. Its `next` is
@@ -2814,7 +2815,7 @@ pub class PPWalker {
         return idx
     }
 
-    /// Every segment of \p d's chain copied into this file's table and
+    /// Every segment of `d`'s chain copied into this file's table and
     /// linked, in order; returns the first copy. The caller fills each
     /// copy's hole buffers (segs[i] is the source of copies[i]). The whole
     /// chain is copied, holes or not: a copy's `next` must index THIS table,
@@ -2841,11 +2842,11 @@ pub class PPWalker {
         return (*copies)[0]
     }
 
-    /// \p tok from a macro body: an f-string with holes comes back as a copy
+    /// `tok` from a macro body: an f-string with holes comes back as a copy
     /// whose holes have the parameters substituted (a pack's name, inside a
-    /// pattern splat, by \p element); any other token unchanged. The copy
+    /// pattern splat, by `element`); any other token unchanged. The copy
     /// lives in THIS file's table, so a literal from another file's body is
-    /// re-anchored at \p anchor, the invocation this file wrote: the parser
+    /// re-anchored at `anchor`, the invocation this file wrote: the parser
     /// finds a string's table from where it was written (ASTContext::
     /// get_payload_table), and the copy was written here. Its hole tokens
     /// stay raw; _expand_fstring wraps them on the way out.
@@ -2916,10 +2917,10 @@ pub class PPWalker {
         return out
     }
 
-    /// \p t, about to be emitted with origin chain \p chain: an f-string of
+    /// `t`, about to be emitted with origin chain `chain`: an f-string of
     /// this file's whose holes need the walk comes back as a copy with each
     /// hole walked (_expand_buffer: invocations expanded, every token given
-    /// \p chain); any other token unchanged. A hole needs it when it holds
+    /// `chain`); any other token unchanged. A hole needs it when it holds
     /// an invocation, or when the string came out of a macro body: its hole
     /// tokens are the body's, raw, and a body token another file wrote reads
     /// against that file's tables only once wrapped. A string another file
@@ -3339,7 +3340,7 @@ pub class PPWalker {
         return split.finish()
     }
 
-    /// The kind \p t had before _wrap_origin wrapped it: its own kind for an
+    /// The kind `t` had before _wrap_origin wrapped it: its own kind for an
     /// unwrapped token, TkMacroExpand for a sentinel (poison, deferred
     /// builtins), whose imm is no chain.
     priv fn _unwrapped_kind(self, t: Token) -> TokenKind {
@@ -3900,7 +3901,7 @@ pub class PPWalker {
     //  Deferred/sentinel builtins
 
     /// One `TkMacroExpand` token (an `embed_str!` slot is a `LitString`)
-    /// at the invocation's name, its imm the \p sentinel the parser lowers.
+    /// at the invocation's name, its imm the `sentinel` the parser lowers.
     /// `unreachable!` is the safe form: a panic if reached.
     /// `unreachable_unchecked!` tells the optimizer the path is dead;
     /// reaching it at run time is undefined behaviour.
@@ -4147,7 +4148,7 @@ pub class PPWalker {
         return self._macros->find(ModulePath(), inv.name_sym, self._fid)
     }
 
-    /// The macro \p name of an open block, innermost first, or null.
+    /// The macro `name` of an open block, innermost first, or null.
     priv fn _block_macro(self, name: SymbolID) -> unsafe *MacroEntry {
         var i = self._block_macros.size()
         while i > 0 {

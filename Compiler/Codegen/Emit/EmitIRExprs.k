@@ -634,7 +634,7 @@ extend EmitIR {
         return s
     }
 
-    /// Closure \p c captures the global \p d (a script's top-level `var`):
+    /// Closure `c` captures the global `d` (a script's top-level `var`):
     /// inside it, `d` is the closure's own copy, named bare.
     prot fn _captures_global(self, c: unsafe *ClosureExpr, d: unsafe *Decl) -> bool {
         if c == &null || self._is_local(d) {
@@ -747,10 +747,10 @@ extend EmitIR {
         self._cg->sink->spell(n->range, ")")
     }
 
-    /// One arm of an if-expression, converted to the join type \p t. An arm
+    /// One arm of an if-expression, converted to the join type `t`. An arm
     /// of type `!` (`else => die()`) is a void call to C++, which `?:` takes
     /// only as a `throw` (`static_cast<int>(die())` is rejected, CL001E). It is
-    /// the body of a lambda returning \p t that never returns, called on the
+    /// the body of a lambda returning `t` that never returns, called on the
     /// spot: a prvalue of the join type for every T, a move-only or
     /// non-transferable one included, with nothing copied. `[&]` reaches
     /// the arm's locals; at namespace scope nothing needs capturing, and no

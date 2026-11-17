@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------- Sema/Lower/PanicLowering.k --- ///
 ///
-///   \brief A panic is a returned value: signatures, `return`, `panic`,
-///          propagation at a call, and `try` / `catch` as tag compares.
+/// A panic is a returned value: signatures, `return`, `panic`,
+/// propagation at a call, and `try` / `catch` as tag compares.
 ///
 ///   \detail
 ///     A function whose final set (EffectPropagation) is not empty returns
@@ -297,7 +297,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     /// # signatures (§4.1)
 
-    /// The value type of \p f: its return type, `void` when it has none.
+    /// The value type of `f`: its return type, `void` when it has none.
     priv fn _value_type(self, rt: unsafe *Type) -> unsafe *Type {
         if rt == &null || rt->canonical == &null {
             return self.sc->builtin(BuiltinKind::Void)
@@ -306,7 +306,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return canon_unqual(rt->canonical)
     }
 
-    /// What C++ sees \p f return: `Panic<T, E...>` over its final set, or
+    /// What C++ sees `f` return: `Panic<T, E...>` over its final set, or
     /// null when it does not panic. An override returns its base method's
     /// (C++ requires the same return type through the vtable; its own set is
     /// a subset, §2.10), a conforming method its requirement's (the
@@ -399,8 +399,8 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return self._store(f, r)
     }
 
-    /// The interface requirement \p f implements, from the conformance rows
-    /// ConformanceChecking recorded: those declared by \p f's owner (`class
+    /// The interface requirement `f` implements, from the conformance rows
+    /// ConformanceChecking recorded: those declared by `f`'s owner (`class
     /// X impl I`, `extend X impl I` holding it) and, for a record's own
     /// method, by its extensions (`extend X impl I` met by X's member).
     /// Null for a method that implements none. The first row wins; one
@@ -470,9 +470,9 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return &null
     }
 
-    /// \p r read through record \p at (a base `B<i32>`, an interface
-    /// instance `Src<IOError>`), formed: null \p r stays null; a concrete
-    /// \p r, or a null \p at, is \p r.
+    /// `r` read through record `at` (a base `B<i32>`, an interface
+    /// instance `Src<IOError>`), formed: null `r` stays null; a concrete
+    /// `r`, or a null `at`, is `r`.
     priv fn _through(self, at: SourceRange, r: unsafe *Type, rec: unsafe *Type) -> unsafe *Type {
         if r == &null || rec == &null || !panic_dep(r) {
             return r
@@ -488,7 +488,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return self._formed(at, x)
     }
 
-    /// The panic result \p t formed again (PanicSets::form): canonical, its
+    /// The panic result `t` formed again (PanicSets::form): canonical, its
     /// collisions checked, its formation noted. What a substituted result
     /// goes through, so it is the type every other former of the same set
     /// gets. Anything else as it is.
@@ -535,8 +535,8 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         self._deps.push_back(c)
     }
 
-    /// \p r as \p f's result, on every link of its chain in this TU (a
-    /// `where` group's links are distinct bodies: only \p f). Another TU's
+    /// `r` as `f`'s result, on every link of its chain in this TU (a
+    /// `where` group's links are distinct bodies: only `f`). Another TU's
     /// decl wrote its own when that TU lowered.
     priv fn _store(self, f: unsafe *FunctionDecl, r: unsafe *Type) -> unsafe *Type {
         var fid = self.sc->ctx->fid
@@ -932,7 +932,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return self.synth.variant_over(n, bound, &lb)
     }
 
-    /// \p e can leave the function or jump: it holds a call that may panic,
+    /// `e` can leave the function or jump: it holds a call that may panic,
     /// or a `try`. Or, in the body of a `try` with a C++ arm, it can throw
     /// (anything not pure): codegen builds a payload in a noexcept lambda
     /// and a noexcept constructor, which would stop the exception short of
@@ -952,7 +952,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return w.sites.size() > 0 || w.tries.size() > 0
     }
 
-    /// `var __kairo_vK = e;` onto \p out, and its value moved out (a class
+    /// `var __kairo_vK = e;` onto `out`, and its value moved out (a class
     /// object) or read (anything else).
     priv fn _bound(self,
                    at:  SourceRange,
@@ -1064,8 +1064,8 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return self._op_call(out, n->resolved_op)
     }
 
-    /// \p e, an operator node bound to \p d, as its call(s) held when \p d
-    /// returns a panic result; else \p e. A place operator (`op []` giving a
+    /// `e`, an operator node bound to `d`, as its call(s) held when `d`
+    /// returns a panic result; else `e`. A place operator (`op []` giving a
     /// `*T`, which C++ declares returning `T&`) stays the node, and an `op
     /// as` is not met here (a C++ conversion function returns its target):
     /// PanicEffectChecking reports a panicking one.
@@ -1105,7 +1105,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return r
     }
 
-    /// \p from, in the tree at \p slot, replaced by \p to. Searched only
+    /// `from`, in the tree at `slot`, replaced by `to`. Searched only
     /// through what OperatorLowering builds around the calls it makes:
     /// parentheses, a builtin unary, binary or cast over the call, an
     /// assignment, a statement expression's statements. False when it is
@@ -1263,7 +1263,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         )
     }
 
-    /// The call \p e is (parentheses aside), when it may panic: its callee
+    /// The call `e` is (parentheses aside), when it may panic: its callee
     /// returns a panic result.
     priv fn _as_call(self, e_in: unsafe *Expr) -> PanicCall {
         var        r  = PanicCall()
@@ -1365,7 +1365,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     /// # delivering an error
 
-    /// The error held in \p h, to the innermost target: returned (moved, or
+    /// The error held in `h`, to the innermost target: returned (moved, or
     /// forwarded into the result), or put into the `try`'s slot before a
     /// jump to its dispatch.
     priv fn _deliver(self,
@@ -1395,7 +1395,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         self._to_slot(at, self._b.targets.size() - 1, v, &*out)
     }
 
-    /// \p v into the slot of the `try` target \p t, then a jump to its
+    /// `v` into the slot of the `try` target `t`, then a jump to its
     /// dispatch. From inside a copy loop opened since that `try` (EmitIR's
     /// lambda per copy, which no goto leaves) the jump stops the copy
     /// instead (JumpIntrinsicStmt::ef_leave), after setting the `try`'s
@@ -1864,7 +1864,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     }
 
     /// The C++ `try` of a `try` with C++ exception arms (§3.5, §4.5a H):
-    /// \p body, already lowered, inside a TryCatchStmt marked `cxx` whose
+    /// `body`, already lowered, inside a TryCatchStmt marked `cxx` whose
     /// arms are those arms, each binding a reference to the exception and
     /// lowered with the `try`'s target closed (an arm is outside its `try`).
     /// Every Kairo function stays noexcept: an exception this does not catch
@@ -1955,12 +1955,12 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return blk
     }
 
-    /// The arms over the error held in \p h (not Ok): an `if` chain, each
+    /// The arms over the error held in `h` (not Ok): an `if` chain, each
     /// typed arm its type's compare, a bare arm the final `else`, and with
     /// none, what is left delivered to the next target. Typed arms whose
-    /// type \p h cannot hold (dead) get no compare.
+    /// type `h` cannot hold (dead) get no compare.
     ///
-    /// \p reach, when given, is what can actually be held: a direct form's
+    /// `reach`, when given, is what can actually be held: a direct form's
     /// callee may be an override or a conformer, whose result is its base's
     /// or requirement's and so names types its own (smaller) set never
     /// panics with. Those get no arm and are not "left" to deliver: the
@@ -2302,7 +2302,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         return st
     }
 
-    /// A raw-storage local of \p t, declared on \p lb.
+    /// A raw-storage local of `t`, declared on `lb`.
     priv fn _raw(self,
                  at:         SourceRange,
                  const hint: string,
@@ -2385,7 +2385,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         )
     }
 
-    /// \p v as \p t when only a builtin conversion lies between them (the
+    /// `v` as `t` when only a builtin conversion lies between them (the
     /// payload is built from braces, which refuse a narrowing).
     priv fn _conv(self, v: unsafe *Expr, t: unsafe *Type) -> unsafe *Expr {
         if v == &null || v->type_ == &null {
@@ -2422,7 +2422,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         )
     }
 
-    /// \p v is declared in the body being lowered. A local has no
+    /// `v` is declared in the body being lowered. A local has no
     /// semantic_dc, so the body records its own; a closure's body does not
     /// hold the locals of the function around it, which it only captures.
     priv fn _is_own_local(self, v: unsafe *VariableDecl) -> bool {
@@ -2594,7 +2594,7 @@ pub class PanicInstances {
         return h->panic_deps.size() > 0
     }
 
-    /// \p e's arguments bound to \p prim's parameters (an extension
+    /// `e`'s arguments bound to `prim`'s parameters (an extension
     /// member's extension's first), ConformanceChecking's order.
     priv fn _bind_instance(self, d: *Deduction, e: unsafe *InstanceEntry, prim: unsafe *Decl) {
         var        k: usize = 0
@@ -2670,9 +2670,9 @@ pub class PanicInstances {
         }
     }
 
-    /// Dependent panic result \p t at the instance \p e, formed and kept
+    /// Dependent panic result `t` at the instance `e`, formed and kept
     /// in its panic_types (null when it does not substitute). A concrete
-    /// \p t is any instance's: formed where it is named, as it is.
+    /// `t` is any instance's: formed where it is named, as it is.
     priv fn _at(self,
                 e:  unsafe *InstanceEntry,
                 at: SourceRange,

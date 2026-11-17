@@ -93,7 +93,7 @@ import Token::TokenKind::{
 import Token::TokenText::TokenText
 
 extend IndexWalker {
-    /// UTF-16 length of bytes [off, off+len) of file \p fi.
+    /// UTF-16 length of bytes [off, off+len) of file `fi`.
     fn len16_(self, fi: usize, off: usize, len: usize) -> usize {
         var units: usize = 0
         var i            = off
@@ -123,7 +123,7 @@ extend IndexWalker {
         return units
     }
 
-    /// Writes the Position of byte \p off of file \p fi.
+    /// Writes the Position of byte `off` of file `fi`.
     fn pos_(self, w: *JsonWriter, fi: usize, off: usize) {
         var line = self.files[fi].lines.line_of(off) as i64
         write_lsp_position(
@@ -133,7 +133,7 @@ extend IndexWalker {
         )
     }
 
-    /// Writes the Range of \p len bytes at \p off of file \p fi.
+    /// Writes the Range of `len` bytes at `off` of file `fi`.
     fn range_(self, w: *JsonWriter, fi: usize, off: usize, len: usize) {
         var *lm = &self.files[fi].lines
         var *tx = &self.files[fi].text
@@ -146,7 +146,7 @@ extend IndexWalker {
         )
     }
 
-    /// Writes this file's index as one JSON object into \p w.
+    /// Writes this file's index as one JSON object into `w`.
     pub fn write(self, w: *JsonWriter) {
         w->begin_object()
         w->field(SK_PATH, self.files[0].path)

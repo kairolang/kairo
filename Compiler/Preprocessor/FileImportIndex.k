@@ -266,7 +266,7 @@ pub class FileImportIndex {
     }
 
     /// A braced item without `!` (`import Foo::{a::mac}`), recorded as
-    /// a BareItem under \p base plus every segment but its last.
+    /// a BareItem under `base` plus every segment but its last.
     priv fn _note_bare(self,
                        const base: ModulePath,
                        const sub:  FrozenList<Token>,
@@ -291,7 +291,7 @@ pub class FileImportIndex {
         self._bare.push_back(bi)
     }
 
-    /// The name token of an import that spelled macro \p name without its
+    /// The name token of an import that spelled macro `name` without its
     /// `!` (`import lib::getter` for `macro getter!` in lib), or an invalid
     /// range. Read by R013E only, so the cost is on the error path.
     fn bare_macro_import(self, name: SymbolID) -> SourceRange {

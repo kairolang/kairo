@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------ Lib/builtin/num/softfloat.k --- ///
 ///
-///   \brief The software binary-float engine behind `f256` and `f512`: one
-///          implementation for every IEEE-754-shaped binary format up to
-///          512 bits, parameterised by width at run time (SfFmt).
+/// The software binary-float engine behind `f256` and `f512`: one
+/// implementation for every IEEE-754-shaped binary format up to
+/// 512 bits, parameterised by width at run time (SfFmt).
 ///
 ///   \detail
 ///     LLVM has no type wider than fp128, so f256 and f512 are classes

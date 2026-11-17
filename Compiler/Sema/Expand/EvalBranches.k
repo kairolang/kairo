@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------- Sema/Expand/EvalBranches.k --- ///
 ///
-///   \brief The declarations an `eval if` deferred on a type fact holds, by
-///          branch: which of them never coexist, and which scopes still
-///          wait for their member set.
+/// The declarations an `eval if` deferred on a type fact holds, by
+/// branch: which of them never coexist, and which scopes still
+/// wait for their member set.
 ///
 ///   \detail
 ///     Compiler/Spec/Eval.md#deferred-conditions. A declaration-scope `eval if` whose condition reads a
@@ -71,7 +71,7 @@ pub class EvalBranchTable {
 
     fn EvalBranchTable(self) { }
 
-    /// File \p head, whose branches declare into \p owner; its index.
+    /// File `head`, whose branches declare into `owner`; its index.
     fn add_if(self, head: unsafe *Stmt, owner: unsafe *DeclContext) -> usize {
         var r = EvalIfRow{}
         r.head  = head
@@ -80,7 +80,7 @@ pub class EvalBranchTable {
         return self._ifs.size() - 1
     }
 
-    /// \p d sits in branch \p arm of the `eval if` filed at \p at.
+    /// `d` sits in branch `arm` of the `eval if` filed at `at`.
     fn add_decl(self, at: usize, arm: unsafe *Stmt, d: unsafe *Decl) {
         var r = EvalDeclRow{}
         r.decl = d
@@ -89,7 +89,7 @@ pub class EvalBranchTable {
         self._decls.push_back(r)
     }
 
-    /// \p head is decided, or gone with a discarded branch: it holds nothing
+    /// `head` is decided, or gone with a discarded branch: it holds nothing
     /// back any more. A head never filed is ignored.
     fn retire(self, head: unsafe *Stmt) {
         for var i: usize = 0; i < self._ifs.size(); ++i {
@@ -116,7 +116,7 @@ pub class EvalBranchTable {
         return n
     }
 
-    /// An undecided `eval if` declares into \p dc: its member set is open.
+    /// An undecided `eval if` declares into `dc`: its member set is open.
     fn pending_in(self, dc: unsafe *DeclContext) -> bool {
         if dc == &null {
             return false
@@ -131,7 +131,7 @@ pub class EvalBranchTable {
         return false
     }
 
-    /// \p d sits in a branch of an undecided `eval if`: it may yet be
+    /// `d` sits in a branch of an undecided `eval if`: it may yet be
     /// discarded.
     fn in_pending(self, d: unsafe *Decl) -> bool {
         for var i: usize = 0; i < self._decls.size(); ++i {
@@ -143,7 +143,7 @@ pub class EvalBranchTable {
         return false
     }
 
-    /// \p a and \p b sit in different branches of one filed `eval if`, so at
+    /// `a` and `b` sit in different branches of one filed `eval if`, so at
     /// most one of them is ever declared.
     fn exclusive(self, a: unsafe *Decl, b: unsafe *Decl) -> bool {
         if self._decls.size() == 0 || a == &null || b == &null || a == b {

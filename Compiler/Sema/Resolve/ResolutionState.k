@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------- Sema/Resolve/ResolutionState.k --- ///
 ///
-///   \brief Per-node resolution state and cycle detection for demand-driven
-///          resolution. A component on SemaContext, not a pass.
+/// Per-node resolution state and cycle detection for demand-driven
+/// resolution. A component on SemaContext, not a pass.
 ///
 ///   \detail
 ///     Compiler/Spec/Pipeline.md#sema-pass-order orders N before T. That ordering is right as a contract
@@ -62,8 +62,7 @@ import AST::Node::Base::{
 }
 import Location::SourceRange::SourceRange
 
-/// \enum ResolveState
-/// \brief Where one node is in its own resolution.
+/// Where one node is in its own resolution.
 ///
 ///        `InProgress` is the load-bearing one: seeing it means the resolver
 ///        re-entered a node it is already inside, which is a cycle in the
@@ -77,12 +76,11 @@ pub enum ResolveState derives u8 {
     Errored,        ///< finished with a diagnosis. Never retried, never re-reported.
 }
 
-/// \class ResolveFrame
-/// \brief One entry of the active resolution stack, kept so a cycle can be
-///        REPORTED rather than merely detected. Without the frames the best
-///        possible message is "circular dependency"; with them the pass can
-///        name every edge, which is the difference between a usable diagnostic
-///        and a shrug.
+/// One entry of the active resolution stack, kept so a cycle can be
+/// REPORTED rather than merely detected. Without the frames the best
+/// possible message is "circular dependency"; with them the pass can
+/// name every edge, which is the difference between a usable diagnostic
+/// and a shrug.
 pub class ResolveFrame {
     pub var decl: unsafe *Decl = &null ///< the decl being resolved.
     pub var at:   SourceRange          ///< where resolution was demanded FROM.
@@ -90,10 +88,7 @@ pub class ResolveFrame {
     fn ResolveFrame(self) { }
 }
 
-///
-/// \class ResolutionState
-/// \brief The memo table + the active stack.
-///
+/// The memo table + the active stack.
 pub class ResolutionState {
     priv var _decls: llvm::DenseMap<u64, u8> ///< by address: never a reserved key.
     priv var _types: llvm::DenseMap<u64, u8>
@@ -147,22 +142,23 @@ pub class ResolutionState {
         self._decls[self._key(unsafe (d as unsafe *void))] = (s as u8)
     }
 
-    /// \brief The only way into Errored outside finish_decl: a demand that
-    ///        diagnosed \p d without owning its frame (re-entry, a cap, a
-    ///        cycle closed by someone further up). The frame, if any, stays
-    ///        its owner's to pop.
+    /// The only way into Errored outside finish_decl: a demand that
+    /// diagnosed `d` without owning its frame (re-entry, a cap, a
+    /// cycle closed by someone further up). The frame, if any, stays
+    /// its owner's to pop.
     fn fail_decl(self, d: unsafe *Decl) {
         self._set_decl_state(d, ResolveState::Errored)
     }
 
-    /// \brief Claim \p d for resolution, pushing a frame.
+    /// Claim `d` for resolution, pushing a frame.
     ///
-    /// \return true when the caller owns the resolution and MUST call
-    ///         finish_decl exactly once. False means one of: already done
-    ///         (caller reads the node's slots), already errored (caller stays
-    ///         silent -- one error, one home), a cycle, or the depth cap. The
-    ///         caller distinguishes those by asking decl_state / cycle_index
-    ///         BEFORE calling this.
+    /// ### Returns
+    /// true when the caller owns the resolution and MUST call
+    /// finish_decl exactly once. False means one of: already done
+    /// (caller reads the node's slots), already errored (caller stays
+    /// silent -- one error, one home), a cycle, or the depth cap. The
+    /// caller distinguishes those by asking decl_state / cycle_index
+    /// BEFORE calling this.
     fn begin_decl(self, d: unsafe *Decl, at: SourceRange) -> bool {
         if d == &null {
             return false
@@ -185,12 +181,12 @@ pub class ResolutionState {
         return true
     }
 
-    /// \brief Release \p d. `ok == false` records Errored, which is permanent:
-    ///        a decl whose resolution was diagnosed is never re-attempted and
-    ///        never re-reported, so a bad alias used fifty times yields one
-    ///        error, not fifty.
+    /// Release `d`. `ok == false` records Errored, which is permanent:
+    /// a decl whose resolution was diagnosed is never re-attempted and
+    /// never re-reported, so a bad alias used fifty times yields one
+    /// error, not fifty.
     ///
-    ///        Only the frame begin_decl pushed for \p d is popped: a caller
+    ///        Only the frame begin_decl pushed for `d` is popped: a caller
     ///        that finished a decl it never began would otherwise pop its
     ///        CALLER's frame, and every depth and cycle question after that
     ///        is asked of the wrong stack.
@@ -213,12 +209,12 @@ pub class ResolutionState {
         }
     }
 
-    /// \brief Record \p d's outcome without touching the stack: for a decl
-    ///        resolved with no frame of its own, because begin_decl refused
-    ///        it at the depth cap. Leaving it Unresolved instead would let a
-    ///        later demand resolve, and report, it a second time.
+    /// Record `d`'s outcome without touching the stack: for a decl
+    /// resolved with no frame of its own, because begin_decl refused
+    /// it at the depth cap. Leaving it Unresolved instead would let a
+    /// later demand resolve, and report, it a second time.
     ///
-    ///        Never lowers Errored: a cycle closed below \p d's frame
+    ///        Never lowers Errored: a cycle closed below `d`'s frame
     ///        (SC043E on re-entry, every alias of an R035E loop) fails it
     ///        while the outer resolution is still running, and that outer
     ///        resolution's own `ok` must not resurrect it.
@@ -233,9 +229,9 @@ pub class ResolutionState {
         )
     }
 
-    /// \brief Index of \p d in the active stack, or usize(-1) if absent.
-    ///        A hit IS the cycle, and the slice from here to the top is the
-    ///        edge list the diagnostic should name.
+    /// Index of `d` in the active stack, or usize(-1) if absent.
+    /// A hit IS the cycle, and the slice from here to the top is the
+    /// edge list the diagnostic should name.
     fn cycle_index(self, d: unsafe *Decl) -> usize {
         if d == &null {
             return usize::MAX

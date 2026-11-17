@@ -74,16 +74,16 @@ import Support::Ascii::{
 
 
 /// Per-code diagnostic policy action, set from the command line and applied
-/// uniformly at the single \c emit choke point.
+/// uniformly at the single `emit` choke point.
 ///
-///   \c Silence  drop the diagnostic entirely (\c --allow / \c -A)
-///   \c Promote  raise a warning to an error   (\c --error / \c -E)
-///   \c Forbid   force an error that downstream cannot override (\c --forbid / \c -F)
-///   \c Warn     re-enable a code: an Ignored diagnostic is raised to a
-///               warning, and (applied after \c -A) it lifts that silence (\c -W)
+///   `Silence`  drop the diagnostic entirely (`--allow` / `-A`)
+///   `Promote`  raise a warning to an error   (`--error` / `-E`)
+///   `Forbid`   force an error that downstream cannot override (`--forbid` / `-F`)
+///   `Warn`     re-enable a code: an Ignored diagnostic is raised to a
+///               warning, and (applied after `-A`) it lifts that silence (`-W`)
 ///
-/// The policy table is keyed on category + number (see \c diag_policy_key),
-/// e.g. \c SC005 and \c S005 are distinct; the severity letter is not part
+/// The policy table is keyed on category + number (see `diag_policy_key`),
+/// e.g. `SC005` and `S005` are distinct; the severity letter is not part
 /// of the address.
 pub enum DiagAction {
     Silence,
@@ -100,7 +100,7 @@ pub enum LimitState derives u8 {
     Reached,
 }
 
-/// Dense index of \p cat, 1-based so a valid policy key is never 0.
+/// Dense index of `cat`, 1-based so a valid policy key is never 0.
 pub fn diag_category_index(cat: DiagCategory) -> u32 {
     match cat {
         case DiagCategory::Syntax {
@@ -146,7 +146,7 @@ pub fn diag_policy_key(cat: DiagCategory, number: u32) -> u32 {
     return diag_key_pack(diag_category_index(cat), number)
 }
 
-/// Parses a user-spelled code (\c R020E, \c sc005, \c C889W) into a policy key.
+/// Parses a user-spelled code (`R020E`, `sc005`, `C889W`) into a policy key.
 /// Returns 0 when the string has no recognised category prefix or no digits;
 /// a bare number is rejected on purpose, since it cannot say which category
 /// it means.
@@ -195,31 +195,31 @@ pub fn diag_policy_key_from_string(const code: string) -> u32 {
 
 /// Central diagnostic hub for a single compilation unit.
 ///
-/// \c DiagEngine receives diagnostics from all compiler components, applies
-/// suppression rules (poison scopes, error limits, \c -Werror), updates
+/// `DiagEngine` receives diagnostics from all compiler components, applies
+/// suppression rules (poison scopes, error limits, `-Werror`), updates
 /// per-severity counters, and forwards each live diagnostic to all registered
-/// \c DiagConsumer instances.
+/// `DiagConsumer` instances.
 ///
-/// Components hold a \c *DiagEngine directly. The engine owns all emitted
-/// \c Diagnostic objects and frees them on destruction.
+/// Components hold a `*DiagEngine` directly. The engine owns all emitted
+/// `Diagnostic` objects and frees them on destruction.
 ///
 /// \par Poison scopes
 /// A poison scope suppresses all errors and warnings of a given category that
-/// fall inside a \c SourceRange. Used to silence cascading diagnostics after
-/// a recovery point. Scopes are cleared explicitly via \c clear_poison() or
-/// \c clear_all_poison().
+/// fall inside a `SourceRange`. Used to silence cascading diagnostics after
+/// a recovery point. Scopes are cleared explicitly via `clear_poison()` or
+/// `clear_all_poison()`.
 ///
 /// \par Error limit
-/// Once \c _error_limit errors (default 50) have been DELIVERED, further errors
-/// and fatals are not shown and are counted in \c _suppressed_count. They are
-/// still counted in \c _error_count / \c _fatal_count: the limit caps what the
+/// Once `_error_limit` errors (default 50) have been DELIVERED, further errors
+/// and fatals are not shown and are counted in `_suppressed_count`. They are
+/// still counted in `_error_count` / `_fatal_count`: the limit caps what the
 /// user reads, while the stage gates (each input's "did this TU error"
 /// delta, a preprocess fatal aborting the batch) read the counters, and a
 /// frozen counter let a later input sail past every gate.
 ///
 /// \par Consumer registration
-/// Consumers are registered with \c add_consumer() and unregistered with
-/// \c remove_consumer(). The engine does not own consumers.
+/// Consumers are registered with `add_consumer()` and unregistered with
+/// `remove_consumer()`. The engine does not own consumers.
 pub class DiagEngine derives DiagEngineVBase {
     /// A suppression entry binding a diagnostic category to a source scope.
     struct PoisonEntry {
@@ -300,7 +300,7 @@ pub class DiagEngine derives DiagEngineVBase {
 
     /// ## Destructor
 
-    /// Destroys all owned \c Diagnostic objects.
+    /// Destroys all owned `Diagnostic` objects.
     fn op finally (self) {
         for var i: usize = 0; i < self._all_diags.size(); ++i {
             kairo::std::destroy(self._all_diags[i])
@@ -309,19 +309,19 @@ pub class DiagEngine derives DiagEngineVBase {
 
     /// ## Consumer registration
 
-    /// Registers \p consumer to receive future diagnostics. Not owned.
+    /// Registers `consumer` to receive future diagnostics. Not owned.
     pub fn add_consumer(self, consumer: unsafe *DiagConsumer) {
         var lock = kairo::std::LockGuard(self._mu)
         self._consumers.push_back(consumer)
     }
 
-    /// \brief detaches every consumer and hands the list back to the caller.
+    /// detaches every consumer and hands the list back to the caller.
     ///
-    /// \details The tooling path needs the engine to stop PRINTING for the
-    ///          duration of a parse without losing the driver's own consumer
-    ///          setup. Snapshot with this, install a collector, restore with
-    ///          restore_consumers(). Consumers are non-owning observers here,
-    ///          so moving the list around frees nothing.
+    /// The tooling path needs the engine to stop PRINTING for the
+    /// duration of a parse without losing the driver's own consumer
+    /// setup. Snapshot with this, install a collector, restore with
+    /// restore_consumers(). Consumers are non-owning observers here,
+    /// so moving the list around frees nothing.
     pub fn take_consumers(self) -> cxx::std::vector<unsafe *DiagConsumer> {
         var lock = kairo::std::LockGuard(self._mu)
         var out  = self._consumers
@@ -329,14 +329,14 @@ pub class DiagEngine derives DiagEngineVBase {
         return out
     }
 
-    /// \brief restores a list captured by take_consumers(), dropping whatever
-    ///        is currently attached.
+    /// restores a list captured by take_consumers(), dropping whatever
+    /// is currently attached.
     pub fn restore_consumers(self, cs: cxx::std::vector<unsafe *DiagConsumer>) {
         var lock = kairo::std::LockGuard(self._mu)
         self._consumers = cs
     }
 
-    /// Unregisters \p consumer. Linear scan; expects a small consumer count.
+    /// Unregisters `consumer`. Linear scan; expects a small consumer count.
     pub fn remove_consumer(self, consumer: unsafe *DiagConsumer) {
         var lock       = kairo::std::LockGuard(self._mu)
         var j:   usize = 0
@@ -355,13 +355,13 @@ pub class DiagEngine derives DiagEngineVBase {
         }
     }
 
-    /// \brief renders everything the consumers hold to stderr, now.
+    /// renders everything the consumers hold to stderr, now.
     ///
-    /// \details For the ICE path only: the process aborts next, so the
-    ///          driver's own end-of-run flush (CompilerInstance::flush_errors)
-    ///          never happens, and a diagnostic naming the source that
-    ///          triggered the ICE would die in the buffer. The driver keeps
-    ///          exactly one console consumer attached, so this prints once.
+    /// For the ICE path only: the process aborts next, so the
+    /// driver's own end-of-run flush (CompilerInstance::flush_errors)
+    /// never happens, and a diagnostic naming the source that
+    /// triggered the ICE would die in the buffer. The driver keeps
+    /// exactly one console consumer attached, so this prints once.
     pub fn flush_consumers_for_ice(self) {
         var lock = kairo::std::LockGuard(self._mu)
         // Once: codegen_ice flushes and then ICE_FAILs, and the abort's own
@@ -379,7 +379,7 @@ pub class DiagEngine derives DiagEngineVBase {
 
     /// ## Report
 
-    /// Creates a \c DiagBuilder for a diagnostic at \p loc.
+    /// Creates a `DiagBuilder` for a diagnostic at `loc`.
     pub fn report(self, code: DiagCode, loc: SourceLocation, msg: string) -> DiagBuilder {
         if loc == SourceLocation::invalid() {
             return self.report(code, msg.copy())
@@ -388,12 +388,12 @@ pub class DiagEngine derives DiagEngineVBase {
         return DiagBuilder(&self, code, loc, msg.copy())
     }
 
-    /// Creates a \c DiagBuilder for a location-less diagnostic.
+    /// Creates a `DiagBuilder` for a location-less diagnostic.
     pub fn report(self, code: DiagCode, msg: string) -> DiagBuilder {
         return DiagBuilder(&self, code, msg.copy())
     }
 
-    /// Convenience overloads accepting a raw \c DiagID.
+    /// Convenience overloads accepting a raw `DiagID`.
     pub fn report(self, id: DiagID, loc: SourceLocation, msg: string) -> DiagBuilder {
         if loc == SourceLocation::invalid() {
             return self.report(DiagCode(id), msg.copy())
@@ -408,7 +408,7 @@ pub class DiagEngine derives DiagEngineVBase {
 
     /// ## Poison scopes
 
-    /// Suppresses all errors and warnings of \p category inside \p scope.
+    /// Suppresses all errors and warnings of `category` inside `scope`.
     fn poison(self, category: DiagCategory, scope: SourceRange) {
         var entry = Self::PoisonEntry{}
         entry.category = category
@@ -416,7 +416,7 @@ pub class DiagEngine derives DiagEngineVBase {
         self._poisoned.push_back(entry)
     }
 
-    /// Returns true if \p loc falls inside an active poison scope for \p category.
+    /// Returns true if `loc` falls inside an active poison scope for `category`.
     fn is_poisoned(self, category: DiagCategory, loc: SourceLocation) -> bool {
         for var i: usize = 0; i < self._poisoned.size(); ++i {
             if self._poisoned[i].category == category {
@@ -429,7 +429,7 @@ pub class DiagEngine derives DiagEngineVBase {
         return false
     }
 
-    /// Removes all poison scopes for \p category.
+    /// Removes all poison scopes for `category`.
     fn clear_poison(self, category: DiagCategory) {
         var j: usize = 0
         for var i: usize = 0; i < self._poisoned.size(); ++i {
@@ -454,13 +454,13 @@ pub class DiagEngine derives DiagEngineVBase {
 
     /// ## Emission
 
-    /// Applies suppression rules, updates counters, and forwards \p diag to
-    /// all registered consumers. Takes ownership of \p diag.
+    /// Applies suppression rules, updates counters, and forwards `diag` to
+    /// all registered consumers. Takes ownership of `diag`.
     ///
     /// Suppression order:
     ///   1. Poison scope errors and warnings inside a poisoned range are dropped.
-    ///   2. \c -Werror  warnings are promoted to errors before limit checking.
-    ///   3. Error limit errors and fatals beyond \c _error_limit are counted,
+    ///   2. `-Werror`  warnings are promoted to errors before limit checking.
+    ///   3. Error limit errors and fatals beyond `_error_limit` are counted,
     ///      then dropped.
     fn emit(self, diag: unsafe *Diagnostic) {
         // A task of a parallel phase holding a capture (DiagCapture): the
@@ -693,7 +693,7 @@ pub class DiagEngine derives DiagEngineVBase {
         self._error_limit = limit
     }
 
-    /// Suppresses warnings after \p limit have been delivered. 0 = unlimited.
+    /// Suppresses warnings after `limit` have been delivered. 0 = unlimited.
     pub fn set_warning_limit(self, limit: u32) {
         self._warning_limit = limit
     }
@@ -723,12 +723,12 @@ pub class DiagEngine derives DiagEngineVBase {
         }
     }
 
-    /// Promotes all warnings to errors when \p val is true.
+    /// Promotes all warnings to errors when `val` is true.
     pub fn set_warnings_as_errors(self, val: bool) {
         self._warnings_as_errors = val
     }
 
-    /// Suppresses every Warning-severity diagnostic when \p val is true (\c -w).
+    /// Suppresses every Warning-severity diagnostic when `val` is true (`-w`).
     pub fn set_suppress_all_warnings(self, val: bool) {
         self._suppress_all_warnings = val
     }
@@ -750,13 +750,13 @@ pub class DiagEngine derives DiagEngineVBase {
         return !self._policy.contains(num as u64)
     }
 
-    /// Installs a per-code policy action, keyed by \c diag_policy_key
+    /// Installs a per-code policy action, keyed by `diag_policy_key`
     /// (category + number, severity-letter-agnostic). Last write wins.
     pub fn set_policy(self, code: u32, action: DiagAction) {
         self._policy[code as u64] = action
     }
 
-    /// Returns a copy of \p code re-tagged at \p new_sev. Used to promote a
+    /// Returns a copy of `code` re-tagged at `new_sev`. Used to promote a
     /// warning to an error at the emit choke point.
     ///
     /// Severity is baked into a code\'s identity (the hash encodes
@@ -785,9 +785,9 @@ pub class DiagEngine derives DiagEngineVBase {
 
     /// ## Counters
 
-    /// \brief counts \p warns warnings that were rendered by an earlier
-    ///        run and are replayed as text (Driver/ModuleRecords.k), so the
-    ///        totals and the exit status are the recorded run's.
+    /// counts `warns` warnings that were rendered by an earlier
+    /// run and are replayed as text (Driver/ModuleRecords.k), so the
+    /// totals and the exit status are the recorded run's.
     pub fn add_replayed(self, warns: u32) {
         var lock = kairo::std::LockGuard(self._mu)
         self._warn_count += warns
@@ -805,28 +805,29 @@ pub class DiagEngine derives DiagEngineVBase {
         return self._all_diags.size()
     }
 
-    /// \brief frees every retained diagnostic and resets the counters.
+    /// frees every retained diagnostic and resets the counters.
     ///
-    /// \details For a reparse loop: without this the engine accumulates one
-    ///          full run's diagnostics per pass forever. Counters go with them
-    ///          so error_count() keeps meaning "this pass", which is what the
-    ///          tooling path already assumes when it snapshots the counts
-    ///          around a parse.
+    /// For a reparse loop: without this the engine accumulates one
+    /// full run's diagnostics per pass forever. Counters go with them
+    /// so error_count() keeps meaning "this pass", which is what the
+    /// tooling path already assumes when it snapshots the counts
+    /// around a parse.
     ///
-    /// \warning Invalidates every *Diagnostic previously handed to a consumer.
-    ///          Safe because consumers copy what they need (see ToolDiag) and
-    ///          none retain the pointer   do not call it mid-emit.
-    /// \brief what the engine remembers about files that are about to be
-    ///        checked again in this process (Tooling/LiveCheck.k), taken
-    ///        back: the duplicate filter and the counts become those of
-    ///        \p kept (the diagnostics of every file that is NOT re-checked),
-    ///        and a poison scope survives only where \p keep_poison says so
-    ///        (one flag per scope, in poison_scopes()'s order).
+    /// **Warning:** Invalidates every *Diagnostic previously handed to a consumer.
+    /// Safe because consumers copy what they need (see ToolDiag) and
+    /// none retain the pointer   do not call it mid-emit.
     ///
-    /// \details Without it a re-checked file's unchanged warning is a
-    ///          duplicate of its own previous report and is dropped, an
-    ///          old error's poison scope silences offsets that now hold
-    ///          other text, and the limits count reports that are gone.
+    /// what the engine remembers about files that are about to be
+    /// checked again in this process (Tooling/LiveCheck.k), taken
+    /// back: the duplicate filter and the counts become those of
+    /// `kept` (the diagnostics of every file that is NOT re-checked),
+    /// and a poison scope survives only where `keep_poison` says so
+    /// (one flag per scope, in poison_scopes()'s order).
+    ///
+    /// Without it a re-checked file's unchanged warning is a
+    /// duplicate of its own previous report and is dropped, an
+    /// old error's poison scope silences offsets that now hold
+    /// other text, and the limits count reports that are gone.
     pub fn begin_recheck(self,
                          kept:        *cxx::std::vector<unsafe *Diagnostic>,
                          keep_poison: *cxx::std::vector<u8>) {
@@ -952,7 +953,7 @@ pub class DiagEngine derives DiagEngineVBase {
     /// ## Summary
 
     /// Returns a human-readable summary of emitted diagnostic counts,
-    /// e.g. \c "3 error(s), 1 warning(s), 2 suppressed".
+    /// e.g. `"3 error(s), 1 warning(s), 2 suppressed"`.
     ///
     /// Errors are the DELIVERED ones: the ones over the limit are already in
     /// "suppressed", and error_count() would list them twice.
@@ -995,7 +996,7 @@ pub class DiagEngine derives DiagEngineVBase {
 }
 
 /// While alive, what the calling thread reports to any DiagEngine goes into
-/// \p sink instead (DiagEngine::emit). For a task of a parallel phase whose
+/// `sink` instead (DiagEngine::emit). For a task of a parallel phase whose
 /// diagnostics must reach the engine in a fixed order (WaveExecutor's
 /// walks): the phase drains each task's sink in that order once the tasks
 /// are done. Restores the previous capture however the task ends, so a

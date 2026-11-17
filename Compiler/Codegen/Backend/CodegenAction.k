@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------- Codegen/Backend/CodegenAction.k --- ///
 ///
-///   \brief The clang FrontendAction subclasses that inject the token
-///          stream, one per backend output (EmitKind). Owns the phase-2
-///          sequence, in order:
+/// The clang FrontendAction subclasses that inject the token
+/// stream, one per backend output (EmitKind). Owns the phase-2
+/// sequence, in order:
 ///
 ///            1. base BeginSourceFileAction (sets up PP, sema plumbing)
 ///            2. locmap->rebind               EVERY Kairo fid registered as
@@ -101,15 +101,15 @@ pub fn sema_agree_checks() -> string {
 }
 
 /// Whether the Sema agreement pass reports what it finds (I012W) under
-/// -fsema-agreement's value \p want (1 on, 0 off, -1 not given) and
-/// --test-sema-agreement-quiet's \p quiet: asked for it reports; not
+/// -fsema-agreement's value `want` (1 on, 0 off, -1 not given) and
+/// --test-sema-agreement-quiet's `quiet`: asked for it reports; not
 /// asked, it reports when the compiler's build does so unasked
-/// (kairo::sema_agree_reports_unasked) and \p quiet does not say otherwise.
+/// (kairo::sema_agree_reports_unasked) and `quiet` does not say otherwise.
 pub fn sema_agree_reports(want: i32, quiet: bool) -> bool {
     return want == 1 || want != 0 && !quiet && kairo::sema_agree_reports_unasked()
 }
 
-/// Adds \p sink's records (EmitSink::agree_call, agree_alt) to \p t in
+/// Adds `sink`'s records (EmitSink::agree_call, agree_alt) to `t` in
 /// order, as the walk reads them. After the sink's finish(), when a
 /// token's location is final, and before clang lexes it. A parse of
 /// several sinks (the interface PCH's) adds each in turn: record
@@ -138,7 +138,7 @@ pub fn agree_fill_from(t: unsafe *kairo::SemaAgreeTable, sink: unsafe *TokenSink
     }
 }
 
-/// The INFO line that gives the counts of \p t's walk over \p what (a
+/// The INFO line that gives the counts of `t`'s walk over `what` (a
 /// TU's file, or the interface PCH).
 pub fn agree_log_counts(t: unsafe *kairo::SemaAgreeTable, const what: string) {
     kairo::Logger::info(
@@ -147,9 +147,9 @@ pub fn agree_log_counts(t: unsafe *kairo::SemaAgreeTable, const what: string) {
     )
 }
 
-/// Finding \p i of \p t's walk as it is reported, \p s being the record
-/// of its call. \p ctx spells the name of the declaration Sema chose;
-/// \p locmap is the parse's, for where clang's callee is written.
+/// Finding `i` of `t`'s walk as it is reported, `s` being the record
+/// of its call. `ctx` spells the name of the declaration Sema chose;
+/// `locmap` is the parse's, for where clang's callee is written.
 pub fn agree_finding(t:       unsafe *kairo::SemaAgreeTable,
                      i:       usize,
                      const s: AgreeSite,
@@ -229,13 +229,12 @@ pub fn agree_finding(t:       unsafe *kairo::SemaAgreeTable,
     return f
 }
 
-/// \class KairoInject
-/// \brief The token injection every Kairo codegen action runs after its
-///        base BeginSourceFileAction (steps 2-6 above). Separate from the
-///        actions because clang picks the backend output by SUBCLASS
-///        (CodeGenAction's constructor takes it, and Kairo cannot pass a base
-///        constructor argument), so there is one action per EmitKind and
-///        this is what they share.
+/// The token injection every Kairo codegen action runs after its
+/// base BeginSourceFileAction (steps 2-6 above). Separate from the
+/// actions because clang picks the backend output by SUBCLASS
+/// (CodeGenAction's constructor takes it, and Kairo cannot pass a base
+/// constructor argument), so there is one action per EmitKind and
+/// this is what they share.
 pub class KairoInject {
     pub var filler: *TokenFiller                ///< wired by Backend pre-ExecuteAction
     pub var locmap: unsafe *ClangLocMap         ///< rebound in-action; THE registration point
@@ -346,9 +345,9 @@ pub class KairoInject {
         return true
     }
 
-    /// Turns the Sema agreement pass on for this run unless \p want is 0
-    /// (-fno-sema-agreement). It reports what it finds when \p want is 1
-    /// (-fsema-agreement), or, the flag not given, when \p quiet is false
+    /// Turns the Sema agreement pass on for this run unless `want` is 0
+    /// (-fno-sema-agreement). It reports what it finds when `want` is 1
+    /// (-fsema-agreement), or, the flag not given, when `quiet` is false
     /// and the compiler's build reports unasked
     /// (kairo::sema_agree_reports_unasked); otherwise it only counts.
     /// Before ExecuteAction: the action's consumer takes the table when
@@ -380,9 +379,9 @@ pub class KairoInject {
         agree_fill_from(self.agree, self.sink)
     }
 
-    /// What the walk found, as \p out: one AgreeFinding per disagreement,
-    /// each also reported (I012W) into \p ctx's sink unless the run only
-    /// counts (agree_start). \p path names the TU in the INFO line that
+    /// What the walk found, as `out`: one AgreeFinding per disagreement,
+    /// each also reported (I012W) into `ctx`'s sink unless the run only
+    /// counts (agree_start). `path` names the TU in the INFO line that
     /// gives the walk's counts, which is logged either way.
     fn agree_report(self,
                     ctx:        unsafe *ASTContext,

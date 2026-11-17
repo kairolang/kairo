@@ -199,7 +199,7 @@ extend Server {
         return rw.out.copy()
     }
 
-    /// True when a file of snapshot \p s declares something called \p name.
+    /// True when a file of snapshot `s` declares something called `name`.
     fn snapshot_declares_(const self, s: *const JsonDoc, const name: string) -> bool {
         var f = s->first(s->get(s->root, SK_FILES))
         while f != JSON_NONE() {
@@ -305,7 +305,7 @@ extend Server {
         w->end_object()
     }
 
-    /// The macro row of file node \p f (in \p s) whose invocation holds
+    /// The macro row of file node `f` (in `s`) whose invocation holds
     /// (line, ch), or JSON_NONE.
     fn macro_at(const self, s: *const JsonDoc, f: u32, line: i64, ch: i64) -> u32 {
         var m = s->first(s->get(f, SK_MACROS))

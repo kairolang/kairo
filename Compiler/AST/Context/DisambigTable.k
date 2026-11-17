@@ -44,12 +44,12 @@ pub enum DisambigKind derives u8 {
 
 /// A single entry in the hoisted scope table.
 ///
-/// \c decl is null for declarations originating from C++ FFI use
-/// \c origin for source location in that case.
-/// \c is_foreign is true for symbols introduced via import, not declared
+/// `decl` is null for declarations originating from C++ FFI use
+/// `origin` for source location in that case.
+/// `is_foreign` is true for symbols introduced via import, not declared
 /// locally in the file being indexed.
 ///
-/// \c generic mirrors TemplateParams::is_generic() on the declaring node:
+/// `generic` mirrors TemplateParams::is_generic() on the declaring node:
 /// true iff the decl carries explicit `<T>` type params OR is a Primary
 /// specialization form. Explicit/Partial specializations do NOT set it
 /// genericness of a name is owned by the primary declaration. The zero
@@ -112,8 +112,8 @@ pub class DisambigEntry {
 
 /// One node in the hoisted scope trie.
 ///
-/// \c entries holds names declared at this scope level.
-/// \c children holds nested scopes (modules, classes, enums with variants).
+/// `entries` holds names declared at this scope level.
+/// `children` holds nested scopes (modules, classes, enums with variants).
 ///
 /// Keyed on the u32 imm ident index, WIDENED to u64: lookups arrive
 /// unguarded, and u32(-1) is DenseMap<u32>'s empty key, which asserts even
@@ -138,7 +138,7 @@ pub class DisambigNode {
     // alloc_init_index_cleanup() and torn down through ASTContext's cleanup
     // registry. Defining a no-op op delete here would silently defeat that.
 
-    /// Inserts \p entry under \p name. First declaration wins; duplicates ignored.
+    /// Inserts `entry` under `name`. First declaration wins; duplicates ignored.
     /// Sema will catch redefinition errors with full source context.
     fn insert(self, name: u32, entry: DisambigEntry, ctx: unsafe *ASTContext) {
         var **slot = &self.entries[name]
@@ -149,7 +149,7 @@ pub class DisambigNode {
         (*slot)->push_back(entry)
     }
 
-    /// Returns the child scope for \p name, creating it if absent.
+    /// Returns the child scope for `name`, creating it if absent.
     fn get_or_create_child(self, name: u32, ctx: unsafe *ASTContext) -> unsafe *DisambigNode {
         var unsafe **slot = unsafe &self.children[name]
         if *slot == &null {
@@ -159,7 +159,7 @@ pub class DisambigNode {
         return *slot
     }
 
-    /// Returns the child scope for \p name, or null if absent.
+    /// Returns the child scope for `name`, or null if absent.
     pub fn get_child(self, name: u32) -> unsafe *DisambigNode {
         var unsafe *it = self.children.find(name as u64)
         if it == self.children.end() {
@@ -169,7 +169,7 @@ pub class DisambigNode {
         return it->second
     }
 
-    /// Looks up \p name at this scope level only. Does not search children.
+    /// Looks up `name` at this scope level only. Does not search children.
     fn lookup(self, name: u32) -> unsafe *cxx::std::vector<DisambigEntry> {
         var unsafe *it = self.entries.find(name as u64)
         if it == self.entries.end() {
@@ -278,19 +278,19 @@ pub class LookupResult {
 /// Hierarchical symbol table built by the index pass over a single file
 /// and its transitive imports.
 ///
-/// Structured as a trie of \c DisambigNode instances keyed on the u32 imm ident index.
-/// Lookup for a qualified name like \c foo::bar::Baz costs one hashmap
+/// Structured as a trie of `DisambigNode` instances keyed on the u32 imm ident index.
+/// Lookup for a qualified name like `foo::bar::Baz` costs one hashmap
 /// lookup per segment O(1) per segment, O(depth) total.
 ///
 /// \par Parser API
-/// The parser holds a \c *DisambigTable and calls:
-///   - \c lookup(ident)         for unqualified names
-///   - \c lookup(chain)         for qualified names from a \c ChainExpr
-///   - \c is_type / is_value    for quick boolean disambiguation
-///   - \c enter(name)           to get a child \c DisambigNode for manual walking
+/// The parser holds a `*DisambigTable` and calls:
+///   - `lookup(ident)`         for unqualified names
+///   - `lookup(chain)`         for qualified names from a `ChainExpr`
+///   - `is_type` / is_value    for quick boolean disambiguation
+///   - `enter(name)`           to get a child `DisambigNode` for manual walking
 ///
 /// \par Population
-/// The \c Indexer calls \c insert() and \c insert_into() during the index
+/// The `Indexer` calls `insert()` and `insert_into()` during the index
 /// pass. After the pass completes the scope is read-only.
 pub class DisambigTable {
     priv var _root: DisambigNode
@@ -311,8 +311,8 @@ pub class DisambigTable {
         return self._ctx->get_imm_table()
     }
 
-    /// Interns \p s and returns its imm ident index. String path only prefer
-    /// \c intern_tok when a token is in hand to avoid the byte copy.
+    /// Interns `s` and returns its imm ident index. String path only prefer
+    /// `intern_tok` when a token is in hand to avoid the byte copy.
     pub fn intern(self, const s: string) -> u32 {
         return self._tbl()->intern_ident_copy(s)
     }
@@ -329,16 +329,16 @@ pub class DisambigTable {
 
     /// # Population
 
-    /// Inserts \p entry at root scope under \p name.
+    /// Inserts `entry` at root scope under `name`.
     pub fn insert(self, const name: string, entry: DisambigEntry) {
         var key = self.intern(name)
         entry.name = key
         self._root.insert(key, entry, self._ctx)
     }
 
-    /// Inserts \p entry at the scope reached by walking \p scope_path from root.
+    /// Inserts `entry` at the scope reached by walking `scope_path` from root.
     /// Creates intermediate scope nodes as needed.
-    /// \p scope_path is the sequence of parent names, e.g. ["A", "B"] for A::B::Foo.
+    /// `scope_path` is the sequence of parent names, e.g. ["A", "B"] for A::B::Foo.
     pub fn insert_into(self,
                        @inout scope_path: cxx::std::vector<string>,
                        const name:        string,
@@ -424,9 +424,9 @@ pub class DisambigTable {
     }
 
     /// Walks a qualified name chain and returns the final entry.
-    /// \p segments is the sequence of names from a parsed \c ChainExpr,
+    /// `segments` is the sequence of names from a parsed `ChainExpr`,
     /// e.g. ["foo", "bar", "Baz"] for foo::bar::Baz.
-    /// Returns \c LookupResult::not_found() if any segment is missing.
+    /// Returns `LookupResult::not_found()` if any segment is missing.
     fn lookup(self, segments: unsafe *cxx::std::vector<string>) -> LookupResult {
         if segments->empty() {
             return LookupResult::not_found()
@@ -469,7 +469,7 @@ pub class DisambigTable {
         return result
     }
 
-    /// Returns the child scope node for \p name at root, or null.
+    /// Returns the child scope node for `name` at root, or null.
     /// Used by the parser to manually walk a scope chain one segment at a time.
     fn enter(self, const name: string) -> unsafe *DisambigNode {
         var k = self.intern(name)

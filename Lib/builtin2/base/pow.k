@@ -17,7 +17,7 @@
 /// `: type` rather than a bound: `B` and `E` are only ever primitives and no interface says
 /// "numeric" yet, so C++ checks this one body per instance.
 ///
-/// \see Lib/builtin/base/pow.k
+/// See `Lib/builtin/base/pow.k`.
 priv fn <B: type, E: type> pow(base: B, exp: E) -> B {
     if exp < 0 {
         var inv: B = 1 / base

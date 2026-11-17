@@ -26,15 +26,15 @@ import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 
-/// Fluent builder for constructing and emitting a single \c Diagnostic.
+/// Fluent builder for constructing and emitting a single `Diagnostic`.
 ///
-/// Obtained from \c DiagEngine::report(). Labels, fix-its, and child
-/// diagnostics are attached via chained method calls, and \c emit() hands
+/// Obtained from `DiagEngine::report()`. Labels, fix-its, and child
+/// diagnostics are attached via chained method calls, and `emit()` hands
 /// the diagnostic to the engine, which owns it from then on. A builder
-/// destroyed without \c emit() is a lost diagnostic: the destructor ICEs.
+/// destroyed without `emit()` is a lost diagnostic: the destructor ICEs.
 ///
-/// \note All label and fix-it methods return \c ref!(DiagBuilder) to
-///       support method chaining.
+/// **Note:** All label and fix-it methods return `ref!(DiagBuilder)` to
+/// support method chaining.
 pub class DiagBuilder {
     priv var _engine:  *DiagEngineVBase
     priv var _diag:    unsafe *Diagnostic
@@ -97,7 +97,7 @@ pub class DiagBuilder {
 
     /// ## Labels
 
-    /// Attaches a primary label (\c ^^^) to \p range.
+    /// Attaches a primary label (`^^^`) to `range`.
     pub fn first(self, range: SourceRange, const text: string = "") -> unsafe *Self {
         if self._diag == &null {
             return unsafe &self
@@ -115,7 +115,7 @@ pub class DiagBuilder {
         return unsafe &self
     }
 
-    /// Attaches a secondary label (\c +++) to \p range.
+    /// Attaches a secondary label (`+++`) to `range`.
     pub fn second(self, range: SourceRange, const text: string = "") -> unsafe *Self {
         if self._diag == &null {
             return unsafe &self
@@ -133,7 +133,7 @@ pub class DiagBuilder {
         return unsafe &self
     }
 
-    /// Attaches a highlight label (\c ---) to \p range.
+    /// Attaches a highlight label (`---`) to `range`.
     fn highlight(self, range: SourceRange, const text: string = "") -> unsafe *Self {
         if self._diag == &null {
             return unsafe &self
@@ -151,8 +151,8 @@ pub class DiagBuilder {
         return unsafe &self
     }
 
-    /// Attaches a strikethrough label (\c ~~~) to \p range.
-    /// Rendered with Unicode combining strikethrough in \c PrettyConsumer;
+    /// Attaches a strikethrough label (`~~~`) to `range`.
+    /// Rendered with Unicode combining strikethrough in `PrettyConsumer`;
     /// falls back to ASCII in all other consumers.
     fn strike(self, range: SourceRange, const text: string = "") -> unsafe *Self {
         if self._diag == &null {
@@ -173,9 +173,9 @@ pub class DiagBuilder {
 
     /// ## Fix-its
 
-    /// Attaches a fix-it that replaces \p range with \p replacement.
-    /// \p msg is shown to the user describing the intent of the edit.
-    /// Replace \p range with \p replacement (the general edit).
+    /// Attaches a fix-it that replaces `range` with `replacement`.
+    /// `msg` is shown to the user describing the intent of the edit.
+    /// Replace `range` with `replacement` (the general edit).
     pub fn fix(self,
                range:             SourceRange,
                const replacement: string,
@@ -197,7 +197,7 @@ pub class DiagBuilder {
         return unsafe &self
     }
 
-    /// Delete \p range (no insertion).
+    /// Delete `range` (no insertion).
     pub fn remove(self, range: SourceRange, const msg: string) -> unsafe *Self {
         if self._diag == &null {
             return unsafe &self
@@ -230,7 +230,7 @@ pub class DiagBuilder {
         return unsafe &self
     }
 
-    /// Attaches a fix-it that inserts \p text at \p loc (zero-length replacement).
+    /// Attaches a fix-it that inserts `text` at `loc` (zero-length replacement).
     pub fn insert(self,
                   loc:        SourceLocation,
                   const text: string,
@@ -259,7 +259,7 @@ pub class DiagBuilder {
     /// ## Child diagnostics
 
     /// The one child adder: a dropped builder attaches nothing, and an
-    /// invalid \p loc makes a child with no location.
+    /// invalid `loc` makes a child with no location.
     priv fn _add_child(self, code: DiagCode, loc: SourceLocation, msg: string) -> unsafe *Self {
         if self._diag == &null {
             return unsafe &self
@@ -489,8 +489,8 @@ pub class DiagBuilder {
 
     /// ## Emission
 
-    /// Emits the diagnostic to \c DiagEngineVBase. Idempotent subsequent calls
-    /// are no-ops. Ownership of \c _diag transfers to the engine.
+    /// Emits the diagnostic to `DiagEngineVBase`. Idempotent subsequent calls
+    /// are no-ops. Ownership of `_diag` transfers to the engine.
     pub fn emit(self) {
         if self._emitted {
             return
@@ -507,8 +507,8 @@ pub class DiagBuilder {
 
     /// ## Destructor
 
-    /// Emits the diagnostic if \c emit() was never called explicitly.
-    /// If the builder was never emitted and emit fails, \c _diag is freed
+    /// Emits the diagnostic if `emit()` was never called explicitly.
+    /// If the builder was never emitted and emit fails, `_diag` is freed
     /// to avoid a leak.
     fn op finally (self) {
         if !self._emitted {

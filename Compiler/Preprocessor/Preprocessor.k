@@ -88,8 +88,8 @@ pub struct PPResult {
     pub var builtin_fid: u32 = u32::MAX
 }
 
-/// \p to is \p from or one of the files \p from's imports reach in
-/// \p graph.
+/// `to` is `from` or one of the files `from`'s imports reach in
+/// `graph`.
 fn _graph_reaches(graph: *DepGraph, from: u32, to: u32) -> bool {
     var seen = llvm::DenseSet<u64>()
     var work = cxx::std::vector<u32>()
@@ -191,13 +191,13 @@ pub class PreProcessor {
         self._register_defines()
     }
 
-    /// \brief pre-registers `-D NAME[=VALUE]` as parameterless, pub, global-scope
-    ///        macros before any file is walked. Runs once, from the constructor
-    ///        not from preprocess(), since preprocess() runs once per input file
-    ///        and a second registration attempt would just be silently dropped by
-    ///        MacroTable::register's duplicate check while still reallocating
-    ///        _define_storage (dangling every buffer load_virtual already handed
-    ///        out for the first pass).
+    /// pre-registers `-D NAME[=VALUE]` as parameterless, pub, global-scope
+    /// macros before any file is walked. Runs once, from the constructor
+    /// not from preprocess(), since preprocess() runs once per input file
+    /// and a second registration attempt would just be silently dropped by
+    /// MacroTable::register's duplicate check while still reallocating
+    /// _define_storage (dangling every buffer load_virtual already handed
+    /// out for the first pass).
     ///
     ///        Each value gets its own virtual file (SourceManager::load_virtual)
     ///        so it goes through the SAME lex path a real macro body would,
@@ -243,13 +243,13 @@ pub class PreProcessor {
         }
     }
 
-    /// \brief `NAME` as `-D NAME` would define it (to `1`), after
-    ///        construction: the driver's macros it decides on only once the
-    ///        inputs are loaded (__KAIRO_GLOBAL_ALLOCATOR_SET). Must run before
-    ///        any file is walked, as _register_defines does, or the files
-    ///        already walked never saw it. The value is a member of its own,
-    ///        never _define_storage, whose growth would dangle the buffers
-    ///        already handed to load_virtual; so this holds ONE such macro.
+    /// `NAME` as `-D NAME` would define it (to `1`), after
+    /// construction: the driver's macros it decides on only once the
+    /// inputs are loaded (__KAIRO_GLOBAL_ALLOCATOR_SET). Must run before
+    /// any file is walked, as _register_defines does, or the files
+    /// already walked never saw it. The value is a member of its own,
+    /// never _define_storage, whose growth would dangle the buffers
+    /// already handed to load_virtual; so this holds ONE such macro.
     pub fn define_late(self, const name: string) {
         if self._late_define_used {
             return
@@ -261,7 +261,7 @@ pub class PreProcessor {
         self._register_define(name, self._late_define_value)
     }
 
-    /// One `-D NAME` whose value bytes are \p stored (kept alive by the
+    /// One `-D NAME` whose value bytes are `stored` (kept alive by the
     /// caller for the run): its own virtual file, lexed as a macro body.
     priv fn _register_define(self, const name: string, const stored: cxx::std::string) {
         {
@@ -354,16 +354,16 @@ pub class PreProcessor {
         return self._sym
     }
 
-    /// \brief drops \p fid from the walked set so a later preprocess() will
-    ///        walk it again.
+    /// drops `fid` from the walked set so a later preprocess() will
+    /// walk it again.
     ///
-    /// \details _walked is the DAG dedup: within one batch a fid shared by two
-    ///          inputs is preprocessed once. That is correct for a batch, where
-    ///          nothing is ever released, and WRONG the moment a fid's
-    ///          artifacts are torn down   the walk is what creates the
-    ///          ASTContext and the TranslationUnit, so a released-then-reparsed
-    ///          fid that is still marked walked comes back with no context at
-    ///          all and only the diagnostics its importers happened to raise.
+    /// _walked is the DAG dedup: within one batch a fid shared by two
+    /// inputs is preprocessed once. That is correct for a batch, where
+    /// nothing is ever released, and WRONG the moment a fid's
+    /// artifacts are torn down   the walk is what creates the
+    /// ASTContext and the TranslationUnit, so a released-then-reparsed
+    /// fid that is still marked walked comes back with no context at
+    /// all and only the diagnostics its importers happened to raise.
     ///
     ///          This has been load-bearing in reverse: because release(Loading)
     ///          also dropped the SourceManager entry, every reparse minted a
@@ -372,14 +372,15 @@ pub class PreProcessor {
     ///          Keeping a fid stable across a release is only correct once the
     ///          walked set is invalidated with it.
     ///
-    /// \note ALSO drops this fid's macros. MacroEntry::decl is an obs<MacroDecl>
-    ///       into the fid's ASTContext, so entries must not outlive it. Leaving
-    ///       them is worse than a dangling read: register()'s duplicate check
-    ///       keeps the FIRST entry for a (scope, name) and destroys the later
-    ///       one, so the next walk's freshly-built macro is discarded in favour
-    ///       of the stale one and the table converges on all-dangling decls.
+    /// **Note:** ALSO drops this fid's macros. MacroEntry::decl is an obs<MacroDecl>
+    /// into the fid's ASTContext, so entries must not outlive it. Leaving
+    /// them is worse than a dangling read: register()'s duplicate check
+    /// keeps the FIRST entry for a (scope, name) and destroys the later
+    /// one, so the next walk's freshly-built macro is discarded in favour
+    /// of the stale one and the table converges on all-dangling decls.
     ///
-    /// \return false if \p fid was neither walked nor had macros.
+    /// ### Returns
+    /// false if `fid` was neither walked nor had macros.
     pub fn forget(self, fid: u32) -> bool {
         var dropped = self._macros->forget_fid(fid)
 
@@ -396,16 +397,16 @@ pub class PreProcessor {
         return self._macros->size()
     }
 
-    /// \brief clears the whole walked set. For a full batch reset.
+    /// clears the whole walked set. For a full batch reset.
     fn forget_all(self) {
         var wlock = kairo::std::UniqueLock(self._walked_mu)
         self._walked.clear()
     }
 
-    /// \brief every fid \p entry_fid's own imports reach, itself included:
-    ///        the scan preprocess() starts with, without the prelude or
-    ///        --force-include, and without walking anything. For ordering
-    ///        the batch's inputs before the first walk (CompilerInstance).
+    /// every fid `entry_fid`'s own imports reach, itself included:
+    /// the scan preprocess() starts with, without the prelude or
+    /// --force-include, and without walking anything. For ordering
+    /// the batch's inputs before the first walk (CompilerInstance).
     pub fn reach(self, entry_fid: u32) -> cxx::std::set<u32> {
         var scanner = DepScanner(
             self._sm,
@@ -437,20 +438,21 @@ pub class PreProcessor {
         return graph.all_fids
     }
 
-    /// \brief true if \p fid has already been walked in this batch.
+    /// true if `fid` has already been walked in this batch.
     fn has_walked(self, fid: u32) -> bool {
         var rlock = kairo::std::SharedLock(self._walked_mu)
         return self._walked.contains(fid as u64)
     }
 
-    /// \brief preprocesses exactly one fid: lex it, walk it, build its
-    ///        ASTContext and TranslationUnit.
+    /// preprocesses exactly one fid: lex it, walk it, build its
+    /// ASTContext and TranslationUnit.
     ///
-    /// \details The unit of work the wave executor dispatches, factored out so
-    ///          a single file can be re-walked without re-walking the graph
-    ///          around it (see preprocess_one).
+    /// The unit of work the wave executor dispatches, factored out so
+    /// a single file can be re-walked without re-walking the graph
+    /// around it (see preprocess_one).
     ///
-    /// \return false if the fid was already walked, too large, or would not lex.
+    /// ### Returns
+    /// false if the fid was already walked, too large, or would not lex.
     priv fn _walk_one(self, fid: u32, mod_path: ModulePath) -> bool {
         {
             // claim-on-entry is safe ONLY because execute() runs input files
@@ -581,8 +583,8 @@ pub class PreProcessor {
         return true
     }
 
-    /// Folds builtin::num::<\p leaf> (an f256 / f512 class file) into the
-    /// graph for \p users, the files the scan saw name its type. The graph
+    /// Folds builtin::num::<`leaf>` (an f256 / f512 class file) into the
+    /// graph for `users`, the files the scan saw name its type. The graph
     /// edge orders the walk; _walk_one then gives each user a prelude-shaped
     /// wildcard import of the file (PPWalker::add_implicit_import), whose
     /// edge orders Sema: the class's N binds its lang item and the
@@ -729,26 +731,26 @@ pub class PreProcessor {
         }
     }
 
-    /// \brief re-walks ONE fid, leaving the rest of the import graph alone.
+    /// re-walks ONE fid, leaving the rest of the import graph alone.
     ///
-    /// \details The single-file reparse path. No DepScanner, no wave executor,
-    ///          no graph: just this file's own lex + walk, against the macro
-    ///          and symbol tables the rest of the graph already populated.
+    /// The single-file reparse path. No DepScanner, no wave executor,
+    /// no graph: just this file's own lex + walk, against the macro
+    /// and symbol tables the rest of the graph already populated.
     ///
-    ///          DELIBERATELY PARTIAL. The imports of \p fid are NOT re-resolved
+    ///          DELIBERATELY PARTIAL. The imports of `fid` are NOT re-resolved
     ///          or re-walked. If the edit added an import, the target is not
     ///          pulled in and names from it will not resolve   report it rather
     ///          than assume a full preprocess happened. Callers that need the
     ///          graph re-examined must run preprocess() instead.
     ///
-    /// \pre \p fid must have been forgotten first (CompilerInstance::invalidate
-    ///      does this), otherwise the walked-set check refuses and this is a
-    ///      no-op returning false.
+    /// **Precondition:** `fid` must have been forgotten first (CompilerInstance::invalidate
+    /// does this), otherwise the walked-set check refuses and this is a
+    /// no-op returning false.
     pub fn preprocess_one(self, fid: u32, const mod_path: ModulePath) -> bool {
         return self._walk_one(fid, mod_path)
     }
 
-    /// The `import` in \p from that names \p to, as the walk recorded it,
+    /// The `import` in `from` that names `to`, as the walk recorded it,
     /// or an invalid range when there is none.
     priv fn _import_range(self, from: u32, to: u32) -> SourceRange {
         var unsafe *ctx = self._gscope->get_context(from)
@@ -769,7 +771,7 @@ pub class PreProcessor {
         return SourceRange::invalid()
     }
 
-    /// An import cycle (modules.mdx, Circular Dependencies). \p cyc is its
+    /// An import cycle (modules.mdx, Circular Dependencies). `cyc` is its
     /// files in import order, the last importing the first (DepGraph::
     /// cycles). A cycle compiles, but is warned about (R058W): no module on
     /// it can be read, built or tested without the others. -fno-import-
@@ -876,10 +878,10 @@ pub class PreProcessor {
         b.emit()
     }
 
-    /// \brief no ffi header is handed to clang from here on: a walk records
-    ///        the header list and builds no HeaderSet. For --syntax-only,
-    ///        which never reaches the Sema that reads one; the cache
-    ///        stays the CompilerInstance's.
+    /// no ffi header is handed to clang from here on: a walk records
+    /// the header list and builds no HeaderSet. For --syntax-only,
+    /// which never reaches the Sema that reads one; the cache
+    /// stays the CompilerInstance's.
     pub fn drop_headers(self) {
         self._headers = &null
     }

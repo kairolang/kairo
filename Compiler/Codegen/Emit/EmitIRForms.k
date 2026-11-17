@@ -65,7 +65,7 @@ import Location::SourceRange::SourceRange
 import Token::TokenKind::TokenKind
 
 extend EmitIR {
-    /// Integer arithmetic on \p t wraps: a builtin integer or `char`,
+    /// Integer arithmetic on `t` wraps: a builtin integer or `char`,
     /// through a C++ reference (an imported `operator[]`'s `int&`). Not bool.
     prot fn _wraps(self, t: unsafe *Type) -> bool {
         var unsafe *c = Speller::strip_ref(t)
@@ -129,7 +129,7 @@ extend EmitIR {
         return d != &null && self._is_local(d)
     }
 
-    /// \p e names an object with no effect to repeat: a name, a field path
+    /// `e` names an object with no effect to repeat: a name, a field path
     /// off one, or a dereference of one.
     priv fn _simple_object(self, e: unsafe *Expr) -> bool {
         var unsafe *x = self._strip(e)
@@ -161,7 +161,7 @@ extend EmitIR {
         return false
     }
 
-    /// \p e is `obj.f` (one step or more) with f a bit-field: the chain, else null.
+    /// `e` is `obj.f` (one step or more) with f a bit-field: the chain, else null.
     priv fn _bitfield_chain(self, e: unsafe *Expr) -> unsafe *ChainExpr {
         var unsafe *c = dyn_cast<ChainExpr>(e)
         if c == &null || c->steps.size() == 0 {
@@ -242,7 +242,7 @@ extend EmitIR {
         return b
     }
 
-    /// Binary op \p k on integer type \p t has a wrap form (\p t is the
+    /// Binary op `k` on integer type `t` has a wrap form (`t` is the
     /// node's type): `+ - * / % << >>`, and `& | ^` narrower than int.
     prot fn _has_wrap_form(self, k: TokenKind, t: unsafe *Type) -> bool {
         if k == TokenKind::OpPlus || k == TokenKind::OpMinus || k == TokenKind::OpStar {
@@ -325,8 +325,8 @@ extend EmitIR {
         }
     }
 
-    /// The value of op \p k (a wrap-form binary op) on T = \p t, the
-    /// operands emitted by \p a and \p b. A division binds its operands
+    /// The value of op `k` (a wrap-form binary op) on T = `t`, the
+    /// operands emitted by `a` and `b`. A division binds its operands
     /// (_div_form); every other form is pure (an operand once).
     prot fn _op_form(self, at: SourceRange, k: TokenKind, a: fn(), b: fn(), t: unsafe *Type) {
         if k == TokenKind::OpSlash || k == TokenKind::OpPercent {
@@ -374,7 +374,7 @@ extend EmitIR {
         s->spell(at, "))")
     }
 
-    /// `a << b` / `a >> b` on integer T = \p t (SHIFT spec §1, §3.1): the
+    /// `a << b` / `a >> b` on integer T = `t` (SHIFT spec §1, §3.1): the
     /// count, converted to the carrier U, is taken modulo R, the register
     /// width (Speller::reg_width: 32 below 32 bits), and the shift is done
     /// in R bits and truncated to T. `& (R - 1)` is the mask the carrier's
@@ -383,7 +383,7 @@ extend EmitIR {
     /// instruction for it (two on ARMv6-M, which must load the 31). A narrow
     /// T masks by 31, not W - 1, for the same reason: `u8 << 9` is 0.
     /// `<<` and a logical `>>` shift the carrier; an arithmetic `>>` the
-    /// left operand sign-extended to R_T (C++20 defines it). \p proven is
+    /// left operand sign-extended to R_T (C++20 defines it). `proven` is
     /// the node's no_wrap (§4): the count is known to be in [0, W), so the
     /// mask is left out, and the shift is still UB-free.
     prot fn _shift_form(self,
@@ -425,7 +425,7 @@ extend EmitIR {
         s->spell(at, "))")
     }
 
-    /// \p at lies in a file under the builtins or std root.
+    /// `at` lies in a file under the builtins or std root.
     priv fn _in_lib_root(self, at: SourceRange) -> bool {
         var unsafe *ctx = self._cg->ctx
         if ctx->sm == &null || ctx->ci == &null || !at.start.is_valid() {

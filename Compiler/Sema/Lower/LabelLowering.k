@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------- Sema/Lower/LabelLowering.k --- ///
 ///
-///   \brief `break L` and `continue L` become gotos; the label on the loop
-///          goes away.
+/// `break L` and `continue L` become gotos; the label on the loop
+/// goes away.
 ///
 ///   \detail
 ///       L: while c { BODY }
@@ -186,7 +186,7 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
         self._depth += 1
     }
 
-    /// The innermost enclosing labeled loop named like \p label.
+    /// The innermost enclosing labeled loop named like `label`.
     priv fn _find(self, label: Token) -> usize {
         var name = self.sc->ctx->get_spelling(label)
         var i    = self._depth

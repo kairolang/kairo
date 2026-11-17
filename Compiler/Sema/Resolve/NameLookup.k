@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------------- Sema/Resolve/NameLookup.k --- ///
 ///
-///   \brief THE shared lookup core. NameResolution (N) and TypeResolution
-///          (T) both stand on these four primitives; neither pass owns
-///          private lookup logic. A component on SemaContext, not a pass.
+/// THE shared lookup core. NameResolution (N) and TypeResolution
+/// (T) both stand on these four primitives; neither pass owns
+/// private lookup logic. A component on SemaContext, not a pass.
 ///
 ///   Import direction: this file imports AST only. SemaContext imports
 ///   this; passes reach it via sc->lookup. It must never import
@@ -46,9 +46,8 @@ import AST::Node::Declarations::{
 import AST::OperatorFacts::op_decl_name
 import Lexer::Immediate::ImmediateTable
 
-/// \class SemaLookupResult
-/// \brief One lookup's outcome: the frozen cell + where it was found.
-///        Ephemeral by law (see file header).
+/// One lookup's outcome: the frozen cell + where it was found.
+/// Ephemeral by law (see file header).
 pub class SemaLookupResult {
     pub var cell:        unsafe *OverloadCell = &null ///< null = not found.
     pub var found_in:    unsafe *DeclContext  = &null ///< scope that answered.
@@ -81,8 +80,7 @@ pub class SemaLookupResult {
     }
 }
 
-/// \class NameLookup
-/// \brief The four lookup primitives over frozen dc_symbols + overlay.
+/// The four lookup primitives over frozen dc_symbols + overlay.
 ///
 ///        1. in_context   : one scope, no walk.
 ///        2. unqualified  : DC parent chain, then TU import_overlay, miss.
@@ -268,12 +266,12 @@ pub class NameLookup {
         return SemaLookupResult::not_found()
     }
 
-    /// unqualified() for an identifier met while walking a body: \p imm in
-    /// the walking TU's table \p imms, from scope \p from. \p ool is the
+    /// unqualified() for an identifier met while walking a body: `imm` in
+    /// the walking TU's table `imms`, from scope `from`. `ool` is the
     /// scope an out-of-line definition was written in while its body is
     /// walked and its owning scope is another TU's, else null. Only a walk
     /// that STARTS in that foreign owning chain goes through
-    /// unqualified_out_of_line; one that starts in a scope of \p ool's own
+    /// unqualified_out_of_line; one that starts in a scope of `ool`'s own
     /// TU keys correctly as it is.
     fn unqualified_in_body(self,
                            from: unsafe *DeclContext,
@@ -298,11 +296,11 @@ pub class NameLookup {
     /// a header. Two halves, in C++'s order for a member body:
     ///
     ///   1. the owning chain (the class, its enclosing namespaces), probed by
-    ///      \p spelling: each of those tables is keyed by the HEADER TU's imms,
+    ///      `spelling`: each of those tables is keyed by the HEADER TU's imms,
     ///      and this TU's imm there is a silent wrong answer (`other()` found
     ///      S's `f`). The walk stops before the header's FILE scope and never
     ///      reads its overlay: those are that file's names, not this one's.
-    ///   2. on a miss, \p lexical -- the scope the definition was WRITTEN in --
+    ///   2. on a miss, `lexical` -- the scope the definition was WRITTEN in --
     ///      through plain unqualified(), which reaches this file's own scope
     ///      and overlay. Without it a free function beside the definition was
     ///      invisible from inside it.
@@ -395,7 +393,7 @@ pub class NameLookup {
     /// the first-written block answers first.
     ///
     /// Appends nothing for a non-module, so a caller can invoke it
-    /// unconditionally on any scope's owner. A scope already in \p out is
+    /// unconditionally on any scope's owner. A scope already in `out` is
     /// not appended again: two candidates of one ring (a cell holding both
     /// reopenings) would otherwise push the ring twice.
     static fn module_scopes(d: unsafe *Decl, @inout out: cxx::std::vector<unsafe *DeclContext>) {
@@ -477,7 +475,7 @@ pub class NameLookup {
     }
 
     /// Every link of `d`'s redeclaration ring, in insertion order, into
-    /// \p out. One element (just `d`) for a non-redeclarable kind or an
+    /// `out`. One element (just `d`) for a non-redeclarable kind or an
     /// unlinked decl.
     ///
     /// The ring is not the cell. A cell holds what a SCOPE declares; a ring
@@ -487,8 +485,8 @@ pub class NameLookup {
     /// definitions is a cell of size 1 and a ring of size 3.
     ///
     /// Ring walks go through here: a link is never null and the ring always
-    /// closes on its head (Redeclarable), so a caller iterates \p out and
-    /// needs no step bound of its own. Appends; \p out is not cleared.
+    /// closes on its head (Redeclarable), so a caller iterates `out` and
+    /// needs no step bound of its own. Appends; `out` is not cleared.
     pub static fn collect_chain(d: unsafe *Decl, @inout out: cxx::std::vector<unsafe *Decl>) {
         if d == &null {
             return
@@ -569,10 +567,10 @@ pub class NameLookup {
         return false
     }
 
-    /// The name member function \p f, written in the file of \p ctx, has in
-    /// the table of \p home: the operator key for `fn op` (the `l` / `r`
+    /// The name member function `f`, written in the file of `ctx`, has in
+    /// the table of `home`: the operator key for `fn op` (the `l` / `r`
     /// marker of `++` / `--` is no part of it), the constructor key when
-    /// \p home is a type and \p f is named after it, else its identifier.
+    /// `home` is a type and `f` is named after it, else its identifier.
     /// The parser keys the table by the same rule (ASTParse::
     /// _index_symbol_decl), which is what lets an out-of-line definition
     /// find its declaration.
@@ -609,7 +607,7 @@ pub class NameLookup {
 
     /// # Primitive 4: one qualified segment
 
-    /// Resolve `<prev>::name` where \p prev is the decl the previous
+    /// Resolve `<prev>::name` where `prev` is the decl the previous
     /// segment bound to. Redecl-chain note: the definition's context is
     /// reached through whichever link the previous segment bound; N(a)
     /// links chains before N(b) binds, so canonical/most-recent choice is

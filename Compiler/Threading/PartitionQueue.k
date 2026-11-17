@@ -25,37 +25,28 @@ import Threading::Task::Task
 pub
 const DEFAULT_QUEUE_SIZE: usize = 1 << 14
 
+/// Lock-free circular buffer for per-thread task storage.
 ///
-/// \class PartitionQueue
-///
-/// \brief Lock-free circular buffer for per-thread task storage.
-///
-/// \details
 /// Implements a cache-aligned ring buffer with atomic sequence counters for
-///     enqueue/dequeue coordination. Each queue supports concurrent
-///     producers and consumers through relaxed atomic operations.
-///     `push()` and `pop()` follow a bounded MPMC pattern using
-///     `compare_exchange_weak` for contention resolution, while `steal()`
-///     allows cross-queue task acquisition.
+/// enqueue/dequeue coordination. Each queue supports concurrent
+/// producers and consumers through relaxed atomic operations.
+/// `push()` and `pop()` follow a bounded MPMC pattern using
+/// `compare_exchange_weak` for contention resolution, while `steal()`
+/// allows cross-queue task acquisition.
 ///
-/// \warning
-///   - Capacity must be a power of two.
-///   - Each cell maintains a monotonic sequence to prevent ABA hazards.
+/// **Warning:**
+/// - Capacity must be a power of two.
+/// - Each cell maintains a monotonic sequence to prevent ABA hazards.
 ///
-/// \see Task, ThreadPool
-///
+/// See Task, ThreadPool.
 pub class PartitionQueue {
+    /// Cache-aligned storage cell for a single task entry in the
+    /// partitioned queue.
     ///
-    /// \struct ThreadPool::PartitionQueue::Cell
-    ///
-    /// \brief Cache-aligned storage cell for a single task entry in the
-    ///        partitioned queue.
-    ///
-    /// \details
     /// The `Cell` struct represents one slot in the lock-free circular
-    ///     buffer backing each `PartitionQueue`. Each cell maintains an
-    ///     atomic sequence counter and a stored `Task`, ensuring proper
-    ///     synchronization between producers and consumers without locks.
+    /// buffer backing each `PartitionQueue`. Each cell maintains an
+    /// atomic sequence counter and a stored `Task`, ensuring proper
+    /// synchronization between producers and consumers without locks.
     ///
     /// The `seq` field acts as a ticket system:
     ///     - When `seq == position`, the cell is available for enqueue.
@@ -84,14 +75,14 @@ pub class PartitionQueue {
     ///       ordering guarantees are enforced externally by producer/
     ///       consumer operations in `push()` and `pop()`.
     ///
-    /// \warning
-    ///     - Instances must not be copied.
-    ///     - Sequence counter integrity must be maintained; modifying `seq`
-    ///       directly outside queue operations can lead to corruption.
-    ///     - Cache-line alignment (`CACHE_LINE`) is mandatory for avoiding
-    ///       performance degradation due to false sharing.
+    /// **Warning:**
+    /// - Instances must not be copied.
+    /// - Sequence counter integrity must be maintained; modifying `seq`
+    /// directly outside queue operations can lead to corruption.
+    /// - Cache-line alignment (`CACHE_LINE`) is mandatory for avoiding
+    /// performance degradation due to false sharing.
     ///
-    /// \see PartitionQueue, Task, ThreadPool
+    /// See PartitionQueue, Task, ThreadPool.
     ///
     /// The cell is Native/Thread.hh's SeqCell: Kairo has no `alignas`, and
     /// its move has to relax through the atomic counter.
@@ -104,21 +95,19 @@ pub class PartitionQueue {
     priv var _enqueue_pos: kairo::std::Atomic<u64> = kairo::std::Atomic<u64>(0)
     priv var _dequeue_pos: kairo::std::Atomic<u64> = kairo::std::Atomic<u64>(0)
 
+    /// Constructs a partitioned queue with the specified capacity.
     ///
-    /// \brief Constructs a partitioned queue with the specified capacity.
+    /// ### Parameters
+    /// - `cap_req`: Desired capacity (rounded up to next power of two).
     ///
-    /// \param cap_req Desired capacity (rounded up to next power of two).
-    ///
-    /// \details
     /// Allocates and initializes the internal circular buffer to the
-    ///     smallest power-of-two size greater than or equal to `cap_req`.
-    ///     Each cell's sequence counter is initialized to its index to
-    ///     establish the initial empty state.
+    /// smallest power-of-two size greater than or equal to `cap_req`.
+    /// Each cell's sequence counter is initialized to its index to
+    /// establish the initial empty state.
     ///
-    /// \warning Capacity must be a power of two for correct operation.
+    /// **Warning:** Capacity must be a power of two for correct operation.
     ///
-    /// \see push, pop, steal
-    ///
+    /// See push, pop, steal.
     fn PartitionQueue(self) {
         var cap_req: usize = DEFAULT_QUEUE_SIZE
         var c:       usize = 1
@@ -152,13 +141,15 @@ pub class PartitionQueue {
         }
     }
 
+    /// Inserts a task into the queue.
     ///
-    /// \brief Inserts a task into the queue.
+    /// ### Parameters
+    /// - `v`: Task to enqueue (moved on success).
     ///
-    /// \param v Task to enqueue (moved on success).
-    /// \return `true` if the task was successfully enqueued, otherwise `false` if full.
+    /// ### Returns
+    /// `true` if the task was successfully enqueued, otherwise `false` if full.
     ///
-    /// \p v is moved from only when the push succeeds (it returns true), and
+    /// `v` is moved from only when the push succeeds (it returns true), and
     /// the caller keeps it whole across a failed attempt.
     inline fn push(self, @inout v: Task) -> bool {
         var pos = self._enqueue_pos.load(kairo::std::MemoryOrder::relaxed)
@@ -190,12 +181,13 @@ pub class PartitionQueue {
         }
     }
 
+    /// Removes a task from the queue.
     ///
-    /// \brief Removes a task from the queue.
+    /// ### Parameters
+    /// - `out`: Pointer to receive dequeued task.
     ///
-    /// \param out Pointer to receive dequeued task.
-    /// \return `true` if successful, `false` if queue is empty.
-    ///
+    /// ### Returns
+    /// `true` if successful, `false` if queue is empty.
     inline fn pop(self, out: *Task) -> bool {
         var pos = self._dequeue_pos.load(kairo::std::MemoryOrder::relaxed)
 
@@ -229,12 +221,13 @@ pub class PartitionQueue {
         }
     }
 
+    /// Attempts to steal a task from the queue.
     ///
-    /// \brief Attempts to steal a task from the queue.
+    /// ### Parameters
+    /// - `out`: Pointer to receive stolen task.
     ///
-    /// \param out Pointer to receive stolen task.
-    /// \return `true` if a task was stolen, otherwise `false`.
-    ///
+    /// ### Returns
+    /// `true` if a task was stolen, otherwise `false`.
     inline fn steal(self, out: *Task) -> bool {
         return self.pop(out)
     }

@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------- Lib/builtin/num/softfloat_text.k --- ///
 ///
-///   \brief Decimal text for the software floats: correctly rounded
-///          parsing (decimal and hex), and the shortest round-trip and
-///          fixed-precision digits the f-string formatter lays out.
+/// Decimal text for the software floats: correctly rounded
+/// parsing (decimal and hex), and the shortest round-trip and
+/// fixed-precision digits the f-string formatter lays out.
 ///
 ///   \detail
 ///     Both directions reduce to one question: where does x * 10^t fall

@@ -1,6 +1,6 @@
 /// --- The Kairo Project -------------------- Sema/Foreign/TypeImport.k --- ///
 ///
-///   \brief clang::QualType -> Kairo CANONICAL type.
+/// clang::QualType -> Kairo CANONICAL type.
 ///
 ///   \detail
 ///     Always through `getCanonicalType()` first: canonical identity on the
@@ -241,7 +241,7 @@ pub class TypeImport {
 
     /// # the mapping
 
-    /// Canonical for \p qt, never null: anything unmappable is opaque.
+    /// Canonical for `qt`, never null: anything unmappable is opaque.
     fn _import(self, qt_in: clang::QualType) -> unsafe *Type {
         var unsafe *ps = self._pointer_sized(qt_in)
         if ps != &null {
@@ -279,18 +279,18 @@ pub class TypeImport {
         return self._map(qt_in.getCanonicalType())
     }
 
-    /// usize / isize, cv included, when \p qt is spelled through a
+    /// usize / isize, cv included, when `qt` is spelled through a
     /// pointer-sized typedef; null otherwise.
     ///
-    /// \details canonicalizing first reads `size_t` as `unsigned long`, i.e.
-    ///          u64 -- right width, wrong type: usize does not convert to u64
-    ///          implicitly, so every `size_t` parameter rejected a usize
-    ///          argument. The typedef is the only record of which one C
-    ///          meant, so it is read off the sugar before it is dropped. By
-    ///          name, as C spells them; `std::size_t` is an alias of
-    ///          `::size_t` and is found by walking on. Only a type that
-    ///          arrives sugared benefits: a pointee is canonical by the time
-    ///          the pointer arm maps it.
+    /// canonicalizing first reads `size_t` as `unsigned long`, i.e.
+    /// u64 -- right width, wrong type: usize does not convert to u64
+    /// implicitly, so every `size_t` parameter rejected a usize
+    /// argument. The typedef is the only record of which one C
+    /// meant, so it is read off the sugar before it is dropped. By
+    /// name, as C spells them; `std::size_t` is an alias of
+    /// `::size_t` and is found by walking on. Only a type that
+    /// arrives sugared benefits: a pointee is canonical by the time
+    /// the pointer arm maps it.
     priv fn _pointer_sized(self, qt: clang::QualType) -> unsafe *Type {
         var cur = qt
         for var depth: usize = 0; depth < 16 && !cur.isNull(); ++depth {
@@ -322,17 +322,17 @@ pub class TypeImport {
     /// A pointer or reference mapped with its pointee's sugar intact, or
     /// null for any other type (the canonical path maps those).
     ///
-    /// \details the canonical path reaches a pointee already canonical, so
-    ///          _pointer_sized never sees the typedef it names: on
-    ///          x86_64-windows-gnu `pthread_t` (`uintptr_t`) was `usize` as a
-    ///          variable's type and `unsafe *u64` as `pthread_t*`, and
-    ///          `pthread_create(unsafe &tid, ...)` was SC063E. One typedef is
-    ///          one Kairo type in every position only if every position reads
-    ///          it through the sugar, so the indirections are walked sugared
-    ///          here and the pointee goes back through _map_or_opaque (which
-    ///          recurses for `size_t**`). Function pointers, arrays and
-    ///          everything else keep the canonical path. A fill's pointer
-    ///          argument is still found by its canonical clang type first.
+    /// the canonical path reaches a pointee already canonical, so
+    /// _pointer_sized never sees the typedef it names: on
+    /// x86_64-windows-gnu `pthread_t` (`uintptr_t`) was `usize` as a
+    /// variable's type and `unsafe *u64` as `pthread_t*`, and
+    /// `pthread_create(unsafe &tid, ...)` was SC063E. One typedef is
+    /// one Kairo type in every position only if every position reads
+    /// it through the sugar, so the indirections are walked sugared
+    /// here and the pointee goes back through _map_or_opaque (which
+    /// recurses for `size_t**`). Function pointers, arrays and
+    /// everything else keep the canonical path. A fill's pointer
+    /// argument is still found by its canonical clang type first.
     priv fn _sugared_indirect(self, qt: clang::QualType) -> unsafe *Type {
         if qt.isNull() {
             return &null
@@ -387,20 +387,20 @@ pub class TypeImport {
         return t
     }
 
-    /// Remember \p qt as what opaque \p t is in this context, so TypeExport
+    /// Remember `qt` as what opaque `t` is in this context, so TypeExport
     /// can hand it back to clang (`vector<__m128i>`, `std::move(v)`).
     ///
-    /// \details only a CANONICAL type: clang canonicalizes a template
-    ///          argument, so what a fill imports back is the canonical type,
-    ///          and the opaque is keyed by spelling. A typedef'd member
-    ///          pointer (`MP`) exported would come back as `int S::*`, a
-    ///          different opaque, and the filled `push_back(const int
-    ///          S::*&)` would then refuse the `MP` an unfilled instance
-    ///          accepted. The vector arm already keys on the canonical type.
-    ///          Not a tag: an opaque record or enum is one DeclImport never
-    ///          registered, and spelling it here would skip the refind and
-    ///          demanding-set retries a registered one gets. Not dependent:
-    ///          a dependent argument has no instance to fill.
+    /// only a CANONICAL type: clang canonicalizes a template
+    /// argument, so what a fill imports back is the canonical type,
+    /// and the opaque is keyed by spelling. A typedef'd member
+    /// pointer (`MP`) exported would come back as `int S::*`, a
+    /// different opaque, and the filled `push_back(const int
+    /// S::*&)` would then refuse the `MP` an unfilled instance
+    /// accepted. The vector arm already keys on the canonical type.
+    /// Not a tag: an opaque record or enum is one DeclImport never
+    /// registered, and spelling it here would skip the refind and
+    /// demanding-set retries a registered one gets. Not dependent:
+    /// a dependent argument has no instance to fill.
     priv fn _note_opaque_origin(self, t: unsafe *Type, qt: clang::QualType) {
         if t == &null || self.reg == &null || qt.isNull() {
             return
@@ -806,7 +806,7 @@ pub class TypeImport {
         return self.store->record(rep, unsafe &args)
     }
 
-    /// \p rep is the Null lang item (ForeignRegistry::nullable_lang).
+    /// `rep` is the Null lang item (ForeignRegistry::nullable_lang).
     priv fn _is_nullable(self, rep: unsafe *Decl) -> bool {
         if self.reg == &null || rep == &null {
             return false
@@ -927,7 +927,7 @@ pub class TypeImport {
         return true
     }
 
-    /// Record \p kt, a fill's template argument, against \p ct, the clang
+    /// Record `kt`, a fill's template argument, against `ct`, the clang
     /// type TypeExport spelled it as, for _ptr_args. Every pointer level is
     /// recorded, so `vector<*Node>`'s iterator, `__wrap_iter<Node**>`, reads
     /// its `Node*&` back as `*Node&` in its own fill too; so is every pointer
@@ -1038,7 +1038,7 @@ pub class TypeImport {
         return b->builtin == BuiltinKind::USize || b->builtin == BuiltinKind::ISize
     }
 
-    /// \p t holds a Kairo pointer or usize/isize: is one, or is an instance
+    /// `t` holds a Kairo pointer or usize/isize: is one, or is an instance
     /// with one among its arguments (the args note_pointer_arg has anything
     /// to record for).
     static fn has_pointer_arg(t: unsafe *Type) -> bool {
@@ -1142,7 +1142,7 @@ pub class TypeImport {
         return NameLookup::representative(kd)
     }
 
-    /// Whether \p qt (through a reference) is a C integer that is NOT the one
+    /// Whether `qt` (through a reference) is a C integer that is NOT the one
     /// the target spells its width with: _builtin maps by width alone, so on
     /// LLP64 `long` and `int` are both i32 and on LP64 `long long` and `long`
     /// are both i64. The natural one is getIntTypeForBitwidth's -- `int` for
@@ -1198,7 +1198,7 @@ pub class TypeImport {
         return nat.getCanonicalType() != c
     }
 
-    /// Whether \p qt is a pointer, or a non-const lvalue reference, to a C
+    /// Whether `qt` is a pointer, or a non-const lvalue reference, to a C
     /// integer alias (is_int_alias). Kairo's integer is the target's natural
     /// one, so the argument's C++ type is `unsigned int*` where the
     /// parameter wants `unsigned long*` (i686 `pthread_t*`, any LLP64

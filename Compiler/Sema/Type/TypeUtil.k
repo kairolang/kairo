@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------------- Sema/Type/TypeUtil.k --- ///
 ///
-///   \brief Read-only queries over canonical types and decls that every typer
-///          mixin needs and that belong to none of them. A component held by
-///          value on ExprTyper; no state beyond the SemaContext handle.
+/// Read-only queries over canonical types and decls that every typer
+/// mixin needs and that belong to none of them. A component held by
+/// value on ExprTyper; no state beyond the SemaContext handle.
 ///
 ///   Nothing here diagnoses, allocates, or writes a slot.
 ///
@@ -110,7 +110,7 @@ pub struct LiteralBuild {
     var add:     unsafe *Decl = &null
 }
 
-/// Every leaf of requires clause \p e, in clause order: the operands of
+/// Every leaf of requires clause `e`, in clause order: the operands of
 /// its `&&` / `and` tree, to any depth. A leaf is a `T impl I` / `T derives
 /// B` ConstraintExpr or a value predicate; a null clause has none.
 pub fn conjuncts(e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
@@ -129,9 +129,9 @@ pub fn conjuncts(e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
     out->push_back(e)
 }
 
-/// The `impl` / `derives` leaves of requires clause \p e (conjuncts), in
-/// clause order. False when \p e also has a value predicate; those are
-/// left out of \p out.
+/// The `impl` / `derives` leaves of requires clause `e` (conjuncts), in
+/// clause order. False when `e` also has a value predicate; those are
+/// left out of `out`.
 pub fn constraint_conjuncts(e:   unsafe *Expr,
                             out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) -> bool {
     var leaves = cxx::std::vector<unsafe *Expr>()
@@ -167,7 +167,7 @@ pub class TypeUtil {
         return self.sc->builtin(b)
     }
 
-    /// COUNT when \p t is not a builtin.
+    /// COUNT when `t` is not a builtin.
     fn kind_of(self, t: unsafe *Type) -> BuiltinKind {
         var unsafe *u = canon_unqual(t)
         if u == &null || !isa<BuiltinType>(u) {
@@ -268,7 +268,7 @@ pub class TypeUtil {
         return cast<Types::PointerType>(u)->is_unsafe
     }
 
-    /// The binder rule of what a generator yields (\p y, the `T` of
+    /// The binder rule of what a generator yields (`y`, the `T` of
     /// `Yield<T>`): Pointer for `*T`, UnsafePointer for `unsafe *T`, Value
     /// for anything else (a nullable pointer `*T?` included).
     fn iter_yield_of(self, y: unsafe *Type) -> IterYield {
@@ -279,11 +279,11 @@ pub class TypeUtil {
         return if (self.is_unsafe_ptr(y)) => (IterYield::UnsafePointer) else => IterYield::Pointer
     }
 
-    /// \p n is a loop over a generator value (a call of a `-> yield *T`
+    /// `n` is a loop over a generator value (a call of a `-> yield *T`
     /// function, a `Yield<*T>`) whose one binder is a safe pointer binder
     /// (`*x`, `const *x`, no ascription): the binder is the pointer the
     /// generator yielded, as `for *x` over an `op in -> yield *T` is, not
-    /// the address of the generator's own slot. \p elem is the loop's
+    /// the address of the generator's own slot. `elem` is the loop's
     /// element, the yielded pointer type. A plain `x` there is the pointer
     /// value itself.
     fn for_binds_yielded_pointer(self,
@@ -310,9 +310,9 @@ pub class TypeUtil {
         return self.iter_yield_of(elem) == IterYield::Pointer
     }
 
-    /// The binder rule \p f declares: iter_yield_of its written `Yield<T>`'s
+    /// The binder rule `f` declares: iter_yield_of its written `Yield<T>`'s
     /// `T`, read off the declaration, never an instance's substitution (a
-    /// `-> yield T` over `T = *P` yields values), or Free when \p f does
+    /// `-> yield T` over `T = *P` yields values), or Free when `f` does
     /// not return a `Yield<T>`. A tuple with a pointer element is Tuple
     /// (fn_iter_yield_elems has each element's rule); a tuple of values
     /// is Value.
@@ -336,9 +336,9 @@ pub class TypeUtil {
         return self.iter_yield_of(y)
     }
 
-    /// The rule of each element of the tuple \p f declares it yields, in
+    /// The rule of each element of the tuple `f` declares it yields, in
     /// element order, read off the declaration as fn_iter_yield; empty
-    /// when \p f does not yield a tuple.
+    /// when `f` does not yield a tuple.
     fn fn_iter_yield_elems(self,
                            f: unsafe *Declarations::FunctionDecl) -> cxx::std::vector<IterYield> {
         var        out = cxx::std::vector<IterYield>()
@@ -355,8 +355,8 @@ pub class TypeUtil {
         return out
     }
 
-    /// The iteration form (`op in (self)` with \p want_const false,
-    /// `op in (const self)` with it true) the record \p t declares, read
+    /// The iteration form (`op in (self)` with `want_const` false,
+    /// `op in (const self)` with it true) the record `t` declares, read
     /// off its pattern; null when it declares none.
     fn iteration_form(self,
                       t:          unsafe *Type,
@@ -392,12 +392,12 @@ pub class TypeUtil {
         return &null
     }
 
-    /// The `T` of the `Yield<T>` \p f is written to return, or null.
+    /// The `T` of the `Yield<T>` `f` is written to return, or null.
     fn fn_yielded(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Type {
         return self._fn_yielded(f)
     }
 
-    /// The `T` of the `Yield<T>` \p f is written to return, or null.
+    /// The `T` of the `Yield<T>` `f` is written to return, or null.
     priv fn _fn_yielded(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Type {
         if f == &null || f->return_type == &null || f->return_type->canonical == &null {
             return &null
@@ -431,8 +431,8 @@ pub class TypeUtil {
         return if (i != &null) => (i) else => t
     }
 
-    /// \p t's pointer levels, each pointee read canonical and unqualified:
-    /// `unsafe **i32` is {2, true, i32}, a non-pointer {0, false, \p t}. What
+    /// `t`'s pointer levels, each pointee read canonical and unqualified:
+    /// `unsafe **i32` is {2, true, i32}, a non-pointer {0, false, `t}`. What
     /// a pointer shorthand (`var *y = e`, Compiler/Spec/Nullables.md#declaration-shorthands) states, so its
     /// check and its lint count the same stars.
     fn pointer_shape(self, t: unsafe *Type) -> PointerShape {
@@ -482,9 +482,9 @@ pub class TypeUtil {
         return cast<RecordType>(u)->decl
     }
 
-    /// The interfaces a bounded generic parameter \p t promises, as their
+    /// The interfaces a bounded generic parameter `t` promises, as their
     /// canonical instances (`T impl Same`, `T impl Container<U>`), or none
-    /// when \p t is not a bare parameter or has no interface bound. The
+    /// when `t` is not a bare parameter or has no interface bound. The
     /// parameter half of Substitution::bound_ifaces, which every reader
     /// goes through: an associated type's bounds need its base substituted
     /// in, which this layer cannot do.
@@ -500,7 +500,7 @@ pub class TypeUtil {
         return out
     }
 
-    /// bound_ifaces' half from the bound table: what \p g's own
+    /// bound_ifaces' half from the bound table: what `g`'s own
     /// declaration promised.
     priv fn _declared_ifaces(self,
                              g:          unsafe *Types::GenericParamType,
@@ -540,9 +540,9 @@ pub class TypeUtil {
         }
     }
 
-    /// The bases a generic parameter \p t's `derives` bounds promise
+    /// The bases a generic parameter `t`'s `derives` bounds promise
     /// (`X derives Mixin<X>`), as canonicals, in clause order; none when
-    /// \p t is not a bare parameter. bound_ifaces' twin over the other half
+    /// `t` is not a bare parameter. bound_ifaces' twin over the other half
     /// of the bound table: what lets a CRTP base cast itself down to X.
     fn bound_bases(self, t: unsafe *Type) -> cxx::std::vector<unsafe *Type> {
         var        out = cxx::std::vector<unsafe *Type>()
@@ -591,8 +591,8 @@ pub class TypeUtil {
 
     /// # bounds a body's clauses add
 
-    /// The `impl` conjuncts \p f's body may rely on that the bound table
-    /// does not file under the owner of what they constrain: those of \p f's
+    /// The `impl` conjuncts `f`'s body may rely on that the bound table
+    /// does not file under the owner of what they constrain: those of `f`'s
     /// `requires`, of the functions it is nested in, and of the extension
     /// or record it is written in, except a conjunct on a parameter of the
     /// clause's own declaration (the table has that one under it). So a
@@ -619,7 +619,7 @@ pub class TypeUtil {
         return out
     }
 
-    /// Make \p f's body_clauses the ones in force (SemaContext::clause_bounds)
+    /// Make `f`'s body_clauses the ones in force (SemaContext::clause_bounds)
     /// and return those they replace, for leave_body. A body typed on demand
     /// in the middle of another one sees its own clauses only.
     fn enter_body(self,
@@ -633,8 +633,8 @@ pub class TypeUtil {
         self.sc->clause_bounds = saved
     }
 
-    /// Append to \p out the interfaces the clauses in force grant the
-    /// dependent type \p t (a bare parameter or an associated type), as
+    /// Append to `out` the interfaces the clauses in force grant the
+    /// dependent type `t` (a bare parameter or an associated type), as
     /// canonical instances (`From<U>` keeps its arguments).
     fn append_clause_ifaces(self, t: unsafe *Type, @inout out: cxx::std::vector<unsafe *Type>) {
         var unsafe *c = canon_unqual(t)
@@ -663,7 +663,7 @@ pub class TypeUtil {
         }
     }
 
-    /// Whether conjunct \p k constrains canonical \p c: the same parameter
+    /// Whether conjunct `k` constrains canonical `c`: the same parameter
     /// (index and declaring owner), or the same associated type.
     fn clause_names(self, k: unsafe *ConstraintExpr, c: unsafe *Type) -> bool {
         return self._clause_names(k, canon_unqual(c))
@@ -701,7 +701,7 @@ pub class TypeUtil {
         return st->resolved_type != &null && canon_unqual(st->resolved_type) == c
     }
 
-    /// The `impl` conjuncts of declaration \p d's clause that body_clauses
+    /// The `impl` conjuncts of declaration `d`'s clause that body_clauses
     /// keeps (see there).
     priv fn _clause_extras(self,
                            d:          unsafe *Decl,
@@ -745,7 +745,7 @@ pub class TypeUtil {
     ///     generic: the classes the parameter's `derives` bounds name,
     ///     which is all a body checked once may assume of its base.
 
-    /// The parameter base edge \p e names, or null when \p e names a record
+    /// The parameter base edge `e` names, or null when `e` names a record
     /// (or nothing). A pack and a value parameter are no base.
     fn param_edge(self, e: unsafe *Declarations::InheritEdge) -> unsafe *Types::GenericParamType {
         if e == &null || e->base == &null || e->base->canonical == &null {
@@ -760,7 +760,7 @@ pub class TypeUtil {
         return cast<Types::GenericParamType>(c)
     }
 
-    /// The classes parameter \p t's `derives` bounds name, as canonicals, in
+    /// The classes parameter `t`'s `derives` bounds name, as canonicals, in
     /// clause order; everything that is no class (an interface, an
     /// unresolved bound) is left out. Read off the owner's requires clause,
     /// where RequiresDesugar keeps every bound, and not off the bound table
@@ -824,9 +824,9 @@ pub class TypeUtil {
         return out
     }
 
-    /// The records the parameter edge \p e of record type \p of stands for
-    /// (see above), as canonicals; none when \p e is no parameter edge. \p of
-    /// may be null: the class's own view. \p argument_only: the argument
+    /// The records the parameter edge `e` of record type `of` stands for
+    /// (see above), as canonicals; none when `e` is no parameter edge. `of`
+    /// may be null: the class's own view. `argument_only`: the argument
     /// or nothing, for a question the bound cannot answer for an instance
     /// (what stays pure virtual).
     fn param_edge_bases(self,
@@ -869,8 +869,8 @@ pub class TypeUtil {
         return self.bound_classes(unsafe (g as unsafe *Type))
     }
 
-    /// param_edge_bases for a walk that holds declarations: \p holder is
-    /// the class whose edge \p e is, an instance of it, or null.
+    /// param_edge_bases for a walk that holds declarations: `holder` is
+    /// the class whose edge `e` is, an instance of it, or null.
     fn param_edge_decls(self,
                         holder: unsafe *Decl,
                         e:      unsafe *Declarations::InheritEdge) -> cxx::std::vector<unsafe *Decl> {
@@ -917,7 +917,7 @@ pub class TypeUtil {
         return out
     }
 
-    /// The declaration of \p t when it is a generic parameter whose body is
+    /// The declaration of `t` when it is a generic parameter whose body is
     /// checked against its bounds (Compiler/Spec/Generics.md#decisions): a bare parameter, a pack's
     /// included (an element `for x in xs` binds has the pack's type, and is
     /// held to the bounds every element meets), no `: type` (the
@@ -1019,7 +1019,7 @@ pub class TypeUtil {
         return unsafe (self.op_checked_param(t) as unsafe *Decl)
     }
 
-    /// How a diagnostic names checked head \p t: `T`, or `T::Item`.
+    /// How a diagnostic names checked head `t`: `T`, or `T::Item`.
     fn head_spelling(self, t: unsafe *Type) -> string {
         var unsafe *c = canon_unqual(t)
         if c != &null && isa<AssocType>(c) {
@@ -1034,15 +1034,15 @@ pub class TypeUtil {
         return self.str(t)
     }
 
-    /// The interface instance an AssocType for requirement \p td carries
-    /// when it is named through \p through (a bound, or the Self of the
+    /// The interface instance an AssocType for requirement `td` carries
+    /// when it is named through `through` (a bound, or the Self of the
     /// interface it is named in): its DECLARING interface, so one entity has
     /// one canonical however it was reached -- `G::Node` through `G impl
     /// Big`, `Big derives Graph`, and Graph's `first() -> Self::Node`
-    /// through the same G are the same type. \p through itself when it is
+    /// through the same G are the same type. `through` itself when it is
     /// the declaring interface (its arguments are then exact); the plain
     /// record of a non-generic declaring interface; null for one inherited
-    /// from a GENERIC interface, whose arguments as seen from \p through
+    /// from a GENERIC interface, whose arguments as seen from `through`
     /// are not computed (SC116E at the use).
     fn assoc_iface(self, through: unsafe *Type, td: unsafe *Decl) -> unsafe *Type {
         if through == &null || td == &null || td->semantic_dc == &null {
@@ -1068,7 +1068,7 @@ pub class TypeUtil {
         return self.sc->types->record(home, unsafe &none)
     }
 
-    /// The `impl` conjuncts of clause \p e, in clause order.
+    /// The `impl` conjuncts of clause `e`, in clause order.
     fn impl_conjuncts(self, e: unsafe *Expr, @inout out: cxx::std::vector<unsafe *ConstraintExpr>) {
         var cs = cxx::std::vector<unsafe *ConstraintExpr>()
         constraint_conjuncts(e, unsafe &cs)
@@ -1079,7 +1079,7 @@ pub class TypeUtil {
         }
     }
 
-    /// Associated type \p ta's OWN `impl` bounds (`type Item impl Display`),
+    /// Associated type `ta`'s OWN `impl` bounds (`type Item impl Display`),
     /// in clause order. A generic one's clause also holds its parameters'
     /// (`type <K impl Hash> Map`, hoisted as `K impl Hash`), which
     /// bound K, not the type.
@@ -1095,7 +1095,7 @@ pub class TypeUtil {
         }
     }
 
-    /// The `impl` bounds of generic associated type \p ta's parameter \p k.
+    /// The `impl` bounds of generic associated type `ta`'s parameter `k`.
     fn assoc_param_bounds(self,
                           ta:         unsafe *Declarations::TypeAliasDecl,
                           k:          usize,
@@ -1109,8 +1109,8 @@ pub class TypeUtil {
         }
     }
 
-    /// Which of \p ta's own generic parameters conjunct \p c constrains, or
-    /// usize(-1) for one about \p ta itself.
+    /// Which of `ta`'s own generic parameters conjunct `c` constrains, or
+    /// usize(-1) for one about `ta` itself.
     priv fn _assoc_param_index(self,
                                ta: unsafe *Declarations::TypeAliasDecl,
                                c:  unsafe *ConstraintExpr) -> usize {
@@ -1211,7 +1211,7 @@ pub class TypeUtil {
         return decl_pattern(d)
     }
 
-    /// \p d is declared in the TU being checked.
+    /// `d` is declared in the TU being checked.
     fn in_this_tu(self, d: unsafe *Decl) -> bool {
         return NameLookup::ctx_of(d) == self.sc->ctx
     }
@@ -1446,7 +1446,7 @@ pub class TypeUtil {
                 )
             }
 
-            // A base that is a type parameter: \p of's argument, when it is
+            // A base that is a type parameter: `of`'s argument, when it is
             // a class. While the argument is unknown (the class's own body,
             // an instance over another parameter) so is what it leaves
             // pure, and the walk reports nothing through the edge: an
@@ -1531,7 +1531,7 @@ pub class TypeUtil {
                 return true
             }
 
-            // A parameter base: \p inst's argument, else the bound's classes.
+            // A parameter base: `inst`'s argument, else the bound's classes.
             var pds = self.param_edge_decls(inst, e)
             for var k: usize = 0; k < pds.size(); ++k {
                 if self._poly_walk(
@@ -1631,7 +1631,7 @@ pub class TypeUtil {
         return self.lang_record(WellKnownType::String, unsafe &a)
     }
 
-    /// Is \p t the vector/set/map/string lang record, or its structural form.
+    /// Is `t` the vector/set/map/string lang record, or its structural form.
     fn is_lang(self, t: unsafe *Type, k: WellKnownType) -> bool {
         var unsafe *d = self.sc->well_known->get(k)
         if d == &null {
@@ -1679,7 +1679,7 @@ pub class TypeUtil {
         return self.is_lang(t, WellKnownType::String)
     }
 
-    /// \p t is a C string parameter a literal's static bytes may stand for:
+    /// `t` is a C string parameter a literal's static bytes may stand for:
     /// a pointer of either kind to `const c_char` (C's `const
     /// char *`) or `const u8`. Const only: the bytes are a C++ literal in
     /// read-only storage, so a `char *` that may be written is refused.
@@ -1707,7 +1707,7 @@ pub class TypeUtil {
         return k == BuiltinKind::CChar || k == BuiltinKind::U8
     }
 
-    /// \p e as written is a plain string literal (not an f-string, which
+    /// `e` as written is a plain string literal (not an f-string, which
     /// is built at run time, and not a byte string, which is a slice and
     /// converts to no pointer): what a C string parameter of an imported
     /// function takes without a `string` being made. The bare
@@ -1736,7 +1736,7 @@ pub class TypeUtil {
         return self.sc->types->pointer(cc, true)
     }
 
-    /// \p lit (c_string_literal said yes) goes out as its bytes, typed
+    /// `lit` (c_string_literal said yes) goes out as its bytes, typed
     /// c_string_ptr_type, and no `string` is built from it.
     pub fn mark_c_string(self, lit: unsafe *StringLiteralExpr) {
         lit->c_string = self.c_string_ptr_type()
@@ -1748,7 +1748,7 @@ pub class TypeUtil {
     /// canonical is a TupleType after T. Tuple-ness is the pattern's
     /// `tuple_arity`, by identity -- a user's own `Tuple2` is not one.
 
-    /// The tuple record decl \p d is (its pattern has an arity), else false.
+    /// The tuple record decl `d` is (its pattern has an arity), else false.
     fn is_tuple_decl(self, d: unsafe *Decl) -> bool {
         if d == &null {
             return false
@@ -1797,7 +1797,7 @@ pub class TypeUtil {
         return self.sc->tuple_record(elems)
     }
 
-    /// Field \p i of a tuple canonical, read off the PATTERN (an instance
+    /// Field `i` of a tuple canonical, read off the PATTERN (an instance
     /// shell has no fields until M2); null when out of range.
     fn tuple_field(self, t: unsafe *Type, i: usize) -> unsafe *Declarations::FieldDecl {
         var unsafe *d = self.record_decl(t)
@@ -1856,7 +1856,7 @@ pub class TypeUtil {
 
     /// # calls
 
-    /// The parameter at \p i across \p f's WHOLE redeclaration chain that
+    /// The parameter at `i` across `f`'s WHOLE redeclaration chain that
     /// specifies a default -- a Kairo expression, the thunk CallLowering made
     /// of one, or an imported C++ default -- or null. Defaults accumulate
     /// across a chain and RedeclMerge admits one per index, so no single link
@@ -1893,7 +1893,7 @@ pub class TypeUtil {
         return &null
     }
 
-    /// The type a USE of \p p has inside its function. A pack `...xs: T` is
+    /// The type a USE of `p` has inside its function. A pack `...xs: T` is
     /// `[T;]` (Slice<T>, by value), a dependent `Slice<T>` when T is a
     /// generic parameter of the function; every other parameter is its
     /// declared canonical. Null for a TYPE pack (`fn <...T> f(...xs: T)`:
@@ -1919,7 +1919,7 @@ pub class TypeUtil {
         return self.slice_of(elem)
     }
 
-    /// \p p's index in \p f->params, `self` included; usize(-1) if absent.
+    /// `p`'s index in `f->params`, `self` included; usize(-1) if absent.
     fn param_index(self,
                    f: unsafe *Declarations::FunctionDecl,
                    p: unsafe *Declarations::ParamDecl) -> usize {
@@ -1932,8 +1932,8 @@ pub class TypeUtil {
         return usize::MAX
     }
 
-    /// A lang record's constructor BY SHAPE: \p nparams non-self parameters,
-    /// and for \p from_slice the single one is a Slice. Found through the lang
+    /// A lang record's constructor BY SHAPE: `nparams` non-self parameters,
+    /// and for `from_slice` the single one is a Slice. Found through the lang
     /// item, never by name. LiteralTyping binds literals through it and
     /// CallLowering binds a pack's slice through it: one lookup, one answer.
     fn lang_ctor(self, k: WellKnownType, nparams: usize, from_slice: bool) -> unsafe *Decl {
@@ -1990,7 +1990,7 @@ pub class TypeUtil {
         return &null
     }
 
-    /// How a literal of lang record \p k (Vector, HashSet, HashMap) is built
+    /// How a literal of lang record `k` (Vector, HashSet, HashMap) is built
     /// from elements that cannot be copied. The one place that names the
     /// members: MoveCheck asks whether the build exists, ListLiteralLowering
     /// mints the calls.
@@ -2018,7 +2018,7 @@ pub class TypeUtil {
         return out
     }
 
-    /// The public method \p name of record \p rd with \p nparams parameters
+    /// The public method `name` of record `rd` with `nparams` parameters
     /// after `self`, each taken by value: not `const`, which borrows the
     /// argument and leaves the callee to copy it, and not `@inout`.
     priv fn _by_value_method(self,
@@ -2061,9 +2061,9 @@ pub class TypeUtil {
         return &null
     }
 
-    /// The literal \p lit is the whole initializer of the local \p vd, of
-    /// \p vd's own type, and \p vd can be written after its declaration: a
-    /// literal built by LiteralBuild then fills \p vd itself, and no
+    /// The literal `lit` is the whole initializer of the local `vd`, of
+    /// `vd`'s own type, and `vd` can be written after its declaration: a
+    /// literal built by LiteralBuild then fills `vd` itself, and no
     /// container is transferred out of the literal. A `const` local cannot be
     /// written, a `static` one is initialized once, and a namespace-scope
     /// variable has no statement to fill it in.
@@ -2095,10 +2095,10 @@ pub class TypeUtil {
         return canon_has_const(vt) == false && canon_unqual(vt) == canon_unqual(lit->type_)
     }
 
-    /// A member of lang record \p k by name: the record's own, else one an
+    /// A member of lang record `k` by name: the record's own, else one an
     /// `extend` block of the record's file declares (the two-word library
     /// declares most of a record's API that way). The first method of that
-    /// name when \p method, else the first declaration. Null when neither
+    /// name when `method`, else the first declaration. Null when neither
     /// scope has it: the caller owns the diagnostic.
     fn lang_member(self,
                    k:          WellKnownType,
@@ -2141,12 +2141,12 @@ pub class TypeUtil {
         return self._ext_hit
     }
 
-    /// The member \p name the record type \p t itself declares, in the
-    /// pattern its members come from: the partial specialization \p t's
+    /// The member `name` the record type `t` itself declares, in the
+    /// pattern its members come from: the partial specialization `t`'s
     /// arguments select (SemaContext::record_partial), where lang_member
-    /// answers with the primary's, else the pattern \p t is an instance
+    /// answers with the primary's, else the pattern `t` is an instance
     /// of. `[const X;]` is the `Slice<const T>` specialization, and C++
-    /// resolves a member of it there. Null when \p t is no record or
+    /// resolves a member of it there. Null when `t` is no record or
     /// declares none.
     fn own_member(self, t: unsafe *Type, const name: string) -> unsafe *Decl {
         var unsafe *rt = dyn_cast<RecordType>(canon_unqual(t))
@@ -2170,8 +2170,8 @@ pub class TypeUtil {
     /// lang_member's answer from an `extend` block, written by _ext_probe.
     priv var _ext_hit: unsafe *Decl = &null
 
-    /// \p x is an `extend` block of record pattern \p body that declares
-    /// \p name: record the member, unless an earlier block already has.
+    /// `x` is an `extend` block of record pattern `body` that declares
+    /// `name`: record the member, unless an earlier block already has.
     priv fn _ext_probe(self,
                        x:          unsafe *Decl,
                        body:       unsafe *Decl,
@@ -2275,7 +2275,7 @@ pub class TypeUtil {
 
     /// # default values
 
-    /// Empty when a value of \p t can be built from nothing; otherwise why
+    /// Empty when a value of `t` can be built from nothing; otherwise why
     /// not, phrased to follow "and" ("'x' is declared without an
     /// initializer, and ..."). variables.mdx: a number or a pointer is 0 /
     /// null, a nullable is null, a record with a usable constructor callable
@@ -2290,7 +2290,7 @@ pub class TypeUtil {
         return self._why_no_default(t, 0)
     }
 
-    /// True when whether \p t has a default is the instance's to answer:
+    /// True when whether `t` has a default is the instance's to answer:
     /// a generic parameter or an associated type, or a record with no
     /// declared constructor (a tuple) whose generic arguments include one,
     /// since its implicit default rests on its fields. why_no_default
@@ -2333,7 +2333,7 @@ pub class TypeUtil {
         return false
     }
 
-    /// \p depth bounds the walk into fields: a by-value cycle is
+    /// `depth` bounds the walk into fields: a by-value cycle is
     /// TypeCycleCheck's error, but this question may be asked before it
     /// poisons the cycle, and must not recurse forever meanwhile.
     priv fn _why_no_default(self, t: unsafe *Type, depth: u32) -> string {
@@ -2457,7 +2457,7 @@ pub class TypeUtil {
         return ""
     }
 
-    /// \p d (class or struct) declares a constructor of any kind: one named
+    /// `d` (class or struct) declares a constructor of any kind: one named
     /// after it, a transfer (`@copy` / `@move`) included, deleted included.
     /// Any of them suppresses the implicit default constructor, as a
     /// user-declared constructor of any kind does in C++ -- which is what
@@ -2479,7 +2479,7 @@ pub class TypeUtil {
         return false
     }
 
-    /// The Kairo enum with payloads \p t names (its pattern), else null.
+    /// The Kairo enum with payloads `t` names (its pattern), else null.
     fn payload_enum(self, t: unsafe *Type) -> unsafe *Declarations::EnumDecl {
         var unsafe *rd = self.record_decl(t)
         if rd == &null {
@@ -2522,7 +2522,7 @@ pub class TypeUtil {
         return rd
     }
 
-    /// The constructor of class or struct \p d callable with no arguments:
+    /// The constructor of class or struct `d` callable with no arguments:
     /// not an operator, not a transfer (`@copy`/`@move` build from another
     /// value, not from none), every parameter but `self` defaulted.
     fn default_ctor_of(self, d: unsafe *Decl) -> unsafe *Declarations::FunctionDecl {
@@ -2589,7 +2589,7 @@ pub class TypeUtil {
         return cast<ListLiteralExpr>(e)
     }
 
-    /// Every element of \p lit whose type \p at says is an array is a
+    /// Every element of `lit` whose type `at` says is an array is a
     /// list literal of its own, to the innermost level.
     priv fn _nested_lists(self, lit: unsafe *ListLiteralExpr, at: unsafe *Type) -> bool {
         var unsafe *el = canon_unqual(cast<Types::FixedArrayType>(at)->element)
@@ -2612,7 +2612,7 @@ pub class TypeUtil {
     }
 
     /// The leaf elements of an array field's list literal (array_field_list
-    /// said yes), in row-major order, appended to \p out; the innermost
+    /// said yes), in row-major order, appended to `out`; the innermost
     /// element type is the return.
     fn array_field_leaves(self,
                           lit: unsafe *ListLiteralExpr,
@@ -2639,7 +2639,7 @@ pub class TypeUtil {
         return leaf
     }
 
-    /// Some list literal in \p e, an array initializer, or one nested in
+    /// Some list literal in `e`, an array initializer, or one nested in
     /// it, was rejected already (SC083E on a copied element, say): the
     /// typer has spoken, and no gate needs to.
     fn array_init_poisoned(self, e_in: unsafe *Expr) -> bool {
@@ -2720,7 +2720,7 @@ pub class TypeUtil {
         return "?"
     }
 
-    /// \p t as a Kairo RETURN type: a C++ reference is spelled the way a
+    /// `t` as a Kairo RETURN type: a C++ reference is spelled the way a
     /// Kairo definition writes it (`T&` is `ffi::ref<T>`, `const T&` is
     /// `ffi::ref<const T>`, `T&&` is `ffi::mref<T>`); anything else as
     /// str() spells it. The fix-its and the hover's `->` read it, so the
@@ -2741,8 +2741,8 @@ pub class TypeUtil {
         return self.str(t)
     }
 
-    /// The fix-it text that makes the written return type \p written return
-    /// \p want (a canonical), as return_str spells it, but keeping the
+    /// The fix-it text that makes the written return type `written` return
+    /// `want` (a canonical), as return_str spells it, but keeping the
     /// user's own spelling of the referenced type when it is the same type
     /// (`cxx::std::string` stays that; str() would print the instance as
     /// `basic_string<c_char, ...>`, which does not parse back). Only the

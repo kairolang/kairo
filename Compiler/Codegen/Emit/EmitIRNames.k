@@ -187,8 +187,8 @@ extend EmitIR {
         self._cg->sink->spell(n->range, self._spell.qual_name(d) + wa)
     }
 
-    /// `<A, B>` from the generic arguments \p gl a reference to \p d was
-    /// written with, or "" when \p d is no generic function or none were
+    /// `<A, B>` from the generic arguments `gl` a reference to `d` was
+    /// written with, or "" when `d` is no generic function or none were
     /// written. For a reference with no instance only: one with an instance
     /// is spelled from it (every argument, the deduced ones too).
     prot fn _written_args_str(self,
@@ -229,7 +229,7 @@ extend EmitIR {
         self._chain_prefix(n, n->steps.size())
     }
 
-    /// Emit the chain up to (not including) step \p upto. Returns true when
+    /// Emit the chain up to (not including) step `upto`. Returns true when
     /// the emitted value is a pointer (the next step would be `->`).
     prot fn _chain_prefix(self, n: unsafe *ChainExpr, upto: usize) -> bool {
         var k            = self._last_scope_step(n, upto)
@@ -481,7 +481,7 @@ extend EmitIR {
         return is_ptr
     }
 
-    /// Step \p i of \p n is a `.` member the instance resolves, on a call
+    /// Step `i` of `n` is a `.` member the instance resolves, on a call
     /// whose result type only the instance knows: whether that result is a
     /// pointer decides `.` against `->`, and Sema cannot say.
     priv fn _dot_on_unknown_call(self, n: unsafe *ChainExpr, i: usize, upto: usize) -> bool {
@@ -547,7 +547,7 @@ extend EmitIR {
         return self._duck_rooted(n)
     }
 
-    /// The receiver of step \p st of \p n is a dependent instance of an
+    /// The receiver of step `st` of `n` is a dependent instance of an
     /// imported class template (or a pointer to one).
     priv fn _foreign_dependent_receiver(self,
                                         n:  unsafe *ChainExpr,
@@ -565,7 +565,7 @@ extend EmitIR {
         return self._dependent_foreign_type(recv)
     }
 
-    /// \p recv is a dependent instance of an imported class template, a
+    /// `recv` is a dependent instance of an imported class template, a
     /// reference to one, or a pointer to one.
     prot fn _dependent_foreign_type(self, recv: unsafe *Type) -> bool {
         if recv == &null {
@@ -595,7 +595,7 @@ extend EmitIR {
         return decl_is_imported(cast<RecordType>(c)->decl)
     }
 
-    /// Whether \p n's first unbound step is reached through a `: type`
+    /// Whether `n`'s first unbound step is reached through a `: type`
     /// parameter: the base names the parameter itself (`T::f`), or the
     /// receiver of that step has the parameter's type, or points to it
     /// (`t.f`, `d->f`). Steps after it hang off a result only the instance
@@ -724,7 +724,7 @@ extend EmitIR {
         return ch->is_instantiation_dependent() && self._duck_rooted(ch)
     }
 
-    /// \p d is a local with no type of its own, deduced from a duck chain:
+    /// `d` is a local with no type of its own, deduced from a duck chain:
     /// emitted `auto`, so what it holds is the instance's (as a name base,
     /// `tail->next`, or as the head step of a chain the parser left baseless).
     priv fn _duck_local(self, d: unsafe *Decl) -> bool {
@@ -747,7 +747,7 @@ extend EmitIR {
         return self._duck_rooted_expr(vd->init)
     }
 
-    /// \p t is a `: type` parameter, or a pointer to one.
+    /// `t` is a `: type` parameter, or a pointer to one.
     priv fn _is_duck_param_type(self, t: unsafe *Type) -> bool {
         if t == &null {
             return false
@@ -809,11 +809,11 @@ extend EmitIR {
         self._dependent_member_named(st, (if (arrow) => ("->") else => "."))
     }
 
-    /// \p sep, then the step's name as written, `template name<A...>` when it
+    /// `sep`, then the step's name as written, `template name<A...>` when it
     /// carries generic arguments (the scope is dependent, so C++ needs the
     /// keyword to read `<` as an argument list).
-    /// The dependent C++ class template instance whose member step \p k of
-    /// \p n names, when MemberTyping left that member to each instance
+    /// The dependent C++ class template instance whose member step `k` of
+    /// `n` names, when MemberTyping left that member to each instance
     /// (unbound, the expression instantiation-dependent, the step before it
     /// bound to an imported record over a parameter); else null.
     priv fn _foreign_dependent_scope(self, n: unsafe *ChainExpr, k: usize) -> unsafe *Type {
@@ -883,7 +883,7 @@ extend EmitIR {
         self._cg->sink->spell(st->range, s)
     }
 
-    /// Index of the last `::` step before \p upto, or usize(-1).
+    /// Index of the last `::` step before `upto`, or usize(-1).
     priv fn _last_scope_step(self, n: unsafe *ChainExpr, upto: usize) -> usize {
         var last = usize::MAX
         for var j: usize = 0; j < upto; ++j {

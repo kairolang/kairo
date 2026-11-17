@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------------- Tooling/IncrReplay.k --- ///
 ///
-///   \brief --incr-replay=<script>: the driver's test mode for a live check
-///          (Tooling/LiveCheck.k). The entry is type-checked once; then each
-///          step of the script edits files on disk and the SAME process
-///          brings the result up to date, printing the step's diagnostics.
+/// --incr-replay=<script>: the driver's test mode for a live check
+/// (Tooling/LiveCheck.k). The entry is type-checked once; then each
+/// step of the script edits files on disk and the SAME process
+/// brings the result up to date, printing the step's diagnostics.
 ///
 ///   The script, one command per line (`#` starts a comment):
 ///
@@ -78,7 +78,7 @@ import Tooling::SemaObserver::SemaObserver
 import std::c_char
 import std::io
 
-/// The command word of a script line, and in \p arg what follows the
+/// The command word of a script line, and in `arg` what follows the
 /// space after it: `replace a:::b:::c` is `replace` and `a:::b:::c`. A line
 /// with no space has no command ("").
 fn replay_command(const line: string, @inout arg: string) -> string {
@@ -100,7 +100,7 @@ struct ReplayEdit {
     pub var usage:  string
 }
 
-/// The edit commands; \c name is "" when \p cmd is none of them.
+/// The edit commands; `name` is "" when `cmd` is none of them.
 fn replay_edit(const cmd: string) -> ReplayEdit {
     var e = ReplayEdit()
     if cmd == "replace" {
@@ -205,7 +205,7 @@ class ReplayBuffers {
         return LinkFS::read(path, &out)
     }
 
-    /// The edit's result: to the disk, or with \c on to the buffer (the
+    /// The edit's result: to the disk, or with `on` to the buffer (the
     /// caller hands it to the live check).
     pub fn write(self, const path: string, const text: string) -> bool {
         // A header is read by clang, which has no buffer of ours.
@@ -226,7 +226,7 @@ class ReplayBuffers {
     }
 }
 
-/// One edit command; "" when applied, else why not. \p touched gets the file.
+/// One edit command; "" when applied, else why not. `touched` gets the file.
 fn replay_apply(const line: string,
                 touched:    *cxx::std::vector<string>,
                 bufs:       *ReplayBuffers) -> string {
@@ -300,9 +300,9 @@ fn replay_apply(const line: string,
     return ""
 }
 
-/// --incr-replay-two-tier: the first tier of an edit of \p file, at once.
+/// --incr-replay-two-tier: the first tier of an edit of `file`, at once.
 /// On stdout what it did; on stderr `== incr-replay fg <n> <file>` and the
-/// diagnostics \p file owns now, which Scripts/incr_replay_check.py
+/// diagnostics `file` owns now, which Scripts/incr_replay_check.py
 /// compares with that file's part of the step's fresh run.
 fn replay_fg(live:       *LiveCheck,
              bufs:       *ReplayBuffers,
@@ -422,8 +422,9 @@ fn replay_report(live: *LiveCheck, n: usize, const name: string, t0: u64) {
     live->flush()
 }
 
-/// \param argv  the driver's own command line; the two replay flags are
-///              taken out and the rest is the compile command.
+/// ### Parameters
+/// - `argv`: the driver's own command line; the two replay flags are
+///   taken out and the rest is the compile command.
 pub fn incr_replay_main(argc:         i32,
                         argv:         unsafe *(unsafe *c_char),
                         const script: string,

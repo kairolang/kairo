@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------------- Driver/CacheFormat.k --- ///
 ///
-///   \brief The words the object cache (ObjectCache.k) and the incremental
-///          Sema records (ModuleRecords.k) share under --cache-dir: the two
-///          schema numbers, the versioned directory both write into, the
-///          run manifest's header, and the fingerprint keys both spell.
+/// The words the object cache (ObjectCache.k) and the incremental
+/// Sema records (ModuleRecords.k) share under --cache-dir: the two
+/// schema numbers, the versioned directory both write into, the
+/// run manifest's header, and the fingerprint keys both spell.
 ///
 ///   One home because the two writers live in two files and a reader of
 ///   either is a later compiler: a word spelled differently on one side

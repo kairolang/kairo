@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------ Sema/Resolve/MemberLookup.k --- ///
 ///
-///   \brief Member lookup over a CANONICAL type: own table, folded
-///          extensions, then the inheritance DAG. The component Compiler/Spec/Pipeline.md
-///          §2b describes; ChainBinding and (later) inference stand on it.
+/// Member lookup over a CANONICAL type: own table, folded
+/// extensions, then the inheritance DAG. The component Compiler/Spec/Pipeline.md
+/// §2b describes; ChainBinding and (later) inference stand on it.
 ///
 ///   \detail
 ///     Compiler/Spec/Generics.md#partial-selection, locked:
@@ -112,8 +112,8 @@ import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
-/// The extension-visibility rule (Compiler/Spec/MemberLookup.md): TU \p sc sees `extend`
-/// block \p e, written in file \p efid, when that file is its own, a
+/// The extension-visibility rule (Compiler/Spec/MemberLookup.md): TU `sc` sees `extend`
+/// block `e`, written in file `efid`, when that file is its own, a
 /// builtin file, one it imports or one those re-export (all three
 /// SemaContext::sees_extension_file), or the file that declares the
 /// extended record: an extension written beside its type travels with it.
@@ -128,7 +128,7 @@ pub fn extension_visible(sc:   unsafe *SemaContext,
     return extension_file_visible(sc, e, efid) && extension_gate_holds(sc, e)
 }
 
-/// A conditional extension exists in TU \p sc: DeclaredQuery::gate_holds,
+/// A conditional extension exists in TU `sc`: DeclaredQuery::gate_holds,
 /// asked once per TU and extension. True for an extension with no gate.
 pub fn extension_gate_holds(sc: unsafe *SemaContext,
                             e:  unsafe *Declarations::ExtensionDecl) -> bool {
@@ -174,7 +174,7 @@ pub fn extension_file_visible(sc:   unsafe *SemaContext,
 }
 
 /// `a::b::Point<T>` -> `Point`: the name the written target of extension
-/// \p e ends with, read off its path node; "" for a target that is no path
+/// `e` ends with, read off its path node; "" for a target that is no path
 /// (`[T]`, `*T`, `T?`). Spelling only; for a note, never for lookup.
 pub fn extension_target_leaf(e: unsafe *Declarations::ExtensionDecl) -> string {
     if e == &null {
@@ -363,7 +363,7 @@ pub class MemberLookup {
         return unsafe &it->second
     }
 
-    /// The _ext_by_type key of non-record canonical \p c: its address,
+    /// The _ext_by_type key of non-record canonical `c`: its address,
     /// except a nullable of a record (`[T]?`, `Box<i32>?`), which keys on
     /// the record's primary, tagged so it can meet no type's address (decls
     /// and types are both 8-aligned): `extend <T> [T]?` then reaches every
@@ -389,7 +389,7 @@ pub class MemberLookup {
         return c as usize as u64
     }
 
-    /// The `extend` blocks of non-record canonical \p c this TU sees (the
+    /// The `extend` blocks of non-record canonical `c` this TU sees (the
     /// language server lists a primitive's statics from them), or null.
     pub fn extensions_of_type(self,
                               c: unsafe *Type) -> unsafe *cxx::std::vector<unsafe *Declarations::ExtensionDecl> {
@@ -402,7 +402,7 @@ pub class MemberLookup {
         return unsafe &it->second
     }
 
-    /// An extension of \p c this TU does not see that declares \p name, or
+    /// An extension of `c` this TU does not see that declares `name`, or
     /// null: the lookup's miss is then "import it", not "no such member".
     fn hidden_extension(self,
                         c_in: unsafe *Type,
@@ -466,8 +466,8 @@ pub class MemberLookup {
         return &null
     }
 
-    /// The members named \p name of the extension hidden_extension finds
-    /// for \p c, appended to \p out: what ConformanceChecking matches a
+    /// The members named `name` of the extension hidden_extension finds
+    /// for `c`, appended to `out`: what ConformanceChecking matches a
     /// requirement against when lookup (which skips that extension) found
     /// no witness, so the miss says "import it" rather than "no member".
     fn hidden_extension_members(self,
@@ -496,11 +496,13 @@ pub class MemberLookup {
 
     /// # The lookup
 
-    /// Every decl named \p name reachable from canonical type \p c: own
+    /// Every decl named `name` reachable from canonical type `c`: own
     /// members, extension members, base members (transitively, deduped).
-    /// Appends to \p out in walk order: own first, extensions, then bases
+    /// Appends to `out` in walk order: own first, extensions, then bases
     /// breadth-first -- the order overload resolution and diagnostics want.
-    /// \return true if anything was found. A const vector has vector's
+    ///
+    /// ### Returns
+    /// true if anything was found. A const vector has vector's
     /// members; which of them may be called on a const object is decided
     /// where the call is typed, by the receiver's conversion.
     fn lookup(self,
@@ -880,14 +882,14 @@ pub class MemberLookup {
         return decl_is_instance(d) && !decl_instantiated(d)
     }
 
-    /// THE fill trigger: if \p d is an unfilled shell of an imported
+    /// THE fill trigger: if `d` is an unfilled shell of an imported
     /// template, have clang fill it now. Both readers of a shell's table
     /// call this before reading it -- member lookup (`c.size`) and
     /// TypeResolve's `::` step (`traits<alloc>::size_type`) -- so neither
     /// can miss a member the other would have filled in. A failed fill is
     /// sticky (one no set tried could spell is retried for another TU's
-    /// set) and leaves \p d unfilled; callers fall back exactly as they did
-    /// before fills existed. True when \p d's own table is readable.
+    /// set) and leaves `d` unfilled; callers fall back exactly as they did
+    /// before fills existed. True when `d`'s own table is readable.
     static fn ensure_filled(sc: unsafe *SemaContext, d: unsafe *Decl) -> bool {
         if !MemberLookup::unfilled(d) {
             return true
@@ -916,7 +918,7 @@ pub class MemberLookup {
         return sc->foreign->fill(d, sc->diag, fid, alt)
     }
 
-    /// True when the C++ headers \p sc's file imports failed to compile.
+    /// True when the C++ headers `sc`'s file imports failed to compile.
     /// Nothing is imported from a set clang rejected (HeaderIndex::index), so
     /// every name the file takes from it is undeclared: two headers that
     /// define one `struct Base` left only "unknown type name 'Base'" under
@@ -930,7 +932,7 @@ pub class MemberLookup {
         return hs->is_built() && !hs->ok
     }
 
-    /// The note headers_failed() asks for, on an unresolved-name error at \p at.
+    /// The note headers_failed() asks for, on an unresolved-name error at `at`.
     static fn note_failed_headers(sc: unsafe *SemaContext, b: *DiagBuilder, at: SourceRange) {
         if !MemberLookup::headers_failed(sc) {
             return
@@ -942,7 +944,7 @@ pub class MemberLookup {
         )
     }
 
-    /// True when \p d is an instance whose primary came from a C++ header --
+    /// True when `d` is an instance whose primary came from a C++ header --
     /// before AND after it is filled. Such an instance is clang's: M2 must
     /// SKIP it, and its members come from ForeignInstantiate::fill (clang's
     /// own instantiation, imported), not from substituting into the pattern.
@@ -957,7 +959,7 @@ pub class MemberLookup {
 
     /// # ADL
 
-    /// The scopes argument-dependent lookup searches for a value of type \p t:
+    /// The scopes argument-dependent lookup searches for a value of type `t`:
     /// every module enclosing the record's declaration, innermost first, up to
     /// (excluding) its TU, then the same for each generic argument. Pointers,
     /// references and nullables peel to what they refer to: C++ associates
@@ -965,12 +967,12 @@ pub class MemberLookup {
     /// the case this exists for. A C++ namespace imported by Sema/Foreign is
     /// a ModuleDecl, so `std` lands here exactly as a Kairo `module` does.
     ///
-    /// Appends only scopes not already in \p out, so callers accumulate over
+    /// Appends only scopes not already in `out`, so callers accumulate over
     /// every operand / argument into one list.
     fn associated_scopes(self,
                          t:   unsafe *Type,
                          out: unsafe *cxx::std::vector<unsafe *DeclContext>) {
-        // Deduped through a set seeded with what \p out already holds: a
+        // Deduped through a set seeded with what `out` already holds: a
         // type in `std` brings every reopening of the namespace (hundreds,
         // one ModuleDecl per header), and the linear _has_dc made each call
         // quadratic in them. Same scopes, same order.
@@ -1033,8 +1035,8 @@ pub class MemberLookup {
         }
     }
 
-    /// Functions named \p name in each of \p scopes, minus anything already in
-    /// \p skip (member lookup's answer) or \p out: the ADL half of an operator
+    /// Functions named `name` in each of `scopes`, minus anything already in
+    /// `skip` (member lookup's answer) or `out`: the ADL half of an operator
     /// or unqualified-call candidate set. A decl reached two ways is one
     /// candidate, the same identity rule as _append_cell.
     fn adl_candidates(self,
@@ -1093,7 +1095,7 @@ pub class MemberLookup {
         return c
     }
 
-    /// The cv of the object an expression of type \p t names: \p t's own,
+    /// The cv of the object an expression of type `t` names: `t`'s own,
     /// read through a C++ reference (`const T&` names a const object).
     fn object_quals(self, t: unsafe *Type) -> u8 {
         var unsafe *c = t
@@ -1218,7 +1220,7 @@ pub class MemberLookup {
         return false
     }
 
-    /// \p d is a class with a base that is a type parameter.
+    /// `d` is a class with a base that is a type parameter.
     priv fn _derives_param(self, d: unsafe *Decl) -> bool {
         var unsafe *cd = dyn_cast<Declarations::ClassDecl>(d)
         if cd == &null {
@@ -1256,7 +1258,7 @@ pub class MemberLookup {
 
         if !isa<RecordType>(c) {
             // A base that is the class's own type parameter: the members of
-            // \p of's argument for it when the walk came through an
+            // `of`'s argument for it when the walk came through an
             // instance (`Hooked<Concrete>`), else of the class the
             // parameter's `derives` bound names -- all a body checked once
             // may read of its base (TypeUtil::param_edge_bases). Anything
@@ -1311,9 +1313,9 @@ pub class MemberLookup {
 
     /// Append every decl of a cell, skipping duplicates by identity (a decl
     /// reached through two paths is one candidate).
-    /// Requirement \p d is named \p name. The requirement may be another
-    /// TU's, so an identifier compares by \p spelling (this TU's spelling
-    /// of \p name), not imm.
+    /// Requirement `d` is named `name`. The requirement may be another
+    /// TU's, so an identifier compares by `spelling` (this TU's spelling
+    /// of `name`), not imm.
     priv fn _names(self, d: unsafe *Decl, name: DeclName, const spelling: string) -> bool {
         var unsafe *f = dyn_cast<Declarations::FunctionDecl>(d)
         if f != &null && f->is_operator {
@@ -1371,7 +1373,7 @@ pub class MemberLookup {
     /// expression position (`Node { .. }`, `Node::make()`), T the type
     /// position; each reaches a use once, so each use is warned once.
 
-    /// \p d, the decl a BARE name resolved to, is a member type of \p owner
+    /// `d`, the decl a BARE name resolved to, is a member type of `owner`
     /// (the record `Self` denotes at the use). Only the innermost Self: a
     /// sibling of an enclosing type, seen from inside a nested one, is not a
     /// member of Self, and `Self::` would name the wrong scope; nor is a
@@ -1407,7 +1409,7 @@ pub class MemberLookup {
         return a == b
     }
 
-    /// SC001W at \p at, the bare spelling of member type \p d of \p owner:
+    /// SC001W at `at`, the bare spelling of member type `d` of `owner`:
     /// a note at its name, and the fix-it that writes `Self::`.
     static fn warn_unqualified_member_type(sc:    unsafe *SemaContext,
                                            at:    SourceRange,
@@ -1464,9 +1466,9 @@ pub class MemberLookup {
         b.emit()
     }
 
-    /// The R016E C++ defers to the use: \p imm, found through the overlay of
-    /// \p found_in's TU, names an entry I marked `lazy` (every colliding
-    /// entity came from a header, ImportResolution::_add). Reports at \p at
+    /// The R016E C++ defers to the use: `imm`, found through the overlay of
+    /// `found_in`'s TU, names an entry I marked `lazy` (every colliding
+    /// entity came from a header, ImportResolution::_add). Reports at `at`
     /// with one note per candidate and returns true. An entry I already
     /// reported at a Kairo import returns true without a second report (the
     /// caller poisons the use); false, silently, for every other entry. N
@@ -1537,7 +1539,7 @@ pub class MemberLookup {
         return true
     }
 
-    /// The word a note uses for \p d's kind ("class", "typedef", ...).
+    /// The word a note uses for `d`'s kind ("class", "typedef", ...).
     pub static fn kind_word(d: unsafe *Decl) -> string {
         if isa<Declarations::VariableDecl>(d) {
             return "variable"

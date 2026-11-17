@@ -155,7 +155,7 @@ pub struct ImportInfo {
     var items:  cxx::std::vector<string> ///< braced items, each as `name`, `a::B` or `x as y`
 }
 
-/// Lexes \p fid on its own, comments and newlines included.
+/// Lexes `fid` on its own, comments and newlines included.
 pub fn lex_file(ci:  unsafe *CompilerInstance,
                 fid: u32,
                 out: unsafe *cxx::std::vector<RawTok>) -> bool {
@@ -192,7 +192,7 @@ pub fn lex_file(ci:  unsafe *CompilerInstance,
 }
 
 /// Stage 1 binary precedence (Compiler/Parser/ExprParse.k,
-/// _infix_precedence); 0 when \p k is not an infix operator. Rule 9.5 needs
+/// _infix_precedence); 0 when `k` is not an infix operator. Rule 9.5 needs
 /// it to tell a redundant pair of parens from a needed one.
 pub fn infix_prec(k: TokenKind) -> i32 {
     if k == TokenKind::OpEqual
@@ -286,7 +286,7 @@ pub fn prec_right_assoc(p: i32) -> bool {
     return p == 1 || p == 2 || p == 14
 }
 
-/// Rule 4.4 / 13.1: a line starting with \p k continues the statement on the
+/// Rule 4.4 / 13.1: a line starting with `k` continues the statement on the
 /// line before it, so a `;` ending that line is not redundant. The parser's
 /// own sets: the member-access family (_parse_postfix_expr), any infix
 /// operator that cannot also open a statement (_parse_expr_prec), and the
@@ -564,7 +564,7 @@ pub class Formatter {
         }
     }
 
-    /// \p p lies in a closure body that [a, b) holds whole. A comment or a
+    /// `p` lies in a closure body that [a, b) holds whole. A comment or a
     /// macro use there belongs to that body's own statement list, which
     /// keeps it; it does not make the call or statement around the closure
     /// copied as written.
@@ -663,7 +663,7 @@ pub class Formatter {
         return c == (' ' as u8) || c == ('\t' as u8) || c == ('\n' as u8) || c == ('\r' as u8)
     }
 
-    /// \p b moved back over trailing whitespace (all of it, or only line
+    /// `b` moved back over trailing whitespace (all of it, or only line
     /// breaks). Whitespace is ASCII, so characters dropped are bytes dropped.
     priv fn _trim_back(self, a: u32, b: u32, spaces_too: bool) -> u32 {
         var t        = self._text(a, b)
@@ -704,7 +704,7 @@ pub class Formatter {
         return self._text(a + (l as u32), b - (r as u32))
     }
 
-    /// 1-based source line of the byte at raw location \p a.
+    /// 1-based source line of the byte at raw location `a`.
     fn _line(self, a: u32) -> usize {
         var off       = a - self.base
         var lo: usize = 0
@@ -725,7 +725,7 @@ pub class Formatter {
         return self.base + self.lstart[l - 1]
     }
 
-    /// End of line \p l, its line break excluded.
+    /// End of line `l`, its line break excluded.
     priv fn _line_end(self, l: usize) -> u32 {
         var a = self._line_start(l)
         var b = if l < self.lstart.size() => self.base + self.lstart[l]
@@ -762,7 +762,7 @@ pub class Formatter {
             || k == TokenKind::AtComment
     }
 
-    /// Index of the first token starting at or after \p a.
+    /// Index of the first token starting at or after `a`.
     fn _lb(self, a: u32) -> usize {
         var lo: usize = 0
         var hi        = self.toks.size()
@@ -778,7 +778,7 @@ pub class Formatter {
         return lo
     }
 
-    /// First code token starting at or after \p a; toks.size() if none.
+    /// First code token starting at or after `a`; toks.size() if none.
     fn _sig_after(self, a: u32) -> usize {
         var n = self.toks.size()
         for var i = self._lb(a); i < n; ++i {
@@ -790,7 +790,7 @@ pub class Formatter {
         return n
     }
 
-    /// Last code token ending at or before \p b; toks.size() if none.
+    /// Last code token ending at or before `b`; toks.size() if none.
     fn _sig_before(self, b: u32) -> usize {
         var i = self._lb(b)
         while i > 0 {
@@ -859,7 +859,7 @@ pub class Formatter {
         return false
     }
 
-    /// \p a moved back over the `(` tokens right before it. An operator
+    /// `a` moved back over the `(` tokens right before it. An operator
     /// expression's range starts at its first operand's, inside that
     /// operand's parens (`(a * b) + c` starts at `a`); where the grammar puts
     /// nothing but the expression after a keyword or `=`, those parens are
@@ -889,7 +889,7 @@ pub class Formatter {
         return self.toks[i].kind
     }
 
-    /// The last code token in [a, b) is \p k, or the first one after it is.
+    /// The last code token in [a, b) is `k`, or the first one after it is.
     priv fn _has_sep(self, a: u32, b: u32, k: TokenKind) -> bool {
         var l = self._sig_before(b)
         if l < self.toks.size() && self.toks[l].start >= a && self.toks[l].kind == k {
@@ -899,7 +899,7 @@ pub class Formatter {
         return self._kind_at(self._sig_after(b)) == k
     }
 
-    /// \p b moved back before a trailing `;` or `,` that sits inside [a, b).
+    /// `b` moved back before a trailing `;` or `,` that sits inside [a, b).
     priv fn _core_end(self, a: u32, b: u32) -> u32 {
         var l = self._sig_before(b)
         if l >= self.toks.size() || self.toks[l].start < a {
@@ -1059,7 +1059,7 @@ pub class Formatter {
     //  Imports (section 5)
     // ----------------------------------------------------------------------
 
-    /// True when token \p i is the first code token on its line.
+    /// True when token `i` is the first code token on its line.
     priv fn _line_head(self, i: usize) -> bool {
         var j = i
         while j > 0 {
@@ -1101,7 +1101,7 @@ pub class Formatter {
             || c == ('_' as u8)
     }
 
-    /// Next token index after \p i that is not whitespace (newlines count).
+    /// Next token index after `i` that is not whitespace (newlines count).
     priv fn _next_tok(self, i: usize) -> usize {
         var j = i + 1
         while j < self.toks.size() && self.toks[j].kind == TokenKind::TkWhitespace {
@@ -1111,7 +1111,7 @@ pub class Formatter {
         return j
     }
 
-    /// Next code token after \p i, skipping newlines and comments too.
+    /// Next code token after `i`, skipping newlines and comments too.
     priv fn _next_code(self, i: usize) -> usize {
         var j = i + 1
         while j < self.toks.size() && Formatter::trivia(self.toks[j].kind) {
@@ -1200,7 +1200,7 @@ pub class Formatter {
     }
 
     /// `import [anchor::]a::b[::{x, y} | ::* | as z]`, from the `import` at
-    /// \p i. \p last gets the index of its last token.
+    /// `i`. `last` gets the index of its last token.
     priv fn _read_kairo_import(self, i: usize, im: *ImportInfo, last: unsafe *usize) -> bool {
         var j  = self._next_tok(i)
         var k0 = self._kind_at(j)
@@ -1267,7 +1267,7 @@ pub class Formatter {
         return true
     }
 
-    /// The items of `{ ... }` opening at \p open; \p last gets the `}`.
+    /// The items of `{ ... }` opening at `open`; `last` gets the `}`.
     priv fn _read_items(self, open: usize, im: *ImportInfo, last: unsafe *usize) -> bool {
         var j           = self._next_code(open)
         var cur: string = ""
@@ -1303,7 +1303,7 @@ pub class Formatter {
         return false
     }
 
-    /// Import index starting at \p a, or -1.
+    /// Import index starting at `a`, or -1.
     priv fn _import_at(self, a: u32) -> i32 {
         var lo: usize = 0
         var hi        = self.imps.size()
@@ -1595,7 +1595,7 @@ pub class Formatter {
 
     /// Lays out the elements of the region [lo, hi), with everything between
     /// them: comments, blank lines (rule 14.1), imports, and code no element
-    /// covers. \p opener is the line of the region's `{`, or 0 at file scope.
+    /// covers. `opener` is the line of the region's `{`, or 0 at file scope.
     priv fn _list(self,
                   lo:     u32,
                   hi:     u32,
@@ -1692,7 +1692,7 @@ pub class Formatter {
     }
 
     /// A comment on the element's last line trails it (rule 12.4). Returns
-    /// the position past it, or \p cur.
+    /// the position past it, or `cur`.
     priv fn _trailing(self, cur: u32, hi: u32, e: *Entry) -> u32 {
         var j = self._lb(cur)
         while j < self.toks.size() && self.toks[j].kind == TokenKind::TkWhitespace {
@@ -1930,7 +1930,7 @@ pub class Formatter {
     //  Import runs (5.3, 5.4)
     // ----------------------------------------------------------------------
 
-    /// Past the import run starting at \p i, or \p i. A run is imports with
+    /// Past the import run starting at `i`, or `i`. A run is imports with
     /// only blank lines and comments between them; a comment belongs to the
     /// run only when it sits directly above an import of it (no blank line),
     /// so a comment the run would carry off is never orphaned: it ends the
@@ -2131,7 +2131,7 @@ pub class Formatter {
         return line_width() - self._depth * lc
     }
 
-    /// Past the end of the alignment run starting at \p i (rules 11.1, 11.2,
+    /// Past the end of the alignment run starting at `i` (rules 11.1, 11.2,
     /// 7.4). A run is one-line rows of one kind on consecutive source lines,
     /// each of which fits flat; then trimmed so every row also fits padded.
     priv fn _run(self, es: unsafe *cxx::std::vector<Entry>, i: usize) -> usize {
@@ -2224,7 +2224,7 @@ pub class Formatter {
         return w
     }
 
-    /// The row's width once its columns are padded to \p w, up to its value.
+    /// The row's width once its columns are padded to `w`, up to its value.
     priv fn _padded_width(self, e: *Entry, w: unsafe *cxx::std::vector<i32>) -> i32 {
         var seps        = Formatter::_row_seps()
         var last: usize = 0
@@ -2550,7 +2550,7 @@ pub class Formatter {
         return d
     }
 
-    /// \p head ` {` members `}`. \p oneline: a type body written on one line
+    /// `head` ` {` members `}`. `oneline`: a type body written on one line
     /// (7.5), which stays on one line while it fits.
     priv fn _braced(self,
                     head:    Doc,
@@ -2609,7 +2609,7 @@ pub class Formatter {
 
     /// `kw cond {` with the condition laid out from the tree (rules 3.3,
     /// 8.2), when the header is exactly the keyword(s) and the condition;
-    /// otherwise as written. \p a is where the header's text starts (after
+    /// otherwise as written. `a` is where the header's text starts (after
     /// a previous block, for `else if`).
     priv fn _cond_hb(self,
                      a:        u32,
@@ -2660,7 +2660,7 @@ pub class Formatter {
         )
     }
 
-    /// \p a equals \p b once runs of whitespace are one space.
+    /// `a` equals `b` once runs of whitespace are one space.
     priv static fn _same_words(const a: string, const b: string) -> bool {
         var s:   string = ""
         var run: usize  = 0  // start of the word being read
@@ -2711,7 +2711,7 @@ pub class Formatter {
     //  Statements
     // ----------------------------------------------------------------------
 
-    /// \p e, when given, is filled for alignment (section 11).
+    /// `e`, when given, is filled for alignment (section 11).
     priv fn _stmt(self, s: unsafe *Stmt, st: u32, en: u32, e: unsafe *Entry) -> Doc {
         if isa<CompoundStmt>(s) {
             return self._block(cast<CompoundStmt>(s))
@@ -3055,7 +3055,7 @@ pub class Formatter {
 
     /// Rule 8.4: `case` and its alternatives as a grid
     /// aligned under the first one, then whatever follows the last one up to
-    /// \p b (a `where` guard) as written. Nothing when the header is not
+    /// `b` (a `where` guard) as written. Nothing when the header is not
     /// exactly `case p, p, ...`: a comment, a macro, a multi-line pattern, or
     /// anything but one `,` between two patterns.
     priv fn _case_head(self, mc: unsafe *MatchCase, st: u32, b: u32) -> Doc {
@@ -3586,9 +3586,9 @@ pub class Formatter {
         return Doc::concat3(hd, Doc::text(" "), tail)
     }
 
-    /// The items between the opener at token \p o and the closer at \p c,
+    /// The items between the opener at token `o` and the closer at `c`,
     /// one slot each: [lo[i], hi[i]) runs from the separator before item i to
-    /// the one after it. \p starts are the items' range starts, which may sit
+    /// the one after it. `starts` are the items' range starts, which may sit
     /// after an attribute; the separators are the commas between them. False
     /// when the commas are not where the items say.
     fn _slots(self,
@@ -3650,9 +3650,9 @@ pub class Formatter {
         return true
     }
 
-    /// Expression \p e in its slot [a, b): laid out when the slot holds
-    /// exactly \p e and pairs of parens around it, else the slot as written
-    /// (an attribute `@move x`, a comment). \p ok is cleared for the latter.
+    /// Expression `e` in its slot [a, b): laid out when the slot holds
+    /// exactly `e` and pairs of parens around it, else the slot as written
+    /// (an attribute `@move x`, a comment). `ok` is cleared for the latter.
     fn _slot_expr(self, e: unsafe *Expr, a: u32, b: u32, ok: unsafe *bool) -> Doc {
         var f = self._sig_after(a)
         var l = self._sig_before(b)
@@ -3693,7 +3693,7 @@ pub class Formatter {
         return self._wrap(e, self._expr(e), n, PCtx{})
     }
 
-    /// Type \p t as written. Its range can run past its last token (to the
+    /// Type `t` as written. Its range can run past its last token (to the
     /// start of whatever follows: a `)` closing the expression around it, the
     /// next line, an initializer), so it ends at the last token before an
     /// unbalanced closer, or a newline, `=` or `;` outside brackets.
@@ -3701,7 +3701,7 @@ pub class Formatter {
         return self._v(t->range.start.raw(), self._type_end(t))
     }
 
-    /// Where type \p t's text ends (see _type_doc).
+    /// Where type `t`'s text ends (see _type_doc).
     fn _type_end(self, t: unsafe *Type) -> u32 {
         var a          = t->range.start.raw()
         var b          = t->range.end.raw()
@@ -3771,7 +3771,7 @@ pub class Formatter {
     }
 
     /// class/struct/union/interface/extend/enum/module/`pub { }`/ffi block.
-    /// \p typebody: a body rule 7.5 may keep on one line.
+    /// `typebody`: a body rule 7.5 may keep on one line.
     priv fn _aggregate(self,
                        st:       u32,
                        en:       u32,
@@ -3853,9 +3853,9 @@ pub class Formatter {
     //  Expressions
     // ----------------------------------------------------------------------
 
-    /// \p e with the parentheses the source had around it. Semantic parses
+    /// `e` with the parentheses the source had around it. Semantic parses
     /// fold parens away, so they come back from the tokens: a pair inside the
-    /// node's own range, and, at operand positions (\p ext), pairs glued
+    /// node's own range, and, at operand positions (`ext`), pairs glued
     /// around it.
     fn fx(self, e: unsafe *Expr, ext: bool) -> Doc {
         return self.fxc(e, ext, PCtx{})
@@ -3876,8 +3876,8 @@ pub class Formatter {
         return self._wrap(e, self._expr(e), n, pc)
     }
 
-    /// \p d, the layout of \p e, inside its own pair of parens (if its
-    /// range is one) and \p ext more around it: under `--normalize-parens`
+    /// `d`, the layout of `e`, inside its own pair of parens (if its
+    /// range is one) and `ext` more around it: under `--normalize-parens`
     /// (rule 9.5) only as many as the parse needs.
     fn _wrap(self, e: unsafe *Expr, const d0: Doc, ext: u32, pc: PCtx) -> Doc {
         var d = d0.copy()
@@ -3986,7 +3986,7 @@ pub class Formatter {
         return true
     }
 
-    /// The pair around \p e (its own, or the outermost of \p ext glued ones)
+    /// The pair around `e` (its own, or the outermost of `ext` glued ones)
     /// is what keeps a `<` and a `>` apart. The parser reads `name < ...`
     /// after an unknown name or a member step as tentative generic
     /// arguments, and commits when a `>` closes them before `(`, `.`, `,`,
@@ -4135,7 +4135,7 @@ pub class Formatter {
         return n
     }
 
-    /// The `(` at token \p i is closed by the `)` at \p j, not earlier: in
+    /// The `(` at token `i` is closed by the `)` at `j`, not earlier: in
     /// `(a) + (b)` the first `(` and the last `)` sit around the sum but
     /// are not one pair.
     priv fn _pair(self, i: usize, j: usize) -> bool {
@@ -4157,7 +4157,7 @@ pub class Formatter {
         return false
     }
 
-    /// Where \p e's text starts. An operator expression's range starts at
+    /// Where `e`'s text starts. An operator expression's range starts at
     /// its first operand's, which is inside that operand's parens: in
     /// `(a) + b` the sum starts at `a`. Every `(` right before the range
     /// whose `)` closes inside it belongs to the expression.
@@ -4178,7 +4178,7 @@ pub class Formatter {
         return a
     }
 
-    /// Where \p e's text ends: the mirror of _es (`a + (b)` ends at `b`).
+    /// Where `e`'s text ends: the mirror of _es (`a + (b)` ends at `b`).
     fn _ee(self, e: unsafe *Expr) -> u32 {
         var a = self._es(e)
         var b = e->range.end.raw()
@@ -4207,7 +4207,7 @@ pub class Formatter {
         return b
     }
 
-    /// The `)` matching the `(` at token \p i, or toks.size().
+    /// The `)` matching the `(` at token `i`, or toks.size().
     priv fn _match_close(self, i: usize) -> usize {
         var depth: i32 = 0
         for var k = i; k < self.toks.size(); ++k {
@@ -4227,7 +4227,7 @@ pub class Formatter {
         return self.toks.size()
     }
 
-    /// A string or char literal at \p a with its prefix glued in front
+    /// A string or char literal at `a` with its prefix glued in front
     /// (`f"..."`, `r"..."`, `rf"..."`). The lexer folds the prefix into the
     /// literal's immediate and makes no token of it, and the node's range
     /// starts at the quote, so the prefix is found in the bytes.
@@ -4268,7 +4268,7 @@ pub class Formatter {
         return c >= ('a' as u8) && c <= ('z' as u8) || c >= ('A' as u8) && c <= ('Z' as u8)
     }
 
-    /// The end of the last code token in [a, b), or \p b. A node's range can
+    /// The end of the last code token in [a, b), or `b`. A node's range can
     /// run past its last token over trivia: a type with no `;` after it
     /// reaches across the line break into the next line's doc comment.
     fn _code_end(self, a: u32, b: u32) -> u32 {
@@ -4284,7 +4284,7 @@ pub class Formatter {
         return self.toks[l].end
     }
 
-    /// The end of the string literal token \p i with the pieces chained to
+    /// The end of the string literal token `i` with the pieces chained to
     /// it (`"a " "b"`). The lexer folds a chain into the first piece's
     /// immediate and makes no token of the rest: they are bytes between
     /// tokens, so they are found that way.
@@ -4312,7 +4312,7 @@ pub class Formatter {
         return b
     }
 
-    /// \p a moved back over each `(` before it whose `)` closes inside [a, b).
+    /// `a` moved back over each `(` before it whose `)` closes inside [a, b).
     fn _grow_start(self, a: u32, b: u32) -> u32 {
         var s = self._prefix_start(a)
         var p = self._sig_before(s)
@@ -4329,7 +4329,7 @@ pub class Formatter {
         return s
     }
 
-    /// \p b moved past each `)` after it whose `(` opened inside [a, b).
+    /// `b` moved past each `)` after it whose `(` opened inside [a, b).
     fn _grow_end(self, a: u32, b: u32) -> u32 {
         var e = b
         var q = self._sig_after(e)
@@ -4346,7 +4346,7 @@ pub class Formatter {
         return e
     }
 
-    /// The `(` matching the `)` at token \p j, or toks.size().
+    /// The `(` matching the `)` at token `j`, or toks.size().
     priv fn _match_open(self, j: usize) -> usize {
         var depth: i32 = 0
         var k          = j + 1
@@ -4402,7 +4402,7 @@ pub class Formatter {
         return true
     }
 
-    /// \p e as written, minus a parenthesized range's own pair (fx adds it).
+    /// `e` as written, minus a parenthesized range's own pair (fx adds it).
     priv fn _ev(self, e: unsafe *Expr) -> Doc {
         var a = self._es(e)
         var b = self._ee(e)
@@ -5083,7 +5083,7 @@ pub class Formatter {
         )
     }
 
-    /// The first code token after \p e with the parens glued around it.
+    /// The first code token after `e` with the parens glued around it.
     priv fn _after_expr(self, e: unsafe *Expr) -> usize {
         var q = self._sig_after(self._ee(e))
         var n = self._ext_parens(self._es(e), self._ee(e))
@@ -5094,7 +5094,7 @@ pub class Formatter {
         return q
     }
 
-    /// \p e (with any parens glued around it) is the next thing after \p a.
+    /// `e` (with any parens glued around it) is the next thing after `a`.
     priv fn _next_is(self, a: u32, e: unsafe *Expr) -> bool {
         var n = self._ext_parens(self._es(e), self._ee(e))
         var f = self._sig_after(a)
@@ -5109,7 +5109,7 @@ pub class Formatter {
         return f < self.toks.size() && self._prefix_start(self.toks[f].start) == self._es(e)
     }
 
-    /// `cond => value`: the `=>` right after \p c, then \p v.
+    /// `cond => value`: the `=>` right after `c`, then `v`.
     priv fn _arrow_then(self, c: unsafe *Expr, v: unsafe *Expr) -> bool {
         var ar = self._after_expr(c)
         if self._kind_at(ar) != TokenKind::OpFatArrow {
@@ -5119,9 +5119,9 @@ pub class Formatter {
         return self._next_is(self.toks[ar].end, v)
     }
 
-    /// A rule 4.1 list of positional items, the elements of \p e between its
-    /// \p open and \p close tokens: block form when broken (grid where
-    /// \p flags allows), trailing comma by form.
+    /// A rule 4.1 list of positional items, the elements of `e` between its
+    /// `open` and `close` tokens: block form when broken (grid where
+    /// `flags` allows), trailing comma by form.
     priv fn _seq(self,
                  e:     unsafe *Expr,
                  open:  TokenKind,
@@ -5420,7 +5420,7 @@ pub class Formatter {
     }
 }
 
-/// Index of \p needle in \p hay, or hay.size().
+/// Index of `needle` in `hay`, or hay.size().
 pub fn find_str(const hay: string, const needle: string) -> usize {
     var n = hay.size()
     var m = needle.size()

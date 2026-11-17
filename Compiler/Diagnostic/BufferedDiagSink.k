@@ -32,7 +32,7 @@ import Location::SourceRange::SourceRange
 /// Sort key for draining in source order: (file, offset, insertion order).
 /// A diagnostic with no resolvable location (has_loc == false, or a location
 /// SourceManager can't map, e.g. a synthesized/recovery token) gets
-/// `fid == usize(-1)` back from \c SourceManager::resolve, which this key's
+/// `fid == usize(-1)` back from `SourceManager::resolve`, which this key's
 /// ordering puts after every diagnostic with a real location. `seq` is the
 /// diagnostic's original push_back position; it breaks ties for diagnostics
 /// that share a location (two checks anchoring the same token), so the
@@ -132,7 +132,7 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         self._suppress_depth = d
     }
 
-    /// Drop warnings with policy key \p key located inside \p scope: from
+    /// Drop warnings with policy key `key` located inside `scope`: from
     /// now on at emit, and those already buffered here. The second half is
     /// what lets the parser apply a `@no_warn` to the declaration it has
     /// just parsed (ASTParse::apply_annotations_to_decl): a warning
@@ -244,7 +244,7 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         self._warn_count  = 0
     }
 
-    /// Drops, unreported, every diagnostic after the first \p n: a second
+    /// Drops, unreported, every diagnostic after the first `n`: a second
     /// run of the same work that reports them again (the incremental
     /// cache's stream hash before a TU's real fill, CodegenJob::hash_stream).
     pub fn truncate(self, n: usize) {
@@ -280,11 +280,11 @@ pub class BufferedDiagSink derives DiagEngineVBase {
     /// each one's note children (e.g. "previous declaration is here", which
     /// legitimately points *backwards*) travel with their parent untouched.
 
-    /// \brief the files the buffered diagnostics name a position in: each
-    ///        one's location, labels and fix-its, and its notes'. Incremental
-    ///        Sema records them (Sema/Incremental/Plan.k, R8): a rendered
-    ///        note into another file is stale once that file's text moves.
-    ///        Before drain_into, which gives the diagnostics away.
+    /// the files the buffered diagnostics name a position in: each
+    /// one's location, labels and fix-its, and its notes'. Incremental
+    /// Sema records them (Sema/Incremental/Plan.k, R8): a rendered
+    /// note into another file is stale once that file's text moves.
+    /// Before drain_into, which gives the diagnostics away.
     pub fn named_fids(self, sm: unsafe *SourceManager, out: unsafe *cxx::std::vector<u32>) {
         for var i: usize = 0; i < self._diags.size(); ++i {
             BufferedDiagSink::_named_in(self._diags[i], sm, out)

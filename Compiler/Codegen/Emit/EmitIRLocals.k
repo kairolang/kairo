@@ -91,7 +91,7 @@ import Token::Token::Token
 import Token::TokenKind::TokenKind
 
 extend EmitIR {
-    /// The body that declared the union-stored locals from row \p mark on
+    /// The body that declared the union-stored locals from row `mark` on
     /// is written. An Elided or Flagged local no written site ended would
     /// never be destroyed: its mode and its sites came from one provider
     /// (Sema/Check/LocalDisposition.k), so a mismatch is an ICE, never a
@@ -117,7 +117,7 @@ extend EmitIR {
         }
     }
 
-    /// \p d's row when it is a union-stored local a use here spells through
+    /// `d`'s row when it is a union-stored local a use here spells through
     /// its storage, else usize(-1). Inside a closure that captures it, the
     /// name is the closure's own copy (_capture_list), spelled bare.
     prot fn _ul_use(self, d: unsafe *Decl) -> usize {
@@ -141,7 +141,7 @@ extend EmitIR {
         return it->second as usize
     }
 
-    /// The declaration of the union-stored local \p n, in place of
+    /// The declaration of the union-stored local `n`, in place of
     /// `T x = init` (no trailing `;`; _decl writes it):
     ///   Cleanup  `::__kairo_ul<T> __k_s_x{init}; <hook>`
     ///   Elided   `::__kairo_ul<T> __k_s_x{init}`
@@ -519,7 +519,7 @@ extend EmitIR {
         self._var_init(n, c)
     }
 
-    /// \p n is typed a pointer to const (`*const T`).
+    /// `n` is typed a pointer to const (`*const T`).
     priv fn _ptr_to_const(self, n: unsafe *VariableDecl) -> bool {
         if n->type_ == &null || n->type_->canonical == &null {
             return false
@@ -586,7 +586,7 @@ extend EmitIR {
         self._cg->sink->spell(at, "}")
     }
 
-    /// `= init` for a variable whose declarator is already out; \p c is its
+    /// `= init` for a variable whose declarator is already out; `c` is its
     /// unqualified canonical, or null.
     priv fn _var_init(self, n: unsafe *VariableDecl, c: unsafe *Type) {
         // `var x: T` is default-constructed (InitCheck proved T has one):
@@ -698,7 +698,7 @@ extend EmitIR {
         return nm
     }
 
-    /// \p t, a declaration or use of local \p d, spelled as _local_name.
+    /// `t`, a declaration or use of local `d`, spelled as _local_name.
     prot fn _local_ref(self, d: unsafe *Decl, t: Token) {
         var unsafe *v = dyn_cast<VariableDecl>(d)
         if v == &null || v->rebind == 0 {

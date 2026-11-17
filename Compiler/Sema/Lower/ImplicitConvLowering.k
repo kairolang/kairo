@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------ Sema/Lower/ImplicitConvLowering.k --- ///
 ///
-///   \brief An implicit conversion through an extension's `@implicit op as`
-///          becomes the cast it stands for.
+/// An implicit conversion through an extension's `@implicit op as`
+/// becomes the cast it stands for.
 ///
 ///   \detail
 ///       extend string { @implicit fn op as (const self) -> Path { ... } }

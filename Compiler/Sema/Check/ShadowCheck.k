@@ -1,6 +1,6 @@
 /// --- The Kairo Project --------------------- Sema/Check/ShadowCheck.k --- ///
 ///
-///   \brief Warn when a local binding shadows an outer one OF THE SAME TYPE.
+/// Warn when a local binding shadows an outer one OF THE SAME TYPE.
 ///
 ///   \detail
 ///     Shadowing is legal in Kairo and mostly harmless. The case that
@@ -152,10 +152,7 @@ pub class ShadowFrame {
     }
 }
 
-///
-/// \class ShadowCheck
-/// \brief The pass. Read-only: emits diagnostics, writes nothing to the AST.
-///
+/// The pass. Read-only: emits diagnostics, writes nothing to the AST.
 pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
     pub var sc: unsafe *SemaContext
 
@@ -193,7 +190,7 @@ pub class ShadowCheck derives RecursiveASTVisitor<ShadowCheck> {
 
     /// # the check
 
-    /// Push \p d into the innermost frame, warning first if it hides an
+    /// Push `d` into the innermost frame, warning first if it hides an
     /// outer binding of the same type.
     priv fn _declare(self, imm: u32, d: unsafe *Decl, at: SourceRange) {
         if imm == u32::MAX {

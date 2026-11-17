@@ -44,7 +44,7 @@ pub class LinkFS {
         return llvm::sys::fs::is_regular_file(llvm::Twine(kairo::sref(p)))
     }
 
-    /// Symlinks resolved; \p p unchanged if it cannot be.
+    /// Symlinks resolved; `p` unchanged if it cannot be.
     pub static fn real(p: string) -> string {
         var out: llvm::SmallString<256>
         var ec = llvm::sys::fs::real_path(
@@ -79,7 +79,7 @@ pub class LinkFS {
         )
     }
 
-    /// Entry NAMES directly in \p dir, unsorted. Empty if unreadable.
+    /// Entry NAMES directly in `dir`, unsorted. Empty if unreadable.
     pub static fn list_dir(const dir: string) -> cxx::std::vector<string> {
         var out                      = cxx::std::vector<string>()
         var ec: cxx::std::error_code
@@ -164,7 +164,7 @@ pub class LinkFS {
         )
     }
 
-    /// Last modification, in the filesystem clock's ticks; 0 if \p p cannot
+    /// Last modification, in the filesystem clock's ticks; 0 if `p` cannot
     /// be stat'd. Only ever compared for equality.
     pub static fn mtime(const p: string) -> u64 {
         var st: llvm::sys::fs::file_status
@@ -176,7 +176,7 @@ pub class LinkFS {
         return st.getLastModificationTime().time_since_epoch().count() as u64
     }
 
-    /// Size in bytes; 0 if \p p cannot be stat'd.
+    /// Size in bytes; 0 if `p` cannot be stat'd.
     pub static fn size(const p: string) -> u64 {
         var st: llvm::sys::fs::file_status
         var ec = llvm::sys::fs::status(llvm::Twine(kairo::sref(p)), &st, true)
@@ -187,7 +187,7 @@ pub class LinkFS {
         return st.getSize() as u64
     }
 
-    /// Bytes in the files under \p p (its own size when \p p is a file);
+    /// Bytes in the files under `p` (its own size when `p` is a file);
     /// what cannot be stat'd counts 0.
     pub static fn tree_size(const p: string) -> u64 {
         if !LinkFS::is_dir(p) {
@@ -202,7 +202,7 @@ pub class LinkFS {
         return total
     }
 
-    /// Atomic on one filesystem; false if \p to exists as a non-empty
+    /// Atomic on one filesystem; false if `to` exists as a non-empty
     /// directory or the move fails.
     pub static fn rename(const from: string, const to: string) -> bool {
         var ec = llvm::sys::fs::rename(
@@ -229,7 +229,7 @@ pub class LinkFS {
         return false
     }
 
-    /// A GNU archive of \p objects, with a symbol table, written to \p path:
+    /// A GNU archive of `objects`, with a symbol table, written to `path`:
     /// for a linker that has no --start-lib (the MinGW driver) to take
     /// objects lazily. Members keep their basenames; two of one name are
     /// fine to a linker, which reads the symbol table.
@@ -238,7 +238,7 @@ pub class LinkFS {
         return LinkFS::write_archive_as(path, &objects, false)
     }
 
-    /// write_archive in COFF format when \p coff: what llvm-ar writes for
+    /// write_archive in COFF format when `coff`: what llvm-ar writes for
     /// COFF members (an extra sorted linker member), which link.exe-style
     /// readers expect of a Windows archive.
     pub static fn write_archive_as(const path:     string,
@@ -295,7 +295,7 @@ pub class LinkFS {
         llvm::sys::fs::remove(llvm::Twine(kairo::sref(p)), true)
     }
 
-    /// Copies the tree \p from into \p to (created): files and subdirectories.
+    /// Copies the tree `from` into `to` (created): files and subdirectories.
     pub static fn copy_tree(const from: string, const to: string) -> bool {
         if !LinkFS::make_dirs(to) {
             return false
@@ -333,7 +333,7 @@ pub class LinkFS {
         llvm::sys::fs::remove_directories(llvm::Twine(kairo::sref(p)), true)
     }
 
-    /// The environment variable \p name; "" when unset.
+    /// The environment variable `name`; "" when unset.
     pub static fn env(const name: string) -> string {
         var v = llvm::sys::Process::GetEnv(kairo::sref(name))
         if !v.has_value() {
@@ -345,7 +345,7 @@ pub class LinkFS {
         )
     }
 
-    /// Sets \p name to \p value, overwriting. Portable: Windows has no
+    /// Sets `name` to `value`, overwriting. Portable: Windows has no
     /// setenv, and its _putenv_s is the CRT's copy of the environment that
     /// llvm::sys::Process::GetEnv reads back.
     pub static fn set_env(const name: string, const value: string) {

@@ -15,15 +15,20 @@ ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "Native/Int128.hh" // kairo::wide: 64x64 -> 128 multiply-add
 ffi "c++" import "bit"
 
-/// \brief portable 128-bit arithmetic operations
-/// \details uses compiler intrinsics where available, falls back to manual implementation
+/// portable 128-bit arithmetic operations
+///
+/// uses compiler intrinsics where available, falls back to manual implementation
 pub module Int128 {
-    /// \brief multiplies a 64-bit value by a factor and adds addend
-    /// \param val 64-bit value (in/out)
-    /// \param factor 64-bit multiplier
-    /// \param addend 64-bit value to add
-    /// \param hi receives the high 64 bits if overflow
-    /// \returns true if result overflows 64 bits
+    /// multiplies a 64-bit value by a factor and adds addend
+    ///
+    /// ### Parameters
+    /// - `val`: 64-bit value (in/out)
+    /// - `factor`: 64-bit multiplier
+    /// - `addend`: 64-bit value to add
+    /// - `hi`: receives the high 64 bits if overflow
+    ///
+    /// ### Returns
+    /// true if result overflows 64 bits
     pub inline static fn mul_add_64(@inout val: u64,
                                     factor:     u64,
                                     addend:     u64,
@@ -80,12 +85,16 @@ pub module Int128 {
         }
     }
 
-    /// \brief multiplies a 128-bit value by a 64-bit factor and adds a 64-bit addend
-    /// \param lo lower 64 bits (in/out)
-    /// \param hi upper 64 bits (in/out)
-    /// \param factor 64-bit multiplier
-    /// \param addend 64-bit value to add
-    /// \returns true if result overflows 128 bits
+    /// multiplies a 128-bit value by a 64-bit factor and adds a 64-bit addend
+    ///
+    /// ### Parameters
+    /// - `lo`: lower 64 bits (in/out)
+    /// - `hi`: upper 64 bits (in/out)
+    /// - `factor`: 64-bit multiplier
+    /// - `addend`: 64-bit value to add
+    ///
+    /// ### Returns
+    /// true if result overflows 128 bits
     pub inline static fn mul_add_128(@inout lo: u64,
                                      @inout hi: u64,
                                      factor:    u64,
@@ -163,10 +172,12 @@ pub module Int128 {
         }
     }
 
-    /// \brief multiplies a single 64-bit limb by factor and adds carry
-    /// \param limb the limb value (in/out)
-    /// \param factor 64-bit multiplier
-    /// \param carry carry-in value, updated to carry-out
+    /// multiplies a single 64-bit limb by factor and adds carry
+    ///
+    /// ### Parameters
+    /// - `limb`: the limb value (in/out)
+    /// - `factor`: 64-bit multiplier
+    /// - `carry`: carry-in value, updated to carry-out
     pub inline static fn mul_limb(@inout limb: u64, factor: u64, @inout carry: u64) {
         eval if defined!(_MSC_VER) {
             kairo::wide::mul_limb(&limb, factor, &carry)
@@ -213,8 +224,9 @@ pub module Int128 {
     }
 }
 
-/// \brief arbitrary precision integer for literals exceeding 128 bits
-/// \details uses a limb array with least-significant limb first (little-endian)
+/// arbitrary precision integer for literals exceeding 128 bits
+///
+/// uses a limb array with least-significant limb first (little-endian)
 pub class ImmBigInt {
     pub var limbs: llvm::SmallVector<u64, 2> ///< 1-2 limbs is the common case: inline, no heap.
     pub var bits:  usize
@@ -234,9 +246,11 @@ pub class ImmBigInt {
         }
     }
 
-    /// \brief multiplies the entire ImmBigInt by a small factor and adds a value
-    /// \param factor multiplier (typically the base: 2, 8, 10, 16)
-    /// \param addend value to add after multiplication
+    /// multiplies the entire ImmBigInt by a small factor and adds a value
+    ///
+    /// ### Parameters
+    /// - `factor`: multiplier (typically the base: 2, 8, 10, 16)
+    /// - `addend`: value to add after multiplication
     fn mul_add(self, factor: u64, addend: u64) {
         var carry: u64 = addend
 
@@ -251,7 +265,7 @@ pub class ImmBigInt {
         }
     }
 
-    /// \brief returns the minimum number of bits needed to represent this value
+    /// returns the minimum number of bits needed to represent this value
     pub fn bit_width(self) -> usize {
         if self.limbs.empty() {
             return 0
@@ -270,7 +284,7 @@ pub class ImmBigInt {
         return top_idx * 64 + top_bits
     }
 
-    /// \brief true when exactly one bit is set (the magnitude is a power of two).
+    /// true when exactly one bit is set (the magnitude is a power of two).
     pub fn is_pow2(self) -> bool {
         var ones: usize = 0
         for var i: usize = 0; i < self.limbs.size(); ++i {
@@ -280,7 +294,7 @@ pub class ImmBigInt {
         return ones == 1
     }
 
-    /// \brief extracts lower 64 bits
+    /// extracts lower 64 bits
     fn lo64(self) -> u64 {
         if self.limbs.empty() {
             return 0
@@ -289,7 +303,7 @@ pub class ImmBigInt {
         return self.limbs[0]
     }
 
-    /// \brief extracts bits 64-127
+    /// extracts bits 64-127
     fn hi64(self) -> u64 {
         if self.limbs.size() < 2 {
             return 0
@@ -298,12 +312,12 @@ pub class ImmBigInt {
         return self.limbs[1]
     }
 
-    /// \brief checks if value fits in 128 bits
+    /// checks if value fits in 128 bits
     fn fits_in_128(self) -> bool {
         return self.bit_width() <= 128
     }
 
-    /// \brief resets to zero
+    /// resets to zero
     fn reset(self) {
         for var i: usize = 0; i < self.limbs.size(); ++i {
             self.limbs[i] = 0
@@ -311,8 +325,9 @@ pub class ImmBigInt {
     }
 }
 
-/// \brief arbitrary precision float for literals exceeding native precision
-/// \details stores mantissa as ImmBigInt with separate exponent
+/// arbitrary precision float for literals exceeding native precision
+///
+/// stores mantissa as ImmBigInt with separate exponent
 pub class ImmBigFloat {
     pub var mantissa:  ImmBigInt
     pub var precision: usize

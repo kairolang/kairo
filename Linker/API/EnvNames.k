@@ -154,11 +154,11 @@ pub class EnvNames {
     }
 }
 
-/// \brief the toolchain's cache root, shared by the Kairo library, the
-///        runtime and LTO objects (Driver/CompilerCache.k) and the sysroot
-///        cache (Sysroot/Cache.k): $KAIRO_CACHE_DIR, else
-///        $XDG_CACHE_HOME/kairo, else ~/.cache/kairo, else
-///        %LOCALAPPDATA%/kairo. "" when none is set: nothing is cached.
+/// the toolchain's cache root, shared by the Kairo library, the
+/// runtime and LTO objects (Driver/CompilerCache.k) and the sysroot
+/// cache (Sysroot/Cache.k): $KAIRO_CACHE_DIR, else
+/// $XDG_CACHE_HOME/kairo, else ~/.cache/kairo, else
+/// %LOCALAPPDATA%/kairo. "" when none is set: nothing is cached.
 pub fn cache_root() -> string {
     var root = LinkFS::env(EnvNames::kairo_cache_dir())
     if root.is_empty() {

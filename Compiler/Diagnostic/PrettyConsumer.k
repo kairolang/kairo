@@ -42,18 +42,18 @@ import std::io
 
 /// ANSI-colored diagnostic consumer.
 ///
-/// Extends \c BasicDiagConsumer with color, bold text, and right-aligned
+/// Extends `BasicDiagConsumer` with color, bold text, and right-aligned
 /// line numbers. Color is automatically disabled when writing to a file or
-/// non-tty stream, or when the \c NO_COLOR environment variable is set.
+/// non-tty stream, or when the `NO_COLOR` environment variable is set.
 ///
-/// \c StrikeThrough labels are rendered with Unicode combining strikethrough
-/// characters in addition to the \c ~ glyph underline.
+/// `StrikeThrough` labels are rendered with Unicode combining strikethrough
+/// characters in addition to the `~` glyph underline.
 ///
-/// Color can be forced off at any time via \c set_color(false), which zeroes
+/// Color can be forced off at any time via `set_color(false)`, which zeroes
 /// all ANSI escape fields. This cannot be reversed construct a new consumer
 /// if re-enabling is needed.
 ///
-/// \c _sm may be null; source snippets and \c --> lines are omitted when so.
+/// `_sm` may be null; source snippets and `-->` lines are omitted when so.
 /// Key for grouping diagnostics by file and line.
 pub struct DiagGroupKey {
     pub var file_id: u32
@@ -133,7 +133,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         self._diags.push_back(diag)
     }
 
-    /// Hands every buffered diagnostic to \p other and forgets it. The flag
+    /// Hands every buffered diagnostic to `other` and forgets it. The flag
     /// parser reports into this consumer (it is the default one, and the
     /// output format is not known until the flags are parsed); when the
     /// driver then swaps in the basic/json consumer, dropping this buffer
@@ -204,7 +204,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         return self.detect_color_stderr()
     }
 
-    /// The stderr text of buffered diagnostics [\p a, \p b), rendered as
+    /// The stderr text of buffered diagnostics [`a`, `b`), rendered as
     /// a set of their own: coalescing never crosses the range's ends, so a
     /// replay is exact only when nothing outside it shares a line with it
     /// (Compiler/Spec/IncrementalSema.md#phase-2).
@@ -420,7 +420,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         return out
     }
 
-    /// True when \p d's caret rows on \p line would not carry its
+    /// True when `d`'s caret rows on `line` would not carry its
     /// "[CODE] message": render_group gives the message to the first label on
     /// the line only when that label has no text of its own.
     priv fn _labels_hide_message(self,
@@ -1102,7 +1102,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
     /// # Helpers
 
-    /// One `> fix: <message>` line, after \p lead, per fix-it of \p diag
+    /// One `> fix: <message>` line, after `lead`, per fix-it of `diag`
     /// that has a message (the edit itself is drawn on the source line).
     priv fn _fix_messages(self,
                           diag:       unsafe *Diagnostic,
@@ -1119,7 +1119,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         return out
     }
 
-    /// The first line shown above \p line of file \p fid: the context
+    /// The first line shown above `line` of file `fid`: the context
     /// window's start (ctx_before), past any blank lines at its top.
     priv fn _context_start(self, sm: unsafe *SourceManager, fid: u32, line: u32) -> u32 {
         var ctx_before = self.ctx_before()
@@ -1131,7 +1131,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         return first
     }
 
-    /// True when \p loc is on \p line of file \p fid. A line number alone is
+    /// True when `loc` is on `line` of file `fid`. A line number alone is
     /// not a place: the call and the header declaration a note points at
     /// can both be on line 7.
     priv fn _on_line(self,
@@ -1146,7 +1146,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         return sm->get_line_col(loc).line == line
     }
 
-    /// Puts \p span under \p range on \p line_text (the range's start line),
+    /// Puts `span` under `range` on `line_text` (the range's start line),
     /// in terminal cells: 0-based, end exclusive, inside the line and at
     /// least one cell wide (a point at the end of the line gets the cell
     /// just past it). A range that ends on a later line, or in another
@@ -1166,7 +1166,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         }
     }
 
-    /// \p range on its start line of \p len bytes, as 0-based byte columns
+    /// `range` on its start line of `len` bytes, as 0-based byte columns
     /// (end exclusive, possibly empty) clamped to the line; a range ending
     /// on another line or in another file runs to the line's end. Shared by
     /// labels and fix-its, whose removal markers had the same mismeasured
@@ -1202,7 +1202,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         return out
     }
 
-    /// Bytes of the one terminal cell that starts at byte \p i of \p text: a
+    /// Bytes of the one terminal cell that starts at byte `i` of `text`: a
     /// whole well-formed UTF-8 sequence, or else the maximal ill-formed
     /// subpart, which a terminal shows as one U+FFFD (Unicode's
     /// "substitution of maximal subparts"): `F4 90 80 80` is four cells,
@@ -1253,7 +1253,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         return n
     }
 
-    /// Terminal cells the first \p bytes bytes of \p text take (see
+    /// Terminal cells the first `bytes` bytes of `text` take (see
     /// _cell_bytes). Source columns are bytes; used as cells they put a
     /// caret after "é" one cell right of its token for every multi-byte
     /// character before it. A wide (East Asian) character still counts as
@@ -1269,7 +1269,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         return n
     }
 
-    /// The blank run under cells [\p from, \p to) of \p text: a tab under
+    /// The blank run under cells [`from`, `to`) of `text`: a tab under
     /// each tab, a space under everything else. The source row and the
     /// caret row have gutters of one width, so the terminal expands a tab
     /// in both to the same stop; a space under a tab left every caret after
@@ -1303,7 +1303,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         return out
     }
 
-    /// The highlighter language for a snippet of \p path: its extension, so
+    /// The highlighter language for a snippet of `path`: its extension, so
     /// a C/C++ input (or a header a clang note points into) is coloured as
     /// what it is. An extensionless file under an include directory is a
     /// C++ standard header (<string>, <vector>); anything else without an

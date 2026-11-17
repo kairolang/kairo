@@ -102,10 +102,8 @@ pub class <T> ArenaList {
     priv var _chunk_cap:   usize                  = 0
     priv var _slab_size:   usize                  = 0
 
-    ///
-    /// \brief Default constructor owns its own internal ArenaAllocator.
+    /// Default constructor owns its own internal ArenaAllocator.
     /// Use for temporary lists during parsing that don't need to share memory.
-    ///
     pub fn ArenaList(self) {
         var slab_size: usize = 256
         self._slab_size = if slab_size > 0 => slab_size else => 256
@@ -137,14 +135,12 @@ pub class <T> ArenaList {
         self._arena = unsafe &self._owned_arena
     }
 
-    ///
-    /// \brief External-arena constructor does NOT own the arena.
+    /// External-arena constructor does NOT own the arena.
     ///
     /// The caller guarantees the arena outlives this list.
     /// destroy() will NOT tear down the arena.
     /// Use when the list's contents need to outlive the list itself
     /// (e.g. AST node child arrays that live in the node arena).
-    ///
     fn ArenaList(self, arena: unsafe *ArenaAllocator, slab_size: usize = 256) {
         self._slab_size = if slab_size > 0 => slab_size else => 256
         self._arena     = arena                                     ///< external not owned
@@ -264,13 +260,11 @@ pub class <T> ArenaList {
         return unsafe &self._chunks[0].base[0]
     }
 
-    ///
-    /// \brief Return a raw contiguous pointer to the first element.
+    /// Return a raw contiguous pointer to the first element.
     ///
     /// Only valid if slab_size >= total element count (single slab).
     /// Use freeze() for the safe multi-slab version that copies into
     /// a fresh contiguous block.
-    ///
     fn raw(const self) -> unsafe *T {
         if self._chunk_count == 0 {
             return &null
@@ -279,8 +273,7 @@ pub class <T> ArenaList {
         return self._chunks[0].base
     }
 
-    ///
-    /// \brief Copy all elements into a fresh contiguous block allocated
+    /// Copy all elements into a fresh contiguous block allocated
     /// from the given arena, then return a pointer to it.
     ///
     /// Use this to bake the list into an AST node's fixed array field:
@@ -290,7 +283,6 @@ pub class <T> ArenaList {
     ///
     /// After freeze() the list can be destroyed or cleared the frozen
     /// array lives in the target arena and is independent of this list.
-    ///
     pub fn freeze(const self, arena: unsafe *ArenaAllocator) -> unsafe *T {
         if self._total == 0 {
             return &null
@@ -377,7 +369,7 @@ pub class <T> ArenaList {
         self.destroy()
     }
 
-    /// The element at \p idx, which must exist (a fatal error otherwise;
+    /// The element at `idx`, which must exist (a fatal error otherwise;
     /// get() answers null instead). A named method, not `op []`: a
     /// subscript hands out a place (`*T` / `*const T`) or a value, never
     /// an unsafe pointer (SC114E), and every caller here wants the pointer

@@ -43,8 +43,7 @@ import Support::EvalHash::{
     SPLITMIX64_MUL2,
 }
 
-/// \class DepLog
-/// \brief One TU's raw reads of other files. See the file header.
+/// One TU's raw reads of other files. See the file header.
 pub class DepLog {
     /// The owning TU's address. A probe of one of ITS tables is not a
     /// dependency: an edit to this file re-checks it whatever it read.
@@ -158,13 +157,12 @@ pub inline fn dep_log_current() -> unsafe *DepLog {
     return unsafe ((*kairo::sema_dep_log()) as unsafe *DepLog)
 }
 
-/// \class DepLogScope
-/// \brief Makes \p log the thread's current log for the scope, and puts the
-///        previous one back: Sema re-enters itself (run() calls run_to()),
-///        and the driver runs one TU's stage between another's.
+/// Makes `log` the thread's current log for the scope, and puts the
+/// previous one back: Sema re-enters itself (run() calls run_to()),
+/// and the driver runs one TU's stage between another's.
 ///
-/// \note Not copyable in spirit: bind it to a `var` and let it die with the
-///       scope, as TimeRegion.
+/// **Note:** Not copyable in spirit: bind it to a `var` and let it die with the
+/// scope, as TimeRegion.
 pub class DepLogScope {
     priv var _prev: unsafe *void = &null
 

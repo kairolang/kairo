@@ -485,7 +485,7 @@ extend EmitIR {
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren)
             // Named through a base that is a type parameter (`A::begin(self)`),
             // the call is each instance's argument's member by design, and
-            // clang choosing an override of \p f there is no disagreement.
+            // clang choosing an override of `f` there is no disagreement.
             if qt == &null || !isa<GenericParamType>(canon_unqual(qt)) {
                 self._agree(n, f)
             }
@@ -667,8 +667,8 @@ extend EmitIR {
         self._agree(n, f)
     }
 
-    /// Tells the sink that the token just written closes \p n, which Sema
-    /// bound to \p f (EmitSink::agree_call). Nothing is said of a call that
+    /// Tells the sink that the token just written closes `n`, which Sema
+    /// bound to `f` (EmitSink::agree_call). Nothing is said of a call that
     /// clang resolves by design: one in a duck body, whose callee each
     /// instance picks, and one through a witness, whose C++ callee is the
     /// witness's member and not the requirement Sema bound.
@@ -720,7 +720,7 @@ extend EmitIR {
 
     /// --test-sema-agreement-swap: for a call bound to a function named as
     /// the flag's first half, the function named as its second half, looked
-    /// for in the scopes enclosing \p f, innermost first.
+    /// for in the scopes enclosing `f`, innermost first.
     priv fn _agree_swap(self, f: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
         if f->is_operator
             || self._cg->ctx->get_spelling(f->name) != self._cg->opts.agree_swap_from {
@@ -757,7 +757,7 @@ extend EmitIR {
         return f
     }
 
-    /// The receiver chain \p ch up to its last step \p last, then that step
+    /// The receiver chain `ch` up to its last step `last`, then that step
     /// as `.template m<A...>`: `template` because the receiver's type may be
     /// dependent (`self` in a generic record, a `where` dispatcher's
     /// candidate call), where C++ would read the `<` as less-than; it is
@@ -791,7 +791,7 @@ extend EmitIR {
         self._cg->sink->synth_at_start(at, clang::tok::comma)
     }
 
-    /// As _nopanic_open for a construction of \p ty: the check names the
+    /// As _nopanic_open for a construction of `ty`: the check names the
     /// type, so the wrapper's comma is the builtin one and the construction
     /// stays a prvalue, never moved (a RAII guard's move may be deleted).
     priv fn _nopanic_open_of(self, at: SourceRange, const ty: string) {
@@ -836,7 +836,7 @@ extend EmitIR {
         return false
     }
 
-    /// \p n calls a member Sema left unbound because its receiver is
+    /// `n` calls a member Sema left unbound because its receiver is
     /// dependent (_dependent_step): the callee is a value chain whose LAST
     /// step is that member.
     priv fn _dependent_member_call(self, n: unsafe *CallExpr) -> bool {
@@ -1038,9 +1038,9 @@ extend EmitIR {
         return &null
     }
 
-    /// `::ns::I_witness<Self, A...>::m`, requirement \p f of interface
-    /// instance \p wi through its witness, Self spelled from \p me; with
-    /// \p targs (`<B>`) it is `::template m<B>`, the witness being a
+    /// `::ns::I_witness<Self, A...>::m`, requirement `f` of interface
+    /// instance `wi` through its witness, Self spelled from `me`; with
+    /// `targs` (`<B>`) it is `::template m<B>`, the witness being a
     /// dependent type. One spelling for a witness call and a witness member
     /// used as a value.
     prot fn _witness_member(self,
@@ -1126,7 +1126,7 @@ extend EmitIR {
         return out
     }
 
-    /// \p t is an imported tag C++ can only name elaborated (`struct ::stat`,
+    /// `t` is an imported tag C++ can only name elaborated (`struct ::stat`,
     /// its name hidden by an ordinary one): Speller::_type spells the keyword
     /// in front of it.
     priv fn _elaborated_tag(self, t: unsafe *Type) -> bool {
@@ -1169,8 +1169,8 @@ extend EmitIR {
     }
 
     /// Arguments, each cast to its parameter's canonical where it differs.
-    /// \p bound: the callee carries its receiver, so `self` takes no argument.
-    /// \p skip_object: argument zero is the object of a qualified method
+    /// `bound`: the callee carries its receiver, so `self` takes no argument.
+    /// `skip_object`: argument zero is the object of a qualified method
     /// call, already written in front of the callee.
     prot fn _args(self,
                   n:           unsafe *CallExpr,
@@ -1240,7 +1240,7 @@ extend EmitIR {
         }
     }
 
-    /// The imported parameter's own C++ spelling when \p a must be cast to
+    /// The imported parameter's own C++ spelling when `a` must be cast to
     /// it, or "". A C integer alias reached through a pointer
     /// (ParamDecl::cxx_alias_ptr) imports as the Kairo integer of its width,
     /// whose C++ spelling is the target's natural one: `&tid` is `unsigned
@@ -1285,7 +1285,7 @@ extend EmitIR {
         return f->cxx_param_spellings[k].copy()
     }
 
-    /// Element \p k of a type pack's run. Under an instance a forwarding
+    /// Element `k` of a type pack's run. Under an instance a forwarding
     /// pack's parameter is `E&&` (Speller::param_type), which an lvalue
     /// does not bind: a by-value pack gets `static_cast<E>(x)`, the one copy
     /// any `x: T` parameter makes, and `@move` gets `static_cast<E&&>(x)`.
@@ -1423,7 +1423,7 @@ extend EmitIR {
         return cast<FunctionPointerType>(t)
     }
 
-    /// True when \p f is `fn(...) -> !`.
+    /// True when `f` is `fn(...) -> !`.
     priv fn _returns_never(self, f: unsafe *FunctionPointerType) -> bool {
         if f->return_type == &null || f->return_type->canonical == &null {
             return false
@@ -1484,7 +1484,7 @@ extend EmitIR {
     }
 
     /// The parameters an argument list maps onto: `self` excluded only when
-    /// \p bound -- an extension call passes its receiver as argument zero.
+    /// `bound` -- an extension call passes its receiver as argument zero.
     priv fn _call_params(self,
                          f:     unsafe *FunctionDecl,
                          bound: bool) -> cxx::std::vector<unsafe *ParamDecl> {
@@ -1543,7 +1543,7 @@ extend EmitIR {
         return &null // a fn-pointer expression; no decl to consult.
     }
 
-    /// \p d is declared in an interface: a requirement, never a C++ function.
+    /// `d` is declared in an interface: a requirement, never a C++ function.
     priv fn _is_requirement(self, d: unsafe *Decl) -> bool {
         if d == &null || !isa<FunctionDecl>(d) || d->semantic_dc == &null {
             return false

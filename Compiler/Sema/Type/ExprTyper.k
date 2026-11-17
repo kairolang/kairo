@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------------ Sema/Type/ExprTyper.k --- ///
 ///
-///   \brief The expression typer. One pass, one class, every mixin: the
-///          demand-driven `type_of` and the state the mixins share.
+/// The expression typer. One pass, one class, every mixin: the
+/// demand-driven `type_of` and the state the mixins share.
 ///
 ///   \detail
 ///     type_of(e, expected) is memoized per node, walks children itself, and
@@ -214,9 +214,9 @@ pub fn ice_source_loc(sc: unsafe *SemaContext, loc: SourceLocation) -> string {
 
 /// An expression the typer left in no terminal state (finish, and an
 /// expression body that was never typed): a typer bug, already reported
-/// as I011W at \p e. A debug build of the compiler aborts there, so the
+/// as I011W at `e`. A debug build of the compiler aborts there, so the
 /// bug is found; a release build reports it as an internal error at
-/// \p e, poisons it and goes on, so the file stops before its lowerings
+/// `e`, poisons it and goes on, so the file stops before its lowerings
 /// and the language server keeps running.
 pub fn typer_hole(sc: unsafe *SemaContext, e: unsafe *Expr, const msg: string) {
     eval if defined!(DEBUG) {
@@ -231,11 +231,9 @@ pub fn typer_hole(sc: unsafe *SemaContext, e: unsafe *Expr, const msg: string) {
     e->poison()
 }
 
-///
-/// \class ExprBodyVerifier
-/// \brief ExprTyper's exit test for expression bodies: every expr-bodied
-///        FunctionDecl in the TU, extension and nested record methods
-///        included, ends with its body typed, poisoned or dependent.
+/// ExprTyper's exit test for expression bodies: every expr-bodied
+/// FunctionDecl in the TU, extension and nested record methods
+/// included, ends with its body typed, poisoned or dependent.
 ///
 ///        A body the typer never visited never passes through finish(),
 ///        so finish()'s own gate cannot see it. ExprBodyDesugar would then
@@ -246,7 +244,6 @@ pub fn typer_hole(sc: unsafe *SemaContext, e: unsafe *Expr, const msg: string) {
 ///
 ///        Runs in every build: the walk is one visit per function, and
 ///        release builds pass -DNDEBUG (see NameBindingVerifier).
-///
 pub class ExprBodyVerifier derives RecursiveASTVisitor<ExprBodyVerifier> {
     pub var sc: unsafe *SemaContext
     pub var tu: *TypeUtil
@@ -421,9 +418,9 @@ pub class ExprTyper
         self.null_compared = &null
     }
 
-    /// \p root is about to be typed into a slot declared \p written (as
-    /// written, or null) by \p owner. Pair every push with a pop_null_target
-    /// once \p root is typed: the stack holds the slots being typed into
+    /// `root` is about to be typed into a slot declared `written` (as
+    /// written, or null) by `owner`. Pair every push with a pop_null_target
+    /// once `root` is typed: the stack holds the slots being typed into
     /// right now, nothing older.
     fn push_null_target(self, root: *Expr, written: *Type, owner: unsafe *Decl) {
         var t = NullTarget{}
@@ -439,8 +436,8 @@ pub class ExprTyper
         }
     }
 
-    /// The type of a variant of \p ed used as a value: the enum, except
-    /// inside \p ed's own discriminants, where it is the underlying type.
+    /// The type of a variant of `ed` used as a value: the enum, except
+    /// inside `ed`'s own discriminants, where it is the underlying type.
     fn variant_value_type(self, ed: unsafe *Decl) -> unsafe *Type {
         var unsafe *rep = NameLookup::representative(ed)
         if self.discr_enum != &null && rep == self.discr_enum {
@@ -541,7 +538,7 @@ pub class ExprTyper
     /// # the entry
 
     /// The core. Idempotent per node; children walked by the mixins.
-    /// \p e has been typed (or is being). OperatorTyping asks before walking a
+    /// `e` has been typed (or is being). OperatorTyping asks before walking a
     /// left-leaning operator chain bottom-up.
     fn is_memoized(self, e: unsafe *Expr) -> bool {
         return self._memo.find((e as usize as u64)) != self._memo.end()
@@ -960,7 +957,7 @@ pub class ExprTyper
 
     /// # identifiers
 
-    /// The type a USE of \p p has: TypeUtil::param_value_type (a pack reads
+    /// The type a USE of `p` has: TypeUtil::param_value_type (a pack reads
     /// as its Slice<E>), cv-qualified for a `const` binding. A `const`
     /// binding is a const OBJECT, and an object's type carries its cv: `&x`
     /// on a const param is `*const T`, and `T&` deduces `const T` from it.
@@ -1194,12 +1191,12 @@ pub class ExprTyper
         }
     }
 
-    /// Inside a closure that captures \p d by pointer (`|*x|`, `|*|`, or
+    /// Inside a closure that captures `d` by pointer (`|*x|`, `|*|`, or
     /// `|const *x|`), the name is that pointer, `*T` (closures.md: the body
     /// reads and writes the original through `*x`): its type there, or null
-    /// when \p d is not captured by pointer here. An inner closure that
+    /// when `d` is not captured by pointer here. An inner closure that
     /// copies an outer one's pointer capture sees the pointer too. Only
-    /// closures between the use and \p d's own body count.
+    /// closures between the use and `d`'s own body count.
     priv fn _capture_view(self, d: unsafe *Decl, t: unsafe *Type) -> unsafe *Type {
         if d == &null || t == &null {
             return &null
@@ -1255,7 +1252,7 @@ pub class ExprTyper
         return &null
     }
 
-    /// \p d is a top-level `var` of the script this TU is, and the use sits
+    /// `d` is a top-level `var` of the script this TU is, and the use sits
     /// in the top-level code itself (no function frame under the closures):
     /// the one place a global reads as a local, so `|*|` takes its address.
     /// A function in the script names it as the global it is, captured or
@@ -1274,8 +1271,8 @@ pub class ExprTyper
         return true
     }
 
-    /// Closure \p n captures the script variable \p d by copy: \p d
-    /// reads as a local here (script_top_capture), and \p n and every
+    /// Closure `n` captures the script variable `d` by copy: `d`
+    /// reads as a local here (script_top_capture), and `n` and every
     /// closure around it ask for a copy. ClosureCaptures::_open_copy is the
     /// same rule over its own walk; the closure's type (raw or not) and its
     /// capture list must agree.
@@ -1294,9 +1291,9 @@ pub class ExprTyper
         return true
     }
 
-    /// The script variable \p d is a closure's local inside \p n: the
-    /// outermost closure around \p n (the use in the top-level code) copied
-    /// it, so in there the name is that copy and \p n captures it as a
+    /// The script variable `d` is a closure's local inside `n`: the
+    /// outermost closure around `n` (the use in the top-level code) copied
+    /// it, so in there the name is that copy and `n` captures it as a
     /// closure in a function captures a local.
     /// ClosureCaptures::_resolve applies the same rule (script_local).
     fn script_local_capture(self, n: unsafe *Expressions::ClosureExpr, d: unsafe *Decl) -> bool {
@@ -1316,7 +1313,7 @@ pub class ExprTyper
         return false
     }
 
-    /// A use of the nullable place \p d: the analysis remembers its state
+    /// A use of the nullable place `d`: the analysis remembers its state
     /// here, for the consumer that may need the value (NullnessFlow::
     /// read_value). The use itself stays `T?`: `x?`, `x = null` and a `T?`
     /// argument never read the value.
@@ -1330,10 +1327,10 @@ pub class ExprTyper
         self.flow.note_read(n, unsafe &place)
     }
 
-    /// The consumer of \p e needs its value: narrow it when its place is
+    /// The consumer of `e` needs its value: narrow it when its place is
     /// proven non-null here, else the §4 error (NullnessFlow::read_value).
-    /// Returns \p e's type after (the `T` when narrowed), or null when the
-    /// error was reported and \p e poisoned.
+    /// Returns `e`'s type after (the `T` when narrowed), or null when the
+    /// error was reported and `e` poisoned.
     fn read_value(self, e: unsafe *Expr) -> unsafe *Type {
         if e == &null {
             return &null
@@ -1346,7 +1343,7 @@ pub class ExprTyper
         return e->type_
     }
 
-    /// \p a and \p b are one type in every instance of the body being
+    /// `a` and `b` are one type in every instance of the body being
     /// typed: spelled alike, or two types it knows only by their bounds
     /// (`T`, `J::Item`) that a `requires __builtin_is_same` of the
     /// declaration equates. A `T?` handed to such a `T` is a read of its
@@ -1371,9 +1368,9 @@ pub class ExprTyper
         )
     }
 
-    /// \p e, typed \p t, as a consumer that takes the nullable as well as
-    /// its value sees it: the `T` when \p e is a nullable place proven
-    /// non-null here (narrowed), else \p t unchanged and no error.
+    /// `e`, typed `t`, as a consumer that takes the nullable as well as
+    /// its value sees it: the `T` when `e` is a nullable place proven
+    /// non-null here (narrowed), else `t` unchanged and no error.
     fn value_if_proven(self, e: unsafe *Expr, t: unsafe *Type) -> unsafe *Type {
         if t == &null || self.tu.nullable_inner(t) == &null {
             return t
@@ -1537,7 +1534,7 @@ pub class ExprTyper
         self._modexp.insert(e as usize as u64)
     }
 
-    /// The type \p e denotes, or null when it is a value / unknown.
+    /// The type `e` denotes, or null when it is a value / unknown.
     fn denoted_type(self, e: unsafe *Expr) -> unsafe *Type {
         if e == &null {
             return &null
@@ -1568,13 +1565,16 @@ pub class ExprTyper
         return it->second
     }
 
-    /// \p e, already typed, names a type (`P`, `ns::P`, `T`, `(P)`) or is
+    /// `e`, already typed, names a type (`P`, `ns::P`, `T`, `(P)`) or is
     /// `typeof x` where a VALUE is required: an initializer, an argument,
     /// an operand, a converted value. A type-denoting expression has
     /// no type by design (finish: the callee or member base that reads it
     /// takes it from the side table), so every value consumer saw "unknown"
-    /// and let it through untyped to codegen. Reported here, \p e poisoned,
-    /// so the consumer propagates. \return reported (or already poisoned
+    /// and let it through untyped to codegen. Reported here, `e` poisoned,
+    /// so the consumer propagates.
+    ///
+    /// ### Returns
+    /// reported (or already poisoned
     /// by this).
     fn reject_type_value(self, e: unsafe *Expr) -> bool {
         if e == &null || e->is_poisoned() || e->type_ != &null {
@@ -1656,8 +1656,8 @@ pub class ExprTyper
         return true
     }
 
-    /// \p e names a type, a module or a callable where a value is required:
-    /// reported once at \p e (reject_callable_value, reject_type_value), \p e
+    /// `e` names a type, a module or a callable where a value is required:
+    /// reported once at `e` (reject_callable_value, reject_type_value), `e`
     /// poisoned. Every value consumer that receives an untyped child asks
     /// this, directly or through propagate, so none returns null with no
     /// outcome (finish).
@@ -1683,7 +1683,7 @@ pub class ExprTyper
         return self._fresh_chain((unsafe (n as unsafe *Expr)) as usize as u64)
     }
 
-    /// A reset ChainInfo for \p key at a stable address. Re-typing an expr
+    /// A reset ChainInfo for `key` at a stable address. Re-typing an expr
     /// resets its existing record in place, as the by-value map did, so a
     /// pointer handed out earlier still names the live one.
     priv fn _fresh_chain(self, key: u64) -> unsafe *ChainInfo {
@@ -1771,8 +1771,8 @@ pub class ExprTyper
         )
     }
 
-    /// The fn-pointer canonical of generic \p f's instance at the arguments
-    /// \p gl names (`pick<i32>` as a value): fn_pointer_type over the
+    /// The fn-pointer canonical of generic `f`'s instance at the arguments
+    /// `gl` names (`pick<i32>` as a value): fn_pointer_type over the
     /// signature with every parameter bound. Null, so the name stays a
     /// callable, unless every generic parameter is given positionally and is
     /// a type: a pack's or a value parameter's argument is not modelled
@@ -1870,7 +1870,7 @@ pub class ExprTyper
         )
     }
 
-    /// \p e came back as a callable with no type: a generic function short
+    /// `e` came back as a callable with no type: a generic function short
     /// of its arguments, an overload set or a method (finish).
     fn names_callable(self, e: unsafe *Expr) -> bool {
         if e == &null || e->is_poisoned() || e->type_ != &null || e->is_instantiation_dependent() {
@@ -1881,12 +1881,15 @@ pub class ExprTyper
         return it != self._chains.end() && it->second->callable_cands.size() > 0
     }
 
-    /// \p child came back as a callable, not a value, where its parent needs
+    /// `child` came back as a callable, not a value, where its parent needs
     /// a value: an operand, a cast's source. A callable has no type
     /// by design (finish), and every such parent returned null with no
     /// diagnostic, which finish() reported as an internal error. A function
     /// with a type (a plain function, a generic one's instance) never gets
-    /// here. \return reported.
+    /// here.
+    ///
+    /// ### Returns
+    /// reported.
     fn reject_callable_value(self, child: unsafe *Expr) -> bool {
         if !self.names_callable(child) {
             return false
@@ -1936,10 +1939,10 @@ pub class ExprTyper
         self.sc->diag->report(id, e->range.start, msg.copy()).first(e->range)->emit()
     }
 
-    /// \p e asks a bounds-checked parameter \p gp (TypeUtil::checked_param)
+    /// `e` asks a bounds-checked parameter `gp` (TypeUtil::checked_param)
     /// for something only a bound can grant (Compiler/Spec/Generics.md#decisions): an operator, a
-    /// conversion, an interpolation. \p msg says what and which requirement
-    /// would grant it. R051E when \p gp has no bound at all (R051's "not its
+    /// conversion, an interpolation. `msg` says what and which requirement
+    /// would grant it. R051E when `gp` has no bound at all (R051's "not its
     /// operators"); R025E when it has bounds and none declares it (the
     /// bounds are the scope, and the scope was searched). The note points at
     /// the parameter, which is where the fix goes. No fix-it: which
@@ -2002,7 +2005,7 @@ pub class ExprTyper
         e->expr_flags.set(Expr::ExprFlags::IsInstantiationDependent)
     }
 
-    /// Lift a child's poison / unknown onto \p e. True when \p e cannot be typed.
+    /// Lift a child's poison / unknown onto `e`. True when `e` cannot be typed.
     fn propagate(self, e: unsafe *Expr, child: unsafe *Expr) -> bool {
         if child == &null {
             return false
@@ -2049,7 +2052,7 @@ pub class ExprTyper
         return x->value_category == Expr::ValueCategory::LValue
     }
 
-    /// \p e, accepted into \p to, converts through a user `@implicit op as`:
+    /// `e`, accepted into `to`, converts through a user `@implicit op as`:
     /// record which (SemaContext::implicit_convs), for FnPurityCheck and,
     /// when the operator is an extension's, for ImplicitConvLowering, which
     /// writes the call C++ cannot find. The identity and every builtin rung
@@ -2086,10 +2089,10 @@ pub class ExprTyper
         self.report_ambiguous_conversion(e->range, fu, tv, unsafe &all)
     }
 
-    /// The registered instance of \p f, an `op as` of a generic extension
-    /// (`extend <T> [T]`), for a source of type \p from: its arguments are
-    /// what \p from gives the extension's parameters. ExtensionLowering
-    /// spells the call's template arguments from it. Null when \p f's
+    /// The registered instance of `f`, an `op as` of a generic extension
+    /// (`extend <T> [T]`), for a source of type `from`: its arguments are
+    /// what `from` gives the extension's parameters. ExtensionLowering
+    /// spells the call's template arguments from it. Null when `f`'s
     /// extension is not generic. Formed here and not by typing a call: the
     /// result of one that names a C++ template with a defaulted argument
     /// left out (`-> cxx::std::vector<T>`) is not a type Sema can form, and
@@ -2115,7 +2118,7 @@ pub class ExprTyper
         )
     }
 
-    /// SC340E when \p ops, every `op as` that takes \p from to \p to in
+    /// SC340E when `ops`, every `op as` that takes `from` to `to` in
     /// lookup order, come from more than one place: the type's body and an
     /// extension, or two extensions. Nothing ranks one above another, and a
     /// member is never silently replaced by an extension a file happens to
@@ -2188,7 +2191,7 @@ pub class ExprTyper
     /// of another type converts to nothing. On success the literal (and
     /// each paren around it) is retyped to the target tuple, which
     /// TupleLowering builds; false, with nothing changed or diagnosed, when
-    /// \p e is no such literal.
+    /// `e` is no such literal.
     priv fn _convert_tuple_literal(self, e: unsafe *Expr, to: unsafe *Type) -> bool {
         if !self.conv.tuple_literal_fits(e, to) {
             return false
@@ -2283,7 +2286,7 @@ pub class ExprTyper
         b.emit()
     }
 
-    /// Implicit-convert check at a use site. Diagnoses and poisons \p e on
+    /// Implicit-convert check at a use site. Diagnoses and poisons `e` on
     /// failure; silent on unknown / already poisoned.
     fn check_convertible(self, e: unsafe *Expr, to: unsafe *Type) -> bool {
         if e == &null || to == &null {
@@ -2507,8 +2510,8 @@ pub class ExprTyper
         return false
     }
 
-    /// How C++ would initialise the C++ class \p to from \p e (of type
-    /// \p from) with ONE user-defined conversion -- `'View(const char *)'`
+    /// How C++ would initialise the C++ class `to` from `e` (of type
+    /// `from`) with ONE user-defined conversion -- `'View(const char *)'`
     /// or `'operator C'` -- or "" when it would not, or when either side is
     /// not C++'s to judge. Only what C++ itself sees at the boundary: a
     /// string literal (`const char[N]`, decayed) or a C++ class value; a
@@ -2571,8 +2574,8 @@ pub class ExprTyper
         return decl_is_imported(d) || decl_is_imported(self.tu.pattern_of(d))
     }
 
-    /// The first pointee level (outermost first) of \p from carrying a
-    /// qualifier the same level of \p to lacks, or &null. Walks while both
+    /// The first pointee level (outermost first) of `from` carrying a
+    /// qualifier the same level of `to` lacks, or &null. Walks while both
     /// sides are pointers, so `*const u8 -> *void` drops at the first level
     /// although the pointees differ.
     priv fn _dropped_qual(self, from: unsafe *Type, to: unsafe *Type) -> unsafe *Type {

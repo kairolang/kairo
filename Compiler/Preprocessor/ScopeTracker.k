@@ -48,9 +48,11 @@ pub class ScopeTracker {
     priv var _imm_table:   *ImmediateTable ///< imm table of the file being scanned, for spelling
     priv var _brace_depth: i32 ///< current brace nesting level
 
-    /// \brief constructs tracker with file's base module path
-    /// \param sym_table symbol table for interning identifiers
-    /// \param file_base module path derived from filename
+    /// constructs tracker with file's base module path
+    ///
+    /// ### Parameters
+    /// - `sym_table`: symbol table for interning identifiers
+    /// - `file_base`: module path derived from filename
     fn ScopeTracker(self,
                     sym_table:       *PreprocessorSymbolTable,
                     sm:              *SourceManager,
@@ -75,23 +77,23 @@ pub class ScopeTracker {
         self._stack.push_back(initial)
     }
 
-    /// \brief the current module scope.
+    /// the current module scope.
     ///
-    /// \details A view, not a copy: ModulePath holds a vector, and the macro
-    ///          lookup asks for this on every unqualified invocation. Valid
-    ///          until the tracker next moves (a `module` block opens or
-    ///          closes); callers read it within the statement or copy it.
+    /// A view, not a copy: ModulePath holds a vector, and the macro
+    /// lookup asks for this on every unqualified invocation. Valid
+    /// until the tracker next moves (a `module` block opens or
+    /// closes); callers read it within the statement or copy it.
     fn current_scope(const self) -> *const ModulePath {
         return &self._current
     }
 
-    /// \brief the file's own module path: the scope at top level, which
-    ///        every module block in the file extends.
+    /// the file's own module path: the scope at top level, which
+    /// every module block in the file extends.
     fn file_base(const self) -> *const ModulePath {
         return &self._file_base // a view, as current_scope
     }
 
-    /// \brief returns current visibility
+    /// returns current visibility
     fn current_visibility(self) -> ModuleVisibility {
         if self._stack.size() == 0 {
             return ModuleVisibility::Public
@@ -100,7 +102,7 @@ pub class ScopeTracker {
         return self._stack.back().visibility
     }
 
-    /// \brief returns true if currently in global scope (module :: { })
+    /// returns true if currently in global scope (module :: { })
     fn is_global_scope(self) -> bool {
         if self._stack.size() == 0 {
             return false
@@ -109,14 +111,14 @@ pub class ScopeTracker {
         return self._stack.back().is_global
     }
 
-    /// \brief returns current brace depth
+    /// returns current brace depth
     fn brace_depth(self) -> i32 {
         return self._brace_depth
     }
 
-    /// \brief the brace depth inside the innermost module block's own `{`
-    ///        (0 at file level): the `{` that raises the depth to it is that
-    ///        module's.
+    /// the brace depth inside the innermost module block's own `{`
+    /// (0 at file level): the `{` that raises the depth to it is that
+    /// module's.
     fn scope_depth(self) -> i32 {
         if self._stack.size() == 0 {
             return 0
@@ -132,21 +134,22 @@ pub class ScopeTracker {
     /// the parser needs downstream. Mirrors update()+parse_module_decl but
     /// forward-only, UNBOUNDED path length (no window).
 
-    /// \brief called by the walk when the current token is scope-relevant
-    ///        (`{`, `}`, or `module` visibility keywords are pre-stripped by
-    ///        the walk, which passes the resolved visibility in). Consumes and
-    ///        emits exactly the scope syntax; returns nothing (state updated).
+    /// called by the walk when the current token is scope-relevant
+    /// (`{`, `}`, or `module` visibility keywords are pre-stripped by
+    /// the walk, which passes the resolved visibility in). Consumes and
+    /// emits exactly the scope syntax; returns nothing (state updated).
     ///
-    /// \note the walk owns pub/priv/prot routing (it must, to split
-    ///       `<vis> import`/`<vis> macro` from `<vis> module`). So by the time
-    ///       feed_stream sees a `module`, any visibility keyword is already
-    ///       consumed+emitted by the walk and its value handed in via `vis`.
+    /// **Note:** the walk owns pub/priv/prot routing (it must, to split
+    /// `<vis> import`/`<vis> macro` from `<vis> module`). So by the time
+    /// feed_stream sees a `module`, any visibility keyword is already
+    /// consumed+emitted by the walk and its value handed in via `vis`.
     ///
-    /// \param take consumes the next source token and emits it. The walk
-    ///        supplies it so a brace or `module` path from a macro body is
-    ///        emitted with its expansion origin like every other body token,
-    ///        and a node from a wrapped `fn` to its `}` stays in the invoking
-    ///        file.
+    /// ### Parameters
+    /// - `take`: consumes the next source token and emits it. The walk
+    ///   supplies it so a brace or `module` path from a macro body is
+    ///   emitted with its expansion origin like every other body token,
+    ///   and a node from a wrapped `fn` to its `}` stays in the invoking
+    ///   file.
     fn feed_stream(self, src: unsafe *TokenSource, vis: ModuleVisibility, take: fn()) {
         var k = src->peek(0).kind
 
@@ -205,8 +208,8 @@ pub class ScopeTracker {
         }
     }
 
-    /// \brief stream twin of parse_module_path: ident (:: ident)*, UNBOUNDED.
-    ///        Consumes and emits each token. Stops before the trailing `{`.
+    /// stream twin of parse_module_path: ident (:: ident)*, UNBOUNDED.
+    /// Consumes and emits each token. Stops before the trailing `{`.
     priv fn _consume_module_path_stream(self, src: unsafe *TokenSource, take: fn()) -> ModulePath {
         var path = ModulePath()
 
@@ -231,7 +234,7 @@ pub class ScopeTracker {
         return path
     }
 
-    /// \brief pushes a new relative scope
+    /// pushes a new relative scope
     priv fn push_scope(self, path: ModulePath, visibility: ModuleVisibility) {
         var frame = Self::Frame()
 
@@ -249,7 +252,7 @@ pub class ScopeTracker {
         self.update_current()
     }
 
-    /// \brief pushes global scope (module :: { })
+    /// pushes global scope (module :: { })
     priv fn push_global_scope(self, visibility: ModuleVisibility) {
         var frame = Self::Frame()
         frame.path        = ModulePath()          // empty = global
@@ -261,7 +264,7 @@ pub class ScopeTracker {
         self.update_current()
     }
 
-    /// \brief pushes absolute scope (module ::Foo::Bar { })
+    /// pushes absolute scope (module ::Foo::Bar { })
     priv fn push_absolute_scope(self, const path: ModulePath, visibility: ModuleVisibility) {
         var frame = Self::Frame()
         frame.path        = path                  // absolute path, replaces current
@@ -273,7 +276,7 @@ pub class ScopeTracker {
         self.update_current()
     }
 
-    /// \brief pushes visibility-only scope (priv module { })
+    /// pushes visibility-only scope (priv module { })
     priv fn push_visibility_scope(self, visibility: ModuleVisibility) {
         var frame = Self::Frame()
         frame.path        = self._current
@@ -285,7 +288,7 @@ pub class ScopeTracker {
         // current scope doesn't change, just visibility
     }
 
-    /// \brief pops scope if brace depth drops below frame's depth
+    /// pops scope if brace depth drops below frame's depth
     priv fn maybe_pop_scope(self) {
         // never pop the file-level scope
         while self._stack.size() > 1 {
@@ -300,7 +303,7 @@ pub class ScopeTracker {
         self.update_current()
     }
 
-    /// \brief updates cached current scope from stack top
+    /// updates cached current scope from stack top
     priv fn update_current(self) {
         if self._stack.size() == 0 {
             self._current = self._file_base
@@ -315,7 +318,7 @@ pub class ScopeTracker {
         }
     }
 
-    /// \brief resets tracker to initial state
+    /// resets tracker to initial state
     fn reset(self) {
         self._stack.clear()
         self._brace_depth = 0

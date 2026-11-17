@@ -1,7 +1,7 @@
 /// --- The Kairo Project --------------------------- Sema/SemaContext.k --- ///
 ///
-///   \brief Durable shared state for all sema passes. Passes borrow a
-///          *SemaContext; only the Sema driver (Sema.k) constructs one.
+/// Durable shared state for all sema passes. Passes borrow a
+/// *SemaContext; only the Sema driver (Sema.k) constructs one.
 ///
 ///   Structural rule (why this exists as a separate class): the driver must
 ///   import every pass to schedule them. If passes took *Sema, every pass
@@ -90,11 +90,10 @@ import Sema::Resolve::NameLookup::NameLookup
 import Sema::Resolve::ResolutionState::ResolutionState
 import Sema::Resolve::ResolutionTrace::ResolutionTrace
 
-/// \enum SemaPhase
-/// \brief Where the TU is in the Compiler/Spec/Pipeline.md pipeline. Monotonically
-///        advanced by the driver; passes ASSERT their preconditions against
-///        it instead of trusting the schedule ("one error, one home" only
-///        works if phase order is enforced, not hoped for).
+/// Where the TU is in the Compiler/Spec/Pipeline.md pipeline. Monotonically
+/// advanced by the driver; passes ASSERT their preconditions against
+/// it instead of trusting the schedule ("one error, one home" only
+/// works if phase order is enforced, not hoped for).
 ///
 ///        P -> I -> E -> V -> N -> T -> checks -> lowerings -> M1 -> M2
 pub enum SemaPhase derives u8 {
@@ -134,8 +133,7 @@ pub enum SemaPhase derives u8 {
     Complete,
 }
 
-/// \class SemaContext
-/// \brief The state every pass borrows. One per TU per sema run.
+/// The state every pass borrows. One per TU per sema run.
 ///
 /// \par What lives here vs elsewhere
 ///   here:        phase, options, diag handle, lang items, resolution state.
@@ -146,12 +144,12 @@ pub enum SemaPhase derives u8 {
 ///   nodes:       ALL inter-pass results (resolved_decl links, canonical
 ///                slots, poison bits, redecl chains). Passes communicate
 ///                through the AST and registries, NEVER through each other.
-/// \class SemaOptions
-/// \brief Sema-relevant toggles, snapshotted from CompilerInvocation at
-///        SemaContext construction. Passes read sc->opts, never reach into
-///        ci raw flags this gives tests a way to toggle behavior without
-///        assembling a full invocation, and gives flags exactly one
-///        deserialization point (same rule as LangOptions itself).
+///
+/// Sema-relevant toggles, snapshotted from CompilerInvocation at
+/// SemaContext construction. Passes read sc->opts, never reach into
+/// ci raw flags this gives tests a way to toggle behavior without
+/// assembling a full invocation, and gives flags exactly one
+/// deserialization point (same rule as LangOptions itself).
 ///
 ///        Tri-state convention matches LangOptions: -1 unset (profile
 ///        default applies), 0 off, 1 on. Resolve through on().
@@ -590,7 +588,7 @@ pub class SemaContext {
     /// each once; --print-unchecked-assumptions prints them.
     pub var unchecked: cxx::std::vector<UncheckedAssumption>
 
-    /// Adds \p text at \p at to `unchecked` unless it is there already.
+    /// Adds `text` at `at` to `unchecked` unless it is there already.
     fn assume(self, at: SourceRange, const text: string) {
         for var i: usize = 0; i < self.unchecked.size(); ++i {
             if self.unchecked[i].at == at && self.unchecked[i].text == text {
@@ -688,7 +686,7 @@ pub class SemaContext {
     /// Passes call this first thing in run(). Firing it means the driver
     /// schedule and the pass's precondition disagree a bug in Sema.k,
     /// never in the pass.
-    /// An `extend` block in file \p fid is visible to this TU: the TU's own
+    /// An `extend` block in file `fid` is visible to this TU: the TU's own
     /// file, a builtin file (seen by every TU, like its names), a file this
     /// TU imports, or one an imported file re-exports. Without the filter a TU saw every extension
     /// whose file happened to be resolved before it looked, so one program
@@ -788,7 +786,7 @@ pub class SemaContext {
         }
     }
 
-    /// A lowering's first act (its `run()`): \p step must be the one right
+    /// A lowering's first act (its `run()`): `step` must be the one right
     /// after the last that started, so the order in LowerStep is the order
     /// the passes run in, and each header's "after" / "before" holds.
     fn begin_lower(self, step: LowerStep) {
@@ -863,8 +861,8 @@ pub class SemaContext {
 
     /// ## Declarations a macro made
 
-    /// Adds "in expansion of macro 'm!'" at the body text that wrote \p d's
-    /// name, when a macro expansion declared \p d; nothing otherwise. An
+    /// Adds "in expansion of macro 'm!'" at the body text that wrote `d`'s
+    /// name, when a macro expansion declared `d`; nothing otherwise. An
     /// operator has no name token (its `op` token is stored unwrapped), so
     /// it gets no note.
     ///
@@ -907,7 +905,7 @@ pub class SemaContext {
         return self.types->builtin(b)
     }
 
-    /// THE canonical for a lang record at \p args. Concrete args go through
+    /// THE canonical for a lang record at `args`. Concrete args go through
     /// the InstantiationRegistry, exactly as TypeResolve::_type_of_decl sends
     /// a written `Foo<i32>`: the instance then has a home TU, and EmitPlan
     /// emits its explicit instantiation and homed bodies there. A dependent
@@ -985,12 +983,12 @@ pub class SemaContext {
         return dyn_cast<EnumDecl>(NameLookup::representative(nd))
     }
 
-    /// The member of the Null lang item's layout that plays \p role
+    /// The member of the Null lang item's layout that plays `role`
     /// (EnumLayoutLowering::_nullable_surface mints them; InterfaceEmitter
     /// writes them in C++), or null when the layout has none. Found by role
     /// on the PATTERN's layout, as MatchLowering finds the tag field: an
     /// instance shares it. The caller has checked the lang item is bound;
-    /// \p pass names it in the ICEs for a lang item that is not the enum
+    /// `pass` names it in the ICEs for a lang item that is not the enum
     /// Lib/builtin declares, or that EnumLayoutLowering has not laid out.
     fn nullable_member(self, role: AdtRole, const pass: string) -> unsafe *FunctionDecl {
         var unsafe *en = self.nullable_enum()
@@ -1016,7 +1014,7 @@ pub class SemaContext {
         return found
     }
 
-    /// The tuple pattern of \p arity (TupleRecords, minted on first use),
+    /// The tuple pattern of `arity` (TupleRecords, minted on first use),
     /// or null: no builtin root to home it in, or an arity outside
     /// [2, TUPLE_MAX_ARITY]. The root TU is the DeclContext the record
     /// is scoped in; found through the global table, never this TU's.
@@ -1096,7 +1094,7 @@ pub class SemaContext {
     /// "whose TABLE are this record's members in", which a partial
     /// specialization makes different. Only table readers ask it.
 
-    /// The decl whose table holds \p d's members: \p d itself when it has
+    /// The decl whose table holds `d`'s members: `d` itself when it has
     /// its own (a primary, a spec, a filled instance), else the partial the
     /// registry selected for it, else its primary.
     fn body_of(self, d: unsafe *Decl) -> unsafe *Decl {
@@ -1119,7 +1117,7 @@ pub class SemaContext {
         return if (p != &null) => (p) else => d
     }
 
-    /// The decl whose table holds the members of record type \p t, or null
+    /// The decl whose table holds the members of record type `t`, or null
     /// for a non-record. A DEPENDENT use of a primary (`Store<*P>`: an
     /// extension's receiver, a partial's own Self) has no instance to carry
     /// a selection, so it is matched here, its parameters opaque.
@@ -1144,8 +1142,8 @@ pub class SemaContext {
         return if (sel != &null) => (sel) else => d
     }
 
-    /// The partial \p rec's members come from, with its parameters'
-    /// bindings in \p out; null when they come from the primary or an
+    /// The partial `rec`'s members come from, with its parameters'
+    /// bindings in `out`; null when they come from the primary or an
     /// explicit spec (whose parameters, if any, bind positionally).
     fn record_partial(self,
                       rec: unsafe *Type,

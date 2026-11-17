@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------------------- Lib/std/v3draft.k --- ///
 ///
-///   \brief Working draft of the Kairo standard library.
+/// Working draft of the Kairo standard library.
 ///
 ///   \detail
 ///     Not part of the standard library, not final, not expected to compile.
@@ -570,7 +570,7 @@ macro memcpy!(dst, src, size)   { __builtin_copy(dst, src, size);      }
 macro memmove!(dst, src, size)  { __builtin_move_mem(dst, src, size);  }
 macro memset!(ptr, value, size) { __builtin_set_mem(ptr, value, size); }
 
-/// \brief `@create T(args...)` -> construct-in-fresh-storage.
+/// `@create T(args...)` -> construct-in-fresh-storage.
 ///
 /// Expands to:
 ///   __builtin_construct_at<T>(<alloc>(sizeof T, alignof T), args...)

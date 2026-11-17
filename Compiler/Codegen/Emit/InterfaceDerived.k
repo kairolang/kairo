@@ -557,8 +557,8 @@ extend InterfaceEmitter {
         return s
     }
 
-    /// The C++ spelling of each part of \p d whose type depends on a
-    /// generic parameter: its bases (\p bases), or its by-value fields.
+    /// The C++ spelling of each part of `d` whose type depends on a
+    /// generic parameter: its bases (`bases`), or its by-value fields.
     priv fn _dependent_parts(self, d: unsafe *Decl, bases: bool) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         if bases {
@@ -660,7 +660,7 @@ extend InterfaceEmitter {
     /// `union { T a; U b; };`: an anonymous union, written where its field
     /// is. Its members are the owner's members to C++ and take the access
     /// in force for the field, so no specifier goes inside. Each member is
-    /// spelled as an ordinary field would be, \p owner's body being the
+    /// spelled as an ordinary field would be, `owner`'s body being the
     /// scope its types are named from. The layout is clang's.
     prot fn _anon_union_field(self, f: unsafe *Declarations::FieldDecl, owner: unsafe *Decl) {
         var unsafe *u  = self._plan->anon_union_of(f)

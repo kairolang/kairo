@@ -208,7 +208,7 @@ pub class FmtBuf {
     /// truncates to that many codepoints, `?` quotes and escapes, and width/fill/alignment pad
     /// (default left-aligned).
     ///
-    /// \note With `?`, width and alignment are not applied (the quoted text is written unpadded).
+    /// **Note:** With `?`, width and alignment are not applied (the quoted text is written unpadded).
     pub inline fn put_str(self, const s: string, spec: u64) {
         if spec == 0 {
             self.text(s.data(), s.size(), s.codepoints())
@@ -667,10 +667,12 @@ pub class FmtBuf {
 
     /// Appends a pointer hole as `<name> @ 0x<hex>`, or `&null` for address 0.
     ///
-    /// \param addr      the pointer's address.
-    /// \param name      the pointee's spelling, a constant at the call site.
-    /// \param name_len  byte length of `name`.
-    /// \note `spec` is currently ignored.
+    /// ### Parameters
+    /// - `addr`: the pointer's address.
+    /// - `name`: the pointee's spelling, a constant at the call site.
+    /// - `name_len`: byte length of `name`.
+    ///
+    /// **Note:** `spec` is currently ignored.
     pub fn put_ptr(self, addr: usize, name: *const u8, name_len: usize, spec: u64) {
         if addr == 0 {
             var s = "&null"
@@ -721,7 +723,7 @@ pub class FmtBuf {
     ///
     /// Valid until this FmtBuf is written again, cleared or destroyed.
     ///
-    /// \note Calling it after `finish()`, before anything is written again, writes through a
+    /// **Note:** Calling it after `finish()`, before anything is written again, writes through a
     /// null `data` and crashes.
     pub inline fn view(self) -> string {
         self.data[self.len] = 0
@@ -833,7 +835,7 @@ pub class FmtBuf {
     // --- padding ------------------------------------------------------------------------
 
     /// Writes the left padding for `pad` fill codepoints under the spec's
-    /// alignment (\p dflt when unset: 1 left for text, 2 right for numbers)
+    /// alignment (`dflt` when unset: 1 left for text, 2 right for numbers)
     /// and returns how many go on the right.
     priv fn pad_open_(self, pad: usize, spec: u64, dflt: u64) -> usize {
         if pad == 0 {
@@ -896,7 +898,7 @@ pub class FmtBuf {
     }
 
     /// Sign, `0x`/`0o`/`0b`, zero-padding after them, fill-padding around
-    /// them: the one place every number's spec is applied. \p p holds the
+    /// them: the one place every number's spec is applied. `p` holds the
     /// digits only.
     priv fn number_(self, p: *const u8, n: usize, neg: bool, spec: u64) {
         // `{x}` with no spec: the sign and the digits, one copy, len and
@@ -1191,7 +1193,7 @@ pub class FmtBuf {
         return cp
     }
 
-    /// Byte offset of codepoint \p cps in \p p, or \p n.
+    /// Byte offset of codepoint `cps` in `p`, or `n`.
     priv static fn byte_offset_(p: *const u8, n: usize, cps: usize) -> usize {
         var seen: usize = 0
         for var i: usize = 0; i < n; ++i {

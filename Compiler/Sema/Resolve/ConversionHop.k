@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------ Sema/Resolve/ConversionHop.k --- ///
 ///
-///   \brief A member a type lacks, found on the type one of its `@implicit
-///          op as` conversions yields.
+/// A member a type lacks, found on the type one of its `@implicit
+/// op as` conversions yields.
 ///
 ///   \detail
 ///       class <T> Buf {
@@ -67,8 +67,7 @@ import Sema::SemaContext::SemaContext
 import Sema::Type::ArgumentDeduction::Deduction
 import Token::TokenKind::TokenKind
 
-/// \class ConversionHop
-/// \brief The answer for one receiver type and one member name.
+/// The answer for one receiver type and one member name.
 pub class ConversionHop {
     /// The conversion to apply and its result for this receiver; null when
     /// none is a candidate the receiver may use, or when two are (`other`).
@@ -93,13 +92,13 @@ pub class ConversionHop {
         return self.other != &null
     }
 
-    /// The `op as` \p f takes a `const self`.
+    /// The `op as` `f` takes a `const self`.
     pub static fn const_self(f: unsafe *FunctionDecl) -> bool {
         return f->is_const() || f->params.size() > 0 && f->params[0]->is_const
     }
 
-    /// Searches the conversions of \p ty, a record's canonical with no cv,
-    /// for one whose result has a member \p name. \p recv_const is the
+    /// Searches the conversions of `ty`, a record's canonical with no cv,
+    /// for one whose result has a member `name`. `recv_const` is the
     /// constness of the object the member is read from.
     pub static fn find(sc:         unsafe *SemaContext,
                        ml:         *MemberLookup,
@@ -170,7 +169,7 @@ pub class ConversionHop {
         return out
     }
 
-    /// The first of \p ops is the answer; a second makes it an ambiguity.
+    /// The first of `ops` is the answer; a second makes it an ambiguity.
     priv fn _take(self,
                   ops: *cxx::std::vector<unsafe *FunctionDecl>,
                   tys: *cxx::std::vector<unsafe *Type>) {
@@ -182,7 +181,7 @@ pub class ConversionHop {
         }
     }
 
-    /// What \p f yields for a source of type \p ty, cv dropped: a member's
+    /// What `f` yields for a source of type `ty`, cv dropped: a member's
     /// result read through the instance's arguments (`-> View<T>` on a
     /// `Buf<i32>` is `View<i32>`). Null when the result is not known here.
     priv static fn _result(sc: unsafe *SemaContext,

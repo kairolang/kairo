@@ -24,11 +24,8 @@ import Memory::MappedFileBuffer::MappedFileBuffer
 import Support::FileIO::Path::Path
 import Support::Limits::U32_MAX
 
+/// abstraction layer for managing mapped files and memory segments.
 ///
-/// \file VirtualFileManager.k
-/// \brief abstraction layer for managing mapped files and memory segments.
-///
-/// \details
 /// `VirtualFileManager` provides a unified interface for handling memory-mapped
 /// file regions used across the kairo compiler. it manages segmentation of large
 /// files into 4 gb chunks, tracks their virtual identifiers, and provides lookup
@@ -44,21 +41,16 @@ import Support::Limits::U32_MAX
 ///   - `SourceLineTable` for line/column mapping
 ///   - compiler passes that require byte-level file access
 ///
-/// \note
+/// **Note:**
 /// the manager does not synchronize concurrent access; external locking
 /// or isolation is required if used across threads.
-///
 
+/// manages memory-mapped source files and derived virtual segments.
 ///
-/// \class VirtualFileManager
-/// \brief manages memory-mapped source files and derived virtual segments.
-///
-/// \details
 /// handles file registration, segment mapping, pointer resolution, and translation
 /// between raw offsets and `SourceLocation`s. the file manager abstracts low-level
 /// i/o from compiler subsystems while maintaining cache locality and consistent
 /// id-based lookups.
-///
 pub class VirtualFileManager {
     /// Indexed by fid. INVARIANT: no task that can overlap a registration
     /// reads this, directly or through get_buffer()/get_loc()/resolve_loc().
@@ -115,15 +107,11 @@ pub class VirtualFileManager {
     /// language server walks once per pass). Touched only in debug builds.
     priv var _walks: kairo::std::Atomic<u32> = kairo::std::Atomic<u32>(0)
 
+    /// represents a single contiguous mapped file section.
     ///
-    /// \class Segment
-    /// \brief represents a single contiguous mapped file section.
-    ///
-    /// \details
     /// each `Segment` corresponds to one slice of a file, typically up to 4 gb
     /// in length. segments store metadata (path, offset, size) and own a
     /// `MappedFileBuffer` view of their region.
-    ///
     class Segment {
         pub var fid:         u32              ///< unique file id for this segment.
         pub var path:        Path             ///< filesystem path to the file.
@@ -154,9 +142,7 @@ pub class VirtualFileManager {
         /// bytes under it have been replaced.
         pub var generation: u32 = 0
 
-        ///
-        /// \brief default constructor (invalid segment).
-        ///
+        /// default constructor (invalid segment).
         fn Segment(self) {
             self.fid         = 0
             self.offset      = 0
@@ -165,9 +151,7 @@ pub class VirtualFileManager {
             self.global_base = 0
         }
 
-        ///
-        /// \brief constructs a new segment with provided metadata.
-        ///
+        /// constructs a new segment with provided metadata.
         fn Segment(self, fid: u32, const path: Path, offset: usize, size: usize) {
             self.fid         = fid
             self.path        = path
@@ -176,9 +160,7 @@ pub class VirtualFileManager {
             self.global_base = 0      // will be set by VirtualFileManager after creation
         }
 
-        ///
-        /// \brief cleanup hook; ensures mapped region is closed if valid.
-        ///
+        /// cleanup hook; ensures mapped region is closed if valid.
         fn op finally (self) {
             if self.buffer.is_valid() {
                 self.buffer.close()
@@ -192,88 +174,75 @@ pub class VirtualFileManager {
             }
         }
 
-        ///
-        /// \brief converts segment info to human-readable string.
-        ///
+        /// converts segment info to human-readable string.
         fn op as (self) -> string {
             return f"Segment(fid: {self.fid}, path: {self.path.full_path()}, offset: {self.offset}, size: {self.size}, buffer: {self.buffer})"
         }
 
+        /// attaches a subregion of a parent buffer to this segment.
         ///
-        /// \brief attaches a subregion of a parent buffer to this segment.
-        ///
-        /// \param parent base mapped file buffer.
-        /// \param offset starting offset within parent.
-        /// \param length number of bytes to map.
-        ///
+        /// ### Parameters
+        /// - `parent`: base mapped file buffer.
+        /// - `offset`: starting offset within parent.
+        /// - `length`: number of bytes to map.
         fn attach(self, parent: unsafe *MappedFileBuffer, offset: usize, length: usize) {
             self.buffer.attach(parent, offset, length)
         }
     }
 
 
+    /// lightweight view representing full file content.
     ///
-    /// \struct FileHandle
-    /// \brief lightweight view representing full file content.
-    ///
-    /// \details
     /// returned by `get_file_view()`, it exposes a raw pointer and size
     /// covering the entire mapped file.
-    ///
     pub struct FileHandle {
         pub const data: unsafe *u8 = &null ///< pointer to file data.
         pub var   size: usize      = 0     ///< size of file data in bytes.
     }
 
-    ///
-    /// \struct SegmentResolve
-    /// \brief identifies a specific location within a mapped segment.
-    ///
+    /// identifies a specific location within a mapped segment.
     pub struct SegmentResolve {
         pub var fid:    usize = 0 ///< segment file id.
         pub var offset: usize = 0 ///< byte offset within segment.
     }
 
-    ///
-    /// \struct SegmentInfo
-    /// \brief metadata summary for a registered file segment.
-    ///
+    /// metadata summary for a registered file segment.
     struct SegmentInfo {
         pub var path:   Path  = Path() ///< filesystem path of the segment.
         var     offset: usize = 0      ///< byte offset within the file.
         pub var size:   usize = 0      ///< size of the segment in bytes.
     }
 
-    /// \brief a preprocessor walk starts: from here until end_walk(), lex
-    ///        workers read _segments unlocked. Debug builds only.
+    /// a preprocessor walk starts: from here until end_walk(), lex
+    /// workers read _segments unlocked. Debug builds only.
     pub fn begin_walk(self) {
         eval if defined!(DEBUG) {
             self._walks.fetch_add(1, kairo::std::MemoryOrder::acq_rel)
         }
     }
 
-    /// \brief the walk begin_walk() opened is over.
+    /// the walk begin_walk() opened is over.
     pub fn end_walk(self) {
         eval if defined!(DEBUG) {
             self._walks.fetch_sub(1, kairo::std::MemoryOrder::acq_rel)
         }
     }
 
-    /// \brief reports \p action, which grows or re-maps _segments, if it runs
-    ///        while a walk reads them unlocked. Called only under
-    ///        `eval if defined!(DEBUG)`, so a release build never formats
-    ///        \p what.
+    /// reports `action`, which grows or re-maps _segments, if it runs
+    /// while a walk reads them unlocked. Called only under
+    /// `eval if defined!(DEBUG)`, so a release build never formats
+    /// `what`.
     ///
-    /// \details Re-mapping or dropping a file (invalidate, replace_bytes,
-    ///          evict, reset) is an ICE: those belong between passes and
-    ///          nothing is known to do one mid-walk. A registration is only
-    ///          logged (a warning, which a debug build keeps in the log and
-    ///          does not stream): the walk DOES register files today, when
-    ///          an import resolves to a file the dependency scan did not load
-    ///          (FileImportIndex::_resolve_greedy, e.g. the plain import of a
-    ///          sibling file that R068E reports), so an ICE would turn that
-    ///          diagnostic into a crash. Make it fatal once the walk stops
-    ///          registering.
+    /// Re-mapping or dropping a file (invalidate, replace_bytes,
+    /// evict, reset) is an ICE: those belong between passes and
+    /// nothing is known to do one mid-walk. A registration is only
+    /// logged (a warning, which a debug build keeps in the log and
+    /// does not stream): the walk DOES register files today, when
+    /// an import resolves to a file the dependency scan did not load
+    /// (FileImportIndex::_resolve_greedy, e.g. the plain import of a
+    /// sibling file that R068E reports), so an ICE would turn that
+    /// diagnostic into a crash. Make it fatal once the walk stops
+    /// registering.
     priv fn _check_not_walking(self, const action: string, const what: string, fatal: bool) {
         if self._walks.load(kairo::std::MemoryOrder::acquire) == 0 {
             return
@@ -287,9 +256,7 @@ pub class VirtualFileManager {
         kairo::Logger::warn(kairo::Logger::Stage::Driver, msg)
     }
 
-    ///
-    /// \brief default constructor.
-    ///
+    /// default constructor.
     fn VirtualFileManager(self, diag_engine: *DiagEngine) {
         self._next_fid      = 0
         self._global_offset = 0
@@ -311,9 +278,7 @@ pub class VirtualFileManager {
         other._segments.clear()
     }
 
-    ///
-    /// \brief destructor; releases all mapped segments and parent buffers.
-    ///
+    /// destructor; releases all mapped segments and parent buffers.
     fn op finally (self) {
         // Each segment frees its own mapping; there is no side list.
         for var seg: unsafe *Segment in self._segments {
@@ -325,20 +290,20 @@ pub class VirtualFileManager {
         self._segments.clear()
     }
 
+    /// registers a file for virtual management.
     ///
-    /// \brief registers a file for virtual management.
-    ///
-    /// \details
     /// memory-maps a file and splits it into 4 gb-aligned segments. each segment
     /// is assigned a unique file id and added to the manager.
     ///
-    /// \param path file to map.
-    /// \return base file id assigned to the first segment.
+    /// ### Parameters
+    /// - `path`: file to map.
     ///
-    /// \warning grows _segments, which may reallocate it. Nothing that can run
-    ///          concurrently with this may index _segments; workers receive
-    ///          the buffer instead. See the invariant there.
+    /// ### Returns
+    /// base file id assigned to the first segment.
     ///
+    /// **Warning:** grows _segments, which may reallocate it. Nothing that can run
+    /// concurrently with this may index _segments; workers receive
+    /// the buffer instead. See the invariant there.
     pub fn register_file(self, const path: Path) -> u32 {
         var abs      = Path(path.full_path())
         var abs_full = abs.full_path()
@@ -460,14 +425,14 @@ pub class VirtualFileManager {
         return seg_fid
     }
 
-    /// \brief the bytes register_file gives \p path when it is first
-    ///        loaded, instead of mapping the disk: an unsaved buffer that
-    ///        does not change the order files get their ids in (bind_path
-    ///        over register_virtual mints the id at once, ahead of every
-    ///        file loaded after it).
+    /// the bytes register_file gives `path` when it is first
+    /// loaded, instead of mapping the disk: an unsaved buffer that
+    /// does not change the order files get their ids in (bind_path
+    /// over register_virtual mints the id at once, ahead of every
+    /// file loaded after it).
     ///
-    /// \note \p data is NOT copied. Import resolution still probes the
-    ///       disk for existence.
+    /// **Note:** `data` is NOT copied. Import resolution still probes the
+    /// disk for existence.
     pub fn stage_overlay(self, const path: Path, data: kairo::std::ConstPtr<u8>, size: usize) {
         var abs_full = Path(path.full_path()).full_path()
         self._staged[kairo::sref(abs_full)] = (self._staged_data.size() as u32)
@@ -475,7 +440,7 @@ pub class VirtualFileManager {
         self._staged_size.push_back(size as u64)
     }
 
-    /// Address space to hold for a file of \p total bytes.
+    /// Address space to hold for a file of `total` bytes.
     ///
     /// 1.5x plus a 64KB floor, page-aligned. Slack is what makes an in-place
     /// re-map possible on save; the floor covers small files, where a
@@ -486,18 +451,18 @@ pub class VirtualFileManager {
         return want + 0xFFF & ~(0xFFF as usize)
     }
 
+    /// registers a virtual (in-memory) file segment.
     ///
-    /// \brief registers a virtual (in-memory) file segment.
-    ///
-    /// \details
     /// creates a new segment that maps to the provided raw data buffer.
     /// useful for testing or synthetic source inputs.
     ///
-    /// \param fake_path logical path to associate with the segment.
-    /// \param data pointer to raw byte data.
-    /// \param size size of the data buffer in bytes.
-    /// \return file id assigned to the new segment.
+    /// ### Parameters
+    /// - `fake_path`: logical path to associate with the segment.
+    /// - `data`: pointer to raw byte data.
+    /// - `size`: size of the data buffer in bytes.
     ///
+    /// ### Returns
+    /// file id assigned to the new segment.
     pub fn register_virtual(self,
                             const fake_path: Path,
                             data:            kairo::std::ConstPtr<u8>,
@@ -538,11 +503,10 @@ pub class VirtualFileManager {
         return seg_fid
     }
 
+    /// retrieves the mapped buffer for a given file id.
     ///
-    /// \brief retrieves the mapped buffer for a given file id.
-    ///
-    /// \return pointer to `MappedFileBuffer`, or `&null` if invalid.
-    ///
+    /// ### Returns
+    /// pointer to `MappedFileBuffer`, or `&null` if invalid.
     pub fn get_buffer(self, fid: u32) -> unsafe *MappedFileBuffer {
         if (fid as usize) >= self._segments.size() {
             return &null
@@ -555,11 +519,10 @@ pub class VirtualFileManager {
         return unsafe &self._segments[fid]->buffer
     }
 
+    /// retrieves metadata about a segment.
     ///
-    /// \brief retrieves metadata about a segment.
-    ///
-    /// \return path, offset, and size if valid; otherwise `<invalid>`.
-    ///
+    /// ### Returns
+    /// path, offset, and size if valid; otherwise `<invalid>`.
     pub fn get_info(self, fid: u32) -> Self::SegmentInfo {
         if (fid as usize) >= self._segments.size() {
             return {
@@ -585,15 +548,12 @@ pub class VirtualFileManager {
         }
     }
 
+    /// returns a view of the entire file for a given base id.
     ///
-    /// \brief returns a view of the entire file for a given base id.
-    ///
-    /// \details
     /// A segment holds its whole file (every segment starts at offset 0), so
     /// the view is the segment's own bytes. Other segments may carry the same
     /// path (two virtual buffers of one name, an overlay over a mapped file);
     /// their bytes are not this one's.
-    ///
     pub fn get_file_view(self, base_fid: u32) -> Self::FileHandle {
         if (base_fid as usize) >= self._segments.size() {
             return Self::FileHandle { data: &null, size: 0 }
@@ -610,13 +570,10 @@ pub class VirtualFileManager {
         }
     }
 
+    /// resolves a raw pointer into a file id and offset.
     ///
-    /// \brief resolves a raw pointer into a file id and offset.
-    ///
-    /// \details
     /// finds which mapped segment the pointer belongs to, and computes its
     /// relative offset. aborts if pointer lies outside known regions.
-    ///
     pub fn resolve_ptr(self, ptr: kairo::std::restrict_ptr<u8>) -> Self::SegmentResolve {
         for var seg: *Segment? in self._segments {
             if seg == &null { // retired by evict()
@@ -646,13 +603,10 @@ pub class VirtualFileManager {
         )
     }
 
+    /// converts a file id and offset into a `SourceLocation`.
     ///
-    /// \brief converts a file id and offset into a `SourceLocation`.
-    ///
-    /// \details
     /// locates the corresponding segment and computes the encoded
     /// `SourceLocation` value.
-    ///
     pub fn get_loc(self, fid: u32, off: usize) -> SourceLocation {
         if (fid as usize) >= self._segments.size() {
             kairo::Logger::fatal(
@@ -710,9 +664,7 @@ pub class VirtualFileManager {
         return self.get_loc(res.fid as u32, res.offset)
     }
 
-    ///
-    /// \brief constructs a `SourceRange` covering a byte span.
-    ///
+    /// constructs a `SourceRange` covering a byte span.
     pub fn get_range(self, fid: u32, off: usize, len: usize) -> SourceRange {
         return SourceRange::from_bounds(
             self.get_loc(fid, off),
@@ -721,15 +673,12 @@ pub class VirtualFileManager {
     }
 
 
+    /// resolves a SourceLocation -> file/offset pair.
     ///
-    /// \brief resolves a SourceLocation -> file/offset pair.
-    ///
-    /// \details
     /// o(1) page-table lookup. segments are 4 kb-aligned in the global
     /// source space, so every page maps to exactly one segment or to a
     /// gap (0xFFFFFFFF). gap hits mean a corrupted/stale location and
     /// resolve as invalid.
-    ///
     pub fn resolve_loc(self, loc: SourceLocation) -> Self::SegmentResolve {
         var id = (loc.raw() as usize)
         if id == 0 {
@@ -760,9 +709,7 @@ pub class VirtualFileManager {
         }
     }
 
-    ///
-    /// \brief returns a human-readable dump of all managed segments.
-    ///
+    /// returns a human-readable dump of all managed segments.
     fn op as (self) -> string {
         var result = "VirtualFileManager(\n"
         result += "  _segments:\n"
@@ -780,13 +727,10 @@ pub class VirtualFileManager {
         return result
     }
 
+    /// resets the manager to initial state.
     ///
-    /// \brief resets the manager to initial state.
-    ///
-    /// \details
     /// destroys all segments and parent buffers, resets fid counter.
     /// used for test isolation.
-    ///
     pub fn reset(self) {
         eval if defined!(DEBUG) {
             self._check_not_walking("reset", "", true)
@@ -811,10 +755,10 @@ pub class VirtualFileManager {
         self._global_offset = 0
     }
 
-    /// \brief fid for an already-registered path, or u32(-1).
+    /// fid for an already-registered path, or u32(-1).
     ///
-    /// \details Lookup only   never maps. For callers that want to know
-    ///          whether a file is known without loading it.
+    /// Lookup only   never maps. For callers that want to know
+    /// whether a file is known without loading it.
     pub fn fid_for_path(self, const path: Path) -> u32 {
         var abs_full = Path(path.full_path()).full_path()
         var hit      = self._by_path.find(kairo::sref(abs_full))
@@ -825,18 +769,18 @@ pub class VirtualFileManager {
         return hit->second
     }
 
-    /// \brief makes \p path resolve to \p fid from now on.
+    /// makes `path` resolve to `fid` from now on.
     ///
-    /// \details The unsaved-buffer overlay: a tool registers an editor's
-    ///          bytes with register_virtual() under the file's REAL path, then
-    ///          binds the path here, so a later register_file() / load_file()
-    ///          of that path (the entry, or an import of it) gets the buffer
-    ///          instead of mapping the disk. Import resolution still probes
-    ///          the disk for existence, so the file must exist there; only its
-    ///          contents are replaced.
+    /// The unsaved-buffer overlay: a tool registers an editor's
+    /// bytes with register_virtual() under the file's REAL path, then
+    /// binds the path here, so a later register_file() / load_file()
+    /// of that path (the entry, or an import of it) gets the buffer
+    /// instead of mapping the disk. Import resolution still probes
+    /// the disk for existence, so the file must exist there; only its
+    /// contents are replaced.
     ///
-    /// \pre Called before anything loads \p path. A path already mapped keeps
-    ///      its old fid in every structure that recorded it.
+    /// **Precondition:** Called before anything loads `path`. A path already mapped keeps
+    /// its old fid in every structure that recorded it.
     pub fn bind_path(self, const path: Path, fid: u32) {
         var abs_full = Path(path.full_path()).full_path()
         self._by_path[kairo::sref(abs_full)] = fid
@@ -847,12 +791,12 @@ pub class VirtualFileManager {
         return self._by_path.size() as usize
     }
 
-    /// \brief re-reads \p fid from disk, keeping its identity.
+    /// re-reads `fid` from disk, keeping its identity.
     ///
-    /// \details The ONLY operation that legitimately changes a file's bytes.
-    ///          The fid, and with it every index keyed on it, survives   this
-    ///          is what makes a reparse cheap instead of a full re-registration
-    ///          of the import graph.
+    /// The ONLY operation that legitimately changes a file's bytes.
+    /// The fid, and with it every index keyed on it, survives   this
+    /// is what makes a reparse cheap instead of a full re-registration
+    /// of the import graph.
     ///
     ///          Re-maps IN PLACE while the new contents fit the reserved span,
     ///          so the global base does not move and no address space is
@@ -860,12 +804,13 @@ pub class VirtualFileManager {
     ///          range at the end and leaves a hole   bounded by how often a
     ///          file grows past 1.5x, not by how often it is saved.
     ///
-    /// \warning Every SourceLocation into \p fid taken before this call now
-    ///          refers to replaced bytes. Check generation_of() to detect it.
+    /// **Warning:** Every SourceLocation into `fid` taken before this call now
+    /// refers to replaced bytes. Check generation_of() to detect it.
     ///
-    /// \return false if \p fid is unknown, virtual (caller owns the bytes), or
-    ///         could not be re-mapped   in which case the OLD mapping is left
-    ///         intact rather than leaving the segment with nothing.
+    /// ### Returns
+    /// false if `fid` is unknown, virtual (caller owns the bytes), or
+    /// could not be re-mapped   in which case the OLD mapping is left
+    /// intact rather than leaving the segment with nothing.
     pub fn invalidate(self, fid: u32) -> bool {
         eval if defined!(DEBUG) {
             self._check_not_walking("invalidate", f"fid={fid}", true)
@@ -951,22 +896,23 @@ pub class VirtualFileManager {
         return true
     }
 
-    /// \brief \p fid's bytes become a caller-owned buffer, keeping its
-    ///        identity: invalidate() for a file whose new text is an
-    ///        editor's buffer and not the disk's (Tooling/LiveCheck.k).
+    /// `fid`'s bytes become a caller-owned buffer, keeping its
+    /// identity: invalidate() for a file whose new text is an
+    /// editor's buffer and not the disk's (Tooling/LiveCheck.k).
     ///
-    /// \details A mapped segment gives up its mapping and becomes a virtual
-    ///          one; a virtual one changes its view. Either way the segment
-    ///          gets (or keeps) a RESERVED range with slack, as a mapped file
-    ///          has: a virtual segment is registered with exactly its size,
-    ///          and replacing its bytes at every keystroke would otherwise
-    ///          take a fresh range each time and drain the 4GB space.
+    /// A mapped segment gives up its mapping and becomes a virtual
+    /// one; a virtual one changes its view. Either way the segment
+    /// gets (or keeps) a RESERVED range with slack, as a mapped file
+    /// has: a virtual segment is registered with exactly its size,
+    /// and replacing its bytes at every keystroke would otherwise
+    /// take a fresh range each time and drain the 4GB space.
     ///
-    /// \note \p data is NOT copied: it must outlive every use of \p fid,
-    ///       or the next replace_bytes / invalidate of it.
+    /// **Note:** `data` is NOT copied: it must outlive every use of `fid`,
+    /// or the next replace_bytes / invalidate of it.
     ///
-    /// \return false if \p fid is unknown or the address space is full (the
-    ///         old bytes are then kept).
+    /// ### Returns
+    /// false if `fid` is unknown or the address space is full (the
+    /// old bytes are then kept).
     pub fn replace_bytes(self, fid: u32, data: kairo::std::ConstPtr<u8>, size: usize) -> bool {
         eval if defined!(DEBUG) {
             self._check_not_walking("replace_bytes", f"fid={fid}", true)
@@ -1019,7 +965,7 @@ pub class VirtualFileManager {
         return true
     }
 
-    /// Is \p fid a caller-owned buffer (register_virtual, replace_bytes)
+    /// Is `fid` a caller-owned buffer (register_virtual, replace_bytes)
     /// rather than a mapping of its path?
     pub fn is_virtual(self, fid: u32) -> bool {
         if (fid as usize) >= self._segments.size() || self._segments[fid] == &null {
@@ -1029,10 +975,10 @@ pub class VirtualFileManager {
         return self._segments[fid]->parent == &null
     }
 
-    /// \brief drops \p fid entirely: mapping, address range, and identity.
+    /// drops `fid` entirely: mapping, address range, and identity.
     ///
-    /// \details The rare path   a deleted file, or reclaiming under memory
-    ///          pressure. NOT what a reparse does; a reparse invalidates.
+    /// The rare path   a deleted file, or reclaiming under memory
+    /// pressure. NOT what a reparse does; a reparse invalidates.
     ///
     ///          The fid is retired, not recycled. _segments is indexed by fid
     ///          so the slot has to stay, and handing the number out again would
@@ -1040,7 +986,8 @@ pub class VirtualFileManager {
     ///          silently into an unrelated one. Retiring costs a vector slot;
     ///          recycling costs correctness.
     ///
-    /// \return false if \p fid was not registered.
+    /// ### Returns
+    /// false if `fid` was not registered.
     pub fn evict(self, fid: u32) -> bool {
         eval if defined!(DEBUG) {
             self._check_not_walking("evict", f"fid={fid}", true)
@@ -1063,7 +1010,7 @@ pub class VirtualFileManager {
         return true
     }
 
-    /// Times \p fid has been invalidated. See Segment::generation.
+    /// Times `fid` has been invalidated. See Segment::generation.
     pub fn generation_of(self, fid: u32) -> u32 {
         if (fid as usize) >= self._segments.size() {
             return 0
@@ -1076,27 +1023,23 @@ pub class VirtualFileManager {
         return self._segments[fid]->generation
     }
 
-    ///
-    /// \brief rounds _global_offset up to the next 4 KB page boundary.
-    ///
+    /// rounds _global_offset up to the next 4 KB page boundary.
     priv fn _align_global_offset(self) {
         self._global_offset = self._global_offset + 0xFFF & ~(0xFFF as usize)
     }
 
+    /// maps the pages spanned by [base, base + len) to a segment index.
     ///
-    /// \brief maps the pages spanned by [base, base + len) to a segment index.
-    ///
-    /// \details
     /// grows the page table as needed. pages created by growth but not
     /// covered by any segment (alignment gaps) hold 0xFFFFFFFF and resolve
     /// as invalid.
     ///
-    /// \brief marks the pages spanned by [base, base + len) as unmapped.
+    /// marks the pages spanned by [base, base + len) as unmapped.
     ///
-    /// \details Inverse of _map_pages. Without this an evicted or rebased
-    ///          segment's pages keep resolving to its old index, so a stale
-    ///          SourceLocation reads a dead (or reused) segment instead of
-    ///          failing cleanly.
+    /// Inverse of _map_pages. Without this an evicted or rebased
+    /// segment's pages keep resolving to its old index, so a stale
+    /// SourceLocation reads a dead (or reused) segment instead of
+    /// failing cleanly.
     priv fn _unmap_pages(self, base: usize, len: usize) {
         if len == 0 {
             return

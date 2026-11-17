@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------- AST/Context/TupleRecords.k --- ///
 ///
-///   \brief The record a tuple IS. `(A, B)` is `Tuple2<A, B>`: a generic
-///          struct of arity N with fields `_0 .. _N-1` typed by its own
-///          parameters `T0 .. TN-1`, no constructor, no methods. Minted here
-///          on first use, one per arity per BUILD, from no source file.
+/// The record a tuple IS. `(A, B)` is `Tuple2<A, B>`: a generic
+/// struct of arity N with fields `_0 .. _N-1` typed by its own
+/// parameters `T0 .. TN-1`, no constructor, no methods. Minted here
+/// on first use, one per arity per BUILD, from no source file.
 ///
 ///   \detail
 ///     A tuple is a language primitive, not a library type, so no builtin
@@ -105,11 +105,11 @@ pub class TupleRecords {
         }
     }
 
-    /// The pattern for a tuple of \p arity, minted on first call. Null for
+    /// The pattern for a tuple of `arity`, minted on first call. Null for
     /// an arity outside [2, TUPLE_MAX_ARITY] or with no root to home it in
-    /// (\p ctx null: a build with no builtin root, which TypeResolve reports
+    /// (`ctx` null: a build with no builtin root, which TypeResolve reports
     /// as it reports any unbound lang item).
-    /// \p root_dc is the root TU as a DeclContext: the caller casts, since
+    /// `root_dc` is the root TU as a DeclContext: the caller casts, since
     /// this layer cannot name TranslationUnit (it imports the global table).
     fn pattern(self,
                arity:   usize,

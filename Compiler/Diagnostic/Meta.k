@@ -21,15 +21,18 @@ import Diagnostic::Severity::DiagSeverity
 
 /// Static metadata for a single diagnostic entry.
 ///
-/// Stored in the diagnostic registry and cached inside \c DiagCode.
-/// \c hash is the registry's \c DiagID value for the code. Equality and
+/// Stored in the diagnostic registry and cached inside `DiagCode`.
+/// `hash` is the registry's `DiagID` value for the code. Equality and
 /// the lexicographic order are over category -> severity -> number, the
-/// same as \c DiagCode's.
+/// same as `DiagCode`'s.
 ///
-/// The \c as string conversion produces the canonical diagnostic ID string:
-/// \code
-///   SC(41, DiagSeverity::Error) -> "SC041E"
-/// \endcode
+/// The `as` string conversion produces the canonical diagnostic ID string:
+///
+/// ### Example
+/// ```kairo
+/// SC(41, DiagSeverity::Error) -> "SC041E"
+/// ```
+///
 /// Category codes: S, U, C, M, R, L, SC, P, CL, OPT, I.
 /// Severity suffixes: E, W, N, I, R, V, D, F.
 /// The numeric component is always zero-padded to three digits.
@@ -43,7 +46,7 @@ pub struct DiagMeta {
 
     /// # Comparisons
 
-    /// Equality and order are over (category, severity, number). \c hash
+    /// Equality and order are over (category, severity, number). `hash`
     /// does not take part: a severity override keeps the original hash
     /// (DiagEngine::_override_severity), so two metas with one hash can
     /// differ in severity.
@@ -84,7 +87,7 @@ pub struct DiagMeta {
 
     /// # Conversions
 
-    /// Formats the metadata as a diagnostic ID string, e.g. \c "SC041E".
+    /// Formats the metadata as a diagnostic ID string, e.g. `"SC041E"`.
     fn op as (self) -> string {
         var out = diag_category_prefix(self.category)
         if out.is_empty() {

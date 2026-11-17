@@ -24,14 +24,15 @@ ffi "c++" import "sstream"
 import API::FS::LinkFS
 import std::c_char
 
-/// \return the InitLLVM guard; main destroys it before returning.
+/// ### Returns
+/// the InitLLVM guard; main destroys it before returning.
 ///
-/// \details Not a function-local static: its destructor runs llvm_shutdown,
-///          and as a static, built first, it was destroyed LAST -- after the
-///          parallel executor lld's parallelFor creates on first use, a static
-///          built later and so destroyed earlier. llvm_shutdown then stopped
-///          that dead executor and locked its freed mutex: an intermittent
-///          crash at exit, on the runs that linked.
+/// Not a function-local static: its destructor runs llvm_shutdown,
+/// and as a static, built first, it was destroyed LAST -- after the
+/// parallel executor lld's parallelFor creates on first use, a static
+/// built later and so destroyed earlier. llvm_shutdown then stopped
+/// that dead executor and locked its freed mutex: an intermittent
+/// crash at exit, on the runs that linked.
 pub fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::InitLLVM {
     LinkFS::use_sibling_symbolizer()
     var unsafe *init_llvm = kairo::std::create<llvm::InitLLVM>(argc, argv)

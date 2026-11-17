@@ -39,8 +39,8 @@ ffi "c++" import "utility"
 
 import std::c_char
 
-/// Gives \p ci the file system \p vfs, then a diagnostics engine reporting to
-/// \p client, which the engine owns when \p owns. The file system comes
+/// Gives `ci` the file system `vfs`, then a diagnostics engine reporting to
+/// `client`, which the engine owns when `owns`. The file system comes
 /// first: createDiagnostics reads through it. False when no engine was made.
 pub fn setup_diagnostics(ci:     unsafe *clang::CompilerInstance,
                          vfs:    llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>,
@@ -51,7 +51,7 @@ pub fn setup_diagnostics(ci:     unsafe *clang::CompilerInstance,
     return ci->hasDiagnostics()
 }
 
-/// Creates \p ci's target from its invocation's TargetOptions and adjusts it
+/// Creates `ci`'s target from its invocation's TargetOptions and adjusts it
 /// to the LangOptions, with no auxiliary target. Needs the engine
 /// (setup_diagnostics): an unknown triple is reported through it. False when
 /// the triple names no target.
@@ -71,8 +71,8 @@ pub fn setup_target(ci: unsafe *clang::CompilerInstance) -> bool {
     return true
 }
 
-/// Begins \p act on \p input in \p ci and, when that succeeds, executes it.
-/// \p began is set to whether BeginSourceFile succeeded: from then on the
+/// Begins `act` on `input` in `ci` and, when that succeeds, executes it.
+/// `began` is set to whether BeginSourceFile succeeded: from then on the
 /// action is the caller's to end (or to keep alive). Execute's llvm::Error
 /// is consumed here, since an unconsumed one asserts on destruction. True
 /// when both steps succeeded; the diagnostics' error count is the caller's
@@ -96,14 +96,14 @@ pub fn begin_and_execute(@inout act:   clang::FrontendAction,
     return !failed
 }
 
-/// Hands \p words (a FrontendOptions::LLVMArgs) to LLVM's option parser
-/// behind \p argv0, as clang's cc1 does with its -mllvm words; the options
-/// are process-wide. \p overview is what LLVM prints for `-help`; LLVM
+/// Hands `words` (a FrontendOptions::LLVMArgs) to LLVM's option parser
+/// behind `argv0`, as clang's cc1 does with its -mllvm words; the options
+/// are process-wide. `overview` is what LLVM prints for `-help`; LLVM
 /// keeps the view for the life of the process, so it must be static text.
-/// With \p errs null a rejected word makes LLVM print to stderr and exit, as
+/// With `errs` null a rejected word makes LLVM print to stderr and exit, as
 /// under cc1; with a stream it is printed there and the call returns false.
-/// \p vfs reads response files (null: the real file system). An empty
-/// \p words is a no-op that returns true.
+/// `vfs` reads response files (null: the real file system). An empty
+/// `words` is a no-op that returns true.
 pub fn parse_llvm_args(const words: cxx::std::vector<cxx::std::string>,
                        const argv0: string,
                        overview:    llvm::StringRef,

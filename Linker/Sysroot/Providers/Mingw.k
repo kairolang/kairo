@@ -341,7 +341,7 @@ pub class MingwProvider derives SysrootProvider {
         return true
     }
 
-    /// llvm-dlltool's main, in-process, over \p args (args[0] the name).
+    /// llvm-dlltool's main, in-process, over `args` (args[0] the name).
     pub static fn dlltool(@inout args: cxx::std::vector<string>) -> i32 {
         // Pointers into args' own NUL-terminated bytes; args outlives the call.
         var cargv: cxx::std::vector<kairo::std::ConstPtr<c_char>>

@@ -58,7 +58,7 @@ pub class LinkDiag {
         return n
     }
 
-    /// lld stderr -> messages, appended to \p out in order.
+    /// lld stderr -> messages, appended to `out` in order.
     static fn parse(const text: string, @inout out: cxx::std::vector<LinkMessage>) {
         var have = false
         var cur  = LinkMessage{}

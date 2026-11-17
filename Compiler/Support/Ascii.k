@@ -63,7 +63,7 @@ pub inline fn is_hex_digit(c: u8) -> bool {
         || (c >= ('A' as u8) && c <= ('F' as u8))
 }
 
-/// The value of hex digit \p c, either case; 0 for a byte that is not one.
+/// The value of hex digit `c`, either case; 0 for a byte that is not one.
 pub inline fn hex_value(c: u8) -> u8 {
     if is_digit(c) {
         return c - ('0' as u8)
@@ -89,9 +89,9 @@ pub inline fn is_illegal_ascii(c: u8) -> bool {
 
 /// # Text
 
-/// Byte offset of the first \p needle in \p hay at or after \p from;
-/// usize::MAX when there is none. An empty needle is found at \p from
-/// when \p from is at most `hay.size()` (as `std::string::find`).
+/// Byte offset of the first `needle` in `hay` at or after `from`;
+/// usize::MAX when there is none. An empty needle is found at `from`
+/// when `from` is at most `hay.size()` (as `std::string::find`).
 pub fn find(const hay: string, const needle: string, from: usize) -> usize {
     var n = hay.size()
     var m = needle.size()
@@ -113,12 +113,12 @@ pub fn find(const hay: string, const needle: string, from: usize) -> usize {
     return usize::MAX
 }
 
-/// The pieces of \p s between occurrences of \p sep, in order.
+/// The pieces of `s` between occurrences of `sep`, in order.
 ///
-/// \p keep_empty false drops every empty piece (`"a--b-"` on `-` is `a`,
+/// `keep_empty` false drops every empty piece (`"a--b-"` on `-` is `a`,
 /// `b`). True keeps them, except the one after a trailing separator, so
 /// text that ends in its separator has no phantom last piece (`"a\n\nb\n"`
-/// on `\n` is `a`, `""`, `b`); an empty \p s has no pieces either way.
+/// on `\n` is `a`, `""`, `b`); an empty `s` has no pieces either way.
 pub fn split(const s: string, sep: u8, keep_empty: bool) -> [string] {
     var out:   [string]
     var start: usize    = 0
@@ -141,13 +141,13 @@ pub fn split(const s: string, sep: u8, keep_empty: bool) -> [string] {
     return out
 }
 
-/// \p s without its leading and trailing spaces and tabs. Line breaks are
+/// `s` without its leading and trailing spaces and tabs. Line breaks are
 /// kept: a caller trimming lines has already cut at them.
 pub fn trim(const s: string) -> string {
     return trim_end(trim_start(s))
 }
 
-/// \p s without its leading spaces and tabs.
+/// `s` without its leading spaces and tabs.
 pub fn trim_start(const s: string) -> string {
     var a: usize = 0
     while a < s.size() && (s.data()[a] == (' ' as u8) || s.data()[a] == ('\t' as u8)) {
@@ -157,7 +157,7 @@ pub fn trim_start(const s: string) -> string {
     return s[a..].to_owned()
 }
 
-/// \p s without its trailing spaces and tabs.
+/// `s` without its trailing spaces and tabs.
 pub fn trim_end(const s: string) -> string {
     var b = s.size()
     while b > 0 && (s.data()[b - 1] == (' ' as u8) || s.data()[b - 1] == ('\t' as u8)) {
@@ -167,8 +167,8 @@ pub fn trim_end(const s: string) -> string {
     return s[..b].to_owned()
 }
 
-/// The value of the decimal digits that start \p s, up to the first byte
-/// that is not one; 0 when \p s starts with none. A value past u64::MAX
+/// The value of the decimal digits that start `s`, up to the first byte
+/// that is not one; 0 when `s` starts with none. A value past u64::MAX
 /// saturates there.
 pub fn parse_decimal(const s: string) -> u64 {
     var n: u64 = 0
@@ -197,7 +197,7 @@ pub fn copy_strings(const v: cxx::std::vector<string>) -> cxx::std::vector<strin
     return out
 }
 
-/// A copy of the bytes \p sr views.
+/// A copy of the bytes `sr` views.
 pub fn string_from_ref(sr: llvm::StringRef) -> string {
     if sr.size() == 0 {
         return ""

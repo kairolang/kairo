@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------ Sema/Lower/NullableTypeLowering.k --- ///
 ///
-///   \brief `T?` is `::builtin::Null<T>` to C++, and the `null` literal
-///          is that record's null.
+/// `T?` is `::builtin::Null<T>` to C++, and the `null` literal
+/// is that record's null.
 ///
 ///   \detail
 ///     Two rewrites (Compiler/Spec/Nullables.md#the-canonical-type-and-its-record, §5 step 4):
@@ -170,7 +170,7 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
         }
     }
 
-    /// The record \p t is to C++ when it is a `T?`, else null.
+    /// The record `t` is to C++ when it is a `T?`, else null.
     priv fn _record_of(self, t: unsafe *Type) -> unsafe *Type {
         var unsafe *c = canon_unqual(t)
         if c == &null || !isa<NullableType>(c) {

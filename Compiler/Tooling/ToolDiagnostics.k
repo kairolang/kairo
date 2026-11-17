@@ -28,12 +28,11 @@ import Diagnostic::Diagnostic::Diagnostic
 import Diagnostic::Severity::DiagSeverity
 import Location::SourceManager::SourceManager
 
-/// \class ToolDiag
-/// \brief one captured diagnostic, flattened to plain values.
+/// one captured diagnostic, flattened to plain values.
 ///
-/// \details Deliberately NOT a *Diagnostic. The engine owns those and their
-///          lifetime is tied to the run that produced them; a tool wants to
-///          report after the parse is torn down. Everything here is a copy.
+/// Deliberately NOT a *Diagnostic. The engine owns those and their
+/// lifetime is tied to the run that produced them; a tool wants to
+/// report after the parse is torn down. Everything here is a copy.
 pub class ToolDiag {
     pub var code:     string       = "" ///< e.g. "S047E". Empty if the code had no spelling.
     pub var message:  string       = ""
@@ -65,14 +64,13 @@ pub class ToolDiag {
     }
 }
 
-/// \class ToolDiagConsumer
-/// \brief a DiagConsumer that collects instead of printing.
+/// a DiagConsumer that collects instead of printing.
 ///
-/// \details Install with DiagEngine::take_consumers() +
-///          add_consumer(this), restore with restore_consumers(). While
-///          attached, NOTHING reaches the terminal   which is the point: a
-///          formatter meeting a syntax error should report its own failure,
-///          not emit compiler-shaped errors mid-run.
+/// Install with DiagEngine::take_consumers() +
+/// add_consumer(this), restore with restore_consumers(). While
+/// attached, NOTHING reaches the terminal   which is the point: a
+/// formatter meeting a syntax error should report its own failure,
+/// not emit compiler-shaped errors mid-run.
 pub class ToolDiagConsumer derives DiagConsumer {
     pub var  diags: cxx::std::vector<ToolDiag>
     priv var _sm:   unsafe *SourceManager

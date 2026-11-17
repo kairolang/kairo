@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------- Sema/Resolve/TypeResolve.k --- ///
 ///
-///   \brief Phase T: every non-dependent Type node becomes canonical.
+/// Phase T: every non-dependent Type node becomes canonical.
 ///
 ///   \detail
 ///     T assigns types to type NODES only (Compiler/Spec/Pipeline.md#sema-pass-order "T"). Typing
@@ -181,12 +181,9 @@ import Support::FlagSet::FlagSet
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
-///
-/// \class GenericFrame
-/// \brief One generic-parameter scope on T's lexical stack. Generic params are
-///        NOT in any symbol table (they come off the declaring node), so T
-///        keeps its own stack exactly as N keeps a locals stack.
-///
+/// One generic-parameter scope on T's lexical stack. Generic params are
+/// NOT in any symbol table (they come off the declaring node), so T
+/// keeps its own stack exactly as N keeps a locals stack.
 pub class GenericFrame {
     pub var owner:  unsafe *Decl                                       = &null ///< the declaring decl; null for a closure.
     pub var params: FrozenList<unsafe *Declarations::GenericParamDecl>
@@ -229,9 +226,7 @@ pub class PatternPackFinder derives RecursiveASTVisitor<PatternPackFinder> {
     }
 }
 
-///
-/// \class TypeResolution
-/// \brief The T pass. One instance per TU per run.
+/// The T pass. One instance per TU per run.
 ///
 ///        State is three cursors, all save/restored by the traverse_*
 ///        overrides:
@@ -243,7 +238,6 @@ pub class PatternPackFinder derives RecursiveASTVisitor<PatternPackFinder> {
 ///                     params, but `extend <T> Wrap<Box<T>>` is Wrap<Box<T>>
 ///                     and `extend i32` is i32, neither of which a decl can
 ///                     say.
-///
 pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     pub var sc: unsafe *SemaContext
 
@@ -368,7 +362,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
     /// Resolve ONE node whose children are already resolved. Idempotent via
     /// rstate: a node demanded twice is computed once.
-    /// \return the canonical, or null for dependent / errored.
+    ///
+    /// ### Returns
+    /// the canonical, or null for dependent / errored.
     fn resolve(self, t: unsafe *Type) -> unsafe *Type {
         if t == &null {
             return &null
@@ -527,7 +523,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         n->canonical = self.sc->types->nullable(n->inner->canonical)
     }
 
-    /// The canonical RECORD for a container lang item, or null with \p n
+    /// The canonical RECORD for a container lang item, or null with `n`
     /// poisoned when the builtin root does not declare it.
     ///
     /// `[T]`, `{T}` and `{K: V}` are sugar for a DECLARED type, so an unbound
@@ -858,7 +854,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return true
     }
 
-    /// Where \p d starts, its visibility keyword included when one is
+    /// Where `d` starts, its visibility keyword included when one is
     /// written right before it: a declaration's range starts after `pub`,
     /// and a fix-it that moves the declaration must take the keyword along.
     /// A keyword that is not adjacent is a group's (`pub { ... }` records
@@ -957,11 +953,11 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return &null
     }
 
-    /// The canonical value node of \p e0, an array length or generic value
+    /// The canonical value node of `e0`, an array length or generic value
     /// argument ConstEval could not fold: literals, value parameters, eval
     /// constants (folded when their initializer folds), the binding of an
     /// enclosing `eval for`, calls of eval fns, the builtin integer
-    /// operators and `as` to an integer type, over those. Null when \p e0
+    /// operators and `as` to an integer type, over those. Null when `e0`
     /// is none of that (_vx_bad says where). Every operand is interned, so
     /// the node's identity is the expression's structure.
     priv fn _value_expr(self, e0: unsafe *Expr) -> unsafe *Type {
@@ -1403,7 +1399,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return iv
     }
 
-    /// \p t holds nothing but literals, strings and eval constructor calls.
+    /// `t` holds nothing but literals, strings and eval constructor calls.
     priv fn _vx_closed(self, t: unsafe *Type) -> bool {
         var unsafe *v = dyn_cast<TypeExpr>(t)
         if v == &null || !v->is_value {
@@ -1431,7 +1427,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return true
     }
 
-    /// The decoded bytes of string literal \p sl, every chained part, as
+    /// The decoded bytes of string literal `sl`, every chained part, as
     /// StringLowering would build them (a part with owned text is already
     /// decoded). False when an escape does not decode.
     priv fn _vx_string_bytes(self,
@@ -1494,7 +1490,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return self.sc->types->value_str(bytes, st)
     }
 
-    /// The record \p f constructs, when it is an `eval` constructor (a
+    /// The record `f` constructs, when it is an `eval` constructor (a
     /// lowered construction names it, Compiler/Spec/Eval.md#eval-classes); null otherwise.
     priv fn _vx_ctor_owner(self, f: unsafe *Declarations::FunctionDecl) -> unsafe *Decl {
         if !f->is_eval() {
@@ -1520,7 +1516,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return owner
     }
 
-    /// The function \p c calls, when names alone say: one declaration (a
+    /// The function `c` calls, when names alone say: one declaration (a
     /// call's overloads are X's to pick, and a computed value is resolved
     /// before X).
     priv fn _vx_callee(self, c: unsafe *CallExpr) -> unsafe *Declarations::FunctionDecl {
@@ -1540,7 +1536,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return dyn_cast<Declarations::FunctionDecl>(d)
     }
 
-    /// The class \p c constructs, when it names a record with an `eval`
+    /// The class `c` constructs, when it names a record with an `eval`
     /// constructor taking that many arguments (Compiler/Spec/Eval.md#eval-classes); null otherwise.
     priv fn _vx_record_callee(self, c: unsafe *CallExpr) -> unsafe *Decl {
         var unsafe *e = strip_parens(c->callee)
@@ -1644,7 +1640,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self._bad_value(n->size_expr, ce, c, what)
     }
 
-    /// Why \p e is no compile-time value where \p what must be one (an
+    /// Why `e` is no compile-time value where `what` must be one (an
     /// array length, a generic value argument), at the part at fault.
     priv fn _bad_value(self,
                        e:          unsafe *Expr,
@@ -1981,7 +1977,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return cast<RecordType>(u)->decl
     }
 
-    /// What Self denotes inside the type scope \p d owns. An extension is
+    /// What Self denotes inside the type scope `d` owns. An extension is
     /// its TARGET, already resolved (traverse_extension_decl resolves it
     /// before its body); null while it is not, so the caller pushes nothing
     /// rather than the extension decl's own params.
@@ -2157,8 +2153,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
     }
 
-    /// \class GenericHit
-    /// \brief Result of a frame lookup: the param and the decl that owns it.
+    /// Result of a frame lookup: the param and the decl that owns it.
     class GenericHit {
         pub var decl:  unsafe *Declarations::GenericParamDecl = &null
         pub var owner: unsafe *Decl                           = &null
@@ -2286,8 +2281,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
     /// # ChainType: the real work
 
-    /// R025E: segment \p name of \p ct names no type in the scope the
-    /// segment before it, \p owner, opened. Poisons \p ct.
+    /// R025E: segment `name` of `ct` names no type in the scope the
+    /// segment before it, `owner`, opened. Poisons `ct`.
     priv fn _no_member_type(self,
                             ct:    unsafe *ChainType,
                             name:  unsafe *NamedIdentExpr,
@@ -2996,7 +2991,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
     }
 
-    /// The primary \p seg names is declared beside a specialization of
+    /// The primary `seg` names is declared beside a specialization of
     /// itself (`struct <T> Traits<Box<T>>` next to `struct <R> Traits`).
     priv fn _has_specializations(self, seg: unsafe *ChainType::ChainSegment) -> bool {
         var unsafe *d = seg->resolved_decl
@@ -3029,9 +3024,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     }
 
     /// `L<i32>` as the qualifier of a member type: the type of Kairo generic
-    /// record \p d at \p seg's arguments -- its registry instance when they
+    /// record `d` at `seg`'s arguments -- its registry instance when they
     /// are concrete (so the instance is the one every other spelling of
-    /// `L<i32>` names), the dependent record otherwise. Null when \p d is
+    /// `L<i32>` names), the dependent record otherwise. Null when `d` is
     /// not a Kairo generic record (an alias, an interface, a foreign
     /// template: their old paths apply).
     priv fn _kairo_instance_of(self,
@@ -3087,7 +3082,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// before it) is checked against it.
     priv var _assoc_default: unsafe *Declarations::TypeAliasDecl = &null
 
-    /// `Self::Node` (or bare `Node`) naming associated type \p td: the
+    /// `Self::Node` (or bare `Node`) naming associated type `td`: the
     /// abstract AssocType over the innermost Self, which must be an
     /// interface -- outside one there is no Self for it to belong to.
     priv fn _assoc_in_iface(self,
@@ -3203,8 +3198,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         )
     }
 
-    /// The instance of requirement \p req's declaring interface that
-    /// interface type \p q reaches it through, its `derives` edges read
+    /// The instance of requirement `req`'s declaring interface that
+    /// interface type `q` reaches it through, its `derives` edges read
     /// through q's arguments hop by hop (`IntSource` -> `Source<i32>`,
     /// `Wrapped<i8>` -> `Source<i8>`), or null. Walked here rather than read
     /// off the composed list: T resolves an interface's own requirements
@@ -3407,7 +3402,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return true
     }
 
-    /// \p a is declared strictly before \p b in their (one) interface body.
+    /// `a` is declared strictly before `b` in their (one) interface body.
     priv fn _declared_before(self,
                              a: unsafe *Declarations::TypeAliasDecl,
                              b: unsafe *Declarations::TypeAliasDecl) -> bool {
@@ -3434,8 +3429,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return false
     }
 
-    /// `T::Node` (segment \p i names Node) on generic parameter \p gp of
-    /// \p owner: resolved through T's interface bounds, or diagnosed. False
+    /// `T::Node` (segment `i` names Node) on generic parameter `gp` of
+    /// `owner`: resolved through T's interface bounds, or diagnosed. False
     /// for the cases that keep the old deferral: a `: type` parameter (C++
     /// checks it, Compiler/Spec/Generics.md#duck-regime) and one with a `derives` bound (a C++ base
     /// class's nested type is C++'s to find).
@@ -3502,10 +3497,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         )
     }
 
-    /// `H::A::B...` from segment \p i on, for a dependent head \p base (a
+    /// `H::A::B...` from segment `i` on, for a dependent head `base` (a
     /// bounded parameter, or an associated type already formed) spelled
-    /// \p hname, whose bounds are \p btys (written as \p bexprs, for the
-    /// notes; \p decl_at is the head's declaration). Each segment names an
+    /// `hname`, whose bounds are `btys` (written as `bexprs`, for the
+    /// notes; `decl_at` is the head's declaration). Each segment names an
     /// associated type one of the current head's bounds declares, and the
     /// type it names is the head for the next: `T::Item::Inner` is Inner
     /// through Item's own bounds, read through `T::Item` (one rule,
@@ -3724,7 +3719,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// (`type Item impl P<Self::Item::X>`) sees it unresolved, not again.
     priv var _readying: cxx::std::vector<unsafe *Declarations::TypeAliasDecl>
 
-    /// Resolve associated type \p ta's own clause now, in its declaration
+    /// Resolve associated type `ta`'s own clause now, in its declaration
     /// scope, if the walk has not reached it yet: its bounds are what a
     /// member named through it (`T::Item::Inner`) is looked up in. An
     /// imported one is already resolved (its TU's T ran first).
@@ -3765,7 +3760,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self._readying.pop_back()
     }
 
-    /// The `impl` / `derives` conjuncts of \p e that constrain \p gp, in
+    /// The `impl` / `derives` conjuncts of `e` that constrain `gp`, in
     /// clause order (RequiresDesugar hoisted the inline bounds in).
     /// ConstraintExtraction's partition, read early: it runs after T.
     priv fn _param_conjuncts(self,
@@ -3822,7 +3817,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
     }
 
-    /// Associated type \p imm declared by interface \p id or one it derives
+    /// Associated type `imm` declared by interface `id` or one it derives
     /// (its bases' already-resolved types), or null.
     priv fn _find_assoc(self,
                         id:             unsafe *Declarations::InterfaceDecl,
@@ -3896,7 +3891,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// The registry instance a middle segment `Foo<Args>` names, when Foo is
     /// an IMPORTED template and every arg is concrete; null otherwise (a
     /// Kairo primary, or a dependent arg -- both M2's). Arity and arg errors
-    /// are diagnosed here and poison \p ct.
+    /// are diagnosed here and poison `ct`.
     priv fn _foreign_instance_of(self,
                                  ct:  unsafe *ChainType,
                                  d:   unsafe *Decl,
@@ -4044,7 +4039,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
     }
 
-    /// Append the scope of every decl in \p r's cell when ALL of them are
+    /// Append the scope of every decl in `r`'s cell when ALL of them are
     /// modules (`mods` in the qualified walk); append nothing otherwise.
     priv fn _append_module_scopes(self,
                                   r:          SemaLookupResult,
@@ -4093,12 +4088,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// the one place a foreign shell is filled before its table is read
     /// (MemberLookup::ensure_filled; a failed fill leaves the table empty and
     /// the step misses as it always did).
-    /// \p cd's nested name \p simm through its base classes, depth-first in
+    /// `cd`'s nested name `simm` through its base classes, depth-first in
     /// declaration order (the first base that has it answers; a type found by
     /// two paths is one entity), as a member named in an expression is
-    /// found. \p of is the type \p cd was named as (`Der<i32>`), or null: a
+    /// found. `of` is the type `cd` was named as (`Der<i32>`), or null: a
     /// base is read through its arguments (Substitution::base_through), and
-    /// \p via receives the base the name was found in, at those arguments,
+    /// `via` receives the base the name was found in, at those arguments,
     /// so the result is read through it too. Bounded so a malformed cycle
     /// cannot spin.
     priv fn _in_bases(self,
@@ -4485,7 +4480,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return rt
     }
 
-    /// \p body (an alias's canonical, over its own parameters) with \p args
+    /// `body` (an alias's canonical, over its own parameters) with `args`
     /// bound to them; null when substitution cannot say. A pack parameter
     /// takes every argument from its position on, as an instance's do
     /// (Substitution::bind_from_record). Both the alias and its
@@ -4525,7 +4520,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// count (no default, not a pack), at most the total unless a pack makes
     /// it unbounded. Named args are counted, not positioned -- positioning is
     /// _collect_args' job.
-    /// GenericArgs::check_arity, poisoning \p ct on a miss.
+    /// GenericArgs::check_arity, poisoning `ct` on a miss.
     priv fn _check_arity(self,
                          d:   unsafe *Decl,
                          gps: FrozenList<unsafe *Declarations::GenericParamDecl>,
@@ -4567,7 +4562,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return true
     }
 
-    /// GenericArgs::collect over \p seg, poisoning \p ct on a miss. The
+    /// GenericArgs::collect over `seg`, poisoning `ct` on a miss. The
     /// defaults are demanded HERE first: GenericArgs only reads them, and a
     /// Kairo primary's default resolves in the PRIMARY's scope, which only T
     /// can set up (_demand_default).
@@ -4603,7 +4598,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return true
     }
 
-    /// A default on \p primary's parameter list, canonical or null. Resolved
+    /// A default on `primary`'s parameter list, canonical or null. Resolved
     /// in the PRIMARY's scope with the primary's own params in frame (`<T,
     /// U = T>`), never in the use site's. A foreign primary's defaults were
     /// resolved by its own TU: read the slot.
@@ -4631,7 +4626,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
     /// # Aliases (the demand-driven core)
 
-    /// Canonical of what \p td names, expanding through any chain of aliases,
+    /// Canonical of what `td` names, expanding through any chain of aliases,
     /// or null. Null + Errored state = diagnosed (cycle or bad target).
     /// Null + Resolved state = the target is dependent.
     fn _expand_alias(self,
@@ -4751,7 +4746,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return if (ok) => (td->aliased->canonical) else => &null
     }
 
-    /// The C character type \p td is the lang alias of, or COUNT.
+    /// The C character type `td` is the lang alias of, or COUNT.
     priv fn _c_character_alias(self, td: unsafe *Decl) -> BuiltinKind {
         var unsafe *wk = self.sc->well_known
         if wk->get(WellKnownType::CChar) == td {
@@ -4876,7 +4871,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         b.emit()
     }
 
-    /// Narrowest decl named anywhere in \p t, recorded through the out-params.
+    /// Narrowest decl named anywhere in `t`, recorded through the out-params.
     ///
     /// Walks the SYNTACTIC target, never its canonical: canonicalization erases
     /// both the intermediate aliases and the module path segments, and each of
@@ -5197,9 +5192,12 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return out
     }
 
-    /// Enter record \p n for the walk of its body: it is the current scope
+    /// Enter record `n` for the walk of its body: it is the current scope
     /// and `Self`, its generic parameters are in frame, and a primary's
-    /// spec args are premarked. \return the scope to hand _leave_record.
+    /// spec args are premarked.
+    ///
+    /// ### Returns
+    /// the scope to hand _leave_record.
     priv fn _enter_record(self,
                           n:    unsafe *Decl,
                           dc:   unsafe *DeclContext,
@@ -5214,7 +5212,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return saved
     }
 
-    /// Leave record \p n, entered with _enter_record, after its body was
+    /// Leave record `n`, entered with _enter_record, after its body was
     /// walked.
     priv fn _leave_record(self,
                           n:     unsafe *Decl,
@@ -5470,7 +5468,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// primitive's builtin operator always competes (`extend i32? { op + }`),
     /// `==` / `!=` / `===` / `??` compare nullables natively, `<=>` would
     /// need its derived relationals, and a unary or compound operator is
-    /// typed on paths that still read the value. \p inner is T, canonical.
+    /// typed on paths that still read the value. `inner` is T, canonical.
     priv fn _reject_nullable_operators(self,
                                        n:     unsafe *Declarations::ExtensionDecl,
                                        inner: unsafe *Type) {
@@ -5510,7 +5508,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
     }
 
-    /// \p f is a binary operator OperatorTyping selects on a nullable
+    /// `f` is a binary operator OperatorTyping selects on a nullable
     /// receiver: one operand besides `self`, and a kind whose operands
     /// type_binary reads as values (OperatorTyping::_reads_operands, less
     /// `<=>`, `&&` and `||`, which are not overloadable).
@@ -5673,10 +5671,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
     }
 
-    /// Set the resolver's lexical state to \p d's DECLARATION scope, for
+    /// Set the resolver's lexical state to `d`'s DECLARATION scope, for
     /// resolving its types outside walk order: cur_dc to its semantic dc, the
     /// generic frames and selfs of every enclosing type scope and function,
-    /// outermost first, then \p d's own generic params. Pair with
+    /// outermost first, then `d`'s own generic params. Pair with
     /// _leave_decl_scope, which restores exactly what this returns.
     ///
     /// The rule (Compiler/Spec/TypeResolution.md#type-resolution): demand order may change WHEN a
@@ -6425,7 +6423,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         )->emit()
     }
 
-    /// A conjunct of \p rc that is a conformance (`P impl I`, `P derives B`):
+    /// A conjunct of `rc` that is a conformance (`P impl I`, `P derives B`):
     /// selection decides value predicates only (Compiler/Spec/Generics.md#where-groups-on-generic-functions).
     priv fn _has_conformance_conjunct(self, rc: unsafe *Expr) -> bool {
         if rc == &null {
@@ -6474,8 +6472,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         b.emit()
     }
 
-    /// \p e's partial selection (an ambiguity, or a clause that could not be
-    /// decided), met at the written mention \p at: reported once per build,
+    /// `e`'s partial selection (an ambiguity, or a clause that could not be
+    /// decided), met at the written mention `at`: reported once per build,
     /// by the first mention in the one-thread order of files. On the driver
     /// that is whoever claims first, as here. In a parallel front it is not
     /// (the fronts of files that do not import each other race), so the
@@ -6508,7 +6506,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
     }
 
-    /// A partial matched \p e's arguments by pattern, but its clause could
+    /// A partial matched `e`'s arguments by pattern, but its clause could
     /// not be decided there (InstanceEntry::undecided): not selected, and
     /// reported once, at the first written mention, so C++ never picks a
     /// body Kairo did not type against. The caller holds the claim.
@@ -6530,7 +6528,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         b.emit()
     }
 
-    /// Two partial specializations match \p e's args and neither is more
+    /// Two partial specializations match `e`'s args and neither is more
     /// specialized than the other: C++ rejects the instance, so Kairo does,
     /// at the first written mention of it (one report per instance; later
     /// mentions and unwritten ones -- a substitution -- stay quiet). The
@@ -6617,7 +6615,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         return &null
     }
 
-    /// Link \p b into \p a's redeclaration ring (a forward-declared
+    /// Link `b` into `a`'s redeclaration ring (a forward-declared
     /// specialization and its definition) and point the ring's canonical at
     /// the definition, or at the first declaration when none defines. True
     /// when both define.

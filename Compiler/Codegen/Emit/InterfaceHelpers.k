@@ -321,7 +321,7 @@ extend InterfaceEmitter {
     /// element of the same type (`__kairo_pidx`), the site word copied. An
     /// element R does not hold is never the tag here, so it gets no case.
     /// Generic over the record (`P<T, E...>`), so no name of the lang item
-    /// is spelled; its members are, read off \p en.
+    /// is spelled; its members are, read off `en`.
     priv fn _fwd_helpers(self, en: unsafe *Declarations::EnumDecl) {
         var at  = self._tu_at()
         var u   = builtin_info(BuiltinKind::U32)->cxx.copy()
@@ -961,7 +961,7 @@ extend InterfaceEmitter {
     }
 
     /// The qualified extension scope of the String lang record that
-    /// declares member \p name, when this plan carries it, else "".
+    /// declares member `name`, when this plan carries it, else "".
     priv fn _string_scope(self, const name: string) -> string {
         var *gs = self._cg->tu->global_scope
         if gs == &null {

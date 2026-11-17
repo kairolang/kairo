@@ -178,7 +178,7 @@ pub class ASTContext {
     /// and moved into T's constructor, one copy at the call, as forwarding an
     /// lvalue was. Every argument passed today is a pointer, enum or integer.
 
-    /// Registers \p p's destructor on \p list and returns \p p.
+    /// Registers `p`'s destructor on `list` and returns `p`.
     priv fn <T> _with_cleanup(self,
                               @inout list: cxx::std::vector<Self::ArenaCleanup>,
                               p:           unsafe *T) -> unsafe *T {
@@ -348,7 +348,7 @@ pub class ASTContext {
         )
     }
 
-    /// Frees everything produced at \p from and every LATER stage.
+    /// Frees everything produced at `from` and every LATER stage.
     ///
     /// The cascade is not a convenience: AST nodes address identifiers by
     /// `imm` index into the fid's ImmediateTable, so an AST that outlived its
@@ -361,7 +361,7 @@ pub class ASTContext {
     /// index_alloc is deliberately NOT released at Parsing: the disambig
     /// table is read cross-fid while DEPENDENT files parse. It is dropped
     /// with the context.
-    /// Every arena block of this context, into \p out under \p label.
+    /// Every arena block of this context, into `out` under `label`.
     pub fn ranges_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
         self.string_alloc.ranges_into(out, label)
         self.pp_alloc.ranges_into(out, label)
@@ -373,7 +373,7 @@ pub class ASTContext {
     }
 
     /// The heap objects that are this context's and name its blocks (the
-    /// context, each arena block's record), into \p out.
+    /// context, each arena block's record), into `out`.
     pub fn records_into(self, out: unsafe *kairo::AddrRanges, label: u32) {
         self.string_alloc.records_into(out, label)
         self.pp_alloc.records_into(out, label)
@@ -385,14 +385,14 @@ pub class ASTContext {
         out->add(unsafe (&self as unsafe *const void), sizeof(Self), label)
     }
 
-    /// \brief ends this context without giving its memory back: every
-    ///        registered destructor runs, as at its end, and every arena
-    ///        block is overwritten with 0xDD and kept.
+    /// ends this context without giving its memory back: every
+    /// registered destructor runs, as at its end, and every arena
+    /// block is overwritten with 0xDD and kept.
     ///
-    /// \details A live check's use-after-free check (KAIRO_LIVE_POISON):
-    ///          the addresses are never handed out again, so a pointer
-    ///          that still names this tree reads 0xDD.. (not an address)
-    ///          instead of a new tree's node, and the heap scan finds it.
+    /// A live check's use-after-free check (KAIRO_LIVE_POISON):
+    /// the addresses are never handed out again, so a pointer
+    /// that still names this tree reads 0xDD.. (not an address)
+    /// instead of a new tree's node, and the heap scan finds it.
     pub fn quarantine(self) {
         self.release_from(TUStage::Preprocessing)
         // The lists' buffers too: this object stays, and a cleared vector
@@ -494,17 +494,17 @@ pub class ASTContext {
         return tok
     }
 
-    /// \brief resolved imm ident index for a token, or u32(-1) if it is not an
-    ///        identifier (keyword, operator, sentinel, or no interner reachable).
+    /// resolved imm ident index for a token, or u32(-1) if it is not an
+    /// identifier (keyword, operator, sentinel, or no interner reachable).
     ///
-    /// \details unwraps any TkMacroExpand chain first so the index matches the
-    ///          spelling the user wrote, then returns the UNWRAPPED imm (tok.imm
-    ///          on a wrapped token is the expansion record, not the ident). This
-    ///          is the identity half of TokenText::resolve without materializing
-    ///          the string   the sanctioned key for DisambigTable lookups off a
-    ///          token. Same spelling collapses to the same index as a string
-    ///          interned via intern_ident_copy, so token-keyed and text-keyed
-    ///          lookups agree within a file.
+    /// unwraps any TkMacroExpand chain first so the index matches the
+    /// spelling the user wrote, then returns the UNWRAPPED imm (tok.imm
+    /// on a wrapped token is the expansion record, not the ident). This
+    /// is the identity half of TokenText::resolve without materializing
+    /// the string   the sanctioned key for DisambigTable lookups off a
+    /// token. Same spelling collapses to the same index as a string
+    /// interned via intern_ident_copy, so token-keyed and text-keyed
+    /// lookups agree within a file.
     pub fn get_ident_imm(self, tok: Token) -> u32 {
         var unsafe *tbl = self.get_imm_table()
         if tbl == &null {
@@ -540,14 +540,14 @@ pub class ASTContext {
         return u.imm
     }
 
-    /// \brief a macro-wrapped token's ORIGINAL kind and imm, kept at the
-    ///        wrapped token's (invocation-site) range; any other token as is.
+    /// a macro-wrapped token's ORIGINAL kind and imm, kept at the
+    /// wrapped token's (invocation-site) range; any other token as is.
     ///
-    /// \details for nodes that store a token and later read its KIND: an
-    ///          operator from a macro body is TkMacroExpand until unwrapped,
-    ///          and Sema's operator switch on that kind found no `+` (SC066E
-    ///          "not defined on primitives" for `a + b` in any macro body).
-    ///          Sentinels stay wrapped: their identity IS the wrapper.
+    /// for nodes that store a token and later read its KIND: an
+    /// operator from a macro body is TkMacroExpand until unwrapped,
+    /// and Sema's operator switch on that kind found no `+` (SC066E
+    /// "not defined on primitives" for `a + b` in any macro body).
+    /// Sentinels stay wrapped: their identity IS the wrapper.
     pub fn unwrap_token(self, tok: Token) -> Token {
         if self.tcm == &null {
             return tok
@@ -565,16 +565,16 @@ pub class ASTContext {
         return Token(tok.range, u.kind, u.imm)
     }
 
-    /// \brief the table that owns a literal token's payload (IntData,
-    ///        FloatData, StringData), unwrapping any macro chain first.
+    /// the table that owns a literal token's payload (IntData,
+    /// FloatData, StringData), unwrapping any macro chain first.
     ///
-    /// \details pair it with unwrap_token(tok).imm. A wrapped token's own imm
-    ///          is its MacroExpansionInfo record, not a payload index, and the
-    ///          payload lives in the file that WROTE the literal (an imported
-    ///          macro's body: the defining file; a literal argument: the
-    ///          invoking file). Reading the record index against this file's
-    ///          literal list was SC073E when it ran off the end and, worse, a
-    ///          different literal of this file when it did not.
+    /// pair it with unwrap_token(tok).imm. A wrapped token's own imm
+    /// is its MacroExpansionInfo record, not a payload index, and the
+    /// payload lives in the file that WROTE the literal (an imported
+    /// macro's body: the defining file; a literal argument: the
+    /// invoking file). Reading the record index against this file's
+    /// literal list was SC073E when it ran off the end and, worse, a
+    /// different literal of this file when it did not.
     pub fn get_payload_table(self, tok: Token) -> unsafe *ImmediateTable {
         var unsafe *tbl = self.get_imm_table()
         if self.tcm == &null {
@@ -594,14 +594,14 @@ pub class ASTContext {
         return tbl
     }
 
-    /// \brief where a token was WRITTEN: a macro-wrapped token's innermost
-    ///        definition-site range (a body token in the macro's body, a
-    ///        substituted argument at the invocation); any other token's own.
+    /// where a token was WRITTEN: a macro-wrapped token's innermost
+    /// definition-site range (a body token in the macro's body, a
+    /// substituted argument at the invocation); any other token's own.
     ///
-    /// \details a wrapped token's range is the invocation, so two wrapped
-    ///          tokens of one body (`t.1`) share a start, and a spacing rule
-    ///          read off those ranges reports whitespace that was never
-    ///          written. Spacing questions about wrapped tokens ask this.
+    /// a wrapped token's range is the invocation, so two wrapped
+    /// tokens of one body (`t.1`) share a start, and a spacing rule
+    /// read off those ranges reports whitespace that was never
+    /// written. Spacing questions about wrapped tokens ask this.
     pub fn written_range(self, tok: Token) -> SourceRange {
         if self.tcm == &null {
             return tok.range
@@ -619,14 +619,14 @@ pub class ASTContext {
         return u.def_range
     }
 
-    /// \brief the macro a wrapped token came from, as written at its
-    ///        outermost invocation ("dup!"); empty for any other token.
+    /// the macro a wrapped token came from, as written at its
+    /// outermost invocation ("dup!"); empty for any other token.
     ///
-    /// \details a wrapped token's range IS the outermost invocation, which
-    ///          spans the name, the `!` and any arguments, so the name is its
-    ///          text up to the `!`. The text is read from the source, never
-    ///          from the record's macro_name: that is a preprocessor symbol
-    ///          of the process that expanded it (Serialize/Archive.k).
+    /// a wrapped token's range IS the outermost invocation, which
+    /// spans the name, the `!` and any arguments, so the name is its
+    /// text up to the `!`. The text is read from the source, never
+    /// from the record's macro_name: that is a preprocessor symbol
+    /// of the process that expanded it (Serialize/Archive.k).
     pub fn macro_invocation_name(self, tok: Token) -> string {
         if (tok.kind as u32) != (TokenKind::TkMacroExpand as u32)
             || self.sm == &null
@@ -649,25 +649,25 @@ pub class ASTContext {
         return ""
     }
 
-    /// \brief \p tok, a raw token another file lexed, wrapped as a macro
-    ///        expansion at \p site so it reads against ITS file's tables.
+    /// `tok`, a raw token another file lexed, wrapped as a macro
+    /// expansion at `site` so it reads against ITS file's tables.
     ///
-    /// \details an f-string's holes are token buffers the lexer kept on the
-    ///          literal's StringData, unwrapped: a hole's identifier or
-    ///          literal indexes the table of the file that wrote the string.
-    ///          When that string came out of an imported macro's body, the
-    ///          parser of THIS file read those indices against its own
-    ///          tables (R020E on the body's names, or a different name or
-    ///          literal of this file). The record goes in this file's table,
-    ///          at \p site's range (where the expansion is reported), and its
-    ///          def_range is the token's own, so unwrap_expansion finds the
-    ///          payload table from it exactly as for a token the
-    ///          preprocessor wrapped. EVERY token is wrapped, as the
-    ///          preprocessor wraps every body token: an unwrapped `(` or `)`
-    ///          keeps its range in the other file, and a node spanning a
-    ///          wrapped name and that paren (`helper_fn(40)`) then runs from
-    ///          this file into that one (TokenSink I003E). The buffer's end
-    ///          marker stays as it is.
+    /// an f-string's holes are token buffers the lexer kept on the
+    /// literal's StringData, unwrapped: a hole's identifier or
+    /// literal indexes the table of the file that wrote the string.
+    /// When that string came out of an imported macro's body, the
+    /// parser of THIS file read those indices against its own
+    /// tables (R020E on the body's names, or a different name or
+    /// literal of this file). The record goes in this file's table,
+    /// at `site`'s range (where the expansion is reported), and its
+    /// def_range is the token's own, so unwrap_expansion finds the
+    /// payload table from it exactly as for a token the
+    /// preprocessor wrapped. EVERY token is wrapped, as the
+    /// preprocessor wraps every body token: an unwrapped `(` or `)`
+    /// keeps its range in the other file, and a node spanning a
+    /// wrapped name and that paren (`helper_fn(40)`) then runs from
+    /// this file into that one (TokenSink I003E). The buffer's end
+    /// marker stays as it is.
     fn wrap_foreign_token(self, tok: Token, site: Token) -> Token {
         var unsafe *tbl = self.get_imm_table()
         if tbl == &null || self.tcm == &null {

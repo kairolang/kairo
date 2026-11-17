@@ -1,10 +1,10 @@
 /// --- The Kairo Project --------------- Sema/Verify/ForeignNameCheck.k --- ///
 ///
-///   \brief Verify that every user-declared name is spellable as a C++
-///          identifier. Kairo emits identical spellings across the FFI
-///          boundary (no mangling), so a name that collides with a C++
-///          keyword or a reserved identifier pattern cannot be emitted and
-///          cannot be called from real C++.
+/// Verify that every user-declared name is spellable as a C++
+/// identifier. Kairo emits identical spellings across the FFI
+/// boundary (no mangling), so a name that collides with a C++
+/// keyword or a reserved identifier pattern cannot be emitted and
+/// cannot be called from real C++.
 ///
 ///   \detail
 ///     Two rule families, both reported at the DECLARATION, never at a use:
@@ -71,7 +71,7 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
         self.run(tu)
     }
 
-    /// \p what is the noun used in the message ("function", "class", ...).
+    /// `what` is the noun used in the message ("function", "class", ...).
     priv fn _check(self, name: Token, const what: string) {
         // A primitive type's name always denotes the type, so a declaration
         // it names could never be used (S047E is the parser's half, for a
@@ -150,7 +150,7 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
         }
     }
 
-    /// \p s starts `__builtin_`.
+    /// `s` starts `__builtin_`.
     priv fn _is_intrinsic_name(self, const s: string) -> bool {
         return s.starts_with(LowerTargets::clang_builtin_prefix())
     }

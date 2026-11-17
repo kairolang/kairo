@@ -183,7 +183,7 @@ extend Speller {
         return out
     }
 
-    /// \p tu has no module path: a file outside every search dir (or one
+    /// `tu` has no module path: a file outside every search dir (or one
     /// whose path a named library owns, ImportResolver::input_module_path),
     /// the driver's virtual library entry, or a tool's bare parse. Not
     /// "a command-line input": an input takes the module path an import
@@ -197,7 +197,7 @@ extend Speller {
         return tu->ctx->module_base.segments.size() == 0
     }
 
-    /// \p d is the program's `main`: a free function named `main` at file
+    /// `d` is the program's `main`: a free function named `main` at file
     /// scope, in ANY TU. Emitted as the global `int main`, never in a
     /// namespace and never in a header. A `main` is the program's wherever its
     /// file sits, because every input is a module. One in a `module foo
@@ -219,7 +219,7 @@ extend Speller {
         return self.leaf(d) == entry_point_name()
     }
 
-    /// \p s as one C++ identifier: anything else becomes `_`, a leading
+    /// `s` as one C++ identifier: anything else becomes `_`, a leading
     /// digit gets a `_` before it, and a C++ keyword one after it
     /// (`operator` -> `operator_`; a trailing `_` cannot collide with another
     /// keyword). For names that come from FILES -- module path segments and
@@ -252,7 +252,7 @@ extend Speller {
         return out
     }
 
-    /// \p tu's first namespace segment as the module path spells it, before
+    /// `tu`'s first namespace segment as the module path spells it, before
     /// any rename: the module root, or a pathless TU's stem.
     pub fn top_segment(self, tu: unsafe *TranslationUnit) -> string {
         var segs = self.module_segments(tu)
@@ -268,13 +268,13 @@ extend Speller {
         return _NS_TOPS.kairo_of(c)
     }
 
-    /// Decides the C++ spelling of every top segment in \p tops (one
+    /// Decides the C++ spelling of every top segment in `tops` (one
     /// build's modules) that is not decided yet, and records it (NsTops).
-    /// \p header_global answers whether a header of the build declares
+    /// `header_global` answers whether a header of the build declares
     /// `::name` as anything but a namespace. A segment keeps its spelling
     /// unless taken; a taken one gets `_` appended until it is free. Taken:
-    /// an entry-point name, \p header_global, another module's own top
-    /// segment in \p tops, or another segment's recorded rename. The roots
+    /// an entry-point name, `header_global`, another module's own top
+    /// segment in `tops`, or another segment's recorded rename. The roots
     /// the toolchain's prebuilt objects live under (builtin, std, kairo) are
     /// never renamed: --kairo-lib builds those once for every later link.
     /// Sorted first, so the answer depends on the set of names, not on the
@@ -417,7 +417,7 @@ extend Speller {
         return true
     }
 
-    /// \p d is declared inside a function body: its semantic scope, or one
+    /// `d` is declared inside a function body: its semantic scope, or one
     /// enclosing it, is a function, block or lambda (FinallyLowering's guard
     /// record, its members and its local). Such a decl has no namespace: it
     /// is named by leaf, emitted inside the body, and never planned.
@@ -461,7 +461,7 @@ extend Speller {
         return false
     }
 
-    /// \p d is a `fn`, class, struct, union or enum the user wrote in a
+    /// `d` is a `fn`, class, struct, union or enum the user wrote in a
     /// function body. C++ has no local functions, and a local class can have
     /// no member template, no static data member and no out-of-line member,
     /// so each is emitted at NAMESPACE scope instead -- the scope of the
@@ -520,12 +520,12 @@ extend Speller {
         return d->semantic_dc
     }
 
-    /// Namespace segments (modules only) enclosing \p d, outermost first.
+    /// Namespace segments (modules only) enclosing `d`, outermost first.
     pub fn ns_segments(self, d: unsafe *Decl) -> cxx::std::vector<string> {
         return self._ns_from(self._home_dc(d))
     }
 
-    /// The namespace N of \p x's scope struct: the scope its members are
+    /// The namespace N of `x`'s scope struct: the scope its members are
     /// qualified from (_home_dc), read off the extension itself, so a scope
     /// has a namespace even before a member is picked.
     fn scope_ns(self, x: unsafe *Declarations::ExtensionDecl) -> cxx::std::vector<string> {
@@ -572,7 +572,7 @@ extend Speller {
         return out
     }
 
-    /// `__kairo_ext_<X>`: the struct whose static members are \p x's (and
+    /// `__kairo_ext_<X>`: the struct whose static members are `x`'s (and
     /// every other extend of X in the same namespace N). X is the target's
     /// leaf when the target is declared in N itself, nested owners joined
     /// with `__` (`__kairo_ext_Outer__Inner`); otherwise its FULL path joined
@@ -728,7 +728,7 @@ extend Speller {
     /// `::stem::Name` is the same name whether the decl is `pub` or `priv`:
     /// C++'s implicit using-directive reaches into the nested unnamed
     /// namespace `priv` puts it in, and qual_name never has to know.
-    /// \p q, an imported enum's C++ name, cut before an unnamed segment:
+    /// `q`, an imported enum's C++ name, cut before an unnamed segment:
     /// clang prints `enum { a };` as `::ns::(unnamed enum at f.h:2:16)`,
     /// which is no C++ name. An unnamed enum is never scoped, so its
     /// enumerators are its enclosing scope's (`::clang::diag::err_x`);

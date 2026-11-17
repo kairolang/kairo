@@ -1,9 +1,9 @@
 /// --- The Kairo Project ----------------------- Sema/Type/Conversion.k --- ///
 ///
-///   \brief THE conversion relation. One concept in the whole language:
-///          classify(S, T) over primitives per the Primitive Conversion
-///          Lattice, plus the non-primitive implicit forms (`T -> T?`,
-///          `*Derived -> *Base`, `*T -> *const T`, `! -> anything`).
+/// THE conversion relation. One concept in the whole language:
+/// classify(S, T) over primitives per the Primitive Conversion
+/// Lattice, plus the non-primitive implicit forms (`T -> T?`,
+/// `*Derived -> *Base`, `*T -> *const T`, `! -> anything`).
 ///
 ///   \detail
 ///     Two ranks only, and no ordering inside rank 2 (lattice §7): Exact is
@@ -84,8 +84,7 @@ import Sema::Type::Substitution::{
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
-/// \enum ConvClass
-/// \brief Lattice §1. The class of an ordered primitive pair.
+/// Lattice §1. The class of an ordered primitive pair.
 pub enum ConvClass derives u8 {
     I = 0, ///< identity.
     W,     ///< implicit: value-preserving, target-independent.
@@ -94,17 +93,15 @@ pub enum ConvClass derives u8 {
     X,     ///< no cast exists.
 }
 
-/// \enum ImplicitRank
-/// \brief What a call site / assignment gets from an implicit sequence.
+/// What a call site / assignment gets from an implicit sequence.
 pub enum ImplicitRank derives u8 {
     Exact = 0,
     Converted,
     None,
 }
 
-/// \enum RefRel
-/// \brief How an argument's VALUE type relates to a reference parameter's
-///        referee, before its value category is consulted (ref_binding).
+/// How an argument's VALUE type relates to a reference parameter's
+/// referee, before its value category is consulted (ref_binding).
 pub enum RefRel derives u8 {
     None = 0, ///< binds at no category.
     Same,     ///< the referee itself.
@@ -112,8 +109,8 @@ pub enum RefRel derives u8 {
     Converts, ///< converts implicitly: binding goes through a temporary.
 }
 
-/// Can an untyped integer literal of the given magnitude take builtin \p bk?
-/// \p negative is the unary-minus fold; the magnitude then may reach 2^(bits-1).
+/// Can an untyped integer literal of the given magnitude take builtin `bk`?
+/// `negative` is the unary-minus fold; the magnitude then may reach 2^(bits-1).
 pub fn literal_fits_int(lo:       u64,
                         hi:       u64,
                         big:      bool,
@@ -406,7 +403,7 @@ pub class Conversion {
         return ConvClass::E // R2 iN->uM never
     }
 
-    /// Whether \p f is a float an implicit widening may produce (R5): the
+    /// Whether `f` is a float an implicit widening may produce (R5): the
     /// formats of at most 64 value bits. f80 exists on some targets only,
     /// and f128 and wider are library arithmetic, so a conversion into one
     /// is always written.
@@ -415,7 +412,7 @@ pub class Conversion {
         return bi->is_float() && bi->bits <= 64
     }
 
-    /// The precision of the W target \p f in bits (its stored mantissa and
+    /// The precision of the W target `f` in bits (its stored mantissa and
     /// the implicit leading bit); 0 for a float that is no W target.
     priv fn _mantissa(self, f: BuiltinKind) -> usize {
         if !self._float_w_target(f) {
@@ -544,7 +541,7 @@ pub class Conversion {
 
     /// # the implicit sequence
 
-    /// The tuple type \p to names, for a tuple literal of \p arity elements
+    /// The tuple type `to` names, for a tuple literal of `arity` elements
     /// to convert into: its value, nullable stripped, canonical. Null for
     /// anything else.
     fn tuple_literal_target(self, to: unsafe *Type, arity: usize) -> unsafe *Type {
@@ -563,8 +560,8 @@ pub class Conversion {
         return tt
     }
 
-    /// \p e is a tuple literal whose every element converts implicitly to
-    /// the element of \p to at the same place (a nested literal by the same
+    /// `e` is a tuple literal whose every element converts implicitly to
+    /// the element of `to` at the same place (a nested literal by the same
     /// rule). Silent: nothing is diagnosed or rewritten.
     fn tuple_literal_fits(self, e: unsafe *Expr, to: unsafe *Type) -> bool {
         var unsafe *lit = dyn_cast<Expressions::TupleLiteralExpr>(
@@ -596,19 +593,19 @@ pub class Conversion {
         return true
     }
 
-    /// Rank of \p from -> \p to as an implicit conversion. Both canonical.
+    /// Rank of `from` -> `to` as an implicit conversion. Both canonical.
     fn implicit(self, from: unsafe *Type, to: unsafe *Type) -> ImplicitRank {
         return self._seq(self.unified(from), self.unified(to), true)
     }
 
-    /// \p t as the declaration being typed reads it: every type its
+    /// `t` as the declaration being typed reads it: every type its
     /// `requires __builtin_is_same<A, B>()` clauses equate is one type
-    /// (SemaContext::same_types). \p t itself outside such a declaration.
+    /// (SemaContext::same_types). `t` itself outside such a declaration.
     fn unified(self, t: unsafe *Type) -> unsafe *Type {
         return unified_through(self.sc, t, &null)
     }
 
-    /// Whether \p t is a type parameter, or an associated type of one
+    /// Whether `t` is a type parameter, or an associated type of one
     /// (`T`, `T::Item`): a type the body knows only by its bounds.
     fn is_rigid(self, t: unsafe *Type) -> bool {
         var unsafe *c = canon_unqual(t)
@@ -619,8 +616,8 @@ pub class Conversion {
         return c != &null && isa<GenericParamType>(c) && !cast<GenericParamType>(c)->is_pack
     }
 
-    /// The equalities \p f's body may rely on, appended to \p out as
-    /// SemaContext::same_types holds them: from \p f's own `requires`,
+    /// The equalities `f`'s body may rely on, appended to `out` as
+    /// SemaContext::same_types holds them: from `f`'s own `requires`,
     /// its record's, its extension's, and the extended record's read at
     /// the extension's target.
     fn same_type_facts(self, f: unsafe *FunctionDecl, out: unsafe *cxx::std::vector<unsafe *Type>) {
@@ -661,8 +658,8 @@ pub class Conversion {
         }
     }
 
-    /// The `__builtin_is_same<A, B>()` conjuncts of \p req, each read
-    /// through \p s when it is given. The side that is replaced is a type
+    /// The `__builtin_is_same<A, B>()` conjuncts of `req`, each read
+    /// through `s` when it is given. The side that is replaced is a type
     /// the body knows only by its bounds; an equality of two types that
     /// are neither is no fact a body can use and is left out.
     priv fn _same_from(self,
@@ -758,7 +755,7 @@ pub class Conversion {
         return self._seq(self.unified(from), self.unified(to), false)
     }
 
-    /// \p user: the view and `@implicit` rungs are open. At most ONE of
+    /// `user`: the view and `@implicit` rungs are open. At most ONE of
     /// them applies per sequence: the nullable rung below recurses with it
     /// closed, so `T -> U?` never hides a user conversion under the wrap.
     priv fn _seq(self, from: unsafe *Type, to: unsafe *Type, user: bool) -> ImplicitRank {
@@ -944,9 +941,9 @@ pub class Conversion {
         return ImplicitRank::None
     }
 
-    /// \p a and \p b are one signature (parameters, modes, result) and \p a's
-    /// panic effect is within \p b's: \p a does not panic, or both do and
-    /// \p a's set is a subset of \p b's.
+    /// `a` and `b` are one signature (parameters, modes, result) and `a`'s
+    /// panic effect is within `b`'s: `a` does not panic, or both do and
+    /// `a`'s set is a subset of `b`'s.
     priv fn _fn_effect_widens(self,
                               a: unsafe *FunctionPointerType,
                               b: unsafe *FunctionPointerType) -> bool {
@@ -995,7 +992,7 @@ pub class Conversion {
         return true
     }
 
-    /// A slice or a vector of T seen as the slice \p to of `const T`: the
+    /// A slice or a vector of T seen as the slice `to` of `const T`: the
     /// qualifier is only added, never lost (`[const T;] -> [T;]` is no
     /// conversion), and the element is otherwise the same type.
     fn views_as_const_slice(self, from: unsafe *Type, to: unsafe *Type) -> bool {
@@ -1023,7 +1020,7 @@ pub class Conversion {
             && canon_unqual(want[0]) == canon_unqual(have[0])
     }
 
-    /// `[T; N]` seen as the slice \p to: `[T;]`, or `[const T;]`. A const
+    /// `[T; N]` seen as the slice `to`: `[T;]`, or `[const T;]`. A const
     /// array views only as `[const T;]` -- the view must not launder the
     /// qualifier away. Type-level only: a `const` BINDING's constness is not
     /// in its type, and clang rejects the `const T*` -> `T*` that leaks.
@@ -1050,7 +1047,7 @@ pub class Conversion {
         return !canon_has_const(from) && !canon_has_const(elem)
     }
 
-    /// The `@implicit op as` on \p from whose result is exactly \p to, or
+    /// The `@implicit op as` on `from` whose result is exactly `to`, or
     /// null. EXACT: no second conversion rides on the result, so `A -> B`
     /// and `B -> C` never chain into `A -> C`. A const source needs a
     /// `const self` operator. Two matches (an own and an inherited one) is
@@ -1064,9 +1061,9 @@ pub class Conversion {
         return if (all.size() > 0) => (all[0]) else => &null
     }
 
-    /// Every `@implicit op as` that takes \p from to exactly \p to, in
+    /// Every `@implicit op as` that takes `from` to exactly `to`, in
     /// lookup order: the type's own members, then the extensions this TU
-    /// sees, then the bases'. \p first stops at one.
+    /// sees, then the bases'. `first` stops at one.
     fn implicit_ops(self,
                     from:  unsafe *Type,
                     to:    unsafe *Type,
@@ -1104,13 +1101,13 @@ pub class Conversion {
         }
     }
 
-    /// The `op as` \p f, applied to a source of canonical type \p fu, yields
-    /// exactly \p tq (both cv-free). A member's result is read through the
+    /// The `op as` `f`, applied to a source of canonical type `fu`, yields
+    /// exactly `tq` (both cv-free). A member's result is read through the
     /// instance's bindings (`Vector<T>`'s `-> [T;]` on a `Vector<i32>`); an
-    /// extension's through the bindings \p fu gives the extension's own
+    /// extension's through the bindings `fu` gives the extension's own
     /// parameters (`extend <T> [T] { fn op as (const self) -> Box<T> }` on a
     /// `[i32]` yields `Box<i32>`). An extension is asked whether it applies
-    /// to \p fu at all first: its members are indexed by the target's
+    /// to `fu` at all first: its members are indexed by the target's
     /// primary, so `extend Wrap<i32>` is a candidate on every `Wrap<X>`.
     fn conversion_yields(self,
                          f:  unsafe *FunctionDecl,
@@ -1147,9 +1144,9 @@ pub class Conversion {
         return self._bind_through(rt, tq, ext, unsafe &binds)
     }
 
-    /// What a source of canonical type \p fu gives the generic parameters
-    /// of the extension \p f is declared in, one per parameter, into
-    /// \p binds. False when the extension does not apply to \p fu, or when
+    /// What a source of canonical type `fu` gives the generic parameters
+    /// of the extension `f` is declared in, one per parameter, into
+    /// `binds`. False when the extension does not apply to `fu`, or when
     /// its target leaves a parameter unfixed.
     fn extension_binds(self,
                        f:     unsafe *FunctionDecl,
@@ -1186,9 +1183,9 @@ pub class Conversion {
         return true
     }
 
-    /// Match \p pattern, a type written with the generic parameters of
-    /// \p owner, against the concrete \p concrete, filling \p binds (one
-    /// slot per parameter of \p owner, null until met): a parameter binds on
+    /// Match `pattern`, a type written with the generic parameters of
+    /// `owner`, against the concrete `concrete`, filling `binds` (one
+    /// slot per parameter of `owner`, null until met): a parameter binds on
     /// its first sight and must read the same type at every later one.
     priv fn _bind_through(self,
                           pattern:  unsafe *Type,
@@ -1309,12 +1306,12 @@ pub class Conversion {
         return false
     }
 
-    /// A non-explicit C++ conversion function of the imported record \p from
-    /// whose result, cv and reference dropped, is the record \p to, or null.
+    /// A non-explicit C++ conversion function of the imported record `from`
+    /// whose result, cv and reference dropped, is the record `to`, or null.
     /// What C++ applies implicitly at a call ([class.conv.fct]); Kairo applies
     /// it only at a C++ callee under -fcxx-implicit-conv, and
     /// `as` reaches it through the `op as` rung regardless.
-    /// \p any_explicit admits an `explicit` one too: what `as` reaches, for a
+    /// `any_explicit` admits an `explicit` one too: what `as` reaches, for a
     /// diagnostic that suggests the cast.
     fn cxx_conversion_op(self,
                          from:         unsafe *Type,
@@ -1365,8 +1362,8 @@ pub class Conversion {
         return &null
     }
 
-    /// \p pattern, a type written inside the generic record \p owner, IS
-    /// \p concrete once \p owner's parameters read as \p args: `Vector<T>`'s
+    /// `pattern`, a type written inside the generic record `owner`, IS
+    /// `concrete` once `owner`'s parameters read as `args`: `Vector<T>`'s
     /// `-> [T;]` against `[i32;]` through `Vector<i32>`. A structural
     /// match rather than Deduction::substitute, which lives above this file
     /// (it holds a Conversion) and would build types only to compare them.
@@ -1473,7 +1470,7 @@ pub class Conversion {
         return false
     }
 
-    /// \p to's pointee carries every qualifier \p from's does.
+    /// `to`'s pointee carries every qualifier `from`'s does.
     priv fn _quals_kept(self, fp: unsafe *Type, tp: unsafe *Type) -> bool {
         var fq = canon_quals(fp)
         var tq = canon_quals(tp)
@@ -1485,11 +1482,11 @@ pub class Conversion {
     /// keeps the source's qualifiers, and a qualifier ADDED at any level but
     /// the first needs `const` on every level above it -- that is the rule
     /// that keeps `T** -> const T**` out while letting `T** -> const T*
-    /// const*` in. \p const_above is that condition for the level being
+    /// const*` in. `const_above` is that condition for the level being
     /// compared; the first level always passes it. True when the two chains
     /// meet on one canonical, i.e. the conversion is qualification and
     /// nothing else.
-    /// [conv.qual] alone, for `as`: \p from and \p to are pointers that
+    /// [conv.qual] alone, for `as`: `from` and `to` are pointers that
     /// differ only in pointee qualifiers, and every difference is an addition
     /// the rule allows. The pointers' own top-level cv is ignored -- copying
     /// a `const` pointer out is a value copy, not a qualifier lost.
@@ -1599,7 +1596,7 @@ pub class Conversion {
 
     /// # reference binding at an argument ([over.ics.ref])
 
-    /// Binding an ARGUMENT of known value category to \p to, a C++ reference
+    /// Binding an ARGUMENT of known value category to `to`, a C++ reference
     /// parameter. [over.ics.ref] reduced to what Kairo has:
     ///
     ///   `T&`        a non-const LVALUE of T                   Exact
@@ -1656,7 +1653,7 @@ pub class Conversion {
         return if (exact) => (ImplicitRank::Exact) else => ImplicitRank::Converted
     }
 
-    /// \p src (a value type) against \p referee, cv of both ignored: the
+    /// `src` (a value type) against `referee`, cv of both ignored: the
     /// relation is between the objects, and whether the binding may drop a
     /// qualifier is ref_binding's question (its `from_const`).
     fn ref_rel(self, src: unsafe *Type, referee: unsafe *Type) -> RefRel {

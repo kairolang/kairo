@@ -27,8 +27,7 @@ import AST::Node::Base::{
     Type,
 }
 
-///
-/// \brief RTTI casting system for Kairo AST nodes.
+/// RTTI casting system for Kairo AST nodes.
 ///
 /// All casts are based on the kind field at offset 0 of every node.
 /// No vtable, no dynamic_cast, no typeid.

@@ -59,11 +59,11 @@ import Token::TokenText::TokenText
 extend Speller {
     /// # Types
 
-    /// C++ spelling of a canonical type. \p subst substitutes the primary's
+    /// C++ spelling of a canonical type. `subst` substitutes the primary's
     /// generic parameters with an instance's args (tier 3). Declarator
     /// shapes (arrays, function pointers) need a name to wrap; use decl().
     ///
-    /// \p scope is the record whose class body the text is written in, or
+    /// `scope` is the record whose class body the text is written in, or
     /// null. Inside it, its own nested types are named by leaf: the
     /// qualified form of a type nested in a class template needs the
     /// template's arguments, which a nested decl's canonical does not carry.
@@ -76,7 +76,7 @@ extend Speller {
         return self.decl(t, "", subst, scope)
     }
 
-    /// \p t as ONE type-specifier that text may follow: `_type`, except that
+    /// `t` as ONE type-specifier that text may follow: `_type`, except that
     /// a C array (`signed int[2]`), whose declarator wraps whatever follows
     /// it (`int (*p)[2]`), is `__typeof__(signed int[2])`. Every spelling
     /// that appends `*`, `&`, ` const &` or a name to a type it got as a
@@ -172,7 +172,7 @@ extend Speller {
     }
 
     /// `type name` with the declarator folded in: `int x`, `int (*f)(int)`.
-    /// Empty \p name gives the abstract form. \p scope as for _type.
+    /// Empty `name` gives the abstract form. `scope` as for _type.
     fn decl(self,
             t_in:       unsafe *Type,
             const name: string,
@@ -429,7 +429,7 @@ extend Speller {
     /// A canonical value (Compiler/Spec/Eval.md#value-nodes, 3) as the C++ expression that
     /// computes it: the integer, or the expression Sema kept (`(N + 1)`,
     /// `::m::f(3)`, `::m::K`), each operand spelled as a type argument is
-    /// (a value parameter, or its instance's value under \p subst). Every
+    /// (a value parameter, or its instance's value under `subst`). Every
     /// operator application is parenthesized, so the text means the same as
     /// an array bound and as a template argument, where a bare `>>` would
     /// close the list.
@@ -593,7 +593,7 @@ extend Speller {
     }
 
     /// A parameter's C++ type from its mode (AST/ParamMode.k rules, as
-    /// EmitIR documents them). \p is_const is the `const x: T` marker.
+    /// EmitIR documents them). `is_const` is the `const x: T` marker.
     fn param_type(self,
                   p:     unsafe *Declarations::ParamDecl,
                   subst: unsafe *InstanceEntry = &null,
@@ -666,9 +666,9 @@ extend Speller {
         return p != &null && (p->is_const || p->inferred_const)
     }
 
-    /// A by-value parameter of \p f that C++ declares as a reference,
+    /// A by-value parameter of `f` that C++ declares as a reference,
     /// `const T&` (a concrete record, `const` or inferred): its `fn` type's
-    /// by-value parameter is a different C++ type, so a `fn` value of \p f
+    /// by-value parameter is a different C++ type, so a `fn` value of `f`
     /// goes through an adapter (EmitIR::_fn_ref_adapter).
     static fn by_ref_value_param(p: unsafe *Declarations::ParamDecl) -> bool {
         if p == &null || p->is_self || p->is_pack || p->mode != ParamMode::Value {
@@ -693,8 +693,8 @@ extend Speller {
     /// expression ("expected ')'", "undeclared identifier 'f'"); the name
     /// belongs inside, `U (*f)(T)`. An array is still its own branch:
     /// `[T; N]` is passed by reference (`const T (&xs)[N]` / `T (&xs)[N]`),
-    /// never by value (StmtTyping rejects that). Empty \p name is the
-    /// abstract form. \p scope as for _type.
+    /// never by value (StmtTyping rejects that). Empty `name` is the
+    /// abstract form. `scope` as for _type.
     fn param_decl(self,
                   p:          unsafe *Declarations::ParamDecl,
                   const name: string,
@@ -735,13 +735,13 @@ extend Speller {
     /// The mode's reference and the const marker folded into decl(), so a
     /// name lands inside the declarator: `@inout` on a function pointer is
     /// `U (*&f)(T)`, which decl() brackets as it does any `*`/`&` declarator.
-    /// A `fn` type's parameter \p t in mode \p mode, declared as \p name
+    /// A `fn` type's parameter `t` in mode `mode`, declared as `name`
     /// (a wrapper lambda's parameter, EmitIR::_fn_effect_value).
     fn param_named(self, t: unsafe *Type, mode: ParamMode, const name: string) -> string {
         return self._param_type(t, mode, false, name, &null, &null)
     }
 
-    /// A closure's parameter \p p, declared as \p name. The `fn` value is
+    /// A closure's parameter `p`, declared as `name`. The `fn` value is
     /// built from the lambda's own function pointer, so the lambda's C++
     /// function type is the one its `fn` type spells (fn_signature): each
     /// parameter is that type's parameter for its mode, and a written
@@ -763,9 +763,9 @@ extend Speller {
         )
     }
 
-    /// \p t in mode \p mode, declared as \p name: the one spelling of a
+    /// `t` in mode `mode`, declared as `name`: the one spelling of a
     /// parameter, for a declaration, a `fn` type and a closure alike.
-    /// \p is_const is the `const x: T` marker; with \p fn_param it stays
+    /// `is_const` is the `const x: T` marker; with `fn_param` it stays
     /// on the parameter (a closure's, whose type is its `fn` type's), and
     /// without it a record or a type parameter is passed as `const T&`.
     priv fn _param_type(self,
@@ -855,7 +855,7 @@ extend Speller {
 
     /// `& name`, keeping the `T& x` spelling the printed C++ has always had
     /// (and that tests match); bare `&` for the abstract form.
-    /// \p t is a type parameter that \p subst binds to a const type, so a
+    /// `t` is a type parameter that `subst` binds to a const type, so a
     /// `const` written on it in the pattern is already in its spelling.
     priv fn _subst_is_const(self, t: unsafe *Type, subst: unsafe *InstanceEntry) -> bool {
         if t == &null || subst == &null || t->canonical == &null {
@@ -880,10 +880,10 @@ extend Speller {
     }
 
     /// `<a, b>` from an instance's args or a pattern's own params.
-    /// The fixed-width builtin \p k IS in C++ on this target: `usize` /
+    /// The fixed-width builtin `k` IS in C++ on this target: `usize` /
     /// `isize` become the integer of the pointer width where the target
     /// says size_t / ptrdiff_t is it (target.usize_is_fixed, as RedeclMerge
-    /// and PanicTypeIds read it); \p k itself otherwise, and on Darwin,
+    /// and PanicTypeIds read it); `k` itself otherwise, and on Darwin,
     /// where they are C++ types of their own. An unfilled invocation is the
     /// 64-bit host.
     fn size_fold(self, k: BuiltinKind) -> BuiltinKind {
@@ -940,8 +940,8 @@ extend Speller {
 
     /// # Dependent-qualified names
 
-    /// `Q::leaf`, a member type named through the record type \p record:
-    /// `typename Q::leaf` when Q is dependent, and with \p args
+    /// `Q::leaf`, a member type named through the record type `record`:
+    /// `typename Q::leaf` when Q is dependent, and with `args`
     /// `typename Q::template leaf<args>`. This is the one place a member of
     /// a dependent type is spelled; a nested type of a generic record, an
     /// associated type (`T::Bar`), a generic associated type
@@ -952,8 +952,8 @@ extend Speller {
     ///
     /// A non-dependent Q drops both keywords. C++ allows them there, but Q is
     /// then a concrete class whose members are looked up at once, so they
-    /// say nothing. \p subst and \p scope are passed through to Q's spelling
-    /// and to \p args. Q's top-level cv is dropped: it qualifies the object,
+    /// say nothing. `subst` and `scope` are passed through to Q's spelling
+    /// and to `args`. Q's top-level cv is dropped: it qualifies the object,
     /// not the scope a member is named from.
     fn dependent_member_type(self,
                              record:     unsafe *Type,
@@ -981,7 +981,7 @@ extend Speller {
         )
     }
 
-    /// \p t names an associated type anywhere inside it (`Self::Node`,
+    /// `t` names an associated type anywhere inside it (`Self::Node`,
     /// `[Self::Node]`): a witness member whose signature does is served by
     /// the specializations alone (EmitWitness).
     static fn mentions_assoc(t: unsafe *Type) -> bool {
@@ -1037,7 +1037,7 @@ extend Speller {
         }
     }
 
-    /// \p t names an interface record anywhere inside it: the `Self` of a
+    /// `t` names an interface record anywhere inside it: the `Self` of a
     /// requirement's signature (`-> Self?` is `Null<Self>`). Only a witness
     /// spells it, with the conforming type in its place.
     static fn mentions_iface_self(t: unsafe *Type) -> bool {
@@ -1119,7 +1119,7 @@ extend Speller {
         return "typename " + q + "::template " + leaf + targs
     }
 
-    /// \p d's C++ template parameters: an extension member's extension's,
+    /// `d`'s C++ template parameters: an extension member's extension's,
     /// then its own. One list; a non-member function takes one.
     static fn template_params(d: unsafe *Decl) -> cxx::std::vector<unsafe *Declarations::GenericParamDecl> {
         var out = cxx::std::vector<unsafe *Declarations::GenericParamDecl>()
@@ -1142,14 +1142,14 @@ extend Speller {
         return out
     }
 
-    /// The instance argument \p g stands for in \p subst, or null. Keyed on
+    /// The instance argument `g` stands for in `subst`, or null. Keyed on
     /// the GenericParamDecl's identity in the primary's template_params, so
     /// an extension's T, a member's own U and a default thunk's borrowed
     /// list (the callee's GenericParamDecls) all resolve the same way.
-    /// A pack parameter's elements under \p subst, appended to \p out: every
+    /// A pack parameter's elements under `subst`, appended to `out`: every
     /// instance argument from the pack's position on (InstanceEntry::args
-    /// keeps packs flat, so the pack is the tail). False when \p subst does
-    /// not bind \p g.
+    /// keeps packs flat, so the pack is the tail). False when `subst` does
+    /// not bind `g`.
     fn subst_pack(self,
                   g:          unsafe *GenericParamType,
                   subst:      unsafe *InstanceEntry,

@@ -11,8 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 ///
-/// \file ImportProbe.k
-/// \brief module resolution for the kairo compiler frontend
+/// module resolution for the kairo compiler frontend
 ///
 /// Maps qualified import paths (e.g. `Include::FileSystem`) to files through
 /// a priority-ordered list of search roots. Each root's directory tree is
@@ -21,7 +20,7 @@
 /// The entry points that read or write the resolver's lazy state take its
 /// lock, so the preprocessor may resolve from several threads at once.
 ///
-///-----------------------------------------------------------------------------
+/// -----------------------------------------------------------------------------
 
 // FIXME(permission-denied): DirEntry::ensure_scanned ends a directory's scan
 //      at the first error, and DirEntry::probe_* treat an unreadable entry as
@@ -54,25 +53,23 @@ import Support::FileIO::FileSystem::FileType
 import Support::FileIO::Path::Path
 import Threading::ThreadPool::ThreadPool
 
-/// \enum ModuleOrigin
-/// \brief which candidate set produced a module resolution.
+/// which candidate set produced a module resolution.
 pub enum ModuleOrigin derives u8 {
     Root = 0, ///< found by walking the search roots (cwd + -m/-I dirs).
     Sibling,  ///< found in one directory: `self::`/`module::`'s anchor, or a
     ///  plain import's migration fallback (resolve_module_in).
 }
 
-/// \class ModuleResolution
-/// \brief the result of a relative-aware module resolution.
+/// the result of a relative-aware module resolution.
 ///
-/// \details `canonical` is the module's IDENTITY: the path segments from the
-///          owning search root down to the file, NOT the segments the import
-///          spelled. Two files never share a canonical path, and one file
-///          always has exactly one, no matter how it was reached. Codegen
-///          derives the C++ namespace path from this (Compiler/Spec/Codegen.md#pipeline: the
-///          bijection module-path <-> namespace-path is what makes mangling
-///          deterministic and ODR-safe), so it must never depend on the
-///          importer's spelling.
+/// `canonical` is the module's IDENTITY: the path segments from the
+/// owning search root down to the file, NOT the segments the import
+/// spelled. Two files never share a canonical path, and one file
+/// always has exactly one, no matter how it was reached. Codegen
+/// derives the C++ namespace path from this (Compiler/Spec/Codegen.md#pipeline: the
+/// bijection module-path <-> namespace-path is what makes mangling
+/// deterministic and ODR-safe), so it must never depend on the
+/// importer's spelling.
 ///
 ///          `ambiguous` (always with `cross_root`) means two different files
 ///          answered through two unnamed search dirs: a hard error at the
@@ -90,15 +87,14 @@ pub class ModuleResolution {
     pub var dir_path:   Path ///< that `foo/module.k`, iff file_dir.
 }
 
-/// \class ModuleNameCollision
-/// \brief two files in one directory claiming a single module identity.
+/// two files in one directory claiming a single module identity.
 ///
-/// \details Same class of fault as an ambiguous import, one layer down: the
-///          module name is derived from the filename, so `Foo.k`/`foo.k` (two
-///          files on Linux, ONE on default macOS/Windows) and `foo-bar.k`/
-///          `foo_bar.k` (both spell module `foo_bar`) are non-portable or
-///          outright ambiguous. Discovered during module discovery, once per
-///          directory; reported by the caller that owns a DiagEngine.
+/// Same class of fault as an ambiguous import, one layer down: the
+/// module name is derived from the filename, so `Foo.k`/`foo.k` (two
+/// files on Linux, ONE on default macOS/Windows) and `foo-bar.k`/
+/// `foo_bar.k` (both spell module `foo_bar`) are non-portable or
+/// outright ambiguous. Discovered during module discovery, once per
+/// directory; reported by the caller that owns a DiagEngine.
 pub class ModuleNameCollision {
     pub var dir:       string         ///< absolute directory that holds both.
     pub var a:         string         ///< first name, sorted order.
@@ -107,13 +103,12 @@ pub class ModuleNameCollision {
     pub var case_only: bool   = false ///< true: differ only by case (portability).
 }
 
-/// \class RootNameCollision
-/// \brief two search roots registered under one module name.
+/// two search roots registered under one module name.
 ///
-/// \details A root's name is the leading segment of every module under it, so
-///          two roots sharing one name make a module path mean two files.
-///          A build error, reported before anything is parsed; never
-///          first-wins, never a merge (Compiler/Spec/Imports.md#path-resolution).
+/// A root's name is the leading segment of every module under it, so
+/// two roots sharing one name make a module path mean two files.
+/// A build error, reported before anything is parsed; never
+/// first-wins, never a merge (Compiler/Spec/Imports.md#path-resolution).
 pub class RootNameCollision {
     pub var name:   string
     pub var a:      string         ///< the root already registered.
@@ -145,17 +140,16 @@ pub class RootNameCollision {
     }
 }
 
-/// \class ModuleIdentityCollision
-/// \brief two different files that one module path names.
+/// two different files that one module path names.
 ///
-/// \details A module path is a file's identity and its C++ namespace
-///          (ModuleResolution::canonical), so it must name ONE file. Two can
-///          still land on one path without any root sharing a name: a pin
-///          below a root's immediate subdirectories that claims a
-///          registered library's name, two inputs reached through two
-///          search dirs, two pins naming one library from different places.
-///          Each pair is recorded once, at the first resolution (or input)
-///          that makes it visible; Compiler/Spec/Imports.md#path-resolution, decision E.
+/// A module path is a file's identity and its C++ namespace
+/// (ModuleResolution::canonical), so it must name ONE file. Two can
+/// still land on one path without any root sharing a name: a pin
+/// below a root's immediate subdirectories that claims a
+/// registered library's name, two inputs reached through two
+/// search dirs, two pins naming one library from different places.
+/// Each pair is recorded once, at the first resolution (or input)
+/// that makes it visible; Compiler/Spec/Imports.md#path-resolution, decision E.
 pub class ModuleIdentityCollision {
     pub var ident: string ///< the module path, `::`-joined.
     pub var a:     string ///< the file that claimed it first.
@@ -166,9 +160,8 @@ pub class ModuleIdentityCollision {
     }
 }
 
-/// \class ImportResolver
-/// \brief resolves qualified module paths and file names against a set of
-///        indexed search roots
+/// resolves qualified module paths and file names against a set of
+/// indexed search roots
 ///
 /// the resolver is constructed via the nested `Builder` class, which
 /// registers the search roots synchronously; their trees are probed lazily.
@@ -176,8 +169,8 @@ pub class ModuleIdentityCollision {
 /// ownership semantics: the search roots and the `FileExtensions` config
 /// are heap-allocated and owned by this resolver.
 ///
-/// \note the resolver uses raw pointers (`*T`) rather than managed handles.
-///       ensure the resolver outlives any references to returned paths.
+/// **Note:** the resolver uses raw pointers (`*T`) rather than managed handles.
+/// ensure the resolver outlives any references to returned paths.
 pub class ImportResolver {
     priv var _roots:   cxx::std::vector<unsafe *SearchRoot> ///< priority-sorted search roots (index 0 = cwd)
     priv var _ext_cfg: unsafe *FileExtensions ///< file extension classification config; owned
@@ -250,47 +243,59 @@ pub class ImportResolver {
         var spelling: cxx::std::vector<string> ///< what an import writes; empty = the name.
     }
 
-    /// \class Builder
-    /// \brief fluent builder for constructing an `ImportResolver`
+    /// fluent builder for constructing an `ImportResolver`
     ///
     /// usage:
-    /// \code
-    ///   var resolver = ImportResolver::Builder()
-    ///       .cwd(my_cwd)
-    ///       ->add_include(some_path)
-    ///       ->create_ptr()
-    /// \endcode
+    ///
+    /// ### Example
+    /// ```kairo
+    /// var resolver = ImportResolver::Builder()
+    ///     .cwd(my_cwd)
+    ///     ->add_include(some_path)
+    ///     ->create_ptr()
+    /// ```
     pub class Builder {
         priv var _cwd:      Path?
         priv var _includes: cxx::std::vector<ImportResolver::IncludeDir>
 
-        /// \brief default constructor; initializes all fields to null/empty
+        /// default constructor; initializes all fields to null/empty
         pub fn Builder(self) {
             self._cwd      = null
             self._includes = cxx::std::vector<ImportResolver::IncludeDir>()
         }
 
-        /// \brief sets the current working directory as the highest-priority search root
-        /// \param path the directory to use as cwd
-        /// \return pointer to self for chaining
+        /// sets the current working directory as the highest-priority search root
+        ///
+        /// ### Parameters
+        /// - `path`: the directory to use as cwd
+        ///
+        /// ### Returns
+        /// pointer to self for chaining
         pub fn cwd(self, const path: Path) -> unsafe *Self {
             self._cwd = path
             return unsafe &self
         }
 
-        /// \brief appends a single include path to the search list
-        /// \param path the directory to add
-        /// \return pointer to self for chaining
-        /// \param name the root's MODULE name -- the leading SEGMENTS every
-        ///             module under it carries (Compiler/Spec/Imports.md#path-resolution), written as a
-        ///             module path (`kairo::std`). Empty means "whatever
-        ///             the directory's module.k pins, else an unnamed search
-        ///             dir" -- what every `-I dir` is. Only the driver's own
-        ///             registrations (builtin, kairo::std) pass a name.
+        /// appends a single include path to the search list
         ///
-        /// \param spelling what an import writes to reach the root, when it
-        ///             differs from the name (SearchRoot::spelling). Empty
-        ///             means "the name".
+        /// ### Parameters
+        /// - `path`: the directory to add
+        ///
+        /// ### Returns
+        /// pointer to self for chaining
+        ///
+        /// ### Parameters
+        /// - `name`: the root's MODULE name -- the leading SEGMENTS every
+        ///   module under it carries (Compiler/Spec/Imports.md#path-resolution), written as a
+        ///   module path (`kairo::std`). Empty means "whatever
+        ///   the directory's module.k pins, else an unnamed search
+        ///   dir" -- what every `-I dir` is. Only the driver's own
+        ///   registrations (builtin, kairo::std) pass a name.
+        ///
+        /// ### Parameters
+        /// - `spelling`: what an import writes to reach the root, when it
+        ///   differs from the name (SearchRoot::spelling). Empty
+        ///   means "the name".
         ///
         /// The `::` split happens HERE and nowhere else, so the driver's own
         /// registrations and any future caller agree on what a dotted name
@@ -310,11 +315,15 @@ pub class ImportResolver {
             return unsafe &self
         }
 
-        /// \brief constructs the resolver and registers its search roots, on
-        ///        the calling thread
-        /// \param pool unused: the roots' trees are probed lazily, on first
-        ///        lookup, so there is nothing to hand a worker
-        /// \return heap-allocated resolver; caller assumes ownership
+        /// constructs the resolver and registers its search roots, on
+        /// the calling thread
+        ///
+        /// ### Parameters
+        /// - `pool`: unused: the roots' trees are probed lazily, on first
+        ///   lookup, so there is nothing to hand a worker
+        ///
+        /// ### Returns
+        /// heap-allocated resolver; caller assumes ownership
         pub fn create_ptr(self, pool: unsafe *ThreadPool = &null) -> unsafe *ImportResolver {
             var        cwd_path  = self._cwd ?? Path::cwd()
             var unsafe *resolver = kairo::std::create<ImportResolver>()
@@ -323,15 +332,17 @@ pub class ImportResolver {
         }
     }
 
-    /// \brief direct constructor; prefer using `Builder` instead
+    /// direct constructor; prefer using `Builder` instead
     fn ImportResolver(self) {
         self._roots   = cxx::std::vector<unsafe *SearchRoot>()
         self._ext_cfg = kairo::std::create<FileExtensions>()
     }
 
-    /// \brief registers the search roots
-    /// \param cwd the current working directory (priority 0)
-    /// \param includes additional include directories (priority 1+)
+    /// registers the search roots
+    ///
+    /// ### Parameters
+    /// - `cwd`: the current working directory (priority 0)
+    /// - `includes`: additional include directories (priority 1+)
     fn build_index(self, cwd: Path, const includes: cxx::std::vector<Self::IncludeDir>) {
         kairo::Logger::info(
             kairo::Logger::Stage::Preprocessor,
@@ -526,7 +537,7 @@ pub class ImportResolver {
     }
 
     /// The R018E half of _add_root, also run when an explicit registration
-    /// renames an existing root in place. \p skip is that root itself.
+    /// renames an existing root in place. `skip` is that root itself.
     priv fn _check_root_name(self,
                              const p: Path,
                              nm:      cxx::std::vector<string>,
@@ -559,7 +570,7 @@ pub class ImportResolver {
         }
     }
 
-    /// The registered root over the directory whose real path is \p real,
+    /// The registered root over the directory whose real path is `real`,
     /// or null.
     priv fn _root_at_real(self, const real: string) -> unsafe *SearchRoot {
         for var i: usize = 0; i < self._roots.size(); ++i {
@@ -571,7 +582,7 @@ pub class ImportResolver {
         return &null
     }
 
-    /// \p p with its symlinks resolved, cached per spelling.
+    /// `p` with its symlinks resolved, cached per spelling.
     priv fn _real(self, const p: string) -> string {
         if self._real_paths.contains(kairo::sref(p)) {
             return self._real_paths[kairo::sref(p)].copy()
@@ -582,7 +593,7 @@ pub class ImportResolver {
         return r
     }
 
-    /// The library name \p dir's module.k pins, or empty. Cached per
+    /// The library name `dir`'s module.k pins, or empty. Cached per
     /// directory, hits and misses alike.
     priv fn _pin_of_dir(self, const dir: string) -> cxx::std::vector<string> {
         if self._dir_pins.contains(kairo::sref(dir)) {
@@ -599,7 +610,7 @@ pub class ImportResolver {
         return pin
     }
 
-    /// \brief destructor; frees the owned search roots and the extension config
+    /// destructor; frees the owned search roots and the extension config
     fn op finally (self) {
         for var root: unsafe *SearchRoot in self._roots {
             if root != &null {
@@ -647,14 +658,18 @@ pub class ImportResolver {
     //
     //  Module IDENTITY never comes from the spelling - see canonical_module_path.
 
-    /// \brief resolves a PLAIN module path against the search roots.
-    /// \param segments  the path as written (e.g. ["baz"] or ["util","fmt"])
-    /// \param from_dir  the IMPORTING file's directory
-    /// \param has_from  false when there is no importing file (entry point)
-    /// \return a resolution carrying the file and its canonical identity.
-    ///         The importing file's own directory is NOT a place this form
-    ///         looks; the callers' migration fallback probes it separately
-    ///         (resolve_module_in), after every root has missed every prefix.
+    /// resolves a PLAIN module path against the search roots.
+    ///
+    /// ### Parameters
+    /// - `segments`: the path as written (e.g. ["baz"] or ["util","fmt"])
+    /// - `from_dir`: the IMPORTING file's directory
+    /// - `has_from`: false when there is no importing file (entry point)
+    ///
+    /// ### Returns
+    /// a resolution carrying the file and its canonical identity.
+    /// The importing file's own directory is NOT a place this form
+    /// looks; the callers' migration fallback probes it separately
+    /// (resolve_module_in), after every root has missed every prefix.
     pub fn resolve_module_rel(self,
                               const segments: cxx::std::vector<string>,
                               const from_dir: Path,
@@ -877,12 +892,14 @@ pub class ImportResolver {
         return self._finish(out, segments)
     }
 
-    /// \brief resolves a module path in ONE directory: `import self::x`
-    ///        (the importing file's directory) or `import module::x` (its
-    ///        module root). No search root is consulted, so no root file can
-    ///        change what the import means.
-    /// \param segments the path as written after the anchor
-    /// \param dir      the anchor directory
+    /// resolves a module path in ONE directory: `import self::x`
+    /// (the importing file's directory) or `import module::x` (its
+    /// module root). No search root is consulted, so no root file can
+    /// change what the import means.
+    ///
+    /// ### Parameters
+    /// - `segments`: the path as written after the anchor
+    /// - `dir`: the anchor directory
     pub fn resolve_module_in(self,
                              segments:  cxx::std::vector<string>,
                              const dir: Path) -> ModuleResolution {
@@ -904,7 +921,7 @@ pub class ImportResolver {
         return self._finish(out, segments)
     }
 
-    /// The winning probe's `foo.k`-and-`foo/module.k` finding, onto \p out.
+    /// The winning probe's `foo.k`-and-`foo/module.k` finding, onto `out`.
     priv fn _take_file_dir(self, out: *ModuleResolution, const h: Self::RootHit) {
         out->file_dir = h.file_dir
         if h.file_dir {
@@ -930,17 +947,17 @@ pub class ImportResolver {
         return res
     }
 
-    /// \brief the module IDENTITY of a file: its path below the library
-    ///        that holds it, prefixed by that library's name; or, under no
-    ///        library, its path relative to the deepest search root that
-    ///        contains it.
+    /// the module IDENTITY of a file: its path below the library
+    /// that holds it, prefixed by that library's name; or, under no
+    /// library, its path relative to the deepest search root that
+    /// contains it.
     ///
-    /// \details This, not the import spelling, is what a file's module path
-    ///          means. `root/Foo/baz.k` is `Foo::baz` whether it was reached as
-    ///          `import Foo::baz` from the root or `import baz` from its
-    ///          sibling. `root/std/mem/module.k` is `std::mem` - the `module`
-    ///          leaf names the directory's entry point, not a segment.
-    ///          `-` maps to `_` per the filename policy (Compiler/Spec/Codegen.md#sinks).
+    /// This, not the import spelling, is what a file's module path
+    /// means. `root/Foo/baz.k` is `Foo::baz` whether it was reached as
+    /// `import Foo::baz` from the root or `import baz` from its
+    /// sibling. `root/std/mem/module.k` is `std::mem` - the `module`
+    /// leaf names the directory's entry point, not a segment.
+    /// `-` maps to `_` per the filename policy (Compiler/Spec/Codegen.md#sinks).
     ///
     ///          The library is found by walking UP from the file
     ///          (_library_of), past every search root if need be: a file's
@@ -949,8 +966,10 @@ pub class ImportResolver {
     ///          above the library does. Stopping at the deepest root made
     ///          those two runs emit `namespace x`, and a `kcc -c` from inside
     ///          a library defined symbols no importer calls.
-    /// \return the segments, or empty if no library and no search root
-    ///         holds the file.
+    ///
+    /// ### Returns
+    /// the segments, or empty if no library and no search root
+    /// holds the file.
     fn canonical_module_path(self, const file: Path) -> cxx::std::vector<string> {
         var lock = kairo::std::LockGuard(self._mu)
         var out  = cxx::std::vector<string>()
@@ -1046,16 +1065,16 @@ pub class ImportResolver {
         var root:  unsafe *SearchRoot       = &null ///< the registered root, when it is one.
     }
 
-    /// \brief the library holding directory \p start: the nearest directory
-    ///        at or above it that is a NAMED root, or whose module.k pins a
-    ///        name.
+    /// the library holding directory `start`: the nearest directory
+    /// at or above it that is a NAMED root, or whose module.k pins a
+    /// name.
     ///
-    /// \details A named root is asked before the pin at the same level: the
-    ///          driver's registration of std and builtin outranks their own
-    ///          module.k (build_index checks the two agree). Bounded by the
-    ///          filesystem root and never downward: one stat per directory
-    ///          walked, cached in _dir_pins, so every file of a build shares
-    ///          the walk of its ancestors.
+    /// A named root is asked before the pin at the same level: the
+    /// driver's registration of std and builtin outranks their own
+    /// module.k (build_index checks the two agree). Bounded by the
+    /// filesystem root and never downward: one stat per directory
+    /// walked, cached in _dir_pins, so every file of a build shares
+    /// the walk of its ancestors.
     priv fn _library_of(self, const start: string) -> Self::LibraryHit {
         var out  = Self::LibraryHit{}
         var walk = start.copy()
@@ -1093,8 +1112,8 @@ pub class ImportResolver {
         return out
     }
 
-    /// \brief \p file lies in a library: under a named root (builtin, std, a
-    ///        pinned -I dir), or below a module.k that pins a name.
+    /// `file` lies in a library: under a named root (builtin, std, a
+    /// pinned -I dir), or below a module.k that pins a name.
     pub fn in_library(self, const file: Path) -> bool {
         var lock = kairo::std::LockGuard(self._mu)
         return self._library_of(Path::parent_of(file.full_path())).found
@@ -1166,15 +1185,15 @@ pub class ImportResolver {
         self._late_collisions.push_back(c.message())
     }
 
-    /// \brief records that \p file holds module path \p ident; a different
-    ///        file already holding it is a ModuleIdentityCollision.
+    /// records that `file` holds module path `ident`; a different
+    /// file already holding it is a ModuleIdentityCollision.
     ///
-    /// \details Called for every resolution and, by the driver, for every
-    ///          input before any is compiled, so two inputs that one path
-    ///          names (`./a.k` and `inc/a.k` under `-I inc`) are rejected
-    ///          before either writes the object path they share. Files are
-    ///          compared by real path: one file through a symlink is still
-    ///          one module.
+    /// Called for every resolution and, by the driver, for every
+    /// input before any is compiled, so two inputs that one path
+    /// names (`./a.k` and `inc/a.k` under `-I inc`) are rejected
+    /// before either writes the object path they share. Files are
+    /// compared by real path: one file through a symlink is still
+    /// one module.
     pub fn claim_identity(self, ident: cxx::std::vector<string>, const file: Path) {
         var lock = kairo::std::LockGuard(self._mu)
         if ident.size() == 0 {
@@ -1207,11 +1226,11 @@ pub class ImportResolver {
         self._late_collisions.push_back(c.message())
     }
 
-    /// \brief drains the R018E findings made after build_index (a pinned
-    ///        directory found walking up, two files on one module path), as
-    ///        messages in the order found, for whoever owns a DiagEngine: the
-    ///        PP walk after each resolution, the driver after claiming its
-    ///        inputs.
+    /// drains the R018E findings made after build_index (a pinned
+    /// directory found walking up, two files on one module path), as
+    /// messages in the order found, for whoever owns a DiagEngine: the
+    /// PP walk after each resolution, the driver after claiming its
+    /// inputs.
     pub fn take_late_collisions(self) -> cxx::std::vector<string> {
         var lock = kairo::std::LockGuard(self._mu)
         var out  = self._late_collisions
@@ -1219,7 +1238,7 @@ pub class ImportResolver {
         return out
     }
 
-    /// The transient root over the pinned library holding \p dir, when no
+    /// The transient root over the pinned library holding `dir`, when no
     /// registered root covers that library; null otherwise (no library, or
     /// a registered one, which root_for_dir already answers).
     priv fn _pinned_root_for(self, const dir: Path) -> unsafe *SearchRoot {
@@ -1245,19 +1264,19 @@ pub class ImportResolver {
         return r
     }
 
-    /// \brief the module path a COMMAND-LINE input (or a .k a C++ input
-    ///        includes) takes: its canonical_module_path, the one an import
-    ///        of it gets, or empty for a file with none.
+    /// the module path a COMMAND-LINE input (or a .k a C++ input
+    /// includes) takes: its canonical_module_path, the one an import
+    /// of it gets, or empty for a file with none.
     ///
-    /// \details Empty, too, when the path under an unnamed search dir starts
-    ///          with a NAMED root's name or spelling and the file is not in
-    ///          that root: `./builtin.k` would be module `builtin`, the
-    ///          builtin library's own path. An import of that path reaches
-    ///          the library, never this file, so the file is not the module
-    ///          there; taking the path would put two modules in one C++
-    ///          namespace (and the driver reads a leading `builtin` as the
-    ///          prelude). Such a file stays pathless, as one outside every
-    ///          root does (Speller::is_entry_tu).
+    /// Empty, too, when the path under an unnamed search dir starts
+    /// with a NAMED root's name or spelling and the file is not in
+    /// that root: `./builtin.k` would be module `builtin`, the
+    /// builtin library's own path. An import of that path reaches
+    /// the library, never this file, so the file is not the module
+    /// there; taking the path would put two modules in one C++
+    /// namespace (and the driver reads a leading `builtin` as the
+    /// prelude). Such a file stays pathless, as one outside every
+    /// root does (Speller::is_entry_tu).
     pub fn input_module_path(self, const file: Path) -> cxx::std::vector<string> {
         var lock = kairo::std::LockGuard(self._mu)
         var segs = self.canonical_module_path(file)
@@ -1300,13 +1319,13 @@ pub class ImportResolver {
         return true
     }
 
-    /// \brief drains module-name collisions found during discovery.
+    /// drains module-name collisions found during discovery.
     ///
-    /// \details Discovery runs first in the DepScanner, which has no
-    ///          DiagEngine, so findings are queued here and drained by the PP
-    ///          walk (FileImportIndex), which does. Each directory is swept
-    ///          exactly once, so every collision is reported exactly once no
-    ///          matter how many imports pass through it.
+    /// Discovery runs first in the DepScanner, which has no
+    /// DiagEngine, so findings are queued here and drained by the PP
+    /// walk (FileImportIndex), which does. Each directory is swept
+    /// exactly once, so every collision is reported exactly once no
+    /// matter how many imports pass through it.
     pub fn take_collisions(self) -> cxx::std::vector<ModuleNameCollision> {
         var lock = kairo::std::LockGuard(self._mu)
         var out  = self._collisions
@@ -1314,10 +1333,10 @@ pub class ImportResolver {
         return out
     }
 
-    /// \brief drains duplicate-root-name findings from build_index.
+    /// drains duplicate-root-name findings from build_index.
     ///
-    /// \details Fatal, and reported BEFORE anything is parsed: a module path
-    ///          under a duplicated root name means two different files.
+    /// Fatal, and reported BEFORE anything is parsed: a module path
+    /// under a duplicated root name means two different files.
     pub fn take_root_collisions(self) -> cxx::std::vector<RootNameCollision> {
         var lock = kairo::std::LockGuard(self._mu)
         var out  = self._root_collisions
@@ -1325,9 +1344,9 @@ pub class ImportResolver {
         return out
     }
 
-    /// \brief every search root's directory, in priority order: where
-    ///        incremental Sema (Driver/ModuleRecords.k) watches for a module
-    ///        file that would change a resolution with no source edited.
+    /// every search root's directory, in priority order: where
+    /// incremental Sema (Driver/ModuleRecords.k) watches for a module
+    /// file that would change a resolution with no source edited.
     pub fn root_dirs(self) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         for var r: unsafe *SearchRoot in self._roots {
@@ -1339,11 +1358,11 @@ pub class ImportResolver {
         return out
     }
 
-    /// \brief the deepest registered root that contains \p dir, or null.
+    /// the deepest registered root that contains `dir`, or null.
     ///
-    /// \details "The importing file's own root": what its unqualified imports
-    ///          resolve against first, and the root whose name prefixes its
-    ///          own module path (Compiler/Spec/Imports.md#path-resolution).
+    /// "The importing file's own root": what its unqualified imports
+    /// resolve against first, and the root whose name prefixes its
+    /// own module path (Compiler/Spec/Imports.md#path-resolution).
     pub fn root_for_dir(self, const dir: Path) -> unsafe *SearchRoot {
         var lock                         = kairo::std::LockGuard(self._mu)
         var best:     unsafe *SearchRoot = &null
@@ -1368,12 +1387,12 @@ pub class ImportResolver {
         return best
     }
 
-    /// \brief the module identity a filename claims: `-` folded to `_`.
+    /// the module identity a filename claims: `-` folded to `_`.
     ///
-    /// \details `foo-bar.k` names module `foo_bar` (Compiler/Spec/Codegen.md#sinks): module path
-    ///          segments must be valid identifiers, and `-` is the one
-    ///          pragmatic exception rather than an escaping scheme that would
-    ///          leak into mangled names forever.
+    /// `foo-bar.k` names module `foo_bar` (Compiler/Spec/Codegen.md#sinks): module path
+    /// segments must be valid identifiers, and `-` is the one
+    /// pragmatic exception rather than an escaping scheme that would
+    /// leak into mangled names forever.
     fn module_ident(self, const name: string) -> string {
         var out = name.copy()
         for var i: usize = 0; i < out.size(); ++i {

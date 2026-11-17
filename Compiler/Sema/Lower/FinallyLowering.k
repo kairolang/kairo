@@ -1,8 +1,8 @@
 /// --- The Kairo Project ----------------- Sema/Lower/FinallyLowering.k --- ///
 ///
-///   \brief `finally { body }` becomes a record declared in the function
-///          body whose destructor is the body, and one local of it declared
-///          where the `finally` stood. C++ then owns every exit path.
+/// `finally { body }` becomes a record declared in the function
+/// body whose destructor is the body, and one local of it declared
+/// where the `finally` stood. C++ then owns every exit path.
 ///
 ///   \detail
 ///       fn drain(self, a: i32) {
@@ -211,8 +211,8 @@ pub class CaptureRewrite derives ASTWriter<CaptureRewrite> {
     }
 }
 
-/// One enclosing body: a function (\p closure null) or a closure
-/// (\p fn_decl null).
+/// One enclosing body: a function (`closure` null) or a closure
+/// (`fn_decl` null).
 pub struct FinallyFrame {
     var fn_decl: unsafe *FunctionDecl = &null
     var closure: unsafe *ClosureExpr  = &null
@@ -280,7 +280,7 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
         return &null
     }
 
-    /// \p p is a parameter of a closure between the home function and here.
+    /// `p` is a parameter of a closure between the home function and here.
     priv fn _closure_param(self, p: unsafe *ParamDecl) -> bool {
         var i = self._frames.size()
         while i > 0 {
@@ -300,9 +300,9 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
         return false
     }
 
-    /// Inside a closure that holds \p d by pointer (or sees it as one), the
-    /// name is that pointer: the type the body's first use \p at_use was
-    /// typed with. Null where \p d is the binding itself.
+    /// Inside a closure that holds `d` by pointer (or sees it as one), the
+    /// name is that pointer: the type the body's first use `at_use` was
+    /// typed with. Null where `d` is the binding itself.
     priv fn _closure_view(self, d: unsafe *Decl, at_use: unsafe *NamedIdentExpr) -> unsafe *Type {
         var i = self._frames.size()
         while i > 0 {

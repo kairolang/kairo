@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------------- AST/Visitor/ASTWriter.k --- ///
 ///
-///   \brief A node-rewriting AST transformer for the Kairo AST.
+/// A node-rewriting AST transformer for the Kairo AST.
 ///
 ///   Where RecursiveASTVisitor (RAV) handles read-only walks and 1:1
 ///   same-type rewrites, ASTWriter handles structural rewrites:
@@ -93,14 +93,11 @@ import AST::ParamMode::ParamMode
 import Memory::ArenaAllocator::ArenaAllocator
 import Memory::ArenaList::ArenaList
 
-///
-/// \class ListBuilder<T>
-/// \brief Accumulates elements and freezes them into a FrozenList<T>.
+/// Accumulates elements and freezes them into a FrozenList<T>.
 ///
 /// Used when a transform constructs a NEW node whose list children are built
 /// from scratch (e.g. lowering a tuple expr's N elements into N type nodes).
 /// Owns the arena plumbing so the pass never sees ArenaList directly.
-///
 pub class <T> ListBuilder {
     priv var _buf:   ArenaList<T>
     priv var _arena: unsafe *ArenaAllocator
@@ -128,22 +125,19 @@ pub class <T> ListBuilder {
         return self._buf.size() == 0
     }
 
-    /// Freezes the accumulated elements into \p target, overwriting it.
+    /// Freezes the accumulated elements into `target`, overwriting it.
     pub fn freeze_into(self, @inout target: FrozenList<T>) {
         target.from_list(&self._buf, self._arena)
     }
 }
 
-///
-/// \class ListRewriter<T>
-/// \brief Records replace/remove/insert ops against an existing FrozenList<T>
-///        and applies them all in a single rebuild.
+/// Records replace/remove/insert ops against an existing FrozenList<T>
+/// and applies them all in a single rebuild.
 ///
 /// All indices refer to the ORIGINAL list. Ops are order-independent: an
 /// insert_before(7) and a remove(3) recorded in either order produce the same
 /// result. apply() rebuilds once; the old backing array is abandoned to the
 /// arena (reclaimed in bulk).
-///
 pub class <T> ListRewriter {
     enum OpKind derives u8 {
         Replace,      ///< original element at index swapped for a new node.
@@ -167,7 +161,7 @@ pub class <T> ListRewriter {
         self._arena  = unsafe &ctx->ast_alloc
     }
 
-    /// Swap the element at \p index for \p item.
+    /// Swap the element at `index` for `item`.
     fn replace(self, index: usize, item: T) {
         var opr = Self::Op{}
         opr.kind  = Self::OpKind::Replace
@@ -177,7 +171,7 @@ pub class <T> ListRewriter {
         self._dirty = true
     }
 
-    /// Drop the element at \p index.
+    /// Drop the element at `index`.
     fn remove(self, index: usize) {
         var opr = Self::Op{}
         opr.kind  = Self::OpKind::Remove
@@ -186,7 +180,7 @@ pub class <T> ListRewriter {
         self._dirty = true
     }
 
-    /// Emit \p item immediately before the element at \p index. An index equal
+    /// Emit `item` immediately before the element at `index`. An index equal
     /// to the list size appends; multiple inserts at the same index preserve
     /// call order.
     fn insert_before(self, index: usize, item: T) {
@@ -198,12 +192,12 @@ pub class <T> ListRewriter {
         self._dirty = true
     }
 
-    /// Emit \p item immediately after the element at \p index.
+    /// Emit `item` immediately after the element at `index`.
     fn insert_after(self, index: usize, item: T) {
         self.insert_before(index + 1, item)
     }
 
-    /// Append \p item after the last element.
+    /// Append `item` after the last element.
     pub fn append(self, item: T) {
         self.insert_before(self._source->size(), item)
     }
@@ -212,7 +206,7 @@ pub class <T> ListRewriter {
         return self._dirty
     }
 
-    /// Discard the whole source list and install \p items in its place.
+    /// Discard the whole source list and install `items` in its place.
     /// Clears any previously recorded ops.
     fn replace_all(self, const items: cxx::std::vector<T>) {
         // Scratch, copied by from_list (see ASTWriter::rebuild_stmt_list).
@@ -2830,9 +2824,7 @@ pub class <D: type> ASTWriter {
     }
 }
 
-///
-/// \class ASTWriterProbe
-/// \brief Compile-time tripwire forcing instantiation of ASTWriter<D>.
+/// Compile-time tripwire forcing instantiation of ASTWriter<D>.
 ///
 /// Same rationale as RAVProbe (see RecursiveASTVisitor.k): ASTWriter is a
 /// CRTP base whose internal calls route through dyn() -> *D, a dependent type.
@@ -2841,5 +2833,4 @@ pub class <D: type> ASTWriter {
 /// base alone. This zero-override derived class instantiates every method body
 /// against a real D, turning the dependent-name surface from deferred to
 /// verified on every build. Do not delete.
-///
 pub class ASTWriterProbe derives ASTWriter<ASTWriterProbe> { }

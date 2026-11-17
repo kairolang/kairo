@@ -177,14 +177,13 @@ pub class NamedIdentExpr derives Expr {
 ///    (expr).field    base=any Expr, 1 step (Dot)
 ///
 pub class ChainExpr derives Expr {
-    /// \enum AccessKind
-    /// \brief the separator/operator for an access step.
+    /// the separator/operator for an access step.
     ///
-    /// \note the pointer-to-member family (`.*` `->*` `?.*` `?->*`) is NOT
-    ///       here. Those are binary operators at their own precedence level
-    ///       (Precedence::PtrToMember), not access separators: they take a
-    ///       full cast-expression on the right, not an id-expression, so they
-    ///       lower to BinaryOperatorExpr and never reach a Step.
+    /// **Note:** the pointer-to-member family (`.*` `->*` `?.*` `?->*`) is NOT
+    /// here. Those are binary operators at their own precedence level
+    /// (Precedence::PtrToMember), not access separators: they take a
+    /// full cast-expression on the right, not an id-expression, so they
+    /// lower to BinaryOperatorExpr and never reach a Step.
     pub enum AccessKind derives u8 {
         Dot,           ///< `.`
         Arrow,         ///< `->`
@@ -193,17 +192,15 @@ pub class ChainExpr derives Expr {
         QuestionArrow, ///< `?->`
     }
 
-    /// \enum StepTarget
-    /// \brief what this step names. `access_kind` is the separator; this is
-    ///        the thing on the right of it.
+    /// what this step names. `access_kind` is the separator; this is
+    /// the thing on the right of it.
     pub enum StepTarget derives u8 {
         Name,       ///< an identifier `name` is set
         Operator,   ///< an overloaded operator `op_tokens` is set
         TupleIndex, ///< a tuple element ordinal `index` is set
     }
 
-    /// \class Step
-    /// \brief a single access operation in the chain.
+    /// a single access operation in the chain.
     pub class Step {
         /// the identifier being accessed. set only when `target` is `Name`;
         /// null for an operator step (`Foo::op+` / `a->op[]`) and for a tuple
@@ -465,11 +462,11 @@ pub class IntegerLiteralExpr derives Expr {
         return self.ctx->get_spelling(self.token)
     }
 
-    /// \brief the literal's text for a diagnostic, as written. get_spelling
-    ///        formats the stored 64-bit value: for a literal wider than 64
-    ///        bits that is its low word only (a 2^200 literal read '0'), and
-    ///        for `0x100` it is the decimal '256', which names a number the
-    ///        user never typed.
+    /// the literal's text for a diagnostic, as written. get_spelling
+    /// formats the stored 64-bit value: for a literal wider than 64
+    /// bits that is its low word only (a 2^200 literal read '0'), and
+    /// for `0x100` it is the decimal '256', which names a number the
+    /// user never typed.
     pub fn get_source_text(self) -> string {
         return self.ctx->get_spelling(self.token.range)
     }
@@ -646,9 +643,9 @@ pub class IntegerLiteralExpr derives Expr {
         return (self.imm->flags & 0b00000100) != 0
     }
 
-    /// \brief the magnitude of a literal wider than 128 bits, for the range
-    ///        check: its bit width, with bit 31 set when it is a power of two.
-    ///        0 when the literal is not big (lo/hi are then the whole value).
+    /// the magnitude of a literal wider than 128 bits, for the range
+    /// check: its bit width, with bit 31 set when it is a power of two.
+    /// 0 when the literal is not big (lo/hi are then the whole value).
     pub fn big_bits(self) -> u32 {
         if !self.is_big() || self.imm->big == &null {
             return 0
@@ -1243,7 +1240,7 @@ pub class StringLiteralExpr derives Expr {
     ///   segment keeps its own prefix_kind, body and holes; parts holds the
     ///   holes of all of them, in order, and hole_segment maps a part back.
 
-    /// The segment after \p seg, or null at the end of the chain.
+    /// The segment after `seg`, or null at the end of the chain.
     pub fn next_segment(self, seg: unsafe *Immediate::StringData) -> unsafe *Immediate::StringData {
         if seg == &null || seg->next == u32::MAX || self.ctx == &null {
             return &null
@@ -1257,7 +1254,7 @@ pub class StringLiteralExpr derives Expr {
         return tbl->get<Immediate::StringData>(seg->next)
     }
 
-    /// The segment holding hole \p i of the whole chain; null past the last
+    /// The segment holding hole `i` of the whole chain; null past the last
     /// hole. hole_index gives the hole's index within it.
     pub fn hole_segment(self, i: usize) -> unsafe *Immediate::StringData {
         var        k    = i
@@ -1275,7 +1272,7 @@ pub class StringLiteralExpr derives Expr {
         return &null
     }
 
-    /// Hole \p i's index within its segment (hole_segment).
+    /// Hole `i`'s index within its segment (hole_segment).
     pub fn hole_index(self, i: usize) -> usize {
         var        k    = i
         var unsafe *seg = self.imm
@@ -1304,7 +1301,7 @@ pub class StringLiteralExpr derives Expr {
         return n
     }
 
-    /// Hole \p i's spec and `=` facts, whichever segment it is in.
+    /// Hole `i`'s spec and `=` facts, whichever segment it is in.
     pub fn hole_spec(self, i: usize) -> Immediate::HoleSpec {
         var unsafe *seg = self.hole_segment(i)
         var        k    = self.hole_index(i)

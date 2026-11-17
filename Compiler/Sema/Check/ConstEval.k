@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------------- Sema/Check/ConstEval.k --- ///
 ///
-///   \brief Integer constant evaluation: the value of an integer expression
-///          that ExprTyper has typed, when it has one at compile time.
+/// Integer constant evaluation: the value of an integer expression
+/// that ExprTyper has typed, when it has one at compile time.
 ///
 ///   \detail
 ///     Two callers. PatternSpace reads literal and range bounds through it,
@@ -91,8 +91,7 @@ import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
 
-/// \enum EvalFailure
-/// \brief How ConstEval's last evaluation failed.
+/// How ConstEval's last evaluation failed.
 pub enum EvalFailure derives u8 {
     None = 0,  ///< no failure recorded (the value is ok, or nothing said why).
     Explained, ///< bad / bad_why / bad_decl say why: the caller reports it.
@@ -135,7 +134,7 @@ pub class ConstEval {
 
     /// # entry points
 
-    /// \p e as an integer constant, with no enum variant in scope.
+    /// `e` as an integer constant, with no enum variant in scope.
     fn eval_int(self, e: unsafe *Expr) -> IntConst {
         self._reset()
         self._en  = &null
@@ -143,7 +142,7 @@ pub class ConstEval {
         return self._eval(e, 0)
     }
 
-    /// The value of the variable \p d names, as if \p at (a name of it) were
+    /// The value of the variable `d` names, as if `at` (a name of it) were
     /// evaluated: a generic value argument written as a bare name parses as
     /// a type, so there is no expression to hand eval_int (Compiler/Spec/Eval.md#generic-value-parameters).
     fn eval_decl(self, at: unsafe *Expr, d: unsafe *Decl) -> IntConst {
@@ -153,7 +152,7 @@ pub class ConstEval {
         return self._ref(at, d, 0)
     }
 
-    /// \p e as the discriminant of the variant at position \p pos of \p en:
+    /// `e` as the discriminant of the variant at position `pos` of `en`:
     /// the variants above it are constants too.
     fn eval_discriminant(self, e: unsafe *Expr, en: unsafe *EnumDecl, pos: usize) -> IntConst {
         self._reset()
@@ -164,7 +163,7 @@ pub class ConstEval {
         return r
     }
 
-    /// A canonical value node (Compiler/Spec/Eval.md#value-nodes, 3) for \p vk over \p ops:
+    /// A canonical value node (Compiler/Spec/Eval.md#value-nodes, 3) for `vk` over `ops`:
     /// folded to an exact value_arg when every operand is one and the
     /// operator is one this class evaluates (`[T; N + 1]` under N := 3 is
     /// `[T; 4]`), else the interned expression for C++ to compute. A call,
@@ -287,7 +286,7 @@ pub class ConstEval {
         return r
     }
 
-    /// Does \p c fit the integer type \p t? Exact: no wrapping.
+    /// Does `c` fit the integer type `t`? Exact: no wrapping.
     fn fits(self, c: IntConst, t: unsafe *Type) -> bool {
         if !c.ok || c.overflow {
             return false
@@ -335,7 +334,7 @@ pub class ConstEval {
         return c.mag <= half - (1 as u64)
     }
 
-    /// \p c cut to \p bits as `as` does: the low bits of its two's
+    /// `c` cut to `bits` as `as` does: the low bits of its two's
     /// complement form, read back signed or unsigned. A value wider than
     /// 64 bits has lost the bits that decide the answer, so it stays
     /// overflowed.
@@ -370,7 +369,7 @@ pub class ConstEval {
         return self.make(false, low)
     }
 
-    /// The decimal spelling of \p c, for messages.
+    /// The decimal spelling of `c`, for messages.
     fn str(self, c: IntConst) -> string {
         if !c.ok {
             return "<not a constant>"
@@ -458,7 +457,7 @@ pub class ConstEval {
         return self.make(true, a.mag + (1 as u64))
     }
 
-    /// `~a` in an integer type of \p bits: `-a - 1` when signed, and
+    /// `~a` in an integer type of `bits`: `-a - 1` when signed, and
     /// `(2^bits - 1) - a` when unsigned. Both are exact, so an `a` outside
     /// the type gives a result outside it too, and the final range check
     /// rejects it rather than this quietly wrapping it. Not ok for an
@@ -478,7 +477,7 @@ pub class ConstEval {
         return self.sub(self.make(false, ones), a)
     }
 
-    /// `|` `&` `^` (\p which 0 / 1 / 2) on the infinite two's complement form:
+    /// `|` `&` `^` (`which` 0 / 1 / 2) on the infinite two's complement form:
     /// the low 64 bits, plus a sign bit standing for every bit above them.
     fn bitop(self, a: IntConst, b: IntConst, which: u8) -> IntConst {
         if a.overflow || b.overflow {
@@ -565,7 +564,7 @@ pub class ConstEval {
 
     /// # the walk
 
-    /// A failure at \p at, unless an inner one already said why.
+    /// A failure at `at`, unless an inner one already said why.
     priv fn _fail(self, at: unsafe *Expr, const why: string, d: unsafe *Decl = &null) -> IntConst {
         if self._failure == EvalFailure::None {
             self._record(at, why, d)
@@ -574,7 +573,7 @@ pub class ConstEval {
         return IntConst{}
     }
 
-    /// A failure at \p at that replaces an inner one's reason (the inner
+    /// A failure at `at` that replaces an inner one's reason (the inner
     /// sits in an initializer elsewhere), unless an earlier diagnostic
     /// already covers it.
     priv fn _blame(self, at: unsafe *Expr, const why: string, d: unsafe *Decl) {
@@ -607,7 +606,7 @@ pub class ConstEval {
         return self._failure == EvalFailure::Reported
     }
 
-    /// \p depth counts `const` initializers followed, so a cycle of them
+    /// `depth` counts `const` initializers followed, so a cycle of them
     /// stops; the expression tree itself is finite.
     priv fn _eval(self, e0: unsafe *Expr, depth: u32) -> IntConst {
         if e0 == &null {
@@ -856,10 +855,10 @@ pub class ConstEval {
         return self.shr(l, r)
     }
 
-    /// `a << n` / `a >> n` in an integer type of \p bits (at most 64), as
+    /// `a << n` / `a >> n` in an integer type of `bits` (at most 64), as
     /// EmitIR's forms compute it: n, converted modulo 2^64 (a negative count
     /// is a large unsigned one), taken modulo R (32 up to 32 bits, else
-    /// 64); `<<` keeps the low bits; `>>` is arithmetic when \p signed.
+    /// 64); `<<` keeps the low bits; `>>` is arithmetic when `signed`.
     fn shift_in(self,
                 left:    bool,
                 a0:      IntConst,

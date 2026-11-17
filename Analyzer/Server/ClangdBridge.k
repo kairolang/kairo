@@ -70,7 +70,7 @@ import Workspace::CompileCommandsLoader::{
 }
 import std::io
 
-/// The '\n'-terminated words of \p text.
+/// The '\n'-terminated words of `text`.
 fn split_lines_(const text: string) -> [string] {
     var out: [string]
     var at:  usize    = 0
@@ -87,7 +87,7 @@ fn split_lines_(const text: string) -> [string] {
     return out
 }
 
-/// \p rel as a clangd PathMatch regex that matches only itself.
+/// `rel` as a clangd PathMatch regex that matches only itself.
 fn path_regex_(const rel: string) -> string {
     var out: string = ""
     var meta        = ".^$|()[]{}*+?\\"
@@ -103,7 +103,7 @@ fn path_regex_(const rel: string) -> string {
     return out
 }
 
-/// \p w as a single-quoted YAML scalar: a path with a space, `,` or `#`
+/// `w` as a single-quoted YAML scalar: a path with a space, `,` or `#`
 /// would end or comment out a plain one inside a flow sequence.
 fn yaml_word_(const w: string) -> string {
     var out: string = "\x27"
@@ -119,7 +119,7 @@ fn yaml_word_(const w: string) -> string {
     return out + "\x27"
 }
 
-/// The single-quoted YAML scalar after `'<key>': ` on \p line (the
+/// The single-quoted YAML scalar after `'<key>': ` on `line` (the
 /// overlay's one-entry-per-line form, yaml_word_), or "".
 fn yaml_value_(const line: string, const key: string) -> string {
     var at = find_from(line, "\x27" + key + "\x27: \x27", 0)
@@ -163,7 +163,7 @@ extend Server {
         )
     }
 
-    /// The text of \p path: its open buffer, else the disk.
+    /// The text of `path`: its open buffer, else the disk.
     fn text_of_(self, const path: string) -> string {
         var di = self.docs.index_of_path(path)
         if di != usize::MAX {
@@ -260,7 +260,7 @@ extend Server {
         }
     }
 
-    /// \p name as `#include "name"` in \p from finds it: beside \p from,
+    /// `name` as `#include "name"` in `from` finds it: beside `from`,
     /// else under the project root; real path, or "" when neither exists.
     fn bridge_resolve_(self, const from: string, const name: string) -> string {
         var p = name.copy()
@@ -280,14 +280,14 @@ extend Server {
         return Path::real_path_of(p.copy())
     }
 
-    /// The `.k` files \p src reaches through quoted includes, directly or
+    /// The `.k` files `src` reaches through quoted includes, directly or
     /// through the headers it includes (a.cc includes b.h, b.h
-    /// includes c.k), into \p ks, and the headers read on the way into
-    /// \p seen (an edit to one of them re-reads \p src), both
+    /// includes c.k), into `ks`, and the headers read on the way into
+    /// `seen` (an edit to one of them re-reads `src`), both
     /// '\n'-terminated, in include order. Bounded: headers
     /// BRIDGE_INCLUDE_DEPTH deep, and at most BRIDGE_INCLUDE_MAX_READS
-    /// header reads per scan (\p budget), each file read once a scan
-    /// (\p memo: its resolved `.k` includes and header includes). Textual:
+    /// header reads per scan (`budget`), each file read once a scan
+    /// (`memo`: its resolved `.k` includes and header includes). Textual:
     /// `#ifdef` is not evaluated, angle includes and -I roots are not
     /// followed.
     fn bridge_closure_(self,
@@ -650,7 +650,7 @@ extend Server {
 
     /// The C/C++ sources under the root that reach a `.k` (directly or
     /// through a header), relative to it (clangd matches a fragment's
-    /// PathMatch against that spelling), and, in \p words, kcc's words for
+    /// PathMatch against that spelling), and, in `words`, kcc's words for
     /// each ('\n'-terminated): the C set for a `.c` / `.m`, the C++ set
     /// otherwise, from the header job of the first `.k` it reaches, so
     /// sources of entries with different flags get their own. A source whose

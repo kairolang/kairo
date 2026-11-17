@@ -37,18 +37,14 @@ import Threading::PartitionQueue::{
 import Threading::Task::Task
 import std::io
 
+/// A high-performance work-stealing thread pool for parallel
+/// task execution.
 ///
-/// \class ThreadPool
-///
-/// \brief A high-performance work-stealing thread pool for parallel
-///        task execution.
-///
-/// \details
 /// The `ThreadPool` class implements a lock-free, cache-aligned work-stealing
-///     design optimized for minimal contention and consistent task throughput
-///     across heterogeneous systems. Each worker maintains a per-thread
-///     partitioned queue from which tasks are locally dequeued and, when idle,
-///     stolen by other threads in randomized batches.
+/// design optimized for minimal contention and consistent task throughput
+/// across heterogeneous systems. Each worker maintains a per-thread
+/// partitioned queue from which tasks are locally dequeued and, when idle,
+/// stolen by other threads in randomized batches.
 ///
 /// Tasks are represented as small callable objects (`SmallFunction<64>`) and
 ///     can be grouped via a numeric identifier for synchronization purposes.
@@ -58,18 +54,17 @@ import std::io
 /// The design prioritizes deterministic startup, cache coherency, and
 ///     predictable shutdown semantics for long-running parallel workloads.
 ///
-/// \warning
-///   - The number of threads defaults to the hardware concurrency level but
-///     can be explicitly set (minimum of 1).
-///   - Each partitioned queue has a fixed capacity (default 16384 tasks).
-///   - Tasks are copy-disabled and move-only to ensure locality and prevent
-///     accidental duplication.
-///   - The pool must be explicitly shut down to join all threads and release
-///     resources.
-///   - The implementation relies on C++11 atomics and threading primitives.
+/// **Warning:**
+/// - The number of threads defaults to the hardware concurrency level but
+/// can be explicitly set (minimum of 1).
+/// - Each partitioned queue has a fixed capacity (default 16384 tasks).
+/// - Tasks are copy-disabled and move-only to ensure locality and prevent
+/// accidental duplication.
+/// - The pool must be explicitly shut down to join all threads and release
+/// resources.
+/// - The implementation relies on C++11 atomics and threading primitives.
 ///
-/// \see PartitionQueue, Task, wait_group, enqueue, shutdown, warmup
-///
+/// See PartitionQueue, Task, wait_group, enqueue, shutdown, warmup.
 pub class ThreadPool {
     /// C++ threading alias for std::thread.
     type Thread = cxx::std::#thread
@@ -116,23 +111,21 @@ pub class ThreadPool {
     priv var _sleepers: kairo::std::Atomic<u32> = kairo::std::Atomic<u32>(0)
     priv var _epoch:    kairo::std::Atomic<u32> = kairo::std::Atomic<u32>(0)
 
+    /// Constructs and initializes a thread pool.
     ///
-    /// \brief Constructs and initializes a thread pool.
+    /// ### Parameters
+    /// - `n`: Number of threads to create (defaults to hardware concurrency).
     ///
-    /// \param n Number of threads to create (defaults to hardware concurrency).
-    ///
-    /// \details
     /// Allocates one partitioned queue per worker, initializes task groups, and
-    ///     spawns all worker threads immediately. Each worker enters an
-    ///     internal execution loop awaiting tasks or performing random steal
-    ///     attempts when idle.
+    /// spawns all worker threads immediately. Each worker enters an
+    /// internal execution loop awaiting tasks or performing random steal
+    /// attempts when idle.
     ///
-    /// \warning
-    ///   - If `n == 0`, one worker is forced to ensure valid operation.
-    ///   - Threads start immediately upon construction.
+    /// **Warning:**
+    /// - If `n == 0`, one worker is forced to ensure valid operation.
+    /// - Threads start immediately upon construction.
     ///
-    /// \see worker_loop
-    ///
+    /// See `worker_loop`.
     fn ThreadPool(self) {
         self._init((Self::Thread::hardware_concurrency()) as usize)
     }
@@ -183,14 +176,12 @@ pub class ThreadPool {
         )
     }
 
+    /// Destructor that ensures proper shutdown.
     ///
-    /// \brief Destructor that ensures proper shutdown.
+    /// Invokes `shutdown()` to terminate all threads and clean up
+    /// resources. Safe to call multiple times; subsequent calls are noops.
     ///
-    /// \details Invokes `shutdown()` to terminate all threads and clean up
-    ///     resources. Safe to call multiple times; subsequent calls are noops.
-    ///
-    /// \see shutdown
-    ///
+    /// See `shutdown`.
     fn op finally (self) {
         self.shutdown()
     }
@@ -210,20 +201,18 @@ pub class ThreadPool {
         return h
     }
 
+    /// Schedules a callable for asynchronous execution.
     ///
-    /// \brief Schedules a callable for asynchronous execution.
+    /// ### Parameters
+    /// - `_fn`: Callable function (moved into queue).
+    /// - `group`: Optional group ID for synchronization tracking.
     ///
-    /// \param _fn Callable function (moved into queue).
-    /// \param group Optional group ID for synchronization tracking.
-    ///
-    /// \details
     /// The function is enqueued in a pseudo-random queue using round-robin with
-    ///     FNV-based hash mixing. If the selected queue is full, the task is
-    ///     retried sequentially across all queues. Group counters are atomically
-    ///     incremented on successful enqueue to enable completion tracking.
+    /// FNV-based hash mixing. If the selected queue is full, the task is
+    /// retried sequentially across all queues. Group counters are atomically
+    /// incremented on successful enqueue to enable completion tracking.
     ///
-    /// \see wait_group, is_completed
-    ///
+    /// See wait_group, is_completed.
     pub inline fn enqueue(self, _fn: kairo::SmallFunction<64>, group: u8 = 0) {
         if !self._active.load(kairo::std::MemoryOrder::relaxed) {
             return
@@ -278,11 +267,11 @@ pub class ThreadPool {
         self.signal_one()
     }
 
-    /// \brief publishes one queued task and wakes a parked worker, if any.
+    /// publishes one queued task and wakes a parked worker, if any.
     ///
-    /// \details No wake while no worker is parked: the common case under load,
-    ///          and the one that cost a mutex round trip per task before. Why
-    ///          skipping it cannot lose a wakeup is at _epoch.
+    /// No wake while no worker is parked: the common case under load,
+    /// and the one that cost a mutex round trip per task before. Why
+    /// skipping it cannot lose a wakeup is at _epoch.
     priv inline fn signal_one(self) {
         self._queued.fetch_add(1)
         if self._sleepers.load() > 0 {
@@ -291,17 +280,16 @@ pub class ThreadPool {
         }
     }
 
+    /// Waits for completion of all tasks within a specific group.
     ///
-    /// \brief Waits for completion of all tasks within a specific group.
+    /// ### Parameters
+    /// - `group`: Group ID to wait for.
     ///
-    /// \param group Group ID to wait for.
-    ///
-    /// \details
     /// Spins briefly (a short wait resolves without a syscall), then blocks
-    ///     on the group's counter itself: an atomic wait, woken by the task
-    ///     that takes it to zero (_task_done). It does not sleep-poll: that
-    ///     would nap for as long as the group runs and log a "stalled"
-    ///     warning every cycle of a long join (the codegen fan-out).
+    /// on the group's counter itself: an atomic wait, woken by the task
+    /// that takes it to zero (_task_done). It does not sleep-poll: that
+    /// would nap for as long as the group runs and log a "stalled"
+    /// warning every cycle of a long join (the codegen fan-out).
     ///
     ///     No lost wakeup: libc++'s wait(v) re-checks the value after
     ///     registering as a waiter, and the decrement to zero always
@@ -310,9 +298,8 @@ pub class ThreadPool {
     ///     cares about zero, which always wakes it, and it re-checks after
     ///     every wake.
     ///
-    /// \warning
-    ///   - Blocking call. Avoid long waits on the main thread.
-    ///
+    /// **Warning:**
+    /// - Blocking call. Avoid long waits on the main thread.
     pub inline fn wait_group(self, group: u8) {
         for var spins: u32 = 0; spins < 10000; ++spins {
             if self._groups[group].load(kairo::std::MemoryOrder::acquire) == 0 {
@@ -332,42 +319,36 @@ pub class ThreadPool {
         }
     }
 
-    /// \brief one task of \p group is finished: the counter drops, and the
-    ///        last one wakes whoever waits on the group (wait_group).
+    /// one task of `group` is finished: the counter drops, and the
+    /// last one wakes whoever waits on the group (wait_group).
     ///
-    /// \details acq_rel: release so the waiter sees the task's writes, and
-    ///          the notify comes after the decrement it announces. notify_all
-    ///          costs no syscall while nobody waits (libc++ counts waiters).
+    /// acq_rel: release so the waiter sees the task's writes, and
+    /// the notify comes after the decrement it announces. notify_all
+    /// costs no syscall while nobody waits (libc++ counts waiters).
     priv inline fn _task_done(self, group: u8) {
         if self._groups[group].fetch_sub(1, kairo::std::MemoryOrder::acq_rel) == 1 {
             self._groups[group].notify_all()
         }
     }
 
+    /// Waits for completion of all tasks across all groups.
     ///
-    /// \brief Waits for completion of all tasks across all groups.
-    ///
-    /// \details
     /// Iteratively invokes `wait_group` for each group ID from 0 to 255.
     ///
-    /// \see wait_group
-    ///
+    /// See `wait_group`.
     pub inline fn wait_all(self) {
         for gi in (0 as u32)..256 {
             self.wait_group((gi as u8))
         }
     }
 
+    /// Initiates an orderly shutdown of the thread pool.
     ///
-    /// \brief Initiates an orderly shutdown of the thread pool.
-    ///
-    /// \details
     /// Gracefully terminates all worker threads after active tasks complete.
-    ///     Joins all threads, deletes all queues, and clears internal state.
-    ///     Subsequent calls are ignored once shutdown has begun.
+    /// Joins all threads, deletes all queues, and clears internal state.
+    /// Subsequent calls are ignored once shutdown has begun.
     ///
-    /// \see worker_loop, is_active
-    ///
+    /// See worker_loop, is_active.
     fn shutdown(self) {
         var expected = true
 
@@ -412,20 +393,18 @@ pub class ThreadPool {
         )
     }
 
+    /// Main execution loop executed by each worker thread.
     ///
-    /// \brief Main execution loop executed by each worker thread.
+    /// ### Parameters
+    /// - `id`: Worker thread index.
     ///
-    /// \param id Worker thread index.
-    ///
-    /// \details
     /// Each worker dequeues tasks from its local queue, executes them, and
-    ///     updates group counters. When the local queue is empty, it performs
-    ///     randomized stealing in small batches across other queues. If no
-    ///     tasks are found, threads engage in adaptive spinning and yielding to
-    ///     prevent wasted CPU time.
+    /// updates group counters. When the local queue is empty, it performs
+    /// randomized stealing in small batches across other queues. If no
+    /// tasks are found, threads engage in adaptive spinning and yielding to
+    /// prevent wasted CPU time.
     ///
-    /// \note This function runs indefinitely until `_active` is set to false.
-    ///
+    /// **Note:** This function runs indefinitely until `_active` is set to false.
     fn worker_loop(self, id: usize) {
         var        task:      Task
         var unsafe *q              = self._queues[id]
@@ -513,49 +492,48 @@ pub class ThreadPool {
         self._live_workers.fetch_sub(1, kairo::std::MemoryOrder::release)
     }
 
+    /// Returns true if all tasks in a group have completed.
     ///
-    /// \brief Returns true if all tasks in a group have completed.
+    /// ### Parameters
+    /// - `group`: Group ID to check.
     ///
-    /// \param group Group ID to check.
-    /// \return `true` if all tasks have finished, otherwise `false`.
-    ///
+    /// ### Returns
+    /// `true` if all tasks have finished, otherwise `false`.
     fn is_completed(self, group: u8) -> bool {
         return self._groups[group].load(kairo::std::MemoryOrder::acquire) == 0
     }
 
+    /// Checks whether the pool is active.
     ///
-    /// \brief Checks whether the pool is active.
-    ///
-    /// \return `true` if threads are still processing or accepting work.
-    ///
+    /// ### Returns
+    /// `true` if threads are still processing or accepting work.
     pub fn is_active(self) -> bool {
         return self._active.load(kairo::std::MemoryOrder::acquire)
     }
 
+    /// Retrieves the total number of worker threads.
     ///
-    /// \brief Retrieves the total number of worker threads.
-    ///
-    /// \return Worker thread count.
-    ///
+    /// ### Returns
+    /// Worker thread count.
     pub fn get_thread_count(self) -> usize {
         return self._count
     }
 
+    /// Retrieves the number of pending tasks for a specific group.
     ///
-    /// \brief Retrieves the number of pending tasks for a specific group.
+    /// ### Parameters
+    /// - `group`: Group ID.
     ///
-    /// \param group Group ID.
-    /// \return Number of pending tasks.
-    ///
+    /// ### Returns
+    /// Number of pending tasks.
     fn get_pending_tasks(self, group: u8) -> u64 {
         return ((self._groups[group].load(kairo::std::MemoryOrder::acquire)))
     }
 
+    /// Retrieves the total number of pending tasks across all groups.
     ///
-    /// \brief Retrieves the total number of pending tasks across all groups.
-    ///
-    /// \return Aggregate pending task count.
-    ///
+    /// ### Returns
+    /// Aggregate pending task count.
     fn get_total_pending_tasks(self) -> u64 {
         var total: u64 = 0
 
@@ -566,20 +544,19 @@ pub class ThreadPool {
         return total
     }
 
+    /// Performs a CPU warmup routine to eliminate cold-start latency.
     ///
-    /// \brief Performs a CPU warmup routine to eliminate cold-start latency.
+    /// ### Parameters
+    /// - `spins`: Number of iterations for dummy computations.
     ///
-    /// \param spins Number of iterations for dummy computations.
-    ///
-    /// \details Executes synthetic spin tasks across all threads to ensure:
-    ///   - Thread scheduling and CPU frequency ramp-up.
-    ///   - L1/L2 cache warming for task dispatch structures.
+    /// Executes synthetic spin tasks across all threads to ensure:
+    /// - Thread scheduling and CPU frequency ramp-up.
+    /// - L1/L2 cache warming for task dispatch structures.
     ///
     /// Threads synchronize via a barrier to ensure simultaneous readiness
     ///     before returning.
     ///
-    /// \see enqueue
-    ///
+    /// See `enqueue`.
     fn warmup(self, spins: i32 = 1000000) {
         if self._count == 1 {
             return
@@ -646,20 +623,18 @@ pub class ThreadPool {
     }
 }
 
+/// ThreadPool performance benchmark and validation entrypoint.
 ///
-/// \brief ThreadPool performance benchmark and validation entrypoint.
+/// ### Returns
+/// Always returns 0 on success.
 ///
-/// \return Always returns 0 on success.
-///
-/// \details
 /// The `Test()` function initializes a thread pool, performs a warmup phase,
-///     dispatches 4000 compute-heavy tasks across multiple groups, and measures
-///     the total execution time across startup, enqueue, completion, and
-///     synchronization phases. provides a reproducible benchmark for assessing
-///     Pqueue contention, warm-start effectiveness, and task completion latency.
+/// dispatches 4000 compute-heavy tasks across multiple groups, and measures
+/// the total execution time across startup, enqueue, completion, and
+/// synchronization phases. provides a reproducible benchmark for assessing
+/// Pqueue contention, warm-start effectiveness, and task completion latency.
 ///
-/// \see ThreadPool, Timer, wait_group, warmup
-///
+/// See ThreadPool, Timer, wait_group, warmup.
 // TODO(replace with kairo test blocks)
 pub fn Test() -> i32 {
     io::println("=== Kairo ThreadPool Benchmark ===")

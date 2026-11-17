@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------------- Sema/Check/PatternSpace.k --- ///
 ///
-///   \brief The value space patterns are checked against: what a column of a
-///          pattern matrix ranges over (its domain), which constructor a
-///          pattern tests (its head), and the rows a matrix is made of.
+/// The value space patterns are checked against: what a column of a
+/// pattern matrix ranges over (its domain), which constructor a
+/// pattern tests (its head), and the rows a matrix is made of.
 ///
 ///   \detail
 ///     Shared by PatternChecking (usefulness: exhaustiveness and dead arms)
@@ -102,7 +102,7 @@ import Sema::Type::TypeUtil::TypeUtil
 import Sema::Type::VariadicEnum::VariadicEnum
 import Token::TokenKind::TokenKind
 
-/// Sort \p v ascending and drop repeats: a match's integer cuts, which
+/// Sort `v` ascending and drop repeats: a match's integer cuts, which
 /// are O(rows) and must not cost O(rows^2).
 pub fn sort_unique_keys(v: unsafe *cxx::std::vector<u64>) {
     llvm::sort(v->begin(), v->end())
@@ -195,7 +195,7 @@ pub class PatternSpace {
 
     /// # domains
 
-    /// The domain of a column whose values have type \p t.
+    /// The domain of a column whose values have type `t`.
     fn domain_of(self, t: unsafe *Type) -> Domain {
         if t == &null {
             return Domain{}
@@ -363,7 +363,7 @@ pub class PatternSpace {
         return self.instance_fields(rd).size()
     }
 
-    /// The variant's position in \p en, or -1.
+    /// The variant's position in `en`, or -1.
     fn variant_index(self, en: unsafe *EnumDecl, v: unsafe *EnumVariantDecl) -> i32 {
         if en == &null || v == &null {
             return -1
@@ -396,7 +396,7 @@ pub class PatternSpace {
 
     /// # integer constants
 
-    /// Evaluate \p e as an integer constant. A value past 64 bits is no
+    /// Evaluate `e` as an integer constant. A value past 64 bits is no
     /// key of any Int domain, so it reads as not a constant here.
     fn eval_int(self, e: unsafe *Expr) -> IntConst {
         var c = self.ce.eval_int(e)
@@ -407,7 +407,7 @@ pub class PatternSpace {
         return c
     }
 
-    /// \p c as a key of \p d, or false when it is out of the type's range.
+    /// `c` as a key of `d`, or false when it is out of the type's range.
     fn key_of(self, d: Domain, c: IntConst, out: unsafe *u64) -> bool {
         if !c.ok || d.kind != DomainKind::Int {
             return false
@@ -444,7 +444,7 @@ pub class PatternSpace {
         return true
     }
 
-    /// The source spelling of key \p k.
+    /// The source spelling of key `k`.
     fn key_str(self, d: Domain, k: u64) -> string {
         if !d.signed_ {
             return f"{k}"
@@ -477,7 +477,7 @@ pub class PatternSpace {
         return p->kind == PatternKind::WildcardPattern || p->kind == PatternKind::BindingPattern
     }
 
-    /// The constructor \p p tests. Never called on an AlternationPattern
+    /// The constructor `p` tests. Never called on an AlternationPattern
     /// (rows are expanded first) or a wildcard.
     fn ctor_of(self, p: unsafe *AstPattern) -> Ctor {
         var c = Ctor{}
@@ -637,7 +637,7 @@ pub class PatternSpace {
         return f"lit:{self.sc->ctx->get_spelling(s->range)}"
     }
 
-    /// Does a row whose head is \p h survive specialization by \p c? Integer
+    /// Does a row whose head is `h` survive specialization by `c`? Integer
     /// segments are cut so that containment is all-or-nothing.
     fn covers(self, const h: Ctor, const c: Ctor) -> bool {
         if h.kind == CtorKind::Wild {
@@ -667,7 +667,7 @@ pub class PatternSpace {
 
     /// # sub-columns
 
-    /// The \p arity sub-columns of \p p under its own constructor. A field the
+    /// The `arity` sub-columns of `p` under its own constructor. A field the
     /// pattern does not name is a wildcard (null).
     fn sub_columns(self,
                    p:     unsafe *AstPattern,
@@ -770,8 +770,8 @@ pub class PatternSpace {
         }
     }
 
-    /// Rows of \p rows whose head survives \p c, with the head replaced by
-    /// its \p c.arity sub-columns.
+    /// Rows of `rows` whose head survives `c`, with the head replaced by
+    /// its `c.arity` sub-columns.
     fn specialize(self,
                   @inout rows: cxx::std::vector<PatRow>,
                   const c:     Ctor) -> cxx::std::vector<PatRow> {
@@ -888,7 +888,7 @@ pub class PatternSpace {
 
     /// # rendering
 
-    /// A witness for constructor \p c of domain \p d with sub-witnesses \p subs.
+    /// A witness for constructor `c` of domain `d` with sub-witnesses `subs`.
     fn render(self, d: Domain, const c: Ctor, subs: unsafe *cxx::std::vector<string>) -> string {
         match c.kind {
             case CtorKind::Wild {

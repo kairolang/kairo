@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------- Sema/Verify/ModulePinCheck.k --- ///
 ///
-///   \brief Verify that a bare `module a::b` declaration (a pin) sits where
-///          it means something.
+/// Verify that a bare `module a::b` declaration (a pin) sits where
+/// it means something.
 ///
 ///   \detail
 ///     In a module.k the pin names its directory as library `a::b`; the
@@ -37,24 +37,24 @@ pub class ModulePinCheck {
         self.sc = sc
     }
 
-    /// \brief whether \p tu may carry its bare `module a::b` pin.
+    /// whether `tu` may carry its bare `module a::b` pin.
     ///
-    /// \details THE rule, and its only home. Today: in a module.k only, the
-    ///          one file whose pin has a meaning (it names the directory as a
-    ///          library). Elsewhere the meaning is undecided: an error
-    ///          keeps every choice open, where accepting it silently would
-    ///          make "does nothing" the meaning code starts relying on. The
-    ///          alternatives, each a change to this function and the
-    ///          diagnostic in run() alone:
-    ///            (b) the pin names the FILE itself: `utils/strings.k` saying
-    ///                `module text` is `utils::text`. Return true here, and
-    ///                canonical_module_path reads the pin for the leaf.
-    ///            (c) it wraps the rest of the file: `module foo` means
-    ///                `module foo { <the rest> }`. Return true here, and the
-    ///                parser opens the block where it records the pin.
-    ///          Keyed on the file NAME, as read_module_pin is (module.k
-    ///          exactly), so the two can never disagree about which file a
-    ///          pin counts in.
+    /// THE rule, and its only home. Today: in a module.k only, the
+    /// one file whose pin has a meaning (it names the directory as a
+    /// library). Elsewhere the meaning is undecided: an error
+    /// keeps every choice open, where accepting it silently would
+    /// make "does nothing" the meaning code starts relying on. The
+    /// alternatives, each a change to this function and the
+    /// diagnostic in run() alone:
+    ///   (b) the pin names the FILE itself: `utils/strings.k` saying
+    ///       `module text` is `utils::text`. Return true here, and
+    ///       canonical_module_path reads the pin for the leaf.
+    ///   (c) it wraps the rest of the file: `module foo` means
+    ///       `module foo { <the rest> }`. Return true here, and the
+    ///       parser opens the block where it records the pin.
+    /// Keyed on the file NAME, as read_module_pin is (module.k
+    /// exactly), so the two can never disagree about which file a
+    /// pin counts in.
     static fn pin_allowed(tu: unsafe *TranslationUnit) -> bool {
         if tu->pin_segments.size() == 0 {
             return true
@@ -67,17 +67,17 @@ pub class ModulePinCheck {
         return Path::filename_of(tu->ctx->sm->get_filename(tu->fid)) == "module.k"
     }
 
-    /// \brief whether \p tu's pin is the one the resolver reads: in a file
-    ///        where pin_allowed holds, the parser accepts a pin at ANY
-    ///        top-level position, but the resolver takes only the file's
-    ///        FIRST declaration (read_module_pin), before any parse.
+    /// whether `tu`'s pin is the one the resolver reads: in a file
+    /// where pin_allowed holds, the parser accepts a pin at ANY
+    /// top-level position, but the resolver takes only the file's
+    /// FIRST declaration (read_module_pin), before any parse.
     ///
-    /// \details Answered by running that very scanner over the file, not by
-    ///          re-deriving its rule from the tree -- the PP has already
-    ///          removed the imports a pin may follow, and a second copy of
-    ///          "what counts as first" is how the two came to disagree. A pin
-    ///          after `import y` or a `fn` was accepted here and ignored there:
-    ///          the directory kept its folder name with nothing said.
+    /// Answered by running that very scanner over the file, not by
+    /// re-deriving its rule from the tree -- the PP has already
+    /// removed the imports a pin may follow, and a second copy of
+    /// "what counts as first" is how the two came to disagree. A pin
+    /// after `import y` or a `fn` was accepted here and ignored there:
+    /// the directory kept its folder name with nothing said.
     static fn pin_counts(tu: unsafe *TranslationUnit) -> bool {
         if tu->pin_segments.size() == 0 {
             return true

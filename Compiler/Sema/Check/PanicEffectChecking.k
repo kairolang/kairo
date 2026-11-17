@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------- Sema/Check/PanicEffectChecking.k --- ///
 ///
-///   \brief Every panic is handled or propagated (Compiler/Spec/Panic.md#effect-sets, §1.5, §4.5).
+/// Every panic is handled or propagated (Compiler/Spec/Panic.md#effect-sets, §1.5, §4.5).
 ///
 ///   \detail
 ///     Reads the sets EffectPropagation solved at the Typed barrier and
@@ -457,7 +457,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         }
     }
 
-    /// \p e's arguments bound to \p prim's parameters (an extension
+    /// `e`'s arguments bound to `prim`'s parameters (an extension
     /// member's extension's first), ConformanceChecking's order.
     priv fn _bind_instance(self, d: *Deduction, e: unsafe *InstanceEntry, prim: unsafe *Decl) {
         var        k: usize = 0
@@ -514,8 +514,8 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         return create_empty_frozen_list<unsafe *Declarations::FunctionDecl>()
     }
 
-    /// Each `try` of \p h's (panic_arms: its arm types, null-separated):
-    /// the first pair of arms naming one type at \p d's bindings.
+    /// Each `try` of `h`'s (panic_arms: its arm types, null-separated):
+    /// the first pair of arms naming one type at `d`'s bindings.
     priv fn _instance_arms(self,
                            e: unsafe *InstanceEntry,
                            h: unsafe *Declarations::FunctionDecl,
@@ -826,7 +826,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         return true
     }
 
-    /// \p end: the closing brace of the block \p cur sits in. (A script's
+    /// `end`: the closing brace of the block `cur` sits in. (A script's
     /// top level cannot hold a `finally`: LoopContextCheck rejects it.)
     priv fn _finally_after_try(self, prev: unsafe *Stmt, cur: unsafe *Stmt, end: SourceLocation) {
         if prev == &null || cur == &null {
@@ -1232,7 +1232,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
     }
 
     /// A bare `panic` in a position that needs the set written: the error,
-    /// and the edit writing \p inferred (or removing `panic` when nothing
+    /// and the edit writing `inferred` (or removing `panic` when nothing
     /// panics; none when there is no body to infer from).
     priv fn _needs_set(self,
                        pr:        SourceRange,
@@ -1255,7 +1255,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         b.emit()
     }
 
-    /// The edit that writes \p s in place of the specifier \p pr: `panic(A,
+    /// The edit that writes `s` in place of the specifier `pr`: `panic(A,
     /// B)`, or no `panic` at all for the empty set (`panic()` is not a set).
     priv fn _write_set_fix(self,
                            b:  *DiagBuilder,
@@ -1274,7 +1274,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         b->fix(pr, txt, f"declare the inferred set: '{txt}'")
     }
 
-    /// \p f's inferred set, when it has a body that was solved; else null.
+    /// `f`'s inferred set, when it has a body that was solved; else null.
     priv fn _fn_inferred(self,
                          f: unsafe *Declarations::FunctionDecl) -> unsafe *cxx::std::vector<unsafe *Type> {
         var unsafe *h = panic_home(f)
@@ -1354,7 +1354,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
     }
 
     /// A conforming method's set is a subset of the requirement's, for each
-    /// conformance \p by declares (`class X impl I`, `extend X impl I`).
+    /// conformance `by` declares (`class X impl I`, `extend X impl I`).
     priv fn _conformances(self, by: unsafe *Decl) {
         if self.sc->instances == &null {
             return
@@ -1395,9 +1395,9 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         }
     }
 
-    /// \p sub's set within \p sup's; an error naming each type outside,
-    /// at \p sub, with a note at \p sup and the edit adding the types to
-    /// \p sup's declared set. \p through is where \p sup is met (the base
+    /// `sub`'s set within `sup`'s; an error naming each type outside,
+    /// at `sub`, with a note at `sup` and the edit adding the types to
+    /// `sup`'s declared set. `through` is where `sup` is met (the base
     /// record, the interface instance): a generic base's or interface's
     /// set is read at its arguments, `B<i32>`'s `panic(T)` is
     /// `panic(i32)`.
@@ -1476,8 +1476,8 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         d.emit()
     }
 
-    /// \p w overrides or implements \p sup, met through \p through: its set
-    /// is held to \p sup's, once per pair (a method meeting two -- two
+    /// `w` overrides or implements `sup`, met through `through`: its set
+    /// is held to `sup`'s, once per pair (a method meeting two -- two
     /// interfaces, or an override that is also a conformer -- is held to
     /// each), and against every other it meets (_two_sets).
     priv fn _met(self,
@@ -1512,7 +1512,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         self._subset(w, sup, through, verb, what)
     }
 
-    /// \p f's result or a type in its declared set names `Self` (the type,
+    /// `f`'s result or a type in its declared set names `Self` (the type,
     /// a pointer to it, an argument of a record).
     priv fn _result_names_self(self, f: unsafe *Declarations::FunctionDecl) -> bool {
         if f->return_type != &null && self._names_self(f->return_type->canonical, 0) {
@@ -1842,7 +1842,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         return true
     }
 
-    /// What \p f is when the language calls it without a call being
+    /// What `f` is when the language calls it without a call being
     /// written, for the message; empty when it is called only explicitly.
     /// "a constructor" / "a destructor" for any constructor (with or
     /// without parameters, a transfer one included) or the destructor;
@@ -1895,7 +1895,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
     /// # judging one body
 
-    /// Every site of \p w against what \p kind lets leave the body.
+    /// Every site of `w` against what `kind` lets leave the body.
     priv fn _judge(self,
                    w:      *PanicWalk,
                    kind:   PanicBody,
@@ -2158,7 +2158,7 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
     }
 
     /// A generic body's `try`s whose live typed arms could name one type at
-    /// an instance -- two or more, at least one dependent -- onto \p f
+    /// an instance -- two or more, at least one dependent -- onto `f`
     /// (FunctionDecl::panic_arms) for the instance check: §3.1's duplicate
     /// arm is an error, and at `catch e: T` beside `catch e: A` only an
     /// instance can say whether T is A (PanicInstances).

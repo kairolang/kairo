@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------ Sema/Foreign/ForeignInstantiate.k --- ///
 ///
-///   \brief Fill an implicit instance of an IMPORTED class template from
-///          clang: complete the specialization in the primary's phase-A AST,
-///          then import its members into the registry shell.
+/// Fill an implicit instance of an IMPORTED class template from
+/// clang: complete the specialization in the primary's phase-A AST,
+/// then import its members into the registry shell.
 ///
 ///   \detail
 ///     An instance of a C++ template is clang's, never M2's
@@ -227,14 +227,14 @@ pub class ForeignInstantiate {
         self._instances = instances
     }
 
-    /// Fill \p shell (an unfilled instance whose primary is imported). True
+    /// Fill `shell` (an unfilled instance whose primary is imported). True
     /// if it is filled afterwards, by this call or an earlier one. clang's
-    /// own diagnostics for the fill go to \p sink, the demanding TU's; null
-    /// leaves them on the set's fallback printer. \p fid is that TU: a
+    /// own diagnostics for the fill go to `sink`, the demanding TU's; null
+    /// leaves them on the set's fallback printer. `fid` is that TU: a
     /// Kairo instance the fill names first (`Null<i32>` behind
     /// `vector<i32?>`) is homed there, as one its own typing named would be.
     /// -1 when no TU demands it (fid 0 is a TU: the first file loaded).
-    /// \p alt is that TU's own header set, the fallback when the primary's
+    /// `alt` is that TU's own header set, the fallback when the primary's
     /// set cannot spell the arguments (see _fill_locked); null for none.
     fn fill(self,
             shell: unsafe *Decl,
@@ -342,7 +342,7 @@ pub class ForeignInstantiate {
         return false
     }
 
-    /// \p shell was filled for some TU; if that TU comes after the caller's
+    /// `shell` was filled for some TU; if that TU comes after the caller's
     /// in import order, the caller re-makes the fill's registry requests,
     /// so homes and worklist order are what they would have been had the
     /// caller filled it first, as a one-thread run does. Cheap when
@@ -466,10 +466,10 @@ pub class ForeignInstantiate {
         return r
     }
 
-    /// Steps 2-6 of a fill, in \p hs's AST with \p ct its template. Unspelled
+    /// Steps 2-6 of a fill, in `hs`'s AST with `ct` its template. Unspelled
     /// when an argument has no clang spelling in this set or the set only
     /// declares the template (the caller may retry in another). A failure's
-    /// reason goes to \p why, the caller's own.
+    /// reason goes to `why`, the caller's own.
     priv fn _fill_in(self,
                      shell: unsafe *Decl,
                      sink:  unsafe *BufferedDiagSink,
@@ -740,8 +740,8 @@ pub class ForeignInstantiate {
     }
 
     /// Whether clang's own template argument deduction and substitution
-    /// keep the imported function template \p f as a candidate for a call
-    /// with these arguments: 1 kept, 0 removed (\p why says by what), 2
+    /// keep the imported function template `f` as a candidate for a call
+    /// with these arguments: 1 kept, 0 removed (`why` says by what), 2
     /// removed over a Kairo record's stand-in (soft: see below), -1
     /// undecided -- the arguments or the template have no clang spelling
     /// here, or clang's DEDUCTION (not substitution) disagreed with Kairo's.
@@ -764,17 +764,17 @@ pub class ForeignInstantiate {
     /// conversions; overruling it there would make an export gap (an
     /// argument TypeExport spells approximately) look like the user's error.
     ///
-    /// \p explicit_args are the call's written generic arguments, \p arg_tys
-    /// / \p arg_cats the call arguments in C++ order with no implicit object,
+    /// `explicit_args` are the call's written generic arguments, `arg_tys`
+    /// / `arg_cats` the call arguments in C++ order with no implicit object,
     /// each the argument's value type (a literal's default) and category.
     /// Takes `_mu` then the set's sema_lock(), the fill order.
     ///
-    /// \p ret, when \p want_ret, receives the specialization's return type as
+    /// `ret`, when `want_ret`, receives the specialization's return type as
     /// clang substituted it, imported: the one source for a return type
     /// Kairo imported opaque (`enable_if_t<..., int>`, `-> decltype(...)`).
-    /// \p fid is the calling TU (-1 none), as for fill(); \p alt_set its own
-    /// HeaderSet (null for none), the retry when \p f's set cannot spell the
-    /// arguments. \p spec / \p spec_set receive the clang specialization a
+    /// `fid` is the calling TU (-1 none), as for fill(); `alt_set` its own
+    /// HeaderSet (null for none), the retry when `f`'s set cannot spell the
+    /// arguments. `spec` / `spec_set` receive the clang specialization a
     /// success deduced and the set it lives in (cxx_moves_out reads its body).
     /// The answer is a CxxDeduce.
     fn deduce_call(self,
@@ -920,8 +920,8 @@ pub class ForeignInstantiate {
         return r as i8
     }
 
-    /// deduce_call's work in one set: \p ftd is the template as \p hs's AST
-    /// declares it. \p opaque reports that an argument had no spelling there
+    /// deduce_call's work in one set: `ftd` is the template as `hs`'s AST
+    /// declares it. `opaque` reports that an argument had no spelling there
     /// but an opaque blob, so no return type was imported. Under `_mu`.
     priv fn _deduce_in(self,
                        f:                    unsafe *Decl,
@@ -957,7 +957,7 @@ pub class ForeignInstantiate {
         tx.reg               = self._reg
         tx.psym              = self.psym
         tx.instances         = self._instances
-        tx.home_fid          = fid // \p fid: the calling TU, which a Kairo instance spelled here is homed in.
+        tx.home_fid          = fid // `fid`: the calling TU, which a Kairo instance spelled here is homed in.
         tx.allow_opaque_args = true // see TypeExport::allow_opaque_args; a removal over a blob is soft (below).
         var        loc  = ftd->getLocation()
         var unsafe *tpl = ftd->getTemplateParameters()
@@ -1103,7 +1103,7 @@ pub class ForeignInstantiate {
             }
         }
 
-        // \p conv_at: arguments Kairo passed on unchecked because their
+        // `conv_at`: arguments Kairo passed on unchecked because their
         // parameter is opaque until substituted (`format_string<T...>`).
         // The specialization's own parameter is now concrete; C++ takes the
         // argument iff an implicit conversion sequence exists, which clang
@@ -1216,7 +1216,7 @@ pub class ForeignInstantiate {
         return verdict
     }
 
-    /// What clang says of the imported function \p f's side effects (see
+    /// What clang says of the imported function `f`'s side effects (see
     /// Native/ClangPurity.hh): 0 none, 1 const, 2 pure.
     ///
     /// Invariant: Sema threads never read clang's AST outside the owning
@@ -1245,10 +1245,10 @@ pub class ForeignInstantiate {
         return kairo::clang_decl_purity(cd)
     }
 
-    /// Does the C++ function \p f move out of what its parameter \p idx (the
-    /// clang index, -1 for the implicit object) refers to? \p spec, when not
+    /// Does the C++ function `f` move out of what its parameter `idx` (the
+    /// clang index, -1 for the implicit object) refers to? `spec`, when not
     /// null, is the clang specialization the call selected (CallExpr::
-    /// cxx_spec) and \p spec_set its HeaderSet; else \p f's own clang decl is
+    /// cxx_spec) and `spec_set` its HeaderSet; else `f`'s own clang decl is
     /// read. The walk is Native/ClangMoveWalk.hh's; it instantiates bodies,
     /// so it runs under `_mu` and then the set's sema_lock(), the fill order,
     /// with the set's diagnostics quiet.
@@ -1317,7 +1317,7 @@ pub class ForeignInstantiate {
         return v
     }
 
-    /// The Kairo range of clang's \p b .. \p e in \p hs, invalid when the
+    /// The Kairo range of clang's `b` .. `e` in `hs`, invalid when the
     /// file has no Kairo fid (a header no declaration was imported from).
     /// Under the set's sema_lock().
     priv fn _header_range(self,
@@ -1367,7 +1367,7 @@ pub class ForeignInstantiate {
         return self._hindex->ksm()->get_range(kb, off, len)
     }
 
-    /// The return type clang deduces for the imported non-template \p f
+    /// The return type clang deduces for the imported non-template `f`
     /// declared `auto` / `auto*` / `decltype(auto)`, imported; null when it
     /// is not such a function or clang cannot deduce it. Asked at a call,
     /// never at import: deducing instantiates the body, and a header full of
@@ -1435,9 +1435,9 @@ pub class ForeignInstantiate {
         return ti._import(rq)
     }
 
-    /// C++ takes a \p from of category \p cat to the class \p to through ONE
+    /// C++ takes a `from` of category `cat` to the class `to` through ONE
     /// user-defined conversion ([over.best.ics]), as clang judges it at a
-    /// call to the imported \p f. Asked of clang rather than re-derived:
+    /// call to the imported `f`. Asked of clang rather than re-derived:
     /// the real converting constructors are templates (`fmt::basic_string_
     /// view(const S&)`), take a defaulted trailing parameter (`basic_string(
     /// const CharT*, const Alloc& = Alloc())`), are consteval (`fstring`), or
@@ -1447,9 +1447,9 @@ pub class ForeignInstantiate {
     /// own lattice to judge. Diagnostics are suppressed and any hard error
     /// is a no: the probe is a question, never the program's error.
     ///
-    /// \p lit_n nonzero: the source is a string literal, asked as what C++
+    /// `lit_n` nonzero: the source is a string literal, asked as what C++
     /// sees -- an lvalue `const char[lit_n]` -- not its decayed `const char*`
-    /// (\p from is then ignored). A constructor template on `const char
+    /// (`from` is then ignored). A constructor template on `const char
     /// (&)[N]` (fmt's `format_string`) deduces N only from the array; the
     /// pointer-taking constructors still see it through the decay.
     fn cxx_converts(self,
@@ -1545,7 +1545,7 @@ pub class ForeignInstantiate {
     /// not its definition (that waits until the type is required complete),
     /// so walk_declare declares `node` and correctly walks nothing inside it:
     /// `node` bound as a type with no fields or methods. Complete each such
-    /// record the walk reached, then walk it, appending to \p pairs --
+    /// record the walk reached, then walk it, appending to `pairs` --
     /// so a record completed here yields ITS nested records to the same loop
     /// (`A<T>::B::C`), and everything is declared before the define pass.
     ///

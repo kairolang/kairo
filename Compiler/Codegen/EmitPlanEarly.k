@@ -172,7 +172,7 @@ extend EmitPlan {
         }
     }
 
-    /// The early items \p f's own signature computes from (`eval fn f(a: [i32;
+    /// The early items `f`'s own signature computes from (`eval fn f(a: [i32;
     /// g(1)])`, a computed return type): C++ evaluates them where f is
     /// DECLARED, so f is declared only after they are defined. Never f itself.
     fn sig_items(self,
@@ -198,7 +198,7 @@ extend EmitPlan {
         }
     }
 
-    /// \p x's EarlyNeeds, computed once into the _en_ tables.
+    /// `x`'s EarlyNeeds, computed once into the _en_ tables.
     fn _early_needs(self, x: unsafe *Decl) {
         for var i: usize = 0; i < self._en_done.size(); ++i {
             if self._en_done[i] == x {
@@ -252,7 +252,7 @@ extend EmitPlan {
         self._en.push_back(r)
     }
 
-    /// \p seeds and every item they read (kind 0), transitively, into \p out.
+    /// `seeds` and every item they read (kind 0), transitively, into `out`.
     fn _early_close(self,
                     const seeds: cxx::std::vector<unsafe *Decl>,
                     kind:        u8,
@@ -272,7 +272,7 @@ extend EmitPlan {
         }
     }
 
-    /// The items the types written in record \p d's definition compute from:
+    /// The items the types written in record `d`'s definition compute from:
     /// fields, bases, method signatures, nested records' (they are defined
     /// inside it).
     fn _decl_type_items(self, d: unsafe *Decl, out: unsafe *cxx::std::vector<unsafe *Decl>) {
@@ -366,7 +366,7 @@ extend EmitPlan {
         }
     }
 
-    /// The items computed values in \p t name.
+    /// The items computed values in `t` name.
     fn _type_items(self, t: unsafe *Type, out: unsafe *cxx::std::vector<unsafe *Decl>) {
         if t == &null {
             return
@@ -379,11 +379,11 @@ extend EmitPlan {
         }
     }
 
-    /// _type_items' walk: EarlyNeeds::rec_type on \p t, and on every type
+    /// _type_items' walk: EarlyNeeds::rec_type on `t`, and on every type
     /// written inside it, through pointers, references and arguments too. A
     /// computed value behind a pointer (`*Widget<Pt(2, 3)>`) is evaluated
     /// where the declaration is written all the same, though its
-    /// record is not needed complete -- only the items are read from \p n.
+    /// record is not needed complete -- only the items are read from `n`.
     fn _type_items_walk(self, t: unsafe *Type, n: unsafe *EarlyNeeds, depth: u32) {
         if t == &null || depth > (16 as u32) {
             return
@@ -446,7 +446,7 @@ extend EmitPlan {
         return false
     }
 
-    /// The tier-1 decl whose definition lays out record \p d: its primary for
+    /// The tier-1 decl whose definition lays out record `d`: its primary for
     /// an instance, its outermost record for a nested one.
     fn _layout_key(self, d: unsafe *Decl) -> unsafe *Decl {
         var unsafe *c = Speller::rep(d)
@@ -473,7 +473,7 @@ extend EmitPlan {
         return self._outermost_type(c)
     }
 
-    /// \p d (a defining link) is defined in tier 1 as an early item.
+    /// `d` (a defining link) is defined in tier 1 as an early item.
     fn is_early(self, d: unsafe *Decl) -> bool {
         for var i: usize = 0; i < self.early.size(); ++i {
             if self.early[i] == d {
@@ -623,8 +623,8 @@ extend EmitPlan {
         return out
     }
 
-    /// \p d's member bodies that are part of its interface: all of them under a
-    /// class template (\p in_template), only its member templates and `inline`
+    /// `d`'s member bodies that are part of its interface: all of them under a
+    /// class template (`in_template`), only its member templates and `inline`
     /// members otherwise. Nested records recurse, as EmitIR::_record_bodies does.
     fn _visible_record_bodies(
         self,
@@ -667,7 +667,7 @@ extend EmitPlan {
         }
     }
 
-    /// The DEFINING link of \p f -- an in-class declaration whose body is out of
+    /// The DEFINING link of `f` -- an in-class declaration whose body is out of
     /// line is in the member list, the body is on the chain -- once. Nothing
     /// without a block body: there is nothing to make visible.
     fn _push_body(self,
@@ -711,7 +711,7 @@ extend EmitPlan {
         self._in_body = outer
     }
 
-    /// A compile-time literal's bytes, \p n of them at \p p: one past the
+    /// A compile-time literal's bytes, `n` of them at `p`: one past the
     /// inline limit is recorded for its named definition, once per content
     /// (the name is the content's, so equal bytes are one definition).
     fn note_eval_str(self, p: kairo::std::ConstPtr<u8>, n: usize) {
@@ -722,7 +722,7 @@ extend EmitPlan {
         self._note_str(p, n, false)
     }
 
-    /// A string literal of the two-word library, \p n bytes at \p p: its
+    /// A string literal of the two-word library, `n` bytes at `p`: its
     /// object (LowerTargets::lit_str) is defined once per content, whatever
     /// its length.
     fn note_lit_str(self, p: kairo::std::ConstPtr<u8>, n: usize) {
@@ -774,7 +774,7 @@ extend EmitPlan {
         }
     }
 
-    /// The object of a member step: \p t itself, or what it points at. C++
+    /// The object of a member step: `t` itself, or what it points at. C++
     /// looks the member up in that class, so it is complete.
     fn _admit_receiver(self, t: unsafe *Type) {
         if t == &null {
@@ -794,7 +794,7 @@ extend EmitPlan {
         }
     }
 
-    /// \p t a pointer to a class with bases: that class complete (see
+    /// `t` a pointer to a class with bases: that class complete (see
     /// visit_expr). Anything else is left as its shape admits it.
     fn _admit_derived_pointee(self, t: unsafe *Type) {
         if t == &null {
@@ -823,7 +823,7 @@ extend EmitPlan {
         }
     }
 
-    /// \p t is a tuple by value: the record TupleRecords made for one (a
+    /// `t` is a tuple by value: the record TupleRecords made for one (a
     /// TupleType too, though none is canonical after T).
     fn is_tuple_type(self, t: unsafe *Type) -> bool {
         if t == &null {
@@ -854,7 +854,7 @@ extend EmitPlan {
         return sd != &null && sd->tuple_arity > 0
     }
 
-    /// Every record \p t reaches through pointers, fields, method results and
+    /// Every record `t` reaches through pointers, fields, method results and
     /// generic arguments, each complete (see _admit_instance, O36b). Once per
     /// record per plan: _duck_seen.
     fn _duck_reach(self, t: unsafe *Type, depth: u32) {
@@ -941,7 +941,7 @@ extend EmitPlan {
         }
     }
 
-    /// The type whose scope holds \p d, or null for a namespace-scope decl.
+    /// The type whose scope holds `d`, or null for a namespace-scope decl.
     fn _member_owner(self, d: unsafe *Decl) -> unsafe *Decl {
         var unsafe *dc = d->semantic_dc
         if dc == &null {

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------ Sema/Check/InterfaceComposition.k --- ///
 ///
-///   \brief Normalize an algebraic interface into a regular one: a plain
-///          requirement list, before binding and conformance see it.
+/// Normalize an algebraic interface into a regular one: a plain
+/// requirement list, before binding and conformance see it.
 ///
 ///   \detail
 ///     `interface Foo derives X + (Y - Z) & W` composes requirement sets:
@@ -168,7 +168,7 @@ pub class InterfaceComposition {
 
     /// # one interface
 
-    /// Compose \p id once: its derives expression, then its own members.
+    /// Compose `id` once: its derives expression, then its own members.
     /// False when it is poisoned (reported here or by an operand).
     fn compose(self, id: unsafe *InterfaceDecl) -> bool {
         if id->compose_state == 2 {
@@ -234,7 +234,7 @@ pub class InterfaceComposition {
         return ok
     }
 
-    /// Evaluate derives subexpression \p e. Leaves are consumed in source
+    /// Evaluate derives subexpression `e`. Leaves are consumed in source
     /// order, leaf i being derives_list[i] (the parser's contract).
     priv fn _eval(self,
                   id:         unsafe *InterfaceDecl,
@@ -339,9 +339,9 @@ pub class InterfaceComposition {
         return true
     }
 
-    /// `l + r` into \p l: each of \p r's requirements joins unless identical
+    /// `l + r` into `l`: each of `r`'s requirements joins unless identical
     /// to one already there; an associated type merges. A `+` conflict is
-    /// reported at \p at.
+    /// reported at `at`.
     priv fn _union(self,
                    id:       unsafe *InterfaceDecl,
                    l:        unsafe *cxx::std::vector<Requirement>,
@@ -499,7 +499,7 @@ pub class InterfaceComposition {
         a->bounds = kept
     }
 
-    /// \p id's own members, each its own requirement.
+    /// `id`'s own members, each its own requirement.
     priv fn _own(self, id: unsafe *InterfaceDecl, out: unsafe *cxx::std::vector<Requirement>) {
         var unsafe *me = self._self_instance(id)
         for var i: usize = 0; i < id->methods.size(); ++i {
@@ -540,7 +540,7 @@ pub class InterfaceComposition {
 
     /// # identity (D3)
 
-    /// The index in \p pool of a requirement identical to \p a, or usize(-1).
+    /// The index in `pool` of a requirement identical to `a`, or usize(-1).
     priv fn _find(self,
                   id:          unsafe *InterfaceDecl,
                   a:           unsafe *Requirement,
@@ -736,9 +736,9 @@ pub class InterfaceComposition {
         return false
     }
 
-    /// Requirement \p r's type \p t as the composed interface \p id sees it:
+    /// Requirement `r`'s type `t` as the composed interface `id` sees it:
     /// the source interface's parameters bound by r's instance, its `Self`
-    /// replaced by \p id's, and -- when comparing against \p other -- r's own
+    /// replaced by `id`'s, and -- when comparing against `other` -- r's own
     /// generic parameters bound to other's by position. Canonical, cv dropped.
     priv fn _norm(self,
                   id:    unsafe *InterfaceDecl,
@@ -859,7 +859,7 @@ pub class InterfaceComposition {
 
     /// # the LSP hook (D10)
 
-    /// The derived part of \p id's body as Kairo source -- what an inlay
+    /// The derived part of `id`'s body as Kairo source -- what an inlay
     /// hint shows after its derives clause -- or "" when nothing is derived.
     fn derived_text(self, id: unsafe *InterfaceDecl) -> string {
         var body = ""
@@ -947,7 +947,7 @@ pub class InterfaceComposition {
         return s
     }
 
-    /// \p t as the source interface's arguments make it, its bare `Self`
+    /// `t` as the source interface's arguments make it, its bare `Self`
     /// spelled `Self`.
     priv fn _type_text(self,
                        id: unsafe *InterfaceDecl,
@@ -1026,8 +1026,8 @@ pub class InterfaceComposition {
         return s
     }
 
-    /// Requirement source \p src (canonical in its interface's parameters)
-    /// as reached through leaf type \p leaf: those parameters bound by the leaf's arguments.
+    /// Requirement source `src` (canonical in its interface's parameters)
+    /// as reached through leaf type `leaf`: those parameters bound by the leaf's arguments.
     priv fn _through(self, src: unsafe *Type, leaf: unsafe *Type) -> unsafe *Type {
         var unsafe *c = self._canon(src)
         if c == &null || !c->is_dependent() {
@@ -1040,7 +1040,7 @@ pub class InterfaceComposition {
         return if (s != &null) => (canon_unqual(s)) else => c
     }
 
-    /// \p id's own instance: record(id) at its own parameters.
+    /// `id`'s own instance: record(id) at its own parameters.
     priv fn _self_instance(self, id: unsafe *InterfaceDecl) -> unsafe *Type {
         var unsafe *rep = NameLookup::representative(
             unsafe (id as unsafe *Decl),

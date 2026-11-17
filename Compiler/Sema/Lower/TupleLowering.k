@@ -1,9 +1,9 @@
 /// --- The Kairo Project ------------------- Sema/Lower/TupleLowering.k --- ///
 ///
-///   \brief A tuple is its arity's lang record. This pass makes the tree say
-///          so where ExprTyper left the tuple-shaped nodes: a literal
-///          becomes the record's initializer, an index step becomes the field
-///          it already names, a destructuring becomes one local per binder.
+/// A tuple is its arity's lang record. This pass makes the tree say
+/// so where ExprTyper left the tuple-shaped nodes: a literal
+/// becomes the record's initializer, an index step becomes the field
+/// it already names, a destructuring becomes one local per binder.
 ///
 ///   \detail
 ///     TypeResolve canonicalized every `(A, B)` to `record(Tuple2, [A, B])`,

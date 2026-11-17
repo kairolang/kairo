@@ -299,7 +299,7 @@ pub fn write_lsp_position(w: *JsonWriter, line: i64, ch: i64) {
     w->end_object()
 }
 
-/// Writes the Range from (\p sl, \p sc) to (\p el, \p ec).
+/// Writes the Range from (`sl`, `sc`) to (`el`, `ec`).
 pub fn write_lsp_range(w: *JsonWriter, sl: i64, sc: i64, el: i64, ec: i64) {
     w->begin_object()
     w->key(K_START)
@@ -309,7 +309,7 @@ pub fn write_lsp_range(w: *JsonWriter, sl: i64, sc: i64, el: i64, ec: i64) {
     w->end_object()
 }
 
-/// Writes the Location `{"uri":U,"range":R}`, with \p range already JSON.
+/// Writes the Location `{"uri":U,"range":R}`, with `range` already JSON.
 pub fn write_lsp_location_raw(w: *JsonWriter, const uri: string, const range: string) {
     w->begin_object()
     w->field(K_URI, uri)
@@ -317,7 +317,7 @@ pub fn write_lsp_location_raw(w: *JsonWriter, const uri: string, const range: st
     w->end_object()
 }
 
-/// Writes the TextEdit `{"range":R,"newText":T}`, with \p range already JSON.
+/// Writes the TextEdit `{"range":R,"newText":T}`, with `range` already JSON.
 pub fn write_lsp_text_edit_raw(w: *JsonWriter, const range: string, const text: string) {
     w->begin_object()
     w->field_raw(K_RANGE, range)

@@ -103,7 +103,7 @@ inline fn round_to_odd32(g: u64, cp: u32) -> u32 {
 
 /// The shortest decimal that rounds to the f64 with bit pattern `bits`.
 ///
-/// \pre `bits` has the sign bit clear and is neither zero, an infinity nor
+/// **Precondition:** `bits` has the sign bit clear and is neither zero, an infinity nor
 /// a NaN.
 prot fn f64_to_decimal(bits: u64) -> FloatDecimal {
     var frac     = bits & 0x000FFFFFFFFFFFFF
@@ -174,7 +174,7 @@ prot fn f64_to_decimal(bits: u64) -> FloatDecimal {
 
 /// The shortest decimal that rounds to the f32 with bit pattern `bits`.
 ///
-/// \pre `bits` has the sign bit clear and is neither zero, an infinity nor
+/// **Precondition:** `bits` has the sign bit clear and is neither zero, an infinity nor
 /// a NaN.
 prot fn f32_to_decimal(bits: u32) -> FloatDecimal {
     var frac     = bits & 0x007FFFFF
@@ -292,7 +292,7 @@ inline fn shift_left_one(buf: unsafe *u8, at: usize, len: usize) {
 /// place; where a point goes among them they are written one byte to the
 /// right and the digits before the point move back over it.
 ///
-/// \pre `fixed_below <= 17`; `buf[at ..)` has room for the text and for 8
+/// **Precondition:** `fixed_below <= 17`; `buf[at ..)` has room for the text and for 8
 /// bytes past `at` in any case.
 fn layout_decimal(buf: unsafe *u8, at: usize, sig: u64, exp: i32, fixed_below: i32) -> usize {
     var n = decimal_digits(sig)
@@ -388,7 +388,7 @@ fn layout_special(buf: unsafe *u8, at: usize, nan: bool) -> usize {
 /// Zero is `0` or `-0`, an infinity `inf` or `-inf`, and every NaN `nan`
 /// whatever its sign and payload.
 ///
-/// \pre `buf` is valid for writes of `F64_TEXT_MAX` (24) bytes.
+/// **Precondition:** `buf` is valid for writes of `F64_TEXT_MAX` (24) bytes.
 prot fn f64_to_text(v: f64, buf: unsafe *u8) -> usize {
     var bits: u64 = 0
     unsafe {
@@ -421,7 +421,7 @@ prot fn f64_to_text(v: f64, buf: unsafe *u8) -> usize {
 
 /// The f32 counterpart of `f64_to_text`.
 ///
-/// \pre `buf` is valid for writes of `F32_TEXT_MAX` (15) bytes.
+/// **Precondition:** `buf` is valid for writes of `F32_TEXT_MAX` (15) bytes.
 prot fn f32_to_text(v: f32, buf: unsafe *u8) -> usize {
     var bits: u32 = 0
     unsafe {
@@ -665,7 +665,9 @@ fn big_cmp(a: *const BigNat, b: *const BigNat) -> i32 {
     return 0
 }
 
-/// a = a - b. \pre a >= b.
+/// a = a - b.
+///
+/// **Precondition:** a >= b.
 fn big_sub(a: *BigNat, b: *const BigNat) {
     var borrow: u64 = 0
     for var i: usize = 0; i < a->n; ++i {
@@ -681,7 +683,9 @@ fn big_sub(a: *BigNat, b: *const BigNat) {
 }
 
 /// The top 64 bits of `a`, left-aligned. `*sticky` is set when a set bit
-/// lies below them. \pre a is nonzero and `len` is its bit length.
+/// lies below them.
+///
+/// **Precondition:** a is nonzero and `len` is its bit length.
 fn big_top64(a: *const BigNat, len: i32, sticky: *bool) -> u64 {
     if len <= 64 {
         var v: u64 = a->w[0]
@@ -716,7 +720,9 @@ fn big_top64(a: *const BigNat, len: i32, sticky: *bool) -> u64 {
 
 /// The bit pattern of `m * 2^e` rounded to nearest, ties to even, where the
 /// exact value lies in `[m, m + 1) * 2^e` and is `m * 2^e` itself only when
-/// `sticky` is false. \pre the top bit of `m` is set.
+/// `sticky` is false.
+///
+/// **Precondition:** the top bit of `m` is set.
 fn round_to_bits(m: u64, e: i64, sticky: bool, single: bool) -> u64 {
     var mant_bits: i32 = if single => 23 else => 52
     var min_e2:    i64 = if single => -126 else => -1022
@@ -1219,7 +1225,7 @@ fn <F> parse_float_bits(p: unsafe *const u8, n: usize, @inout err: ParseError) -
 /// A finite number too large for the type is `Overflow`; one too small
 /// rounds to zero.
 ///
-/// \pre `p` is valid for reads of `n` bytes.
+/// **Precondition:** `p` is valid for reads of `n` bytes.
 prot inline fn parse_f64(p: unsafe *const u8, n: usize, @inout err: ParseError) -> f64 {
     var bits     = parse_float_bits<f64>(p, n, &err)
     var v:   f64 = 0.0

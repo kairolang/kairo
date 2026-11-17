@@ -318,7 +318,7 @@ pub fn _unmatched_choices() -> cxx::std::vector<string> {
     return c
 }
 
-/// A String flag restricted to \p choices that still takes its value as the
+/// A String flag restricted to `choices` that still takes its value as the
 /// next argument. str_c is built for `-O`, whose bare form means `-O1`; it sets
 /// has_bare, and a flag with a bare form never consumes the following word, so
 /// `--edition 2026` would have left `2026` behind as an input file.

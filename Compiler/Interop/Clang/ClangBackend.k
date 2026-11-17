@@ -11,11 +11,10 @@
 ///
 /// ------------------------------------------------------------------------ ///
 ///
-/// \file  Interop/Clang/ClangBackend.k
-/// \brief Owns the ONE clang CompilerInstance shared across all Kairo TUs:
-///        invocation, target, FileManager, SourceManager. Kairo fids are
-///        mirrored into the clang SM via ClangLocMap straight from the VFM
-///        mmaps, and the per-TU diagnostic client is a ClangDiagAdapter.
+/// Owns the ONE clang CompilerInstance shared across all Kairo TUs:
+/// invocation, target, FileManager, SourceManager. Kairo fids are
+/// mirrored into the clang SM via ClangLocMap straight from the VFM
+/// mmaps, and the per-TU diagnostic client is a ClangDiagAdapter.
 ///
 /// \par Lifecycle
 ///   1. Driver constructs this in initialize() and enqueues startup() on the
@@ -52,7 +51,6 @@
 ///   (CodegenMounts::freeze; InMemoryFileSystem::addFile is not
 ///   thread-safe, its reads are, and each TU reaches it through a proxy that
 ///   drops the working-directory write), and the real file system.
-///
 
 ffi "c++" import "llvm/Support/Allocator.h"
 ffi "c++" import "llvm/Support/StringSaver.h"
@@ -175,20 +173,19 @@ pub enum MountState derives u8 {
     Released,
 }
 
-/// \class CodegenMounts
-/// \brief What every codegen TU's VFS holds on top of the real file system:
-///        the PCH bytes phase B loads, and the wrapper headers that replay a
-///        set textually. Filled on the driver thread before the fan-out and
-///        read-only after it.
+/// What every codegen TU's VFS holds on top of the real file system:
+/// the PCH bytes phase B loads, and the wrapper headers that replay a
+/// set textually. Filled on the driver thread before the fan-out and
+/// read-only after it.
 ///
-/// \details freeze() builds the in-memory layer once, right before the
-///          fan-out, and every TU's VFS (codegen_vfs) shares it. Before the
-///          freeze -- the interface PCH builds, each of which adds its own
-///          PCH after it is built -- codegen_vfs builds a layer of its own per
-///          call (a per-TU layer): InMemoryFileSystem::addFile hashes the
-///          whole of each file's contents into its UniqueID, so per TU that
-///          is ~50 MB of PCH hashed and every wrapper text copied, ~2% of the
-///          fan-out's CPU.
+/// freeze() builds the in-memory layer once, right before the
+/// fan-out, and every TU's VFS (codegen_vfs) shares it. Before the
+/// freeze -- the interface PCH builds, each of which adds its own
+/// PCH after it is built -- codegen_vfs builds a layer of its own per
+/// call (a per-TU layer): InMemoryFileSystem::addFile hashes the
+/// whole of each file's contents into its UniqueID, so per TU that
+/// is ~50 MB of PCH hashed and every wrapper text copied, ~2% of the
+/// fan-out's CPU.
 ///
 ///          Sharing it is safe because nothing writes it after the freeze:
 ///          add_* refuses, and the reads clang makes through it (status,
@@ -273,11 +270,11 @@ pub class CodegenMounts {
         return self._shared
     }
 
-    /// \brief a fresh in-memory layer holding every mount.
+    /// a fresh in-memory layer holding every mount.
     ///
-    /// \details The PCH bytes are mounted as views of the buffers this
-    ///          lists (they outlive every TU); the small wrapper texts are
-    ///          copied.
+    /// The PCH bytes are mounted as views of the buffers this
+    /// lists (they outlive every TU); the small wrapper texts are
+    /// copied.
     fn layer(self) -> llvm::IntrusiveRefCntPtr<llvm::vfs::InMemoryFileSystem> {
         var mem = llvm::makeIntrusiveRefCnt<llvm::vfs::InMemoryFileSystem>()
         for var i: usize = 0; i < self.pch_paths.size(); ++i {
@@ -422,11 +419,11 @@ pub class ClangBackend {
         return self._vfs
     }
 
-    /// \brief the pragma lines around every ffi header region, phase A's
-    ///        PCH buffer and phase B's textual wrapper alike: see
-    ///        FlagTranslator::header_fp_pragmas.
-    ///        After startup() only: the probe that fills the C++ defaults runs
-    ///        there, under its mutex, and pool threads call this.
+    /// the pragma lines around every ffi header region, phase A's
+    /// PCH buffer and phase B's textual wrapper alike: see
+    /// FlagTranslator::header_fp_pragmas.
+    /// After startup() only: the probe that fills the C++ defaults runs
+    /// there, under its mutex, and pool threads call this.
     pub fn header_fp_pragmas(self,
                              open:  unsafe *cxx::std::vector<string>,
                              close: unsafe *cxx::std::vector<string>) {
@@ -463,22 +460,22 @@ pub class ClangBackend {
         return unsafe &self._oracle
     }
 
-    /// \brief the invocation for compiling one C or C++ source file to an
-    ///        object, on the same target and roots as Kairo's own codegen: a
-    ///        FRESH one from the shared cc1 arguments rather than a copy of
-    ///        the backend's. run_native() compiles it.
+    /// the invocation for compiling one C or C++ source file to an
+    /// object, on the same target and roots as Kairo's own codegen: a
+    /// FRESH one from the shared cc1 arguments rather than a copy of
+    /// the backend's. run_native() compiles it.
     ///
-    /// \details a copy carries C++ LangOptions, and a .c file must get
-    ///          clang's C defaults. Only the runtime (Lib/rt) is built here;
-    ///          the user's C/C++ inputs go through clang's driver
-    ///          (ClangJobs). \p extra is appended after the shared
-    ///          arguments: the runtime's own header roots (the vendored
-    ///          mimalloc's include/), which no other TU may see. Driver
-    ///          thread only: the argv bytes come from this backend's arena
-    ///          and a bad argument reports through the shared arg-parse
-    ///          engine. Null on failure.
+    /// a copy carries C++ LangOptions, and a .c file must get
+    /// clang's C defaults. Only the runtime (Lib/rt) is built here;
+    /// the user's C/C++ inputs go through clang's driver
+    /// (ClangJobs). `extra` is appended after the shared
+    /// arguments: the runtime's own header roots (the vendored
+    /// mimalloc's include/), which no other TU may see. Driver
+    /// thread only: the argv bytes come from this backend's arena
+    /// and a bad argument reports through the shared arg-parse
+    /// engine. Null on failure.
     ///
-    ///          \p key, when not null, receives every argument but the
+    ///          `key`, when not null, receives every argument but the
     ///          trailing `-o <out>`, one per line: what the object's bytes
     ///          depend on besides the files it reads, so the driver's runtime
     ///          object cache (CompilerInstance::_compile_runtime) can key on
@@ -594,14 +591,14 @@ pub class ClangBackend {
         return inv
     }
 
-    /// \brief runs one native_invocation() to its object. Any thread.
+    /// runs one native_invocation() to its object. Any thread.
     ///
-    /// \details Own CompilerInstance and own printer, writing to \p log
-    ///          rather than stderr, so the runtime's files compile side by
-    ///          side and the caller prints what they said in input order.
-    ///          These files have no Kairo fid, so they are reported in
-    ///          clang's own format. The backend's VFS is only read here: no
-    ///          mount happens while native compiles run.
+    /// Own CompilerInstance and own printer, writing to `log`
+    /// rather than stderr, so the runtime's files compile side by
+    /// side and the caller prints what they said in input order.
+    /// These files have no Kairo fid, so they are reported in
+    /// clang's own format. The backend's VFS is only read here: no
+    /// mount happens while native compiles run.
     ///
     ///          The later `#include "foo.k"` work installs the patched
     ///          FileTokenizer hook on this instance's Preprocessor; nothing
@@ -648,14 +645,14 @@ pub class ClangBackend {
         return ok
     }
 
-    /// \brief a codegen TU's own VFS: the real file system under the
-    ///        in-memory layer of \p m.
+    /// a codegen TU's own VFS: the real file system under the
+    /// in-memory layer of `m`.
     ///
-    /// \details Any thread. The overlay is the TU's own; the layer is the one
-    ///          \p m shares once frozen (CodegenMounts::freeze), pushed
-    ///          through a proxy that keeps pushOverlay's working-directory
-    ///          write off it (Native/SharedVFS.hh), else a fresh one for this
-    ///          call.
+    /// Any thread. The overlay is the TU's own; the layer is the one
+    /// `m` shares once frozen (CodegenMounts::freeze), pushed
+    /// through a proxy that keeps pushOverlay's working-directory
+    /// write off it (Native/SharedVFS.hh), else a fresh one for this
+    /// call.
     pub fn codegen_vfs(self, m: *CodegenMounts) -> llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> {
         var overlay = llvm::makeIntrusiveRefCnt<llvm::vfs::OverlayFileSystem>(
             llvm::vfs::getRealFileSystem(),
@@ -716,11 +713,11 @@ pub class ClangBackend {
         self._arg(&*argv, "<injected>")
     }
 
-    /// \brief the shared invocation's cc1 arguments, for --print-clang-args.
+    /// the shared invocation's cc1 arguments, for --print-clang-args.
     ///
-    /// \details the argv _startup_locked parses, then each configured
-    ///          -include, which the backend hands to the preprocessor options
-    ///          directly and cc1 would take as the flag. Nothing is started.
+    /// the argv _startup_locked parses, then each configured
+    /// -include, which the backend hands to the preprocessor options
+    /// directly and cc1 would take as the flag. Nothing is started.
     pub fn invocation_args(self) -> cxx::std::vector<string> {
         var argv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
         self._shared_argv(unsafe &argv)
@@ -747,18 +744,18 @@ pub class ClangBackend {
         )
     }
 
-    /// \brief the cc1 arguments clang's own driver derives from the triple
-    ///        alone: CPU, features, ABI, float ABI, char signedness,
-    ///        exception model, init/atexit and unwind-table defaults.
+    /// the cc1 arguments clang's own driver derives from the triple
+    /// alone: CPU, features, ABI, float ABI, char signedness,
+    /// exception model, init/atexit and unwind-table defaults.
     ///
-    /// \details cc1 has no defaults of its own for any of these, and there is
-    ///          no driver here: without them armhf compiled as soft-float,
-    ///          riscv64 as lp64, i686 without SSE2 (so no _Float16 or __bf16),
-    ///          and char was signed on ARM and RISC-V. Each is an ABI break
-    ///          against the sysroot's C libraries. So the driver is run once,
-    ///          for this triple, and its cc1 line is filtered to the flags
-    ///          that decide the target -- never a table here, which would
-    ///          drift from clang.
+    /// cc1 has no defaults of its own for any of these, and there is
+    /// no driver here: without them armhf compiled as soft-float,
+    /// riscv64 as lp64, i686 without SSE2 (so no _Float16 or __bf16),
+    /// and char was signed on ARM and RISC-V. Each is an ABI break
+    /// against the sysroot's C libraries. So the driver is run once,
+    /// for this triple, and its cc1 line is filtered to the flags
+    /// that decide the target -- never a table here, which would
+    /// drift from clang.
     ///
     ///          The MSVC language-mode flags (-fms-extensions,
     ///          -fms-compatibility[-version=], -fms-volatile) are taken too:
@@ -872,26 +869,26 @@ pub class ClangBackend {
         return self._target_args
     }
 
-    /// \brief the header-search model and the sysroot's required macros,
-    ///        in either spelling: kairo's own cc1 line (_cc1_common) and the
-    ///        clang driver line C/C++ inputs compile with (ClangJobs) search
-    ///        exactly the same roots, in the same order.
+    /// the header-search model and the sysroot's required macros,
+    /// in either spelling: kairo's own cc1 line (_cc1_common) and the
+    /// clang driver line C/C++ inputs compile with (ClangJobs) search
+    /// exactly the same roots, in the same order.
     ///
-    /// \details ONE explicit model for every target, the host included.
-    ///          clang is told exactly which roots to search and never falls
-    ///          back to whatever the machine has: the roots are exactly
-    ///          --sysroot and --resource-dir, never discovered
-    ///          (CompilerInstance::initialize copies them), and the same
-    ///          layout is what every sysroot's SYSROOT.toml declares (include_dirs
-    ///          = include/c++/v1, include; cc_isolation = -nostdlibinc
-    ///          -nostdinc++).
+    /// ONE explicit model for every target, the host included.
+    /// clang is told exactly which roots to search and never falls
+    /// back to whatever the machine has: the roots are exactly
+    /// --sysroot and --resource-dir, never discovered
+    /// (CompilerInstance::initialize copies them), and the same
+    /// layout is what every sysroot's SYSROOT.toml declares (include_dirs
+    /// = include/c++/v1, include; cc_isolation = -nostdlibinc
+    /// -nostdinc++).
     ///
     ///            <sysroot>/include/c++/v1   libc++
     ///            <resource>/include         clang builtins (stddef.h, intrinsics)
     ///            <sysroot>/include          libc
     ///
     ///          A root that did not resolve is left out rather than guessed;
-    ///          the resolver has already logged which one and why. \p is_c
+    ///          the resolver has already logged which one and why. `is_c`
     ///          leaves libc++ off: its C-named wrappers (<stdlib.h>,
     ///          <stddef.h>) are C++ headers, and C must reach the libc and
     ///          clang builtin ones directly.
@@ -960,7 +957,7 @@ pub class ClangBackend {
     }
 
     /// The roots sysroot_words passes as -isystem, in its order: libc++
-    /// (left off when \p is_c), the clang builtins, the C library. \p kinds
+    /// (left off when `is_c`), the clang builtins, the C library. `kinds`
     /// gets one entry per root: ROOT_CXX_LIB, ROOT_BUILTINS or ROOT_C_LIB.
     priv fn _system_roots(self,
                           is_c:         bool,
@@ -1000,17 +997,17 @@ pub class ClangBackend {
         return o
     }
 
-    /// \brief the toolchain's own library roots: \p cxx_lib the C++ standard
-    ///        library's (libc++), else the C library's and the clang
-    ///        builtins'.
+    /// the toolchain's own library roots: `cxx_lib` the C++ standard
+    /// library's (libc++), else the C library's and the clang
+    /// builtins'.
     ///
-    /// \details A subset of _system_roots, never a -I, -idirafter or
-    ///          framework directory, and never a host directory: with no
-    ///          --sysroot (--native) the C library roots are the host's
-    ///          /usr/include, which holds third-party headers beside libc,
-    ///          so none counts. MoveCheck exempts a function with no visible
-    ///          body declared under one of these (Compiler/Spec/
-    ///          Ownership.md, "C++ bodies").
+    /// A subset of _system_roots, never a -I, -idirafter or
+    /// framework directory, and never a host directory: with no
+    /// --sysroot (--native) the C library roots are the host's
+    /// /usr/include, which holds third-party headers beside libc,
+    /// so none counts. MoveCheck exempts a function with no visible
+    /// body declared under one of these (Compiler/Spec/
+    /// Ownership.md, "C++ bodies").
     pub fn library_roots(self, cxx_lib: bool) -> cxx::std::vector<string> {
         var kinds = cxx::std::vector<u8>()
         var all   = self._system_roots(false, &kinds)
@@ -1067,17 +1064,17 @@ pub class ClangBackend {
         return self._diags0.get()
     }
 
-    /// \brief the cc1 arguments every clang compile in this build shares:
-    ///        target, object emission, the explicit header-search model,
-    ///        platform extras and the user's -W policy. The Kairo backend and
-    ///        native .c/.cpp compiles both start here, so they cannot drift
-    ///        onto different targets or roots.
+    /// the cc1 arguments every clang compile in this build shares:
+    /// target, object emission, the explicit header-search model,
+    /// platform extras and the user's -W policy. The Kairo backend and
+    /// native .c/.cpp compiles both start here, so they cannot drift
+    /// onto different targets or roots.
     ///
-    /// \details \p is_c leaves libc++ off the search path: its C-named
-    ///          wrappers (<stdlib.h>, <stddef.h>) are C++ headers, and C
-    ///          must reach the libc and clang builtin ones directly.
-    /// \p kairo: the line Kairo's own code compiles with (and every header
-    ///    set, whose PCH must match it), as opposed to Lib/rt's C/C++.
+    /// `is_c` leaves libc++ off the search path: its C-named
+    /// wrappers (<stdlib.h>, <stddef.h>) are C++ headers, and C
+    /// must reach the libc and clang builtin ones directly.
+    /// `kairo`: the line Kairo's own code compiles with (and every header
+    /// set, whose PCH must match it), as opposed to Lib/rt's C/C++.
     priv fn _cc1_common(self,
                         argv:    unsafe *cxx::std::vector<kairo::std::ConstPtr<c_char>>,
                         is_c:    bool,
@@ -1175,15 +1172,16 @@ pub class ClangBackend {
         }
     }
 
-    /// \brief hands the invocation's -mllvm words to LLVM's option parser.
+    /// hands the invocation's -mllvm words to LLVM's option parser.
     ///
-    /// \details CreateFromArgs only RECORDS them in FrontendOptions::LLVMArgs;
-    ///          the parse is done by clang's cc1_main (ExecuteCompilerInvocation),
-    ///          which this backend never goes through, so without this every
-    ///          --mllvm (and the flags lowered to one) would be accepted and
-    ///          dropped. Once per process: the options are global state.
+    /// CreateFromArgs only RECORDS them in FrontendOptions::LLVMArgs;
+    /// the parse is done by clang's cc1_main (ExecuteCompilerInvocation),
+    /// which this backend never goes through, so without this every
+    /// --mllvm (and the flags lowered to one) would be accepted and
+    /// dropped. Once per process: the options are global state.
     ///
-    /// \return false when LLVM rejected a word; LLVM has printed why.
+    /// ### Returns
+    /// false when LLVM rejected a word; LLVM has printed why.
     priv fn _apply_llvm_args(self) -> bool {
         // Errors go to a stream and come back as false: without one LLVM calls
         // exit(1), here on a pool thread, for a mistyped --mllvm word.

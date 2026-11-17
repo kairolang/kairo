@@ -1,6 +1,6 @@
 /// --- The Kairo Project ---------------- Sema/Lower/OperatorLowering.k --- ///
 ///
-///   \brief Rewrite every user operator into the call it is.
+/// Rewrite every user operator into the call it is.
 ///
 ///   \detail
 ///     `a + b` with a user `op +` is a call; the syntax is sugar.
@@ -582,8 +582,8 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
     /// # `as` into a closed enum
 
-    /// The operand \p v of `v as E`, E a closed plain enum (CastTyping
-    /// marked the cast: \p v is not a constant), checked against E's values
+    /// The operand `v` of `v as E`, E a closed plain enum (CastTyping
+    /// marked the cast: `v` is not a constant), checked against E's values
     /// before the plain cast reads it:
     ///
     ///   `({ var t = v; if <t is no value of E> { unwrap_failed(m, n) }  t }) as E`

@@ -20,16 +20,12 @@ import Command::FlagRegistry::{
 import Command::ParsedArgs::ParsedArgs
 import Config::Frontend::EmitKinds
 
-///
-/// \class LinkerOptions
-///
-/// \brief Linker behaviour, ELF/Mach-O/PE/WASM platform flags, and embedded
-///        target settings.
+/// Linker behaviour, ELF/Mach-O/PE/WASM platform flags, and embedded
+/// target settings.
 ///
 /// All linking, platform-specific, and bare-metal flags live here so
 /// CompilerInvocation can pass this directly to kld without the linker
 /// driver having to pick through unrelated option structs.
-///
 pub class LinkerOptions {
     /// # output shape and inputs
 
@@ -142,8 +138,8 @@ pub class LinkerOptions {
         return self.emit_scope == "inputs"
     }
 
-    /// \p emit is the frontend's EmitKinds, so the two cannot read one
-    /// --emit spelling two ways; \p optimized is CodeGenOptions' resolved
+    /// `emit` is the frontend's EmitKinds, so the two cannot read one
+    /// --emit spelling two ways; `optimized` is CodeGenOptions' resolved
     /// level above 0 (-O and --profile, resolved there once).
     static fn from_args(@inout args: ParsedArgs,
                         const emit:  EmitKinds,

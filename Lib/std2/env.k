@@ -17,7 +17,8 @@ import string::*
 /// resolved where the OS resolves them (`/proc/self/exe` on Linux, `realpath` on macOS). It is a
 /// `string`, not a path type: the bytes are exactly what the OS reported.
 ///
-/// \returns the absolute path, or `""` when the OS cannot say
+/// ### Returns
+/// the absolute path, or `""` when the OS cannot say
 /// \example
 /// ```kairo
 /// import std::io

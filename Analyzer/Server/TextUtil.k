@@ -68,7 +68,7 @@ import Workspace::CompileCommandsLoader::{
 }
 import std::io
 
-/// Offset of \p needle in \p hay at or after \p from, or usize::MAX.
+/// Offset of `needle` in `hay` at or after `from`, or usize::MAX.
 pub fn find_from(const hay: string, const needle: string, from: usize) -> usize {
     if needle.is_empty() || (needle.size() > hay.size()) {
         return usize::MAX

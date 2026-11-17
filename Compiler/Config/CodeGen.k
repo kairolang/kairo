@@ -34,12 +34,8 @@ pub enum UnmatchedPolicy derives u8 {
     Unreachable, ///< `default: __builtin_unreachable();` -- UB on a bad value
 }
 
-///
-/// \class CodeGenOptions
-///
-/// \brief Controls optimization, debug info, instrumentation, hardening,
-///        reproducible builds, and code generation behaviour.
-///
+/// Controls optimization, debug info, instrumentation, hardening,
+/// reproducible builds, and code generation behaviour.
 pub class CodeGenOptions {
     /// # misc codegen
 

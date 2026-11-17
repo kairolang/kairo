@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------------- Driver/ObjectCache.k --- ///
 ///
-///   \brief The incremental object cache, phase 1 (Spec/Incremental.md):
-///          per Kairo TU, the object key O(m), the cache record each object
-///          carries, and the content-addressed store under --cache-dir.
+/// The incremental object cache, phase 1 (Spec/Incremental.md):
+/// per Kairo TU, the object key O(m), the cache record each object
+/// carries, and the content-addressed store under --cache-dir.
 ///
 ///   Phase 1 still parses and checks every file; what a hit skips is the
 ///   TU's codegen and clang. The key is computed from the stream the TU's
@@ -95,7 +95,7 @@ fn cache_record_magic() -> string {
     return "kairo-cache-record"
 }
 
-/// One cache entry (a file, or a directory when \p tree), for the size
+/// One cache entry (a file, or a directory when `tree`), for the size
 /// bound every cache applies through cache_evict_to_cap.
 pub struct CacheEntryStat {
     pub var path:   string
@@ -105,15 +105,15 @@ pub struct CacheEntryStat {
     pub var tree:   bool   = false ///< a directory: removed with remove_tree.
 }
 
-/// \brief while \p entries (one cache's entries left after its age bound,
-///        totalling \p total bytes) hold more than \p cap, removes the
-///        oldest first, down to three quarters of \p cap. Never a pinned
-///        entry, and never one stored in the last CACHE_RECENT_STORE_NS: a
-///        parallel run's fresh generation.
+/// while `entries` (one cache's entries left after its age bound,
+/// totalling `total` bytes) hold more than `cap`, removes the
+/// oldest first, down to three quarters of `cap`. Never a pinned
+/// entry, and never one stored in the last CACHE_RECENT_STORE_NS: a
+/// parallel run's fresh generation.
 ///
-/// \details Removing an entry cannot break a parallel build sharing the
-///          cache: every reader copies an entry out, or finds it gone and
-///          rebuilds it.
+/// Removing an entry cannot break a parallel build sharing the
+/// cache: every reader copies an entry out, or finds it gone and
+/// rebuilds it.
 pub fn cache_evict_to_cap(@inout entries: cxx::std::vector<CacheEntryStat>,
                           total:          u64,
                           cap:            u64,
@@ -192,8 +192,8 @@ pub class ObjectCache {
 
     fn ObjectCache(self) = default
 
-    /// \brief F for this backend and options, under \p cache_dir; false
-    ///        (nothing is cached) without a cache dir or a ready backend.
+    /// F for this backend and options, under `cache_dir`; false
+    /// (nothing is cached) without a cache dir or a ready backend.
     pub fn setup(self, be: unsafe *ClangBackend, const cache_dir: string) -> bool {
         self.on = false
         if cache_dir.is_empty() || be == &null || !be->ready() {
@@ -226,28 +226,29 @@ pub class ObjectCache {
         return true
     }
 
-    /// xxh3-128 of \p s, 32 hex digits.
+    /// xxh3-128 of `s`, 32 hex digits.
     pub static fn hash(const s: string) -> string {
         return kairo::std::from_std_string<string>(
             kairo::objcache_hash128(kairo::sref(s)),
         )
     }
 
-    /// \brief what the run's TUs share: the header files of the graph (by
-    ///        content, not yet hashed), the import edges that say which a TU
-    ///        can reach, and the clang words that decide what clang reports.
+    /// what the run's TUs share: the header files of the graph (by
+    /// content, not yet hashed), the import edges that say which a TU
+    /// can reach, and the clang words that decide what clang reports.
     ///
-    /// \param mods   every Kairo TU of the graph.
-    /// \param edges  parallel: each one's import edge targets (Kairo modules
-    ///               and the header files of its ffi closures alike,
-    ///               TranslationUnit::import_edges).
+    /// ### Parameters
+    /// - `mods`: every Kairo TU of the graph.
+    /// - `edges`: parallel: each one's import edge targets (Kairo modules
+    ///   and the header files of its ffi closures alike,
+    ///   TranslationUnit::import_edges).
     ///
-    /// \details Every TU compiles against the whole graph's headers (one
-    ///          merged PCH), but its key holds only the headers its stream can
-    ///          reach (tu_headers): a header kcc's graph adds, or one only an
-    ///          unrelated module imports, is no input of this TU's C++.
-    ///          By content and spelling, never by mtime: a copied checkout
-    ///          hashes the same, a touched header does not invalidate.
+    /// Every TU compiles against the whole graph's headers (one
+    /// merged PCH), but its key holds only the headers its stream can
+    /// reach (tu_headers): a header kcc's graph adds, or one only an
+    /// unrelated module imports, is no input of this TU's C++.
+    /// By content and spelling, never by mtime: a copied checkout
+    /// hashes the same, a touched header does not invalidate.
     pub fn begin_run(self,
                      @inout sets: cxx::std::vector<unsafe *HeaderSet>,
                      merged_ok:   bool,
@@ -380,23 +381,24 @@ pub class ObjectCache {
         self.run_part    = "diag " + ObjectCache::hash(self._diag_part) + "\n"
     }
 
-    /// \brief the hash of the headers TU \p fid's key holds: every header
-    ///        file reachable from a module its stream draws on.
+    /// the hash of the headers TU `fid`'s key holds: every header
+    /// file reachable from a module its stream draws on.
     ///
-    /// \param files  the files its stream's anchored tokens came from
-    ///               (HashSink::files).
+    /// ### Parameters
+    /// - `files`: the files its stream's anchored tokens came from
+    ///   (HashSink::files).
     ///
-    /// \details The modules are the TU and every module a token came from
-    ///          (an imported signature, an inline body, a witness row of
-    ///          a module the TU does not import); from each, its imports,
-    ///          transitively, and the header files of every ffi closure on
-    ///          the way, plus any header a token came from directly. That is
-    ///          everything the stream can name a header declaration through.
-    ///          Each line: the file's name (its whole path under -g, where
-    ///          debug info records it), its content hash, and `c` when it is
-    ///          imported as C. A header no such module reaches is not in the
-    ///          key even though the merged PCH holds it
-    ///          (Compiler/Spec/Incremental.md, deviation 3).
+    /// The modules are the TU and every module a token came from
+    /// (an imported signature, an inline body, a witness row of
+    /// a module the TU does not import); from each, its imports,
+    /// transitively, and the header files of every ffi closure on
+    /// the way, plus any header a token came from directly. That is
+    /// everything the stream can name a header declaration through.
+    /// Each line: the file's name (its whole path under -g, where
+    /// debug info records it), its content hash, and `c` when it is
+    /// imported as C. A header no such module reaches is not in the
+    /// key even though the merged PCH holds it
+    /// (Compiler/Spec/Incremental.md, deviation 3).
     pub fn tu_headers(self, fid: u32, const files: cxx::std::vector<u32>) -> string {
         var hmark = cxx::std::vector<u8>()
         hmark.resize(self._hdr_path.size(), 0 as u8)
@@ -485,7 +487,7 @@ pub class ObjectCache {
         return ObjectCache::hash(h)
     }
 
-    /// The content hash of header \p i, computed once.
+    /// The content hash of header `i`, computed once.
     priv fn _content_of(self, i: usize) -> string {
         if self._hdr_hash[i].is_empty() {
             self._hdr_hash[i] = kairo::std::from_std_string<string>(
@@ -496,15 +498,15 @@ pub class ObjectCache {
         return self._hdr_hash[i].copy()
     }
 
-    /// O(m) for a TU whose stream hashed to \p stream and whose reachable
-    /// headers to \p headers (tu_headers); \p iface is whether it compiles
-    /// under an interface PCH (what clang loads differs), and \p writer
+    /// O(m) for a TU whose stream hashed to `stream` and whose reachable
+    /// headers to `headers` (tu_headers); `iface` is whether it compiles
+    /// under an interface PCH (what clang loads differs), and `writer`
     /// the module of the PCH's first TU, which writes the stream helpers
     /// every TU of the PCH shares: anchored at that TU's file, they put its
     /// name in a -g object's debug info, so with -g it is in the key (and
     /// ignored without: nothing else of the writer reaches an object).
     ///
-    /// Remembers \p headers for the record and fetch of the same TU, which
+    /// Remembers `headers` for the record and fetch of the same TU, which
     /// the driver asks for next.
     pub fn key(self,
                const stream:  string,
@@ -518,7 +520,7 @@ pub class ObjectCache {
         )
     }
 
-    /// The record \p key's object carries (Compiler/Spec/Incremental.md#keys-in-the-object).
+    /// The record `key`'s object carries (Compiler/Spec/Incremental.md#keys-in-the-object).
     pub fn record(self,
                   const key:      string,
                   const modname:  string,
@@ -538,15 +540,15 @@ pub class ObjectCache {
         return r
     }
 
-    /// \brief the record as one top-level `asm(...)` string for the TU's
-    ///        stream: a section of its own, kept out of every link by its
-    ///        flags, then back to .text.
+    /// the record as one top-level `asm(...)` string for the TU's
+    /// stream: a section of its own, kept out of every link by its
+    /// flags, then back to .text.
     ///
-    /// \details In the stream rather than added to the object after: the
-    ///          object is written once, by clang, and an object cut short
-    ///          by a crash has no complete record to match. The record holds
-    ///          only [A-Za-z0-9 ._:/+=,()-] (_clean), so it needs no quoting
-    ///          beyond the C++ literal's own.
+    /// In the stream rather than added to the object after: the
+    /// object is written once, by clang, and an object cut short
+    /// by a crash has no complete record to match. The record holds
+    /// only [A-Za-z0-9 ._:/+=,()-] (_clean), so it needs no quoting
+    /// beyond the C++ literal's own.
     pub fn record_asm(self, const record: string) -> string {
         var open = ""
         if self._fmt == (1 as u8) {
@@ -577,14 +579,15 @@ pub class ObjectCache {
         return "\x22" + c_escape(text, CEscapeStyle::Readable) + "\x22"
     }
 
-    /// \brief makes \p out hold \p key's object: true when it already does
-    ///        (its own record says so) or when the store has one, copied in.
-    ///        False is a miss: compile it.
+    /// makes `out` hold `key`'s object: true when it already does
+    /// (its own record says so) or when the store has one, copied in.
+    /// False is a miss: compile it.
     ///
-    /// \param why    on a miss of an \p out that holds an older record,
-    ///               the record lines that differ, for -v.
-    /// \param found  the Sema agreement findings stored with the object
-    ///               (store), "" for an object that has none.
+    /// ### Parameters
+    /// - `why`: on a miss of an `out` that holds an older record,
+    ///   the record lines that differ, for -v.
+    /// - `found`: the Sema agreement findings stored with the object
+    ///   (store), "" for an object that has none.
     pub fn fetch(self,
                  const key:    string,
                  const out:    string,
@@ -595,11 +598,11 @@ pub class ObjectCache {
             return false
         }
 
-        // The store decides, never \p out alone: \p out carries the record of
+        // The store decides, never `out` alone: `out` carries the record of
         // every object compiled with the cache on, stored or not, and one
         // clang reported on is never stored (its diagnostics are not in
-        // the record), so trusting \p out would drop them on the next run.
-        // \p out matching too only saves the copy.
+        // the record), so trusting `out` would drop them on the next run.
+        // `out` matching too only saves the copy.
         var have  = ObjectCache::_record_of(out)
         var entry = self._entry(key)
         var hit   = false
@@ -651,18 +654,19 @@ pub class ObjectCache {
         return false
     }
 
-    /// \brief stores \p out (just compiled under \p key, with nothing
-    ///        said by clang) as the store's entry for \p key; true when
-    ///        stored. Only an object whose own record names \p key is
-    ///        stored, so a compile that wrote something else can never be
-    ///        served.
+    /// stores `out` (just compiled under `key`, with nothing
+    /// said by clang) as the store's entry for `key`; true when
+    /// stored. Only an object whose own record names `key` is
+    /// stored, so a compile that wrote something else can never be
+    /// served.
     ///
-    /// \param found  the Sema agreement findings of that compile as text
-    ///               (agree_encode), "" when it has none. They cannot be in
-    ///               the object's record, which is written into the stream
-    ///               before clang's Sema runs, so they are a file beside the
-    ///               object, and the object is filed under a name fetch
-    ///               serves only together with them.
+    /// ### Parameters
+    /// - `found`: the Sema agreement findings of that compile as text
+    ///   (agree_encode), "" when it has none. They cannot be in
+    ///   the object's record, which is written into the stream
+    ///   before clang's Sema runs, so they are a file beside the
+    ///   object, and the object is filed under a name fetch
+    ///   serves only together with them.
     pub fn store(self, const key: string, const out: string, const found: string) -> bool {
         if !self.on {
             return false
@@ -702,23 +706,23 @@ pub class ObjectCache {
         return true
     }
 
-    /// \brief removes what no store has refreshed for 30 days, and private
-    ///        copies a crashed store left (a day old); then, while the
-    ///        entries left hold more than CACHE_OBJECTS_MAX_BYTES, the
-    ///        oldest-stored ones this run did not use, down to three
-    ///        quarters of it (without the cap, every build of a
-    ///        changed tree stores a full new generation, so the cache grows
-    ///        with each rebuild). Run
-    ///        once per run that stored, which a fully reused run never is.
+    /// removes what no store has refreshed for 30 days, and private
+    /// copies a crashed store left (a day old); then, while the
+    /// entries left hold more than CACHE_OBJECTS_MAX_BYTES, the
+    /// oldest-stored ones this run did not use, down to three
+    /// quarters of it (without the cap, every build of a
+    /// changed tree stores a full new generation, so the cache grows
+    /// with each rebuild). Run
+    /// once per run that stored, which a fully reused run never is.
     ///
-    /// \details mtime is when an entry was stored, not last used: an old
-    ///          entry still in use is removed and rebuilt on the next miss,
-    ///          which costs one compile and is never wrong. Removing one
-    ///          cannot break a parallel build that shares the store: fetch
-    ///          copies an entry out, and a copy that finds it gone is a miss.
-    ///          An entry this run fetched or stored is kept (_used), and so
-    ///          is one stored in the last CACHE_RECENT_STORE_NS, a parallel
-    ///          run's fresh generation.
+    /// mtime is when an entry was stored, not last used: an old
+    /// entry still in use is removed and rebuilt on the next miss,
+    /// which costs one compile and is never wrong. Removing one
+    /// cannot break a parallel build that shares the store: fetch
+    /// copies an entry out, and a copy that finds it gone is a miss.
+    /// An entry this run fetched or stored is kept (_used), and so
+    /// is one stored in the last CACHE_RECENT_STORE_NS, a parallel
+    /// run's fresh generation.
     pub fn gc(self) {
         if !self.on || self.stored == 0 {
             return
@@ -766,7 +770,7 @@ pub class ObjectCache {
         return self.dir + "/objects/" + key + ".agree"
     }
 
-    /// The record section of \p path, "" when there is none or it is not
+    /// The record section of `path`, "" when there is none or it is not
     /// ours.
     priv static fn _record_of(const path: string) -> string {
         if !LinkFS::is_file(path) {
@@ -808,7 +812,7 @@ pub class ObjectCache {
         return r.subslice(start, stop - start)
     }
 
-    /// The lines of \p have that a record built now would not hold: the
+    /// The lines of `have` that a record built now would not hold: the
     /// parts that changed (stream, headers, an F part), for -v.
     priv fn _diff(self, const have: string) -> string {
         var out          = ""
@@ -847,16 +851,16 @@ pub class ObjectCache {
         return out
     }
 
-    /// \brief F's parts, one per line.
+    /// F's parts, one per line.
     ///
-    /// \details The version counts by its core, MAJOR.MINOR.PATCH: release
-    ///          metadata after it does not (Incremental.md#global-invalidation).
-    ///          A development build ("+dev", "+rc", "unknown") adds its own
-    ///          executable's content hash: two development compilers of one
-    ///          core emit different objects, and this tree's lit suite and
-    ///          build.py re-run against caches a previous compiler filled, so
-    ///          trusting the core there would serve stale objects as fresh
-    ///          (Incremental.md#development-builds records the deviation).
+    /// The version counts by its core, MAJOR.MINOR.PATCH: release
+    /// metadata after it does not (Incremental.md#global-invalidation).
+    /// A development build ("+dev", "+rc", "unknown") adds its own
+    /// executable's content hash: two development compilers of one
+    /// core emit different objects, and this tree's lit suite and
+    /// build.py re-run against caches a previous compiler filled, so
+    /// trusting the core there would serve stale objects as fresh
+    /// (Incremental.md#development-builds records the deviation).
     ///
     ///          The cc1 words go in whole but for the diagnostic ones (-W:
     ///          they change what clang reports, which keys separately as
@@ -1006,7 +1010,7 @@ pub class ObjectCache {
         return ""
     }
 
-    /// \p s with every byte outside [A-Za-z0-9 ._:/+=,()-] as `_`: what a
+    /// `s` with every byte outside [A-Za-z0-9 ._:/+=,()-] as `_`: what a
     /// record line may hold (record_asm writes it into an .ascii string).
     priv static fn _clean(const s: string) -> string {
         var out = ""

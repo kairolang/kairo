@@ -16,10 +16,10 @@ ffi "c++" import "vector"
 import Driver::TUStage::TUStage
 import Location::SourceRange::SourceRange
 
-/// Result record for a single translation unit, returned by \c FrontendAction.
+/// Result record for a single translation unit, returned by `FrontendAction`.
 ///
-/// Owned by \c BatchResult after \c execute() completes. All fields are
-/// immutable once \c FrontendAction transitions to \c Done or \c Failed.
+/// Owned by `BatchResult` after `execute()` completes. All fields are
+/// immutable once `FrontendAction` transitions to `Done` or `Failed`.
 pub class TUResult {
     pub var path:        string ///< Canonical source path.
     pub var elapsed_ms:  f64 ///< Wall time from dispatch to completion.

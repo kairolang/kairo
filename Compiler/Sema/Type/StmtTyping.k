@@ -1,8 +1,8 @@
 /// --- The Kairo Project ----------------------- Sema/Type/StmtTyping.k --- ///
 ///
-///   \brief The statement half: function frames, `return` against the
-///          signature, declarations that infer, conditions that must be bool,
-///          binders that take their type from what they iterate or destructure.
+/// The statement half: function frames, `return` against the
+/// signature, declarations that infer, conditions that must be bool,
+/// binders that take their type from what they iterate or destructure.
 ///
 ///   \detail
 ///     This is what "TypeChecking" was going to be. A statement never has a
@@ -119,7 +119,7 @@ import Sema::Type::OverloadResolution::{
 }
 import Token::TokenKind::TokenKind
 
-/// The first name in a default argument that binds to a parameter of \p fn,
+/// The first name in a default argument that binds to a parameter of `fn`,
 /// `self` included. A default is evaluated by a nullary thunk (CallLowering),
 /// so it has no parameters to read; this is a language rule, not a lowering
 /// limit.
@@ -378,9 +378,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return t
     }
 
-    /// The demand to infer \p d met a full resolution stack (begin_decl's
+    /// The demand to infer `d` met a full resolution stack (begin_decl's
     /// only refusal once Unresolved is tested). Returning null quietly here
-    /// left every declaration that waited on \p d untyped with no error at
+    /// left every declaration that waited on `d` untyped with no error at
     /// all, and the program accepted. Failed, so the chain above it stays
     /// quiet behind this one report.
     priv fn _inference_capped(self, d: unsafe *Decl) {
@@ -469,14 +469,16 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return if (t != &null && v->nullable_shorthand) => (v->type_) else => t
     }
 
-    /// A written `typeof e`: the type of \p e as `var y = e` would
+    /// A written `typeof e`: the type of `e` as `var y = e` would
     /// infer it (a copy: top-level cv and a C++ reference dropped), with the
     /// cv written on the typeof itself. T cannot do this -- it runs before
     /// any expression has a type -- so the node leaves T with no canonical
     /// and is filled here, where the declaration it types is typed (the
     /// walk, or a use that demands the variable first). Only a variable's
     /// whole declared type comes here; anywhere else is _check_typeof_types.
-    /// \return the canonical, or null (reported, poisoned).
+    ///
+    /// ### Returns
+    /// the canonical, or null (reported, poisoned).
     fn resolve_typeof_type(self, t: unsafe *Type) -> unsafe *Type {
         if t == &null {
             return &null
@@ -563,7 +565,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     /// `var i = P` / `var info = typeof x`: an initializer that names a
     /// type (typeof as a value is a TypeInfo) types to nothing
     /// by design, so the variable would reach codegen with no type.
-    /// ExprTyper::reject_type_value reports it. \return reported.
+    /// ExprTyper::reject_type_value reports it.
+    ///
+    /// ### Returns
+    /// reported.
     priv fn _reject_type_value(self, v: unsafe *VariableDecl) -> bool {
         if v == &null || v->init == &null || v->init->is_poisoned() {
             return false
@@ -646,7 +651,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return self._nullable_once(self._cxx_referee(c))
     }
 
-    /// \p c, or what it refers to when it is a C++ reference: the stars of
+    /// `c`, or what it refers to when it is a C++ reference: the stars of
     /// `var *p = ptrs.at(0)` state the pointer `ptrs.at(0)` refers to
     /// (`*Node&`), as for any other read of a reference.
     priv fn _cxx_referee(self, c: unsafe *Type) -> unsafe *Type {
@@ -856,11 +861,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         ).first(f->name.range)->emit()
     }
 
-    /// \p t, held by value at \p at (\p what: "parameter 'a'", "the return
+    /// `t`, held by value at `at` (`what`: "parameter 'a'", "the return
     /// value of 'f'", "field 'x'"), is an abstract class (SC249E, as constructing one is)
     /// or a record only ever forward-declared (SC227E, as a by-value field
     /// of one is in TypeCycleCheck): reported with a note at the method
-    /// that keeps it abstract, or at the forward declaration. \p forward:
+    /// that keeps it abstract, or at the forward declaration. `forward`:
     /// check the forward-declared case too.
     fn reject_unheld_by_value(self,
                               t:          unsafe *Type,
@@ -1426,7 +1431,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         )
     }
 
-    /// SC130E when \p n, just given its value, repeats the value of a
+    /// SC130E when `n`, just given its value, repeats the value of a
     /// variant above it. A closed-enum match switches on the enumerators, so
     /// two with one value would be two case labels with one value, which
     /// C++ rejects in the emitted switch, and no arm could tell the two
@@ -1504,7 +1509,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         b.emit()
     }
 
-    /// End \p n's resolution the way it began: with its own frame, or (at the
+    /// End `n`'s resolution the way it began: with its own frame, or (at the
     /// depth cap) as a bare outcome.
     priv fn _release_local(self, n: unsafe *VariableDecl, framed: bool, ok: bool) {
         if framed {
@@ -1676,7 +1681,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return n
     }
 
-    /// \p e is evaluated for its effect only (a whole statement, a `for`
+    /// `e` is evaluated for its effect only (a whole statement, a `for`
     /// loop's update). When it is a plain `x[k] = v`, nothing reads the
     /// assignment's result, so the subscript may store through the setter
     /// form of `op []=`: marked STORE. An assignment in any other position
@@ -1699,7 +1704,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
     }
 
-    /// \p e computes a value and does nothing else: a literal, a bare name,
+    /// `e` computes a value and does nothing else: a literal, a bare name,
     /// or a BUILTIN unary / binary operator (not `++`/`--`, not a user `op`,
     /// which may act, and not `&&` / `||` / `??`, which are control flow).
     priv fn _discards_pure_value(self, e_in: unsafe *Expr) -> bool {
@@ -1964,7 +1969,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return n
     }
 
-    /// \p e, an `eval if` condition built of `typeof T == U` comparisons
+    /// `e`, an `eval if` condition built of `typeof T == U` comparisons
     /// (OperatorTyping wrote type_cmp_lhs/rhs), `!`, `&&`, `||`, parentheses
     /// and bool literals: 1 / 0 when it is decided here, 2 when it depends
     /// on a generic parameter, -1 when it is not such a condition (it stays
@@ -2130,7 +2135,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return n
     }
 
-    /// The element type an iterable yields, or null (diagnosed). With \p rf,
+    /// The element type an iterable yields, or null (diagnosed). With `rf`,
     /// also records on the loop how IterLowering walks it.
     fn iter_elem_type(self,
                       at: unsafe *Expr,
@@ -2162,10 +2167,10 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return elem
     }
 
-    /// `fn op in (self) -> yield T` on \p t: the element type it yields, with
-    /// \p kind / \p _op / \p inst set to the call, or null when \p t
+    /// `fn op in (self) -> yield T` on `t`: the element type it yields, with
+    /// `kind` / `_op` / `inst` set to the call, or null when `t`
     /// declares none. The iteration form takes `self` only; `op in (self, x)`
-    /// is containment and is never picked here. \p rf, when given, is the
+    /// is containment and is never picked here. `rf`, when given, is the
     /// loop whose binders may ask for the const form (_binders_take_const).
     priv fn _iter_own_op(self,
                          at:   unsafe *Expr,
@@ -2476,9 +2481,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
     /// iterator records and pointer steps outside `op in` where Tether does
     /// not follow them. A Kairo class's begin()/end() are ordinary methods.
     ///
-    /// \p ok: the protocol applied and every piece typed. Not applying (a
+    /// `ok`: the protocol applied and every piece typed. Not applying (a
     /// Kairo type, or no begin or end anywhere) reports nothing, so the
-    /// caller's SC095E speaks; applying and failing reports, and poisons \p at.
+    /// caller's SC095E speaks; applying and failing reports, and poisons `at`.
     priv fn _cxx_range(self,
                        at: unsafe *Expr,
                        t:  unsafe *Type,
@@ -2720,7 +2725,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return decl_is_instance(d) && decl_is_imported(decl_instantiated_from(d))
     }
 
-    /// Move the non-methods member lookup found (hidden friends) to \p frees.
+    /// Move the non-methods member lookup found (hidden friends) to `frees`.
     priv fn _split_friends(self,
                            @inout found: cxx::std::vector<unsafe *Decl>,
                            @inout frees: cxx::std::vector<unsafe *Decl>) {
@@ -2738,14 +2743,14 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         (found) = keep
     }
 
-    /// This TU's DeclName for the identifier \p s.
+    /// This TU's DeclName for the identifier `s`.
     priv fn _cxx_name(self, const s: string) -> DeclName {
         return DeclName::ident(
             self.dyn()->sc->imm_table()->intern_ident_copy(s.copy()),
         )
     }
 
-    /// `obj.<name>()` resolved on \p obj's cv: the method, its result type
+    /// `obj.<name>()` resolved on `obj`'s cv: the method, its result type
     /// read as the value the hidden local holds, and the instance.
     priv fn _cxx_member(self,
                         at:         unsafe *Expr,
@@ -2779,7 +2784,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return r.decl
     }
 
-    /// `<name>(r)` among the ADL candidates \p cands, the range as its one
+    /// `<name>(r)` among the ADL candidates `cands`, the range as its one
     /// argument.
     priv fn _cxx_free(self,
                       at:         unsafe *Expr,
@@ -3158,9 +3163,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
     /// One binder against the rule (see _iter_yield_rule): SC298E with the
     /// nearest spelling the form takes, a note at the `op in`, and the edit.
-    /// \p elem and \p form are the binder's own: the whole yield, or its
-    /// element of a tuple yield. \p ro: what a pointer binder reaches is
-    /// read-only (the const form, or a `*const T`). \p in_tuple: \p elem is
+    /// `elem` and `form` are the binder's own: the whole yield, or its
+    /// element of a tuple yield. `ro`: what a pointer binder reaches is
+    /// read-only (the const form, or a `*const T`). `in_tuple`: `elem` is
     /// an element of a tuple yield.
     priv fn _check_iter_binder(self,
                                n:        unsafe *Statements::RangedForStmt,
@@ -3270,8 +3275,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
     }
 
-    /// The header of loop \p n writes no `var` / `const` of its own before
-    /// its lone binder \p b: from the loop's start to the binder the source
+    /// The header of loop `n` writes no `var` / `const` of its own before
+    /// its lone binder `b`: from the loop's start to the binder the source
     /// is the `for` keyword (after `eval`, on an eval loop) and blanks,
     /// however many. False when that text is not the file's own, which only
     /// withholds a fix-it.
@@ -3309,7 +3314,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return seen_for
     }
 
-    /// \p t (the iterable's type) declares `op in (const self)`.
+    /// `t` (the iterable's type) declares `op in (const self)`.
     priv fn _has_const_iter_form(self, t: unsafe *Type) -> bool {
         var cands = cxx::std::vector<unsafe *Decl>()
         self.dyn()->ml.lookup(
@@ -3330,7 +3335,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
     /// The binders of a loop over a tuple yield with a pointer element, one
     /// per element: over a pointer element the binder takes its pointee
-    /// (`v` a copy, `*v` the yielded pointer), read-only through \p by_const
+    /// (`v` a copy, `*v` the yielded pointer), read-only through `by_const`
     /// or a `*const T`; over a value element, the element. Which elements
     /// are pointers is read off the declaration (fn_iter_yield_elems).
     priv fn _bind_tuple_yield(self,
@@ -3567,7 +3572,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
     }
 
-    /// \p e names a type pack parameter (`xs` of `...xs: T`), or null.
+    /// `e` names a type pack parameter (`xs` of `...xs: T`), or null.
     priv fn _type_pack_ref(self, e: unsafe *Expr) -> unsafe *ParamDecl {
         var u = self.dyn()->tu.strip_parens(e)
         if u == &null || !isa<NamedIdentExpr>(u) {
@@ -3728,8 +3733,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         return n
     }
 
-    /// The binder \p decl of a `catch` arm (a statement's or an
-    /// expression's) takes its type: the arm's filter \p filter, or the bare
+    /// The binder `decl` of a `catch` arm (a statement's or an
+    /// expression's) takes its type: the arm's filter `filter`, or the bare
     /// Panic record for an arm with none. A binder already typed, or no
     /// binder, is left alone.
     fn type_catch_binder(self, decl: unsafe *Decl, filter: unsafe *Type) {

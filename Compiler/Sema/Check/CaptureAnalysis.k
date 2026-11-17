@@ -1,8 +1,8 @@
 /// --- The Kairo Project ----------------- Sema/Check/CaptureAnalysis.k --- ///
 ///
-///   \brief Free-variable analysis: the bindings a subtree USES but does not
-///          DECLARE. What a `finally` body captures (FinallyLowering) and
-///          what a closure captures (ClosureCaptures).
+/// Free-variable analysis: the bindings a subtree USES but does not
+/// DECLARE. What a `finally` body captures (FinallyLowering) and
+/// what a closure captures (ClosureCaptures).
 ///
 ///   \detail
 ///     A binding is a VariableDecl or a ParamDecl. One walk: every
@@ -60,7 +60,7 @@ import AST::Node::Statements::{
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 
-/// \p d is a top-level `var` of a script (\p script_root: the TU is one):
+/// `d` is a top-level `var` of a script (`script_root`: the TU is one):
 /// a global in C++, but the script's local to the reader. `static`,
 /// `thread` and `eval` bindings are globals in every sense. Where the use
 /// sits (the top-level code, or a function of the script) is the caller's
@@ -79,7 +79,7 @@ pub fn script_top_var(script_root: bool, d: unsafe *Decl) -> bool {
     return dc != &null && dc->dc_kind == DeclContextKind::TranslationUnit
 }
 
-/// Closure \p n's list asks for \p d BY COPY: no list, or a list naming `d`
+/// Closure `n`'s list asks for `d` BY COPY: no list, or a list naming `d`
 /// without `*`. Read for a script's top-level `var` used from the top-level
 /// code: there the default capture copies it, as it copies a local
 /// (closures.mdx, Capture Modes), and C++ needs the copy spelled, since a
@@ -111,7 +111,7 @@ pub fn copies_script_var(n: unsafe *ClosureExpr, d: unsafe *Decl) -> bool {
     return !named
 }
 
-/// \p d is declared inside closure \p c: a parameter of it, or a binding
+/// `d` is declared inside closure `c`: a parameter of it, or a binding
 /// of its body. A declaration inside lies in the closure's range, and one
 /// written after the closure's first token is inside. One AT that token is
 /// a sibling or a child: a macro invocation that makes the closure and the
@@ -167,7 +167,7 @@ pub class FreeVarScan derives RecursiveASTVisitor<FreeVarScan> {
         self.dispatch_expr(unsafe (c as unsafe *Expr))
     }
 
-    /// Whether the walked tree declares \p d.
+    /// Whether the walked tree declares `d`.
     fn declares(self, d: unsafe *Decl) -> bool {
         return self._has(self._declared, d)
     }

@@ -1,6 +1,6 @@
 /// --- The Kairo Project ----------------------- Sema/Type/CastTyping.k --- ///
 ///
-///   \brief The `as` family. The written target is the result type, always.
+/// The `as` family. The written target is the result type, always.
 ///
 ///   \detail
 ///     Dispatch on (source, target), first match, no fallthrough:
@@ -141,7 +141,7 @@ pub class <T: type> CastTyping {
         return unsafe ((&self) as *T)
     }
 
-    /// One of \p a, \p b is an f8 format and the other f256 or f512.
+    /// One of `a`, `b` is an f8 format and the other f256 or f512.
     priv fn _f8_wide_pair(self, a: unsafe *Type, b: unsafe *Type) -> bool {
         var ka  = self.dyn()->tu.kind_of(canon_unqual(a))
         var kb  = self.dyn()->tu.kind_of(canon_unqual(b))
@@ -975,7 +975,7 @@ pub class <T: type> CastTyping {
         return &null
     }
 
-    /// Every variant of \p en has its value written (StmtTyping), or the
+    /// Every variant of `en` has its value written (StmtTyping), or the
     /// enum has no variants at all.
     priv fn _enum_values_known(self, en: *EnumDecl) -> bool {
         for var i: usize = 0; i < en->variants.size(); ++i {
@@ -988,7 +988,7 @@ pub class <T: type> CastTyping {
         return true
     }
 
-    /// The closed plain enum the cast \p n targets (through a `?`), or null.
+    /// The closed plain enum the cast `n` targets (through a `?`), or null.
     fn closed_enum_of(self, n: unsafe *TypeCastExpr) -> unsafe *EnumDecl {
         if n == &null || n->type_ == &null {
             return &null
@@ -1005,7 +1005,7 @@ pub class <T: type> CastTyping {
         return ted
     }
 
-    /// `v as E` into closed plain enum \p en: a constant \p n's operand
+    /// `v as E` into closed plain enum `en`: a constant `n`'s operand
     /// must be one of E's values (SC001E otherwise); anything else is
     /// checked at run time (TypeCastExpr::enum_check). A variant whose own
     /// value failed already said so, and the cast says nothing more.
@@ -1074,9 +1074,9 @@ pub class <T: type> CastTyping {
     /// Two pointers of one safety whose chains meet on one canonical once
     /// every level's cv is stripped: the only thing a cast between them can
     /// change is qualifiers.
-    /// Pointee \p tp is a bare generic parameter X that every instance makes
-    /// a class derived from record pointee \p sp: one of X's `derives`
-    /// bounds is \p sp or reaches it (`X derives Stmts<X>` with `Stmts<T>
+    /// Pointee `tp` is a bare generic parameter X that every instance makes
+    /// a class derived from record pointee `sp`: one of X's `derives`
+    /// bounds is `sp` or reaches it (`X derives Stmts<X>` with `Stmts<T>
     /// derives Rav<T>` casts a `*Rav<X>` down too). A `: type` X is C++'s to
     /// check (Compiler/Spec/Generics.md#duck-regime): the static_cast is written as is and clang
     /// rejects an instance whose X is not derived from the base, at that
@@ -1135,8 +1135,8 @@ pub class <T: type> CastTyping {
         return self._same_pointer_shape(apu, bpu)
     }
 
-    /// First pointee level (outermost first) where \p target lost a
-    /// qualifier \p src had, or &null. Walks the shape _same_pointer_shape
+    /// First pointee level (outermost first) where `target` lost a
+    /// qualifier `src` had, or &null. Walks the shape _same_pointer_shape
     /// already proved.
     priv fn _dropped_at(self, src: unsafe *Type, target: unsafe *Type) -> unsafe *Type {
         var sp = self.dyn()->tu.pointee(canon_unqual(src))
@@ -1187,7 +1187,7 @@ pub class <T: type> CastTyping {
 
     /// A widening cast is redundant only where the value lands in a slot
     /// that already takes the SOURCE: `f(x as u32)` into a u32 parameter,
-    /// `var y: u32 = x as u32`, `return x as u32`. \p expected is that
+    /// `var y: u32 = x as u32`, `return x as u32`. `expected` is that
     /// slot. Anywhere else the cast is doing work the implicit rule would
     /// not: `var y = x as u32` picks y's type, and in `(b as u16) << 8`
     /// it picks the width the shift runs at -- without it a u8 shift loses
@@ -1215,7 +1215,7 @@ pub class <T: type> CastTyping {
     /// overload resolution has run (arguments are typed with no expected
     /// type, so type_cast could not decide it). Same test as _lint_widening.
     ///
-    /// \p overloaded: the callee had other candidates, or the slot deduces
+    /// `overloaded`: the callee had other candidates, or the slot deduces
     /// its type from the argument. The cast may be what selected this one
     /// (`f(x as u64)` beside `f(u32)`) or what T deduced, and removing it
     /// would pick another, so neither ever lints.
@@ -1275,7 +1275,7 @@ pub class <T: type> CastTyping {
         b.emit()
     }
 
-    /// Whether \p e is a literal, through parens, a prefix operator
+    /// Whether `e` is a literal, through parens, a prefix operator
     /// (`-1`, `&null`), an if/else or a binary operator over literals: the
     /// operands whose type the cast decides.
     priv fn _is_literal_shape(self, e: unsafe *Expr) -> bool {

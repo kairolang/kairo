@@ -59,13 +59,13 @@ pub fn primitive_of(const name: string) -> BuiltinKind {
     return BuiltinKind::COUNT
 }
 
-/// The source spelling of primitive \p b (`usize`).
+/// The source spelling of primitive `b` (`usize`).
 pub fn primitive_spelling(b: BuiltinKind) -> string {
     return builtin_info(b)->spelling.copy()
 }
 
-/// The associated constants \p b has, in the enum's order: every
-/// PrimLimit PrimitiveLimits::exists says \p b has, typed as the compiler
+/// The associated constants `b` has, in the enum's order: every
+/// PrimLimit PrimitiveLimits::exists says `b` has, typed as the compiler
 /// types it (result_kind: `u32` for a count, `i32` for an exponent).
 pub fn primitive_consts(b: BuiltinKind) -> [PrimConst] {
     var out: [PrimConst]

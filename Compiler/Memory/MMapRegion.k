@@ -19,11 +19,8 @@ ffi "c++" import "string"
 
 import std::c_char
 
+/// cross-platform RAII wrapper around memory-mapped file regions.
 ///
-/// \file MMapRegion.k
-/// \brief cross-platform RAII wrapper around memory-mapped file regions.
-///
-/// \details
 /// `MMapRegion` abstracts OS-specific file mapping APIs (`mmap` on POSIX,
 /// `CreateFileMappingW` on Windows) into a consistent interface for read-only
 /// file access without copying data into user space.
@@ -38,31 +35,25 @@ import std::c_char
 ///   - minimal abstraction overhead.
 ///   - uniform semantics across platforms.
 ///
-/// \note
+/// **Note:**
 /// - always maps in **read-only** mode.
 /// - not thread-safe; external synchronization required.
 /// - includes an implicit null terminator for safety with string-like data.
 ///
-/// \see MappedFileBuffer, VirtualFileManager, MemoryBuffer
-///
+/// See MappedFileBuffer, VirtualFileManager, MemoryBuffer.
 
-///
-/// \class MMapRegion
-/// \brief lightweight managed interface for memory-mapped regions.
+/// lightweight managed interface for memory-mapped regions.
 ///
 /// manages the lifecycle of an OS-level memory mapping, exposing basic
 /// operations like open, close, and attach. primarily used internally by
 /// `MappedFileBuffer` and the virtual filesystem.
-///
 pub class MMapRegion {
     pub var _data:  unsafe *u8 = &null ///< pointer to mapped region.
     pub var _size:  usize      = 0     ///< mapped region size (in bytes).
     pub var _valid: bool       = false ///< indicates mapping success.
     pub var _owns:  bool       = true  ///< true if region owns the mapping.
 
-    ///
-    /// \brief default constructor.
-    ///
+    /// default constructor.
     fn MMapRegion(self) = default
 
     fn MMapRegion(self, data: unsafe *u8, size: usize, valid: bool = true) {
@@ -83,29 +74,27 @@ pub class MMapRegion {
         other._valid = false
     }
 
-    ///
-    /// \brief destructor; automatically unmaps region if valid.
-    ///
+    /// destructor; automatically unmaps region if valid.
     fn op finally (self) {
         self.close()
     }
 
+    /// opens and memory-maps a file by path.
     ///
-    /// \brief opens and memory-maps a file by path.
+    /// ### Parameters
+    /// - `path`: pointer to string containing the path.
     ///
-    /// \param path pointer to string containing the path.
-    /// \return true if successfully mapped, false otherwise.
+    /// ### Returns
+    /// true if successfully mapped, false otherwise.
     ///
-    /// \details
     /// - on windows, uses `CreateFileW` and `MapViewOfFile`.
     /// - on posix, uses `open` + `mmap`.
     /// - stores mapping pointer and size for later access.
     /// - closes handles/descriptors after mapping.
     ///
-    /// \warning
+    /// **Warning:**
     /// - only supports read-only access.
     /// - must not be called on an already-open region (use `close()` first).
-    ///
     fn open(self, path: unsafe *string) -> bool {
         if path == &null {
             return false
@@ -181,13 +170,10 @@ pub class MMapRegion {
         return true
     }
 
+    /// unmaps region and resets internal state.
     ///
-    /// \brief unmaps region and resets internal state.
-    ///
-    /// \details
     /// - no-op if invalid or already unmapped.
     /// - safe to call multiple times.
-    ///
     fn close(self) {
         if !self._valid || self._data == &null || !self._owns {
             return
@@ -204,39 +190,31 @@ pub class MMapRegion {
         self._valid = false
     }
 
-    ///
-    /// \brief returns pointer to mapped data.
-    ///
+    /// returns pointer to mapped data.
     pub fn data(const self) -> unsafe *u8 {
         return self._data
     }
 
-    ///
-    /// \brief returns size of mapped region (in bytes).
-    ///
+    /// returns size of mapped region (in bytes).
     pub fn size(const self) -> usize {
         return self._size
     }
 
-    ///
-    /// \brief checks whether the mapping is valid.
-    ///
+    /// checks whether the mapping is valid.
     fn is_valid(const self) -> bool {
         return self._valid
     }
 
+    /// attaches this region to a subregion of another mapping.
     ///
-    /// \brief attaches this region to a subregion of another mapping.
+    /// ### Parameters
+    /// - `parent`: pointer to valid parent mapping.
+    /// - `offset`: byte offset into parent region.
+    /// - `length`: desired subrange length.
     ///
-    /// \param parent pointer to valid parent mapping.
-    /// \param offset byte offset into parent region.
-    /// \param length desired subrange length.
-    ///
-    /// \details
     /// - creates a lightweight view without allocating or remapping.
     /// - clamps length if it exceeds parent size.
     /// - if parent invalid or null, marks self invalid.
-    ///
     fn attach(self, parent: unsafe *MMapRegion, offset: usize, length: usize) {
         if parent == &null || !parent->_valid {
             self._valid = false

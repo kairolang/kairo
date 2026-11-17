@@ -128,7 +128,7 @@ extend IndexWalker {
         return s
     }
 
-    /// The source text of \p r, whitespace runs folded to one space: an
+    /// The source text of `r`, whitespace runs folded to one space: an
     /// attribute as its author wrote it (`@align(8)`, `@deprecated("...")`).
     /// Empty for a range that is not one stretch of one file.
     fn source_text_(self, r: SourceRange) -> string {
@@ -167,7 +167,7 @@ extend IndexWalker {
         return out
     }
 
-    /// What the source wrote in front of \p d's keyword, each followed by a
+    /// What the source wrote in front of `d`'s keyword, each followed by a
     /// space: its attributes in order, as spelled (the parser keeps every one,
     /// including those it also turns into a field, like `@copy` into
     /// FunctionDecl::transfer), then its visibility keyword. Nothing for a
@@ -207,7 +207,7 @@ extend IndexWalker {
         return s
     }
 
-    /// Index of \p needle in \p hay at a word start (the front, or after a
+    /// Index of `needle` in `hay` at a word start (the front, or after a
     /// space), or usize::MAX.
     fn word_in_(const self, const hay: string, const needle: string) -> usize {
         if needle.is_empty() || (hay.size() < needle.size()) {
@@ -227,7 +227,7 @@ extend IndexWalker {
         return usize::MAX
     }
 
-    /// The head of type \p d as the source wrote it, from its keyword \p kw
+    /// The head of type `d` as the source wrote it, from its keyword `kw`
     /// ("class ", with the space) to its body: generic parameters, name,
     /// `derives` and `impl` lists, on one line. A `where` / `requires`
     /// clause is cut: it is the rule, not what the type is. "" when the
@@ -327,7 +327,7 @@ extend IndexWalker {
     /// The declaration as one line of Kairo: what a hover shows in its code
     /// block and a completion item shows as its detail.
     ///
-    /// \p full is the hover's form: the head (head_), a function's
+    /// `full` is the hover's form: the head (head_), a function's
     /// modifiers and its `= default` / `= delete` / `= virtual`, a
     /// parameter's attributes. Without it, the declaration alone, which is
     /// what a completion detail, an outline row and the signature
@@ -690,7 +690,7 @@ extend IndexWalker {
         return head + kw + name
     }
 
-    /// The `///` lines directly above \p d, markers stripped, joined by
+    /// The `///` lines directly above `d`, markers stripped, joined by
     /// newlines.
     ///
     /// Read from the TEXT, not from the tree: under --preserve-comments the
@@ -1021,7 +1021,7 @@ extend IndexWalker {
         return self.layout_of_type_(self.sc->types->record(d, &null))
     }
 
-    /// The same for a type: \p t's canonical, concrete form.
+    /// The same for a type: `t`'s canonical, concrete form.
     fn layout_of_type_(self, t_in: unsafe *Type) -> string {
         if (t_in == &null) || (self.sc == &null) {
             return ""
@@ -1075,10 +1075,10 @@ extend IndexWalker {
         return " on " + ctx->ci->target.triple
     }
 
-    /// The hover of a use whose type is \p t, a type that is not \p d's own
-    /// (an instance of generic \p d, or the target of alias \p d): \p d's
-    /// hover with \p t's layout line, naming \p t. u32::MAX when \p t is
-    /// \p d's own type or no concrete record, so the use keeps \p d's hover.
+    /// The hover of a use whose type is `t`, a type that is not `d`'s own
+    /// (an instance of generic `d`, or the target of alias `d`): `d`'s
+    /// hover with `t`'s layout line, naming `t`. u32::MAX when `t` is
+    /// `d`'s own type or no concrete record, so the use keeps `d`'s hover.
     fn hover_typed_(self, d: unsafe *Decl, t_in: unsafe *Type) -> u32 {
         if (d == &null) || (t_in == &null) || (t_in->canonical == &null) {
             return u32::MAX
@@ -1216,7 +1216,7 @@ extend IndexWalker {
         }
     }
 
-    /// Index of \p d's hover text in `hovers`, building it on first use.
+    /// Index of `d`'s hover text in `hovers`, building it on first use.
     fn hover_(self, d: unsafe *Decl) -> u32 {
         var key = (d as usize) as u64
         var hit = self.hover_of_.get(key)

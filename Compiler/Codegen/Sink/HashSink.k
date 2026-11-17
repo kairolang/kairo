@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------------------- Codegen/Sink/HashSink.k --- ///
 ///
-///   \brief EmitSink that hashes what it is given: the incremental object
-///          cache's view of one TU's stream (Compiler/Spec/Incremental.md#object-key).
+/// EmitSink that hashes what it is given: the incremental object
+/// cache's view of one TU's stream (Compiler/Spec/Incremental.md#object-key).
 ///
 ///   The stream a TU's fill writes is everything clang is given to compile
 ///   it apart from the headers and the options: its own bodies, every
@@ -18,7 +18,7 @@
 ///   Directives (`#include <...>`, a text sink's lines) are tagged so they
 ///   never alias a token.
 ///
-///   With debug info (\p with_locs) the object's line tables hold the
+///   With debug info (`with_locs`) the object's line tables hold the
 ///   tokens' positions, so each anchored token adds its file and
 ///   line:column: an edit that moves a declaration recompiles what records
 ///   its line, and one that moves nothing does not. Line starts are

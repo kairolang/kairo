@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------------------------ AST/DeclFacts.k --- ///
 ///
-///   \brief Reading the CRTP mixin slots off a `*Decl`.
+/// Reading the CRTP mixin slots off a `*Decl`.
 ///
 ///   \detail
 ///     TemplateParams, FFILinkage and Redeclarable are mixins: each decl kind
@@ -78,8 +78,8 @@ import Token::TokenKind::TokenKind
 
 /// # Namespace scopes
 
-/// The declarations \p d stands for in a namespace scope, pushed on \p out
-/// in source order: \p d itself, or, for a wrapper, what it holds -- a
+/// The declarations `d` stands for in a namespace scope, pushed on `out`
+/// in source order: `d` itself, or, for a wrapper, what it holds -- a
 /// `module` block's decls, a visibility group's members, an `eval` block's
 /// body -- flattened through nested wrappers. A pass that walks the file's
 /// top-level items for generic declarations calls this on each, so a
@@ -283,7 +283,7 @@ pub fn decl_is_instance(d: unsafe *Decl) -> bool {
     return decl_spec_kind(d) == Declarations::SpecKind::Instantiated
 }
 
-/// The ForeignFill byte of \p d, or null for a kind that carries none a
+/// The ForeignFill byte of `d`, or null for a kind that carries none a
 /// fill could set (only the record kinds and Interface/Enum do).
 fn _foreign_fill_slot(d: unsafe *Decl) -> unsafe *u8 {
     if d == &null {
@@ -313,7 +313,7 @@ fn _foreign_fill_slot(d: unsafe *Decl) -> unsafe *u8 {
     return &null
 }
 
-/// Where clang's fill of \p d stands. An ACQUIRE load: it is read on any
+/// Where clang's fill of `d` stands. An ACQUIRE load: it is read on any
 /// Sema thread with no lock while ForeignInstantiate::fill may be
 /// publishing it, and a reader that sees Filled goes on to read the tables
 /// the fill wrote before its release store (ForeignFill's header).
@@ -326,7 +326,7 @@ pub fn decl_foreign_fill(d: unsafe *Decl) -> ForeignFill {
     return (__builtin_atomic_load(unsafe (s as *const u8), MemoryOrder::Acquire) as ForeignFill)
 }
 
-/// clang has filled \p d (ForeignFill::Filled): its own tables are the
+/// clang has filled `d` (ForeignFill::Filled): its own tables are the
 /// answer, not its pattern's.
 pub fn decl_instantiated(d: unsafe *Decl) -> bool {
     return decl_foreign_fill(d) == ForeignFill::Filled
@@ -348,7 +348,7 @@ pub fn decl_fill_failed(d: unsafe *Decl) -> bool {
     return decl_foreign_fill(d) == ForeignFill::FailedSticky
 }
 
-/// The one writer of a ForeignFill: \p d leaves Shell for \p f, Filled or
+/// The one writer of a ForeignFill: `d` leaves Shell for `f`, Filled or
 /// FailedSticky, both terminal. ForeignInstantiate calls it holding its
 /// `_mu`, which serialises every writer, so a plain store would do for
 /// them; it is a RELEASE store for the unlocked readers, and the last
@@ -389,7 +389,7 @@ pub fn decl_is_imported(d: unsafe *Decl) -> bool {
     return false
 }
 
-/// The record \p d is a member type of, or null: at namespace scope, in a
+/// The record `d` is a member type of, or null: at namespace scope, in a
 /// function, in an extension body (an extension opens no C++ class scope
 /// a type could live in), or in an enum (its payload structs and layout
 /// record ARE the enum's, laid out by EnumLayoutLowering, never member
@@ -416,7 +416,7 @@ pub fn decl_type_owner(d: unsafe *Decl) -> unsafe *Decl {
     return dc->owner_decl()
 }
 
-/// \p d is a record nested, at any depth, in a GENERIC record: its owners'
+/// `d` is a record nested, at any depth, in a GENERIC record: its owners'
 /// parameters are implicit in it (Type::TypeFlags::InGenericOwner).
 pub fn decl_in_generic_owner(d: unsafe *Decl) -> bool {
     if d == &null
@@ -623,7 +623,7 @@ pub fn decl_is_ffi_tag(d: unsafe *Decl) -> bool {
         || isa<Declarations::EnumDecl>(d)
 }
 
-/// An imported typedef that names exactly \p tag: `typedef struct X X`
+/// An imported typedef that names exactly `tag`: `typedef struct X X`
 /// is one entity under one name, not a typedef hiding its own tag.
 pub fn decl_is_ffi_typedef_of(d: unsafe *Decl, tag: unsafe *Decl) -> bool {
     if d == &null || tag == &null {
@@ -642,7 +642,7 @@ pub fn decl_is_ffi_typedef_of(d: unsafe *Decl, tag: unsafe *Decl) -> bool {
     return cast<RecordType>(t)->decl == tag
 }
 
-/// An imported decl in the ORDINARY namespace that hides \p tag: anything
+/// An imported decl in the ORDINARY namespace that hides `tag`: anything
 /// imported that is not itself a tag and not a typedef of that very tag.
 pub fn decl_ffi_hides_tag(d: unsafe *Decl, tag: unsafe *Decl) -> bool {
     if !decl_is_ffi(d) || decl_is_ffi_tag(d) {
@@ -876,7 +876,7 @@ pub fn decl_name_tok(d: unsafe *Decl) -> Token {
     return Token()
 }
 
-/// The ASTContext \p d's names live in, or null when no scope of \p d
+/// The ASTContext `d`'s names live in, or null when no scope of `d`
 /// reaches a file. Names are interned per file, so a decl reached through
 /// an import is spelled with this context, never the importing file's.
 pub fn decl_ctx(d: unsafe *Decl) -> unsafe *ASTContext {
@@ -901,8 +901,8 @@ pub fn decl_ctx(d: unsafe *Decl) -> unsafe *ASTContext {
     return tu->ctx
 }
 
-/// The spelling of \p d's name, read in the file that declares \p d
-/// (decl_ctx), or in \p fallback when no scope of \p d reaches a file.
+/// The spelling of `d`'s name, read in the file that declares `d`
+/// (decl_ctx), or in `fallback` when no scope of `d` reaches a file.
 /// An operator is "op " and its symbol. "<null>" for a null decl; "<decl>"
 /// for an unnamed kind and when there is no context to spell with.
 pub fn decl_name(d: unsafe *Decl, fallback: unsafe *ASTContext = &null) -> string {
@@ -934,9 +934,9 @@ pub fn decl_name(d: unsafe *Decl, fallback: unsafe *ASTContext = &null) -> strin
     return ctx->get_spelling(t)
 }
 
-/// The identifier imm of \p d's name in \p ctx, or in the file that
-/// declares \p d when \p ctx is null. u32::MAX for a null decl, an
-/// operator, an unnamed kind, and a name \p ctx never interned. An imm
+/// The identifier imm of `d`'s name in `ctx`, or in the file that
+/// declares `d` when `ctx` is null. u32::MAX for a null decl, an
+/// operator, an unnamed kind, and a name `ctx` never interned. An imm
 /// compares only against imms of the same context.
 pub fn decl_name_imm(d: unsafe *Decl, ctx: unsafe *ASTContext = &null) -> u32 {
     if d == &null {
@@ -966,7 +966,7 @@ pub fn decl_name_imm(d: unsafe *Decl, ctx: unsafe *ASTContext = &null) -> u32 {
 
 /// # Scopes and entities
 
-/// The TranslationUnit scope \p dc is in, or null.
+/// The TranslationUnit scope `dc` is in, or null.
 pub fn tu_of(dc: unsafe *DeclContext) -> unsafe *TranslationUnit {
     var unsafe *c = dc
     while c != &null {
@@ -980,7 +980,7 @@ pub fn tu_of(dc: unsafe *DeclContext) -> unsafe *TranslationUnit {
     return &null
 }
 
-/// The scope \p d opens for the declarations written in it: a class,
+/// The scope `d` opens for the declarations written in it: a class,
 /// struct, union, enum, interface, module or extension. Null for every
 /// other kind, a function included: its DeclContext holds parameters and
 /// locals, which no name lookup from outside reaches.
@@ -1020,7 +1020,7 @@ pub fn dc_of(d: unsafe *Decl) -> unsafe *DeclContext {
     return &null
 }
 
-/// The canonical link of \p d's redeclaration chain, or null when \p d is
+/// The canonical link of `d`'s redeclaration chain, or null when `d` is
 /// not a redeclarable kind. A function's chain is linked after its
 /// signature is typed; before that each function is its own canonical.
 pub fn chain_canonical(d: unsafe *Decl) -> unsafe *Decl {
@@ -1059,9 +1059,9 @@ pub fn chain_canonical(d: unsafe *Decl) -> unsafe *Decl {
     return &null
 }
 
-/// The one decl that stands for the entity \p d declares: the header's tag
+/// The one decl that stands for the entity `d` declares: the header's tag
 /// for an `ffi` forward declaration of it, else the canonical link of
-/// \p d's redeclaration chain, else \p d itself. Every type and binding is
+/// `d`'s redeclaration chain, else `d` itself. Every type and binding is
 /// keyed on it.
 pub fn representative(d: unsafe *Decl) -> unsafe *Decl {
     var unsafe *ft = decl_ffi_tag_target(d)
@@ -1077,8 +1077,8 @@ pub fn representative(d: unsafe *Decl) -> unsafe *Decl {
     return c
 }
 
-/// The declaration that says how visible \p d's entity is: the link of its
-/// redeclaration chain that writes a visibility keyword (\p d itself, then
+/// The declaration that says how visible `d`'s entity is: the link of its
+/// redeclaration chain that writes a visibility keyword (`d` itself, then
 /// the representative, then the others in chain order). With none written
 /// it is where a keyword would go: a member function's in-class
 /// declaration, else the representative. An out-of-line definition writes
@@ -1124,8 +1124,8 @@ pub fn visibility_decl(d: unsafe *Decl) -> unsafe *Decl {
     return if (in_class != &null) => (in_class) else => r
 }
 
-/// Calls \p visit on each declaration \p d stands for, in source order:
-/// \p d itself, or, for a wrapper that opens no scope of its own, what it
+/// Calls `visit` on each declaration `d` stands for, in source order:
+/// `d` itself, or, for a wrapper that opens no scope of its own, what it
 /// holds -- a visibility group's members, an `eval` block's body, an `ffi`
 /// block's body -- through nested wrappers. A module is a scope, not a
 /// wrapper: it is visited as one decl (scope_decls flattens it).
@@ -1230,10 +1230,10 @@ pub fn decl_context(d: unsafe *Decl) -> unsafe *DeclContext {
     return &null
 }
 
-/// \p f is a constructor: a method (it takes `self`) that is not an
+/// `f` is a constructor: a method (it takes `self`) that is not an
 /// operator, declared in a type scope and named after the decl that owns
 /// that scope. The two names are compared by spelling, each read in its
-/// own file (decl_ctx) or in \p fallback when it reaches none, because
+/// own file (decl_ctx) or in `fallback` when it reaches none, because
 /// imms of different files do not compare. A transfer constructor
 /// (`@copy` / `@move`) and an enum variant's constructor (`adt_role`) are
 /// constructors here; a caller that excludes them tests that itself.
@@ -1272,7 +1272,7 @@ pub fn decl_is_ctor(f:        unsafe *Declarations::FunctionDecl,
 
 /// # Storage
 
-/// \p v has static storage: a `static` or `thread` variable wherever it is
+/// `v` has static storage: a `static` or `thread` variable wherever it is
 /// declared, or one declared at file, module or type scope. An `eval`
 /// constant is a compile-time value, not storage, and is never global. A
 /// local is indexed into no scope table, so it has no semantic_dc.
@@ -1297,7 +1297,7 @@ pub fn is_global_storage(v: unsafe *Declarations::VariableDecl) -> bool {
 
 /// # Reference types
 
-/// \p t, or what it refers to when it is a C++ `T&` / `T&&`. One level:
+/// `t`, or what it refers to when it is a C++ `T&` / `T&&`. One level:
 /// cv qualifiers and the canonical form are left as they are. Null for null.
 pub fn peel_ref(t: unsafe *Type) -> unsafe *Type {
     if t == &null {
@@ -1338,7 +1338,7 @@ pub fn decl_pack_param(d: unsafe *Decl) -> unsafe *Declarations::ParamDecl {
     return &null
 }
 
-/// The type pack \p p expands (param_is_type_pack, below), through the one
+/// The type pack `p` expands (param_is_type_pack, below), through the one
 /// C++ reference an imported pattern may add; null when it is not one.
 pub fn param_type_pack_param(p: unsafe *Declarations::ParamDecl) -> unsafe *GenericParamType {
     if p == &null || !p->is_pack || p->type_ == &null || p->type_->canonical == &null {
@@ -1369,7 +1369,7 @@ pub fn param_is_type_pack(p: unsafe *Declarations::ParamDecl) -> bool {
     return param_type_pack_param(p) != &null
 }
 
-/// The pack-expanded variant of ADT \p en (`Err { e: E }...`), or null.
+/// The pack-expanded variant of ADT `en` (`Err { e: E }...`), or null.
 pub fn adt_pack_variant(en: unsafe *Declarations::EnumDecl) -> unsafe *Declarations::EnumVariantDecl {
     if en == &null {
         return &null
@@ -1385,7 +1385,7 @@ pub fn adt_pack_variant(en: unsafe *Declarations::EnumDecl) -> unsafe *Declarati
     return &null
 }
 
-/// The position in \p en's generic parameters of the type pack its
+/// The position in `en`'s generic parameters of the type pack its
 /// pack-expanded variant expands, or usize(-1) when it has none. An
 /// instance's arguments from here on are the pack's elements
 /// (InstanceEntry::args keeps packs flat, at the tail).
@@ -1404,7 +1404,7 @@ pub fn adt_pack_param(en: unsafe *Declarations::EnumDecl) -> usize {
     return usize::MAX
 }
 
-/// The position of variant \p v in \p en, or usize(-1).
+/// The position of variant `v` in `en`, or usize(-1).
 pub fn adt_variant_pos(en: unsafe *Declarations::EnumDecl,
                        v:  unsafe *Declarations::EnumVariantDecl) -> usize {
     if en == &null || v == &null {
@@ -1424,7 +1424,7 @@ pub fn adt_variant_pos(en: unsafe *Declarations::EnumDecl,
 /// pattern and layout question indexes by. An ordinary variant's is its
 /// position; element k of the pack-expanded variant (always the last, at
 /// position p) is p + k, so for an enum without one the two are the same.
-/// The variant expanded index \p i belongs to, or null past the last.
+/// The variant expanded index `i` belongs to, or null past the last.
 pub fn adt_variant_at(en: unsafe *Declarations::EnumDecl,
                       i:  usize) -> unsafe *Declarations::EnumVariantDecl {
     if en == &null {
@@ -1449,7 +1449,7 @@ pub fn adt_variant_at(en: unsafe *Declarations::EnumDecl,
     return &null
 }
 
-/// The pack element expanded index \p i stands for, or -1 for an ordinary
+/// The pack element expanded index `i` stands for, or -1 for an ordinary
 /// variant (adt_variant_at).
 pub fn adt_expansion_at(en: unsafe *Declarations::EnumDecl, i: usize) -> i32 {
     var unsafe *v = adt_variant_at(en, i)
@@ -1460,8 +1460,8 @@ pub fn adt_expansion_at(en: unsafe *Declarations::EnumDecl, i: usize) -> i32 {
     return (i - (en->variants.size() - 1)) as i32
 }
 
-/// Where \p d's arguments become a set (decl_dedup_pack_args): the pack
-/// position of an enum with a pack-expanded variant, \p d being it or an
+/// Where `d`'s arguments become a set (decl_dedup_pack_args): the pack
+/// position of an enum with a pack-expanded variant, `d` being it or an
 /// instance of it; usize(-1) for every other decl.
 pub fn decl_pack_set_at(d: unsafe *Decl) -> usize {
     if d == &null {
@@ -1497,7 +1497,7 @@ pub class PackSetOrder {
 /// set, kept in first-occurrence order, so the dedup happens where a type is
 /// formed (CanonicalTypes::record, InstantiationRegistry) and every reader
 /// after it -- the instance's args, the expansions' tags, C++'s template
-/// arguments -- sees one list. \p d is the primary or an instance of it.
+/// arguments -- sees one list. `d` is the primary or an instance of it.
 pub fn decl_dedup_pack_args(d:    unsafe *Decl,
                             args: unsafe *cxx::std::vector<unsafe *Type>,
                             ord:  unsafe *PackSetOrder = &null) {
@@ -1583,7 +1583,7 @@ pub fn decl_bases(d: unsafe *Decl) -> FrozenList<Declarations::InheritEdge> {
 
 /// # Extension membership
 
-/// The extension \p d was written in, or null. Lexical: an extension
+/// The extension `d` was written in, or null. Lexical: an extension
 /// member's C++ home and template parameters are its extension's.
 pub fn decl_extension_of(d: unsafe *Decl) -> unsafe *Declarations::ExtensionDecl {
     if d == &null || !isa<Declarations::FunctionDecl>(d) {
@@ -1600,7 +1600,7 @@ pub fn decl_extension_of(d: unsafe *Decl) -> unsafe *Declarations::ExtensionDecl
 
 /// # Interface requirements
 
-/// \p m is a CONSTRUCTOR requirement: a method of an interface named after
+/// `m` is a CONSTRUCTOR requirement: a method of an interface named after
 /// that interface (`interface Default { fn Default(self) }`). A
 /// conformer meets it with its own constructor, named after ITSELF, so a
 /// lookup by the requirement's name can never find the witness; Sema and
@@ -1627,7 +1627,7 @@ pub fn decl_is_ctor_requirement(m: unsafe *Declarations::FunctionDecl) -> bool {
     return a.imm == b.imm
 }
 
-/// \p d is a member of an interface: a requirement. As a conformance row's
+/// `d` is a member of an interface: a requirement. As a conformance row's
 /// WITNESS it means the conformer meets the requirement with no decl of its
 /// own -- a builtin's own operator or an imported record's native `==`
 /// (ConformanceChecking::_native_implementation), a lifecycle slot -- so
@@ -1716,7 +1716,7 @@ pub fn decl_fold_pin(d: unsafe *Decl) -> string {
 
 /// # Const places
 
-/// \p e is a place the generated C++ sees as const although its Kairo type
+/// `e` is a place the generated C++ sees as const although its Kairo type
 /// says nothing: a `const` binding or parameter (`const self` included), a
 /// `.field` / `.0` path from one (`p.a.b` of a `const p`), or a path through
 /// a `const` field. A field's type carries no const of its own, so C++'s

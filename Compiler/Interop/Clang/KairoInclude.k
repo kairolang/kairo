@@ -68,10 +68,9 @@ ffi "c++" import "utility"
 
 import Interop::Clang::ClangInstance::parse_llvm_args
 
-/// \class KairoIncludeSource
-/// \brief Where a hook gets a .k file's tokens: the driver, which owns the
-///        Kairo build the file is part of (Driver/KairoIncludes.k). Here so
-///        Interop never imports Driver or Codegen.
+/// Where a hook gets a .k file's tokens: the driver, which owns the
+/// Kairo build the file is part of (Driver/KairoIncludes.k). Here so
+/// Interop never imports Driver or Codegen.
 pub class KairoIncludeSource {
     fn KairoIncludeSource(self) = default
 
@@ -90,10 +89,13 @@ pub class KairoIncludeSource {
     /// the modules' ffi headers), which the hook enters ahead of it.
     pub var include_lines: cxx::std::vector<string>
 
-    /// \brief appends to \p out the interface of the Kairo file at \p path,
-    ///        which clang entered as \p cfid in \p ci, located in that file.
-    ///        Called once per file per host TU (the hook marks it
-    ///        include-once). \return false with `error` set.
+    /// appends to `out` the interface of the Kairo file at `path`,
+    /// which clang entered as `cfid` in `ci`, located in that file.
+    /// Called once per file per host TU (the hook marks it
+    /// include-once).
+    ///
+    /// ### Returns
+    /// false with `error` set.
     virtual fn tokens_for(self,
                           ci:         unsafe *clang::CompilerInstance,
                           cfid:       clang::FileID,
@@ -116,10 +118,9 @@ fn host_agree_table(source: unsafe *KairoIncludeSource) -> unsafe *kairo::SemaAg
     return source->agree
 }
 
-/// \class KairoIncludeHook
-/// \brief One host TU's hook: answers the preprocessor for each .k it enters
-///        and owns the token arrays, which the lexer reads through an
-///        ArrayRef until the include pops.
+/// One host TU's hook: answers the preprocessor for each .k it enters
+/// and owns the token arrays, which the lexer reads through an
+/// ArrayRef until the include pops.
 pub class KairoIncludeHook {
     pub var source: unsafe *KairoIncludeSource = &null
     /// Serve no .k at all: every one entered is the sentinel, with no error
@@ -271,10 +272,10 @@ pub class KairoIncludeHook {
         )
     }
 
-    /// \brief enters each of \p lines, then `#include "<path>"`, as a
-    ///        buffer included where \p fid was.
+    /// enters each of `lines`, then `#include "<path>"`, as a
+    /// buffer included where `fid` was.
     ///
-    /// The hook runs inside EnterSourceFile before \p fid's lexer is
+    /// The hook runs inside EnterSourceFile before `fid`'s lexer is
     /// pushed, so a buffer entered here sits UNDER it: the sentinel this
     /// entry returns is lexed first, then the buffer, whose last include is
     /// this file's second entry. The include-once mark waits for that one.
@@ -311,7 +312,7 @@ pub class KairoIncludeHook {
     }
 
     /// `static_assert(true);`: see the file header. Lexed from a buffer of
-    /// its own text, included where \p fid was, so each token has the bytes
+    /// its own text, included where `fid` was, so each token has the bytes
     /// it spells: `-E` prints a token's bytes, and a zero-length one printed
     /// as nothing (`static_asserttrue`).
     priv fn _sentinel(self, toks: unsafe *cxx::std::vector<clang::Token>, fid: clang::FileID) {
@@ -569,14 +570,14 @@ pub class KairoHostPCH derives clang::GeneratePCHAction {
     }
 }
 
-/// \brief runs one cc1 job like clang::ExecuteCompilerInvocation, with the
-///        include hook installed when its action is one of the above.
+/// runs one cc1 job like clang::ExecuteCompilerInvocation, with the
+/// include hook installed when its action is one of the above.
 ///
-/// \details The prologue is ExecuteCompilerInvocation's, minus what a
-///          driver-planned job never carries (-help, -version, the
-///          analyzer's listings): plugins, then -mllvm, which the driver
-///          puts on this line and nowhere else (-masm=intel becomes
-///          `-mllvm -x86-asm-syntax=intel`).
+/// The prologue is ExecuteCompilerInvocation's, minus what a
+/// driver-planned job never carries (-help, -version, the
+/// analyzer's listings): plugins, then -mllvm, which the driver
+/// puts on this line and nowhere else (-masm=intel becomes
+/// `-mllvm -x86-asm-syntax=intel`).
 pub fn execute_with_kairo_includes(ci:     unsafe *clang::CompilerInstance,
                                    source: unsafe *KairoIncludeSource) -> bool {
     var *fo = &ci->getFrontendOpts()

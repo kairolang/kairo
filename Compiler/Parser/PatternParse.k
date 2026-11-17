@@ -89,8 +89,8 @@ pub class <T: type> PatternParse {
 
     //  Entry
 
-    /// \brief parses a single pattern. Returns a recovery pattern (never null)
-    ///        on failure so the surrounding match-arm structure keeps its shape.
+    /// parses a single pattern. Returns a recovery pattern (never null)
+    /// on failure so the surrounding match-arm structure keeps its shape.
     fn parse_pattern(self) -> unsafe *AstPattern {
         if self.dyn()->is_eof() {
             return self._error_pattern(SourceRange::invalid())

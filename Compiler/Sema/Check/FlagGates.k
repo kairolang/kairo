@@ -1,10 +1,10 @@
 /// --- The Kairo Project ----------------------- Sema/Check/FlagGates.k --- ///
 ///
-///   \brief Enforces the language gate flags and the declaration-size limits
-///          the command line can set (--no-unsafe / -fno-unsafe, --no-fp,
-///          --no-ffi, --no-cxx, --no-yield, --no-modules, --cmax-*), and the
-///          one gate that is CLOSED by default: `<T: type>` needs
-///          -fduck-generics.
+/// Enforces the language gate flags and the declaration-size limits
+/// the command line can set (--no-unsafe / -fno-unsafe, --no-fp,
+/// --no-ffi, --no-cxx, --no-yield, --no-modules, --cmax-*), and the
+/// one gate that is CLOSED by default: `<T: type>` needs
+/// -fduck-generics.
 ///
 ///   \detail
 ///     Every rule here is a plain walk over the tree the user wrote: a gate

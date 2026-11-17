@@ -1,7 +1,7 @@
 /// --- The Kairo Project ------------------------------ AST/LangItems.k --- ///
 ///
-///   \brief Names the compiler knows that are not in the user's source.
-///          Two kinds, one bucket test:
+/// Names the compiler knows that are not in the user's source.
+/// Two kinds, one bucket test:
 ///
 ///            could a user declare it in Kairo?
 ///              yes -> a LANG ITEM: a real decl in the builtins module,
@@ -64,8 +64,7 @@ import AST::Node::Base::Decl
 import AST::Node::CanonicalNodes::BuiltinKind
 import AST::OperatorFacts::operator_table
 
-/// \enum WellKnownType
-/// \brief The lang items. One row per decl a lowering needs a handle to.
+/// The lang items. One row per decl a lowering needs a handle to.
 pub enum WellKnownType derives u8 {
     Future = 0, ///< spawn foo() desugar type: Future<T>.
     Range, ///< 1..2 | 1..=2 desugar type: Range(a, b, t/f).
@@ -376,17 +375,16 @@ pub fn tuple_field_name(i: usize) -> string {
     return f"_{i}"
 }
 
-/// \class LangMembers
-/// \brief Members of lang items that the compiler finds BY NAME in the
-///        item's own scope (Lib/builtin), then uses as declarations: a
-///        lowering reads a Range's `begin` field or calls a Yield's `next`.
-///        Not LowerTargets: those are names the compiler INVENTS; these are
-///        declared in Kairo source, and Speller spells the decl it finds.
-///        One spelling each, as the tuple names above: a rename in
-///        Lib/builtin is a change here, not a sweep. `data` and `len` repeat
-///        across string and Slice on purpose -- two declarations that
-///        happen to share a spelling, so two rows. FmtBuf's `put_*` family
-///        is fmt_put_name, below.
+/// Members of lang items that the compiler finds BY NAME in the
+/// item's own scope (Lib/builtin), then uses as declarations: a
+/// lowering reads a Range's `begin` field or calls a Yield's `next`.
+/// Not LowerTargets: those are names the compiler INVENTS; these are
+/// declared in Kairo source, and Speller spells the decl it finds.
+/// One spelling each, as the tuple names above: a rename in
+/// Lib/builtin is a change here, not a sweep. `data` and `len` repeat
+/// across string and Slice on purpose -- two declarations that
+/// happen to share a spelling, so two rows. FmtBuf's `put_*` family
+/// is fmt_put_name, below.
 pub class LangMembers {
     /// Range<T>, RangeFrom<T>, RangeTo<T> fields (base/range.k): IterLowering
     /// reads them, RangeLowering initializes them by designator.
@@ -484,11 +482,10 @@ pub class LangMembers {
     }
 }
 
-/// \class PureAccessors
-/// \brief Lang-item getters that read their object and write nothing, so a
-///        call of one is no effect to order (LowerSynth::pure_read; it still
-///        READS state, so it is never moved past a write). Each was read
-///        before it was listed:
+/// Lang-item getters that read their object and write nothing, so a
+/// call of one is no effect to order (LowerSynth::pure_read; it still
+/// READS state, so it is never moved past a write). Each was read
+/// before it was listed:
 ///
 ///          string.k   as_ptr / length / codepoints / capacity: `return
 ///                     self.<field>`, const self.
@@ -527,11 +524,10 @@ pub class PureAccessors {
     }
 }
 
-/// \class LangModules
-/// \brief Library modules the compiler imports on a program's behalf, by
-///        path under a root (builtin_root_name() / std_root_spelling()):
-///        the preprocessor adds the import edge for a file whose tokens use
-///        what the module declares, and no source file writes the import.
+/// Library modules the compiler imports on a program's behalf, by
+/// path under a root (builtin_root_name() / std_root_spelling()):
+/// the preprocessor adds the import edge for a file whose tokens use
+/// what the module declares, and no source file writes the import.
 pub class LangModules {
     /// The constant the builtin root (module.k) declares when its string,
     /// Vector, HashMap and HashSet are the move-only two-word records. Its
@@ -579,10 +575,9 @@ pub class LangModules {
     }
 }
 
-/// \class LangTypes
-/// \brief Type forms the PARSER owns by name. `ffi::ref<T>` /
-///        `ffi::mref<T>`: an imported C++ function's reference return
-///        (TypeParse::_parse_ffi_ref_type).
+/// Type forms the PARSER owns by name. `ffi::ref<T>` /
+/// `ffi::mref<T>`: an imported C++ function's reference return
+/// (TypeParse::_parse_ffi_ref_type).
 pub class LangTypes {
     pub static fn ffi_ref() -> string {
         return "ref"
@@ -605,11 +600,10 @@ pub class LangTypes {
     }
 }
 
-/// \class LangBuiltins
-/// \brief Functions Lib/builtin/base/intrinsics.k declares that a check
-///        recognizes BY NAME, in the builtin files only: they have no lang
-///        item row because nothing lowers them, a pass only needs to know
-///        what a call of one promises.
+/// Functions Lib/builtin/base/intrinsics.k declares that a check
+/// recognizes BY NAME, in the builtin files only: they have no lang
+/// item row because nothing lowers them, a pass only needs to know
+/// what a call of one promises.
 pub class LangBuiltins {
     /// Hints and queries with no effect at run time.
     pub static fn expect() -> string {
@@ -660,13 +654,12 @@ pub class LangBuiltins {
     }
 }
 
-/// \class WellKnownDecls
-/// \brief WellKnownType -> canonical *Decl. ONE per build, owned by
-///        GlobalDisambigTable and filled once from the builtins fid (lang
-///        items are bound by fid + path, never by unqualified name). Read
-///        by sema through sc->well_known and by codegen through the
-///        CodegenContext. A missing entry is an error only at USE, diagnosed
-///        by the pass that needs it.
+/// WellKnownType -> canonical *Decl. ONE per build, owned by
+/// GlobalDisambigTable and filled once from the builtins fid (lang
+/// items are bound by fid + path, never by unqualified name). Read
+/// by sema through sc->well_known and by codegen through the
+/// CodegenContext. A missing entry is an error only at USE, diagnosed
+/// by the pass that needs it.
 pub class WellKnownDecls {
     priv var _decls: cxx::std::vector<unsafe *Decl> ///< indexed by WellKnownType; COUNT slots.
     /// The builtin root declares LangModules::library_edition: its string,
@@ -706,12 +699,11 @@ pub class WellKnownDecls {
     }
 }
 
-/// \enum FormatKind
-/// \brief The compiler's spelling of Lib/builtin/fmt/fmt_buf.k's FormatKind: what X
-///        records per f-string hole and FStringLowering mints as a variant
-///        USE. The rows are matched to the enum's variants by NAME through
-///        the lang item, never by value, so the numbering here is not an
-///        ABI -- but keep the two lists identical anyway.
+/// The compiler's spelling of Lib/builtin/fmt/fmt_buf.k's FormatKind: what X
+/// records per f-string hole and FStringLowering mints as a variant
+/// USE. The rows are matched to the enum's variants by NAME through
+/// the lang item, never by value, so the numbering here is not an
+/// ABI -- but keep the two lists identical anyway.
 pub enum FormatKind derives u8 {
     None = 0, ///< a trailing text segment; no argument.
     Bool,
@@ -888,7 +880,7 @@ pub fn format_kind_of(b: BuiltinKind) -> FormatKind {
     }
 }
 
-/// \enum FormatAlign  -- fmt_buf.k's FormatAlign, same name-matching rule.
+/// -- fmt_buf.k's FormatAlign, same name-matching rule.
 pub enum FormatAlign derives u8 { Default = 0, Left, Right, Center }
 
 pub fn to_string(a: FormatAlign) -> string {
@@ -995,7 +987,7 @@ pub fn fmt_put_name(k: FormatKind) -> string {
     return "put_" + lower
 }
 
-/// \p v as 16 lowercase hex digits: the stable suffix of a minted name
+/// `v` as 16 lowercase hex digits: the stable suffix of a minted name
 /// keyed by a hash (LowerTargets::type_id_guard, panic_site_record).
 pub fn hex64(v: u64) -> string {
     var digits = "0123456789abcdef"
@@ -1007,7 +999,7 @@ pub fn hex64(v: u64) -> string {
     return out
 }
 
-/// \p v as 8 lowercase hex digits (a panic type id in a message).
+/// `v` as 8 lowercase hex digits (a panic type id in a message).
 pub fn hex32(v: u32) -> string {
     var digits = "0123456789abcdef"
     var out    = ""
@@ -1018,14 +1010,13 @@ pub fn hex32(v: u32) -> string {
     return out
 }
 
-/// \class LangAttrs
-/// \brief The `@name` attributes the compiler gives a meaning. Neither a
-///        lang item (nothing declares them) nor a lower target (the user
-///        writes them): the one spelling the parser stamps from and every
-///        diagnostic quotes, so a message cannot name an attribute the
-///        parser does not read.
+/// The `@name` attributes the compiler gives a meaning. Neither a
+/// lang item (nothing declares them) nor a lower target (the user
+/// writes them): the one spelling the parser stamps from and every
+/// diagnostic quotes, so a message cannot name an attribute the
+/// parser does not read.
 pub class LangAttrs {
-    /// \p word as it is written, `@word`, and as a message quotes it,
+    /// `word` as it is written, `@word`, and as a message quotes it,
     /// `'@word'`: a message names an attribute through these so it can only
     /// name one this table spells.
     pub static fn at(const word: string) -> string {
@@ -1296,8 +1287,8 @@ pub class LangAttrs {
         }
     }
 
-    /// How attribute \p word is written after the `@`, with the arguments
-    /// it takes named (`align(N)`); \p word itself for one that takes none
+    /// How attribute `word` is written after the `@`, with the arguments
+    /// it takes named (`align(N)`); `word` itself for one that takes none
     /// and for a word that is no row. For tooling that offers attributes
     /// (the language server's completion): the list, the form and the
     /// summary are read from here, so it offers what `known` admits.
@@ -1333,7 +1324,7 @@ pub class LangAttrs {
         return word.copy()
     }
 
-    /// What attribute \p word may be written before: words among `fn`,
+    /// What attribute `word` may be written before: words among `fn`,
     /// `type` (a class, struct or union), `enum`, `field`, `var`, `param`,
     /// `stmt` (a statement or a branch), `expr`, `file`, or `any` (every
     /// declaration). "" for a word that is no row.
@@ -1449,7 +1440,7 @@ pub class LangAttrs {
         return ""
     }
 
-    /// One line on what attribute \p word does (attributes.mdx, Built-in
+    /// One line on what attribute `word` does (attributes.mdx, Built-in
     /// Attributes); "" for a word that is no row.
     pub static fn summary(const word: string) -> string {
         if word == LangAttrs::transfer_copy() {
@@ -1564,12 +1555,11 @@ pub class LangAttrs {
     }
 }
 
-/// \enum GlobalAllocFn
-/// \brief The five static functions a `@set_global_allocator(A)` class
-///        provides, in the order the forwarders are written
-///        (EmitIR::_global_allocator) and checked (ConformanceChecking).
-///        Each is also a C symbol, LowerTargets::global_alloc_symbol: an
-///        ABI with Lib/rt/global_alloc.h, which defines all five weakly.
+/// The five static functions a `@set_global_allocator(A)` class
+/// provides, in the order the forwarders are written
+/// (EmitIR::_global_allocator) and checked (ConformanceChecking).
+/// Each is also a C symbol, LowerTargets::global_alloc_symbol: an
+/// ABI with Lib/rt/global_alloc.h, which defines all five weakly.
 pub enum GlobalAllocFn derives u8 { Alloc = 0, Free, Resize, Realloc, AllocZeroed, COUNT }
 
 /// The process status of a Kairo crash that is not a panic: a failed
@@ -1578,12 +1568,11 @@ pub enum GlobalAllocFn derives u8 { Alloc = 0, Free, Resize, Realloc, AllocZeroe
 pub
 const ABORT_EXIT_CODE: i32 = 134
 
-/// \class AllocNames
-/// \brief Lib/builtin/base/alloc.k's names that the compiler reads.
-///        Not lang items (only create / destroy are, for the
-///        sugar: WellKnownType::Create): alloc.k is not re-exported by the
-///        builtin root, so each is matched by spelling AND by the builtin
-///        fid of the declaration found, never by spelling alone.
+/// Lib/builtin/base/alloc.k's names that the compiler reads.
+/// Not lang items (only create / destroy are, for the
+/// sugar: WellKnownType::Create): alloc.k is not re-exported by the
+/// builtin root, so each is matched by spelling AND by the builtin
+/// fid of the declaration found, never by spelling alone.
 pub class AllocNames {
     /// `static fn op new(...)` / `static fn op delete(...)` on a class: its
     /// own allocator, which Kairo rejects (SC149E). The parser still
@@ -1601,7 +1590,7 @@ pub class AllocNames {
         return "free"
     }
 
-    /// The global allocator's function \p k, by the name A declares it
+    /// The global allocator's function `k`, by the name A declares it
     /// under (ConformanceChecking looks each up; the forwarders call it).
     pub static fn global_alloc_member(k: GlobalAllocFn) -> string {
         match k {
@@ -1657,11 +1646,10 @@ pub class AllocNames {
     }
 }
 
-/// \class LangIntrinsics
-/// \brief The `name!(...)` forms the PARSER owns although they are spelled
-///        like macro calls. The preprocessor recognizes them by the same
-///        spelling to pass them through raw (Preprocessor::_detect_invocation),
-///        and StmtParse / ExprParse match them; two layers, one row each.
+/// The `name!(...)` forms the PARSER owns although they are spelled
+/// like macro calls. The preprocessor recognizes them by the same
+/// spelling to pass them through raw (Preprocessor::_detect_invocation),
+/// and StmtParse / ExprParse match them; two layers, one row each.
 pub class LangIntrinsics {
     /// `label!(name)` / `jump!(name)`: StmtParse, lowered by LabelLowering.
     pub static fn label() -> string {
@@ -1716,7 +1704,7 @@ pub class LangIntrinsics {
         }
     }
 
-    /// How intrinsic \p word is written, and one line on what it does.
+    /// How intrinsic `word` is written, and one line on what it does.
     pub static fn usage(const word: string) -> string {
         if word == LangIntrinsics::label() {
             return "label!(name)"
@@ -1774,13 +1762,12 @@ pub class LangIntrinsics {
     }
 }
 
-/// \class LangMacros
-/// \brief The preprocessor's builtin `name!(...)` macros. Preprocessor
-///        dispatches on these (_try_builtin) AND reserves them against a
-///        user definition (_is_builtin_name); both lists read these rows, so
-///        a builtin cannot be dispatched without being reserved. `defined!`
-///        is LangIntrinsics::defined: the preprocessor answers it when its
-///        table can, the parser otherwise.
+/// The preprocessor's builtin `name!(...)` macros. Preprocessor
+/// dispatches on these (_try_builtin) AND reserves them against a
+/// user definition (_is_builtin_name); both lists read these rows, so
+/// a builtin cannot be dispatched without being reserved. `defined!`
+/// is LangIntrinsics::defined: the preprocessor answers it when its
+/// table can, the parser otherwise.
 pub class LangMacros {
     // source location
     pub static fn file() -> string {
@@ -1930,7 +1917,7 @@ pub class LangMacros {
         }
     }
 
-    /// How builtin macro \p word is invoked, with its parameters named
+    /// How builtin macro `word` is invoked, with its parameters named
     /// (macros-builtin.mdx); "" for a word that is no row.
     pub static fn usage(const word: string) -> string {
         if word == LangMacros::file() {
@@ -2024,7 +2011,7 @@ pub class LangMacros {
         return ""
     }
 
-    /// One line on what builtin macro \p word does (macros-builtin.mdx).
+    /// One line on what builtin macro `word` does (macros-builtin.mdx).
     pub static fn summary(const word: string) -> string {
         if word == LangMacros::file() {
             return "The current file's path, a string literal"
@@ -2118,9 +2105,8 @@ pub class LangMacros {
     }
 }
 
-/// \class LowerTargets
-/// \brief The invented C++ name fragments. Nothing else in the compiler
-///        carries a copy of any string here.
+/// The invented C++ name fragments. Nothing else in the compiler
+/// carries a copy of any string here.
 ///
 /// \par Where a row stops
 ///   A helper InterfaceEmitter writes as one piece of text (`__kairo_fn`,
@@ -2188,7 +2174,7 @@ pub class LowerTargets {
         return "self"
     }
 
-    /// The \p k-th parameter of an extension operator's namespace-scope C++
+    /// The `k-th` parameter of an extension operator's namespace-scope C++
     /// `operator<sym>` forwarder (InterfaceEmitter::_forwarder), receiver
     /// included, a postfix `++`/`--` dummy last.
     pub static fn forwarder_arg(k: usize) -> string {
@@ -2197,7 +2183,7 @@ pub class LowerTargets {
 
     /// # Witnesses (writer: EmitWitness)
 
-    /// The \p k-th parameter of a witness member whose requirement leaves it
+    /// The `k-th` parameter of a witness member whose requirement leaves it
     /// unnamed (`fn op + (self, Self) -> Self`): C++ needs a name to forward.
     pub static fn witness_unnamed_param(k: usize) -> string {
         return f"__kairo_u{k}"
@@ -2218,8 +2204,8 @@ pub class LowerTargets {
         return "__kairo_Self"
     }
 
-    /// The concept's requires-parameters: requirement \p i's receiver, and
-    /// the \p k-th argument across all requirements.
+    /// The concept's requires-parameters: requirement `i`'s receiver, and
+    /// the `k-th` argument across all requirements.
     pub static fn witness_recv(i: usize) -> string {
         return f"__kairo_r{i}"
     }
@@ -2241,7 +2227,7 @@ pub class LowerTargets {
     }
 
     /// The include guard around a witness definition in a header: every
-    /// header that reaches one writes it, as a tuple record's. \p key is the
+    /// header that reaches one writes it, as a tuple record's. `key` is the
     /// witness and its Self, already an identifier (Speller::_path_ident).
     pub static fn witness_guard(const key: string) -> string {
         return "__KAIRO_W_" + key
@@ -2422,7 +2408,7 @@ pub class LowerTargets {
         return f"__KAIRO_ESTRH_{len}_" + hex64(hash)
     }
 
-    /// FNV-1a, 64 bits, over \p n bytes at \p p: eval_str_hashed's key.
+    /// FNV-1a, 64 bits, over `n` bytes at `p`: eval_str_hashed's key.
     pub static fn eval_str_hash(p: kairo::std::ConstPtr<u8>, n: usize) -> u64 {
         var h: u64 = (0xcbf29ce484222325)
         for var i: usize = 0; i < n; ++i {
@@ -2458,7 +2444,7 @@ pub class LowerTargets {
     /// An extension operator's static-member name. A static member cannot be
     /// named `operator+`, so it gets a mnemonic, and a namespace-scope
     /// `operator+` forwarder (InterfaceEmitter) gives C++ callers the
-    /// operator. \p sym is OperatorFacts' symbol, with `l`/`r` kept on
+    /// operator. `sym` is OperatorFacts' symbol, with `l`/`r` kept on
     /// `++`/`--` (an unmarked one is prefix). The operators with a name
     /// above (`in`, `^^`, `await`, `spawn`, `thread`) keep it and never
     /// reach here. "" for a symbol with no row; the caller ICEs.
@@ -2535,7 +2521,7 @@ pub class LowerTargets {
 
     /// A witness member's name for an `op as` requirement (an interpolation
     /// or a cast through a bound, Compiler/Spec/Generics.md#body-regimes). Like `op []` it has no
-    /// extension row. \p target is the requirement's result type as one C++
+    /// extension row. `target` is the requirement's result type as one C++
     /// identifier: two `op as` requirements of one interface (to `string`
     /// and to `i32`) take the same parameters and differ only in what they
     /// return, which a static member -- unlike `operator T` -- cannot be
@@ -2579,7 +2565,7 @@ pub class LowerTargets {
         return "__kairo_nd"
     }
 
-    /// `template <class T> decltype(auto) __kairo_xfer(T& v)`: \p v as an
+    /// `template <class T> decltype(auto) __kairo_xfer(T& v)`: `v` as an
     /// rvalue when T cannot be copied from it, else as itself. A generic
     /// body's transfer out of storage it does not own (TypeCastExpr::
     /// instance_move) moves at an instance that cannot copy, copies at every
@@ -2716,7 +2702,7 @@ pub class LowerTargets {
         return "__kairo_init_" + field
     }
 
-    /// `__kairo_init<i>_<field>`: element \p i of an array field's list
+    /// `__kairo_init<i>_<field>`: element `i` of an array field's list
     /// literal (FieldFold::Elems). A digit follows `init`, where the one
     /// above has `_`, so no field's name makes the two collide.
     pub static fn field_init_elem_thunk(const field: string, i: usize) -> string {
@@ -2831,7 +2817,7 @@ pub class LowerTargets {
         return "__kairo_Tag"
     }
 
-    /// The payload member of variant \p v, and its type below. A few
+    /// The payload member of variant `v`, and its type below. A few
     /// variant names would collide with another member of the ADT record:
     /// `Tag` with the tag enum `__kairo_Tag`, and a name ending in
     /// `_t` with the payload type of the variant it extends (`A_t`'s field
@@ -3505,7 +3491,7 @@ pub class LowerTargets {
 
     /// # Exported records (writer: TypeExport)
 
-    /// The \p i-th field of the clang stand-in TypeExport builds for a Kairo
+    /// The `i-th` field of the clang stand-in TypeExport builds for a Kairo
     /// record in phase A's AST. The stand-in carries layout only, and phase B
     /// compiles against the real record, so the fields need no real names.
     pub static fn export_field(i: usize) -> string {
@@ -3514,7 +3500,7 @@ pub class LowerTargets {
 
     /// # unique_id! (writer: Preprocessor::_builtin_unique_id)
 
-    /// The identifier `unique_id!()` / `unique_id!(tag)` expands to, \p k the
+    /// The identifier `unique_id!()` / `unique_id!(tag)` expands to, `k` the
     /// preprocessor's per-file counter. From there on it is an ordinary user
     /// identifier, so it reaches the emitted C++ as whatever the user named
     /// with it.
@@ -3529,7 +3515,7 @@ pub class LowerTargets {
     /// # Default-argument thunk overloads (writer: CallLowering)
 
     /// The `_<k>` default_thunk carries when the function's name cell holds
-    /// more than one entity; \p k is 1-based, source order.
+    /// more than one entity; `k` is 1-based, source order.
     pub static fn default_thunk_ordinal(k: usize) -> string {
         return f"_{k}"
     }
@@ -3692,7 +3678,7 @@ pub class LowerTargets {
         return "kairo_global_"
     }
 
-    /// The C symbol of the global allocator's function \p k
+    /// The C symbol of the global allocator's function `k`
     /// (`kairo_global_alloc`, ...): the prefix and A's member name.
     pub static fn global_alloc_symbol(k: GlobalAllocFn) -> string {
         return LowerTargets::global_alloc_symbol_prefix() + AllocNames::global_alloc_member(

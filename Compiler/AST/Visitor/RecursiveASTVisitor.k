@@ -1,6 +1,6 @@
 /// --- The Kairo Project ------------ AST/Visitor/RecursiveASTVisitor.k --- ///
 ///
-///   \brief A recursive AST visitor for traversing the Kairo AST.
+/// A recursive AST visitor for traversing the Kairo AST.
 ///
 ///   Layer contract (per node N of family F):
 ///     dispatch_F(*F)     -- switch on kind, route to traverse_N. (generated)
@@ -74,7 +74,7 @@ import AST::Node::Program::TopLevelKind
 import AST::Node::Statements
 import AST::Node::Types
 
-/// The VALUE of a named call argument, or null when \p a is positional.
+/// The VALUE of a named call argument, or null when `a` is positional.
 ///
 /// `f(x: 1)` has no node of its own: the parser wraps it in an
 /// AssignOperatorExpr with a `:` operator token and a bare identifier on the
@@ -105,8 +105,8 @@ pub class <D: type> RecursiveASTVisitor {
         return unsafe ((&self) as *D)
     }
 
-    /// Walks every top-level item of \p tu in source order, each through
-    /// the dispatch of its family. Nothing for a null \p tu or one with no
+    /// Walks every top-level item of `tu` in source order, each through
+    /// the dispatch of its family. Nothing for a null `tu` or one with no
     /// program; ends early once `stop` is set.
     pub fn run(self, tu: unsafe *TranslationUnit) {
         if tu == &null || tu->program == &null {
@@ -4796,17 +4796,15 @@ pub class <D: type> RecursiveASTVisitor {
     }
 }
 
+/// Compile-time tripwire that forces instantiation of
+/// RecursiveASTVisitor<D>.
 ///
-/// \class RAVProbe
-/// \brief Compile-time tripwire that forces instantiation of
-///        RecursiveASTVisitor<D>.
-///
-/// \details RecursiveASTVisitor is a CRTP base: every internal call routes
-///          through dyn() -> *D, a dependent type. Dependent-name lookups are
-///          NOT checked when the base template is compiled alone a misspelled
-///          dispatch_/walkup_/visit_ call (e.g. the historical `dispatch_decln`
-///          typo) or a bad n->field access compiles clean and only errors when
-///          some concrete D instantiates the offending path.
+/// RecursiveASTVisitor is a CRTP base: every internal call routes
+/// through dyn() -> *D, a dependent type. Dependent-name lookups are
+/// NOT checked when the base template is compiled alone a misspelled
+/// dispatch_/walkup_/visit_ call (e.g. the historical `dispatch_decln`
+/// typo) or a bad n->field access compiles clean and only errors when
+/// some concrete D instantiates the offending path.
 ///
 ///          This zero-override derived class is that instantiation. Declaring
 ///          it + constructing one in Test() below forces the compiler to
@@ -4819,5 +4817,4 @@ pub class <D: type> RecursiveASTVisitor {
 ///          Overrides nothing on purpose: it must exercise the base defaults,
 ///          not replace them. Do not delete: it checks that the
 ///          base defaults are exercised.
-///
 pub class RAVProbe derives RecursiveASTVisitor<RAVProbe> { }

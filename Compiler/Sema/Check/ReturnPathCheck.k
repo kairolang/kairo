@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------- Sema/Check/ReturnPathCheck.k --- ///
 ///
-///   \brief Error when a value-returning function can reach its closing
-///          brace, or a `-> !` function can.
+/// Error when a value-returning function can reach its closing
+/// brace, or a `-> !` function can.
 ///
 ///   \detail
 ///     Structural, not a CFG: one question asked of the statement tree,
@@ -250,7 +250,7 @@ pub class ReturnPathCheck derives RecursiveASTVisitor<ReturnPathCheck> {
         return &null
     }
 
-    /// \p f is the function, or null for a closure; it names the subject.
+    /// `f` is the function, or null for a closure; it names the subject.
     priv fn _check(self,
                    body:     unsafe *CompoundStmt,
                    ret:      unsafe *Type,

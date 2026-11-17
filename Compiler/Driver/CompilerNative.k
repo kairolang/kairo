@@ -60,13 +60,13 @@ import std::env
 import std::io
 
 extend CompilerInstance {
-    /// \brief the runtime's C/C++ sources (Lib/rt), when Kairo objects were
-    ///        emitted, into <dir>/kairo/<stem>.o beside kairo/std.o.
+    /// the runtime's C/C++ sources (Lib/rt), when Kairo objects were
+    /// emitted, into <dir>/kairo/<stem>.o beside kairo/std.o.
     ///
-    /// \details On the hand-built cc1 line (ClangBackend::native_invocation and run_native),
-    ///          not clang's driver: the runtime is Kairo's own code and is
-    ///          built exactly as Kairo's TUs are (int128, no finite loops,
-    ///          Kairo's exception model). Runtime objects never take -o.
+    /// On the hand-built cc1 line (ClangBackend::native_invocation and run_native),
+    /// not clang's driver: the runtime is Kairo's own code and is
+    /// built exactly as Kairo's TUs are (int128, no finite loops,
+    /// Kairo's exception model). Runtime objects never take -o.
     ///
     ///          Each object is taken from the toolchain's runtime cache
     ///          (_rt_cache_dir) when an entry for its exact cc1 line and
@@ -76,15 +76,16 @@ extend CompilerInstance {
     ///          the cache, so a link never holds a file another run may
     ///          replace or collect, and --kairo-lib's private build
     ///          directory still holds its own objects.
-    /// \brief compiles the runtime's C sources (Lib/rt) to objects, for the
-    ///        link: _start_runtime unless it already ran, then _finish_runtime.
     ///
-    /// \details The runtime depends on no Kairo source, so the batch starts it
-    ///          as soon as the first action reaches Sema (prestart_runtime),
-    ///          on pool threads that the serial Sema leaves idle, instead of
-    ///          after codegen, where a cache miss (every first link after a
-    ///          compiler rebuild) put ~4 s of -O2 compiles on the critical
-    ///          path. The objects, logs and cache stores are the same.
+    /// compiles the runtime's C sources (Lib/rt) to objects, for the
+    /// link: _start_runtime unless it already ran, then _finish_runtime.
+    ///
+    /// The runtime depends on no Kairo source, so the batch starts it
+    /// as soon as the first action reaches Sema (prestart_runtime),
+    /// on pool threads that the serial Sema leaves idle, instead of
+    /// after codegen, where a cache miss (every first link after a
+    /// compiler rebuild) put ~4 s of -O2 compiles on the critical
+    /// path. The objects, logs and cache stores are the same.
     prot fn _compile_runtime(self) -> bool {
         if !self._rt_started {
             if !self._start_runtime() {
@@ -325,10 +326,10 @@ extend CompilerInstance {
         return ok
     }
 
-    /// \brief the clang driver words for one C/C++ input, without the
-    ///        action and the input/output: the backend's roots, everything
-    ///        FlagTranslator::to_driver spells for this invocation (ending in
-    ///        --cxx-flags, so those win), then the runtime root.
+    /// the clang driver words for one C/C++ input, without the
+    /// action and the input/output: the backend's roots, everything
+    /// FlagTranslator::to_driver spells for this invocation (ending in
+    /// --cxx-flags, so those win), then the runtime root.
     priv fn _native_words(self, const k: InputKind) -> cxx::std::vector<string> {
         return self._native_words_for(self._backend, k)
     }
@@ -369,14 +370,14 @@ extend CompilerInstance {
         return w
     }
 
-    /// \brief the driver words a C++ input of this invocation compiles with
-    ///        (_native_words for a `.cc`), for kals' clangd bridge: clangd
-    ///        must parse a C++ file that includes a `.k` with kcc's roots
-    ///        (the sysroot's libc++, the runtime root, the -std), or the
-    ///        generated header's prelude meets another standard library
-    ///        (libstdc++ declares `__make_unsigned`, which turns off clang's
-    ///        builtin of that name that rt/intrinsics.h uses). Empty without
-    ///        a backend.
+    /// the driver words a C++ input of this invocation compiles with
+    /// (_native_words for a `.cc`), for kals' clangd bridge: clangd
+    /// must parse a C++ file that includes a `.k` with kcc's roots
+    /// (the sysroot's libc++, the runtime root, the -std), or the
+    /// generated header's prelude meets another standard library
+    /// (libstdc++ declares `__make_unsigned`, which turns off clang's
+    /// builtin of that name that rt/intrinsics.h uses). Empty without
+    /// a backend.
     pub fn cxx_driver_words(self) -> cxx::std::vector<string> {
         if self._backend == &null {
             return cxx::std::vector<string>()
@@ -388,11 +389,11 @@ extend CompilerInstance {
         )
     }
 
-    /// \brief cxx_driver_words for a C input (`.c`): the C set kcc compiles
-    ///        a `.c` with (C roots, C `-std`), for a C source kals' bridge
-    ///        lists because it reaches a `.k` through a header; the
-    ///        C++ set's `-std=c++..` is an error for C. Empty without a
-    ///        backend.
+    /// cxx_driver_words for a C input (`.c`): the C set kcc compiles
+    /// a `.c` with (C roots, C `-std`), for a C source kals' bridge
+    /// lists because it reaches a `.k` through a header; the
+    /// C++ set's `-std=c++..` is an error for C. Empty without a
+    /// backend.
     pub fn c_driver_words(self) -> cxx::std::vector<string> {
         if self._backend == &null {
             return cxx::std::vector<string>()
@@ -481,8 +482,8 @@ extend CompilerInstance {
         return false
     }
 
-    /// \brief compiles the command line's C, C++, Objective-C and IR inputs
-    ///        through clang's driver, for the run's action:
+    /// compiles the command line's C, C++, Objective-C and IR inputs
+    /// through clang's driver, for the run's action:
     ///
     ///          --preprocess       -E, to -o or stdout
     ///          --syntax-only,
@@ -657,11 +658,11 @@ extend CompilerInstance {
         return ok
     }
 
-    /// \brief the directory the runtime is included and compiled from: the
-    ///        builtin root's parent -- Lib/ in the tree, <resource-dir>
-    ///        installed -- so `rt/fmt.h` names Lib/rt/fmt.h from anywhere. The
-    ///        builtin root is found as the import resolver finds it:
-    ///        --builtins-dir, else <resource-dir>/builtin. "" when none.
+    /// the directory the runtime is included and compiled from: the
+    /// builtin root's parent -- Lib/ in the tree, <resource-dir>
+    /// installed -- so `rt/fmt.h` names Lib/rt/fmt.h from anywhere. The
+    /// builtin root is found as the import resolver finds it:
+    /// --builtins-dir, else <resource-dir>/builtin. "" when none.
     prot fn _runtime_root(self) -> string {
         var broot = self._builtin_root()
         if broot.is_empty() {
@@ -673,9 +674,9 @@ extend CompilerInstance {
         return Path::parent_of(LinkText::strip_slash(broot.copy()))
     }
 
-    /// \brief the runtime's C/C++ sources: every one directly in
-    ///        <runtime root>/rt. No root, no runtime. Sorted, so object
-    ///        order does not follow readdir.
+    /// the runtime's C/C++ sources: every one directly in
+    /// <runtime root>/rt. No root, no runtime. Sorted, so object
+    /// order does not follow readdir.
     prot fn _runtime_sources(self) -> cxx::std::vector<InputKind> {
         var out   = cxx::std::vector<InputKind>()
         var rroot = self._runtime_root()
@@ -723,15 +724,15 @@ extend CompilerInstance {
         return out
     }
 
-    /// \brief every file the runtime's sources include from the vendored
-    ///        mimalloc (<runtime root>/rt/mimalloc/{src,include}, recursive),
-    ///        for the library manifest.
+    /// every file the runtime's sources include from the vendored
+    /// mimalloc (<runtime root>/rt/mimalloc/{src,include}, recursive),
+    /// for the library manifest.
     ///
-    /// \details rt/mimalloc.c is one line of #include into the submodule:
-    ///          a submodule bump changes these and never mimalloc.c, so a
-    ///          manifest of _runtime_sources() alone would keep a cached
-    ///          runtime object built from the old mimalloc. Sorted, so the
-    ///          manifest does not follow readdir.
+    /// rt/mimalloc.c is one line of #include into the submodule:
+    /// a submodule bump changes these and never mimalloc.c, so a
+    /// manifest of _runtime_sources() alone would keep a cached
+    /// runtime object built from the old mimalloc. Sorted, so the
+    /// manifest does not follow readdir.
     prot fn _runtime_deps(self) -> cxx::std::vector<string> {
         var out   = cxx::std::vector<string>()
         var rroot = self._runtime_root()

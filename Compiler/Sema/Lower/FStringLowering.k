@@ -1,6 +1,6 @@
 /// --- The Kairo Project ----------------- Sema/Lower/FStringLowering.k --- ///
 ///
-///   \brief Every f-string becomes one FmtBuf and straight-line puts.
+/// Every f-string becomes one FmtBuf and straight-line puts.
 ///
 ///   \detail
 ///       f"x={x:>4} v={v}"        // x: i32, v: Vec2 with a user `repr`
@@ -560,7 +560,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
     ///   segment's text is decoded under its own prefix (its Raw bit), and
     ///   the segments with no hole are text whole.
 
-    /// Hole \p i's segment; \p k becomes its index within that segment.
+    /// Hole `i`'s segment; `k` becomes its index within that segment.
     priv fn _seg(self,
                  n:        unsafe *StringLiteralExpr,
                  i:        usize,
@@ -576,13 +576,13 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
         return seg
     }
 
-    /// Raw offset of hole \p k's `{` in \p seg.
+    /// Raw offset of hole `k`'s `{` in `seg`.
     priv fn _open(self, seg: unsafe *Immediate::StringData, k: usize) -> u32 {
         var r = (*(seg->exprs.begin() + k)).1
         return r.start.raw() - 1
     }
 
-    /// Raw offset of hole \p k's `}` in \p seg: past the spec, the doc text,
+    /// Raw offset of hole `k`'s `}` in `seg`: past the spec, the doc text,
     /// or the expression, whichever the hole has.
     priv fn _close(self, seg: unsafe *Immediate::StringData, k: usize) -> u32 {
         var *hs = &seg->holes[k]
@@ -608,7 +608,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
         )
     }
 
-    /// The literal bytes before hole \p i, decoded, then the hole's own
+    /// The literal bytes before hole `i`, decoded, then the hole's own
     /// `{x=}` text, verbatim. When the hole opens a segment, the bytes before
     /// it are the rest of the previous hole's segment and every segment
     /// between, whole.
@@ -647,7 +647,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
     }
 
     /// The bytes after the last hole, then every segment after its own. With
-    /// \p consume the chain is spent (one FmtBuf now holds it all).
+    /// `consume` the chain is spent (one FmtBuf now holds it all).
     priv fn _text_after(self,
                         n:       unsafe *StringLiteralExpr,
                         out:     unsafe *cxx::std::vector<u8>,
@@ -672,7 +672,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
         }
     }
 
-    /// \p seg's Raw bit: the node's for the first segment (its kind is the
+    /// `seg`'s Raw bit: the node's for the first segment (its kind is the
     /// head's), the segment's own prefix for every other.
     priv fn _raw(self, n: unsafe *StringLiteralExpr, seg: unsafe *Immediate::StringData) -> bool {
         if seg == n->imm {

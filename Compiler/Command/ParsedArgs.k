@@ -81,7 +81,7 @@ pub class ParsedArgs {
         return self._map[kairo::sref(key)].as_list()
     }
 
-    /// \brief returns -1 (unset), 0 (-fno-{key}), or 1 (-f{key})
+    /// returns -1 (unset), 0 (-fno-{key}), or 1 (-f{key})
     pub fn get_feature(self, const key: string) -> i32 {
         if !self._map.contains(kairo::sref(key)) {
             return -1
@@ -90,7 +90,7 @@ pub class ParsedArgs {
         return self._map[kairo::sref(key)].as_feature()
     }
 
-    /// \brief config flag getters - key is without the 'c' CLI prefix
+    /// config flag getters - key is without the 'c' CLI prefix
     fn get_cfg_bool(self, const key: string) -> bool {
         var k = f"c:{key}"
         if !self._map.contains(kairo::sref(k)) {

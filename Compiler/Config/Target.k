@@ -19,7 +19,7 @@ import Command::ParsedArgs::ParsedArgs
 /// The target's object file format, from llvm::Triple::getObjectFormat()
 /// (the one switch is CompilerInstance::_object_format_of; Config/ never
 /// sees LLVM). The driver, the linker and the info queries branch on this.
-/// \c Unresolved is "the driver has not filled the target yet", which is not
+/// `Unresolved` is "the driver has not filled the target yet", which is not
 /// LLVM's unknown format: the emitter treats the two differently.
 pub enum ObjectFormat derives u8 {
     Unresolved = 0,
@@ -34,7 +34,7 @@ pub enum ObjectFormat derives u8 {
     Spirv,
 }
 
-/// \p f as `kairo --print-target-info` and the linker's messages spell it
+/// `f` as `kairo --print-target-info` and the linker's messages spell it
 /// (TargetOptions::object_format).
 pub fn object_format_name(f: ObjectFormat) -> string {
     if f == ObjectFormat::Elf {
@@ -60,11 +60,7 @@ pub fn object_format_name(f: ObjectFormat) -> string {
     return ""
 }
 
-///
-/// \class TargetOptions
-///
-/// \brief Target triple, ISA selection, and C++ interop ABI settings.
-///
+/// Target triple, ISA selection, and C++ interop ABI settings.
 pub class TargetOptions {
     /// --target, canonicalised by the driver before anything reads it
     /// (CompilerInstance::_canonical_target): a glibc version is split off
@@ -95,21 +91,21 @@ pub class TargetOptions {
     /// whose output lands in the ordinary -I/-D/-L/-l lists.
     pub var pkg_config: cxx::std::vector<string>
 
-    /// \brief How much of the host system a build may see. DERIVED by
-    ///        CompilerInstance::_apply_host_system, once, from --target and
-    ///        --native; every consumer reads this instead of re-asking.
+    /// How much of the host system a build may see. DERIVED by
+    /// CompilerInstance::_apply_host_system, once, from --target and
+    /// --native; every consumer reads this instead of re-asking.
     ///
-    /// \details ""        hermetic: --target (or --sysroot, --freestanding)
-    ///                    given. The bundled sysroot only, no host paths, no
-    ///                    host env search paths: a cross build is
-    ///                    reproducible.
-    ///          "floor"   the default on a Linux host: the bundled sysroot is
-    ///                    the C library (glibc 2.31 on a glibc host), and the
-    ///                    host's system dirs come AFTER it, so only what the
-    ///                    floor lacks (zlib.h, libcurl.so) is the host's.
-    ///          "native"  --native: the host's libc, headers and libraries in
-    ///                    clang's native order; the bundled libc++ and
-    ///                    compiler-rt (native_bundle) on top.
+    /// ""        hermetic: --target (or --sysroot, --freestanding)
+    ///           given. The bundled sysroot only, no host paths, no
+    ///           host env search paths: a cross build is
+    ///           reproducible.
+    /// "floor"   the default on a Linux host: the bundled sysroot is
+    ///           the C library (glibc 2.31 on a glibc host), and the
+    ///           host's system dirs come AFTER it, so only what the
+    ///           floor lacks (zlib.h, libcurl.so) is the host's.
+    /// "native"  --native: the host's libc, headers and libraries in
+    ///           clang's native order; the bundled libc++ and
+    ///           compiler-rt (native_bundle) on top.
     pub var host_mode: string = ""
     /// Host system include dirs, existing ones only, already deduplicated:
     /// -idirafter in "floor" mode, -isystem in "native" mode.
@@ -124,29 +120,29 @@ pub class TargetOptions {
     /// never is. "" otherwise.
     pub var native_bundle: string = ""
 
-    /// \brief Pointer width in bits. DERIVED, not parsed: a width that
-    ///        disagrees with the triple is not a target, so there is no flag.
+    /// Pointer width in bits. DERIVED, not parsed: a width that
+    /// disagrees with the triple is not a target, so there is no flag.
     ///
-    /// \details Filled by CompilerInstance::_apply_invocation from
-    ///          llvm::Triple::getArchPointerBitWidth() on the effective
-    ///          triple, after -m32/-m64 have been applied via the Triple's
-    ///          32/64-bit arch variants -- the same rewrite clang performs. A
-    ///          value of 0 means it was never filled (hand-built invocation
-    ///          that skipped _apply_invocation); consumers treat 0 as 64.
-    ///          Config/ stays LLVM-free by having the driver write this rather
-    ///          than computing it here.
+    /// Filled by CompilerInstance::_apply_invocation from
+    /// llvm::Triple::getArchPointerBitWidth() on the effective
+    /// triple, after -m32/-m64 have been applied via the Triple's
+    /// 32/64-bit arch variants -- the same rewrite clang performs. A
+    /// value of 0 means it was never filled (hand-built invocation
+    /// that skipped _apply_invocation); consumers treat 0 as 64.
+    /// Config/ stays LLVM-free by having the driver write this rather
+    /// than computing it here.
     pub var pointer_width: usize = 0
 
-    /// \brief Whether int64_t is `long` rather than `long long`. Not the
-    ///        same question as LP64: Darwin and OpenBSD are LP64 and still
-    ///        spell it `long long`, as do LLP64 (Windows) and every 32-bit
-    ///        target. DERIVED from clang::TargetInfo for the same Triple as
-    ///        pointer_width.
+    /// Whether int64_t is `long` rather than `long long`. Not the
+    /// same question as LP64: Darwin and OpenBSD are LP64 and still
+    /// spell it `long long`, as do LLP64 (Windows) and every 32-bit
+    /// target. DERIVED from clang::TargetInfo for the same Triple as
+    /// pointer_width.
     ///
-    /// \details true by default to agree with the unfilled pointer_width's
-    ///          "treat 0 as 64": a hand-built invocation is a 64-bit host
-    ///          build, and a default that disagreed with its own width would
-    ///          spell i64 as a type of the wrong size.
+    /// true by default to agree with the unfilled pointer_width's
+    /// "treat 0 as 64": a hand-built invocation is a 64-bit host
+    /// build, and a default that disagreed with its own width would
+    /// spell i64 as a type of the wrong size.
     pub var int64_is_long: bool = true
 
     /// # Derived target facts
@@ -176,8 +172,7 @@ pub class TargetOptions {
     pub var vendor_name: string = "" ///< second component, e.g. "pc".
     pub var os_name:     string = "" ///< third component, e.g. "linux".
     pub var env_name:    string = "" ///< fourth component, e.g. "gnu"; "" if none.
-    /// What the driver, the linker and the emitters branch on. \c
-    /// object_format is its name (object_format_name), set beside it by the
+    /// What the driver, the linker and the emitters branch on. `object_format` is its name (object_format_name), set beside it by the
     /// same writer (CompilerInstance::_apply_invocation), for messages and
     /// --print-target-info.
     pub var object_format_kind: ObjectFormat = ObjectFormat::Unresolved

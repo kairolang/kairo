@@ -1,8 +1,8 @@
 /// --- The Kairo Project -------------- Sema/Expand/AllocSugarDesugar.k --- ///
 ///
-///   \brief `@create` / `@destroy` in expression position, rewritten to the
-///          library calls they are sugar for, before anything
-///          resolves a name.
+/// `@create` / `@destroy` in expression position, rewritten to the
+/// library calls they are sugar for, before anything
+/// resolves a name.
 ///
 ///   \detail
 ///     Lib/builtin/base/alloc.k declares `create<T>(...args) -> *T` and

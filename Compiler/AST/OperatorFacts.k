@@ -1,11 +1,11 @@
 /// --- The Kairo Project -------------------------- AST/OperatorFacts.k --- ///
 ///
-///   \brief What an operator declaration IS, read off its tokens: the
-///          operator with the fixity marker removed, its table key, whether
-///          it is postfix, and the compound/base pairing. Every sema reader
-///          of `FunctionDecl::op_token` goes through here. Speller's
-///          is_place_operator mirrors is_place, return-type test included,
-///          on the codegen side of the import boundary, on purpose.
+/// What an operator declaration IS, read off its tokens: the
+/// operator with the fixity marker removed, its table key, whether
+/// it is postfix, and the compound/base pairing. Every sema reader
+/// of `FunctionDecl::op_token` goes through here. Speller's
+/// is_place_operator mirrors is_place, return-type test included,
+/// on the codegen side of the import boundary, on purpose.
 ///
 ///   Spelled through the DECL'S OWN context: `op_token` carries per-fid imm
 ///   indices, and reading it against another TU's context gives the
@@ -705,7 +705,7 @@ pub fn operator_table() -> *cxx::std::vector<OperatorRow> {
     return &OperatorTable
 }
 
-/// \p k's row of the operator table, or null when it has none.
+/// `k`'s row of the operator table, or null when it has none.
 pub fn operator_row(k: TokenKind) -> unsafe *OperatorRow {
     var *t = operator_table()
     for var i: usize = 0; i < t->size(); ++i {
@@ -717,7 +717,7 @@ pub fn operator_row(k: TokenKind) -> unsafe *OperatorRow {
     return &null
 }
 
-/// The symbol-table name of the operator \p f declares: its operator
+/// The symbol-table name of the operator `f` declares: its operator
 /// tokens with the `l` / `r` fixity marker dropped (OperatorFacts::key), so
 /// `op l++` and `op r++` share a name. Null and non-operator functions have
 /// no operator name: the answer is `DeclName()`, which matches no cell.
@@ -730,7 +730,7 @@ pub fn op_decl_name(f: unsafe *FunctionDecl) -> DeclName {
 }
 
 pub class OperatorFacts {
-    /// The context \p f's tokens were interned in: its TU's. NameLookup::
+    /// The context `f`'s tokens were interned in: its TU's. NameLookup::
     /// ctx_of's walk, restated here because the AST layer cannot import
     /// Sema -- the function's own scope chain first, then its semantic and
     /// lexical parents for a decl whose own chain is not linked.
@@ -932,7 +932,7 @@ pub class OperatorFacts {
         return OperatorFacts::is_subscript_set(f) && f->return_type == &null
     }
 
-    /// \p f is the read form of a type whose `op []=` is only the setter
+    /// `f` is the read form of a type whose `op []=` is only the setter
     /// form: no use of its element is a place.
     pub static fn reads_setter_only(f: unsafe *FunctionDecl) -> bool {
         if f == &null || !OperatorFacts::is_subscript(f) {
@@ -963,7 +963,7 @@ pub class OperatorFacts {
         return true
     }
 
-    /// The record whose member \p f is declares an `op []=`: its subscript
+    /// The record whose member `f` is declares an `op []=`: its subscript
     /// is split, and `op []` there is the read form only. A record
     /// with none keeps today's single `op []`, place or value by its return.
     /// By the record's own table: `op []=` is member-only, so it is always
@@ -985,7 +985,7 @@ pub class OperatorFacts {
             || OperatorFacts::declares_subscript_set(f->lexical_dc)
     }
 
-    /// \p dc's own table holds an `op []=`.
+    /// `dc`'s own table holds an `op []=`.
     pub static fn declares_subscript_set(dc: unsafe *DeclContext) -> bool {
         if dc == &null || !dc->is_type_scope() {
             return false
@@ -995,7 +995,7 @@ pub class OperatorFacts {
         return cell != &null && cell->size() > 0
     }
 
-    /// Token \p i's kind, through a macro expansion. DeclParse stores an
+    /// Token `i`'s kind, through a macro expansion. DeclParse stores an
     /// operator's tokens unwrapped (DeclParse::_stored_op_token),
     /// so this is a backstop for a declaration built any other way, where
     /// symbol() would spell through the wrapper and the kind must agree.
@@ -1060,7 +1060,7 @@ pub class OperatorFacts {
         return r != &null && r->returns_bool
     }
 
-    /// The C++ spelling of operator token kind \p k: a keyword form's is
+    /// The C++ spelling of operator token kind `k`: a keyword form's is
     /// its symbol (`and` is `&&`, `xor_eq` is `^=`). "" for a kind with no
     /// row and for an operator C++ does not spell (`as`, `await`).
     pub static fn cxx_symbol(k: TokenKind) -> string {
@@ -1077,8 +1077,8 @@ pub class OperatorFacts {
     /// `op [] -> [T;]` (slicing) is a value operator. `->` is never a place.
     /// A null canonical (no return type, or unresolved) is not a place.
     /// returns_place: that, or a `cxx_ref_return` function (the same C++ shape).
-    /// \p kairo_ret (a Kairo definition's return type) is `*T` / `*const T`,
-    /// raw or safe, and \p cxx_ret (the C++ declaration's) is `T&` / `const
+    /// `kairo_ret` (a Kairo definition's return type) is `*T` / `*const T`,
+    /// raw or safe, and `cxx_ret` (the C++ declaration's) is `T&` / `const
     /// T&` of the same T: the definition implements the reference return
     /// (FunctionDecl::cxx_ref_return).
     pub static fn ptr_implements_lref(kairo_ret: unsafe *Type, cxx_ret: unsafe *Type) -> bool {
@@ -1133,7 +1133,7 @@ pub class OperatorFacts {
         return OperatorFacts::has_implicit_attr(f)
     }
 
-    /// `@implicit` written on \p f, whatever \p f is. OperatorSignatureCheck
+    /// `@implicit` written on `f`, whatever `f` is. OperatorSignatureCheck
     /// rejects it everywhere but on a member `op as`.
     pub static fn has_implicit_attr(f: unsafe *FunctionDecl) -> bool {
         if f == &null {

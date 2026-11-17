@@ -218,7 +218,7 @@ pub class FlagDef {
         return d
     }
 
-    /// string restricted to \p choices, with a default and a bare value
+    /// string restricted to `choices`, with a default and a bare value
     static fn str_c(const key:    string,
                     const short_: string,
                     const long_:  string,
@@ -339,7 +339,7 @@ pub class FlagDef {
         return d
     }
 
-    /// repeatable string list whose every item is one of \p choices; a
+    /// repeatable string list whose every item is one of `choices`; a
     /// comma-separated value is several items
     static fn list_c(const key:    string,
                      const short_: string,
@@ -362,8 +362,8 @@ pub class FlagDef {
     }
 
 
-    /// \brief defines a language feature toggle parsed from -f{key} / -fno-{key}
-    ///        query via ParsedArgs::get_feature(key) -> -1 (unset), 0 (off), 1 (on)
+    /// defines a language feature toggle parsed from -f{key} / -fno-{key}
+    /// query via ParsedArgs::get_feature(key) -> -1 (unset), 0 (off), 1 (on)
     static fn feature_(const key: string, const help: string) -> FlagDef {
         var d = FlagDef{}
         d.key      = key.copy()

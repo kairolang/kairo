@@ -1,7 +1,7 @@
 /// --- The Kairo Project -------------- Sema/Check/ParamPassInference.k --- ///
 ///
-///   \brief A by-value parameter its function never mutates is passed as
-///          `const T&`, and warned to say `const`.
+/// A by-value parameter its function never mutates is passed as
+/// `const T&`, and warned to say `const`.
 ///
 ///   \detail
 ///     `fn f(s: string)` was `f(::builtin::string::string s)`: every call
@@ -212,10 +212,7 @@ pub struct PassCand {
     pub var slot: usize = usize::MAX
 }
 
-///
-/// \class ParamPassInference
-/// \brief The pass. Writes ParamDecl::inferred_const; warns SC224W.
-///
+/// The pass. Writes ParamDecl::inferred_const; warns SC224W.
 pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     pub var  sc:  unsafe *SemaContext
     priv var _tu: TypeUtil
@@ -339,7 +336,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         return out
     }
 
-    /// Stamp \p p, and the same parameter of every other link of \p f's
+    /// Stamp `p`, and the same parameter of every other link of `f`'s
     /// redeclaration chain (an out-of-line definition's declaration spells
     /// the signature in the class), then warn.
     priv fn _infer(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl) {
@@ -500,8 +497,8 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         self._index[p as usize as u64] = (self._cand.size() as u64)
     }
 
-    /// -Wconst-self: \p f's `self` and `@inout` parameters become lint
-    /// candidates, each with a slot. \p f already passed _eligible_fn.
+    /// -Wconst-self: `f`'s `self` and `@inout` parameters become lint
+    /// candidates, each with a slot. `f` already passed _eligible_fn.
     priv fn _lint_cands(self, f: unsafe *FunctionDecl) {
         var method = f->is_method()
         if method && !self._lint_method_ok(f) {
@@ -596,8 +593,8 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         return self._tu.decl_name(f) != self._tu.decl_name(o)
     }
 
-    /// The candidate reference \p r is the receiver of a call to method
-    /// \p m that is not `const self`: for a lint candidate, an edge to m
+    /// The candidate reference `r` is the receiver of a call to method
+    /// `m` that is not `const self`: for a lint candidate, an edge to m
     /// (m's own verdict decides), and the reference is approved. Nothing for
     /// SC224W's candidates, whose rule has no edges.
     priv fn _defer(self, r: unsafe *NamedIdentExpr, m: unsafe *FunctionDecl) {
@@ -667,7 +664,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         }
     }
 
-    /// \p d sits in a generic record or a generic extension, at any depth.
+    /// `d` sits in a generic record or a generic extension, at any depth.
     priv fn _in_generic(self, d: unsafe *Decl) -> bool {
         var unsafe *ext = decl_extension_of(d)
         if ext != &null && decl_generic_params(unsafe (ext as unsafe *Decl)).size() > 0 {
@@ -819,9 +816,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         return true
     }
 
-    /// The candidate reference \p e reads in place, or null: through parens,
+    /// The candidate reference `e` reads in place, or null: through parens,
     /// `unsafe`, `.field` / `.0` steps and fixed-array subscripts, the
-    /// parameter's own storage. \p thru is set when the path then steps
+    /// parameter's own storage. `thru` is set when the path then steps
     /// through a pointer: what follows is the pointee, not the parameter.
     priv fn _root(self, e: unsafe *Expr, thru: unsafe *bool) -> unsafe *NamedIdentExpr {
         var unsafe *x           = e
@@ -890,7 +887,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         return &null
     }
 
-    /// _root of \p ce cut to its first \p nsteps steps.
+    /// _root of `ce` cut to its first `nsteps` steps.
     priv fn _root_chain(self,
                         ce:     unsafe *ChainExpr,
                         nsteps: usize,
@@ -940,7 +937,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         return r
     }
 
-    /// Claim \p e's candidate reference, if it has one, as a read.
+    /// Claim `e`'s candidate reference, if it has one, as a read.
     priv fn _approve(self, e: unsafe *Expr) {
         if e == &null {
             return
@@ -968,7 +965,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         }
     }
 
-    /// \p t is a C++ reference type (`T&` / `T&&`).
+    /// `t` is a C++ reference type (`T&` / `T&&`).
     priv fn _is_ref(self, t: unsafe *Type) -> bool {
         if t == &null {
             return false
@@ -981,7 +978,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         return c != &null && (isa<CXXLValueRefType>(c) || isa<CXXRValueRefType>(c))
     }
 
-    /// A value passed to \p p is only read: by value (a copy), `const`, or
+    /// A value passed to `p` is only read: by value (a copy), `const`, or
     /// a C++ `const T&`.
     priv fn _reads_param(self, p: unsafe *ParamDecl) -> bool {
         if p == &null {
@@ -1218,7 +1215,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         return true
     }
 
-    /// \p r names a method's `self`.
+    /// `r` names a method's `self`.
     priv fn _is_self_ref(self, r: unsafe *NamedIdentExpr) -> bool {
         if r == &null {
             return false
@@ -1228,7 +1225,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         return p != &null && p->is_self
     }
 
-    /// \p t is a pointer to const (`*const T`).
+    /// `t` is a pointer to const (`*const T`).
     priv fn _ptr_to_const(self, t: unsafe *Type) -> bool {
         if t == &null {
             return false

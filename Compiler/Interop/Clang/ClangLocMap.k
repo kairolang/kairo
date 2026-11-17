@@ -11,10 +11,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 ///
-/// \file  Interop/Clang/ClangLocMap.k
-/// \brief Two-way loc translation between the Kairo SourceManager and the
-///        shared clang::SourceManager. Forward: one index + one add. Reverse:
-///        one subtract + one bounds check, NO table.
+/// Two-way loc translation between the Kairo SourceManager and the
+/// shared clang::SourceManager. Forward: one index + one add. Reverse:
+/// one subtract + one bounds check, NO table.
 ///
 /// \par THE CONTIGUITY INVARIANT
 ///   Everything here rests on one fact: rebind() registers every Kairo fid
@@ -94,7 +93,6 @@
 ///   rebind() runs on the driver thread inside ExecuteAction.
 ///   clang::SourceManager::createFileID is not thread-safe and there is no
 ///   longer any off-thread preload to race with.
-///
 
 ffi "c++" import "llvm/Support/Allocator.h"
 ffi "c++" import "llvm/Support/StringSaver.h"
@@ -166,7 +164,7 @@ pub class ClangLocMap {
 
     /// # Registration (driver thread, inside the action window)
 
-    /// Registers EVERY Kairo fid into \p ci's SourceManager as one contiguous
+    /// Registers EVERY Kairo fid into `ci`'s SourceManager as one contiguous
     /// FileID block, then records the base and each file's SLoc start.
     ///
     /// MUST be called from FrontendAction::BeginSourceFileAction, after the
@@ -175,9 +173,10 @@ pub class ClangLocMap {
     /// scratch, which is also how fids loaded since the last action get
     /// picked up.
     ///
-    /// \return false if a fid could not be registered. The map is left
-    ///         NOT ready, so every subsequent query returns invalid rather
-    ///         than a plausible-looking wrong answer.
+    /// ### Returns
+    /// false if a fid could not be registered. The map is left
+    /// NOT ready, so every subsequent query returns invalid rather
+    /// than a plausible-looking wrong answer.
     pub fn rebind(self, ci: unsafe *clang::CompilerInstance) -> bool {
         if ci == &null {
             kairo::std::ice_fail("ClangLocMap::rebind with no CompilerInstance")
@@ -466,7 +465,7 @@ pub class ClangLocMap {
         return self._cfid0.getHashValue()
     }
 
-    /// clang's raw SLoc base for \p kfid. u32(-1) if unmapped.
+    /// clang's raw SLoc base for `kfid`. u32(-1) if unmapped.
     fn sloc_base(self, kfid: FileID) -> u32 {
         if (kfid as usize) >= self._n {
             return u32::MAX
@@ -475,12 +474,12 @@ pub class ClangLocMap {
         return self._sloc[kfid]
     }
 
-    /// Kairo's raw SourceLocation for byte 0 of \p kfid.
+    /// Kairo's raw SourceLocation for byte 0 of `kfid`.
     pub fn kairo_base(self, kfid: FileID) -> u32 {
         return self._ksm->get_loc(kfid, 0).raw()
     }
 
-    /// clang_base - kairo_base for \p kfid.
+    /// clang_base - kairo_base for `kfid`.
     ///
     /// WITHIN a file this is constant   both address spaces advance byte for
     /// byte, so `cloc = kloc + delta` is exact with no padding. The 4 KB
@@ -497,7 +496,7 @@ pub class ClangLocMap {
         return self._sloc[kfid] as i64 - (self.kairo_base(kfid) as i64)
     }
 
-    /// Kairo loc for byte \p off of \p kfid. eof() needs a loc for the last
+    /// Kairo loc for byte `off` of `kfid`. eof() needs a loc for the last
     /// byte of the file it is closing and has no token to borrow it from.
     pub fn ksm_loc(self, kfid: FileID, off: usize) -> SourceLocation {
         return self._ksm->get_loc(kfid, off)
@@ -663,7 +662,7 @@ pub class ClangLocMap {
         return ok
     }
 
-    /// True when \p cfid is Kairo fid \p kfid. The comparison every consumer
+    /// True when `cfid` is Kairo fid `kfid`. The comparison every consumer
     /// actually wants   holding a clang::FileID across a rebind goes stale,
     /// so nothing outside here caches one.
     fn is_kairo_fid(self, cfid: clang::FileID, kfid: FileID) -> bool {
