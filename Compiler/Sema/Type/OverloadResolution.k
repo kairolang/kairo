@@ -4871,7 +4871,7 @@ pub class OverloadResolution {
             }
 
             if !dup {
-                utargets.push_back(c->uconv_to)
+                utargets.push_back(c->uconv_to.copy())
             }
 
             if ufirst == usize::MAX {

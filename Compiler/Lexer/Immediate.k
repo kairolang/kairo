@@ -1303,6 +1303,10 @@ pub class ImmediateTable {
     var macro_expansions: unsafe *ArenaList<Immediate::MacroExpansionInfo>
     var ident_descs:      unsafe *ArenaList<Immediate::IdentData> ///< idx -> (offset,len) into ident_blob
     var synth_names:      unsafe *ArenaList<string> ///< owned bytes for synthesized identifiers
+    /// Owned bytes of minted literal bodies (intern_bytes_copy). Not
+    /// strings: a byte literal's body need not be UTF-8, and a string
+    /// holds UTF-8 only on every builtin library.
+    var synth_bytes: unsafe *ArenaList<cxx::std::vector<u8>> = &null
     ///  (no backing source buffer); ArenaList
     ///  never moves, so raw() ptrs stay stable.
     var ident_buckets:  cxx::std::vector<Immediate::InternBucket> ///< open-addressed (hash -> idx) table
@@ -1398,6 +1402,10 @@ pub class ImmediateTable {
 
         if self.synth_names != &null {
             self.synth_names->clear()
+        }
+
+        if self.synth_bytes != &null {
+            self.synth_bytes->clear()
         }
 
         self.ident_buckets.clear()
@@ -1725,22 +1733,27 @@ pub class ImmediateTable {
     /// is wide and would re-encode anything past 0x7F.
     pub fn intern_bytes_copy(self, data: kairo::std::ConstPtr<u8>, len: usize) -> u32 {
         var wlock = kairo::std::LockGuard(self._ident_mu)
-        if self.synth_names == &null {
-            self.synth_names = kairo::std::create<ArenaList<string>>(64)
+        if self.synth_bytes == &null {
+            self.synth_bytes = kairo::std::create<ArenaList<cxx::std::vector<u8>>>(
+                64,
+            )
         }
 
         var        idx   = self.create<Immediate::StringData>()
         var unsafe *slot = self.get<Immediate::StringData>(idx)
 
-        var unsafe *stored = self.synth_names->push(
-            string(
-                unsafe ((unsafe (data as kairo::std::ConstPtr<c_char>) as unsafe *const u8) as *const u8),
-                len,
-            ),
-        )
+        // A trailing NUL keeps data() valid for an empty body.
+        var bytes = cxx::std::vector<u8>()
+        bytes.reserve(len + 1)
+        for var i: usize = 0; i < len; ++i {
+            bytes.push_back(unsafe (data[i]) as u8)
+        }
+
+        bytes.push_back(0)
+        var unsafe *stored = self.synth_bytes->push(bytes)
 
         slot->owned_ptr   = unsafe (stored->data() as kairo::std::ConstPtr<u8>)
-        slot->owned_len   = (stored->size() as u32)
+        slot->owned_len   = (len as u32)
         slot->prefix_kind = FlagSet<Immediate::TextPrefixKind, u8>()
         return idx
     }

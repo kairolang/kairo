@@ -563,8 +563,7 @@ extend CompilerInstance {
     /// buffer) is false.
     priv fn _sets_global_allocator(self, fid: u32) -> bool {
         var name = LangAttrs::set_global_allocator()
-        var text = ""
-        if !LinkFS::read(self._sm->get_filename(fid), &text) || find(text, name, 0) == usize::MAX {
+        if !LinkFS::contains_bytes(self._sm->get_filename(fid), name) {
             return false
         }
 

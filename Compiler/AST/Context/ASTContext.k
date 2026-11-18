@@ -319,7 +319,9 @@ pub class ASTContext {
     fn <T> alloc_pp(self) -> unsafe *T {
         var mem: unsafe *void = self.pp_alloc.alloc(sizeof(T), alignof(T))
         cxx::std::memset(mem, 0, sizeof(T))
-        return unsafe (mem as unsafe *T)
+        // Constructed after the zeroing: an all-zero string is not a valid
+        // string on every builtin library.
+        return kairo::construct_at<T>(mem)
     }
 
     pub fn <T, A0, A1, A2, A3> alloc_init_pp(self, a0: A0, a1: A1, a2: A2, a3: A3) -> unsafe *T {

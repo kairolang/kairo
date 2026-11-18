@@ -107,15 +107,15 @@ pub class CompilerInvocation {
     pub fn clang_include_dirs(self) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         for *d in self.include_dirs {
-            out.push_back(*d)
+            out.push_back(d->copy())
         }
 
         for *d in self.ffi_includes {
-            out.push_back(*d)
+            out.push_back(d->copy())
         }
 
         for *d in self.cxx_includes {
-            out.push_back(*d)
+            out.push_back(d->copy())
         }
 
         return out
@@ -154,8 +154,8 @@ pub class CompilerInvocation {
         )
 
         for *a in args.inputs {
-            inv.input_files.push_back(a->path)
-            inv.input_langs.push_back(a->lang)
+            inv.input_files.push_back(a->path.copy())
+            inv.input_langs.push_back(a->lang.copy())
         }
 
         inv.working_dir    = args.get_string("working-dir")

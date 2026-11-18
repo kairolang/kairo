@@ -273,7 +273,7 @@ pub class ELFArgs {
         if !want_stat {
             for *r in o->rpath {
                 argv.push_back("-rpath")
-                argv.push_back(*r)
+                argv.push_back(r->copy())
             }
         }
 
@@ -290,7 +290,7 @@ pub class ELFArgs {
 
         for *r in o->rpath_link {
             argv.push_back("-rpath-link")
-            argv.push_back(*r)
+            argv.push_back(r->copy())
         }
 
         /// # host libraries (the default build's glibc floor)
@@ -363,18 +363,18 @@ pub class ELFArgs {
         }
 
         for *f in o->ld_flags {
-            argv.push_back(*f)
+            argv.push_back(f->copy())
         }
 
         /// # inputs
         for *obj in job.objects {
-            argv.push_back(*obj)
+            argv.push_back(obj->copy())
         }
 
         if job.lazy_objects.size() > 0 {
             argv.push_back("--start-lib")
             for *obj in job.lazy_objects {
-                argv.push_back(*obj)
+                argv.push_back(obj->copy())
             }
 
             argv.push_back("--end-lib")
@@ -419,7 +419,7 @@ pub class ELFArgs {
         var *o   = job.opts
         var dirs = cxx::std::vector<string>()
         for *d in o->lib_dirs {
-            dirs.push_back(*d)
+            dirs.push_back(d->copy())
         }
 
         if !tc.toolchain_lib.is_empty() {
@@ -431,11 +431,11 @@ pub class ELFArgs {
         }
 
         for *d in tc.lib_dirs {
-            dirs.push_back(*d)
+            dirs.push_back(d->copy())
         }
 
         for *d in tc.host_lib_dirs {
-            dirs.push_back(*d)
+            dirs.push_back(d->copy())
         }
 
         var found = cxx::std::vector<string>()
@@ -472,7 +472,7 @@ pub class ELFArgs {
 
         for *obj in job.objects {
             if HostSystem::is_shared(*obj) && LinkFS::is_file(*obj) {
-                found.push_back(*obj)
+                found.push_back(obj->copy())
             }
         }
 
@@ -490,7 +490,7 @@ pub class ELFArgs {
                 }
 
                 if !dup {
-                    job.host_shared.push_back(*p)
+                    job.host_shared.push_back(p->copy())
                 }
 
                 continue
@@ -696,7 +696,7 @@ pub class ELFArgs {
     priv static fn _append(@inout argv: cxx::std::vector<string>,
                            @inout xs:   cxx::std::vector<string>) {
         for *x in xs {
-            argv.push_back(*x)
+            argv.push_back(x->copy())
         }
     }
 }

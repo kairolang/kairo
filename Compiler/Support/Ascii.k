@@ -28,6 +28,7 @@
 ffi "c++" import "llvm/ADT/StringRef.h"
 ffi "c++" import "vector"
 
+
 /// Space, tab, line feed or carriage return: the whitespace a scan of one
 /// line or one token's neighbourhood skips (not form feed or vertical tab).
 pub inline fn is_blank(c: u8) -> bool {

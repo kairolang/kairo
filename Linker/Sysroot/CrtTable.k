@@ -318,11 +318,11 @@ pub class SysCrt {
                 LinkFS::make_dirs(LinkFS::parent(o))
                 var argv = LinkText::copy_list(base)
                 for *f in fl {
-                    argv.push_back(*f)
+                    argv.push_back(f->copy())
                 }
 
                 for *f in maps {
-                    argv.push_back(*f)
+                    argv.push_back(f->copy())
                 }
 
                 argv.push_back("-c")

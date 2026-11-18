@@ -221,7 +221,7 @@ pub class LLDRunner {
         args.push_back("-flavor")
         args.push_back(flavor.copy())
         for *a in rest {
-            args.push_back(*a)
+            args.push_back(a->copy())
         }
 
         if !LLDRunner::_fits(&args) {

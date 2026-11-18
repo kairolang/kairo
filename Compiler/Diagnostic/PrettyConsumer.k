@@ -1224,7 +1224,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     /// "substitution of maximal subparts"): `F4 90 80 80` is four cells,
     /// `E2 82 61` is two (`E2 82`, then `a`). Never 0.
     priv fn _cell_bytes(self, const text: string, i: usize) -> usize {
-        var b = text[i] as u8
+        var b = text.data()[i]
         if b < (0x80 as u8) {
             return 1
         }
@@ -1254,7 +1254,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
         var n: usize = 1
         while (n <= need) && ((i + n) < text.size()) {
-            var c = text[i + n] as u8
+            var c = text.data()[i + n]
             if n == 1 {
                 if (c < lo) || (c > hi) {
                     break

@@ -152,11 +152,11 @@ pub class PreprocessorOptions {
         o.no_stdlib = args.get_bool("no-stdlib") || args.get_bool("freestanding")
 
         for *s in *args.get_list("define") {
-            o.defines.push_back(*s)
+            o.defines.push_back(s->copy())
         }
 
         for *s in *args.get_list("force-include") {
-            o.force_includes.push_back(*s)
+            o.force_includes.push_back(s->copy())
         }
 
         o.global_allocator_set = args.get_bool("global-allocator-set")

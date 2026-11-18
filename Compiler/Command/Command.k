@@ -1331,7 +1331,7 @@ pub class Command {
         var args: cxx::std::vector<string>
         args.push_back("kairo")
         for *w in words {
-            args.push_back(*w)
+            args.push_back(w->copy())
         }
 
         var result = self._parse_impl(&args)

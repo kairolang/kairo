@@ -11,6 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/Support/JSON.h"
 ffi "c++" import "llvm/ADT/SmallString.h"
 ffi "c++" import "llvm/ADT/StringRef.h"
 ffi "c++" import "llvm/ADT/Twine.h"
@@ -122,13 +123,45 @@ pub class LinkFS {
         return out
     }
 
-    pub static fn read(const path: string, @inout out: string) -> bool {
+    /// The bytes of the file at `path`, for a file that need not be UTF-8
+    /// (an object, an archive); a string holds UTF-8 only.
+    pub static fn read_bytes(const path: string, @inout out: cxx::std::vector<u8>) -> bool {
         var mb = llvm::MemoryBuffer::getFile(llvm::Twine(kairo::sref(path)))
         if mb.getError().value() != 0 {
             return false
         }
 
         var sr = mb.get()->getBuffer()
+        out.clear()
+        out.reserve(sr.size())
+        for var i: usize = 0; i < sr.size(); ++i {
+            out.push_back(sr.bytes_begin()[i] as u8)
+        }
+
+        return true
+    }
+
+    /// Whether the file at `path` holds the bytes of `needle`. Read as
+    /// bytes, not as a string: the file need not be UTF-8.
+    pub static fn contains_bytes(const path: string, const needle: string) -> bool {
+        var mb = llvm::MemoryBuffer::getFile(llvm::Twine(kairo::sref(path)))
+        if mb.getError().value() != 0 {
+            return false
+        }
+
+        return mb.get()->getBuffer().contains(kairo::sref(needle))
+    }
+
+    pub static fn read(const path: string, @inout out: string) -> bool {
+        var mb = llvm::MemoryBuffer::getFile(llvm::Twine(kairo::sref(path)))
+        if mb.getError().value() != 0 {
+            return false
+        }
+
+        // A string holds UTF-8 only: a file that is not is not text, and is
+        // reported as unreadable rather than stopping the process.
+        var sr = mb.get()->getBuffer()
+
         out = string(
             unsafe ((sr.data() as unsafe *const u8) as *const u8),
             sr.size(),

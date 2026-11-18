@@ -1166,7 +1166,7 @@ pub class CompilerInstance {
             self._diag,
             self._g_scope,
             self.invocation(),
-            self.invocation()->pp,
+            self.invocation()->pp.copy(),
             self._headers,
         )
 
@@ -1736,7 +1736,7 @@ pub class CompilerInstance {
                 result.aborted = true
             }
 
-            result.tu_results.push_back(action->result)
+            result.tu_results.push_back(cxx::std::move(action->result))
         }
 
         self._incr_end(&result, incr_hit)

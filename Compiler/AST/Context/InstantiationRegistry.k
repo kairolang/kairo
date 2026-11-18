@@ -2644,7 +2644,9 @@ pub class InstantiationRegistry {
     priv fn <T> _alloc(self) -> unsafe *T {
         var mem: unsafe *void = self._arena.alloc(sizeof(T), alignof(T))
         cxx::std::memset(mem, 0, sizeof(T))
-        return unsafe (mem as unsafe *T)
+        // Constructed after the zeroing: an all-zero string is not a valid
+        // string on every builtin library.
+        return kairo::construct_at<T>(mem)
     }
 
     /// Everything a shell has in common, whatever its kind. The node's names

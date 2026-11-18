@@ -249,8 +249,8 @@ pub class LinkABI {
     priv static fn _scan(const path:    string,
                          @inout out:    cxx::std::vector<AbiNote>,
                          @inout allocs: cxx::std::vector<AllocNote>) {
-        var data = ""
-        if !LinkFS::read(path, &data) {
+        var data = cxx::std::vector<u8>()
+        if !LinkFS::read_bytes(path, &data) {
             return
         }
 
@@ -266,7 +266,7 @@ pub class LinkABI {
         for var i: usize = 0; i + m + 2 <= n; ++i {
             var at_magic = true
             for var k: usize = 0; k < m; ++k {
-                if data.data()[i + k] != magic.data()[k] {
+                if data[i + k] != magic.data()[k] {
                     at_magic = false
                     break
                 }
@@ -276,8 +276,8 @@ pub class LinkABI {
                 continue
             }
 
-            var ver  = ((data.data()[i + m]) as u32)
-            var bits = ((data.data()[i + m + 1]) as u32)
+            var ver  = ((data[i + m]) as u32)
+            var bits = ((data[i + m + 1]) as u32)
             if ver == ABI_NOTE_KIND_ALLOC {
                 if bits == 0 || bits > (ABI_ALLOC_INLINES_SYSTEM | ABI_ALLOC_SETS_GLOBAL) {
                     continue
@@ -295,7 +295,7 @@ pub class LinkABI {
                 continue
             }
 
-            var major = ((data.data()[i + m + 2]) as u32)
+            var major = ((data[i + m + 2]) as u32)
             // A record of a version this linker does not know, or bytes that
             // only look like the magic, are not a note.
             var all_bits = call_conv_note_bit(CALL_CONV_PRESERVE_MOST) | call_conv_note_bit(

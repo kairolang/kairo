@@ -1,10 +1,8 @@
-// A vector whose element is a pointer (`[*const T]`) does not compile: the
-// class's own members are instantiated and `Slice::sort_by` fails in clang
-// (`SortLess_witness::lt` takes `const T **` and is given `const T *const *`,
-// Lib/builtin2/containers/slice.k, sort_stable_alloc). It is reached from the
-// iterator consumers whose result holds the items of a slice iterator
-// (`iter(v.iter()).partition(..)` and `.group_by(..)`), which return
-// `[*const T]`. Expected: it compiles and `partition` splits the pointers.
+// A vector whose element is a pointer (`[*const T]`) compiles: the class's
+// own members are instantiated, `Slice::sort_by` among them, and the iterator
+// consumers whose result holds the items of a slice iterator
+// (`iter(v.iter()).partition(..)` and `.group_by(..)`) return `[*const T]`.
+// `partition` splits the pointers.
 
 import std::iter::*
 import self::Inputs::probe::*
@@ -20,7 +18,6 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // REQUIRES: newlib
-// XFAIL: *
 // RUN: rm -rf %t.d
 // RUN: rm -f %t.exe %t.o2.exe
 // RUN: %kairo_new %s -o %t.exe --cache-dir %t.d

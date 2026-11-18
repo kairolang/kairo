@@ -122,7 +122,7 @@ pub class MingwProvider derives SysrootProvider {
             args.push_back("-m")
             args.push_back(machine.copy())
             for *f in flags {
-                args.push_back(*f)
+                args.push_back(f->copy())
             }
 
             args.push_back("-d")
@@ -261,7 +261,7 @@ pub class MingwProvider derives SysrootProvider {
             args.push_back("-m")
             args.push_back(t->dlltool_machine.copy())
             for *f in t->dlltool_flags {
-                args.push_back(*f)
+                args.push_back(f->copy())
             }
 
             args.push_back("-d")

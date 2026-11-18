@@ -101,6 +101,13 @@ pub struct MuslObj {
     pub var src: string ///< the source, relative to the musl tree
 }
 
+extend MuslObj {
+    /// A copy; the strings are not copyable by assignment.
+    pub fn copy(const self) -> MuslObj {
+        return MuslObj { obj: self.obj.copy(), src: self.src.copy() }
+    }
+}
+
 pub class MuslProvider derives SysrootProvider {
     pub fn MuslProvider(self) = default
 
@@ -179,7 +186,7 @@ pub class MuslProvider derives SysrootProvider {
         var objs = MuslProvider::objects(src, ma)
         var base = ctx->kcc(ctx->stage)
         for *f in musl_c99fse() {
-            base.push_back(*f)
+            base.push_back(f->copy())
         }
 
         base.push_back("-D_XOPEN_SOURCE=700")
@@ -191,11 +198,11 @@ pub class MuslProvider derives SysrootProvider {
         base.push_back("-I" + obj + "/include")
         base.push_back("-I" + src + "/include")
         for *f in musl_cflags_auto() {
-            base.push_back(*f)
+            base.push_back(f->copy())
         }
 
         for *f in ctx->recipe.list("libc", "cflags") {
-            base.push_back(*f)
+            base.push_back(f->copy())
         }
 
         var logs = ctx->log_dir.copy() + "/cc"
@@ -407,7 +414,7 @@ pub class MuslProvider derives SysrootProvider {
         dirs.push_back("ldso")
         var compat = MuslProvider::_compat_dirs(src, ma)
         for *d in compat {
-            dirs.push_back(*d)
+            dirs.push_back(d->copy())
         }
 
         var base_objs = cxx::std::vector<string>()
@@ -487,7 +494,7 @@ pub class MuslProvider derives SysrootProvider {
 
         for *o in arch_objs {
             if !SysUtil::contains(&replaced, *o) {
-                keys.push_back(*o)
+                keys.push_back(o->copy())
             }
         }
 
@@ -513,13 +520,13 @@ pub class MuslProvider derives SysrootProvider {
         var ordered = cxx::std::vector<MuslObj>()
         for *m in out {
             if !LinkText::starts_with(m->obj.copy(), "compat/") {
-                ordered.push_back(*m)
+                ordered.push_back(m->copy())
             }
         }
 
         for *m in out {
             if LinkText::starts_with(m->obj.copy(), "compat/") {
-                ordered.push_back(*m)
+                ordered.push_back(m->copy())
             }
         }
 
@@ -577,7 +584,7 @@ pub class MuslProvider derives SysrootProvider {
                 var eq = LinkText::find(t.copy(), "=", 0)
                 for *w in SysUtil::split(LinkText::trim(LinkText::slice(t, eq + 1, t.size())), (' ' as u8)) {
                     if !w->is_empty() {
-                        out.push_back(*w)
+                        out.push_back(w->copy())
                     }
                 }
             }

@@ -168,7 +168,7 @@ pub class MachOArgs {
 
         for *r in o->rpath {
             argv.push_back("-rpath")
-            argv.push_back(*r)
+            argv.push_back(r->copy())
         }
 
         if !o->rpath_origin.is_empty() {
@@ -227,7 +227,7 @@ pub class MachOArgs {
         // registrars, static initializers) are not dropped by the linker.
         for *a in o->force_load {
             argv.push_back("-force_load")
-            argv.push_back(*a)
+            argv.push_back(a->copy())
         }
 
         if o->icf {
@@ -269,18 +269,18 @@ pub class MachOArgs {
         }
 
         for *f in o->ld_flags {
-            argv.push_back(*f)
+            argv.push_back(f->copy())
         }
 
         /// # inputs
         for *obj in job.objects {
-            argv.push_back(*obj)
+            argv.push_back(obj->copy())
         }
 
         if job.lazy_objects.size() > 0 {
             argv.push_back("--start-lib")
             for *obj in job.lazy_objects {
-                argv.push_back(*obj)
+                argv.push_back(obj->copy())
             }
 
             argv.push_back("--end-lib")
@@ -486,11 +486,11 @@ pub class MachOArgs {
         }
 
         for *x in cxx_v {
-            argv.push_back(*x)
+            argv.push_back(x->copy())
         }
 
         for *x in libc {
-            argv.push_back(*x)
+            argv.push_back(x->copy())
         }
 
         if !tc.builtins.is_empty() {

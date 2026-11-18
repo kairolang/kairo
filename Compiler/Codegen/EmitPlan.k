@@ -959,8 +959,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 // named, `extern template` elsewhere. A FUNCTION instance's decl
                 // is the primary itself (InstantiationRegistry::_new_instance),
                 // so it never comes through _admit's instance-shell path.
+                // A constructor's instance is checked (its bounds) but never
+                // homed: C++ has no explicit instantiation of a constructor
+                // by that spelling, and the call instantiates it implicitly.
                 var unsafe *ie = cast<CallExpr>(e)->instance
-                if ie != &null {
+                if ie != &null && cast<CallExpr>(e)->ctor_decl == &null {
                     self._admit_instance(ie, PlanNeed::Fwd)
                 }
 

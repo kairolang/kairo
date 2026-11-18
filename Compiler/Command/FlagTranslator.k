@@ -1002,7 +1002,7 @@ pub class FlagTranslator {
         /// ### LLVM pass control
         for *pl in cgo->pass_plugins {
             if !llvm::sys::fs::is_regular_file(llvm::Twine(kairo::sref(*pl))) {
-                missing_plugins->push_back(*pl)
+                missing_plugins->push_back(pl->copy())
             } else {
                 _fx_push(&o, f"-fpass-plugin={(*pl)}")
             }

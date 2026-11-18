@@ -224,18 +224,18 @@ pub class COFFArgs {
 
         COFFArgs::_pe_options(o, &argv, &msgs)
         for *f in o->ld_flags {
-            argv.push_back(*f)
+            argv.push_back(f->copy())
         }
 
         /// # inputs
         for *obj in job.objects {
-            argv.push_back(*obj)
+            argv.push_back(obj->copy())
         }
 
         if job.lazy_objects.size() > 0 {
             argv.push_back("-start-lib")
             for *obj in job.lazy_objects {
-                argv.push_back(*obj)
+                argv.push_back(obj->copy())
             }
 
             argv.push_back("-end-lib")
@@ -532,7 +532,7 @@ pub class COFFArgs {
         }
 
         for *x in cxx_v {
-            argv.push_back(*x)
+            argv.push_back(x->copy())
         }
 
         if tc.rtlib == "compiler-rt" && !tc.builtins.is_empty() {
@@ -540,7 +540,7 @@ pub class COFFArgs {
         }
 
         for *x in crt {
-            argv.push_back(*x)
+            argv.push_back(x->copy())
         }
     }
 

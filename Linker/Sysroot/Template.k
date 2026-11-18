@@ -256,7 +256,7 @@ pub class SysTemplate {
             }
 
             for *x in r->raw_vals[i].list {
-                out.push_back(*x)
+                out.push_back(x->copy())
             }
         }
 

@@ -4514,7 +4514,7 @@ pub class FrontendAction {
                 }
 
                 if at == kinds.size() {
-                    kinds.push_back(f->kind)
+                    kinds.push_back(f->kind.copy())
                     counts.push_back(0)
                 }
 

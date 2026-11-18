@@ -254,12 +254,12 @@ pub class MinGWArgs {
         }
 
         for *f in o->ld_flags {
-            argv.push_back(*f)
+            argv.push_back(f->copy())
         }
 
         /// # inputs
         for *obj in job.objects {
-            argv.push_back(*obj)
+            argv.push_back(obj->copy())
         }
 
         // The MinGW driver has no --start-lib: job.lazy_objects come as
@@ -573,7 +573,7 @@ pub class MinGWArgs {
         }
 
         for *x in cxx_v {
-            argv.push_back(*x)
+            argv.push_back(x->copy())
         }
 
         if !want_stat {
@@ -596,7 +596,7 @@ pub class MinGWArgs {
                 continue
             }
 
-            argv.push_back(*x)
+            argv.push_back(x->copy())
         }
     }
 

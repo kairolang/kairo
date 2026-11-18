@@ -167,12 +167,15 @@ pub class CxxKeywordSet {
 pub fn cxx_reserved_everywhere(const s: string) -> bool {
     var n = s.size()
     for var i: usize = 1; i < n; ++i {
-        if s[i - 1] == ('_' as u8) && s[i] == ('_' as u8) {
+        if s.data()[i - 1] == ('_' as u8) && s.data()[i] == ('_' as u8) {
             return true
         }
     }
 
-    if n > 1 && s[0] == ('_' as u8) && s[1] >= ('A' as u8) && s[1] <= ('Z' as u8) {
+    if n > 1
+        && s.data()[0] == ('_' as u8)
+        && s.data()[1] >= ('A' as u8)
+        && s.data()[1] <= ('Z' as u8) {
         return true
     }
 
@@ -188,14 +191,14 @@ pub fn cxx_reserved_reason(const s: string) -> string {
     }
 
     for var i: usize = 1; i < n; ++i {
-        if s[i - 1] == ('_' as u8) && s[i] == ('_' as u8) {
+        if s.data()[i - 1] == ('_' as u8) && s.data()[i] == ('_' as u8) {
             return "contains a double underscore"
         }
     }
 
-    if s[0] == ('_' as u8) {
+    if s.data()[0] == ('_' as u8) {
         if n > 1 {
-            var c = s[1]
+            var c = s.data()[1]
             if c >= ('A' as u8) && c <= ('Z' as u8) {
                 return "begins with an underscore followed by an uppercase letter"
             }

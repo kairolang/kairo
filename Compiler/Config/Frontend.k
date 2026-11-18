@@ -93,7 +93,7 @@ pub class EmitKinds {
             } else if *it == "llvm-bc" {
                 k.emit_llvm_bc = true
             } else {
-                k.unknown.push_back(*it)
+                k.unknown.push_back(it->copy())
             }
         }
 

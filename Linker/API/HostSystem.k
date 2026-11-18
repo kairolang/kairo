@@ -411,8 +411,8 @@ pub class HostSystem {
         var r    = HostLibNeeds{}
         var real = LinkFS::real(path.copy())
         r.soname = LinkFS::filename(real)
-        var d = ""
-        if !LinkFS::read(real, &d) {
+        var d = cxx::std::vector<u8>()
+        if !LinkFS::read_bytes(real, &d) {
             return r
         }
 
@@ -555,7 +555,7 @@ pub class HostSystem {
     }
 
     /// `n` bytes at `off` as an unsigned integer; 0 past the end.
-    priv static fn _rd(@inout d: string, off: u64, n: u64, be: bool) -> u64 {
+    priv static fn _rd(@inout d: cxx::std::vector<u8>, off: u64, n: u64, be: bool) -> u64 {
         if off + n > (d.size() as u64) {
             return 0
         }
@@ -576,7 +576,7 @@ pub class HostSystem {
 
     /// The NUL-terminated string at `idx` of the string table at
     /// [`base`, `base` + `len`); "" when out of range.
-    priv static fn _cstr(@inout d: string, base: u64, len: u64, idx: u64) -> string {
+    priv static fn _cstr(@inout d: cxx::std::vector<u8>, base: u64, len: u64, idx: u64) -> string {
         if idx >= len {
             return ""
         }
@@ -590,7 +590,7 @@ pub class HostSystem {
 
         // `d` is a file image, not text: copy the bytes, never a checked range.
         return string(
-            unsafe ((d.data() + (start as usize)) as *const u8),
+            unsafe (((d.data() as unsafe *const u8) + (start as usize)) as *const u8),
             (p - start) as usize,
         )
     }

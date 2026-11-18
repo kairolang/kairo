@@ -67,6 +67,7 @@ ffi "c++" import "Native/Thread.hh" // sema_mint_rank
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/AddrRanges.hh"
+ffi "c++" import "Native/Placement.hh" // construct_at
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "cstring"
@@ -1260,7 +1261,9 @@ pub class CanonicalTypeStore {
     priv fn <T> _alloc(self) -> unsafe *T {
         var mem: unsafe *void = self._arena.alloc(sizeof(T), alignof(T))
         cxx::std::memset(mem, 0, sizeof(T))
-        return unsafe (mem as unsafe *T)
+        // Constructed after the zeroing: an all-zero string is not a valid
+        // string on every builtin library.
+        return kairo::construct_at<T>(mem)
     }
 
     priv fn <T> _alloc_array(self, n: usize) -> unsafe *T {

@@ -619,11 +619,11 @@ pub class SysRuntimes {
                     members.push_back(member.copy())
                     var argv = LinkText::copy_list(base)
                     for *f in fl {
-                        argv.push_back(*f)
+                        argv.push_back(f->copy())
                     }
 
                     for *f in maps {
-                        argv.push_back(*f)
+                        argv.push_back(f->copy())
                     }
 
                     argv.push_back("-c")
@@ -671,7 +671,7 @@ pub class SysRuntimes {
         for *tb in t->raw_tables {
             if LinkText::starts_with(tb->copy(), "group.")
                 && (gs.empty() || gs[gs.size() - 1] != *tb) {
-                gs.push_back(*tb)
+                gs.push_back(tb->copy())
             }
         }
 

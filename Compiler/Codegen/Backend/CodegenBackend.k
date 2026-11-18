@@ -744,7 +744,7 @@ pub class CodegenJob {
                 )
             }
 
-            a->lib_roots.push_back(ci->pp.builtins_dir)
+            a->lib_roots.push_back(ci->pp.builtins_dir.copy())
             a->lib_roots.push_back(ResourceLayout::std_root_of(ci))
         }
 
