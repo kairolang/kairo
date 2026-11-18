@@ -614,8 +614,8 @@ pub class <T: type> PatternTyping {
         var owner              = ""
 
         if is_dotted {
-            var        nm  = self.dyn()->sc->ctx->get_spelling(dotted)
-            var unsafe *en = self._enum_of(st)
+            var        nm: string = self.dyn()->sc->ctx->get_spelling(dotted)
+            var unsafe *en        = self._enum_of(st)
             if en == &null {
                 self.dyn()->sc->diag->report(
                     DiagID::SC123E,
@@ -646,7 +646,7 @@ pub class <T: type> PatternTyping {
                 return
             }
 
-            owner = nm
+            owner = nm.copy()
         } else {
             if head == &null {
                 p->poison()

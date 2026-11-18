@@ -226,6 +226,7 @@ import Sema::Incremental::Plan::{
 }
 import Sema::Type::PanicSets::PanicTypeIds
 import Support::Ascii::copy_strings
+import Support::Ascii::string_less
 import Support::ExitCodes::EXIT_FAILURE
 import Support::FileIO::Path::Path
 import Support::FileIO::VirtualFileManager::VirtualFileManager
@@ -395,7 +396,7 @@ pub class CompilerInstance {
     /// FlagTranslator::from_driver). The same parser as the argv
     /// path, reporting into this instance's engine, so args_ok() and
     /// flush_errors() behave as they do for `kairo`.
-    fn CompilerInstance(self, @inout words: cxx::std::vector<string>) {
+    fn CompilerInstance(self, words: cxx::std::vector<string>) {
         self._boot_diagnostics()
         self._cmd = kairo::std::create<Command>(0, &null, self._diag)
         register_kairo_flags(self._cmd)
@@ -471,7 +472,7 @@ pub class CompilerInstance {
     /// construction depends on it. Shared tail of both constructors.
     priv fn _adopt(self, inv: unsafe *CompilerInvocation) {
         if inv != &null {
-            *self.invocation() = *inv
+            *self.invocation() = cxx::std::move(*inv)
         } else {
             self.invocation()->ok = false
         }
@@ -1051,7 +1052,8 @@ pub class CompilerInstance {
         self._report_root_warnings()
         {
             var _t = TimeRegion("ImportIndex")
-            var rb = *ImportResolver::Builder().cwd(cwd)
+            var rb = ImportResolver::Builder()
+            rb.cwd(cwd)
             rb.sm(self.sm())
             for *dir in self.invocation()->include_dirs {
                 self._add_root(&rb, (*dir))
@@ -1457,7 +1459,7 @@ pub class CompilerInstance {
                 lines.push_back(plan.mods[i].copy() + ": " + plan.why[i])
             }
 
-            llvm::sort(lines.begin(), lines.end())
+            llvm::sort(lines.begin(), lines.end(), string_less)
             for *l in lines {
                 io::println(f"incremental: plan:   {*l}")
             }

@@ -162,27 +162,27 @@ pub class CompilerInvocation {
         inv.input_encoding = args.get_string("input-encoding")
 
         for s in *args.get_list("include-dirs") {
-            inv.include_dirs.push_back(s)
+            inv.include_dirs.push_back(s.copy())
         }
 
         for s in *args.get_list("ffi-include") {
-            inv.ffi_includes.push_back(s)
+            inv.ffi_includes.push_back(s.copy())
         }
 
         for s in *args.get_list("cxx-include") {
-            inv.cxx_includes.push_back(s)
+            inv.cxx_includes.push_back(s.copy())
         }
 
         for s in *args.get_list("cxx-define") {
-            inv.cxx_defines.push_back(s)
+            inv.cxx_defines.push_back(s.copy())
         }
 
         for s in *args.get_list("cxx-undefine") {
-            inv.cxx_undefines.push_back(s)
+            inv.cxx_undefines.push_back(s.copy())
         }
 
         for s in *args.get_list("macro-search-path") {
-            inv.macro_paths.push_back(s)
+            inv.macro_paths.push_back(s.copy())
         }
 
         // Last: the arguments move into the invocation, so every read above

@@ -24,6 +24,7 @@ import API::SysrootManifest::{
     TomlValue,
 }
 import API::Text::LinkText
+import Support::Ascii::copy_strings
 import Sysroot::Names::{
     SysNames,
     SysTarget,
@@ -53,6 +54,30 @@ pub class SysRecipe {
     pub var raw_keys:   cxx::std::vector<string>
     pub var raw_vals:   cxx::std::vector<TomlValue>
     pub var error:      string
+
+    /// A copy of every field; the strings and vectors are not copyable by
+    /// assignment.
+    pub fn copy(const self) -> SysRecipe {
+        var o = SysRecipe()
+        o.path          = self.path.copy()
+        o.family        = self.family.copy()
+        o.triple        = self.triple.copy()
+        o.clang_triple  = self.clang_triple.copy()
+        o.per_arch_keys = copy_strings(self.per_arch_keys)
+        o.per_arch_vals = copy_strings(self.per_arch_vals)
+        o.os_version    = self.os_version.copy()
+        o.arches        = copy_strings(self.arches)
+        o.inputs        = copy_strings(self.inputs)
+        o.runtimes      = copy_strings(self.runtimes)
+        o.raw_tables    = copy_strings(self.raw_tables)
+        o.raw_keys      = copy_strings(self.raw_keys)
+        for *v in self.raw_vals {
+            o.raw_vals.push_back(v->copy())
+        }
+
+        o.error = self.error.copy()
+        return o
+    }
 
     pub fn load(self, const path: string) -> bool {
         self.path = path.copy()
@@ -144,7 +169,7 @@ pub class SysRecipe {
             return cxx::std::vector<string>()
         }
 
-        return v->list
+        return copy_strings(v->list)
     }
 
     /// The keys of `table`, in file order.

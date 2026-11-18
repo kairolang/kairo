@@ -117,6 +117,18 @@ pub struct CRTPCall {
     pub var at:    SourceRange
 }
 
+extend CRTPCall {
+    /// A copy; the strings are not copyable by assignment.
+    pub fn copy(const self) -> CRTPCall {
+        return CRTPCall {
+            via:   self.via.copy(),
+            name:  self.name.copy(),
+            arity: self.arity,
+            at:    self.at,
+        }
+    }
+}
+
 /// Every `R()->name(args)` call shape in the bodies it walks.
 pub class CRTPCallScan derives RecursiveASTVisitor<CRTPCallScan> {
     pub var ctx:   unsafe *ASTContext         = &null
@@ -418,7 +430,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
 
             for var k: usize = 0; k < dyns->size(); ++k {
                 if (*dyns)[k] == c->via {
-                    (*out) = *c
+                    (*out) = c->copy()
                     return true
                 }
             }

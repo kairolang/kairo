@@ -76,7 +76,7 @@ pub class PreprocessorSymbolTable {
     fn op as (self) -> string {
         var repr = "PreprocessorSymbolTable(\n"
         for i in (0 as usize) .. (self.symbols.size()) {
-            var nm = *self.symbols[i]
+            var nm = (*self.symbols[i]).copy()
             repr += f"  {i}: '{nm}'\n"
         }
 

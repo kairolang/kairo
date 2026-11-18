@@ -29,6 +29,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/GlobalRecycler.hh"
+ffi "c++" import "utility"
 ffi "c++" import "Native/Locale.hh" // init_process_locale
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/Types.hh"
@@ -129,7 +130,7 @@ fn parse_fid(ci: unsafe *CompilerInstance, fid: u32) -> Parsed {
         }
     }
 
-    u.diags = collector->diags
+    u.diags = cxx::std::move(collector->diags)
     return u
 }
 
@@ -910,7 +911,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         return 1
     }
 
-    var inputs = ci->invocation()->input_files
+    var inputs = copy_strings(ci->invocation()->input_files)
     if inputs.empty() {
         io::eprintln("kfmt: no input path")
         return 1

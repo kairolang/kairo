@@ -569,7 +569,7 @@ pub class VirtualFileManager {
         }
 
         return {
-            .path:   s->path,
+            .path:   s->path.copy(),
             .offset: s->offset,
             .size:   s->size
         }

@@ -117,7 +117,7 @@ pub class IncludedDecls {
             }
         }
 
-        self._lines.push_back(l)
+        self._lines.push_back(l.copy())
         return true
     }
 

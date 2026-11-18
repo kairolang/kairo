@@ -37,6 +37,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
+ffi "c++" import "utility"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 ffi "c++" import "string"
@@ -431,7 +432,7 @@ pub fn parse_file(ci:         unsafe *CompilerInstance,
     u.errors   = ci->diag()->error_count() - err0
     u.warnings = ci->diag()->warn_count() - wrn0
     if opts.capture_diags {
-        u.diags = collector->diags
+        u.diags = cxx::std::move(collector->diags)
     }
 
     if u.fid == u32::MAX {
@@ -605,7 +606,7 @@ pub fn parse_once(const path: Path,
     diag->add_consumer(sink)
 
     var inv      = CompilerInvocation::from_args(argc, argv, diag)
-    var flag_err = sink->diags
+    var flag_err = cxx::std::move(sink->diags)
 
     diag->remove_consumer(sink)
     diag->clear_retained()
@@ -724,7 +725,7 @@ pub fn reparse(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> Pa
         ci->diag()->report(DiagID::I009F, f"reparse: cannot re-read fid={fid}").emit()
         u.stage = TUStage::Failed
         if opts.capture_diags {
-            u.diags = collector->diags
+            u.diags = cxx::std::move(collector->diags)
         }
 
         return u
@@ -737,7 +738,7 @@ pub fn reparse(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> Pa
         u.errors   = ci->diag()->error_count() - err0
         u.warnings = ci->diag()->warn_count() - wrn0
         if opts.capture_diags {
-            u.diags = collector->diags
+            u.diags = cxx::std::move(collector->diags)
         }
 
         return u
@@ -747,7 +748,7 @@ pub fn reparse(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> Pa
     if u.ctx == &null {
         u.stage = TUStage::Failed
         if opts.capture_diags {
-            u.diags = collector->diags
+            u.diags = cxx::std::move(collector->diags)
         }
 
         return u
@@ -768,7 +769,7 @@ pub fn reparse(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> Pa
     u.ok            = u.tu != &null && !ci->diag()->has_fatal()
     u.added_imports = ci->unresolved_import_count(fid)
     if opts.capture_diags {
-        u.diags = collector->diags
+        u.diags = cxx::std::move(collector->diags)
     }
 
     if u.added_imports > 0 {

@@ -222,7 +222,7 @@ pub class ScopeFacts {
             return false // another declaration lives at the address now
         }
 
-        (*out) = *f
+        (*out) = f->copy()
         return true
     }
 

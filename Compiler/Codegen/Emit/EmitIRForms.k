@@ -419,7 +419,7 @@ extend EmitIR {
         }
 
         self._sc(at, ts)
-        self._sc(at, if (arith) => (self._spell.reg_signed(t)) else => u)
+        self._sc(at, if (arith) => (self._spell.reg_signed(t)) else => u.copy())
         a()
         s->spell(at, ")")
         s->shift(at, k == TokenKind::OpLessLess)

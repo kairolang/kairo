@@ -114,6 +114,12 @@ pub struct CacheEntryStat {
 /// Removing an entry cannot break a parallel build sharing the
 /// cache: every reader copies an entry out, or finds it gone and
 /// rebuilds it.
+/// Orders by last use. A named function: a closure's `const` parameter is
+/// a value in its `fn` type, and a CacheEntryStat does not copy implicitly.
+fn cache_entry_older(const a: CacheEntryStat, const b: CacheEntryStat) -> bool {
+    return a.at < b.at
+}
+
 pub fn cache_evict_to_cap(@inout entries: cxx::std::vector<CacheEntryStat>,
                           total:          u64,
                           cap:            u64,
@@ -122,11 +128,7 @@ pub fn cache_evict_to_cap(@inout entries: cxx::std::vector<CacheEntryStat>,
         return
     }
 
-    llvm::sort(
-        entries.begin(),
-        entries.end(),
-        fn (const a: CacheEntryStat, const b: CacheEntryStat) || -> bool = a.at < b.at,
-    )
+    llvm::sort(entries.begin(), entries.end(), cache_entry_older)
 
     var left   = total
     var target = cap / 4 * 3
@@ -369,7 +371,7 @@ pub class ObjectCache {
 
         var g = f"merged {merged_ok}\n"
         for *p in self._includes {
-            g += "include " + (if (self.with_locs) => (*p)
+            g += "include " + (if (self.with_locs) => (p->copy())
                                else => LinkFS::filename(
                                    *p,
                                )) + " " + kairo::std::from_std_string<string>(
@@ -452,7 +454,7 @@ pub class ObjectCache {
                 continue
             }
 
-            var name = if (self.with_locs) => (self._hdr_path[i])
+            var name = if (self.with_locs) => (self._hdr_path[i].copy())
                        else => LinkFS::filename(self._hdr_path[i])
             h += name + " " + self._content_of(i)
             if self._hdr_c[i] != (0 as u8) {
@@ -926,7 +928,7 @@ pub class ObjectCache {
             }
 
             if a == "-include" && i + 1 < n {
-                self._includes.push_back((*args)[i + 1])
+                self._includes.push_back((*args)[i + 1].copy())
                 skip_next = true
                 continue
             }

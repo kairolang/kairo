@@ -722,7 +722,8 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
             // diagnostics the copy holds are the KEPT text's, at that
             // text's positions: nothing was found out about this one.
             states.push(
-                if (live->overlay_pending(r->aside_paths[k])) => AS_NONE else => AS_UNCHECKED,
+                if (live->overlay_pending(r->aside_paths[k])) => AS_NONE.copy()
+                else => AS_UNCHECKED.copy(),
             )
 
             whys[k] = live->why.copy()
@@ -730,7 +731,9 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
             continue
         }
 
-        states.push(if (live->dropped_bodies) => AS_PARTIAL else => AS_CHECKED)
+        states.push(
+            if (live->dropped_bodies) => AS_PARTIAL.copy() else => AS_CHECKED.copy(),
+        )
     }
 
     obs->flush()
@@ -994,7 +997,7 @@ fn live_slice(st:   *LiveState,
     var prefer: cxx::std::vector<string>
     if LIVE_PREFER_OPEN {
         for var k: usize = 0; k < r->open_paths.size(); ++k {
-            prefer.push_back(r->open_paths[k])
+            prefer.push_back(r->open_paths[k].copy())
         }
     }
 
@@ -1057,21 +1060,21 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
     }
 
     while i < args.size() {
-        words.push_back(args[i])
+        words.push_back(args[i].copy())
         i += 1
     }
 
     // A refresh re-renders nothing it kept, which the pretty renderer's
     // coalescing across files does not allow (LiveCheck refuses it). The
     // worker reads Diagnostic objects: the format changes nothing it sends.
-    words.push_back(CF_ERROR_FORMAT_BASIC)
+    words.push_back(CF_ERROR_FORMAT_BASIC.copy())
     // A WHOLE check of a graph that holds a file with syntax errors (on the
     // disk, or a buffer sent before its verdict) indexes what they leave
     // sound, as a run does (Worker.k): without it such a graph has no rows
     // at all. A re-check in place never takes such a file (LiveCheck).
-    words.push_back(CF_CHECK_PAST_SYNTAX_ERRORS)
+    words.push_back(CF_CHECK_PAST_SYNTAX_ERRORS.copy())
     // After the entry's own arguments, so it wins over a limit they set.
-    words.push_back(CF_NO_ERROR_LIMIT)
+    words.push_back(CF_NO_ERROR_LIMIT.copy())
 
     var unsafe *obs = kairo::std::create<IndexObserver>()
     finally {

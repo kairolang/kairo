@@ -284,7 +284,7 @@ pub class SourceManager {
             return
         }
 
-        self._files[fid] = unsafe (@create SourceFile(path, buf) as unsafe *SourceFile)
+        self._files[fid] = unsafe (@create SourceFile(path.copy(), buf) as unsafe *SourceFile)
     }
 
     /// `fid`'s bytes as a by-value view, or an empty one.
@@ -408,7 +408,7 @@ pub class SourceManager {
     /// VirtualFileManager's when the SourceFile was released.
     priv fn _path_of(self, file_id: FileID) -> Path {
         if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
-            return self._files[file_id]->path
+            return self._files[file_id]->path.copy()
         }
 
         return Path(self._vfile_mgr->get_info(file_id).path.full_path())
@@ -749,7 +749,7 @@ pub class SourceManager {
             return out
         }
 
-        var full   = self._files[file_id]->path
+        var full   = self._files[file_id]->path.copy()
         var parent = full.parent_path()
         if !parent.is_empty() {
             out = Path(parent, false)

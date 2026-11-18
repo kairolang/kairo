@@ -553,7 +553,7 @@ pub class DepScanner {
         var path = ModulePath()
         for *seg in segments {
             var ident = IdentifierToken()
-            ident.name  = self._sym_table->intern(*seg)
+            ident.name  = self._sym_table->intern(seg->copy())
             ident.token = &null
             path.segments.push_back(ident)
         }

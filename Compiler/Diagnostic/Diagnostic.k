@@ -37,6 +37,13 @@ pub struct DiagLabel {
     pub var style: Self::Style
 }
 
+extend DiagLabel {
+    /// A copy; `text` is not copyable by assignment.
+    pub fn copy(const self) -> DiagLabel {
+        return DiagLabel { text: self.text.copy(), range: self.range, style: self.style }
+    }
+}
+
 /// A suggested edit attached to a `Diagnostic`.
 ///
 /// Describes a single source replacement: remove `range` and insert

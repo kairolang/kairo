@@ -734,7 +734,7 @@ extend Server {
         self.respond(j->id, lw.out)
         self.completed_(
             j->how,
-            if (j->member) => (WHAT_MEMBER) else => WHAT_NAME,
+            if (j->member) => (WHAT_MEMBER.copy()) else => WHAT_NAME.copy(),
             nitems,
             j->t0_us,
         )

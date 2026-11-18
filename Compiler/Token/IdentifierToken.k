@@ -30,7 +30,7 @@ pub class IdentifierToken {
 
     pub fn as_string(const self, sym_table: unsafe *PreprocessorSymbolTable) -> string {
         var unsafe *name_str_ptr = sym_table->resolve(self.name)
-        var        name_str      = if (name_str_ptr == &null) => "<invalid>" else => *name_str_ptr
+        var name_str = if (name_str_ptr == &null) => "<invalid>" else => name_str_ptr->copy()
         return f"IdentifierToken(name: '{name_str}', token: {self.token})"
     }
 

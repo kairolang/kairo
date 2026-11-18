@@ -26,6 +26,7 @@ import Config::Diagnostic::{
     error_format_name,
 }
 import Diagnostic::Engine::DiagEngine
+import Support::Ascii::copy_strings
 import Support::Assert::Assert
 import std::io
 
@@ -4366,7 +4367,7 @@ pub fn Test() -> i32 {
         "pass",
         fn () -> string {
             var r   = cmd_p->parse_string("-I./include -I/usr/include main.k")
-            var lst = *r.get_list("include-dirs")
+            var lst = copy_strings(*r.get_list("include-dirs"))
             if lst.size() != 2 {
                 return f"expected 2 entries, got {lst.size()}"
             }

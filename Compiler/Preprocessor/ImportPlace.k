@@ -149,7 +149,7 @@ fn _import_place_greedy(res:            *ImportResolver,
     while try_len > 0 {
         var try_segs = cxx::std::vector<string>()
         for var i: usize = 0; i < try_len; ++i {
-            try_segs.push_back(segs[i])
+            try_segs.push_back(segs[i].copy())
         }
 
         var rr: ModuleResolution

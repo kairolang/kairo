@@ -482,7 +482,7 @@ pub fn decl_cxx_spelling(d: unsafe *Decl) -> string {
         return ""
     }
 
-    ffi_linkage_of!(d, return, ->cxx_spelling)
+    ffi_linkage_of!(d, return, ->cxx_spelling.copy())
     return ""
 }
 

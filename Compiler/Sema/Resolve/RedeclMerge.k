@@ -1512,7 +1512,7 @@ pub class RedeclMerge {
             var unsafe *cell = ml.in_scope(
                 home,
                 NameLookup::member_key(self.sc->ctx, f, home),
-                if (f->is_operator) => ("") else => nm,
+                if (f->is_operator) => ("") else => nm.copy(),
             )
 
             if cell == &null { // N(a) diagnosed the missing name.

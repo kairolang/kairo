@@ -2615,7 +2615,7 @@ pub class ExprTyper
             }
         }
 
-        self._lang_reported.push_back(name)
+        self._lang_reported.push_back(name.copy())
         self.sc->diag->report(
             DiagID::SC032E,
             e->range.start,

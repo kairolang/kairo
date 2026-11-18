@@ -303,7 +303,7 @@ pub class TargetOptions {
         o.m64       = args.get_bool("m64")
         o.native    = args.get_bool("native")
         for s in *args.get_list("pkg-config") {
-            o.pkg_config.push_back(s)
+            o.pkg_config.push_back(s.copy())
         }
 
         o.cxx_std      = args.get_string("cxx-std")

@@ -904,7 +904,7 @@ pub class <T: type> OperatorTyping {
         var fargs = cxx::std::vector<ArgInfo>()
         fargs.push_back(self.dyn()->arg_info(recv))
         for var i: usize = 0; i < margs.size(); ++i {
-            fargs.push_back(margs[i])
+            fargs.push_back(margs[i].copy())
         }
 
         // `copy_recv`: the operator runs on a COPY of the receiver (a

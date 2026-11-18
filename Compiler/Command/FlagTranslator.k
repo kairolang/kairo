@@ -62,18 +62,18 @@ pub enum ClangSpelling derives u8 {
 /// # small helpers
 
 pub fn _fx_push(@inout o: cxx::std::vector<string>, const a: string) {
-    o.push_back(a)
+    o.push_back(a.copy())
 }
 
 pub fn _fx_push2(@inout o: cxx::std::vector<string>, const a: string, const b: string) {
-    o.push_back(a)
-    o.push_back(b)
+    o.push_back(a.copy())
+    o.push_back(b.copy())
 }
 
 /// A cc1-only word reaching cc1 through the driver: `-Xclang <w>`.
 pub fn _fx_xclang(@inout o: cxx::std::vector<string>, const w: string) {
     o.push_back("-Xclang")
-    o.push_back(w)
+    o.push_back(w.copy())
 }
 
 /// extracts the numeric part of a diagnostic code: "S025W" -> 25,
@@ -1460,12 +1460,12 @@ pub class FlagTranslator {
         joined.push_back("-fdebug-compilation-dir=")
 
         for var i: usize = 0; i < cc1.size(); ++i {
-            var a    = string(&cc1[i])
+            var a    = cc1[i].copy()
             var took = false
             for *p in paired {
                 if a == *p && i + 1 < cc1.size() {
                     out.push_back(a.copy())
-                    out.push_back(string(&cc1[i + 1]))
+                    out.push_back(cc1[i + 1].copy())
                     i += 1
                     took = true
                     break

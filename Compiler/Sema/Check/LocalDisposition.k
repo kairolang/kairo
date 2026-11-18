@@ -235,7 +235,7 @@ pub class LocalEnds {
     /// LocalEndRow::refusal of `d` ("" when it is not a row).
     fn refusal_of(self, d: unsafe *Decl) -> string {
         var i = self.index_of(d)
-        return if (i != usize::MAX) => (self.rows[i].refusal) else => ""
+        return if (i != usize::MAX) => (self.rows[i].refusal.copy()) else => ""
     }
 
     fn index_of(self, d: unsafe *Decl) -> usize {

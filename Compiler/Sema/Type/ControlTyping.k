@@ -1604,10 +1604,8 @@ pub class <T: type> ControlTyping {
                            rec:    unsafe *Type,
                            braces: bool,
                            fields: FrozenList<Expressions::InitField>) -> unsafe *Type {
-        var unsafe *v = en->variants[idx]
-        var nm = self.dyn()->tu.decl_name(en) + "::" + self.dyn()->tu.decl_name(
-            v,
-        )
+        var unsafe *v         = en->variants[idx]
+        var        nm: string = f"{self.dyn()->tu.decl_name(en)}::{self.dyn()->tu.decl_name(v)}"
 
         var np = v->payload.size()
 
@@ -1829,13 +1827,13 @@ pub class <T: type> ControlTyping {
     /// they all convert to; -1 after reporting none or several. Each value
     /// is then checked against the element picked.
     priv fn _init_pick_element(self,
-                               n:           *Expr,
+                               n:           unsafe *Expr,
                                v:           unsafe *EnumVariantDecl,
                                rec:         unsafe *Type,
                                const nm:    string,
-                               const given: cxx::std::vector<*Expressions::InitField>,
+                               const given: cxx::std::vector<unsafe *Expressions::InitField>,
                                ve:          *VariadicEnum,
-                               const pes:   cxx::std::vector<*Type>) -> i32 {
+                               const pes:   cxx::std::vector<unsafe *Type>) -> i32 {
         var pick: i32 = -1
         var vals      = cxx::std::vector<unsafe *Expr>()
         for var k: usize = 0; k < v->payload.size(); ++k {

@@ -674,7 +674,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             return it->second
         }
 
-        self._keys.push_back(key)
+        self._keys.push_back(key.copy())
         var id = ((self._keys.size() - 1) as u32)
         self._key_ids.try_emplace(kairo::sref(key), id)
         return id

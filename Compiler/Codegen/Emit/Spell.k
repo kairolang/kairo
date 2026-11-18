@@ -196,13 +196,13 @@ class NsTops {
 
     fn record(self, const s: string, const c: string) {
         var lock = kairo::std::LockGuard(self._mu)
-        self._decided.push_back(s)
+        self._decided.push_back(s.copy())
         if c == s {
             return
         }
 
-        self._from.push_back(s)
-        self._to.push_back(c)
+        self._from.push_back(s.copy())
+        self._to.push_back(c.copy())
         self._n.store((self._from.size() as u32))
     }
 }

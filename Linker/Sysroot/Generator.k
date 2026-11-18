@@ -44,6 +44,7 @@ import API::SysrootManifest::{
     TomlValue,
 }
 import API::Text::LinkText
+import Support::Ascii::copy_strings
 import Sysroot::Cache::{
     SysCache,
     SysLock,
@@ -1115,16 +1116,19 @@ pub class SysGen {
         }
 
         var ctx = StageCtx()
-        ctx.target      = p->target.copy()
-        ctx.recipe      = p->recipe
-        ctx.quirks      = p->quirks
+        ctx.target = p->target.copy()
+        ctx.recipe = p->recipe.copy()
+        for *q in p->quirks {
+            ctx.quirks.push_back(q->copy())
+        }
+
         ctx.share       = p->share.dir.copy()
-        ctx.inputs      = p->in_paths
+        ctx.inputs      = copy_strings(p->in_paths)
         ctx.input       = self.input.copy()
         ctx.tools       = p->tools.copy()
         ctx.ar          = SysGen::find_tool("llvm-ar")
         ctx.jobs        = self.jobs
-        ctx.input_names = p->inputs
+        ctx.input_names = copy_strings(p->inputs)
 
         var stages = sys_stages()
         for var i: usize = 0; i < stages.size(); ++i {

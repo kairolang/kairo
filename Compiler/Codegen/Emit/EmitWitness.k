@@ -572,7 +572,7 @@ pub class EmitWitness {
             } else {
                 // A static requirement is gated on a plain function pointer: a
                 // static member's address is not a pointer to member.
-                var owner = if (m->is_method()) => (me) else => ""
+                var owner = if (m->is_method()) => (me.copy()) else => ""
                 gate = "requires requires { static_cast<" + self._pointer_to_member(
                     m,
                     subs[i],

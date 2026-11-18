@@ -212,7 +212,7 @@ extend CompilerInstance {
             }
 
             for *d in m.include_dirs {
-                dirs.push_back(LinkText::join(root.copy(), (*d)))
+                dirs.push_back(LinkText::join(root.copy(), d->copy()))
             }
 
             for *d in m.cc_defines {
@@ -643,14 +643,14 @@ extend CompilerInstance {
         // The target flags clang has a spelling for. Parsed into the
         // invocation long before this; until they are copied here they reach
         // nothing.
-        var tgt = self.invocation()->target
-        if !tgt.cxx_std.is_empty() {
-            bcfg.cxx_std = tgt.cxx_std.copy()
+        var *tgt = &self.invocation()->target
+        if !tgt->cxx_std.is_empty() {
+            bcfg.cxx_std = tgt->cxx_std.copy()
         }
 
         // --march is a DRIVER spelling (cc1 has none): the probe turns it
         // into -target-cpu and the -target-feature pairs its extensions imply.
-        for *a in FlagTranslator::march_driver(&tgt) {
+        for *a in FlagTranslator::march_driver(&(*tgt)) {
             bcfg.driver_words.push_back(a->copy())
         }
 
@@ -661,7 +661,7 @@ extend CompilerInstance {
         var mmcu_next = false
         for s in *self.invocation()->args.get_list("cxx-flags") {
             if mmcu_next || s.starts_with("-mmcu=") || s == "-mmcu" {
-                bcfg.driver_words.push_back(s)
+                bcfg.driver_words.push_back(s.copy())
             }
 
             mmcu_next = s == "-mmcu"
@@ -671,7 +671,7 @@ extend CompilerInstance {
         // own runtime; --c-std is for the user's C inputs.)
         // Every flag word below is spelled by FlagTranslator, the one home
         // of the kairo <-> clang mapping; this function only places them.
-        for *a in FlagTranslator::target(&tgt, ClangSpelling::CC1) {
+        for *a in FlagTranslator::target(&(*tgt), ClangSpelling::CC1) {
             bcfg.extra_cc1.push_back(a->copy())
         }
 
@@ -733,8 +733,8 @@ extend CompilerInstance {
         // hermetic build, and not on a C/C++ input's driver line, where
         // clang's driver adds them itself (ClangJobs drops them when
         // hermetic).
-        bcfg.strip_env = tgt.host_mode.is_empty()
-        if !tgt.host_mode.is_empty() {
+        bcfg.strip_env = tgt->host_mode.is_empty()
+        if !tgt->host_mode.is_empty() {
             for *d in HostSystem::env_list(EnvNames::cpath()) {
                 bcfg.extra_cc1.push_back("-I")
                 bcfg.extra_cc1.push_back(d->copy())
@@ -754,27 +754,27 @@ extend CompilerInstance {
         // The two header-search roots, exactly as given: no discovery. With
         // neither, clang searches no system headers at all (see the model in
         // ClangBackend::_startup_locked), which is the honest answer.
-        bcfg.sysroot      = tgt.sysroot.copy()
-        bcfg.resource_dir = tgt.resource_dir.copy()
+        bcfg.sysroot      = tgt->sysroot.copy()
+        bcfg.resource_dir = tgt->resource_dir.copy()
         self._sysroot_header_roots(&bcfg)
         // The host's system headers. Default ("floor"): after every sysroot
         // root, as -idirafter, so <stdio.h> is always the floor's and only a
         // header it lacks (zlib.h, curl/curl.h) is the host's. --native:
         // clang's native order -- the bundled libc++, the builtins, then the
         // host's dirs as the C library's -- with no sysroot at all.
-        if tgt.host_mode == "floor" {
-            for *d in tgt.host_include_dirs {
+        if tgt->host_mode == "floor" {
+            for *d in tgt->host_include_dirs {
                 bcfg.after_dirs.push_back(d->copy())
             }
-        } else if tgt.host_mode == "native" {
+        } else if tgt->host_mode == "native" {
             bcfg.sysroot = ""
             bcfg.cxx_include_dirs.clear()
             bcfg.include_dirs.clear()
             bcfg.defines.clear()
-            if !tgt.native_bundle.is_empty() {
+            if !tgt->native_bundle.is_empty() {
                 var nb = ClangBackendConfig{}
                 nb.triple  = bcfg.triple.copy()
-                nb.sysroot = tgt.native_bundle.copy()
+                nb.sysroot = tgt->native_bundle.copy()
                 self._sysroot_header_roots(&nb)
                 for *d in nb.cxx_include_dirs {
                     bcfg.cxx_include_dirs.push_back(d->copy())
@@ -787,30 +787,30 @@ extend CompilerInstance {
                 bcfg.cxx_include_dirs.push_back("/usr/include/c++/v1")
             }
 
-            for *d in tgt.host_include_dirs {
+            for *d in tgt->host_include_dirs {
                 bcfg.include_dirs.push_back(d->copy())
             }
         }
 
         // One optimization level for the whole build: ClangBackend applies
         // it to the invocation every compile copies.
-        var cgo = self.invocation()->codegen
-        bcfg.opt_level = cgo.opt_level
-        if cgo.opt_size_z {
+        var *cgo = &self.invocation()->codegen
+        bcfg.opt_level = cgo->opt_level
+        if cgo->opt_size_z {
             bcfg.opt_size = 2
-        } else if cgo.opt_size {
+        } else if cgo->opt_size {
             bcfg.opt_size = 1
         }
 
-        bcfg.vectorize = cgo.f_vectorize != 0
+        bcfg.vectorize = cgo->f_vectorize != 0
         // -g0 wins over -g wherever it sits. --dwarf-version always has a
         // value (default 5), so it cannot say whether DWARF was asked for;
         // on MSVC it is left out and the driver emits CodeView, which is
         // what link.exe-style PDBs need.
-        bcfg.debug_info    = FlagTranslator::debug_on(&cgo)
-        bcfg.debug_macros  = cgo.debug_macros
-        bcfg.embed_source  = cgo.embed_source
-        bcfg.dwarf_version = FlagTranslator::dwarf_for(&cgo, bcfg.triple)
+        bcfg.debug_info    = FlagTranslator::debug_on(&(*cgo))
+        bcfg.debug_macros  = cgo->debug_macros
+        bcfg.embed_source  = cgo->embed_source
+        bcfg.dwarf_version = FlagTranslator::dwarf_for(&(*cgo), bcfg.triple)
         return bcfg
     }
 
@@ -1362,7 +1362,7 @@ extend CompilerInstance {
                     if w == "-L" {
                         HostSystem::add_dir(&libs, &seenl, nixl[i + 1])
                     } else {
-                        inv->linker.rpath.push_back(nixl[i + 1])
+                        inv->linker.rpath.push_back(nixl[i + 1].copy())
                     }
 
                     i += 1
@@ -1523,7 +1523,7 @@ extend CompilerInstance {
                 var sys = false
                 var rv  = LinkFS::real(val.copy())
                 for *d in tg->host_include_dirs {
-                    if LinkFS::real(*d) == rv {
+                    if LinkFS::real(d->copy()) == rv {
                         sys = true
                     }
                 }
@@ -1535,7 +1535,7 @@ extend CompilerInstance {
                 var sys = false
                 var rv  = LinkFS::real(val.copy())
                 for *d in tg->host_lib_dirs {
-                    if LinkFS::real(*d) == rv {
+                    if LinkFS::real(d->copy()) == rv {
                         sys = true
                     }
                 }
@@ -1566,8 +1566,8 @@ extend CompilerInstance {
     }
 
     priv fn _queue_root_warning(self, const msg: string, const note: string) {
-        self._root_warnings.push_back(msg)
-        self._root_warnings.push_back(note)
+        self._root_warnings.push_back(msg.copy())
+        self._root_warnings.push_back(note.copy())
     }
 
     /// The warnings _discover_roots and _check_sysroot queued, reported once
@@ -1592,13 +1592,13 @@ extend CompilerInstance {
     /// the invocation is built. Fields whose subsystem does not yet exist are
     /// silently accepted stored in the invocation for future use.
     prot fn _apply_invocation(self) {
-        var d  = self.invocation()->diag
-        var fe = self.invocation()->frontend
+        var *d  = &self.invocation()->diag
+        var *fe = &self.invocation()->frontend
 
         // Only the formats a consumer exists for. msvc has no
         // consumer, so it is refused rather than rendered as pretty.
-        if !d.format_known {
-            if d.format == "msvc" {
+        if !d->format_known {
+            if d->format == "msvc" {
                 self._diag->report(
                     DiagID::U021E,
                     "error format 'msvc' is not implemented",
@@ -1606,7 +1606,7 @@ extend CompilerInstance {
             } else {
                 self._diag->report(
                     DiagID::U021E,
-                    f"unknown error format '{d.format}' (expected pretty, basic or json)",
+                    f"unknown error format '{d->format}' (expected pretty, basic or json)",
                 ).emit()
             }
 
@@ -1614,7 +1614,7 @@ extend CompilerInstance {
             return
         }
 
-        if renders_through_basic(d.error_format) {
+        if renders_through_basic(d->error_format) {
             self._diag->remove_consumer(
                 unsafe (self._pretty as unsafe *PrettyDiagConsumer),
             )
@@ -1623,7 +1623,7 @@ extend CompilerInstance {
                 unsafe (self._basic as unsafe *BasicDiagConsumer),
             )
 
-            self._basic->set_json(d.error_format == ErrorFormat::Json)
+            self._basic->set_json(d->error_format == ErrorFormat::Json)
             // Flag-parse diagnostics (U005W, -D shape errors) are already in
             // the pretty buffer; carry them over or basic mode never shows them.
             self._pretty->drain_into(
@@ -1631,50 +1631,50 @@ extend CompilerInstance {
             )
         }
 
-        self._basic->set_absolute_paths(d.absolute_paths)
+        self._basic->set_absolute_paths(d->absolute_paths)
         self._pretty->configure(
-            d.show_context,
-            d.max_context_lines as u32,
-            d.absolute_paths,
+            d->show_context,
+            d->max_context_lines as u32,
+            d->absolute_paths,
         )
 
-        if d.no_color {
+        if d->no_color {
             self._pretty->set_color(false)
         }
 
         // 0 = unlimited for the error, warning and note caps (Engine honours it).
-        self._diag->set_error_limit(d.max_errors as u32)
-        self._diag->set_warning_limit(d.max_warnings as u32)
-        self._diag->set_note_limit(d.max_notes as u32)
-        self._diag->set_fixit_limit(d.max_suggestions as u32)
-        self._diag->set_warnings_as_errors(d.warnings_as_errors)
-        self._diag->set_suppress_all_warnings(d.suppress_warnings)
+        self._diag->set_error_limit(d->max_errors as u32)
+        self._diag->set_warning_limit(d->max_warnings as u32)
+        self._diag->set_note_limit(d->max_notes as u32)
+        self._diag->set_fixit_limit(d->max_suggestions as u32)
+        self._diag->set_warnings_as_errors(d->warnings_as_errors)
+        self._diag->set_suppress_all_warnings(d->suppress_warnings)
 
         // Per-code diagnostic policy. A code is addressed by category prefix +
         // number (severity-letter-agnostic): R020, R020E and r020w are one key,
         // but SC005 and S005 are not. Applied in this order so the stronger
         // intent wins on a repeated code: allow < warn < deny < forbid, i.e.
         // `-A X -W X` leaves X enabled.
-        for c in d.allow_list {
+        for c in d->allow_list {
             self._set_code_policy(c, DiagAction::Silence)
         }
 
-        for c in d.warn_list {
+        for c in d->warn_list {
             self._set_code_policy(c, DiagAction::Warn)
         }
 
-        for c in d.deny_list {
+        for c in d->deny_list {
             self._set_code_policy(c, DiagAction::Promote)
         }
 
-        for c in d.forbid_list {
+        for c in d->forbid_list {
             self._set_code_policy(c, DiagAction::Forbid)
         }
 
         // --quiet: nothing but errors. Warnings, notes and remarks are dropped
         // at the engine; the logger stream follows so verbose chatter cannot
         // leak around it.
-        if fe.quiet {
+        if fe->quiet {
             self._diag->set_quiet(true)
             kairo::Logger::set_level(kairo::Logger::Level::Error)
         }
@@ -1685,8 +1685,8 @@ extend CompilerInstance {
         // into a running trace instead of something you read out of kairo.log
         // after the fact.
         // Under --quiet the level is already pinned to Error above.
-        if !fe.quiet {
-            if !fe.verbose {
+        if !fe->quiet {
+            if !fe->verbose {
                 kairo::Logger::set_level(kairo::Logger::Level::Warn)
             } else {
                 kairo::Logger::set_stream_level(kairo::Logger::Level::Info)

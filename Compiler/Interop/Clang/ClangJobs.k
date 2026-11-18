@@ -324,15 +324,15 @@ pub class ClangJobs {
 
         var sys = cxx::std::vector<string>()
         for var d in HostSystem::env_list(EnvNames::c_include_path()) {
-            sys.push_back(d)
+            sys.push_back(d.copy())
         }
 
         for var d in HostSystem::env_list(EnvNames::cplus_include_path()) {
-            sys.push_back(d)
+            sys.push_back(d.copy())
         }
 
         for var d in HostSystem::env_list(EnvNames::objc_include_path()) {
-            sys.push_back(d)
+            sys.push_back(d.copy())
         }
 
         for var k: usize = 1; k < n; ++k {

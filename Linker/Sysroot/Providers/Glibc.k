@@ -792,7 +792,7 @@ pub class GlibcProvider derives SysrootProvider {
         for *line in LinkText::split_lines(nodes_text.copy()) {
             var w = GlibcProvider::_words(*line)
             if w.size() == 2 && !SysUtil::version_less(v, w[1]) {
-                nodes.push_back(w[0])
+                nodes.push_back(w[0].copy())
                 text += w[0].copy() + " " + w[0] + " A\n"
             }
         }
@@ -1031,7 +1031,7 @@ pub class GlibcProvider derives SysrootProvider {
             var w = GlibcProvider::_words(*line)
             if w.size() == 3 {
                 over_keys.push_back(w[0].copy() + " " + w[1])
-                over_vals.push_back(w[2])
+                over_vals.push_back(w[2].copy())
             }
         }
 
@@ -1117,7 +1117,7 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         for *x in extra {
-            nodes.push_back(*x)
+            nodes.push_back(x->copy())
         }
 
         map = ""

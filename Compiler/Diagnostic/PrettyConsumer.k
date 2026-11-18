@@ -74,6 +74,27 @@ pub struct CaretSpan {
     pub var text:      string           ///< the label row's text; "" draws no row
 }
 
+extend CaretSpan {
+    /// A copy of every field; `code` and `text` are not copyable by
+    /// assignment.
+    pub fn copy(const self) -> CaretSpan {
+        return CaretSpan {
+            start_col: self.start_col,
+            end_col:   self.end_col,
+            code:      self.code.copy(),
+            sev:       self.sev,
+            style:     self.style,
+            text:      self.text.copy(),
+        }
+    }
+}
+
+/// Orders by start column. A named function: a closure's parameters are
+/// values in its `fn` type, and a CaretSpan does not copy implicitly.
+fn caret_span_before(const a: CaretSpan, const b: CaretSpan) -> bool {
+    return a.start_col < b.start_col
+}
+
 /// Group of diagnostics on the same file:line, to be rendered together.
 pub struct DiagGroup {
     pub var key:      DiagGroupKey
@@ -470,7 +491,8 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
         var sev_name = diag_severity_name(highest_sev)
         var sev_col  = self.severity_color(highest_sev)
-        var sev_str  = if color => (f"{sev_col}{self.BOLD}{sev_name}{self.RESET}") else => sev_name
+        var sev_str = if color => (f"{sev_col}{self.BOLD}{sev_name}{self.RESET}")
+                      else => sev_name.copy()
 
         // Context window properties
         var ctx_after: u32 = 0
@@ -607,11 +629,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
         // Left to right by start column; spans that start together keep
         // their order (the diagnostic's, then its labels').
-        cxx::std::stable_sort(
-            spans.begin(),
-            spans.end(),
-            fn (a: CaretSpan, b: CaretSpan) || -> bool = a.start_col < b.start_col,
-        )
+        cxx::std::stable_sort(spans.begin(), spans.end(), caret_span_before)
 
         // Find a fix-it anchored on the primary line. If present, the fix is
         // rendered IN PLACE: the primary source line shows the edited text
@@ -710,7 +728,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
         var pipe         = if (color) => (f"{self.BOLD}{self.WHITE}|{self.RESET}") else => "|"
         var line_col_esc = if (color) => (f"{self.BOLD}{self.WHITE}") else => ""
-        var reset_esc    = if (color) => (self.RESET) else => ""
+        var reset_esc    = if (color) => (self.RESET.copy()) else => ""
 
         // Gutter aligned precisely to left_pad
         var conn_gutter = f"{string((' ' as u8), left_pad)} {pipe} "
@@ -752,7 +770,9 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             var row_glyph: cxx::std::vector<u8>
             var row_color: cxx::std::vector<string>
             row_glyph.resize(row_cols, ' ' as u8)
-            row_color.resize(row_cols, string())
+            for var rc: usize = 0; rc < row_cols; ++rc {
+                row_color.push_back(string())
+            }
 
             for var s: usize = 0; s < spans.size(); ++s {
                 var *span = &spans[s]
@@ -804,7 +824,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             var active_spans: cxx::std::vector<CaretSpan>
             for var s: usize = 0; s < spans.size(); ++s {
                 if spans[s].text.size() > 0 {
-                    active_spans.push_back(spans[s])
+                    active_spans.push_back(spans[s].copy())
                 }
             }
 
@@ -868,13 +888,14 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var sev      = diag->code.severity()
         var sev_name = diag_severity_name(sev)
         var sev_col  = self.severity_color(sev)
-        var sev_str = if (color) => (f"{sev_col}{self.BOLD}{sev_name}{self.RESET}") else => sev_name
+        var sev_str = if (color) => (f"{sev_col}{self.BOLD}{sev_name}{self.RESET}")
+                      else => sev_name.copy()
 
         if !diag->has_loc || self._sm == &null {
             if is_child {
                 out += indent.copy() + f"{sev_str}: {diag->message}" + NL
             } else {
-                var the_code = diag->code
+                var the_code = diag->code.copy()
                 var code_str = if (color) => (sev_col + (the_code as string) + self.RESET)
                                else => (the_code as string)
                 out += indent.copy() + f"{sev_str} [{code_str}]: {diag->message}" + NL
@@ -905,7 +926,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var has_own_text = false
         if diag->labels.size() > 0 {
             for var i: usize = 0; i < diag->labels.size(); ++i {
-                temp_labels.push_back(diag->labels[i])
+                temp_labels.push_back(diag->labels[i].copy())
                 var l_line = sm->get_line_col(diag->labels[i].range.start).line
                 var l_len  = f"{l_line}".size()
                 if l_len > max_num_len {
@@ -1035,15 +1056,15 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             var start_lc  = sm->get_line_col(label->range.start)
             var line_text = sm->get_full_line(label->range.start)
 
-            var glyph_col = if color => (if (label->style == DiagLabel::Style::Primary) => (sev_col)
-                                         else => self.DIM)
+            var glyph_col = if color => (if (label->style == DiagLabel::Style::Primary) => (sev_col.copy())
+                                         else => self.DIM.copy())
                             else => ""
 
             var line_num_str = f"{start_lc.line}"
             var pad_count    = left_pad - line_num_str.size()
             var num_pad      = string(' ' as u8, pad_count)
             var line_col     = if (color) => (f"{self.BOLD}{self.WHITE}") else => ""
-            var reset_col    = if (color) => (self.RESET) else => ""
+            var reset_col    = if (color) => (self.RESET.copy()) else => ""
 
             var prefix_vis = f"{indent}{num_pad}{line_col}{line_num_str} {pipe} {reset_col}"
 
@@ -1345,8 +1366,8 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
         var head_hl = renderer.highlight_snippet(head, lang)
         var tail_hl = renderer.highlight_snippet(tail, lang)
-        var del_vis = if (color) => (f"{self.RED}{self.STRIKE}{mid}{self.RESET}") else => mid
-        var ins_vis = if (color) => (f"{self.GREEN}{ins}{self.RESET}") else => ins
+        var del_vis = if (color) => (f"{self.RED}{self.STRIKE}{mid}{self.RESET}") else => mid.copy()
+        var ins_vis = if (color) => (f"{self.GREEN}{ins}{self.RESET}") else => ins.copy()
 
         if mid.size() == 0 {
             del_vis = ""

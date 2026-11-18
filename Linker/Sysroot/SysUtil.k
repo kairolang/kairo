@@ -334,7 +334,7 @@ pub class SysUtil {
 
         for *name in LinkFS::list_dir(dir) {
             var p = LinkText::join(dir.copy(), name->copy())
-            var r = if (rel.is_empty()) => (*name) else => rel.copy() + "/" + *name
+            var r = if (rel.is_empty()) => (name->copy()) else => rel.copy() + "/" + *name
             if !follow && llvm::sys::fs::is_symlink_file(llvm::Twine(kairo::sref(p))) {
                 links.push_back(r)
             } else if LinkFS::is_dir(p) {

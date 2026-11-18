@@ -220,8 +220,8 @@ class ReplayBuffers {
             }
         }
 
-        self.paths.push_back(path)
-        self.texts.push_back(text)
+        self.paths.push_back(path.copy())
+        self.texts.push_back(text.copy())
         return true
     }
 }
@@ -273,7 +273,7 @@ fn replay_apply(const line: string,
             return "cannot write " + f[0]
         }
 
-        touched->push_back(f[0])
+        touched->push_back(f[0].copy())
         return ""
     }
 
@@ -282,7 +282,7 @@ fn replay_apply(const line: string,
             return "cannot write " + f[0]
         }
 
-        touched->push_back(f[0])
+        touched->push_back(f[0].copy())
         return ""
     }
 
@@ -296,7 +296,7 @@ fn replay_apply(const line: string,
         return "cannot write " + f[0]
     }
 
-    touched->push_back(f[0])
+    touched->push_back(f[0].copy())
     return ""
 }
 

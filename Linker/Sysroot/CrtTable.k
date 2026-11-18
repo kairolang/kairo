@@ -30,6 +30,7 @@ import API::SysrootManifest::{
     TomlValue,
 }
 import API::Text::LinkText
+import Support::Ascii::copy_strings
 import Sysroot::Outcome::SysOutcome
 import Sysroot::Provider::StageCtx
 import Sysroot::SysRun::{
@@ -217,7 +218,7 @@ pub class SysCrtTable {
     pub fn lang_flags(self, const lang: string) -> cxx::std::vector<string> {
         for *f in self.flags {
             if f->lang == lang {
-                return f->list
+                return copy_strings(f->list)
             }
         }
 

@@ -765,7 +765,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 for var k: usize = 0; k < e->scope->ns.size(); ++k {
                     nm += "::"
                     nm += if (k == 0) => (Speller::kairo_top_of(e->scope->ns[k]))
-                          else => e->scope->ns[k]
+                          else => e->scope->ns[k].copy()
                 }
 
                 nm += "::"

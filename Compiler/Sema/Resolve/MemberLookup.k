@@ -801,7 +801,7 @@ pub class MemberLookup {
             && (spelling.size() > 0 || name.is_op()) {
             var merged = false
             var *us    = &cast<Declarations::ClassDecl>(d)->ffi_usings
-            var want   = if (!name.is_op()) => (spelling) else => "operator"
+            var want = if (!name.is_op()) => (spelling.copy()) else => "operator"
             for var i: usize = 0; i < us->size(); ++i {
                 if (*us)[i] == want {
                     merged = true

@@ -80,6 +80,7 @@ import Resolution::ModulePath::{
     header_path_of,
 }
 import Sema::SemaContext::SemaContext
+import Support::Ascii::copy_strings
 import Support::FileIO::Path::Path
 import Tooling::ParseAPI::{
     ParseOptions,
@@ -831,12 +832,12 @@ fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
 
             var words: cxx::std::vector<string>
             for var i: usize = 0; i < base.size(); ++i {
-                words.push_back(base[i])
+                words.push_back(base[i].copy())
             }
 
-            words.push_back(files[k])
-            words.push_back(CF_TYPE_CHECK_ONLY)
-            words.push_back(CF_THREADS_ONE)
+            words.push_back(files[k].copy())
+            words.push_back(CF_TYPE_CHECK_ONLY.copy())
+            words.push_back(CF_THREADS_ONE.copy())
             var real: [string]
             real.push(files[k].copy())
             var txt: [string]
@@ -869,7 +870,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         }
 
         while i < args.size() {
-            base.push_back(args[i])
+            base.push_back(args[i].copy())
             i += 1
         }
 
@@ -941,26 +942,26 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     }
 
     while i < args.size() {
-        words.push_back(args[i])
+        words.push_back(args[i].copy())
         i += 1
     }
 
     // An editor never wants an object file out of a keystroke.
-    words.push_back(CF_TYPE_CHECK_ONLY)
+    words.push_back(CF_TYPE_CHECK_ONLY.copy())
     // After the entry's own arguments, so it wins over a limit they set.
-    words.push_back(CF_NO_ERROR_LIMIT)
+    words.push_back(CF_NO_ERROR_LIMIT.copy())
 
     // The index run checks what syntax errors leave sound
     // (LanguageServer.md section 9); the syntax pass stops at the parse.
     if syntax_file.is_empty() {
-        words.push_back(CF_CHECK_PAST_SYNTAX_ERRORS)
+        words.push_back(CF_CHECK_PAST_SYNTAX_ERRORS.copy())
     }
 
     if !syntax_file.is_empty() {
         // One file has nothing to share out: a thread pool of every core
         // costs more to start and stop (and to schedule on a busy machine)
         // than the parse it would run.
-        words.push_back(CF_THREADS_ONE)
+        words.push_back(CF_THREADS_ONE.copy())
         return syntax_main(
             out_path,
             syntax_file,
@@ -999,7 +1000,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         )
     }
 
-    var inputs = ci->invocation()->input_files
+    var inputs = copy_strings(ci->invocation()->input_files)
     if inputs.empty() {
         return worker_fail(out_path, "the compile command names no entry file")
     }

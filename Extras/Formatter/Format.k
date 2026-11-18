@@ -2495,7 +2495,10 @@ pub class Formatter {
         var cells = cxx::std::vector<Doc>()
         for var r = i; r < j; ++r {
             var *e = &(*es)[r]
-            cells.push_back(Doc::concat2(e->doc, Doc::text(self._semi_of(e))))
+            cells.push_back(
+                Doc::concat2(e->doc.copy(), Doc::text(self._semi_of(e))),
+            )
+
             cells.push_back(Doc::text(e->cmt))
         }
 

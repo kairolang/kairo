@@ -153,6 +153,7 @@ import Codegen::EmitPlan::{
     PlanTier,
 }
 import Location::SourceRange::SourceRange
+import Support::Ascii::copy_strings
 import Support::FlagSet::{
     FlagBit,
     FlagSet,
@@ -1297,7 +1298,7 @@ pub class InterfaceEmitter {
     /// A plan entry's namespace: an extension scope's own, else its decl's.
     priv fn _entry_ns(self, e: *PlanEntry) -> cxx::std::vector<string> {
         if e->scope != &null {
-            return e->scope->ns
+            return copy_strings(e->scope->ns)
         }
 
         if e->witness != &null && e->witness->std_hash {

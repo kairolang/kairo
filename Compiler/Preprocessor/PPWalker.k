@@ -4205,7 +4205,7 @@ pub class PPWalker {
 
     priv fn _sym_name(self, id: SymbolID) -> string {
         var unsafe *p = self._sym->resolve(id)
-        return if (p == &null) => ("<unknown>") else => *p
+        return if (p == &null) => ("<unknown>") else => p->copy()
     }
 
     priv fn _recover_to_terminator(self) {

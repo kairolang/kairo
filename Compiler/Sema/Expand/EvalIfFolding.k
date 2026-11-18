@@ -903,7 +903,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return
         }
 
-        var why = if (self._why.size() > 0) => (self._why)
+        var why = if (self._why.size() > 0) => (self._why.copy())
                   else => "it is not a compile-time constant"
         var by_when = if (self._late()) => ("must fold once types are resolved")
                       else => "must fold before names are resolved"

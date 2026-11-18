@@ -530,7 +530,7 @@ pub class TokenSink derives EmitSink {
             }
         }
 
-        self.system_headers.push_back(name)
+        self.system_headers.push_back(name.copy())
         return true
     }
 

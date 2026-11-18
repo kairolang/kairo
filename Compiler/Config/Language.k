@@ -157,7 +157,7 @@ pub class LangOptions {
 
         /// ## config flags
         for s in *args.get_list("cfg") {
-            o.cfg_flags.push_back(s)
+            o.cfg_flags.push_back(s.copy())
         }
 
         /// ## hard kill-switches

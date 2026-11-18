@@ -80,6 +80,13 @@ pub enum ModuleOrigin derives u8 {
 ///          answered through two unnamed search dirs: a hard error at the
 ///          import site (R017E). The winner is still returned so resolution
 ///          does not cascade into a second "not found" for the same import.
+/// A named comparator: a closure's `const` parameter is spelled by value in
+/// its function type, which copies a MOVE string; a named function's is a
+/// reference.
+fn probe_name_less(const a: string, const b: string) -> bool {
+    return a < b
+}
+
 pub class ModuleResolution {
     pub var found:      bool                     = false
     pub var path:       Path ///< the resolved file.
@@ -348,7 +355,11 @@ pub class ImportResolver {
         /// ### Returns
         /// heap-allocated resolver; caller assumes ownership
         pub fn create_ptr(self, pool: unsafe *ThreadPool = &null) -> unsafe *ImportResolver {
-            var        cwd_path  = self._cwd ?? Path::cwd()
+            var cwd_path = Path::cwd()
+            if self._cwd? {
+                cwd_path = unwrap!(self._cwd).copy()
+            }
+
             var unsafe *resolver = kairo::std::create<ImportResolver>()
             resolver->_sm = self._sm
             resolver->build_index(cwd_path, self._includes)
@@ -488,7 +499,7 @@ pub class ImportResolver {
                     continue
                 }
 
-                var cpath = unwrap!(child->fs_path)
+                var cpath = unwrap!(child->fs_path).copy()
                 // A directory already registered keeps the registration: the
                 // driver's `Lib/std` is an explicit root AND a subdirectory of
                 // `Lib`, and must not collide with itself.
@@ -810,7 +821,7 @@ pub class ImportResolver {
 
                 var tail = cxx::std::vector<string>()
                 for var ti: usize = r->spelling.size(); ti < segments.size(); ++ti {
-                    tail.push_back(segments[ti])
+                    tail.push_back(segments[ti].copy())
                 }
 
                 if tail.size() == 0 {
@@ -827,7 +838,7 @@ pub class ImportResolver {
 
                     if smod != &null && smod->file_path? {
                         root_hit = true
-                        root_path = unwrap!(smod->file_path)
+                        root_path = unwrap!(smod->file_path).copy()
                     }
 
                     continue
@@ -1506,10 +1517,10 @@ pub class ImportResolver {
 
         if file_node != &null && file_node->file_path? {
             out.found = true
-            out.path     = unwrap!(file_node->file_path)
+            out.path     = unwrap!(file_node->file_path).copy()
             out.file_dir = mod_node != &null
             if out.file_dir {
-                out.dir_path = unwrap!(mod_node->file_path)
+                out.dir_path = unwrap!(mod_node->file_path).copy()
             }
 
             return out
@@ -1517,7 +1528,7 @@ pub class ImportResolver {
 
         if mod_node != &null {
             out.found = true
-            out.path  = unwrap!(mod_node->file_path)
+            out.path  = unwrap!(mod_node->file_path).copy()
         }
 
         return out
@@ -1604,7 +1615,7 @@ pub class ImportResolver {
             }
         }
 
-        cxx::std::sort(names.begin(), names.end())
+        cxx::std::sort(names.begin(), names.end(), probe_name_less)
 
         var seen = llvm::StringMap<string>() // identity -> first claimant; probed only
         for var i: usize = 0; i < names.size(); ++i {

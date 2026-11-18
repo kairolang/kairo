@@ -2470,8 +2470,8 @@ pub class <T: type> ExprParse {
             SourceRange::from_bounds(s.end, i.start),
         )
 
-        var len  = between.length()
-        var data = between.raw()
+        var len  = between.size()
+        var data = between.data()
         var nl   = false
         for var k: usize = 0; k < len; ++k {
             var c = data[k]
@@ -2520,12 +2520,12 @@ pub class <T: type> ExprParse {
         }
 
         var text = self.dyn()->ctx->sm->get_text(idata->body)
-        var len  = text.length()
+        var len  = text.size()
         if len == 0 {
             return false
         }
 
-        var data = text.raw()
+        var data = text.data()
 
         // leading zero, unless the index is exactly `0`
         if len > 1 && data[0] == ('0' as u8) {

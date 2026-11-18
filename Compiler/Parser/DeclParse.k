@@ -5923,8 +5923,8 @@ pub class <T: type> DeclParse {
             )->emit()
         }
 
-        var refused = refused_prefix(d, StringOperand::Path)
-        if refused.empty() {
+        var refused: string = refused_prefix(d, StringOperand::Path)
+        if refused.is_empty() {
             return
         }
 

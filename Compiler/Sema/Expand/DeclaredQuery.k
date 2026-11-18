@@ -494,7 +494,7 @@ pub class DeclaredQuery {
             return false
         }
 
-        var head  = if (is_cxx) => (cxx_std_name()) else => segs[0]
+        var head  = if (is_cxx) => (cxx_std_name()) else => segs[0].copy()
         var heads = cxx::std::vector<unsafe *Decl>()
         var fids  = self.sc->g->all_fids()
         for var i: usize = 0; i < fids.size(); ++i {
@@ -616,7 +616,7 @@ pub class DeclaredQuery {
             if path.data()[i] == (':' as u8)
                 && i + 1 < path.size()
                 && path.data()[i + 1] == (':' as u8) {
-                out.push_back(path[run..i])
+                out.push_back(path[run..i].copy())
                 i += 2
                 run = i
                 continue
@@ -625,7 +625,7 @@ pub class DeclaredQuery {
             i += 1
         }
 
-        out.push_back(path[run..])
+        out.push_back(path[run..].copy())
         return out
     }
 

@@ -150,7 +150,7 @@ pub class Command {
 
 
     fn define(self, const def: FlagDef) -> unsafe *Self {
-        self._table.push_back(def)
+        self._table.push_back(def.copy())
         return unsafe &self
     }
 
@@ -845,7 +845,7 @@ pub class Command {
                         }
 
                         set += if (def->short_.size() > 0) => (f"-{def->short_}{def->choices[c]}")
-                               else => def->choices[c]
+                               else => def->choices[c].copy()
                     }
 
                     if def->has_bare && def->short_.size() > 0 {
@@ -1369,7 +1369,7 @@ pub class Command {
     pub fn print_help(self, hidden_only: bool = false) {
         var COL: usize = 36 // column where descriptions start
 
-        var prog = (if (self._args.size() > 0) => (self._args[0]) else => "prog")
+        var prog = (if (self._args.size() > 0) => (self._args[0].copy()) else => "prog")
 
         var usage: string = f"USAGE: {prog} [options]"
         for var t: usize = 0; t < self._table.size(); ++t {

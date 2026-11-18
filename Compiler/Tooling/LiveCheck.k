@@ -1005,7 +1005,7 @@ pub class LiveCheck {
 
         self._q = rest
         for var n in names {
-            self.rechecked.push_back(n)
+            self.rechecked.push_back(n.copy())
         }
 
         return ""
@@ -1217,7 +1217,7 @@ pub class LiveCheck {
                     return false
                 }
 
-                next      = kairo::std::create<string>(text)
+                next      = kairo::std::create<string>(text.copy())
                 from_disk = true
             } else {
                 return self._ci->detach_for_refresh(fid, &null, 0, false, false)
@@ -1286,7 +1286,7 @@ pub class LiveCheck {
             kairo::std::destroy(self._ov[k].next)
         }
 
-        self._ov[k].next = kairo::std::create<string>(text)
+        self._ov[k].next = kairo::std::create<string>(text.copy())
         self._ov[k].gone = false
     }
 
@@ -1521,7 +1521,7 @@ pub class LiveCheck {
         }
 
         self._ci->initialize(Path::cwd())
-        var inputs = self._ci->invocation()->input_files
+        var inputs = copy_strings(self._ci->invocation()->input_files)
         if inputs.empty() {
             return false
         }

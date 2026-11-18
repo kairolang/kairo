@@ -77,13 +77,12 @@ pub class SearchRoot {
         self.real_dir  = Path::real_path_of(path.full_path())
         self.priority  = priority
         self.name      = copy_strings(name)
-        self.spelling = copy_strings(
-            if (spelling.size() > 0) => (spelling) else => name,
-        )
+        self.spelling = if (spelling.size() > 0) => (copy_strings(spelling))
+                        else => copy_strings(name)
 
-        self.ext_cfg       = ext_cfg
-        self.root          = kairo::std::create<DirEntry>(path.filename(), true)
-        self.root->fs_path = path.copy()
+        self.ext_cfg = ext_cfg
+        self.root    = kairo::std::create<DirEntry>(path.filename(), true)
+        self.root->set_fs_path(path)
         self.root->ext_cfg = ext_cfg
     }
 

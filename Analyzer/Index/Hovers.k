@@ -680,7 +680,7 @@ extend IndexWalker {
                 || isa<Declarations::StructDecl>(d)
                 || isa<Declarations::UnionDecl>(d)
                 || isa<Declarations::InterfaceDecl>(d)) {
-            var bare = if (isa<Declarations::ClassDecl>(d)) => ("class ") else => kw
+            var bare = if (isa<Declarations::ClassDecl>(d)) => ("class ") else => kw.copy()
             var th = self.type_head_text_(d, bare)
             if !th.is_empty() {
                 if kw.starts_with("final ") {

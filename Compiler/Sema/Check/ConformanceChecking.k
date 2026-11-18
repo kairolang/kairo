@@ -4878,7 +4878,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             names.push_back(self._inst_name(chain[i - 1]))
         }
 
-        names.push_back(next)
+        names.push_back(next.copy())
         var n     = names.size()
         var shown = ""
         for var i: usize = 0; i < n; ++i {

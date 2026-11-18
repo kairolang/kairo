@@ -851,7 +851,7 @@ pub class HeaderSet {
 
         var n = (self._node_path.size() as u32)
         self._node_of.try_emplace(kairo::sref(p), n)
-        self._node_path.push_back(p)
+        self._node_path.push_back(p.copy())
         self._node_out.push_back(cxx::std::vector<u32>())
         return n
     }
@@ -1274,7 +1274,8 @@ pub class HeaderSet {
             if hit->header.is_empty() {
                 // The import names the .k itself. Quoted as the import
                 // spells it: the set's buffer includes the resolved path.
-                var named = if (imported.is_empty()) => (hit->spelled) else => imported
+                var named = if (imported.is_empty()) => (hit->spelled.copy())
+                            else => imported.copy()
                 var b = engine->report(
                     DiagCode(DiagID::R070E),
                     hit->import_at.start,

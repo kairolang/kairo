@@ -38,6 +38,13 @@ pub class DirEntry {
     pub var ext_cfg:   unsafe *FileExtensions ///< non-owning; propagated from SearchRoot
     pub var scanned:   bool ///< full readdir done (enumeration path only)
 
+    /// Sets `fs_path` to a copy of `p`. The assignment is spelled here, in
+    /// this file's unit: written through a `DirEntry` pointer in another
+    /// unit, the `Path?` conversion does not compile on a move-only Path.
+    fn set_fs_path(self, const p: Path) {
+        self.fs_path = p.copy()
+    }
+
     fn DirEntry(self, name: string, is_dir: bool = true) {
         self.name      = name.copy()
         self.children  = llvm::StringMap<unsafe *DirEntry>()
@@ -161,7 +168,7 @@ pub class DirEntry {
         // The type comes off the readdir record (Path::type_of_entry), and each
         // child Path is built from it (from_known): one syscall per directory,
         // not two stats per entry. A missing directory just ends the loop.
-        var self_path                      = unwrap!(self.fs_path).path_data
+        var self_path                      = unwrap!(self.fs_path).path_data.copy()
         var ec:       cxx::std::error_code
         var it = llvm::sys::fs::directory_iterator(
             llvm::Twine(kairo::sref(self_path)),

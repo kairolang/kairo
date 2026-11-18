@@ -239,11 +239,11 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         )
     }
 
-    var fe_time    = ci->invocation()->frontend
-    var want_stats = fe_time.print_stats || !fe_time.stats_file.is_empty()
-    if fe_time.time_passes || want_stats || !fe_time.time_trace.is_empty() {
+    var *fe_time   = &ci->invocation()->frontend
+    var want_stats = fe_time->print_stats || !fe_time->stats_file.is_empty()
+    if fe_time->time_passes || want_stats || !fe_time->time_trace.is_empty() {
         want_tp = true
-        want_tt = want_tt || !fe_time.time_trace.is_empty()
+        want_tt = want_tt || !fe_time->time_trace.is_empty()
         time_enable(true, want_tt)
     }
 
@@ -280,14 +280,14 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         time_finish()
         // --stats-file alone replaces the stderr table; --time-passes still
         // asks for stderr, so it keeps it.
-        if fe_time.time_passes || !want_stats || fe_time.stats_file.is_empty() {
+        if fe_time->time_passes || !want_stats || fe_time->stats_file.is_empty() {
             time_print()
         }
 
-        if !fe_time.stats_file.is_empty() {
-            if !_time_print_to(fe_time.stats_file) {
+        if !fe_time->stats_file.is_empty() {
+            if !_time_print_to(fe_time->stats_file) {
                 io::eprintln(
-                    f"error [U023E]: cannot write statistics to '{fe_time.stats_file}'",
+                    f"error [U023E]: cannot write statistics to '{fe_time->stats_file}'",
                 )
 
                 out_failed = true
@@ -295,16 +295,16 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         }
 
         if want_tt {
-            if time_write_trace(fe_time.time_trace) {
-                io::eprintln(f"time trace written to '{fe_time.time_trace}'")
+            if time_write_trace(fe_time->time_trace) {
+                io::eprintln(f"time trace written to '{fe_time->time_trace}'")
             } else {
                 io::eprintln(
-                    f"error [U023E]: cannot write time trace to '{fe_time.time_trace}'",
+                    f"error [U023E]: cannot write time trace to '{fe_time->time_trace}'",
                 )
 
                 // A bare --time-trace names no path at all; that was never a
                 // write failure, so it keeps its old exit status.
-                if !fe_time.time_trace.is_empty() {
+                if !fe_time->time_trace.is_empty() {
                     out_failed = true
                 }
             }

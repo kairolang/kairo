@@ -367,6 +367,33 @@ pub class LifecycleFacts {
     pub var deprecated_copy:     unsafe *FunctionDecl = &null
     pub var deprecated_copy_via: string               = ""
     fn LifecycleFacts(self) { }
+
+    /// A copy of every field; the strings are not copyable by assignment.
+    pub fn copy(const self) -> LifecycleFacts {
+        var o = LifecycleFacts()
+        o.in_progress         = self.in_progress
+        o.copyable            = self.copyable
+        o.movable             = self.movable
+        o.trivially_copyable  = self.trivially_copyable
+        o.trivial_dtor        = self.trivial_dtor
+        o.has_user_dtor       = self.has_user_dtor
+        o.virtual_dtor        = self.virtual_dtor
+        o.why_not_movable     = self.why_not_movable.copy()
+        o.why_not_copyable    = self.why_not_copyable.copy()
+        o.relocatable         = self.relocatable
+        o.why_not_relocatable = self.why_not_relocatable.copy()
+        o.category            = self.category
+        o.user_transfer       = self.user_transfer
+        o.own_dtor_work       = self.own_dtor_work
+        o.destructible        = self.destructible
+        o.polymorphic         = self.polymorphic
+        o.assignable          = self.assignable
+        o.why_not_assignable  = self.why_not_assignable.copy()
+        o.poly_rebuild        = self.poly_rebuild
+        o.deprecated_copy     = self.deprecated_copy
+        o.deprecated_copy_via = self.deprecated_copy_via.copy()
+        return o
+    }
 }
 
 /// One of the five facts an ADT's special members are picked from --
@@ -401,7 +428,7 @@ pub class LifecycleFailure {
     fn add_note(self, id: DiagID, at: SourceRange, const msg: string) {
         self.note_ids.push_back(id)
         self.note_at.push_back(at)
-        self.note_msg.push_back(msg)
+        self.note_msg.push_back(msg.copy())
     }
 }
 
@@ -816,7 +843,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     return self._unknown_facts()
                 }
 
-                return *self.facts_of(d)
+                return self.facts_of(d)->copy()
             } case TypeKind::FixedArrayType {
                 return self.facts_of_type(cast<FixedArrayType>(t)->element)
             } case TypeKind::VectorType {

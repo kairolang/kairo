@@ -34,6 +34,7 @@ ffi "c++" import "vector"
 import Support::Ascii::{
     copy_strings,
     parse_decimal,
+    string_less,
 }
 
 /// Bumped by any change to a plan record's lines.
@@ -256,7 +257,7 @@ class PlanLists {
     fn seal(self) {
         self.text.clear()
         for var i: usize = 0; i < self.vals.size(); ++i {
-            llvm::sort(self.vals[i].begin(), self.vals[i].end())
+            llvm::sort(self.vals[i].begin(), self.vals[i].end(), string_less)
             self.text.push_back(plan_join(&self.vals[i], "\n"))
         }
     }
@@ -710,7 +711,8 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                 var k = plan_split(r, 9 as u8)
                 var where_ = if (k.size() == 3 && !k[1].is_empty()) => (k[1].copy())
                              else => k[0].copy() + "#<file>"
-                reason = "R1 name " + (if (k.size() == 3) => (k[2]) else => r) + " in " + where_
+                reason = "R1 name " + (if (k.size() == 3) => (k[2].copy())
+                                       else => r.copy()) + " in " + where_
                 break
             }
 

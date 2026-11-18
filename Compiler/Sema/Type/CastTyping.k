@@ -1356,7 +1356,7 @@ pub class <T: type> CastTyping {
                 SourceRange::from_bounds(n->range.start, n->target->range.start),
             )
 
-            var e = head.length()
+            var e = head.size()
             while e > 0 && is_blank(head[e - 1]) {
                 e -= 1
             }

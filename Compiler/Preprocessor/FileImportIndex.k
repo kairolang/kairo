@@ -202,7 +202,7 @@ pub class FileImportIndex {
             // THE fix: register the bare name uniformly with the braced form.
             var base = cxx::std::vector<string>()
             for var i: usize = 0; i + 1 < segs.size(); ++i {
-                base.push_back(segs[i])
+                base.push_back(segs[i].copy())
             }
 
             var rr = self._resolve(base, id)
@@ -341,7 +341,7 @@ pub class FileImportIndex {
 
     priv fn _sym_name(self, id: SymbolID) -> string {
         var unsafe *p = self._sym->resolve(id)
-        return if (p == &null) => ("<unknown>") else => *p
+        return if (p == &null) => ("<unknown>") else => p->copy()
     }
 
     /// # resolution glue over ImportResolver
@@ -402,7 +402,7 @@ pub class FileImportIndex {
         // root-relative import this is exactly `segs`.
         var src = copy_strings(place.canonical)
         for var i: usize = place.seg_count; i < segs.size(); ++i {
-            src.push_back(segs[i])
+            src.push_back(segs[i].copy())
         }
 
         out.found        = true
@@ -430,7 +430,7 @@ pub class FileImportIndex {
                             seg_count:  usize) {
         var file = cxx::std::vector<string>()
         for var i: usize = 0; i < seg_count && i < segs.size(); ++i {
-            file.push_back(segs[i])
+            file.push_back(segs[i].copy())
         }
 
         var first = id->path_segments[0].range

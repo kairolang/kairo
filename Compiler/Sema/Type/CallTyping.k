@@ -52,6 +52,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
+ffi "c++" import "utility"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
@@ -2195,27 +2196,27 @@ pub class <T: type> CallTyping {
         var out: unsafe *Expr = &null
         if isa<IntegerLiteralExpr>(e) {
             var x = ctx->alloc<IntegerLiteralExpr>()
-            *x  = *cast<IntegerLiteralExpr>(e)
+            *x  = cxx::std::move(*cast<IntegerLiteralExpr>(e))
             out = x
         } else if isa<FloatingLiteralExpr>(e) {
             var x = ctx->alloc<FloatingLiteralExpr>()
-            *x  = *cast<FloatingLiteralExpr>(e)
+            *x  = cxx::std::move(*cast<FloatingLiteralExpr>(e))
             out = x
         } else if isa<BooleanLiteralExpr>(e) {
             var x = ctx->alloc<BooleanLiteralExpr>()
-            *x  = *cast<BooleanLiteralExpr>(e)
+            *x  = cxx::std::move(*cast<BooleanLiteralExpr>(e))
             out = x
         } else if isa<CharacterLiteralExpr>(e) {
             var x = ctx->alloc<CharacterLiteralExpr>()
-            *x  = *cast<CharacterLiteralExpr>(e)
+            *x  = cxx::std::move(*cast<CharacterLiteralExpr>(e))
             out = x
         } else if isa<NullLiteralExpr>(e) {
             var x = ctx->alloc<NullLiteralExpr>()
-            *x  = *cast<NullLiteralExpr>(e)
+            *x  = cxx::std::move(*cast<NullLiteralExpr>(e))
             out = x
         } else if isa<StringLiteralExpr>(e) && !cast<StringLiteralExpr>(e)->is_format() {
             var x = ctx->alloc<StringLiteralExpr>()
-            *x  = *cast<StringLiteralExpr>(e)
+            *x  = cxx::std::move(*cast<StringLiteralExpr>(e))
             out = x
         }
 

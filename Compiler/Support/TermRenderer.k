@@ -903,8 +903,8 @@ pub class TermRenderer {
                             continue
                         }
                     } else if clang::tok::isLiteral(kind) {
-                        var hl = if (kind == clang::tok::numeric_constant) => (self.HL_NUMBER)
-                                 else => self.HL_STRING
+                        var hl = if (kind == clang::tok::numeric_constant) => (self.HL_NUMBER.copy())
+                                 else => self.HL_STRING.copy()
                         out += self.style(hl.copy()) + "@" + text + self.style(
                             self.RESET.copy(),
                         )

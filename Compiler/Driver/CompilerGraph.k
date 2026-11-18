@@ -104,7 +104,7 @@ extend CompilerInstance {
 
             if w == "-I" {
                 if i + 1 < fl->size() {
-                    out.push_back((*fl)[i + 1])
+                    out.push_back((*fl)[i + 1].copy())
                 }
 
                 i += 1
@@ -134,8 +134,8 @@ extend CompilerInstance {
         var angle = self.invocation()->clang_include_dirs()
         var *fl   = &self.invocation()->codegen.cxx_flags
         for var i: usize = 0; i < fl->size(); ++i {
-            var w    = (*fl)[i].copy()
-            var next = if (i + 1 < fl->size()) => ((*fl)[i + 1]) else => ""
+            var w = (*fl)[i].copy()
+            var next = if (i + 1 < fl->size()) => ((*fl)[i + 1].copy()) else => ""
             if w == "-iquote" {
                 quote.push_back(next)
                 i += 1

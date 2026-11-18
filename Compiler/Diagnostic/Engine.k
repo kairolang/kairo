@@ -529,7 +529,7 @@ pub class DiagEngine derives DiagEngineVBase {
                     // Non-overridable: force Error regardless of prior severity.
                     if sev != DiagSeverity::Error && sev != DiagSeverity::Fatal {
                         diag->code = self._override_severity(
-                            diag->code,
+                            diag->code.copy(),
                             DiagSeverity::Error,
                         )
 
@@ -538,7 +538,7 @@ pub class DiagEngine derives DiagEngineVBase {
                 } case DiagAction::Promote {
                     if sev == DiagSeverity::Warning {
                         diag->code = self._override_severity(
-                            diag->code,
+                            diag->code.copy(),
                             DiagSeverity::Error,
                         )
 
@@ -556,7 +556,7 @@ pub class DiagEngine derives DiagEngineVBase {
                     // An Ignored-severity code is invisible until asked for.
                     if sev == DiagSeverity::Ignored {
                         diag->code = self._override_severity(
-                            diag->code,
+                            diag->code.copy(),
                             DiagSeverity::Warning,
                         )
 
@@ -570,7 +570,7 @@ pub class DiagEngine derives DiagEngineVBase {
             return
         } else if sev == DiagSeverity::Warning && self._warnings_as_errors {
             diag->code = self._override_severity(
-                diag->code,
+                diag->code.copy(),
                 DiagSeverity::Error,
             )
 

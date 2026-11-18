@@ -256,6 +256,14 @@ pub fn parse_decimal(const s: string) -> u64 {
 /// A copy of `v`, string by string.
 ///
 /// A C++ vector of strings has no copy of its own.
+/// `a` orders before `b`, byte by byte: the comparator a C++ sort of a
+/// string vector takes. The default `<` of std::sort is not defined for the
+/// Kairo string on every builtin library, and a closure's `const` parameter
+/// is a value in its `fn` type, which copies; a function's is a reference.
+pub fn string_less(const a: string, const b: string) -> bool {
+    return a < b
+}
+
 pub fn copy_strings(const v: cxx::std::vector<string>) -> cxx::std::vector<string> {
     var out = cxx::std::vector<string>()
     out.reserve(v.size())

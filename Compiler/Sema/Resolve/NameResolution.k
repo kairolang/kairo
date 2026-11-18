@@ -1690,7 +1690,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             var unsafe *cell = ml.in_scope(
                 home,
                 key,
-                if (f->is_operator) => ("") else => nm,
+                if (f->is_operator) => ("") else => nm.copy(),
             )
 
             if cell == &null {

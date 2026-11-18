@@ -265,7 +265,7 @@ pub class ASTRoundTrip {
             octx->ci,
         )
 
-        c->source_path     = octx->source_path
+        c->source_path     = octx->source_path.copy()
         c->module_base     = octx->module_base
         c->module_leaf_imm = octx->module_leaf_imm
         c->hoisted         = octx->hoisted

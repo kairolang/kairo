@@ -331,7 +331,7 @@ pub class FrontendOptions {
         o.emit_llvm_ir = emit.emit_llvm_ir
         o.emit_llvm_bc = emit.emit_llvm_bc
         for it in emit.unknown {
-            o.emit_unknown.push_back(it)
+            o.emit_unknown.push_back(it.copy())
         }
 
         o.verbose           = args.get_bool("verbose")

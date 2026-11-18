@@ -923,7 +923,7 @@ extend InterfaceEmitter {
 
             // Its Kairo name too, what the C++ view's what() prints (Compiler/Spec/Panic.md
             // §4.6): one text per element, so every TU's specialization agrees.
-            var nm = if (i >= ie->type_names.size()) => ("") else => ie->type_names[i]
+            var nm = if (i >= ie->type_names.size()) => ("") else => ie->type_names[i].copy()
             self._cg->sink->spell(
                 self._at(d),
                 "template <> struct " + LowerTargets::type_id_trait() + "<" + self._spell->_type(

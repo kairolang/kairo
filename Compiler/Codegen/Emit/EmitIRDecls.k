@@ -711,7 +711,8 @@ extend EmitIR {
 
                 var cond = cond_t[i].copy()
                 if cond_u[i].size() > 0 {
-                    cond = if (cond.size() > 0) => (cond + " && " + cond_u[i]) else => cond_u[i]
+                    cond = if (cond.size() > 0) => (cond + " && " + cond_u[i])
+                           else => cond_u[i].copy()
                 }
 
                 self._cg->sink->spell(

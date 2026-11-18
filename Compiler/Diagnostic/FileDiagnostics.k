@@ -58,7 +58,7 @@ pub class FileDiagConsumer derives DiagConsumer {
             }
         }
 
-        self.order.push_back(path)
+        self.order.push_back(path.copy())
     }
 
     /// The diagnostics `path` owns, in delivery order.

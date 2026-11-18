@@ -2126,15 +2126,17 @@ pub class TypeUtil {
         }
 
         self._ext_hit = &null
+        var *np = &name
         for var i: usize = 0; i < home->dc_decls.size() && self._ext_hit == &null; ++i {
             var unsafe *top = *home->dc_decls.get(i)
             if top == &null {
                 continue
             }
 
+            // The closure captures by value: a pointer, so `name` is not copied.
             for_each_unwrapped_decl(
                 top,
-                fn (x: unsafe *Decl) { self._ext_probe(x, body, name, method) },
+                fn (x: unsafe *Decl) { self._ext_probe(x, body, *np, method) },
             )
         }
 

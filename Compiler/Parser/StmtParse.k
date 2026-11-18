@@ -2740,8 +2740,8 @@ pub class <T: type> StmtParse {
             )->emit()
         }
 
-        var refused = refused_prefix(imm, StringOperand::Tag)
-        if !refused.empty() {
+        var refused: string = refused_prefix(imm, StringOperand::Tag)
+        if !refused.is_empty() {
             var b = self.dyn()->diag->report(
                 if (after_ffi) => (DiagID::S064E) else => DiagID::S060E,
                 prefixed_range(imm->prefix.range, tok.range).start,

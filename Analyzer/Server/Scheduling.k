@@ -339,7 +339,7 @@ pub class Job {
     pub var edit:       string                 = "" ///< Complete: the range an accepted item replaces, as JSON
     pub var prefix:     string                 = "" ///< Complete: the name typed up to the cursor
     pub var cancelled:  bool                   = false ///< Complete: already answered "cancelled"; drop the result
-    pub var how:        string                 = HOW_RUN ///< Complete: what computed it (M_KALS_COMPLETED)
+    pub var how:        string                 = HOW_RUN.copy() ///< Complete: what computed it (M_KALS_COMPLETED)
     pub var t0_us:      i64                    = 0 ///< Complete: now_us() when the request arrived
     pub var started_ms: i64                    = 0
     pub var rooted:     bool                   = true ///< Index: run with `--root` (worker_argv)

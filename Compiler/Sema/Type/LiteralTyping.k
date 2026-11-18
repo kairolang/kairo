@@ -357,7 +357,7 @@ pub class <T: type> LiteralTyping {
         // this ArgInfo names has to be contiguous.
         var kids = cxx::std::vector<ListShape>()
         for var i: usize = 0; i < n->elements.size(); ++i {
-            var el = self.dyn()->arg_info(n->elements[i])
+            var el: ArgInfo = self.dyn()->arg_info(n->elements[i])
             if el.dependent {
                 a->dependent = true
             }
@@ -369,7 +369,7 @@ pub class <T: type> LiteralTyping {
             sh.lit_big  = el.lit_big
             sh.lit_bits = el.lit_bits
             sh.lit_neg  = el.lit_neg
-            sh.lit_name = el.lit_name
+            sh.lit_name = el.lit_name.copy()
             sh.ty       = el.ty
             sh.kids_lo  = el.elems_lo
             sh.kids_n   = el.elems_n
@@ -2172,12 +2172,17 @@ pub class <T: type> LiteralTyping {
                     base = 1
                     flags |= (FMT_UPPER)
                 } default {
+                    var tail = string(
+                        unsafe ((spelled.data() as unsafe *const u8) + i) as *const u8,
+                        spelled.size() - i,
+                    )
+
                     return self._spec_error(
                         n,
                         at,
                         spelled,
                         t,
-                        f"'{spelled.subslice(i, spelled.size() - i)}' is not a format type",
+                        f"'{tail}' is not a format type",
                     )
                 }
             }

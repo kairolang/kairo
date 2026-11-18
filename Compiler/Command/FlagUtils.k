@@ -157,7 +157,7 @@ pub class FlagValue {
     }
 
     fn push(self, const s: string) {
-        self._sv.push_back(s)
+        self._sv.push_back(s.copy())
         self.is_set = true
     }
 }
@@ -188,6 +188,29 @@ pub class FlagDef {
     /// Parsed like any flag but left out of --help (Command::mark_hidden):
     /// an internal switch for the compiler's own build, not a user option.
     pub var hidden: bool = false
+
+    /// A copy of every field; the strings and the vectors are not
+    /// copyable by assignment.
+    pub fn copy(const self) -> FlagDef {
+        var d = FlagDef{}
+        d.key           = self.key.copy()
+        d.short_        = self.short_.copy()
+        d.long_         = self.long_.copy()
+        d.kind          = self.kind
+        d.help          = self.help.copy()
+        d.default_      = self.default_.copy()
+        d.has_bounds    = self.has_bounds
+        d.min_i         = self.min_i
+        d.max_i         = self.max_i
+        d.min_f         = self.min_f
+        d.max_f         = self.max_f
+        d.choices       = copy_strings(self.choices)
+        d.has_bare      = self.has_bare
+        d.bare_         = self.bare_.copy()
+        d.unimplemented = self.unimplemented
+        d.hidden        = self.hidden
+        return d
+    }
 
     static fn bool_(const key:    string,
                     const short_: string,

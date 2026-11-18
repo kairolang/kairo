@@ -146,19 +146,19 @@ pub class DiagnosticOptions {
         o.Wextra                = args.get_bool("Wextra")
         o.Wpedantic             = args.get_bool("Wpedantic")
         for s in *args.get_list("warn") {
-            o.warn_list.push_back(s)
+            o.warn_list.push_back(s.copy())
         }
 
         for s in *args.get_list("allow") {
-            o.allow_list.push_back(s)
+            o.allow_list.push_back(s.copy())
         }
 
         for s in *args.get_list("deny") {
-            o.deny_list.push_back(s)
+            o.deny_list.push_back(s.copy())
         }
 
         for s in *args.get_list("forbid") {
-            o.forbid_list.push_back(s)
+            o.forbid_list.push_back(s.copy())
         }
 
         return o

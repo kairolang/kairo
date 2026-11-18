@@ -331,19 +331,19 @@ pub class CodeGenOptions {
 
         /// ## LLVM pass control
         for s in *args.get_list("pass-plugin") {
-            o.pass_plugins.push_back(s)
+            o.pass_plugins.push_back(s.copy())
         }
 
         for s in *args.get_list("disable-llvm-pass") {
-            o.disabled_passes.push_back(s)
+            o.disabled_passes.push_back(s.copy())
         }
 
         for s in *args.get_list("mllvm") {
-            o.mllvm_flags.push_back(s)
+            o.mllvm_flags.push_back(s.copy())
         }
 
         for s in *args.get_list("cxx-flags") {
-            o.cxx_flags.push_back(s)
+            o.cxx_flags.push_back(s.copy())
         }
 
         /// ## XRay
@@ -364,18 +364,18 @@ pub class CodeGenOptions {
         o.source_date_epoch = args.get_string("source-date-epoch")
         o.no_timestamps     = args.get_bool("no-timestamps")
         for s in *args.get_list("remap-path-prefix") {
-            o.remap_path_prefix.push_back(s)
+            o.remap_path_prefix.push_back(s.copy())
         }
 
         for s in *args.get_list("debug-prefix-map") {
-            o.debug_prefix_map.push_back(s)
+            o.debug_prefix_map.push_back(s.copy())
         }
 
         /// ## PGO / coverage config
         o.profile_use     = args.get_string("profile-use")
         o.coverage_format = args.get_string("coverage-format")
         for s in *args.get_list("coverage-prefix-map") {
-            o.coverage_prefix_map.push_back(s)
+            o.coverage_prefix_map.push_back(s.copy())
         }
 
         return o

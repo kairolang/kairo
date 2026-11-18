@@ -41,7 +41,9 @@ import Driver::ObjectCache::{
 }
 import Location::SourceManager::FileID
 import Resolution::ModulePath::ModulePath
+import Support::Ascii::copy_strings
 import Support::Ascii::find
+import Support::Ascii::string_less
 import Support::FileIO::AtomicFile::{
     file_stat,
     is_leftover_temp,
@@ -127,11 +129,7 @@ extend CompilerInstance {
             }
         }
 
-        llvm::sort(
-            files.begin(),
-            files.end(),
-            fn (const a: string, const b: string) || -> bool = a < b,
-        )
+        llvm::sort(files.begin(), files.end(), string_less)
 
         for *p in files {
             out += CompilerInstance::_rt_stamp(*p)
@@ -537,14 +535,14 @@ extend CompilerInstance {
             return false
         }
 
-        var objs = action->result.objects
+        var objs = copy_strings(action->result.objects)
 
         if !self._compile_runtime() {
             return false
         }
 
         for var i: usize = saved_objs; i < self._native_objs.size(); ++i {
-            objs.push_back(self._native_objs[i])
+            objs.push_back(self._native_objs[i].copy())
         }
 
         while self._native_objs.size() > saved_objs {

@@ -199,6 +199,10 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::SemaDump::SemaDump
+import Support::Ascii::{
+    copy_strings,
+    string_less,
+}
 import Support::Escape::json_string
 import Support::FileIO::Path::Path
 import Support::TimeReport::{
@@ -357,11 +361,11 @@ pub class FrontendAction {
             return
         }
 
-        var fe = self._ci->invocation()->frontend
+        var *fe = &self._ci->invocation()->frontend
         // Past the action's own stop when a C++ input may include this file:
         // the include needs it analysed (CompilerInstance::kairo_feeds_includes).
         var feed = self._ci->kairo_feeds_includes()
-        if fe.stops_at_preprocess() && !feed {
+        if fe->stops_at_preprocess() && !feed {
             self._stage = TUStage::Done
             return
         }
@@ -379,7 +383,7 @@ pub class FrontendAction {
         // go on to Sema, and the check after it fails the action as this one
         // would have. Never for an action that stops at the parse anyway.
         if self._ci->diag()->error_count() > self.errors_at_start
-            && (fe.stops_at_parse()
+            && (fe->stops_at_parse()
                 || !self._ci->admit_past_syntax_errors(
                     self._global_scope,
                     self._fids,
@@ -389,7 +393,7 @@ pub class FrontendAction {
             return
         }
 
-        if fe.stops_at_parse() && !feed {
+        if fe->stops_at_parse() && !feed {
             self._stage = TUStage::Done
             return
         }
@@ -405,7 +409,7 @@ pub class FrontendAction {
 
         self._dump_purity_stats() // --print-stats; before the stop, so --type-check-only has it
         self._dump_refold_stats()
-        if fe.stops_at_sema() {
+        if fe->stops_at_sema() {
             self._stage = TUStage::Done
             return
         }
@@ -543,8 +547,8 @@ pub class FrontendAction {
     /// --syntax-only, unless a C++ input includes Kairo (the include needs
     /// the whole program analysed, kairo_feeds_includes).
     priv fn _syntax_only(self) -> bool {
-        var fe = self._ci->invocation()->frontend
-        return fe.is_syntax_only() && !self._ci->kairo_feeds_includes()
+        var *fe = &self._ci->invocation()->frontend
+        return fe->is_syntax_only() && !self._ci->kairo_feeds_includes()
     }
 
     /// Registers the source file with `SourceManager` and obtains a file ID.
@@ -629,20 +633,20 @@ pub class FrontendAction {
         // clearIDTables(). Registering off-thread after preprocess produced a map
         // that was stale from the first ExecuteAction onward.
 
-        var fe = self._ci->invocation()->frontend
-        if fe.dump_preprocessed {
+        var *fe = &self._ci->invocation()->frontend
+        if fe->dump_preprocessed {
             self._dump_preprocessed_source()
         }
 
-        if fe.print_tokens {
+        if fe->print_tokens {
             self._dump_tokens()
         }
 
-        if fe.print_macros {
+        if fe->print_macros {
             self._dump_macros()
         }
 
-        if fe.print_imports {
+        if fe->print_imports {
             self._dump_imports()
         }
 
@@ -918,8 +922,8 @@ pub class FrontendAction {
     /// immediate table and, for a macro another file defines, to that
     /// file's, and nothing else is running to race it here.
     priv fn _ast_serialize(self, @inout fids: cxx::std::vector<u32>) -> bool {
-        var fe = self._ci->invocation()->frontend
-        if fe.emit_ast_bin.is_empty() && (!fe.ast_roundtrip) && (!fe.verify_ast_roundtrip) {
+        var *fe = &self._ci->invocation()->frontend
+        if fe->emit_ast_bin.is_empty() && (!fe->ast_roundtrip) && (!fe->verify_ast_roundtrip) {
             return true
         }
 
@@ -943,7 +947,7 @@ pub class FrontendAction {
 
             var name = self._ci->sm()->get_filename(fid)
 
-            if (!fe.emit_ast_bin.is_empty()) && fid == self._file_id {
+            if (!fe->emit_ast_bin.is_empty()) && fid == self._file_id {
                 var w = ASTBinWriter()
                 if !w.write(ctx->tu, psym, gs) {
                     var why = w.error()
@@ -953,16 +957,16 @@ pub class FrontendAction {
                     )
                 }
 
-                if !write_ast_file(fe.emit_ast_bin, w.out) {
+                if !write_ast_file(fe->emit_ast_bin, w.out) {
                     return self._fatal(
                         DiagID::I002F,
-                        f"cannot write {fe.emit_ast_bin}",
+                        f"cannot write {fe->emit_ast_bin}",
                     )
                 }
             }
 
             var err: string
-            if fe.verify_ast_roundtrip {
+            if fe->verify_ast_roundtrip {
                 if !ASTRoundTrip::verify(ctx->tu, psym, gs, &stats, &err) {
                     return self._fatal(
                         DiagID::I002F,
@@ -971,7 +975,7 @@ pub class FrontendAction {
                 }
             }
 
-            if fe.ast_roundtrip {
+            if fe->ast_roundtrip {
                 if !ASTRoundTrip::replace(ctx, psym, gs, &stats, &err) {
                     return self._fatal(
                         DiagID::I002F,
@@ -981,7 +985,7 @@ pub class FrontendAction {
             }
         }
 
-        if fe.print_stats && stats.files > 0 {
+        if fe->print_stats && stats.files > 0 {
             io::println(
                 f"[stats] ast-serialize: {stats.files} files, {stats.bytes} bytes for {stats.source} source bytes, {stats.nodes} nodes, {stats.tokens} tokens, {stats.payloads} payloads, {stats.strings} strings",
             )
@@ -995,7 +999,7 @@ pub class FrontendAction {
         // header join, the lowerings and mono, none of which is semantic
         // analysis, and a "Sema" row that contained them misreported all three.
         self._stage = TUStage::Sema
-        var fe = self._ci->invocation()->frontend
+        var *fe = &self._ci->invocation()->frontend
         // --dump-type-info has no consumer: SemaDump's expression-types section is
         // private to its whole-TU walk, so there is no cheap per-expression hook
         // here. It is marked unimplemented centrally rather than faking a header.
@@ -1003,8 +1007,8 @@ pub class FrontendAction {
         // --print-sema styling follows --print-ast, exactly like --print-symbols:
         // 'tree' -> dump(), 'canonical' -> canonical(), otherwise flat diag rows.
         var sema_opts: PrintOptions = PrintOptions::diag()
-        if fe.print_sema || fe.print_lowered {
-            var ast_mode = fe.print_ast.copy()
+        if fe->print_sema || fe->print_lowered {
+            var ast_mode = fe->print_ast.copy()
             if ast_mode == "tree" {
                 sema_opts = PrintOptions::dump()
             } else if ast_mode == "canonical" {
@@ -1014,7 +1018,7 @@ pub class FrontendAction {
             sema_opts.color = !self._ci->invocation()->diag.no_color
         }
 
-        if fe.print_sema {
+        if fe->print_sema {
             io::println(f"-- sema: {self.path.full_path()} --")
         }
 
@@ -1068,7 +1072,7 @@ pub class FrontendAction {
             // build it on the pool now, overlapping Sema and the lowerings,
             // rather than on the driver thread when codegen starts (about 45 ms
             // there on a hello-sized program). _codegen joins it.
-            if !fe.stops_before_codegen() {
+            if !fe->stops_before_codegen() {
                 var gsets = self._graph_header_sets()
                 if gsets.size() > 0 {
                     hc->prebuild_codegen_pch(
@@ -1344,7 +1348,7 @@ pub class FrontendAction {
         var early_release = self._ci->kairo_only_input_count() == 1
             && !self._ci->kairo_feeds_includes()
             && self._ci->headers() != &null
-            && !fe.live_check
+            && !fe->live_check
         var set_owners = llvm::DenseMap<u64, u64>()
         if early_release {
             for var fid: u32 in self._fids {
@@ -1372,8 +1376,8 @@ pub class FrontendAction {
                 unsafe &groups,
                 unsafe &effects,
                 rank_base,
-                fe.print_sema,
-                fe.print_lowered,
+                fe->print_sema,
+                fe->print_lowered,
                 sema_opts,
                 early_release,
                 unsafe &set_owners,
@@ -1393,8 +1397,8 @@ pub class FrontendAction {
                 self._sema_group(
                     unsafe &members,
                     unsafe &effects,
-                    fe.print_sema,
-                    fe.print_lowered,
+                    fe->print_sema,
+                    fe->print_lowered,
                     sema_opts,
                 )
 
@@ -1421,16 +1425,16 @@ pub class FrontendAction {
             group_rank(rank_base, ngroups),
         )
 
-        if fe.print_imports {
+        if fe->print_imports {
             self._dump_overlays()
         }
 
-        if !fe.dump_import_uses.is_empty() {
-            self._dump_import_uses(fe.dump_import_uses)
+        if !fe->dump_import_uses.is_empty() {
+            self._dump_import_uses(fe->dump_import_uses)
         }
 
-        if (!fe.dump_interface.is_empty()) || (!fe.dump_deps.is_empty()) || self._ci->incr.on {
-            self._dump_incremental(fe.dump_interface, fe.dump_deps)
+        if (!fe->dump_interface.is_empty()) || (!fe->dump_deps.is_empty()) || self._ci->incr.on {
+            self._dump_incremental(fe->dump_interface, fe->dump_deps)
         }
 
         // Incremental Sema's input list: every file of every header set, so
@@ -1445,7 +1449,7 @@ pub class FrontendAction {
             }
         }
 
-        if fe.print_panic_sets {
+        if fe->print_panic_sets {
             self._dump_panic_sets()
         }
 
@@ -1453,7 +1457,7 @@ pub class FrontendAction {
         // it can be built and dumped here without a backend. That is what makes
         // it testable at all today: EmitIR cannot yet emit a record, so a full
         // codegen run over a file with a class never reaches the plan.
-        if fe.print_emit_plan {
+        if fe->print_emit_plan {
             for var i: usize = 0; i < n; ++i {
                 var        fid  = self._fids[n - 1 - i]
                 var unsafe *ctx = self._global_scope->get_context(fid)
@@ -1513,7 +1517,7 @@ pub class FrontendAction {
         // an earlier input claimed may be the home of a decl only this
         // input's headers name, or sit in a cycle only this input closes.
         var *hg = &self._ci->header_graph
-        if !fe.emit_headers.is_empty() {
+        if !fe->emit_headers.is_empty() {
             for var f: u32 in self._graph {
                 var have = false
                 for var k: usize = 0; k < hg->size(); ++k {
@@ -1530,7 +1534,7 @@ pub class FrontendAction {
         }
 
         var hn = hg->size()
-        if !fe.emit_headers.is_empty() && !self._ci->diag()->has_errors() {
+        if !fe->emit_headers.is_empty() && !self._ci->diag()->has_errors() {
             EmitPlan::clear_borrowed()
             var grew   = true
             var rounds = 0
@@ -1593,7 +1597,7 @@ pub class FrontendAction {
             EmitPlan::note_header_cycles(&hpaths, &hfrom, &hto)
         }
 
-        if fe.print_cxx {
+        if fe->print_cxx {
             for var i: usize = 0; i < n; ++i {
                 var        fid  = self._fids[n - 1 - i]
                 var unsafe *ctx = self._global_scope->get_context(fid)
@@ -1630,7 +1634,7 @@ pub class FrontendAction {
             }
         }
 
-        if !fe.emit_headers.is_empty() {
+        if !fe->emit_headers.is_empty() {
             for var i: usize = 0; i < hn; ++i {
                 var        fid  = (*hg)[hn - 1 - i]
                 var unsafe *ctx = self._global_scope->get_context(fid)
@@ -1648,9 +1652,9 @@ pub class FrontendAction {
                         self._global_scope->instances(),
                     )
 
-                    h.line_directives = fe.emit_header_lines || fe.emit_header_layout
-                    h.layout          = fe.emit_header_layout
-                    if h.write(fe.emit_headers) {
+                    h.line_directives = fe->emit_header_lines || fe->emit_header_layout
+                    h.layout          = fe->emit_header_layout
+                    if h.write(fe->emit_headers) {
                         var docs: string = ""
                         if h.layout {
                             docs = f" (doc comments: {h.docs_placed} in place, {h.docs_prelude} on a forward declaration, {h.docs_dropped} dropped; out-of-line bodies: {h.bodies_dropped} left out, {h.bodies_needed} kept as needed)"
@@ -1658,7 +1662,7 @@ pub class FrontendAction {
 
                         kairo::Logger::info(
                             kairo::Logger::Stage::Driver,
-                            f"emitted header {h.path_under(fe.emit_headers)}" + docs,
+                            f"emitted header {h.path_under(fe->emit_headers)}" + docs,
                         )
                     } else if h.render().size() > 0 {
                         // write() is false both for a TU with no header (the entry
@@ -1667,7 +1671,7 @@ pub class FrontendAction {
                         // silent exit 0.
                         self._ci->diag()->report(
                             DiagID::U022E,
-                            f"cannot write C++ header '{h.path_under(fe.emit_headers)}'",
+                            f"cannot write C++ header '{h.path_under(fe->emit_headers)}'",
                         ).emit()
                     }
                 }
@@ -1699,7 +1703,7 @@ pub class FrontendAction {
     /// points into one that is in.
     pub fn refresh(self, const fids: cxx::std::vector<u32>) -> string {
         self.refresh_detail = ""
-        var        fe        = self._ci->invocation()->frontend
+        var        *fe       = &self._ci->invocation()->frontend
         var        sema_opts = PrintOptions::diag()
         var unsafe *hc       = self._ci->headers()
         if hc != &null {
@@ -1770,7 +1774,7 @@ pub class FrontendAction {
             }
 
             if !drop {
-                kept.push_back(self._incr[i])
+                kept.push_back(self._incr[i].copy())
             }
         }
 
@@ -1949,8 +1953,8 @@ pub class FrontendAction {
             }
         }
 
-        if (!self.tiered) && ((!fe.dump_interface.is_empty()) || (!fe.dump_deps.is_empty())) {
-            self._dump_incremental(fe.dump_interface, fe.dump_deps)
+        if (!self.tiered) && ((!fe->dump_interface.is_empty()) || (!fe->dump_deps.is_empty())) {
+            self._dump_incremental(fe->dump_interface, fe->dump_deps)
         }
 
         return ""
@@ -1989,9 +1993,9 @@ pub class FrontendAction {
             return why
         }
 
-        var fe = self._ci->invocation()->frontend
-        if (!fe.dump_interface.is_empty()) || (!fe.dump_deps.is_empty()) {
-            self._dump_incremental(fe.dump_interface, fe.dump_deps)
+        var *fe = &self._ci->invocation()->frontend
+        if (!fe->dump_interface.is_empty()) || (!fe->dump_deps.is_empty()) {
+            self._dump_incremental(fe->dump_interface, fe->dump_deps)
         }
 
         return ""
@@ -2291,7 +2295,7 @@ pub class FrontendAction {
             self._rearmed = st.rearmed_list
             self._rearmed_was.clear()
             for var i: usize = 0; i < st.rearmed_was.size(); ++i {
-                self._rearmed_was.push_back(st.rearmed_was[i])
+                self._rearmed_was.push_back(st.rearmed_was[i].copy())
             }
 
             return st
@@ -2319,7 +2323,7 @@ pub class FrontendAction {
         self._tt_sets.push_back(set)
         for var i: usize = 0; i < st.rearmed_list.size(); ++i {
             self._rearmed.push_back(st.rearmed_list[i])
-            self._rearmed_was.push_back(st.rearmed_was[i])
+            self._rearmed_was.push_back(st.rearmed_was[i].copy())
             self._rearm_set.push_back((self._tt_sets.size() - 1) as u64)
             self._rearm_ok.push_back(0 as u8)
         }
@@ -2931,7 +2935,12 @@ pub class FrontendAction {
                     }
                 }
 
-                llvm::sort(ff->diag_files.begin(), ff->diag_files.end())
+                llvm::sort(
+                    ff->diag_files.begin(),
+                    ff->diag_files.end(),
+                    string_less,
+                )
+
                 d0 = self._ci->incr_diag_count()
             }
 
@@ -3026,12 +3035,12 @@ pub class FrontendAction {
         }
 
         var workers = pool->get_thread_count()
-        var fe      = self._ci->invocation()->frontend
-        if fe.sema_threads > 0 {
-            workers = (fe.sema_threads as usize)
+        var *fe     = &self._ci->invocation()->frontend
+        if fe->sema_threads > 0 {
+            workers = (fe->sema_threads as usize)
         }
 
-        if fe.print_sema || fe.print_lowered {
+        if fe->print_sema || fe->print_lowered {
             workers = 1
         }
 
@@ -3403,7 +3412,7 @@ pub class FrontendAction {
             return self._fatal(DiagID::I006F, "clang backend not ready")
         }
 
-        var        fe     = self._ci->invocation()->frontend
+        var        *fe    = &self._ci->invocation()->frontend
         var unsafe *psym  = self._ci->pp()->get_symbol_table()
         var unsafe *insts = self._global_scope->instances()
 
@@ -3508,22 +3517,22 @@ pub class FrontendAction {
         // ExecuteAction each. The extension is the kind's.
         var kinds = cxx::std::vector<EmitKind>()
         var exts  = cxx::std::vector<string>()
-        if fe.emit_obj {
+        if fe->emit_obj {
             kinds.push_back(EmitKind::Obj)
             exts.push_back(".o")
         }
 
-        if fe.emit_asm {
+        if fe->emit_asm {
             kinds.push_back(EmitKind::Asm)
             exts.push_back(".s")
         }
 
-        if fe.emit_llvm_ir {
+        if fe->emit_llvm_ir {
             kinds.push_back(EmitKind::LLVMIR)
             exts.push_back(".ll")
         }
 
-        if fe.emit_llvm_bc {
+        if fe->emit_llvm_bc {
             kinds.push_back(EmitKind::LLVMBC)
             exts.push_back(".bc")
         }
@@ -3654,16 +3663,16 @@ pub class FrontendAction {
             job->ctx   = ctx
             job->ksize = ksize
             job->path  = self._ci->sm()->get_filename(fid)
-            if fe.print_cg {
+            if fe->print_cg {
                 job->print |= 2
             }
 
-            if fe.print_ir {
+            if fe->print_ir {
                 job->print |= 1
             }
 
             for var k: usize = 0; k < kinds.size(); ++k {
-                var out = if (to_single) => (single_obj) else => stem.copy() + exts[k]
+                var out = if (to_single) => (single_obj.copy()) else => stem.copy() + exts[k]
                 // An object nobody listed is a link input only.
                 if !to_single && kinds[k] == EmitKind::Obj && !self._ci->obj_listed() {
                     out = obj_stem.copy() + exts[k]
@@ -3892,7 +3901,7 @@ pub class FrontendAction {
             flavours.push_back(fsp.interface_flavour(j->ctx->tu))
         }
 
-        if iface_mode != 0 && !fe.print_cg && !fe.print_ir && !warn_shift {
+        if iface_mode != 0 && !fe->print_cg && !fe->print_ir && !warn_shift {
             for var flavour: u8 = 0; flavour < 2; ++flavour {
                 var count: usize = 0
                 var bytes: usize = 0
@@ -3980,8 +3989,8 @@ pub class FrontendAction {
         var ocache = ObjectCache()
         var caching = kinds.size() == 1
             && kinds[0] == EmitKind::Obj
-            && !fe.print_cg
-            && !fe.print_ir
+            && !fe->print_cg
+            && !fe->print_ir
             && ocache.setup(be, self._ci->invocation()->linker.cache_dir)
         if caching {
             var _tk = TimeRegion("CacheKeys")
@@ -4042,7 +4051,8 @@ pub class FrontendAction {
 
             for var ji: usize = 0; ji < jobs.size(); ++ji {
                 var unsafe *j = jobs[ji]
-                var writer = if (j->iface_on) => (iface_first[flavours[ji] as usize]) else => ""
+                var writer = if (j->iface_on) => (iface_first[flavours[ji] as usize].copy())
+                             else => ""
                 // The flavour's first TU carries the findings of PCH bodies
                 // in files that are no TU of the PCH, so its object depends
                 // on which TUs the walk covered.
@@ -4072,7 +4082,7 @@ pub class FrontendAction {
                 // --force-recompile: no lookup, every TU compiles, and the
                 // store is refreshed with what it writes.
                 var found = ""
-                var hit = !fe.force_recompile && ocache.fetch(j->key, j->outs[0], &why, &found)
+                var hit = !fe->force_recompile && ocache.fetch(j->key, j->outs[0], &why, &found)
 
                 // The object's Sema agreement findings, said again as the
                 // compile that stored them said them. They name files by
@@ -4096,7 +4106,7 @@ pub class FrontendAction {
                 if hit {
                     j->reused = true
                     j->ok     = true
-                    j->written.push_back(j->outs[0])
+                    j->written.push_back(j->outs[0].copy())
                     ocache.reused += 1
                     kairo::Logger::info(
                         kairo::Logger::Stage::Driver,
@@ -4126,7 +4136,7 @@ pub class FrontendAction {
                 )
 
                 ocache.compiled += 1
-                if fe.force_recompile {
+                if fe->force_recompile {
                     kairo::Logger::info(
                         kairo::Logger::Stage::Driver,
                         f"incremental: compiling {modname} (--force-recompile)",
@@ -4213,11 +4223,11 @@ pub class FrontendAction {
 
             var *icg = &self._ci->invocation()->codegen
             if icg->sema_agreement != 0 {
-                iface->agree_start(icg->sema_agreement_repair != 0, fe.verbose)
+                iface->agree_start(icg->sema_agreement_repair != 0, fe->verbose)
             }
 
             iface->build(be, merged, &crun.mounts, psym, insts)
-            if fe.verbose && !iface->ok {
+            if fe->verbose && !iface->ok {
                 iface->diag.drain_into(self._ci->diag(), self._ci->sm())
             } else {
                 iface->diag.discard()
@@ -4285,14 +4295,14 @@ pub class FrontendAction {
         }
 
         // --codegen-threads: an explicit worker count, for measuring.
-        if fe.codegen_threads > 0 {
-            workers = (fe.codegen_threads as usize)
+        if fe->codegen_threads > 0 {
+            workers = (fe->codegen_threads as usize)
             if workers > todo.size() {
                 workers = todo.size()
             }
         }
 
-        if fe.print_cg || fe.print_ir {
+        if fe->print_cg || fe->print_ir {
             workers = 1
         }
 
@@ -4429,7 +4439,7 @@ pub class FrontendAction {
                 )
 
                 if job->kinds[k] == EmitKind::Obj {
-                    self.result.objects.push_back(job->written[k])
+                    self.result.objects.push_back(job->written[k].copy())
                 }
             }
 
@@ -4448,7 +4458,7 @@ pub class FrontendAction {
 
         // --print-stats includes it: a build's statistics say what the
         // agreement pass found as well.
-        if self._ci->invocation()->codegen.sema_agreement_summary || fe.print_stats {
+        if self._ci->invocation()->codegen.sema_agreement_summary || fe->print_stats {
             self._agree_summary(jobs)
         }
 
@@ -4458,7 +4468,7 @@ pub class FrontendAction {
 
         if caching {
             ocache.gc()
-            if fe.print_stats {
+            if fe->print_stats {
                 io::eprintln(
                     f"[stats] incremental: {ocache.reused} reused, {ocache.compiled} compiled, {ocache.stored} stored",
                 )
@@ -4592,12 +4602,12 @@ pub class FrontendAction {
     /// reported in every mode that builds one (the TUs report the same ones from
     /// their whole streams otherwise).
     priv fn _iface_pch_mode(self) -> u8 {
-        var fe = self._ci->invocation()->frontend
-        if fe.interface_pch == "off" {
+        var *fe = &self._ci->invocation()->frontend
+        if fe->interface_pch == "off" {
             return 0
         }
 
-        if fe.interface_pch == "on" {
+        if fe->interface_pch == "on" {
             return 1
         }
 
@@ -4736,7 +4746,7 @@ pub class FrontendAction {
                 var unsafe *name = st->resolve(e->name_sym)
                 var        nm    = "?"
                 if name != &null {
-                    nm = *name
+                    nm = name->copy()
                 }
 
                 var nparams: usize = e->decl->params_spec.size()
@@ -5247,12 +5257,12 @@ pub class FrontendAction {
             }
 
             // Declaration rows: the checked tree's, then the hooks'.
-            var rows = f->rows
+            var rows = copy_strings(f->rows)
             for var k: usize = 0; k < deps.rows.size(); ++k {
-                rows.push_back(deps.rows[k])
+                rows.push_back(deps.rows[k].copy())
             }
 
-            llvm::sort(rows.begin(), rows.end())
+            llvm::sort(rows.begin(), rows.end(), string_less)
             do_ += "], \"decls\": ["
             var prev:  string = ""
             var first_        = true
@@ -5302,7 +5312,8 @@ pub class FrontendAction {
                     }
                 }
 
-                var name = if (f->mod_path.is_empty()) => (f->path) else => f->mod_path
+                var name = if (f->mod_path.is_empty()) => (f->path.copy())
+                           else => f->mod_path.copy()
                 // The same facts as lines the invalidation rules read
                 // (Sema/Incremental/Plan.k), with the TU's diagnostics.
                 var pm = PlanModule()
@@ -5310,13 +5321,13 @@ pub class FrontendAction {
                 pm.path       = f->path.copy()
                 pm.hash       = f->hash.copy()
                 pm.macros     = f->macros.copy()
-                pm.decls      = f->plain_decls
-                pm.scopes     = f->plain_scopes
+                pm.decls      = copy_strings(f->plain_decls)
+                pm.scopes     = copy_strings(f->plain_scopes)
                 pm.surface    = deps.surface
                 pm.names      = deps.plain_names
                 pm.overlay    = deps.overlay
                 pm.diag       = f->diag.copy()
-                pm.diag_files = f->diag_files
+                pm.diag_files = copy_strings(f->diag_files)
                 var plast: string = ""
                 for var k: usize = 0; k < rows.size(); ++k {
                     if rows[k] != plast {
@@ -5327,7 +5338,7 @@ pub class FrontendAction {
 
                 self._ci->incr.mod_plan.push_back(pm)
                 self._ci->incr.mod_names.push_back(name)
-                self._ci->incr.mod_hash.push_back(f->hash)
+                self._ci->incr.mod_hash.push_back(f->hash.copy())
                 self._ci->incr.mod_json.push_back(
                     "\"imports\": [" + imps + "],\n\"interface\": " + io_.subslice(
                         io_at + 1,

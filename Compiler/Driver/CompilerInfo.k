@@ -54,6 +54,7 @@ import Driver::InputKinds::{
 }
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::ClangJobs::ClangJobs
+import Support::Ascii::copy_strings
 import Support::ExitCodes::{
     EXIT_FAILURE,
     EXIT_OK,
@@ -495,7 +496,7 @@ extend CompilerInstance {
             T,
             &llvm_triple,
             triple,
-            if cpu.is_empty() => "generic" else => cpu,
+            if cpu.is_empty() => "generic" else => cpu.copy(),
         )
 
         if TM == &null {
@@ -627,7 +628,7 @@ extend CompilerInstance {
     ///   clang-only: <clang words>
     /// Exit 1 if clang's table or kairo's parser rejected a word.
     fn print_from_clang(self) -> i32 {
-        var clang_argv = self.invocation()->input_files
+        var clang_argv = copy_strings(self.invocation()->input_files)
         var kw         = cxx::std::vector<string>()
         var cw         = cxx::std::vector<string>()
         var err        = ""
@@ -639,13 +640,13 @@ extend CompilerInstance {
 
         var line = "kairo:"
         for *w in kw {
-            line = line + " " + shell_quote(*w)
+            line = line + " " + shell_quote(w->copy())
         }
 
         io::println(f"{line}")
         var cline = "clang-only:"
         for *w in cw {
-            cline = cline + " " + shell_quote(*w)
+            cline = cline + " " + shell_quote(w->copy())
         }
 
         io::println(f"{cline}")
@@ -781,7 +782,7 @@ extend CompilerInstance {
         var *lk = &self.invocation()->linker
         if with_link && !lk->compile_only && !self.invocation()->frontend.stops_before_codegen() {
             var job = LinkJob(&self.invocation()->target, lk)
-            job.output = if (!self.invocation()->frontend.output.is_empty()) => (self.invocation()->frontend.output)
+            job.output = if (!self.invocation()->frontend.output.is_empty()) => (self.invocation()->frontend.output.copy())
                          else => "a.out"
             for var i: usize = 0; i < n_in; ++i {
                 var k = classify_input(

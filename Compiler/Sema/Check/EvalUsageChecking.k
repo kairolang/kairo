@@ -711,7 +711,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             if frd != &null && pt == &null {
                 self._structural(frd, why, at, depth + (1 as u32))
                 if why->size() > 0 {
-                    var inner = *why
+                    var inner = why->copy()
                     *why = f"its field '{fnm}' is a '{self.tu.decl_name(frd)}', and " + inner
                     return
                 }

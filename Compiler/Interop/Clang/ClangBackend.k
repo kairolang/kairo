@@ -247,7 +247,7 @@ pub class CodegenMounts {
             }
         }
 
-        self.pch_paths.push_back(path)
+        self.pch_paths.push_back(path.copy())
         self.pch_data.push_back(data)
     }
 
@@ -262,8 +262,8 @@ pub class CodegenMounts {
             }
         }
 
-        self.text_paths.push_back(path)
-        self.texts.push_back(text)
+        self.text_paths.push_back(path.copy())
+        self.texts.push_back(text.copy())
     }
 
     /// Driver thread, after the last add_* and before the fan-out: the one
@@ -762,7 +762,7 @@ pub class ClangBackend {
 
         for *inc in self._cfg.includes {
             out.push_back("-include")
-            out.push_back(*inc)
+            out.push_back(inc->copy())
         }
 
         return out
@@ -813,7 +813,7 @@ pub class ClangBackend {
         words.push_back("--target=" + self._clang_triple())
         words.push_back(f"-std={self._cfg.cxx_std}")
         for *w in self._cfg.driver_words {
-            words.push_back(*w)
+            words.push_back(w->copy())
         }
 
         var macro_triple = self._clang_triple()
@@ -824,7 +824,7 @@ pub class ClangBackend {
 
         for var w in FlagTranslator::debug_driver(self._cfg.debug_info, self._cfg.dwarf_version,
                                                       macro_info, self._cfg.embed_source) {
-            words.push_back(w)
+            words.push_back(w.copy())
         }
 
         words.push_back("-fsyntax-only")
@@ -878,7 +878,7 @@ pub class ClangBackend {
         // C++'s FP defaults, before the filter drops them: an ffi header
         // region is put back to these (header_fp_pragmas).
         for var i: usize = 0; i < cc1.size(); ++i {
-            var a        = string(&cc1[i])
+            var a        = cc1[i].copy()
             var contract = "-ffp-contract="
             if a.starts_with(contract) {
                 self._cxx_contract = a.subslice(
@@ -895,7 +895,7 @@ pub class ClangBackend {
         // Which of the driver's cc1 words decide the target is the
         // translator's call (FlagTranslator::probe_filter).
         for var a in FlagTranslator::probe_filter(&cc1) {
-            self._target_args.push_back(a)
+            self._target_args.push_back(a.copy())
         }
 
         return copy_strings(self._target_args)
@@ -943,12 +943,12 @@ pub class ClangBackend {
         var kinds = cxx::std::vector<u8>()
         for *d in self._system_roots(is_c, &kinds) {
             o.push_back("-isystem")
-            o.push_back(*d)
+            o.push_back(d->copy())
         }
 
         for *d in self._cfg.after_dirs {
             o.push_back("-idirafter")
-            o.push_back(*d)
+            o.push_back(d->copy())
         }
 
         // Those dirs sit beside a sysroot on purpose; clang reads any
@@ -960,7 +960,7 @@ pub class ClangBackend {
 
         for *d in self._cfg.framework_dirs {
             o.push_back("-iframework")
-            o.push_back(*d)
+            o.push_back(d->copy())
         }
 
         if !sr.is_empty() {
@@ -1002,7 +1002,7 @@ pub class ClangBackend {
         if !is_c {
             if declared {
                 for *d in self._cfg.cxx_include_dirs {
-                    o.push_back(*d)
+                    o.push_back(d->copy())
                     kinds.push_back(ROOT_CXX_LIB)
                 }
             } else if !sr.is_empty() {
@@ -1018,7 +1018,7 @@ pub class ClangBackend {
 
         if declared {
             for *d in self._cfg.include_dirs {
-                o.push_back(*d)
+                o.push_back(d->copy())
                 kinds.push_back(ROOT_C_LIB)
             }
         } else if !sr.is_empty() {
@@ -1047,11 +1047,11 @@ pub class ClangBackend {
         for var i: usize = 0; i < all.size(); ++i {
             var k = kinds[i]
             if cxx_lib && k == ROOT_CXX_LIB {
-                o.push_back(all[i])
+                o.push_back(all[i].copy())
             } else if !cxx_lib && k == ROOT_BUILTINS {
-                o.push_back(all[i])
+                o.push_back(all[i].copy())
             } else if !cxx_lib && k == ROOT_C_LIB && !self._cfg.sysroot.is_empty() {
-                o.push_back(all[i])
+                o.push_back(all[i].copy())
             }
         }
 

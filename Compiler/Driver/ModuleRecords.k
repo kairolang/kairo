@@ -47,6 +47,7 @@ import Support::Ascii::{
     parse_decimal,
     rfind_byte,
     split,
+    string_less,
 }
 import Support::Escape::{
     json_string,
@@ -101,6 +102,12 @@ fn incr_env_names() -> cxx::std::vector<string> {
 pub struct SourceRead {
     pub var path: string
     pub var hash: string
+}
+
+/// Orders by path. A named function: a closure's `const` parameter is a
+/// value in its `fn` type, and a SourceRead does not copy implicitly.
+fn source_read_less(const a: SourceRead, const b: SourceRead) -> bool {
+    return a.path < b.path
 }
 
 extend SourceRead {
@@ -303,7 +310,7 @@ pub class ModuleRecords {
             for *l in mine {
                 if find(have_f, l->copy() + "\n", 0) == usize::MAX {
                     var sp = find(*l, " ", 0)
-                    var part = if (sp == usize::MAX) => (*l) else => l->subslice(0, sp)
+                    var part = if (sp == usize::MAX) => (l->copy()) else => l->subslice(0, sp)
                     if part == "f.args" {
                         self.status = "miss: flags changed"
                     } else if part == "f.env" {
@@ -486,11 +493,7 @@ pub class ModuleRecords {
             all.push_back(SourceRead { path: p->copy(), hash: "" })
         }
 
-        llvm::sort(
-            all.begin(),
-            all.end(),
-            fn (const a: SourceRead, const b: SourceRead) || -> bool = a.path < b.path,
-        )
+        llvm::sort(all.begin(), all.end(), source_read_less)
 
         var dirs     = llvm::StringSet<llvm::MallocAllocator>()
         var dir_list = cxx::std::vector<string>()
@@ -502,7 +505,7 @@ pub class ModuleRecords {
             }
         }
 
-        llvm::sort(dir_list.begin(), dir_list.end())
+        llvm::sort(dir_list.begin(), dir_list.end(), string_less)
         for *d in dir_list {
             m += "dir " + ModuleRecords::_listing(*d) + " " + *d + "\n"
         }
@@ -626,7 +629,7 @@ pub class ModuleRecords {
             out.push_back(name + "\t" + ks + "\t" + self.mod_hash[i])
         }
 
-        llvm::sort(out.begin(), out.end())
+        llvm::sort(out.begin(), out.end(), string_less)
         return out
     }
 
@@ -801,7 +804,7 @@ pub class ModuleRecords {
         }
 
         set->insert(kairo::sref(d))
-        list->push_back(d)
+        list->push_back(d.copy())
     }
 
     /// The hash of `d`'s module-relevant entries: every `.k` file and
@@ -822,7 +825,7 @@ pub class ModuleRecords {
             }
         }
 
-        llvm::sort(names.begin(), names.end())
+        llvm::sort(names.begin(), names.end(), string_less)
         var s = ""
         for *n in names {
             s += n->copy() + "\n"

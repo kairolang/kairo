@@ -868,7 +868,7 @@ pub class CodegenJob {
                 break
             }
 
-            self.written.push_back(self.outs[k])
+            self.written.push_back(self.outs[k].copy())
         }
 
         // Flush any builder still open BEFORE the sink is read or drained,

@@ -124,7 +124,7 @@ pub class DepLog {
 
         self._seen_spelled.try_emplace(kairo::sref(k), (1 as u8))
         self.spelled_tables.push_back(table)
-        self.spelled_names.push_back(spelling)
+        self.spelled_names.push_back(spelling.copy())
     }
 
     pub fn overlay_probe(self, overlay: u64, key: u64) {

@@ -55,10 +55,17 @@ import Interop::Clang::ClangBackend::{
 import Interop::Clang::ClangJobs::ClangJobs
 import Location::SourceManager::SourceManager
 import Support::Ascii::copy_strings
+import Support::Ascii::string_less
 import Support::FileIO::FileSystem::FileType
 import Support::FileIO::Path::Path
 import std::env
 import std::io
+
+/// Orders by path. A named function: a closure's `const` parameter is a
+/// value in its `fn` type, and an InputKind does not copy implicitly.
+fn input_kind_before(const a: InputKind, const b: InputKind) -> bool {
+    return a.path < b.path
+}
 
 extend CompilerInstance {
     /// the runtime's C/C++ sources (Lib/rt), when Kairo objects were
@@ -309,11 +316,11 @@ extend CompilerInstance {
                     self._rt_ents[i],
                 ) {
                     stored = true
-                    self._rt_used.push_back(self._rt_ents[i])
+                    self._rt_used.push_back(self._rt_ents[i].copy())
                 }
             }
 
-            self._native_objs.push_back(self._rt_objs[i])
+            self._native_objs.push_back(self._rt_objs[i].copy())
             kairo::Logger::info(
                 kairo::Logger::Stage::Driver,
                 f"emitted object {self._rt_objs[i]}",
@@ -716,11 +723,7 @@ extend CompilerInstance {
             }
         }
 
-        llvm::sort(
-            out.begin(),
-            out.end(),
-            fn (const a: InputKind, const b: InputKind) || -> bool = a.path < b.path,
-        )
+        llvm::sort(out.begin(), out.end(), input_kind_before)
 
         return out
     }
@@ -745,7 +748,7 @@ extend CompilerInstance {
         subs.push_back(ResourceLayout::mimalloc_src_subdir())
         subs.push_back(ResourceLayout::mimalloc_include_subdir())
         for *sub in subs {
-            var root                      = Path::join_str(rroot, (*sub))
+            var root                      = Path::join_str(rroot, sub->copy())
             var ec:  cxx::std::error_code
             var it = llvm::sys::fs::recursive_directory_iterator(
                 llvm::Twine(kairo::sref(root)),
@@ -769,11 +772,7 @@ extend CompilerInstance {
             }
         }
 
-        llvm::sort(
-            out.begin(),
-            out.end(),
-            fn (const a: string, const b: string) || -> bool = a < b,
-        )
+        llvm::sort(out.begin(), out.end(), string_less)
 
         return out
     }

@@ -566,7 +566,7 @@ extend Speller {
         }
 
         for var i: usize = 0; i < mods.size(); ++i {
-            out.push_back(mods[mods.size() - 1 - i])
+            out.push_back(mods[mods.size() - 1 - i].copy())
         }
 
         return out
@@ -718,7 +718,7 @@ extend Speller {
 
         var out = cxx::std::vector<string>()
         for var i: usize = 0; i < rev.size(); ++i {
-            out.push_back(rev[rev.size() - 1 - i])
+            out.push_back(rev[rev.size() - 1 - i].copy())
         }
 
         return out

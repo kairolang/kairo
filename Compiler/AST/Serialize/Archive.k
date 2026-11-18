@@ -1314,7 +1314,7 @@ pub class ASTArchive {
                     )
                 } else {
                     name_cls = 2
-                    name     = *sp
+                    name     = sp->copy()
                 }
             }
         }

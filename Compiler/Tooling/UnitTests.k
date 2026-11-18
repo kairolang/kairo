@@ -71,7 +71,7 @@ class UnitRunner {
     }
 
     fn run(self, const name: string, body: fn () -> i32) {
-        self.known.push_back(name)
+        self.known.push_back(name.copy())
         if self.list {
             io::println(name)
             return

@@ -620,9 +620,9 @@ pub class PreProcessor {
         }
 
         var segs = cxx::std::vector<string>()
-        segs.push_back(root)
-        segs.push_back(dir)
-        segs.push_back(leaf)
+        segs.push_back(root.copy())
+        segs.push_back(dir.copy())
+        segs.push_back(leaf.copy())
         var w_fid = scanner->add_module_dependency(segs, graph)
         if w_fid == u32::MAX {
             return

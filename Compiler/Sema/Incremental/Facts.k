@@ -98,6 +98,10 @@ import Sema::SemaDump::{
     sema_dump_phase_str,
 }
 import Sema::Type::TypeUtil::TypeUtil
+import Support::Ascii::{
+    copy_strings,
+    string_less,
+}
 import Support::Escape::json_string
 
 /// # Strings
@@ -542,6 +546,26 @@ pub class FileFacts {
     /// driver fills both when it drains the TU's sink.
     pub var diag:       string                   = ""
     pub var diag_files: cxx::std::vector<string>
+
+    /// A copy of every field; the strings and string vectors are not
+    /// copyable by assignment.
+    pub fn copy(const self) -> FileFacts {
+        var o = FileFacts()
+        o.fid          = self.fid
+        o.mod_path     = self.mod_path.copy()
+        o.path         = self.path.copy()
+        o.phase        = self.phase.copy()
+        o.hash         = self.hash.copy()
+        o.macros       = self.macros.copy()
+        o.decls        = copy_strings(self.decls)
+        o.scopes       = copy_strings(self.scopes)
+        o.rows         = copy_strings(self.rows)
+        o.plain_decls  = copy_strings(self.plain_decls)
+        o.plain_scopes = copy_strings(self.plain_scopes)
+        o.diag         = self.diag.copy()
+        o.diag_files   = copy_strings(self.diag_files)
+        return o
+    }
 }
 
 /// Builds one TU's FileFacts at Checked.
@@ -603,11 +627,21 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             }
         }
 
-        llvm::sort(out->decls.begin(), out->decls.end())
-        llvm::sort(out->scopes.begin(), out->scopes.end())
-        llvm::sort(out->plain_decls.begin(), out->plain_decls.end())
-        llvm::sort(out->plain_scopes.begin(), out->plain_scopes.end())
-        llvm::sort(self._lines.begin(), self._lines.end())
+        llvm::sort(out->decls.begin(), out->decls.end(), string_less)
+        llvm::sort(out->scopes.begin(), out->scopes.end(), string_less)
+        llvm::sort(
+            out->plain_decls.begin(),
+            out->plain_decls.end(),
+            string_less,
+        )
+
+        llvm::sort(
+            out->plain_scopes.begin(),
+            out->plain_scopes.end(),
+            string_less,
+        )
+
+        llvm::sort(self._lines.begin(), self._lines.end(), string_less)
         var mac: string = ""
         for var i: usize = 0; i < tu->macros.size(); ++i {
             var unsafe *md = *tu->macros.get(i)
@@ -646,7 +680,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
         // over a tree whose types exist.
         if tu->dep_log != &null && tu->program != &null {
             RecursiveASTVisitor<IncrFacts>::run(self, tu)
-            llvm::sort(out->rows.begin(), out->rows.end())
+            llvm::sort(out->rows.begin(), out->rows.end(), string_less)
         }
     }
 
@@ -759,7 +793,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             }
         }
 
-        llvm::sort(names.begin(), names.end())
+        llvm::sort(names.begin(), names.end(), string_less)
         var s = "{\"scope\": " + incr_json(scope) + ", \"ext\": " + incr_json(
             ext,
         ) + ", \"names\": ["
@@ -1082,7 +1116,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             row += ", \"ext\": " + incr_json(ext)
         }
 
-        llvm::sort(self._refs.begin(), self._refs.end())
+        llvm::sort(self._refs.begin(), self._refs.end(), string_less)
         row += ", \"refs\": ["
         var last:  string = ""
         var first         = true
@@ -1252,11 +1286,11 @@ pub class FileDeps {
 }
 
 fn _incr_unique(@inout v: cxx::std::vector<string>) {
-    llvm::sort(v.begin(), v.end())
+    llvm::sort(v.begin(), v.end(), string_less)
     var out = cxx::std::vector<string>()
     for var i: usize = 0; i < v.size(); ++i {
         if i == 0 || v[i] != v[i - 1] {
-            out.push_back(v[i])
+            out.push_back(v[i].copy())
         }
     }
 

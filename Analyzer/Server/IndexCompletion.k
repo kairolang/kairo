@@ -2706,7 +2706,10 @@ extend Server {
 
         var *s = &self.entries[ei].snap
         var a = s->first(
-            s->get(s->root, if (cxx) => (SK_CXX_FLAGS) else => SK_C_FLAGS),
+            s->get(
+                s->root,
+                if (cxx) => (SK_CXX_FLAGS.copy()) else => SK_C_FLAGS.copy(),
+            ),
         )
 
         while a != JSON_NONE() {

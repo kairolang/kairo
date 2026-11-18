@@ -464,7 +464,7 @@ extend CompilerInstance {
         var mac  = LowerTargets::global_alloc_set_macro()
         var hand = false
         for *d in pp->defines {
-            if *d == mac || LinkText::starts_with(*d, mac.copy() + "=") {
+            if *d == mac || LinkText::starts_with(d->copy(), mac.copy() + "=") {
                 hand = true
             }
         }
@@ -688,7 +688,7 @@ extend CompilerInstance {
             var who   = LinkDiag::definers(m->text)
             var names = cxx::std::vector<string>()
             for *o in who {
-                names.push_back(self._object_module(*o))
+                names.push_back(self._object_module(o->copy()))
             }
 
             var text = "the global allocator is set twice (@set_global_allocator)"
@@ -749,7 +749,7 @@ extend CompilerInstance {
         // hand would (`pthread` is MinGW's alias for the same archive, so a
         // hand-written one already covers it). A copy of the options, so
         // the invocation stays what the user asked for.
-        var lk_eff = self.invocation()->linker
+        var *lk_eff = &self.invocation()->linker
         if self._backend != &null {
             var wnorm = llvm::Triple::normalize(
                 kairo::sref(self._backend->triple()),
@@ -764,7 +764,7 @@ extend CompilerInstance {
 
             if wants && llvm::Triple(llvm::Twine(wnorm)).isWindowsGNUEnvironment() {
                 var have = false
-                for *l in lk_eff.link_libs {
+                for *l in lk_eff->link_libs {
                     if LinkText::ends_with(l->copy(), "winpthread")
                         || LinkText::ends_with(l->copy(), "pthread") {
                         have = true
@@ -772,12 +772,12 @@ extend CompilerInstance {
                 }
 
                 if !have {
-                    lk_eff.link_libs.push_back("winpthread")
+                    lk_eff->link_libs.push_back("winpthread")
                 }
             }
         }
 
-        var *lk = &lk_eff
+        var *lk = lk_eff
         var job = LinkJob(&self.invocation()->target, lk)
         job.output   = self._link_out.copy()
         job.threads  = (self._pool->get_thread_count() as u32)

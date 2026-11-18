@@ -445,7 +445,7 @@ pub class ForeignInstantiate {
             return r
         }
 
-        var first = *why
+        var first = why->copy()
         var ax = TypeExport(
             alt->ast(),
             alt->sema(),

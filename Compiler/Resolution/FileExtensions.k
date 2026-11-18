@@ -11,7 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "set"
+ffi "c++" import "vector"
 
 /// C is not a category of its own: `.c` is a CxxSource and `.h` a
 /// CxxHeader. Import resolution looks up KairoSource only; the other
@@ -25,42 +25,42 @@ pub enum FileCategory {
 }
 
 pub class FileExtensions {
-    priv var _kairo_source: cxx::std::set<string> = cxx::std::set<string>()
-    priv var _kairo_lib:    cxx::std::set<string> = cxx::std::set<string>()
-    priv var _cxx_source:   cxx::std::set<string> = cxx::std::set<string>()
-    priv var _cxx_header:   cxx::std::set<string> = cxx::std::set<string>()
+    priv var _kairo_source: cxx::std::vector<string>
+    priv var _kairo_lib:    cxx::std::vector<string>
+    priv var _cxx_source:   cxx::std::vector<string>
+    priv var _cxx_header:   cxx::std::vector<string>
 
     fn FileExtensions(self) {
         // kairo
-        self._kairo_source.insert("k")
-        self._kairo_lib.insert("hlib")
+        self._kairo_source.push_back("k")
+        self._kairo_lib.push_back("hlib")
 
         // c++
-        self._cxx_source.insert("cpp")
-        self._cxx_source.insert("cc")
-        self._cxx_source.insert("cxx")
-        self._cxx_source.insert("c++")
-        self._cxx_source.insert("C")
-        self._cxx_source.insert("c")
-        self._cxx_source.insert("CPP")
+        self._cxx_source.push_back("cpp")
+        self._cxx_source.push_back("cc")
+        self._cxx_source.push_back("cxx")
+        self._cxx_source.push_back("c++")
+        self._cxx_source.push_back("C")
+        self._cxx_source.push_back("c")
+        self._cxx_source.push_back("CPP")
 
-        self._cxx_header.insert("tpp")
-        self._cxx_header.insert("txx")
-        self._cxx_header.insert("t++")
-        self._cxx_header.insert("T")
-        self._cxx_header.insert("TPP")
+        self._cxx_header.push_back("tpp")
+        self._cxx_header.push_back("txx")
+        self._cxx_header.push_back("t++")
+        self._cxx_header.push_back("T")
+        self._cxx_header.push_back("TPP")
 
-        self._cxx_header.insert("hpp")
-        self._cxx_header.insert("hh")
-        self._cxx_header.insert("hxx")
-        self._cxx_header.insert("h++")
-        self._cxx_header.insert("H")
-        self._cxx_header.insert("h")
+        self._cxx_header.push_back("hpp")
+        self._cxx_header.push_back("hh")
+        self._cxx_header.push_back("hxx")
+        self._cxx_header.push_back("h++")
+        self._cxx_header.push_back("H")
+        self._cxx_header.push_back("h")
 
-        self._cxx_header.insert("HPP")
-        self._cxx_header.insert("HH")
-        self._cxx_header.insert("HXX")
-        self._cxx_header.insert("H++")
+        self._cxx_header.push_back("HPP")
+        self._cxx_header.push_back("HH")
+        self._cxx_header.push_back("HXX")
+        self._cxx_header.push_back("H++")
     }
 
     fn categorize(self, const ext: string) -> FileCategory {
@@ -91,9 +91,16 @@ pub class FileExtensions {
         return self.categorize(ext) != FileCategory::Ignored
     }
 
-    // `const`: by reference. By value, every categorize() copied up to
-    // four std::sets of strings per directory entry indexed.
-    priv fn contains(self, const li: cxx::std::set<string>, const ext: string) -> bool {
-        return li.contains(ext)
+    // `const`: by reference. A vector, not a std::set: the lists hold a
+    // dozen short names, and a std::set needs a C++ `<` the Kairo string
+    // does not define on every builtin library.
+    priv fn contains(self, const li: cxx::std::vector<string>, const ext: string) -> bool {
+        for *e in li {
+            if *e == ext {
+                return true
+            }
+        }
+
+        return false
     }
 }

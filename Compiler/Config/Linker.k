@@ -148,11 +148,11 @@ pub class LinkerOptions {
 
         /// ## output shape and inputs
         for s in *args.get_list("lib-dirs") {
-            o.lib_dirs.push_back(s)
+            o.lib_dirs.push_back(s.copy())
         }
 
         for s in *args.get_list("link-libs") {
-            o.link_libs.push_back(s)
+            o.link_libs.push_back(s.copy())
         }
 
         o.shared          = args.get_bool("shared") || args.get_bool("dll")
@@ -201,15 +201,15 @@ pub class LinkerOptions {
         o.now            = args.get_bool("now")
         o.z_noexecstack  = args.get_bool("z-noexecstack")
         for s in *args.get_list("rpath") {
-            o.rpath.push_back(s)
+            o.rpath.push_back(s.copy())
         }
 
         for s in *args.get_list("rpath-link") {
-            o.rpath_link.push_back(s)
+            o.rpath_link.push_back(s.copy())
         }
 
         for s in *args.get_list("ld-flags") {
-            o.ld_flags.push_back(s)
+            o.ld_flags.push_back(s.copy())
         }
 
         /// ## ELF/Linux feature toggles
@@ -227,7 +227,7 @@ pub class LinkerOptions {
         o.f_dead_strip      = args.get_feature("dead-strip")
         o.f_bitcode         = args.get_feature("bitcode")
         for s in *args.get_list("force-load") {
-            o.force_load.push_back(s)
+            o.force_load.push_back(s.copy())
         }
 
         /// ## Windows / PE-COFF
@@ -259,7 +259,7 @@ pub class LinkerOptions {
         o.wasm_stack_size_set     = args.is_set("wasm-stack-size")
         o.wasi                    = args.get_bool("wasi")
         for s in *args.get_list("wasm-export") {
-            o.wasm_export.push_back(s)
+            o.wasm_export.push_back(s.copy())
         }
 
         o.f_wasm_bulk_memory     = args.get_feature("wasm-bulk-memory")

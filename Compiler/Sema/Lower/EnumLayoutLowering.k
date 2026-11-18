@@ -2147,7 +2147,7 @@ pub class EnumLayoutQuery {
             for var i: usize = 0; i < ids.size(); ++i {
                 e->type_ids.push_back(ids[i])
                 e->type_keys.push_back(keys[i])
-                e->type_names.push_back(names[i])
+                e->type_names.push_back(names[i].copy())
             }
         }
 

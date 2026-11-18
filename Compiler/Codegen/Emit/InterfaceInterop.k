@@ -229,7 +229,7 @@ extend InterfaceEmitter {
         var forms: cxx::std::vector<string>
         for var k: usize = 0; k < 2; ++k {
             var fnm = if (k == 0) => ("operator new") else => "operator new[]"
-            var al  = if (k == 0) => (one) else => arr
+            var al  = if (k == 0) => (one.copy()) else => arr.copy()
             forms.push_back(
                 x.copy() + "void* " + fnm + "(" + z + " n) { return " + got + "(" + alloc_fn + "(n ? n : 1, " + al + "), false); }",
             )
@@ -253,7 +253,7 @@ extend InterfaceEmitter {
 
         for var k: usize = 0; k < 2; ++k {
             var fnm = if (k == 0) => ("operator delete") else => "operator delete[]"
-            var al  = if (k == 0) => (one) else => arr
+            var al  = if (k == 0) => (one.copy()) else => arr.copy()
             forms.push_back(
                 x.copy() + "void " + fnm + "(void* p, " + z + " n) noexcept { if (p) " + free_fn + "(static_cast<unsigned char*>(p), n ? n : 1, " + al + "); }",
             )
@@ -386,8 +386,8 @@ extend InterfaceEmitter {
                                const mk: string) -> cxx::std::vector<string> {
         var unsafe *d                              = unsafe (en as unsafe *Decl)
         var        taken: cxx::std::vector<string>
-        taken.push_back(nm)
-        taken.push_back(mk)
+        taken.push_back(nm.copy())
+        taken.push_back(mk.copy())
         var gps = Speller::template_params(d)
         for var i: usize = 0; i < gps.size(); ++i {
             taken.push_back(

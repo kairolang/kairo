@@ -956,7 +956,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             var w = cxx::std::vector<string>()
             w.push_back(missing)
             for var k: usize = 0; k < r.witness.size(); ++k {
-                w.push_back(r.witness[k])
+                w.push_back(r.witness[k].copy())
             }
 
             r.witness = w
@@ -985,16 +985,16 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             var rest = cxx::std::vector<string>()
             for var k: usize = 0; k < r.witness.size(); ++k {
                 if k < (c.arity as usize) {
-                    subs.push_back(r.witness[k])
+                    subs.push_back(r.witness[k].copy())
                 } else {
-                    rest.push_back(r.witness[k])
+                    rest.push_back(r.witness[k].copy())
                 }
             }
 
             var w = cxx::std::vector<string>()
             w.push_back(self._ps.render(d, c, unsafe &subs))
             for var k: usize = 0; k < rest.size(); ++k {
-                w.push_back(rest[k])
+                w.push_back(rest[k].copy())
             }
 
             r.witness = w

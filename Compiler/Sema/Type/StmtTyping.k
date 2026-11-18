@@ -722,7 +722,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             // only the first with a nullable RAW pointer.
             var stars_ok = depth == 0 || depth_ok && v->pointer_unsafe == outer_unsafe
             var fixd     = if (depth_ok) => (v->pointer_depth) else => depth
-            var want0 = if (stars_ok) => (wrote)
+            var want0 = if (stars_ok) => (wrote.copy())
                         else => pointer_shorthand_spelling(fixd, outer_unsafe)
             var b = self.dyn()->sc->diag->report(
                 DiagID::SC266E,
@@ -1378,7 +1378,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
             if !c.ok {
                 var unsafe *at = if (ce.bad != &null) => (ce.bad) else => n->discriminant
-                var why = if (ce.bad_why.size() > 0) => (ce.bad_why) else => "it is not a constant"
+                var why = if (ce.bad_why.size() > 0) => (ce.bad_why.copy())
+                          else => "it is not a constant"
                 var b = self.dyn()->sc->diag->report(
                     DiagID::SC128E,
                     at->range.start,
@@ -3434,7 +3435,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 continue
             }
 
-            var rest = text.subslice(i, text.size() - i)
+            var rest = string(
+                unsafe ((text.data() as unsafe *const u8) + i) as *const u8,
+                text.size() - i,
+            )
+
             if (!seen_for) && rest.starts_with("for") {
                 seen_for = true
                 i += 3
