@@ -1131,6 +1131,31 @@ def reruns(exe, root):
     check("reruns: clean shutdown", c.stop() == 0)
 
 
+def reparse_outline(exe, root):
+    """The declaration list of a file that is re-parsed repeatedly stays
+    whole: each edit re-parses the open file, and the outline (read from the
+    parsed declaration context) after the second and later parses names the
+    same declarations as the first, with no crash or empty list."""
+    c = Client(exe, root)
+    c.start()
+    text = c.open("src/main.k")
+    c.settle()
+
+    def outline():
+        sy = c.request("textDocument/documentSymbol", {"textDocument": {"uri": c.uri("src/main.k")}})
+        return [s["name"] for s in sy] if sy else None
+
+    first = outline()
+    check("reparse_outline: the first parse has declarations", bool(first), first)
+    for v in (2, 3, 4):
+        c.change("src/main.k", v, text + "\n// edit " + str(v) + "\n")
+        c.settle()
+        check("reparse_outline: parse " + str(v) + " names the same declarations", outline() == first, outline())
+    c.change("src/main.k", 5, text)
+    c.settle()
+    check("reparse_outline: clean shutdown", c.stop() == 0)
+
+
 FIXIT = '''class Box {
     pub var v: i32
     pub fn Box(self) = default
@@ -4749,6 +4774,8 @@ def main():
             first_pending(exe, base)
         if want("reruns"):
             reruns(exe, real)
+        if want("reparse_outline"):
+            reparse_outline(exe, real)
         if want("fixits"):
             fixits(exe, real)
         if want("heads"):

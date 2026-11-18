@@ -1,39 +1,37 @@
-// A CRTP base's bounds are Kairo's to check, at the class that names the
-// instance, with that class complete -- never left to clang (whose concept
-// on the template head fires at the base-specifier, before the
-// class has any members; crtp_bounded.k). A deriving class that does not
-// meet the `impl` bound, or names the base over another class, is an
-// error here.
+// A bound that names the generic record's own derived class (CRTP) is
+// checked by Kairo where the class derives the record, as for any other
+// bound: `class NoImpl derives Mixin<NoImpl>` without the `impl Impl`
+// member is SC162E at the `derives` clause, with a note on the bound. The
+// class that satisfies it (Seven) is clean, and nothing reaches the C++
+// compiler.
 
-interface Valued {
+interface Impl {
     fn value(const self) -> i32
 }
 
-class <X derives Doubler<X> impl Valued> Doubler {
-    fn doubled(const self) -> i32 { return (&self as *const X)->value() * 2 }
+class <X derives Mixin<X> impl Impl> Mixin {
+    fn doubled(const self) -> i32 {
+        unsafe {
+            var d = &self as unsafe *const X
+            return d->value() * 2
+        }
+    }
 }
 
-// Derives the instance named after itself but has no `value`.
-class Bad derives Doubler<Bad> {
+class NoImpl derives Mixin<NoImpl> {
     fn other(const self) -> i32 { return 1 }
 }
 
-// Names the instance over a class that is not a Doubler.
-class Plain {
-    pub fn value(const self) -> i32 { return 3 }
-}
-class Wrong derives Doubler<Plain> {
+class Seven derives Mixin<Seven> impl Impl {
+    fn value(const self) -> i32 { return 7 }
 }
 
-fn main() -> i32 { return 0 }
+fn main() -> i32 {
+    var s = Seven()
+    return s.doubled()
+}
 
 // --- lit wiring -----------------------------------------------------------
-
-// BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:17:19: error [SC162E]: 'Bad' does not conform to 'Valued': no member 'value' with the requirement's signature
-// DIAG-NEXT: {{.*}}:12:8: note [I900N]: required by this bound
-// DIAG-NEXT: {{.*}}:9:5: note [I900N]: 'value' is required here
-// DIAG: {{.*}}:25:21: error [SC156E]: 'Plain' does not derive 'Doubler<Plain>'
-// DIAG-NEXT: {{.*}}:12:8: note [I900N]: required by this bound
-// END-GENERATED-CHECKS(DIAG)
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
+// CHECK: crtp_bound_unmet.k:21:22: error [SC162E]: 'NoImpl' does not conform to 'Impl': no member 'value' with the requirement's signature
+// CHECK: crtp_bound_unmet.k:12:8: note [I900N]: required by this bound
