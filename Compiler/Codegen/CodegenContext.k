@@ -56,6 +56,9 @@ pub class EmitOptions {
     /// build has undefined behavior, so a wrong assumption stops at its own
     /// line in the build that is debugged.
     pub var check_assume: bool = false
+    /// --freestanding: no runtime is linked, so a compiler-inserted check
+    /// (an index, a null) traps instead of calling the runtime's crash.
+    pub var freestanding: bool = false
     /// The triple the C++ is compiled for; "" before the driver resolved it.
     pub var target_triple: string = ""
     /// The objects are linked into an executable here (no --shared, no -c):
@@ -135,6 +138,7 @@ pub class CodegenContext {
             self.opts.elf           = ctx->ci->target.object_format_kind == ObjectFormat::Elf
             self.opts.tls_model     = ctx->ci->codegen.tls_model.copy()
             self.opts.check_assume  = ctx->ci->codegen.opt_level == 0
+            self.opts.freestanding  = ctx->ci->lang.freestanding
             var tt = ctx->ci->target.effective_triple.copy()
             self.opts.x32 = tt.starts_with("x86_64") && tt.ends_with("x32")
             self.opts.agree_no_adl = ctx->ci->codegen.test_sema_agreement_no_adl

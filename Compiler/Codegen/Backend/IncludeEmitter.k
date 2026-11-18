@@ -79,7 +79,7 @@ import Support::FlagSet::FlagSet
 ///        scopes are the exception, built per plan; they are keyed by their
 ///        spelled name, which Pipeline.md invariant 24 makes the same text everywhere.
 pub class IncludedDecls {
-    pub var written:   FlagSet<HelperBlock, u16> ///< InterfaceEmitter::written
+    pub var written:   FlagSet<HelperBlock, u32> ///< InterfaceEmitter::written
     pub var tid_seen:  cxx::std::vector<u64>     ///< InterfaceEmitter::tid_seen
     pub var estr_seen: cxx::std::vector<u64>     ///< InterfaceEmitter::estr_seen
     /// A decl or instance with its tier in the low bits (nodes are 8-aligned):
@@ -100,7 +100,7 @@ pub class IncludedDecls {
 
     pub fn clear(self) {
         // The next host TU has none of what this one was given.
-        self.written = FlagSet<HelperBlock, u16>()
+        self.written = FlagSet<HelperBlock, u32>()
         self.tid_seen.clear()
         self.estr_seen.clear()
         self._keys.clear()
