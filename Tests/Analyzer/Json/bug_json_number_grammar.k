@@ -1,7 +1,5 @@
-// XFAIL: *
 // RFC 8259 section 6 requires a digit after '-', after '.' and after 'e', and
-// forbids a leading zero. The reader's digit loops accept zero digits and any
-// number of leading zeros, so '01', '-', '1.', '1e' and '[-.5]' parse.
+// forbids a leading zero: '01', '-', '1.', '1e' and '[-.5]' are refused.
 // Cases: Analyzer/JsonTest.k, KnownNumberGrammar.
 
 import JsonTest::KnownNumberGrammar

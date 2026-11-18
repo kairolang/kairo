@@ -24,6 +24,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "kals_num.h"
+
 pub enum JsonKind derives u8 {
     Null,
     Bool,
@@ -534,6 +536,60 @@ pub class JsonDoc {
         return v
     }
 
+    /// The length of the well-formed UTF-8 sequence that starts at `at`
+    /// (RFC 3629: no overlong form, no surrogate, nothing above U+10FFFF), or
+    /// 0 when the bytes there are not one.
+    priv fn utf8_len_(const self, at: usize) -> usize {
+        var n  = self.src_.size()
+        var c0 = self.src_.data()[at]
+        if c0 < 0x80 {
+            return 1
+        }
+
+        var need: usize = 0
+        var lo:   u8    = 0x80
+        var hi:   u8    = 0xBF
+        if (c0 >= 0xC2) && (c0 <= 0xDF) {
+            need = 1
+        } else if c0 == 0xE0 {
+            need = 2
+            lo   = 0xA0
+        } else if c0 == 0xED {
+            need = 2
+            hi   = 0x9F
+        } else if (c0 >= 0xE1) && (c0 <= 0xEF) {
+            need = 2
+        } else if c0 == 0xF0 {
+            need = 3
+            lo   = 0x90
+        } else if c0 == 0xF4 {
+            need = 3
+            hi   = 0x8F
+        } else if (c0 >= 0xF1) && (c0 <= 0xF3) {
+            need = 3
+        } else {
+            return 0
+        }
+
+        if (at + need) >= n {
+            return 0
+        }
+
+        var c1 = self.src_.data()[at + 1]
+        if (c1 < lo) || (c1 > hi) {
+            return 0
+        }
+
+        for var i: usize = 2; i <= need; ++i {
+            var c = self.src_.data()[at + i]
+            if (c < 0x80) || (c > 0xBF) {
+                return 0
+            }
+        }
+
+        return need + 1
+    }
+
     /// Reads a string token; `pos_` is at the opening quote.
     priv fn string_(self) -> string {
         var out = string()
@@ -548,6 +604,22 @@ pub class JsonDoc {
                 out += self.src_[run..self.pos_]
                 self.pos_ += 1
                 return out
+            }
+
+            if c < 0x20 {
+                self.fail_("unescaped control character in a string")
+                return out
+            }
+
+            if c >= 0x80 {
+                var len = self.utf8_len_(self.pos_)
+                if len == 0 {
+                    self.fail_("invalid UTF-8 in a string")
+                    return out
+                }
+
+                self.pos_ += len
+                continue
             }
 
             self.pos_ += 1
@@ -574,8 +646,14 @@ pub class JsonDoc {
                 out.push('\f')
             } else if e == ('u' as u8) {
                 var cp = self.hex4_()
+                if !self.error.is_empty() {
+                    return out
+                }
+
                 // A high surrogate is half a character: its low half follows
-                // as a second \u escape, and the pair is ONE code point.
+                // as a second \u escape, and the pair is ONE code point. A
+                // high surrogate followed by anything else that is a \u
+                // escape has no partner.
                 if (cp >= 0xD800)
                     && (cp <= 0xDBFF)
                     && ((self.pos_ + 1) < self.src_.size())
@@ -583,15 +661,30 @@ pub class JsonDoc {
                     && (self.src_.data()[self.pos_ + 1] == ('u' as u8)) {
                     self.pos_ += 2
                     var lo = self.hex4_()
+                    if !self.error.is_empty() {
+                        return out
+                    }
+
+                    if (lo < 0xDC00) || (lo > 0xDFFF) {
+                        self.fail_(
+                            "high surrogate not followed by a low surrogate",
+                        )
+
+                        return out
+                    }
+
                     cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
                 }
 
                 utf8_append(&out, cp)
-            } else {
-                // `\"`, `\\`, `\/`: the escaped character is itself, so it
-                // joins the next run.
+            } else if (e == ('"' as u8)) || (e == ('\\' as u8)) || (e == ('/' as u8)) {
+                // The escaped character is itself, so it joins the next run.
                 run = self.pos_ - 1
                 continue
+            } else {
+                self.pos_ -= 1
+                self.fail_("invalid escape")
+                return out
             }
 
             run = self.pos_
@@ -601,81 +694,136 @@ pub class JsonDoc {
         return out
     }
 
+    priv fn digits_(self) -> usize {
+        var start = self.pos_
+        while (self.pos_ < self.src_.size())
+            && (self.src_.data()[self.pos_] >= ('0' as u8))
+            && (self.src_.data()[self.pos_] <= ('9' as u8)) {
+            self.pos_ += 1
+        }
+
+        return self.pos_ - start
+    }
+
+    /// Reads a number per RFC 8259 section 6:
+    /// `-? (0 | [1-9][0-9]*) (. [0-9]+)? ([eE] [+-]? [0-9]+)?`. The double is
+    /// the correctly rounded value of the token. An integer token that fits i64
+    /// keeps its exact value; a larger one is a non-integral number whose
+    /// integer view saturates.
     priv fn number_(self) -> u32 {
-        var n         = self.new_(JsonKind::Number)
-        var neg       = false
-        var whole     = true
-        var mant: f64 = 0.0
-        var ival: i64 = 0
+        var n     = self.new_(JsonKind::Number)
+        var start = self.pos_
+        var neg   = false
+        var whole = true
 
         if self.src_.data()[self.pos_] == ('-' as u8) {
             neg = true
             self.pos_ += 1
         }
 
-        while (self.pos_ < self.src_.size())
-            && (self.src_.data()[self.pos_] >= ('0' as u8))
-            && (self.src_.data()[self.pos_] <= ('9' as u8)) {
-            var d = (self.src_.data()[self.pos_] - 48) as i64
-            ival = (ival * 10) + d
-            mant = (mant * 10.0) + (d as f64)
-            self.pos_ += 1
+        var int_start = self.pos_
+        if self.digits_() == 0 {
+            self.fail_("expected a digit in a number")
+            return n
         }
 
+        if (self.pos_ - int_start) > 1 && self.src_.data()[int_start] == ('0' as u8) {
+            self.fail_("leading zero in a number")
+            return n
+        }
+
+        var int_end = self.pos_
         if (self.pos_ < self.src_.size()) && (self.src_.data()[self.pos_] == ('.' as u8)) {
             whole = false
             self.pos_ += 1
-            var scale: f64 = 0.1
-            while (self.pos_ < self.src_.size())
-                && (self.src_.data()[self.pos_] >= ('0' as u8))
-                && (self.src_.data()[self.pos_] <= ('9' as u8)) {
-                mant = mant + (((self.src_.data()[self.pos_] - 48) as f64) * scale)
-                scale = scale * 0.1
-                self.pos_ += 1
+            if self.digits_() == 0 {
+                self.fail_("expected a digit after '.'")
+                return n
             }
         }
 
+        var mant_end       = self.pos_
+        var ex:      usize = 0
+        var ex_neg         = false
+        var has_exp        = false
         if (self.pos_ < self.src_.size())
             && ((self.src_.data()[self.pos_] == ('e' as u8))
                 || (self.src_.data()[self.pos_] == ('E' as u8))) {
-            whole = false
+            whole   = false
+            has_exp = true
             self.pos_ += 1
-            var eneg = false
             if (self.pos_ < self.src_.size())
                 && ((self.src_.data()[self.pos_] == ('-' as u8))
                     || (self.src_.data()[self.pos_] == ('+' as u8))) {
-                eneg = self.src_.data()[self.pos_] == ('-' as u8)
+                ex_neg = self.src_.data()[self.pos_] == ('-' as u8)
                 self.pos_ += 1
             }
 
-            var ex: i32 = 0
-            while (self.pos_ < self.src_.size())
-                && (self.src_.data()[self.pos_] >= ('0' as u8))
-                && (self.src_.data()[self.pos_] <= ('9' as u8)) {
-                ex = (ex * 10) + ((self.src_.data()[self.pos_] - 48) as i32)
-                self.pos_ += 1
+            var ex_start = self.pos_
+            if self.digits_() == 0 {
+                self.fail_("expected a digit in the exponent")
+                return n
             }
 
-            for var i: i32 = 0; i < ex; ++i {
-                if eneg {
-                    mant = mant / 10.0
-                } else {
-                    mant = mant * 10.0
+            // The accumulator stops growing past 2^40, far above any clamp.
+            for var i: usize = ex_start; i < self.pos_; ++i {
+                if ex < 0x10000000000 {
+                    ex = (ex * 10) + ((self.src_.data()[i] - 48) as usize)
                 }
             }
         }
 
-        if neg {
-            mant = 0.0 - mant
-            ival = 0 - ival
+        var len      = self.pos_ - start
+        var num: f64 = 0.0
+        if has_exp && (ex > (len + 400)) {
+            // Past the token's own length plus the double's range the result
+            // is infinity or zero whatever the exponent is, so a smaller
+            // exponent of the same sign gives the same double without the
+            // converter's cost growing with the digits.
+            var tok = string()
+            tok += self.src_[start..mant_end]
+            tok += if ex_neg => "e-" else => "e"
+            tok += f"{len + 400}"
+            num = unsafe kals_parse_f64(unsafe &tok.data()[0], tok.size())
+        } else {
+            num = unsafe kals_parse_f64(unsafe &self.src_.data()[start], len)
         }
 
-        if !whole {
-            ival = mant as i64
+        var ival: i64 = 0
+        if whole {
+            // Magnitude with overflow detection: i64 min is 2^63.
+            var mag: u64 = 0
+            var over     = false
+            for var i: usize = int_start; i < int_end; ++i {
+                var d = (self.src_.data()[i] - 48) as u64
+                if mag > ((0xFFFFFFFFFFFFFFFF - d) / 10) {
+                    over = true
+                    break
+                }
+
+                mag = (mag * 10) + d
+            }
+
+            if !over && (!neg && (mag <= 0x7FFFFFFFFFFFFFFF)) {
+                ival = mag as i64
+            } else if !over && neg && (mag <= 0x8000000000000000) {
+                ival = (0 - (mag - 1) as i64) - 1
+            } else {
+                whole = false
+                ival  = if neg => (0 - 9223372036854775807) - 1 else => 9223372036854775807
+            }
+        } else if num != num {
+            ival = 0
+        } else if num >= 9223372036854775807.0 {
+            ival = 9223372036854775807
+        } else if num <= (0.0 - 9223372036854775807.0) {
+            ival = (0 - 9223372036854775807) - 1
+        } else {
+            ival = num as i64
         }
 
         self.nodes[n as usize].flag = whole
-        self.nodes[n as usize].num  = mant
+        self.nodes[n as usize].num  = num
         self.nodes[n as usize].ival = ival
         return n
     }
@@ -775,8 +923,15 @@ pub class JsonWriter {
         self.out += f"{v}"
     }
 
+    /// JSON has no spelling for an infinity or a NaN: they are written as
+    /// `null`.
     fn num(self, v: f64) {
         self.sep_()
+        if (v - v) != 0.0 {
+            self.out += "null"
+            return
+        }
+
         self.out += f"{v}"
     }
 

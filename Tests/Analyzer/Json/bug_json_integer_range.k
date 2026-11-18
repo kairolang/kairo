@@ -1,6 +1,5 @@
-// XFAIL: *
 // An integer beyond i64 parses (RFC 8259 section 6 lets an implementation
-// limit the range) but its exact integer must not wrap to a wrong value.
+// limit the range) and its integer view saturates instead of wrapping.
 // Cases: Analyzer/JsonTest.k, KnownIntegerRange.
 
 import JsonTest::KnownIntegerRange

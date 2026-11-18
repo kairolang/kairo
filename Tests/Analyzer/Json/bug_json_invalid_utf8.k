@@ -1,7 +1,6 @@
-// XFAIL: *
-// RFC 8259 section 8.1: JSON text is UTF-8. The reader copies the bytes of a
-// string unchecked, so overlong forms, lone continuation bytes, encoded
-// surrogates and values above U+10FFFF parse.
+// RFC 8259 section 8.1: JSON text is UTF-8. The reader refuses overlong forms,
+// lone continuation bytes, encoded surrogates and values above U+10FFFF
+// inside a string.
 // Cases: Analyzer/JsonTest.k, KnownInvalidUtf8.
 
 import JsonTest::KnownInvalidUtf8

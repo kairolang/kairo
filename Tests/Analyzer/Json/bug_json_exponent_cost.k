@@ -1,8 +1,6 @@
-// XFAIL: *
-// The cost of reading a number is bounded by its length. The exponent is
-// applied by a loop of one multiplication per unit, so '1e2147483647'
-// (12 bytes) runs for seconds and '1e-2147483647' longer; the exponent
-// accumulator overflows i32 on longer digit runs.
+// The cost of reading a number is bounded by its length: '1e2147483647'
+// (12 bytes) and '1e-2147483647' parse at once, and an exponent longer than
+// any integer type still parses.
 // Cases: Analyzer/JsonTest.k, KnownExponentCost.
 
 import JsonTest::KnownExponentCost

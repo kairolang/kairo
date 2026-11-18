@@ -1,8 +1,7 @@
-// XFAIL: *
 // RFC 8259 section 7 allows only the escapes \" \\ \/ \b \f \n \r \t \uXXXX
-// and forbids raw U+0000 through U+001F in a string. The reader turns an
-// unknown escape into the escaped character and copies raw control bytes,
-// and it pairs a high-surrogate escape with any following \u escape.
+// and forbids raw U+0000 through U+001F in a string. The reader refuses an
+// unknown escape and a raw control byte, and a high-surrogate escape followed
+// by a \u escape that is not a low surrogate.
 // Cases: Analyzer/JsonTest.k, KnownStringRules.
 
 import JsonTest::KnownStringRules

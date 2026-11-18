@@ -1,8 +1,5 @@
-// XFAIL: *
 // A double written by JsonWriter::num and read back is the same double, and
-// every written number is JSON. The reader builds a fraction as a sum of
-// digit * 0.1^k, so 0.1 is off by an ulp; the writer prints inf and nan as
-// bare words.
+// every written number is JSON: an infinity or a NaN is written as null.
 // Cases: Analyzer/JsonTest.k, KnownDoubleRoundtrip.
 
 import JsonTest::KnownDoubleRoundtrip
