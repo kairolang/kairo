@@ -2636,6 +2636,23 @@ pub class LowerTargets {
         return "__KAIRO_INDEX_CHECK"
     }
 
+    /// `typename ::__kairo_ma<T>::t`: T under a typedef that carries
+    /// `__attribute__((may_alias))`, the pointee an `unsafe *T` is spelled
+    /// with (Speller::decl). clang's TBAA reads the attribute through the
+    /// typedef sugar of an access's type, so a load or store through the
+    /// pointer may alias any object; the canonical type is T, so mangling,
+    /// overloading and C++ declarations of the same function are unchanged.
+    /// A member typedef: the attribute on an alias template's pattern is not
+    /// in the sugar clang reads.
+    pub static fn may_alias() -> string {
+        return "__kairo_ma"
+    }
+
+    /// The header guard around may_alias.
+    pub static fn may_alias_guard() -> string {
+        return "__KAIRO_MAY_ALIAS"
+    }
+
     /// The runtime's crash entry with a message (Lib/rt/crash.h): writes it
     /// and aborts.
     pub static fn rt_crash() -> string {

@@ -455,8 +455,13 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// A body indexes a fixed array with a run-time bounds check
     /// (checked_array_index): the preamble must define LowerTargets::
     /// index_check. Only then, so other TUs keep their text.
-    pub var  needs_index_check: bool = false
-    priv var _ef_value_fn:      bool = false
+    pub var needs_index_check: bool = false
+    /// A type the plan admits is an `unsafe *T` to an arithmetic T
+    /// (Speller::may_alias_pointee): the preamble must define LowerTargets::
+    /// may_alias, and the Speller spells through it (CodegenContext::
+    /// may_alias). Only then, so other TUs keep their text.
+    pub var  needs_may_alias: bool = false
+    priv var _ef_value_fn:    bool = false
     /// Compile-time string literals too long for `__kairo_estr<...>`
     /// (LowerTargets::eval_str_inline_max, Compiler/Spec/Eval.md#value-nodes), once each by
     /// content: InterfaceEmitter defines each as a named `inline constexpr`
@@ -600,6 +605,7 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
         }
 
         self._order()
+        self._cg->may_alias = self.needs_may_alias
 
         // The one writer of is_empty. Foreign entries alone do not count: they
         // are only here to support this TU's own bodies, and there are none.

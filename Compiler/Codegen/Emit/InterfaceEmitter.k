@@ -165,7 +165,7 @@ import Support::FlagSet::{
 /// the host TU's copy (Backend/IncludeEmitter.k) is handed to each emitter
 /// and taken back whole, so a block added here cannot be missed by the
 /// copy or by the reset at TU end.
-pub enum HelperBlock derives u16 {
+pub enum HelperBlock derives u32 {
     Helpers      = 1 << 0,  ///< The lowering helpers (__kairo_tmp, ...).
     CtorSlots    = 1 << 1,  ///< _ctor_slot_helpers.
     FnValue      = 1 << 2,  ///< _fn_value_helper (`::__kairo_fn`).
@@ -182,12 +182,13 @@ pub enum HelperBlock derives u16 {
     UnionLocal   = 1 << 13, ///< _union_local_helpers.
     InstanceMove = 1 << 14, ///< LowerTargets::instance_move.
     IndexCheck   = 1 << 15, ///< _index_check_helpers.
+    MayAlias     = 1 << 16, ///< LowerTargets::may_alias.
 }
 
 /// HelperBlock's variants are its FlagSet's bits (Support/FlagSet.k).
-extend HelperBlock impl FlagBit<u16> {
-    inline fn bit(const self) -> u16 {
-        return self as u16
+extend HelperBlock impl FlagBit<u32> {
+    inline fn bit(const self) -> u32 {
+        return self as u32
     }
 }
 
@@ -204,7 +205,7 @@ pub class InterfaceEmitter {
     /// (Backend/IncludeEmitter.k). They are definitions, and a token stream
     /// has no `#ifndef` to guard them with, so they are left out. run() marks
     /// each once it writes it, for the next include to read.
-    pub var written: FlagSet<HelperBlock, u16>
+    pub var written: FlagSet<HelperBlock, u32>
     /// The host C++ TU compiles with exceptions (a kcc include: its
     /// LangOptions), so it gets the throwing half of the C++ view
     /// (_panic_api). A header decides with `#if __cpp_exceptions`; an
@@ -498,6 +499,36 @@ pub class InterfaceEmitter {
             self._index_check_helpers(header)
             self._cg->sink->unanchored(false)
             self.written.set(HelperBlock::IndexCheck)
+        }
+
+        // The may_alias pointee of an `unsafe *T` (EmitPlan::
+        // needs_may_alias), guarded on its own for the same reason.
+        if !self.written.has(HelperBlock::MayAlias) && self._plan->needs_may_alias {
+            self._cg->sink->unanchored(true)
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::may_alias_guard(),
+                )
+
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::may_alias_guard(),
+                )
+            }
+
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T> struct " + LowerTargets::may_alias() + " { typedef T __attribute__((may_alias)) t; };",
+            )
+
+            self._cg->sink->brk()
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+
+            self._cg->sink->unanchored(false)
+            self.written.set(HelperBlock::MayAlias)
         }
 
         // A Kairo `fn` value (EmitPlan::needs_fn_value), guarded on its own

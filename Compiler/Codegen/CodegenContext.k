@@ -94,6 +94,10 @@ pub class CodegenContext {
     pub var instances: unsafe *InstantiationRegistry
     pub var opts:      EmitOptions
     pub var phase:     CodegenPhase                  = CodegenPhase::Ready
+    /// The plan found an `unsafe *T` to an arithmetic T (EmitPlan::
+    /// needs_may_alias), so the preamble defines LowerTargets::may_alias and
+    /// the Speller spells the pointee through it. Written by EmitPlan::run.
+    pub var may_alias: bool = false
 
 
     fn CodegenContext(self) {

@@ -686,6 +686,39 @@ extend Speller {
         return ""
     }
 
+    /// The arithmetic pointee of `p` when it is an `unsafe *T` the Speller
+    /// spells through LowerTargets::may_alias, else null: an integer wider
+    /// than a byte or a floating-point type, qualifiers aside. A byte type
+    /// already aliases everything, and a record, a pointer or a type that
+    /// depends on a parameter keeps plain `T*` (a dependent one would stop
+    /// C++ deducing T from the argument).
+    static fn may_alias_pointee(p: unsafe *PointerType) -> unsafe *Type {
+        if p == &null || !p->is_unsafe || p->pointee == &null {
+            return &null
+        }
+
+        var unsafe *pt = p->pointee->canonical
+        if pt == &null {
+            return &null
+        }
+
+        var unsafe *b = dyn_cast<BuiltinType>(canon_unqual(pt))
+        if b == &null {
+            return &null
+        }
+
+        var *info = b->info()
+        if !info->is_integer() && !info->is_float() {
+            return &null
+        }
+
+        if info->bits == 8 {
+            return &null
+        }
+
+        return unsafe (b as unsafe *Type)
+    }
+
     /// The C++ attributes of `@hot_path` / `@cold_path` / `@pure` / `const fn`
     /// and the calling convention, each with a trailing space, or "". The declaration (InterfaceEmitter)
     /// and the definition (EmitIR) both call this, so the two heads agree.

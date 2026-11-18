@@ -480,6 +480,10 @@ extend EmitPlan {
                     }
                 }
             } case TypeKind::PointerType {
+                if Speller::may_alias_pointee(cast<PointerType>(c)) != &null {
+                    self.needs_may_alias = true
+                }
+
                 self._admit_type(cast<PointerType>(c)->pointee, PlanNeed::Fwd)
             } case TypeKind::CXXLValueRefType {
                 self._admit_type(

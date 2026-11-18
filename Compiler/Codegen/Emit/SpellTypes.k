@@ -287,6 +287,38 @@ extend Speller {
                     name,
                 )
             } case TypeKind::PointerType {
+                // An `unsafe *T` to an arithmetic T reads and writes as
+                // may_alias (LowerTargets::may_alias): type punning through
+                // raw pointers is defined, so TBAA must not reorder it.
+                var unsafe *ma = Speller::may_alias_pointee(
+                    cast<PointerType>(t),
+                )
+
+                if ma != &null && self._cg != &null && self._cg->may_alias {
+                    var        pq  = ""
+                    var unsafe *pt = cast<PointerType>(t)->pointee->canonical
+                    if pt != &null && isa<QualifiedType>(pt) {
+                        var qs = cast<QualifiedType>(pt)->quals
+                        if (qs & QUAL_CONST) != 0 {
+                            pq += "const "
+                        }
+
+                        if (qs & QUAL_VOLATILE) != 0 {
+                            pq += "volatile "
+                        }
+                    }
+
+                    return self._join(
+                        pq + "typename ::" + LowerTargets::may_alias() + "<" + self.decl(
+                            ma,
+                            "",
+                            subst,
+                            scope,
+                        ) + ">::t",
+                        "*" + name,
+                    )
+                }
+
                 return self.decl(
                     cast<PointerType>(t)->pointee,
                     "*" + name,
