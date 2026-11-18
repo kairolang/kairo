@@ -166,6 +166,13 @@ pub class TokenSink derives EmitSink {
     /// probes: 34 min of the registry compile. Valid while _used only
     /// grows; the one erase clears it with _claim_hint.
     priv var _next_free: llvm::DenseMap<u64, u64>
+    /// raw r in _used -> b <= r with every byte in [b, r] in _used: the
+    /// mirror of _next_free, for the backward claim walk. Once every byte past
+    /// an anchor is taken (a macro's expansions, all anchored on the call,
+    /// can emit far more C++ than the file has bytes), every further token
+    /// on it walks back across the same run of taken bytes. Valid while
+    /// _used only grows; the one erase clears it with _next_free.
+    priv var _prev_free: llvm::DenseMap<u64, u64>
     /// The same, over SETTLED bytes: in _used and not a stray (_stray_at),
     /// so no claim can ever take them. Inside its own anchor a walk tests
     /// every taken byte for a stray; a long anchor many tokens share (again
@@ -678,6 +685,41 @@ pub class TokenSink derives EmitSink {
         return r
     }
 
+    /// The `b` with every byte in [b, top) in _used and either b == lo or
+    /// byte b - 1 free: the backward walk from top - 1 down to lo stops at
+    /// b - 1, and finds nothing when b == lo. Path compression as in
+    /// _skip_used.
+    priv fn _skip_used_back(self, top: u64, lo: u64) -> u64 {
+        var b = top
+        while b > lo && self._used.contains(b - 1) {
+            var it = self._prev_free.find(b - 1)
+            if it != self._prev_free.end() {
+                b = it->second
+                if b < lo {
+                    b = lo
+                }
+            } else {
+                b = b - 1
+            }
+        }
+
+        var x = top
+        while x > b {
+            var it = self._prev_free.find(x - 1)
+            var nx = x - 1
+            if it != self._prev_free.end() {
+                nx         = it->second
+                it->second = b
+            } else {
+                self._prev_free.try_emplace(x - 1, b)
+            }
+
+            x = nx
+        }
+
+        return b
+    }
+
     /// The first raw at or after `r0` that is free or a stray, with the
     /// same path compression as _skip_used.
     priv fn _skip_settled(self, r0: u64) -> u64 {
@@ -823,14 +865,15 @@ pub class TokenSink derives EmitSink {
 
         self._hint_used(hkey, avail)
         // Then backward: a closer anchored near the end of a small file
-        // finds every later byte taken by its own opener's run.
-        var before = (dec.second as usize)
-        for var i: usize = 1; i <= before; ++i {
-            var at = loc.with_offset(0 - (i as i64))
-            if !self._used.insert(at.raw() as u64).second {
-                continue
-            }
-
+        // finds every later byte taken by its own opener's run. The walk
+        // passes taken bytes only, so _skip_used_back lands where a byte-by-
+        // byte walk would stop.
+        var top = (loc.raw() as u64)
+        var lo  = top - (dec.second as u64)
+        var b   = self._skip_used_back(top, lo)
+        if b > lo {
+            var at = loc.with_offset((b - 1) as i64 - (top as i64))
+            self._used.insert(at.raw() as u64)
             if !exact {
                 self._hold(at, tok, loc, len)
             }
@@ -1117,6 +1160,7 @@ pub class TokenSink derives EmitSink {
             self._used.erase(self._open_byte.raw() as u64)
             self._claim_hint.clear() // a byte left _used: no prefix is known whole any more.
             self._next_free.clear()  // nor any run.
+            self._prev_free.clear()
             self._next_unsettled.clear()
             self._held.erase(self._open_byte.raw() as u64)
             var unsafe *h = self._pending.slot()
