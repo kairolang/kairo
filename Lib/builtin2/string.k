@@ -2516,8 +2516,12 @@ pub class string {
     }
 
     @cold_path @no_inline
-    priv fn boundary_fail(const self, b: usize) -> ! { // op [] off a char boundary or out of range
-        __builtin_trap()
+    priv fn boundary_fail(const self, b: usize) -> ! { // off a char boundary or out of range
+        if b > (self.meta >> LEN_SHIFT) {
+            index_fail(b, self.meta >> LEN_SHIFT)
+        }
+
+        char_boundary_fail(b, self.meta >> LEN_SHIFT)
     }
 
     @cold_path @no_inline
@@ -2529,7 +2533,11 @@ pub class string {
     /// it takes no `self`, so a string that is only indexed stays in registers.
     @cold_path @no_inline
     priv static fn index_fail_(b: usize, len: usize) -> ! {
-        __builtin_trap()
+        if b >= len {
+            index_fail(b, len)
+        }
+
+        char_boundary_fail(b, len)
     }
 
     /// The codepoints in the `n` bytes at `p`, for the inlined `codepoints`.

@@ -117,6 +117,33 @@ prot fn range_fail(lo: usize, hi: usize, len: usize) -> ! {
     }
 }
 
+/// An index into text that is not the first byte of a char.
+@cold_path @no_inline
+prot fn char_boundary_fail(i: usize, len: usize) -> ! {
+    var buf: [u8; FAIL_BUF]
+    unsafe {
+        var unsafe *b = &buf[0] as unsafe *u8
+        var at        = fail_text(b, 0, "index")
+        at = fail_byte(b, at, ' ' as u8)
+        at = fail_num(b, at, i)
+        at = fail_text(b, at, " is not on a char boundary of text of length ")
+        at = fail_num(b, at, len)
+        kairo_rt_crash(b as unsafe *const u8, at)
+    }
+}
+
+/// A `m[k]` lookup that found no entry. The key's type has no formatter
+/// here, so the message names only the operation.
+@cold_path @no_inline
+prot fn key_missing_fail() -> ! {
+    var buf: [u8; FAIL_BUF]
+    unsafe {
+        var unsafe *b = &buf[0] as unsafe *u8
+        var at        = fail_text(b, 0, "key is not in the map")
+        kairo_rt_crash(b as unsafe *const u8, at)
+    }
+}
+
 // --- range bounds -----------------------------------------------------------
 
 // Each returns the exclusive end of the range inside `len` elements, or

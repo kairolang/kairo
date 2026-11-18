@@ -18,7 +18,7 @@ pub class <K, V> MapEntry {
 /// A lookup with `m[k]` found no entry. One copy for every map type.
 @cold_path @no_inline
 priv fn key_fail() -> ! {
-    __builtin_trap()
+    key_missing_fail()
 }
 
 priv inline fn <T impl Copyable> map_copy_of(const x: T) -> T {
