@@ -16,5 +16,5 @@ ffi "c" fn tls_bump() -> i64 { counter += 1; return counter }
 // EXE: constinit thread_local signed long counter __attribute((tls_model("local-exec"))) = 0;
 // RUN: rm -rf %t.d
 // RUN: %kairo %s --target=x86_64-linux-gnu --shared -O2 -o %t.d/libtls.so --cache-dir %t.d/lib
-// RUN: %kairo %S/Inputs/tls_loader.c --target=x86_64-linux-gnu -l dl -o %t.d/loader --cache-dir %t.d/ld
+// RUN: %kairo %S/inputs/tls_loader.c --target=x86_64-linux-gnu -l dl -o %t.d/loader --cache-dir %t.d/ld
 // RUN: %t.d/loader %t.d/libtls.so

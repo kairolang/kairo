@@ -20,7 +20,7 @@ with no link exception (NOTICE, "GNU C Library start files").
 NOT audited: headers. glibc's internal headers (sysdep.h, libc-symbols.h, ...) are read by these
 compiles and can expand into code (inline functions, macros that emit instructions). They are
 .h files, so this script skips them; their effect on the objects is covered by comparing the
-built crt objects with the originals (Tests/CLI/Sysroot/glibc_own_start_files.k), not here.
+built crt objects with the originals (Tests/cli/sysroot/glibc_own_start_files.k), not here.
 
     python3 Scripts/audit_glibc_exception.py [--share build/sysroot-share] [-v]
 """

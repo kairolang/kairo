@@ -2901,7 +2901,7 @@ pub class FrontendAction {
                 }
             }
 
-            // Test hook (Tests/CLI/Driver/ice_flushes_diagnostics.k): an ICE at
+            // Test hook (Tests/cli/driver/ice_flushes_diagnostics.k): an ICE at
             // the worst point for the diagnostics -- Sema done on a TU that
             // reported errors, its sink not yet drained -- so the test proves
             // the ICE path flushes them.

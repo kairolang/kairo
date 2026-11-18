@@ -8,7 +8,7 @@ file wins a once-only report, shows up here as more than one distinct
 output; a single lit run would pass by luck most of the time.
 
     python3 Scripts/diag_determinism.py --kairo build/.../bin/kairo \\
-        -n 30 Tests/Sema/Types/partial_ambiguity_once/main.k \\
+        -n 30 Tests/sema/types/partial_ambiguity_once/main.k \\
         -- --type-check-only --threads=8
 
 Everything after `--` goes to the compiler as is. stdout and stderr are

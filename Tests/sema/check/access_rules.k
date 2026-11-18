@@ -1,0 +1,93 @@
+// AccessCheck from another module (inputs/access_rules_lib.k): `priv` is
+// the declaring file's (and the class's own), `prot` adds every subclass in
+// any file, `pub` is everyone's; a class's variables are `priv` unless
+// marked. Each refusal names the member, labels the use, notes the
+// declaration, and offers `pub` as the fix-it. A subclass's own access to
+// the `prot` members (through its own object, not `v: *Vault`), `pub` ones and a `pub` nested type is clean.
+
+import inputs::access_rules_lib::*
+
+class Heir derives Vault {
+    fn Heir(self) { Vault::Vault(self, 1, 2) }
+    fn probe(const self) -> i32 { return self.shared + self.guard() }
+    fn through(self, v: *Vault) -> i32 { return v->shared }
+    fn bad(const self) -> i32 { return self.secret }
+}
+
+class Grandchild derives Heir {
+    fn deep(const self) -> i32 { return self.shared }
+}
+
+fn outside() -> i32 {
+    var v = Vault()
+    var p: *Vault = &v
+    var r = v.open
+    r += v.secret
+    r += p->secret
+    r += v.shared
+    r += v.peek()
+    r += v.guard()
+    r += Vault::count
+    var w = Vault(3)
+    var k = Vault::Key{}
+    var kk: Vault::Key = k
+    var d = Vault::Door{}
+    r += d.d
+    var c = Cell<i32>(1)
+    r += c.item
+    var s = Sealed()
+    r += s.open
+    var g = Guarded()
+    r += g.open
+    return r
+}
+
+fn main() -> i32 { return outside() }
+
+// --- lit wiring -----------------------------------------------------------
+
+// BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
+// DIAG: {{.*}}:13:50: error [SC242E]: protected field 'shared' of 'Vault' is reached here through a 'Vault', not through 'Heir' or a class deriving from it
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{5:5-5:9}:"pub"
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:5:14: note [SC242N]: 'shared' is protected: outside the file that declares 'Vault', a class deriving from it reaches it only through an object of its own class (as C++ does, [class.protected])
+// DIAG: {{.*}}:14:44: error [SC242E]: field 'secret' of 'Vault' is private
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{4:5-4:5}:"pub "
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:4:9: note [SC242N]: 'secret' is private by default (a variable of a class is 'priv' unless marked): accessible only in the file that declares 'Vault'
+// DIAG: {{.*}}:25:11: error [SC242E]: field 'secret' of 'Vault' is private
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{4:5-4:5}:"pub "
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:4:9: note [SC242N]: 'secret' is private by default (a variable of a class is 'priv' unless marked): accessible only in the file that declares 'Vault'
+// DIAG: {{.*}}:26:11: error [SC242E]: field 'secret' of 'Vault' is private
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{4:5-4:5}:"pub "
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:4:9: note [SC242N]: 'secret' is private by default (a variable of a class is 'priv' unless marked): accessible only in the file that declares 'Vault'
+// DIAG: {{.*}}:27:11: error [SC242E]: field 'shared' of 'Vault' is protected
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{5:5-5:9}:"pub"
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:5:14: note [SC242N]: 'shared' is declared protected here: accessible only in the file that declares 'Vault' and in classes that derive from it
+// DIAG: {{.*}}:27:11: warning [SC272W]: 'shared' is 'prot', but its file has no module.k above it, so it is shared with no other file; add a module.k to the directory that should share it
+// DIAG: {{.*}}:28:11: error [SC242E]: method 'peek' of 'Vault' is private
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{8:5-8:9}:"pub"
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:8:13: note [SC242N]: 'peek' is declared private here: accessible only in the file that declares 'Vault'
+// DIAG: {{.*}}:29:11: error [SC242E]: method 'guard' of 'Vault' is protected
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{9:5-9:9}:"pub"
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:9:13: note [SC242N]: 'guard' is declared protected here: accessible only in the file that declares 'Vault' and in classes that derive from it
+// DIAG: {{.*}}:29:11: warning [SC272W]: 'guard' is 'prot', but its file has no module.k above it, so it is shared with no other file; add a module.k to the directory that should share it
+// DIAG: {{.*}}:30:15: error [SC242E]: static member 'count' of 'Vault' is private
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{7:5-7:5}:"pub "
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:7:12: note [SC242N]: 'count' is private by default (a variable of a class is 'priv' unless marked): accessible only in the file that declares 'Vault'
+// DIAG: {{.*}}:31:13: error [SC242E]: this constructor of 'Vault' is private
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{11:5-11:9}:"pub"
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:11:13: note [SC242N]: 'Vault' is declared private here: accessible only in the file that declares 'Vault'
+// DIAG: {{.*}}:32:18: error [SC242E]: type 'Key' of 'Vault' is private
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{13:5-13:9}:"pub"
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:13:16: note [SC242N]: 'Key' is declared private here: accessible only in the file that declares 'Vault'
+// DIAG: {{.*}}:33:20: error [SC242E]: type 'Key' of 'Vault' is private
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{13:5-13:9}:"pub"
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:13:16: note [SC242N]: 'Key' is declared private here: accessible only in the file that declares 'Vault'
+// DIAG: {{.*}}:37:11: error [SC242E]: field 'item' of 'Cell' is private
+// DIAG-NEXT: fix-it:"{{.*}}/access_rules_lib.k":{18:5-18:5}:"pub "
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:18:9: note [SC242N]: 'item' is private by default (a variable of a class is 'priv' unless marked): accessible only in the file that declares 'Cell'
+// DIAG: {{.*}}:39:11: error [SC242E]: 'open' is inaccessible through 'Sealed': 'Sealed' derives 'Vault' as private
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:22:26: note [SC242N]: 'Sealed' declares its base 'Vault' 'priv' here, so the members of 'Vault' are private to 'Sealed' and its file
+// DIAG: {{.*}}:41:11: error [SC242E]: 'open' is inaccessible through 'Guarded': 'Guarded' derives 'Vault' as protected
+// DIAG-NEXT: {{.*}}/access_rules_lib.k:26:27: note [SC242N]: 'Guarded' declares its base 'Vault' 'prot' here, so the members of 'Vault' are protected to 'Guarded' and its file
+// END-GENERATED-CHECKS(DIAG)

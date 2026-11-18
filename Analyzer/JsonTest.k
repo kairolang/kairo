@@ -2,13 +2,13 @@
 ///
 ///   Tests for Json.k, the language server's JSON reader and writer. The
 ///   members of JsonDoc are `prot` in the Analyzer module, so the tests live
-///   in the module; Tests/Analyzer/Json/*.k drive them.
+///   in the module; Tests/analyzer/json/*.k drive them.
 ///
 ///   Oracle: the rules of RFC 8259 (section numbers in the case names), each
 ///   case written by hand. A case states ACCEPT or REJECT and the sentence
 ///   of the RFC it rests on. Where the reader deviates from the RFC, the case
 ///   sits in a Known* function that is not called by Test(); the
-///   Tests/Analyzer/Json/bug_*.k files call those and are XFAIL.
+///   Tests/analyzer/json/bug_*.k files call those and are XFAIL.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

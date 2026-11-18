@@ -2,7 +2,7 @@
 // (::builtin::base::alloc), so a program that writes the sugar needs no
 // import at all -- in every spelling. The name is bound at the lowering,
 // not looked up: a local `create` does not capture it, and a hand-written
-// `create<T>(...)` with no import is still undeclared (Inputs/bare_create.k).
+// `create<T>(...)` with no import is still undeclared (inputs/bare_create.k).
 
 static dropped: i32 = 0
 
@@ -33,7 +33,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
 
-// RUN: { %kairo %S/Inputs/bare_create.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=BARE
+// RUN: { %kairo %S/inputs/bare_create.k --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=BARE
 // BARE: bare_create.k:{{[0-9]+}}:{{[0-9]+}}: error [R020E]: use of undeclared identifier 'create'
 
 // REQUIRES: clang

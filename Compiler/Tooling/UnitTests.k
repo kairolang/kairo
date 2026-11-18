@@ -17,7 +17,7 @@
 ///   \par Build target
 ///     Registered in build.py as 'kunit'. It is a verification driver, not a
 ///     shipped tool: it is not staged into the release tree, and nothing
-///     imports it. Tests/Unit runs it when it is built beside kairo.
+///     imports it. Tests/unit runs it when it is built beside kairo.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

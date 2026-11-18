@@ -40,7 +40,7 @@ fn main() -> i32 {
 // RUN: %kairo %s --global-allocator-set -o %t.d/c.exe --cache-dir %t.d/c3
 // RUN: %t.d/c.exe; test $? -eq 1
 // No file sets one: every object, the builtin's too, says Global is System.
-// RUN: %kairo %S/Inputs/sga_none.k -o %t.d/n.exe --cache-dir %t.d/c4
+// RUN: %kairo %S/inputs/sga_none.k -o %t.d/n.exe --cache-dir %t.d/c4
 // RUN: %t.d/n.exe
 // RUN: for o in $(find %t.d/c4 -name '*.o' | grep builtin); do %objdump -s -j __kairo_abi $o; done | %FileCheck %s --check-prefix=NONE
 // NONE: 7f4b4142 490201

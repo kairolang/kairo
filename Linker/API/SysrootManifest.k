@@ -335,7 +335,7 @@ pub class SysrootManifest {
     /// The `llvm_version` a root this toolchain writes records: the LLVM it
     /// is built against (llvm-config.h), so no copy of the number can lag
     /// a toolchain bump. The share tree's templates spell it in
-    /// Scripts/ship_sysroot_inputs.py; Tests/CLI/Sysroot/llvm_version_drift.k
+    /// Scripts/ship_sysroot_inputs.py; Tests/cli/sysroot/llvm_version_drift.k
     /// holds the two together.
     pub static fn toolchain_llvm_version() -> string {
         return string(

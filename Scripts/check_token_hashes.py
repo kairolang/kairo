@@ -15,7 +15,7 @@
 #     python3 Scripts/check_token_hashes.py [TokenKind.k] [EvalHash.k]
 #
 # Exit status 0 when all agree; 1 with one line per disagreement otherwise.
-# Run by Tests/Lexer/token_kind_hashes.k.
+# Run by Tests/lexer/token_kind_hashes.k.
 import os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))

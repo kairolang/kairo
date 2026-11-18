@@ -2,7 +2,7 @@ import builtin::base::alloc::*
 import std::io::println
 ffi "c" import "pthread.h"
 ffi "c" import "stdlib.h"
-ffi "c++" import "Inputs/atomic_flag.h"
+ffi "c++" import "inputs/atomic_flag.h"
 fn check(c: bool, what: string) { if !c { println(f"FAIL: {what}"); __builtin_abort() } }
 fn fill(p: unsafe *u8, n: usize, v: u8) { for var i: usize = 0; i < n; i += 1 { unsafe { *(p + i) = v } } }
 fn all(p: unsafe *u8, n: usize, v: u8) -> bool { for var i: usize = 0; i < n; i += 1 { unsafe { if *(p + i) != v { return false } } } return true }

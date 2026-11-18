@@ -214,7 +214,7 @@ pub class <T: type> CastTyping {
         // Unproven, it stays the `*T?` and the rungs below say why it does
         // not convert. An integer target is left alone: a nullable has no
         // cast to an integer at all, proven or not (casting.mdx; the
-        // `n as usize` case of Tests/Sema/ExprTyper/ptr_to_int_errors.k).
+        // `n as usize` case of Tests/sema/expr_typer/ptr_to_int_errors.k).
         if self.dyn()->tu.nullable_inner(target) == &null
             && self.dyn()->tu.pointee(target) != &null {
             src = self.dyn()->value_if_proven(n->operand, src)

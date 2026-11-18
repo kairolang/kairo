@@ -24,19 +24,19 @@ fn main() -> i32 {
 // REQUIRES: clang, kcc
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %kairo %s -c --emit-scope=inputs -o %t.d/main.o
-// RUN: %kairo %S/Inputs/sga_plain.k -c --emit-scope=inputs -o %t.d/plain.o
+// RUN: %kairo %S/inputs/sga_plain.k -c --emit-scope=inputs -o %t.d/plain.o
 // RUN: { %kairo %t.d/main.o %t.d/plain.o --kairo-lib -o %t.d/mix.exe 2>&1 || true; } | %FileCheck %s --check-prefix=MIX
 // MIX: {{.*}}main.o sets the global allocator, but {{.*}}plain.o was compiled without __KAIRO_GLOBAL_ALLOCATOR_SET, so its allocations go to System and bypass it; rebuild {{.*}}plain.o with --global-allocator-set
 // RUN: test ! -e %t.d/mix.exe
 // Rebuilt with the flag, the two link and Counting sees main's allocation.
-// RUN: %kairo %S/Inputs/sga_plain.k -c --emit-scope=inputs --global-allocator-set -o %t.d/plain2.o
+// RUN: %kairo %S/inputs/sga_plain.k -c --emit-scope=inputs --global-allocator-set -o %t.d/plain2.o
 // RUN: %kairo %t.d/main.o %t.d/plain2.o --kairo-lib -o %t.d/ok.exe
 // RUN: %t.d/ok.exe; test $? -eq 1
 // kcc's -D of the macro means the same as the flag (it is not only a C++
 // macro there), and so does -Xkairo --global-allocator-set.
-// RUN: %kcc -c -D__KAIRO_GLOBAL_ALLOCATOR_SET %S/Inputs/sga_plain.k -o %t.d/plain3.o -Xkairo --cache-dir=%t.d/k3
+// RUN: %kcc -c -D__KAIRO_GLOBAL_ALLOCATOR_SET %S/inputs/sga_plain.k -o %t.d/plain3.o -Xkairo --cache-dir=%t.d/k3
 // RUN: %kairo %t.d/main.o %t.d/plain3.o --kairo-lib -o %t.d/ok3.exe
 // RUN: %t.d/ok3.exe; test $? -eq 1
-// RUN: %kcc -c %S/Inputs/sga_plain.k -o %t.d/plain4.o -Xkairo --global-allocator-set -Xkairo --cache-dir=%t.d/k4
+// RUN: %kcc -c %S/inputs/sga_plain.k -o %t.d/plain4.o -Xkairo --global-allocator-set -Xkairo --cache-dir=%t.d/k4
 // RUN: %kairo %t.d/main.o %t.d/plain4.o --kairo-lib -o %t.d/ok4.exe
 // RUN: %t.d/ok4.exe; test $? -eq 1

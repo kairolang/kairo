@@ -1,11 +1,11 @@
 // The global allocator set by one file reaches the allocations of every
-// other: here the setter is an imported module (Inputs/sga_setter.k), this
-// file and Inputs/sga_lib.k only allocate. The driver finds the setter in
+// other: here the setter is an imported module (inputs/sga_setter.k), this
+// file and inputs/sga_lib.k only allocate. The driver finds the setter in
 // the import graph before compiling anything, so the define is on for
 // this file, the library module and the builtin alike.
 import builtin::base::alloc::*
-import Inputs::sga_setter::*
-import Inputs::sga_lib::*
+import inputs::sga_setter::*
+import inputs::sga_lib::*
 
 fn main() -> i32 {
     var *p = create<i64>(1i64)

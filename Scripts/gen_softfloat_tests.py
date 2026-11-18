@@ -10,7 +10,7 @@ Scripts/softfloat_oracle/wfo.py and textor.py. So thousands of vectors cost
 a few lines of source, and a mismatch names the operation; rerun with the dev
 harness (Scripts/softfloat_oracle/run_*.py) to see the vectors.
 
-usage: python3 Scripts/gen_softfloat_tests.py [--oracle DIR] [--out Tests/Codegen]
+usage: python3 Scripts/gen_softfloat_tests.py [--oracle DIR] [--out Tests/codegen]
 """
 import argparse
 import os

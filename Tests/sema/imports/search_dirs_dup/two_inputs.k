@@ -1,0 +1,15 @@
+// main.k's rule for INPUTS. Every input is a module,
+// so `a.k` (the cwd's) and `inputs/a.k` (under `-I inputs`)
+// given together are both module `a`: one C++ namespace, and one object
+// path, `a.o`, the second written over the first. Nothing imports either,
+// so the import-time R017E never ran, and the run exited 0 with one
+// module's code silently gone. The driver claims every input's module path
+// before compiling any.
+
+// --- lit wiring -----------------------------------------------------------
+// RUN: rm -rf %t.d && mkdir -p %t.d
+// RUN: { %kairo %S/a.k %S/inputs/a.k -I %S/inputs -c --cache-dir %t.d 2>&1 || true; } | %FileCheck %s
+// RUN: not %kairo %S/a.k %S/inputs/a.k -I %S/inputs --type-check-only > /dev/null 2>&1
+// CHECK: error [R018E]: '{{.*}}search_dirs_dup/a.k' and '{{.*}}search_dirs_dup/inputs/a.k' are both module 'a'
+// Rejected before either is compiled: no object was written.
+// RUN: test ! -e %t.d/a.o

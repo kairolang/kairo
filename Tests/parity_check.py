@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One parity case: kairo on the .k, clang on the .cpp beside it, same verdict.
 
-The .cpp is the ORACLE (Tests/Sema/RedeclMerge/README.md, OVERLOAD.md: kairo's
+The .cpp is the ORACLE (Tests/sema/redecl_merge/readme.md, OVERLOAD.md: kairo's
 behaviour here is 1:1 with C++). A divergence is a kairo bug unless it is
 listed in kairo-only/README as a deliberate divergence -- in which case the
 case does not belong in parity/ at all.

@@ -98,12 +98,12 @@ config.suffixes = [".k"]
 
 # Directories never scanned for tests (inputs/fixtures live here). These match
 # a directory NAME at any depth, so do not reuse them for a real test dir.
-# Clang/ is proof/oracle material, not a suite; Manual/ is hand-run scratch.
-# Bugs/Triage/ is a bug-reproducer corpus, not a lit suite: nearly every file
+# clang/ is proof/oracle material, not a suite; manual/ is hand-run scratch.
+# bugs/triage/ is a bug-reproducer corpus, not a lit suite: nearly every file
 # in it is a known-failing case kept for triage, and its expected behaviour is
 # whatever the issue says, not whatever the compiler currently prints.
-# (Its sibling Bugs/Snapshots/ IS collected.)
-config.excludes = ["Inputs", "Manual", "Clang", "Triage"]
+# (Its sibling bugs/snapshots/ IS collected.)
+config.excludes = ["inputs", "manual", "clang", "triage"]
 
 # --- Where tests live --------------------------------------------------------
 config.test_source_root = os.path.dirname(__file__)
@@ -297,17 +297,17 @@ if os.path.isdir(_bundle):
             config.available_features.add(_f)
 
 # The bare binary, no flags: for tests of what the driver does WITHOUT the
-# roots above (Tests/CLI/Driver/root_discovery.k). Before %kairo, which lit
+# roots above (Tests/cli/driver/root_discovery.k). Before %kairo, which lit
 # would otherwise substitute inside it.
 config.substitutions.append(("%kairo_bin", _sh(kairo_bin)))
 # --threads=2: lit already runs one test per hardware thread, and each
 # kairo spawns its own pool (codegen fans out to the physical core count),
 # so the default oversubscribed the machine several times over. A test that
-# passes its own --threads (CLI/Driver/threads.k) writes it later, and the
+# passes its own --threads (cli/driver/threads.k) writes it later, and the
 # last one wins.
 _kairo_threads = " --threads=2"
 # A test of a builtin declaration the library does not have yet builds its
-# own builtin tree: `%overlay_builtins %t.lib base/x.k=%S/Inputs/x.k` copies
+# own builtin tree: `%overlay_builtins %t.lib base/x.k=%S/inputs/x.k` copies
 # Lib/builtin to %t.lib/builtin with the named files added (overlay_builtins.py),
 # and `%kairo_overlay --builtins-dir=%t.lib/builtin` is %kairo without its own
 # --builtins-dir, which would win. Before %kairo, as %kairo_bin is.
@@ -322,7 +322,7 @@ config.substitutions.append(("%kairo_overlay", _sh(kairo_bin) + " --error-format
 # `%kairo_new` is %kairo with --builtins-dir / --std-dir naming those two
 # trees and nothing else changed (the runtime is still Lib/rt, the builtin
 # tree's sibling). A test that uses it says `REQUIRES: newlib`, the feature
-# set while both directories exist. Tests/NewLib holds them. Before %kairo,
+# set while both directories exist. Tests/builtins holds them. Before %kairo,
 # as %kairo_bin is.
 _new_builtin = os.path.normpath(os.path.join(config.test_source_root, "..", "Lib", "builtin2"))
 _new_std = os.path.normpath(os.path.join(config.test_source_root, "..", "Lib", "std2"))
@@ -361,14 +361,14 @@ _long = lit_config.params.get("long", os.environ.get("KAIRO_LIT_LONG", ""))
 if str(_long) not in ("", "0", "false", "no"):
     config.available_features.add("long-tests")
 # --- ksys ---------------------------------------------------------------------
-# The sysroot generator (Linker/Sysroot/Driver/ksys.k, Compiler/Spec/SysRoot.md):
+# The sysroot generator (linker/sysroot/driver/ksys.k, Compiler/Spec/SysRoot.md):
 # $KSYS_BIN, else the one beside the kairo under test. Tests that use it
 # REQUIRE: ksys.
 ksys_bin = os.environ.get("KSYS_BIN") or os.path.join(os.path.dirname(kairo_bin), "ksys")
 if os.path.isfile(ksys_bin):
     config.available_features.add("ksys")
     config.substitutions.append(("%ksys", _sh(ksys_bin)))
-# clang's own test corpus, run through kcc (Tests/CLI/Kcc/ClangCorpus): the
+# clang's own test corpus, run through kcc (Tests/cli/kcc/clang_corpus): the
 # fork's clang/test and the bundled clang the preprocessor mode compares with.
 # The reference is the clang staged in the tree under test, else build/llvm's:
 # its predefined macros (__VERSION__, __clang_version__) name the LLVM build
@@ -521,7 +521,7 @@ except subprocess.TimeoutExpired:
 config.substitutions.append(("%FileCheck", _sh(filecheck_bin)))
 
 # --- Parity (differential) tests --------------------------------------------
-# Tests/Sema/RedeclMerge/parity/*.k each sit beside a .cpp that is the ORACLE:
+# Tests/sema/redecl_merge/parity/*.k each sit beside a .cpp that is the ORACLE:
 # the assertion is that kairo and clang reach the same verdict. That needs a
 # clang, which is not guaranteed, so it is a lit FEATURE -- tests requiring it
 # say `// REQUIRES: clang` and are reported UNSUPPORTED (not failed) without it.
@@ -676,7 +676,7 @@ if clang_bin:
             _sh(kairo_bin) + kairo_roots,  # one quoted command: kairo + its header roots
             _sh(clang_bin))))
     # A C++ driver for tests that compile kairo's emitted objects and LINK them
-    # (Tests/Codegen/operators). --driver-mode=g++ rather than a sibling
+    # (Tests/codegen/operators). --driver-mode=g++ rather than a sibling
     # "clang++" path: clang_bin may have come from PATH or from --param, and
     # guessing a neighbour binary that may not exist turns a link test into a
     # confusing "file not found" instead of a clean UNSUPPORTED.

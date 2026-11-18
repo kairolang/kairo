@@ -1042,7 +1042,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                          else => n->name.range
                 // Abstract only: a return of a record never defined is still
                 // clang's (CL001E "incomplete result type"), which
-                // Tests/Codegen/method_name_byte.k leans on until it moves.
+                // Tests/codegen/method_name_byte.k leans on until it moves.
                 self.reject_unheld_by_value(
                     n->return_type,
                     rr,

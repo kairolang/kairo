@@ -1,0 +1,4 @@
+// Puts the three files of sema/conversions/module_generic.k in one module,
+// so numlib.k's unmarked Cell members are `prot` and reach bad.k and ok.k
+// (the default visibility is `priv` / `prot`); a `pub`
+// would move the candidate notes' columns the test pins.

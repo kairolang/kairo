@@ -208,7 +208,7 @@ The compiler has its own lexer, preprocessor, parser, full Sema (name
 resolution, overload resolution, ADL, SFINAE, concept and conformance
 checking, instance enumeration, all done Kairo-side), and a CodeGen that does
 NOT emit C++ source. It compiles itself, and many programs compile, link and
-run (Tests/Codegen); a construct the lowerings cannot render yet is SC116E
+run (Tests/codegen); a construct the lowerings cannot render yet is SC116E
 (FeatureGateCheck), reported before codegen.
 `--type-check-only` stops after Sema and is the fast loop when a change does
 not touch codegen.
@@ -713,7 +713,7 @@ order (ThreadPool, MappedFileBuffer, SourceManager, Lexer, FlagRegistry,
 TermRenderer), prints `ok <name>` or `FAIL <name>` after each, and exits 1
 when any failed. `kunit <name> ...` runs those alone, `--list` names them,
 `--bench` adds the lexer's 1 GiB throughput benchmark. It is not staged or
-installed; Tests/Unit runs it when it sits beside the kairo under test.
+installed; Tests/unit runs it when it sits beside the kairo under test.
 
   --debug    build/<triple>/debug (<triple> the host's, e.g.
              x86_64-linux-gnu), built by --kairo, else $KAIRO_SEED, else

@@ -4,9 +4,9 @@ gen_checks.py - generate FileCheck blocks for a Kairo lit test from the
 compiler's own output, and keep them regenerable.
 
 Usage:
-    gen_checks.py --mode=diag,sema Tests/Sema/Check/foo.k      # add / replace
-    gen_checks.py Tests/Sema/Check/foo.k Tests/Codegen/**/*.k   # regenerate
-    gen_checks.py --check Tests/Codegen/witness/*.k             # diff only
+    gen_checks.py --mode=diag,sema Tests/sema/check/foo.k      # add / replace
+    gen_checks.py Tests/sema/check/foo.k Tests/codegen/**/*.k   # regenerate
+    gen_checks.py --check Tests/codegen/witness/*.k             # diff only
 
 A file carries any number of generated blocks, one per check prefix:
 
@@ -47,7 +47,7 @@ FileCheck stage replaced by a redirect, and runs llvm-lit on it. %kairo,
 the suite runs the test -- the checks can't describe a configuration the
 suite never uses. (The previous version invoked kairo directly without lit's
 --builtins-dir/--std-dir/--resource-dir, and even the AST dump differs.)
-The file is compiled IN PLACE, never as a temp copy: imports from Inputs/
+The file is compiled IN PLACE, never as a temp copy: imports from inputs/
 resolve, and the C++ namespace -- which is the file's stem -- is the real one.
 
 Every probe runs each command twice; output that differs between the two
@@ -106,7 +106,7 @@ DEFAULT_PREFIX = {
 # How far each mode compiles unless --through says otherwise. cxx needs
 # codegen (--type-check-only prints no C++), run needs an executable. -c, not
 # a bare compile: without -o a full compile links ./a.out into the test's
-# directory, which is how Tests/Codegen/a.out got there.
+# directory, which is how Tests/codegen/a.out got there.
 DEFAULT_THROUGH = {
     "ast": "check", "diag": "check", "sema": "check", "lowered": "check",
     "cxx": "obj", "run": "link",
@@ -253,9 +253,9 @@ def infer_legacy_opts(body):
     diag_checks = [l for l in body if re.search(r"\b(error|warning|note|remark) \[\w+\]", l)
                    and not l.startswith("// RUN:")]
     # A block that asserted NO diagnostics predates the errors it now gets;
-    # they are news to the test (often a parser test whose code Sema now
+    # they are news to the test (often a parser test whose code sema now
     # rejects), not something it meant to pin. Assert only their codes, so
-    # rewording a Sema message does not fail a parser test.
+    # rewording a sema message does not fail a parser test.
     silent = not diag_checks
     return BlockOpts(
         mode="ast", prefix=prefix,
@@ -705,7 +705,7 @@ def block_text(o, outdir, n, test_path, norm):
     base = os.path.join(outdir, f"job{n}")
     head = [f"// BEGIN-GENERATED-CHECKS({o.prefix}) {o.encode()}{BEGIN_TAIL}"]
     if o.through != "check":
-        # The suite's convention for anything that goes past Sema: object
+        # The suite's convention for anything that goes past sema: object
         # emission and linking go through clang, so a clang-less host reports
         # UNSUPPORTED rather than FAIL.
         head.append("// REQUIRES: clang")
@@ -888,7 +888,7 @@ def run_lit(env, path):
     return bool(ok), r.stdout
 
 
-# --- Driver ----------------------------------------------------------------------------
+# --- driver ----------------------------------------------------------------------------
 
 def find_kairo(explicit):
     if explicit:

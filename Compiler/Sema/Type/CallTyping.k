@@ -1368,7 +1368,7 @@ pub class <T: type> CallTyping {
     /// transfer constructor an implicit `@copy` / `@move` may be, and no
     /// argument at all: default construction passes nothing that could
     /// convert wrongly, and `create<T>()` of a class declaring only a
-    /// transfer constructor is accepted today (Tests/Sema/Check/
+    /// transfer constructor is accepted today (Tests/sema/check/
     /// class_allocator_errors.k) where a direct `T()` is not.
     priv fn _check_created_ctor(self,
                                 n: *CallExpr,

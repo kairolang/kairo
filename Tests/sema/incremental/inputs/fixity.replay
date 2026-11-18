@@ -1,0 +1,6 @@
+# Tests/sema/incremental/plan_fixity.k: the out-of-line `op r++` gets
+# another body, then the first one again.
+step op_body
+replace s/lib.k:::self.v += 1:::self.v += 2
+step op_body_back
+replace s/lib.k:::self.v += 2:::self.v += 1

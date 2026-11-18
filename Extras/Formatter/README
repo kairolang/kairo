@@ -1169,7 +1169,7 @@ Done:
   and the `=>` aligned; 8.4 `match` expressions with more than 2 cases
   broken; 8.4 the `case` grid. Golden tests: block_break, blank_after_closer,
   chain_clauses, if_expr, try_expr, match_expr, case_grid.
-- 16.1 / 16.2: golden tests in Tests/Formatter (one per rule family, each
+- 16.1 / 16.2: golden tests in Tests/formatter (one per rule family, each
   also checked for idempotency; the tree check runs on every input).
 - The (proposed) rules kfmt implements each have one switch in
   Extras/Formatter/Options.k (`Rules`).

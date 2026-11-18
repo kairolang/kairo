@@ -2471,7 +2471,7 @@ pub class RedeclMerge {
         // return_type, in which case it canonicalizes to void here and a
         // `-> !` / `-> void` pair merges silently. _check_modifiers_agree
         // catches it as a modifier disagreement; if `!` becomes
-        // a real return type, delete that half and let this one report it. See Tests/Sema/RedeclMerge/kairo-only/.
+        // a real return type, delete that half and let this one report it. See Tests/sema/redecl_merge/kairo-only/.
         var unsafe *rp = self._return_canonical(prev)
         var unsafe *rc = self._return_canonical(cur)
         if rp == &null || rc == &null { // dependent or diagnosed.

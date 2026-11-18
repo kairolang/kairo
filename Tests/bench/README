@@ -113,7 +113,7 @@ the Kairo programs call bench.h through `ffi "c++" import`.
   - Each program prints `id,size,ns_per_op,iterations` on stdout
     (iterations = timed repetitions; `nan,0` for a row it cannot run) and
     `check,id,size,checksum,ops_per_rep` on stderr.
-  - The checksum is what the workload computed. Inputs come from one
+  - The checksum is what the workload computed. inputs come from one
     xorshift64 generator with one seed, written out in each language, so
     every column must print the same checksum for a cell. run.py compares
     them, marks a disagreeing row in the report and exits nonzero.

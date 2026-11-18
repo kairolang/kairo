@@ -1,0 +1,25 @@
+// sema/types/partial_spec_errors.k
+//: the specializations Sema refuses. Two partials that both
+// match and neither more specialized (C++ [temp.class.order]) make the
+// instance ambiguous, reported once at its first written mention, with both
+// candidates; `Pair<f64, f64>` is not ambiguous, `<W> Pair<W, W>` alone
+// matches it. A partial selected by a `requires` clause is legal since
+// (sema/types/partial_spec_requires.k): `Pair<*Z, *Z>` here
+// simply matches none of the instances used.
+pub struct <A, B> Pair { pub var a: A; pub var b: B }
+pub struct <X> Pair<X, i32> { pub var left: X }
+pub struct <Y> Pair<i32, Y> { pub var right: Y }
+pub struct <W> Pair<W, W> { pub var same: W }
+pub struct <Z> Pair<*Z, *Z> requires sizeof Z <= 8 { pub var both: Z }
+fn main() -> i32 {
+    var ok: Pair<f64, f64>
+    var amb: Pair<i32, i32>
+    var again: Pair<i32, i32>
+    return 0
+}
+
+// --- lit wiring -----------------------------------------------------------
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not=error
+// DIAG: partial_spec_errors.k:16:14: error [SC157E]: ambiguous partial specializations of 'Pair' for these arguments
+// DIAG-NEXT: partial_spec_errors.k:10:5: note [SC157N]: matches this partial specialization
+// DIAG-NEXT: partial_spec_errors.k:11:5: note [SC157N]: and this one, and neither is more specialized than the other

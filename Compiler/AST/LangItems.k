@@ -3712,7 +3712,7 @@ pub class LowerTargets {
     /// What an allocation that cannot be met prints before it exits with
     /// ABORT_EXIT_CODE. Lib/builtin/alloc_raw.k's default_oom spells the
     /// same bytes itself (it sits below the string lang item); the OOM run
-    /// test in Tests/Codegen/global_allocator compares the two.
+    /// test in Tests/codegen/global_allocator compares the two.
     pub static fn oom_message() -> string {
         return "kairo: out of memory"
     }

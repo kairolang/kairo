@@ -18,4 +18,4 @@ run_int.py    DRIVER count seed                     int and x87 conversions
 DRIVER is driver.k built: `kairo Scripts/softfloat_oracle/driver.k -O2 -o
 build/sfdrv` (add --target and a qemu wrapper script for other targets).
 Scripts/gen_softfloat_tests.py --oracle Scripts/softfloat_oracle regenerates
-Tests/Codegen/f256_ops.k and f512_ops.k.
+Tests/codegen/f256_ops.k and f512_ops.k.
