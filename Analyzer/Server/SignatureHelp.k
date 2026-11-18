@@ -21,6 +21,10 @@ ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
 
 import API::FS::LinkFS
+import DocComment::{
+    param_doc,
+    param_name_of,
+}
 import DocumentStore::{
     DocumentStore,
     fnv1a,
@@ -40,6 +44,7 @@ import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
 import Server::Diagnostics::*
+import Server::DocComments::*
 import Server::Features::*
 import Server::Formatting::*
 import Server::Lifecycle::*
@@ -282,10 +287,7 @@ extend Server {
             w.field(K_LABEL, labels[q])
             if !docs[q].is_empty() {
                 w.key(K_DOCUMENTATION)
-                w.begin_object()
-                w.field(K_KIND, MARKUP_MARKDOWN)
-                w.field(K_VALUE, docs[q])
-                w.end_object()
+                self.write_markup_(&w, self.sig_doc_md, docs[q])
             }
 
             // Parameters as [start, end) offsets into the label: the text
@@ -322,6 +324,19 @@ extend Server {
                             w.uint(ps)
                             w.uint(c)
                             w.end_array()
+                            // Its item under `### Parameters` in the
+                            // function's documentation.
+                            var pdoc = param_doc(
+                                docs[q],
+                                param_name_of(piece),
+                                false,
+                            )
+
+                            if !pdoc.is_empty() {
+                                w.key(K_DOCUMENTATION)
+                                self.write_markup_(&w, self.sig_doc_md, pdoc)
+                            }
+
                             w.end_object()
                             count += 1
                         }

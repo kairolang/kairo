@@ -39,6 +39,7 @@ import Protocol::*
 import Server::ClangdBridge::*
 import Server::Completion::*
 import Server::Diagnostics::*
+import Server::DocComments::*
 import Server::Features::*
 import Server::Formatting::*
 import Server::Lifecycle::*
@@ -188,6 +189,7 @@ extend Server {
         }
 
         self.interface_action_(d, params, s, path, &w)
+        self.doc_action_(d, params, path, &w)
         w.end_array()
         self.respond(id, w.out)
     }

@@ -66,6 +66,10 @@ import AST::Node::Types
 import AST::ParamMode::param_mode_prefix
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Engine::DiagEngine
+import DocComment::{
+    doc_markdown_at,
+    is_cxx_path,
+}
 import DocumentStore::LineMap
 import Index::Bases::*
 import Index::CompletionItems::*
@@ -690,93 +694,34 @@ extend IndexWalker {
         return head + kw + name
     }
 
-    /// The `///` lines directly above `d`, markers stripped, joined by
-    /// newlines.
+    /// The documentation comment of `d`, as Markdown (DocComment.k:
+    /// doc_markdown_at reads the comment, a Doxygen or HeaderDoc one
+    /// converted).
     ///
     /// Read from the TEXT, not from the tree: under --preserve-comments the
     /// tree carried doc comments for some library declarations and for none
     /// of a project file's, and the flag also turns a test file's
-    /// `// RUN:` lines into annotations. The lines above a name are
-    /// exactly what a reader calls its documentation.
+    /// `// RUN:` lines into annotations; clang's tree of a header keeps none.
+    /// The lines above a name are exactly what a reader calls its
+    /// documentation. A C or C++ declaration is read from where clang says
+    /// it begins (a `template <...>` line, the return type before the name).
     fn doc_(self, d: unsafe *Decl) -> string {
-        var out: string = ""
-        var name        = decl_name_tok(d)
-        var at          = name.range.start
-        if !at.is_valid() {
+        var at = decl_name_tok(d).range.start
+        if (decl_is_ffi(d) || (!at.is_valid())) && d->range.start.is_valid() {
             at = d->range.start
         }
 
         if !at.is_valid() {
-            return out
+            return ""
         }
 
-        var res  = self.sm->resolve(at)
-        var fi   = self.file_(res.fid as u32)
-        var line = self.files[fi].lines.line_of(res.offset as usize)
-
-        // Walk up over the block: `///` lines, and attribute lines between
-        // the comment and the declaration (`@inline`, a visibility keyword
-        // on its own line).
-        var first           = line
-        var lines: [string]
-        while first > 0 {
-            var ls = self.files[fi].lines.starts[first - 1]
-            var le = self.files[fi].lines.line_end(
-                self.files[fi].text,
-                first - 1,
-            )
-
-            var p = ls
-            while (p < le)
-                && ((self.files[fi].text[p] == (' ' as u8))
-                    || (self.files[fi].text[p] == ('\t' as u8))) {
-                p += 1
-            }
-
-            if ((p + 2) < le)
-                && (self.files[fi].text[p] == ('/' as u8))
-                && (self.files[fi].text[p + 1] == ('/' as u8))
-                && (self.files[fi].text[p + 2] == ('/' as u8)) {
-                p += 3
-                if (p < le) && (self.files[fi].text[p] == (' ' as u8)) {
-                    p += 1
-                }
-
-                lines.push(self.files[fi].text.subslice(p, le - p))
-                first -= 1
-                continue
-            }
-
-            if ((p + 2) == le)
-                && (self.files[fi].text[p] == ('/' as u8))
-                && (self.files[fi].text[p + 1] == ('/' as u8)) {
-                break // a bare `//` ends a doc block
-            }
-
-            if (p < le) && (self.files[fi].text[p] == ('@' as u8)) && lines.is_empty() {
-                first -= 1 // an attribute line above the declaration
-                continue
-            }
-
-            break
-        }
-
-        // A license banner is not documentation: the block that opens a file
-        // with a `/// ---` rule belongs to the file.
-        if (!lines.is_empty()) && lines[lines.size() - 1].starts_with("--- ") {
-            return out
-        }
-
-        var n = lines.size()
-        for var i: usize = 0; i < n; ++i {
-            if i > 0 {
-                out += "\n"
-            }
-
-            out += lines[n - 1 - i]
-        }
-
-        return out
+        var res = self.sm->resolve(at)
+        var fi  = self.file_(res.fid as u32)
+        return doc_markdown_at(
+            self.files[fi].text,
+            res.offset as usize,
+            is_cxx_path(self.files[fi].path),
+        )
     }
 
     /// For a type: its body as a reader wants it on hover. An interface lists

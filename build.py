@@ -219,7 +219,8 @@ TARGETS = {
     "kld":                 ("Linker/Driver/kld.k",                    "kld",    DEV, []),
     "kparse":              ("Compiler/Tooling/ParseOnceTest.k",       "kairo",  DEV, []),
     # The in-module Test() functions (Compiler/Tooling/UnitTests.k); not staged.
-    "kunit":               ("Compiler/Tooling/UnitTests.k",           "kairo",  DEV, []),
+    # Analyzer for the language server's text-only modules (DocComment.k).
+    "kunit":               ("Compiler/Tooling/UnitTests.k",           "kairo",  DEV, ["Analyzer"]),
     "katar":               ("Extras/KaTAR/KTCompress.k",              "kairo",  DEV, ["Extras/KaTAR"]),
     "kfmt":                ("Extras/Formatter/Driver/kfmt.k",         "kairo",  DEV, ["Extras/Formatter"]),
     "ksys":                ("Linker/Sysroot/Driver/ksys.k",           "ksys",   DEV, []),

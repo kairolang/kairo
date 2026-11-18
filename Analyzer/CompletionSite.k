@@ -17,6 +17,7 @@
 
 ffi "c++" import "Native/Types.hh"
 
+import DocComment::doc_markdown_at
 import TextScan::is_ident_byte
 
 // Everything here reads bytes and the classes TextScan::classify gives them
@@ -1400,76 +1401,23 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
     return out
 }
 
-/// The `///` block above line `line` (0-based) of `text`, the slashes and
-/// one space dropped; attribute lines between it and the declaration are
-/// stepped over, as the indexer's own reading does (Hovers.k, doc_).
-pub fn doc_above(const text: string, line: usize) -> string {
-    // Line starts up to and including `line`.
-    var starts: [usize]
-    starts.push(0)
-    for var i: usize = 0; (i < text.size()) && (starts.size() <= line); ++i {
-        if text[i] == ('\n' as u8) {
-            starts.push(i + 1)
+/// The documentation of the declaration on line `line` (0-based) of
+/// `text`, as Markdown (DocComment.k, doc_markdown_at: the reading the
+/// indexer's hover makes too). `cxx` for a C or C++ file.
+pub fn doc_above(const text: string, line: usize, cxx: bool) -> string {
+    var at: usize = 0
+    var l:  usize = 0
+    while (l < line) && (at < text.size()) {
+        if text[at] == ('\n' as u8) {
+            l += 1
         }
+
+        at += 1
     }
 
-    if starts.size() <= line {
+    if l < line {
         return ""
     }
 
-    var lines: [string]
-    var k               = line
-    while k > 0 {
-        var ls = starts[k - 1]
-        var le = starts[k] - 1
-        var p  = ls
-        while (p < le) && blank(text[p]) {
-            p += 1
-        }
-
-        if ((p + 2) < le)
-            && (text[p] == ('/' as u8))
-            && (text[p + 1] == ('/' as u8))
-            && (text[p + 2] == ('/' as u8)) {
-            var b = p + 3
-            if (b < le) && (text[b] == (' ' as u8)) {
-                b += 1
-            }
-
-            var e = le
-            while (e > b) && ((text[e - 1] == ('\r' as u8)) || blank(text[e - 1])) {
-                e -= 1
-            }
-
-            lines.push(text.subslice(b, e - b))
-            k -= 1
-            continue
-        }
-
-        // An attribute or a visibility keyword on a line of its own.
-        if lines.is_empty()
-            && (p < le)
-            && ((text[p] == ('@' as u8))
-                || (word_from(text, p) == "pub")
-                || (word_from(text, p) == "priv")
-                || (word_from(text, p) == "prot")) {
-            k -= 1
-            continue
-        }
-
-        break
-    }
-
-    var out: string = ""
-    var q           = lines.size()
-    while q > 0 {
-        out += lines[q - 1]
-        if q > 1 {
-            out += "\n"
-        }
-
-        q -= 1
-    }
-
-    return out
+    return doc_markdown_at(text, at, cxx)
 }

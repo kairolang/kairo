@@ -33,6 +33,7 @@ ffi "c++" import "vector"
 ffi "c++" import "Native/Log.hh"
 
 import Command::FlagRegistry::Test as command_test
+import DocComment::Test as doc_comment_test
 import Lexer::Lexer::Test as lexer_test
 import Location::SourceManager::Test as source_manager_test
 import Memory::MappedFileBuffer::Test as mapped_file_buffer_test
@@ -150,5 +151,6 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     runner.run("FlagRegistry", command_test)
     runner.run("TermRenderer", term_renderer_test)
     runner.run("AtomicFile", atomic_file_test)
+    runner.run("DocComment", doc_comment_test)
     return runner.finish()
 }

@@ -116,6 +116,7 @@ pub const M_LOG_MESSAGE:  string = "window/logMessage"
 pub const KIND_QUICKFIX:            string = "quickfix"
 pub const KIND_REFACTOR_INLINE:     string = "refactor.inline"
 pub const KIND_REFACTOR_EXTRACT:    string = "refactor.extract"
+pub const KIND_REFACTOR_REWRITE:    string = "refactor.rewrite"
 pub const CMD_SHOW_MACRO_EXPANSION: string = "kairo.showMacroExpansion"
 
 // --- JSON-RPC ---------------------------------------------------------------
@@ -289,8 +290,11 @@ pub const OPT_MAX_WORKERS:      string = "maxWorkers"
 /// initializationOptions: the most characters of an inlay hint shown; the rest is an ellipsis. 0 shows it whole.
 pub const OPT_INLAY_MAX_LENGTH: string = "inlayHintMaxLength"
 
-/// MarkupKind of every hover and documentation string the server writes.
-pub const MARKUP_MARKDOWN: string = "markdown"
+/// MarkupKind of every hover and documentation string the server writes:
+/// Markdown, or plain text for a client whose format list for that answer
+/// leaves Markdown out (Server/DocComments.k, write_markup_).
+pub const MARKUP_MARKDOWN:  string = "markdown"
+pub const MARKUP_PLAINTEXT: string = "plaintext"
 
 // --- shapes -----------------------------------------------------------------
 

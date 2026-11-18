@@ -4674,6 +4674,326 @@ def subscripts(exe, base):
     h = c.request("textDocument/hover", c.at(M, lv, chv + 2))
     check("subscripts: hover on the range's `..` reaches the library op []", h is not None and "op []" in h["contents"]["value"], h)
     check("subscripts: clean shutdown", c.stop() == 0)
+DOCS_HH = r'''#pragma once
+/// \brief Adds three numbers.
+///
+/// Wraps on overflow, as \c int does.
+/// \param a the first
+/// \param[in] b the second
+/// \param c the third
+/// \return the sum of \p a, \p b and \p c
+/// \code
+/// int s = add3(1, 2, 3);
+/// \endcode
+inline int add3(int a, int b, int c) { return a + b + c; }
+
+/**
+ * Multiplies.
+ * @param x left
+ * @param y right
+ */
+inline int mul3(int x, int y) { return x * y; }
+
+/*!
+ @abstract Negates a value.
+ @result The value with its sign flipped.
+ */
+inline int neg3(int v) { return -v; }
+
+struct DocHP {
+    int f; ///< a field
+};
+'''
+
+DOCS_K = '''ffi "c++" import "docs.hh"
+
+/// Splits `s` at each occurrence of `sep`.
+///
+/// Adjacent separators produce empty pieces.
+///
+/// ### Parameters
+/// - `s`: the text to split
+/// - `sep`: the separator
+///
+/// ### Returns
+/// The pieces, in order.
+fn split2(const s: string, const sep: string) -> i32 {
+    return 0
+}
+
+enum DocMode {
+    Read,   ///< open for reading
+    Write,  ///< open for writing
+}
+
+/**
+ * A growable buffer of bytes.
+ */
+class DocBuf {
+    var n: i32 = 0
+}
+
+fn main() -> i32 {
+    var p = DocHP{}
+    var m = DocMode::Write
+    var b = DocBuf()
+    var r = split2("a,b", ",")
+    return add3(1, 2, 3) + mul3(3, 4) + neg3(1) + p.f + r
+}
+'''
+
+
+def doc_render(exe, root):
+    """Documentation comments render as Markdown: Kairo's as written,
+    Doxygen and HeaderDoc (a C++ header's) converted; `///<` and `/** */`
+    are read; signature help takes a parameter's item; a client without
+    Markdown gets plain text."""
+    X = "src/docs.k"
+    open(os.path.join(root, "src", "docs.hh"), "w").write(DOCS_HH)
+    open(os.path.join(root, X), "w").write(DOCS_K)
+    c = Client(exe, root)
+    c.start()
+    c.open(X, DOCS_K)
+    c.settle()
+    hv = lambda needle, off: (c.request("textDocument/hover", c.at(X, *pos(DOCS_K, needle, off))) or {}).get("contents", {})
+    h = hv("add3(1", 1)
+    v = h.get("value", "")
+    check("doc render: Doxygen from a C++ header is Markdown", h.get("kind") == "markdown"
+          and "Adds three numbers.\n\nWraps on overflow, as `int` does." in v
+          and "### Parameters\n- `a`: the first\n- `b` (in): the second\n- `c`: the third" in v
+          and "### Returns\nthe sum of `a`, `b` and `c`" in v and "```cpp\nint s = add3(1, 2, 3);\n```" in v
+          and "\\brief" not in v and "\\param" not in v, v)
+    v = hv("mul3(3", 1).get("value", "")
+    check("doc render: a /** */ block with @param", "Multiplies.\n\n### Parameters\n- `x`: left\n- `y`: right" in v, v)
+    v = hv("neg3(1", 1).get("value", "")
+    check("doc render: HeaderDoc @abstract / @result", "Negates a value.\n\n### Returns\nThe value with its sign flipped." in v, v)
+    v = hv("p.f", 2).get("value", "")
+    check("doc render: a C++ field's trailing ///<", v.endswith("\n\n---\n\na field"), v)
+    v = hv("DocMode::Write", 9).get("value", "")
+    check("doc render: a Kairo enumerator's trailing ///<", v.endswith("---\n\nopen for writing"), v)
+    v = hv("class DocBuf", 6).get("value", "")
+    check("doc render: a Kairo /** */ block", "---\n\nA growable buffer of bytes." in v, v)
+    v = hv("fn split2", 3).get("value", "")
+    check("doc render: Kairo Markdown is shown as written", v.endswith(
+        "---\n\nSplits `s` at each occurrence of `sep`.\n\nAdjacent separators produce empty pieces.\n\n"
+        "### Parameters\n- `s`: the text to split\n- `sep`: the separator\n\n### Returns\nThe pieces, in order."), v)
+    l, ch = pos(DOCS_K, 'split2("a,b", ",")', 7)
+    sh = c.request("textDocument/signatureHelp", c.at(X, l, ch)) or {}
+    sig = (sh.get("signatures") or [{}])[0]
+    ps = sig.get("parameters") or []
+    check("doc render: signature help has the function's documentation",
+          "Splits `s`" in sig.get("documentation", {}).get("value", ""), sh)
+    check("doc render: signature help takes each parameter's item",
+          len(ps) == 2 and ps[0].get("documentation", {}).get("value") == "the text to split"
+          and ps[1].get("documentation", {}).get("value") == "the separator", ps)
+    sh = c.request("textDocument/signatureHelp", c.at(X, *pos(DOCS_K, "add3(1, 2", 8))) or {}
+    ps = ((sh.get("signatures") or [{}])[0]).get("parameters") or []
+    check("doc render: a C++ function's \\param in signature help",
+          len(ps) == 3 and ps[1].get("documentation", {}).get("value") == "(in) the second", sh)
+    # Completion documentation, on resolve.
+    t = DOCS_K.replace("    return add3", "    spl\n    return add3")
+    c.change(X, 2, t)
+    c.settle()
+    rows = t.split("\n")
+    ln = rows.index("    spl")
+    it = (c.request("textDocument/completion", c.at(X, ln, 7)) or {}).get("items", [])
+    s2 = next((i for i in it if i["label"] == "split2"), None)
+    rs = c.request("completionItem/resolve", s2) if s2 else {}
+    dv = (rs or {}).get("documentation", {})
+    check("doc render: completion documentation of a Kairo function", dv.get("kind") == "markdown"
+          and dv.get("value", "").startswith("Splits `s` at each occurrence of `sep`."), (s2, rs))
+    c.stop()
+
+    # A client whose format lists leave Markdown out gets plain text.
+    c = Client(exe, root)
+    c.start(capabilities={"textDocument": {"hover": {"contentFormat": ["plaintext"]},
+                                           "completion": {"completionItem": {"documentationFormat": ["plaintext"]}},
+                                           "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext"]}}}})
+    c.open(X, DOCS_K)
+    c.settle()
+    h = (c.request("textDocument/hover", c.at(X, *pos(DOCS_K, "add3(1", 1))) or {}).get("contents", {})
+    v = h.get("value", "")
+    check("doc render: plain text for a client without Markdown", h.get("kind") == "plaintext"
+          and "```" not in v and "**" not in v and "Parameters:\n- a: the first" in v, h)
+    sh = c.request("textDocument/signatureHelp", c.at(X, l, ch)) or {}
+    sig = (sh.get("signatures") or [{}])[0]
+    check("doc render: signature help in plain text too", sig.get("documentation", {}).get("kind") == "plaintext"
+          and "Parameters:" in sig.get("documentation", {}).get("value", ""), sh)
+    t = DOCS_K.replace("    return add3", "    spl\n    return add3")
+    c.change(X, 2, t)
+    c.settle()
+    rows = t.split("\n")
+    it = (c.request("textDocument/completion", c.at(X, rows.index("    spl"), 7)) or {}).get("items", [])
+    s2 = next((i for i in it if i["label"] == "split2"), None)
+    dv = ((c.request("completionItem/resolve", s2) if s2 else {}) or {}).get("documentation", {})
+    check("doc render: completion documentation in plain text too", dv.get("kind") == "plaintext"
+          and "Parameters:\n- s: the text to split" in dv.get("value", ""), dv)
+    c.stop()
+
+
+AUTHOR_K = '''/// Sums.
+fn sum3(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+fn <T> pick(x: T, y: T) panic -> T {
+    return x
+}
+
+@inline
+pub fn bare(n: i32) {
+}
+
+/// Has one.
+fn has_doc(q: i32) {
+}
+
+class <K> Store {
+    pub fn put(self, k: K) {
+    }
+}
+
+fn main() -> i32 {
+    // fn not_this(z: i32)
+    var s = "/// #"
+    return 0
+}
+'''
+
+
+def doc_authoring(exe, root):
+    """Completion inside a `///` comment, the stub on `///`, and the
+    "Generate documentation" code action, as plain text and as a snippet."""
+    X = "src/author.k"
+    open(os.path.join(root, X), "w").write(AUTHOR_K)
+    c = Client(exe, root)
+    c.start(capabilities={"textDocument": {"completion": {"completionItem": {"snippetSupport": True}}}})
+    c.open(X, AUTHOR_K)
+    c.settle()
+    ver = [1]
+
+    def complete(text, needle, trig=None):
+        ver[0] += 1
+        c.change(X, ver[0], text)
+        rows = text.split("\n")
+        line = next(i for i, l in enumerate(rows) if l.endswith(needle) and (needle != "///" or l.strip() == "///"))
+        ctx = {"triggerKind": 2, "triggerCharacter": trig} if trig else {"triggerKind": 1}
+        p = c.at(X, line, len(rows[line]))
+        p["context"] = ctx
+        r = c.request("textDocument/completion", p) or {}
+        return r.get("items", []) if isinstance(r, dict) else r, line
+
+    def apply(text, line, item):
+        rows = text.split("\n")
+        e = item["textEdit"]
+        r = rows[line]
+        rows[line] = r[:e["range"]["start"]["character"]] + e["newText"] + r[e["range"]["end"]["character"]:]
+        return "\n".join(rows)
+
+    # `#` after `/// ` above pick: the headings that fit, in order, and not one already there.
+    t = AUTHOR_K.replace("fn <T> pick", "/// Picks.\n///\n/// ### Parameters\n/// #\nfn <T> pick")
+    it, line = complete(t, "/// #", "#")
+    labels = [i["label"] for i in it]
+    check("doc authoring: `#` offers the headings that fit, in order",
+          labels == ["### Type parameters", "### Returns", "### Panics", "### Example"], it)
+    t = AUTHOR_K.replace("fn sum3", "/// #\nfn sum3").replace("/// Sums.\n", "")
+    it, line = complete(t, "/// #", "#")
+    check("doc authoring: a function with no type parameters or panics",
+          [i["label"] for i in it] == ["### Parameters", "### Returns", "### Example"], it)
+    if it:
+        new = apply(t, line, it[0])
+        check("doc authoring: a heading replaces the `#` typed", "/// ### Parameters\nfn sum3" in new, new[:80])
+    t = AUTHOR_K.replace("/// Sums.\n", "/// Sums.\n///\n/// **\n")
+    it, line = complete(t, "/// **", "*")
+    check("doc authoring: `**` offers the inline labels",
+          [i["label"] for i in it] == ["**Note:**", "**Warning:**", "**Precondition:**", "**Postcondition:**", "**Invariant:**"], it)
+    if it:
+        check("doc authoring: a label replaces the stars", apply(t, line, it[0]).count("/// **Note:** \nfn sum3") == 1,
+              apply(t, line, it[0])[:80])
+    t = AUTHOR_K.replace("/// Sums.\n", "/// Sums.\n///\n/// ### Parameters\n/// - `a`: one\n/// -\n")
+    it, line = complete(t, "/// -", "-")
+    check("doc authoring: `-` under ### Parameters offers the parameters not yet listed",
+          [i["textEdit"]["newText"] for i in it] == ["- `b`: "], it)
+    t = AUTHOR_K.replace("fn <T> pick", "/// Picks.\n///\n/// ### Type parameters\n/// -\nfn <T> pick")
+    it, line = complete(t, "/// -", "-")
+    check("doc authoring: `-` under ### Type parameters offers the type parameters",
+          [i["textEdit"]["newText"] for i in it] == ["- `T`: "], it)
+    # The characters that trigger only here answer nothing elsewhere.
+    t = AUTHOR_K.replace("    var s = \"/// #\"\n", "    var s = \"/// #\"\n    var k = 2 *\n")
+    it, line = complete(t, "    var k = 2 *", "*")
+    check("doc authoring: `*` in code answers nothing", it == [], it)
+    t = AUTHOR_K.replace('    var s = "/// #"\n', '    var s = """\n/// #\n"""\n')
+    it, line = complete(t, "/// #", "#")
+    check("doc authoring: not in a string", it == [], it)
+    t = AUTHOR_K.replace("    // fn not_this(z: i32)\n", "    // #\n")
+    it, line = complete(t, "    // #", "#")
+    check("doc authoring: not in a plain // comment", it == [], it)
+
+    # `///` typed above an undocumented declaration: the stub, as a snippet.
+    t = AUTHOR_K.replace("fn <T> pick", "///\nfn <T> pick")
+    it, line = complete(t, "///", "/")
+    stub = next((i for i in it if i["label"] == "/// Generate documentation"), None)
+    check("doc authoring: `///` above a declaration offers the stub as a snippet", stub is not None
+          and stub.get("insertTextFormat") == 2 and stub["textEdit"]["newText"] ==
+          "/// ${1:Summary.}\n///\n/// ### Type parameters\n/// - `T`: $2\n///\n/// ### Parameters\n/// - `x`: $3\n"
+          "/// - `y`: $4\n///\n/// ### Returns\n/// ${5:What it returns.}\n///\n/// ### Panics\n"
+          "/// ${6:Each panic type and when it is raised.}", it)
+    t = AUTHOR_K.replace("    pub fn put", "    ///\n    pub fn put")
+    it, line = complete(t, "    ///", "/")
+    stub = next((i for i in it if i["label"] == "/// Generate documentation"), None)
+    check("doc authoring: a method's stub is indented as the method",
+          stub is not None and "\n    /// ### Parameters\n    /// - `k`: $2" in stub["textEdit"]["newText"], it)
+    t = AUTHOR_K.replace("/// Has one.\n", "/// Has one.\n///\n")
+    it, line = complete(t, "///", "/")
+    check("doc authoring: no stub inside an existing comment",
+          not any(i["label"] == "/// Generate documentation" for i in it), it)
+    c.stop()
+
+    # The code action: plain text for a client without snippet edits.
+    c = Client(exe, root)
+    c.start()
+    c.open(X, AUTHOR_K)
+    c.settle()
+
+    def actions(needle, off=0, text=AUTHOR_K):
+        l, ch = pos(text, needle, off)
+        rng = {"start": {"line": l, "character": ch}, "end": {"line": l, "character": ch}}
+        acts = c.request("textDocument/codeAction", {"textDocument": {"uri": c.uri(X)}, "range": rng, "context": {"diagnostics": []}}) or []
+        return [a for a in acts if a["title"] == "Generate documentation"]
+
+    g = actions("pub fn bare", 7)
+    check("doc authoring: the action is offered on an undocumented function, as refactor.rewrite",
+          len(g) == 1 and g[0]["kind"] == "refactor.rewrite", g)
+    if g:
+        edits = list(g[0]["edit"]["changes"].values())[0]
+        new = apply_edits(AUTHOR_K, edits)
+        check("doc authoring: the stub goes above the attribute line, plain text",
+              "}\n\n/// Summary.\n///\n/// ### Parameters\n/// - `n`:\n@inline\npub fn bare" in new, new[:300])
+    check("doc authoring: also from the attribute line", len(actions("@inline", 1)) == 1)
+    check("doc authoring: not on a documented declaration", actions("fn has_doc", 4) == [])
+    check("doc authoring: not off a declaration's head", actions("return a + b", 2) == [])
+    check("doc authoring: not in a comment", actions("// fn not_this", 6) == [])
+    g = actions("class <K> Store", 11)
+    if g:
+        new = apply_edits(AUTHOR_K, list(g[0]["edit"]["changes"].values())[0])
+        check("doc authoring: a generic class's stub", "/// Summary.\n///\n/// ### Type parameters\n/// - `K`:\nclass <K> Store" in new, new)
+    else:
+        check("doc authoring: a generic class's stub", False, g)
+    c.stop()
+    c = Client(exe, root)
+    c.start(capabilities={"workspace": {"workspaceEdit": {"snippetEditSupport": True}, "semanticTokens": {"refreshSupport": True}}})
+    c.open(X, AUTHOR_K)
+    c.settle()
+    g = actions("fn sum3", 4)
+    check("doc authoring: no action on a documented function", g == [], g)
+    g = actions("pub fn put", 8)
+    dc = (g[0]["edit"].get("documentChanges") or [{}])[0] if g else {}
+    e = (dc.get("edits") or [{}])[0]
+    check("doc authoring: a snippet edit for a client that takes them",
+          e.get("snippet", {}).get("kind") == "snippet"
+          and e["snippet"]["value"] == "    /// ${1:Summary.}\n    ///\n    /// ### Parameters\n    /// - `k`: $2\n"
+          and e["range"]["start"] == {"line": pos(AUTHOR_K, "pub fn put")[0], "character": 0}, g)
+    c.stop()
 
 
 def main():
@@ -4792,6 +5112,10 @@ def main():
             foreign_hovers(exe, real)
         if want("base_hovers"):
             base_hovers(exe, real)
+        if want("doc_render"):
+            doc_render(exe, real)
+        if want("doc_authoring"):
+            doc_authoring(exe, real)
         if want("launch_failures"):
             launch_failures(exe, base)
         if want("stale_syntax"):

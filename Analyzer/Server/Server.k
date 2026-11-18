@@ -63,6 +63,7 @@ import Server::CompletionWords::{
     Word,
 }
 import Server::Diagnostics::*
+import Server::DocComments::*
 import Server::Features::*
 import Server::Formatting::*
 import Server::IndexCompletion::*
@@ -222,6 +223,16 @@ pub class Server {
     /// The client reads `itemDefaults.editRange` / takes snippets.
     pub var edit_default_ok: bool = false
     pub var snippet_ok:      bool = false
+    /// The client takes a snippet in a workspace edit: LSP 3.18's
+    /// `workspace.workspaceEdit.snippetEditSupport` (a SnippetTextEdit), or
+    /// `experimental.snippetTextEdit` (a TextEdit with insertTextFormat 2).
+    pub var snippet_edit_lsp: bool = false
+    pub var snippet_edit_exp: bool = false
+    /// Markdown is in the client's format list for hovers, for completion
+    /// documentation, for signature help (DocComments.k, markdown_ok).
+    pub var hover_md:    bool = true
+    pub var item_doc_md: bool = true
+    pub var sig_doc_md:  bool = true
     /// The files the last list's items are declared in: an item's `data`
     /// names one by index, for its `///` block on resolve.
     pub var comp_paths: [string]
@@ -666,10 +677,7 @@ pub class Server {
                     && (out.size() > 1)
                     && (d.get(params, K_DOCUMENTATION) == JSON_NONE()) {
                     var dw = JsonWriter()
-                    dw.begin_object()
-                    dw.field(K_KIND, MARKUP_MARKDOWN)
-                    dw.field(K_VALUE, self.item_docs[q])
-                    dw.end_object()
+                    self.write_markup_(&dw, self.item_doc_md, self.item_docs[q])
                     out = out.subslice(0, out.size() - 1) + ",\"documentation\":" + dw.out + "}"
                     break
                 }
@@ -682,10 +690,7 @@ pub class Server {
                 var doc = self.resolve_doc_(const &d, params)
                 if !doc.is_empty() {
                     var dw = JsonWriter()
-                    dw.begin_object()
-                    dw.field(K_KIND, MARKUP_MARKDOWN)
-                    dw.field(K_VALUE, doc)
-                    dw.end_object()
+                    self.write_markup_(&dw, self.item_doc_md, doc)
                     out = out.subslice(0, out.size() - 1) + ",\"documentation\":" + dw.out + "}"
                 }
             }

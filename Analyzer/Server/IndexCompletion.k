@@ -25,6 +25,7 @@ ffi "c++" import "chrono"
 import API::FS::LinkFS
 import AST::Node::CanonicalNodes::BuiltinKind
 import CompletionSite::*
+import DocComment::is_cxx_path
 import DocumentStore::{
     DocumentStore,
     fnv1a,
@@ -52,6 +53,7 @@ import Server::Completion::*
 import Server::CompletionWords::*
 import Server::DeclTables::*
 import Server::Diagnostics::*
+import Server::DocComments::*
 import Server::Features::*
 import Server::Formatting::*
 import Server::Lifecycle::*
@@ -582,10 +584,7 @@ extend Server {
 
             if !c->doc.is_empty() {
                 w.key(K_DOCUMENTATION)
-                w.begin_object()
-                w.field(K_KIND, MARKUP_MARKDOWN)
-                w.field(K_VALUE, c->doc)
-                w.end_object()
+                self.write_markup_(&w, self.item_doc_md, c->doc)
             } else if with_data && (c->t != usize::MAX) && (c->r >= 0) {
                 var *tb = &self.entries[req->ei].tb.t[c->t]
                 if tb->off[c->r as usize] >= 0 {
@@ -647,7 +646,7 @@ extend Server {
             return ""
         }
 
-        return doc_above(text, line as usize)
+        return doc_above(text, line as usize, is_cxx_path(self.comp_paths[pi]))
     }
 
     // --- rows -------------------------------------------------------------

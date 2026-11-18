@@ -41,6 +41,7 @@ import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
 import Server::Diagnostics::*
+import Server::DocComments::*
 import Server::Features::*
 import Server::Formatting::*
 import Server::LiveIndex::*
@@ -230,6 +231,38 @@ extend Server {
             idf = d->next(idf)
         }
 
+        var tdc = d->get(d->get(params, K_CAPABILITIES), K_TEXT_DOCUMENT)
+        self.hover_md = markdown_ok(
+            d,
+            d->get(d->get(tdc, "hover"), "contentFormat"),
+        )
+
+        self.item_doc_md = markdown_ok(
+            d,
+            d->get(d->get(ccap, "completionItem"), "documentationFormat"),
+        )
+
+        self.sig_doc_md = markdown_ok(
+            d,
+            d->get(
+                d->get(d->get(tdc, "signatureHelp"), "signatureInformation"),
+                "documentationFormat",
+            ),
+        )
+
+        self.snippet_edit_lsp = d->get_bool(
+            d->get(
+                d->get(d->get(params, K_CAPABILITIES), K_WORKSPACE),
+                "workspaceEdit",
+            ),
+            "snippetEditSupport",
+        )
+
+        self.snippet_edit_exp = d->get_bool(
+            d->get(d->get(params, K_CAPABILITIES), "experimental"),
+            "snippetTextEdit",
+        )
+
         self.progress_ok = d->get_bool(
             d->get(d->get(params, K_CAPABILITIES), "window"),
             "workDoneProgress",
@@ -309,7 +342,7 @@ extend Server {
         w.field_raw("inlayHintProvider", "{\"resolveProvider\":false}")
         w.field_raw(
             "codeActionProvider",
-            "{\"codeActionKinds\":[\"" + KIND_QUICKFIX + "\",\"" + KIND_REFACTOR_INLINE + "\",\"" + KIND_REFACTOR_EXTRACT + "\"]}",
+            "{\"codeActionKinds\":[\"" + KIND_QUICKFIX + "\",\"" + KIND_REFACTOR_INLINE + "\",\"" + KIND_REFACTOR_EXTRACT + "\",\"" + KIND_REFACTOR_REWRITE + "\"]}",
         )
 
         // `.` `:` `>`: a member (`a.`, `a::`, `a->`). `@`: an attribute.
@@ -317,10 +350,12 @@ extend Server {
         // directory), which is inside a string, where an editor does not
         // ask on its own. A name needs none: every editor asks as a word
         // is typed. Not a space (after `import`): it would ask after every
-        // word of a line.
+        // word of a line. `#`, `*`, `-`: a heading, a label, a list item in
+        // a `///` comment; anywhere else they are answered with nothing
+        // (DocComments.k, doc_complete_).
         w.field_raw(
             "completionProvider",
-            "{\"triggerCharacters\":[\".\",\":\",\">\",\"@\",\"\\\"\",\"/\"],\"resolveProvider\":true}",
+            "{\"triggerCharacters\":[\".\",\":\",\">\",\"@\",\"\\\"\",\"/\",\"#\",\"*\",\"-\"],\"resolveProvider\":true}",
         )
 
         w.field_raw(

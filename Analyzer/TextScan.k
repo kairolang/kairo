@@ -59,6 +59,37 @@ pub fn classify(const text: string) -> [u8] {
             continue
         }
 
+        // `"""` opens a string that runs to the next `"""`, over lines.
+        if (c == ('"' as u8))
+            && ((i + 2) < n)
+            && (text[i + 1] == ('"' as u8))
+            && (text[i + 2] == ('"' as u8)) {
+            var j = i + 3
+            while (j < n)
+                && (!((text[j] == ('"' as u8))
+                    && ((j + 2) < n)
+                    && (text[j + 1] == ('"' as u8))
+                    && (text[j + 2] == ('"' as u8)))) {
+                if text[j] == ('\\' as u8) {
+                    j += 1
+                }
+
+                j += 1
+            }
+
+            var e = j + 3
+            if e > n {
+                e = n
+            }
+
+            for var k: usize = i; k < e; ++k {
+                cls[k] = 2
+            }
+
+            i = e
+            continue
+        }
+
         if (c == ('"' as u8)) || (c == ('\'' as u8)) {
             // A quote opens a literal that ends at the same quote, a
             // backslash escaping whatever follows. A `'` that is a lifetime
@@ -79,12 +110,9 @@ pub fn classify(const text: string) -> [u8] {
                     break
                 }
 
-                // A plain "..." string does not span lines either; a
-                // triple-quoted one does, and is handled by its own quotes.
-                if (text[j] == ('\n' as u8))
-                    && (!((i + 2) < n
-                        && text[i + 1] == ('"' as u8)
-                        && text[i + 2] == ('"' as u8))) {
+                // A plain "..." string does not span lines either (a
+                // triple-quoted one is read above).
+                if text[j] == ('\n' as u8) {
                     break
                 }
 

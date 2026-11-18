@@ -41,6 +41,7 @@ import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::CompletionWords::language_words
 import Server::Diagnostics::*
+import Server::DocComments::*
 import Server::Features::*
 import Server::Formatting::*
 import Server::IndexCompletion::*
@@ -82,6 +83,11 @@ extend Server {
         var i = self.docs.index_of(text_document_uri(d, params))
         if i == usize::MAX {
             self.respond(id, "[]")
+            return
+        }
+
+        // In a `///` comment: its own items (DocComments.k).
+        if self.doc_complete_(i, d, params, id) {
             return
         }
 

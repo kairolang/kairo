@@ -41,6 +41,7 @@ import Server::ClangdBridge::*
 import Server::CodeActions::*
 import Server::Completion::*
 import Server::Diagnostics::*
+import Server::DocComments::*
 import Server::Formatting::*
 import Server::Lifecycle::*
 import Server::Lookup::*
@@ -514,15 +515,13 @@ extend Server {
                 var mw = JsonWriter()
                 mw.begin_object()
                 mw.key(K_CONTENTS)
-                mw.begin_object()
-                mw.field(K_KIND, MARKUP_MARKDOWN)
                 var mtext = s->str(self.nth(s, mrow, MACRO_TEXT))
-                mw.field(
-                    K_VALUE,
+                self.write_markup_(
+                    &mw,
+                    self.hover_md,
                     "**Expands to**\n\n```kairo\n" + mtext + "\n```",
                 )
 
-                mw.end_object()
                 mw.key(K_RANGE)
                 write_lsp_range(
                     &mw,
@@ -546,10 +545,12 @@ extend Server {
             var w = JsonWriter()
             w.begin_object()
             w.key(K_CONTENTS)
-            w.begin_object()
-            w.field(K_KIND, MARKUP_MARKDOWN)
-            w.field(K_VALUE, s->str(self.nth(s, s->get(f, SK_HOVERS), h)))
-            w.end_object()
+            self.write_markup_(
+                &w,
+                self.hover_md,
+                s->str(self.nth(s, s->get(f, SK_HOVERS), h)),
+            )
+
             w.key(K_RANGE)
             self.write_range(
                 &w,
