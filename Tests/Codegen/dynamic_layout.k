@@ -60,7 +60,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: rm -f %t.exe && { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX

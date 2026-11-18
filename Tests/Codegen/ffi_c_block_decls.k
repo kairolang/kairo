@@ -15,7 +15,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: clang
-// RUN: rm -rf %t.d
+// RUN: rm -f %t.exe && rm -rf %t.d
 // RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: {{error|warning}}
 // RUN: %t.exe; test $? -eq 7

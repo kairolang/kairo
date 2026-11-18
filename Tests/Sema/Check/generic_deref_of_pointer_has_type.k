@@ -13,6 +13,6 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// RUN: { %kairo %s -o %t.out --error-format=basic 2>&1 || true; } | %FileCheck %s --allow-empty
+// RUN: rm -f %t.out && { %kairo %s -o %t.out --error-format=basic 2>&1 || true; } | %FileCheck %s --allow-empty
 // RUN: %t.out; test $? -eq 4
 // CHECK-NOT: I011W

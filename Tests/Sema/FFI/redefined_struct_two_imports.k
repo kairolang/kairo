@@ -17,7 +17,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo -I %S/Inputs/redefined_struct_two_imports %s --type-check-only 2>&1 || true; } | %FileCheck %s
+// RUN: rm -f %t.exe && { %kairo -I %S/Inputs/redefined_struct_two_imports %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK: h2.h:1:8: error [CL001E]: redefinition of 'Base'
 // CHECK-NEXT: h1.h:1:8: note [I900N]: previous definition is here
 // CHECK: redefined_struct_two_imports.k:15:12: error [R021E]: unknown type name 'Base'

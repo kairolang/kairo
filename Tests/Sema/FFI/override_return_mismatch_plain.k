@@ -16,7 +16,7 @@ class D derives B {
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: { %kairo -I %S/Inputs/override_return_mismatch %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
+// RUN: rm -f %t.exe && { %kairo -I %S/Inputs/override_return_mismatch %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
 // CHECK: override_return_mismatch_plain.k:13:30: error [SC294E]: 'val' returns 'i64', but the C++ virtual it overrides returns 'i32'
 // CHECK-NEXT: fix-it:"{{.*}}override_return_mismatch_plain.k":{13:30-13:33}:"i32"
 // CHECK-NEXT: b.h:2:5: note [SC294N]: the C++ virtual it overrides, whose return it must match

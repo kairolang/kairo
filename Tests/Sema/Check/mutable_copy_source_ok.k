@@ -46,6 +46,6 @@ fn main() -> i32 {
 // What such a class can do: copy from a non-const object, and be built in
 // place from a temporary (an initializer or a by-value argument is not a
 // copy), or bound to a `const` parameter.
-// RUN: rm -rf %t.d
+// RUN: rm -f %t.exe && rm -rf %t.d
 // RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --allow-empty --implicit-check-not="error [" --implicit-check-not="warning ["
 // RUN: %t.exe

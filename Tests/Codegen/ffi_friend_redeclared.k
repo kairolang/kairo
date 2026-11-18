@@ -10,7 +10,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// RUN: rm -rf %t.d && mkdir -p %t.d
+// RUN: rm -f %t.exe && rm -rf %t.d && mkdir -p %t.d
 // RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // RUN: %t.exe
 // DIAG-NOT: CL001E

@@ -9,7 +9,7 @@ fn helper() -> i32 { return abort_() }
 fn main() -> i32 { return helper() }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: rm -rf %t.d
+// RUN: rm -f %t.exe && rm -rf %t.d
 // RUN: { %kairo %s -o %t.exe --cache-dir %t.d --print-ir 2>&1 || true; } | %FileCheck %s
 // RUN: %t.exe; test $? -eq 42
 // CHECK: namespace abort__ {

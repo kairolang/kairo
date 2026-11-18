@@ -1,4 +1,4 @@
-// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
+// RUN: rm -f %t.exe && { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // RUN: { %kairo %s -o %t.exe 2>&1 || true; } | %FileCheck %s --check-prefix=BUILD --allow-empty
 // RUN: %t.exe; test $? -eq 5
 // RUN: %kairo %s --print-ast=tree 2>&1 | %FileCheck %s --check-prefix=TREE
