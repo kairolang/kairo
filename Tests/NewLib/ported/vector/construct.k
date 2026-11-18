@@ -8,8 +8,8 @@
 // Cases from libc++ test/std/containers/sequences/vector/vector.cons/
 // Cases from Rust library/alloctests/tests/vec.rs
 //
-// Documented rules the expectations rest on (private/BUILTIN-REWRITE/drafts/
-// 05-vector.md): `copy()`, `filled`, `from_slice` allocate exactly their
+// Documented rules the expectations rest on (the Vector's library
+// documentation): `copy()`, `filled`, `from_slice` allocate exactly their
 // length; moving a vector is a bitwise move that leaves no element moved.
 
 import self::Inputs::counted::*
