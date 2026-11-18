@@ -296,6 +296,35 @@ if os.path.isdir(_bundle):
         for _f in _sysroot_features(_triple or _d):
             config.available_features.add(_f)
 
+# `%wine <exe> [args]` runs a Windows executable under Wine (Scripts/run_wine.py:
+# a private prefix, Wine from $KAIRO_WINE, PATH or Steam's Proton). The `wine`
+# feature is set when a tiny generated PE program (Scripts/mk_probe_exe.py,
+# no compiler involved) runs and exits with its code; the check runs once per
+# lit run, here, and costs nothing when no Wine is installed.
+_run_wine = os.path.normpath(
+    os.path.join(config.test_source_root, "..", "Scripts", "run_wine.py"))
+config.substitutions.append(("%wine", "%s %s" % (_sh(sys.executable), _sh(_run_wine))))
+
+def _wine_works():
+    import subprocess
+    import tempfile
+    mk = os.path.join(os.path.dirname(_run_wine), "mk_probe_exe.py")
+    if not (os.path.isfile(_run_wine) and os.path.isfile(mk)):
+        return False
+    with tempfile.TemporaryDirectory() as d:
+        probe = os.path.join(d, "probe.exe")
+        try:
+            subprocess.run([sys.executable, mk, probe], check=True)
+            r = subprocess.run([sys.executable, _run_wine, probe],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            return False
+    return r.returncode == 42
+
+if _wine_works():
+    config.available_features.add("wine")
+
 # The bare binary, no flags: for tests of what the driver does WITHOUT the
 # roots above (Tests/cli/driver/root_discovery.k). Before %kairo, which lit
 # would otherwise substitute inside it.
