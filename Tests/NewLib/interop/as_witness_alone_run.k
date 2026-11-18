@@ -1,10 +1,6 @@
 // `as` from a map or set of primitives, with nothing else in the unit that
-// copies a primitive through `Copyable`. Expected to fail: clang is given no
-// `Copyable` witness for a bound that is checked and not otherwise used,
-// so the extension's constraint fails in C++ (CL001E "'unsigned long'
-// does not satisfy 'Copyable_c'"). A unit that calls `copy(x)` on the
-// element type compiles; map_set_run.k does.
-// XFAIL: *
+// copies a primitive through `Copyable`: the conversion compiles and runs on
+// its own, because the map's key copy states the `Copyable` bound it uses.
 
 ffi "c++" import "unordered_map"
 ffi "c++" import "unordered_set"

@@ -633,17 +633,14 @@ extend <K impl Hash, V impl Copyable> HashMap<K, V> requires K impl Copyable {
     }
 }
 
-// COMPILER-WORKAROUND(witness-unused-bound): clang is given no `Copyable` or
-// `Default` witness for a bound that is checked and not otherwise used, so
-// calling `map_copy_of(k)` or `V::make_default()` under the two `op []=`
-// forms' own `requires` clauses fails for a primitive key or value. The two
-// forms copy the key and make the value through helpers that compile for
-// any type: a string by its copy(), any other copy-constructible key by its
-// copy constructor, and a value by its default constructor. A key type that
-// can only be copied by a copy() of its own traps in these two forms
-// (insert moves a key in and is unaffected). With the witness emitted,
-// these are `map_copy_of(k)` and `V::make_default()`.
-priv inline fn <K> map_key_copy(const k: K) -> K {
+// The key is copied by the key's own `copy()` unless it is a string or is
+// copy-constructible, which the helper copies directly. The bound sits on
+// the helper's own parameter so the `Copyable` witness reaches the call.
+// A value is made by its default constructor when it has one:
+// `V::make_default()` under the `requires` clause reaches no `Default`
+// witness for a primitive value, so a type with only `make_default()` traps
+// (insert moves a value in and is unaffected).
+priv inline fn <K impl Copyable> map_key_copy(const k: K) -> K {
     eval if __builtin_is_same<K, string>() {
         unsafe {
             var c = (&k as unsafe *const string)->copy()
@@ -652,7 +649,7 @@ priv inline fn <K> map_key_copy(const k: K) -> K {
     } else if __builtin_is_constructible<K, const K>() {
         return k
     } else {
-        __builtin_trap()
+        return map_copy_of(k)
     }
 }
 

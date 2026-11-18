@@ -1,4 +1,3 @@
-// XFAIL: *
 // Defect: contains, the `in` operator and index_of (all through slice_find) do not
 // compile on a slice of a move-only element type that implements Eq:
 // slice_find<T> is rejected with SC182E ("cannot copy a value of type" at

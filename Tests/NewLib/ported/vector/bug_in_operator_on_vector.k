@@ -1,4 +1,3 @@
-// XFAIL: *
 //
 // Library defect: `x in v` (the containment operator) is rejected on a
 // vector and on a slice. The slice declares `op in (const self, const v: T)`

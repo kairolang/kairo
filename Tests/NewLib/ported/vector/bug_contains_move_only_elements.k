@@ -1,4 +1,3 @@
-// XFAIL: *
 //
 // Library or compiler defect: `contains` and `index_of` (and so `op in`) on
 // a vector of elements that are not integers fail to instantiate: "cannot

@@ -1,4 +1,3 @@
-// XFAIL: *
 // The setter `m[k] = v` and the place form `m[k] += 1` copy the key on a
 // miss (hash_map.k: "Both write forms copy `k` only on a miss"). For a key
 // whose only copy is its own `copy()` method (it declares `impl Copyable`,

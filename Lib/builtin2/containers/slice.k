@@ -918,13 +918,12 @@ priv fn <T impl Eq> slice_find(p: unsafe *const T, n: usize, v: *const T) -> usi
             // Blocks of a fixed length with no exit inside, so the compare
             // vectorizes; the hit is then located inside its block.
             eval SLICE_FIND_BLOCK: usize = 32
-            var x        = *v
             var i: usize = 0
             while i + SLICE_FIND_BLOCK <= n {
                 var hit = false
                 var k: usize = 0
                 while k < SLICE_FIND_BLOCK {
-                    hit |= p[i + k] == x
+                    hit |= p[i + k] == *v
                     k += 1
                 }
 
@@ -936,7 +935,7 @@ priv fn <T impl Eq> slice_find(p: unsafe *const T, n: usize, v: *const T) -> usi
             }
 
             while i < n {
-                if p[i] == x {
+                if p[i] == *v {
                     return i
                 }
 

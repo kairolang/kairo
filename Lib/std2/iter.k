@@ -592,7 +592,11 @@ extend <I impl Iterator> Copied<I> impl Iterator requires I impl PointerItems &&
         }
 
         var q: *const I::Target = unwrap!(p)
-        return (*q).copy()
+        eval if __builtin_is_integral<I::Target>() {
+            return *q
+        } else {
+            return (*q).copy()
+        }
     }
 }
 
@@ -604,7 +608,11 @@ extend <I impl Iterator> Copied<I> impl DoubleEnded requires I impl DoubleEnded 
         }
 
         var q: *const I::Target = unwrap!(p)
-        return (*q).copy()
+        eval if __builtin_is_integral<I::Target>() {
+            return *q
+        } else {
+            return (*q).copy()
+        }
     }
 }
 
@@ -669,6 +677,10 @@ extend <I impl PointerItems> StepBy<I> impl PointerItems {
 }
 
 extend <I impl PointerItems> Peekable<I> impl PointerItems {
+    type Target = I::Target
+}
+
+extend <I impl Iterator, J impl Iterator> Chain<I, J> impl PointerItems requires I impl PointerItems && J impl PointerItems {
     type Target = I::Target
 }
 
@@ -1578,8 +1590,13 @@ priv class <U impl Copyable, S impl Sink<U>> CopiedSink impl Sink<*const U> {
     var next: *S
 
     inline fn put(self, @inout p: *const U) -> bool {
-        var x = (*p).copy()
-        return self.next->put(&x)
+        eval if __builtin_is_integral<U>() {
+            var x: U = *p
+            return self.next->put(&x)
+        } else {
+            var x = (*p).copy()
+            return self.next->put(&x)
+        }
     }
 }
 

@@ -497,7 +497,13 @@ pub class <T> Vector {
         if inclusive {
             @unlikely
             if end >= self.len {
-                range_fail(lo, end, self.len)
+                // The message names the exclusive end, as a slice's does.
+                var shown = end
+                if end != usize::MAX {
+                    shown = end + 1
+                }
+
+                range_fail(lo, shown, self.len)
             }
 
             hi = end + 1
@@ -1051,6 +1057,13 @@ extend <T impl Copyable> Vector<T> {
 }
 
 extend <T impl Eq> Vector<T> {
+    /// `x in v`: the iteration `op in` above does not take an operand, so
+    /// the containment test is spelled here and searches as `contains` does.
+    pub fn op in (const self, const x: T) -> bool {
+        var s: [const T;] = self
+        return s.contains(x)
+    }
+
     pub fn dedup(self) {
         var n = self.len
         if n < 2 {

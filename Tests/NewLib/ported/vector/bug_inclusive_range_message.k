@@ -1,4 +1,3 @@
-// XFAIL: *
 //
 // Library defect: the trap for an inclusive range past the end of a vector
 // (`v.drain(0..=3)` and `v[..=3]` on three elements) prints "range 0..3 is
