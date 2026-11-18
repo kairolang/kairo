@@ -25,6 +25,13 @@ pub class ByteWriter {
 
     pub fn ByteWriter(self) { }
 
+    /// A writer holding a copy of the bytes.
+    pub fn copy(const self) -> ByteWriter {
+        var w = ByteWriter()
+        w.buf = self.buf.copy()
+        return w
+    }
+
     pub inline fn size(const self) -> usize {
         return self.buf.size()
     }
@@ -95,7 +102,7 @@ pub class ByteWriter {
             return &null
         }
 
-        return unsafe (self.buf.data() as unsafe *const u8)
+        return unsafe (&self.buf[0] as unsafe *const u8)
     }
 }
 

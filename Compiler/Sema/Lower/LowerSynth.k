@@ -711,7 +711,7 @@ pub class LowerSynth {
         var unsafe *d = self.sc->well_known->get(WellKnownType::UnwrapFailed)
         if d == &null {
             kairo::std::ice_fail(
-                who + ": the '" + to_string(
+                who.copy() + ": the '" + to_string(
                     WellKnownType::UnwrapFailed,
                 ) + "' lang item is unbound; Lib/builtin/module.k declares it",
             )
@@ -720,7 +720,7 @@ pub class LowerSynth {
         var unsafe *f = dyn_cast<FunctionDecl>(NameLookup::representative(d))
         if f == &null {
             kairo::std::ice_fail(
-                who + ": the '" + to_string(
+                who.copy() + ": the '" + to_string(
                     WellKnownType::UnwrapFailed,
                 ) + "' lang item is not a function",
             )

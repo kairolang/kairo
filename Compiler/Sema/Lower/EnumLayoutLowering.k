@@ -3687,7 +3687,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
                     }
                 }
 
-                taken.push_back(fresh)
+                taken.push_back(fresh.copy())
                 nm = self.synth.ident(v->name.range, fresh)
             }
 

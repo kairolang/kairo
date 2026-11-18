@@ -192,7 +192,7 @@ extend EmitIR {
         var st = if (m == LocalDtor::Flagged) => ("::" + LowerTargets::union_local_flagged() + "<" + ty + ">")
                  else => ul
         var at = n->name.range
-        self._cg->sink->spell(at, st + " " + store + "{")
+        self._cg->sink->spell(at, st.copy() + " " + store + "{")
         if m == LocalDtor::Flagged {
             self._cg->sink->spell(at, "{")
         }
@@ -217,8 +217,8 @@ extend EmitIR {
             )
         }
 
-        var obj = if (m == LocalDtor::Flagged) => (store + ".s." + LowerTargets::union_local_obj())
-                  else => store + "." + LowerTargets::union_local_obj()
+        var obj = if (m == LocalDtor::Flagged) => (store.copy() + ".s." + LowerTargets::union_local_obj())
+                  else => store.copy() + "." + LowerTargets::union_local_obj()
         self._ul_row[n as usize as u64] = self._ul_decl.size() as u64
         self._ul_decl.push_back(n)
         self._ul_store.push_back(store)
@@ -255,7 +255,7 @@ extend EmitIR {
 
         self._cg->sink->spell(
             n->range,
-            self._ul_store[r] + "." + LowerTargets::union_local_end() + "()",
+            self._ul_store[r].copy() + "." + LowerTargets::union_local_end() + "()",
         )
 
         self._ul_ends[r] += 1
@@ -313,7 +313,7 @@ extend EmitIR {
         var st  = self._ul_store[r].copy()
         var s   = "("
         if maybe {
-            s += st + "." + LowerTargets::union_local_kill() + "(), "
+            s += st.copy() + "." + LowerTargets::union_local_kill() + "(), "
         }
 
         s += "::new (static_cast<void*>(&" + obj + "), ::" + LowerTargets::union_local_place() + "{}) decltype(" + obj + ")("

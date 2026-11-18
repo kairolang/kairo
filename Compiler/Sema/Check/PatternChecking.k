@@ -604,17 +604,17 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             var *hs    = &(heads)[i]
             var useful = false
             for var k: usize = 0; k < hs->size(); ++k {
-                var c = (*hs)[k]
+                var *c = &(*hs)[k]
                 if any_wild {
                     break
                 }
 
-                if c.kind == CtorKind::Wild {
+                if c->kind == CtorKind::Wild {
                     if !self._flat_complete(d, distinct) {
                         useful = true
                     }
                 } else {
-                    var key = self._flat_key(c)
+                    var key = self._flat_key(*c)
                     if seen.find(kairo::sref(key)) == seen.end() {
                         useful = true
                     }
@@ -627,21 +627,21 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             }
 
             for var k: usize = 0; k < hs->size(); ++k {
-                var c = (*hs)[k]
-                if c.kind == CtorKind::Wild {
+                var *c = &(*hs)[k]
+                if c->kind == CtorKind::Wild {
                     any_wild = true
                     continue
                 }
 
-                var key = self._flat_key(c)
+                var key = self._flat_key(*c)
                 if seen.find(kairo::sref(key)) != seen.end() {
                     continue
                 }
 
                 seen.try_emplace(kairo::sref(key), i as u32)
                 distinct += (1)
-                if c.kind == CtorKind::Int {
-                    ints.push_back(c.lo)
+                if c->kind == CtorKind::Int {
+                    ints.push_back(c->lo)
                 }
             }
         }
@@ -931,8 +931,8 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
                     return res
                 }
 
-                var c = segs[hole as usize]
-                missing = self._ps.range_str(d, c.lo, c.hi)
+                var *c = &segs[hole as usize]
+                missing = self._ps.range_str(d, c->lo, c->hi)
             } case DomainKind::Record {
                 var c = Ctor{}
                 c.kind  = CtorKind::Record

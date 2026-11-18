@@ -93,7 +93,7 @@ extend CompilerInstance {
         var mtime: u64 = 0
         var size:  u64 = 0
         if !file_stat(p, &mtime, &size) {
-            return p + " -\n"
+            return p.copy() + " -\n"
         }
 
         return f"{p} {size} {mtime}\n"
@@ -120,8 +120,8 @@ extend CompilerInstance {
 
         var rt    = Path::join_str(rroot, ResourceLayout::rt_subdir())
         var files = cxx::std::vector<string>()
-        for var name: string in LinkFS::list_dir(rt) {
-            var p = rt + "/" + name
+        for *name in LinkFS::list_dir(rt) {
+            var p = rt.copy() + "/" + *name
             if LinkFS::is_file(p) {
                 files.push_back(p)
             }
@@ -137,8 +137,8 @@ extend CompilerInstance {
             out += CompilerInstance::_rt_stamp(*p)
         }
 
-        for var p: string in self._runtime_deps() {
-            out += CompilerInstance::_rt_stamp(p)
+        for *p in self._runtime_deps() {
+            out += CompilerInstance::_rt_stamp(*p)
         }
 
         return out
@@ -203,7 +203,7 @@ extend CompilerInstance {
         var found = false
         while cut > 0 {
             cut -= 1
-            if name[cut] == ('-' as u8) {
+            if name.data()[cut] == ('-' as u8) {
                 found = true
                 break
             }
@@ -215,23 +215,23 @@ extend CompilerInstance {
 
         var prefix = name.subslice(0, cut + 1)
 
-        for var other: string in LinkFS::list_dir(dir) {
-            if other == name || !other.starts_with(prefix) || !other.ends_with(".o") {
+        for *other in LinkFS::list_dir(dir) {
+            if *other == name || !other->starts_with(prefix) || !other->ends_with(".o") {
                 continue
             }
 
             // Only <prefix><hash>.o; the slot hash already separates stems
             // that share a prefix, this is belt and braces.
-            var rest = other.subslice(
+            var rest = other->subslice(
                 prefix.size(),
-                other.size() - prefix.size(),
+                other->size() - prefix.size(),
             )
 
             if find(rest, "-", 0) != usize::MAX {
                 continue
             }
 
-            LinkFS::remove(dir + "/" + other)
+            LinkFS::remove(dir.copy() + "/" + *other)
         }
 
         return true
@@ -252,15 +252,15 @@ extend CompilerInstance {
         var now        = now_ns()
         var kept       = cxx::std::vector<CacheEntryStat>()
         var total: u64 = 0
-        for var name: string in LinkFS::list_dir(dir) {
-            var p = dir + "/" + name
+        for *name in LinkFS::list_dir(dir) {
+            var p = dir.copy() + "/" + *name
             if !LinkFS::is_file(p) {
                 continue
             }
 
             // A publish lock left by a crashed build (lock_file_take takes
             // over such a lock for its own entry; this removes the rest).
-            if name.ends_with(".lock") && !LinkFS::is_dir(p) {
+            if name->ends_with(".lock") && !LinkFS::is_dir(p) {
                 var lm: u64 = 0
                 var ls: u64 = 0
                 if file_stat(p, &lm, &ls) && now > lm && now - lm > PUBLISH_LOCK_STALE_NS {
@@ -270,7 +270,7 @@ extend CompilerInstance {
                 continue
             }
 
-            var partial = is_leftover_temp(name)
+            var partial = is_leftover_temp(*name)
             var last    = LinkFS::mtime(p)
             var limit   = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
@@ -365,12 +365,12 @@ extend CompilerInstance {
         var key     = env::exe_path() + "\n" + self._backend->triple()
         var *inv    = self.invocation()
         var missing = cxx::std::vector<string>()
-        for var w: string in FlagTranslator::target(&inv->target, ClangSpelling::Driver) {
-            key += "\n" + w
+        for *w in FlagTranslator::target(&inv->target, ClangSpelling::Driver) {
+            key += "\n" + *w
         }
 
-        for var w: string in FlagTranslator::codegen(&*inv, self._backend->triple(), ClangSpelling::Driver, unsafe &missing) {
-            key += "\n" + w
+        for *w in FlagTranslator::codegen(&*inv, self._backend->triple(), ClangSpelling::Driver, unsafe &missing) {
+            key += "\n" + *w
         }
 
         var osz: i32 = 0
@@ -380,8 +380,8 @@ extend CompilerInstance {
             osz = 1
         }
 
-        for var w: string in FlagTranslator::optimization(inv->codegen.opt_level, osz, inv->codegen.f_vectorize, ClangSpelling::Driver) {
-            key += "\n" + w
+        for *w in FlagTranslator::optimization(inv->codegen.opt_level, osz, inv->codegen.f_vectorize, ClangSpelling::Driver) {
+            key += "\n" + *w
         }
 
         key += f"\ndebug={FlagTranslator::debug_on(&inv->codegen)}"
@@ -409,12 +409,12 @@ extend CompilerInstance {
         }
 
         for *o in objs {
-            self._lib_lazy.push_back(*o)
+            self._lib_lazy.push_back(o->copy())
         }
 
         self._lib_archive = archive.copy()
         // Last use, for _gc_kairo_libs.
-        LinkFS::write(dir + "/used", "")
+        LinkFS::write(dir.copy() + "/used", "")
         return true
     }
 
@@ -427,25 +427,28 @@ extend CompilerInstance {
                                     @inout objs:    cxx::std::vector<string>,
                                     @inout archive: string) -> bool {
         var text = ""
-        if !LinkFS::read(dir + "/manifest", &text) {
+        if !LinkFS::read(dir.copy() + "/manifest", &text) {
             return false
         }
 
         var start: usize = 0
         for var i: usize = 0; i <= text.size(); ++i {
-            if i < text.size() && text[i] != ('\n' as u8) {
+            if i < text.size() && text.data()[i] != ('\n' as u8) {
                 continue
             }
 
             var line = text.subslice(start, i - start)
             start = i + 1
             if line.starts_with("obj ") {
-                objs.push_back(dir + "/" + line.subslice(4, line.size() - 4))
+                objs.push_back(
+                    dir.copy() + "/" + line.subslice(4, line.size() - 4),
+                )
+
                 continue
             }
 
             if line.starts_with("ar ") {
-                archive = dir + "/" + line.subslice(3, line.size() - 3)
+                archive = dir.copy() + "/" + line.subslice(3, line.size() - 3)
                 continue
             }
 
@@ -453,7 +456,7 @@ extend CompilerInstance {
                 // `src <mtime> <path>`: the path may hold spaces, the mtime not.
                 var rest       = line.subslice(4, line.size() - 4)
                 var sp:  usize = 0
-                while sp < rest.size() && rest[sp] != (' ' as u8) {
+                while sp < rest.size() && rest.data()[sp] != (' ' as u8) {
                     sp += 1
                 }
 
@@ -512,11 +515,11 @@ extend CompilerInstance {
         var errs = self._diag->error_count()
         // A real file in the private directory: an action loads its input by
         // path, and a virtual buffer is not found that way.
-        if !LinkFS::write(tmp + "/kairo-lib.k", self._lib_text) {
+        if !LinkFS::write(tmp.copy() + "/kairo-lib.k", self._lib_text) {
             return false
         }
 
-        var entry = Path(tmp + "/kairo-lib.k") // after the write: a Path stats on construction
+        var entry = Path(tmp.copy() + "/kairo-lib.k") // after the write: a Path stats on construction
         var unsafe *action = kairo::std::create<FrontendAction>(
             entry,
             ModulePath(),
@@ -554,7 +557,7 @@ extend CompilerInstance {
         // vendor, and llvm::Triple reads its second field as one.
         var norm = llvm::Triple::normalize(kairo::sref(self._backend->triple()))
         if llvm::Triple(llvm::Twine(norm)).isWindowsGNUEnvironment() {
-            if !LinkFS::write_archive(tmp + "/libkairo.a", &objs) {
+            if !LinkFS::write_archive(tmp.copy() + "/libkairo.a", &objs) {
                 return false
             }
 
@@ -562,7 +565,7 @@ extend CompilerInstance {
         }
 
         for *o in objs {
-            if !o->starts_with(tmp + "/") {
+            if !o->starts_with(tmp.copy() + "/") {
                 return false
             }
 
@@ -578,7 +581,7 @@ extend CompilerInstance {
             var p = self._sm->get_filename(i as FileID)
             // Virtual buffers (-D) have no file; the entry is in tmp, which
             // the rename below moves.
-            if p.is_empty() || !LinkFS::is_file(p) || p.starts_with(tmp + "/") {
+            if p.is_empty() || !LinkFS::is_file(p) || p.starts_with(tmp.copy() + "/") {
                 continue
             }
 
@@ -589,11 +592,11 @@ extend CompilerInstance {
             man += f"src {LinkFS::mtime(k.path)} {k.path}\n"
         }
 
-        for var p: string in self._runtime_deps() {
-            man += f"src {LinkFS::mtime(p)} {p}\n"
+        for *p in self._runtime_deps() {
+            man += f"src {LinkFS::mtime(*p)} {*p}\n"
         }
 
-        if !LinkFS::write(tmp + "/manifest", man) {
+        if !LinkFS::write(tmp.copy() + "/manifest", man) {
             return false
         }
 
@@ -603,7 +606,7 @@ extend CompilerInstance {
         // (lock_file_take's bound) leaves the publish unlocked, where a
         // rename that loses the race still fails safe (below). The lock is
         // dropped before the slow parts, removing a stale tree and the gc.
-        var lock = dir + ".lock"
+        var lock = dir.copy() + ".lock"
         var locked = lock_file_take(
             lock,
             PUBLISH_LOCK_STALE_NS,
@@ -705,15 +708,15 @@ extend CompilerInstance {
         var now        = now_ns()
         var kept       = cxx::std::vector<CacheEntryStat>()
         var total: u64 = LinkFS::tree_size(keep)
-        for var name: string in LinkFS::list_dir(root) {
-            var p = root + "/" + name
+        for *name in LinkFS::list_dir(root) {
+            var p = root.copy() + "/" + *name
             if p == keep || !LinkFS::is_dir(p) {
                 continue
             }
 
             // A publish lock left by a crashed build (lock_file_take takes
             // over such a lock for its own entry; this removes the rest).
-            if name.ends_with(".lock") && !LinkFS::is_dir(p) {
+            if name->ends_with(".lock") && !LinkFS::is_dir(p) {
                 var lm: u64 = 0
                 var ls: u64 = 0
                 if file_stat(p, &lm, &ls) && now > lm && now - lm > PUBLISH_LOCK_STALE_NS {
@@ -723,11 +726,11 @@ extend CompilerInstance {
                 continue
             }
 
-            var partial = is_leftover_temp(name)
+            var partial = is_leftover_temp(*name)
 
-            var last = LinkFS::mtime(p + "/used")
+            var last = LinkFS::mtime(p.copy() + "/used")
             if last == 0 {
-                last = LinkFS::mtime(p + "/manifest")
+                last = LinkFS::mtime(p.copy() + "/manifest")
             }
 
             if last == 0 {

@@ -64,7 +64,7 @@ pub class FullSourceLocation {
         self.file_id = file_id
         self.line    = line
         self.column  = column
-        self.path    = path
+        self.path    = path.copy()
     }
 
     /// checks whether this represents a valid source position.

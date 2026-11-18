@@ -59,6 +59,7 @@ import Driver::CompilerRecovery
 import Driver::FrontendAction::FrontendAction
 import Driver::TUStage::TUStage
 import Resolution::ModulePath::ModulePath
+import Support::Ascii::copy_strings
 import Support::FileIO::Path::Path
 import Tooling::ParseAPI::{
     _apply_stop_at,
@@ -195,7 +196,7 @@ pub class LiveCheck {
     /// - `words`: the compile command without its program name: the entry
     ///   and its flags. --type-check-only is added.
     pub fn LiveCheck(self, const words: cxx::std::vector<string>) {
-        self._words = words
+        self._words = copy_strings(words)
         self._words.push_back("--type-check-only")
     }
 
@@ -531,7 +532,7 @@ pub class LiveCheck {
     /// the list afterwards.
     priv fn _forget(self, const names: cxx::std::vector<string>) -> usize {
         var is_name = llvm::StringMap<u32>()
-        for var n: string in names {
+        for var n in names {
             is_name.try_emplace(kairo::sref(n), 1 as u32)
         }
 
@@ -971,7 +972,7 @@ pub class LiveCheck {
         // cannot be pre-empted and what a first tier costs.
         if group.size() > 1 && cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null {
             var all = ""
-            for var n: string in names {
+            for var n in names {
                 all += " " + Path(n).filename()
             }
 
@@ -1003,7 +1004,7 @@ pub class LiveCheck {
         }
 
         self._q = rest
-        for var n: string in names {
+        for var n in names {
             self.rechecked.push_back(n)
         }
 
@@ -1326,9 +1327,9 @@ pub class LiveCheck {
 
         // The module.k files read for a library's name are inputs of the
         // result too, though no file of the graph is one of them.
-        for var f: string in self._ci->imp()->pin_files() {
+        for var f in self._ci->imp()->pin_files() {
             var held = false
-            for var g: string in out {
+            for var g in out {
                 held = held || g == f
             }
 
@@ -1483,7 +1484,7 @@ pub class LiveCheck {
         self.errors   = 0
         self.warnings = 0
         self.files    = 0
-        var words = self._words
+        var words = copy_strings(self._words)
         self._ci = kairo::std::create<CompilerInstance>(words)
         if !self._ci->args_ok() {
             return false

@@ -380,9 +380,9 @@ pub class InterfacePCH {
         var *pp  = &ci.getPreprocessor()
         var hdrs = cxx::std::vector<string>()
         for var s: unsafe *TokenSink in self._keep {
-            for var h: string in s->system_headers {
+            for var h in s->system_headers {
                 var dup = false
-                for var x: string in hdrs {
+                for var x in hdrs {
                     if x == h {
                         dup = true
                         break
@@ -390,12 +390,12 @@ pub class InterfacePCH {
                 }
 
                 if !dup {
-                    hdrs.push_back(h)
+                    hdrs.push_back(h.copy())
                 }
             }
         }
 
-        for var h: string in hdrs {
+        for var h in hdrs {
             ppo->Includes.push_back(kairo::std::to_std_string(h))
             var pre  = kairo::std::to_std_string(pp->getPredefines())
             var line = "#include <" + h + ">\n"

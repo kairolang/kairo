@@ -469,22 +469,22 @@ pub class EmitIR {
         var p   = "unsigned char * "
         // Each forwarder: the C symbol, and A's function of the same row.
         var s_alloc = LowerTargets::global_alloc_symbol(GlobalAllocFn::Alloc)
-        var m_alloc = a + "::" + AllocNames::global_alloc_member(
+        var m_alloc = a.copy() + "::" + AllocNames::global_alloc_member(
             GlobalAllocFn::Alloc,
         )
 
         var s_free = LowerTargets::global_alloc_symbol(GlobalAllocFn::Free)
-        var m_free = a + "::" + AllocNames::global_alloc_member(
+        var m_free = a.copy() + "::" + AllocNames::global_alloc_member(
             GlobalAllocFn::Free,
         )
 
         var s_rsz = LowerTargets::global_alloc_symbol(GlobalAllocFn::Resize)
-        var m_rsz = a + "::" + AllocNames::global_alloc_member(
+        var m_rsz = a.copy() + "::" + AllocNames::global_alloc_member(
             GlobalAllocFn::Resize,
         )
 
         var s_real = LowerTargets::global_alloc_symbol(GlobalAllocFn::Realloc)
-        var m_real = a + "::" + AllocNames::global_alloc_member(
+        var m_real = a.copy() + "::" + AllocNames::global_alloc_member(
             GlobalAllocFn::Realloc,
         )
 
@@ -498,25 +498,25 @@ pub class EmitIR {
 
         self._cg->sink->spell(
             at,
-            pre + p + s_alloc + "(" + sz + " size, " + sz + " align) noexcept { return " + m_alloc + "(size, align); }",
+            pre.copy() + p + s_alloc + "(" + sz + " size, " + sz + " align) noexcept { return " + m_alloc + "(size, align); }",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            pre + "void " + s_free + "(" + p + "ptr, " + sz + " size, " + sz + " align) noexcept { " + m_free + "(ptr, size, align); }",
+            pre.copy() + "void " + s_free + "(" + p + "ptr, " + sz + " size, " + sz + " align) noexcept { " + m_free + "(ptr, size, align); }",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            pre + "bool " + s_rsz + "(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + m_rsz + "(ptr, old_size, new_size, align); }",
+            pre.copy() + "bool " + s_rsz + "(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + m_rsz + "(ptr, old_size, new_size, align); }",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            pre + p + s_real + "(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + m_real + "(ptr, old_size, new_size, align); }",
+            pre.copy() + p + s_real + "(" + p + "ptr, " + sz + " old_size, " + sz + " new_size, " + sz + " align) noexcept { return " + m_real + "(ptr, old_size, new_size, align); }",
         )
 
         self._cg->sink->brk()
@@ -612,10 +612,10 @@ pub class EmitIR {
         var m      = abi_note_magic()
         var out    = ""
         for var k: usize = 0; k < m.size(); ++k {
-            var b = ((m[k]) as u32) & (255 as u32)
+            var b = ((m.data()[k]) as u32) & (255 as u32)
             out += "0x"
-            out.push_back(digits[(b >> (4 as u32)) as usize])
-            out.push_back(digits[(b & (15 as u32)) as usize])
+            out.push(digits.data()[(b >> (4 as u32)) as usize])
+            out.push(digits.data()[(b & (15 as u32)) as usize])
             out += ", "
         }
 

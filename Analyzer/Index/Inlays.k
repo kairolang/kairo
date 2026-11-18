@@ -103,8 +103,8 @@ extend IndexWalker {
 
         var *text = &self.files[0].text
         if ((off as usize) >= text->size())
-            || ((((*text)[off as usize]) != ('"' as u8))
-                && (((*text)[off as usize]) != ('\'' as u8))) {
+            || (((text->data()[off as usize]) != ('"' as u8))
+                && ((text->data()[off as usize]) != ('\'' as u8))) {
             return off
         }
 
@@ -112,7 +112,7 @@ extend IndexWalker {
         // touching the quote is not one.
         var at = off as usize
         while (at > 0) && ((off as usize) - at < 3) {
-            var c = (*text)[at - 1]
+            var c = text->data()[at - 1]
             var is_word = ((c >= ('a' as u8)) && (c <= ('z' as u8)))
                 || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
                 || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
@@ -130,9 +130,9 @@ extend IndexWalker {
         }
 
         // `b` prefixes a string only: before `'` it is a name.
-        var quote_is_char = (*text)[off as usize] == ('\'' as u8)
+        var quote_is_char = text->data()[off as usize] == ('\'' as u8)
         for var i: usize = at; i < (off as usize); ++i {
-            var c = (*text)[i] | (0x20 as u8)
+            var c = text->data()[i] | (0x20 as u8)
             if (c != ('f' as u8)) && (c != ('r' as u8)) && (c != ('b' as u8)) {
                 return off
             }
@@ -142,7 +142,8 @@ extend IndexWalker {
             }
 
             // Two letters are two different prefixes.
-            if (n == 2) && (((*text)[at] | (0x20 as u8)) == ((*text)[at + 1] | (0x20 as u8))) {
+            if (n == 2)
+                && ((text->data()[at] | (0x20 as u8)) == (text->data()[at + 1] | (0x20 as u8))) {
                 return off
             }
         }

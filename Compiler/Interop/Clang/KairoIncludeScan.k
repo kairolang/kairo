@@ -67,7 +67,7 @@ pub class KairoIncludeScan {
             }
         }
 
-        self._seen.push_back(abs)
+        self._seen.push_back(abs.copy())
 
         var r = llvm::MemoryBuffer::getFile(llvm::Twine(kairo::sref(abs)))
         if r.getError().value() != 0 {

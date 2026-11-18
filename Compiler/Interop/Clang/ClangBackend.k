@@ -91,6 +91,7 @@ import Interop::Clang::ClangInstance::{
 }
 import Interop::Clang::ClangLocMap::ClangLocMap
 import Location::SourceManager::SourceManager
+import Support::Ascii::copy_strings
 import std::c_char
 
 /// ThreadPool group ids used by the driver for backend tasks.
@@ -156,6 +157,36 @@ pub struct ClangBackendConfig {
     pub var driver_words: cxx::std::vector<string>
 }
 
+/// A copy of every field of `src`; the strings and string vectors are not
+/// copyable by assignment.
+pub fn copy_backend_config(const src: ClangBackendConfig) -> ClangBackendConfig {
+    var c = ClangBackendConfig{}
+    c.triple           = src.triple.copy()
+    c.clang_triple     = src.clang_triple.copy()
+    c.resource_dir     = src.resource_dir.copy()
+    c.sysroot          = src.sysroot.copy()
+    c.cxx_include_dirs = copy_strings(src.cxx_include_dirs)
+    c.include_dirs     = copy_strings(src.include_dirs)
+    c.framework_dirs   = copy_strings(src.framework_dirs)
+    c.after_dirs       = copy_strings(src.after_dirs)
+    c.strip_env        = src.strip_env
+    c.defines          = copy_strings(src.defines)
+    c.cxx_std          = src.cxx_std.copy()
+    c.c_std            = src.c_std.copy()
+    c.includes         = copy_strings(src.includes)
+    c.extra_cc1        = copy_strings(src.extra_cc1)
+    c.wargs            = copy_strings(src.wargs)
+    c.opt_level        = src.opt_level
+    c.opt_size         = src.opt_size
+    c.vectorize        = src.vectorize
+    c.debug_info       = src.debug_info
+    c.dwarf_version    = src.dwarf_version
+    c.debug_macros     = src.debug_macros
+    c.embed_source     = src.embed_source
+    c.driver_words     = copy_strings(src.driver_words)
+    return c
+}
+
 /// Where CodegenMounts stands. Written only on the driver thread (freeze()
 /// before the fan-out, release() after its join) and read by the fan-out's
 /// workers in codegen_vfs; the pool's enqueue and join order those reads,
@@ -167,6 +198,7 @@ pub struct ClangBackendConfig {
 ///   Released  release() dropped it, before the PCH buffers its views point
 ///             into are freed: any further use is an ICE, not a fresh layer
 ///             over those buffers.
+
 pub enum MountState derives u8 {
     Open,
     Frozen,
@@ -358,7 +390,7 @@ pub class ClangBackend {
         }
 
         self._ksm    = ksm
-        self._cfg    = cfg
+        self._cfg    = copy_backend_config(cfg)
         self._locmap = kairo::std::create<ClangLocMap>(ksm)
     }
 
@@ -502,7 +534,7 @@ pub class ClangBackend {
         // last -O. Debug info is unaffected (it comes with the target words).
         if self._cfg.opt_size == 0 && self._cfg.opt_level < 2 {
             var rt_fvec: i32 = if (self._cfg.vectorize) => (1) else => 0
-            for var a: string in FlagTranslator::optimization(2, 0, rt_fvec, ClangSpelling::CC1) {
+            for var a in FlagTranslator::optimization(2, 0, rt_fvec, ClangSpelling::CC1) {
                 self._arg(&argv, a)
             }
         }
@@ -790,7 +822,7 @@ pub class ClangBackend {
             macro_triple,
         )
 
-        for var w: string in FlagTranslator::debug_driver(self._cfg.debug_info, self._cfg.dwarf_version,
+        for var w in FlagTranslator::debug_driver(self._cfg.debug_info, self._cfg.dwarf_version,
                                                       macro_info, self._cfg.embed_source) {
             words.push_back(w)
         }
@@ -828,7 +860,7 @@ pub class ClangBackend {
 
     priv fn _driver_target_args(self) -> cxx::std::vector<string> {
         if self._target_known {
-            return self._target_args
+            return copy_strings(self._target_args)
         }
 
         self._target_known = true
@@ -840,7 +872,7 @@ pub class ClangBackend {
                 f"ClangBackend: clang's driver gave no cc1 line for {self._cfg.triple} (a bad --march fails this probe); compiling without target defaults",
             )
 
-            return self._target_args
+            return copy_strings(self._target_args)
         }
 
         // C++'s FP defaults, before the filter drops them: an ffi header
@@ -862,11 +894,11 @@ pub class ClangBackend {
 
         // Which of the driver's cc1 words decide the target is the
         // translator's call (FlagTranslator::probe_filter).
-        for var a: string in FlagTranslator::probe_filter(&cc1) {
+        for var a in FlagTranslator::probe_filter(&cc1) {
             self._target_args.push_back(a)
         }
 
-        return self._target_args
+        return copy_strings(self._target_args)
     }
 
     /// the header-search model and the sysroot's required macros,
@@ -905,7 +937,7 @@ pub class ClangBackend {
         o.push_back("-nostdinc++")
         if !rd.is_empty() {
             o.push_back("-resource-dir")
-            o.push_back(rd)
+            o.push_back(rd.copy())
         }
 
         var kinds = cxx::std::vector<u8>()
@@ -933,7 +965,7 @@ pub class ClangBackend {
 
         if !sr.is_empty() {
             o.push_back("-isysroot")
-            o.push_back(sr)
+            o.push_back(sr.copy())
         }
 
         // The driver also anchors its toolchain search (crt, gcc install
@@ -1081,7 +1113,7 @@ pub class ClangBackend {
                         kairo_v: bool) {
         self._arg(&*argv, "-triple")
         self._arg(&*argv, self._clang_triple())
-        for var a: string in self._driver_target_args() {
+        for var a in self._driver_target_args() {
             self._arg(&*argv, a)
         }
 
@@ -1097,14 +1129,14 @@ pub class ClangBackend {
 
         // Header search and the sysroot's macros: the one root model,
         // shared with C/C++ inputs (sysroot_words says why it is explicit).
-        for var a: string in self.sysroot_words(is_c, ClangSpelling::CC1) {
+        for var a in self.sysroot_words(is_c, ClangSpelling::CC1) {
             self._arg(&*argv, a)
         }
 
         // Kairo's FP semantics, ahead of extra_cc1 so the user's own FP
         // flags (cc1 takes the last) still win.
         if kairo_v {
-            for var a: string in FlagTranslator::kairo_fp_cc1() {
+            for var a in FlagTranslator::kairo_fp_cc1() {
                 self._arg(&*argv, a)
             }
         }
@@ -1156,7 +1188,7 @@ pub class ClangBackend {
         // runtime objects and every TU's codegen run alike -- so builtin,
         // std and the user's code are always built at one level.
         var fvec: i32 = if (self._cfg.vectorize) => (1) else => 0
-        for var a: string in FlagTranslator::optimization(self._cfg.opt_level, self._cfg.opt_size, fvec, ClangSpelling::CC1) {
+        for var a in FlagTranslator::optimization(self._cfg.opt_level, self._cfg.opt_size, fvec, ClangSpelling::CC1) {
             self._arg(&*argv, a)
         }
 

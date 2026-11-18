@@ -137,12 +137,12 @@ fn _straight(s: unsafe *Stmt) -> bool {
 /// holds, and ruled out otherwise.
 pub fn test_disarm_scan(ends: unsafe *LocalEnds, b: unsafe *CompoundStmt) {
     for var r: usize = 0; r < ends->rows.size(); ++r {
-        var row = ends->rows[r]
-        if row.disarm_site == &null || row.disarm_bad || row.disarm_ok {
+        var *row = &ends->rows[r]
+        if row->disarm_site == &null || row->disarm_bad || row->disarm_ok {
             continue
         }
 
-        var unsafe *d = unsafe (row.d as unsafe *Decl)
+        var unsafe *d = unsafe (row->d as unsafe *Decl)
         var        at = usize::MAX
         for var i: usize = 0; i < b->body.size(); ++i {
             var unsafe *ds = dyn_cast<DeclStmt>(b->body[i])
@@ -165,7 +165,7 @@ pub fn test_disarm_scan(ends: unsafe *LocalEnds, b: unsafe *CompoundStmt) {
 
             var sc = DisarmScan()
             sc.target = d
-            sc.site   = row.disarm_site
+            sc.site   = row->disarm_site
             sc.dispatch_stmt(b->body[i])
             if sc.found {
                 // The move's own statement names the local once, at the move.

@@ -93,8 +93,8 @@ pub class Diagnostic {
     }
 
     /// Constructs a diagnostic with a known location.
-    fn Diagnostic(self, _code: DiagCode, _loc: SourceLocation, _msg: string) {
-        self.code    = _code
+    fn Diagnostic(self, const _code: DiagCode, _loc: SourceLocation, _msg: string) {
+        self.code    = _code.copy()
         self.message = _msg.copy()
         self.loc     = _loc
         self.has_loc = true
@@ -104,8 +104,8 @@ pub class Diagnostic {
     }
 
     /// Constructs a location-less diagnostic (e.g. linker or internal errors).
-    fn Diagnostic(self, _code: DiagCode, _msg: string) {
-        self.code    = _code
+    fn Diagnostic(self, const _code: DiagCode, _msg: string) {
+        self.code    = _code.copy()
         self.message = _msg.copy()
         self.has_loc = false
         self.labels.reserve(4)

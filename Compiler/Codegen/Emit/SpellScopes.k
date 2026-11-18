@@ -228,10 +228,10 @@ extend Speller {
     static fn cxx_segment(const s: string) -> string {
         var out = ""
         for var i: usize = 0; i < s.size(); ++i {
-            var c  = s[i]
+            var c  = s.data()[i]
             var ok = is_ident_char(c)
             if ok {
-                out.push_back(c)
+                out.push(c)
             } else {
                 out += "_"
             }
@@ -671,13 +671,13 @@ extend Speller {
     static fn _path_ident(const sp: string) -> string {
         var out       = ""
         var i:  usize = 0
-        if sp.size() >= 2 && sp[0] == (':' as u8) && sp[1] == (':' as u8) {
+        if sp.size() >= 2 && sp.data()[0] == (':' as u8) && sp.data()[1] == (':' as u8) {
             i = 2
         }
 
         while i < sp.size() {
-            var ch = sp[i]
-            if ch == (':' as u8) && i + 1 < sp.size() && sp[i + 1] == (':' as u8) {
+            var ch = sp.data()[i]
+            if ch == (':' as u8) && i + 1 < sp.size() && sp.data()[i + 1] == (':' as u8) {
                 out += "__"
                 i += 2
                 continue
@@ -685,7 +685,7 @@ extend Speller {
 
             var ok = is_ident_char(ch)
             if ok {
-                out.push_back(ch)
+                out.push(ch)
             } else {
                 out += "_"
             }
@@ -734,19 +734,14 @@ extend Speller {
     /// enumerators are its enclosing scope's (`::clang::diag::err_x`);
     /// `::` alone is the global scope.
     static fn _unnamed_scope_cut(q: string) -> string {
-        var out = ""
         for var i: usize = 0; i < q.size(); ++i {
-            if q[i] == ('(' as u8) && i >= 2 && q[i - 1] == (':' as u8) && q[i - 2] == (':' as u8) {
-                // `out` ends in the `::` before the segment; drop it.
-                var cut = ""
-                for var j: usize = 0; j + 2 < out.size(); ++j {
-                    cut.push_back(out[j])
-                }
-
-                return cut
+            if q.data()[i] == ('(' as u8)
+                && i >= 2
+                && q.data()[i - 1] == (':' as u8)
+                && q.data()[i - 2] == (':' as u8) {
+                // The text before the segment ends in `::`; drop it.
+                return q.subslice(0, i - 2)
             }
-
-            out.push_back(q[i])
         }
 
         return q

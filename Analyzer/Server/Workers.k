@@ -86,7 +86,7 @@ extend Server {
         var n:    u32    = 0
         var in_n         = false
         for var i: usize = 0; i <= spec.size(); ++i {
-            if (i == spec.size()) || (spec[i] == (',' as u8)) { // ','
+            if (i == spec.size()) || (spec.data()[i] == (',' as u8)) { // ','
                 if !name.is_empty() {
                     self.dbg_fail_kind.push(name.copy())
                     self.dbg_fail_left.push(n)
@@ -95,11 +95,11 @@ extend Server {
                 name = ""
                 n    = 0
                 in_n = false
-            } else if spec[i] == ('=' as u8) { // '='
+            } else if spec.data()[i] == ('=' as u8) { // '='
                 in_n = true
             } else if in_n {
-                if (spec[i] >= ('0' as u8)) && (spec[i] <= ('9' as u8)) {
-                    n = (n * 10) + ((spec[i] - 48) as u32)
+                if (spec.data()[i] >= ('0' as u8)) && (spec.data()[i] <= ('9' as u8)) {
+                    n = (n * 10) + ((spec.data()[i] - 48) as u32)
                 }
             } else {
                 name += spec.subslice(i, 1)
@@ -479,9 +479,9 @@ extend Server {
                 continue // still running
             }
 
-            var j = self.jobs[i]
+            var j = self.jobs[i].copy()
             // Order does not matter: swap the last one in and drop the tail.
-            self.jobs[i] = self.jobs[self.jobs.size() - 1]
+            self.jobs[i] = self.jobs[self.jobs.size() - 1].copy()
             self.jobs.pop()
             if j.kind == JobKind::Index {
                 self.finish_index(&j, done.ReturnCode)
@@ -651,13 +651,13 @@ extend Server {
         }
 
         var tables_us = now_us() - tt0
-        self.entries[ei].snap     = doc
+        self.entries[ei].snap     = doc.copy()
         self.entries[ei].has_snap = true
         self.entries[ei].snap_rev = j->rev
         var t3 = now_us()
         var t4 = t3
         if (doc.count(doc.get(doc.root, SK_FILES)) > 0) && self.index_installs(ei, const &doc) {
-            self.entries[ei].idx     = doc
+            self.entries[ei].idx     = doc.copy()
             self.entries[ei].has_idx = true
             self.entries[ei].idx_rev = j->rev
             t4                       = now_us()

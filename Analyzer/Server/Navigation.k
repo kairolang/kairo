@@ -198,7 +198,7 @@ extend Server {
                         )
 
                         var fe = o->get(o->get(from, K_SELECTION_RANGE), K_END)
-                        key = fpath + ":" + o->dump(fs)
+                        key = fpath.copy() + ":" + o->dump(fs)
                         self.hierarchy_item(
                             &head,
                             o->get_str(from, K_NAME),
@@ -258,7 +258,7 @@ extend Server {
                         heads.push(head.out.copy())
                         ranges.push(rw.out.copy())
                     } else if find_from(ranges[g], rw.out, 0) == usize::MAX {
-                        ranges[g] = ranges[g] + "," + rw.out
+                        ranges[g] = ranges[g].copy() + "," + rw.out
                     }
 
                     r = o->next(r)
@@ -441,7 +441,7 @@ extend Server {
                         var kw = JsonWriter()
                         write_lsp_position(&kw, dl, dc)
                         var key = kw.out.copy()
-                        var site = fpath + ":" + f"{o->as_int(self.nth(o, r, REF_LINE))}" + ":" + f"{o->as_int(self.nth(o, r, REF_CHAR))}" + ";"
+                        var site = fpath.copy() + ":" + f"{o->as_int(self.nth(o, r, REF_LINE))}" + ":" + f"{o->as_int(self.nth(o, r, REF_CHAR))}" + ";"
                         for var k: usize = 0; k < decl_keys.size(); ++k {
                             if (decl_keys[k] == key)
                                 && (find_from(sites[k], site, 0) == usize::MAX) {

@@ -608,15 +608,15 @@ pub class HeaderSet {
         }
 
         self._transition(HeaderSetState::Unused, HeaderSetState::Reviving)
-        var keep_files = self.files
-        var keep_inc   = self.includes
-        self.files.clear()
-        self.includes.clear()
+        var keep_files = cxx::std::move(self.files)
+        var keep_inc   = cxx::std::move(self.includes)
+        self.files    = cxx::std::vector<HeaderFile>()
+        self.includes = cxx::std::vector<IncludeEdge>()
         self.diag_buf.push_suppress()
         self._parse(self._be_saved) // its verdict is the first build's (`ok`), not this one's.
         self.diag_buf.pop_suppress()
-        self.files    = keep_files
-        self.includes = keep_inc
+        self.files    = cxx::std::move(keep_files)
+        self.includes = cxx::std::move(keep_inc)
         // Published only now, with the instance whole (see _ready).
         self._transition(
             HeaderSetState::Reviving,
@@ -1451,10 +1451,11 @@ override fn HeaderSetPPCallbacks::FileChanged(self,
     hf.path      = p.copy()
     hf.cfid_hash = fid.getHashValue()
     hf.is_system = clang::SrcMgr::isSystem(kind)
+    var hash = hf.cfid_hash
     self._set->files.push_back(hf)
     for *h in self._set->headers {
         if p == *h || p.ends_with("/" + *h) {
-            self._set->body_files.insert(hf.cfid_hash as u64)
+            self._set->body_files.insert(hash as u64)
             break
         }
     }

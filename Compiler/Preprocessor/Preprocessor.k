@@ -186,7 +186,7 @@ pub class PreProcessor {
         self._pool     = pool
         self._diag     = diag
         self._gscope   = gscope
-        self._opts     = opts
+        self._opts     = opts.copy()
         self._inv      = inv
         self._register_defines()
     }
@@ -554,7 +554,7 @@ pub class PreProcessor {
             self._sm,
             self._tcm,
             self._diag,
-            self._opts,
+            self._opts.copy(),
             mod_path,
             self._headers,
         )
@@ -715,7 +715,7 @@ pub class PreProcessor {
                     self._sm,
                     self._tcm,
                     self._diag,
-                    self._opts,
+                    self._opts.copy(),
                     mp,
                     self._headers,
                 )

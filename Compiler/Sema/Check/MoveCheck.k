@@ -251,6 +251,7 @@ import Sema::Type::BinderBorrow::{
     note_borrowed_binder,
 }
 import Sema::Type::TypeUtil::TypeUtil
+import Support::Ascii::rfind_byte
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
@@ -332,6 +333,34 @@ pub class MovedPart {
     /// call. Invalid otherwise.
     pub var cxx_at: SourceRange = SourceRange::invalid()
     fn MovedPart(self) { }
+
+    fn copy(const self) -> MovedPart {
+        var r = MovedPart()
+        r.d        = self.d
+        r.path     = self.path.copy()
+        r.shown    = self.shown.copy()
+        r.elem     = self.elem.copy()
+        r.at       = self.at
+        r.how      = self.how.copy()
+        r.segs     = self.segs
+        r.has_via  = self.has_via
+        r.via      = self.via
+        r.via_text = self.via_text.copy()
+        r.kind     = self.kind
+        r.site     = self.site
+        r.cxx_at   = self.cxx_at
+        return r
+    }
+}
+
+/// An independent copy of `v`.
+pub fn copy_parts(const v: cxx::std::vector<MovedPart>) -> cxx::std::vector<MovedPart> {
+    var out = cxx::std::vector<MovedPart>()
+    for var i: usize = 0; i < v.size(); ++i {
+        out.push_back(v[i].copy())
+    }
+
+    return out
 }
 
 /// What an expression names in a body's bindings: a binding, and the path of
@@ -375,7 +404,7 @@ pub class MovePlace {
         self.ptr_path  = self.path.copy()
         self.ptr_shown = self.shown.copy()
         self.starred   = self.deref
-        self.path = if (self.path.size() == 0) => ("*") else => self.path + ".*"
+        self.path = if (self.path.size() == 0) => ("*") else => self.path.copy() + ".*"
         self.shown = "*" + self.shown
         self.deref = true
         var none: unsafe *Decl = &null
@@ -390,7 +419,7 @@ pub class MovePlace {
 
         self.segs.push_back(fd)
 
-        self.path = if (self.path.size() == 0) => (f) else => self.path + "." + f
+        self.path = if (self.path.size() == 0) => (f.copy()) else => self.path.copy() + "." + f
         if !self.deref {
             self.shown += "." + f
             return
@@ -416,6 +445,16 @@ pub class PendingMove {
     /// _derived_operand): a later read leaves it a copy the type cannot make.
     pub var is_derived: bool = false
     fn PendingMove(self) { }
+
+    fn copy(const self) -> PendingMove {
+        var r = PendingMove()
+        r.d          = self.d
+        r.path       = self.path.copy()
+        r.site       = self.site
+        r.is_pack    = self.is_pack
+        r.is_derived = self.is_derived
+        return r
+    }
 }
 
 /// `inner` is `outer` or a part of it.
@@ -424,7 +463,7 @@ pub fn path_within(const inner: string, const outer: string) -> bool {
         return true
     }
 
-    return inner.starts_with(outer + ".")
+    return inner.starts_with(outer.copy() + ".")
 }
 
 /// `a` and `b` name overlapping storage: one is the other or a part of it.
@@ -444,8 +483,8 @@ pub fn read_touches(const moved: string, const read: string) -> bool {
         return false
     }
 
-    var star = moved.rfind("*")
-    return star == usize::MAX || star < read.size()
+    var star = rfind_byte(moved, ('*' as u8))
+    return star == moved.size() || star < read.size()
 }
 
 /// `a` and `b` are the same range.
@@ -470,6 +509,16 @@ pub class CondLink {
     pub var when:  cxx::std::vector<u8>
     fn CondLink(self) { }
 
+    fn copy(const self) -> CondLink {
+        var r = CondLink()
+        r.d     = self.d
+        r.site  = self.site
+        r.nul   = self.nul
+        r.parts = copy_parts(self.parts)
+        r.when  = self.when
+        return r
+    }
+
     fn holds(self, const d: unsafe *Decl, const path: string) -> bool {
         for var i: usize = 0; i < self.parts.size(); ++i {
             if self.parts[i].d == d && self.parts[i].path == path {
@@ -482,7 +531,7 @@ pub class CondLink {
 
     /// `o` is the same link: the same local, from the same call, over the
     /// same parts.
-    fn same(self, const o: CondLink) -> bool {
+    fn same(const self, const o: CondLink) -> bool {
         if self.d != o.d
             || self.nul != o.nul
             || !same_range(self.site, o.site)
@@ -526,6 +575,24 @@ pub class MoveState {
     pub var disarmed: cxx::std::vector<unsafe *Decl>
     fn MoveState(self) { }
 
+    fn copy(const self) -> MoveState {
+        var r = MoveState()
+        r.moved    = copy_parts(self.moved)
+        r.dead     = self.dead
+        r.reported = self.reported
+        for var i: usize = 0; i < self.pend.size(); ++i {
+            r.pend.push_back(self.pend[i].copy())
+        }
+
+        for var i: usize = 0; i < self.links.size(); ++i {
+            r.links.push_back(self.links[i].copy())
+        }
+
+        r.ended    = self.ended
+        r.disarmed = self.disarmed
+        return r
+    }
+
     fn link_of(self, d: unsafe *Decl) -> usize {
         for var i: usize = 0; i < self.links.size(); ++i {
             if self.links[i].d == d {
@@ -548,7 +615,7 @@ pub class MoveState {
         }
     }
 
-    fn is_disarmed(self, d: unsafe *Decl) -> bool {
+    fn is_disarmed(const self, d: unsafe *Decl) -> bool {
         for var i: usize = 0; i < self.disarmed.size(); ++i {
             if self.disarmed[i] == d {
                 return true
@@ -558,7 +625,7 @@ pub class MoveState {
         return false
     }
 
-    fn is_ended(self, d: unsafe *Decl) -> bool {
+    fn is_ended(const self, d: unsafe *Decl) -> bool {
         for var i: usize = 0; i < self.ended.size(); ++i {
             if self.ended[i] == d {
                 return true
@@ -621,7 +688,7 @@ pub class MoveState {
             }
         }
 
-        self.pend.push_back(p)
+        self.pend.push_back(p.copy())
     }
 
     fn was_reported(self, d: unsafe *Decl) -> bool {
@@ -660,7 +727,7 @@ pub class MoveState {
     /// call, is one a test of the local cannot take back: the link goes.
     fn mark(self, const p: MovedPart) {
         if self.index_of(p.d, p.path) == usize::MAX {
-            self.moved.push_back(p)
+            self.moved.push_back(p.copy())
             return
         }
 
@@ -717,22 +784,22 @@ pub class MoveState {
 }
 
 /// Moved on either path means moved. A dead path defers to the live one.
-pub fn move_join(a: MoveState, b: MoveState) -> MoveState {
+pub fn move_join(const a: MoveState, const b: MoveState) -> MoveState {
     if a.dead {
-        return b
+        return b.copy()
     }
 
     if b.dead {
-        return a
+        return a.copy()
     }
 
     // A link holds after the join only when it holds on both sides.
-    var out = a
+    var out = a.copy()
     out.links.clear()
     for var i: usize = 0; i < a.links.size(); ++i {
         for var k: usize = 0; k < b.links.size(); ++k {
             if a.links[i].same(b.links[k]) {
-                out.links.push_back(a.links[i])
+                out.links.push_back(a.links[i].copy())
                 break
             }
         }
@@ -775,6 +842,36 @@ pub fn move_join(a: MoveState, b: MoveState) -> MoveState {
     return out
 }
 
+/// An independent copy of `v`.
+pub fn copy_states(const v: cxx::std::vector<MoveState>) -> cxx::std::vector<MoveState> {
+    var out = cxx::std::vector<MoveState>()
+    for var i: usize = 0; i < v.size(); ++i {
+        out.push_back(v[i].copy())
+    }
+
+    return out
+}
+
+/// An independent copy of `v`.
+pub fn copy_loops(const v: cxx::std::vector<LoopFrame>) -> cxx::std::vector<LoopFrame> {
+    var out = cxx::std::vector<LoopFrame>()
+    for var i: usize = 0; i < v.size(); ++i {
+        out.push_back(v[i].copy())
+    }
+
+    return out
+}
+
+/// An independent copy of `v`.
+pub fn copy_tries(const v: cxx::std::vector<TryFrame>) -> cxx::std::vector<TryFrame> {
+    var out = cxx::std::vector<TryFrame>()
+    for var i: usize = 0; i < v.size(); ++i {
+        out.push_back(v[i].copy())
+    }
+
+    return out
+}
+
 /// One enclosing loop: the states at each `break` / `continue` inside it.
 pub class LoopFrame {
     pub var breaks:    cxx::std::vector<MoveState>
@@ -786,6 +883,17 @@ pub class LoopFrame {
     pub var has_label:   bool      = false ///< written `label: loop`; a labeled break/continue finds its frame by it.
     pub var label:       Token
     fn LoopFrame(self) { }
+
+    fn copy(const self) -> LoopFrame {
+        var r = LoopFrame()
+        r.breaks      = copy_states(self.breaks)
+        r.continues   = copy_states(self.continues)
+        r.done        = self.done.copy()
+        r.block_depth = self.block_depth
+        r.has_label   = self.has_label
+        r.label       = self.label
+        return r
+    }
 }
 
 /// One enclosing `try` body: the state at each point inside it where a
@@ -811,6 +919,19 @@ pub class TryFrame {
     /// inside it at a point the walk does not see.
     pub var cxx_arm: bool = false
     fn TryFrame(self) { }
+
+    fn copy(const self) -> TryFrame {
+        var r = TryFrame()
+        r.panics      = copy_states(self.panics)
+        r.panic_ty    = self.panic_ty
+        r.block_depth = self.block_depth
+        r.catch_all   = self.catch_all
+        r.arm_any     = self.arm_any
+        r.arm_ty      = self.arm_ty
+        r.types       = self.types
+        r.cxx_arm     = self.cxx_arm
+        return r
+    }
 }
 
 /// The parts a call's callee leaves moved-from in the caller's storage,
@@ -823,6 +944,16 @@ pub struct CallMarks {
     /// Parallel: the panic types on which a part with MOVE_ON_PANIC is
     /// moved-from (MoveOut::pcount); empty for a panic of any type.
     pub var ptys: cxx::std::vector<cxx::std::vector<unsafe *Type>>
+}
+
+extend CallMarks {
+    fn copy(const self) -> CallMarks {
+        var r = CallMarks{}
+        r.parts = copy_parts(self.parts)
+        r.when  = self.when
+        r.ptys  = self.ptys
+        return r
+    }
 }
 
 /// A condition's state when it is true and when it is false
@@ -1083,7 +1214,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var saved_bp    = self._body_panics
         var saved_fn    = self._fn
         var saved_caps  = self._caps
-        var saved_out   = self._out
+        var saved_out   = cxx::std::move(self._out)
         var saved_hits  = self._out_hits
         var saved_when  = self._out_when
         var saved_pty   = self._out_pty
@@ -1096,7 +1227,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._fn          = n
         self._body_panics = n->is_panic()
         self._caps.clear()
-        self._out.clear()
+        self._out = cxx::std::vector<MovedPart>()
         self._out_hits.clear()
         self._out_when.clear()
         self._out_pty.clear()
@@ -1254,7 +1385,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var saved       = self._enter_body()
         var saved_fn    = self._fn
         var saved_caps  = self._caps
-        var saved_out   = self._out
+        var saved_out   = cxx::std::move(self._out)
         var saved_hits  = self._out_hits
         var saved_when  = self._out_when
         var saved_pty   = self._out_pty
@@ -1264,7 +1395,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._body_panics = ((n->modifiers as u16) & (FnModifier::IsPanic as u16)) != 0
         self._fn          = &null
         self._caps.clear()
-        self._out.clear()
+        self._out = cxx::std::vector<MovedPart>()
         self._out_hits.clear()
         self._out_when.clear()
         self._out_pty.clear()
@@ -1298,7 +1429,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         self._exit(MOVE_ON_RETURN)
         self._settle_locals(&null)
-        var left = self._out
+        var left = cxx::std::move(self._out)
         self._fn          = saved_fn
         self._caps        = saved_caps
         self._out         = saved_out
@@ -1313,7 +1444,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // these moved-from: the captured storage is moved-from once the
         // closure exists.
         for var i: usize = 0; i < left.size(); ++i {
-            var mp = left[i]
+            var mp = left[i].copy()
             // A `|*x|` capture is a pointer to `x` in the body: what it
             // points at there is `x` here.
             if mp.segs.size() > 0 && mp.segs[0] == &null {
@@ -1375,7 +1506,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
             if at == usize::MAX {
                 at = self._out.size()
-                self._out.push_back(self._st.moved[i])
+                self._out.push_back(self._st.moved[i].copy())
                 self._out_hits.push_back(1)
                 self._out_when.push_back(kind)
                 self._out_pty.push_back(cxx::std::vector<unsafe *Type>())
@@ -2232,17 +2363,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 continue
             }
 
-            var mp = cm.parts[i]
+            var mp = cm.parts[i].copy()
             if hit == MOVE_ON_TRUE {
-                mp.how = mp.how + ", when it returns true"
+                mp.how += ", when it returns true"
             } else if hit == MOVE_ON_FALSE {
-                mp.how = mp.how + ", when it returns false"
+                mp.how += ", when it returns false"
             } else if hit == MOVE_ON_NULL {
-                mp.how = mp.how + ", when it returns null"
+                mp.how += ", when it returns null"
             } else if hit == MOVE_ON_NON_NULL {
-                mp.how = mp.how + ", when it does not return null"
+                mp.how += ", when it does not return null"
             } else if hit == MOVE_ON_PANIC {
-                mp.how      = mp.how + ", when it panics"
+                mp.how += ", when it panics"
                 mp.via_text = "it is moved here, and not assigned again before the body panics"
             }
 
@@ -2295,9 +2426,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
-        var saved = self._st
+        var saved = self._st.copy()
         for var i: usize = 0; i < tys.size(); ++i {
-            self._st = saved
+            self._st = saved.copy()
             var ty: unsafe *Type = tys[i]
             if panic_dep(ty) {
                 ty = &null
@@ -2308,7 +2439,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         if !known || tys.empty() {
-            self._st = saved
+            self._st = saved.copy()
             self._apply(self._panic_marks(cm, &null), MOVE_ON_PANIC)
             self._leave_by_panic(&null)
         }
@@ -2419,7 +2550,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 return
             }
 
-            self._tries[i].panics.push_back(self._st)
+            self._tries[i].panics.push_back(self._st.copy())
             self._tries[i].panic_ty.push_back(ty)
             if self._tries[i].catch_all
                 || (ty != &null && pset_has(unsafe &self._tries[i].types, ty)) {
@@ -2457,12 +2588,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// _leave_body, and a fresh one in its place.
     priv fn _enter_body(self) -> BodyFlow {
         var saved = BodyFlow{}
-        saved.st           = self._st
-        saved.loops        = self._loops
+        saved.st           = cxx::std::move(self._st)
+        saved.loops        = cxx::std::move(self._loops)
         saved.blocks       = self._blocks
-        saved.tries        = self._tries
+        saved.tries        = cxx::std::move(self._tries)
         saved.locals       = self._block_locals
-        saved.ends         = self._ends
+        saved.ends         = cxx::std::move(self._ends)
         self._block_locals = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
         self._ends         = LocalEnds()
         self._st           = MoveState()
@@ -2473,17 +2604,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     }
 
     /// ...and leaves nothing behind: `saved`, _enter_body's, back.
-    priv fn _leave_body(self, const saved: BodyFlow) {
+    priv fn _leave_body(self, saved: BodyFlow) {
         if !self._blocks.empty() {
             kairo::std::ice_fail("MoveCheck: a block frame outlived its body")
         }
 
-        self._st           = saved.st
-        self._loops        = saved.loops
+        self._st           = cxx::std::move(saved.st)
+        self._loops        = cxx::std::move(saved.loops)
         self._blocks       = saved.blocks
-        self._tries        = saved.tries
+        self._tries        = cxx::std::move(saved.tries)
         self._block_locals = saved.locals
-        self._ends         = saved.ends
+        self._ends         = cxx::std::move(saved.ends)
     }
 
     /// The modes of the locals of the body whose walk ends here: a C++
@@ -2558,7 +2689,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self._link_got = &null
             if !self._st.dead && self._link.parts.size() > 0 {
                 self._link.d = n
-                self._st.links.push_back(self._link)
+                self._st.links.push_back(self._link.copy())
             }
         }
 
@@ -2968,7 +3099,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                         self.dispatch_expr(bo->lhs)
                     }
 
-                    var before = self._st
+                    var before = self._st.copy()
                     if bo->rhs != &null {
                         self.dispatch_expr(bo->rhs)
                     }
@@ -3105,7 +3236,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 return e
             } case ExprKind::TryCatchExpr {
                 var unsafe *t     = cast<Expressions::TryCatchExpr>(e)
-                var        before = self._st
+                var        before = self._st.copy()
                 var        frame  = TryFrame()
                 var        cxx    = false
                 frame.block_depth = self._blocks.size()
@@ -3126,10 +3257,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     self.dispatch_expr(t->try_expr)
                 }
 
-                var met = self._tries[self._tries.size() - 1]
+                var met = self._tries[self._tries.size() - 1].copy()
                 self._tries.pop_back()
-                var after_try = self._st
-                var acc       = after_try
+                var after_try = self._st.copy()
+                var acc       = after_try.copy()
                 for var i: usize = 0; i < t->catch_arms.size(); ++i {
                     var unsafe *arm = t->catch_arms.get(i)
                     self._st = self._arm_entry_of(
@@ -3196,7 +3327,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     priv var _arm_any:   cxx::std::vector<u8>
 
     priv fn _arms_start(self) {
-        self._arm_entry.push_back(self._st)
+        self._arm_entry.push_back(self._st.copy())
         var dead = MoveState()
         dead.dead = true
         self._arm_acc.push_back(dead)
@@ -3204,7 +3335,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     }
 
     priv fn _arm_begin(self) {
-        self._st = self._arm_entry[self._arm_entry.size() - 1]
+        self._st = self._arm_entry[self._arm_entry.size() - 1].copy()
     }
 
     priv fn _arm_end(self) {
@@ -3217,8 +3348,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// `else`), so the entry state is one of the paths.
     priv fn _arms_finish(self, fallthrough: bool) {
         var top   = self._arm_acc.size() - 1
-        var acc   = self._arm_acc[top]
-        var entry = self._arm_entry[top]
+        var acc   = cxx::std::move(self._arm_acc[top])
+        var entry = cxx::std::move(self._arm_entry[top])
         var any   = self._arm_any[top] != 0
         self._arm_acc.pop_back()
         self._arm_entry.pop_back()
@@ -3321,7 +3452,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 var        r  = self._cond(n->cond)
                 self._st = r.t
                 self.dyn()->traverse_block(n->then_)
-                var taken = self._st
+                var taken = self._st.copy()
                 self._st = r.f
                 if n->else_ != &null {
                     self.dispatch_stmt(n->else_)
@@ -3404,7 +3535,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 return s
             } case StmtKind::TryCatchStmt {
                 var unsafe *n     = cast<Statements::TryCatchStmt>(s)
-                var        before = self._st
+                var        before = self._st.copy()
                 var        frame  = TryFrame()
                 var        cxx    = false
                 frame.block_depth = self._blocks.size()
@@ -3422,10 +3553,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 frame.cxx_arm = cxx
                 self._tries.push_back(frame)
                 self.dyn()->traverse_block(n->try_body)
-                var met = self._tries[self._tries.size() - 1]
+                var met = self._tries[self._tries.size() - 1].copy()
                 self._tries.pop_back()
-                var after_try = self._st
-                var acc       = after_try
+                var after_try = self._st.copy()
+                var acc       = after_try.copy()
                 for var i: usize = 0; i < n->arms.size(); ++i {
                     var unsafe *arm = n->arms.get(i)
                     self._st = self._arm_entry_of(
@@ -3483,7 +3614,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 var        f  = self._target_frame(n->has_label, n->label)
                 if f != usize::MAX {
                     self._run_finallys_to(self._loops[f].block_depth)
-                    self._loops[f].breaks.push_back(self._st)
+                    self._loops[f].breaks.push_back(self._st.copy())
                 }
 
                 self._st.dead = true
@@ -3493,7 +3624,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 var        f  = self._target_frame(n->has_label, n->label)
                 if f != usize::MAX {
                     self._run_finallys_to(self._loops[f].block_depth)
-                    self._loops[f].continues.push_back(self._st)
+                    self._loops[f].continues.push_back(self._st.copy())
                 }
 
                 self._st.dead = true
@@ -3523,7 +3654,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                   update: unsafe *Expr,
                   finite: bool,
                   rf:     unsafe *Statements::RangedForStmt) {
-        var entry = self._st
+        var entry = self._st.copy()
         // The body CompoundStmt is dispatched next and lands at exactly this
         // index: cond and update are expressions, an IndexedForStmt init a
         // DeclStmt, and none opens a block.
@@ -3537,7 +3668,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         var exit1 = self._loop_pass(cond, body, update, rf)
         self._st = move_join(entry, exit1)
-        var head  = self._st
+        var head  = self._st.copy()
         var exit2 = self._loop_pass(cond, body, update, rf)
         if finite && cond != &null {
             self._st = move_join(head, exit2)
@@ -3546,7 +3677,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self._loops[top].done = move_join(self._loops[top].done, last.f)
         }
 
-        var fr = self._loops[self._loops.size() - 1]
+        var fr = cxx::std::move(self._loops[self._loops.size() - 1])
         self._loops.pop_back()
 
         var out = MoveState()
@@ -3600,7 +3731,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                           const met:    TryFrame,
                           has_cxx:      bool,
                           arm:          usize) -> MoveState {
-        var entry = before
+        var entry = before.copy()
         if has_cxx || met.panics.empty() {
             entry = move_join(entry, after)
         }
@@ -3702,17 +3833,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         self.dyn()->traverse_block(body)
-        var back = self._st
         for var i: usize = 0; i < self._loops[top].continues.size(); ++i {
-            back = move_join(back, self._loops[top].continues[i])
+            self._st = move_join(self._st, self._loops[top].continues[i])
         }
 
-        self._st = back
         if update != &null {
             self.dispatch_expr(update)
         }
 
-        return self._st
+        return self._st.copy()
     }
 
     /// # calls
@@ -3901,7 +4030,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // The rest of the path is the call's return: a condition marks
         // each branch with the returns that reach it.
         if split {
-            self._split      = cm
+            self._split      = cm.copy()
             self._split_done = true
         } else {
             if n == self._link_call && !self._st.dead {
@@ -3954,7 +4083,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 continue
             }
 
-            var mp   = self._st.moved[k]
+            var mp   = self._st.moved[k].copy()
             var name = self._spelled(self._tu.strip_parens(e))
             var b = self.sc->diag->report(
                 DiagID::SC001E,
@@ -3991,8 +4120,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var unsafe *x = self._tu.strip_parens(e)
         var        r  = CondStates{}
         if x == &null {
-            r.t = self._st
-            r.f = self._st
+            r.t = self._st.copy()
+            r.f = self._st.copy()
             return r
         }
 
@@ -4086,8 +4215,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         self.dispatch_expr(x)
-        r.t = self._st
-        r.f = self._st
+        r.t = self._st.copy()
+        r.f = self._st.copy()
         return r
     }
 
@@ -4122,11 +4251,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                        li:   usize,
                        on_t: u8,
                        on_f: u8) -> CondStates {
-        var link = self._st.links[li]
+        var link = self._st.links[li].copy()
         self._read(n)
         var r    = CondStates{}
         var cm   = CallMarks{}
-        var base = self._st
+        var base = self._st.copy()
         for var k: usize = 0; k < link.parts.size(); ++k {
             var i = base.index_of(link.parts[k].d, link.parts[k].path)
             if i == usize::MAX || !same_range(base.moved[i].at, link.site) {
@@ -4134,17 +4263,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
 
             base.moved.erase(base.moved.cbegin() + (i as isize))
-            cm.parts.push_back(link.parts[k])
+            cm.parts.push_back(link.parts[k].copy())
             cm.when.push_back(link.when[k])
         }
 
-        base.links.push_back(link)
-        self._st = base
+        base.links.push_back(link.copy())
+        self._st = base.copy()
         self._apply(cm, on_t)
-        r.t      = self._st
-        self._st = base
+        r.t      = self._st.copy()
+        self._st = base.copy()
         self._apply(cm, on_f)
-        r.f      = self._st
+        r.f      = self._st.copy()
         self._st = base
         r.split  = cm.parts.size() > 0
         return r
@@ -4176,19 +4305,19 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self.dispatch_expr(c)
         self._split_req = false
         if !self._split_done {
-            r.t = self._st
-            r.f = self._st
+            r.t = self._st.copy()
+            r.f = self._st.copy()
             return r
         }
 
         self._split_done = false
-        var cm   = self._split
-        var base = self._st
+        var cm   = self._split.copy()
+        var base = self._st.copy()
         self._apply(cm, on_t)
-        r.t      = self._st
-        self._st = base
+        r.t      = self._st.copy()
+        self._st = base.copy()
         self._apply(cm, on_f)
-        r.f      = self._st
+        r.f      = self._st.copy()
         self._st = base
         r.split  = true
         return r
@@ -5268,7 +5397,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         var sym               = self.sc->ctx->get_spelling(bo->op_token)
-        var csym              = sym + "="
+        var csym              = sym.copy() + "="
         var tf                = LifecycleFacts()
         var rd:  unsafe *Decl = &null
         if self._uncopyable_facts(bo->lhs->type_, unsafe &tf, unsafe &rd) == &null {
@@ -5324,7 +5453,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var unsafe *x   = self._tu.strip_parens(bo->lhs)
         var        nm   = self._spelled(x)
         var        sym  = self.sc->ctx->get_spelling(bo->op_token)
-        var        csym = sym + "="
+        var        csym = sym.copy() + "="
         if self._no_copy(
             bo->lhs,
             f"'{sym}' is derived from 'op {csym}': it copies its left operand '{nm}', applies '{csym}' to the copy and yields it; write '{nm} {csym} ...' to change it in place. {why}",
@@ -5885,7 +6014,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     priv fn _demote_pending(self, d: unsafe *Decl, const path: string, at: unsafe *Expr) {
         var k: usize = 0
         while k < self._st.pend.size() {
-            var pm = self._st.pend[k]
+            var pm = self._st.pend[k].copy()
             if pm.d != d || !path_overlaps(pm.path, path) {
                 k += 1
                 continue
@@ -6739,7 +6868,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         self._st.reported.push_back(d)
 
-        var mp = self._st.moved[i]
+        var mp = self._st.moved[i].copy()
         if mp.kind == MoveKind::Finalize {
             self._finalized_use(n, mp)
             return

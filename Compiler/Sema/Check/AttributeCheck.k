@@ -309,7 +309,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         var b = self.sc->diag->report(
             DiagID::SC143E,
             e->range.start,
-            an + " " + why,
+            an.copy() + " " + why,
         )
 
         b.first(e->range)
@@ -414,11 +414,10 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     priv fn _string_text(self, sl: unsafe *StringLiteralExpr) -> string {
         var out = ""
         if sl->imm != &null && sl->imm->has_owned_text() {
-            for var i: usize = 0; i < (sl->imm->owned_len as usize); ++i {
-                out.push_back(sl->imm->owned_ptr[i])
-            }
-
-            return out
+            return string(
+                unsafe ((sl->imm->owned_ptr as unsafe *const u8) as *const u8),
+                sl->imm->owned_len as usize,
+            )
         }
 
         // No decoded text: the spelling, less its quotes.

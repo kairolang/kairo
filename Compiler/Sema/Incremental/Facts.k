@@ -113,11 +113,20 @@ pub fn incr_json(const s: string) -> string {
 pub fn incr_norm(const s: string) -> string {
     var o:    string = ""
     var space        = false
-    for var i: usize = 0; i < s.size(); ++i {
-        var c = s[i]
-        if c == (' ' as u8) || c == (9 as u8) || c == (10 as u8) || c == (13 as u8) {
+    var i:    usize  = 0
+    var n            = s.size()
+    while i < n {
+        if incr_is_space(s.data()[i]) {
             space = true
+            i += 1
             continue
+        }
+
+        // Runs between whitespace are copied whole: the cuts are at ASCII
+        // bytes and never split a character.
+        var start = i
+        while i < n && !incr_is_space(s.data()[i]) {
+            i += 1
         }
 
         if space && o.size() > 0 {
@@ -125,10 +134,14 @@ pub fn incr_norm(const s: string) -> string {
         }
 
         space = false
-        o.push_back(c)
+        o += s[start..i]
     }
 
     return o
+}
+
+fn incr_is_space(c: u8) -> bool {
+    return c == (' ' as u8) || c == (9 as u8) || c == (10 as u8) || c == (13 as u8)
 }
 
 /// xxh3-128 as 32 hex digits: the hash the object cache and the AST
@@ -191,21 +204,19 @@ pub fn incr_module(ctx: unsafe *ASTContext, psym: unsafe *PreprocessorSymbolTabl
     var lo:  usize = 0
     var hi         = path.size()
     for var i: usize = 0; i < path.size(); ++i {
-        if path[i] == ('/' as u8) || path[i] == ('\\' as u8) {
+        if path.data()[i] == ('/' as u8) || path.data()[i] == ('\\' as u8) {
             lo = i + 1
         }
     }
 
     for var i: usize = lo; i < path.size(); ++i {
-        if path[i] == ('.' as u8) {
+        if path.data()[i] == ('.' as u8) {
             hi = i
         }
     }
 
     out = "~"
-    for var i: usize = lo; i < hi; ++i {
-        out.push_back(path[i])
-    }
+    out += path[lo..hi]
 
     return out
 }
@@ -618,13 +629,15 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             out->macros = incr_hash(mac)
         }
 
-        var all: string = out->mod_path + "\n" + out->macros + "\n"
+        var all: string = out->mod_path.copy() + "\n" + out->macros + "\n"
         for var i: usize = 0; i < self._lines.size(); ++i {
-            all += self._lines[i] + "\n"
+            all += self._lines[i]
+            all += "\n"
         }
 
         for var i: usize = 0; i < out->scopes.size(); ++i {
-            all += out->scopes[i] + "\n"
+            all += out->scopes[i]
+            all += "\n"
         }
 
         out->hash = incr_hash(all)
@@ -647,7 +660,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
 
         var s = incr_decl_id(d, self.psym)
         self._ids[d as usize as u64] = (self._idv.size() as u32)
-        self._idv.push_back(s)
+        self._idv.push_back(s.copy())
         return s
     }
 
@@ -720,7 +733,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
         var names = cxx::std::vector<string>()
         for var i: usize = 0; i < entries.size(); ++i {
             var nm = incr_key_name(self.ctx, entries[i].name)
-            names.push_back(nm)
+            names.push_back(nm.copy())
             var unsafe *cell = entries[i].cell
             if cell == &null {
                 continue
@@ -758,7 +771,8 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             s += incr_json(names[i])
         }
 
-        self._out->scopes.push_back(s + "]}")
+        s += "]}"
+        self._out->scopes.push_back(s)
         var pn = ""
         for var i: usize = 0; i < names.size(); ++i {
             if i > 0 {
@@ -768,7 +782,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             pn += names[i]
         }
 
-        self._out->plain_scopes.push_back(scope + "\t" + ext + "\t" + pn)
+        self._out->plain_scopes.push_back(scope.copy() + "\t" + ext + "\t" + pn)
     }
 
     /// Extensions are in no table (an `extend` has no name), so they are
@@ -1025,7 +1039,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
                    const ext:   string) {
         self._refs.clear()
         var kind         = sema_dump_kind_str(d->kind)
-        var facts        = kind + "|" + name + "|" + self._vis(d)
+        var facts        = kind.copy() + "|" + name + "|" + self._vis(d)
         var body: string = ""
         if isa<Declarations::FunctionDecl>(d) {
             var unsafe *f = cast<Declarations::FunctionDecl>(d)
@@ -1089,12 +1103,12 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             prefs += last
         }
 
-        self._out->decls.push_back(row + "]}")
+        self._out->decls.push_back(row.copy() + "]}")
         self._out->plain_decls.push_back(
-            id + "\t" + scope + "\t" + name + "\t" + ih + "\t" + body + "\t" + ext + "\t" + prefs,
+            id.copy() + "\t" + scope + "\t" + name + "\t" + ih + "\t" + body + "\t" + ext + "\t" + prefs,
         )
 
-        self._lines.push_back(id + "\t" + ih + "\t" + body)
+        self._lines.push_back(id.copy() + "\t" + ih + "\t" + body)
     }
 
     /// # Declaration rows, from the checked tree
@@ -1109,7 +1123,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             return
         }
 
-        var k = part + "\t" + self._id(d)
+        var k = part.copy() + "\t" + self._id(d)
         if self._rows.count(kairo::sref(k)) > 0 {
             return
         }

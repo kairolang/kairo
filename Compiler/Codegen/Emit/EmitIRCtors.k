@@ -129,7 +129,7 @@ extend EmitIR {
 
         // The slot record. Its members' types are complete here, which they
         // need not be where only the class is (InterfaceEmitter declares it).
-        var r = oh + "struct " + q + "::" + ci + " {"
+        var r = oh.copy() + "struct " + q + "::" + ci + " {"
         for var i: usize = 0; i < m->ci_slots.size(); ++i {
             r += " ::" + LowerTargets::ctor_slot() + "<" + self._slot_type(
                 i,
@@ -144,7 +144,7 @@ extend EmitIR {
         // S_pre, against the slots.
         self._cg->sink->spell(
             at,
-            oh + inl + "auto " + q + "::" + LowerTargets::ctor_pre(
+            oh.copy() + inl + "auto " + q + "::" + LowerTargets::ctor_pre(
                 m->ci_index,
             ) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&",
         )
@@ -175,7 +175,7 @@ extend EmitIR {
         // ...)` calls, whose arguments are the parameters this constructor
         // takes by reference too. S_pre runs once they are built, in the
         // first slot field's initializer.
-        var h = oh + inl + q + "::" + leaf + "(" + ci + "&& " + sa + ps + ")"
+        var h = oh.copy() + inl + q + "::" + leaf + "(" + ci + "&& " + sa + ps + ")"
         self._cg->sink->spell(at, h)
         h = ""
         var run_pre = "this->" + LowerTargets::ctor_pre(

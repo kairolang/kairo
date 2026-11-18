@@ -25,7 +25,10 @@ ffi "c++" import "chrono"
 import API::FS::LinkFS
 import AST::Node::CanonicalNodes::BuiltinKind
 import CompletionSite::*
-import DocComment::is_cxx_path
+import DocComment::{
+    is_cxx_path,
+    rfind_from,
+}
 import DocumentStore::{
     DocumentStore,
     fnv1a,
@@ -69,7 +72,10 @@ import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
 import Support::FileIO::Path::Path
-import TextScan::classify
+import TextScan::{
+    bytes_to_string,
+    classify,
+}
 import Tuning::*
 import Workspace::CompileCommandsLoader::{
     Project,
@@ -139,6 +145,29 @@ pub struct Cand {
     /// A local: where the buffer declares it (what is in scope there is
     /// what its initialiser names).
     var at: usize = usize::MAX
+}
+
+extend Cand {
+    pub fn copy(const self) -> Cand {
+        return Cand {
+            label:   self.label.copy(),
+            kind:    self.kind,
+            detail:  self.detail.copy(),
+            sort:    self.sort,
+            insert:  self.insert.copy(),
+            snippet: self.snippet,
+            doc:     self.doc.copy(),
+            t:       self.t,
+            r:       self.r,
+            type_:   self.type_.copy(),
+            init:    self.init.copy(),
+            ty:      self.ty,
+            local:   self.local,
+            dpath:   self.dpath.copy(),
+            doff:    self.doff,
+            at:      self.at,
+        }
+    }
 }
 
 /// one completion request being answered from the index.
@@ -226,7 +255,7 @@ pub class CompReq {
             self.seen_[h] = self.out.size() as u32
         }
 
-        self.out.push(c)
+        self.out.push(c.copy())
         return true
     }
 
@@ -262,18 +291,18 @@ pub class CompReq {
 /// and anything that is not one number.
 fn number_type_(const x: string) -> string {
     var hex = (x.size() > 2)
-        && (x[0] == ('0' as u8))
-        && ((x[1] == ('x' as u8)) || (x[1] == ('X' as u8)))
+        && (x.data()[0] == ('0' as u8))
+        && ((x.data()[1] == ('x' as u8)) || (x.data()[1] == ('X' as u8)))
     var bin = (x.size() > 2)
-        && (x[0] == ('0' as u8))
-        && ((x[1] == ('b' as u8)) || (x[1] == ('B' as u8)))
+        && (x.data()[0] == ('0' as u8))
+        && ((x.data()[1] == ('b' as u8)) || (x.data()[1] == ('B' as u8)))
     var p:       usize = if (hex || bin) => (2 as usize) else => (0 as usize)
     var is_float       = false
     var value:   u64   = 0
     var big            = false
     var base: u64 = if (hex) => (16 as u64) else => (if (bin) => (2 as u64) else => (10 as u64))
     while p < x.size() {
-        var c      = x[p]
+        var c      = x.data()[p]
         var d: u64 = 99
         if (c >= ('0' as u8)) && (c <= ('9' as u8)) {
             d = (c - ('0' as u8)) as u64
@@ -288,15 +317,15 @@ fn number_type_(const x: string) -> string {
             && (!hex)
             && (!bin)
             && ((p + 1) < x.size())
-            && (x[p + 1] >= ('0' as u8))
-            && (x[p + 1] <= ('9' as u8)) {
+            && (x.data()[p + 1] >= ('0' as u8))
+            && (x.data()[p + 1] <= ('9' as u8)) {
             is_float = true
             p += 1
             continue
         } else if ((c == ('e' as u8)) || (c == ('E' as u8))) && (!hex) && (!bin) {
             is_float = true
             p += 1
-            if (p < x.size()) && ((x[p] == ('+' as u8)) || (x[p] == ('-' as u8))) {
+            if (p < x.size()) && ((x.data()[p] == ('+' as u8)) || (x.data()[p] == ('-' as u8))) {
                 p += 1
             }
 
@@ -324,9 +353,11 @@ fn number_type_(const x: string) -> string {
         // A suffix: a primitive's name, and nothing after it.
         var sfx       = x.subslice(p, x.size() - p)
         var q:  usize = 1
-        var known = (sfx[0] == ('i' as u8)) || (sfx[0] == ('u' as u8)) || (sfx[0] == ('f' as u8))
+        var known = (sfx.data()[0] == ('i' as u8))
+            || (sfx.data()[0] == ('u' as u8))
+            || (sfx.data()[0] == ('f' as u8))
         while known && (q < sfx.size()) {
-            known = (sfx[q] >= ('0' as u8)) && (sfx[q] <= ('9' as u8))
+            known = (sfx.data()[q] >= ('0' as u8)) && (sfx.data()[q] <= ('9' as u8))
             q += 1
         }
 
@@ -352,11 +383,11 @@ fn number_type_(const x: string) -> string {
 /// is `x[q]`): escapes skipped, and an f-string's `{...}` too, which may
 /// hold quotes of its own. x.size() + 1 when it does not close.
 fn literal_end_(const x: string, q: usize) -> usize {
-    var quote      = x[q]
+    var quote      = x.data()[q]
     var depth: i64 = 0
     var k          = q + 1
     while k < x.size() {
-        var c = x[k]
+        var c = x.data()[k]
         if c == ('\\' as u8) {
             k += 2
             continue
@@ -410,7 +441,7 @@ fn is_type_kind(k: i64) -> bool {
 fn line_of_offset(const text: string, off: usize) -> usize {
     var n: usize = 0
     for var i: usize = 0; (i < off) && (i < text.size()); ++i {
-        if text[i] == ('\n' as u8) {
+        if text.data()[i] == ('\n' as u8) {
             n += 1
         }
     }
@@ -423,7 +454,7 @@ fn line_of_offset(const text: string, off: usize) -> usize {
 fn hover_head(const md: string) -> string {
     var p: usize = 0
     if md.starts_with("```") {
-        while (p < md.size()) && (md[p] != ('\n' as u8)) {
+        while (p < md.size()) && (md.data()[p] != ('\n' as u8)) {
             p += 1
         }
 
@@ -431,7 +462,7 @@ fn hover_head(const md: string) -> string {
     }
 
     var e = p
-    while (e < md.size()) && (md[e] != ('\n' as u8)) {
+    while (e < md.size()) && (md.data()[e] != ('\n' as u8)) {
         e += 1
     }
 
@@ -622,7 +653,7 @@ extend Server {
 
             var kept: [Cand]
             for var i: usize = 0; i < order.size(); ++i {
-                kept.push(req->out[order[i]])
+                kept.push(req->out[order[i]].copy())
             }
 
             req->out = kept
@@ -646,9 +677,9 @@ extend Server {
         var bang_edit: string = ""
         if (req->site.what == SITE_NAME)
             && (req->site.end < txt->size())
-            && ((*txt)[req->site.end] == ('!' as u8))
+            && (txt->data()[req->site.end] == ('!' as u8))
             && (!(((req->site.end + 1) < txt->size())
-                && ((*txt)[req->site.end + 1] == ('=' as u8)))) { // not `a!=b`
+                && (txt->data()[req->site.end + 1] == ('=' as u8)))) { // not `a!=b`
             var bw = JsonWriter()
             self.write_buf_range(
                 &bw,
@@ -872,27 +903,29 @@ extend Server {
 
             var init       = c.init.copy()
             var p:   usize = 0
-            while (p < init.size()) && ((init[p] == (' ' as u8)) || (init[p] == ('\t' as u8))) {
+            while (p < init.size())
+                && ((init.data()[p] == (' ' as u8)) || (init.data()[p] == ('\t' as u8))) {
                 p += 1
             }
 
             var e = p
-            while (e < init.size()) && (is_ident_byte(init[e]) || (init[e] == (':' as u8))) {
+            while (e < init.size())
+                && (is_ident_byte(init.data()[e]) || (init.data()[e] == (':' as u8))) {
                 e += 1
             }
 
             // Only a construction: `T(`, `T<..>(`, `T {`. A call's result is
             // the function's to say.
             var after = e
-            while (after < init.size()) && (init[after] == (' ' as u8)) {
+            while (after < init.size()) && (init.data()[after] == (' ' as u8)) {
                 after += 1
             }
 
             if (e > p)
                 && (after < init.size())
-                && ((init[after] == ('(' as u8))
-                    || (init[after] == ('<' as u8))
-                    || (init[after] == ('{' as u8))) {
+                && ((init.data()[after] == ('(' as u8))
+                    || (init.data()[after] == ('<' as u8))
+                    || (init.data()[after] == ('{' as u8))) {
                 var head = self.type_name_recv_(req, init.subslice(p, e - p))
                 if head.ok && (!head.file) {
                     var k = self.entries[req->ei].tb.t[head.t].kind[head.r as usize]
@@ -915,7 +948,7 @@ extend Server {
 
             var b = p
             while b < init.size() {
-                var ch = init[b]
+                var ch = init.data()[b]
                 if (ch == (' ' as u8)) || (ch == ('&' as u8)) || (ch == ('*' as u8)) {
                     b += 1
                     continue
@@ -931,9 +964,9 @@ extend Server {
 
             var end = init.size()
             while (end > b)
-                && ((init[end - 1] == (' ' as u8))
-                    || (init[end - 1] == ('\t' as u8))
-                    || (init[end - 1] == ('\r' as u8))) {
+                && ((init.data()[end - 1] == (' ' as u8))
+                    || (init.data()[end - 1] == ('\t' as u8))
+                    || (init.data()[end - 1] == ('\r' as u8))) {
                 end -= 1
             }
 
@@ -957,10 +990,10 @@ extend Server {
             sub.ti     = req->ti
             sub.cls    = req->cls.copy()
             sub.blocks = req->blocks.copy()
-            sub.sh     = req->sh
+            sub.sh     = req->sh.copy()
             sub.sees   = req->sees.copy()
             sub.users  = req->users.copy()
-            sub.site   = req->site
+            sub.site   = req->site.copy()
             sub.depth  = req->depth + 1
             sub.typing = true
             return self.chain_recv_(&sub, const &steps)
@@ -1552,23 +1585,25 @@ extend Server {
             }
 
             p += 6
-            while (p < b->open) && (((*text)[p] == (' ' as u8)) || ((*text)[p] == ('\t' as u8))) {
+            while (p < b->open)
+                && ((text->data()[p] == (' ' as u8)) || (text->data()[p] == ('\t' as u8))) {
                 p += 1
             }
 
-            if (p < b->open) && ((*text)[p] == ('<' as u8)) {
-                while (p < b->open) && ((*text)[p] != ('>' as u8)) {
+            if (p < b->open) && (text->data()[p] == ('<' as u8)) {
+                while (p < b->open) && (text->data()[p] != ('>' as u8)) {
                     p += 1
                 }
 
                 p += 1
-                while (p < b->open) && ((*text)[p] == (' ' as u8)) {
+                while (p < b->open) && (text->data()[p] == (' ' as u8)) {
                     p += 1
                 }
             }
 
             var e = p
-            while (e < b->open) && (is_ident_byte((*text)[e]) || ((*text)[e] == (':' as u8))) {
+            while (e < b->open)
+                && (is_ident_byte(text->data()[e]) || (text->data()[e] == (':' as u8))) {
                 e += 1
             }
 
@@ -1635,21 +1670,23 @@ extend Server {
     fn type_name_recv_(self, req: *CompReq, const path: string) -> Recv {
         var out            = Recv{}
         var segs: [string]
-        var cur:  string   = ""
+        var cur:  [u8]
         var i:    usize    = 0
         while i < path.size() {
-            if (path[i] == (':' as u8)) && ((i + 1) < path.size()) && (path[i + 1] == (':' as u8)) {
-                segs.push(cur.copy())
-                cur = ""
+            if (path.data()[i] == (':' as u8))
+                && ((i + 1) < path.size())
+                && (path.data()[i + 1] == (':' as u8)) {
+                segs.push(bytes_to_string(cur))
+                cur.clear()
                 i += 2
                 continue
             }
 
-            cur.push_back(path[i])
+            cur.push(path.data()[i])
             i += 1
         }
 
-        segs.push(cur.copy())
+        segs.push(bytes_to_string(cur))
         if segs[0].is_empty() {
             return out
         }
@@ -1940,7 +1977,7 @@ extend Server {
                 && (b->open <= to) {
                 var ps = lex_params(*text, req->cls, b->hstart, b->open)
                 for var q: usize = 0; q < ps.size(); ++q {
-                    decls.push(ps[q])
+                    decls.push(ps[q].copy())
                 }
             }
         }
@@ -1955,13 +1992,13 @@ extend Server {
             c.init  = decls[k].init.copy()
             c.at    = decls[k].off
             if !c.type_.is_empty() {
-                c.detail = c.label + ":" + c.type_
+                c.detail = c.label.copy() + ":" + c.type_
             } else {
                 // No type written: the one its initialiser plainly has, a
                 // construction's or a literal's.
                 var ty = self.init_type_(req, c.init)
                 if !ty.is_empty() {
-                    c.detail = c.label + ": " + ty
+                    c.detail = c.label.copy() + ": " + ty
                 }
             }
 
@@ -1979,15 +2016,16 @@ extend Server {
     /// names its type), `string`, `bool`, `char`.
     fn init_type_(self, req: *CompReq, const init: string) -> string {
         var p: usize = 0
-        while (p < init.size()) && ((init[p] == (' ' as u8)) || (init[p] == ('\t' as u8))) {
+        while (p < init.size())
+            && ((init.data()[p] == (' ' as u8)) || (init.data()[p] == ('\t' as u8))) {
             p += 1
         }
 
         var end = init.size()
         while (end > p)
-            && ((init[end - 1] == (' ' as u8))
-                || (init[end - 1] == ('\t' as u8))
-                || (init[end - 1] == ('\r' as u8))) {
+            && ((init.data()[end - 1] == (' ' as u8))
+                || (init.data()[end - 1] == ('\t' as u8))
+                || (init.data()[end - 1] == ('\r' as u8))) {
             end -= 1
         }
 
@@ -2002,27 +2040,27 @@ extend Server {
 
         // One string or char literal, the whole of it (`"a" == "b"` is no
         // string): its closing quote is the initialiser's last byte.
-        if (x[0] == ('"' as u8))
-            || ((x.size() > 1) && (x[0] == ('f' as u8)) && (x[1] == ('"' as u8))) {
+        if (x.data()[0] == ('"' as u8))
+            || ((x.size() > 1) && (x.data()[0] == ('f' as u8)) && (x.data()[1] == ('"' as u8))) {
             return if (literal_end_(
                        x,
-                       if (x[0] == ('f' as u8)) => (1 as usize) else => (0 as usize),
+                       if (x.data()[0] == ('f' as u8)) => (1 as usize) else => (0 as usize),
                    ) == x.size()) => ("string")
                    else => ("")
         }
 
-        if x[0] == ('\x27' as u8) {
+        if x.data()[0] == ('\x27' as u8) {
             return if (literal_end_(x, 0) == x.size()) => ("char") else => ("")
         }
 
-        if (x[0] >= ('0' as u8)) && (x[0] <= ('9' as u8)) {
+        if (x.data()[0] >= ('0' as u8)) && (x.data()[0] <= ('9' as u8)) {
             return number_type_(x)
         }
 
         // A construction: a name (a path), its generic arguments, then `(`
         // or `{`.
         var e: usize = 0
-        while (e < x.size()) && (is_ident_byte(x[e]) || (x[e] == (':' as u8))) {
+        while (e < x.size()) && (is_ident_byte(x.data()[e]) || (x.data()[e] == (':' as u8))) {
             e += 1
         }
 
@@ -2032,12 +2070,12 @@ extend Server {
 
         var head  = x.subslice(0, e)
         var after = e
-        if (after < x.size()) && (x[after] == ('<' as u8)) {
+        if (after < x.size()) && (x.data()[after] == ('<' as u8)) {
             var depth: i64 = 0
             while after < x.size() {
-                if x[after] == ('<' as u8) {
+                if x.data()[after] == ('<' as u8) {
                     depth += 1
-                } else if x[after] == ('>' as u8) {
+                } else if x.data()[after] == ('>' as u8) {
                     depth -= 1
                     if depth == 0 {
                         after += 1
@@ -2050,11 +2088,12 @@ extend Server {
         }
 
         var written = x.subslice(0, after)
-        while (after < x.size()) && (x[after] == (' ' as u8)) {
+        while (after < x.size()) && (x.data()[after] == (' ' as u8)) {
             after += 1
         }
 
-        if (after >= x.size()) || ((x[after] != ('(' as u8)) && (x[after] != ('{' as u8))) {
+        if (after >= x.size())
+            || ((x.data()[after] != ('(' as u8)) && (x.data()[after] != ('{' as u8))) {
             return ""
         }
 
@@ -2229,7 +2268,7 @@ extend Server {
                 }
 
                 var c = Cand{}
-                c.label   = t->name[r] + "!"
+                c.label   = t->name[r].copy() + "!"
                 c.kind    = CIK_SNIPPET
                 c.detail  = t->detail[r].copy()
                 c.sort    = SORT_MACRO
@@ -2248,7 +2287,7 @@ extend Server {
         for var k: usize = 0; k < self.macro_rows.size(); ++k {
             var *m = &self.macro_rows[k]
             var c  = Cand{}
-            c.label   = m->word + "!"
+            c.label   = m->word.copy() + "!"
             c.kind    = CIK_SNIPPET
             c.detail  = m->usage.copy()
             c.doc     = m->summary.copy()
@@ -2272,7 +2311,7 @@ extend Server {
                 var kept: [Cand]
                 for var k: usize = 0; k < req->out.size(); ++k {
                     if req->out[k].kind == CIK_TYPE_PARAMETER {
-                        kept.push(req->out[k])
+                        kept.push(req->out[k].copy())
                     }
                 }
 
@@ -2381,10 +2420,10 @@ extend Server {
         tmp.ti     = req->ti
         tmp.cls    = req->cls.copy()
         tmp.blocks = req->blocks.copy()
-        tmp.sh     = req->sh
+        tmp.sh     = req->sh.copy()
         tmp.sees   = req->sees.copy()
         tmp.users  = req->users.copy()
-        tmp.site   = req->site
+        tmp.site   = req->site.copy()
         tmp.depth  = req->depth
         tmp.typing = true
         // In scope where the HEAD stands, not where the cursor is.
@@ -2725,7 +2764,7 @@ extend Server {
         // The listing made a moment ago for the same directory of the same
         // buffer: a dozen directories are read and each entry is asked
         // whether it is one.
-        var key = self.docs.docs[req->di].path + "\n" + req->site.lang + "\n" + typed
+        var key = self.docs.docs[req->di].path.copy() + "\n" + req->site.lang + "\n" + typed
         if (key == self.hdr_key) && ((now_ms() - self.hdr_ms) < HEADER_LIST_KEEP_MS) {
             for var k: usize = 0; k < self.hdr_cands.size(); ++k {
                 req->add(self.hdr_cands[k])
@@ -2757,7 +2796,7 @@ extend Server {
                 } else {
                     // A header: no extension (the C++ library's), or a
                     // header's; a Kairo file is imported, not included.
-                    var dot         = name.rfind('.' as u8)
+                    var dot         = rfind_from(name, ".", name.size())
                     var ext: string = ""
                     if dot != usize::MAX {
                         ext = lower(

@@ -358,12 +358,12 @@ pub class HeaderIndex {
         var base  = Path(self._sm->get_filename(t->fid)).stem() // VERIFY: Path::stem()
         var ident = ""
         for var i: usize = 0; i < base.size(); ++i {
-            var c = base[i]
+            var c = base.data()[i]
             var ok = c >= ('a' as u8) && c <= ('z' as u8)
                 || c >= ('A' as u8) && c <= ('Z' as u8)
                 || c >= ('0' as u8) && c <= ('9' as u8)
                 || c == ('_' as u8)
-            ident.push_back(if (ok) => (c) else => ('_' as u8))
+            ident.push(if (ok) => (c) else => ('_' as u8))
         }
 
         // TokenText finds the interner FROM THE RANGE's fid: an invalid range

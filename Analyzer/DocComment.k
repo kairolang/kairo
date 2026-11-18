@@ -18,6 +18,58 @@ ffi "c++" import "Native/Types.hh"
 
 import std::io
 
+/// The start of the last `needle` that ends at or before `end`, `usize::MAX`
+/// for none.
+pub fn rfind_from(const s: string, const needle: string, end: usize) -> usize {
+    var n = needle.size()
+    var e = if end < s.size() => end else => s.size()
+    if n > e {
+        return usize::MAX
+    }
+
+    var p = e - n
+    while true {
+        var j: usize = 0
+        while (j < n) && (s.data()[p + j] == needle.data()[j]) {
+            j += 1
+        }
+
+        if j == n {
+            return p
+        }
+
+        if p == 0 {
+            return usize::MAX
+        }
+
+        p -= 1
+    }
+
+    return usize::MAX
+}
+
+/// Appends the character whose lead byte is at `i` of `s`; a continuation byte
+/// appends nothing, because its lead byte already carried it. A byte loop
+/// whose default path copies every byte so far builds the same text.
+pub fn push_char_at(out: *string, const s: string, i: usize) {
+    var c = s.data()[i]
+    if c < 0x80 {
+        out->push(c)
+        return
+    }
+
+    if (c & 0xC0) == 0x80 {
+        return
+    }
+
+    var e = i + 1
+    while (e < s.size()) && ((s.data()[e] & 0xC0) == 0x80) {
+        e += 1
+    }
+
+    out->push_str(s[i..e])
+}
+
 // Everything here works on text alone: the index walker reads a C or C++
 // header's comment with it (clang's tree carries no comments the compiler
 // keeps), the server reads a buffer that does not parse while it is typed,
@@ -44,11 +96,11 @@ fn is_alpha_(c: u8) -> bool {
 fn trim_(const s: string) -> string {
     var b: usize = 0
     var e        = s.size()
-    while (b < e) && is_ws_(s[b]) {
+    while (b < e) && is_ws_(s.data()[b]) {
         b += 1
     }
 
-    while (e > b) && is_ws_(s[e - 1]) {
+    while (e > b) && is_ws_(s.data()[e - 1]) {
         e -= 1
     }
 
@@ -58,7 +110,7 @@ fn trim_(const s: string) -> string {
 /// The number of blanks `s` starts with.
 fn lead_(const s: string) -> usize {
     var n: usize = 0
-    while (n < s.size()) && ((s[n] == (' ' as u8)) || (s[n] == ('\t' as u8))) {
+    while (n < s.size()) && ((s.data()[n] == (' ' as u8)) || (s.data()[n] == ('\t' as u8))) {
         n += 1
     }
 
@@ -81,7 +133,7 @@ fn find_(const s: string, const needle: string, from: usize) -> usize {
     for var i: usize = from; (i + needle.size()) <= s.size(); ++i {
         var hit = true
         for var k: usize = 0; k < needle.size(); ++k {
-            if s[i + k] != needle[k] {
+            if s.data()[i + k] != needle.data()[k] {
                 hit = false
                 break
             }
@@ -99,9 +151,9 @@ fn split_lines_(const s: string) -> [string] {
     var out: [string]
     var b:   usize    = 0
     for var i: usize = 0; i <= s.size(); ++i {
-        if (i == s.size()) || (s[i] == ('\n' as u8)) {
+        if (i == s.size()) || (s.data()[i] == ('\n' as u8)) {
             var e = i
-            if (e > b) && (s[e - 1] == ('\r' as u8)) {
+            if (e > b) && (s.data()[e - 1] == ('\r' as u8)) {
                 e -= 1
             }
 
@@ -133,7 +185,7 @@ fn line_start_(const text: string, at: usize) -> usize {
         p = text.size()
     }
 
-    while (p > 0) && (text[p - 1] != ('\n' as u8)) {
+    while (p > 0) && (text.data()[p - 1] != ('\n' as u8)) {
         p -= 1
     }
 
@@ -143,7 +195,7 @@ fn line_start_(const text: string, at: usize) -> usize {
 /// One past the last byte of the line that starts at `ls` (its `\n`).
 fn line_end_(const text: string, ls: usize) -> usize {
     var p = ls
-    while (p < text.size()) && (text[p] != ('\n' as u8)) {
+    while (p < text.size()) && (text.data()[p] != ('\n' as u8)) {
         p += 1
     }
 
@@ -168,7 +220,7 @@ fn dedent_(const lines: [string]) -> [string] {
             out.push("")
         } else {
             var t = rest_(lines[i], cut)
-            while (!t.is_empty()) && is_ws_(t[t.size() - 1]) {
+            while (!t.is_empty()) && is_ws_(t.data()[t.size() - 1]) {
                 t = t.subslice(0, t.size() - 1)
             }
 
@@ -189,7 +241,7 @@ fn dedent_(const lines: [string]) -> [string] {
 
     var res: [string]
     for var i: usize = b; i < e; ++i {
-        res.push(out[i])
+        res.push(out[i].copy())
     }
 
     return res
@@ -218,12 +270,12 @@ fn block_lines_(const text: string, open: usize, close: usize) -> [string] {
 
     var out: [string]
     for var i: usize = 0; i < raw.size(); ++i {
-        var ln = raw[i]
+        var ln = raw[i].copy()
         if (i > 0) && starred {
             var p = lead_(ln)
-            if (p < ln.size()) && (ln[p] == ('*' as u8)) {
+            if (p < ln.size()) && (ln.data()[p] == ('*' as u8)) {
                 p += 1
-                if (p < ln.size()) && (ln[p] == (' ' as u8)) {
+                if (p < ln.size()) && (ln.data()[p] == (' ' as u8)) {
                     p += 1
                 }
 
@@ -304,9 +356,9 @@ pub fn doc_comment_text(const text: string, at: usize) -> string {
             var q     = close - 2
             while q > 0 {
                 q -= 1
-                if (text[q] == ('/' as u8))
+                if (text.data()[q] == ('/' as u8))
                     && ((q + 1) < text.size())
-                    && (text[q + 1] == ('*' as u8)) {
+                    && (text.data()[q + 1] == ('*' as u8)) {
                     open = q
                     break
                 }
@@ -332,7 +384,7 @@ pub fn doc_comment_text(const text: string, at: usize) -> string {
         }
 
         if rev.is_empty()
-            && ((t.starts_with("@") && (t.size() > 1) && is_alpha_(t[1]))
+            && ((t.starts_with("@") && (t.size() > 1) && is_alpha_(t.data()[1]))
                 || (t == "pub")
                 || (t == "priv")
                 || (t == "prot")
@@ -353,7 +405,7 @@ pub fn doc_comment_text(const text: string, at: usize) -> string {
     } else {
         var n = rev.size()
         for var i: usize = 0; i < n; ++i {
-            lines.push(rev[n - 1 - i])
+            lines.push(rev[n - 1 - i].copy())
         }
     }
 
@@ -376,7 +428,7 @@ fn trailing_doc_(const text: string, ls: usize) -> [string] {
     var p               = ls
     var quote: u8       = 0
     while p < le {
-        var c = text[p]
+        var c = text.data()[p]
         if quote != 0 {
             if c == ('\\' as u8) {
                 p += 2
@@ -418,7 +470,7 @@ fn trailing_doc_(const text: string, ls: usize) -> [string] {
                 return out
             }
 
-            if (text[p + 1] == ('/' as u8)) || (text[p + 1] == ('*' as u8)) {
+            if (text.data()[p + 1] == ('/' as u8)) || (text.data()[p + 1] == ('*' as u8)) {
                 return out // some other comment ends the code on this line
             }
         }
@@ -460,14 +512,14 @@ pub fn doc_markdown_at(const text: string, at: usize, cxx: bool) -> string {
 /// True for a path whose declarations are C or C++ (a header or a source
 /// clang reads): a `\code` block in their comments is `cpp`.
 pub fn is_cxx_path(const path: string) -> bool {
-    var slash = path.rfind("/")
+    var slash = rfind_from(path, "/", path.size())
     var base = if (slash == usize::MAX) => (path.copy()) else => rest_(path, slash + 1)
     if base.ends_with(".k") {
         return false
     }
 
     // A C++ standard header has no extension (`vector`).
-    if base.rfind(".") == usize::MAX {
+    if rfind_from(base, ".", base.size()) == usize::MAX {
         return true
     }
 
@@ -568,7 +620,7 @@ fn block_kind_(const name: string, label: *string) -> u8 {
 
     for var i: usize = 0; (i + 1) < labels.size(); i += 2 {
         if labels[i] == name {
-            (*label) = labels[i + 1]
+            (*label) = labels[i + 1].copy()
             return EK_LABEL
         }
     }
@@ -597,17 +649,17 @@ fn block_kind_(const name: string, label: *string) -> u8 {
 /// none.
 fn leading_command_(const t: string, after: *usize) -> string {
     (*after) = 0
-    if (t.size() < 2) || ((t[0] != ('\\' as u8)) && (t[0] != ('@' as u8))) {
+    if (t.size() < 2) || ((t.data()[0] != ('\\' as u8)) && (t.data()[0] != ('@' as u8))) {
         return ""
     }
 
-    if (t[1] == ('{' as u8)) || (t[1] == ('}' as u8)) {
+    if (t.data()[1] == ('{' as u8)) || (t.data()[1] == ('}' as u8)) {
         (*after) = 2
         return t.subslice(1, 1)
     }
 
     var e: usize = 1
-    while (e < t.size()) && is_alpha_(t[e]) {
+    while (e < t.size()) && is_alpha_(t.data()[e]) {
         e += 1
     }
 
@@ -616,11 +668,11 @@ fn leading_command_(const t: string, after: *usize) -> string {
     }
 
     // `@inline(...)`, `@align(8)`: a Kairo attribute, not a command.
-    if (t[0] == ('@' as u8)) && (e < t.size()) && (t[e] == ('(' as u8)) {
+    if (t.data()[0] == ('@' as u8)) && (e < t.size()) && (t.data()[e] == ('(' as u8)) {
         return ""
     }
 
-    if (e < t.size()) && is_ident_(t[e]) {
+    if (e < t.size()) && is_ident_(t.data()[e]) {
         return ""
     }
 
@@ -661,22 +713,22 @@ fn split_midline_(const ln: string, out: *[string]) {
     var from: usize = 0
     var ticks       = 0
     for var i: usize = 1; i < ln.size(); ++i {
-        if ln[i] == ('`' as u8) {
+        if ln.data()[i] == ('`' as u8) {
             ticks += 1
             continue
         }
 
-        if ((ticks % 2) != 0) || ((ln[i] != ('\\' as u8)) && (ln[i] != ('@' as u8))) {
+        if ((ticks % 2) != 0) || ((ln.data()[i] != ('\\' as u8)) && (ln.data()[i] != ('@' as u8))) {
             continue
         }
 
-        if !is_ws_(ln[i - 1]) {
+        if !is_ws_(ln.data()[i - 1]) {
             continue
         }
 
         var after: usize = 0
         var name         = leading_command_(rest_(ln, i), &after)
-        if name.is_empty() || (!splits_midline_(name, ln[i] == ('@' as u8))) {
+        if name.is_empty() || (!splits_midline_(name, ln.data()[i] == ('@' as u8))) {
             continue
         }
 
@@ -734,7 +786,7 @@ fn split_trail_(const tok: string, trail: *string) -> string {
     var t = tok.copy()
     (*trail) = ""
     while (!t.is_empty()) {
-        var c = t[t.size() - 1]
+        var c = t.data()[t.size() - 1]
         var close_paren = (c == (')' as u8)) && (count_(t, '(' as u8) < count_(t, ')' as u8))
         var close_brack = (c == (']' as u8)) && (count_(t, '[' as u8) < count_(t, ']' as u8))
         if (c == ('.' as u8))
@@ -764,7 +816,7 @@ fn split_trail_(const tok: string, trail: *string) -> string {
 fn count_(const s: string, c: u8) -> usize {
     var n: usize = 0
     for var i: usize = 0; i < s.size(); ++i {
-        if s[i] == c {
+        if s.data()[i] == c {
             n += 1
         }
     }
@@ -778,11 +830,11 @@ fn inline_plain_(const s: string) -> string {
     var out: string = ""
     var i:   usize  = 0
     while i < s.size() {
-        var c = s[i]
+        var c = s.data()[i]
         if ((c == ('\\' as u8)) || (c == ('@' as u8)))
-            && ((i == 0) || ((!is_ident_(s[i - 1])) && (s[i - 1] != ('\\' as u8)))) {
+            && ((i == 0) || ((!is_ident_(s.data()[i - 1])) && (s.data()[i - 1] != ('\\' as u8)))) {
             var e = i + 1
-            while (e < s.size()) && is_alpha_(s[e]) {
+            while (e < s.size()) && is_alpha_(s.data()[e]) {
                 e += 1
             }
 
@@ -802,16 +854,16 @@ fn inline_plain_(const s: string) -> string {
 
             if (!open.is_empty())
                 && (e < s.size())
-                && ((s[e] == (' ' as u8)) || (s[e] == ('\t' as u8))) {
+                && ((s.data()[e] == (' ' as u8)) || (s.data()[e] == ('\t' as u8))) {
                 var w0 = e
-                while (w0 < s.size()) && is_ws_(s[w0]) {
+                while (w0 < s.size()) && is_ws_(s.data()[w0]) {
                     w0 += 1
                 }
 
                 var w1 = w0
-                if (w1 < s.size()) && (s[w1] == ('"' as u8)) {
+                if (w1 < s.size()) && (s.data()[w1] == ('"' as u8)) {
                     w1 += 1
-                    while (w1 < s.size()) && (s[w1] != ('"' as u8)) {
+                    while (w1 < s.size()) && (s.data()[w1] != ('"' as u8)) {
                         w1 += 1
                     }
 
@@ -819,7 +871,7 @@ fn inline_plain_(const s: string) -> string {
                         w1 += 1
                     }
                 } else {
-                    while (w1 < s.size()) && (!is_ws_(s[w1])) {
+                    while (w1 < s.size()) && (!is_ws_(s.data()[w1])) {
                         w1 += 1
                     }
                 }
@@ -840,13 +892,13 @@ fn inline_plain_(const s: string) -> string {
 
         // `Box<T>` in prose: `<T>` reads as an HTML tag to a Markdown
         // renderer, which drops it. A `<` after a name is a bracket.
-        if (c == ('<' as u8)) && (i > 0) && is_ident_(s[i - 1]) {
+        if (c == ('<' as u8)) && (i > 0) && is_ident_(s.data()[i - 1]) {
             out += "\\<"
             i += 1
             continue
         }
 
-        out.push_back(c)
+        push_char_at(&out, s, i)
         i += 1
     }
 
@@ -859,7 +911,7 @@ fn inline_line_(const ln: string, in_span: *bool) -> string {
     var out:   string = ""
     var piece: string = ""
     for var i: usize = 0; i < ln.size(); ++i {
-        if ln[i] == ('`' as u8) {
+        if ln.data()[i] == ('`' as u8) {
             if *in_span {
                 out += piece
             } else {
@@ -867,12 +919,12 @@ fn inline_line_(const ln: string, in_span: *bool) -> string {
             }
 
             piece = ""
-            out.push_back(ln[i])
+            out.push('`')
             (*in_span) = !*in_span
             continue
         }
 
-        piece.push_back(ln[i])
+        push_char_at(&piece, ln, i)
     }
 
     if *in_span {
@@ -975,7 +1027,9 @@ fn render_ent_(const e: Ent, cxx: bool) -> [string] {
         var pieces: [string]
         var cur:    string   = ""
         for var i: usize = 0; i <= text.size(); ++i {
-            if (i == text.size()) || (text[i] == (',' as u8)) || (text[i] == (' ' as u8)) {
+            if (i == text.size())
+                || (text.data()[i] == (',' as u8))
+                || (text.data()[i] == (' ' as u8)) {
                 var p = trim_(cur)
                 if p.ends_with(".") && (i == text.size()) {
                     p = p.subslice(0, p.size() - 1)
@@ -989,18 +1043,18 @@ fn render_ent_(const e: Ent, cxx: bool) -> [string] {
                 continue
             }
 
-            cur.push_back(text[i])
+            push_char_at(&cur, text, i)
         }
 
         var names = (pieces.size() > 0) && (pieces.size() <= 3)
         for var i: usize = 0; i < pieces.size(); ++i {
-            var pc = pieces[i]
-            var ok = is_ident_(pc[0])
-                || (pc[0] == ('`' as u8))
-                || (pc[0] == (':' as u8))
-                || (pc[0] == ('~' as u8))
+            var pc = pieces[i].copy()
+            var ok = is_ident_(pc.data()[0])
+                || (pc.data()[0] == ('`' as u8))
+                || (pc.data()[0] == (':' as u8))
+                || (pc.data()[0] == ('~' as u8))
             for var k: usize = 0; k < pc.size(); ++k {
-                var c = pc[k]
+                var c = pc.data()[k]
                 if !(is_ident_(c)
                     || (c == (':' as u8))
                     || (c == ('(' as u8))
@@ -1044,7 +1098,7 @@ fn render_ent_(const e: Ent, cxx: bool) -> [string] {
             out.push(line + ".")
         } else {
             var line = "See " + text
-            var last = line[line.size() - 1]
+            var last = line.data()[line.size() - 1]
             if (last != ('.' as u8)) && (last != ('!' as u8)) && (last != ('?' as u8)) {
                 line += "."
             }
@@ -1089,7 +1143,7 @@ fn render_items_(const ents: [Ent], kind: u8, const heading: string, out: *[stri
         var first = true
         for var k: usize = 0; k < ents[i].lines.size(); ++k {
             if first {
-                items.push(head + ": " + ents[i].lines[k])
+                items.push(head.copy() + ": " + ents[i].lines[k])
                 first = false
             } else {
                 items.push("  " + ents[i].lines[k])
@@ -1168,7 +1222,7 @@ pub fn doc_to_markdown(const raw: string, cxx: bool) -> string {
     var cur           = usize::MAX // the entry a line continues
     var i:      usize = 0
     while i < cut.size() {
-        var ln = cut[i]
+        var ln = cut[i].copy()
         var t  = trim_(ln)
         i += 1
         if t.starts_with("```") || t.starts_with("~~~") {
@@ -1289,8 +1343,8 @@ pub fn doc_to_markdown(const raw: string, cxx: bool) -> string {
                     e.dir = trim_(rest.subslice(1, close - 1))
                     var d2: string = ""
                     for var k: usize = 0; k < e.dir.size(); ++k {
-                        if e.dir[k] != (' ' as u8) {
-                            d2.push_back(e.dir[k])
+                        if e.dir.data()[k] != (' ' as u8) {
+                            push_char_at(&d2, e.dir, k)
                         }
                     }
 
@@ -1300,7 +1354,7 @@ pub fn doc_to_markdown(const raw: string, cxx: bool) -> string {
             }
 
             var w = 0 as usize
-            while (w < rest.size()) && (!is_ws_(rest[w])) {
+            while (w < rest.size()) && (!is_ws_(rest.data()[w])) {
                 w += 1
             }
 
@@ -1427,7 +1481,7 @@ pub fn markdown_to_plain(const md: string) -> string {
         var ln = lines[i].copy()
         if t.starts_with("#") {
             var h: usize = 0
-            while (h < t.size()) && (t[h] == ('#' as u8)) {
+            while (h < t.size()) && (t.data()[h] == ('#' as u8)) {
                 h += 1
             }
 
@@ -1437,22 +1491,26 @@ pub fn markdown_to_plain(const md: string) -> string {
         var plain: string = ""
         var k:     usize  = 0
         while k < ln.size() {
-            if (ln[k] == ('*' as u8)) && ((k + 1) < ln.size()) && (ln[k + 1] == ('*' as u8)) {
+            if (ln.data()[k] == ('*' as u8))
+                && ((k + 1) < ln.size())
+                && (ln.data()[k + 1] == ('*' as u8)) {
                 k += 2
                 continue
             }
 
-            if ln[k] == ('`' as u8) {
+            if ln.data()[k] == ('`' as u8) {
                 k += 1
                 continue
             }
 
-            if (ln[k] == ('\\' as u8)) && ((k + 1) < ln.size()) && (ln[k + 1] == ('<' as u8)) {
+            if (ln.data()[k] == ('\\' as u8))
+                && ((k + 1) < ln.size())
+                && (ln.data()[k + 1] == ('<' as u8)) {
                 k += 1
                 continue
             }
 
-            plain.push_back(ln[k])
+            push_char_at(&plain, ln, k)
             k += 1
         }
 
@@ -1540,7 +1598,7 @@ pub fn param_name_of(const piece_in: string) -> string {
     var depth: i64 = 0
     var colon      = usize::MAX
     for var i: usize = 0; i < piece.size(); ++i {
-        var c = piece[i]
+        var c = piece.data()[i]
         if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('<' as u8)) || (c == ('{' as u8)) {
             depth += 1
         } else if ((c == (')' as u8))
@@ -1550,8 +1608,8 @@ pub fn param_name_of(const piece_in: string) -> string {
             && (depth > 0) {
             depth -= 1
         } else if (c == (':' as u8)) && (depth == 0) && (colon == usize::MAX) {
-            var dbl = (((i + 1) < piece.size()) && (piece[i + 1] == (':' as u8)))
-                || ((i > 0) && (piece[i - 1] == (':' as u8)))
+            var dbl = (((i + 1) < piece.size()) && (piece.data()[i + 1] == (':' as u8)))
+                || ((i > 0) && (piece.data()[i - 1] == (':' as u8)))
             if !dbl {
                 colon = i
             }
@@ -1568,13 +1626,13 @@ pub fn param_name_of(const piece_in: string) -> string {
     }
 
     var e = end
-    while (e > 0) && is_ws_(piece[e - 1]) {
+    while (e > 0) && is_ws_(piece.data()[e - 1]) {
         e -= 1
     }
 
-    if (e > 0) && (piece[e - 1] == (']' as u8)) && (colon == usize::MAX) {
+    if (e > 0) && (piece.data()[e - 1] == (']' as u8)) && (colon == usize::MAX) {
         // `int a[4]`
-        while (e > 0) && (piece[e - 1] != ('[' as u8)) {
+        while (e > 0) && (piece.data()[e - 1] != ('[' as u8)) {
             e -= 1
         }
 
@@ -1584,7 +1642,7 @@ pub fn param_name_of(const piece_in: string) -> string {
     }
 
     var b = e
-    while (b > 0) && is_ident_(piece[b - 1]) {
+    while (b > 0) && is_ident_(piece.data()[b - 1]) {
         b -= 1
     }
 
@@ -1614,7 +1672,7 @@ pub struct DeclHead {
 
 fn skip_ws_nl_(const text: string, p: usize) -> usize {
     var q = p
-    while (q < text.size()) && (is_ws_(text[q]) || (text[q] == ('\n' as u8))) {
+    while (q < text.size()) && (is_ws_(text.data()[q]) || (text.data()[q] == ('\n' as u8))) {
         q += 1
     }
 
@@ -1623,7 +1681,7 @@ fn skip_ws_nl_(const text: string, p: usize) -> usize {
 
 fn skip_ws_(const text: string, p: usize) -> usize {
     var q = p
-    while (q < text.size()) && is_ws_(text[q]) {
+    while (q < text.size()) && is_ws_(text.data()[q]) {
         q += 1
     }
 
@@ -1637,13 +1695,13 @@ fn close_of_(const text: string, open: usize) -> usize {
     var depth: i64 = 0
     var p          = open
     while p < text.size() {
-        var c = text[p]
+        var c = text.data()[p]
         if (c == ('(' as u8)) || (c == ('<' as u8)) || (c == ('[' as u8)) || (c == ('{' as u8)) {
             depth += 1
         } else if (c == (')' as u8))
             || (c == (']' as u8))
             || (c == ('}' as u8))
-            || ((c == ('>' as u8)) && (!((p > 0) && (text[p - 1] == ('-' as u8))))) {
+            || ((c == ('>' as u8)) && (!((p > 0) && (text.data()[p - 1] == ('-' as u8))))) {
             depth -= 1
             if depth == 0 {
                 return p + 1
@@ -1671,13 +1729,13 @@ fn pieces_(const text: string, from: usize, to: usize) -> [string] {
             break
         }
 
-        var c = text[p]
+        var c = text.data()[p]
         if (c == ('(' as u8)) || (c == ('<' as u8)) || (c == ('[' as u8)) || (c == ('{' as u8)) {
             depth += 1
         } else if ((c == (')' as u8))
             || (c == (']' as u8))
             || (c == ('}' as u8))
-            || ((c == ('>' as u8)) && (!((p > 0) && (text[p - 1] == ('-' as u8))))))
+            || ((c == ('>' as u8)) && (!((p > 0) && (text.data()[p - 1] == ('-' as u8))))))
             && (depth > 0) {
             depth -= 1
         } else if (c == (',' as u8)) && (depth == 0) {
@@ -1696,12 +1754,12 @@ fn pieces_(const text: string, from: usize, to: usize) -> [string] {
 /// A type parameter's name: `T`, `U impl Hash`, `...A`, `N: usize`.
 fn tparam_name_(const piece: string) -> string {
     var p: usize = 0
-    while (p < piece.size()) && (!is_ident_(piece[p])) {
+    while (p < piece.size()) && (!is_ident_(piece.data()[p])) {
         p += 1
     }
 
     var e = p
-    while (e < piece.size()) && is_ident_(piece[e]) {
+    while (e < piece.size()) && is_ident_(piece.data()[e]) {
         e += 1
     }
 
@@ -1715,7 +1773,7 @@ fn tparam_name_(const piece: string) -> string {
 
 fn word_at_(const text: string, p: usize) -> string {
     var e = p
-    while (e < text.size()) && is_ident_(text[e]) {
+    while (e < text.size()) && is_ident_(text.data()[e]) {
         e += 1
     }
 
@@ -1738,13 +1796,13 @@ pub fn decl_head(const text: string, ls: usize) -> DeclHead {
     }
 
     // Attributes (`@inline`, `@align(8)`), on this line or lines of their own.
-    while (p < limit) && (text[p] == ('@' as u8)) {
+    while (p < limit) && (text.data()[p] == ('@' as u8)) {
         p += 1
-        while (p < limit) && (is_ident_(text[p]) || (text[p] == (':' as u8))) {
+        while (p < limit) && (is_ident_(text.data()[p]) || (text.data()[p] == (':' as u8))) {
             p += 1
         }
 
-        if (p < limit) && (text[p] == ('(' as u8)) {
+        if (p < limit) && (text.data()[p] == ('(' as u8)) {
             p = close_of_(text, p)
         }
 
@@ -1782,7 +1840,7 @@ pub fn decl_head(const text: string, ls: usize) -> DeclHead {
             || (w == "union")
             || (w == "interface")
             || (w == "type") {
-            kw = w
+            kw = w.copy()
             p  = p + w.size()
         }
 
@@ -1794,10 +1852,10 @@ pub fn decl_head(const text: string, ls: usize) -> DeclHead {
     }
 
     h.head = line_start_(text, p)
-    h.kind = kw
+    h.kind = kw.copy()
     p      = skip_ws_(text, p)
     // `fn <T> name`, `class <T> Box`, `type <T> Matrix`
-    if (p < limit) && (text[p] == ('<' as u8)) {
+    if (p < limit) && (text.data()[p] == ('<' as u8)) {
         var e   = close_of_(text, p)
         var tps = pieces_(text, p + 1, e - 1)
         for var i: usize = 0; i < tps.size(); ++i {
@@ -1813,13 +1871,13 @@ pub fn decl_head(const text: string, ls: usize) -> DeclHead {
     var ns = p
     if word_at_(text, p) == "op" {
         // `fn op + (self, ...)`, `fn op [] (...)`: the name runs to the `(`.
-        while (p < limit) && (text[p] != ('(' as u8)) && (text[p] != ('\n' as u8)) {
+        while (p < limit) && (text.data()[p] != ('(' as u8)) && (text.data()[p] != ('\n' as u8)) {
             p += 1
         }
 
         h.name = trim_(text.subslice(ns, p - ns))
     } else {
-        while (p < limit) && (is_ident_(text[p]) || (text[p] == (':' as u8))) {
+        while (p < limit) && (is_ident_(text.data()[p]) || (text.data()[p] == (':' as u8))) {
             p += 1
         }
 
@@ -1836,7 +1894,7 @@ pub fn decl_head(const text: string, ls: usize) -> DeclHead {
     }
 
     p = skip_ws_(text, p)
-    if (p >= limit) || (text[p] != ('(' as u8)) {
+    if (p >= limit) || (text.data()[p] != ('(' as u8)) {
         return h
     }
 
@@ -1852,14 +1910,14 @@ pub fn decl_head(const text: string, ls: usize) -> DeclHead {
     // After the parameters, to the body or the end of the line: the
     // modifiers (`panic`, `panic(E)`), the return type.
     p = pe
-    while (p < limit) && (text[p] != ('\n' as u8)) && (text[p] != ('{' as u8)) {
-        if is_ident_(text[p]) {
+    while (p < limit) && (text.data()[p] != ('\n' as u8)) && (text.data()[p] != ('{' as u8)) {
+        if is_ident_(text.data()[p]) {
             var w = word_at_(text, p)
             if (w == "where") || (w == "requires") {
                 break
             }
 
-            if (w == "panic") && ((p == 0) || (!is_ident_(text[p - 1]))) {
+            if (w == "panic") && ((p == 0) || (!is_ident_(text.data()[p - 1]))) {
                 h.panics = true
             }
 
@@ -1867,18 +1925,21 @@ pub fn decl_head(const text: string, ls: usize) -> DeclHead {
             continue
         }
 
-        if (text[p] == ('-' as u8)) && ((p + 1) < limit) && (text[p + 1] == ('>' as u8)) {
+        if (text.data()[p] == ('-' as u8))
+            && ((p + 1) < limit)
+            && (text.data()[p + 1] == ('>' as u8)) {
             var r = skip_ws_(text, p + 2)
             var w = word_at_(text, r)
             h.returns = (w != "void")
                 && (r < limit)
-                && (text[r] != ('{' as u8))
-                && (text[r] != ('\n' as u8))
+                && (text.data()[r] != ('{' as u8))
+                && (text.data()[r] != ('\n' as u8))
             p = r
             continue
         }
 
-        if (text[p] == ('=' as u8)) && (((p + 1) >= limit) || (text[p + 1] != ('=' as u8))) {
+        if (text.data()[p] == ('=' as u8))
+            && (((p + 1) >= limit) || (text.data()[p + 1] != ('=' as u8))) {
             break // `= default`, an expression body
         }
 
@@ -1892,11 +1953,13 @@ pub fn decl_head(const text: string, ls: usize) -> DeclHead {
 fn snippet_text_(const s: string) -> string {
     var out: string = ""
     for var i: usize = 0; i < s.size(); ++i {
-        if (s[i] == ('$' as u8)) || (s[i] == ('}' as u8)) || (s[i] == ('\\' as u8)) {
-            out.push_back('\\' as u8)
+        if (s.data()[i] == ('$' as u8))
+            || (s.data()[i] == ('}' as u8))
+            || (s.data()[i] == ('\\' as u8)) {
+            out.push('\\')
         }
 
-        out.push_back(s[i])
+        push_char_at(&out, s, i)
     }
 
     return out
@@ -1996,7 +2059,7 @@ pub fn headings_for(const h: DeclHead, const present: [string]) -> [string] {
         }
 
         if fits[i] && (!have) {
-            out.push(all[i])
+            out.push(all[i].copy())
         }
     }
 
@@ -2033,7 +2096,7 @@ fn check_(const what: string, const got: string, const want: string) -> i32 {
 /// ending with the declaration's line).
 fn md_of_(const src: string, cxx: bool) -> string {
     var at = src.size()
-    if (at > 0) && (src[at - 1] == ('\n' as u8)) {
+    if (at > 0) && (src.data()[at - 1] == ('\n' as u8)) {
         at -= 1
     }
 
@@ -2571,21 +2634,21 @@ pub fn Test() -> i32 {
     var cls = decl_head("class <T> Box derives Base {\n", 0)
     errors += check_(
         "decl_head: a class",
-        cls.kind + " " + cls.name + " " + join_lines_(cls.tparams),
+        cls.kind.copy() + " " + cls.name + " " + join_lines_(cls.tparams),
         "class Box T",
     )
 
     var al = decl_head("type <T> Matrix = [[T]]\n", 0)
     errors += check_(
         "decl_head: a type alias",
-        al.kind + " " + al.name,
+        al.kind.copy() + " " + al.name,
         "type Matrix",
     )
 
     var oph = decl_head("    fn op + (const self, other: Self) -> Self\n", 0)
     errors += check_(
         "decl_head: an operator",
-        oph.name + " " + join_lines_(oph.params),
+        oph.name.copy() + " " + join_lines_(oph.params),
         "op + other",
     )
 

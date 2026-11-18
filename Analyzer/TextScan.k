@@ -32,9 +32,9 @@ pub fn classify(const text: string) -> [u8] {
     var i: usize = 0
     var n        = text.size()
     while i < n {
-        var c = text[i]
-        if (c == ('/' as u8)) && ((i + 1) < n) && (text[i + 1] == ('/' as u8)) {
-            while (i < n) && (text[i] != ('\n' as u8)) {
+        var c = text.data()[i]
+        if (c == ('/' as u8)) && ((i + 1) < n) && (text.data()[i + 1] == ('/' as u8)) {
+            while (i < n) && (text.data()[i] != ('\n' as u8)) {
                 cls[i] = 1
                 i += 1
             }
@@ -42,13 +42,13 @@ pub fn classify(const text: string) -> [u8] {
             continue
         }
 
-        if (c == ('/' as u8)) && ((i + 1) < n) && (text[i + 1] == ('*' as u8)) {
+        if (c == ('/' as u8)) && ((i + 1) < n) && (text.data()[i + 1] == ('*' as u8)) {
             cls[i]     = 1
             cls[i + 1] = 1
             i += 2
             while i < n {
                 cls[i] = 1
-                if (text[i] == ('/' as u8)) && (text[i - 1] == ('*' as u8)) {
+                if (text.data()[i] == ('/' as u8)) && (text.data()[i - 1] == ('*' as u8)) {
                     i += 1
                     break
                 }
@@ -62,15 +62,15 @@ pub fn classify(const text: string) -> [u8] {
         // `"""` opens a string that runs to the next `"""`, over lines.
         if (c == ('"' as u8))
             && ((i + 2) < n)
-            && (text[i + 1] == ('"' as u8))
-            && (text[i + 2] == ('"' as u8)) {
+            && (text.data()[i + 1] == ('"' as u8))
+            && (text.data()[i + 2] == ('"' as u8)) {
             var j = i + 3
             while (j < n)
-                && (!((text[j] == ('"' as u8))
+                && (!((text.data()[j] == ('"' as u8))
                     && ((j + 2) < n)
-                    && (text[j + 1] == ('"' as u8))
-                    && (text[j + 2] == ('"' as u8)))) {
-                if text[j] == ('\\' as u8) {
+                    && (text.data()[j + 1] == ('"' as u8))
+                    && (text.data()[j + 2] == ('"' as u8)))) {
+                if text.data()[j] == ('\\' as u8) {
                     j += 1
                 }
 
@@ -99,20 +99,20 @@ pub fn classify(const text: string) -> [u8] {
             var q      = c
             var j      = i + 1
             var closed = false
-            while (j < n) && (text[j] != ('\n' as u8) || q == ('"' as u8)) {
-                if text[j] == ('\\' as u8) {
+            while (j < n) && (text.data()[j] != ('\n' as u8) || q == ('"' as u8)) {
+                if text.data()[j] == ('\\' as u8) {
                     j += 2
                     continue
                 }
 
-                if text[j] == q {
+                if text.data()[j] == q {
                     closed = true
                     break
                 }
 
                 // A plain "..." string does not span lines either (a
                 // triple-quoted one is read above).
-                if text[j] == ('\n' as u8) {
+                if text.data()[j] == ('\n' as u8) {
                     break
                 }
 
@@ -157,17 +157,17 @@ pub fn spans(const text: string) -> [Span] {
                 e = i
                 var j = i
                 while (j < n)
-                    && ((text[j] == (' ' as u8))
-                        || (text[j] == ('\t' as u8))
-                        || (text[j] == ('\n' as u8))
-                        || (text[j] == ('\r' as u8))) {
+                    && ((text.data()[j] == (' ' as u8))
+                        || (text.data()[j] == ('\t' as u8))
+                        || (text.data()[j] == ('\n' as u8))
+                        || (text.data()[j] == ('\r' as u8))) {
                     j += 1
                 }
 
                 // Only a single line break may separate the lines of a run.
                 var breaks: usize = 0
                 for var k: usize = i; k < j; ++k {
-                    if text[k] == ('\n' as u8) {
+                    if text.data()[k] == ('\n' as u8) {
                         breaks += 1
                     }
                 }
@@ -189,7 +189,7 @@ pub fn spans(const text: string) -> [Span] {
         }
 
         if cls[i] == 0 {
-            var c = text[i]
+            var c = text.data()[i]
             if (c == ('{' as u8)) || (c == ('(' as u8)) || (c == ('[' as u8)) {
                 var sp = Span{}
                 sp.open  = i
@@ -246,7 +246,7 @@ pub fn call_at(const text: string, at: usize) -> CallSite {
             continue
         }
 
-        var c = text[i]
+        var c = text.data()[i]
         if (c == (')' as u8)) || (c == (']' as u8)) || (c == ('}' as u8)) {
             depth += 1
         } else if c == ('(' as u8) {
@@ -301,10 +301,19 @@ fn is_blank_byte(c: u8) -> bool {
     return (c == (' ' as u8)) || (c == ('\t' as u8)) || (c == ('\r' as u8))
 }
 
+/// The bytes `v` as a string; `v` holds whole UTF-8 characters.
+pub fn bytes_to_string(const v: [u8]) -> string {
+    if v.size() == 0 {
+        return string()
+    }
+
+    return string(&v[0], v.size())
+}
+
 /// The word of code bytes starting at `p`, or "".
 fn word_at(const text: string, const cls: [u8], p: usize) -> string {
     var e = p
-    while (e < text.size()) && (cls[e] == 0) && is_ident_byte(text[e]) {
+    while (e < text.size()) && (cls[e] == 0) && is_ident_byte(text.data()[e]) {
         e += 1
     }
 
@@ -316,35 +325,40 @@ fn word_at(const text: string, const cls: [u8], p: usize) -> string {
 fn one_line(const s: string) -> string {
     var out: string = ""
     var i:   usize  = 0
+    // `run` is the first byte not yet copied; every cut is at an ASCII
+    // whitespace byte, so a run never ends inside a multibyte character.
+    var run: usize = 0
     while i < s.size() {
-        var c = s[i]
+        var c = s.data()[i]
         if (c == ('\n' as u8)) || is_blank_byte(c) {
             var nl = false
             var j  = i
-            while (j < s.size()) && ((s[j] == ('\n' as u8)) || is_blank_byte(s[j])) {
-                if s[j] == ('\n' as u8) {
+            while (j < s.size()) && ((s.data()[j] == ('\n' as u8)) || is_blank_byte(s.data()[j])) {
+                if s.data()[j] == ('\n' as u8) {
                     nl = true
                 }
 
                 j += 1
             }
 
+            out += s[run..i]
             if nl {
                 out += " "
             } else {
-                out += s.subslice(i, j - i)
+                out += s[i..j]
             }
 
-            i = j
+            i   = j
+            run = j
             continue
         }
 
-        out.push_back(c)
         i += 1
     }
 
+    out += s[run..]
     var e = out.size()
-    while (e > 0) && (out[e - 1] == (' ' as u8)) {
+    while (e > 0) && (out.data()[e - 1] == (' ' as u8)) {
         e -= 1
     }
 
@@ -371,12 +385,12 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     }
 
     var a = at
-    while (a > 0) && (cls[a - 1] == 0) && is_ident_byte(text[a - 1]) {
+    while (a > 0) && (cls[a - 1] == 0) && is_ident_byte(text.data()[a - 1]) {
         a -= 1
     }
 
     var b = at
-    while (b < n) && (cls[b] == 0) && is_ident_byte(text[b]) {
+    while (b < n) && (cls[b] == 0) && is_ident_byte(text.data()[b]) {
         b += 1
     }
 
@@ -388,28 +402,28 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
 
     // Back over `<...>` generic parameters to the keyword.
     var p = a
-    while (p > 0) && is_blank_byte(text[p - 1]) {
+    while (p > 0) && is_blank_byte(text.data()[p - 1]) {
         p -= 1
     }
 
     var generics: string = ""
-    if (p > 0) && (text[p - 1] == ('>' as u8)) {
+    if (p > 0) && (text.data()[p - 1] == ('>' as u8)) {
         var depth: usize = 0
         var q            = p
         var found        = false
         while q > 0 {
             q -= 1
-            if text[q] == ('>' as u8) {
+            if text.data()[q] == ('>' as u8) {
                 depth += 1
-            } else if text[q] == ('<' as u8) {
+            } else if text.data()[q] == ('<' as u8) {
                 depth -= 1
                 if depth == 0 {
                     found = true
                     break
                 }
-            } else if (text[q] == ('\n' as u8))
-                || (text[q] == ('{' as u8))
-                || (text[q] == ('}' as u8)) {
+            } else if (text.data()[q] == ('\n' as u8))
+                || (text.data()[q] == ('{' as u8))
+                || (text.data()[q] == ('}' as u8)) {
                 break
             }
         }
@@ -420,13 +434,13 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
 
         generics = text.subslice(q, p - q)
         p        = q
-        while (p > 0) && is_blank_byte(text[p - 1]) {
+        while (p > 0) && is_blank_byte(text.data()[p - 1]) {
             p -= 1
         }
     }
 
     var kw_end = p
-    while (p > 0) && is_ident_byte(text[p - 1]) {
+    while (p > 0) && is_ident_byte(text.data()[p - 1]) {
         p -= 1
     }
 
@@ -439,7 +453,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
 
     // The body: the first `{` after the name, and its match.
     var open = b
-    while (open < n) && (!((cls[open] == 0) && (text[open] == ('{' as u8)))) {
+    while (open < n) && (!((cls[open] == 0) && (text.data()[open] == ('{' as u8)))) {
         open += 1
     }
 
@@ -451,9 +465,9 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     var bd:   usize = 1
     while close < n {
         if cls[close] == 0 {
-            if text[close] == ('{' as u8) {
+            if text.data()[close] == ('{' as u8) {
                 bd += 1
-            } else if text[close] == ('}' as u8) {
+            } else if text.data()[close] == ('}' as u8) {
                 bd -= 1
                 if bd == 0 {
                     break
@@ -481,12 +495,12 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
         var i:    usize = 1
         var first       = true
         while i < (generics.size() - 1) {
-            while (i < generics.size()) && (!is_ident_byte(generics[i])) {
+            while (i < generics.size()) && (!is_ident_byte(generics.data()[i])) {
                 i += 1
             }
 
             var s = i
-            while (i < generics.size()) && is_ident_byte(generics[i]) {
+            while (i < generics.size()) && is_ident_byte(generics.data()[i]) {
                 i += 1
             }
 
@@ -502,7 +516,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
             // Skip the bound to the next top-level comma.
             var depth: usize = 0
             while i < (generics.size() - 1) {
-                var c = generics[i]
+                var c = generics.data()[i]
                 if c == ('<' as u8) {
                     depth += 1
                 } else if (c == ('>' as u8)) && (depth > 0) {
@@ -522,14 +536,15 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     // The header's end, where ` impl IName` (or `, IName` after an
     // existing clause) goes.
     var he = open
-    while (he > b) && (is_blank_byte(text[he - 1]) || (text[he - 1] == ('\n' as u8))) {
+    while (he > b)
+        && (is_blank_byte(text.data()[he - 1]) || (text.data()[he - 1] == ('\n' as u8))) {
         he -= 1
     }
 
     var has_impl = false
     for var i: usize = b; i < he; ++i {
         if (cls[i] == 0)
-            && ((i == 0) || (!is_ident_byte(text[i - 1])))
+            && ((i == 0) || (!is_ident_byte(text.data()[i - 1])))
             && (word_at(text, cls, i) == "impl") {
             has_impl = true
         }
@@ -545,33 +560,33 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     // The line the interface goes above: the class line, or the top of the
     // `///` and attribute lines over it, so its documentation stays its own.
     var ls = kw_at
-    while (ls > 0) && (text[ls - 1] != ('\n' as u8)) {
+    while (ls > 0) && (text.data()[ls - 1] != ('\n' as u8)) {
         ls -= 1
     }
 
     var indent: string = ""
     var ip             = ls
-    while (ip < kw_at) && is_blank_byte(text[ip]) {
-        indent.push_back(text[ip])
+    while (ip < kw_at) && is_blank_byte(text.data()[ip]) {
+        indent.push(text.data()[ip])
         ip += 1
     }
 
     while ls > 0 {
         var prev = ls - 1
-        while (prev > 0) && (text[prev - 1] != ('\n' as u8)) {
+        while (prev > 0) && (text.data()[prev - 1] != ('\n' as u8)) {
             prev -= 1
         }
 
         var fp = prev
-        while (fp < ls) && is_blank_byte(text[fp]) {
+        while (fp < ls) && is_blank_byte(text.data()[fp]) {
             fp += 1
         }
 
         var doc = ((fp + 2) < ls)
-            && (text[fp] == ('/' as u8))
-            && (text[fp + 1] == ('/' as u8))
-            && (text[fp + 2] == ('/' as u8))
-        var attr = (fp < ls) && (text[fp] == ('@' as u8))
+            && (text.data()[fp] == ('/' as u8))
+            && (text.data()[fp + 1] == ('/' as u8))
+            && (text.data()[fp + 2] == ('/' as u8))
+        var attr = (fp < ls) && (text.data()[fp] == ('@' as u8))
         if (!doc) && (!attr) {
             break
         }
@@ -588,22 +603,24 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
     var i                      = open + 1
     var at_line_start          = false
     while i < close {
-        var c = text[i]
+        var c = text.data()[i]
         if at_line_start && (depth == 0) {
             var q = i
-            while (q < close) && is_blank_byte(text[q]) {
+            while (q < close) && is_blank_byte(text.data()[q]) {
                 q += 1
             }
 
             var le = q
-            while (le < close) && (text[le] != ('\n' as u8)) {
+            while (le < close) && (text.data()[le] != ('\n' as u8)) {
                 le += 1
             }
 
             if (q < le) && (cls[q] == 1) {
-                if ((q + 2) < le) && (text[q + 2] == ('/' as u8)) && (text[q + 1] == ('/' as u8)) {
+                if ((q + 2) < le)
+                    && (text.data()[q + 2] == ('/' as u8))
+                    && (text.data()[q + 1] == ('/' as u8)) {
                     var e = le
-                    while (e > q) && is_blank_byte(text[e - 1]) {
+                    while (e > q) && is_blank_byte(text.data()[e - 1]) {
                         e -= 1
                     }
 
@@ -617,15 +634,15 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                 var is_pub    = false
                 var is_static = false
                 var fn_at     = usize::MAX
-                var attr_only = text[q] == ('@' as u8)
+                var attr_only = text.data()[q] == ('@' as u8)
                 while w < le {
-                    while (w < le) && is_blank_byte(text[w]) {
+                    while (w < le) && is_blank_byte(text.data()[w]) {
                         w += 1
                     }
 
-                    if (w < le) && (text[w] == ('@' as u8)) {
+                    if (w < le) && (text.data()[w] == ('@' as u8)) {
                         w += 1
-                        while (w < le) && is_ident_byte(text[w]) {
+                        while (w < le) && is_ident_byte(text.data()[w]) {
                             w += 1
                         }
 
@@ -661,7 +678,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                         var pd: usize = 0
                         while e < close {
                             if cls[e] == 0 {
-                                var ch = text[e]
+                                var ch = text.data()[e]
                                 if (ch == ('(' as u8)) || (ch == ('[' as u8)) {
                                     pd += 1
                                 } else if ((ch == (')' as u8)) || (ch == (']' as u8))) && (pd > 0) {
@@ -671,11 +688,11 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                                 } else if (pd == 0)
                                     && (ch == ('=' as u8))
                                     && ((e + 1) < close)
-                                    && (text[e + 1] != ('=' as u8))
-                                    && (text[e - 1] != ('=' as u8))
-                                    && (text[e - 1] != ('!' as u8))
-                                    && (text[e - 1] != ('<' as u8))
-                                    && (text[e - 1] != ('>' as u8)) {
+                                    && (text.data()[e + 1] != ('=' as u8))
+                                    && (text.data()[e - 1] != ('=' as u8))
+                                    && (text.data()[e - 1] != ('!' as u8))
+                                    && (text.data()[e - 1] != ('<' as u8))
+                                    && (text.data()[e - 1] != ('>' as u8)) {
                                     break
                                 }
                             }
@@ -687,16 +704,16 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
 
                         // The method's name: after `fn` and its generics.
                         var np = fn_at + 2
-                        while (np < e) && is_blank_byte(text[np]) {
+                        while (np < e) && is_blank_byte(text.data()[np]) {
                             np += 1
                         }
 
-                        if (np < e) && (text[np] == ('<' as u8)) {
+                        if (np < e) && (text.data()[np] == ('<' as u8)) {
                             var gd: usize = 0
                             while np < e {
-                                if text[np] == ('<' as u8) {
+                                if text.data()[np] == ('<' as u8) {
                                     gd += 1
-                                } else if text[np] == ('>' as u8) {
+                                } else if text.data()[np] == ('>' as u8) {
                                     gd -= 1
                                     if gd == 0 {
                                         np += 1
@@ -707,7 +724,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                                 np += 1
                             }
 
-                            while (np < e) && is_blank_byte(text[np]) {
+                            while (np < e) && is_blank_byte(text.data()[np]) {
                                 np += 1
                             }
                         }
@@ -716,7 +733,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                         var skip  = mname == name
                         if mname == "op" {
                             var opp = np + 2
-                            while (opp < e) && is_blank_byte(text[opp]) {
+                            while (opp < e) && is_blank_byte(text.data()[opp]) {
                                 opp += 1
                             }
 
@@ -731,14 +748,15 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                         var sp:        usize = 0
                         while (sp + 5) <= sig.size() {
                             if (sig.subslice(sp, 5) == "panic")
-                                && ((sp == 0) || (!is_ident_byte(sig[sp - 1])))
-                                && (((sp + 5) == sig.size()) || (!is_ident_byte(sig[sp + 5]))) {
+                                && ((sp == 0) || (!is_ident_byte(sig.data()[sp - 1])))
+                                && (((sp + 5) == sig.size())
+                                    || (!is_ident_byte(sig.data()[sp + 5]))) {
                                 var t = sp + 5
-                                while (t < sig.size()) && (sig[t] == (' ' as u8)) {
+                                while (t < sig.size()) && (sig.data()[t] == (' ' as u8)) {
                                     t += 1
                                 }
 
-                                if (t >= sig.size()) || (sig[t] != ('(' as u8)) {
+                                if (t >= sig.size()) || (sig.data()[t] != ('(' as u8)) {
                                     bare_panic = true
                                 }
                             }
@@ -792,7 +810,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
         return plan
     }
 
-    var out = indent + "pub interface "
+    var out = indent.copy() + "pub interface "
     if !generics.is_empty() {
         out += generics
         out += " "

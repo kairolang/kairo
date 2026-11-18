@@ -379,7 +379,7 @@ pub class <T: type> LiteralTyping {
         a->elems_lo = self.dyn()->ovl.list_shapes.size()
         a->elems_n  = kids.size()
         for var i: usize = 0; i < kids.size(); ++i {
-            self.dyn()->ovl.list_shapes.push_back(kids[i])
+            self.dyn()->ovl.list_shapes.push_back(kids[i].copy())
         }
 
         return true
@@ -439,7 +439,7 @@ pub class <T: type> LiteralTyping {
         a->elems_lo = self.dyn()->ovl.list_shapes.size()
         a->elems_n  = kids.size()
         for var i: usize = 0; i < kids.size(); ++i {
-            self.dyn()->ovl.list_shapes.push_back(kids[i])
+            self.dyn()->ovl.list_shapes.push_back(kids[i].copy())
         }
 
         return true
@@ -742,14 +742,14 @@ pub class <T: type> LiteralTyping {
             return 0
         }
 
-        var c0 = sfx[0]
+        var c0 = sfx.data()[0]
         if c0 != lead && c0 != up {
             return 0
         }
 
         var w: u32 = 0
         for var i: usize = 1; i < sfx.size(); ++i {
-            var c = sfx[i]
+            var c = sfx.data()[i]
             if c < ('0' as u8) || c > ('9' as u8) {
                 return 0
             }

@@ -329,7 +329,7 @@ pub class PPWalker {
                 sm:          unsafe *SourceManager,
                 tcm:         unsafe *TokenCacheManager,
                 diag:        unsafe *DiagEngine,
-                opts:        PreprocessorOptions,
+                const opts:  PreprocessorOptions,
                 module_base: ModulePath,
                 headers:     unsafe *HeaderSetCache = &null) {
         self._fid     = fid
@@ -342,7 +342,7 @@ pub class PPWalker {
         self._sm      = sm
         self._tcm     = tcm
         self._diag    = diag
-        self._opts    = opts
+        self._opts    = opts.copy()
         self._imm     = lexer->get_imm_tbl()
         self._out     = kairo::std::create<TokenBuffer<512>>()
         self._src = kairo::std::create<TokenSource>(
@@ -1722,8 +1722,9 @@ pub class PPWalker {
     /// classification's diagnostic; the PP only needs enough to make
     /// has_ffi_linkage() true and to carry the language to codegen.
     priv fn _ffi_lang_kind(self, lang_tok: Token) -> LinkageKind {
-        var s = *TokenText::resolve(lang_tok, self._tcm).get_text()
-        if ffi_lang_of_literal(s) == FFILang::C {
+        var        tt = TokenText::resolve(lang_tok, self._tcm)
+        var unsafe *s = tt.get_text()
+        if ffi_lang_of_literal(*s) == FFILang::C {
             return LinkageKind::C
         }
 

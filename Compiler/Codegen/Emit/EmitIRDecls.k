@@ -75,6 +75,28 @@ import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Token::TokenKind::TokenKind
 
+/// Byte offset of the last `needle` in `s`; `usize::MAX` when there is none.
+fn _rfind_str(const s: string, const needle: string) -> usize {
+    if needle.size() > s.size() {
+        return usize::MAX
+    }
+
+    var i = s.size() - needle.size() + 1
+    while i > 0 {
+        i -= 1
+        var j: usize = 0
+        while j < needle.size() && s.data()[i + j] == needle.data()[j] {
+            j += 1
+        }
+
+        if j == needle.size() {
+            return i
+        }
+    }
+
+    return usize::MAX
+}
+
 extend EmitIR {
     /// # Declarations
 
@@ -793,18 +815,18 @@ extend EmitIR {
         // They stay unemitted.
         var last = nm.copy()
         var prev = ""
-        var cut  = nm.rfind("::")
+        var cut  = _rfind_str(nm, "::")
         if cut != usize::MAX {
             last = nm.subslice(cut + 2, nm.size())
             var outer = nm.subslice(0, cut)
-            var cut2  = outer.rfind("::")
+            var cut2  = _rfind_str(outer, "::")
             prev = if (cut2 != usize::MAX) => (outer.subslice(cut2 + 2, outer.size())) else => outer
         }
 
         if last.starts_with("~")
             || last == prev
             || decl_generic_params(unsafe (f as unsafe *Decl)).size() > 0
-            || nm.rfind("<") != usize::MAX {
+            || _rfind_str(nm, "<") != usize::MAX {
             return
         }
 
@@ -884,8 +906,11 @@ extend EmitIR {
                 continue
             }
 
-            var q  = self._spell.owner_qual(owner)
-            var nm = q + "::" + self._spell.leaf(unsafe (f as unsafe *Decl))
+            var q = self._spell.owner_qual(owner)
+            var nm = q.copy() + "::" + self._spell.leaf(
+                unsafe (f as unsafe *Decl),
+            )
+
             var s = self._spell.owner_template_head(owner) + "inline constexpr const "
             s += self._spell.decl(f->type_, nm)
             s += " = " + q + "::" + self._spell.leaf(m) + "();"

@@ -596,8 +596,8 @@ extend CompilerInstance {
             &msgs,
         )
 
-        for var line: string in tc.describe() {
-            io::println(f"{line}")
+        for *line in tc.describe() {
+            io::println(f"{*line}")
         }
 
         self._report_link(&msgs)
@@ -695,7 +695,7 @@ extend CompilerInstance {
         }
 
         for *s in *self.invocation()->args.get_list("cxx-flags") {
-            w.push_back(*s)
+            w.push_back(s->copy())
         }
 
         var exe  = Path::join_str(Path::parent_of(env::exe_path()), "clang")
@@ -731,8 +731,8 @@ extend CompilerInstance {
         }
 
         var line = "clang -cc1"
-        for var a: string in be->invocation_args() {
-            line = line + " " + shell_quote(a.copy())
+        for *a in be->invocation_args() {
+            line = line + " " + shell_quote(a->copy())
         }
 
         io::println(f"{line}")
@@ -756,7 +756,7 @@ extend CompilerInstance {
             w.push_back("-c")
             w.push_back("-x")
             w.push_back(k.type_name())
-            w.push_back(k.path)
+            w.push_back(k.path.copy())
             w.push_back("-o")
             w.push_back(Path(k.path).stem() + ".o")
             var jobs = ClangJobs(be, exe)

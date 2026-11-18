@@ -52,6 +52,11 @@ pub struct AgreeNote {
     pub var text:     string
 }
 
+/// A deep copy of `n`.
+pub fn agree_note_copy(const n: AgreeNote) -> AgreeNote {
+    return AgreeNote { at: n.at, labelled: n.labelled, text: n.text.copy() }
+}
+
 /// One disagreement, as I012W says it.
 pub struct AgreeFinding {
     /// Which check found it: `callee`.
@@ -60,6 +65,22 @@ pub struct AgreeFinding {
     pub var msg:   string
     pub var label: string
     pub var notes: cxx::std::vector<AgreeNote>
+}
+
+/// A deep copy of `f`.
+pub fn agree_finding_copy(const f: AgreeFinding) -> AgreeFinding {
+    var out = AgreeFinding {
+        kind:  f.kind.copy(),
+        at:    f.at,
+        msg:   f.msg.copy(),
+        label: f.label.copy(),
+    }
+
+    for var i: usize = 0; i < f.notes.size(); ++i {
+        out.notes.push_back(agree_note_copy(f.notes[i]))
+    }
+
+    return out
 }
 
 /// The first line of a TU's findings as text.
@@ -77,11 +98,11 @@ pub fn agree_emit(ctx: unsafe *ASTContext, const f: AgreeFinding) {
 
     b.first(f.at, f.label)
     for var i: usize = 0; i < f.notes.size(); ++i {
-        var n = f.notes[i]
-        if n.labelled {
-            b.note(n.at.start, n.text)->child_first(n.at)
+        var *n = &f.notes[i]
+        if n->labelled {
+            b.note(n->at.start, n->text)->child_first(n->at)
         } else {
-            b.note(n.at.start, n.text)
+            b.note(n->at.start, n->text)
         }
     }
 
@@ -181,15 +202,15 @@ pub fn agree_encode(sm:          unsafe *SourceManager,
     var files = AgreeFiles()
     var body  = ""
     for var i: usize = 0; i < found.size(); ++i {
-        var f = found[i]
-        body += "finding " + _one_line(f.kind) + files.place(sm, f.at) + "\n"
-        body += "msg " + _one_line(f.msg) + "\n"
-        body += "label " + _one_line(f.label) + "\n"
-        for var k: usize = 0; k < f.notes.size(); ++k {
-            var n    = f.notes[k]
-            var flag = if (n.labelled) => ("1") else => "0"
-            body += "note" + files.place(sm, n.at) + " " + flag + " " + _one_line(
-                n.text,
+        var *f = &found[i]
+        body += "finding " + _one_line(f->kind) + files.place(sm, f->at) + "\n"
+        body += "msg " + _one_line(f->msg) + "\n"
+        body += "label " + _one_line(f->label) + "\n"
+        for var k: usize = 0; k < f->notes.size(); ++k {
+            var *n   = &f->notes[k]
+            var flag = if (n->labelled) => ("1") else => "0"
+            body += "note" + files.place(sm, n->at) + " " + flag + " " + _one_line(
+                n->text,
             ) + "\n"
         }
     }

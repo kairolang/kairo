@@ -286,7 +286,8 @@ pub class KairoIncludeHook {
         var *csm = &self._ci->getSourceManager()
         var text = ""
         for var i: usize = 0; i < lines.size(); ++i {
-            text += (lines)[i] + "\n"
+            text += (lines)[i]
+            text += "\n"
         }
 
         text += "#include \"" + path + "\"\n"

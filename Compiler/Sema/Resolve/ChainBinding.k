@@ -2581,7 +2581,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             var        emod = tu_module_dir(etu)
             if emod.size() > 0 && tu != &null && !same_module(etu, tu) {
                 var mname = Path(emod).filename()
-                var mfile = emod + "/module.k"
+                var mfile = emod.copy() + "/module.k"
                 if self._pub_reaches(sm->find_fid(Path(mfile)) as u32, efid) {
                     var mp = self._import_spelling(
                         Path(sm->get_filename(at.start)),
@@ -2814,7 +2814,11 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return
         }
 
-        b->insert(sm->get_loc(fid, 0), line + "\n", f"add \x27{line}\x27")
+        b->insert(
+            sm->get_loc(fid, 0),
+            line.copy() + "\n",
+            f"add \x27{line}\x27",
+        )
     }
 
     /// The `a::b::c` that imports file `to` from `from`'s directory, or
@@ -2825,19 +2829,23 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         var rel         = to.relative_to(here)
         var o:   string = ""
         var n           = rel.size()
-        if n > 2 && rel[n - 2] == ('.' as u8) && rel[n - 1] == ('k' as u8) {
+        if n > 2 && rel.data()[n - 2] == ('.' as u8) && rel.data()[n - 1] == ('k' as u8) {
             n = n - 2
         }
 
+        // Runs between separators are copied whole: a cut at an ASCII byte
+        // never splits a character.
+        var run: usize = 0
         for var i: usize = 0; i < n; ++i {
-            var c = rel[i]
+            var c = rel.data()[i]
             if c == ('/' as u8) || c == ('\\' as u8) {
+                o += rel[run..i]
                 o += "::"
-            } else {
-                o.push_back(c)
+                run = i + 1
             }
         }
 
+        o += rel[run..n]
         return o
     }
 

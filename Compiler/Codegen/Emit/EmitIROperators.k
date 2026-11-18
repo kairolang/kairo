@@ -280,7 +280,7 @@ extend EmitIR {
             var sym = if (k == TokenKind::OpPlus) => ("+") else => "-"
             s->spell(
                 at,
-                p + " = static_cast<" + LowerTargets::wrap_tmp(
+                p.copy() + " = static_cast<" + LowerTargets::wrap_tmp(
                     "T",
                     d,
                 ) + ">(static_cast<" + uu + ">(" + p + ") " + sym + " " + one + "); } else { ",
@@ -294,10 +294,10 @@ extend EmitIR {
             s->spell(at, incop + "; } }();")
         } else {
             // The integer arm returns the new value; the lambda stores it.
-            s->spell(at, p + " = [&]() { ")
+            s->spell(at, p.copy() + " = [&]() { ")
             WrapForms::int_arm(self._cg->sink, at, k, p, tb, d)
             s->spell(at, "}(); } else { ")
-            var cop = p + " " + OperatorFacts::cxx_symbol(
+            var cop = p.copy() + " " + OperatorFacts::cxx_symbol(
                 OperatorFacts::compound_of(k),
             ) + " " + tb
             if duck {

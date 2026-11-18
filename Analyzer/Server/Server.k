@@ -729,7 +729,7 @@ pub class Server {
                 if pd.parse(self.parked[q].msg) && (pd.dump(pd.get(pd.root, K_ID)) == want) {
                     self.respond_error(want, ERR_REQUEST_CANCELLED, "cancelled")
                 } else {
-                    kept.push(self.parked[q])
+                    kept.push(self.parked[q].copy())
                 }
             }
 

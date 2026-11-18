@@ -135,6 +135,7 @@ import Codegen::Backend::EmitHeader::EmitCXXHeader
 import Codegen::Backend::InterfacePCH::InterfacePCH
 import Codegen::Backend::SemaAgreeReport::{
     AgreeFinding,
+    AgreeNote,
     agree_decode,
     agree_emit,
     agree_encode,
@@ -286,7 +287,7 @@ pub class FrontendAction {
                                      // fully indexed before the first action runs
         ci:         unsafe *CompilerInstance
     ) {
-        self.path          = path
+        self.path          = path.copy()
         self.module_base   = module_base
         self._ci           = ci
         self._resolver     = resolver
@@ -514,7 +515,7 @@ pub class FrontendAction {
             }
 
             var at = rows.size()
-            rows.push_back(r)
+            rows.push_back(r.copy())
             while at > 0 && r < rows[at - 1] {
                 rows[at] = rows[at - 1].copy()
                 at -= 1
@@ -1439,7 +1440,7 @@ pub class FrontendAction {
         if self._ci->incr.on {
             for var hs: unsafe *HeaderSet in self._graph_header_sets() {
                 for var i: usize = 0; i < hs->files.size(); ++i {
-                    self._ci->incr.hdr_files.push_back(hs->files[i].path)
+                    self._ci->incr.hdr_files.push_back(hs->files[i].path.copy())
                 }
             }
         }
@@ -3619,7 +3620,7 @@ pub class FrontendAction {
                     rel = self._ci->kairo_object_stem(rel.copy())
                 }
 
-                stem     = obj_dir + "/" + rel
+                stem     = obj_dir.copy() + "/" + rel
                 obj_stem = stem.copy()
                 // Two TUs can map to one object name: a pathless `builtin.k`
                 // outside every search dir is named by its stem, as the builtin
@@ -3640,7 +3641,7 @@ pub class FrontendAction {
                     stem     = obj_stem.copy()
                 }
 
-                used_stems.push_back(obj_stem)
+                used_stems.push_back(obj_stem.copy())
                 var beside = if (self.discovered || fid != self._file_id) => ("")
                              else => self._ci->emit_beside(self.path.stem())
                 if !beside.is_empty() {
@@ -3662,10 +3663,10 @@ pub class FrontendAction {
             }
 
             for var k: usize = 0; k < kinds.size(); ++k {
-                var out = if (to_single) => (single_obj) else => stem + exts[k]
+                var out = if (to_single) => (single_obj) else => stem.copy() + exts[k]
                 // An object nobody listed is a link input only.
                 if !to_single && kinds[k] == EmitKind::Obj && !self._ci->obj_listed() {
-                    out = obj_stem + exts[k]
+                    out = obj_stem.copy() + exts[k]
                 }
 
                 self._ensure_parent_dir(out)
@@ -3966,7 +3967,7 @@ pub class FrontendAction {
                 iface_first_i[fl] = oi
             }
 
-            iface_tus[fl] += jkeys[oi] + "\n"
+            iface_tus[fl] += jkeys[oi].copy() + "\n"
         }
 
         // The incremental object cache, phase 1 (Driver/ObjectCache.k,
@@ -4063,7 +4064,9 @@ pub class FrontendAction {
                 var modname = jkeys[ji].copy()
                 var why     = ""
                 if self._ci->incr.on {
-                    self._ci->incr.keys.push_back(modname + "\t" + j->key)
+                    self._ci->incr.keys.push_back(
+                        modname.copy() + "\t" + j->key,
+                    )
                 }
 
                 // --force-recompile: no lookup, every TU compiles, and the
@@ -4079,8 +4082,8 @@ pub class FrontendAction {
                 if hit && !found.is_empty() {
                     if agree_decode(self._ci->sm(), found, &j->agree_found) {
                         if agree_says {
-                            for var f: AgreeFinding in j->agree_found {
-                                agree_emit(j->ctx, f)
+                            for *f in j->agree_found {
+                                agree_emit(j->ctx, *f)
                             }
                         }
                     } else {
@@ -4233,8 +4236,8 @@ pub class FrontendAction {
                 icg->test_sema_agreement_quiet,
             )
 
-            for var f: AgreeFinding in iface->agree_found {
-                var fid       = self._ci->sm()->get_fid(f.at.start)
+            for *f in iface->agree_found {
+                var fid       = self._ci->sm()->get_fid(f->at.start)
                 var hi: usize = mine.size()
                 for var k: usize = 0; k < mine.size(); ++k {
                     if mine[k]->fid == fid {
@@ -4255,9 +4258,9 @@ pub class FrontendAction {
                     continue
                 }
 
-                mine[hi]->agree_found.push_back(f)
+                mine[hi]->agree_found.push_back(_copy_agree_finding(f))
                 if isays {
-                    agree_emit(mine[hi]->ctx, f)
+                    agree_emit(mine[hi]->ctx, *f)
                 }
             }
 
@@ -4490,18 +4493,18 @@ pub class FrontendAction {
                 files += 1
             }
 
-            for var f: AgreeFinding in j->agree_found {
+            for *f in j->agree_found {
                 total += 1
                 var at = kinds.size()
                 for var k: usize = 0; k < kinds.size(); ++k {
-                    if kinds[k] == f.kind {
+                    if kinds[k] == f->kind {
                         at = k
                         break
                     }
                 }
 
                 if at == kinds.size() {
-                    kinds.push_back(f.kind)
+                    kinds.push_back(f->kind)
                     counts.push_back(0)
                 }
 
@@ -5111,7 +5114,7 @@ pub class FrontendAction {
         var        _t     = TimeRegion("IncrDump")
         var unsafe *psym  = self._ci->pp()->get_symbol_table()
         var        root   = Path::cwd().path_data
-        var        prefix = root + "/"
+        var        prefix = root.copy() + "/"
 
         // Sorted by (module, path): the order of every file list below.
         var idx = cxx::std::vector<usize>()
@@ -5162,9 +5165,11 @@ pub class FrontendAction {
             var io_at = io_.size()
             var do_at = do_.size()
 
-            io_ += who + ", \"phase\": " + json_string(f->phase) + ", \"hash\": " + json_string(
-                f->hash,
-            ) + ", \"macros\": " + json_string(f->macros) + ", \"decls\": ["
+            io_ += who.copy() + ", \"phase\": " + json_string(
+                f->phase,
+            ) + ", \"hash\": " + json_string(f->hash) + ", \"macros\": " + json_string(
+                f->macros,
+            ) + ", \"decls\": ["
             for var k: usize = 0; k < f->decls.size(); ++k {
                 io_ += (if (k > 0) => (",\n  ") else => "\n  ") + f->decls[k]
             }
@@ -5212,7 +5217,7 @@ pub class FrontendAction {
             for var k: usize = 0; k < deps.overlay.size(); ++k {
                 var row        = deps.overlay[k].copy()
                 var cut: usize = 0
-                while cut < row.size() && row[cut] != ('\t' as u8) {
+                while cut < row.size() && row.data()[cut] != ('\t' as u8) {
                     cut += 1
                 }
 
@@ -5258,7 +5263,7 @@ pub class FrontendAction {
 
                 prev = rows[k].copy()
                 var cut: usize = 0
-                while cut < prev.size() && prev[cut] != ('\t' as u8) {
+                while cut < prev.size() && prev.data()[cut] != ('\t' as u8) {
                     cut += 1
                 }
 
@@ -5316,7 +5321,7 @@ pub class FrontendAction {
                 for var k: usize = 0; k < rows.size(); ++k {
                     if rows[k] != plast {
                         plast = rows[k].copy()
-                        pm.rows.push_back(plast)
+                        pm.rows.push_back(plast.copy())
                     }
                 }
 
@@ -6223,6 +6228,24 @@ fn _fid_in(set: *cxx::std::vector<u32>, fid: u32) -> bool {
     return false
 }
 
+/// A second owner of one finding: the record has no copy() of its own.
+fn _copy_agree_finding(const f: *AgreeFinding) -> AgreeFinding {
+    var r = AgreeFinding{}
+    r.kind  = f->kind.copy()
+    r.at    = f->at
+    r.msg   = f->msg.copy()
+    r.label = f->label.copy()
+    for *n in f->notes {
+        var c = AgreeNote{}
+        c.at       = n->at
+        c.labelled = n->labelled
+        c.text     = n->text.copy()
+        r.notes.push_back(c)
+    }
+
+    return r
+}
+
 fn _facts_hashes(f:    unsafe *FileFacts,
                  at:   unsafe *llvm::StringMap<u32>,
                  vals: unsafe *cxx::std::vector<string>) {
@@ -6230,7 +6253,7 @@ fn _facts_hashes(f:    unsafe *FileFacts,
         var l   = f->plain_decls[k].copy()
         var cut = cxx::std::vector<usize>()
         for var c: usize = 0; c < l.size() && cut.size() < 4; ++c {
-            if l[c] == ('\t' as u8) {
+            if l.data()[c] == ('\t' as u8) {
                 cut.push_back(c)
             }
         }
@@ -6246,7 +6269,7 @@ fn _facts_hashes(f:    unsafe *FileFacts,
             at->try_emplace(kairo::sref(id), vals->size() as u32)
             vals->push_back(ih)
         } else {
-            (*vals)[it->second as usize] = (*vals)[it->second as usize] + "," + ih
+            (*vals)[it->second as usize] = (*vals)[it->second as usize].copy() + "," + ih
         }
     }
 }

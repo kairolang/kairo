@@ -177,7 +177,8 @@ pub class VariadicEnum {
                 s += ", "
             }
 
-            s += vn + " { "
+            s += vn
+            s += " { "
             for var j: usize = 0; j < v->payload.size(); ++j {
                 if j > 0 {
                     s += ", "

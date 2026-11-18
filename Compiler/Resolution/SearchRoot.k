@@ -19,6 +19,7 @@ import Memory::MappedFileBuffer::MappedFileBuffer
 import Resolution::DirEntry::DirEntry
 import Resolution::FileExtensions::FileExtensions
 import Support::Ascii::{
+    copy_strings,
     is_ident_char,
     is_ident_start,
 }
@@ -67,19 +68,22 @@ pub class SearchRoot {
     pub var real_dir: string
 
     fn SearchRoot(self,
-                  const path: Path,
-                  priority:   u32,
-                  ext_cfg:    unsafe *FileExtensions,
-                  name:       cxx::std::vector<string> = cxx::std::vector<string>(),
-                  spelling:   cxx::std::vector<string> = cxx::std::vector<string>()) {
-        self.base_path     = path
-        self.real_dir      = Path::real_path_of(path.full_path())
-        self.priority      = priority
-        self.name          = name
-        self.spelling      = if (spelling.size() > 0) => (spelling) else => name
+                  const path:     Path,
+                  priority:       u32,
+                  ext_cfg:        unsafe *FileExtensions,
+                  const name:     cxx::std::vector<string> = cxx::std::vector<string>(),
+                  const spelling: cxx::std::vector<string> = cxx::std::vector<string>()) {
+        self.base_path = path.copy()
+        self.real_dir  = Path::real_path_of(path.full_path())
+        self.priority  = priority
+        self.name      = copy_strings(name)
+        self.spelling = copy_strings(
+            if (spelling.size() > 0) => (spelling) else => name,
+        )
+
         self.ext_cfg       = ext_cfg
         self.root          = kairo::std::create<DirEntry>(path.filename(), true)
-        self.root->fs_path = path
+        self.root->fs_path = path.copy()
         self.root->ext_cfg = ext_cfg
     }
 
@@ -112,24 +116,31 @@ pub fn split_module_name(const name: string) -> cxx::std::vector<string> {
     var out     = cxx::std::vector<string>()
     var current = string()
 
-    var i: usize = 0
+    // `run` is the offset of the first byte not yet in `current`; every cut
+    // is at an ASCII colon, so no run ends inside a character.
+    var i:   usize = 0
+    var run: usize = 0
     while i < name.size() {
-        if i + 1 < name.size() && name[i] == (':' as u8) && name[i + 1] == (':' as u8) {
+        if i + 1 < name.size()
+            && name.data()[i] == (':' as u8)
+            && name.data()[i + 1] == (':' as u8) {
+            current += name[run..i]
             if current.size() > 0 {
-                out.push_back(current)
+                out.push_back(current.copy())
                 current = string()
             }
 
             i += 2
+            run = i
             continue
         }
 
-        current.push_back(name[i])
         i += 1
     }
 
+    current += name[run..]
     if current.size() > 0 {
-        out.push_back(current)
+        out.push_back(current.copy())
     }
 
     return out
@@ -278,7 +289,7 @@ pub class ModulePinScanner {
         }
 
         while self.i < self.n && is_ident_char(self.at(self.i)) {
-            out.push_back((self.at(self.i)))
+            out.push(self.at(self.i)) // identifier bytes are ASCII
             self.i += 1
         }
 

@@ -90,7 +90,7 @@ extend Server {
             false,
         )
 
-        if (at == 0) || ((*text)[at - 1] != ('}' as u8)) {
+        if (at == 0) || (text->data()[at - 1] != ('}' as u8)) {
             self.respond(id, "[]")
             return
         }
@@ -102,7 +102,7 @@ extend Server {
 
         // Only when the brace is the first thing on its line.
         for var p: usize = ls; p < close; ++p {
-            if ((*text)[p] != (' ' as u8)) && ((*text)[p] != ('\t' as u8)) {
+            if (text->data()[p] != (' ' as u8)) && (text->data()[p] != ('\t' as u8)) {
                 self.respond(id, "[]")
                 return
             }
@@ -127,7 +127,7 @@ extend Server {
 
         var oe = os
         while (oe < text->size())
-            && (((*text)[oe] == (' ' as u8)) || ((*text)[oe] == ('\t' as u8))) {
+            && ((text->data()[oe] == (' ' as u8)) || (text->data()[oe] == ('\t' as u8))) {
             oe += 1
         }
 
@@ -189,10 +189,21 @@ extend Server {
         if (rc != 0) || (!read) {
             // kfmt refuses a file that does not parse, and says where: its
             // first line is the reason, with the scratch name taken out.
-            var why: string = ""
-            for var k: usize = 0; (k < text.size()) && (text[k] != ('\n' as u8)) && (k < 300); ++k {
-                why.push_back(text[k])
+            var why_end: usize = 0
+            while (why_end < text.size())
+                && (text.data()[why_end] != ('\n' as u8))
+                && (why_end < 300) {
+                why_end += 1
             }
+
+            // Never cut inside a multibyte character.
+            while (why_end > 0)
+                && (why_end < text.size())
+                && ((text.data()[why_end] & 0xC0) == 0x80) {
+                why_end -= 1
+            }
+
+            var why: string = text[0..why_end].to_owned()
 
             if why.starts_with(src) {
                 why = why.subslice(src.size(), why.size() - src.size())
@@ -222,22 +233,22 @@ extend Server {
         // output: an editor keeps cursors, folds and marks outside it, which
         // a replace-everything edit throws away.
         var a: usize = 0
-        while (a < old->size()) && (a < text.size()) && ((*old)[a] == text[a]) {
+        while (a < old->size()) && (a < text.size()) && (old->data()[a] == text.data()[a]) {
             a += 1
         }
 
-        while (a > 0) && ((*old)[a - 1] != ('\n' as u8)) {
+        while (a > 0) && (old->data()[a - 1] != ('\n' as u8)) {
             a -= 1
         }
 
         var oe = old->size()
         var ne = text.size()
-        while (oe > a) && (ne > a) && ((*old)[oe - 1] == text[ne - 1]) {
+        while (oe > a) && (ne > a) && (old->data()[oe - 1] == text.data()[ne - 1]) {
             oe -= 1
             ne -= 1
         }
 
-        while (oe < old->size()) && ((*old)[oe - 1] != ('\n' as u8)) && (oe > 0) {
+        while (oe < old->size()) && (old->data()[oe - 1] != ('\n' as u8)) && (oe > 0) {
             oe += 1
             ne += 1
         }

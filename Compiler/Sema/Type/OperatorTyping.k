@@ -2592,7 +2592,7 @@ pub class <T: type> OperatorTyping {
         var margs = cxx::std::vector<ArgInfo>()
         var ra    = self._typed_arg(n->rhs, ri)
         ra.cat = Expr::ValueCategory::LValue // the narrowed read is the place's value.
-        margs.push_back(ra)
+        margs.push_back(ra.copy())
         var fargs = cxx::std::vector<ArgInfo>()
         var la    = self._typed_arg(n->lhs, li)
         la.cat = Expr::ValueCategory::LValue

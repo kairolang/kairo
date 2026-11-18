@@ -192,6 +192,14 @@ pub class ProgressMsg {
     pub var kind:    string = ""
     pub var message: string = ""
     pub var pct:     i64    = -1
+
+    pub fn copy(const self) -> ProgressMsg {
+        var o = ProgressMsg()
+        o.kind    = self.kind.copy()
+        o.message = self.message.copy()
+        o.pct     = self.pct
+        return o
+    }
 }
 
 /// A work-done progress token and where it stands. LSP lets the server
@@ -233,6 +241,23 @@ pub class LiveSent {
     pub var aside_out:   string   = ""
 
     fn LiveSent(self) = default
+
+    pub fn copy(const self) -> LiveSent {
+        var o = LiveSent()
+        o.id          = self.id
+        o.rev         = self.rev
+        o.out         = self.out.copy()
+        o.ms          = self.ms
+        o.text_paths  = self.text_paths.copy()
+        o.texts       = self.texts.copy()
+        o.progress    = self.progress.copy()
+        o.prog_file   = self.prog_file.copy()
+        o.prog_n      = self.prog_n
+        o.draining    = self.draining
+        o.aside_paths = self.aside_paths.copy()
+        o.aside_out   = self.aside_out.copy()
+        return o
+    }
 }
 
 /// A completion request a live index worker was asked to answer (LiveIndex.k,
@@ -252,6 +277,22 @@ pub class LiveAsk {
     pub var t0_us:    i64    = 0     ///< now_us() when the request arrived
 
     fn LiveAsk(self) = default
+
+    pub fn copy(const self) -> LiveAsk {
+        var o = LiveAsk()
+        o.id       = self.id
+        o.lsp_id   = self.lsp_id.copy()
+        o.entry_id = self.entry_id
+        o.path     = self.path.copy()
+        o.marked   = self.marked.copy()
+        o.out      = self.out.copy()
+        o.edit     = self.edit.copy()
+        o.prefix   = self.prefix.copy()
+        o.member   = self.member
+        o.ms       = self.ms
+        o.t0_us    = self.t0_us
+        return o
+    }
 }
 
 /// A live index worker (`kals --worker --index-server`, LiveIndex.k): one
@@ -337,6 +378,41 @@ pub class Job {
     pub var l_pending:   usize  = 0
 
     fn Job(self) = default
+
+    pub fn copy(const self) -> Job {
+        var o = Job()
+        o.kind        = self.kind
+        o.entry_id    = self.entry_id
+        o.pi          = self.pi
+        o.out         = self.out.copy()
+        o.log         = self.log.copy()
+        o.rev         = self.rev
+        o.id          = self.id.copy()
+        o.path        = self.path.copy()
+        o.member      = self.member
+        o.marked      = self.marked.copy()
+        o.edit        = self.edit.copy()
+        o.prefix      = self.prefix.copy()
+        o.cancelled   = self.cancelled
+        o.how         = self.how.copy()
+        o.t0_us       = self.t0_us
+        o.started_ms  = self.started_ms
+        o.rooted      = self.rooted
+        o.stale       = self.stale
+        o.progress    = self.progress.copy()
+        o.prog_file   = self.prog_file.copy()
+        o.prog_n      = self.prog_n
+        o.text_paths  = self.text_paths.copy()
+        o.texts       = self.texts.copy()
+        o.held_paths  = self.held_paths.copy()
+        o.l_aside     = self.l_aside.copy()
+        o.live        = self.live
+        o.l_mode      = self.l_mode.copy()
+        o.l_why       = self.l_why.copy()
+        o.l_rechecked = self.l_rechecked
+        o.l_pending   = self.l_pending
+        return o
+    }
 }
 
 /// One entry point: its command, its last snapshot, and how stale that is.
@@ -451,6 +527,13 @@ pub class Parked {
     pub var since: i64    = 0  ///< now_ms() when it was parked
 
     fn Parked(self) = default
+
+    pub fn copy(const self) -> Parked {
+        var o = Parked()
+        o.msg   = self.msg.copy()
+        o.since = self.since
+        return o
+    }
 }
 
 extend Server {
@@ -550,8 +633,8 @@ extend Server {
     fn shared_prefix(const self, const a: string, const b: string) -> usize {
         var n:    usize = 0
         var last: usize = 0
-        while (n < a.size()) && (n < b.size()) && (a[n] == b[n]) {
-            if a[n] == ('/' as u8) {
+        while (n < a.size()) && (n < b.size()) && (a.data()[n] == b.data()[n]) {
+            if a.data()[n] == ('/' as u8) {
                 last = n
             }
 
@@ -775,7 +858,7 @@ extend Server {
 
         for var b: usize = 0; b < self.br_files.size(); ++b {
             if (self.br_files[b] == path)
-                || (find_from(self.br_deps[b], path + "\n", 0) != usize::MAX) {
+                || (find_from(self.br_deps[b], path.copy() + "\n", 0) != usize::MAX) {
                 self.br_dirty[b] = true
             }
         }
@@ -858,7 +941,7 @@ extend Server {
             var stale  = force && (waited >= PARK_LIMIT_MS)
             // A first index that has not come after two minutes is not coming.
             if !self.feature(old[i].msg, stale, waited >= FIRST_INDEX_LIMIT_MS) {
-                self.parked.push(old[i])
+                self.parked.push(old[i].copy())
             }
         }
     }

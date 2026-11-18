@@ -629,10 +629,10 @@ extend Speller {
     /// the declaration and every use (both read the name through here) agree
     /// and distinct Kairo names stay distinct (`#op` vs `op#`). Plain
     /// names come back untouched, keeping the no-mangling ABI for them.
-    static fn ident_safe(s: string) -> string {
+    static fn ident_safe(const s: string) -> string {
         var clean = true
         for var i: usize = 0; i < s.size(); ++i {
-            var c  = s[i]
+            var c  = s.data()[i]
             var ok = is_ident_char(c)
             if !ok {
                 clean = false
@@ -641,23 +641,23 @@ extend Speller {
         }
 
         if clean {
-            return s
+            return s.copy()
         }
 
         var hex = "0123456789ABCDEF"
         var out = ""
         for var i: usize = 0; i < s.size(); ++i {
-            var c  = s[i]
+            var c  = s.data()[i]
             var ok = is_ident_char(c)
             if ok {
-                out.push_back(c)
+                out.push(c)
                 continue
             }
 
             var b = ((c) as u32)
             out += "__x"
-            out.push_back(hex[(b >> 4) as usize])
-            out.push_back(hex[(b & 15) as usize])
+            out.push(hex.data()[(b >> 4) as usize])
+            out.push(hex.data()[(b & 15) as usize])
         }
 
         return out

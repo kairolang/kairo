@@ -138,18 +138,18 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
         self._push(e)
 
         var unsafe *inner = self.transform_stmt_scalar(n->inner)
-        var        top    = self._loops[self._depth - 1]
+        var        *top   = &self._loops[self._depth - 1]
         self._depth -= 1
 
-        if top.cont_used {
-            self._end_body(inner, top.cont)
+        if top->cont_used {
+            self._end_body(inner, top->cont)
         }
 
         var out = cxx::std::vector<unsafe *Stmt>()
         out.push_back(inner)
-        if top.brk_used {
+        if top->brk_used {
             out.push_back(
-                LabelIntrinsicStmt::create(self.ctx, n->range, top.brk),
+                LabelIntrinsicStmt::create(self.ctx, n->range, top->brk),
             )
         }
 
@@ -182,7 +182,7 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
 
     /// # helpers
 
-    priv fn _push(self, const e: LoopLabel) {
+    priv fn _push(self, e: LoopLabel) {
         if self._depth < self._loops.size() {
             self._loops[self._depth] = e
         } else {

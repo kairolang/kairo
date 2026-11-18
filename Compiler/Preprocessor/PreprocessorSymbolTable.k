@@ -47,7 +47,7 @@ pub class PreprocessorSymbolTable {
         }
 
         var id: SymbolID = (self.symbols.size() as u32)
-        self.symbols.push_back(kairo::std::create<string>(name))
+        self.symbols.push_back(kairo::std::create<string>(name.copy()))
         self.table.try_emplace(kairo::sref(name), id)
 
         return id

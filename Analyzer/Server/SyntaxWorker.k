@@ -109,7 +109,7 @@ extend Server {
         }
 
         // '\n'-separated words: the shim's argv (kals_child_spawn).
-        var words           = self.exe + "\n" + WA_WORKER + "\n" + WA_SYNTAX_SERVER + "\n" + WA_END
+        var words = self.exe.copy() + "\n" + WA_WORKER + "\n" + WA_SYNTAX_SERVER + "\n" + WA_END
         var to_child:   i32 = -1
         var from_child: i32 = -1
         var pid:        i64 = -1

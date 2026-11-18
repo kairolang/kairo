@@ -102,6 +102,15 @@ pub struct BuiltinEntry {
     var why:  string               = ""
 }
 
+extend BuiltinEntry {
+    fn copy(const self) -> BuiltinEntry {
+        var r = BuiltinEntry{}
+        r.decl = self.decl
+        r.why  = self.why.copy()
+        return r
+    }
+}
+
 pub class BuiltinImport {
     priv var _oracle:    unsafe *BuiltinsSet
     priv var _ksm:       unsafe *SourceManager
@@ -269,11 +278,11 @@ pub class BuiltinImport {
         var lock = kairo::std::LockGuard(self._mu)
         var it   = self._done.find(id)
         if it != self._done.end() { // lost the race to another TU.
-            return it->second
+            return it->second.copy()
         }
 
         var e = self._import(id, name)
-        self._done.insert(cxx::std::pair<u32, BuiltinEntry>(id, e))
+        self._done.insert(cxx::std::pair<u32, BuiltinEntry>(id, e.copy()))
         return e
     }
 
@@ -284,7 +293,7 @@ pub class BuiltinImport {
             return false
         }
 
-        *out = it->second
+        *out = it->second.copy()
         return true
     }
 
@@ -514,7 +523,7 @@ pub class BuiltinImport {
         var i:  usize = 0
         var n         = ts.size()
         while i < n {
-            if ts[i] == ('.' as u8) {
+            if ts.data()[i] == ('.' as u8) {
                 break
             }
 
@@ -522,11 +531,11 @@ pub class BuiltinImport {
             var base  = BuiltinImport::_skip_type(ts, unsafe &i, unsafe &sgn)
             var plain = true
             while i < n {
-                var c = ts[i]
+                var c = ts.data()[i]
                 if c == ('*' as u8) {
                     plain = false
                     i += 1
-                    while i < n && ts[i] >= ('0' as u8) && ts[i] <= ('9' as u8) {
+                    while i < n && ts.data()[i] >= ('0' as u8) && ts.data()[i] <= ('9' as u8) {
                         i += 1
                     }
 
@@ -566,7 +575,7 @@ pub class BuiltinImport {
     priv static fn _skip_type(const ts: string, i: unsafe *usize, sgn: unsafe *bool) -> u8 {
         var n = ts.size()
         while *i < n {
-            var c = ts[*i]
+            var c = ts.data()[*i]
             if c == ('S' as u8) {
                 *sgn = true
                 *i += 1
@@ -591,10 +600,10 @@ pub class BuiltinImport {
             return ' ' as u8
         }
 
-        var b = ts[*i]
+        var b = ts.data()[*i]
         *i += 1
         if b == ('V' as u8) || b == ('E' as u8) || b == ('q' as u8) {
-            while *i < n && ts[*i] >= ('0' as u8) && ts[*i] <= ('9' as u8) {
+            while *i < n && ts.data()[*i] >= ('0' as u8) && ts.data()[*i] <= ('9' as u8) {
                 *i += 1
             }
 

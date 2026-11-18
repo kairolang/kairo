@@ -3645,7 +3645,7 @@ pub class ASTParse
             var b = self.diag->report(
                 DiagID::SC143E,
                 e->range.start,
-                an + " does not apply to " + what,
+                an.copy() + " does not apply to " + what,
             )
 
             b.first(e->range)
@@ -3714,7 +3714,7 @@ pub class ASTParse
             var b = self.diag->report(
                 DiagID::SC143E,
                 e->range.start,
-                an + " applies only to a function",
+                an.copy() + " applies only to a function",
             )
 
             b.first(e->range)
@@ -3759,7 +3759,7 @@ pub class ASTParse
                 var b = self.diag->report(
                     DiagID::SC143E,
                     e->range.start,
-                    an + " applies only to a function",
+                    an.copy() + " applies only to a function",
                 )
 
                 b.first(e->range)
@@ -3904,7 +3904,7 @@ pub class ASTParse
             var b = self.diag->report(
                 DiagID::SC143E,
                 e->range.start,
-                an + " applies only to a function",
+                an.copy() + " applies only to a function",
             )
 
             b.first(e->range)

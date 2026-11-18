@@ -372,7 +372,7 @@ extend InterfaceEmitter {
         var tget = LowerTargets::adt_tag_field()
         if en->adt_tag_member != &null {
             var tmn = self._spell->leaf(en->adt_tag_member)
-            tset = tmn + "{static_cast<" + tt + ">(" + nv + " + i)}"
+            tset = tmn.copy() + "{static_cast<" + tt + ">(" + nv + " + i)}"
             tget = tmn + "." + LowerTargets::adt_tag_field()
         }
 
@@ -383,7 +383,7 @@ extend InterfaceEmitter {
 
         self._cg->sink->spell(
             at,
-            nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + tset + " {}",
+            nm.copy() + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + tset + " {}",
         )
 
         self._cg->sink->spell(
@@ -525,7 +525,7 @@ extend InterfaceEmitter {
                         // and the lambda one a generic body's site calls.
                         self._cg->sink->spell(
                             mat,
-                            nm + "(" + vt + ", " + self._spell->decl(
+                            nm.copy() + "(" + vt + ", " + self._spell->decl(
                                 fld->type_,
                                 fnm,
                                 &null,
@@ -540,35 +540,35 @@ extend InterfaceEmitter {
                     } else {
                         self._cg->sink->spell(
                             mat,
-                            nm + "(" + vt + ")" + nx + " : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{adt_niche_pattern_of(en, m->adt_variant)}" + ")} {}",
+                            nm.copy() + "(" + vt + ")" + nx + " : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{adt_niche_pattern_of(en, m->adt_variant)}" + ")} {}",
                         )
                     }
                 } case Declarations::AdtRole::CopyCtor {
                     if m->adt_form == Declarations::AdtForm::Trivial {
                         self._cg->sink->spell(
                             mat,
-                            nm + "(const " + nm + "&) = default;",
+                            nm.copy() + "(const " + nm + "&) = default;",
                         )
                     }
                 } case Declarations::AdtRole::MoveCtor {
                     if m->adt_form == Declarations::AdtForm::Trivial {
                         self._cg->sink->spell(
                             mat,
-                            nm + "(" + nm + "&&) = default;",
+                            nm.copy() + "(" + nm + "&&) = default;",
                         )
                     }
                 } case Declarations::AdtRole::CopyAssign {
                     if m->adt_form == Declarations::AdtForm::Trivial {
                         self._cg->sink->spell(
                             mat,
-                            nm + "& operator=(const " + nm + "&) = default;",
+                            nm.copy() + "& operator=(const " + nm + "&) = default;",
                         )
                     }
                 } case Declarations::AdtRole::MoveAssign {
                     if m->adt_form == Declarations::AdtForm::Trivial {
                         self._cg->sink->spell(
                             mat,
-                            nm + "& operator=(" + nm + "&&) = default;",
+                            nm.copy() + "& operator=(" + nm + "&&) = default;",
                         )
                     }
                 } case Declarations::AdtRole::Dtor {
@@ -576,13 +576,13 @@ extend InterfaceEmitter {
                         self._cg->sink->spell(mat, "~" + nm + "() = default;")
                     }
                 } case Declarations::AdtRole::Which {
-                    var s = tt + " " + LowerTargets::adt_which() + "() const" + nx + " { return "
+                    var s = tt.copy() + " " + LowerTargets::adt_which() + "() const" + nx + " { return "
                     for var k: usize = 0; k < en->variants.size(); ++k {
                         if (k as u32) == p {
                             continue
                         }
 
-                        s += nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", " + f"{adt_niche_pattern_of(en, (k as u32))}" + ") ? " + tt + "::" + self._tag_leaf(
+                        s += nt.copy() + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", " + f"{adt_niche_pattern_of(en, (k as u32))}" + ") ? " + tt + "::" + self._tag_leaf(
                             en,
                             en->variants[k],
                         ) + " : "
@@ -616,7 +616,7 @@ extend InterfaceEmitter {
 
         self._cg->sink->spell(
             at,
-            nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{dl}" + " + i)} {}",
+            nm.copy() + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{dl}" + " + i)} {}",
         )
 
         self._cg->sink->spell(
@@ -672,10 +672,10 @@ extend InterfaceEmitter {
         var unsafe *d  = unsafe (en as unsafe *Decl)
         var        nx  = self._adt_noexcept()
         var        val = LowerTargets::nullable_value()
-        var nul = mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(0)} {}"
+        var nul = mem.copy() + "{" + nt + LowerTargets::niche_trait_pattern() + "(0)} {}"
         match m->adt_role {
             case Declarations::AdtRole::NullDefault {
-                return nm + "()" + nx + " : " + nul
+                return nm.copy() + "()" + nx + " : " + nul
             } case Declarations::AdtRole::NullFrom {
                 if m->params.size() != 1 {
                     self._ice(
@@ -686,20 +686,20 @@ extend InterfaceEmitter {
                     return ""
                 }
 
-                return nm + "(" + self._spell->decl(
+                return nm.copy() + "(" + self._spell->decl(
                     m->params[0]->type_,
                     "",
                     &null,
                     d,
                 ) + ")" + nx + " : " + nul
             } case Declarations::AdtRole::ValueCopy {
-                return nm + "(const " + ft + "& v)" + nx + " : " + mem + "{v} {}"
+                return nm.copy() + "(const " + ft + "& v)" + nx + " : " + mem + "{v} {}"
             } case Declarations::AdtRole::ValueMove {
-                return nm + "(" + ft + "&& v)" + nx + " : " + mem + "{static_cast<" + ft + "&&>(v)} {}"
+                return nm.copy() + "(" + ft + "&& v)" + nx + " : " + mem + "{static_cast<" + ft + "&&>(v)} {}"
             } case Declarations::AdtRole::IsNull {
                 return "bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", 0); }"
             } case Declarations::AdtRole::ValueRef {
-                return ft + "& " + val + "()" + nx + " { return " + mem + "." + fnm + "; }"
+                return ft.copy() + "& " + val + "()" + nx + " { return " + mem + "." + fnm + "; }"
             } case Declarations::AdtRole::ValueCref {
                 return "const " + ft + "& " + val + "() const" + nx + " { return " + mem + "." + fnm + "; }"
             } case Declarations::AdtRole::Equal {
@@ -915,10 +915,10 @@ extend InterfaceEmitter {
             var sn = self._spell->leaf(en->adt_site_field)
             site_init   = ", " + sn + "()"
             site_copy   = ", " + sn + "(o." + sn + ")"
-            site_assign = sn + " = o." + sn + "; "
+            site_assign = sn.copy() + " = o." + sn + "; "
         }
 
-        var req = nx + dreq
+        var req = nx.copy() + dreq
         var tail = if (m->adt_form == Declarations::AdtForm::Trivial) => (" = default;")
                    else => " = delete;"
         var body = m->adt_form == Declarations::AdtForm::Body
@@ -966,9 +966,9 @@ extend InterfaceEmitter {
                     )
                 }
 
-                var init = tag + "(" + tt + "::" + self._tag_leaf(en, v) + ")" + site_init
+                var init = tag.copy() + "(" + tt + "::" + self._tag_leaf(en, v) + ")" + site_init
                 if v->adt_member == &null {
-                    return nm + "(" + vt + ")" + nx + " : " + init + " {}"
+                    return nm.copy() + "(" + vt + ")" + nx + " : " + init + " {}"
                 }
 
                 if v->is_pack_expansion {
@@ -982,7 +982,7 @@ extend InterfaceEmitter {
                     var sp = ""
                     var si = site_init.copy()
                     if en->adt_site_field != &null {
-                        sp = u + " s, "
+                        sp = u.copy() + " s, "
                         si = ", " + self._spell->leaf(en->adt_site_field) + "(s)"
                     }
 
@@ -1032,30 +1032,30 @@ extend InterfaceEmitter {
                 return lam
             } case Declarations::AdtRole::CopyCtor {
                 if body {
-                    return nm + "(const " + nm + "& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(o); }"
+                    return nm.copy() + "(const " + nm + "& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(o); }"
                 }
 
-                return nm + "(const " + nm + "&)" + dreq + tail
+                return nm.copy() + "(const " + nm + "&)" + dreq + tail
             } case Declarations::AdtRole::MoveCtor {
                 if body {
-                    return nm + "(" + nm + "&& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(static_cast<" + nm + "&&>(o)); }"
+                    return nm.copy() + "(" + nm + "&& o)" + req + " : " + tag + "(o." + tag + ")" + site_copy + " { " + cf + "(static_cast<" + nm + "&&>(o)); }"
                 }
 
-                return nm + "(" + nm + "&&)" + dreq + tail
+                return nm.copy() + "(" + nm + "&&)" + dreq + tail
             } case Declarations::AdtRole::CopyAssign {
                 // Destroying first would leave a self-assignment nothing to
                 // copy from, so it does nothing instead.
                 if body {
-                    return nm + "& operator=(const " + nm + "& o)" + req + " { if (this != &o) { " + ds + "(); " + tag + " = o." + tag + "; " + site_assign + cf + "(o); } return *this; }"
+                    return nm.copy() + "& operator=(const " + nm + "& o)" + req + " { if (this != &o) { " + ds + "(); " + tag + " = o." + tag + "; " + site_assign + cf + "(o); } return *this; }"
                 }
 
-                return nm + "& operator=(const " + nm + "&)" + dreq + tail
+                return nm.copy() + "& operator=(const " + nm + "&)" + dreq + tail
             } case Declarations::AdtRole::MoveAssign {
                 if body {
-                    return nm + "& operator=(" + nm + "&& o)" + req + " { if (this != &o) { " + ds + "(); " + tag + " = o." + tag + "; " + site_assign + cf + "(static_cast<" + nm + "&&>(o)); } return *this; }"
+                    return nm.copy() + "& operator=(" + nm + "&& o)" + req + " { if (this != &o) { " + ds + "(); " + tag + " = o." + tag + "; " + site_assign + cf + "(static_cast<" + nm + "&&>(o)); } return *this; }"
                 }
 
-                return nm + "& operator=(" + nm + "&&)" + dreq + tail
+                return nm.copy() + "& operator=(" + nm + "&&)" + dreq + tail
             } case Declarations::AdtRole::Dtor {
                 if body {
                     return "~" + nm + "()" + req + " { " + ds + "(); }"
@@ -1189,8 +1189,8 @@ extend InterfaceEmitter {
         }
 
         var req = if (constrained) => (" requires (" + moves + ")") else => ""
-        var pre = if (init.size() > 0) => (init + ", ") else => ""
-        return nm + "(" + vt + ps + ")" + nx + req + " : " + pre + self._spell->leaf(
+        var pre = if (init.size() > 0) => (init.copy() + ", ") else => ""
+        return nm.copy() + "(" + vt + ps + ")" + nx + req + " : " + pre + self._spell->leaf(
             v->adt_member,
         ) + "{" + lead + vals + "} {}"
     }
@@ -1261,15 +1261,18 @@ extend InterfaceEmitter {
         var unsafe *field    = some->payload[0]
         var        fld       = self._spell->leaf(unsafe (field as unsafe *Decl))
         var        t         = self._spell->decl(field->type_, "", &null, d)
-        var        null_tag  = tt + "::" + self._tag_leaf(en, none)
-        var        is_null   = tag + " == " + null_tag
+        var        null_tag  = tt.copy() + "::" + self._tag_leaf(en, none)
+        var        is_null   = tag.copy() + " == " + null_tag
         var        null_init = " : " + tag + "(" + null_tag + ") {}"
-        var present_init = tag + "(" + tt + "::" + self._tag_leaf(en, some) + "), " + mem
+        var present_init = tag.copy() + "(" + tt + "::" + self._tag_leaf(
+            en,
+            some,
+        ) + "), " + mem
         var val = LowerTargets::nullable_value()
         var nx  = self._adt_noexcept()
         match m->adt_role {
             case Declarations::AdtRole::NullDefault {
-                return nm + "()" + nx + null_init
+                return nm.copy() + "()" + nx + null_init
             } case Declarations::AdtRole::NullFrom {
                 if m->params.size() != 1 {
                     self._ice(
@@ -1280,7 +1283,7 @@ extend InterfaceEmitter {
                     return ""
                 }
 
-                return nm + "(" + self._spell->decl(
+                return nm.copy() + "(" + self._spell->decl(
                     m->params[0]->type_,
                     "",
                     &null,
@@ -1294,9 +1297,9 @@ extend InterfaceEmitter {
             // every member whose constraints hold: an unconstrained copy
             // constructor of a `Null<MoveOnly>` is a hard error there.
             case Declarations::AdtRole::ValueCopy {
-                return nm + "(const " + t + "& v)" + nx + " requires " + LowerTargets::adt_copyable() + " : " + present_init + "{v} {}"
+                return nm.copy() + "(const " + t + "& v)" + nx + " requires " + LowerTargets::adt_copyable() + " : " + present_init + "{v} {}"
             } case Declarations::AdtRole::ValueMove {
-                return nm + "(" + t + "&& v)" + nx + " requires " + LowerTargets::adt_movable() + " : " + present_init + "{static_cast<" + t + "&&>(v)} {}"
+                return nm.copy() + "(" + t + "&& v)" + nx + " requires " + LowerTargets::adt_movable() + " : " + present_init + "{static_cast<" + t + "&&>(v)} {}"
             } case Declarations::AdtRole::IsNull {
                 return "bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + is_null + "; }"
             } case Declarations::AdtRole::ValueRef {

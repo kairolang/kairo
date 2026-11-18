@@ -21,6 +21,7 @@ ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
 
 import API::FS::LinkFS
+import DocComment::rfind_from
 import DocumentStore::{
     DocumentStore,
     fnv1a,
@@ -77,7 +78,7 @@ pub fn find_from(const hay: string, const needle: string, from: usize) -> usize 
     var last = hay.size() - needle.size()
     for var i: usize = from; i <= last; ++i {
         var m: usize = 0
-        while (m < needle.size()) && (hay[i + m] == needle[m]) {
+        while (m < needle.size()) && (hay.data()[i + m] == needle.data()[m]) {
             m += 1
         }
 
@@ -91,8 +92,8 @@ pub fn find_from(const hay: string, const needle: string, from: usize) -> usize 
 
 /// A C or C++ source or header, by its extension.
 pub fn is_cxx_source(const path: string) -> bool {
-    var dot = path.rfind('.' as u8)
-    var sl  = path.rfind('/' as u8)
+    var dot = rfind_from(path, ".", path.size())
+    var sl  = rfind_from(path, "/", path.size())
     if (dot == usize::MAX) || ((sl != usize::MAX) && (dot < sl)) {
         return false
     }
@@ -134,30 +135,32 @@ pub fn quoted_includes(const text: string) -> [string] {
     var n             = text.size()
     while i < n {
         var p = i
-        while (p < n) && ((text[p] == (' ' as u8)) || (text[p] == ('\t' as u8))) {
+        while (p < n) && ((text.data()[p] == (' ' as u8)) || (text.data()[p] == ('\t' as u8))) {
             p += 1
         }
 
         var le = p
-        while (le < n) && (text[le] != ('\n' as u8)) {
+        while (le < n) && (text.data()[le] != ('\n' as u8)) {
             le += 1
         }
 
-        if (p < le) && (text[p] == ('#' as u8)) {
+        if (p < le) && (text.data()[p] == ('#' as u8)) {
             p += 1
-            while (p < le) && ((text[p] == (' ' as u8)) || (text[p] == ('\t' as u8))) {
+            while (p < le)
+                && ((text.data()[p] == (' ' as u8)) || (text.data()[p] == ('\t' as u8))) {
                 p += 1
             }
 
             if ((p + 7) <= le) && (text.subslice(p, 7) == "include") {
                 p += 7
-                while (p < le) && ((text[p] == (' ' as u8)) || (text[p] == ('\t' as u8))) {
+                while (p < le)
+                    && ((text.data()[p] == (' ' as u8)) || (text.data()[p] == ('\t' as u8))) {
                     p += 1
                 }
 
-                if (p < le) && (text[p] == ('"' as u8)) {
+                if (p < le) && (text.data()[p] == ('"' as u8)) {
                     var q = p + 1
-                    while (q < le) && (text[q] != ('"' as u8)) {
+                    while (q < le) && (text.data()[q] != ('"' as u8)) {
                         q += 1
                     }
 
@@ -177,16 +180,18 @@ pub fn quoted_includes(const text: string) -> [string] {
 
 /// ASCII lower-casing: symbol search ignores case.
 pub fn lower(const s: string) -> string {
-    var out = string()
+    var out        = string()
+    var run: usize = 0
     for var i: usize = 0; i < s.size(); ++i {
-        var c = s[i]
+        var c = s.data()[i]
         if (c >= ('A' as u8)) && (c <= ('Z' as u8)) {
-            c = c + 32
+            out += s[run..i]
+            out.push((c + 32) as char)
+            run = i + 1
         }
-
-        out.push_back(c)
     }
 
+    out += s[run..]
     return out
 }
 
@@ -205,7 +210,7 @@ pub fn top_level_names(const src: string) -> [string] {
     while i < n {
         // one line, which must start in column 0 to be top level
         var le = i
-        while (le < n) && (src[le] != ('\n' as u8)) {
+        while (le < n) && (src.data()[le] != ('\n' as u8)) {
             le += 1
         }
 
@@ -213,7 +218,7 @@ pub fn top_level_names(const src: string) -> [string] {
         var line   = src.subslice(i, le - i)
         var hidden = line.starts_with("priv ")
         if line.starts_with("pub ") || line.starts_with("prot ") || line.starts_with("priv ") {
-            while (p < le) && (src[p] != (' ' as u8)) {
+            while (p < le) && (src.data()[p] != (' ' as u8)) {
                 p += 1
             }
 
@@ -228,7 +233,7 @@ pub fn top_level_names(const src: string) -> [string] {
                 || rest.starts_with("async ")
                 || rest.starts_with("final ")
                 || rest.starts_with("virtual ") {
-                while (p < le) && (src[p] != (' ' as u8)) {
+                while (p < le) && (src.data()[p] != (' ' as u8)) {
                     p += 1
                 }
 
@@ -237,7 +242,7 @@ pub fn top_level_names(const src: string) -> [string] {
         }
 
         var we = p
-        while (we < le) && is_ident_byte(src[we]) {
+        while (we < le) && is_ident_byte(src.data()[we]) {
             we += 1
         }
 
@@ -249,22 +254,22 @@ pub fn top_level_names(const src: string) -> [string] {
             }
         }
 
-        if declares && (!hidden) && (we < le) && (src[we] == (' ' as u8)) {
+        if declares && (!hidden) && (we < le) && (src.data()[we] == (' ' as u8)) {
             var ns = we + 1
             // `fn <T> name(` : skip a generic list before the name
-            if (ns < le) && (src[ns] == ('<' as u8)) {
-                while (ns < le) && (src[ns] != ('>' as u8)) {
+            if (ns < le) && (src.data()[ns] == ('<' as u8)) {
+                while (ns < le) && (src.data()[ns] != ('>' as u8)) {
                     ns += 1
                 }
 
                 ns += 1
-                while (ns < le) && (src[ns] == (' ' as u8)) {
+                while (ns < le) && (src.data()[ns] == (' ' as u8)) {
                     ns += 1
                 }
             }
 
             var ne = ns
-            while (ne < le) && is_ident_byte(src[ne]) {
+            while (ne < le) && is_ident_byte(src.data()[ne]) {
                 ne += 1
             }
 
@@ -293,14 +298,14 @@ pub fn keyword_list(const all: string) -> [string] {
     var k:  [string]
     var cur          = string()
     for var i: usize = 0; i < all.size(); ++i {
-        if all[i] == (' ' as u8) {
+        if all.data()[i] == (' ' as u8) {
             if !cur.is_empty() {
                 k.push(cur.copy())
             }
 
             cur = string()
         } else {
-            cur.push_back(all[i])
+            cur.push(all.data()[i])
         }
     }
 
@@ -333,7 +338,7 @@ pub fn truncate_chars(const s: string, max: usize, cut: *bool) -> string {
     var at:       usize = 0
     var keep_end: usize = 0
     while at < s.size() {
-        if (s[at] & 0xC0) != 0x80 {
+        if (s.data()[at] & 0xC0) != 0x80 {
             // A character starts here: the ellipsis replaces the last one
             // that fits, so the shown text is `max` characters in all.
             if n == (max - 1) {
@@ -359,8 +364,8 @@ pub fn truncate_chars(const s: string, max: usize, cut: *bool) -> string {
 pub fn inlay_tooltip_text(const label: string, kind: i64) -> string {
     if (kind == IHK_TYPE)
         && (label.size() > 2)
-        && (label[0] == (':' as u8))
-        && (label[1] == (' ' as u8)) {
+        && (label.data()[0] == (':' as u8))
+        && (label.data()[1] == (' ' as u8)) {
         return label.subslice(2, label.size() - 2)
     }
 

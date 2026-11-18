@@ -6139,7 +6139,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 var b = self.sc->diag->report(
                     DiagID::SC244E,
                     ar.start,
-                    an + " does not apply to an ADT enum: no cast makes its tag, so it is always closed",
+                    an.copy() + " does not apply to an ADT enum: no cast makes its tag, so it is always closed",
                 )
 
                 b.first(ar)

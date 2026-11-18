@@ -50,6 +50,10 @@ import Resolution::SearchRoot::{
     root_names_equal,
     split_module_name,
 }
+import Support::Ascii::{
+    copy_strings,
+    rfind_byte,
+}
 import Support::FileIO::FileSystem::FileType
 import Support::FileIO::Path::Path
 import Threading::ThreadPool::ThreadPool
@@ -284,7 +288,7 @@ pub class ImportResolver {
         /// ### Returns
         /// pointer to self for chaining
         pub fn cwd(self, const path: Path) -> unsafe *Self {
-            self._cwd = path
+            self._cwd = path.copy()
             return unsafe &self
         }
 
@@ -327,7 +331,7 @@ pub class ImportResolver {
             // none by it, because only a nameless dir takes its pinned
             // module.k's name.
             var inc = ImportResolver::IncludeDir{}
-            inc.path     = path
+            inc.path     = path.copy()
             inc.name     = split_module_name(name)
             inc.spelling = split_module_name(spelling)
             self._includes.push_back(inc)
@@ -384,15 +388,15 @@ pub class ImportResolver {
 
         var priority: u32 = 1
         for var i: usize = 0; i < includes.size(); ++i {
-            var p = includes[i].path
-            if !p.exists() || !p.is_directory() {
+            var *p = &includes[i].path
+            if !p->exists() || !p->is_directory() {
                 continue
             }
 
-            var nm = includes[i].name
-            var sp = includes[i].spelling
+            var nm = copy_strings(includes[i].name)
+            var sp = copy_strings(includes[i].spelling)
             if sp.size() == 0 {
-                sp = nm
+                sp = copy_strings(nm)
             }
 
             // An explicit name (the driver's builtin and kairo::std; the CLI
@@ -402,13 +406,13 @@ pub class ImportResolver {
             // expressible as a pin at all -- so a pin saying something else
             // would be a second, silently ignored name.
             if nm.size() > 0 {
-                var own_pin = self._pin_of_dir(p.full_path())
+                var own_pin = self._pin_of_dir(p->full_path())
                 if own_pin.size() > 0 && !root_names_equal(own_pin, nm) {
                     var c = RootNameCollision{}
                     c.mismatch = true
                     c.name     = self._name_str(nm)
                     c.pin      = self._name_str(own_pin)
-                    c.a        = p.full_path()
+                    c.a        = p->full_path()
                     self._root_collisions.push_back(c)
                 }
             }
@@ -424,12 +428,12 @@ pub class ImportResolver {
             // `-I Lib/builtin` left builtin a discovered library without the
             // last-resort probe. Folded in place, so the search order the
             // user gave is kept.
-            var unsafe *prior = self._root_at_real(self._real(p.full_path()))
+            var unsafe *prior = self._root_at_real(self._real(p->full_path()))
             if prior != &null {
                 if nm.size() > 0 {
-                    self._check_root_name(p, nm, sp, false, prior)
-                    prior->name       = nm
-                    prior->spelling   = sp
+                    self._check_root_name(*p, nm, sp, false, prior)
+                    prior->name       = copy_strings(nm)
+                    prior->spelling   = copy_strings(sp)
                     prior->discovered = false
                 }
 
@@ -441,12 +445,12 @@ pub class ImportResolver {
             // basename, which made every `-I .../include` the same root.
             var pinned = false
             if nm.size() == 0 {
-                nm     = self._pin_of_dir(p.full_path())
+                nm     = self._pin_of_dir(p->full_path())
                 pinned = nm.size() > 0
-                sp     = nm
+                sp     = copy_strings(nm)
             }
 
-            var unsafe *r = self._add_root(p, priority, nm, sp, pinned)
+            var unsafe *r = self._add_root(*p, priority, nm, sp, pinned)
             // A pinned -I dir is a library like a pinned subdirectory, and
             // reached the same way: by its declared name only. Left
             // undiscovered, the last-resort probe of every root found its
@@ -538,10 +542,10 @@ pub class ImportResolver {
     /// spelled by two files, and that is decided per import, by the files
     /// that exist (resolve_module_rel), not by registering the dirs.
     priv fn _add_root(self,
-                      p:        Path,
+                      const p:  Path,
                       priority: u32,
-                      nm:       cxx::std::vector<string>,
-                      sp:       cxx::std::vector<string>,
+                      const nm: cxx::std::vector<string>,
+                      const sp: cxx::std::vector<string>,
                       pinned:   bool) -> unsafe *SearchRoot {
         self._check_root_name(p, nm, sp, pinned, &null)
         var unsafe *root = kairo::std::create<SearchRoot>(
@@ -559,11 +563,11 @@ pub class ImportResolver {
     /// The R018E half of _add_root, also run when an explicit registration
     /// renames an existing root in place. `skip` is that root itself.
     priv fn _check_root_name(self,
-                             const p: Path,
-                             nm:      cxx::std::vector<string>,
-                             sp:      cxx::std::vector<string>,
-                             pinned:  bool,
-                             skip:    unsafe *SearchRoot) {
+                             const p:  Path,
+                             const nm: cxx::std::vector<string>,
+                             const sp: cxx::std::vector<string>,
+                             pinned:   bool,
+                             skip:     unsafe *SearchRoot) {
         var real = self._real(p.full_path())
         for var k: usize = 0; nm.size() > 0 && k < self._roots.size(); ++k {
             var unsafe *r = self._roots[k]
@@ -617,7 +621,7 @@ pub class ImportResolver {
     /// directory, hits and misses alike.
     priv fn _pin_of_dir(self, const dir: string) -> cxx::std::vector<string> {
         if self._dir_pins.contains(kairo::sref(dir)) {
-            return self._dir_pins[kairo::sref(dir)]
+            return copy_strings(self._dir_pins[kairo::sref(dir)])
         }
 
         var pin   = cxx::std::vector<string>()
@@ -627,7 +631,7 @@ pub class ImportResolver {
             self._pin_files.push_back(mod_k.copy())
         }
 
-        self._dir_pins[kairo::sref(dir)] = pin
+        self._dir_pins[kairo::sref(dir)] = copy_strings(pin)
         return pin
     }
 
@@ -721,7 +725,7 @@ pub class ImportResolver {
             var h = self._probe_root(own_root, segments)
             if h.found {
                 root_hit  = true
-                root_path = h.path
+                root_path = h.path.copy()
                 hit_root  = own_root
                 self._take_file_dir(&out, h)
             }
@@ -744,7 +748,7 @@ pub class ImportResolver {
             var h = self._probe_root(lib_root, segments)
             if h.found {
                 root_hit  = true
-                root_path = h.path
+                root_path = h.path.copy()
                 hit_root  = lib_root
                 self._take_file_dir(&out, h)
             }
@@ -832,7 +836,7 @@ pub class ImportResolver {
                 var h = self._probe_root(r, tail)
                 if h.found {
                     root_hit  = true
-                    root_path = h.path
+                    root_path = h.path.copy()
                     self._take_file_dir(&out, h)
                 }
             }
@@ -862,7 +866,7 @@ pub class ImportResolver {
             var h = self._probe_root(r, segments)
             if h.found {
                 root_hit  = true
-                root_path = h.path
+                root_path = h.path.copy()
                 hit_root  = r
                 self._take_file_dir(&out, h)
             }
@@ -922,8 +926,8 @@ pub class ImportResolver {
     /// - `segments`: the path as written after the anchor
     /// - `dir`: the anchor directory
     pub fn resolve_module_in(self,
-                             segments:  cxx::std::vector<string>,
-                             const dir: Path) -> ModuleResolution {
+                             const segments: cxx::std::vector<string>,
+                             const dir:      Path) -> ModuleResolution {
         var lock = kairo::std::LockGuard(self._mu)
         var out  = ModuleResolution{}
         if segments.size() == 0 {
@@ -936,7 +940,7 @@ pub class ImportResolver {
         }
 
         out.found  = true
-        out.path   = h.path
+        out.path   = h.path.copy()
         out.origin = ModuleOrigin::Sibling
         self._take_file_dir(&out, h)
         return self._finish(out, segments)
@@ -946,15 +950,15 @@ pub class ImportResolver {
     priv fn _take_file_dir(self, out: *ModuleResolution, const h: Self::RootHit) {
         out->file_dir = h.file_dir
         if h.file_dir {
-            out->dir_path = h.dir_path
+            out->dir_path = h.dir_path.copy()
         }
     }
 
     /// Identity for a found resolution; shared by both entry points so a
     /// file reached through `self::` and through a root is one module.
     priv fn _finish(self,
-                    const out: ModuleResolution,
-                    segments:  cxx::std::vector<string>) -> ModuleResolution {
+                    out:            ModuleResolution,
+                    const segments: cxx::std::vector<string>) -> ModuleResolution {
         var res = out
         res.canonical = self.canonical_module_path(res.path)
         self.claim_identity(res.canonical, res.path)
@@ -962,7 +966,7 @@ pub class ImportResolver {
             // Resolved outside every search root (rare: an absolute -I sibling
             // walk). Fall back to the written spelling rather than handing
             // codegen an empty namespace path.
-            res.canonical = segments
+            res.canonical = copy_strings(segments)
         }
 
         return res
@@ -1045,8 +1049,8 @@ pub class ImportResolver {
 
         // strip the extension off the leaf
         var leaf    = parts[parts.size() - 1].copy()
-        var dot_pos = leaf.rfind(".")
-        if dot_pos != usize::MAX {
+        var dot_pos = rfind_byte(leaf, ('.' as u8))
+        if dot_pos != leaf.size() {
             leaf = leaf.subslice(0, dot_pos)
         }
 
@@ -1105,7 +1109,7 @@ pub class ImportResolver {
                 if r->name.size() > 0 && r->base_path.full_path() == walk {
                     out.found = true
                     out.dir   = walk.copy()
-                    out.name  = r->name
+                    out.name  = copy_strings(r->name)
                     out.root  = r
                     return out
                 }
@@ -1149,7 +1153,7 @@ pub class ImportResolver {
     /// files in one module path and one C++ namespace, with no diagnostic
     /// but a link error. Same R018E as two registered roots; each directory
     /// reported once.
-    priv fn _check_pin_dir(self, const dir: string, pin: cxx::std::vector<string>) {
+    priv fn _check_pin_dir(self, const dir: string, const pin: cxx::std::vector<string>) {
         var real = self._real(dir)
         // A registered library reached through another spelling (a symlink)
         // is that library, already checked when it was registered. An
@@ -1215,7 +1219,7 @@ pub class ImportResolver {
     /// before either writes the object path they share. Files are
     /// compared by real path: one file through a symlink is still
     /// one module.
-    pub fn claim_identity(self, ident: cxx::std::vector<string>, const file: Path) {
+    pub fn claim_identity(self, const ident: cxx::std::vector<string>, const file: Path) {
         var lock = kairo::std::LockGuard(self._mu)
         if ident.size() == 0 {
             return
@@ -1254,8 +1258,8 @@ pub class ImportResolver {
     /// inputs.
     pub fn take_late_collisions(self) -> cxx::std::vector<string> {
         var lock = kairo::std::LockGuard(self._mu)
-        var out  = self._late_collisions
-        self._late_collisions.clear()
+        var out  = cxx::std::move(self._late_collisions)
+        self._late_collisions = cxx::std::vector<string>()
         return out
     }
 
@@ -1276,8 +1280,8 @@ pub class ImportResolver {
             Path::from_known(lib.dir, FileType::directory_file),
             u32::MAX,
             self._ext_cfg,
-            lib.name,
-            lib.name,
+            copy_strings(lib.name),
+            copy_strings(lib.name),
         )
 
         r->discovered                            = true
@@ -1349,8 +1353,8 @@ pub class ImportResolver {
     /// matter how many imports pass through it.
     pub fn take_collisions(self) -> cxx::std::vector<ModuleNameCollision> {
         var lock = kairo::std::LockGuard(self._mu)
-        var out  = self._collisions
-        self._collisions.clear()
+        var out  = cxx::std::move(self._collisions)
+        self._collisions = cxx::std::vector<ModuleNameCollision>()
         return out
     }
 
@@ -1380,8 +1384,8 @@ pub class ImportResolver {
     /// under a duplicated root name means two different files.
     pub fn take_root_collisions(self) -> cxx::std::vector<RootNameCollision> {
         var lock = kairo::std::LockGuard(self._mu)
-        var out  = self._root_collisions
-        self._root_collisions.clear()
+        var out  = cxx::std::move(self._root_collisions)
+        self._root_collisions = cxx::std::vector<RootNameCollision>()
         return out
     }
 
@@ -1435,13 +1439,17 @@ pub class ImportResolver {
     /// pragmatic exception rather than an escaping scheme that would
     /// leak into mangled names forever.
     fn module_ident(self, const name: string) -> string {
-        var out = name.copy()
-        for var i: usize = 0; i < out.size(); ++i {
-            if out[i] == ('-' as u8) {
-                out[i] = ('_' as u8)
+        var out        = string()
+        var run: usize = 0
+        for var i: usize = 0; i < name.size(); ++i {
+            if name.data()[i] == ('-' as u8) {
+                out += name[run..i]
+                out += "_"
+                run = i + 1
             }
         }
 
+        out += name[run..]
         return out
     }
 
@@ -1516,7 +1524,7 @@ pub class ImportResolver {
     }
 
     /// Get-or-create the transient SearchRoot for an importing file's dir.
-    priv fn _sibling_root_for(self, dir: Path) -> unsafe *SearchRoot {
+    priv fn _sibling_root_for(self, const dir: Path) -> unsafe *SearchRoot {
         var key = dir.full_path()
         if self._sibling_roots.contains(kairo::sref(key)) {
             return self._sibling_roots[kairo::sref(key)]
@@ -1590,7 +1598,7 @@ pub class ImportResolver {
                 continue
             }
 
-            names.push_back(child->name)
+            names.push_back(child->name.copy())
             if child->is_dir {
                 dirs[kairo::sref(child->name)] = true
             }
@@ -1602,7 +1610,7 @@ pub class ImportResolver {
         for var i: usize = 0; i < names.size(); ++i {
             var raw   = names[i].copy()
             var ident = self._lower(self.module_ident(raw))
-            var ins   = seen.try_emplace(kairo::sref(ident), raw)
+            var ins   = seen.try_emplace(kairo::sref(ident), raw.copy())
             if ins.second {
                 continue
             }
@@ -1635,12 +1643,18 @@ pub class ImportResolver {
     }
 
     priv fn _lower(self, const s: string) -> string {
-        var out = s.copy()
-        for var i: usize = 0; i < out.size(); ++i {
-            if out[i] >= ('A' as u8) && out[i] <= ('Z' as u8) {
-                out[i] = out[i] + 32
+        var out        = string()
+        var run: usize = 0
+        for var i: usize = 0; i < s.size(); ++i {
+            var b = s.data()[i]
+            if b >= ('A' as u8) && b <= ('Z' as u8) {
+                out += s[run..i]
+                out.push(b + 32) // ASCII letter
+                run = i + 1
             }
         }
+
+        out += s[run..]
 
         return out
     }
@@ -1668,18 +1682,22 @@ pub class ImportResolver {
         var result  = cxx::std::vector<string>()
         var current = string()
 
+        var run: usize = 0
         for i in (0 as usize)..path.size() {
-            var c = path[i]
+            var c = path.data()[i]
 
             if c == ('/' as u8) || c == ('\\' as u8) {
+                current += path[run..i]
                 if current.size() > 0 {
                     result.push_back(current)
                     current = string()
                 }
-            } else {
-                current.push_back(c)
+
+                run = i + 1
             }
         }
+
+        current += path[run..]
 
         if current.size() > 0 {
             result.push_back(current)

@@ -61,6 +61,7 @@ import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
     Span,
+    bytes_to_string,
     call_at,
     interface_for,
     spans,
@@ -212,27 +213,28 @@ extend Server {
         // The identifier under the cursor, both halves: the marker replaces
         // all of it, and the editor filters the items by what was typed.
         var start = at
-        while (start > 0) && is_ident_byte((*text)[start - 1]) {
+        while (start > 0) && is_ident_byte(text->data()[start - 1]) {
             start -= 1
         }
 
         var end = at
-        while (end < text->size()) && is_ident_byte((*text)[end]) {
+        while (end < text->size()) && is_ident_byte(text->data()[end]) {
             end += 1
         }
 
         var before = start
         while (before > 0)
-            && (((*text)[before - 1] == (' ' as u8)) || ((*text)[before - 1] == ('\t' as u8))) {
+            && ((text->data()[before - 1] == (' ' as u8))
+                || (text->data()[before - 1] == ('\t' as u8))) {
             before -= 1
         }
 
         var member = false
         if before > 0 {
-            var c = (*text)[before - 1]
+            var c = text->data()[before - 1]
             member = (c == ('.' as u8))
                 || (c == (':' as u8))
-                || ((c == ('>' as u8)) && (before > 1) && ((*text)[before - 2] == ('-' as u8)))
+                || ((c == ('>' as u8)) && (before > 1) && (text->data()[before - 2] == ('-' as u8)))
         }
 
         // What an accepted item replaces: the identifier under the cursor.
@@ -362,7 +364,8 @@ extend Server {
         var guard: usize = 0
         while guard < 64 {
             var p = stmt
-            while (p < at) && (((*text)[p] == (' ' as u8)) || ((*text)[p] == ('\t' as u8))) {
+            while (p < at)
+                && ((text->data()[p] == (' ' as u8)) || (text->data()[p] == ('\t' as u8))) {
                 p += 1
             }
 
@@ -417,19 +420,21 @@ extend Server {
         // Split at `::` into path segments; inside braces the last segment is
         // an item being typed, not part of the path.
         var segs:    [string]
-        var cur               = string()
+        var cur:     [u8]
         var in_items          = false
         var q:       usize    = 0
         while q < spec.size() {
-            var c = spec[q]
+            var c = spec.data()[q]
             if in_items {
                 q += 1
                 continue
             }
 
-            if (c == (':' as u8)) && ((q + 1) < spec.size()) && (spec[q + 1] == (':' as u8)) {
-                segs.push(cur.copy())
-                cur = string()
+            if (c == (':' as u8))
+                && ((q + 1) < spec.size())
+                && (spec.data()[q + 1] == (':' as u8)) {
+                segs.push(bytes_to_string(cur))
+                cur.clear()
                 q += 2
                 continue
             }
@@ -437,7 +442,7 @@ extend Server {
             if c == ('{' as u8) {
                 in_items = true
             } else if is_ident_byte(c) {
-                cur.push_back(c)
+                cur.push(c)
             }
 
             q += 1
@@ -489,7 +494,7 @@ extend Server {
             }
 
             // The path so far names a FILE: offer what it declares.
-            var file = dir + kairo_dot_ext()
+            var file = dir.copy() + kairo_dot_ext()
             if (!rel.is_empty()) && (!Path::exists_at(file)) {
                 file = Path::join_str(dir, module_file_name())
             }

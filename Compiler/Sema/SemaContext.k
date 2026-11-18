@@ -1001,13 +1001,15 @@ pub class SemaContext {
     fn nullable_member(self, role: AdtRole, const pass: string) -> unsafe *FunctionDecl {
         var unsafe *en = self.nullable_enum()
         if en == &null {
-            kairo::std::ice_fail(pass + ": the Null lang item is not an enum")
+            kairo::std::ice_fail(
+                pass.copy() + ": the Null lang item is not an enum",
+            )
         }
 
         var unsafe *lay = dyn_cast<StructDecl>(en->adt_layout)
         if lay == &null {
             kairo::std::ice_fail(
-                pass + ": the Null lang item has no layout; EnumLayoutLowering runs first",
+                pass.copy() + ": the Null lang item has no layout; EnumLayoutLowering runs first",
             )
         }
 

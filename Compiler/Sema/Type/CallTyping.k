@@ -125,8 +125,8 @@ import Sema::Type::NullnessFlow::{
     NULL_READ_REFUSED,
 }
 import Sema::Type::OverloadResolution::{
-    ARG_C_VARARG,   ARG_PACK_TAIL,  ArgInfo, LitKind, OvlCallScope, OvlOutcome, OvlResult,
-    cxx_lref_inout, has_opaque_ffi,
+    ARG_C_VARARG, ARG_PACK_TAIL,  ArgInfo,        LitKind, OvlCallScope, OvlOutcome, OvlResult,
+    copy_args,    cxx_lref_inout, has_opaque_ffi,
 }
 import Sema::Type::Substitution::Substitution
 import Support::FlagSet::FlagSet
@@ -2748,7 +2748,7 @@ pub class <T: type> CallTyping {
             return true
         }
 
-        var alt = *args
+        var alt = copy_args(*args)
         for var j: usize = 0; j < idx.size(); ++j {
             alt[idx[j]].ty = self.dyn()->flow.narrowed_type(alt[idx[j]].ty)
         }

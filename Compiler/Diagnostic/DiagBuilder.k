@@ -260,7 +260,10 @@ pub class DiagBuilder {
 
     /// The one child adder: a dropped builder attaches nothing, and an
     /// invalid `loc` makes a child with no location.
-    priv fn _add_child(self, code: DiagCode, loc: SourceLocation, msg: string) -> unsafe *Self {
+    priv fn _add_child(self,
+                       const code: DiagCode,
+                       loc:        SourceLocation,
+                       const msg:  string) -> unsafe *Self {
         if self._diag == &null {
             return unsafe &self
         }

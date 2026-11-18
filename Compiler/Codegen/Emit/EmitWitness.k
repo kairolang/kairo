@@ -584,7 +584,7 @@ pub class EmitWitness {
             var call = self._member_call(m, me, LowerTargets::witness_receiver_name(), (if (targs.size() > 0) => ("template " + leaf + targs) else => leaf))
             self._cg->sink->spell(
                 Speller::at(unsafe (m as unsafe *Decl)),
-                decl + " " + gate + " { return " + call + "; }",
+                decl.copy() + " " + gate + " { return " + call + "; }",
             )
 
             // A builtin's own operator, for a Self no Kairo row names (a C++
@@ -1140,7 +1140,7 @@ pub class EmitWitness {
     /// `m`, its receiver and operand as the member declares them.
     priv fn _native_member(self, m: unsafe *FunctionDecl, const decl: string, const ret: string) {
         var at = Speller::at(unsafe (m as unsafe *Decl))
-        self._cg->sink->spell(at, decl + " { return ")
+        self._cg->sink->spell(at, decl.copy() + " { return ")
         WrapForms::witness_op(
             self._cg->sink,
             at,
@@ -1164,14 +1164,14 @@ pub class EmitWitness {
                          const name:   string) -> string {
         var args = self._forward(m)
         if !m->is_method() {
-            return self_s + "::" + name + "(" + args + ")"
+            return self_s.copy() + "::" + name + "(" + args + ")"
         }
 
         if m->is_operator {
-            return recv + "." + name + "(" + args + ")"
+            return recv.copy() + "." + name + "(" + args + ")"
         }
 
-        return recv + "->" + name + "(" + args + ")"
+        return recv.copy() + "->" + name + "(" + args + ")"
     }
 
     /// `U, V`: a generic requirement's own parameters as arguments, without

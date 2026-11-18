@@ -221,7 +221,10 @@ extend EmitIR {
         var arrow = bt != &null
             && bt->canonical != &null
             && isa<PointerType>(canon_unqual(bt->canonical))
-        var mem  = o + (if (arrow) => ("->") else => ".") + self._spell.leaf(fd)
+        var mem = o.copy() + (if (arrow) => ("->") else => ".") + self._spell.leaf(
+            fd,
+        )
+
         var stmt = self._stmt_node == n
         self._form_open(at)
         s->spell(at, "auto&& " + o + " = (")
@@ -231,8 +234,9 @@ extend EmitIR {
             s->spell(at, "auto " + old + " = " + mem + "; ")
         }
 
-        s->spell(at, mem + " = ")
-        self._op_form(at, k, fn () { s->spell(at, mem) }, v, t)
+        s->spell(at, mem.copy() + " = ")
+        var *pm = &mem
+        self._op_form(at, k, fn () { s->spell(at, *pm) }, v, t)
         s->spell(at, ";")
         if !stmt {
             s->spell(at, " ")
@@ -519,10 +523,10 @@ extend EmitIR {
         var unsafe *s  = self._cg->sink
         var        sym = if (rem) => ("%") else => "/"
         self._form_open(at)
-        s->spell(at, ts + " " + ta + " = (")
+        s->spell(at, ts.copy() + " " + ta + " = (")
         a()
         s->spell(at, "); ")
-        s->spell(at, ts + " " + tb + " = (")
+        s->spell(at, ts.copy() + " " + tb + " = (")
         b()
         s->spell(at, "); ")
         s->spell(
@@ -680,6 +684,7 @@ extend EmitIR {
         var d = self._bind_depth
         self._bind_depth += 1
         var p        = LowerTargets::wrap_tmp("p", d)
+        var *pp      = &p
         var as_place = n->value_category == Expr::ValueCategory::LValue && self._stmt_node != n
         if as_place {
             s->spell(at, "(*")
@@ -693,7 +698,7 @@ extend EmitIR {
             self._shift_form(
                 at,
                 k,
-                fn () { s->spell(at, p) },
+                fn () { s->spell(at, *pp) },
                 fn () { self.emit(n->rhs) },
                 t,
                 n->no_wrap,
@@ -702,7 +707,7 @@ extend EmitIR {
             self._op_form(
                 at,
                 k,
-                fn () { s->spell(at, p) },
+                fn () { s->spell(at, *pp) },
                 fn () { self._value(n->rhs, t) },
                 t,
             )
@@ -776,10 +781,11 @@ extend EmitIR {
         }
 
         self._form_open(at)
-        var p = LowerTargets::wrap_tmp("p", d)
+        var p   = LowerTargets::wrap_tmp("p", d)
+        var *pp = &p
         if self._is_local_place(n->operand) {
             // A local's postfix whose value is read: no place to bind.
-            s->spell(at, ts + " " + o + " = ")
+            s->spell(at, ts.copy() + " " + o + " = ")
             self.emit(n->operand)
             s->spell(at, "; ")
             self.emit(n->operand)
@@ -794,20 +800,20 @@ extend EmitIR {
 
             s->spell(at, "; ")
             self._form_value(at)
-            s->spell(at, o + ";")
+            s->spell(at, o.copy() + ";")
         } else {
             s->spell(at, "auto& " + p + " = (")
             self.emit(n->operand)
             s->spell(at, "); ")
             if old {
-                s->spell(at, ts + " " + o + " = " + p + "; ")
+                s->spell(at, ts.copy() + " " + o + " = " + p + "; ")
             }
 
-            s->spell(at, p + " = ")
+            s->spell(at, p.copy() + " = ")
             self._op_form(
                 at,
                 k,
-                fn () { s->spell(at, p) },
+                fn () { s->spell(at, *pp) },
                 fn () { s->spell(at, "1") },
                 t,
             )
@@ -817,7 +823,7 @@ extend EmitIR {
                 s->spell(at, " ")
                 self._form_value(at)
                 if old {
-                    s->spell(at, o + ";")
+                    s->spell(at, o.copy() + ";")
                 } else {
                     s->spell(at, (if (as_place) => ("&") else => "") + p + ";")
                 }

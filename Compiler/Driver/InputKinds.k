@@ -57,7 +57,7 @@ pub class InputKind {
 
     /// clang's -x spelling of this input's type ("c++", "objective-c", ...).
     /// "kairo" for a Kairo input, "" when there is no type.
-    fn type_name(self) -> string {
+    fn type_name(const self) -> string {
         if self.cls == InputClass::Kairo {
             return "kairo"
         }
@@ -72,7 +72,7 @@ pub class InputKind {
     }
 
     /// C, not C++: the libc++ include roots are left off its search path.
-    fn is_c_family_c(self) -> bool {
+    fn is_c_family_c(const self) -> bool {
         if self.cls != InputClass::Source && self.cls != InputClass::Header {
             return false
         }
@@ -83,7 +83,7 @@ pub class InputKind {
     /// Still to be preprocessed, so it reads headers: not IR, not a .i/.ii.
     /// (clang's own test, isSrcFile.) Inputs that read none get no header
     /// roots, which clang would only warn about as unused.
-    fn needs_headers(self) -> bool {
+    fn needs_headers(const self) -> bool {
         if self.cls != InputClass::Source && self.cls != InputClass::Header {
             return false
         }
@@ -91,9 +91,30 @@ pub class InputKind {
         return clang::driver::types::isSrcFile(self.ty)
     }
 
-    fn is_ir(self) -> bool {
+    fn copy(const self) -> InputKind {
+        var r = InputKind()
+        r.path       = self.path.copy()
+        r.cls        = self.cls
+        r.ty         = self.ty
+        r.forced     = self.forced.copy()
+        r.discovered = self.discovered
+        r.why        = self.why.copy()
+        return r
+    }
+
+    fn is_ir(const self) -> bool {
         return self.cls == InputClass::Source && clang::driver::types::isLLVMIR(self.ty)
     }
+}
+
+/// A second owner of every input of `v`.
+pub fn copy_inputs(const v: cxx::std::vector<InputKind>) -> cxx::std::vector<InputKind> {
+    var r = cxx::std::vector<InputKind>()
+    for *k in v {
+        r.push_back(k->copy())
+    }
+
+    return r
 }
 
 /// the extension of `path` without its dot: "cc" for a/b.cc, "" for
@@ -101,7 +122,7 @@ pub class InputKind {
 /// every comparison below is against the bare spelling clang uses.
 pub fn input_ext(const path: string) -> string {
     var e = Path(path).extension()
-    if e.size() > 0 && e[0] == ('.' as u8) {
+    if e.size() > 0 && e.data()[0] == ('.' as u8) {
         return e.subslice(1, e.size())
     }
 
@@ -242,7 +263,7 @@ pub fn classify_input(const path: string, const xlang: string) -> InputKind {
         // Only reachable after a bare `--`, where every word is an input.
         // There is no clang passthrough: Kairo has its own spelling for the
         // codegen flags, and --cxx-flags carries clang words to C/C++ inputs.
-        if path.size() > 1 && path[0] == ('-' as u8) {
+        if path.size() > 1 && path.data()[0] == ('-' as u8) {
             k.why = f"'{path}' after -- is an input, not a flag: give the kairo spelling before --, or --cxx-flags={path} for C/C++ inputs"
         }
     }

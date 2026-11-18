@@ -123,6 +123,12 @@ pub enum LastTokenKind derives u8 {
 /// - no semantic validation beyond lexical correctness
 /// - produces immediate nodes for literals
 /// - supports f-strings, byte strings, nested comments, and unicode
+/// Element counts of the UnicodeTables arrays, which Lexer::in_ranges
+/// takes beside the table (a slice does not expose its length).
+const XID_START_LEN:    usize = 1378
+const XID_CONTINUE_LEN: usize = 1604
+const WHITE_SPACE_LEN:  usize = 16
+
 pub class Lexer {
     /// The stream's one record of where it is: Streaming means the TkEof is
     /// still to come, Exhausted that it went out.
@@ -1062,11 +1068,11 @@ pub class Lexer {
     /// White_Space separates tokens and XID_Start starts a name (UAX #31);
     /// no other non-ASCII character starts a token.
     static fn classify_unicode(c: u32) -> kairo::CharClass {
-        if Lexer::in_ranges(UnicodeTables::XID_START, c) {
+        if Lexer::in_ranges(UnicodeTables::XID_START, XID_START_LEN, c) {
             return kairo::CharClass::Identifier
         }
 
-        if Lexer::in_ranges(UnicodeTables::WHITE_SPACE, c) {
+        if Lexer::in_ranges(UnicodeTables::WHITE_SPACE, WHITE_SPACE_LEN, c) {
             return kairo::CharClass::Whitespace
         }
 
@@ -1074,10 +1080,10 @@ pub class Lexer {
     }
 
     /// `c` lies in one of the ranges of `t`, a UnicodeTables
-    /// table: inclusive [first, last] pairs, ascending. Bisection.
-    static fn in_ranges(t: [const u32;], c: u32) -> bool {
+    /// table of `n` elements: inclusive [first, last] pairs, ascending. Bisection.
+    static fn in_ranges(t: [const u32;], n: usize, c: u32) -> bool {
         var lo: usize = 0
-        var hi: usize = t.len / 2
+        var hi: usize = n / 2
         while lo < hi {
             var mid = lo + (hi - lo) / 2
             if c > t[mid * 2 + 1] {
@@ -1087,7 +1093,7 @@ pub class Lexer {
             }
         }
 
-        return lo < t.len / 2 && c >= t[lo * 2]
+        return lo < n / 2 && c >= t[lo * 2]
     }
 
     /// # Lexical Parsing Functions
@@ -2564,7 +2570,12 @@ pub class Lexer {
     /// path unreported: lex_name makes the first an unknown token
     /// (lex_illegal_ascii) and the second part of a name.
     priv fn lex_illegal(self, start: SourceLocation, decode: kairo::DecodeResult) -> Token {
-        if decode.len > 1 && Lexer::in_ranges(UnicodeTables::XID_CONTINUE, decode.chr as u32) {
+        if decode.len > 1
+            && Lexer::in_ranges(
+                UnicodeTables::XID_CONTINUE,
+                XID_CONTINUE_LEN,
+                decode.chr as u32,
+            ) {
             var range = SourceRange::from_bounds(start, decode.len as u32)
             self._diag->report(
                 DiagCode(DiagID::S011E),
@@ -2617,8 +2628,16 @@ pub class Lexer {
         while p + n < end {
             var d = Lexer::decode_at(p + n, (end - (p + n)) as usize)
             if d.len <= 1
-                || Lexer::in_ranges(UnicodeTables::XID_CONTINUE, d.chr as u32)
-                || Lexer::in_ranges(UnicodeTables::WHITE_SPACE, d.chr as u32) {
+                || Lexer::in_ranges(
+                    UnicodeTables::XID_CONTINUE,
+                    XID_CONTINUE_LEN,
+                    d.chr as u32,
+                )
+                || Lexer::in_ranges(
+                    UnicodeTables::WHITE_SPACE,
+                    WHITE_SPACE_LEN,
+                    d.chr as u32,
+                ) {
                 break
             }
 
@@ -2649,9 +2668,9 @@ pub class Lexer {
         for var shift: u32 = 8; shift > 0; shift -= 4 {
             var nib = ((v >> (shift - 4)) & 0xF) as u8
             if nib < 10 {
-                out.push_back(('0' as u8) + nib)
+                out.push(('0' as u8) + nib)
             } else {
-                out.push_back(('a' as u8) + (nib - 10))
+                out.push(('a' as u8) + (nib - 10))
             }
         }
 
@@ -2670,9 +2689,9 @@ pub class Lexer {
             }
 
             if nib < 10 {
-                out.push_back(('0' as u8) + nib)
+                out.push(('0' as u8) + nib)
             } else {
-                out.push_back(('A' as u8) + (nib - 10))
+                out.push(('A' as u8) + (nib - 10))
             }
         }
 
@@ -2766,7 +2785,11 @@ pub class Lexer {
             return kairo::name_char_kind(c.chr, c.len)
         }
 
-        if Lexer::in_ranges(UnicodeTables::XID_CONTINUE, c.chr as u32) {
+        if Lexer::in_ranges(
+            UnicodeTables::XID_CONTINUE,
+            XID_CONTINUE_LEN,
+            c.chr as u32,
+        ) {
             return 2
         }
 

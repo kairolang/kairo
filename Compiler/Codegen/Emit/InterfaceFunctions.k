@@ -969,7 +969,7 @@ extend InterfaceEmitter {
         }
 
         var unsafe *pv = en->variants[adt_niche_payload_variant(en) as usize]
-        var ps = x + "::" + LowerTargets::adt_payload_type(
+        var ps = x.copy() + "::" + LowerTargets::adt_payload_type(
             self._spell->leaf(pv),
         )
 

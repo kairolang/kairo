@@ -104,7 +104,7 @@ extend IndexWalker {
         }
 
         while i < end {
-            var c = (*text)[i]
+            var c = text->data()[i]
             if c >= 0xF0 {
                 i += 4
                 units += 2
@@ -166,7 +166,7 @@ extend IndexWalker {
             var seg   = off
             var first = true
             for var p = off; p <= end; ++p {
-                if (p < end) && ((*text)[p] != 10) {
+                if (p < end) && (text->data()[p] != 10) {
                     continue
                 }
 
@@ -294,34 +294,34 @@ extend IndexWalker {
         w->key(SK_BASES)
         w->begin_array()
         for var i: usize = 0; i < self.bases.size(); ++i {
-            var b  = self.bases[i]
-            var bi = self.file_(b.base_fid)
+            var *b = &self.bases[i]
+            var bi = self.file_(b->base_fid)
             w->begin_array()
-            w->uint(self.files[0].lines.line_of(b.off as usize))
+            w->uint(self.files[0].lines.line_of(b->off as usize))
             w->uint(
                 self.files[0].lines.character(
                     self.files[0].text,
-                    b.off as usize,
+                    b->off as usize,
                     false,
                 ),
             )
 
-            w->uint(self.len16_(0, b.off as usize, b.len as usize))
+            w->uint(self.len16_(0, b->off as usize, b->len as usize))
             w->uint(bi)
-            w->uint(self.files[bi].lines.line_of(b.base_off as usize))
+            w->uint(self.files[bi].lines.line_of(b->base_off as usize))
             w->uint(
                 self.files[bi].lines.character(
                     self.files[bi].text,
-                    b.base_off as usize,
+                    b->base_off as usize,
                     false,
                 ),
             )
 
-            w->uint(self.len16_(bi, b.base_off as usize, b.base_len as usize))
-            w->str(b.name)
-            w->str(b.base_name)
-            w->uint(b.kind as usize)
-            w->uint(b.base_kind as usize)
+            w->uint(self.len16_(bi, b->base_off as usize, b->base_len as usize))
+            w->str(b->name)
+            w->str(b->base_name)
+            w->uint(b->kind as usize)
+            w->uint(b->base_kind as usize)
             w->end_array()
         }
 
@@ -377,18 +377,18 @@ extend IndexWalker {
         w->key(SK_SYMBOLS)
         w->begin_array()
         for var i: usize = 0; i < self.syms.size(); ++i {
-            var s = self.syms[i]
+            var *s = &self.syms[i]
             w->begin_object()
-            w->field(K_NAME, s.name)
-            if !s.detail.is_empty() {
-                w->field(K_DETAIL, s.detail)
+            w->field(K_NAME, s->name)
+            if !s->detail.is_empty() {
+                w->field(K_DETAIL, s->detail)
             }
 
-            w->field_uint(K_KIND, s.kind as usize)
+            w->field_uint(K_KIND, s->kind as usize)
             w->key(K_RANGE)
-            self.range_(w, 0, s.start as usize, (s.end - s.start) as usize)
+            self.range_(w, 0, s->start as usize, (s->end - s->start) as usize)
             w->key(K_SELECTION_RANGE)
-            self.range_(w, 0, s.sel_off as usize, s.sel_len as usize)
+            self.range_(w, 0, s->sel_off as usize, s->sel_len as usize)
             w->end_object()
         }
 
@@ -424,19 +424,19 @@ extend IndexWalker {
             w->key(SK_ITEMS)
             w->begin_array()
             for var i: usize = 0; i < self.items.size(); ++i {
-                var it = self.items[i]
+                var *it = &self.items[i]
                 w->begin_object()
-                w->field(K_LABEL, it.label)
-                w->field_uint(K_KIND, it.kind as usize)
-                if !it.detail.is_empty() {
-                    w->field(K_DETAIL, it.detail)
+                w->field(K_LABEL, it->label)
+                w->field_uint(K_KIND, it->kind as usize)
+                if !it->detail.is_empty() {
+                    w->field(K_DETAIL, it->detail)
                 }
 
                 // sortText orders groups (locals before members before
                 // imports); within a group the editor sorts by label.
-                w->field(K_SORT_TEXT, f"{it.sort}{it.label}")
-                if !it.doc.is_empty() {
-                    w->field(SK_DOC, it.doc)
+                w->field(K_SORT_TEXT, f"{it->sort}{it->label}")
+                if !it->doc.is_empty() {
+                    w->field(SK_DOC, it->doc)
                 }
 
                 w->end_object()

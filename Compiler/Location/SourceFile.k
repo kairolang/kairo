@@ -63,7 +63,7 @@ pub class SourceFile {
             kairo::std::ice_fail("SourceFile: Invalid buffer for SourceFile")
         }
 
-        self.path       = path
+        self.path       = path.copy()
         self.buffer     = buffer
         self.size_bytes = buffer->bytes().size()
     }

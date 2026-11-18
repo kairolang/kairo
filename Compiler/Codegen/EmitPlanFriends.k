@@ -141,7 +141,7 @@ extend EmitPlan {
             return p.subslice(0, p.size() - 3) + ".decl.hh"
         }
 
-        return p + ".decl.hh"
+        return p.copy() + ".decl.hh"
     }
 
     /// `p`'s cycle group (from 1), or 0 when no include cycle runs through

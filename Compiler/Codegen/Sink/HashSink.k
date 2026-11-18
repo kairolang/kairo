@@ -84,7 +84,7 @@ pub class HashSink derives EmitSink {
     /// The stream's hash, 32 hex digits. Call once, after the fill.
     pub fn digest(self) -> string {
         self._fold()
-        return self._acc + f"-{self._tokens}"
+        return self._acc.copy() + f"-{self._tokens}"
     }
 
     pub fn token_count(self) -> usize {
@@ -208,7 +208,7 @@ pub class HashSink derives EmitSink {
             return
         }
 
-        var chunk = self._acc + self._buf
+        var chunk = self._acc.copy() + self._buf
         self._acc = kairo::std::from_std_string<string>(
             kairo::objcache_hash128(kairo::sref(chunk)),
         )

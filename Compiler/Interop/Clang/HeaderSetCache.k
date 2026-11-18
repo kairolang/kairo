@@ -30,6 +30,7 @@ import Interop::Clang::HeaderSet::{
 }
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Support::Ascii::copy_strings
 import Threading::ThreadPool::ThreadPool
 
 /// key -> HeaderSet, one per build. Owned by CompilerInstance.
@@ -89,7 +90,7 @@ pub class HeaderSetCache {
     /// calls this from the pool (the wave walks files in parallel); `_mu`
     /// covers the map, and the build touches only the set it was given.
     pub fn request(self,
-                   headers:          cxx::std::vector<string>,
+                   const headers:    cxx::std::vector<string>,
                    c_linkage:        cxx::std::vector<u8>,
                    locs:             cxx::std::vector<SourceRange>,
                    const import_dir: string) -> unsafe *HeaderSet {
@@ -102,7 +103,7 @@ pub class HeaderSetCache {
 
         var unsafe *hs = kairo::std::create<HeaderSet>()
         hs->key         = key.copy()
-        hs->headers     = headers
+        hs->headers     = copy_strings(headers)
         hs->c_linkage   = c_linkage
         hs->header_locs = locs
         hs->import_dir  = import_dir.copy()
@@ -138,7 +139,7 @@ pub class HeaderSetCache {
     /// every set resolves alike through the shared search path.
     pub static fn resolve_spelling(view: unsafe *HeaderSet, h: string) -> string {
         if view->import_dir.size() > 0 {
-            var cand = view->import_dir + "/" + h
+            var cand = view->import_dir.copy() + "/" + h
             if llvm::sys::fs::exists(llvm::Twine(kairo::sref(cand))) {
                 // Lexically normal: `Inputs/../x.h` from one list and `x.h`
                 // from another's directory are one file, and must be one

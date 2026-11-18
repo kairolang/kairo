@@ -137,7 +137,7 @@ pub class ParsedArgs {
     }
 
     fn _init(self, const key: string, const dfl: FlagValue) {
-        self._map[kairo::sref(key)] = dfl
+        self._map[kairo::sref(key)] = dfl.copy()
     }
 
     fn _cell(self, const key: string) -> *FlagValue {

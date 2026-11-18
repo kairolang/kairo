@@ -232,7 +232,7 @@ pub class EmitCXXHeader {
         var unsafe *tu = self._ctx->tu
         var cg = CodegenContext(self._ctx, &null, self._psym, self._instances)
         var sp = Speller(unsafe &cg)
-        return dir + "/" + sp.header_path(tu)
+        return dir.copy() + "/" + sp.header_path(tu)
     }
 
     /// Render and write. False if nothing to write or the write failed.

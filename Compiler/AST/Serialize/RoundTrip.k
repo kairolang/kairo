@@ -302,14 +302,14 @@ pub class ASTRoundTrip {
 
         // Byte 4 is the low byte of the format version; bytes 8..23 the
         // source hash.
-        var other_version = w->out
+        var other_version = w->out.copy()
         other_version.buf[4] = other_version.buf[4] + 1
         if !ASTRoundTrip::_refused(octx, other_version, len, psym, gs) {
             err = "a serialized AST of another format version was accepted"
             return false
         }
 
-        var other_source = w->out
+        var other_source = w->out.copy()
         other_source.buf[8] = other_source.buf[8] ^ 0x5A
         if !ASTRoundTrip::_refused(octx, other_source, len, psym, gs) {
             err = "a serialized AST of another source text was accepted"

@@ -198,7 +198,7 @@ pub fn has_word(const list: string, const w: string) -> bool {
     var i: usize = 0
     while i < list.size() {
         var e = i
-        while (e < list.size()) && (list[e] != (' ' as u8)) {
+        while (e < list.size()) && (list.data()[e] != (' ' as u8)) {
             e += 1
         }
 
@@ -214,7 +214,7 @@ pub fn has_word(const list: string, const w: string) -> bool {
 
 fn first_byte(const s: string, c: u8) -> usize {
     for var i: usize = 0; i < s.size(); ++i {
-        if s[i] == c {
+        if s.data()[i] == c {
             return i
         }
     }
@@ -244,13 +244,15 @@ pub fn usage_snippet(const usage: string) -> string {
     var p         = open + 1
     while p < usage.size() {
         var e = p
-        while (e < usage.size()) && (usage[e] != (',' as u8)) && (usage[e] != (')' as u8)) {
+        while (e < usage.size())
+            && (usage.data()[e] != (',' as u8))
+            && (usage.data()[e] != (')' as u8)) {
             e += 1
         }
 
         var arg       = usage.subslice(p, e - p)
         var a:  usize = 0
-        while (a < arg.size()) && (arg[a] == (' ' as u8)) {
+        while (a < arg.size()) && (arg.data()[a] == (' ' as u8)) {
             a += 1
         }
 
@@ -264,7 +266,7 @@ pub fn usage_snippet(const usage: string) -> string {
             n += 1
         }
 
-        if (e >= usage.size()) || (usage[e] == (')' as u8)) {
+        if (e >= usage.size()) || (usage.data()[e] == (')' as u8)) {
             break
         }
 

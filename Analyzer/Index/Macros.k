@@ -116,7 +116,7 @@ extend IndexWalker {
 
         if (cur == "(") || (cur == "[") {
             // a call or an index: after a name or a closing bracket
-            var c = prev[prev.size() - 1]
+            var c = prev.data()[prev.size() - 1]
             return ((c >= ('a' as u8)) && (c <= ('z' as u8)))
                 || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
                 || ((c >= ('0' as u8)) && (c <= ('9' as u8)))
@@ -219,7 +219,7 @@ extend IndexWalker {
                     continue
                 }
 
-                var sp = *TokenText::resolve(t, tcm).get_text()
+                var sp = TokenText::resolve(t, tcm).get_text()->copy()
                 if (sp == "}") && (depth > 0) {
                     depth -= 1
                 }

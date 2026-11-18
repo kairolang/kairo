@@ -588,7 +588,7 @@ pub class DisambigTable {
 
             var name = self.str(it->first as u32)
             io::println(f"{prefix}{connector}{name}/")
-            self._dump_node(it->second, prefix + child_pfx, false)
+            self._dump_node(it->second, prefix.copy() + child_pfx, false)
         }
     }
 

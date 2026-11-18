@@ -23,6 +23,7 @@ import Command::FlagRegistry::{
     DEFAULT_MAX_TOKEN_COUNT,
 }
 import Command::ParsedArgs::ParsedArgs
+import Support::Ascii::copy_strings
 
 /// Configuration passed directly into PreProcessor and MacroExpander.
 ///
@@ -102,6 +103,33 @@ pub class PreprocessorOptions {
     // macro origin tracking (TkMacroExpand + MacroExpansionInfo chain, so
     // diagnostics can point at the invocation site as well as the definition)
     // is unconditional, not a toggle: PPWalker::_wrap_origin always runs.
+
+    /// A copy of every field; the strings and string vectors are not
+    /// copyable by assignment.
+    pub fn copy(const self) -> PreprocessorOptions {
+        var o = PreprocessorOptions()
+        o.defines              = copy_strings(self.defines)
+        o.force_includes       = copy_strings(self.force_includes)
+        o.global_allocator_set = self.global_allocator_set
+        o.max_import_depth     = self.max_import_depth
+        o.import_cycles        = self.import_cycles
+        o.max_file_size_mb     = self.max_file_size_mb
+        o.max_token_count      = self.max_token_count
+        o.max_depth            = self.max_depth
+        o.max_expansions       = self.max_expansions
+        o.max_backtrace        = self.max_backtrace
+        o.trace_depth          = self.trace_depth
+        o.prelude_path         = self.prelude_path.copy()
+        o.no_prelude           = self.no_prelude
+        o.builtins_dir         = self.builtins_dir.copy()
+        o.no_builtins          = self.no_builtins
+        o.std_dir              = self.std_dir.copy()
+        o.no_stdlib            = self.no_stdlib
+        o.macro_debug_filter   = self.macro_debug_filter.copy()
+        o.macro_debug          = self.macro_debug
+        o.preserve_comments    = self.preserve_comments
+        return o
+    }
 
     static fn from_args(@inout args: ParsedArgs) -> PreprocessorOptions {
         var o = PreprocessorOptions()

@@ -301,7 +301,7 @@ pub class EmitSink {
         var attr_r            = clang::tok::r_paren
         var attr_depth: usize = 0
         while i < n {
-            var c = text[i]
+            var c = text.data()[i]
 
             if c == (' ' as u8) || c == ('\t' as u8) || c == ('\n' as u8) {
                 i += 1
@@ -312,7 +312,7 @@ pub class EmitSink {
             // would anchor the rest of it.
             if !attr_open && !self.is_unanchored() {
                 var gnu = is_ident_start(c) && self._attr_word_at(text.copy(), i)
-                var square = c == ('[' as u8) && i + 1 < n && text[i + 1] == ('[' as u8)
+                var square = c == ('[' as u8) && i + 1 < n && text.data()[i + 1] == ('[' as u8)
                 if gnu || square {
                     self.unanchored(true)
                     attr_open  = true
@@ -324,7 +324,7 @@ pub class EmitSink {
 
             if is_ident_start(c) {
                 var j = i + 1
-                while j < n && is_ident_char(text[j]) {
+                while j < n && is_ident_char(text.data()[j]) {
                     j += 1
                 }
 
@@ -341,10 +341,10 @@ pub class EmitSink {
                 // A float's exponent sign is the literal's own: `0x1p-126f`,
                 // `1e+5`. Hex reads only `p`, since its `e` is a digit.
                 var hex = j < n
-                    && (text[j] == ('x' as u8) || text[j] == ('X' as u8))
+                    && (text.data()[j] == ('x' as u8) || text.data()[j] == ('X' as u8))
                     && c == ('0' as u8)
                 while j < n {
-                    var cj = text[j]
+                    var cj = text.data()[j]
                     if is_ident_char(cj) || cj == ('.' as u8) {
                         j += 1
                         continue
@@ -352,8 +352,8 @@ pub class EmitSink {
 
                     if (cj == ('+' as u8) || cj == ('-' as u8))
                         && j + 1 < n
-                        && is_digit(text[j + 1]) {
-                        var pc = text[j - 1]
+                        && is_digit(text.data()[j + 1]) {
+                        var pc = text.data()[j - 1]
                         var expo = pc == ('p' as u8)
                             || pc == ('P' as u8)
                             || !hex && (pc == ('e' as u8) || pc == ('E' as u8))
@@ -378,8 +378,8 @@ pub class EmitSink {
             // language-linkage `extern "C"` is the one a declaration needs.
             if c == ('\x22' as u8) {
                 var j = i + 1
-                while j < n && text[j] != ('\x22' as u8) {
-                    if text[j] == ('\\' as u8) {
+                while j < n && text.data()[j] != ('\x22' as u8) {
+                    if text.data()[j] == ('\\' as u8) {
                         j += 1
                     }
 
@@ -398,8 +398,8 @@ pub class EmitSink {
                 // tokens were C++23's deprecated `operator "" _len`, and
                 // clang warned C271W at every literal-operator call.
                 var end = j + 1
-                if after_operator && end < n && is_ident_start(text[end]) {
-                    while end < n && is_ident_char(text[end]) {
+                if after_operator && end < n && is_ident_start(text.data()[end]) {
+                    while end < n && is_ident_char(text.data()[end]) {
                         end += 1
                     }
                 }
@@ -417,8 +417,8 @@ pub class EmitSink {
             // an imported instance's spelling can hold it (`Narrow<'\xff'>`).
             if c == ('\x27' as u8) {
                 var j = i + 1
-                while j < n && text[j] != ('\x27' as u8) {
-                    if text[j] == ('\\' as u8) {
+                while j < n && text.data()[j] != ('\x27' as u8) {
+                    if text.data()[j] == ('\\' as u8) {
                         j += 1
                     }
 
@@ -445,11 +445,11 @@ pub class EmitSink {
             var c1         = (' ' as u8)
             var c2         = (' ' as u8)
             if i + 1 < n {
-                c1 = text[i + 1]
+                c1 = text.data()[i + 1]
             }
 
             if i + 2 < n {
-                c2 = text[i + 2]
+                c2 = text.data()[i + 2]
             }
 
             // Longest match: every 3-char punctuator before any 2-char one,
@@ -582,7 +582,7 @@ pub class EmitSink {
     /// whole word.
     priv fn _attr_word_at(self, text: string, i: usize) -> bool {
         var j = i
-        while j < text.size() && is_ident_char(text[j]) {
+        while j < text.size() && is_ident_char(text.data()[j]) {
             j += 1
         }
 
@@ -598,10 +598,10 @@ pub class EmitSink {
         var out: string = ""
         for var i: usize = 0; i < text.size(); ++i {
             if i != 0 {
-                out = out + " "
+                out += " "
             }
 
-            out = out + f"{self._byte(text[i])}"
+            out += f"{self._byte(text.data()[i])}"
         }
 
         return out

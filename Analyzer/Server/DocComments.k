@@ -57,7 +57,7 @@ pub fn markdown_ok(d: *const JsonDoc, formats: u32) -> bool {
 /// Where the line holding `at` starts.
 fn line_start_of(const text: string, at: usize) -> usize {
     var p = at
-    while (p > 0) && (text[p - 1] != ('\n' as u8)) {
+    while (p > 0) && (text.data()[p - 1] != ('\n' as u8)) {
         p -= 1
     }
 
@@ -67,7 +67,7 @@ fn line_start_of(const text: string, at: usize) -> usize {
 /// One past the end of the line starting at `ls` (its `\n`, or the end).
 fn line_end_of(const text: string, ls: usize) -> usize {
     var p = ls
-    while (p < text.size()) && (text[p] != ('\n' as u8)) {
+    while (p < text.size()) && (text.data()[p] != ('\n' as u8)) {
         p += 1
     }
 
@@ -78,15 +78,16 @@ fn line_end_of(const text: string, ls: usize) -> usize {
 /// is not one (`////` is a rule).
 fn doc_marker_at(const text: string, ls: usize) -> usize {
     var p = ls
-    while (p < text.size()) && ((text[p] == (' ' as u8)) || (text[p] == ('\t' as u8))) {
+    while (p < text.size())
+        && ((text.data()[p] == (' ' as u8)) || (text.data()[p] == ('\t' as u8))) {
         p += 1
     }
 
     if ((p + 3) <= text.size())
-        && (text[p] == ('/' as u8))
-        && (text[p + 1] == ('/' as u8))
-        && (text[p + 2] == ('/' as u8))
-        && (((p + 3) == text.size()) || (text[p + 3] != ('/' as u8))) {
+        && (text.data()[p] == ('/' as u8))
+        && (text.data()[p + 1] == ('/' as u8))
+        && (text.data()[p + 2] == ('/' as u8))
+        && (((p + 3) == text.size()) || (text.data()[p + 3] != ('/' as u8))) {
         return p
     }
 
@@ -281,7 +282,7 @@ extend Server {
 
         var t  = before.copy()
         var t0 = m + 3
-        while (!t.is_empty()) && ((t[0] == (' ' as u8)) || (t[0] == ('\t' as u8))) {
+        while (!t.is_empty()) && ((t.data()[0] == (' ' as u8)) || (t.data()[0] == ('\t' as u8))) {
             t = t.subslice(1, t.size() - 1)
             t0 += 1
         }
@@ -291,15 +292,15 @@ extend Server {
         // `#`, `##`, `### Pa`: the headings.
         if t.starts_with("#") {
             var k: usize = 0
-            while (k < t.size()) && (t[k] == ('#' as u8)) {
+            while (k < t.size()) && (t.data()[k] == ('#' as u8)) {
                 k += 1
             }
 
             var tail_ok = true
             for var q: usize = k; q < t.size(); ++q {
-                if !((t[q] == (' ' as u8))
-                    || ((t[q] >= ('a' as u8)) && (t[q] <= ('z' as u8)))
-                    || ((t[q] >= ('A' as u8)) && (t[q] <= ('Z' as u8)))) {
+                if !((t.data()[q] == (' ' as u8))
+                    || ((t.data()[q] >= ('a' as u8)) && (t.data()[q] <= ('z' as u8)))
+                    || ((t.data()[q] >= ('A' as u8)) && (t.data()[q] <= ('Z' as u8)))) {
                     tail_ok = false
                 }
             }
@@ -337,18 +338,20 @@ extend Server {
         // `*`, `**`, `**No`: the inline labels, where a word can start.
         var e = at
         while (e > t0)
-            && ((((*text)[e - 1] >= ('a' as u8)) && ((*text)[e - 1] <= ('z' as u8)))
-                || (((*text)[e - 1] >= ('A' as u8)) && ((*text)[e - 1] <= ('Z' as u8)))) {
+            && (((text->data()[e - 1] >= ('a' as u8)) && (text->data()[e - 1] <= ('z' as u8)))
+                || ((text->data()[e - 1] >= ('A' as u8)) && (text->data()[e - 1] <= ('Z' as u8)))) {
             e -= 1
         }
 
         var s = e
-        while (s > t0) && ((*text)[s - 1] == ('*' as u8)) && ((e - s) < 2) {
+        while (s > t0) && (text->data()[s - 1] == ('*' as u8)) && ((e - s) < 2) {
             s -= 1
         }
 
         if (s < e)
-            && ((s == t0) || ((*text)[s - 1] == (' ' as u8)) || ((*text)[s - 1] == ('\t' as u8))) {
+            && ((s == t0)
+                || (text->data()[s - 1] == (' ' as u8))
+                || (text->data()[s - 1] == ('\t' as u8))) {
             var labels = inline_labels()
             var sc = self.docs.docs[i].lines.character(*text, s, false) as i64
             var ec = self.docs.docs[i].lines.character(*text, at, false) as i64
@@ -361,7 +364,7 @@ extend Server {
                     line,
                     sc,
                     ec,
-                    labels[q] + " ",
+                    labels[q].copy() + " ",
                     labels[q],
                     false,
                 )
@@ -473,7 +476,8 @@ extend Server {
 
         var ls = line_start_of(*text, at)
         var p  = ls
-        while (p < text->size()) && (((*text)[p] == (' ' as u8)) || ((*text)[p] == ('\t' as u8))) {
+        while (p < text->size())
+            && ((text->data()[p] == (' ' as u8)) || (text->data()[p] == ('\t' as u8))) {
             p += 1
         }
 
@@ -497,11 +501,12 @@ extend Server {
         while first > 0 {
             var ps = line_start_of(*text, first - 1)
             var q  = ps
-            while (q < first) && (((*text)[q] == (' ' as u8)) || ((*text)[q] == ('\t' as u8))) {
+            while (q < first)
+                && ((text->data()[q] == (' ' as u8)) || (text->data()[q] == ('\t' as u8))) {
                 q += 1
             }
 
-            if (q < first) && ((*text)[q] == ('@' as u8)) && (cls[q] == 0) {
+            if (q < first) && (text->data()[q] == ('@' as u8)) && (cls[q] == 0) {
                 first = ps
                 continue
             }
@@ -516,7 +521,7 @@ extend Server {
 
         var fp = first
         while (fp < text->size())
-            && (((*text)[fp] == (' ' as u8)) || ((*text)[fp] == ('\t' as u8))) {
+            && ((text->data()[fp] == (' ' as u8)) || (text->data()[fp] == ('\t' as u8))) {
             fp += 1
         }
 
@@ -525,7 +530,7 @@ extend Server {
         var stub           = doc_stub(h, snippet)
         var body:   string = ""
         for var k: usize = 0; k < stub.size(); ++k {
-            body += indent + stub[k] + "\n"
+            body += indent.copy() + stub[k] + "\n"
         }
 
         var il  = self.docs.docs[di].lines.line_of(first) as i64
@@ -587,12 +592,17 @@ extend Server {
 fn trim_doc_(const s: string) -> string {
     var b: usize = 0
     var e        = s.size()
-    while (b < e) && ((s[b] == (' ' as u8)) || (s[b] == ('\t' as u8)) || (s[b] == ('\r' as u8))) {
+    while (b < e)
+        && ((s.data()[b] == (' ' as u8))
+            || (s.data()[b] == ('\t' as u8))
+            || (s.data()[b] == ('\r' as u8))) {
         b += 1
     }
 
     while (e > b)
-        && ((s[e - 1] == (' ' as u8)) || (s[e - 1] == ('\t' as u8)) || (s[e - 1] == ('\r' as u8))) {
+        && ((s.data()[e - 1] == (' ' as u8))
+            || (s.data()[e - 1] == ('\t' as u8))
+            || (s.data()[e - 1] == ('\r' as u8))) {
         e -= 1
     }
 

@@ -130,8 +130,8 @@ fn yaml_value_(const line: string, const key: string) -> string {
     var out: string = ""
     var i           = at + key.size() + 5
     while i < line.size() {
-        if line[i] == ('\'' as u8) {
-            if ((i + 1) < line.size()) && (line[i + 1] == ('\'' as u8)) {
+        if line.data()[i] == ('\'' as u8) {
+            if ((i + 1) < line.size()) && (line.data()[i + 1] == ('\'' as u8)) {
                 out += "\x27"
                 i += 2
                 continue
@@ -198,7 +198,7 @@ extend Server {
             var x = doc.first(doc.root)
             while x != JSON_NONE() {
                 var f = doc.get_str(x, "file")
-                if (!f.is_empty()) && (f[0] != ('/' as u8)) {
+                if (!f.is_empty()) && (f.data()[0] != ('/' as u8)) {
                     f = Path::join_str(doc.get_str(x, "directory"), f.copy())
                 }
 
@@ -239,15 +239,15 @@ extend Server {
         }
 
         var subs: [string]
-        for var name: string in LinkFS::list_dir(dir) {
-            if name.is_empty()
-                || (name[0] == ('.' as u8))
-                || (name == "build")
-                || (name == "node_modules") {
+        for *name in LinkFS::list_dir(dir) {
+            if name->is_empty()
+                || (name->data()[0] == ('.' as u8))
+                || (*name == "build")
+                || (*name == "node_modules") {
                 continue
             }
 
-            var p = Path::join_str(dir, name.copy())
+            var p = Path::join_str(dir, name->copy())
             if LinkFS::is_dir(p) {
                 subs.push(p.copy())
             } else if is_cxx_source(p) {
@@ -264,7 +264,7 @@ extend Server {
     /// else under the project root; real path, or "" when neither exists.
     fn bridge_resolve_(self, const from: string, const name: string) -> string {
         var p = name.copy()
-        if p[0] != ('/' as u8) {
+        if p.data()[0] != ('/' as u8) {
             var beside = Path::join_str(Path::parent_of(from), p.copy())
             if LinkFS::is_file(beside) {
                 p = beside.copy()
@@ -344,8 +344,8 @@ extend Server {
 
             var kl = split_lines_((*m_k)[at])
             for var i: usize = 0; i < kl.size(); ++i {
-                if find_from(*ks, kl[i] + "\n", 0) == usize::MAX {
-                    *ks = *ks + kl[i] + "\n"
+                if find_from(*ks, kl[i].copy() + "\n", 0) == usize::MAX {
+                    *ks = ks->copy() + kl[i] + "\n"
                 }
             }
 
@@ -357,8 +357,8 @@ extend Server {
             var hl = split_lines_((*m_h)[at])
             for var i = hl.size(); i > 0; --i {
                 var h = hl[i - 1].copy()
-                if (h != src) && (find_from(*seen, h + "\n", 0) == usize::MAX) {
-                    *seen = *seen + h + "\n"
+                if (h != src) && (find_from(*seen, h.copy() + "\n", 0) == usize::MAX) {
+                    *seen = seen->copy() + h + "\n"
                     st_f.push(h.copy())
                     st_d.push(d + 1)
                 }
@@ -391,7 +391,7 @@ extend Server {
                 if (self.br_changed[q] == srcs[i])
                     || (find_from(
                         self.br_src_seen[i],
-                        self.br_changed[q] + "\n",
+                        self.br_changed[q].copy() + "\n",
                         0,
                     ) != usize::MAX) {
                     known = false
@@ -681,11 +681,11 @@ extend Server {
 
             var p   = self.br_src[i].copy()
             var rel = ""
-            if p.starts_with(r + "/") {
+            if p.starts_with(r.copy() + "/") {
                 rel = p.subslice(r.size() + 1, p.size() - r.size() - 1)
             } else {
                 var rp = Path::real_path_of(p.copy())
-                if rp.starts_with(rr + "/") {
+                if rp.starts_with(rr.copy() + "/") {
                     rel = rp.subslice(rr.size() + 1, rp.size() - rr.size() - 1)
                 }
             }

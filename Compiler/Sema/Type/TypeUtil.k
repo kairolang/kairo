@@ -2963,16 +2963,17 @@ pub class TypeUtil {
                                 && b < (0x7f as u8)
                                 && b != (0x22 as u8)
                                 && b != (0x5c as u8) {
-                                s.push_back(b)
+                                s.push(b)
                                 continue
                             }
 
                             s += "\\x"
-                            s.push_back(digits[(b >> (4 as u8)) as usize])
-                            s.push_back(digits[(b & (15 as u8)) as usize])
+                            s.push(digits.data()[(b >> (4 as u8)) as usize])
+                            s.push(digits.data()[(b & (15 as u8)) as usize])
                         }
 
-                        return s + "\""
+                        s += "\""
+                        return s
                     } default {
                         return "<value>"
                     }

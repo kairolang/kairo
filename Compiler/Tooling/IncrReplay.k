@@ -292,7 +292,7 @@ fn replay_apply(const line: string,
         return "cannot read " + f[0]
     }
 
-    if !bufs->write(f[0], text + replay_unescape(f[1])) {
+    if !bufs->write(f[0], text.copy() + replay_unescape(f[1])) {
         return "cannot write " + f[0]
     }
 

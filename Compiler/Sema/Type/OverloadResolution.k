@@ -246,6 +246,21 @@ pub class ListShape {
     pub var kids_lo:  usize        = 0 ///< a nested list literal's own elements.
     pub var kids_n:   usize        = 0
     fn ListShape(self) { }
+
+    fn copy(const self) -> ListShape {
+        var r = ListShape()
+        r.lit      = self.lit
+        r.lit_lo   = self.lit_lo
+        r.lit_hi   = self.lit_hi
+        r.lit_big  = self.lit_big
+        r.lit_bits = self.lit_bits
+        r.lit_neg  = self.lit_neg
+        r.lit_name = self.lit_name.copy()
+        r.ty       = self.ty
+        r.kids_lo  = self.kids_lo
+        r.kids_n   = self.kids_n
+        return r
+    }
 }
 
 pub class ArgInfo {
@@ -298,6 +313,45 @@ pub class ArgInfo {
     pub var inner_cat:   Expr::ValueCategory = Expr::ValueCategory::RValue
     pub var inner_const: bool                = false
     fn ArgInfo(self) { }
+
+    fn copy(const self) -> ArgInfo {
+        var r = ArgInfo()
+        r.expr        = self.expr
+        r.carrier     = self.carrier
+        r.ty          = self.ty
+        r.range       = self.range
+        r.name        = self.name.copy()
+        r.name_range  = self.name_range
+        r.lit         = self.lit
+        r.lit_lo      = self.lit_lo
+        r.lit_hi      = self.lit_hi
+        r.lit_big     = self.lit_big
+        r.lit_bits    = self.lit_bits
+        r.lit_neg     = self.lit_neg
+        r.lit_name    = self.lit_name.copy()
+        r.elems_lo    = self.elems_lo
+        r.elems_n     = self.elems_n
+        r.dependent   = self.dependent
+        r.cat         = self.cat
+        r.is_const    = self.is_const
+        r.pass_moves  = self.pass_moves
+        r.if_lvalue   = self.if_lvalue
+        r.marked      = self.marked
+        r.inner_ty    = self.inner_ty
+        r.inner_cat   = self.inner_cat
+        r.inner_const = self.inner_const
+        return r
+    }
+}
+
+/// An independent copy of `v`.
+pub fn copy_args(const v: cxx::std::vector<ArgInfo>) -> cxx::std::vector<ArgInfo> {
+    var out = cxx::std::vector<ArgInfo>()
+    for var i: usize = 0; i < v.size(); ++i {
+        out.push_back(v[i].copy())
+    }
+
+    return out
 }
 
 pub enum OvlOutcome derives u8 {
@@ -3262,14 +3316,14 @@ pub class OverloadResolution {
             var        obj = ArgInfo()
             if p->is_self && !pt->is_dependent() && a->lit == LitKind::None {
                 rt      = self.sc->types->cxx_lref(pt)
-                obj     = *a
+                obj     = a->copy()
                 obj.cat = Expr::ValueCategory::LValue
                 ra      = &obj
             } else if a->if_lvalue && p->mode == ParamMode::Inout {
                 // Kairo's own `@inout` borrows a place, and an `if`
                 // expression is none. A C++ `T&` still binds the lvalue the
                 // emitted conditional is, and asks for its marker.
-                obj          = *a
+                obj          = a->copy()
                 obj.cat      = Expr::ValueCategory::RValue
                 obj.is_const = false
                 ra           = &obj
@@ -5047,10 +5101,10 @@ pub class OverloadResolution {
             } else if no.size() > 0 {
                 msg = "no bound selects this candidate: it applies when "
                 if yes.size() > 0 {
-                    msg += yes + " and "
+                    msg += yes.copy() + " and "
                 }
 
-                msg += no + ", and no bound can promise that " + no
+                msg += no.copy() + ", and no bound can promise that " + no
             } else {
                 msg = "no bound selects this candidate: its clause tests the parameter with a condition no bound can promise"
             }

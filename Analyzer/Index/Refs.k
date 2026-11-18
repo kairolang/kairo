@@ -406,8 +406,8 @@ extend IndexWalker {
             return lit.copy()
         }
 
-        var a = lit[0]
-        var z = lit[lit.size() - 1]
+        var a = lit.data()[0]
+        var z = lit.data()[lit.size() - 1]
         if ((a == ('"' as u8)) && (z == ('"' as u8)))
             || ((a == ('<' as u8)) && (z == ('>' as u8))) {
             return lit.subslice(1, lit.size() - 2)

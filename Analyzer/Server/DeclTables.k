@@ -258,21 +258,30 @@ pub class DeclTables {
                 dn                      = d->next(dn)
             }
 
-            var kept: [DeclTable]
-            for var k: usize = 0; k < self.t.size(); ++k {
-                if deps.get(fnv1a(self.t[k].path)) != null {
-                    kept.push(self.t[k])
+            // Tables are moved out (a table is large and has no copy), kept
+            // in their order, and the ones of files still in the graph are
+            // put back.
+            var held: [DeclTable]
+            while self.t.size() > 0 {
+                var x = self.t.pop()
+                if x? {
+                    held.push(x)
                 }
             }
 
             self.clear()
-            for var k: usize = 0; k < kept.size(); ++k {
-                var h = fnv1a(kept[k].path)
-                if self.by_path_.get(h) == null {
-                    self.by_path_[h] = self.t.size() as u32
-                }
+            while held.size() > 0 {
+                var x = held.pop()
+                if x? {
+                    var h = fnv1a(x.path)
+                    if deps.get(h) != null {
+                        if self.by_path_.get(h) == null {
+                            self.by_path_[h] = self.t.size() as u32
+                        }
 
-                self.t.push(kept[k])
+                        self.t.push(x)
+                    }
+                }
             }
         }
 

@@ -21,6 +21,7 @@ ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "chrono"
 
 import API::FS::LinkFS
+import DocComment::rfind_from
 import DocumentStore::{
     DocumentStore,
     fnv1a,
@@ -256,14 +257,14 @@ extend Server {
         var taken = self.snapshot_declares_(s, iname)
         if !taken {
             var spaced = "interface " + iname
-            var k      = text->rfind(spaced)
+            var k      = rfind_from(*text, spaced, text->size())
             while (k != usize::MAX) && (!taken) {
                 var e = k + spaced.size()
                 if (e >= text->size())
-                    || ((*text)[e] == (' ' as u8))
-                    || ((*text)[e] == ('{' as u8))
-                    || ((*text)[e] == ('<' as u8))
-                    || ((*text)[e] == ('\n' as u8)) {
+                    || (text->data()[e] == (' ' as u8))
+                    || (text->data()[e] == ('{' as u8))
+                    || (text->data()[e] == ('<' as u8))
+                    || (text->data()[e] == ('\n' as u8)) {
                     taken = true
                 }
 
@@ -271,12 +272,12 @@ extend Server {
                     break
                 }
 
-                k = text->subslice(0, k).rfind(spaced)
+                k = rfind_from(*text, spaced, k)
             }
         }
 
         if taken {
-            iname = plan.name + "Interface"
+            iname = plan.name.copy() + "Interface"
             plan  = interface_for(*text, at, iname)
             if !plan.ok {
                 return
@@ -338,7 +339,7 @@ extend Server {
         }
 
         var le = ls
-        while (le < md.size()) && (md[le] != ('\n' as u8)) {
+        while (le < md.size()) && (md.data()[le] != ('\n' as u8)) {
             le += 1
         }
 
@@ -347,16 +348,18 @@ extend Server {
         // `(` (`@align(8) struct P`), so they are stepped over whole.
         while line.starts_with("@") {
             var k: usize = 1
-            while (k < line.size()) && (line[k] != (' ' as u8)) && (line[k] != ('(' as u8)) {
+            while (k < line.size())
+                && (line.data()[k] != (' ' as u8))
+                && (line.data()[k] != ('(' as u8)) {
                 k += 1
             }
 
-            if (k < line.size()) && (line[k] == ('(' as u8)) {
+            if (k < line.size()) && (line.data()[k] == ('(' as u8)) {
                 var depth: usize = 0
                 while k < line.size() {
-                    if line[k] == ('(' as u8) {
+                    if line.data()[k] == ('(' as u8) {
                         depth += 1
-                    } else if line[k] == (')' as u8) {
+                    } else if line.data()[k] == (')' as u8) {
                         depth -= 1
                         if depth == 0 {
                             k += 1
@@ -368,7 +371,7 @@ extend Server {
                 }
             }
 
-            while (k < line.size()) && (line[k] == (' ' as u8)) {
+            while (k < line.size()) && (line.data()[k] == (' ' as u8)) {
                 k += 1
             }
 
@@ -406,7 +409,7 @@ extend Server {
         }
 
         var b = stop
-        while (b > 0) && (line[b - 1] != (' ' as u8)) {
+        while (b > 0) && (line.data()[b - 1] != (' ' as u8)) {
             b -= 1
         }
 

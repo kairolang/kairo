@@ -102,7 +102,7 @@ extend EmitIR {
         var cxx_v = "U"
         if text.size() == 4 && text[1] == 0x5c && (text[2] == 0x7b || text[2] == 0x7d) {
             cxx_v += "'"
-            cxx_v.push_back(text[2])
+            cxx_v.push(text[2])
             cxx_v += "'"
         } else {
             cxx_v += text

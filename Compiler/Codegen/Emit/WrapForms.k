@@ -100,7 +100,7 @@ pub class WrapForms {
                 at,
                 "; } } return " + WrapForms::_scs(
                     tt,
-                    a + (if (rem) => (" % ") else => " / ") + b,
+                    a.copy() + (if (rem) => (" % ") else => " / ") + b,
                 ) + "; ",
             )
 
@@ -143,7 +143,7 @@ pub class WrapForms {
             )
 
             s->shift(at, false)
-            s->spell(at, mask + "); } ")
+            s->spell(at, mask.copy() + "); } ")
             s->spell(
                 at,
                 "return static_cast<" + tt + ">(" + WrapForms::_scs(uu, a),
@@ -181,7 +181,7 @@ pub class WrapForms {
             return
         }
 
-        s->spell(at, a + " " + OperatorFacts::cxx_symbol(k) + " " + b)
+        s->spell(at, a.copy() + " " + OperatorFacts::cxx_symbol(k) + " " + b)
     }
 
     /// # a builtin's operator as a witness member
@@ -359,7 +359,7 @@ pub class WrapForms {
                 at,
                 WrapForms::_scs(
                     self_t,
-                    r + " " + OperatorFacts::cxx_symbol(k) + " " + o,
+                    r.copy() + " " + OperatorFacts::cxx_symbol(k) + " " + o,
                 ),
             )
 

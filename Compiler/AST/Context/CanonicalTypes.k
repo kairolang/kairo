@@ -1206,7 +1206,7 @@ pub class CanonicalTypeStore {
         ot->name  = (h as u32)
         var unsafe *buf = self._alloc_array<u8>(n + 1)
         for var i: usize = 0; i < n; ++i {
-            buf[i] = (spelling[i])
+            buf[i] = spelling.data()[i]
         }
 
         buf[n]     = (0)

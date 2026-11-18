@@ -668,7 +668,7 @@ extend InterfaceEmitter {
                 continue
             }
 
-            done.push_back(nm)
+            done.push_back(nm.copy())
             for var j: usize = 0; j < d->derives_list.size(); ++j {
                 var unsafe *e = d->derives_list.get(j)
                 if e == &null || e->base == &null {

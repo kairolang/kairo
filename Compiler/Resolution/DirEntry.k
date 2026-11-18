@@ -96,7 +96,7 @@ pub class DirEntry {
             return &null
         }
 
-        var unsafe *child = kairo::std::create<DirEntry>(name, true)
+        var unsafe *child = kairo::std::create<DirEntry>(name.copy(), true)
         child->fs_path                   = child_path
         child->ext_cfg                   = self.ext_cfg
         self.children[kairo::sref(name)] = child
@@ -107,7 +107,7 @@ pub class DirEntry {
     fn probe_file(self, stem: string, ext: string) -> unsafe *DirEntry {
         var key = stem.copy()
         if ext.size() > 0 {
-            key = stem + "." + ext
+            key = stem.copy() + "." + ext
         }
 
         if self.children.contains(kairo::sref(key)) {
@@ -186,7 +186,11 @@ pub class DirEntry {
 
             if etype == FileType::directory_file {
                 if self.children.find(kairo::sref(name_raw)) == self.children.end() {
-                    var unsafe *c = kairo::std::create<DirEntry>(name_raw, true)
+                    var unsafe *c = kairo::std::create<DirEntry>(
+                        name_raw.copy(),
+                        true,
+                    )
+
                     c->fs_path = Path::from_known(full_raw, etype)
                     c->ext_cfg                           = self.ext_cfg
                     self.children[kairo::sref(name_raw)] = c
@@ -215,7 +219,7 @@ pub class DirEntry {
                     var cat  = self.ext_cfg->categorize(ext)
                     var key  = stem.copy()
                     if !ext.is_empty() {
-                        key = stem + "." + ext
+                        key = stem.copy() + "." + ext
                     }
 
                     if self.children.find(kairo::sref(key)) == self.children.end() {

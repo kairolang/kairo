@@ -13,6 +13,8 @@
 
 ffi "c++" import "vector"
 
+import Support::Ascii::copy_strings
+
 pub enum FlagKind derives u8 {
     Bool,       ///< presence flag; no value             -v / --verbose
     String,     ///< arbitrary string value              --output=path
@@ -34,6 +36,21 @@ pub class FlagValue {
     priv var _i:  i32                      = 0
     priv var _f:  f64                      = 0.0
     priv var _sv: cxx::std::vector<string>
+
+    /// A copy of every field; the string and the string vector are not
+    /// copyable by assignment.
+    pub fn copy(const self) -> FlagValue {
+        var v = FlagValue()
+        v.kind        = self.kind
+        v.is_set      = self.is_set
+        v.is_required = self.is_required
+        v._b          = self._b
+        v._s          = self._s.copy()
+        v._i          = self._i
+        v._f          = self._f
+        v._sv         = copy_strings(self._sv)
+        return v
+    }
 
 
     static fn required(k: FlagKind) -> FlagValue {

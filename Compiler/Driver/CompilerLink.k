@@ -127,33 +127,33 @@ extend CompilerInstance {
         var *fe_plan = &self.invocation()->frontend
         if !fe_plan->stops_before_codegen() {
             for var a: usize = 0; a < self._inputs.size(); ++a {
-                var ka    = self._inputs[a]
-                var a_hdr = ka.cls == InputClass::Header
-                if ka.cls != InputClass::Source && !a_hdr {
+                var *ka   = &self._inputs[a]
+                var a_hdr = ka->cls == InputClass::Header
+                if ka->cls != InputClass::Source && !a_hdr {
                     continue
                 }
 
-                var na = if (a_hdr) => (Path(ka.path).filename()) else => Path(ka.path).stem()
+                var na = if (a_hdr) => (Path(ka->path).filename()) else => Path(ka->path).stem()
                 for var b: usize = 0; b < self._inputs.size(); ++b {
                     if b == a {
                         continue
                     }
 
-                    var kb    = self._inputs[b]
-                    var b_hdr = kb.cls == InputClass::Header
+                    var *kb   = &self._inputs[b]
+                    var b_hdr = kb->cls == InputClass::Header
                     var nb    = ""
                     if a_hdr {
                         if !b_hdr {
                             continue
                         }
 
-                        nb = Path(kb.path).filename()
+                        nb = Path(kb->path).filename()
                     } else {
-                        if kb.cls != InputClass::Source {
+                        if kb->cls != InputClass::Source {
                             continue
                         }
 
-                        nb = Path(kb.path).stem()
+                        nb = Path(kb->path).stem()
                     }
 
                     if nb != na {
@@ -166,7 +166,7 @@ extend CompilerInstance {
 
                     self._diag->report(
                         DiagID::U013E,
-                        f"{ka.path} and {kb.path} both write '{na}' outputs; rename one, or compile them in separate runs",
+                        f"{ka->path} and {kb->path} both write '{na}' outputs; rename one, or compile them in separate runs",
                     ).emit()
                     bad = true
                 }
@@ -287,7 +287,7 @@ extend CompilerInstance {
         }
 
         if lk->save_temps {
-            self._obj_dir = self._link_out + ".kobj"
+            self._obj_dir = self._link_out.copy() + ".kobj"
             return true
         }
 
@@ -385,8 +385,8 @@ extend CompilerInstance {
     prot fn _reject_second_script(self, @inout result: BatchResult) {
         var first: isize = -1
         for var i: usize = 0; i < result.tu_results.size(); ++i {
-            var r = result.tu_results[i]
-            if !r.script_at.is_valid() {
+            var *r = &result.tu_results[i]
+            if !r->script_at.is_valid() {
                 continue
             }
 
@@ -395,21 +395,21 @@ extend CompilerInstance {
                 continue
             }
 
-            var p = result.tu_results[first as usize]
-            var a = Path(p.path).filename()
-            var b = Path(r.path).filename()
+            var *p = &result.tu_results[first as usize]
+            var a  = Path(p->path).filename()
+            var b  = Path(r->path).filename()
             var d = self._diag->report(
                 DiagID::SC142E,
-                r.script_at.start,
+                r->script_at.start,
                 f"two script files in one program: '{b}' and '{a}' each run top-level statements as 'main'",
             )
 
-            d.first(r.script_at)
+            d.first(r->script_at)
             d.note(
                 DiagCode(DiagID::SC142N),
-                p.script_at.start,
+                p->script_at.start,
                 f"'{a}' is a script: its first top-level statement is here",
-            )->child_first(p.script_at)
+            )->child_first(p->script_at)
             d.emit()
         }
     }
@@ -464,7 +464,7 @@ extend CompilerInstance {
         var mac  = LowerTargets::global_alloc_set_macro()
         var hand = false
         for *d in pp->defines {
-            if *d == mac || LinkText::starts_with(*d, mac + "=") {
+            if *d == mac || LinkText::starts_with(*d, mac.copy() + "=") {
                 hand = true
             }
         }
@@ -624,8 +624,8 @@ extend CompilerInstance {
     prot fn _reject_second_global_allocator(self, @inout result: BatchResult) {
         var first: isize = -1
         for var i: usize = 0; i < result.tu_results.size(); ++i {
-            var r = result.tu_results[i]
-            if !r.global_alloc_at.is_valid() {
+            var *r = &result.tu_results[i]
+            if !r->global_alloc_at.is_valid() {
                 continue
             }
 
@@ -634,26 +634,26 @@ extend CompilerInstance {
                 continue
             }
 
-            var p = result.tu_results[first as usize]
+            var *p = &result.tu_results[first as usize]
             // Two inputs that import one module that sets it: one file.
-            if p.global_alloc_file == r.global_alloc_file {
+            if p->global_alloc_file == r->global_alloc_file {
                 continue
             }
 
-            var a = Path(p.global_alloc_file).filename()
-            var b = Path(r.global_alloc_file).filename()
+            var a = Path(p->global_alloc_file).filename()
+            var b = Path(r->global_alloc_file).filename()
             var d = self._diag->report(
                 DiagID::SC138E,
-                r.global_alloc_at.start,
+                r->global_alloc_at.start,
                 f"two files set the global allocator: '{b}' and '{a}'; a program has one",
             )
 
-            d.first(r.global_alloc_at)
+            d.first(r->global_alloc_at)
             d.note(
                 DiagCode(DiagID::SC138N),
-                p.global_alloc_at.start,
+                p->global_alloc_at.start,
                 f"'{a}' sets it here",
-            )->child_first(p.global_alloc_at)
+            )->child_first(p->global_alloc_at)
 
             d.emit()
         }
@@ -671,12 +671,12 @@ extend CompilerInstance {
         var out  = cxx::std::vector<LinkMessage>()
         var said = false
         var sym  = LowerTargets::global_alloc_symbol_prefix()
-        for var m: LinkMessage in msgs {
-            var hit = m.severity == LinkSeverity::Error
-                && LinkText::find(m.text.copy(), "duplicate symbol: ", 0) < m.text.size()
-                && LinkText::find(m.text.copy(), sym.copy(), 0) < m.text.size()
+        for *m in msgs {
+            var hit = m->severity == LinkSeverity::Error
+                && LinkText::find(m->text.copy(), "duplicate symbol: ", 0) < m->text.size()
+                && LinkText::find(m->text.copy(), sym.copy(), 0) < m->text.size()
             if !hit {
-                out.push_back(m)
+                out.push_back(LinkDiag::make(m->severity, m->text))
                 continue
             }
 
@@ -685,7 +685,7 @@ extend CompilerInstance {
             }
 
             said = true
-            var who   = LinkDiag::definers(m.text)
+            var who   = LinkDiag::definers(m->text)
             var names = cxx::std::vector<string>()
             for *o in who {
                 names.push_back(self._object_module(*o))
@@ -709,20 +709,23 @@ extend CompilerInstance {
     priv fn _object_module(self, o: string) -> string {
         var dir = self.object_dir()
         if dir.is_empty()
-            || !LinkText::starts_with(o.copy(), dir + "/")
+            || !LinkText::starts_with(o.copy(), dir.copy() + "/")
             || !LinkText::ends_with(o.copy(), ".o") {
             return o
         }
 
-        var rel = LinkText::slice(o, dir.size() + 1, o.size() - 2)
-        var m   = ""
+        var rel        = LinkText::slice(o, dir.size() + 1, o.size() - 2)
+        var m          = ""
+        var run: usize = 0
         for var i: usize = 0; i < rel.size(); ++i {
-            if rel[i] == ('/' as u8) || rel[i] == ('\\' as u8) {
+            if rel.data()[i] == ('/' as u8) || rel.data()[i] == ('\\' as u8) {
+                m += rel[run..i]
                 m += "::"
-            } else {
-                m.push_back(rel[i])
+                run = i + 1
             }
         }
+
+        m += rel[run..]
 
         return f"module '{m}' ({o})"
     }
@@ -762,7 +765,8 @@ extend CompilerInstance {
             if wants && llvm::Triple(llvm::Twine(wnorm)).isWindowsGNUEnvironment() {
                 var have = false
                 for *l in lk_eff.link_libs {
-                    if LinkText::ends_with(*l, "winpthread") || LinkText::ends_with(*l, "pthread") {
+                    if LinkText::ends_with(l->copy(), "winpthread")
+                        || LinkText::ends_with(l->copy(), "pthread") {
                         have = true
                     }
                 }
@@ -810,7 +814,7 @@ extend CompilerInstance {
         }
 
         for *obj in self._lib_lazy {
-            job.lazy_objects.push_back(*obj)
+            job.lazy_objects.push_back(obj->copy())
         }
 
         job.lazy_archive = self._lib_archive.copy()
@@ -871,26 +875,26 @@ extend CompilerInstance {
     /// under -v.
     prot fn _report_link(self, @inout msgs: cxx::std::vector<LinkMessage>) {
         var verbose = self.invocation()->frontend.verbose
-        for var m: LinkMessage in msgs {
-            if m.severity == LinkSeverity::Fatal {
-                self._diag->report(DiagID::L002F, m.text.copy()).emit()
-            } else if m.severity == LinkSeverity::Error {
-                self._diag->report(DiagID::L002E, m.text.copy()).emit()
-            } else if m.severity == LinkSeverity::Warning {
-                self._diag->report(DiagID::L002W, m.text.copy()).emit()
-            } else if m.severity == LinkSeverity::Note {
-                self._diag->report(DiagID::L002N, m.text.copy()).emit()
-            } else if m.severity == LinkSeverity::Remark {
-                self._diag->report(DiagID::L002R, m.text.copy()).emit()
-            } else if m.severity == LinkSeverity::Info {
-                self._diag->report(DiagID::L002I, m.text.copy()).emit()
-            } else if m.severity == LinkSeverity::Verbose {
+        for *m in msgs {
+            if m->severity == LinkSeverity::Fatal {
+                self._diag->report(DiagID::L002F, m->text.copy()).emit()
+            } else if m->severity == LinkSeverity::Error {
+                self._diag->report(DiagID::L002E, m->text.copy()).emit()
+            } else if m->severity == LinkSeverity::Warning {
+                self._diag->report(DiagID::L002W, m->text.copy()).emit()
+            } else if m->severity == LinkSeverity::Note {
+                self._diag->report(DiagID::L002N, m->text.copy()).emit()
+            } else if m->severity == LinkSeverity::Remark {
+                self._diag->report(DiagID::L002R, m->text.copy()).emit()
+            } else if m->severity == LinkSeverity::Info {
+                self._diag->report(DiagID::L002I, m->text.copy()).emit()
+            } else if m->severity == LinkSeverity::Verbose {
                 if verbose {
-                    self._diag->report(DiagID::L002V, m.text.copy()).emit()
+                    self._diag->report(DiagID::L002V, m->text.copy()).emit()
                 }
-            } else if m.severity == LinkSeverity::Debug {
+            } else if m->severity == LinkSeverity::Debug {
                 if verbose {
-                    self._diag->report(DiagID::L002D, m.text.copy()).emit()
+                    self._diag->report(DiagID::L002D, m->text.copy()).emit()
                 }
             }
         }

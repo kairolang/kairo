@@ -540,7 +540,7 @@ extend EmitIR {
         var wn = LowerTargets::panic_wrapped()
         self._cg->sink->spell(
             e->range,
-            fv + "<" + self._spell.fn_signature(
+            fv.copy() + "<" + self._spell.fn_signature(
                 w,
             ) + ">::" + LowerTargets::fn_value_own() + "(new auto([" + wn + " = " + fv + "<" + self._spell.fn_signature(
                 h,
@@ -633,7 +633,7 @@ extend EmitIR {
             var two = gs->well_known()->two_word()
             // The two-word slice's are accessors, not fields.
             var call = if (two) => ("()") else => ""
-            acc = s + "." + LangMembers::slice_data(
+            acc = s.copy() + "." + LangMembers::slice_data(
                 two,
             ) + call + ", " + s + "." + LangMembers::slice_count(two) + call
         } else if vd != &null && hp == Speller::rep(vd) {
@@ -642,7 +642,7 @@ extend EmitIR {
                 return false
             }
 
-            acc = s + ".data(), " + s + ".size()"
+            acc = s.copy() + ".data(), " + s + ".size()"
         } else {
             return false
         }
@@ -689,7 +689,7 @@ extend EmitIR {
 
         self._cg->sink->spell(
             e->range,
-            kind + "<" + self._spell._type(t, subst) + ">(",
+            kind.copy() + "<" + self._spell._type(t, subst) + ">(",
         )
 
         self.emit(e)

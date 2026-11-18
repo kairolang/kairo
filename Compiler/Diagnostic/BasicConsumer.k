@@ -219,15 +219,15 @@ pub class BasicDiagConsumer derives DiagConsumer {
         var unsafe *sm = self._sm
         var        out = ""
         for var i: usize = 0; i < diag->fixits.size(); ++i {
-            var fi = diag->fixits[i]
-            if !fi.range.is_valid() {
+            var *fi = &diag->fixits[i]
+            if !fi->range.is_valid() {
                 continue
             }
 
-            var b    = sm->get_line_col(fi.range.start)
-            var e    = sm->get_line_col(fi.range.end)
-            var file = self.display_path(sm->get_filename(fi.range.start))
-            var text = c_escape(fi.replacement, CEscapeStyle::Readable)
+            var b    = sm->get_line_col(fi->range.start)
+            var e    = sm->get_line_col(fi->range.end)
+            var file = self.display_path(sm->get_filename(fi->range.start))
+            var text = c_escape(fi->replacement, CEscapeStyle::Readable)
             out += f"fix-it:\"{file}\":\x7B{b.line}:{b.column}-{e.line}:{e.column}\x7D:\"{text}\"\n"
         }
 

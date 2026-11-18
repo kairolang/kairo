@@ -498,7 +498,7 @@ extend IndexWalker {
             return
         }
 
-        var use = name + "!"
+        var use = name.copy() + "!"
         if m->accepts_params {
             use += "("
             for var i: usize = 0; i < m->params_spec.size(); ++i {

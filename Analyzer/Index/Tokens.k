@@ -110,7 +110,7 @@ pub fn utf16_len(text: *const string, off: usize, len: usize) -> usize {
     }
 
     while i < end {
-        var c = (*text)[i]
+        var c = text->data()[i]
         if c >= 0xF0 {
             i += 4
             units += 2
@@ -179,7 +179,7 @@ pub fn lexical_kind(t: Token, text: *const string, off: u32, len: u32, mods: *u3
         // of the language and takes the STANDARD keyword type, so every
         // client colours it as one without a rule of its own. `Self` keeps
         // its own type (and with it the colour it shares with `self`).
-        var c = (*text)[off as usize]
+        var c = text->data()[off as usize]
         if ((c >= ('a' as u8)) && (c <= ('z' as u8)))
             || ((c >= ('A' as u8)) && (c <= ('Z' as u8)))
             || (c == ('_' as u8)) {
@@ -242,11 +242,11 @@ pub fn macro_token_len(t: Token, text: *const string, off: u32, len: u32) -> u32
     }
 
     var end = (off as usize) + (len as usize)
-    if (end >= text->size()) || ((*text)[end] != ('!' as u8)) {
+    if (end >= text->size()) || (text->data()[end] != ('!' as u8)) {
         return 0
     }
 
-    if ((end + 1) < text->size()) && ((*text)[end + 1] == ('=' as u8)) {
+    if ((end + 1) < text->size()) && (text->data()[end + 1] == ('=' as u8)) {
         return 0
     }
 
@@ -262,7 +262,7 @@ pub fn macro_token_mods(text: *const string, off: u32, len: u32, prev: TokenKind
         return TM_DECLARATION() | TM_DEFINITION()
     }
 
-    if (off > 0) && ((*text)[(off as usize) - 1] == (':' as u8)) {
+    if (off > 0) && (text->data()[(off as usize) - 1] == (':' as u8)) {
         return 0
     }
 
@@ -597,7 +597,7 @@ extend IndexWalker {
         var seg = off as usize // start of the pending string piece
         var p   = off as usize
         while p < end {
-            if (*text)[p] != ('{' as u8) {
+            if text->data()[p] != ('{' as u8) {
                 p += 1
                 continue
             }
@@ -606,9 +606,9 @@ extend IndexWalker {
             var depth: usize = 1
             var q            = p + 1
             while (q < end) && (depth > 0) {
-                if (*text)[q] == ('{' as u8) {
+                if text->data()[q] == ('{' as u8) {
                     depth += 1
-                } else if (*text)[q] == ('}' as u8) {
+                } else if text->data()[q] == ('}' as u8) {
                     depth -= 1
                 }
 
@@ -626,7 +626,7 @@ extend IndexWalker {
             var c    = p + 1
             var stop = q - 1
             while c < stop {
-                var ch  = (*text)[c]
+                var ch  = text->data()[c]
                 var hit = by_off->get(c as u32)
                 if hit != null {
                     var st = self.toks[*hit as usize]
@@ -643,10 +643,11 @@ extend IndexWalker {
                 if (ch >= ('0' as u8)) && (ch <= ('9' as u8)) {
                     var ne = c
                     while (ne < stop)
-                        && ((((*text)[ne] >= ('0' as u8)) && ((*text)[ne] <= ('9' as u8)))
-                            || ((*text)[ne] == ('.' as u8))
-                            || ((*text)[ne] == ('_' as u8))
-                            || (((*text)[ne] >= ('a' as u8)) && ((*text)[ne] <= ('z' as u8)))) {
+                        && (((text->data()[ne] >= ('0' as u8)) && (text->data()[ne] <= ('9' as u8)))
+                            || (text->data()[ne] == ('.' as u8))
+                            || (text->data()[ne] == ('_' as u8))
+                            || ((text->data()[ne] >= ('a' as u8))
+                                && (text->data()[ne] <= ('z' as u8)))) {
                         ne += 1
                     }
 
@@ -661,10 +662,10 @@ extend IndexWalker {
                     // A word the walk did not classify: a keyword (`as`,
                     // `if`) or an unresolved name. Left to the grammar.
                     while (c < stop)
-                        && (((*text)[c] >= ('0' as u8) && (*text)[c] <= ('9' as u8))
-                            || ((*text)[c] >= ('a' as u8) && (*text)[c] <= ('z' as u8))
-                            || ((*text)[c] >= ('A' as u8) && (*text)[c] <= ('Z' as u8))
-                            || ((*text)[c] == ('_' as u8))) {
+                        && ((text->data()[c] >= ('0' as u8) && text->data()[c] <= ('9' as u8))
+                            || (text->data()[c] >= ('a' as u8) && text->data()[c] <= ('z' as u8))
+                            || (text->data()[c] >= ('A' as u8) && text->data()[c] <= ('Z' as u8))
+                            || (text->data()[c] == ('_' as u8))) {
                         c += 1
                     }
 
@@ -719,10 +720,10 @@ extend IndexWalker {
             }
 
             while (at < text->size())
-                && (((*text)[at] == (' ' as u8))
-                    || ((*text)[at] == ('\t' as u8))
-                    || ((*text)[at] == ('\n' as u8))
-                    || ((*text)[at] == ('\r' as u8))) {
+                && ((text->data()[at] == (' ' as u8))
+                    || (text->data()[at] == ('\t' as u8))
+                    || (text->data()[at] == ('\n' as u8))
+                    || (text->data()[at] == ('\r' as u8))) {
                 at += 1
             }
 

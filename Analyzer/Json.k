@@ -54,6 +54,22 @@ pub struct JsonNode {
     var count: u32      = 0              ///< number of children
 }
 
+extend JsonNode {
+    pub fn copy(const self) -> JsonNode {
+        return JsonNode {
+            kind:  self.kind,
+            flag:  self.flag,
+            num:   self.num,
+            ival:  self.ival,
+            text:  self.text.copy(),
+            key:   self.key.copy(),
+            first: self.first,
+            next:  self.next,
+            count: self.count,
+        }
+    }
+}
+
 pub class JsonDoc {
     pub var nodes: [JsonNode]
     pub var root:  u32        = u32::MAX
@@ -63,6 +79,16 @@ pub class JsonDoc {
     priv var pos_: usize  = 0
 
     fn JsonDoc(self) = default
+
+    pub fn copy(const self) -> JsonDoc {
+        var o = JsonDoc()
+        o.nodes = self.nodes.copy()
+        o.root  = self.root
+        o.error = self.error.copy()
+        o.src_  = self.src_.copy()
+        o.pos_  = self.pos_
+        return o
+    }
 
     /// Parses `text`. On failure `error` says why and `root` is JSON_NONE.
     fn parse(self, const text: string) -> bool {
@@ -270,7 +296,7 @@ pub class JsonDoc {
 
     priv fn ws_(self) {
         while self.pos_ < self.src_.size() {
-            var c = self.src_[self.pos_]
+            var c = self.src_.data()[self.pos_]
             if (c != (' ' as u8))
                 && (c != ('\t' as u8))
                 && (c != ('\n' as u8))
@@ -295,7 +321,7 @@ pub class JsonDoc {
         }
 
         for var i: usize = 0; i < word.size(); ++i {
-            if self.src_[self.pos_ + i] != word[i] {
+            if self.src_.data()[self.pos_ + i] != word.data()[i] {
                 return false
             }
         }
@@ -318,7 +344,7 @@ pub class JsonDoc {
             return JSON_NONE()
         }
 
-        var c = self.src_[self.pos_]
+        var c = self.src_.data()[self.pos_]
         if c == ('{' as u8) {
             return self.object_(depth)
         }
@@ -377,21 +403,21 @@ pub class JsonDoc {
         var last = JSON_NONE()
 
         self.ws_()
-        if (self.pos_ < self.src_.size()) && (self.src_[self.pos_] == ('}' as u8)) {
+        if (self.pos_ < self.src_.size()) && (self.src_.data()[self.pos_] == ('}' as u8)) {
             self.pos_ += 1
             return obj
         }
 
         while self.error.is_empty() {
             self.ws_()
-            if (self.pos_ >= self.src_.size()) || (self.src_[self.pos_] != ('"' as u8)) {
+            if (self.pos_ >= self.src_.size()) || (self.src_.data()[self.pos_] != ('"' as u8)) {
                 self.fail_("expected a member name")
                 break
             }
 
             var k = self.string_()
             self.ws_()
-            if (self.pos_ >= self.src_.size()) || (self.src_[self.pos_] != (':' as u8)) {
+            if (self.pos_ >= self.src_.size()) || (self.src_.data()[self.pos_] != (':' as u8)) {
                 self.fail_("expected ':'")
                 break
             }
@@ -418,7 +444,7 @@ pub class JsonDoc {
                 break
             }
 
-            var c = self.src_[self.pos_]
+            var c = self.src_.data()[self.pos_]
             self.pos_ += 1
             if c == ('}' as u8) {
                 break
@@ -439,7 +465,7 @@ pub class JsonDoc {
         var last = JSON_NONE()
 
         self.ws_()
-        if (self.pos_ < self.src_.size()) && (self.src_[self.pos_] == (']' as u8)) {
+        if (self.pos_ < self.src_.size()) && (self.src_.data()[self.pos_] == (']' as u8)) {
             self.pos_ += 1
             return arr
         }
@@ -465,7 +491,7 @@ pub class JsonDoc {
                 break
             }
 
-            var c = self.src_[self.pos_]
+            var c = self.src_.data()[self.pos_]
             self.pos_ += 1
             if c == (']' as u8) {
                 break
@@ -488,7 +514,7 @@ pub class JsonDoc {
                 return 0
             }
 
-            var c = self.src_[self.pos_] as u32
+            var c = self.src_.data()[self.pos_] as u32
             self.pos_ += 1
             var d: u32 = 0
             if (c >= ('0' as u8)) && (c <= ('9' as u8)) {
@@ -512,34 +538,40 @@ pub class JsonDoc {
     priv fn string_(self) -> string {
         var out = string()
         self.pos_ += 1
+        // `run` is the first source byte not yet copied; every cut falls on an
+        // ASCII byte (a quote or a backslash), so a run never ends inside a
+        // multibyte character.
+        var run = self.pos_
         while self.pos_ < self.src_.size() {
-            var c = self.src_[self.pos_]
-            self.pos_ += 1
+            var c = self.src_.data()[self.pos_]
             if c == ('"' as u8) {
+                out += self.src_[run..self.pos_]
+                self.pos_ += 1
                 return out
             }
 
+            self.pos_ += 1
             if c != ('\\' as u8) {
-                out.push_back(c)
                 continue
             }
 
+            out += self.src_[run..(self.pos_ - 1)]
             if self.pos_ >= self.src_.size() {
                 break
             }
 
-            var e = self.src_[self.pos_]
+            var e = self.src_.data()[self.pos_]
             self.pos_ += 1
             if e == ('n' as u8) {
-                out.push_back('\n' as u8)
+                out.push('\n')
             } else if e == ('t' as u8) {
-                out.push_back('\t' as u8)
+                out.push('\t')
             } else if e == ('r' as u8) {
-                out.push_back('\r' as u8)
+                out.push('\r')
             } else if e == ('b' as u8) {
-                out.push_back('\b' as u8)
+                out.push('\b')
             } else if e == ('f' as u8) {
-                out.push_back('\f' as u8)
+                out.push('\f')
             } else if e == ('u' as u8) {
                 var cp = self.hex4_()
                 // A high surrogate is half a character: its low half follows
@@ -547,8 +579,8 @@ pub class JsonDoc {
                 if (cp >= 0xD800)
                     && (cp <= 0xDBFF)
                     && ((self.pos_ + 1) < self.src_.size())
-                    && (self.src_[self.pos_] == ('\\' as u8))
-                    && (self.src_[self.pos_ + 1] == ('u' as u8)) {
+                    && (self.src_.data()[self.pos_] == ('\\' as u8))
+                    && (self.src_.data()[self.pos_ + 1] == ('u' as u8)) {
                     self.pos_ += 2
                     var lo = self.hex4_()
                     cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
@@ -556,9 +588,13 @@ pub class JsonDoc {
 
                 utf8_append(&out, cp)
             } else {
-                // `\"`, `\\`, `\/`: the escaped character is itself.
-                out.push_back(e)
+                // `\"`, `\\`, `\/`: the escaped character is itself, so it
+                // joins the next run.
+                run = self.pos_ - 1
+                continue
             }
+
+            run = self.pos_
         }
 
         self.fail_("unterminated string")
@@ -572,50 +608,51 @@ pub class JsonDoc {
         var mant: f64 = 0.0
         var ival: i64 = 0
 
-        if self.src_[self.pos_] == ('-' as u8) {
+        if self.src_.data()[self.pos_] == ('-' as u8) {
             neg = true
             self.pos_ += 1
         }
 
         while (self.pos_ < self.src_.size())
-            && (self.src_[self.pos_] >= ('0' as u8))
-            && (self.src_[self.pos_] <= ('9' as u8)) {
-            var d = (self.src_[self.pos_] - 48) as i64
+            && (self.src_.data()[self.pos_] >= ('0' as u8))
+            && (self.src_.data()[self.pos_] <= ('9' as u8)) {
+            var d = (self.src_.data()[self.pos_] - 48) as i64
             ival = (ival * 10) + d
             mant = (mant * 10.0) + (d as f64)
             self.pos_ += 1
         }
 
-        if (self.pos_ < self.src_.size()) && (self.src_[self.pos_] == ('.' as u8)) {
+        if (self.pos_ < self.src_.size()) && (self.src_.data()[self.pos_] == ('.' as u8)) {
             whole = false
             self.pos_ += 1
             var scale: f64 = 0.1
             while (self.pos_ < self.src_.size())
-                && (self.src_[self.pos_] >= ('0' as u8))
-                && (self.src_[self.pos_] <= ('9' as u8)) {
-                mant  = mant + (((self.src_[self.pos_] - 48) as f64) * scale)
+                && (self.src_.data()[self.pos_] >= ('0' as u8))
+                && (self.src_.data()[self.pos_] <= ('9' as u8)) {
+                mant = mant + (((self.src_.data()[self.pos_] - 48) as f64) * scale)
                 scale = scale * 0.1
                 self.pos_ += 1
             }
         }
 
         if (self.pos_ < self.src_.size())
-            && ((self.src_[self.pos_] == ('e' as u8)) || (self.src_[self.pos_] == ('E' as u8))) {
+            && ((self.src_.data()[self.pos_] == ('e' as u8))
+                || (self.src_.data()[self.pos_] == ('E' as u8))) {
             whole = false
             self.pos_ += 1
             var eneg = false
             if (self.pos_ < self.src_.size())
-                && ((self.src_[self.pos_] == ('-' as u8))
-                    || (self.src_[self.pos_] == ('+' as u8))) {
-                eneg = self.src_[self.pos_] == ('-' as u8)
+                && ((self.src_.data()[self.pos_] == ('-' as u8))
+                    || (self.src_.data()[self.pos_] == ('+' as u8))) {
+                eneg = self.src_.data()[self.pos_] == ('-' as u8)
                 self.pos_ += 1
             }
 
             var ex: i32 = 0
             while (self.pos_ < self.src_.size())
-                && (self.src_[self.pos_] >= ('0' as u8))
-                && (self.src_[self.pos_] <= ('9' as u8)) {
-                ex = (ex * 10) + ((self.src_[self.pos_] - 48) as i32)
+                && (self.src_.data()[self.pos_] >= ('0' as u8))
+                && (self.src_.data()[self.pos_] <= ('9' as u8)) {
+                ex = (ex * 10) + ((self.src_.data()[self.pos_] - 48) as i32)
                 self.pos_ += 1
             }
 
@@ -644,22 +681,18 @@ pub class JsonDoc {
     }
 }
 
-/// Appends code point `cp` to `out` as UTF-8.
+/// Appends code point `cp` to `out` as UTF-8. A lone surrogate (a `\ud800`
+/// escape with no partner) is kept as its three-byte form, which is not valid
+/// UTF-8, so those bytes go in as one run.
 pub fn utf8_append(out: *string, cp: u32) {
-    if cp < 0x80 {
-        out->push_back(cp as u8)
-    } else if cp < 0x800 {
-        out->push_back((0xC0 | (cp >> 6)) as u8)
-        out->push_back((0x80 | (cp & 0x3F)) as u8)
-    } else if cp < 0x10000 {
-        out->push_back((0xE0 | (cp >> 12)) as u8)
-        out->push_back((0x80 | ((cp >> 6) & 0x3F)) as u8)
-        out->push_back((0x80 | (cp & 0x3F)) as u8)
+    if (cp >= 0xD800) && (cp <= 0xDFFF) {
+        var raw: [u8]
+        raw.push((0xE0 | (cp >> 12)) as u8)
+        raw.push((0x80 | ((cp >> 6) & 0x3F)) as u8)
+        raw.push((0x80 | (cp & 0x3F)) as u8)
+        out->push_str(string(&raw[0], raw.size()))
     } else {
-        out->push_back((0xF0 | (cp >> 18)) as u8)
-        out->push_back((0x80 | ((cp >> 12) & 0x3F)) as u8)
-        out->push_back((0x80 | ((cp >> 6) & 0x3F)) as u8)
-        out->push_back((0x80 | (cp & 0x3F)) as u8)
+        out->push(cp as char)
     }
 }
 
@@ -692,7 +725,7 @@ pub class JsonWriter {
 
         var top = self.has_.size() - 1
         if self.has_[top] {
-            self.out.push_back(',' as u8)
+            self.out.push(',')
         }
 
         self.has_[top] = true
@@ -700,30 +733,30 @@ pub class JsonWriter {
 
     fn begin_object(self) {
         self.sep_()
-        self.out.push_back('{' as u8)
+        self.out.push('{')
         self.has_.push(false)
     }
 
     fn end_object(self) {
-        self.out.push_back('}' as u8)
+        self.out.push('}')
         self.has_.pop()
     }
 
     fn begin_array(self) {
         self.sep_()
-        self.out.push_back('[' as u8)
+        self.out.push('[')
         self.has_.push(false)
     }
 
     fn end_array(self) {
-        self.out.push_back(']' as u8)
+        self.out.push(']')
         self.has_.pop()
     }
 
     fn key(self, const k: string) {
         self.sep_()
         self.quote_(k)
-        self.out.push_back(':' as u8)
+        self.out.push(':')
         self.after_key_ = true
     }
 
@@ -796,30 +829,39 @@ pub class JsonWriter {
 
     priv fn quote_(self, const s: string) {
         var hex = "0123456789abcdef"
-        self.out.push_back('"' as u8)
+        self.out.push('"')
+        // `run` is the first byte not yet copied; every cut falls on an ASCII
+        // byte, so a run never ends inside a multibyte character.
+        var run: usize = 0
         for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
+            var c   = s.data()[i]
+            var esc = ""
             if c == ('"' as u8) {
-                self.out += "\\\""
+                esc = "\\\""
             } else if c == ('\\' as u8) {
-                self.out += "\\\\"
+                esc = "\\\\"
             } else if c == ('\n' as u8) {
-                self.out += "\\n"
+                esc = "\\n"
             } else if c == ('\r' as u8) {
-                self.out += "\\r"
+                esc = "\\r"
             } else if c == ('\t' as u8) {
-                self.out += "\\t"
+                esc = "\\t"
             } else if c < (' ' as u8) {
                 // Every other control character must be escaped; bytes >= 0x80
                 // are UTF-8 and pass through untouched.
-                self.out += "\\u00"
-                self.out.push_back(hex[(c >> 4) as usize])
-                self.out.push_back(hex[(c & 15) as usize])
+                esc = "\\u00"
+                esc.push(hex.data()[(c >> 4) as usize])
+                esc.push(hex.data()[(c & 15) as usize])
             } else {
-                self.out.push_back(c)
+                continue
             }
+
+            self.out += s[run..i]
+            self.out += esc
+            run = i + 1
         }
 
-        self.out.push_back('"' as u8)
+        self.out += s[run..]
+        self.out.push('"')
     }
 }

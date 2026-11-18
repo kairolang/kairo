@@ -167,10 +167,17 @@ pub enum FFILang derives u8 {
 pub fn ffi_lang_of(const word: string) -> FFILang {
     var s: string
     s.reserve(word.size())
+    var run: usize = 0
     for var i: usize = 0; i < word.size(); ++i {
-        var c = word[i]
-        s.push_back(c | ((c >= ('A' as u8) && c <= ('Z' as u8)) as u8) << 5)
+        var c = word.data()[i]
+        if c >= ('A' as u8) && c <= ('Z' as u8) {
+            s += word[run..i]
+            s.push(c | 32)
+            run = i + 1
+        }
     }
+
+    s += word[run..]
 
     if s == "asm" {
         return FFILang::Asm
@@ -247,13 +254,7 @@ pub fn ffi_lang_of_literal(const text: string) -> FFILang {
         return ffi_lang_of(text)
     }
 
-    var w: string
-    w.reserve(text.size() - 2)
-    for var i: usize = 1; i + 1 < text.size(); ++i {
-        w.push_back(text[i])
-    }
-
-    return ffi_lang_of(w)
+    return ffi_lang_of(text.subslice(1, text.size() - 2))
 }
 
 ///

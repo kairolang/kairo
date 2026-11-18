@@ -356,7 +356,9 @@ pub fn entry_module_path(ci:         unsafe *CompilerInstance,
     return ModulePath()
 }
 
-pub fn parse_file(ci: unsafe *CompilerInstance, path: Path, opts: ParseOptions) -> ParsedUnit {
+pub fn parse_file(ci:         unsafe *CompilerInstance,
+                  const path: Path,
+                  opts:       ParseOptions) -> ParsedUnit {
     if ci == &null {
         return ParsedUnit::failure(u32::MAX, TUStage::Failed)
     }
@@ -409,7 +411,7 @@ pub fn parse_file(ci: unsafe *CompilerInstance, path: Path, opts: ParseOptions) 
     var mp = entry_module_path(ci, path, opts.as_module)
 
     var unsafe *action = kairo::std::create<FrontendAction>(
-        path,
+        path.copy(),
         mp,
         ci->global_scope(),
         ci->imp(),

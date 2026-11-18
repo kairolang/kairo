@@ -225,6 +225,7 @@ import Sema::Incremental::Plan::{
     incr_plan_verify,
 }
 import Sema::Type::PanicSets::PanicTypeIds
+import Support::Ascii::copy_strings
 import Support::ExitCodes::EXIT_FAILURE
 import Support::FileIO::Path::Path
 import Support::FileIO::VirtualFileManager::VirtualFileManager
@@ -400,8 +401,8 @@ pub class CompilerInstance {
         register_kairo_flags(self._cmd)
         // A leading placeholder: setup() skips word 0, argv's program name.
         self.incr_words.push_back("kcc")
-        for var w: string in words {
-            self.incr_words.push_back(w)
+        for *w in words {
+            self.incr_words.push_back(w->copy())
         }
 
         var parsed = self._cmd->parse_words(&words)
@@ -409,9 +410,9 @@ pub class CompilerInstance {
         if parsed.ok {
             inv = CompilerInvocation::from_args(&parsed)
         } else {
+            inv.target = TargetOptions::from_args(&parsed)
             inv.args   = parsed
             inv.ok     = false
-            inv.target = TargetOptions::from_args(&parsed)
         }
 
         self._adopt(unsafe &inv)
@@ -958,12 +959,12 @@ pub class CompilerInstance {
 
         var found = self._imp->take_root_collisions()
         for var i: usize = 0; i < found.size(); ++i {
-            var c = found[i]
+            var *c = &found[i]
             // Placeholder code for the mismatch: no real code covers a
             // registration disagreeing with the pin (verified against
             // Resolution.diag.toml).
-            var id = if (c.mismatch) => (DiagID::R059E) else => DiagID::R018E
-            self._diag->report(DiagCode(id), c.message()).emit()
+            var id = if (c->mismatch) => (DiagID::R059E) else => DiagID::R018E
+            self._diag->report(DiagCode(id), c->message()).emit()
         }
     }
 
@@ -992,8 +993,8 @@ pub class CompilerInstance {
         // Two inputs on one path, and any pin the walk up found claiming a
         // registered library's name.
         var ok = true
-        for var msg: string in self._imp->take_late_collisions() {
-            self._diag->report(DiagCode(DiagID::R018E), msg.copy()).emit()
+        for *msg in self._imp->take_late_collisions() {
+            self._diag->report(DiagCode(DiagID::R018E), msg->copy()).emit()
             ok = false
         }
 
@@ -1253,12 +1254,12 @@ pub class CompilerInstance {
             return "the run stops before Sema"
         }
 
-        for var w: string in self.incr_words {
-            if w.starts_with("--print-incr-status") || w == "--print-incr-plan" {
+        for *w in self.incr_words {
+            if w->starts_with("--print-incr-status") || *w == "--print-incr-plan" {
                 continue
             }
 
-            if w.starts_with("--print-") || w.starts_with("--dump-") || w.starts_with("-###") {
+            if w->starts_with("--print-") || w->starts_with("--dump-") || w->starts_with("-###") {
                 return "a print or dump flag"
             }
         }
@@ -1339,7 +1340,7 @@ pub class CompilerInstance {
         var tr = TUResult()
         tr.path        = Path(path).full_path()
         tr.stage       = TUStage::Done
-        tr.objects     = self.incr.old_objects
+        tr.objects     = copy_strings(self.incr.old_objects)
         tr.ffi_pthread = self.incr.old_pthread
         tr.warn_count  = self.incr.old_warns
         if renders_through_basic(self.invocation()->diag.error_format) {
@@ -1424,7 +1425,7 @@ pub class CompilerInstance {
             var found = false
             for var mi: usize = 0; mi < now->size(); ++mi {
                 if (*now)[mi].path == self.incr.changed[ci] {
-                    edited.push_back((*now)[mi].name)
+                    edited.push_back((*now)[mi].name.copy())
                     found = true
                 }
             }
@@ -1453,12 +1454,12 @@ pub class CompilerInstance {
 
             var lines = cxx::std::vector<string>()
             for var i: usize = 0; i < plan.mods.size(); ++i {
-                lines.push_back(plan.mods[i] + ": " + plan.why[i])
+                lines.push_back(plan.mods[i].copy() + ": " + plan.why[i])
             }
 
             llvm::sort(lines.begin(), lines.end())
-            for var l: string in lines {
-                io::println(f"incremental: plan:   {l}")
+            for *l in lines {
+                io::println(f"incremental: plan:   {*l}")
             }
         }
 
@@ -1509,7 +1510,7 @@ pub class CompilerInstance {
         var done  = true
         for *tr in result->tu_results {
             for *o in tr->objects {
-                objs.push_back(*o)
+                objs.push_back(o->copy())
             }
 
             if tr->ffi_pthread {
@@ -1580,7 +1581,7 @@ pub class CompilerInstance {
         var _t = TimeRegion("IncrRecords")
         for var fid: usize = 0; fid < self._sm->file_count(); ++fid {
             var name = self._sm->get_filename(fid as u32)
-            if name.is_empty() || name == "<invalid>" || name[0] == ('<' as u8) {
+            if name.is_empty() || name == "<invalid>" || name.data()[0] == ('<' as u8) {
                 continue
             }
 
@@ -1692,15 +1693,15 @@ pub class CompilerInstance {
         // stage around the loop (the library, natives, the runtime, the link)
         // runs as it always does.
         var incr_hit = self._incr_begin(&order)
-        for var k: InputKind in order {
-            var path_str = k.path.copy()
-            if k.cls == InputClass::LinkInput {
+        for *k in order {
+            var path_str = k->path.copy()
+            if k->cls == InputClass::LinkInput {
                 self._link_inputs.push_back(path_str)
                 continue
             }
 
-            if k.cls == InputClass::Source || k.cls == InputClass::Header {
-                natives.push_back(k)
+            if k->cls == InputClass::Source || k->cls == InputClass::Header {
+                natives.push_back(k->copy())
                 continue
             }
 
@@ -1722,7 +1723,7 @@ pub class CompilerInstance {
                 kairo::std::destroy(action)
             }
 
-            action->discovered      = k.discovered
+            action->discovered      = k->discovered
             action->errors_at_start = prev_errors
             action->fatals_at_start = prev_fatals
             action->run()
@@ -1844,9 +1845,9 @@ pub class CompilerInstance {
         }
 
         var unsafe *sym = self._pp->get_symbol_table()
-        for var seg: string in self._imp->input_module_path(Path(path)) {
+        for *seg in self._imp->input_module_path(Path(path)) {
             var ident = IdentifierToken()
-            ident.name  = sym->intern(seg.copy())
+            ident.name  = sym->intern(seg->copy())
             ident.token = &null
             mp.segments.push_back(ident)
         }

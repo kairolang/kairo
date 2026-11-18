@@ -201,16 +201,16 @@ pub class ObjectCache {
         }
 
         var args = be->invocation_args()
-        for var a: string in args {
-            if a.starts_with("-debug-info-kind=") || a == "-fcoverage-mapping" {
+        for *a in args {
+            if a->starts_with("-debug-info-kind=") || *a == "-fcoverage-mapping" {
                 self.with_locs = true
             }
         }
 
         self._f_lines = self._fingerprint(be, &args)
         self.f_hash   = ObjectCache::hash(self._f_lines)
-        self.dir      = cache_dir + "/" + cache_dir_name() + "/" + self.f_hash
-        if !LinkFS::make_dirs(self.dir + "/objects") {
+        self.dir = cache_dir.copy() + "/" + cache_dir_name() + "/" + self.f_hash
+        if !LinkFS::make_dirs(self.dir.copy() + "/objects") {
             return false
         }
 
@@ -265,7 +265,7 @@ pub class ObjectCache {
                     continue
                 }
 
-                paths.push_back(hs->files[i].path)
+                paths.push_back(hs->files[i].path.copy())
                 kfids.push_back(hs->files[i].kfid)
             }
         }
@@ -356,7 +356,7 @@ pub class ObjectCache {
                         ),
                     )
 
-                    self._prefix.push_back(run)
+                    self._prefix.push_back(run.copy())
                 }
             }
         }
@@ -368,12 +368,12 @@ pub class ObjectCache {
         self._edges = edges
 
         var g = f"merged {merged_ok}\n"
-        for var p: string in self._includes {
-            g += "include " + (if (self.with_locs) => (p)
+        for *p in self._includes {
+            g += "include " + (if (self.with_locs) => (*p)
                                else => LinkFS::filename(
-                                   p,
+                                   *p,
                                )) + " " + kairo::std::from_std_string<string>(
-                kairo::objcache_file_hash(kairo::sref(p)),
+                kairo::objcache_file_hash(kairo::sref(*p)),
             ) + "\n"
         }
 
@@ -577,7 +577,7 @@ pub class ObjectCache {
         var body         = ""
         var start: usize = 0
         for var i: usize = 0; i <= record.size(); ++i {
-            if i < record.size() && record[i] != ('\n' as u8) {
+            if i < record.size() && record.data()[i] != ('\n' as u8) {
                 continue
             }
 
@@ -743,12 +743,12 @@ pub class ObjectCache {
         }
 
         var now        = now_ns()
-        var objs       = self.dir + "/objects"
+        var objs       = self.dir.copy() + "/objects"
         var kept       = cxx::std::vector<CacheEntryStat>()
         var total: u64 = 0
-        for var name: string in LinkFS::list_dir(objs) {
-            var p       = objs + "/" + name
-            var partial = is_leftover_temp(name)
+        for *name in LinkFS::list_dir(objs) {
+            var p       = objs.copy() + "/" + *name
+            var partial = is_leftover_temp(*name)
             var last    = LinkFS::mtime(p)
             var limit   = if (partial) => (CACHE_PARTIAL_MAX_AGE_NS) else => CACHE_ENTRY_MAX_AGE_NS
             if last != 0 && now > last && now - last > limit {
@@ -771,17 +771,17 @@ pub class ObjectCache {
     }
 
     priv fn _entry(self, const key: string) -> string {
-        return self.dir + "/objects/" + key + ".o"
+        return self.dir.copy() + "/objects/" + key + ".o"
     }
 
     /// The entry of an object stored with Sema agreement findings, and the
     /// findings' file.
     priv fn _entry_found(self, const key: string) -> string {
-        return self.dir + "/objects/" + key + ".f.o"
+        return self.dir.copy() + "/objects/" + key + ".f.o"
     }
 
     priv fn _found_path(self, const key: string) -> string {
-        return self.dir + "/objects/" + key + ".agree"
+        return self.dir.copy() + "/objects/" + key + ".agree"
     }
 
     /// The record section of `path`, "" when there is none or it is not
@@ -819,7 +819,7 @@ pub class ObjectCache {
 
         var start = at + 3
         var stop  = start
-        while stop < r.size() && r[stop] != ('\n' as u8) {
+        while stop < r.size() && r.data()[stop] != ('\n' as u8) {
             stop += 1
         }
 
@@ -832,7 +832,7 @@ pub class ObjectCache {
         var out          = ""
         var start: usize = 0
         for var i: usize = 0; i <= have.size(); ++i {
-            if i < have.size() && have[i] != ('\n' as u8) {
+            if i < have.size() && have.data()[i] != ('\n' as u8) {
                 continue
             }
 
@@ -844,15 +844,15 @@ pub class ObjectCache {
             }
 
             if line.starts_with("headers ") || line.starts_with("iface-walk ") {
-                if find(self._tu_part, line + "\n", 0) == usize::MAX {
+                if find(self._tu_part, line.copy() + "\n", 0) == usize::MAX {
                     out += " " + line.subslice(0, sp)
                 }
             } else if line.starts_with("diag ") {
-                if find(self.run_part, line + "\n", 0) == usize::MAX {
+                if find(self.run_part, line.copy() + "\n", 0) == usize::MAX {
                     out += " " + line.subslice(0, sp)
                 }
             } else if line.starts_with(fingerprint_prefix()) {
-                if find(self._f_lines, line + "\n", 0) == usize::MAX {
+                if find(self._f_lines, line.copy() + "\n", 0) == usize::MAX {
                     out += " " + line.subslice(0, sp)
                 }
             }
@@ -1005,21 +1005,23 @@ pub class ObjectCache {
                 continue
             }
 
-            if i > 0 && v[i - 1] >= ('0' as u8) && v[i - 1] <= ('9' as u8) {
+            if i > 0 && v.data()[i - 1] >= ('0' as u8) && v.data()[i - 1] <= ('9' as u8) {
                 continue
             }
 
             var j    = i
             var dots = 0
-            while j < n && (v[j] >= ('0' as u8) && v[j] <= ('9' as u8) || v[j] == ('.' as u8)) {
-                if v[j] == ('.' as u8) {
+            while j < n
+                && (v.data()[j] >= ('0' as u8) && v.data()[j] <= ('9' as u8)
+                    || v.data()[j] == ('.' as u8)) {
+                if v.data()[j] == ('.' as u8) {
                     dots += 1
                 }
 
                 j += 1
             }
 
-            if dots == 2 && v[j - 1] != ('.' as u8) {
+            if dots == 2 && v.data()[j - 1] != ('.' as u8) {
                 return v.subslice(i, j - i)
             }
 

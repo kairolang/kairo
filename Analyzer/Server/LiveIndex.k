@@ -152,7 +152,7 @@ extend Server {
         }
 
         // '\n'-separated words: the shim's argv (kals_child_spawn).
-        var words = self.exe + "\n" + WA_WORKER + "\n" + WA_INDEX_SERVER + "\n" + WA_CWD + "\n" + self.entries[ei].dir
+        var words = self.exe.copy() + "\n" + WA_WORKER + "\n" + WA_INDEX_SERVER + "\n" + WA_CWD + "\n" + self.entries[ei].dir
         words += "\n" + WA_ROOT + "\n" + self.project.dir + "\n" + WA_END
         for var i: usize = 0; i < self.entries[ei].args.size(); ++i {
             words += "\n" + self.entries[ei].args[i]
@@ -310,7 +310,7 @@ extend Server {
             return false
         }
 
-        self.lives[k].asks.push(a)
+        self.lives[k].asks.push(a.copy())
         self.trace(f"live completion sent id={a.id} " + path)
         return true
     }
@@ -541,7 +541,7 @@ extend Server {
         self.entries[ei].live_changed.clear()
         self.entries[ei].dirty   = false
         self.entries[ei].running = true
-        self.lives[k].sent.push(s)
+        self.lives[k].sent.push(s.copy())
         self.trace(
             f"live send entry={self.entries[ei].entry} rev={s.rev} id={s.id}",
         )
@@ -607,10 +607,10 @@ extend Server {
             var have            = false
             for var q: usize = 0; q < self.lives[k].asks.size(); ++q {
                 if self.lives[k].asks[q].id == id {
-                    mine = self.lives[k].asks[q]
+                    mine = self.lives[k].asks[q].copy()
                     have = true
                 } else {
-                    rest.push(self.lives[k].asks[q])
+                    rest.push(self.lives[k].asks[q].copy())
                 }
             }
 
@@ -664,12 +664,12 @@ extend Server {
         var more    = d.get_bool(d.root, RP_OK) && (pending > 0)
         self.lives[k].sent[at].draining = more
         self.lives[k].sent[at].ms       = now_ms()
-        var s = self.lives[k].sent[at]
+        var s = self.lives[k].sent[at].copy()
         if !more {
             var rest: [LiveSent]
             for var q: usize = 0; q < self.lives[k].sent.size(); ++q {
                 if q != at {
-                    rest.push(self.lives[k].sent[q])
+                    rest.push(self.lives[k].sent[q].copy())
                 }
             }
 
@@ -1049,10 +1049,10 @@ extend Server {
             if (self.lives[k].pid >= 0)
                 && (!self.lives[k].asks.is_empty())
                 && ((now - self.lives[k].asks[0].ms) > LIVE_ASK_TIMEOUT_MS) {
-                var late            = self.lives[k].asks[0]
+                var late            = self.lives[k].asks[0].copy()
                 var rest: [LiveAsk]
                 for var q: usize = 1; q < self.lives[k].asks.size(); ++q {
-                    rest.push(self.lives[k].asks[q])
+                    rest.push(self.lives[k].asks[q].copy())
                 }
 
                 self.lives[k].asks = rest.copy()
@@ -1076,8 +1076,8 @@ extend Server {
 
                 var n: i64 = 0
                 for var c: usize = 0; c < text.size(); ++c {
-                    if (text[c] >= 48) && (text[c] <= 57) {
-                        n = (n * 10) + ((text[c] - 48) as i64)
+                    if (text.data()[c] >= 48) && (text.data()[c] <= 57) {
+                        n = (n * 10) + ((text.data()[c] - 48) as i64)
                     }
                 }
 

@@ -140,7 +140,6 @@ pub class CompilerInvocation {
         )
 
         var inv = CompilerInvocation()
-        inv.args     = args
         inv.ok       = args.ok
         inv.lang     = LangOptions::from_args(&args)
         inv.diag     = DiagnosticOptions::from_args(&args)
@@ -186,6 +185,9 @@ pub class CompilerInvocation {
             inv.macro_paths.push_back(s)
         }
 
+        // Last: the arguments move into the invocation, so every read above
+        // comes first.
+        inv.args = args
         return inv
     }
 
@@ -241,9 +243,9 @@ pub class CompilerInvocation {
         if parsed.ok {
             inv = CompilerInvocation::from_args(&parsed)
         } else {
-            inv.args   = parsed
             inv.ok     = false
             inv.target = TargetOptions::from_args(&parsed)
+            inv.args   = parsed
         }
 
         return inv

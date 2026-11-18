@@ -265,7 +265,7 @@ pub class SourceManager {
     ///          buffer belongs to the VirtualFileManager and did not go away.
     ///
     /// **Note:** Caller must hold `_load_mu`.
-    priv fn _materialize(self, fid: FileID, path: Path) {
+    priv fn _materialize(self, fid: FileID, const path: Path) {
         while self._files.size() <= (fid as usize) {
             self._files.push_back(&null)
         }
@@ -1131,7 +1131,11 @@ pub fn Test() -> i32 {
     var file0_str = "hello world\nline two\n"
     var file1_str = "module Foo {\n    macro mac! { 10 }\n}\n"
 
-    var nd0 = file0_str.copy()
+    // The closures below capture lengths, not the strings (a captured
+    // string moves into its closure).
+    var file0_len = file0_str.size()
+    var file1_len = file1_str.size()
+    var nd0       = file0_str.copy()
     data0 = kairo::std::to_std_string(nd0)
     var nd1 = file1_str.copy()
     data1 = kairo::std::to_std_string(nd1)
@@ -1216,7 +1220,7 @@ pub fn Test() -> i32 {
         "file0: last byte resolves correctly",
         "pass",
         fn () -> string {
-            var last = file0_str.size() - 1
+            var last = file0_len - 1
             var loc  = sm->get_loc(fid0, last)
             var res  = sm->resolve(loc)
             if res.fid != 0 {
@@ -1273,7 +1277,7 @@ pub fn Test() -> i32 {
         "file1: last byte resolves correctly",
         "pass",
         fn () -> string {
-            var last = file1_str.size() - 1
+            var last = file1_len - 1
             var loc  = sm->get_loc(fid1, last)
             var res  = sm->resolve(loc)
             if res.fid != 1 {
@@ -1434,7 +1438,7 @@ pub fn Test() -> i32 {
         "file0 locations never resolve to file1",
         "pass",
         fn () -> string {
-            for i in (0 as usize)..file0_str.size() {
+            for i in (0 as usize)..file0_len {
                 var loc = sm->get_loc(fid0, i)
                 var res = sm->resolve(loc)
                 if res.fid != 0 {
@@ -1450,7 +1454,7 @@ pub fn Test() -> i32 {
         "file1 locations never resolve to file0",
         "pass",
         fn () -> string {
-            for i in (0 as usize)..file1_str.size() {
+            for i in (0 as usize)..file1_len {
                 var loc = sm->get_loc(fid1, i)
                 var res = sm->resolve(loc)
                 if res.fid != 1 {
@@ -1474,8 +1478,8 @@ pub fn Test() -> i32 {
             }
 
             var b? = buf
-            if b.size() != file0_str.size() {
-                return f"expected size {file0_str.size()}, got {b.size()}"
+            if b.size() != file0_len {
+                return f"expected size {file0_len}, got {b.size()}"
             }
 
             return "pass"
@@ -1492,8 +1496,8 @@ pub fn Test() -> i32 {
             }
 
             var b? = buf
-            if b.size() != file1_str.size() {
-                return f"expected size {file1_str.size()}, got {b.size()}"
+            if b.size() != file1_len {
+                return f"expected size {file1_len}, got {b.size()}"
             }
 
             return "pass"

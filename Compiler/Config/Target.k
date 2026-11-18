@@ -270,10 +270,13 @@ pub class TargetOptions {
     /// is silently ignored by the backend rather than rejected, so the sign
     /// is made explicit here instead of leaving a typo'd flag to do nothing.
     pub fn feature_list(self) -> cxx::std::vector<string> {
-        var out = cxx::std::vector<string>()
-        var cur = ""
+        var out        = cxx::std::vector<string>()
+        var run: usize = 0
         for var i: usize = 0; i <= self.mfeatures.size(); ++i {
-            if i == self.mfeatures.size() || self.mfeatures[i] == (',' as u8) {
+            if i == self.mfeatures.size() || self.mfeatures.data()[i] == (',' as u8) {
+                var cur = string()
+                cur += self.mfeatures[run..i]
+                run = i + 1
                 if cur.size() > 0 {
                     if cur[0] == ('+' as u8) || cur[0] == ('-' as u8) {
                         out.push_back(cur)
@@ -281,12 +284,7 @@ pub class TargetOptions {
                         out.push_back("+" + cur)
                     }
                 }
-
-                cur = ""
-                continue
             }
-
-            cur.push_back(self.mfeatures[i])
         }
 
         return out

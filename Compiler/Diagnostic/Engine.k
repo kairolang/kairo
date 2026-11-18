@@ -154,20 +154,20 @@ pub fn diag_policy_key_from_string(const code: string) -> u32 {
     var n           = code.size()
     var i:   usize  = 0
     var pfx: string = ""
-    while i < n && (code[i] == (' ' as u8) || code[i] == ('\t' as u8)) {
+    while i < n && (code.data()[i] == (' ' as u8) || code.data()[i] == ('\t' as u8)) {
         i += 1
     }
 
     while i < n {
-        var c = code[i]
+        var c = code.data()[i]
         if c >= ('a' as u8) && c <= ('z' as u8) {
-            pfx.push_back(c - 32)
+            pfx.push(c - 32) // ASCII letters only
             i += 1
             continue
         }
 
         if c >= ('A' as u8) && c <= ('Z' as u8) {
-            pfx.push_back(c)
+            pfx.push(c)
             i += 1
             continue
         }

@@ -149,7 +149,7 @@ class NsTops {
             return s.copy()
         }
 
-        var c = s + "_"
+        var c = s.copy() + "_"
         while is_entry_point_name(c) {
             c += "_"
         }

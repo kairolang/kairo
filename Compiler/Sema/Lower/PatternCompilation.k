@@ -288,6 +288,18 @@ pub struct CRow {
     var binds:   cxx::std::vector<DBind>
 }
 
+extend CRow {
+    fn copy(const self) -> CRow {
+        var r = CRow{}
+        r.cols    = self.cols
+        r.arm     = self.arm
+        r.guarded = self.guarded
+        r.key     = self.key.copy()
+        r.binds   = self.binds
+        return r
+    }
+}
+
 /// One test of a flattened row.
 pub struct FlatTest {
     var occ:  u32   = 0
@@ -298,6 +310,15 @@ pub struct FlatTest {
 pub struct FlatRow {
     var row:   CRow
     var tests: cxx::std::vector<FlatTest>
+}
+
+extend FlatRow {
+    fn copy(const self) -> FlatRow {
+        var r = FlatRow{}
+        r.row   = self.row.copy()
+        r.tests = self.tests
+        return r
+    }
 }
 
 pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
@@ -709,7 +730,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             if r0->guarded {
                 var rest = cxx::std::vector<CRow>()
                 for var i: usize = 1; i < rows->size(); ++i {
-                    rest.push_back((*rows)[i])
+                    rest.push_back((*rows)[i].copy())
                 }
 
                 fail = (self._build(unsafe &rest, occs) as i32)
@@ -721,7 +742,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         // Column `col` to the front.
         var m = cxx::std::vector<CRow>()
         for var i: usize = 0; i < rows->size(); ++i {
-            var r = (*rows)[i]
+            var r = (*rows)[i].copy()
             if col > 0 {
                 var unsafe *t = r.cols[col as usize]
                 r.cols[col as usize] = r.cols[0]
@@ -825,9 +846,9 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var low = cxx::std::vector<CRow>()
         for var i: usize = 0; i < rows.size(); ++i {
             if i < cut {
-                top.push_back((rows)[i])
+                top.push_back((rows)[i].copy())
             } else {
-                low.push_back((rows)[i])
+                low.push_back((rows)[i].copy())
             }
         }
 
@@ -917,15 +938,15 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     priv fn _expand_into(self, r: *CRow, occ: u32, out: unsafe *cxx::std::vector<CRow>) {
         var unsafe *h = r->cols[0]
         if h == &null || h->kind != PatternKind::AlternationPattern {
-            out->push_back(*r)
+            out->push_back(r->copy())
             return
         }
 
         var unsafe *a = cast<AlternationPattern>(h)
         for var k: usize = 0; k < a->alternatives.size(); ++k {
-            var nr = *r
+            var nr = r->copy()
             nr.cols[0] = a->alternatives[k]
-            nr.key     = r->key + f"/{occ}:{k}"
+            nr.key += f"/{occ}:{k}"
             self._expand_into(&nr, occ, out)
         }
     }
@@ -994,7 +1015,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                             const idx:  cxx::std::vector<u32>) -> cxx::std::vector<CRow> {
         var sub = cxx::std::vector<CRow>()
         for var i: usize = 0; i < idx.size(); ++i {
-            sub.push_back((rows)[(idx)[i] as usize])
+            sub.push_back((rows)[(idx)[i] as usize].copy())
         }
 
         return self._specialize(&sub, *occs, c)
@@ -1588,10 +1609,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
             var b = cxx::std::vector<u8>()
             pattern_string_bytes(self.sc, h, unsafe &b)
-            var ks: string
-            for var j: usize = 0; j < b.size(); ++j {
-                ks.push_back(b[j])
-            }
+            var ks = string(unsafe (b.data() as *const u8), b.size())
 
             var it        = at.find(kairo::sref(ks))
             var slot: u32 = 0
@@ -1666,14 +1684,14 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var yes = cxx::std::vector<CRow>()
         var no  = cxx::std::vector<CRow>()
         for var i: usize = 0; i < rows.size(); ++i {
-            var        r  = (rows)[i]
+            var        r  = (rows)[i].copy()
             var unsafe *p = r.cols[0]
             var same = !self._ps.is_wild(p) && self._same_ctor(self._ps.ctor_of(p), hc)
             if same {
                 r.cols[0] = &null
                 yes.push_back(r)
             } else {
-                yes.push_back(r)
+                yes.push_back(r.copy())
                 no.push_back(r)
             }
         }
@@ -1767,10 +1785,10 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         for var i: usize = 0; i < rows0.size(); ++i {
             var flat  = cxx::std::vector<FlatRow>()
             var start = FlatRow{}
-            start.row = (rows0)[i]
+            start.row = (rows0)[i].copy()
             self._flatten((rows0)[i].cols[0], root, &start, &flat)
             for var k: usize = 0; k < flat.size(); ++k {
-                self._flat.push_back(flat[k])
+                self._flat.push_back(flat[k].copy())
             }
         }
 
@@ -1813,11 +1831,11 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                      acc:        *FlatRow,
                      @inout out: cxx::std::vector<FlatRow>) {
         var cur = cxx::std::vector<FlatRow>()
-        cur.push_back(*acc)
+        cur.push_back(acc->copy())
         self._flatten_into(p, occ, unsafe &cur)
         for var i: usize = 0; i < cur.size(); ++i {
             cur[i].row.cols = cxx::std::vector<unsafe *AstPattern>() // all consumed: _accept reads binds only.
-            out.push_back(cur[i])
+            out.push_back(cxx::std::move(cur[i]))
         }
     }
 
@@ -1846,14 +1864,15 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 var unsafe *a  = cast<AlternationPattern>(p)
                 var        out = cxx::std::vector<FlatRow>()
                 for var k: usize = 0; k < a->alternatives.size(); ++k {
-                    var fork = *rows
-                    for var i: usize = 0; i < fork.size(); ++i {
-                        fork[i].row.key = fork[i].row.key + f"/{occ}:{k}"
+                    var fork = cxx::std::vector<FlatRow>()
+                    for var i: usize = 0; i < rows->size(); ++i {
+                        fork.push_back((*rows)[i].copy())
+                        fork[i].row.key += f"/{occ}:{k}"
                     }
 
                     self._flatten_into(a->alternatives[k], occ, unsafe &fork)
                     for var i: usize = 0; i < fork.size(); ++i {
-                        out.push_back(fork[i])
+                        out.push_back(cxx::std::move(fork[i]))
                     }
                 }
 

@@ -192,12 +192,12 @@ extend Server {
             var los: [usize]
             var his: [usize]
             var ws           = at
-            while (ws > 0) && is_ident_byte((*text)[ws - 1]) {
+            while (ws > 0) && is_ident_byte(text->data()[ws - 1]) {
                 ws -= 1
             }
 
             var we = at
-            while (we < text->size()) && is_ident_byte((*text)[we]) {
+            while (we < text->size()) && is_ident_byte(text->data()[we]) {
                 we += 1
             }
 
@@ -284,7 +284,7 @@ extend Server {
                     var name = o->get_str(sy, K_NAME)
                     if needle.is_empty() || (find_from(lower(name), needle, 0) != usize::MAX) {
                         var range = o->dump(o->get(sy, K_SELECTION_RANGE))
-                        var key   = path + range
+                        var key   = path.copy() + range
                         var dup   = false
                         for var q: usize = 0; q < seen.size(); ++q {
                             if seen[q] == key {

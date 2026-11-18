@@ -13,26 +13,33 @@ pub fn uri_to_path(const uri: string) -> string {
         return uri.copy()
     }
 
-    var out = string()
-    var i   = prefix.size()
+    // Decoded escapes are raw bytes (a multibyte character arrives as several
+    // `%XX`), so the path is gathered as bytes and made a string once.
+    var raw: [u8]
+    var i         = prefix.size()
     while i < uri.size() {
-        var c = uri[i]
+        var c = uri.data()[i]
         if (c == ('%' as u8)) && ((i + 2) < uri.size()) {
-            var hi = hex_val(uri[i + 1])
-            var lo = hex_val(uri[i + 2])
+            var hi = hex_val(uri.data()[i + 1])
+            var lo = hex_val(uri.data()[i + 2])
             if (hi < 16) && (lo < 16) {
-                out.push_back(((hi << 4) | lo) as u8)
+                raw.push(((hi << 4) | lo) as u8)
                 i += 3
                 continue
             }
         }
 
-        out.push_back(c)
+        raw.push(c)
         i += 1
     }
 
-    if (out.size() >= 3) && (out[0] == ('/' as u8)) && (out[2] == (':' as u8)) {
-        out = out.subslice(1, out.size() - 1)
+    var out = string()
+    if raw.size() > 0 {
+        out = string(&raw[0], raw.size())
+    }
+
+    if (out.size() >= 3) && (out.data()[0] == ('/' as u8)) && (out.data()[2] == (':' as u8)) {
+        out = out.subslice(1, out.size() - 1).copy()
     }
 
     return out
@@ -42,15 +49,15 @@ pub fn uri_to_path(const uri: string) -> string {
 pub fn path_to_uri(const path: string) -> string {
     var hex         = "0123456789ABCDEF"
     var out: string = "file://"
-    if (path.size() >= 2) && (path[1] == (':' as u8)) {
-        out.push_back('/' as u8)
+    if (path.size() >= 2) && (path.data()[1] == (':' as u8)) {
+        out.push('/')
     }
 
     for var i: usize = 0; i < path.size(); ++i {
-        var c = path[i]
+        var c = path.data()[i]
         if c == ('\\' as u8) {
             // Windows separators are `/` inside a URI.
-            out.push_back('/' as u8)
+            out.push('/')
             continue
         }
 
@@ -64,11 +71,11 @@ pub fn path_to_uri(const path: string) -> string {
             || (c == ('~' as u8))
             || (c == (':' as u8))
         if plain {
-            out.push_back(c)
+            out.push(c)
         } else {
-            out.push_back('%' as u8)
-            out.push_back(hex[(c >> 4) as usize])
-            out.push_back(hex[(c & 15) as usize])
+            out.push('%')
+            out.push(hex.data()[(c >> 4) as usize])
+            out.push(hex.data()[(c & 15) as usize])
         }
     }
 
@@ -108,7 +115,7 @@ pub class LineMap {
         self.starts.push(0)
         self.size = text.size()
         for var i: usize = 0; i < text.size(); ++i {
-            if text[i] == ('\n' as u8) {
+            if text.data()[i] == ('\n' as u8) {
                 self.starts.push(i + 1)
             }
         }
@@ -123,7 +130,7 @@ pub class LineMap {
         var end = self.size
         if (line + 1) < self.starts.size() {
             end = self.starts[line + 1] - 1
-            if (end > self.starts[line]) && (text[end - 1] == ('\r' as u8)) {
+            if (end > self.starts[line]) && (text.data()[end - 1] == ('\r' as u8)) {
                 end -= 1
             }
         }
@@ -167,7 +174,7 @@ pub class LineMap {
 
         var units: usize = 0
         while (i < end) && (units < character) {
-            var c        = text[i]
+            var c        = text.data()[i]
             var n: usize = 1
             var u: usize = 1
             if c >= 0xF0 {
@@ -200,7 +207,7 @@ pub class LineMap {
 
         var units: usize = 0
         while (i < off) && (i < text.size()) {
-            var c = text[i]
+            var c = text.data()[i]
             if c >= 0xF0 {
                 i += 4
                 units += 2
@@ -257,7 +264,7 @@ pub class GapText {
         self.buf.clear()
         self.buf.resize(cap)
         for var i: usize = 0; i < text.size(); ++i {
-            self.buf[i] = text[i]
+            self.buf[i] = text.data()[i]
         }
 
         self.gs = text.size()
@@ -265,7 +272,7 @@ pub class GapText {
 
         var n: usize = 1
         for var i: usize = 0; i < text.size(); ++i {
-            if text[i] == ('\n' as u8) {
+            if text.data()[i] == ('\n' as u8) {
                 n += 1
             }
         }
@@ -275,7 +282,7 @@ pub class GapText {
         self.ls[0] = 0
         var k: usize = 1
         for var i: usize = 0; i < text.size(); ++i {
-            if text[i] == ('\n' as u8) {
+            if text.data()[i] == ('\n' as u8) {
                 self.ls[k] = i + 1
                 k += 1
             }
@@ -379,17 +386,21 @@ pub class GapText {
     /// The text as one string: what a worker or a text scanner reads. O(size),
     /// so it is asked for once per use, never per keystroke.
     fn str(const self) -> string {
-        var out = string()
-        out.reserve(self.size)
+        var raw: [u8]
+        raw.reserve(self.size)
         for var i: usize = 0; i < self.gs; ++i {
-            out.push_back(self.buf[i])
+            raw.push(self.buf[i])
         }
 
         for var i: usize = self.ge; i < self.buf.size(); ++i {
-            out.push_back(self.buf[i])
+            raw.push(self.buf[i])
         }
 
-        return out
+        if raw.size() == 0 {
+            return string()
+        }
+
+        return string(&raw[0], raw.size())
     }
 
     /// Moves the byte gap to `pos`.
@@ -510,7 +521,7 @@ pub class GapText {
         self.ge += e - s
         self.grow_(insert.size())
         for var i: usize = 0; i < insert.size(); ++i {
-            self.buf[self.gs + i] = insert[i]
+            self.buf[self.gs + i] = insert.data()[i]
         }
 
         self.gs += insert.size()
@@ -518,7 +529,7 @@ pub class GapText {
 
         var nl: usize = 0
         for var i: usize = 0; i < insert.size(); ++i {
-            if insert[i] == ('\n' as u8) {
+            if insert.data()[i] == ('\n' as u8) {
                 nl += 1
             }
         }
@@ -526,7 +537,7 @@ pub class GapText {
         if nl > 0 {
             self.grow_lines_(nl)
             for var i: usize = 0; i < insert.size(); ++i {
-                if insert[i] == ('\n' as u8) {
+                if insert.data()[i] == ('\n' as u8) {
                     self.ls[self.lgs] = s + i + 1
                     self.lgs += 1
                 }
@@ -760,7 +771,7 @@ pub class Document {
 pub fn fnv1a(const text: string) -> u64 {
     var h: u64 = 14695981039346656037
     for var i: usize = 0; i < text.size(); ++i {
-        h = h ^ (text[i] as u64)
+        h = h ^ (text.data()[i] as u64)
         h = h * 1099511628211
     }
 
@@ -832,7 +843,23 @@ pub class DocumentStore {
             return
         }
 
-        self.docs.erase(&self.docs[i])
+        // Order is kept: the later documents are moved aside, the closed one
+        // dropped, and the others put back.
+        var tail: [Document]
+        while self.docs.size() > (i + 1) {
+            var d = self.docs.pop()
+            if d? {
+                tail.push(d)
+            }
+        }
+
+        self.docs.pop()
+        while tail.size() > 0 {
+            var d = tail.pop()
+            if d? {
+                self.docs.push(d)
+            }
+        }
     }
 
     /// Applies a didChange `contentChanges` array (node `changes` of `msg`)

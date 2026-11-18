@@ -468,7 +468,7 @@ extend InterfaceEmitter {
             ne = " noexcept"
         }
 
-        var bare = head + self._spell->param_decl(other, "", &null, d) + ")"
+        var bare = head.copy() + self._spell->param_decl(other, "", &null, d) + ")"
         var named = head + self._spell->param_decl(other, "o", &null, d) + ")" + ne
         // The constructor's own requires-clause, if it has one: the record's
         // explicit instantiation (`template class V<X>;`) instantiates every
@@ -616,19 +616,23 @@ extend InterfaceEmitter {
 
             self._cg->sink->spell(
                 dat,
-                nm + "(const " + nm + "&)" + copy + " = default;",
+                nm.copy() + "(const " + nm + "&)" + copy + " = default;",
             )
 
             self._cg->sink->spell(
                 dat,
-                nm + "& operator=(const " + nm + "&)" + copy + " = default;",
+                nm.copy() + "& operator=(const " + nm + "&)" + copy + " = default;",
             )
         }
 
-        self._cg->sink->spell(dat, nm + "(" + nm + "&&)" + move + " = default;")
         self._cg->sink->spell(
             dat,
-            nm + "& operator=(" + nm + "&&)" + move + " = default;",
+            nm.copy() + "(" + nm + "&&)" + move + " = default;",
+        )
+
+        self._cg->sink->spell(
+            dat,
+            nm.copy() + "& operator=(" + nm + "&&)" + move + " = default;",
         )
     }
 

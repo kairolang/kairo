@@ -587,7 +587,7 @@ pub class TextSink derives EmitSink {
                         )
 
                         for var d: usize = 0; d < doc.size(); ++d {
-                            prelude += pad + trim_start(doc[d])
+                            prelude += pad.copy() + trim_start(doc[d])
                             prelude += "\n"
                         }
 
@@ -720,7 +720,9 @@ pub class TextSink derives EmitSink {
                 var j    = c_end[r]
                 var open = TextSink::_trim_(self._rec_text[r])
                 for var q = r + 1; q < j; ++q {
-                    var piece = open + " " + TextSink::_trim_(self._rec_text[q]) + " }"
+                    var piece = open.copy() + " " + TextSink::_trim_(
+                        self._rec_text[q],
+                    ) + " }"
                     var k: usize = 0
                     if self._rec_file[q] == home {
                         k = self._rec_line[q]
@@ -734,7 +736,11 @@ pub class TextSink derives EmitSink {
                         && (self._pl_depth[k - 1] == 0)
                         && (k > barrier)
                     for var c: usize = 0; hoist && (c < cls_names.size()); ++c {
-                        if (cls_lines[c] >= k) && TextSink::_has_(piece, cls_names[c] + "::") {
+                        if (cls_lines[c] >= k)
+                            && TextSink::_has_(
+                                piece,
+                                cls_names[c].copy() + "::",
+                            ) {
                             hoist = false
                         }
                     }
@@ -1770,7 +1776,7 @@ pub class TextSink derives EmitSink {
         }
     }
 
-    priv fn _word(self, s: string, tight: bool) {
+    priv fn _word(self, const s: string, tight: bool) {
         self._flush_pending()
         if self._at_line_start {
             for var i: usize = 0; i < self._depth; ++i {

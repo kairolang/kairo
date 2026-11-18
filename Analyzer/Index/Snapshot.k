@@ -172,6 +172,22 @@ pub struct ScopeFact {
     var tag: u32 = 0
 }
 
+extend ScopeFact {
+    pub fn copy(const self) -> ScopeFact {
+        return ScopeFact {
+            ok:     self.ok,
+            name:   self.name.copy(),
+            kind:   self.kind,
+            fid:    self.fid,
+            off:    self.off,
+            detail: self.detail.copy(),
+            home:   self.home,
+            loc:    self.loc,
+            tag:    self.tag,
+        }
+    }
+}
+
 /// the ScopeFact of every declaration some file's overlay has
 /// named, by declaration, for the walks of one check.
 ///
@@ -214,12 +230,12 @@ pub class ScopeFacts {
         var lock = kairo::std::LockGuard(self.mu_)
         var hit  = self.at_.get(key)
         if hit != null {
-            self.rows_[(*hit) as usize] = f
+            self.rows_[(*hit) as usize] = f.copy()
             return
         }
 
         self.at_[key] = self.rows_.size() as u32
-        self.rows_.push(f)
+        self.rows_.push(f.copy())
     }
 
     pub fn clear(self) {

@@ -938,12 +938,11 @@ pub class OpaqueFFIType derives Type {
 
     /// The original C++ spelling, e.g. "std::FILE", independent of any file.
     pub fn text(self) -> string {
-        var s = ""
-        for var i: usize = 0; i < (self.sp_len as usize); ++i {
-            s.push_back(self.sp[i])
+        if self.sp_len == 0 {
+            return ""
         }
 
-        return s
+        return string(unsafe ((self.sp as unsafe *const u8) as *const u8), (self.sp_len as usize))
     }
 
     static fn create(ctx: *ASTContext, range: SourceRange, name: u32) -> unsafe *OpaqueFFIType {

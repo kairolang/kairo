@@ -100,11 +100,11 @@ pub class DiagCode {
     /// # Conversions
 
     /// Formats the code as a diagnostic ID string, e.g. `"SC041E"`.
-    pub fn op as (self) -> string {
+    pub fn op as (const self) -> string {
         return self._meta as string
     }
 
-    fn op as (self) -> DiagID {
+    fn op as (const self) -> DiagID {
         return self._id
     }
 

@@ -2275,23 +2275,20 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             }
 
             self._p.newline()
-            var text = ic.derived_text(id)
-            var line = ""
+            var text       = ic.derived_text(id)
+            var run: usize = 0
             for var k: usize = 0; k < text.size(); ++k {
-                if text[k] == ('\n' as u8) {
+                if text.data()[k] == ('\n' as u8) {
                     self._p.paint(Color::Tree, "    ")
-                    self._p.put(line)
+                    self._p.put(text[run..k])
                     self._p.newline()
-                    line = ""
-                    continue
+                    run = k + 1
                 }
-
-                line.push_back(text[k])
             }
 
-            if line.size() > 0 {
+            if run < text.size() {
                 self._p.paint(Color::Tree, "    ")
-                self._p.put(line)
+                self._p.put(text[run..])
                 self._p.newline()
             }
         }

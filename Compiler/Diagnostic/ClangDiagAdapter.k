@@ -792,9 +792,9 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     priv fn _replay(self) {
         var unsafe *b = kairo::std::create<DiagBuilder>(
             self.sink,
-            self._g.code,
+            self._g.code.copy(),
             self._g.at.start,
-            self._g.msg,
+            self._g.msg.copy(),
         )
 
         b->first(self._g.at)
@@ -805,12 +805,12 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         // No message on a fix-it: the edit is the whole message, and the
         // pretty form shows it inline as a diff.
         for var i: usize = 0; i < self._g.fixes.size(); ++i {
-            var fx  = self._g.fixes[i]
+            var *fx = &self._g.fixes[i]
             var msg = ""
-            if fx.text.size() == 0 {
-                b->remove(fx.at, msg)
+            if fx->text.size() == 0 {
+                b->remove(fx->at, msg)
             } else {
-                b->fix(fx.at, fx.text, msg)
+                b->fix(fx->at, fx->text, msg)
             }
         }
 
@@ -831,11 +831,11 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     }
 
     priv fn _note_into(self, b: unsafe *DiagBuilder, i: usize) {
-        var n = self._g.notes[i]
-        if n.at.is_valid() {
-            b->note(n.at.start, n.msg)->child_first(n.at)
+        var *n = &self._g.notes[i]
+        if n->at.is_valid() {
+            b->note(n->at.start, n->msg)->child_first(n->at)
         } else {
-            b->note(n.msg)
+            b->note(n->msg)
         }
     }
 

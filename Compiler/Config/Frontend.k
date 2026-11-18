@@ -64,19 +64,20 @@ pub class EmitKinds {
     /// (`emit_given` false) it replaces the default obj, beside an explicit
     /// --emit it adds asm.
     pub static fn parse(const raw: string, dash_s: bool, emit_given: bool) -> EmitKinds {
-        var k     = EmitKinds()
-        var items = cxx::std::vector<string>()
-        var cur   = ""
+        var k           = EmitKinds()
+        var items       = cxx::std::vector<string>()
+        var cur         = ""
+        var run:  usize = 0
         for var i: usize = 0; i < raw.size(); ++i {
-            if raw[i] == (',' as u8) {
+            if raw.data()[i] == (',' as u8) {
+                cur += raw[run..i]
                 items.push_back(cur)
                 cur = ""
-                continue
+                run = i + 1
             }
-
-            cur.push_back(raw[i])
         }
 
+        cur += raw[run..]
         items.push_back(cur)
         for *it in items {
             if it->size() == 0 {

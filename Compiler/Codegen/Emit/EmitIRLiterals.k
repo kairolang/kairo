@@ -473,7 +473,7 @@ extend EmitIR {
         var        sep    = false
         var        point  = false
         for var i: usize = 0; i < body.size(); ++i {
-            var ch = body[i]
+            var ch = body.data()[i]
             if ch == ('_' as u8) {
                 sep = true
                 continue
@@ -491,7 +491,7 @@ extend EmitIR {
                 point = true
             }
 
-            digits.push_back(ch)
+            digits.push(ch)
         }
 
         var suffixed = d->has_flag(Immediate::FloatFlags::HasSuffix)
@@ -809,7 +809,7 @@ extend EmitIR {
                 pt = "typename " + t + "::template " + leaf + "<" + el + ">"
             } else {
                 tag += ", ::" + LowerTargets::adt_variant_tag() + "<" + f"{n->pack_index}" + ">{}"
-                pt = t + "::" + leaf + "<" + el + ">"
+                pt = t.copy() + "::" + leaf + "<" + el + ">"
             }
 
             // A site slot's pack constructor takes the site id (Compiler/Spec/Panic.md

@@ -717,10 +717,10 @@ pub class ASTContext {
     }
 
     pub fn get_spelling(self, tok: Token) -> string {
-        return *self.get_token_text(tok).get_text()
+        return self.get_token_text(tok).get_text()->copy()
     }
 
     pub fn get_spelling(self, rng: SourceRange) -> string {
-        return *self.get_token_text(rng).get_text()
+        return self.get_token_text(rng).get_text()->copy()
     }
 }

@@ -29,6 +29,7 @@ import Driver::InputKinds::{
     InputClass,
     InputKind,
     classify_input,
+    copy_inputs,
 }
 import Driver::TUStage::TUStage
 import Interop::Clang::KairoIncludeScan::KairoIncludeScan
@@ -171,7 +172,7 @@ extend CompilerInstance {
         }
 
         for *d in angle {
-            quote.push_back(*d)
+            quote.push_back(d->copy())
         }
 
         return quote
@@ -197,7 +198,7 @@ extend CompilerInstance {
         }
 
         if nk < 2 || self._pp == &null {
-            return self._inputs
+            return copy_inputs(self._inputs)
         }
 
         // Fid 0 is "unresolved" to the import chain (FileImportIndex::record,
@@ -243,7 +244,7 @@ extend CompilerInstance {
         }
 
         if reached.empty() {
-            return self._inputs
+            return copy_inputs(self._inputs)
         }
 
         var first       = cxx::std::vector<InputKind>()
@@ -253,21 +254,21 @@ extend CompilerInstance {
             if k->cls == InputClass::LinkInput
                 || k->cls == InputClass::Source
                 || k->cls == InputClass::Header {
-                first.push_back(*k)
+                first.push_back(k->copy())
                 continue
             }
 
             var f = kfids[n]
             n += 1
             if f != u32::MAX && reached.contains(f) {
-                last.push_back(*k)
+                last.push_back(k->copy())
             } else {
-                first.push_back(*k)
+                first.push_back(k->copy())
             }
         }
 
         for *k in last {
-            first.push_back(*k)
+            first.push_back(k->copy())
         }
 
         return first

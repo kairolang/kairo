@@ -527,17 +527,17 @@ pub class Command {
             }
 
             if def->long_.size() > 0 {
-                out_names.push_back(def->long_)
+                out_names.push_back(def->long_.copy())
                 out_disp.push_back(f"--{def->long_}")
             } else if def->key.size() > 0 {
-                out_names.push_back(def->key)
+                out_names.push_back(def->key.copy())
                 out_disp.push_back(f"--{def->key}")
             }
 
             // single-letter shorts are never useful suggestions - too many
             // of them sit one edit apart from each other
             if def->short_.size() > 1 {
-                out_names.push_back(def->short_)
+                out_names.push_back(def->short_.copy())
                 out_disp.push_back(f"-{def->short_}")
             }
         }
@@ -766,7 +766,7 @@ pub class Command {
         }
 
         for var k: usize = 0; k < raw.size(); ++k {
-            var c: i32 = (raw[k])
+            var c: i32 = (raw.data()[k] as i32)
             if c >= ('A' as i32) && c <= ('Z' as i32) {
                 c += ('a' as i32) - ('A' as i32)
             }
@@ -1124,7 +1124,7 @@ pub class Command {
                         pending = def
                         gstate  = Self::GlobalState::AwaitValue
                     }
-                } else if self.IS_LONG_FLAG[elem[1]] { // '-Wall' / '-O2' / '-funsafe' / '-fno-unsafe'
+                } else if self.IS_LONG_FLAG[elem.data()[1]] { // '-Wall' / '-O2' / '-funsafe' / '-fno-unsafe'
                     var j: usize = 1
                     while j < elen && elem[j] != ('=' as u8) {
                         j += 1
@@ -1493,14 +1493,14 @@ pub class Command {
 
             if lhs.size() < COL {
                 while lhs.size() < COL {
-                    lhs.push_back(' ' as u8)
+                    lhs.push(' ')
                 }
 
                 io::println(f"{lhs}{rhs}")
             } else {
                 var pad: string = ""
                 while pad.size() < COL {
-                    pad.push_back(' ' as u8)
+                    pad.push(' ')
                 }
 
                 io::println(f"{lhs}")
@@ -1517,7 +1517,7 @@ pub class Command {
             io::println("")
             var lhs: string = "  <files...>"
             while lhs.size() < COL {
-                lhs.push_back(' ' as u8)
+                lhs.push(' ')
             }
 
             io::println(

@@ -46,7 +46,7 @@ pub class FileDiagConsumer derives DiagConsumer {
         }
 
         self.diags.push_back(diag)
-        self.owners.push_back(self.current)
+        self.owners.push_back(self.current.copy())
     }
 
     /// The driver is about to drain `path`'s sink.

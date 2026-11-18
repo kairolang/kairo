@@ -635,7 +635,7 @@ extend InterfaceEmitter {
             var dp = "__kairo_dep"
             if !xs.empty() {
                 var q = "::" + api + "::" + dp + "<E, " + xs + ">::type::"
-                sd = q + LangMembers::string_data(tw) + "(&m)"
+                sd = q.copy() + LangMembers::string_data(tw) + "(&m)"
                 sl = q + LangMembers::string_size(tw) + "(&m)"
             }
 
@@ -650,12 +650,12 @@ extend InterfaceEmitter {
             }
 
             t += "struct " + eb + " : public " + LowerTargets::cxx_exception_base() + " { " + u + " type; " + u + " site; "
-            t += eb + "(const " + eb + "& o) noexcept : type(o.type), site(o.site), " + w + "(o." + w + ") { if (" + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(" + w + ", 1, 0); } } "
-            t += eb + "& operator=(const " + eb + "& o) noexcept { if (o." + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(o." + w + ", 1, 0); } " + drp + "(); type = o.type; site = o.site; " + w + " = o." + w + "; return *this; } "
+            t += eb.copy() + "(const " + eb + "& o) noexcept : type(o.type), site(o.site), " + w + "(o." + w + ") { if (" + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(" + w + ", 1, 0); } } "
+            t += eb.copy() + "& operator=(const " + eb + "& o) noexcept { if (o." + w + ") { " + LowerTargets::clang_atomic_fetch_add() + "(o." + w + ", 1, 0); } " + drp + "(); type = o.type; site = o.site; " + w + " = o." + w + "; return *this; } "
             t += "~" + eb + "() override { " + drp + "(); } "
             t += "const char* what() const noexcept override { return " + w + " ? reinterpret_cast<const char*>(" + w + " + 1) : \"\"; } "
             t += "protected: " + eb + "(" + u + " t, " + u + " s) noexcept : type(t), site(s) {} "
-            t += cnt + "* " + w + " = nullptr; "
+            t += cnt.copy() + "* " + w + " = nullptr; "
             t += "void " + drp + "() noexcept { if (" + w + " && (" + LowerTargets::clang_atomic_sub_fetch() + "(" + w + ", 1, 4) == 0)) { " + LowerTargets::clang_free() + "(" + w + "); } " + w + " = nullptr; } "
             t += "void " + bld + "(const unsigned char* m, " + sz + " ml, bool hm, const char* name) noexcept { " + sz + " n = ::" + api + "::" + im + "::text(nullptr, m, ml, hm, name, site); " + w + " = static_cast<" + cnt + "*>(" + LowerTargets::clang_malloc() + "(sizeof(" + cnt + ") + n + 1)); if (!" + w + ") { return; } *" + w + " = 1; " + "char* o = reinterpret_cast<char*>(" + w + " + 1); ::" + api + "::" + im + "::text(o, m, ml, hm, name, site); o[n] = 0; } "
             t += "}; "

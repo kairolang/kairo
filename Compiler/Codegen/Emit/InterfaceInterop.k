@@ -97,7 +97,7 @@ extend InterfaceEmitter {
                 continue
             }
 
-            var tag  = vt + f"<{i}>" + "{}"
+            var tag  = vt.copy() + f"<{i}>" + "{}"
             var head = "template <class " + mk + " = void> static " + nm + " " + names[i] + "("
             if v->adt_member == &null {
                 self._cg->sink->spell(
@@ -136,7 +136,7 @@ extend InterfaceEmitter {
             if v->adt_ctor == Declarations::AdtCtorForm::Fields {
                 // The field constructor (a prefix-tagged record's included,
                 // which writes the tag itself): every field moves as bytes.
-                body = nm + "(" + tag + ", " + vals + ")"
+                body = nm.copy() + "(" + tag + ", " + vals + ")"
             } else {
                 // The lambda constructor builds the payload in place, as a
                 // generic body's site does (EmitIR: `T(tag, [&]() -> P {
@@ -148,7 +148,7 @@ extend InterfaceEmitter {
                     p = "__type_pack_element<0, " + p + ", " + mk + ">"
                 }
 
-                body = nm + "(" + tag + ", [&]()" + nx + " -> " + p + " { return { " + vals + " }; })"
+                body = nm.copy() + "(" + tag + ", [&]()" + nx + " -> " + p + " { return { " + vals + " }; })"
             }
 
             self._cg->sink->spell(
@@ -231,23 +231,23 @@ extend InterfaceEmitter {
             var fnm = if (k == 0) => ("operator new") else => "operator new[]"
             var al  = if (k == 0) => (one) else => arr
             forms.push_back(
-                x + "void* " + fnm + "(" + z + " n) { return " + got + "(" + alloc_fn + "(n ? n : 1, " + al + "), false); }",
+                x.copy() + "void* " + fnm + "(" + z + " n) { return " + got + "(" + alloc_fn + "(n ? n : 1, " + al + "), false); }",
             )
 
             forms.push_back(
-                x + "void* " + fnm + "(" + z + " n, " + av + " a) { return " + got + "(" + alloc_fn + "(n ? n : 1, static_cast<" + z + ">(a)), false); }",
+                x.copy() + "void* " + fnm + "(" + z + " n, " + av + " a) { return " + got + "(" + alloc_fn + "(n ? n : 1, static_cast<" + z + ">(a)), false); }",
             )
 
             forms.push_back(
-                x + "void* " + fnm + "(" + z + " n, " + nt + ") noexcept { return " + got + "(" + alloc_fn + "(n ? n : 1, " + al + "), true); }",
+                x.copy() + "void* " + fnm + "(" + z + " n, " + nt + ") noexcept { return " + got + "(" + alloc_fn + "(n ? n : 1, " + al + "), true); }",
             )
 
             forms.push_back(
-                x + "void* " + fnm + "(" + z + " n, " + av + " a, " + nt + ") noexcept { return " + got + "(" + alloc_fn + "(n ? n : 1, static_cast<" + z + ">(a)), true); }",
+                x.copy() + "void* " + fnm + "(" + z + " n, " + av + " a, " + nt + ") noexcept { return " + got + "(" + alloc_fn + "(n ? n : 1, static_cast<" + z + ">(a)), true); }",
             )
 
             forms.push_back(
-                x + "void* " + fnm + "(" + z + ", void* p) noexcept { return p; }",
+                x.copy() + "void* " + fnm + "(" + z + ", void* p) noexcept { return p; }",
             )
         }
 
@@ -255,11 +255,11 @@ extend InterfaceEmitter {
             var fnm = if (k == 0) => ("operator delete") else => "operator delete[]"
             var al  = if (k == 0) => (one) else => arr
             forms.push_back(
-                x + "void " + fnm + "(void* p, " + z + " n) noexcept { if (p) " + free_fn + "(static_cast<unsigned char*>(p), n ? n : 1, " + al + "); }",
+                x.copy() + "void " + fnm + "(void* p, " + z + " n) noexcept { if (p) " + free_fn + "(static_cast<unsigned char*>(p), n ? n : 1, " + al + "); }",
             )
 
             forms.push_back(
-                x + "void " + fnm + "(void* p, " + z + " n, " + av + " a) noexcept { if (p) " + free_fn + "(static_cast<unsigned char*>(p), n ? n : 1, static_cast<" + z + ">(a)); }",
+                x.copy() + "void " + fnm + "(void* p, " + z + " n, " + av + " a) noexcept { if (p) " + free_fn + "(static_cast<unsigned char*>(p), n ? n : 1, static_cast<" + z + ">(a)); }",
             )
         }
 
@@ -485,7 +485,7 @@ extend InterfaceEmitter {
                 }
             }
 
-            out.push_back(n)
+            out.push_back(n.copy())
             clash.push_back(if (hit) => (1 as u8) else => (0 as u8))
             if !hit {
                 taken.push_back(n)

@@ -312,18 +312,18 @@ pub class LocalEnds {
     /// uses, once settle() has written the body's modes.
     fn settle_disarms(self, sc: unsafe *SemaContext, may_unwind: bool) {
         for var i: usize = 0; i < self.rows.size(); ++i {
-            var r = self.rows[i]
-            if !r.disarm_ok || r.disarm_bad || r.disarm_site == &null || r.ends > 0 {
+            var *r = &self.rows[i]
+            if !r->disarm_ok || r->disarm_bad || r->disarm_site == &null || r->ends > 0 {
                 continue
             }
 
-            if !is_real_transfer(sc, r.disarm_site, r.d) {
+            if !is_real_transfer(sc, r->disarm_site, r->d) {
                 continue
             }
 
-            var m = if (r.alive_unmoved || may_unwind) => (LocalDtor::Flagged)
+            var m = if (r->alive_unmoved || may_unwind) => (LocalDtor::Flagged)
                     else => LocalDtor::Elided
-            disarm_local_at(sc, r.disarm_site, r.d, m)
+            disarm_local_at(sc, r->disarm_site, r->d, m)
         }
     }
 
@@ -333,15 +333,15 @@ pub class LocalEnds {
     /// is never elided there: the hook must still run on that path.
     fn settle(self, sc: unsafe *SemaContext, may_unwind: bool) {
         for var i: usize = 0; i < self.rows.size(); ++i {
-            var r = self.rows[i]
-            var m = LocalDtor::Scope
-            if r.refusal.size() > 0 {
+            var *r = &self.rows[i]
+            var m  = LocalDtor::Scope
+            if r->refusal.size() > 0 {
                 m = LocalDtor::Scope
-            } else if r.ends > 0 {
+            } else if r->ends > 0 {
                 // A construction that may find an object there tests `live`.
                 var maybe = false
-                for var k: usize = 0; k < r.remakes.size(); ++k {
-                    var b = r.remakes[k]->remake
+                for var k: usize = 0; k < r->remakes.size(); ++k {
+                    var b = r->remakes[k]->remake
                     if (b & Expressions::REMAKE_MAYBE) != 0
                         || (b & Expressions::REMAKE_DEAD) != 0
                             && (b & Expressions::REMAKE_LIVE) != 0 {
@@ -349,15 +349,15 @@ pub class LocalEnds {
                     }
                 }
 
-                m = if (r.alive || maybe || may_unwind) => (LocalDtor::Flagged)
+                m = if (r->alive || maybe || may_unwind) => (LocalDtor::Flagged)
                     else => LocalDtor::Elided
             } else if sc->opts.union_locals_all
-                && union_storage_refusal(r.d).size() == 0
-                && local_has_dtor(sc, r.d) == LifecycleTri::Yes {
+                && union_storage_refusal(r->d).size() == 0
+                && local_has_dtor(sc, r->d) == LifecycleTri::Yes {
                 m = LocalDtor::Cleanup
             }
 
-            r.d->dtor_mode = m
+            r->d->dtor_mode = m
         }
     }
 }

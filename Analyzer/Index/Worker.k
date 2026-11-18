@@ -527,7 +527,9 @@ pub class DiagCollector derives DiagConsumer {
 
         if self.syntax_only {
             var code = diag->code as string
-            var syn = (code.size() > 1) && (code[0] == ('S' as u8)) && (code[1] != ('C' as u8))
+            var syn = (code.size() > 1)
+                && (code.data()[0] == ('S' as u8))
+                && (code.data()[1] != ('C' as u8))
             if (!syn) && (sev != DiagSeverity::Fatal) {
                 if code.starts_with("R013") {
                     self.unknown_macros += 1
@@ -1098,16 +1100,16 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     // among them are where an `ffi import "..."` is completed from.
     w.key(SK_CXX_FLAGS)
     w.begin_array()
-    for var a: string in ci->cxx_driver_words() {
-        w.str(a)
+    for *a in ci->cxx_driver_words() {
+        w.str(*a)
     }
 
     w.end_array()
     // And for a C source that reaches the module through a header.
     w.key(SK_C_FLAGS)
     w.begin_array()
-    for var a: string in ci->c_driver_words() {
-        w.str(a)
+    for *a in ci->c_driver_words() {
+        w.str(*a)
     }
 
     w.end_array()
@@ -1123,14 +1125,14 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     // The module.k files read for a library's name: inputs of the result
     // that no file of the graph is.
-    for var f: string in ci->imp()->pin_files() {
+    for *f in ci->imp()->pin_files() {
         var held = false
         for var k: usize = 0; k < unit.fids.size(); ++k {
-            held = held || (ci->sm()->get_filename(unit.fids[k]) == f)
+            held = held || (ci->sm()->get_filename(unit.fids[k]) == *f)
         }
 
         if !held {
-            w.str(f)
+            w.str(*f)
         }
     }
 

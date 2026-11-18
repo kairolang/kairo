@@ -67,7 +67,10 @@ import Codegen::Backend::CodegenAction::{
 }
 import Codegen::Backend::IncludeEmitter::IncludedDecls
 import Codegen::Backend::InterfacePCH::InterfacePCH
-import Codegen::Backend::SemaAgreeReport::AgreeFinding
+import Codegen::Backend::SemaAgreeReport::{
+    AgreeFinding,
+    agree_finding_copy,
+}
 import Codegen::CodegenContext::{
     CodegenContext,
     CodegenPhase,
@@ -593,8 +596,8 @@ pub class CodegenBackend derives TokenFiller {
 
     /// The calls clang bound to a declaration Kairo did not choose, as
     /// the walk of this TU's first run found them.
-    fn agree_found(self) -> cxx::std::vector<AgreeFinding> {
-        return self._agree_found
+    fn agree_found(self) -> unsafe *cxx::std::vector<AgreeFinding> {
+        return unsafe &self._agree_found
     }
 }
 
@@ -733,11 +736,11 @@ pub class CodegenJob {
             // place.
             if !ci->target.resource_dir.is_empty() {
                 a->lib_roots.push_back(
-                    ci->target.resource_dir + "/" + ResourceLayout::builtin_subdir(),
+                    ci->target.resource_dir.copy() + "/" + ResourceLayout::builtin_subdir(),
                 )
 
                 a->lib_roots.push_back(
-                    ci->target.resource_dir + "/" + ResourceLayout::std_subdir(),
+                    ci->target.resource_dir.copy() + "/" + ResourceLayout::std_subdir(),
                 )
             }
 
@@ -767,8 +770,9 @@ pub class CodegenJob {
         self._run_kinds(&cg, a, be)
         // Added to: the driver has put here what the interface PCH's walk
         // found in this TU's file.
-        for var f: AgreeFinding in cg.agree_found() {
-            self.agree_found.push_back(f)
+        var unsafe *found = cg.agree_found()
+        for var i: usize = 0; i < found->size(); ++i {
+            self.agree_found.push_back(agree_finding_copy(found->at(i)))
         }
 
         self.iface_used = self.iface != &null && self.iface->ok

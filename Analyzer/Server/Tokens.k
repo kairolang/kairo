@@ -304,7 +304,7 @@ extend Server {
 
         w.end_object()
         self.tok_id[slot]   = rid
-        self.tok_data[slot] = *now
+        self.tok_data[slot] = now->copy()
         self.respond(id, w.out)
     }
 }

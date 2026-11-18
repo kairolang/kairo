@@ -31,7 +31,10 @@ ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
-import Support::Ascii::parse_decimal
+import Support::Ascii::{
+    copy_strings,
+    parse_decimal,
+}
 
 /// Bumped by any change to a plan record's lines.
 pub
@@ -47,7 +50,7 @@ pub fn plan_split(const s: string, sep: u8) -> cxx::std::vector<string> {
     var out          = cxx::std::vector<string>()
     var start: usize = 0
     for var i: usize = 0; i < s.size(); ++i {
-        if s[i] == sep {
+        if s.data()[i] == sep {
             out.push_back(s.subslice(start, i - start))
             start = i + 1
         }
@@ -117,31 +120,31 @@ pub class PlanModule {
         s += "path " + self.path + "\n"
         s += "hash " + self.hash + "\n"
         s += "macros " + self.macros + "\n"
-        for var l: string in self.decls {
+        for var l in self.decls {
             s += "E\t" + l + "\n"
         }
 
-        for var l: string in self.scopes {
+        for var l in self.scopes {
             s += "C\t" + l + "\n"
         }
 
-        for var l: string in self.surface {
+        for var l in self.surface {
             s += "S\t" + l + "\n"
         }
 
-        for var l: string in self.names {
+        for var l in self.names {
             s += "N\t" + l + "\n"
         }
 
-        for var l: string in self.overlay {
+        for var l in self.overlay {
             s += "O\t" + l + "\n"
         }
 
-        for var l: string in self.rows {
+        for var l in self.rows {
             s += "D\t" + l + "\n"
         }
 
-        for var l: string in self.diag_files {
+        for var l in self.diag_files {
             s += "F\t" + l + "\n"
         }
 
@@ -160,7 +163,7 @@ pub class PlanModule {
         var n         = text.size()
         while at < n {
             var e = at
-            while e < n && text[e] != ('\n' as u8) {
+            while e < n && text.data()[e] != ('\n' as u8) {
                 e += 1
             }
 
@@ -178,9 +181,9 @@ pub class PlanModule {
                 return true
             }
 
-            if l.size() >= 2 && l[1] == (9 as u8) {
+            if l.size() >= 2 && l.data()[1] == (9 as u8) {
                 var body = l.subslice(2, l.size() - 2)
-                var tag  = l[0]
+                var tag  = l.data()[0]
                 if tag == ('E' as u8) {
                     self.decls.push_back(body)
                 } else if tag == ('C' as u8) {
@@ -238,7 +241,7 @@ class PlanLists {
         }
 
         var id = self.keys.size() as u32
-        self.keys.push_back(k)
+        self.keys.push_back(k.copy())
         self.vals.push_back(cxx::std::vector<string>())
         self.index.try_emplace(kairo::sref(k), id)
         return id as usize
@@ -246,7 +249,7 @@ class PlanLists {
 
     fn add(self, const k: string, const v: string) {
         var at = self.slot(k)
-        self.vals[at].push_back(v)
+        self.vals[at].push_back(v.copy())
     }
 
     /// Sorts every list and fixes its text. Nothing is added afterwards.
@@ -310,40 +313,43 @@ class PlanIndex {
     fn build(self, mods: *cxx::std::vector<PlanModule>) {
         for var mi: usize = 0; mi < mods->size(); ++mi {
             var *m = &(*mods)[mi]
-            self.modules.push_back(m->name)
+            self.modules.push_back(m->name.copy())
             self.macros.try_emplace(
                 kairo::sref(m->name),
                 self.macros_v.size() as u32,
             )
 
-            self.macros_v.push_back(m->macros)
+            self.macros_v.push_back(m->macros.copy())
             self.surf.slot(m->name)
-            for var s: string in m->surface {
+            for var s in m->surface {
                 self.surf.add(m->name, s)
             }
 
-            for var l: string in m->decls {
+            for var l in m->decls {
                 var f = plan_split(l, 9 as u8)
                 if f.size() < 7 {
                     continue
                 }
 
-                var key = m->name + "\t" + f[1] + "\t" + f[2]
-                self.names.add(key, f[0] + "\x1e" + f[3])
-                self.bodies.add(key, f[0] + "\x1e" + f[4])
+                var key = m->name.copy() + "\t" + f[1] + "\t" + f[2]
+                self.names.add(key, f[0].copy() + "\x1e" + f[3])
+                self.bodies.add(key, f[0].copy() + "\x1e" + f[4])
                 if !f[5].is_empty() {
-                    self.ext.add(f[5] + "\t" + f[2], f[0] + "\x1e" + f[3])
+                    self.ext.add(
+                        f[5].copy() + "\t" + f[2],
+                        f[0].copy() + "\x1e" + f[3],
+                    )
                 }
 
                 self.decl_i.add(f[0], f[3])
                 self.decl_b.add(f[0], f[4])
                 self.refs.slot(f[0])
-                for var r: string in plan_items(f[6]) {
+                for var r in plan_items(f[6]) {
                     self.refs.add(f[0], r)
                 }
             }
 
-            for var l: string in m->scopes {
+            for var l in m->scopes {
                 var f = plan_split(l, 9 as u8)
                 if f.size() < 3 {
                     continue
@@ -357,20 +363,22 @@ class PlanIndex {
                             self.ext_of_v.size() as u32,
                         )
 
-                        self.ext_of_v.push_back(f[1])
+                        self.ext_of_v.push_back(f[1].copy())
                     } else {
                         self.ext_of_v[it->second as usize] = f[1].copy()
                     }
                 }
 
-                for var nm: string in plan_items(f[2]) {
+                for var nm in plan_items(f[2]) {
                     if f[0].is_empty() {
-                        self.file_names.insert(kairo::sref(m->name + "\t" + nm))
+                        self.file_names.insert(
+                            kairo::sref(m->name.copy() + "\t" + nm),
+                        )
                     }
 
                     // A name a scope declares with no entry of this file (a
                     // C++ binding) still exists: its presence can change.
-                    self.names.slot(m->name + "\t" + f[0] + "\t" + nm)
+                    self.names.slot(m->name.copy() + "\t" + f[0] + "\t" + nm)
                 }
             }
         }
@@ -404,7 +412,7 @@ class PlanIndex {
     }
 
     fn declares(self, const m: string, const name: string) -> bool {
-        return self.file_names.contains(kairo::sref(m + "\t" + name))
+        return self.file_names.contains(kairo::sref(m.copy() + "\t" + name))
     }
 }
 
@@ -435,13 +443,13 @@ class PlanDiff {
         }
 
         var at = self.presence.slot(f[2])
-        for var have: string in self.presence.vals[at] {
+        for var have in self.presence.vals[at] {
             if have == f[0] {
                 return
             }
         }
 
-        self.presence.vals[at].push_back(f[0])
+        self.presence.vals[at].push_back(f[0].copy())
     }
 
     priv fn _lists(self, a: *PlanLists, b: *PlanLists, which: u8) {
@@ -481,7 +489,7 @@ class PlanDiff {
         for var side: usize = 0; side < 2; ++side {
             var *x = if (side == 0) => (&a->refs) else => &b->refs
             for var i: usize = 0; i < x->keys.size(); ++i {
-                for var r: string in x->vals[i] {
+                for var r in x->vals[i] {
                     rev.add(r, x->keys[i])
                 }
             }
@@ -507,10 +515,10 @@ class PlanDiff {
                 continue
             }
 
-            for var dep: string in rev.vals[at] {
+            for var dep in rev.vals[at] {
                 if !self.layout.contains(kairo::sref(dep)) {
                     self.layout.insert(kairo::sref(dep))
-                    work.push_back(dep)
+                    work.push_back(dep.copy())
                 }
             }
         }
@@ -529,7 +537,7 @@ class PlanDiff {
                     continue
                 }
 
-                self.file_changed.insert(kairo::sref(f[2] + "\t" + f[0]))
+                self.file_changed.insert(kairo::sref(f[2].copy() + "\t" + f[0]))
                 self.file_changed_n.insert(kairo::sref(f[2]))
                 if a->names.has(k) != b->names.has(k) || a->names.none(k) != b->names.none(k) {
                     self._presence(k)
@@ -545,7 +553,10 @@ class PlanDiff {
 
                 var f = plan_split(k, 9 as u8)
                 if f.size() == 3 && f[1].is_empty() {
-                    self.body_scope.insert(kairo::sref(f[2] + "\t" + f[0]))
+                    self.body_scope.insert(
+                        kairo::sref(f[2].copy() + "\t" + f[0]),
+                    )
+
                     self.body_scope_n.insert(kairo::sref(f[2]))
                 }
             }
@@ -569,7 +580,7 @@ class PlanDiff {
 
         for var side: usize = 0; side < 2; ++side {
             var *x = if (side == 0) => (a) else => b
-            for var m: string in x->modules {
+            for var m in x->modules {
                 if a->macros_of(m) != b->macros_of(m) {
                     self.macros.insert(kairo::sref(m))
                 }
@@ -597,8 +608,8 @@ pub class IncrPlan {
         }
 
         self._in.insert(kairo::sref(m))
-        self.mods.push_back(m)
-        self.why.push_back(reason)
+        self.mods.push_back(m.copy())
+        self.why.push_back(reason.copy())
     }
 }
 
@@ -628,14 +639,14 @@ fn plan_surface(a: *PlanIndex, b: *PlanIndex, const m: string) -> cxx::std::vect
     var out = cxx::std::vector<string>()
     var ia  = a->surf.at(m)
     if ia != usize::MAX {
-        out = a->surf.vals[ia]
+        out = copy_strings(a->surf.vals[ia])
     }
 
     var ib = b->surf.at(m)
     if ib != usize::MAX {
-        for var s: string in b->surf.vals[ib] {
+        for var s in b->surf.vals[ib] {
             var seen = false
-            for var h: string in out {
+            for var h in out {
                 if h == s {
                     seen = true
                     break
@@ -643,7 +654,7 @@ fn plan_surface(a: *PlanIndex, b: *PlanIndex, const m: string) -> cxx::std::vect
             }
 
             if !seen {
-                out.push_back(s)
+                out.push_back(s.copy())
             }
         }
     }
@@ -680,7 +691,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
     var d = PlanDiff()
     d.build(&ia, &ib)
 
-    for var m: string in (*edited) {
+    for var m in (*edited) {
         out->add(m, "R0 edited")
     }
 
@@ -694,11 +705,11 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
         var reason = ""
         // R1: a name row whose declarations differ; a row on a type's scope
         // also reads the same-named members of every extension of the type.
-        for var r: string in f->names {
+        for var r in f->names {
             if d.names.contains(kairo::sref(r)) {
                 var k = plan_split(r, 9 as u8)
-                var where_ = if (k.size() == 3 && !k[1].is_empty()) => (k[1])
-                             else => k[0] + "#<file>"
+                var where_ = if (k.size() == 3 && !k[1].is_empty()) => (k[1].copy())
+                             else => k[0].copy() + "#<file>"
                 reason = "R1 name " + (if (k.size() == 3) => (k[2]) else => r) + " in " + where_
                 break
             }
@@ -710,7 +721,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                     ib.ext_target(k[1], &target)
                 }
 
-                if d.ext.contains(kairo::sref(target + "\t" + k[2])) {
+                if d.ext.contains(kairo::sref(target.copy() + "\t" + k[2])) {
                     reason = "R1 extension member " + k[2] + " of " + target
                     break
                 }
@@ -720,7 +731,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
         // R2: an overlay row, and a file of that overlay's surface changed
         // the name at file scope; or the surface itself changed.
         if reason.is_empty() {
-            for var o: string in f->overlay {
+            for var o in f->overlay {
                 var k = plan_split(o, 9 as u8)
                 if k.size() != 2 {
                     continue
@@ -740,8 +751,10 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                     continue
                 }
 
-                for var s: string in ia.surf.vals[si] {
-                    if d.file_changed.contains(kairo::sref(k[1] + "\t" + s)) {
+                for var s in ia.surf.vals[si] {
+                    if d.file_changed.contains(
+                        kairo::sref(k[1].copy() + "\t" + s),
+                    ) {
                         reason = "R2 overlay name " + k[1] + " via " + s
                         break
                     }
@@ -755,9 +768,9 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
 
         // R3: a declaration row.
         if reason.is_empty() {
-            for var r: string in f->rows {
+            for var r in f->rows {
                 var cut: usize = 0
-                while cut < r.size() && r[cut] != (9 as u8) {
+                while cut < r.size() && r.data()[cut] != (9 as u8) {
                     cut += 1
                 }
 
@@ -790,8 +803,8 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                 var n     = d.presence.keys[pi].copy()
                 var *mods = &d.presence.vals[pi]
                 var src   = ""
-                for var s: string in surf {
-                    for var pm: string in (*mods) {
+                for var s in surf {
+                    for var pm in (*mods) {
                         if pm == s && (src.is_empty() || s < src) {
                             src = s.copy()
                         }
@@ -803,9 +816,9 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                 }
 
                 var other = ""
-                for var s: string in surf {
+                for var s in surf {
                     var in_src = false
-                    for var pm: string in (*mods) {
+                    for var pm in (*mods) {
                         if pm == s {
                             in_src = true
                             break
@@ -834,7 +847,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
 
         // R7: the macros of a file in the surface changed.
         if reason.is_empty() {
-            for var s: string in plan_surface(&ia, &ib, m) {
+            for var s in plan_surface(&ia, &ib, m) {
                 if d.macros.contains(kairo::sref(s)) {
                     reason = "R7 macros of " + s
                     break
@@ -852,7 +865,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
     for var mi: usize = 0; mi < old->size(); ++mi {
         var *f  = &(*old)[mi]
         var hit = false
-        for var r: string in f->names {
+        for var r in f->names {
             if d.name_bodies.contains(kairo::sref(r)) {
                 hit = true
                 break
@@ -870,8 +883,8 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                 continue
             }
 
-            for var s: string in ia.surf.vals[si] {
-                if d.body_scope.contains(kairo::sref(k[1] + "\t" + s)) {
+            for var s in ia.surf.vals[si] {
+                if d.body_scope.contains(kairo::sref(k[1].copy() + "\t" + s)) {
                     hit = true
                     break
                 }
@@ -894,14 +907,14 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                 continue
             }
 
-            for var r: string in f->rows {
+            for var r in f->rows {
                 if !r.starts_with("body\t") {
                     continue
                 }
 
                 var id         = r.subslice(5, r.size() - 5)
                 var cut: usize = 0
-                while cut < id.size() && id[cut] != ('#' as u8) {
+                while cut < id.size() && id.data()[cut] != ('#' as u8) {
                     cut += 1
                 }
 
@@ -936,9 +949,9 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
             continue
         }
 
-        for var p: string in f->diag_files {
+        for var p in f->diag_files {
             var hit = false
-            for var c: string in (*changed) {
+            for var c in (*changed) {
                 if c == p {
                     hit = true
                     break
@@ -1011,7 +1024,7 @@ pub fn incr_plan_verify(old:          *cxx::std::vector<PlanModule>,
 
         holes += 1
         if first.is_empty() {
-            first = a->name + ": predicted unaffected, but its " + what + " changed"
+            first = a->name.copy() + ": predicted unaffected, but its " + what + " changed"
         }
     }
 

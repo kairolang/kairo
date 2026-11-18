@@ -123,7 +123,7 @@ pub class MMapRegion {
             self._owns  = size != 0
             self._valid = true
         } else {
-            var path_str     = *path
+            var path_str     = path->copy()
             var fd:      i32 = open(path_str.c_str(), kairo::o_rdonly)
             if fd < 0 {
                 return false

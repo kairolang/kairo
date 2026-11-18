@@ -976,12 +976,12 @@ pub fn fmt_put_name(k: FormatKind) -> string {
     var s     = to_string(k)
     var lower = ""
     for var i: usize = 0; i < s.size(); ++i {
-        var c = s[i]
+        var c = s.data()[i] // enum names are ASCII
         if c >= ('A' as u8) && c <= ('Z' as u8) {
             c = c + 32
         }
 
-        lower.push_back(c)
+        lower.push(c)
     }
 
     return "put_" + lower
@@ -993,7 +993,7 @@ pub fn hex64(v: u64) -> string {
     var digits = "0123456789abcdef"
     var out    = ""
     for var i: i32 = 15; i >= 0; --i {
-        out.push_back(digits[(v >> ((i * 4) as u64) & (15 as u64)) as usize])
+        out.push(digits[(v >> ((i * 4) as u64) & (15 as u64)) as usize])
     }
 
     return out
@@ -1004,7 +1004,7 @@ pub fn hex32(v: u32) -> string {
     var digits = "0123456789abcdef"
     var out    = ""
     for var i: i32 = 7; i >= 0; --i {
-        out.push_back(digits[(v >> ((i * 4) as u32) & (15 as u32)) as usize])
+        out.push(digits[(v >> ((i * 4) as u32) & (15 as u32)) as usize])
     }
 
     return out

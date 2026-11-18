@@ -190,7 +190,7 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
     var        before: string = ""
     for var i: usize = 0; i < st->d_owner.size(); ++i {
         if all || st->d_owner[i].is_empty() || live_has(owners, st->d_owner[i]) {
-            before += st->d_owner[i] + "\n" + st->d_rows[i] + "\n"
+            before += st->d_owner[i].copy() + "\n" + st->d_rows[i] + "\n"
         }
     }
 
@@ -267,7 +267,7 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
     var after: string = ""
     for var i: usize = 0; i < st->d_owner.size(); ++i {
         if all || st->d_owner[i].is_empty() || live_has(owners, st->d_owner[i]) {
-            after += st->d_owner[i] + "\n" + st->d_rows[i] + "\n"
+            after += st->d_owner[i].copy() + "\n" + st->d_rows[i] + "\n"
         }
     }
 
@@ -355,15 +355,15 @@ fn live_snapshot(st:    *LiveState,
     if live->ci() != &null {
         w.key(SK_CXX_FLAGS)
         w.begin_array()
-        for var a: string in live->ci()->cxx_driver_words() {
-            w.str(a)
+        for *a in live->ci()->cxx_driver_words() {
+            w.str(*a)
         }
 
         w.end_array()
         w.key(SK_C_FLAGS)
         w.begin_array()
-        for var a: string in live->ci()->c_driver_words() {
-            w.str(a)
+        for *a in live->ci()->c_driver_words() {
+            w.str(*a)
         }
 
         w.end_array()
@@ -836,8 +836,8 @@ fn live_finish(st:         *LiveState,
 
     if full {
         st->deps.clear()
-        for var f: string in live->graph_files() {
-            st->deps.push(f.copy())
+        for *f in live->graph_files() {
+            st->deps.push(f->copy())
         }
 
         // Rows of a file the graph no longer holds.
@@ -1023,7 +1023,7 @@ fn live_slice(st:   *LiveState,
         live->why,
         const &rechecked,
         true,
-        r->out + f".{seq}",
+        r->out.copy() + f".{seq}",
         t0,
     )
 }

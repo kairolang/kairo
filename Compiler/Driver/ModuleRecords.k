@@ -45,6 +45,7 @@ import Sema::Incremental::Plan::PlanModule
 import Support::Ascii::{
     find,
     parse_decimal,
+    rfind_byte,
     split,
 }
 import Support::Escape::{
@@ -100,6 +101,15 @@ fn incr_env_names() -> cxx::std::vector<string> {
 pub struct SourceRead {
     pub var path: string
     pub var hash: string
+}
+
+extend SourceRead {
+    pub fn copy(const self) -> SourceRead {
+        var r = SourceRead()
+        r.path = self.path.copy()
+        r.hash = self.hash.copy()
+        return r
+    }
 }
 
 pub class ModuleRecords {
@@ -202,8 +212,8 @@ pub class ModuleRecords {
         }
 
         var envs = ""
-        for var n: string in incr_env_names() {
-            envs += n + "=" + LinkFS::env(n) + "\n"
+        for *n in incr_env_names() {
+            envs += n->copy() + "=" + LinkFS::env(*n) + "\n"
         }
 
         var ver = string(
@@ -227,9 +237,9 @@ pub class ModuleRecords {
             self._exe = env::exe_path()
         }
 
-        self.dir = cache_dir + "/" + cache_dir_name() + "/mod"
-        self._manifest = self.dir + "/run-" + ObjectCache::hash(
-            input + "\n" + output,
+        self.dir = cache_dir.copy() + "/" + cache_dir_name() + "/mod"
+        self._manifest = self.dir.copy() + "/run-" + ObjectCache::hash(
+            input.copy() + "\n" + output,
         ) + ".txt"
         self.on = true
         return true
@@ -260,8 +270,8 @@ pub class ModuleRecords {
         {
             var p      = at + 6
             var n: u64 = 0
-            while p < text.size() && text[p] != ('\n' as u8) {
-                n = n * 10 + ((text[p] - ('0' as u8)) as u64)
+            while p < text.size() && text.data()[p] != ('\n' as u8) {
+                n = n * 10 + ((text.data()[p] - ('0' as u8)) as u64)
                 p += 1
             }
 
@@ -282,18 +292,18 @@ pub class ModuleRecords {
 
         // F_sema first, by part, so the reason says which part moved.
         var have_f = ""
-        for var l: string in self._lines {
-            if l.starts_with(fingerprint_prefix()) {
-                have_f += l + "\n"
+        for *l in self._lines {
+            if l->starts_with(fingerprint_prefix()) {
+                have_f += l->copy() + "\n"
             }
         }
 
         if have_f != self._f_lines {
             var mine = split(self._f_lines, '\n' as u8, true)
-            for var l: string in mine {
-                if find(have_f, l + "\n", 0) == usize::MAX {
-                    var sp = find(l, " ", 0)
-                    var part = if (sp == usize::MAX) => (l) else => l.subslice(0, sp)
+            for *l in mine {
+                if find(have_f, l->copy() + "\n", 0) == usize::MAX {
+                    var sp = find(*l, " ", 0)
+                    var part = if (sp == usize::MAX) => (*l) else => l->subslice(0, sp)
                     if part == "f.args" {
                         self.status = "miss: flags changed"
                     } else if part == "f.env" {
@@ -404,8 +414,8 @@ pub class ModuleRecords {
     /// before write() replaces them.
     pub fn load_plan(self, out: *cxx::std::vector<PlanModule>) -> bool {
         out->clear()
-        for var l: string in self.old_mods {
-            var name = ModuleRecords::_row_name(l)
+        for *l in self.old_mods {
+            var name = ModuleRecords::_row_name(*l)
             var text = ""
             if !LinkFS::read(self._plan_path(name), &text) {
                 return false
@@ -430,8 +440,8 @@ pub class ModuleRecords {
         }
 
         var body = ""
-        for var l: string in self._lines {
-            body += l + "\n"
+        for *l in self._lines {
+            body += l->copy() + "\n"
         }
 
         publish_bytes(
@@ -464,16 +474,16 @@ pub class ModuleRecords {
             }
 
             seen.insert(kairo::sref(src->path))
-            all.push_back(*src)
+            all.push_back(src->copy())
         }
 
-        for var p: string in self.hdr_files {
-            if p.is_empty() || seen.contains(kairo::sref(p)) {
+        for *p in self.hdr_files {
+            if p->is_empty() || seen.contains(kairo::sref(*p)) {
                 continue
             }
 
-            seen.insert(kairo::sref(p))
-            all.push_back(SourceRead { path: p.copy(), hash: "" })
+            seen.insert(kairo::sref(*p))
+            all.push_back(SourceRead { path: p->copy(), hash: "" })
         }
 
         llvm::sort(
@@ -493,12 +503,12 @@ pub class ModuleRecords {
         }
 
         llvm::sort(dir_list.begin(), dir_list.end())
-        for var d: string in dir_list {
-            m += "dir " + ModuleRecords::_listing(d) + " " + d + "\n"
+        for *d in dir_list {
+            m += "dir " + ModuleRecords::_listing(*d) + " " + *d + "\n"
         }
 
-        for var o: string in self.objects {
-            m += self._file_line("obj", o, "")
+        for *o in self.objects {
+            m += self._file_line("obj", *o, "")
         }
 
         // Per-module records: what phase 3 needs (interface, rows, header
@@ -511,7 +521,7 @@ pub class ModuleRecords {
             var rec = "{\"version\": 1, \"module\": " + json_string(
                 name,
             ) + ", \"objects\": " + json_string(ks) + ",\n" + self.mod_json[i] + "}\n"
-            var rp = self.dir + "/" + ObjectCache::hash(name) + ".json"
+            var rp = self.dir.copy() + "/" + ObjectCache::hash(name) + ".json"
             if !publish_bytes(rp, rec) {
                 return false
             }
@@ -527,8 +537,8 @@ pub class ModuleRecords {
             }
         }
 
-        for var l: string in self.new_mods() {
-            m += "mod " + ModuleRecords::_mod_field(l) + "\n"
+        for *l in self.new_mods() {
+            m += "mod " + ModuleRecords::_mod_field(*l) + "\n"
         }
 
         if self.errors {
@@ -546,7 +556,9 @@ pub class ModuleRecords {
     /// same modules and must not replace the rows this manifest's next
     /// plan is evaluated over (it would diff against a run it never saw).
     priv fn _plan_path(self, const name: string) -> string {
-        return self.dir + "/" + ObjectCache::hash(name + "\n" + self._manifest) + ".plan"
+        return self.dir.copy() + "/" + ObjectCache::hash(
+            name.copy() + "\n" + self._manifest,
+        ) + ".plan"
     }
 
     /// The manifest's `mod` field for `row`, one of new_mods: the module
@@ -558,7 +570,7 @@ pub class ModuleRecords {
     priv static fn _mod_field(const row: string) -> string {
         var name  = ModuleRecords::_row_name(row)
         var rest  = row.subslice(name.size(), row.size() - name.size())
-        var plain = name.is_empty() || name[0] != ('"' as u8)
+        var plain = name.is_empty() || name.data()[0] != ('"' as u8)
         for var i: usize = 0; plain && i < name.size(); ++i {
             plain = name[i] >= 0x20
         }
@@ -574,13 +586,14 @@ pub class ModuleRecords {
     /// tab-separated fields (O keys, I(m)), neither of which holds a tab, so
     /// a name with a tab in it comes back whole.
     priv static fn _row_name(const row: string) -> string {
-        var last = row.rfind("\t")
-        if last == usize::MAX || last == 0 {
+        var last = rfind_byte(row, '\t' as u8)
+        if last == row.size() || last == 0 {
             return row.copy()
         }
 
-        var keys = row.subslice(0, last).rfind("\t")
-        return if (keys == usize::MAX) => (row.subslice(0, last)) else => row.subslice(0, keys)
+        var head = row.subslice(0, last)
+        var keys = rfind_byte(head, '\t' as u8)
+        return if (keys == head.size()) => (head) else => row.subslice(0, keys)
     }
 
     /// The new_mods row a manifest `mod` line `l` records (_mod_field
@@ -589,7 +602,7 @@ pub class ModuleRecords {
     /// plan for it is a miss, not a wrong hit.
     priv static fn _read_mod_line(const l: string) -> string {
         var field = l.subslice(4, l.size() - 4)
-        if field.is_empty() || field[0] != ('"' as u8) {
+        if field.is_empty() || field.data()[0] != ('"' as u8) {
             return field
         }
 
@@ -599,7 +612,7 @@ pub class ModuleRecords {
             return field
         }
 
-        return name + field.subslice(end, field.size() - end)
+        return name.copy() + field.subslice(end, field.size() - end)
     }
 
     /// the modules this run recorded, sorted: what verify compares
@@ -622,12 +635,12 @@ pub class ModuleRecords {
         var ks = ""
         // A key row is `<module>\t<key>` and a key holds no tab: the name is
         // everything before the last one, so `a` never takes `a\tb`'s keys.
-        for var k: string in self.keys {
-            var tab = k.rfind("\t")
-            if tab == name.size() && k.starts_with(name) {
-                ks += (if (ks.is_empty()) => ("") else => ",") + k.subslice(
+        for *k in self.keys {
+            var tab = rfind_byte(*k, '\t' as u8)
+            if tab < k->size() && tab == name.size() && k->starts_with(name) {
+                ks += (if (ks.is_empty()) => ("") else => ",") + k->subslice(
                     name.size() + 1,
-                    k.size() - name.size() - 1,
+                    k->size() - name.size() - 1,
                 )
             }
         }
@@ -660,7 +673,7 @@ pub class ModuleRecords {
         var mt: u64 = 0
         var sz: u64 = 0
         if !file_stat(p, &mt, &sz) {
-            return kind + " 0 0 missing " + p + "\n"
+            return kind.copy() + " 0 0 missing " + p + "\n"
         }
 
         var h = read_hash.copy()
@@ -673,7 +686,7 @@ pub class ModuleRecords {
             mt = 0
         }
 
-        return kind + f" {mt} {sz} " + h + " " + p + "\n"
+        return kind.copy() + f" {mt} {sz} " + h + " " + p + "\n"
     }
 
     /// "" when the file of manifest line `i` is unchanged; else the reason.
@@ -746,9 +759,11 @@ pub class ModuleRecords {
         var own = LinkFS::parent(p)
         ModuleRecords::_add_dir(own, set, list)
         var best = ""
-        for var r: string in self.roots {
-            if p.size() > r.size() + 1 && p.starts_with(r + "/") && r.size() > best.size() {
-                best = r.copy()
+        for *r in self.roots {
+            if p.size() > r->size() + 1
+                && p.starts_with(r->copy() + "/")
+                && r->size() > best.size() {
+                best = r->copy()
             }
         }
 
@@ -760,7 +775,7 @@ pub class ModuleRecords {
         var segs = cxx::std::vector<string>()
         var cur  = ""
         for var i: usize = 0; i < rel.size(); ++i {
-            if rel[i] == ('/' as u8) {
+            if rel.data()[i] == ('/' as u8) {
                 segs.push_back(cur)
                 cur = ""
             } else {
@@ -768,11 +783,11 @@ pub class ModuleRecords {
             }
         }
 
-        for var r: string in self.roots {
-            var d = r.copy()
+        for *r in self.roots {
+            var d = r->copy()
             ModuleRecords::_add_dir(d, set, list)
-            for var s: string in segs {
-                d = d + "/" + s
+            for *s in segs {
+                d = d + "/" + *s
                 ModuleRecords::_add_dir(d, set, list)
             }
         }
@@ -799,18 +814,18 @@ pub class ModuleRecords {
         }
 
         var names = cxx::std::vector<string>()
-        for var n: string in LinkFS::list_dir(d) {
-            if n.ends_with(".k") {
-                names.push_back(n)
-            } else if LinkFS::is_dir(d + "/" + n) {
-                names.push_back(n + "/")
+        for *n in LinkFS::list_dir(d) {
+            if n->ends_with(".k") {
+                names.push_back(n->copy())
+            } else if LinkFS::is_dir(d.copy() + "/" + *n) {
+                names.push_back(n->copy() + "/")
             }
         }
 
         llvm::sort(names.begin(), names.end())
         var s = ""
-        for var n: string in names {
-            s += n + "\n"
+        for *n in names {
+            s += n->copy() + "\n"
         }
 
         return ObjectCache::hash(s)
@@ -833,7 +848,7 @@ pub class ModuleRecords {
         var n:     usize = 0
         var start: usize = 0
         for var i: usize = 0; i <= l.size(); ++i {
-            if i == l.size() || l[i] == (' ' as u8) {
+            if i == l.size() || l.data()[i] == (' ' as u8) {
                 if n == k {
                     return l.subslice(start, i - start)
                 }
@@ -854,7 +869,7 @@ pub class ModuleRecords {
                 return l.subslice(i, l.size() - i)
             }
 
-            if l[i] == (' ' as u8) {
+            if l.data()[i] == (' ' as u8) {
                 n += 1
             }
         }

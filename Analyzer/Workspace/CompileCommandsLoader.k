@@ -106,7 +106,7 @@ pub class Project {
 
         var doc = JsonDoc()
         if !doc.parse(text) {
-            self.error = self.path + ": " + doc.error
+            self.error = self.path.copy() + ": " + doc.error
             return
         }
 
@@ -128,8 +128,8 @@ pub class Project {
 
             var entry = doc.get_str(e, "entry")
             if entry.is_empty() {
-                self.error = self.path + ": an entry has no \"entry\" file"
-                e          = doc.next(e)
+                self.error = self.path.copy() + ": an entry has no \"entry\" file"
+                e = doc.next(e)
                 continue
             }
 

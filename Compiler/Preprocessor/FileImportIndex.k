@@ -47,6 +47,7 @@ import Preprocessor::PreprocessorSymbolTable::{
 import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Resolution::SearchRoot::module_dir_at_or_above
+import Support::Ascii::copy_strings
 import Support::FileIO::Path::Path
 import Token::IdentifierToken::IdentifierToken
 import Token::Token::Token
@@ -399,7 +400,7 @@ pub class FileImportIndex {
 
         // canonical ++ whatever the import spelled past the file: for a
         // root-relative import this is exactly `segs`.
-        var src = place.canonical
+        var src = copy_strings(place.canonical)
         for var i: usize = place.seg_count; i < segs.size(); ++i {
             src.push_back(segs[i])
         }
@@ -424,9 +425,9 @@ pub class FileImportIndex {
 
     /// A plain import only the importing file's directory answered.
     priv fn _legacy_sibling(self,
-                            id:        unsafe *ImportDecl,
-                            segs:      cxx::std::vector<string>,
-                            seg_count: usize) {
+                            id:         unsafe *ImportDecl,
+                            const segs: cxx::std::vector<string>,
+                            seg_count:  usize) {
         var file = cxx::std::vector<string>()
         for var i: usize = 0; i < seg_count && i < segs.size(); ++i {
             file.push_back(segs[i])
@@ -453,7 +454,7 @@ pub class FileImportIndex {
     }
 
     /// `import module::x` in a file with no module.k at or above it.
-    priv fn _no_module_root(self, id: unsafe *ImportDecl, segs: cxx::std::vector<string>) {
+    priv fn _no_module_root(self, id: unsafe *ImportDecl, const segs: cxx::std::vector<string>) {
         var b = self._diag->report(
             DiagCode(DiagID::R069E),
             id->range.start,
@@ -486,17 +487,17 @@ pub class FileImportIndex {
     pub static fn report_collisions(res: *ImportResolver, diag: *DiagEngine) {
         var found = res->take_collisions()
         for var i: usize = 0; i < found.size(); ++i {
-            var c = found[i]
-            if c.case_only {
+            var *c = &found[i]
+            if c->case_only {
                 diag->report(
                     DiagCode(DiagID::P002E),
-                    f"'{c.a}' and '{c.b}' in '{c.dir}' differ only by case: they are two "
+                    f"'{c->a}' and '{c->b}' in '{c->dir}' differ only by case: they are two "
                     "modules on Linux and one file on default macOS/Windows; rename one",
                 ).emit()
             } else {
                 diag->report(
                     DiagCode(DiagID::R018E),
-                    f"'{c.a}' and '{c.b}' in '{c.dir}' both name module '{c.ident}' "
+                    f"'{c->a}' and '{c->b}' in '{c->dir}' both name module '{c->ident}' "
                     "('-' in a module filename means '_'); rename one",
                 ).emit()
             }
@@ -506,7 +507,7 @@ pub class FileImportIndex {
         // a library's name, found by a resolution (decision E). Fatal for
         // the same reason as a duplicate root: the two would share one C++
         // namespace and one object path.
-        for var msg: string in res->take_late_collisions() {
+        for var msg in res->take_late_collisions() {
             diag->report(DiagCode(DiagID::R018E), msg.copy()).emit()
         }
     }

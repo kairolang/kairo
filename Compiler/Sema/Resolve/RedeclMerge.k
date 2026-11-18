@@ -2398,7 +2398,7 @@ pub class RedeclMerge {
     /// `f(u64, i32)`: value parameters only, the receiver is implied.
     priv fn _kairo_sig(self, const name: string, f: unsafe *Declarations::FunctionDecl) -> string {
         var tu    = TypeUtil(self.sc)
-        var s     = name + "("
+        var s     = name.copy() + "("
         var first = true
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]
@@ -2423,7 +2423,7 @@ pub class RedeclMerge {
                      f:          unsafe *Declarations::FunctionDecl,
                      pw:         usize) -> string {
         var tu    = TypeUtil(self.sc)
-        var s     = name + "("
+        var s     = name.copy() + "("
         var first = true
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]

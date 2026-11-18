@@ -143,7 +143,7 @@ pub fn _kcc_words(argc:       i32,
         if *w == "-emit-llvm" {
             emit_llvm = true
         } else {
-            kept.push_back(*w)
+            kept.push_back(w->copy())
         }
     }
 
@@ -163,7 +163,7 @@ pub fn _kcc_words(argc:       i32,
                 continue
             }
 
-            rest.push_back(*w)
+            rest.push_back(w->copy())
         }
 
         kw = rest
@@ -201,16 +201,17 @@ pub fn _kcc_words(argc:       i32,
     }
 
     for *w in kw {
-        out.push_back(*w)
+        out.push_back(w->copy())
     }
 
     // clang's -D is a C/C++ macro (--cxx-define); this one is the Kairo
     // files' as well: the program sets its global allocator, which every
     // Kairo TU must know (--global-allocator-set; CompilerInstance::
     // _settle_global_allocator). Also reachable as -Xkairo --global-allocator-set.
-    var gdef = "--cxx-define=" + LowerTargets::global_alloc_set_macro()
+    var gdef    = "--cxx-define=" + LowerTargets::global_alloc_set_macro()
+    var gdef_eq = gdef.copy() + "="
     for *w in kw {
-        if *w == gdef || w->starts_with(gdef + "=") {
+        if *w == gdef || w->starts_with(gdef_eq) {
             out.push_back("--global-allocator-set")
             break
         }
@@ -254,7 +255,7 @@ pub fn _kcc_words(argc:       i32,
     }
 
     for *w in passed {
-        out.push_back(*w)
+        out.push_back(w->copy())
     }
 
     return true

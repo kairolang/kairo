@@ -88,7 +88,7 @@ pub class ResourceLayout {
 
         var root = ci->pp.builtins_dir.copy()
         if root.is_empty() && !ci->target.resource_dir.is_empty() {
-            root = ci->target.resource_dir + "/" + ResourceLayout::builtin_subdir()
+            root = ci->target.resource_dir.copy() + "/" + ResourceLayout::builtin_subdir()
         }
 
         return root
@@ -105,7 +105,7 @@ pub class ResourceLayout {
 
         var root = ci->pp.std_dir.copy()
         if root.is_empty() && !ci->target.resource_dir.is_empty() {
-            root = ci->target.resource_dir + "/" + ResourceLayout::std_subdir()
+            root = ci->target.resource_dir.copy() + "/" + ResourceLayout::std_subdir()
         }
 
         return root

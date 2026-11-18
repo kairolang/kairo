@@ -623,7 +623,7 @@ extend Speller {
                         er = ""
                     }
 
-                    ps += cq + self._type(els[i], &null, scope) + er
+                    ps += cq.copy() + self._type(els[i], &null, scope) + er
                 }
 
                 return ps
@@ -1158,7 +1158,7 @@ extend Speller {
                            const leaf:  string,
                            const targs: string) -> string {
         if !dependent {
-            return q + "::" + leaf + targs
+            return q.copy() + "::" + leaf + targs
         }
 
         if targs.size() == 0 {

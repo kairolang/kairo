@@ -186,6 +186,19 @@ pub class LineShift {
 
         return -1
     }
+
+    pub fn copy(const self) -> LineShift {
+        var o = LineShift()
+        o.active     = self.active
+        o.path       = self.path.copy()
+        o.entry      = self.entry
+        o.changed_at = self.changed_at
+        o.pre        = self.pre
+        o.suf        = self.suf
+        o.old_n      = self.old_n
+        o.new_n      = self.new_n
+        return o
+    }
 }
 
 extend Server {
@@ -486,7 +499,7 @@ extend Server {
         }
 
         for var k: usize = 0; k < (ae - a0); ++k {
-            if doc->idx_text[a0 + k] != doc->text[bs + k] {
+            if doc->idx_text.data()[a0 + k] != doc->text.data()[bs + k] {
                 return false
             }
         }

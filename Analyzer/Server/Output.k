@@ -203,6 +203,15 @@ extend Server {
         return token
     }
 
+    /// Forgets token `i`; the last token takes its place (tokens are found by
+    /// name, so their order carries nothing).
+    fn drop_ptoken_(self, i: usize) {
+        var last = self.ptokens.pop()
+        if (i < self.ptokens.size()) && last? {
+            self.ptokens[i] = last
+        }
+    }
+
     /// The reply to request `id` (JSON text). When it answers a token's
     /// create, what was queued for the token is sent (no error) or dropped
     /// (an error: the client does not want progress for this token).
@@ -224,7 +233,7 @@ extend Server {
 
                 self.ptokens[i].queued.clear()
                 if ended {
-                    self.ptokens.erase(&self.ptokens[i])
+                    self.drop_ptoken_(i)
                 }
 
                 return
@@ -280,7 +289,7 @@ extend Server {
 
             var refused = self.ptokens[at].state == 2
             if kind == "end" {
-                self.ptokens.erase(&self.ptokens[at])
+                self.drop_ptoken_(at)
             }
 
             if refused {
@@ -355,7 +364,7 @@ extend Server {
             return beside
         }
 
-        if Path::exists_at(beside + ".exe") {
+        if Path::exists_at(beside.copy() + ".exe") {
             return beside + ".exe"
         }
 
@@ -387,8 +396,8 @@ extend Server {
 
             var n: i64 = 0
             for var c: usize = 0; c < text.size(); ++c {
-                if (text[c] >= ('0' as u8)) && (text[c] <= ('9' as u8)) {
-                    n = (n * 10) + ((text[c] - 48) as i64)
+                if (text.data()[c] >= ('0' as u8)) && (text.data()[c] <= ('9' as u8)) {
+                    n = (n * 10) + ((text.data()[c] - 48) as i64)
                 }
             }
 

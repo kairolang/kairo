@@ -54,6 +54,7 @@ import Interop::Clang::ClangBackend::{
 }
 import Interop::Clang::ClangJobs::ClangJobs
 import Location::SourceManager::SourceManager
+import Support::Ascii::copy_strings
 import Support::FileIO::FileSystem::FileType
 import Support::FileIO::Path::Path
 import std::env
@@ -194,7 +195,7 @@ extend CompilerInstance {
 
         for *src in runtime {
             var stem = Path(src->path).stem()
-            var obj  = dir + "/kairo/" + stem + ".o"
+            var obj  = dir.copy() + "/kairo/" + stem + ".o"
             Path::make_parent_dirs(obj)
             var key = ""
             var inv = self._backend->native_invocation(
@@ -202,7 +203,7 @@ extend CompilerInstance {
                 obj,
                 src->type_name(),
                 src->is_c_family_c(),
-                extra,
+                copy_strings(extra),
                 unsafe &key,
             )
 
@@ -216,11 +217,11 @@ extend CompilerInstance {
                 // rather than adding one per build.
                 var slot = kairo::std::from_std_string<string>(
                     llvm::utohexstr(
-                        llvm::xxh3_64bits(kairo::sref(exe + "\n" + key)),
+                        llvm::xxh3_64bits(kairo::sref(exe.copy() + "\n" + key)),
                     ),
                 )
 
-                entry = cache + "/" + stem + "-" + slot + "-" + fp + ".o"
+                entry = cache.copy() + "/" + stem + "-" + slot + "-" + fp + ".o"
                 if force {
                     kairo::Logger::info(
                         kairo::Logger::Stage::Driver,
@@ -232,7 +233,7 @@ extend CompilerInstance {
                         f"runtime cache hit: {entry}",
                     )
 
-                    self._rt_used.push_back(entry)
+                    self._rt_used.push_back(entry.copy())
                     hit = true
                 } else {
                     kairo::Logger::info(
@@ -337,8 +338,8 @@ extend CompilerInstance {
     /// _native_words against a given backend: --print-clang-args builds a
     /// throwaway one, the compile uses the build's.
     prot fn _native_words_for(self,
-                              be: unsafe *ClangBackend,
-                              k:  InputKind) -> cxx::std::vector<string> {
+                              be:      unsafe *ClangBackend,
+                              const k: InputKind) -> cxx::std::vector<string> {
         var w = cxx::std::vector<string>()
         // IR and already-preprocessed input search no headers: the roots would
         // only draw clang's "argument unused" warning, once per root.
@@ -349,8 +350,8 @@ extend CompilerInstance {
         // Plugins that do not exist were reported when the backend's
         // configuration was built; here they are only left out.
         var missing = cxx::std::vector<string>()
-        for var a: string in FlagTranslator::to_driver(&*self.invocation(), be->triple(), be->sysroot_clang_triple(), k.type_name(), unsafe &missing) {
-            w.push_back(a)
+        for *a in FlagTranslator::to_driver(&*self.invocation(), be->triple(), be->sysroot_clang_triple(), k.type_name(), unsafe &missing) {
+            w.push_back(a->copy())
         }
 
         // `rt/fmt.h` resolves for a C/C++ input exactly as for Lib/rt, and
@@ -538,12 +539,12 @@ extend CompilerInstance {
                     }
 
                     w.push_back("-o")
-                    w.push_back(single)
+                    w.push_back(single.copy())
                 }
 
                 w.push_back("-x")
                 w.push_back(k->type_name())
-                w.push_back(k->path)
+                w.push_back(k->path.copy())
                 ok = self._run_native(*k, &w) && ok
             }
 
@@ -610,7 +611,7 @@ extend CompilerInstance {
                 hw.push_back("-c")
                 hw.push_back("-x")
                 hw.push_back(k->type_name())
-                hw.push_back(k->path)
+                hw.push_back(k->path.copy())
                 hw.push_back("-o")
                 hw.push_back(pch)
                 ok = self._run_native(*k, &hw) && ok
@@ -620,7 +621,7 @@ extend CompilerInstance {
             for var i: usize = 0; i < kinds.size(); ++i {
                 var out = single.copy()
                 if out.is_empty() {
-                    out = dir + "/" + Path(k->path).stem() + exts[i]
+                    out = dir.copy() + "/" + Path(k->path).stem() + exts[i]
                 }
 
                 Path::make_parent_dirs(out)
@@ -640,13 +641,13 @@ extend CompilerInstance {
 
                 w.push_back("-x")
                 w.push_back(k->type_name())
-                w.push_back(k->path)
+                w.push_back(k->path.copy())
                 w.push_back("-o")
-                w.push_back(out)
+                w.push_back(out.copy())
                 var one = self._run_native(*k, &w)
                 ok = one && ok
                 if one && kind == EmitKind::Obj {
-                    self._native_objs.push_back(out)
+                    self._native_objs.push_back(out.copy())
                     kairo::Logger::info(
                         kairo::Logger::Stage::Driver,
                         f"emitted object {out}",

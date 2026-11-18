@@ -609,22 +609,23 @@ pub class DeclaredQuery {
 
     /// `a::b::C` as its steps.
     static fn split(const path: string) -> cxx::std::vector<string> {
-        var out       = cxx::std::vector<string>()
-        var cur       = ""
-        var i:  usize = 0
+        var out        = cxx::std::vector<string>()
+        var i:   usize = 0
+        var run: usize = 0
         while i < path.size() {
-            if path[i] == (':' as u8) && i + 1 < path.size() && path[i + 1] == (':' as u8) {
-                out.push_back(cur)
-                cur = ""
+            if path.data()[i] == (':' as u8)
+                && i + 1 < path.size()
+                && path.data()[i + 1] == (':' as u8) {
+                out.push_back(path[run..i])
                 i += 2
+                run = i
                 continue
             }
 
-            cur.push_back(path[i])
             i += 1
         }
 
-        out.push_back(cur)
+        out.push_back(path[run..])
         return out
     }
 
@@ -970,7 +971,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
                 continue
             }
 
-            done.push_back(step)
+            done.push_back(step.copy())
             var key = self.sc->imm_table()->intern_ident_copy(step)
             // A path that ends here names its declarations; a longer one
             // through the same step goes on through them.
@@ -1010,7 +1011,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
                 paths,
                 decls,
                 depth + 1,
-                prefix + step + "::",
+                prefix.copy() + step + "::",
             )
 
             mt->freeze()
@@ -1022,7 +1023,8 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
     priv fn _prefix_of(self, const p: cxx::std::vector<string>, depth: usize) -> string {
         var out = ""
         for var i: usize = 0; i < depth; ++i {
-            out += p[i] + "::"
+            out += p[i]
+            out += "::"
         }
 
         return out

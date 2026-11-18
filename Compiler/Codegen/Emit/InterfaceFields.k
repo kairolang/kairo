@@ -565,7 +565,7 @@ extend InterfaceEmitter {
         self._cg->sink->spell(at, "struct " + ci + ";")
         self._cg->sink->spell(
             at,
-            ce + "auto " + LowerTargets::ctor_pre(
+            ce.copy() + "auto " + LowerTargets::ctor_pre(
                 m->ci_index,
             ) + "(" + ci + "&& " + sa + ps + ") -> " + ci + "&;",
         )

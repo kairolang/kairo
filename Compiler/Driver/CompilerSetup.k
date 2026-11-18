@@ -216,7 +216,7 @@ extend CompilerInstance {
             }
 
             for *d in m.cc_defines {
-                bcfg.defines.push_back(*d)
+                bcfg.defines.push_back(d->copy())
             }
 
             bcfg.clang_triple = m.clang_triple.copy()
@@ -230,9 +230,9 @@ extend CompilerInstance {
         bcfg.sysroot = root.copy()
         for *d in dirs {
             if LinkText::contains(*d, "/c++/") {
-                bcfg.cxx_include_dirs.push_back(*d)
+                bcfg.cxx_include_dirs.push_back(d->copy())
             } else {
-                bcfg.include_dirs.push_back(*d)
+                bcfg.include_dirs.push_back(d->copy())
             }
         }
 
@@ -516,7 +516,7 @@ extend CompilerInstance {
         // _bundled_sysroot_dir matches exactly: the plain triple would find
         // the bundled 2.31 root by spelling and silently build against it.
         if !tg->glibc.is_empty() {
-            var spelled = want + "-glibc" + tg->glibc
+            var spelled = want.copy() + "-glibc" + tg->glibc
             var tgt     = SysTarget{}
             var cands   = cxx::std::vector<string>()
             var why     = ""
@@ -551,20 +551,20 @@ extend CompilerInstance {
 
         if !LinkFS::exists(dir) {
             var pick = ""
-            for var name: string in LinkFS::list_dir(root) {
+            for *name in LinkFS::list_dir(root) {
                 // Only directories can be sysroots: the manifest file beside
                 // them matched an unknown triple and was then reported as a
                 // malformed sysroot instead of the real "unknown target".
-                if !LinkFS::is_dir(LinkText::join(root.copy(), name.copy())) {
+                if !LinkFS::is_dir(LinkText::join(root.copy(), name->copy())) {
                     continue
                 }
 
-                if !CompilerInstance::_same_bundled_target(name, want) {
+                if !CompilerInstance::_same_bundled_target(*name, want) {
                     continue
                 }
 
-                if pick.is_empty() || name < pick {
-                    pick = name.copy()
+                if pick.is_empty() || *name < pick {
+                    pick = name->copy()
                 }
             }
 
@@ -650,8 +650,8 @@ extend CompilerInstance {
 
         // --march is a DRIVER spelling (cc1 has none): the probe turns it
         // into -target-cpu and the -target-feature pairs its extensions imply.
-        for var a: string in FlagTranslator::march_driver(&tgt) {
-            bcfg.driver_words.push_back(a)
+        for *a in FlagTranslator::march_driver(&tgt) {
+            bcfg.driver_words.push_back(a->copy())
         }
 
         // The AVR driver warns "no target microcontroller specified" for a
@@ -671,13 +671,13 @@ extend CompilerInstance {
         // own runtime; --c-std is for the user's C inputs.)
         // Every flag word below is spelled by FlagTranslator, the one home
         // of the kairo <-> clang mapping; this function only places them.
-        for var a: string in FlagTranslator::target(&tgt, ClangSpelling::CC1) {
-            bcfg.extra_cc1.push_back(a)
+        for *a in FlagTranslator::target(&tgt, ClangSpelling::CC1) {
+            bcfg.extra_cc1.push_back(a->copy())
         }
 
         var missing_plugins = cxx::std::vector<string>()
-        for var a: string in FlagTranslator::codegen(&*self.invocation(), bcfg.triple, ClangSpelling::CC1, unsafe &missing_plugins) {
-            bcfg.extra_cc1.push_back(a)
+        for *a in FlagTranslator::codegen(&*self.invocation(), bcfg.triple, ClangSpelling::CC1, unsafe &missing_plugins) {
+            bcfg.extra_cc1.push_back(a->copy())
         }
 
         for *pl in missing_plugins {
@@ -690,8 +690,8 @@ extend CompilerInstance {
         // User header dirs and macros for C++ interop, ahead of the system
         // roots: -I / --ffi-include / --cxx-include (-I), --cxx-define (-D),
         // --cxx-undefine (-U).
-        for var a: string in FlagTranslator::preprocessor(&*self.invocation()) {
-            bcfg.extra_cc1.push_back(a)
+        for *a in FlagTranslator::preprocessor(&*self.invocation()) {
+            bcfg.extra_cc1.push_back(a->copy())
         }
 
         // The triple's environment as a macro (`__kairo_env_musl__`):
@@ -735,19 +735,19 @@ extend CompilerInstance {
         // hermetic).
         bcfg.strip_env = tgt.host_mode.is_empty()
         if !tgt.host_mode.is_empty() {
-            for var d: string in HostSystem::env_list(EnvNames::cpath()) {
+            for *d in HostSystem::env_list(EnvNames::cpath()) {
                 bcfg.extra_cc1.push_back("-I")
-                bcfg.extra_cc1.push_back(d)
+                bcfg.extra_cc1.push_back(d->copy())
             }
 
-            for var d: string in HostSystem::env_list(EnvNames::c_include_path()) {
+            for *d in HostSystem::env_list(EnvNames::c_include_path()) {
                 bcfg.extra_cc1.push_back("-c-isystem")
-                bcfg.extra_cc1.push_back(d)
+                bcfg.extra_cc1.push_back(d->copy())
             }
 
-            for var d: string in HostSystem::env_list(EnvNames::cplus_include_path()) {
+            for *d in HostSystem::env_list(EnvNames::cplus_include_path()) {
                 bcfg.extra_cc1.push_back("-cxx-isystem")
-                bcfg.extra_cc1.push_back(d)
+                bcfg.extra_cc1.push_back(d->copy())
             }
         }
 
@@ -764,7 +764,7 @@ extend CompilerInstance {
         // host's dirs as the C library's -- with no sysroot at all.
         if tgt.host_mode == "floor" {
             for *d in tgt.host_include_dirs {
-                bcfg.after_dirs.push_back(*d)
+                bcfg.after_dirs.push_back(d->copy())
             }
         } else if tgt.host_mode == "native" {
             bcfg.sysroot = ""
@@ -777,18 +777,18 @@ extend CompilerInstance {
                 nb.sysroot = tgt.native_bundle.copy()
                 self._sysroot_header_roots(&nb)
                 for *d in nb.cxx_include_dirs {
-                    bcfg.cxx_include_dirs.push_back(*d)
+                    bcfg.cxx_include_dirs.push_back(d->copy())
                 }
 
                 for *d in nb.defines {
-                    bcfg.defines.push_back(*d)
+                    bcfg.defines.push_back(d->copy())
                 }
             } else if LinkFS::is_dir("/usr/include/c++/v1") {
                 bcfg.cxx_include_dirs.push_back("/usr/include/c++/v1")
             }
 
             for *d in tgt.host_include_dirs {
-                bcfg.include_dirs.push_back(*d)
+                bcfg.include_dirs.push_back(d->copy())
             }
         }
 
@@ -913,8 +913,8 @@ extend CompilerInstance {
     /// numbers: longer first, then by spelling ("22" over "9").
     priv static fn _pick_resource_dir(const base: string) -> string {
         var pick = ""
-        for var name: string in LinkFS::list_dir(base) {
-            var cand = LinkText::join(base.copy(), name.copy())
+        for *name in LinkFS::list_dir(base) {
+            var cand = LinkText::join(base.copy(), name->copy())
             if !LinkFS::is_file(LinkText::join(cand.copy(), "include/stddef.h")) {
                 continue
             }
@@ -922,7 +922,7 @@ extend CompilerInstance {
             var better = pick.is_empty()
             if !better {
                 var cur = LinkFS::filename(pick)
-                better = name.size() > cur.size() || name.size() == cur.size() && name > cur
+                better = name->size() > cur.size() || name->size() == cur.size() && *name > cur
             }
 
             if better {
@@ -1344,8 +1344,8 @@ extend CompilerInstance {
                 }
             }
 
-            for var d: string in HostSystem::include_dirs(arch, env) {
-                HostSystem::add_dir(&inc, &seen, d)
+            for *d in HostSystem::include_dirs(arch, env) {
+                HostSystem::add_dir(&inc, &seen, *d)
             }
 
             tg->host_include_dirs = inc
@@ -1375,8 +1375,8 @@ extend CompilerInstance {
                 }
             }
 
-            for var d: string in HostSystem::lib_dirs(arch, env, is64) {
-                HostSystem::add_dir(&libs, &seenl, d)
+            for *d in HostSystem::lib_dirs(arch, env, is64) {
+                HostSystem::add_dir(&libs, &seenl, *d)
             }
 
             tg->host_lib_dirs = libs
@@ -1552,7 +1552,7 @@ extend CompilerInstance {
             } else {
                 var b: usize = 0
                 for var k: usize = 0; k <= val.size(); ++k {
-                    if k == val.size() || val[k] == (',' as u8) {
+                    if k == val.size() || val.data()[k] == (',' as u8) {
                         var part = LinkText::slice(val, b, k)
                         if !part.is_empty() {
                             inv->linker.ld_flags.push_back(part)

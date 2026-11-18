@@ -256,7 +256,7 @@ extend IndexWalker {
 
         // What no code can spell (a C++ deduction guide, `<deduction guide
         // for array>`) is no name to offer.
-        if !is_ident_byte(name[0]) {
+        if !is_ident_byte(name.data()[0]) {
             return
         }
 

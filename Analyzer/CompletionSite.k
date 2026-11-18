@@ -55,6 +55,21 @@ pub struct Site {
     var next_word: string = ""
 }
 
+extend Site {
+    pub fn copy(const self) -> Site {
+        return Site {
+            what:      self.what,
+            start:     self.start,
+            end:       self.end,
+            recv_end:  self.recv_end,
+            kc:        self.kc,
+            path_at:   self.path_at,
+            lang:      self.lang.copy(),
+            next_word: self.next_word.copy(),
+        }
+    }
+}
+
 /// A `{ ... }` of the text, with what its header says it is.
 pub struct Block {
     var hstart: usize  = 0 ///< where its header starts (a closure's: at its `fn`)
@@ -69,6 +84,19 @@ pub struct Block {
     var name:   string = "" ///< what it declares; for `extend`, the last name of the target's path
 }
 
+extend Block {
+    pub fn copy(const self) -> Block {
+        return Block {
+            hstart: self.hstart,
+            open:   self.open,
+            close:  self.close,
+            word:   self.word.copy(),
+            scopes: self.scopes,
+            name:   self.name.copy(),
+        }
+    }
+}
+
 /// A name the text itself declares in a function (the index does not have
 /// it yet): its type as written, or what initialises it.
 pub struct LexDecl {
@@ -79,6 +107,18 @@ pub struct LexDecl {
     var param: bool   = false
 }
 
+extend LexDecl {
+    pub fn copy(const self) -> LexDecl {
+        return LexDecl {
+            name:  self.name.copy(),
+            off:   self.off,
+            type_: self.type_.copy(),
+            init:  self.init.copy(),
+            param: self.param,
+        }
+    }
+}
+
 fn blank(c: u8) -> bool {
     return (c == (' ' as u8)) || (c == ('\t' as u8))
 }
@@ -86,7 +126,7 @@ fn blank(c: u8) -> bool {
 /// The identifier that starts at `p`, "" for none.
 fn word_from(const text: string, p: usize) -> string {
     var e = p
-    while (e < text.size()) && is_ident_byte(text[e]) {
+    while (e < text.size()) && is_ident_byte(text.data()[e]) {
         e += 1
     }
 
@@ -96,7 +136,7 @@ fn word_from(const text: string, p: usize) -> string {
 /// The identifier that ends at `e` (exclusive), "" for none.
 fn word_before(const text: string, e: usize) -> string {
     var s = e
-    while (s > 0) && is_ident_byte(text[s - 1]) {
+    while (s > 0) && is_ident_byte(text.data()[s - 1]) {
         s -= 1
     }
 
@@ -110,7 +150,7 @@ pub fn stmt_start(const text: string, const cls: [u8], at: usize) -> usize {
     var depth: i64 = 0
     var p          = at
     while p > 0 {
-        var c = text[p - 1]
+        var c = text.data()[p - 1]
         if cls[p - 1] != 0 {
             p -= 1
             continue
@@ -129,12 +169,12 @@ pub fn stmt_start(const text: string, const cls: [u8], at: usize) -> usize {
                 // `for var i = 0; i < n; ++i {`: the `;` of a `for` header
                 // ends no statement. The header starts at its `for`.
                 var ls = p - 1
-                while (ls > 0) && (text[ls - 1] != ('\n' as u8)) {
+                while (ls > 0) && (text.data()[ls - 1] != ('\n' as u8)) {
                     ls -= 1
                 }
 
                 var f = ls
-                while (f < p) && blank(text[f]) {
+                while (f < p) && blank(text.data()[f]) {
                     f += 1
                 }
 
@@ -153,15 +193,17 @@ pub fn stmt_start(const text: string, const cls: [u8], at: usize) -> usize {
                 // rare in a language with no statement terminator.
                 var q = p - 1
                 while (q > 0)
-                    && ((cls[q - 1] != 0) || blank(text[q - 1]) || (text[q - 1] == ('\r' as u8))) {
-                    if text[q - 1] == ('\n' as u8) {
+                    && ((cls[q - 1] != 0)
+                        || blank(text.data()[q - 1])
+                        || (text.data()[q - 1] == ('\r' as u8))) {
+                    if text.data()[q - 1] == ('\n' as u8) {
                         break
                     }
 
                     q -= 1
                 }
 
-                var last: u8 = if (q > 0) => (text[q - 1]) else => ('\n' as u8)
+                var last: u8 = if (q > 0) => (text.data()[q - 1]) else => ('\n' as u8)
                 if !((last == (',' as u8)) || (last == ('(' as u8)) || (last == ('[' as u8))) {
                     break
                 }
@@ -171,7 +213,10 @@ pub fn stmt_start(const text: string, const cls: [u8], at: usize) -> usize {
         p -= 1
     }
 
-    while (p < at) && (blank(text[p]) || (text[p] == ('\n' as u8)) || (text[p] == ('\r' as u8))) {
+    while (p < at)
+        && (blank(text.data()[p])
+            || (text.data()[p] == ('\n' as u8))
+            || (text.data()[p] == ('\r' as u8))) {
         p += 1
     }
 
@@ -213,7 +258,9 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
     var p = from
     while p < to {
         while (p < to)
-            && (blank(text[p]) || (text[p] == ('\n' as u8)) || (text[p] == ('\r' as u8))) {
+            && (blank(text.data()[p])
+                || (text.data()[p] == ('\n' as u8))
+                || (text.data()[p] == ('\r' as u8))) {
             p += 1
         }
 
@@ -222,19 +269,19 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
         }
 
         // `@attr` / `@attr(args)` before the declaration.
-        if text[p] == ('@' as u8) {
+        if text.data()[p] == ('@' as u8) {
             p += 1
-            while (p < to) && (is_ident_byte(text[p]) || (text[p] == (':' as u8))) {
+            while (p < to) && (is_ident_byte(text.data()[p]) || (text.data()[p] == (':' as u8))) {
                 p += 1
             }
 
-            if (p < to) && (text[p] == ('(' as u8)) {
+            if (p < to) && (text.data()[p] == ('(' as u8)) {
                 var d: i64 = 0
                 while p < to {
                     if cls[p] == 0 {
-                        if text[p] == ('(' as u8) {
+                        if text.data()[p] == ('(' as u8) {
                             d += 1
-                        } else if text[p] == (')' as u8) {
+                        } else if text.data()[p] == (')' as u8) {
                             d -= 1
                             if d == 0 {
                                 p += 1
@@ -289,16 +336,16 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
             var q = to
             while q > (p + 1) {
                 q -= 1
-                if (cls[q] == 0) && (text[q] == ('(' as u8)) {
+                if (cls[q] == 0) && (text.data()[q] == ('(' as u8)) {
                     var e = q
-                    while (e > p) && blank(text[e - 1]) {
+                    while (e > p) && blank(text.data()[e - 1]) {
                         e -= 1
                     }
 
                     if (e >= (p + 2))
-                        && (text[e - 1] == ('n' as u8))
-                        && (text[e - 2] == ('f' as u8))
-                        && ((e - 2 == from) || (!is_ident_byte(text[e - 3]))) {
+                        && (text.data()[e - 1] == ('n' as u8))
+                        && (text.data()[e - 2] == ('f' as u8))
+                        && ((e - 2 == from) || (!is_ident_byte(text.data()[e - 3]))) {
                         b->word   = "fn"
                         b->scopes = true
                         b->hstart = e - 2
@@ -312,17 +359,17 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
 
         b->word   = w.copy()
         b->scopes = true
-        while (p < to) && blank(text[p]) {
+        while (p < to) && blank(text.data()[p]) {
             p += 1
         }
 
         // `fn <T> name(`, `struct <T> Pair`: the generic list comes first.
-        if (p < to) && (text[p] == ('<' as u8)) {
+        if (p < to) && (text.data()[p] == ('<' as u8)) {
             var d: i64 = 0
             while p < to {
-                if text[p] == ('<' as u8) {
+                if text.data()[p] == ('<' as u8) {
                     d += 1
-                } else if text[p] == ('>' as u8) {
+                } else if text.data()[p] == ('>' as u8) {
                     d -= 1
                     if d == 0 {
                         p += 1
@@ -333,7 +380,7 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
                 p += 1
             }
 
-            while (p < to) && blank(text[p]) {
+            while (p < to) && blank(text.data()[p]) {
                 p += 1
             }
         }
@@ -343,8 +390,8 @@ fn read_header(const text: string, const cls: [u8], from: usize, to: usize, b: *
         p += name.size()
         while (w == "extend")
             && ((p + 1) < to)
-            && (text[p] == (':' as u8))
-            && (text[p + 1] == (':' as u8)) {
+            && (text.data()[p] == (':' as u8))
+            && (text.data()[p + 1] == (':' as u8)) {
             p += 2
             name = word_from(text, p)
             p += name.size()
@@ -371,7 +418,7 @@ pub fn blocks_before(const text: string, const cls: [u8], at: usize) -> [Block] 
             continue
         }
 
-        var c = text[i]
+        var c = text.data()[i]
         if c == ('{' as u8) {
             var b = Block{}
             b.open   = i
@@ -436,23 +483,23 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     var s = Site{}
     var n = text.size()
     s.start = at
-    while (s.start > 0) && is_ident_byte(text[s.start - 1]) {
+    while (s.start > 0) && is_ident_byte(text.data()[s.start - 1]) {
         s.start -= 1
     }
 
     s.end = at
-    while (s.end < n) && is_ident_byte(text[s.end]) {
+    while (s.end < n) && is_ident_byte(text.data()[s.end]) {
         s.end += 1
     }
 
     var ls = at
-    while (ls > 0) && (text[ls - 1] != ('\n' as u8)) {
+    while (ls > 0) && (text.data()[ls - 1] != ('\n' as u8)) {
         ls -= 1
     }
 
     // --- `ffi "c++" import "path|`: the header's path, which is a string.
     var p = ls
-    while (p < at) && blank(text[p]) {
+    while (p < at) && blank(text.data()[p]) {
         p += 1
     }
 
@@ -460,7 +507,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
         var w = word_from(text, p)
         if (w == "pub") || (w == "priv") || (w == "prot") {
             p += w.size()
-            while (p < at) && blank(text[p]) {
+            while (p < at) && blank(text.data()[p]) {
                 p += 1
             }
         }
@@ -468,32 +515,32 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
 
     if word_from(text, p) == "ffi" {
         var q = p + 3
-        while (q < at) && blank(text[q]) {
+        while (q < at) && blank(text.data()[q]) {
             q += 1
         }
 
-        if (q < at) && (text[q] == ('"' as u8)) {
+        if (q < at) && (text.data()[q] == ('"' as u8)) {
             var le = q + 1
-            while (le < at) && (text[le] != ('"' as u8)) {
+            while (le < at) && (text.data()[le] != ('"' as u8)) {
                 le += 1
             }
 
             var lang = text.subslice(q + 1, le - q - 1)
             q = le + 1
-            while (q < at) && blank(text[q]) {
+            while (q < at) && blank(text.data()[q]) {
                 q += 1
             }
 
             if (le < at) && (word_from(text, q) == "import") {
                 q += 6
-                while (q < at) && blank(text[q]) {
+                while (q < at) && blank(text.data()[q]) {
                     q += 1
                 }
 
-                if (q < at) && (text[q] == ('"' as u8)) {
+                if (q < at) && (text.data()[q] == ('"' as u8)) {
                     var closed = false
                     for var k: usize = q + 1; k < at; ++k {
-                        if text[k] == ('"' as u8) {
+                        if text.data()[k] == ('"' as u8) {
                             closed = true
                         }
                     }
@@ -504,15 +551,15 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
                         s.path_at = q + 1
                         // What is replaced is the last path segment.
                         s.start = at
-                        while (s.start > (q + 1)) && (text[s.start - 1] != ('/' as u8)) {
+                        while (s.start > (q + 1)) && (text.data()[s.start - 1] != ('/' as u8)) {
                             s.start -= 1
                         }
 
                         s.end = at
                         while (s.end < n)
-                            && (text[s.end] != ('"' as u8))
-                            && (text[s.end] != ('/' as u8))
-                            && (text[s.end] != ('\n' as u8)) {
+                            && (text.data()[s.end] != ('"' as u8))
+                            && (text.data()[s.end] != ('/' as u8))
+                            && (text.data()[s.end] != ('\n' as u8)) {
                             s.end += 1
                         }
 
@@ -540,11 +587,11 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
         }
 
         var depth: i64 = 0
-        if (b > 0) && (text[b - 1] == ('f' as u8)) {
+        if (b > 0) && (text.data()[b - 1] == ('f' as u8)) {
             for var k: usize = b + 1; k < at; ++k {
-                if text[k] == ('{' as u8) {
+                if text.data()[k] == ('{' as u8) {
                     depth += 1
-                } else if (text[k] == ('}' as u8)) && (depth > 0) {
+                } else if (text.data()[k] == ('}' as u8)) && (depth > 0) {
                     depth -= 1
                 }
             }
@@ -558,8 +605,8 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
         var quotes: usize = 0
         for var k: usize = ls; k < at; ++k {
             if (cls[k] == 0)
-                && (text[k] == ('"' as u8))
-                && ((k == ls) || (text[k - 1] != ('\\' as u8))) {
+                && (text.data()[k] == ('"' as u8))
+                && ((k == ls) || (text.data()[k - 1] != ('\\' as u8))) {
                 quotes += 1
             }
         }
@@ -570,17 +617,21 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     }
 
     // --- a number being typed (`12`, `0x1F`, `1.5`).
-    if (s.start < s.end) && (text[s.start] >= ('0' as u8)) && (text[s.start] <= ('9' as u8)) {
+    if (s.start < s.end)
+        && (text.data()[s.start] >= ('0' as u8))
+        && (text.data()[s.start] <= ('9' as u8)) {
         return s
     }
 
     // --- `@word`.
-    if (s.start > 0) && (text[s.start - 1] == ('@' as u8)) {
+    if (s.start > 0) && (text.data()[s.start - 1] == ('@' as u8)) {
         s.what = SITE_ATTR
         var q = s.end
         // `@name(args)` already written: past its arguments.
         while (q < n)
-            && (blank(text[q]) || (text[q] == ('\n' as u8)) || (text[q] == ('\r' as u8))) {
+            && (blank(text.data()[q])
+                || (text.data()[q] == ('\n' as u8))
+                || (text.data()[q] == ('\r' as u8))) {
             q += 1
         }
 
@@ -591,7 +642,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
             }
 
             q += w.size()
-            while (q < n) && blank(text[q]) {
+            while (q < n) && blank(text.data()[q]) {
                 q += 1
             }
         }
@@ -602,16 +653,16 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
 
     // --- after `.`, `->`, `::`.
     var before = s.start
-    while (before > 0) && blank(text[before - 1]) {
+    while (before > 0) && blank(text.data()[before - 1]) {
         before -= 1
     }
 
     if before > 0 {
-        var c = text[before - 1]
-        if (c == ('.' as u8)) && (!((before > 1) && (text[before - 2] == ('.' as u8)))) {
+        var c = text.data()[before - 1]
+        if (c == ('.' as u8)) && (!((before > 1) && (text.data()[before - 2] == ('.' as u8)))) {
             s.what     = SITE_MEMBER
             s.recv_end = before - 1
-        } else if (c == ('>' as u8)) && (before > 1) && (text[before - 2] == ('-' as u8)) {
+        } else if (c == ('>' as u8)) && (before > 1) && (text.data()[before - 2] == ('-' as u8)) {
             s.recv_end = before - 2
             // `fn f() -> T`: a return type, not a member, when the
             // statement is a function's header.
@@ -621,7 +672,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
             read_header(text, cls, st, s.recv_end, &hb)
             var has_body = false
             for var k: usize = hb.hstart; k < s.recv_end; ++k {
-                if (cls[k] == 0) && (text[k] == ('{' as u8)) {
+                if (cls[k] == 0) && (text.data()[k] == ('{' as u8)) {
                     has_body = true
                 }
             }
@@ -633,7 +684,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
             }
 
             s.what = SITE_MEMBER
-        } else if (c == (':' as u8)) && (before > 1) && (text[before - 2] == (':' as u8)) {
+        } else if (c == (':' as u8)) && (before > 1) && (text.data()[before - 2] == (':' as u8)) {
             s.what     = SITE_MEMBER
             s.recv_end = before - 2
         }
@@ -642,16 +693,16 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     if s.what == SITE_MEMBER {
         // The receiver is a number (`1.`): a float being typed.
         var r = s.recv_end
-        while (r > 0) && blank(text[r - 1]) {
+        while (r > 0) && blank(text.data()[r - 1]) {
             r -= 1
         }
 
         var rs = r
-        while (rs > 0) && is_ident_byte(text[rs - 1]) {
+        while (rs > 0) && is_ident_byte(text.data()[rs - 1]) {
             rs -= 1
         }
 
-        if (rs < r) && (text[rs] >= ('0' as u8)) && (text[rs] <= ('9' as u8)) {
+        if (rs < r) && (text.data()[rs] >= ('0' as u8)) && (text.data()[rs] <= ('9' as u8)) {
             s.what = SITE_NONE
         }
 
@@ -694,7 +745,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     var head = Block{}
     head.hstart = st
     read_header(text, cls, st, s.start, &head)
-    if (before > 0) && (text[before - 1] == (':' as u8)) {
+    if (before > 0) && (text.data()[before - 1] == (':' as u8)) {
         // `var x: T`: a type. Any other `:` may be a named field's value
         // or a map's (`Point { x: v }`, `{k: v}`): a type or an expression.
         var q = st
@@ -706,7 +757,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
             || (w == "unsafe")
             || (w == "inline") {
             q += w.size()
-            while (q < s.start) && blank(text[q]) {
+            while (q < s.start) && blank(text.data()[q]) {
                 q += 1
             }
 
@@ -722,7 +773,7 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
     // statement that holds a finished closure, not a header.
     var body = false
     for var k: usize = head.hstart; (head.word == "fn") && (k < s.start); ++k {
-        if (cls[k] == 0) && (text[k] == ('{' as u8)) {
+        if (cls[k] == 0) && (text.data()[k] == ('{' as u8)) {
             body = true
         }
     }
@@ -737,14 +788,14 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
                 continue
             }
 
-            if (text[k] == ('(' as u8)) || (text[k] == ('<' as u8)) {
+            if (text.data()[k] == ('(' as u8)) || (text.data()[k] == ('<' as u8)) {
                 depth += 1
                 colon = false
-            } else if (text[k] == (')' as u8)) || (text[k] == ('>' as u8)) {
+            } else if (text.data()[k] == (')' as u8)) || (text.data()[k] == ('>' as u8)) {
                 depth -= 1
-            } else if text[k] == (',' as u8) {
+            } else if text.data()[k] == (',' as u8) {
                 colon = false
-            } else if text[k] == (':' as u8) {
+            } else if text.data()[k] == (':' as u8) {
                 colon = true
             }
         }
@@ -782,7 +833,10 @@ pub fn site_at(const text: string, const cls: [u8], at: usize) -> Site {
 pub fn type_head(const t: string) -> string {
     var p: usize = 0
     while p < t.size() {
-        while (p < t.size()) && (blank(t[p]) || (t[p] == ('*' as u8)) || (t[p] == ('&' as u8))) {
+        while (p < t.size())
+            && (blank(t.data()[p])
+                || (t.data()[p] == ('*' as u8))
+                || (t.data()[p] == ('&' as u8))) {
             p += 1
         }
 
@@ -796,7 +850,7 @@ pub fn type_head(const t: string) -> string {
     }
 
     var e = p
-    while (e < t.size()) && (is_ident_byte(t[e]) || (t[e] == (':' as u8))) {
+    while (e < t.size()) && (is_ident_byte(t.data()[e]) || (t.data()[e] == (':' as u8))) {
         e += 1
     }
 
@@ -809,18 +863,18 @@ pub fn type_head(const t: string) -> string {
 /// is not subscripted as it is).
 pub fn elem_type_text(const t: string) -> string {
     var p: usize = 0
-    while (p < t.size()) && blank(t[p]) {
+    while (p < t.size()) && blank(t.data()[p]) {
         p += 1
     }
 
     if word_from(t, p) == "const" {
         p += 5
-        while (p < t.size()) && blank(t[p]) {
+        while (p < t.size()) && blank(t.data()[p]) {
             p += 1
         }
     }
 
-    if (p >= t.size()) || ((t[p] != ('[' as u8)) && (t[p] != ('{' as u8))) {
+    if (p >= t.size()) || ((t.data()[p] != ('[' as u8)) && (t.data()[p] != ('{' as u8))) {
         return ""
     }
 
@@ -828,7 +882,7 @@ pub fn elem_type_text(const t: string) -> string {
     var cut        = usize::MAX // `;` in a `[`, `:` in a `{`, at the outer depth
     var depth: i64 = 0
     for var k = p; k < t.size(); ++k {
-        var c = t[k]
+        var c = t.data()[k]
         if (c == ('[' as u8)) || (c == ('{' as u8)) || (c == ('(' as u8)) || (c == ('<' as u8)) {
             depth += 1
         } else if (c == (']' as u8))
@@ -841,12 +895,12 @@ pub fn elem_type_text(const t: string) -> string {
                 break
             }
         } else if (depth == 1) && (cut == usize::MAX) {
-            if (t[p] == ('[' as u8)) && (c == (';' as u8)) {
+            if (t.data()[p] == ('[' as u8)) && (c == (';' as u8)) {
                 cut = k
-            } else if (t[p] == ('{' as u8))
+            } else if (t.data()[p] == ('{' as u8))
                 && (c == (':' as u8))
-                && (!(((k + 1) < t.size()) && (t[k + 1] == (':' as u8))))
-                && (!((k > 0) && (t[k - 1] == (':' as u8)))) {
+                && (!(((k + 1) < t.size()) && (t.data()[k + 1] == (':' as u8))))
+                && (!((k > 0) && (t.data()[k - 1] == (':' as u8)))) {
                 cut = k
             }
         }
@@ -858,14 +912,14 @@ pub fn elem_type_text(const t: string) -> string {
 
     // Nothing after the brackets: `[T]?` is not subscripted as it is.
     for var k = close + 1; k < t.size(); ++k {
-        if !blank(t[k]) {
+        if !blank(t.data()[k]) {
             return ""
         }
     }
 
     var a = p + 1
     var b = close
-    if t[p] == ('{' as u8) {
+    if t.data()[p] == ('{' as u8) {
         if cut == usize::MAX {
             return "" // a set: no subscript
         }
@@ -875,11 +929,11 @@ pub fn elem_type_text(const t: string) -> string {
         b = cut
     }
 
-    while (a < b) && blank(t[a]) {
+    while (a < b) && blank(t.data()[a]) {
         a += 1
     }
 
-    while (b > a) && blank(t[b - 1]) {
+    while (b > a) && blank(t.data()[b - 1]) {
         b -= 1
     }
 
@@ -894,12 +948,12 @@ pub fn decl_type_text(const line: string, const name: string, result: bool) -> s
         var at         = usize::MAX
         var depth: i64 = 0
         for var k: usize = 0; (k + 1) < line.size(); ++k {
-            var c = line[k]
+            var c = line.data()[k]
             if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('{' as u8)) {
                 depth += 1
             } else if (c == (')' as u8)) || (c == (']' as u8)) || (c == ('}' as u8)) {
                 depth -= 1
-            } else if (depth == 0) && (c == ('-' as u8)) && (line[k + 1] == ('>' as u8)) {
+            } else if (depth == 0) && (c == ('-' as u8)) && (line.data()[k + 1] == ('>' as u8)) {
                 at = k + 2
             }
         }
@@ -923,11 +977,11 @@ pub fn decl_type_text(const line: string, const name: string, result: bool) -> s
     }
 
     var p = n + name.size()
-    while (p < line.size()) && blank(line[p]) {
+    while (p < line.size()) && blank(line.data()[p]) {
         p += 1
     }
 
-    if (p >= line.size()) || (line[p] != (':' as u8)) {
+    if (p >= line.size()) || (line.data()[p] != (':' as u8)) {
         return ""
     }
 
@@ -935,7 +989,7 @@ pub fn decl_type_text(const line: string, const name: string, result: bool) -> s
     var e          = p
     var depth: i64 = 0
     while e < line.size() {
-        var c = line[e]
+        var c = line.data()[e]
         if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('{' as u8)) || (c == ('<' as u8)) {
             depth += 1
         } else if (c == (')' as u8))
@@ -958,8 +1012,8 @@ fn find_word_(const s: string, const w: string, from: usize) -> usize {
     var k = from
     while (k + w.size()) <= s.size() {
         if (s.subslice(k, w.size()) == w)
-            && ((k == 0) || (!is_ident_byte(s[k - 1])))
-            && (((k + w.size()) == s.size()) || (!is_ident_byte(s[k + w.size()]))) {
+            && ((k == 0) || (!is_ident_byte(s.data()[k - 1])))
+            && (((k + w.size()) == s.size()) || (!is_ident_byte(s.data()[k + w.size()]))) {
             return k
         }
 
@@ -980,14 +1034,14 @@ fn read_decl(const text: string,
     var p = p_in
     while p < to {
         while (p < to)
-            && (blank(text[p])
-                || (text[p] == ('*' as u8))
-                || (text[p] == ('&' as u8))
-                || (text[p] == ('\n' as u8))) {
+            && (blank(text.data()[p])
+                || (text.data()[p] == ('*' as u8))
+                || (text.data()[p] == ('&' as u8))
+                || (text.data()[p] == ('\n' as u8))) {
             p += 1
         }
 
-        if (p < to) && (text[p] == ('@' as u8)) {
+        if (p < to) && (text.data()[p] == ('@' as u8)) {
             // `@inout x: T`, `@move x: T`
             p += 1
             p += word_from(text, p).size()
@@ -1004,7 +1058,7 @@ fn read_decl(const text: string,
     }
 
     var name = word_from(text, p)
-    if name.is_empty() || ((name[0] >= ('0' as u8)) && (name[0] <= ('9' as u8))) {
+    if name.is_empty() || ((name.data()[0] >= ('0' as u8)) && (name.data()[0] <= ('9' as u8))) {
         return
     }
 
@@ -1013,7 +1067,7 @@ fn read_decl(const text: string,
     d.off   = p
     d.param = param
     p += name.size()
-    while (p < to) && blank(text[p]) {
+    while (p < to) && blank(text.data()[p]) {
         p += 1
     }
 
@@ -1022,7 +1076,7 @@ fn read_decl(const text: string,
     var e          = p
     var depth: i64 = 0
     while e < to {
-        var c = text[e]
+        var c = text.data()[e]
         if cls[e] == 0 {
             if (c == ('(' as u8))
                 || (c == ('[' as u8))
@@ -1051,7 +1105,7 @@ fn read_decl(const text: string,
     var eq       = usize::MAX
     var dd:  i64 = 0
     for var k: usize = 0; k < rest.size(); ++k {
-        var c = rest[k]
+        var c = rest.data()[k]
         if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('<' as u8)) {
             dd += 1
         } else if (c == (')' as u8)) || (c == (']' as u8)) || (c == ('>' as u8)) {
@@ -1059,7 +1113,7 @@ fn read_decl(const text: string,
         } else if (c == ('=' as u8))
             && (dd <= 0)
             && (eq == usize::MAX)
-            && (!(((k + 1) < rest.size()) && (rest[k + 1] == ('=' as u8)))) {
+            && (!(((k + 1) < rest.size()) && (rest.data()[k + 1] == ('=' as u8)))) {
             eq = k
         }
     }
@@ -1070,7 +1124,7 @@ fn read_decl(const text: string,
         d.init = rest.subslice(eq + 1, rest.size() - eq - 1)
     }
 
-    if (!ty.is_empty()) && (ty[0] == (':' as u8)) {
+    if (!ty.is_empty()) && (ty.data()[0] == (':' as u8)) {
         d.type_ = ty.subslice(1, ty.size() - 1)
     }
 
@@ -1084,7 +1138,9 @@ pub fn lex_decls(const text: string, const cls: [u8], from: usize, to: usize) ->
     var out: [LexDecl]
     var p              = from
     while p < to {
-        if (cls[p] != 0) || (!is_ident_byte(text[p])) || ((p > 0) && is_ident_byte(text[p - 1])) {
+        if (cls[p] != 0)
+            || (!is_ident_byte(text.data()[p]))
+            || ((p > 0) && is_ident_byte(text.data()[p - 1])) {
             p += 1
             continue
         }
@@ -1094,14 +1150,14 @@ pub fn lex_decls(const text: string, const cls: [u8], from: usize, to: usize) ->
         if (w == "var") || (w == "const") || (w == "eval") {
             read_decl(text, cls, q, to, &out, false)
         } else if (w == "for") || (w == "catch") {
-            while (q < to) && blank(text[q]) {
+            while (q < to) && blank(text.data()[q]) {
                 q += 1
             }
 
             var name = word_from(text, q)
             if (!name.is_empty()) && (name != "var") && (name != "const") {
                 var after = q + name.size()
-                while (after < to) && blank(text[after]) {
+                while (after < to) && blank(text.data()[after]) {
                     after += 1
                 }
 
@@ -1129,7 +1185,7 @@ pub fn lex_params(const text: string, const cls: [u8], from: usize, to: usize) -
     var p              = from
     // The parameter list is the first `(` after the name (a generic list
     // has no parenthesis).
-    while (p < to) && (!((cls[p] == 0) && (text[p] == ('(' as u8)))) {
+    while (p < to) && (!((cls[p] == 0) && (text.data()[p] == ('(' as u8)))) {
         p += 1
     }
 
@@ -1141,7 +1197,7 @@ pub fn lex_params(const text: string, const cls: [u8], from: usize, to: usize) -
     var depth: i64 = 0
     var item       = p
     while p < to {
-        var c = text[p]
+        var c = text.data()[p]
         if cls[p] == 0 {
             if (c == ('(' as u8)) || (c == ('[' as u8)) || (c == ('<' as u8)) {
                 depth += 1
@@ -1173,6 +1229,17 @@ pub struct RecvStep {
     var index: usize  = 0
 }
 
+extend RecvStep {
+    pub fn copy(const self) -> RecvStep {
+        return RecvStep {
+            name:  self.name.copy(),
+            call:  self.call,
+            off:   self.off,
+            index: self.index,
+        }
+    }
+}
+
 /// The receiver that ends at `end` (exclusive), as its steps from the
 /// head: `a.b().c` is a, b (called), c; `a[i].b` is a (one subscript), b;
 /// a parenthesised chain (`(a.b).`, `(*p).`) is the chain; a `?` of a safe
@@ -1187,18 +1254,18 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
     var guard: usize = 0
     while guard < 32 {
         guard += 1
-        while (p > 0) && blank(text[p - 1]) {
+        while (p > 0) && blank(text.data()[p - 1]) {
             p -= 1
         }
 
         // `x?.`: a nullable's safe access names the members of what it
         // holds, which is the record the tables give a `T?` (through `?`).
         if (p > 0)
-            && (text[p - 1] == ('?' as u8))
+            && (text.data()[p - 1] == ('?' as u8))
             && (cls[p - 1] == here)
-            && (!((p > 1) && (text[p - 2] == ('?' as u8)))) {
+            && (!((p > 1) && (text.data()[p - 2] == ('?' as u8)))) {
             p -= 1
-            while (p > 0) && blank(text[p - 1]) {
+            while (p > 0) && blank(text.data()[p - 1]) {
                 p -= 1
             }
         }
@@ -1206,12 +1273,12 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         var st = RecvStep{}
         // `v[i]`, `m[k][j]`: the subscripts after the step, back over
         // their brackets (these went to the compiler).
-        while (p > 0) && (text[p - 1] == (']' as u8)) && (cls[p - 1] == here) {
+        while (p > 0) && (text.data()[p - 1] == (']' as u8)) && (cls[p - 1] == here) {
             var close_at     = p - 1
             var bd:      i64 = 0
             var opened       = false
             while p > 0 {
-                var c = text[p - 1]
+                var c = text.data()[p - 1]
                 if cls[p - 1] == here {
                     if c == (']' as u8) {
                         bd += 1
@@ -1234,13 +1301,15 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
 
             // `v[a..b]` is a slice of `v`, not an element: not read here.
             for var k = p + 1; (k + 1) < close_at; ++k {
-                if (cls[k] == here) && (text[k] == ('.' as u8)) && (text[k + 1] == ('.' as u8)) {
+                if (cls[k] == here)
+                    && (text.data()[k] == ('.' as u8))
+                    && (text.data()[k + 1] == ('.' as u8)) {
                     return none
                 }
             }
 
             st.index += 1
-            while (p > 0) && blank(text[p - 1]) {
+            while (p > 0) && blank(text.data()[p - 1]) {
                 p -= 1
             }
         }
@@ -1249,11 +1318,11 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         var paren_close = usize::MAX
         var paren_open  = usize::MAX
         var generic     = false
-        if (p > 0) && (text[p - 1] == (')' as u8)) && (cls[p - 1] == here) {
+        if (p > 0) && (text.data()[p - 1] == (')' as u8)) && (cls[p - 1] == here) {
             paren_close = p - 1
             var depth: i64 = 0
             while p > 0 {
-                var c = text[p - 1]
+                var c = text.data()[p - 1]
                 if cls[p - 1] == here {
                     if c == (')' as u8) {
                         depth += 1
@@ -1271,15 +1340,15 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
             }
 
             st.call = true
-            while (p > 0) && blank(text[p - 1]) {
+            while (p > 0) && blank(text.data()[p - 1]) {
                 p -= 1
             }
 
-            if (p > 0) && (text[p - 1] == ('>' as u8)) {
+            if (p > 0) && (text.data()[p - 1] == ('>' as u8)) {
                 generic = true
                 var ad: i64 = 0
                 while p > 0 {
-                    var c = text[p - 1]
+                    var c = text.data()[p - 1]
                     if c == ('>' as u8) {
                         ad += 1
                     } else if c == ('<' as u8) {
@@ -1296,7 +1365,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         }
 
         var e = p
-        while (p > 0) && is_ident_byte(text[p - 1]) {
+        while (p > 0) && is_ident_byte(text.data()[p - 1]) {
             p -= 1
         }
 
@@ -1308,16 +1377,19 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
             var open  = paren_open
             var inner = receiver_steps(text, cls, paren_close)
             var first = open + 1
-            while (first < paren_close) && (blank(text[first]) || (text[first] == ('\n' as u8))) {
+            while (first < paren_close)
+                && (blank(text.data()[first]) || (text.data()[first] == ('\n' as u8))) {
                 first += 1
             }
 
             // `(*p).`: a dereferenced chain is the record the chain's
             // pointer points at, which is what the tables give a pointer
             // (through `*`).
-            if (first < paren_close) && (text[first] == ('*' as u8)) && (cls[first] == here) {
+            if (first < paren_close)
+                && (text.data()[first] == ('*' as u8))
+                && (cls[first] == here) {
                 first += 1
-                while (first < paren_close) && blank(text[first]) {
+                while (first < paren_close) && blank(text.data()[first]) {
                     first += 1
                 }
             }
@@ -1327,33 +1399,35 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
             }
 
             var q0 = open
-            while (q0 > 0) && blank(text[q0 - 1]) {
+            while (q0 > 0) && blank(text.data()[q0 - 1]) {
                 q0 -= 1
             }
 
             // Nothing that would make the brackets part of a larger
             // expression this does not read (`x.(a)`, `f()(a)`, `@(a)`).
             if (q0 > 0)
-                && ((text[q0 - 1] == ('.' as u8))
-                    || (text[q0 - 1] == (':' as u8))
-                    || (text[q0 - 1] == ('>' as u8))
-                    || (text[q0 - 1] == (')' as u8))
-                    || (text[q0 - 1] == (']' as u8))
-                    || (text[q0 - 1] == ('@' as u8))) {
+                && ((text.data()[q0 - 1] == ('.' as u8))
+                    || (text.data()[q0 - 1] == (':' as u8))
+                    || (text.data()[q0 - 1] == ('>' as u8))
+                    || (text.data()[q0 - 1] == (')' as u8))
+                    || (text.data()[q0 - 1] == (']' as u8))
+                    || (text.data()[q0 - 1] == ('@' as u8))) {
                 return none
             }
 
             inner[inner.size() - 1].index += st.index
             var ik = inner.size()
             while ik > 0 {
-                rev.push(inner[ik - 1])
+                rev.push(inner[ik - 1].copy())
                 ik -= 1
             }
 
             break
         }
 
-        if (p == e) || (cls[p] != here) || ((text[p] >= ('0' as u8)) && (text[p] <= ('9' as u8))) {
+        if (p == e)
+            || (cls[p] != here)
+            || ((text.data()[p] >= ('0' as u8)) && (text.data()[p] <= ('9' as u8))) {
             return none
         }
 
@@ -1362,18 +1436,20 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         rev.push(st)
 
         var q = p
-        while (q > 0) && blank(text[q - 1]) {
+        while (q > 0) && blank(text.data()[q - 1]) {
             q -= 1
         }
 
-        if (q > 0) && (text[q - 1] == ('.' as u8)) && (!((q > 1) && (text[q - 2] == ('.' as u8)))) {
+        if (q > 0)
+            && (text.data()[q - 1] == ('.' as u8))
+            && (!((q > 1) && (text.data()[q - 2] == ('.' as u8)))) {
             p = q - 1
             continue
         }
 
         if (q > 1)
-            && (((text[q - 1] == ('>' as u8)) && (text[q - 2] == ('-' as u8)))
-                || ((text[q - 1] == (':' as u8)) && (text[q - 2] == (':' as u8)))) {
+            && (((text.data()[q - 1] == ('>' as u8)) && (text.data()[q - 2] == ('-' as u8)))
+                || ((text.data()[q - 1] == (':' as u8)) && (text.data()[q - 2] == (':' as u8)))) {
             p = q - 2
             continue
         }
@@ -1382,9 +1458,9 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
         // this does not read: `x[i].y`, `f(a).b` are handled above; a `)`
         // or `]` here is an expression's end.
         if (q > 0)
-            && ((text[q - 1] == (')' as u8))
-                || (text[q - 1] == (']' as u8))
-                || (text[q - 1] == ('@' as u8))) {
+            && ((text.data()[q - 1] == (')' as u8))
+                || (text.data()[q - 1] == (']' as u8))
+                || (text.data()[q - 1] == ('@' as u8))) {
             return none
         }
 
@@ -1394,7 +1470,7 @@ pub fn receiver_steps(const text: string, const cls: [u8], end: usize) -> [RecvS
     var out: [RecvStep]
     var k               = rev.size()
     while k > 0 {
-        out.push(rev[k - 1])
+        out.push(rev[k - 1].copy())
         k -= 1
     }
 
@@ -1408,7 +1484,7 @@ pub fn doc_above(const text: string, line: usize, cxx: bool) -> string {
     var at: usize = 0
     var l:  usize = 0
     while (l < line) && (at < text.size()) {
-        if text[at] == ('\n' as u8) {
+        if text.data()[at] == ('\n' as u8) {
             l += 1
         }
 

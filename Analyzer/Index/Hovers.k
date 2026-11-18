@@ -151,7 +151,7 @@ extend IndexWalker {
 
         var space = false
         for var i: usize = so; i < so + n; ++i {
-            var ch = self.files[fi].text[i]
+            var ch = self.files[fi].text.data()[i]
             if (ch == (' ' as u8))
                 || (ch == ('\t' as u8))
                 || (ch == ('\n' as u8))
@@ -191,7 +191,7 @@ extend IndexWalker {
                 }
 
                 var t = self.source_text_(e->range)
-                if t.is_empty() || (t[0] != ('@' as u8)) {
+                if t.is_empty() || (t.data()[0] != ('@' as u8)) {
                     continue // not an `@` the text shows: a range a macro made
                 }
 
@@ -219,7 +219,7 @@ extend IndexWalker {
         }
 
         for var i: usize = 0; (i + needle.size()) <= hay.size(); ++i {
-            if (i > 0) && (hay[i - 1] != (' ' as u8)) {
+            if (i > 0) && (hay.data()[i - 1] != (' ' as u8)) {
                 continue
             }
 
@@ -252,7 +252,7 @@ extend IndexWalker {
         var closed        = false
         var steps: usize  = 0
         while (i < n) && (steps < TYPE_HEAD_SCAN_BYTES) {
-            var ch = self.files[fi].text[i]
+            var ch = self.files[fi].text.data()[i]
             if ch == ('{' as u8) {
                 closed = true
                 break
@@ -296,7 +296,7 @@ extend IndexWalker {
             head = head.subslice(0, cut)
         }
 
-        while (!head.is_empty()) && (head[head.size() - 1] == (' ' as u8)) {
+        while (!head.is_empty()) && (head.data()[head.size() - 1] == (' ' as u8)) {
             head = head.subslice(0, head.size() - 1)
         }
 
@@ -445,7 +445,7 @@ extend IndexWalker {
                         pt = pt.subslice(0, pt.size() - 1)
                     }
 
-                    while (!pt.is_empty()) && (pt[pt.size() - 1] == (' ' as u8)) {
+                    while (!pt.is_empty()) && (pt.data()[pt.size() - 1] == (' ' as u8)) {
                         pt = pt.subslice(0, pt.size() - 1)
                     }
                 }
@@ -1056,10 +1056,10 @@ extend IndexWalker {
         // Past the code block's closing fence, where hover_ puts the line.
         var at = base.size()
         for var k: usize = 9; (k + 4) <= base.size(); ++k {
-            if (base[k] == ('\n' as u8))
-                && (base[k + 1] == ('`' as u8))
-                && (base[k + 2] == ('`' as u8))
-                && (base[k + 3] == ('`' as u8)) {
+            if (base.data()[k] == ('\n' as u8))
+                && (base.data()[k + 1] == ('`' as u8))
+                && (base.data()[k + 2] == ('`' as u8))
+                && (base.data()[k + 3] == ('`' as u8)) {
                 at = k + 4
                 break
             }

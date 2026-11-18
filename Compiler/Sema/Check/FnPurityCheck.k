@@ -2045,7 +2045,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         self._report(
             at,
-            verb + " the global '" + self._tu.decl_name(
+            verb.copy() + " the global '" + self._tu.decl_name(
                 unsafe (v as unsafe *Decl),
             ) + "'",
         )

@@ -1391,9 +1391,9 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         }
 
         var back = self.st
-        var top  = self.loops.back()
-        for var i: usize = 0; i < top.conts.size(); ++i {
-            back = null_scan_join(&back, &top.conts[i])
+        var *top = &self.loops[self.loops.size() - 1]
+        for var i: usize = 0; i < top->conts.size(); ++i {
+            back = null_scan_join(&back, &top->conts[i])
         }
 
         self.loops.pop_back()
@@ -2028,9 +2028,9 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         }
 
         var back = self.st
-        var me   = self.loops.back()
-        for var i: usize = 0; i < me.conts.size(); ++i {
-            back = null_scan_join(&back, &me.conts[i])
+        var *me  = &self.loops[self.loops.size() - 1]
+        for var i: usize = 0; i < me->conts.size(); ++i {
+            back = null_scan_join(&back, &me->conts[i])
         }
 
         if update != &null {
@@ -2045,19 +2045,19 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             self.scan_expr(cond)
         }
 
-        me = self.loops.back()
+        var done = cxx::std::move(self.loops.back())
         self.loops.pop_back()
         var after = self.st
         if !may_skip {
             after      = NullScanState{}
             after.dead = true
-            if me.breaks.size() > 0 {
+            if done.breaks.size() > 0 {
                 after = back
             }
         }
 
-        for var i: usize = 0; i < me.breaks.size(); ++i {
-            after = null_scan_join(&after, &me.breaks[i])
+        for var i: usize = 0; i < done.breaks.size(); ++i {
+            after = null_scan_join(&after, &done.breaks[i])
         }
 
         self.st = after
@@ -3312,7 +3312,7 @@ pub class NullnessFlow {
             return out
         }
 
-        var l = self._loops.back()
+        var l = cxx::std::move(self._loops.back())
         self._loops.pop_back()
         for var i: usize = 0; i < l.breaks.size(); ++i {
             out = null_env_join(unsafe &out, unsafe &l.breaks[i])

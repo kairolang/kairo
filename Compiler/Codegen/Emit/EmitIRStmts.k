@@ -613,11 +613,7 @@ extend EmitIR {
             if t.size() >= 3 && t[0] == 0x22 {
                 self._cg->sink->spell(n->range, ", " + t)
             } else if t.size() >= 4 && t[0] == 0x72 && t[1] == 0x22 {
-                var inner = ""
-                for var i: usize = 2; i + 1 < t.size(); ++i {
-                    inner.push_back(t[i])
-                }
-
+                var inner = t.subslice(2, t.size() - 3)
                 self._cg->sink->spell(n->range, ", " + Speller::c_string(inner))
             }
         }

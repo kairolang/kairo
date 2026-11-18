@@ -88,7 +88,7 @@ pub struct DiagMeta {
     /// # Conversions
 
     /// Formats the metadata as a diagnostic ID string, e.g. `"SC041E"`.
-    fn op as (self) -> string {
+    fn op as (const self) -> string {
         var out = diag_category_prefix(self.category)
         if out.is_empty() {
             kairo::std::ice_fail("invalid diag category")
