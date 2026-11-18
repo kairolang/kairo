@@ -320,6 +320,7 @@ extend IndexWalker {
         if (kind == TT_PARAMETER()) || (kind == TT_SELF()) || (kind == TT_TYPE_PARAM()) {
             self.locals_.push(d)
             self.locals_at_.push(off)
+            self.local_bounds_(d, off)
             return
         }
 
@@ -336,6 +337,7 @@ extend IndexWalker {
         if local {
             self.locals_.push(d)
             self.locals_at_.push(off)
+            self.local_bounds_(d, off)
             return
         }
 

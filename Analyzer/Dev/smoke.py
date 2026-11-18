@@ -4323,6 +4323,443 @@ def completion_index(exe, base):
     check("index completion off: clean shutdown", c.stop() == 0)
 
 
+COND_LIB = """pub class Vault {
+    pub var name: i32 = 0
+}
+
+pub interface Small {
+    fn small(const self) -> i32
+}
+
+pub class A {
+    pub fn A(self) { }
+}
+
+pub class B {
+    pub fn B(self) { }
+}
+
+extend A impl Small {
+    fn small(const self) -> i32 = 1
+}
+
+pub class <T> Box {
+    pub var v: T
+}
+
+extend <T impl Small> Box<T> {
+    pub fn shrink(self) -> i32 = 1
+}
+
+extend <T> Box<T> {
+    pub fn every(self) -> i32 = 2
+}
+
+pub fn small_box() -> Box<A> {
+    return Box<A> { v: A() }
+}
+
+pub fn plain_box() -> Box<B> {
+    return Box<B> { v: B() }
+}
+"""
+
+COND_GATE = """import lib::Vault
+
+extend Vault requires __builtin_is_declared<cxx::std::string>() {
+    pub fn cx_only(self) -> i32 { return 1 }
+}
+
+extend Vault {
+    pub fn plain_ext(self) -> i32 { return 2 }
+}
+"""
+
+COND_MAIN = """import lib::{
+    A,
+    B,
+    Box,
+    Vault,
+    plain_box,
+    small_box,
+}
+import gate
+import plain
+ffi "c++" import "string"
+
+fn main() -> i32 {
+    var vault = Vault()
+    var ba = Box<A> { v: A() }
+    var bb = Box<B> { v: B() }
+    var fa = small_box()
+    var fb = plain_box()
+    return 0
+}
+"""
+
+COND_PLAIN = """import lib::Vault
+import gate
+
+pub fn plain() -> i32 {
+    var vault = Vault()
+    return 0
+}
+"""
+
+
+def completion_conditional(exe, base):
+    """An `extend` block that exists only somewhere: a conditional one
+    (`requires __builtin_is_declared<P>()`) in the files that declare P, a
+    bounded one (`extend <T impl Small> Box<T>`) for the instances that meet
+    its bounds. Its members are offered only there, as the compiler judged
+    them in the file's last check, on both paths; a receiver the index has
+    no verdict for (a local typed since) is the compiler's to list."""
+    live_on = os.environ.get("KALS_LIVE_CHECK") == "1"
+    root = os.path.join(base, "conditional")
+    os.makedirs(os.path.join(root, "src"))
+    for name, text in (("lib.k", COND_LIB), ("gate.k", COND_GATE), ("main.k", COND_MAIN), ("plain.k", COND_PLAIN)):
+        open(os.path.join(root, "src", name), "w").write(text)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src"] } ] }\n')
+    M, P = "src/main.k", "src/plain.k"
+    tail = "    return 0\n"
+    for index in (True, False):
+        label = "conditional completion" + ("" if index else " (index off)") + ": "
+        c = Client(exe, root)
+        c.start({"debounceMs": 50, "indexCompletion": index})
+        c.open(M, COND_MAIN)
+        c.open(P, COND_PLAIN)
+        c.settle()
+        check(label + "(the entry is analysed)", wait_for(lambda: any(n["method"] == "$/kals/analysed" for n in c.notes), 120, c))
+        ver = [10]
+
+        def ask(rel, src, line):
+            ver[0] += 1
+            text = src.replace(tail, line + "\n" + tail, 1)
+            c.change(rel, ver[0], text)
+            rows = text.split("\n")
+            last = line.split("\n")[-1]
+            ln = next(i for i, l in enumerate(rows) if l == last)
+            start = len(c.notes)
+            r = c.request("textDocument/completion", c.at(rel, ln, len(last)), timeout=120)
+            c.pump(0.2)
+            done = [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/completed"]
+            return {i["label"] for i in (r or {}).get("items", [])}, (done[-1] if done else {})
+
+        via = (lambda d: d.get("how") == "index") if index else (lambda d: d.get("how") in ("live", "run"))
+        n, d = ask(M, COND_MAIN, "    vault.")
+        check(label + "a conditional block's member where its path is declared", via(d) and {"cx_only", "plain_ext", "name"} <= n, (d, n))
+        n, d = ask(P, COND_PLAIN, "    vault.")
+        check(label + "and not in a file of the same build that does not declare it", via(d) and "cx_only" not in n and {"plain_ext", "name"} <= n, (d, n))
+        n, d = ask(M, COND_MAIN, "    ba.")
+        check(label + "a bounded block's member for an instance that meets its bounds", via(d) and {"shrink", "every", "v"} <= n, (d, n))
+        n, d = ask(M, COND_MAIN, "    bb.")
+        check(label + "and not for one that does not", via(d) and "shrink" not in n and {"every", "v"} <= n, (d, n))
+        n, d = ask(M, COND_MAIN, "    fa.")
+        check(label + "a local typed by a call's result: its bounds hold", via(d) and "shrink" in n, (d, n))
+        n, d = ask(M, COND_MAIN, "    fb.")
+        check(label + "a local typed by a call's result: its bounds fail", via(d) and "shrink" not in n and "every" in n, (d, n))
+        n, d = ask(M, COND_MAIN, "    plain_box().")
+        check(label + "a call's result", via(d) and "shrink" not in n and "every" in n, (d, n))
+        n, d = ask(M, COND_MAIN, "    var nb = Box<B> { v: B() }\n    nb.")
+        check(label + "a local typed since the last check is the compiler's to list",
+              d.get("how") == ("live" if live_on else "run") and "shrink" not in n and "every" in n, (d, n))
+        check(label + "clean shutdown", c.stop() == 0)
+
+
+MEMB_LIB = """pub class Vault {
+    pub var name: i32 = 0
+    priv var code: i32 = 0
+
+    pub fn Vault(self) { }
+
+    pub fn open(self) -> i32 {
+        return self.code
+    }
+
+    pub static fn make() -> Vault {
+        return Vault()
+    }
+
+    pub class Inner { }
+}
+
+pub struct Point {
+    pub var px: i32
+    priv var secret: i32
+}
+
+extend Point {
+    pub fn norm(self) -> i32 = self.px
+}
+
+pub enum Color { Red, Green }
+
+pub class Shape {
+    pub fn Shape(self) { }
+    pub static fn unit() -> i32 = 1
+    pub virtual fn area(const self) -> i32 {
+        return 0
+    }
+}
+
+pub class Base {
+    pub fn Base(self) { }
+    pub fn step(self) -> i32 = 1
+}
+
+pub class Child derives Base {
+    pub fn Child(self) { }
+    pub fn hop(self) -> i32 = 2
+}
+"""
+
+MEMB_HEADER = """#pragma once
+/// Adds three numbers.
+inline int add3(int a, int b, int c) { return a + b + c; }
+class CxxBox {
+public:
+    CxxBox() { }
+    ~CxxBox() { }
+    int pub_field;
+    int pub_m() { return 1; }
+    static int stat_m() { return 0; }
+    bool operator==(const CxxBox &) const { return true; }
+private:
+    int priv_field;
+    int priv_m() { return 2; }
+protected:
+    int prot_field;
+};
+class CxxPlain {
+public:
+    int m() { return 1; }
+    static int s() { return 0; }
+};
+class CxxVirt {
+public:
+    virtual int vm() { return 1; }
+    virtual ~CxxVirt() { }
+};
+"""
+
+MEMB_MAIN = """import lib::{
+    Color,
+    Point,
+    Vault,
+}
+ffi "c++" import "box.h"
+ffi "c++" import "vector"
+
+fn main() -> i32 {
+    var vault = Vault()
+    var pt = Point { px: 1 }
+    var col = Color::Red
+    var text: string = "hi"
+    var nums: [i32] = [1, 2]
+    var cb = CxxBox()
+    var cv = cxx::std::vector<i32>()
+    return 0
+}
+
+class Derived derives CxxBox {
+    fn peek(self) -> i32 {
+        return 1
+    }
+}
+"""
+
+
+def completion_members(exe, base):
+    """Member completion offers what the code at the cursor may name
+    through the receiver: never a constructor (a type is constructed by its
+    own name), after `.` on a value no nested type or enum variant, the
+    fields and methods of a Kairo struct, and of an imported C++ class its
+    public members only (C++ access is clang's, not AccessCheck's). Both
+    paths: the index, and the compiler's walk."""
+    root = os.path.join(base, "members")
+    os.makedirs(os.path.join(root, "src"))
+    os.makedirs(os.path.join(root, "inc"))
+    open(os.path.join(root, "src", "lib.k"), "w").write(MEMB_LIB)
+    open(os.path.join(root, "src", "main.k"), "w").write(MEMB_MAIN)
+    open(os.path.join(root, "inc", "box.h"), "w").write(MEMB_HEADER)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src", "--cxx-include", "inc"] } ] }\n')
+    M = "src/main.k"
+    tail = "    return 0\n"
+    for index in (True, False):
+        label = "member completion" + ("" if index else " (index off)") + ": "
+        c = Client(exe, root)
+        c.start({"debounceMs": 50, "indexCompletion": index})
+        c.open(M, MEMB_MAIN)
+        c.settle()
+        check(label + "(the entry is analysed)", wait_for(lambda: any(n["method"] == "$/kals/analysed" for n in c.notes), 120, c))
+        ver = [10]
+
+        def ask(line):
+            ver[0] += 1
+            text = MEMB_MAIN.replace(tail, line + "\n" + tail, 1)
+            c.change(M, ver[0], text)
+            rows = text.split("\n")
+            ln = next(i for i, l in enumerate(rows) if l == line)
+            start = len(c.notes)
+            r = c.request("textDocument/completion", c.at(M, ln, len(line)), timeout=120)
+            c.pump(0.2)
+            done = [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/completed"]
+            return {i["label"] for i in (r or {}).get("items", [])}, (done[-1] if done else {})
+
+        kairo_how = (lambda d: d.get("how") == "index") if index else (lambda d: d.get("how") in ("live", "run"))
+        n, d = ask("    vault.")
+        check(label + "a class's members, its statics with them", kairo_how(d) and {"name", "open", "make"} <= n, (d, n))
+        check(label + "never its constructor, nor a nested type after `.`", "Vault" not in n and "Inner" not in n and "code" not in n, n)
+        n, d = ask("    pt.")
+        check(label + "a struct's fields and the methods of its extensions", kairo_how(d) and {"px", "norm"} <= n, (d, n))
+        check(label + "not its priv field from another file, nor the type", "secret" not in n and "Point" not in n, n)
+        n, d = ask("    col.")
+        check(label + "no enum variant after `.` on a value", "Red" not in n and "Green" not in n, (d, n))
+        n, d = ask("    text.")
+        check(label + "a builtin type's constructor is not a member", kairo_how(d) and "size" in n and "string" not in n, (d, n))
+        n, d = ask("    nums.")
+        check(label + "nor a builtin vector's", kairo_how(d) and "push" in n and "Vector" not in n, (d, n))
+        n, d = ask("    cb.")
+        check(label + "an imported C++ class's public members", {"pub_field", "pub_m", "stat_m"} <= n, (d, n))
+        check(label + "not its private or protected ones, its constructor, destructor or operators",
+              not (n & {"priv_field", "priv_m", "prot_field", "CxxBox", "~CxxBox"}) and not any("operator" in x or x.startswith("op ") for x in n), n)
+        ver[0] += 1
+        text = MEMB_MAIN.replace("        return 1\n", "        self.\n        return 1\n", 1)
+        c.change(M, ver[0], text)
+        ln = text.split("\n").index("        self.")
+        r = c.request("textDocument/completion", c.at(M, ln, 13), timeout=120)
+        n = {i["label"] for i in (r or {}).get("items", [])}
+        check(label + "a Kairo class deriving a C++ class reaches its protected members, not its private ones",
+              {"prot_field", "pub_m", "peek"} <= n and not (n & {"priv_field", "priv_m"}), sorted(n))
+        n, d = ask("    cv.")
+        check(label + "a C++ class template instance's methods", {"push_back", "size", "begin"} <= n, (d, n))
+        check(label + "without its constructor or its member types",
+              not any(x.startswith("vector") or x in ("allocator_type", "iterator", "size_type", "value_type") for x in n), sorted(n))
+        ver[0] += 1
+        text = MEMB_MAIN.replace(tail, "    ad\n" + tail, 1)
+        c.change(M, ver[0], text)
+        ln = text.split("\n").index("    ad")
+        r = c.request("textDocument/completion", c.at(M, ln, 6), timeout=120)
+        it = next((i for i in (r or {}).get("items", []) if i["label"] == "add3"), None)
+        rs = c.request("completionItem/resolve", it) if it else None
+        doc = (rs or {}).get("documentation", {})
+        doc = doc.get("value", "") if isinstance(doc, dict) else (doc or "")
+        check(label + "a C++ function's item resolves to its documentation", "Adds three" in doc, (it, rs))
+        check(label + "clean shutdown", c.stop() == 0)
+
+
+SCOPE_MAIN = MEMB_MAIN.replace("ffi \"c++\" import \"box.h\"", "import lib\nffi \"c++\" import \"box.h\"") + """
+class Sub derives lib::Base {
+    fn go(self) -> i32 {
+        return 2
+    }
+}
+"""
+
+
+def completion_scopes(exe, base):
+    """Completion after a TYPE or a NAMESPACE: after `::` a type offers its
+    statics, nested types and variants, not its instance methods, instance
+    fields or constructors; a module or a
+    C++ namespace every name it declares in every reopening, `cxx::` its
+    `std`; after `.` neither offers anything (R027E), answered at once. A
+    list past the cap (Tuning.k, MEMBER_ITEMS_CAP) is cut to the names the
+    typed prefix starts, then the rest by label, and is `isIncomplete`."""
+    root = os.path.join(base, "scopes")
+    os.makedirs(os.path.join(root, "src"))
+    os.makedirs(os.path.join(root, "inc"))
+    open(os.path.join(root, "src", "lib.k"), "w").write(MEMB_LIB)
+    open(os.path.join(root, "src", "main.k"), "w").write(SCOPE_MAIN)
+    open(os.path.join(root, "inc", "box.h"), "w").write(MEMB_HEADER)
+    open(os.path.join(root, "kairo_compile.json"), "w").write(
+        '{ "version": 1, "entries": [ { "entry": "src/main.k", "args": ["-I", "src", "--cxx-include", "inc"] } ] }\n')
+    M = "src/main.k"
+    tail = "    return 0\n"
+    for index in (True, False):
+        label = "scope completion" + ("" if index else " (index off)") + ": "
+        c = Client(exe, root)
+        c.start({"debounceMs": 50, "indexCompletion": index})
+        c.open(M, SCOPE_MAIN)
+        c.settle()
+        check(label + "(the entry is analysed)", wait_for(lambda: any(n["method"] == "$/kals/analysed" for n in c.notes), 120, c))
+        ver = [10]
+
+        def ask(line):
+            ver[0] += 1
+            text = SCOPE_MAIN.replace(tail, line + "\n" + tail, 1)
+            c.change(M, ver[0], text)
+            rows = text.split("\n")
+            ln = next(i for i, l in enumerate(rows) if l == line)
+            start = len(c.notes)
+            r = c.request("textDocument/completion", c.at(M, ln, len(line)), timeout=120)
+            c.pump(0.2)
+            done = [n["params"] for n in c.notes[start:] if n["method"] == "$/kals/completed"]
+            return (r or {}), (done[-1] if done else {})
+
+        labels = lambda r: {i["label"] for i in r.get("items", [])}
+        kairo_how = (lambda d: d.get("how") == "index") if index else (lambda d: d.get("how") in ("live", "run"))
+        r, d = ask("    Vault::")
+        n = labels(r)
+        check(label + "a type's statics and nested types after `::`", kairo_how(d) and {"make", "Inner"} <= n, (d, n))
+        check(label + "not an instance method or field, nor its constructor", not (n & {"open", "name", "Vault", "code"}), n)
+        r, d = ask("    var t = Vault.")
+        check(label + "nothing after `.` on a type, answered at once", kairo_how(d) and not labels(r), (d, labels(r)))
+        r, d = ask("    Color::")
+        check(label + "an enum's variants", kairo_how(d) and {"Red", "Green"} <= labels(r), (d, labels(r)))
+        r, d = ask("    lib::")
+        check(label + "a module's declarations", kairo_how(d) and {"Vault", "Point", "Color"} <= labels(r), (d, labels(r)))
+        r, d = ask("    var m = lib.")
+        check(label + "nothing after `.` on a module", kairo_how(d) and not labels(r), (d, labels(r)))
+        r, d = ask("    var g = cxx::")
+        check(label + "`cxx::` offers C++'s `std`", labels(r) == {"std"}, (d, labels(r)))
+        r, d = ask("    var h = cxx::std::vec")
+        items = sorted(r.get("items", []), key=lambda i: i.get("sortText", ""))
+        check(label + "a C++ namespace's names past the cap: cut, and marked incomplete",
+              r.get("isIncomplete") is True and len(items) == 200, (d, r.get("isIncomplete"), len(items)))
+        check(label + "the names the typed prefix starts come first", items and items[0]["label"] == "vector", [i["label"] for i in items[:5]])
+        check(label + "then the rest by label", [i["label"] for i in items[1:]] == sorted(i["label"] for i in items[1:]), [i["label"] for i in items[1:8]])
+        r2, d2 = ask("    var h = cxx::std::al")
+        check(label + "a C++ namespace's names, from every header that reopens it",
+              {"vector", "allocator"} <= labels(r) | labels(r2), sorted(labels(r2))[:20])
+        check(label + "no deduction guide among them", not any(x.startswith("<") for x in labels(r)), [x for x in labels(r) if x.startswith("<")][:3])
+        r, d = ask("    var b = cxx::std.")
+        check(label + "nothing after `.` on a C++ namespace", not labels(r), (d, labels(r)))
+        r, d = ask("    var e = cxx::std::vector::")
+        n = labels(r)
+        check(label + "a C++ class template's member types after `::`", {"size_type", "iterator", "value_type"} <= n, (d, sorted(n)))
+        check(label + "not its instance methods nor its constructor",
+              not (n & {"push_back", "size", "begin"}) and not any(x.startswith("vector") for x in n), sorted(n))
+        r, d = ask("    var s = CxxBox::")
+        n = labels(r)
+        check(label + "a C++ class a Kairo class derives: its statics and methods after `::`", {"stat_m", "pub_m"} <= n, (d, n))
+        check(label + "not its fields, constructor or private members", not (n & {"pub_field", "CxxBox", "priv_m"}), (d, n))
+        r, d = ask("    var p = CxxPlain::")
+        n = labels(r)
+        check(label + "a plain C++ class: its static member function after `::`, not its methods", "s" in n and "m" not in n, (d, n))
+        r, d = ask("    var q = CxxVirt::")
+        check(label + "a C++ class with a virtual function: its methods after `::`", "vm" in labels(r), (d, labels(r)))
+        r, d = ask("    lib::Shape::")
+        items = sorted(r.get("items", []), key=lambda i: i.get("sortText", ""))
+        order = [i["label"] for i in items]
+        check(label + "a class with a virtual method: its methods after `::`, after its statics",
+              "area" in order and "unit" in order and order.index("unit") < order.index("area"), (d, order))
+        r, d = ask("    lib::Child::")
+        check(label + "a class that has a base: its methods after `::`", "hop" in labels(r), (d, labels(r)))
+        ver[0] += 1
+        text = SCOPE_MAIN.replace("        return 2\n", "        lib::Base::\n        return 2\n", 1)
+        c.change(M, ver[0], text)
+        ln = text.split("\n").index("        lib::Base::")
+        r = c.request("textDocument/completion", c.at(M, ln, 19), timeout=120) or {}
+        check(label + "a base class from inside a method of a class deriving it: its methods after `::`", "step" in labels(r), sorted(labels(r)))
+        r, d = ask("    var s = CxxBox.")
+        check(label + "nothing after `.` on a C++ class", not labels(r), (d, labels(r)))
+        r, d = ask("    vault.")
+        check(label + "a short list is the whole set", r.get("isIncomplete") is False and {"name", "open"} <= labels(r), (d, labels(r)))
+        check(label + "clean shutdown", c.stop() == 0)
+
+
 def launch_failures(exe, base):
     """A worker that cannot be started leaves its work due: it is
     tried again, with a backoff, instead of the first refusal dropping that
@@ -5138,6 +5575,12 @@ def main():
             completion_index(exe, base)
         if want("completion_marker"):
             completion_marker(exe, real)
+        if want("completion_conditional"):
+            completion_conditional(exe, base)
+        if want("completion_members"):
+            completion_members(exe, base)
+        if want("completion_scopes"):
+            completion_scopes(exe, base)
         if want("broken_buffer"):
             broken_buffer(exe, base, False)
             broken_buffer(exe, base, True)

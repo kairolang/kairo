@@ -132,9 +132,11 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     pub var syms:   [SymRow]
     pub var inlays: [InlayRow]
     pub var items:  [ItemRow]
-    pub var hovers: [string]
-    pub var links:  [LinkRow]
-    pub var bases:  [BaseRow]
+    /// fnv1a of an item's label -> its index in `items`: one item per name.
+    var     items_seen_: {u64: u32}
+    pub var hovers:      [string]
+    pub var links:       [LinkRow]
+    pub var bases:       [BaseRow]
 
     /// A marker was found: `items` is the answer to a completion request.
     pub var completed: bool = false
@@ -202,6 +204,13 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     pub var scope_rows:  [ScopeRow]
     pub var scope_files: [string]
     pub var sees:        [string]
+    /// The conditional `extend` blocks that exist in this file (GATE_*
+    /// rows): their files' paths and their blocks' offsets.
+    pub var gate_paths: [string]
+    pub var gate_offs:  [i64]
+    /// LXB_* rows: which bounded `extend` blocks hold for the type of each
+    /// local, parameter and `self` this file declares.
+    pub var lxb_rows: [XbRow]
 
     /// The check's shared ScopeFacts (the observer's), or null: each
     /// declaration is then described by this walk.
@@ -214,6 +223,15 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     var t_bases_:    [i64] ///< TB_* rows, flat
     var t_seen_:     {u64: u32}
     var t_ac_:       unsafe *AccessCheck = &null ///< while the table is built: reads a row's visibility
+    var t_xb_:       [i64] ///< XB_* rows, flat
+    /// The extensions this file sees, for the bound verdicts of the table
+    /// and of the refs: set while a walk runs.
+    var xb_ml_: unsafe *MemberLookup = &null
+    /// ext_bounds_fail_'s answers, by (block, instance type).
+    var xb_cache_:  {u64: u32}
+    var xb_keys_e_: [u64]
+    var xb_keys_t_: [u64]
+    var xb_fails_:  [bool]
 
     // --- CompletionItems.k: a completion's access filter ------------------
 
@@ -223,6 +241,12 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
     var ac_through_: unsafe *Type        = &null
     /// The extensions this file sees, for the receiver's.
     var ml_: unsafe *MemberLookup = &null
+    /// What the receiver is while its members are listed: MEMBERS_VALUE
+    /// (a value: `x.`, `x->`) leaves out what only a type names.
+    var mode_: u32 = MEMBERS_ANY
+    /// MEMBERS_NAMED of a type that takes part in inheritance: its methods
+    /// are offered after `::` too (`Base::step(self)`), after its statics.
+    var named_poly_: bool = false
 
     var tu_: TypeUtil
 
@@ -247,6 +271,12 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
         var unsafe *tu = self.sc->tu
         if tu == &null || tu->program == &null {
             return
+        }
+
+        var ml = MemberLookup(self.sc)
+        self.xb_ml_ = unsafe &ml
+        finally {
+            self.xb_ml_ = &null
         }
 
         self.file_(fid)
@@ -847,7 +877,12 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                     }
                 }
 
-                self.complete_member_(rt, rd)
+                self.complete_member_(
+                    rt,
+                    rd,
+                    st->access_kind == ChainExpr::AccessKind::ColonColon,
+                )
+
                 continue
             }
 
@@ -873,6 +908,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
                     self.complete_member_(
                         prev->resolved_type,
                         prev->resolved_decl,
+                        true,
                     )
                 } else {
                     self.complete_scope_(

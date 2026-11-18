@@ -230,6 +230,16 @@ pub class ScopeFacts {
 }
 
 /// A name the import overlay brings into the file (a "scope" row).
+/// An LXB_* row: whether a bounded `extend` block holds for the type of
+/// the local declared at (`line`, `ch`).
+pub struct XbRow {
+    var line:  usize  = 0
+    var ch:    usize  = 0
+    var path:  string = ""
+    var off:   i64    = -1
+    var holds: bool   = false
+}
+
 pub struct ScopeRow {
     var name:   string = ""
     var kind:   u32    = 0
@@ -311,6 +321,8 @@ pub const SK_DOC:     string = "doc" ///< a completion item's `///` block
 pub const SK_SCOPE:   string = "scope" ///< SCOPE_* rows: what a bare name reaches through the file's imports
 pub const SK_SFILES:  string = "sfiles" ///< paths a scope row's SCOPE_FILE indexes
 pub const SK_SEES:    string = "sees" ///< files whose `extend` blocks this file sees (SemaContext::sees_extension_file)
+pub const SK_GATES:   string = "gates" ///< GATE_* rows: the conditional `extend` blocks that exist in this file
+pub const SK_LXB:     string = "lxb" ///< LXB_* rows: which bounded `extend` blocks hold for a local's type
 
 // the document: declaration tables, one per file of the graph (Tables.k)
 pub const SK_TABLES:     string = "tables"
@@ -322,6 +334,7 @@ pub const SK_MOD:     string = "mod" ///< the file's module directory ("": in no
 pub const SK_BUILTIN: string = "builtin" ///< a file of the builtin library: its extensions are seen by every file
 pub const SK_DECLS:   string = "decls" ///< DC_* rows
 pub const SK_TBASES:  string = "bases" ///< TB_* rows
+pub const SK_XB:      string = "xb" ///< XB_* rows: which bounded `extend` blocks hold for a row's type
 
 // a diagnostic row: the file, the LSP diagnostic, the fixes; a fix is a
 // title and its edits, each edit a path, a range and the new text
@@ -383,7 +396,9 @@ pub const BASE_BASE_KIND: i64 = 10
 /// the value of a `{K: V}`, of the variable's or field's type or of what a
 /// function returns; on a TYPE's row, the record its `op []` overloads
 /// agree on (their own rows are not in the table); -1 for anything else (a
-/// pointer, a `?`, overloads that differ).
+/// pointer, a `?`, overloads that differ). On a DF_EXT row `DC_EOFF` is
+/// the byte offset of the block's `extend`: the key a `gates` row and an
+/// `xb` / `lxb` row name the block by.
 pub const DC_NAME:   i64 = 0
 pub const DC_KIND:   i64 = 1  ///< LSP CompletionItemKind
 pub const DC_PARENT: i64 = 2
@@ -408,6 +423,43 @@ pub const DF_MACRO:  i64 = 4  ///< a `macro name!`
 pub const DF_ALIAS:  i64 = 8  ///< declared in another file and bound here
 pub const DF_SCOPE:  i64 = 16 ///< opens a scope: a type or a module
 pub const DF_METHOD: i64 = 32 ///< takes `self`
+/// On a DF_EXT row: the block exists only in the files that declare what
+/// its `requires` clause asks `__builtin_is_declared` about. A file node's
+/// `gates` lists the ones that exist in that file.
+pub const DF_GATED: i64 = 64
+/// On a DF_EXT row: the block has bounds (`extend <T impl I> Box<T>`, a
+/// `requires` clause), so its members exist only for the instances that
+/// meet them. `xb` and `lxb` rows say which do.
+pub const DF_BOUNDED: i64 = 128
+pub const DF_CTOR:    i64 = 256 ///< a constructor: never offered as a member
+pub const DF_VIRTUAL: i64 = 512 ///< a `virtual` or `override` method
+
+/// An "xb" row of a table: the bounded `extend` block at (`XB_FILE`, a
+/// file index as `DC_TFILE`; `XB_OFF`, its DF_EXT row's `DC_EOFF`) holds
+/// (`XB_HOLDS` 1) or not (0) for the type of decl row `XB_ROW` (a
+/// variable's, a field's, what a function returns), as the compiler judges
+/// an extension member's candidacy (ConformanceChecking's
+/// extension_clause_false). A block no row names for a declaration was not
+/// judged for it.
+pub const XB_ROW:   i64 = 0
+pub const XB_FILE:  i64 = 1
+pub const XB_OFF:   i64 = 2
+pub const XB_HOLDS: i64 = 3
+
+/// An "lxb" row of a file node: as an `xb` row, for the local, parameter or
+/// `self` declared at (`LXB_LINE`, `LXB_CHAR`) of the file (the place of
+/// its declaring ref row); the block's file is a path.
+pub const LXB_LINE:  i64 = 0
+pub const LXB_CHAR:  i64 = 1
+pub const LXB_PATH:  i64 = 2
+pub const LXB_OFF:   i64 = 3
+pub const LXB_HOLDS: i64 = 4
+
+/// A "gates" row of a file node: a conditional `extend` block (DF_GATED)
+/// that exists in the file, by its file's path and its `DC_EOFF`
+/// (MemberLookup's extension_gate_holds, asked in the file's own check).
+pub const GATE_PATH: i64 = 0
+pub const GATE_OFF:  i64 = 1
 
 /// A "bases" row of a table: decl row `TB_ROW` derives the record at
 /// (`TB_FILE`, `TB_OFF`) through an edge of visibility `TB_VIS` (0: none

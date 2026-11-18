@@ -289,6 +289,30 @@ struct ImplBlocker {
     pub var rows: cxx::std::vector<unsafe *ConformanceRow>
 }
 
+/// Whether a member `f` of a bounded `extend` block does not exist for a
+/// receiver of type `receiver`: the test overload resolution makes of an
+/// extension member's candidacy. The block's parameters are bound from the
+/// receiver (Deduction::bind_from_extension; a receiver the block's target
+/// does not match fails), then its clause is asked
+/// (ConformanceChecking::extension_clause_false). A clause that cannot be
+/// decided, as for a dependent receiver, does not fail. False for a member
+/// of no extension or of one without bounds.
+pub fn extension_bounds_fail(sc:       unsafe *SemaContext,
+                             f:        unsafe *Declarations::FunctionDecl,
+                             receiver: unsafe *Type) -> bool {
+    if f == &null || receiver == &null {
+        return false
+    }
+
+    var ded = Deduction(sc, &null)
+    if !ded.bind_from_extension(f, receiver) {
+        return true
+    }
+
+    var cc = ConformanceChecking(sc)
+    return cc.extension_clause_false(f, unsafe &ded).known
+}
+
 pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     pub var  sc: unsafe *SemaContext
     priv var tu: TypeUtil

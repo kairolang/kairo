@@ -18,6 +18,12 @@
 /// Overridden by initializationOptions.debounceMs.
 pub const DEBOUNCE_MS: i64 = 150
 
+/// The most items a member list sends (a C++ namespace holds thousands of
+/// names). A longer one is cut to the names the typed prefix starts, then
+/// the rest by label, and marked `isIncomplete`: the client asks again as
+/// the word grows, and a longer prefix reaches every name.
+pub const MEMBER_ITEMS_CAP: usize = 200
+
 /// The same, for an entry whose runs are slow (SLOW_RUN_MS): a run of a wide
 /// graph is seconds of every core, and one started in a 150 ms gap between
 /// two words is killed by the next keystroke (see Server::touch). Higher:

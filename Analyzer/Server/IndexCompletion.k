@@ -96,6 +96,19 @@ pub struct Recv {
     var t:    usize = usize::MAX
     var r:    i64   = -1
     var file: bool  = false
+    /// The declaration whose value it is, where its bound verdicts are
+    /// read (`xb`, `lxb`): a table row (`vt` usize::MAX: none), or a local
+    /// of this file by its declaring ref's indexed place (`vl` -1: none).
+    var vt: usize = usize::MAX
+    var vr: i64   = -1
+    var vl: i64   = -1
+    var vc: i64   = -1
+    /// Named as a type (`Box::`) or the enclosing type's (`self`), not a
+    /// value of an instance: every bounded block's members are offered, as
+    /// the compiler offers them where it cannot decide the bounds.
+    var open: bool = false
+    /// A type or module named (`Box`, `vault`, `Self`), not a value.
+    var named: bool = false
 }
 
 /// One candidate of a list.
@@ -115,9 +128,14 @@ pub struct Cand {
     /// written, or what initialises it.
     var type_: string = ""
     var init:  string = ""
-    /// A local of the index: the record its type is.
+    /// A local of the index: the record its type is, and where its ref row
+    /// declares it (`ty.vl`, `ty.vc`).
     var ty:    Recv
     var local: bool = false
+    /// A C or C++ declaration, which no table has: its header and the byte
+    /// offset of its name there (`doff` -1: none), for its block on resolve.
+    var dpath: string = ""
+    var doff:  i64    = -1
     /// A local: where the buffer declares it (what is in scope there is
     /// what its initialiser names).
     var at: usize = usize::MAX
@@ -137,6 +155,34 @@ pub class CompReq {
 
     /// The files whose `extend` blocks this file sees (the block's `sees`).
     pub var sees: [string]
+    /// The conditional `extend` blocks that exist in this file (`gates`)
+    /// and which bounded ones hold for its locals' types (`lxb`), as the
+    /// file's last check judged them.
+    pub var gate_paths: [string]
+    pub var gate_offs:  [i64]
+    pub var lxb_line:   [i64]
+    pub var lxb_ch:     [i64]
+    pub var lxb_path:   [string]
+    pub var lxb_off:    [i64]
+    pub var lxb_holds:  [i64]
+    /// A bounded `extend` block of the receiver has no verdict for it (a
+    /// local typed since the last check, an element, a base): the list is
+    /// the compiler's to give.
+    pub var undecided: bool = false
+    /// The members are asked of a value (`x.`, `x->`): what only a type
+    /// names (a nested type, an enum variant) is left out.
+    pub var value: bool = false
+    /// The members are asked of a type named before `::`: only what is
+    /// named without an object (a static, a nested type, a variant).
+    pub var named: bool = false
+    /// That type takes part in inheritance (polymorphic_): its methods
+    /// are offered too, after its statics.
+    pub var poly: bool = false
+    /// The answer is the list as it stands, empty or not (`.` after a type
+    /// or a module names nothing): not the compiler's to give.
+    pub var settled: bool = false
+    /// The name typed up to the cursor: what a cut list keeps first.
+    pub var prefix: string = ""
     /// The types the cursor is inside, innermost last: an access is judged
     /// from them (AccessCheck's "use classes").
     pub var users: [Recv]
@@ -338,6 +384,18 @@ fn is_type_word(const w: string) -> bool {
         || (w == "interface")
 }
 
+/// A row of kind `k` is named only through its type: a nested type, a
+/// type parameter, an enum variant.
+fn names_a_type_(k: i64) -> bool {
+    return (k == CIK_CLASS)
+        || (k == CIK_STRUCT)
+        || (k == CIK_ENUM)
+        || (k == CIK_INTERFACE)
+        || (k == CIK_MODULE)
+        || (k == CIK_TYPE_PARAMETER)
+        || (k == CIK_ENUM_MEMBER)
+}
+
 fn is_type_kind(k: i64) -> bool {
     return (k == CIK_CLASS)
         || (k == CIK_STRUCT)
@@ -346,6 +404,18 @@ fn is_type_kind(k: i64) -> bool {
         || (k == CIK_MODULE)
         || (k == CIK_TYPE_PARAMETER)
         || (k == CIK_TEXT)
+}
+
+/// The 0-based line byte `off` of `text` is on.
+fn line_of_offset(const text: string, off: usize) -> usize {
+    var n: usize = 0
+    for var i: usize = 0; (i < off) && (i < text.size()); ++i {
+        if text[i] == ('\n' as u8) {
+            n += 1
+        }
+    }
+
+    return n
 }
 
 /// The first line of the code block of hover text `md`: a declaration as
@@ -407,6 +477,10 @@ extend Server {
 
         req.cls  = classify(*text)
         req.site = site_at(*text, req.cls, at)
+        if req.site.start <= at {
+            req.prefix = text->subslice(req.site.start, at - req.site.start)
+        }
+
         var ew = JsonWriter()
         self.write_buf_range(&ew, di, req.site.start, at)
 
@@ -482,9 +556,26 @@ extend Server {
             s = e->idx.next(s)
         }
 
+        var g = e->idx.first(e->idx.get(req.f, SK_GATES))
+        while g != JSON_NONE() {
+            req.gate_paths.push(e->idx.str(self.nth(&e->idx, g, GATE_PATH)))
+            req.gate_offs.push(e->idx.as_int(self.nth(&e->idx, g, GATE_OFF)))
+            g = e->idx.next(g)
+        }
+
+        var lx = e->idx.first(e->idx.get(req.f, SK_LXB))
+        while lx != JSON_NONE() {
+            req.lxb_line.push(e->idx.as_int(self.nth(&e->idx, lx, LXB_LINE)))
+            req.lxb_ch.push(e->idx.as_int(self.nth(&e->idx, lx, LXB_CHAR)))
+            req.lxb_path.push(e->idx.str(self.nth(&e->idx, lx, LXB_PATH)))
+            req.lxb_off.push(e->idx.as_int(self.nth(&e->idx, lx, LXB_OFF)))
+            req.lxb_holds.push(e->idx.as_int(self.nth(&e->idx, lx, LXB_HOLDS)))
+            lx = e->idx.next(lx)
+        }
+
         self.use_classes_(&req)
         if req.site.what == SITE_MEMBER {
-            if !self.member_candidates_(&req) {
+            if (!self.member_candidates_(&req)) && (!req.settled) {
                 return false
             }
 
@@ -512,11 +603,34 @@ extend Server {
         self.item_labels.clear()
         self.item_docs.clear()
         self.comp_paths.clear()
+        // The whole set for this position: the client filters it as the
+        // word grows or shrinks, and need not ask again. A member list
+        // past the cap is cut (Tuning.k, MEMBER_ITEMS_CAP), and the client
+        // asks again.
+        var capped = (req->site.what == SITE_MEMBER) && (req->out.size() > MEMBER_ITEMS_CAP)
+        if capped {
+            var labels: [string]
+            for var i: usize = 0; i < req->out.size(); ++i {
+                labels.push(req->out[i].label.copy())
+            }
+
+            var order = capped_order(
+                const &labels,
+                req->prefix,
+                MEMBER_ITEMS_CAP,
+            )
+
+            var kept: [Cand]
+            for var i: usize = 0; i < order.size(); ++i {
+                kept.push(req->out[order[i]])
+            }
+
+            req->out = kept
+        }
+
         var w = JsonWriter()
         w.begin_object()
-        // The whole set for this position: the client filters it as the
-        // word grows or shrinks, and need not ask again.
-        w.field_bool(K_IS_INCOMPLETE, false)
+        w.field_bool(K_IS_INCOMPLETE, capped)
         if self.edit_default_ok {
             w.key(K_ITEM_DEFAULTS)
             w.begin_object()
@@ -558,7 +672,13 @@ extend Server {
             }
 
             // sortText orders groups; within one the editor sorts by label.
-            w.field(K_SORT_TEXT, f"{c->sort}{c->label}")
+            // A cut list's order is its rank.
+            if capped {
+                w.field(K_SORT_TEXT, rank_sort_text(i))
+            } else {
+                w.field(K_SORT_TEXT, f"{c->sort}{c->label}")
+            }
+
             var text: string = c->label.copy()
             var snip         = c->snippet && self.snippet_ok
             var over_bang = (!bang_edit.is_empty()) && c->label.ends_with("!")
@@ -585,6 +705,15 @@ extend Server {
             if !c->doc.is_empty() {
                 w.key(K_DOCUMENTATION)
                 self.write_markup_(&w, self.item_doc_md, c->doc)
+            } else if with_data && (c->doff >= 0) {
+                // A C or C++ declaration: its header and the offset of its
+                // name, the line found on resolve.
+                w.key(K_DATA)
+                w.begin_array()
+                w.uint(self.comp_path_(c->dpath))
+                w.integer(-1)
+                w.integer(c->doff)
+                w.end_array()
             } else if with_data && (c->t != usize::MAX) && (c->r >= 0) {
                 var *tb = &self.entries[req->ei].tb.t[c->t]
                 if tb->off[c->r as usize] >= 0 {
@@ -616,6 +745,18 @@ extend Server {
         self.respond(id, w.out)
     }
 
+    /// Index of `path` among the files the sent items' `data` names.
+    fn comp_path_(self, const path: string) -> usize {
+        for var k: usize = 0; k < self.comp_paths.size(); ++k {
+            if self.comp_paths[k] == path {
+                return k
+            }
+        }
+
+        self.comp_paths.push(path.copy())
+        return self.comp_paths.size() - 1
+    }
+
     /// `completionItem/resolve` of an item this path sent: its `///` block,
     /// read from the declaring file's text (the buffer's, when it is open).
     /// "" when the item names no declaration or has no block.
@@ -628,7 +769,8 @@ extend Server {
 
         var pi   = d->as_int(a) as usize
         var line = d->as_int(d->next(a))
-        if (pi >= self.comp_paths.size()) || (line < 0) {
+        var off  = d->next(d->next(a))
+        if (pi >= self.comp_paths.size()) || ((line < 0) && (off == JSON_NONE())) {
             return ""
         }
 
@@ -644,6 +786,10 @@ extend Server {
             }
         } else if !LinkFS::read(self.comp_paths[pi], &text) {
             return ""
+        }
+
+        if line < 0 {
+            line = line_of_offset(text, d->as_int(off) as usize) as i64
         }
 
         return doc_above(text, line as usize, is_cxx_path(self.comp_paths[pi]))
@@ -714,9 +860,14 @@ extend Server {
                 return c.ty
             }
 
-            // A local the text declares: `var x: T`, `var x = T(...)`.
+            // A local the text declares: `var x: T`, `var x = T(...)`. A
+            // value of the type, of an instance the text does not resolve:
+            // no bound verdict is known for it.
             if !c.type_.is_empty() {
-                return self.type_name_recv_(req, type_head(c.type_))
+                var named = self.type_name_recv_(req, type_head(c.type_))
+                named.open  = false
+                named.named = false
+                return named
             }
 
             var init       = c.init.copy()
@@ -746,6 +897,8 @@ extend Server {
                 if head.ok && (!head.file) {
                     var k = self.entries[req->ei].tb.t[head.t].kind[head.r as usize]
                     if (k == CIK_CLASS) || (k == CIK_STRUCT) {
+                        head.open  = false
+                        head.named = false
                         return head
                     }
                 }
@@ -827,9 +980,11 @@ extend Server {
 
         var fl = tb->t[c.t].flags[c.r as usize]
         if (fl & DF_SCOPE) != 0 {
-            out.ok = true
-            out.t  = c.t
-            out.r  = c.r
+            out.ok    = true
+            out.t     = c.t
+            out.r     = c.r
+            out.open  = true
+            out.named = true
             return out
         }
 
@@ -867,6 +1022,8 @@ extend Server {
         out.ok = true
         out.t  = to.t
         out.r  = to.r
+        out.vt = c.t
+        out.vr = c.r
         return out
     }
 
@@ -879,10 +1036,21 @@ extend Server {
     /// read in this file, where the local is declared. Not ok for anything
     /// else (a type's own `op []`, a pointer): the compiler is asked.
     fn subscript_recv_(self, req: *CompReq, const c: Cand, called: bool, n: usize) -> Recv {
-        var out = Recv{}
         if n == 0 {
             return self.cand_recv_(req, c, called)
         }
+
+        // An element is a value of its type, of an instance no verdict is
+        // known for, however the type was found (its name read off a local's
+        // written type).
+        var out = self.element_recv_(req, c, called, n)
+        out.named = false
+        out.open  = false
+        return out
+    }
+
+    fn element_recv_(self, req: *CompReq, const c: Cand, called: bool, n: usize) -> Recv {
+        var out = Recv{}
 
         var cur          = Recv{}
         var text: string = ""     // while known: the type, as text
@@ -1161,6 +1329,61 @@ extend Server {
         return false
     }
 
+    /// Whether the members of `extend` block row `er` of table `et` exist
+    /// for the receiver the list is asked of (`through`, reached `depth`
+    /// bases away), as the file's last check judged it: a conditional
+    /// block where the file's `gates` list it, a bounded one where the
+    /// declaration the receiver is the value of holds it (`xb`, `lxb`).
+    /// A bounded block with no verdict for the receiver marks the request
+    /// `undecided`. A step the text already names is typed through.
+    fn ext_exists_(self, req: *CompReq, et: usize, er: i64, through: Recv, depth: u32) -> bool {
+        var *tb  = &self.entries[req->ei].tb
+        var *xt  = &tb->t[et]
+        var fl   = xt->flags[er as usize]
+        var eoff = xt->eoff[er as usize]
+        if req->typing {
+            return true
+        }
+
+        if (fl & DF_GATED) != 0 {
+            var held = false
+            for var i: usize = 0; (i < req->gate_paths.size()) && (!held); ++i {
+                held = (req->gate_offs[i] == eoff) && (req->gate_paths[i] == xt->path)
+            }
+
+            if !held {
+                return false
+            }
+        }
+
+        if ((fl & DF_BOUNDED) == 0) || through.open || through.file {
+            return true
+        }
+
+        var v: i64 = -1
+        if depth == 0 {
+            if through.vt != usize::MAX {
+                v = tb->t[through.vt].bound_holds(through.vr, xt->path, eoff)
+            } else if through.vl >= 0 {
+                for var i: usize = 0; (i < req->lxb_line.size()) && (v < 0); ++i {
+                    if (req->lxb_line[i] == through.vl)
+                        && (req->lxb_ch[i] == through.vc)
+                        && (req->lxb_off[i] == eoff)
+                        && (req->lxb_path[i] == xt->path) {
+                        v = req->lxb_holds[i]
+                    }
+                }
+            }
+        }
+
+        if v < 0 {
+            req->undecided = true
+            return false
+        }
+
+        return v == 1
+    }
+
     /// adds what receiver `recv` declares to `req`: its own
     /// members, the members of the `extend` blocks this file sees,
     /// then its bases', each when the cursor may name it.
@@ -1215,7 +1438,10 @@ extend Server {
                 tb->t[et].toff[er as usize],
             )
 
-            if (to.t != recv.t) || (to.r != recv.r) || (!self.sees_ext_(req, et, recv.t)) {
+            if (to.t != recv.t)
+                || (to.r != recv.r)
+                || (!self.sees_ext_(req, et, recv.t))
+                || (!self.ext_exists_(req, et, er, through, depth)) {
                 continue
             }
 
@@ -1238,6 +1464,12 @@ extend Server {
         while (b + 3) < t->bases.size() {
             if t->bases[b] == recv.r {
                 var to = tb->follow(recv.t, t->bases[b + 1], t->bases[b + 2])
+                // A base no table has (a C++ class): its members are the
+                // compiler's to list.
+                if (to.t == usize::MAX) && (!req->typing) {
+                    req->undecided = true
+                }
+
                 if (to.t != usize::MAX) && self.edge_ok_(req, recv, t->bases[b + 3]) {
                     var base = Recv{}
                     base.ok = true
@@ -1276,7 +1508,32 @@ extend Server {
             return
         }
 
-        req->add(self.row_cand_(req, ti, r, sort))
+        // A type is constructed by its own name (`T(...)`), and only `::`
+        // on the type names a nested type or a variant
+        // (CompletionItems.k, member_fits_).
+        if (!req->typing) && ((fl & DF_CTOR) != 0) {
+            return
+        }
+
+        if (!req->typing)
+            && req->value
+            && (((fl & DF_SCOPE) != 0) || names_a_type_(t->kind[r as usize])) {
+            return
+        }
+
+        // After `Type::`: what is named without an object (a static, a
+        // nested type, a variant), and the methods of a type that takes part
+        // in inheritance (`Base::step(self)`), after those.
+        var c = self.row_cand_(req, ti, r, sort)
+        if (!req->typing) && req->named && ((fl & DF_STATIC) == 0) {
+            if (!req->poly) || ((fl & DF_METHOD) == 0) {
+                return
+            }
+
+            c.sort = 9
+        }
+
+        req->add(c)
     }
 
     // --- where the cursor is ----------------------------------------------
@@ -1624,6 +1881,8 @@ extend Server {
                                             c.ty.ok = true
                                             c.ty.t  = tt
                                             c.ty.r  = tr
+                                            c.ty.vl = old
+                                            c.ty.vc = e->cr_ch[q] as i64
                                         }
                                     }
                                 }
@@ -1878,10 +2137,12 @@ extend Server {
         var *e = &self.entries[req->ei]
         var *s = &e->idx
         // The tables of the files the rows name, found once.
-        var tabs: [usize]
-        var sf            = s->first(s->get(req->f, SK_SFILES))
+        var tabs:  [usize]
+        var paths: [string]
+        var sf              = s->first(s->get(req->f, SK_SFILES))
         while sf != JSON_NONE() {
             tabs.push(e->tb.find(s->str(sf)))
+            paths.push(s->str(sf))
             sf = s->next(sf)
         }
 
@@ -1918,6 +2179,9 @@ extend Server {
                             c.detail = e->tb.t[tt].detail[r as usize].copy()
                         }
                     }
+                } else if (fi >= 0) && ((fi as usize) < paths.size()) && (off >= 0) {
+                    c.dpath = paths[fi as usize].copy()
+                    c.doff  = off
                 }
 
                 req->add(c)
@@ -2097,6 +2361,8 @@ extend Server {
                     // `self[i]`: the enclosing type's own `op []`, which
                     // its row carries as for any record.
                     var recv = self.block_type_(req, k)
+                    recv.open  = true
+                    recv.named = st.name == "Self"
                     for var n: usize = 0; (n < st.index) && recv.ok; ++n {
                         recv = self.op_index_recv_(req, recv)
                     }
@@ -2181,8 +2447,86 @@ extend Server {
             return false
         }
 
+        // `.` (or `->`) cannot follow a type or a module (R027E): nothing
+        // to offer, and nothing the compiler would. After `::` a type names
+        // what needs no object; a module, a file, everything it declares.
+        var colons = text->subslice(req->site.recv_end, 2) == "::"
+        if (recv.named || recv.file) && (!colons) {
+            req->settled = true
+            return true
+        }
+
+        req->value = (!recv.named) && (!recv.file)
+        req->named = recv.named && (!recv.file) && self.is_record_row_(req, recv)
+        req->poly = req->named && self.polymorphic_(req, recv)
         self.members_into_(req, recv, recv, 0, 0)
-        return !req->out.is_empty()
+        return (!req->undecided) && (!req->out.is_empty())
+    }
+
+    /// Whether the record of row `recv` takes part in inheritance, as the
+    /// walk's poly_decl_ judges it (CompletionItems.k): it has a base,
+    /// declares a `virtual` or `override` method (DF_VIRTUAL), the cursor is
+    /// in a class deriving it, or a class of the graph derives it (a `bases`
+    /// row of any table that names it).
+    fn polymorphic_(self, req: *CompReq, recv: Recv) -> bool {
+        var *tb       = &self.entries[req->ei].tb
+        var *t        = &tb->t[recv.t]
+        var b:  usize = 0
+        while (b + 3) < t->bases.size() {
+            if t->bases[b] == recv.r {
+                return true
+            }
+
+            b += 4
+        }
+
+        for var r: usize = (recv.r + 1) as usize; r < t->rows(); ++r {
+            if t->parent[r] < recv.r {
+                break
+            }
+
+            if (t->parent[r] == recv.r) && ((t->flags[r] & DF_VIRTUAL) != 0) {
+                return true
+            }
+        }
+
+        var me = RowRef{}
+        me.t = recv.t
+        me.r = recv.r
+        for var i: usize = 0; i < req->users.size(); ++i {
+            var u = RowRef{}
+            u.t = req->users[i].t
+            u.r = req->users[i].r
+            if tb->derives_from(u, me, 0) {
+                return true
+            }
+        }
+
+        for var k: usize = 0; k < tb->t.size(); ++k {
+            var *o       = &tb->t[k]
+            var e: usize = 0
+            while (e + 3) < o->bases.size() {
+                var to = tb->follow(k, o->bases[e + 1], o->bases[e + 2])
+                if (to.t == recv.t) && (to.r == recv.r) {
+                    return true
+                }
+
+                e += 4
+            }
+        }
+
+        return false
+    }
+
+    /// Whether receiver `recv` is a record's row (a class, struct, union,
+    /// enum or interface), not a module block's.
+    fn is_record_row_(self, req: *CompReq, recv: Recv) -> bool {
+        if (!recv.ok) || recv.file || (recv.r < 0) {
+            return false
+        }
+
+        var k = self.entries[req->ei].tb.t[recv.t].kind[recv.r as usize]
+        return (k == CIK_CLASS) || (k == CIK_STRUCT) || (k == CIK_ENUM) || (k == CIK_INTERFACE)
     }
 
     /// After `b::`, `b` a primitive: its associated constants (the
@@ -2202,12 +2546,16 @@ extend Server {
 
         var sp    = primitive_spelling(b)
         var none  = Recv{}
+        var named = Recv{}
+        named.open = true
         var *tb   = &self.entries[req->ei].tb
         var *exts = tb->extensions()
         for var x: usize = 0; x < exts->size(); ++x {
             var et = ((*exts)[x] >> 32) as usize
             var er = ((*exts)[x] & 0xFFFFFFFF) as i64
-            if (tb->t[et].detail[er as usize] != sp) || (!self.sees_ext_(req, et, usize::MAX)) {
+            if (tb->t[et].detail[er as usize] != sp)
+                || (!self.sees_ext_(req, et, usize::MAX))
+                || (!self.ext_exists_(req, et, er, named, 0)) {
                 continue
             }
 

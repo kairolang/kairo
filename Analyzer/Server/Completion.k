@@ -72,6 +72,89 @@ import Workspace::CompileCommandsLoader::{
 }
 import std::io
 
+/// The items a member list longer than `cap` keeps, as indices into
+/// `labels`, in the order sent: the labels `prefix` starts, then the rest,
+/// each group by label (a bottom-up merge sort).
+pub fn capped_order(labels: *const [string], const prefix: string, cap: usize) -> [usize] {
+    var n          = labels->size()
+    var a: [usize]
+    for var i: usize = 0; i < n; ++i {
+        a.push(i)
+    }
+
+    var lead: [bool]
+    for var i: usize = 0; i < n; ++i {
+        lead.push((*labels)[i].starts_with(prefix))
+    }
+
+    var tmp: [usize]
+    tmp.resize(n)
+    var width: usize = 1
+    while width < n {
+        var lo: usize = 0
+        while lo < n {
+            var mid = if ((lo + width) > n) => n else => (lo + width)
+            var hi  = if ((lo + (width * 2)) > n) => n else => (lo + (width * 2))
+            var x   = lo
+            var y   = mid
+            var k   = lo
+            while (x < mid) && (y < hi) {
+                var p = a[x]
+                var q = a[y]
+                var first = (lead[p] && (!lead[q]))
+                    || ((lead[p] == lead[q]) && ((*labels)[p] <= (*labels)[q]))
+                if first {
+                    tmp[k] = p
+                    x += 1
+                } else {
+                    tmp[k] = q
+                    y += 1
+                }
+
+                k += 1
+            }
+
+            while x < mid {
+                tmp[k] = a[x]
+                x += 1
+                k += 1
+            }
+
+            while y < hi {
+                tmp[k] = a[y]
+                y += 1
+                k += 1
+            }
+
+            lo = hi
+        }
+
+        for var i: usize = 0; i < n; ++i {
+            a[i] = tmp[i]
+        }
+
+        width = width * 2
+    }
+
+    var out: [usize]
+    for var i: usize = 0; (i < n) && (i < cap); ++i {
+        out.push(a[i])
+    }
+
+    return out
+}
+
+/// The sortText of the item at rank `k` of a cut list: its rank, padded
+/// so the editor's string order is the list's.
+pub fn rank_sort_text(k: usize) -> string {
+    var t = f"{k}"
+    while t.size() < 5 {
+        t = "0" + t
+    }
+
+    return t
+}
+
 extend Server {
     /// Completion runs its own worker on a copy of the buffer with a marker
     /// identifier where the cursor is (Indexer.k: completion_marker).
@@ -172,11 +255,12 @@ extend Server {
         // file's re-check in a copy of it, where a process is a whole
         // compile of the graph. A process only when there is no worker to
         // ask (LiveIndex.k).
-        if self.live_complete_(ei, id, path, member, ew.out, mpath, t0) {
+        var pre = text->subslice(start, at - start)
+        if self.live_complete_(ei, id, path, member, ew.out, pre, mpath, t0) {
             return
         }
 
-        self.complete_by_run_(ei, id, path, member, ew.out, mpath, t0)
+        self.complete_by_run_(ei, id, path, member, ew.out, pre, mpath, t0)
     }
 
     /// `$/kals/completed` (Protocol.k).
@@ -199,6 +283,7 @@ extend Server {
                         const path:  string,
                         member:      bool,
                         const edit:  string,
+                        const pre:   string,
                         const mpath: string,
                         t0_us:       i64) {
         var j = Job()
@@ -211,6 +296,7 @@ extend Server {
         j.path     = path.copy()
         j.member   = member
         j.edit     = edit.copy()
+        j.prefix   = pre.copy()
         j.marked   = mpath.copy()
         j.t0_us    = t0_us
 
@@ -508,40 +594,76 @@ extend Server {
 
         var text: string = ""
         var doc          = JsonDoc()
-        var w            = JsonWriter()
-        w.begin_object()
-        w.field_bool(K_IS_INCOMPLETE, false)
-        w.key(K_ITEMS)
+        // The items, then the list around them: whether it is cut is known
+        // only once they are read.
+        var w = JsonWriter()
         w.begin_array()
 
-        var found         = false
-        var nitems: usize = 0
+        var found          = false
+        var nitems:  usize = 0
+        var capped         = false
+        var got:     usize = 0
+        var t_read         = now_us()
+        var t_order: i64   = 0
         if LinkFS::read(j->out, &text) && doc.parse(text) {
+            t_read = now_us() - t_read
             var f = doc.first(doc.get(doc.root, SK_FILES))
             while f != JSON_NONE() {
                 if doc.get_str(f, SK_PATH) == j->path {
-                    var it = doc.first(doc.get(f, SK_ITEMS))
+                    var rows:   [u32]
+                    var labels: [string]
+                    var it               = doc.first(doc.get(f, SK_ITEMS))
+                    while it != JSON_NONE() {
+                        rows.push(it)
+                        labels.push(doc.get_str(it, K_LABEL))
+                        it = doc.next(it)
+                    }
+
+                    got     = labels.size()
+                    t_order = now_us()
+                    var order: [usize]
+                    capped = j->member && (labels.size() > MEMBER_ITEMS_CAP)
+                    if capped {
+                        order = capped_order(
+                            const &labels,
+                            j->prefix,
+                            MEMBER_ITEMS_CAP,
+                        )
+                    } else {
+                        for var k: usize = 0; k < labels.size(); ++k {
+                            order.push(k)
+                        }
+                    }
+
+                    t_order = now_us() - t_order
                     self.item_labels.clear()
                     self.item_docs.clear()
-                    while it != JSON_NONE() {
-                        var idoc = doc.get_str(it, SK_DOC)
+                    for var k: usize = 0; k < order.size(); ++k {
+                        var r    = rows[order[k]]
+                        var idoc = doc.get_str(r, SK_DOC)
                         if !idoc.is_empty() {
-                            self.item_labels.push(doc.get_str(it, K_LABEL))
+                            self.item_labels.push(labels[order[k]].copy())
                             self.item_docs.push(idoc.copy())
+                        }
+
+                        // A cut list's order is its rank: the editor sorts
+                        // by sortText.
+                        var sort = doc.get_str(r, K_SORT_TEXT)
+                        if capped {
+                            sort = rank_sort_text(k)
                         }
 
                         self.item(
                             &w,
-                            doc.get_str(it, K_LABEL),
-                            doc.get_int(it, K_KIND),
-                            doc.get_str(it, K_DETAIL),
-                            doc.get_str(it, K_SORT_TEXT),
+                            labels[order[k]],
+                            doc.get_int(r, K_KIND),
+                            doc.get_str(r, K_DETAIL),
+                            sort,
                             j->edit,
                         )
 
                         found = true
                         nitems += 1
-                        it = doc.next(it)
                     }
                 }
 
@@ -595,8 +717,16 @@ extend Server {
         }
 
         w.end_array()
-        w.end_object()
-        self.respond(j->id, w.out)
+        var lw = JsonWriter()
+        lw.begin_object()
+        lw.field_bool(K_IS_INCOMPLETE, capped)
+        lw.field_raw(K_ITEMS, w.out)
+        lw.end_object()
+        self.trace(
+            f"complete items={got} sent={nitems} read_us={t_read} order_us={t_order} bytes={text.size()}",
+        )
+
+        self.respond(j->id, lw.out)
         self.completed_(
             j->how,
             if (j->member) => (WHAT_MEMBER) else => WHAT_NAME,

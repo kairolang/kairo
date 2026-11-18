@@ -239,6 +239,7 @@ extend Server {
             a->path,
             a->member,
             a->edit,
+            a->prefix,
             a->marked,
             a->t0_us,
         )
@@ -260,6 +261,7 @@ extend Server {
                       const path:  string,
                       member:      bool,
                       const edit:  string,
+                      const pre:   string,
                       const mpath: string,
                       t0_us:       i64) -> bool {
         if (!self.live_on) || self.entries[ei].adhoc {
@@ -284,6 +286,7 @@ extend Server {
         a.marked   = mpath.copy()
         a.out      = self.scratch(".json")
         a.edit     = edit.copy()
+        a.prefix   = pre.copy()
         a.member   = member
         a.ms       = now_ms()
         a.t0_us    = t0_us
@@ -634,6 +637,7 @@ extend Server {
             cj.path     = mine.path.copy()
             cj.member   = mine.member
             cj.edit     = mine.edit.copy()
+            cj.prefix   = mine.prefix.copy()
             cj.how      = HOW_LIVE.copy()
             cj.t0_us    = mine.t0_us
             self.trace(f"live completion done id={id} {now_ms() - mine.ms} ms")

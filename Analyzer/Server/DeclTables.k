@@ -46,6 +46,8 @@ pub class DeclTable {
 
     /// TB_* rows, four numbers each.
     pub var bases: [i64]
+    /// XB_* rows, four numbers each.
+    pub var xb: [i64]
 
     /// A declared name's byte offset -> its row.
     pub var by_off: {u64: u32}
@@ -149,6 +151,36 @@ pub class DeclTable {
 
             b = d->next(b)
         }
+
+        var x = d->first(d->get(n, SK_XB))
+        while x != JSON_NONE() {
+            var c = d->first(x)
+            while c != JSON_NONE() {
+                self.xb.push(d->as_int(c))
+                c = d->next(c)
+            }
+
+            x = d->next(x)
+        }
+    }
+
+    /// Whether the bounded `extend` block at byte `eoff` of file `epath`
+    /// holds for the type of row `r`: 1, 0, or -1 when no row says.
+    pub fn bound_holds(self, r: i64, const epath: string, eoff: i64) -> i64 {
+        var x: usize = 0
+        while (x + 3) < self.xb.size() {
+            if (self.xb[x] == r)
+                && (self.xb[x + 2] == eoff)
+                && (self.xb[x + 1] >= 0)
+                && ((self.xb[x + 1] as usize) < self.files.size())
+                && (self.files[self.xb[x + 1] as usize] == epath) {
+                return self.xb[x + 3]
+            }
+
+            x += 4
+        }
+
+        return -1
     }
 }
 

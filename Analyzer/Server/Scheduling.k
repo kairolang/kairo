@@ -246,6 +246,7 @@ pub class LiveAsk {
     pub var marked:   string = ""    ///< the marked copy of the buffer, on disk
     pub var out:      string = ""    ///< where the worker's copy writes
     pub var edit:     string = ""    ///< as Job::edit
+    pub var prefix:   string = ""    ///< as Job::prefix
     pub var member:   bool   = false
     pub var ms:       i64    = 0     ///< now_ms() when it was sent
     pub var t0_us:    i64    = 0     ///< now_us() when the request arrived
@@ -295,6 +296,7 @@ pub class Job {
     pub var member:     bool                   = false ///< Complete: after `.`, `->` or `::`
     pub var marked:     string                 = "" ///< Complete: the marked copy of the buffer
     pub var edit:       string                 = "" ///< Complete: the range an accepted item replaces, as JSON
+    pub var prefix:     string                 = "" ///< Complete: the name typed up to the cursor
     pub var cancelled:  bool                   = false ///< Complete: already answered "cancelled"; drop the result
     pub var how:        string                 = HOW_RUN ///< Complete: what computed it (M_KALS_COMPLETED)
     pub var t0_us:      i64                    = 0 ///< Complete: now_us() when the request arrived

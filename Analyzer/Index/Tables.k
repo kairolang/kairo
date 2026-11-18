@@ -32,9 +32,11 @@ import AST::Context::SymbolTable::{
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
     decl_extension_of,
+    decl_is_ctor,
     decl_is_ffi,
     decl_name_tok,
     decl_requires_clause,
+    for_each_unwrapped_decl,
 }
 import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
@@ -88,6 +90,10 @@ import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Protocol::*
 import Sema::Resolve::AccessCheck::AccessCheck
+import Sema::Resolve::MemberLookup::{
+    MemberLookup,
+    extension_visible,
+}
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,
@@ -252,6 +258,20 @@ extend IndexWalker {
             // A primitive has no record to point at (`extend i32`): the
             // row's detail spells it, which is how `i32::` finds the
             // block's statics.
+            // `DC_EOFF` is the block's own place, the key its verdicts
+            // name it by (gates, xb, lxb).
+            var xflags: i64 = DF_EXT
+            if e->gate != &null {
+                xflags = xflags | DF_GATED
+            }
+
+            if self.ext_bounded_(e) {
+                xflags = xflags | DF_BOUNDED
+            }
+
+            var xfid: u32 = 0
+            var xoff: i64 = -1
+            self.ext_key_(e, &xfid, &xoff)
             var row = self.t_put_(
                 w,
                 "",
@@ -259,12 +279,12 @@ extend IndexWalker {
                 parent,
                 -1,
                 VIS_PUB,
-                DF_EXT,
+                xflags,
                 self.ext_primitive_(e->target),
                 tfi,
                 toff,
                 -1,
-                -1,
+                xoff,
             )
 
             for var i: usize = 0; i < e->methods.size(); ++i {
@@ -351,6 +371,14 @@ extend IndexWalker {
             if cast<Declarations::FunctionDecl>(d)->is_method() {
                 flags = DF_METHOD
             }
+
+            if decl_is_ctor(cast<Declarations::FunctionDecl>(d)) {
+                flags = flags | DF_CTOR
+            }
+
+            if is_virtual_fn_(cast<Declarations::FunctionDecl>(d)) {
+                flags = flags | DF_VIRTUAL
+            }
         } else if isa<Declarations::FieldDecl>(d) {
             if !cast<Declarations::FieldDecl>(d)->is_static() {
                 flags = 0
@@ -424,6 +452,7 @@ extend IndexWalker {
         )
 
         if dc == &null {
+            self.t_bounds_(row, self.value_type_(d))
             return row
         }
 
@@ -557,6 +586,20 @@ extend IndexWalker {
         }
 
         w.end_array()
+        w.key(SK_XB)
+        w.begin_array()
+        var x: usize = 0
+        while (x + 3) < self.t_xb_.size() {
+            w.begin_array()
+            w.integer(self.t_xb_[x])
+            w.integer(self.t_xb_[x + 1])
+            w.integer(self.t_xb_[x + 2])
+            w.integer(self.t_xb_[x + 3])
+            w.end_array()
+            x += 4
+        }
+
+        w.end_array()
         w.key(SK_FILES)
         w.begin_array()
         for var i: usize = 0; i < self.t_fids_.size(); ++i {
@@ -578,8 +621,133 @@ extend IndexWalker {
             return
         }
 
+        var ml = MemberLookup(self.sc)
+        self.xb_ml_ = unsafe &ml
+        finally {
+            self.xb_ml_ = &null
+        }
+
         self.file_(fid)
         self.build_table_()
+    }
+
+    /// Where `extend` block `e` is, as a DF_EXT row's file and `DC_EOFF`
+    /// name it. False when it has no place.
+    fn ext_key_(self, e: unsafe *Declarations::ExtensionDecl, fid: *u32, off: *i64) -> bool {
+        if (e == &null) || (!e->range.start.is_valid()) {
+            return false
+        }
+
+        var res = self.sm->resolve(e->range.start)
+        (*fid) = res.fid as u32
+        (*off) = res.offset as i64
+        return true
+    }
+
+    /// The `xb` rows of table row `row`, whose value has type `vt`.
+    fn t_bounds_(self, row: i64, vt: unsafe *Type) {
+        var exts:  [unsafe *Declarations::ExtensionDecl]
+        var holds: [bool]
+        self.bounded_verdicts_(
+            self.xb_ml_,
+            self.inst_type_(vt, 0),
+            &exts,
+            &holds,
+        )
+
+        for var i: usize = 0; i < exts.size(); ++i {
+            var efid: u32 = 0
+            var eoff: i64 = -1
+            if self.ext_key_(exts[i], &efid, &eoff) {
+                self.t_xb_.push(row)
+                self.t_xb_.push(self.tfile_(efid))
+                self.t_xb_.push(eoff)
+                self.t_xb_.push(if (holds[i]) => (1 as i64) else => (0 as i64))
+            }
+        }
+    }
+
+    /// The `lxb` rows of the local, parameter or `self` `d` this file
+    /// declares at byte `off`.
+    fn local_bounds_(self, d: unsafe *Decl, off: u32) {
+        var exts:  [unsafe *Declarations::ExtensionDecl]
+        var holds: [bool]
+        self.bounded_verdicts_(
+            self.xb_ml_,
+            self.inst_type_(self.value_type_(d), 0),
+            &exts,
+            &holds,
+        )
+
+        for var i: usize = 0; i < exts.size(); ++i {
+            var efid: u32 = 0
+            var eoff: i64 = -1
+            if !self.ext_key_(exts[i], &efid, &eoff) {
+                continue
+            }
+
+            var x = XbRow{}
+            x.line = self.files[0].lines.line_of(off as usize)
+            x.ch = self.files[0].lines.character(
+                self.files[0].text,
+                off as usize,
+                false,
+            )
+
+            x.path  = self.sm->get_filename(efid)
+            x.off   = eoff
+            x.holds = holds[i]
+            self.lxb_rows.push(x)
+        }
+    }
+
+    /// The conditional `extend` blocks of `dc` (file `fid`), with its
+    /// modules', that exist in this file (MemberLookup's
+    /// extension_visible: the file rule and the block's gate).
+    fn gates_of_(self, dc: unsafe *DeclContext, fid: u32, depth: u32) {
+        if (dc == &null) || (depth > 8) {
+            return
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *d = *dc->dc_decls.get(i)
+            if d == &null {
+                continue
+            }
+
+            for_each_unwrapped_decl(
+                d,
+                fn (x: unsafe *Decl) { self.gate_decl_(x, fid, depth) },
+            )
+        }
+    }
+
+    fn gate_decl_(self, d: unsafe *Decl, fid: u32, depth: u32) {
+        if isa<Declarations::ModuleDecl>(d) {
+            self.gates_of_(
+                unsafe (cast<Declarations::ModuleDecl>(d) as unsafe *DeclContext),
+                fid,
+                depth + 1,
+            )
+
+            return
+        }
+
+        if !isa<Declarations::ExtensionDecl>(d) {
+            return
+        }
+
+        var unsafe *e = cast<Declarations::ExtensionDecl>(d)
+        if (e->gate == &null) || (!extension_visible(self.sc, e, fid)) {
+            return
+        }
+
+        var efid: u32 = 0
+        var eoff: i64 = -1
+        if self.ext_key_(e, &efid, &eoff) {
+            self.gate_paths.push(self.sm->get_filename(efid))
+            self.gate_offs.push(eoff)
+        }
     }
 
     /// What a scope row says of `d` (Snapshot.k, ScopeFact): the same for
@@ -735,6 +903,20 @@ extend IndexWalker {
         for var i: usize = 0; i < keys.size(); ++i {
             self.sees.push(paths[(keys[i] & 0xFFFF) as usize].copy())
         }
+
+        // The conditional blocks that exist here, in the order of the
+        // files above (all_fids), each file's in declaration order.
+        for var i: usize = 0; i < fids.size(); ++i {
+            var unsafe *ctx = self.sc->g->get_context(fids[i])
+            if (ctx == &null)
+                || (ctx->tu == &null)
+                || ctx->tu->is_foreign
+                || ctx->tu->no_extensions {
+                continue
+            }
+
+            self.gates_of_(unsafe (ctx->tu as unsafe *DeclContext), fids[i], 0)
+        }
     }
 
     /// Index of `fid` among the files the scope rows name.
@@ -781,6 +963,30 @@ extend IndexWalker {
         w->begin_array()
         for var i: usize = 0; i < self.sees.size(); ++i {
             w->str(self.sees[i])
+        }
+
+        w->end_array()
+        w->key(SK_GATES)
+        w->begin_array()
+        for var i: usize = 0; i < self.gate_paths.size(); ++i {
+            w->begin_array()
+            w->str(self.gate_paths[i])
+            w->integer(self.gate_offs[i])
+            w->end_array()
+        }
+
+        w->end_array()
+        w->key(SK_LXB)
+        w->begin_array()
+        for var i: usize = 0; i < self.lxb_rows.size(); ++i {
+            var *x = &self.lxb_rows[i]
+            w->begin_array()
+            w->uint(x->line)
+            w->uint(x->ch)
+            w->str(x->path)
+            w->integer(x->off)
+            w->integer(if (x->holds) => (1 as i64) else => (0 as i64))
+            w->end_array()
         }
 
         w->end_array()

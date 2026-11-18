@@ -6,10 +6,16 @@ fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: shell
-// RUN: rm -rf %t.d && mkdir -p %t.d && cp %kairo_bin %t.d/kairo
-// RUN: %t.d/kairo --type-check-only --no-stdlib %s
-// RUN: test ! -e %t.d/kairo.log
-// RUN: : > %t.d/kairo.log
-// RUN: %t.d/kairo --type-check-only --no-stdlib %s
-// RUN: test ! -e %t.d/kairo.log
+// The staged tree is mirrored with links so the copied binary finds its
+// libraries and clang; only the compiler itself is a real copy, so the log
+// would be written beside it and not into the tree under test.
+// RUN: rm -rf %t.d && mkdir -p %t.d/bin
+// RUN: for e in $(dirname %kairo_bin)/../*; do [ "$(basename $e)" = bin ] || ln -s "$(realpath $e)" %t.d/; done
+// RUN: for e in $(dirname %kairo_bin)/*; do ln -s "$(realpath -s $e)" %t.d/bin/; done
+// RUN: rm %t.d/bin/kairo && cp %kairo_bin %t.d/bin/kairo
+// RUN: %t.d/bin/kairo --type-check-only --no-stdlib %s
+// RUN: test ! -e %t.d/bin/kairo.log
+// RUN: : > %t.d/bin/kairo.log
+// RUN: %t.d/bin/kairo --type-check-only --no-stdlib %s
+// RUN: test ! -e %t.d/bin/kairo.log
 // RUN: rm -rf %t.d
