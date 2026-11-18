@@ -355,8 +355,10 @@ pub class LinkFS {
             return ""
         }
 
+        var cs = v.value()
         return string(
-            unsafe ((v.value().c_str() as unsafe *const u8) as *const u8),
+            unsafe ((cs.data() as unsafe *const u8) as *const u8),
+            cs.size(),
         )
     }
 

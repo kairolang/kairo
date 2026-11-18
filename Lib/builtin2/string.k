@@ -1526,7 +1526,7 @@ pub class string {
     }
 
     // kairo conversions:
-    pub inline fn string(self, const c: *u8) {
+    pub inline fn string(self, c: *const u8) { // NUL-terminated
         unsafe {
             var unsafe *q       = c as unsafe *const u8
             var        n: usize = 0
@@ -2186,6 +2186,19 @@ pub class string {
         }
     }
 
+    // Members, not extension members: a C++ template in a Native header
+    // reads a string's bytes as `s.data()` / `s.size()`, and an extension
+    // member emits as a free function that member lookup does not reach.
+    @pure pub inline fn size(const self) -> usize { // bytes
+        return self.meta >> LEN_SHIFT
+    }
+
+    @pure pub inline fn data(const self) -> *const u8 {
+        unsafe {
+            return self.raw() as *const u8
+        }
+    }
+
     @hot_path pub inline fn op [] (const self, b: usize) -> char { // char starting at byte b; traps off a boundary
         @unlikely
         if b >= (self.meta >> LEN_SHIFT) {
@@ -2686,10 +2699,6 @@ extend string {
     }
 
     // size
-    @pure pub inline fn size(const self) -> usize { // bytes
-        return self.meta >> LEN_SHIFT
-    }
-
     @pure pub inline fn codepoints(const self) -> usize { // O(1), except a non-ASCII view: O(n)
         var m = self.meta
         // Invariant 6: a heap string's count word is exact whether or not
@@ -2924,12 +2933,6 @@ extend string {
     // raw
     pub inline fn bytes(const self) -> [const u8;] {
         return Slice<const u8>(self.raw(), self.meta >> LEN_SHIFT)
-    }
-
-    @pure pub inline fn data(const self) -> *const u8 {
-        unsafe {
-            return self.raw() as *const u8
-        }
     }
 
     pub inline fn c_str(self) -> unsafe *const __builtin_c_char { // a view becomes heap first
