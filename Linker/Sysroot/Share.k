@@ -395,7 +395,7 @@ pub class QuirkSet {
             var probe_ok = true
             for *p in q->match_probe {
                 var neg = LinkText::starts_with(p->copy(), "!")
-                var fact = if (neg) => (LinkText::slice(*p, 1, p->size())) else => *p
+                var fact = if (neg) => (LinkText::slice(*p, 1, p->size())) else => p->copy()
                 if SysUtil::contains(&probe, fact) == neg {
                     probe_ok = false
                 }
@@ -410,7 +410,7 @@ pub class QuirkSet {
     }
 
     priv static fn _set(q: *SysQuirk, const key: string, @inout v: TomlValue) -> bool {
-        var as_text = if (v.kind == 3) => (SysUtil::joined(&v.list, ",")) else => v.text
+        var as_text = if (v.kind == 3) => (SysUtil::joined(&v.list, ",")) else => v.text.copy()
         q->effects.push_back(key.copy() + "=" + as_text)
         if v.kind == 1 {
             if key == "target_rewrite" {
@@ -580,7 +580,7 @@ pub class ShareTree {
         var abs = LinkText::starts_with(p.copy(), "/")
             || LinkText::starts_with(p.copy(), "\\")
             || p.size() > 2 && p.data()[1] == (':' as u8)
-        return if (abs) => (p) else => LinkFS::real(p.copy())
+        return if (abs) => (p.copy()) else => LinkFS::real(p.copy())
     }
 
     /// runtimes/REVISION, trimmed; "" when absent.

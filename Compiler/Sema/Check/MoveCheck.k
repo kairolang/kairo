@@ -2463,7 +2463,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 continue
             }
 
-            out.parts.push_back(cm.parts[i])
+            out.parts.push_back(cm.parts[i].copy())
             out.when.push_back(cm.when[i])
             out.ptys.push_back(tys)
         }
@@ -2897,7 +2897,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 continue
             }
 
-            l.parts.push_back(cm.parts[i])
+            l.parts.push_back(cm.parts[i].copy())
             l.when.push_back(cm.when[i])
         }
 
@@ -3287,7 +3287,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     }
 
     /// Each arm runs on its condition's true state; the next condition, and
-    /// the `else`, on the previous one's false state.
+    /// the `else`, on the previous one's false state. The expression is a
+    /// value, so an arm is transferred into it (_if_arm) in that arm's state.
     priv fn _if_expr(self, n: unsafe *Expressions::IfExpr) {
         var r   = self._cond(n->condition)
         var acc = MoveState()
@@ -3295,6 +3296,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st = r.t
         if n->then_expr != &null {
             self.dispatch_expr(n->then_expr)
+            self._if_arm(n->then_expr)
         }
 
         acc = move_join(acc, self._st)
@@ -3306,6 +3308,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self._st = ar.t
             if arm->body != &null {
                 self.dispatch_expr(arm->body)
+                self._if_arm(arm->body)
             }
 
             acc  = move_join(acc, self._st)
@@ -3315,9 +3318,37 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st = rest
         if n->else_expr != &null {
             self.dispatch_expr(n->else_expr)
+            self._if_arm(n->else_expr)
         }
 
         self._st = move_join(acc, self._st)
+    }
+
+    /// An arm of a MOVE type that names a place: C++'s `?:` copies an
+    /// lvalue operand into its result, and a MOVE type has no copy. A
+    /// local or by-value parameter moves into the value, tracked as any
+    /// transfer is; any other place (a field, an element, a dereference)
+    /// is refused, since moving out of it would leave it moved-from where
+    /// nothing tracks it. A COPY arm is left to C++'s copy.
+    priv fn _if_arm(self, e: unsafe *Expr) {
+        if e == &null || e->is_poisoned() || !moves_on_pass(self.sc, e->type_) {
+            return
+        }
+
+        var unsafe *x = self._tu.strip_parens(e)
+        if x == &null || x->value_category != Expr::ValueCategory::LValue {
+            return
+        }
+
+        if self._returned_local(x) {
+            self._transfer(e, "into the value of the 'if' expression", e->type_)
+            return
+        }
+
+        self._no_copy(
+            e,
+            "an 'if' expression copies this arm into its value, and moving out of it would leave the place moved-from",
+        )
     }
 
     /// ## arm bookkeeping: N alternatives from one entry state
@@ -6875,7 +6906,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         var gone = mp.shown.copy()
-        var read = if (shown.size() == 0) => (self.sc->ctx->get_spelling(n->name)) else => shown
+        var read = if (shown.size() == 0) => (self.sc->ctx->get_spelling(
+                       n->name,
+                   ))
+                   else => shown.copy()
         var part  = !path_within(path, mp.path)
         var taken = gone.copy()
         var msg   = f"'{gone}' is used after being moved"
@@ -6915,7 +6949,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         if mp.has_via {
             b.note(
                 mp.via.start,
-                if (mp.via_text.size() > 0) => (mp.via_text)
+                if (mp.via_text.size() > 0) => (mp.via_text.copy())
                 else => "it is moved here, and not assigned again before the body returns",
             )->child_first(mp.via)
         }

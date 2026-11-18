@@ -141,7 +141,7 @@ pub class HostSystem {
         }
 
         seen.push_back(r)
-        out.push_back(d)
+        out.push_back(d.copy())
     }
 
     /// An environment search-path list (CPATH, LIBRARY_PATH), split on ':'
@@ -224,7 +224,7 @@ pub class HostSystem {
         args.push_back(prog.copy())
         args.push_back("--cflags")
         args.push_back("--libs")
-        args.push_back(name)
+        args.push_back(name.copy())
         // Views of args' own bytes; args is not touched again while refs lives.
         var refs: cxx::std::vector<llvm::StringRef>
         refs.reserve(args.size())

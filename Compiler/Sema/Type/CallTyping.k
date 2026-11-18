@@ -2348,10 +2348,10 @@ pub class <T: type> CallTyping {
         // bound T stands for): `T::foo` is the spelling that works in the
         // generic body the call is in.
         if ch != &null && recv != &null && step->name != &null {
-            var ty = self.dyn()->tu.str(self.dyn()->tu.as_value(recv))
+            var ty: string = self.dyn()->tu.str(self.dyn()->tu.as_value(recv))
             b.fix(
                 SourceRange(ch->range.start, step->name->range.start),
-                ty + "::",
+                ty.copy() + "::",
                 f"call it through the type: '{ty}::{nm}'",
             )
         }
@@ -2985,11 +2985,11 @@ pub class <T: type> CallTyping {
             return false
         }
 
-        var cname = self.dyn()->tu.decl_name(d)
-        var mname = self.dyn()->tu.decl_name(pure)
-        var odc   = pure->semantic_dc
-        var od    = if (odc != &null) => (odc->owner_decl()) else => &null
-        var owner = if (od != &null) => (self.dyn()->tu.decl_name(od)) else => cname
+        var cname: string = self.dyn()->tu.decl_name(d)
+        var mname         = self.dyn()->tu.decl_name(pure)
+        var odc           = pure->semantic_dc
+        var od = if (odc != &null) => (odc->owner_decl()) else => &null
+        var owner = if (od != &null) => (self.dyn()->tu.decl_name(od)) else => cname.copy()
         var b = self.dyn()->sc->diag->report(
             DiagID::SC249E,
             n->range.start,
@@ -3195,6 +3195,12 @@ pub class <T: type> CallTyping {
         n->ctor_decl = r.decl
         if dep {
             n->value_category = Expr::ValueCategory::RValue
+        } else if !r.decl->is_imported() {
+            // A generic constructor's instance, registered as a generic
+            // function's is: ConformanceChecking checks its `impl` bounds
+            // at this call through `n->instance`.
+            self.call_result_type(unsafe (r.decl as *FunctionDecl), &r)
+            n->instance = r.instance
         }
 
         return rec

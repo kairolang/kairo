@@ -451,7 +451,8 @@ pub class MinGWArgs {
                         @inout msgs: cxx::std::vector<LinkMessage>) {
         var p = tc.find_lib_file(name.copy())
         if p.is_empty() {
-            var _where = if (!tc.crt_dir.is_empty()) => (tc.crt_dir) else => tc.sysroot
+            var _where = if (!tc.crt_dir.is_empty()) => (tc.crt_dir.copy())
+                         else => tc.sysroot.copy()
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,

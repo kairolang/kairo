@@ -64,6 +64,6 @@ pub class LinkJob {
             }
         }
 
-        self.objects.push_back(path)
+        self.objects.push_back(path.copy())
     }
 }

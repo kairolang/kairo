@@ -43,6 +43,10 @@ pub struct SysJsonField {
     pub var json: string ///< already-encoded JSON value
 }
 
+fn sys_string_less(const a: string, const b: string) -> bool {
+    return a < b
+}
+
 pub class SysUtil {
     /// sha256 of `s`, 64 lowercase hex.
     pub static fn sha256(const s: string) -> string {
@@ -83,7 +87,7 @@ pub class SysUtil {
             return ""
         }
 
-        cxx::std::sort(rels.begin(), rels.end())
+        SysUtil::sort(&rels)
 
         var stream = ""
         for r in rels {
@@ -110,7 +114,7 @@ pub class SysUtil {
         var rels  = cxx::std::vector<string>()
         var links = cxx::std::vector<string>()
         SysUtil::_walk(dir, "", 0, follow, &rels, &links)
-        cxx::std::sort(rels.begin(), rels.end())
+        SysUtil::sort(&rels)
 
         var stream = if (follow) => ("schema 1\n") else => "schema 2\n"
         for *r in rels {
@@ -188,7 +192,7 @@ pub class SysUtil {
             keys.push_back(f->key.copy())
         }
 
-        cxx::std::sort(keys.begin(), keys.end())
+        SysUtil::sort(&keys)
         var out = "{"
         for var i: usize = 0; i < keys.size(); ++i {
             if i > 0 {
@@ -216,6 +220,14 @@ pub class SysUtil {
         f.key  = key.copy()
         f.json = json.copy()
         fields.push_back(f)
+    }
+
+    /// `v` in byte order. std::sort's default `<` does not compile for the
+    /// Kairo string (its `<=>` yields a Kairo Ordering), and a closure's
+    /// `const` parameter is spelled by value in the function type, which
+    /// copies; a named function's `const` parameter is a reference.
+    pub static fn sort(@inout v: cxx::std::vector<string>) {
+        cxx::std::sort(v.begin(), v.end(), sys_string_less)
     }
 
     pub static fn split(const s: string, sep: u8) -> cxx::std::vector<string> {

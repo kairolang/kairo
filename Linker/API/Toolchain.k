@@ -485,7 +485,7 @@ pub class Toolchain {
         if LinkFS::is_dir(LinkText::join(usr.copy(), "lib"))
             || LinkFS::is_dir(LinkText::join(usr.copy(), "lib64")) {
             self.style = "root"
-            bases.push_back(usr)
+            bases.push_back(usr.copy())
             bases.push_back(self.sysroot.copy())
             self.pass_sysroot = self.sysroot != "/"
         } else {
@@ -1134,7 +1134,7 @@ pub class Toolchain {
 
         // base is the host's own libc++; only a host-format link may take it.
         if self.format == ObjectFormat::Elf || self.format == ObjectFormat::MachO {
-            cands.push_back(base)
+            cands.push_back(base.copy())
         }
 
         for *c in cands {
@@ -1370,8 +1370,8 @@ pub class Toolchain {
             }
         }
 
-        self._real_dirs.push_back(r)
-        self.lib_dirs.push_back(d)
+        self._real_dirs.push_back(r.copy())
+        self.lib_dirs.push_back(d.copy())
     }
 
     /// A host dir, unless it is (by real path) already a lib_dir or a host
@@ -1388,8 +1388,8 @@ pub class Toolchain {
             }
         }
 
-        self._real_dirs.push_back(r)
-        self.host_lib_dirs.push_back(d)
+        self._real_dirs.push_back(r.copy())
+        self.host_lib_dirs.push_back(d.copy())
     }
 
     priv fn _has_dir(self, const d: string) -> bool {
@@ -1957,9 +1957,9 @@ pub class Toolchain {
             archs.push_back("i486")
             archs.push_back("i386")
         } else {
-            archs.push_back(a)
+            archs.push_back(a.copy())
             if spelled != a {
-                archs.push_back(spelled)
+                archs.push_back(spelled.copy())
             }
         }
 
@@ -2200,7 +2200,7 @@ pub class Toolchain {
         var devs = cxx::std::vector<string>()
         var dd   = LinkText::strip_slash(LinkFS::env(EnvNames::developer_dir()))
         if !dd.is_empty() {
-            devs.push_back(dd)
+            devs.push_back(dd.copy())
         }
 
         if LinkFS::exists("/var/db/xcode_select_link") {
@@ -2415,7 +2415,7 @@ pub class Toolchain {
             }
         }
 
-        out.push_back(s)
+        out.push_back(s.copy())
     }
 
     priv static fn _split(s: string, sep: u8) -> cxx::std::vector<string> {

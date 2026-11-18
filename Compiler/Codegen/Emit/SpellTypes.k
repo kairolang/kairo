@@ -239,6 +239,28 @@ extend Speller {
                     return self.decl(q->inner, name, subst, scope)
                 }
 
+                // East const on a type parameter under an instance: the
+                // instance spells T as text (`X *`), and a prefix would then
+                // qualify X (`const X **`) where `*const T` means
+                // `X *const *`. A template body keeps the prefix.
+                if ic != &null
+                    && subst != &null
+                    && pfx.size() > 0
+                    && ic->kind == TypeKind::GenericParamType
+                    && !cast<GenericParamType>(ic)->is_pack {
+                    var after = if ((q->quals & QUAL_CONST) != 0) => ("const") else => ""
+                    if (q->quals & QUAL_VOLATILE) != 0 {
+                        after += if (after.size() > 0) => (" volatile") else => "volatile"
+                    }
+
+                    return self.decl(
+                        q->inner,
+                        if (name.size() > 0) => (after + " " + name) else => after,
+                        subst,
+                        scope,
+                    )
+                }
+
                 return pfx + self.decl(q->inner, name, subst, scope)
             } case TypeKind::BuiltinType {
                 var unsafe *b = cast<BuiltinType>(t)

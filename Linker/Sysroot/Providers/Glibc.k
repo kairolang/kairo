@@ -505,7 +505,7 @@ pub class GlibcProvider derives SysrootProvider {
         for *stem in GlibcProvider::stems() {
             var l = GlibcLib{}
             l.stem = stem->copy()
-            l.soname = if (*stem == "ld") => (row.ld)
+            l.soname = if (*stem == "ld") => (row.ld.copy())
                        else => GlibcProvider::_lookup(
                            &row.so_keys,
                            &row.so_vals,
@@ -792,7 +792,7 @@ pub class GlibcProvider derives SysrootProvider {
         for *line in LinkText::split_lines(nodes_text.copy()) {
             var w = GlibcProvider::_words(*line)
             if w.size() == 2 && !SysUtil::version_less(v, w[1]) {
-                nodes.push_back(w[0].copy())
+                nodes.push_back(w[0])
                 text += w[0].copy() + " " + w[0] + " A\n"
             }
         }
@@ -806,7 +806,7 @@ pub class GlibcProvider derives SysrootProvider {
     pub static fn in_ranges(const spec: string, const v: string) -> bool {
         for *r in SysUtil::split(spec, (',' as u8)) {
             var dash = LinkText::find(r->copy(), "-", 0)
-            var lo = if (dash < r->size()) => (LinkText::slice(*r, 0, dash)) else => *r
+            var lo = if (dash < r->size()) => (LinkText::slice(*r, 0, dash)) else => r->copy()
             var hi = if (dash < r->size()) => (LinkText::slice(*r, dash + 1, r->size())) else => ""
             if SysUtil::version_less(v, lo) {
                 continue
@@ -1031,7 +1031,7 @@ pub class GlibcProvider derives SysrootProvider {
             var w = GlibcProvider::_words(*line)
             if w.size() == 3 {
                 over_keys.push_back(w[0].copy() + " " + w[1])
-                over_vals.push_back(w[2].copy())
+                over_vals.push_back(w[2])
             }
         }
 

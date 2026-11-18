@@ -310,7 +310,7 @@ pub class SysRun {
 
             var s = SysRun::_mapped(sub, cols[0], to)
             if !s.is_empty() {
-                stored.push_back(s)
+                stored.push_back(s.copy())
                 real.push_back(SysRun::_mapped(sub, cols[1], to))
             }
         }
@@ -379,7 +379,7 @@ pub class SysRun {
         var head: usize = 0
         while head < parts.size() {
             var cur = SysUtil::joined(&done, "/")
-            cur = if (cur.is_empty()) => (parts[head]) else => cur.copy() + "/" + parts[head]
+            cur = if (cur.is_empty()) => (parts[head].copy()) else => cur.copy() + "/" + parts[head]
             var hit = rels.size()
             for var i: usize = 0; i < rels.size(); ++i {
                 if rels[i] == cur {
@@ -418,7 +418,7 @@ pub class SysRun {
                 continue
             }
 
-            done.push_back(h)
+            done.push_back(h.copy())
         }
 
         var res = SysUtil::joined(&done, "/")
@@ -568,7 +568,7 @@ pub class SysJobs {
         }
 
         self._pis.push_back(pi)
-        self._logs.push_back(log)
+        self._logs.push_back(log.copy())
         return true
     }
 

@@ -97,8 +97,8 @@ pub class SysProps {
     pub var vals: cxx::std::vector<string>
 
     pub fn put(self, const k: string, const v: string) {
-        self.keys.push_back(k)
-        self.vals.push_back(v)
+        self.keys.push_back(k.copy())
+        self.vals.push_back(v.copy())
     }
 
     /// "" when `k` is not a property.
@@ -342,8 +342,8 @@ pub class SysNames {
         cands.clear()
         var ver     = ""
         var spelled = SysNames::split_glibc(input, &ver)
-        var glibc   = if (ver.is_empty()) => (glibc_default) else => ver
-        var named = if (ver.is_empty()) => (spelled) else => spelled.copy() + "-glibc" + ver
+        var glibc = if (ver.is_empty()) => (glibc_default.copy()) else => ver.copy()
+        var named = if (ver.is_empty()) => (spelled.copy()) else => spelled.copy() + "-glibc" + ver
         if LinkText::ends_with(input.copy(), "-glibc") {
             why = f"\x27{input}\x27 names no glibc version after -glibc"
             return false
@@ -425,7 +425,7 @@ pub class SysNames {
 
         var arch = parts[0].copy()
         var os   = parts[2].copy()
-        var env  = if (parts.size() > 3) => (parts[3]) else => ""
+        var env  = if (parts.size() > 3) => (parts[3].copy()) else => ""
         var fam  = ""
         if tt.isOSLinux() {
             if LinkText::starts_with(env.copy(), "musl") {
@@ -599,7 +599,7 @@ pub class SysNames {
         var arch = t->arch.copy()
         var cpu  = SysNames::cpu_of(arch)
         var os = if (libc == "musl" || libc == "glibc") => ("linux")
-                 else => if (libc == "mingw") => ("windows") else => libc
+                 else => if (libc == "mingw") => ("windows") else => libc.copy()
         var b64  = SysNames::is_64(arch)
         var bits = if (b64) => ("64") else => "32"
         var objfmt = if (os == "windows") => ("coff")

@@ -151,11 +151,11 @@ pub class SysSdk {
     pub static fn find_msvc_splat(const input: string, const xa: string) -> string {
         var cands = cxx::std::vector<string>()
         if !input.is_empty() {
-            cands.push_back(input)
+            cands.push_back(input.copy())
         } else {
             var x = LinkFS::env(EnvNames::xwin())
             if !x.is_empty() {
-                cands.push_back(x)
+                cands.push_back(x.copy())
             }
 
             var mc = LinkFS::env(EnvNames::msvc_cache())
@@ -651,11 +651,11 @@ pub class SysSdk {
 
         var log  = LinkText::join(w.copy(), "compile.log")
         var argv = cxx::std::vector<string>()
-        argv.push_back(kcc)
+        argv.push_back(kcc.copy())
         KccArgv::push_target(&argv, ct, r)
         argv.push_back("-std=c++20")
         argv.push_back("-c")
-        argv.push_back(src)
+        argv.push_back(src.copy())
         argv.push_back("-o")
         argv.push_back(LinkText::join(w.copy(), "t.o"))
         if SysRun::run(&argv, log) != 0 {
@@ -697,7 +697,7 @@ pub class SysSdk {
 
         var log  = LinkFS::temp_file("ksys-vswhere", ".txt")
         var argv = cxx::std::vector<string>()
-        argv.push_back(vswhere)
+        argv.push_back(vswhere.copy())
         argv.push_back("-latest")
         argv.push_back("-products")
         argv.push_back("*")
@@ -779,7 +779,7 @@ pub class SysSdk {
 
             LinkFS::make_dirs(LinkFS::parent(log))
             var argv = cxx::std::vector<string>()
-            argv.push_back(shell)
+            argv.push_back(shell.copy())
             argv.push_back("-NoProfile")
             // A prompt (the license, in a branch this should never reach)
             // fails instead of waiting on a console nobody sees.
@@ -787,7 +787,7 @@ pub class SysSdk {
             argv.push_back("-ExecutionPolicy")
             argv.push_back("Bypass")
             argv.push_back("-File")
-            argv.push_back(ps1)
+            argv.push_back(ps1.copy())
             argv.push_back(t->arch.copy())
             // The script reads OUT / WORK from its environment; the driver
             // is still single-threaded here, so setting them is safe.

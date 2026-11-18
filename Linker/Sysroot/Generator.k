@@ -573,7 +573,7 @@ pub class SysGen {
                         &have,
                         &lack,
                     ) {
-                        missing += if (missing.is_empty()) => (*ty) else => ", " + *ty
+                        missing += if (missing.is_empty()) => (ty->copy()) else => ", " + *ty
                     }
                 }
             }
@@ -603,7 +603,7 @@ pub class SysGen {
                 argv.push_back("--target")
                 argv.push_back(m.triple.copy())
                 argv.push_back("--sysroot")
-                argv.push_back(root)
+                argv.push_back(root.copy())
                 argv.push_back("--sysroot-exact")
                 argv.push_back("-o")
                 argv.push_back(bin.copy())
@@ -615,7 +615,7 @@ pub class SysGen {
 
                 KccArgv::push_target(&argv, m.triple, root)
                 for *x in extra {
-                    argv.push_back(*x)
+                    argv.push_back(x->copy())
                 }
 
                 argv.push_back(LinkText::join(vdir.copy(), src->copy()))
@@ -649,7 +649,7 @@ pub class SysGen {
             }
 
             var run = LinkText::copy_list(runner)
-            run.push_back(bin)
+            run.push_back(bin.copy())
             var rlog = LinkText::join(
                 work.copy(),
                 stem.copy() + "-" + lang + ".run.log",
@@ -797,11 +797,11 @@ pub class SysGen {
         var want = SysGen::runtimes_revision()
         p.row(
             "runtimes",
-            if (have.is_empty()) => ("(no REVISION)") else => have,
+            if (have.is_empty()) => ("(no REVISION)") else => have.copy(),
         )
 
         if have != want {
-            var shown = if (have.is_empty()) => ("(missing)") else => have
+            var shown = if (have.is_empty()) => ("(missing)") else => have.copy()
             return out.refuse(
                 f"runtimes/REVISION {shown} does not match the compiler ({want}); reinstall the toolchain",
                 "",
@@ -862,13 +862,13 @@ pub class SysGen {
         /// ## probe (4.2)
         var norm = llvm::Triple::normalize(kairo::sref(p.target.clang_triple))
         var parts = SysUtil::split(string(unsafe ((norm.c_str() as unsafe *const u8) as *const u8)), ('-' as u8))
-        p.os   = if (parts.size() > 2) => (parts[2]) else => ""
-        p.env_ = if (parts.size() > 3) => (parts[3]) else => ""
+        p.os   = if (parts.size() > 2) => (parts[2].copy()) else => ""
+        p.env_ = if (parts.size() > 3) => (parts[3].copy()) else => ""
 
         var tt                    = llvm::Triple(norm)
         var err: cxx::std::string
         var unsafe *backend = llvm::TargetRegistry::lookupTarget(tt, &err)
-        var arch_name = if (parts.empty()) => (p.target.arch) else => parts[0]
+        var arch_name = if (parts.empty()) => (p.target.arch.copy()) else => parts[0].copy()
         if backend == &null {
             p.row("backend", "missing")
             return out.refuse(
@@ -1016,7 +1016,7 @@ pub class SysGen {
             }
 
             if need && !SysUtil::contains(&rels, *rt) {
-                rels.push_back(*rt)
+                rels.push_back(rt->copy())
             }
         }
 
@@ -1053,9 +1053,9 @@ pub class SysGen {
                 )
             }
 
-            p.inputs.push_back(*rel)
-            p.in_paths.push_back(path)
-            p.in_sha.push_back(got)
+            p.inputs.push_back(rel->copy())
+            p.in_paths.push_back(path.copy())
+            p.in_sha.push_back(got.copy())
         }
 
         // A target neither the template nor the tables serve would fail in
@@ -1135,7 +1135,7 @@ pub class SysGen {
 
             var st = SysStage(c->stage_dir(name, p->stage_keys[i]))
             if st.done() {
-                ctx.done_names.push_back(name)
+                ctx.done_names.push_back(name.copy())
                 ctx.done_dirs.push_back(st.dir.copy())
                 continue
             }
@@ -1349,7 +1349,7 @@ pub class SysGen {
 
             var comp = SysUtil::split(*rel, ('/' as u8))[0].copy()
             if !SysUtil::contains(&comps, comp) {
-                comps.push_back(comp)
+                comps.push_back(comp.copy())
             }
         }
 
@@ -1494,7 +1494,7 @@ pub class SysGen {
 
         SysUtil::field(&f, "inputs", SysUtil::json_list(&ins))
         var lics = LinkFS::list_dir(tmp.copy() + "/LICENSES")
-        cxx::std::sort(lics.begin(), lics.end())
+        SysUtil::sort(&lics)
         SysUtil::field(&f, "licenses", SysUtil::json_list(&lics))
         SysUtil::field(
             &f,
@@ -1605,10 +1605,10 @@ pub class SysGen {
         var src = LinkText::join(work.copy(), f"type-{ty}.c")
         LinkFS::write(src, f"{c} kairo_type_probe;\n")
         var argv = cxx::std::vector<string>()
-        argv.push_back(kcc)
+        argv.push_back(kcc.copy())
         KccArgv::push_target(&argv, triple, root)
         argv.push_back("-c")
-        argv.push_back(src)
+        argv.push_back(src.copy())
         argv.push_back("-o")
         argv.push_back(LinkText::join(work.copy(), f"type-{ty}.o"))
         var ok = SysRun::run(
@@ -1616,9 +1616,9 @@ pub class SysGen {
             LinkText::join(work.copy(), f"type-{ty}.log"),
         ) == 0
         if ok {
-            have.push_back(ty)
+            have.push_back(ty.copy())
         } else {
-            lack.push_back(ty)
+            lack.push_back(ty.copy())
         }
 
         return ok
@@ -1651,7 +1651,7 @@ pub class SysGen {
 
             var r = LinkText::slice(text, b, e)
             if !SysUtil::contains(&out, r) {
-                out.push_back(r)
+                out.push_back(r.copy())
             }
 
             i = LinkText::find(text.copy(), pat.copy(), e)
@@ -1675,7 +1675,7 @@ pub class SysGen {
         var harch  = hparts[0].copy()
         var hos = if (LinkText::contains(host, "linux")) => ("linux") else => host
         var tos = if (LinkText::starts_with(t->family.copy(), "linux")) => ("linux")
-                  else => t->family
+                  else => t->family.copy()
         // x32 runs on an x86_64 kernel built with CONFIG_X86_X32_ABI; without
         // it the run fails rather than SKIPs (qemu-user has no x32 target).
         var native = harch == t->arch
@@ -1691,7 +1691,7 @@ pub class SysGen {
                 return "no wine on PATH"
             }
 
-            argv.push_back(wine)
+            argv.push_back(wine.copy())
             return ""
         }
 
@@ -1710,10 +1710,10 @@ pub class SysGen {
                 code += "const inst = await WebAssembly.instantiate(mod, wasi.getImportObject());\n"
                 code += "process.exit(wasi.start(inst));\n"
                 LinkFS::write(js, code)
-                argv.push_back(node)
+                argv.push_back(node.copy())
                 argv.push_back("--no-warnings")
                 argv.push_back("--experimental-wasm-exnref")
-                argv.push_back(js)
+                argv.push_back(js.copy())
                 return ""
             }
 
@@ -1722,7 +1722,7 @@ pub class SysGen {
                 return "no wasmtime or node on PATH"
             }
 
-            argv.push_back(wt)
+            argv.push_back(wt.copy())
             argv.push_back("run")
             argv.push_back("-W")
             argv.push_back("exceptions=y")
@@ -1753,7 +1753,7 @@ pub class SysGen {
             return f"no qemu-{qa} on PATH"
         }
 
-        argv.push_back(qemu)
+        argv.push_back(qemu.copy())
         if mode == "native-or-qemu-with-root" {
             var qroot = LinkFS::env("KAIRO_QEMU_ROOT_" + t->arch)
             if qroot.is_empty() {
@@ -1761,7 +1761,7 @@ pub class SysGen {
             }
 
             argv.push_back("-L")
-            argv.push_back(qroot)
+            argv.push_back(qroot.copy())
         }
 
         return ""
@@ -1949,7 +1949,7 @@ pub class SysGen {
         }
 
         if LinkFS::is_file(ksys) {
-            bins.push_back(ksys)
+            bins.push_back(ksys.copy())
         }
 
         var stamp = ""

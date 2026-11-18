@@ -140,7 +140,7 @@ pub class SysTemplate {
         var rl   = r->expand(r->str("", "resource_layout"), t)
         var bn   = r->expand(r->str("", "builtins_name"), t)
         var lib  = r->list("layout", "lib")
-        var ldir = if (lib.empty()) => ("lib") else => lib[0]
+        var ldir = if (lib.empty()) => ("lib") else => lib[0].copy()
         var sfx  = if (p->get("objfmt") == "coff") => (".obj") else => ".o"
 
         var arch = ""

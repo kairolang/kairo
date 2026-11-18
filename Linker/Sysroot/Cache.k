@@ -43,6 +43,7 @@ import API::EnvNames::{
 }
 import API::FS::LinkFS
 import API::Text::LinkText
+import Sysroot::SysUtil::SysUtil
 
 /// An exclusive lock on a file, held until the object is destroyed. Blocks:
 /// a second ensure of the same key waits for the first and then finds its
@@ -200,7 +201,7 @@ pub class SysCache {
     /// `name -> key` lines, sorted by name.
     pub fn list(self) -> cxx::std::vector<string> {
         var names = LinkFS::list_dir(f"{self.root}/by-name")
-        cxx::std::sort(names.begin(), names.end())
+        SysUtil::sort(&names)
         var out = cxx::std::vector<string>()
         for *n in names {
             if LinkText::starts_with(n->copy(), ".") {

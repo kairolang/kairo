@@ -640,7 +640,7 @@ pub class SysRuntimes {
 
             // Two entries with one member name would leave one object in
             // the archive twice and the other in none.
-            cxx::std::sort(members.begin(), members.end())
+            SysUtil::sort(&members)
             for var i: usize = 1; i < members.size(); ++i {
                 if members[i] == members[i - 1] {
                     jobs.wait_all()
@@ -740,7 +740,7 @@ pub class SysRuntimes {
     /// `<path>` or `<path>=<member>`: the source path.
     priv static fn _entry_path(const e: string) -> string {
         var eq = LinkText::find(e.copy(), "=", 0)
-        return if (eq >= e.size()) => (e) else => LinkText::slice(e, 0, eq)
+        return if (eq >= e.size()) => (e.copy()) else => LinkText::slice(e, 0, eq)
     }
 
     /// The member (object) name: after `=`, else the file name + ".o".

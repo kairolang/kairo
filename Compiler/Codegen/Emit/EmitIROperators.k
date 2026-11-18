@@ -588,7 +588,9 @@ extend EmitIR {
         ) {
             // `a + b` where an operand is the instance's: its type may define
             // only `op +=`, which OperatorLowering would have derived `+`
-            // from, and C++ has no such `operator+`.
+            // from, and C++ has no such `operator+`. The result is built
+            // from `a` as it was passed: a temporary moves, so a MOVE type,
+            // which has no copy, is not copied.
             var unsafe *s = self._cg->sink
             // Parenthesized: as a subscript index, `v[[](...)]` opens a C++ attribute.
             s->spell(
@@ -601,7 +603,7 @@ extend EmitIR {
             s->create(n->op_token)
             s->spell(
                 n->range,
-                " __kb); } else { auto __kt = __ka; __kt " + OperatorFacts::cxx_symbol(
+                " __kb); } else { auto __kt = static_cast<decltype(__ka)&&>(__ka); __kt " + OperatorFacts::cxx_symbol(
                     self._compound_op_of_binary(k),
                 ) + " __kb; return __kt; } }(",
             )

@@ -52,6 +52,7 @@ import Sysroot::SysRun::{
     SysJobs,
     SysRun,
 }
+import Sysroot::SysUtil::SysUtil
 import std::c_char
 
 pub class MingwProvider derives SysrootProvider {
@@ -108,7 +109,7 @@ pub class MingwProvider derives SysrootProvider {
         }
 
         var names = LinkFS::list_dir(defs)
-        cxx::std::sort(names.begin(), names.end())
+        SysUtil::sort(&names)
         var flags = ctx->recipe.list("libc", "dlltool_flags")
         for *n in names {
             if !LinkText::ends_with(n->copy(), ".def") {

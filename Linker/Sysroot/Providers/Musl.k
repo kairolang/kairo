@@ -395,7 +395,7 @@ pub class MuslProvider derives SysrootProvider {
     pub static fn objects(const src: string, const ma: string) -> cxx::std::vector<MuslObj> {
         var dirs = cxx::std::vector<string>()
         var top  = LinkFS::list_dir(src.copy() + "/src")
-        cxx::std::sort(top.begin(), top.end())
+        SysUtil::sort(&top)
         for *d in top {
             if LinkFS::is_dir(src.copy() + "/src/" + *d) {
                 dirs.push_back("src/" + *d)
@@ -491,7 +491,7 @@ pub class MuslProvider derives SysrootProvider {
             }
         }
 
-        cxx::std::sort(keys.begin(), keys.end())
+        SysUtil::sort(&keys)
         for *k in keys {
             var m = MuslObj{}
             m.obj = k->copy()
