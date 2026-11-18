@@ -79,6 +79,7 @@ import Server::SyntaxWorker::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::Ascii::utf8_ceil
 import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
@@ -383,7 +384,8 @@ pub class Server {
 
         var about = text_document_uri(const &d, params)
         if about.size() > 40 {
-            about = about.subslice(about.size() - 40, 40)
+            var from = utf8_ceil(about, about.size() - 40)
+            about = about.subslice(from, about.size() - from)
         }
 
         self.trace(f"<- {id} {method} " + about)

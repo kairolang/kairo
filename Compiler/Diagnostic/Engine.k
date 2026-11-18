@@ -177,7 +177,7 @@ pub fn diag_policy_key_from_string(const code: string) -> u32 {
 
     // The digit run; a trailing severity letter is ignored. The number is
     // truncated to u32, and the key keeps its low 24 bits.
-    if i >= n || !is_digit(code[i]) {
+    if i >= n || !is_digit(code.data()[i]) {
         return 0
     }
 

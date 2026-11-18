@@ -42,6 +42,7 @@ import Location::SourceRange::SourceRange
 import Support::Ascii::{
     parse_decimal,
     split,
+    utf8_next,
 }
 
 /// A note under a finding. `labelled`: the note underlines `at`;
@@ -113,7 +114,7 @@ pub fn agree_emit(ctx: unsafe *ASTContext, const f: AgreeFinding) {
 fn _one_line(const s: string) -> string {
     var clean = true
     for var i: usize = 0; i < s.size(); ++i {
-        if s[i] == ('\n' as u8) || s[i] == ('\r' as u8) {
+        if s.data()[i] == ('\n' as u8) || s.data()[i] == ('\r' as u8) {
             clean = false
             break
         }
@@ -125,10 +126,12 @@ fn _one_line(const s: string) -> string {
 
     var out = ""
     for var i: usize = 0; i < s.size(); ++i {
-        if s[i] == ('\n' as u8) || s[i] == ('\r' as u8) {
+        if s.data()[i] == ('\n' as u8) || s.data()[i] == ('\r' as u8) {
             out += " "
         } else {
-            out += s.subslice(i, 1)
+            var e = utf8_next(s, i)
+            out += s[i..e]
+            i = e - 1
         }
     }
 
@@ -137,7 +140,7 @@ fn _one_line(const s: string) -> string {
 
 fn _base_name(const path: string) -> string {
     var at = path.size()
-    while at > 0 && path[at - 1] != ('/' as u8) && path[at - 1] != ('\\' as u8) {
+    while at > 0 && path.data()[at - 1] != ('/' as u8) && path.data()[at - 1] != ('\\' as u8) {
         at -= 1
     }
 
@@ -232,7 +235,7 @@ pub fn agree_text_whole(const text: string, const key: string) -> bool {
 /// after it.
 fn _word(const line: string, @inout at: usize) -> string {
     var start = at
-    while at < line.size() && line[at] != (' ' as u8) {
+    while at < line.size() && line.data()[at] != (' ' as u8) {
         at += 1
     }
 

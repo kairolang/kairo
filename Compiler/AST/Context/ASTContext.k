@@ -643,7 +643,7 @@ pub class ASTContext {
 
         var text = self.sm->get_text(tok.range)
         for var i: usize = 0; i < text.size() && i < 64; ++i {
-            if text[i] == ('!' as u8) {
+            if text.data()[i] == ('!' as u8) {
                 return text.subslice(0, i + 1)
             }
         }

@@ -159,12 +159,12 @@ pub fn diag_from_code(const text: string) -> DiagID {
     var r        = text.copy()
     var n        = r.size()
     var i: usize = 0
-    while i < n && r[i] >= ('A' as u8) && r[i] <= ('Z' as u8) {
+    while i < n && r.data()[i] >= ('A' as u8) && r.data()[i] <= ('Z' as u8) {
         i += 1
     }
 
     var j = i
-    while j < n && r[j] >= ('0' as u8) && r[j] <= ('9' as u8) {
+    while j < n && r.data()[j] >= ('0' as u8) && r.data()[j] <= ('9' as u8) {
         j += 1
     }
 
@@ -174,7 +174,7 @@ pub fn diag_from_code(const text: string) -> DiagID {
 
     // Strip the padding, keeping one digit of an all-zero number.
     var lead = i
-    while lead + 1 < j && r[lead] == ('0' as u8) {
+    while lead + 1 < j && r.data()[lead] == ('0' as u8) {
         lead += 1
     }
 

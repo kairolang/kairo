@@ -52,6 +52,7 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::Ascii::utf8_floor
 import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
@@ -122,7 +123,7 @@ extend Server {
         w.end_object()
         var head = result.copy()
         if head.size() > 80 {
-            head = head.subslice(0, 80)
+            head = head.subslice(0, utf8_floor(head, 80))
         }
 
         self.trace(f"-> {id} {result.size()}B " + head)

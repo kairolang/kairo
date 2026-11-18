@@ -241,7 +241,7 @@ extend Speller {
             return "_"
         }
 
-        if out[0] >= ('0' as u8) && out[0] <= ('9' as u8) {
+        if out.data()[0] >= ('0' as u8) && out.data()[0] <= ('9' as u8) {
             return "_" + out
         }
 
@@ -346,14 +346,14 @@ extend Speller {
         // basename, then drop the extension.
         var start: usize = 0
         for var i: usize = 0; i < path.size(); ++i {
-            if path[i] == ('/' as u8) || path[i] == ('\\' as u8) {
+            if path.data()[i] == ('/' as u8) || path.data()[i] == ('\\' as u8) {
                 start = i + 1
             }
         }
 
         var end = path.size()
         for var i: usize = start; i < path.size(); ++i {
-            if path[i] == ('.' as u8) {
+            if path.data()[i] == ('.' as u8) {
                 end = i
                 break
             }

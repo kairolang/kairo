@@ -917,7 +917,7 @@ pub class CompilerInstance {
 
             var name_shaped = pos > 0
             for var i: usize = 0; i < name.size(); ++i {
-                var c = name[i]
+                var c = name.data()[i]
                 var ok = c >= ('a' as u8) && c <= ('z' as u8)
                     || c >= ('A' as u8) && c <= ('Z' as u8)
                     || c >= ('0' as u8) && c <= ('9' as u8)

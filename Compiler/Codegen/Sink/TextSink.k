@@ -25,8 +25,10 @@ import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Support::Ascii::{
     find,
+    has_at,
     is_ident_char,
     trim_start,
+    utf8_next,
 }
 import Token::Token::Token
 import Token::TokenCacheManager::TokenCacheManager
@@ -1032,17 +1034,17 @@ pub class TextSink derives EmitSink {
         }
 
         for var i: usize = 0; i < u.size(); ++i {
-            if u[i] != ('(' as u8) {
+            if u.data()[i] != ('(' as u8) {
                 continue
             }
 
             var e = i
-            while (e > 0) && (u[e - 1] == (' ' as u8)) {
+            while (e > 0) && (u.data()[e - 1] == (' ' as u8)) {
                 e -= 1
             }
 
             var b = e
-            while (b > 0) && is_ident_char(u[b - 1]) {
+            while (b > 0) && is_ident_char(u.data()[b - 1]) {
                 b -= 1
             }
 
@@ -1059,11 +1061,11 @@ pub class TextSink derives EmitSink {
             }
 
             var p = b
-            if (p > 0) && (u[p - 1] == ('~' as u8)) { // `~X`
+            if (p > 0) && (u.data()[p - 1] == ('~' as u8)) { // `~X`
                 p -= 1
             }
 
-            *qual = (p >= 2) && (u[p - 1] == (':' as u8)) && (u[p - 2] == (':' as u8))
+            *qual = (p >= 2) && (u.data()[p - 1] == (':' as u8)) && (u.data()[p - 2] == (':' as u8))
             return id
         }
 
@@ -1089,10 +1091,10 @@ pub class TextSink derives EmitSink {
         var i:    usize  = 0
         while i < s.size() {
             var rest   = s.subslice(i, s.size() - i)
-            var before = (i > 0) && is_ident_char(s[i - 1])
+            var before = (i > 0) && is_ident_char(s.data()[i - 1])
             if (!before)
                 && rest.starts_with("inline")
-                && ((rest.size() == 6) || (!is_ident_char(rest[6]))) {
+                && ((rest.size() == 6) || (!is_ident_char(rest.data()[6]))) {
                 bare += " "
                 i += 6
                 continue
@@ -1116,10 +1118,10 @@ pub class TextSink derives EmitSink {
                 var e          = i
                 var seen       = false
                 while e < s.size() {
-                    if s[e] == open {
+                    if s.data()[e] == open {
                         d += 1
                         seen = true
-                    } else if s[e] == close {
+                    } else if s.data()[e] == close {
                         d -= 1
                         if seen && (d == 0) {
                             break
@@ -1138,26 +1140,29 @@ pub class TextSink derives EmitSink {
                 continue
             }
 
-            bare += s.subslice(i, 1)
-            i += 1
+            var e = utf8_next(s, i)
+            bare += s[i..e]
+            i = e
         }
 
         var out: string = ""
         for var p: usize = 0; p < bare.size(); ++p {
-            if bare[p] != (' ' as u8) {
-                out += bare.subslice(p, 1)
+            if bare.data()[p] != (' ' as u8) {
+                var e = utf8_next(bare, p)
+                out += bare[p..e]
+                p = e - 1
                 continue
             }
 
             var q = p
-            while (q < bare.size()) && (bare[q] == (' ' as u8)) {
+            while (q < bare.size()) && (bare.data()[q] == (' ' as u8)) {
                 q += 1
             }
 
             if (out.size() > 0)
                 && (q < bare.size())
-                && is_ident_char(out[out.size() - 1])
-                && is_ident_char(bare[q]) {
+                && is_ident_char(out.data()[out.size() - 1])
+                && is_ident_char(bare.data()[q]) {
                 out += " "
             }
 
@@ -1369,10 +1374,10 @@ pub class TextSink derives EmitSink {
     priv static fn _doc_line_(const s: string) -> string {
         var e = s.size()
         while (e > 0)
-            && ((s[e - 1] == (' ' as u8))
-                || (s[e - 1] == ('\t' as u8))
-                || (s[e - 1] == ('\r' as u8))
-                || (s[e - 1] == ('\\' as u8))) {
+            && ((s.data()[e - 1] == (' ' as u8))
+                || (s.data()[e - 1] == ('\t' as u8))
+                || (s.data()[e - 1] == ('\r' as u8))
+                || (s.data()[e - 1] == ('\\' as u8))) {
             e -= 1
         }
 
@@ -1382,7 +1387,7 @@ pub class TextSink derives EmitSink {
     /// The leading `namespace n {` openers of a header line ("" if none).
     priv static fn _openers_(const t: string) -> string {
         var p: usize = 0
-        while (p < t.size()) && (t[p] == (' ' as u8)) {
+        while (p < t.size()) && (t.data()[p] == (' ' as u8)) {
             p += 1
         }
 
@@ -1390,20 +1395,20 @@ pub class TextSink derives EmitSink {
         while t.subslice(p, t.size() - p).starts_with("namespace ") {
             var q = p + 10
             while (q < t.size())
-                && (t[q] != ('{' as u8))
-                && (t[q] != (';' as u8))
-                && (t[q] != ('(' as u8))
-                && (t[q] != ('}' as u8)) {
+                && (t.data()[q] != ('{' as u8))
+                && (t.data()[q] != (';' as u8))
+                && (t.data()[q] != ('(' as u8))
+                && (t.data()[q] != ('}' as u8)) {
                 q += 1
             }
 
-            if (q >= t.size()) || (t[q] != ('{' as u8)) {
+            if (q >= t.size()) || (t.data()[q] != ('{' as u8)) {
                 break
             }
 
             p   = q + 1
             end = p
-            while (p < t.size()) && (t[p] == (' ' as u8)) {
+            while (p < t.size()) && (t.data()[p] == (' ' as u8)) {
                 p += 1
             }
         }
@@ -1534,10 +1539,10 @@ pub class TextSink derives EmitSink {
 
         var e = at
         while (e < t.size())
-            && (((t[e] >= ('a' as u8)) && (t[e] <= ('z' as u8)))
-                || ((t[e] >= ('A' as u8)) && (t[e] <= ('Z' as u8)))
-                || ((t[e] >= ('0' as u8)) && (t[e] <= ('9' as u8)))
-                || (t[e] == ('_' as u8))) {
+            && (((t.data()[e] >= ('a' as u8)) && (t.data()[e] <= ('z' as u8)))
+                || ((t.data()[e] >= ('A' as u8)) && (t.data()[e] <= ('Z' as u8)))
+                || ((t.data()[e] >= ('0' as u8)) && (t.data()[e] <= ('9' as u8)))
+                || (t.data()[e] == ('_' as u8))) {
             e += 1
         }
 
@@ -1577,18 +1582,18 @@ pub class TextSink derives EmitSink {
         // `T x = __kairo_init_x();` declares x: an `=` before the first `(`
         // is a variable's.
         var p: usize = 0
-        while (p < u.size()) && (u[p] != ('(' as u8)) && (u[p] != ('=' as u8)) {
+        while (p < u.size()) && (u.data()[p] != ('(' as u8)) && (u.data()[p] != ('=' as u8)) {
             p += 1
         }
 
-        if (p < u.size()) && (u[p] == ('(' as u8)) {
+        if (p < u.size()) && (u.data()[p] == ('(' as u8)) {
             var e = p
-            while (e > 0) && (u[e - 1] == (' ' as u8)) {
+            while (e > 0) && (u.data()[e - 1] == (' ' as u8)) {
                 e -= 1
             }
 
             var b = e
-            while (b > 0) && is_ident_char(u[b - 1]) {
+            while (b > 0) && is_ident_char(u.data()[b - 1]) {
                 b -= 1
             }
 
@@ -1626,9 +1631,9 @@ pub class TextSink derives EmitSink {
 
         var d: usize = 0
         for var i: usize = 8; i < t.size(); ++i {
-            if t[i] == ('<' as u8) {
+            if t.data()[i] == ('<' as u8) {
                 d += 1
-            } else if t[i] == ('>' as u8) {
+            } else if t.data()[i] == ('>' as u8) {
                 d -= 1
                 if d == 0 {
                     return TextSink::_trim_(t.subslice(i + 1, t.size() - i - 1))
@@ -1661,11 +1666,11 @@ pub class TextSink derives EmitSink {
         }
 
         var e = at
-        while (e < u.size()) && is_ident_char(u[e]) {
+        while (e < u.size()) && is_ident_char(u.data()[e]) {
             e += 1
         }
 
-        if (e == at) || (e >= u.size()) || (u[e] != ('<' as u8)) {
+        if (e == at) || (e >= u.size()) || (u.data()[e] != ('<' as u8)) {
             return ""
         }
 
@@ -1678,7 +1683,7 @@ pub class TextSink derives EmitSink {
     priv static fn _var_name_(const t: string) -> string {
         if t.starts_with("using ") {
             var e: usize = 6
-            while (e < t.size()) && is_ident_char(t[e]) {
+            while (e < t.size()) && is_ident_char(t.data()[e]) {
                 e += 1
             }
 
@@ -1687,24 +1692,24 @@ pub class TextSink derives EmitSink {
 
         var stop: usize = 0
         while (stop < t.size())
-            && (t[stop] != ('=' as u8))
-            && (t[stop] != ('{' as u8))
-            && (t[stop] != ('[' as u8))
-            && (t[stop] != (';' as u8)) {
+            && (t.data()[stop] != ('=' as u8))
+            && (t.data()[stop] != ('{' as u8))
+            && (t.data()[stop] != ('[' as u8))
+            && (t.data()[stop] != (';' as u8)) {
             stop += 1
         }
 
         var e = stop
-        while (e > 0) && (t[e - 1] == (' ' as u8)) {
+        while (e > 0) && (t.data()[e - 1] == (' ' as u8)) {
             e -= 1
         }
 
         var b = e
-        while (b > 0) && is_ident_char(t[b - 1]) {
+        while (b > 0) && is_ident_char(t.data()[b - 1]) {
             b -= 1
         }
 
-        if (b == e) || ((t[b] >= ('0' as u8)) && (t[b] <= ('9' as u8))) {
+        if (b == e) || ((t.data()[b] >= ('0' as u8)) && (t.data()[b] <= ('9' as u8))) {
             return ""
         }
 
@@ -1722,7 +1727,7 @@ pub class TextSink derives EmitSink {
         var n: usize = 0
         var z: usize = 0
         for var i: usize = 0; (i + 9) <= piece.size(); ++i {
-            if piece.subslice(i, 9) == "decltype(" {
+            if has_at(piece, i, "decltype(") {
                 n += 1
                 if piece.subslice(i, piece.size() - i).starts_with(
                     "decltype(sizeof(0))",
@@ -1746,8 +1751,8 @@ pub class TextSink derives EmitSink {
                 continue
             }
 
-            var before = (i > 0) && is_ident_char(s[i - 1])
-            var after = ((i + name.size()) < s.size()) && is_ident_char(s[i + name.size()])
+            var before = (i > 0) && is_ident_char(s.data()[i - 1])
+            var after = ((i + name.size()) < s.size()) && is_ident_char(s.data()[i + name.size()])
             if (!before) && (!after) {
                 return true
             }
@@ -1758,7 +1763,7 @@ pub class TextSink derives EmitSink {
 
     priv static fn _trim_(const s: string) -> string {
         var a: usize = 0
-        while (a < s.size()) && (s[a] == (' ' as u8)) {
+        while (a < s.size()) && (s.data()[a] == (' ' as u8)) {
             a += 1
         }
 

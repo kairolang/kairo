@@ -236,10 +236,10 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         for var i: usize = 1; i <= n; ++i {
             cur[0] = i
             for var j: usize = 1; j <= m; ++j {
-                var cost: usize = if (a[i - 1] == b[j - 1]) => (0) else => (1)
-                var best        = prev[j] + 1
-                var ins         = cur[j - 1] + 1
-                var sub         = prev[j - 1] + cost
+                var cost: usize = if (a.data()[i - 1] == b.data()[j - 1]) => (0) else => (1)
+                var best = prev[j] + 1
+                var ins  = cur[j - 1] + 1
+                var sub  = prev[j - 1] + cost
                 if ins < best {
                     best = ins
                 }
@@ -423,7 +423,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         // No decoded text: the spelling, less its quotes.
         var sp = self.sc->ctx->get_spelling(sl->token)
         var n  = sp.size()
-        if n >= 2 && sp[0] == ('"' as u8) && sp[n - 1] == ('"' as u8) {
+        if n >= 2 && sp.data()[0] == ('"' as u8) && sp.data()[n - 1] == ('"' as u8) {
             var t: string = sp.subslice(1, n - 2)
             return t
         }

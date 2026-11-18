@@ -103,7 +103,7 @@ pub fn _fx_code_number(const code: string) -> u32 {
 pub fn _fx_is_clang_code(const code: string) -> bool {
     var n        = code.size()
     var i: usize = 0
-    while i < n && (code[i] == (' ' as u8) || code[i] == ('\t' as u8)) {
+    while i < n && (code.data()[i] == (' ' as u8) || code.data()[i] == ('\t' as u8)) {
         i += 1
     }
 
@@ -111,7 +111,7 @@ pub fn _fx_is_clang_code(const code: string) -> bool {
         return false
     }
 
-    if !(code[i] == ('C' as u8) || code[i] == ('c' as u8)) {
+    if !(code.data()[i] == ('C' as u8) || code.data()[i] == ('c' as u8)) {
         return false
     }
 
@@ -120,7 +120,7 @@ pub fn _fx_is_clang_code(const code: string) -> bool {
         return false
     }
 
-    return code[i] >= ('0' as u8) && code[i] <= ('9' as u8)
+    return code.data()[i] >= ('0' as u8) && code.data()[i] <= ('9' as u8)
 }
 
 /// The standards kairo's --cxx-std / --c-std accept (FlagRegistry's

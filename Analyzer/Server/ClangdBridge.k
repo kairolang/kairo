@@ -53,6 +53,7 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::Ascii::utf8_next
 import Support::FileIO::AtomicFile::publish_bytes
 import Support::FileIO::Path::Path
 import TextScan::{
@@ -92,7 +93,9 @@ fn path_regex_(const rel: string) -> string {
     var out: string = ""
     var meta        = ".^$|()[]{}*+?\\"
     for var i: usize = 0; i < rel.size(); ++i {
-        var one = rel.subslice(i, 1)
+        var e           = utf8_next(rel, i)
+        var one: string = rel[i..e].to_owned()
+        i = e - 1
         if find_from(meta, one, 0) != usize::MAX {
             out += "\\"
         }
@@ -108,7 +111,9 @@ fn path_regex_(const rel: string) -> string {
 fn yaml_word_(const w: string) -> string {
     var out: string = "\x27"
     for var i: usize = 0; i < w.size(); ++i {
-        var one = w.subslice(i, 1)
+        var e           = utf8_next(w, i)
+        var one: string = w[i..e].to_owned()
+        i = e - 1
         if one == "\x27" {
             out += "\x27"
         }
@@ -140,8 +145,9 @@ fn yaml_value_(const line: string, const key: string) -> string {
             return out
         }
 
-        out += line.subslice(i, 1)
-        i += 1
+        var e = utf8_next(line, i)
+        out += line[i..e]
+        i = e
     }
 
     return ""

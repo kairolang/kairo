@@ -1003,7 +1003,7 @@ pub class ObjectCache {
     priv static fn _version_core(const v: string) -> string {
         var n = v.size()
         for var i: usize = 0; i < n; ++i {
-            if v[i] < ('0' as u8) || v[i] > ('9' as u8) {
+            if v.data()[i] < ('0' as u8) || v.data()[i] > ('9' as u8) {
                 continue
             }
 
@@ -1038,7 +1038,7 @@ pub class ObjectCache {
     priv static fn _clean(const s: string) -> string {
         var out = ""
         for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
+            var c = s.data()[i]
             var ok = c >= ('a' as u8) && c <= ('z' as u8)
                 || c >= ('A' as u8) && c <= ('Z' as u8)
                 || c >= ('0' as u8) && c <= ('9' as u8)

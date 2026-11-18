@@ -56,6 +56,7 @@ import Server::Structure::*
 import Server::SyntaxWorker::*
 import Server::TextUtil::*
 import Server::Tokens::*
+import Support::Ascii::utf8_next
 import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
@@ -102,7 +103,9 @@ extend Server {
                     n = (n * 10) + ((spec.data()[i] - 48) as u32)
                 }
             } else {
-                name += spec.subslice(i, 1)
+                var e = utf8_next(spec, i)
+                name += spec[i..e]
+                i = e - 1
             }
         }
     }

@@ -100,6 +100,7 @@ import Sema::SemaDump::{
 import Sema::Type::TypeUtil::TypeUtil
 import Support::Ascii::{
     copy_strings,
+    has_at,
     string_less,
 }
 import Support::Escape::json_string
@@ -331,7 +332,7 @@ fn _incr_seg(ctx: unsafe *ASTContext, d: unsafe *Decl) -> string {
             // and `f(p: unsafe *T)` are two overloads.
             if isa<Types::PointerType>(p->type_)
                 && cast<Types::PointerType>(p->type_)->is_unsafe
-                && !(t.size() >= 6 && t.subslice(0, 6) == "unsafe") {
+                && !has_at(t, 0, "unsafe") {
                 t = "unsafe " + t
             }
 

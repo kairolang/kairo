@@ -250,7 +250,9 @@ pub fn ffi_lang_of(const word: string) -> FFILang {
 /// readers that see the token rather than the parsed literal (the
 /// preprocessor, FlagGates) classify the same word the parser does.
 pub fn ffi_lang_of_literal(const text: string) -> FFILang {
-    if text.size() < 2 || text[0] != ('"' as u8) || text[text.size() - 1] != ('"' as u8) {
+    if text.size() < 2
+        || text.data()[0] != ('"' as u8)
+        || text.data()[text.size() - 1] != ('"' as u8) {
         return ffi_lang_of(text)
     }
 

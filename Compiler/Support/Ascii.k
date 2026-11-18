@@ -183,6 +183,48 @@ pub fn utf8_next(const s: string, i: usize) -> usize {
     return e
 }
 
+/// The largest character boundary of `s` at or below byte `i` (`size()`
+/// when `i` is past the end): a cut there never splits a character.
+pub fn utf8_floor(const s: string, i: usize) -> usize {
+    if i >= s.size() {
+        return s.size()
+    }
+
+    var b = i
+    while b > 0 && (s.data()[b] & 0xc0) == 0x80 {
+        b -= 1
+    }
+
+    return b
+}
+
+/// The smallest character boundary of `s` at or above byte `i` (`size()`
+/// when `i` is past the end).
+pub fn utf8_ceil(const s: string, i: usize) -> usize {
+    var b = i
+    while b < s.size() && (s.data()[b] & 0xc0) == 0x80 {
+        b += 1
+    }
+
+    return if b < s.size() => b else => s.size()
+}
+
+/// Whether the bytes of `w` stand in `s` at byte `i`. A byte compare: `i`
+/// need not be a character boundary, and a window past the end is false.
+pub fn has_at(const s: string, i: usize, const w: string) -> bool {
+    if i > s.size() || w.size() > s.size() - i {
+        return false
+    }
+
+    for var k: usize = 0; k < w.size(); ++k {
+        if s.data()[i + k] != w.data()[k] {
+            return false
+        }
+    }
+
+    return true
+}
+
 /// The pieces of `s` between occurrences of `sep`, in order.
 ///
 /// `keep_empty` false drops every empty piece (`"a--b-"` on `-` is `a`,

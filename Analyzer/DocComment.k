@@ -16,6 +16,7 @@
 
 ffi "c++" import "Native/Types.hh"
 
+import Support::Ascii::has_at
 import std::io
 
 /// The start of the last `needle` that ends at or before `end`, `usize::MAX`
@@ -347,7 +348,7 @@ pub fn doc_comment_text(const text: string, at: usize) -> string {
 
         if rev.is_empty() && t.ends_with("*/") {
             var k = ln.size()
-            while (k >= 2) && (ln.subslice(k - 2, 2) != "*/") {
+            while (k >= 2) && (!has_at(ln, k - 2, "*/")) {
                 k -= 1
             }
 
@@ -370,12 +371,12 @@ pub fn doc_comment_text(const text: string, at: usize) -> string {
 
             var ol         = line_start_(text, open)
             var only_blank = trim_(text.subslice(ol, open - ol)).is_empty()
-            var opener     = text.subslice(open, 3)
-            var is_doc = ((opener == "/**") || (opener == "/*!"))
-                && ((close - open) >= 5)
-                && (text.subslice(open, 4) != "/**/")
-                && (text.subslice(open, 4) != "/**<")
-                && (text.subslice(open, 4) != "/*!<")
+            var is_doc = has_at(text, open, "/**")
+                || has_at(text, open, "/*!")
+                    && ((close - open) >= 5)
+                    && (!has_at(text, open, "/**/"))
+                    && (!has_at(text, open, "/**<"))
+                    && (!has_at(text, open, "/*!<"))
             if only_blank && is_doc {
                 block = block_lines_(text, open, close)
             }
@@ -450,13 +451,12 @@ fn trailing_doc_(const text: string, ls: usize) -> [string] {
         }
 
         if (c == ('/' as u8)) && ((p + 3) < le) {
-            var m = text.subslice(p, 4)
-            if (m == "///<") || (m == "//!<") {
+            if has_at(text, p, "///<") || has_at(text, p, "//!<") {
                 out.push(trim_(text.subslice(p + 4, le - p - 4)))
                 break
             }
 
-            if (m == "/**<") || (m == "/*!<") {
+            if has_at(text, p, "/**<") || has_at(text, p, "/*!<") {
                 var e = find_(text, "*/", p + 4)
                 if e == usize::MAX {
                     return out

@@ -76,7 +76,7 @@ extend InterfaceEmitter {
         // `~Owner` already, so the leading `~` IS the destructor test -- there
         // is no second place that knows how a destructor is named.
         var nm      = self._spell->leaf(m)
-        var is_dtor = m->is_operator && nm[0] == ('~' as u8)
+        var is_dtor = m->is_operator && nm.data()[0] == ('~' as u8)
         // `op as` spells `operator T`; C++ gives a conversion no return type.
         // An extension's is a named static member with an ordinary one.
         var is_conv = m->is_operator

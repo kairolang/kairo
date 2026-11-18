@@ -48,6 +48,7 @@ import Support::Ascii::{
     rfind_byte,
     split,
     string_less,
+    utf8_next,
 }
 import Support::Escape::{
     json_string,
@@ -575,7 +576,7 @@ pub class ModuleRecords {
         var rest  = row.subslice(name.size(), row.size() - name.size())
         var plain = name.is_empty() || name.data()[0] != ('"' as u8)
         for var i: usize = 0; plain && i < name.size(); ++i {
-            plain = name[i] >= 0x20
+            plain = name.data()[i] >= 0x20
         }
 
         if plain {
@@ -782,7 +783,9 @@ pub class ModuleRecords {
                 segs.push_back(cur)
                 cur = ""
             } else {
-                cur += rel.subslice(i, 1)
+                var e = utf8_next(rel, i)
+                cur += rel[i..e]
+                i = e - 1
             }
         }
 

@@ -195,7 +195,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             return p
         }
 
-        if p[0] == ('<' as u8) {
+        if p.data()[0] == ('<' as u8) {
             return p
         }
 
@@ -802,7 +802,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             var caret_row: string
             for var c: usize = 0; c < row_cols; ++c {
                 if row_glyph[c] == (' ' as u8) {
-                    caret_row.push(under[c]) // blank cells are spaces or tabs
+                    caret_row.push(under.data()[c]) // blank cells are spaces or tabs
                     continue
                 }
 
@@ -1295,7 +1295,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var cell: usize  = 0
         var i:    usize  = 0
         while (i < text.size()) && (cell < to) {
-            var b = text[i] as u8
+            var b = text.data()[i] as u8
             i += self._cell_bytes(text, i)
             if cell >= from {
                 if b == ('\t' as u8) {
@@ -1420,7 +1420,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
     priv fn is_line_blank(self, const s: string) -> bool {
         for var i: usize = 0; i < s.size(); ++i {
-            var c = s[i]
+            var c = s.data()[i]
             if c != (' ' as u8) && c != ('\t' as u8) && c != ('\r' as u8) && c != ('\n' as u8) {
                 return false
             }

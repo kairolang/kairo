@@ -737,7 +737,7 @@ pub class HeaderSet {
                 && e->to_path.size() > dir.size() + 1
                 && e->to_path.starts_with(dir)
             if local {
-                var sep = e->to_path[dir.size()]
+                var sep = e->to_path.data()[dir.size()]
                 local = sep == ('/' as u8) || sep == ('\\' as u8)
             }
 
@@ -805,11 +805,13 @@ pub class HeaderSet {
     /// miss the closure and import nothing.
     pub static fn unquote(const lit: string) -> string {
         var s = lit.copy()
-        if s.size() >= 2 && s[0] == ('\x22' as u8) && s[s.size() - 1] == ('\x22' as u8) {
+        if s.size() >= 2
+            && s.data()[0] == ('\x22' as u8)
+            && s.data()[s.size() - 1] == ('\x22' as u8) {
             s = s.subslice(1, s.size() - 2)
         }
 
-        if s.size() >= 2 && s[0] == ('<' as u8) && s[s.size() - 1] == ('>' as u8) {
+        if s.size() >= 2 && s.data()[0] == ('<' as u8) && s.data()[s.size() - 1] == ('>' as u8) {
             s = s.subslice(1, s.size() - 2)
         }
 
@@ -945,7 +947,7 @@ pub class HeaderSet {
             return true
         }
 
-        var c = path[off - 1]
+        var c = path.data()[off - 1]
         return c == ('/' as u8) || c == ('\\' as u8)
     }
 

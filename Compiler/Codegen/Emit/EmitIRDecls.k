@@ -491,7 +491,7 @@ extend EmitIR {
 
             self._cg->sink->spell(hat, head)
             head = self._spell.leaf(owner)
-        } else if nm[0] == ('~' as u8) || is_conv {
+        } else if nm.data()[0] == ('~' as u8) || is_conv {
             // A destructor or conversion definition takes no return type, and
             // leaf() has already spelled the `~` / `operator T`.
             head += qual + "::" + nm

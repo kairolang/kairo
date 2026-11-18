@@ -323,7 +323,7 @@ extend Speller {
                 // `[]` binds tighter than `*` and `&`: a pointer or reference
                 // TO an array parenthesizes its declarator.
                 var nm = name.copy()
-                if nm.size() > 0 && (nm[0] == ('*' as u8) || nm[0] == ('&' as u8)) {
+                if nm.size() > 0 && (nm.data()[0] == ('*' as u8) || nm.data()[0] == ('&' as u8)) {
                     nm = "(" + nm + ")"
                 }
 

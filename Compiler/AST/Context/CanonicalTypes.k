@@ -1192,7 +1192,7 @@ pub class CanonicalTypeStore {
         var h = canon_hash_u64(0, (TypeKind::OpaqueFFIType as u8))
         var n = spelling.size()
         for var i: usize = 0; i < n; ++i {
-            h = canon_hash_u64(h, (spelling[i]))
+            h = canon_hash_u64(h, (spelling.data()[i]))
         }
 
         var        lock = kairo::std::LockGuard(self._mu)

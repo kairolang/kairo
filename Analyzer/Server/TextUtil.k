@@ -54,6 +54,7 @@ import Server::SignatureHelp::*
 import Server::Structure::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::Ascii::has_at
 import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
@@ -151,7 +152,7 @@ pub fn quoted_includes(const text: string) -> [string] {
                 p += 1
             }
 
-            if ((p + 7) <= le) && (text.subslice(p, 7) == "include") {
+            if ((p + 7) <= le) && has_at(text, p, "include") {
                 p += 7
                 while (p < le)
                     && ((text.data()[p] == (' ' as u8)) || (text.data()[p] == ('\t' as u8))) {

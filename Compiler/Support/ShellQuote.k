@@ -11,6 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import Support::Ascii::utf8_next
+
 /// `s` as one shell word: unchanged when no shell would split or expand
 /// it, otherwise in single quotes, each quote inside spelled '\''.
 pub fn shell_quote(s: string) -> string {
@@ -21,7 +23,7 @@ pub fn shell_quote(s: string) -> string {
     var r     = s.copy()
     var plain = true
     for var i: usize = 0; i < r.size(); ++i {
-        var c = r[i]
+        var c = r.data()[i]
         var ok = c >= ('a' as u8) && c <= ('z' as u8)
             || c >= ('A' as u8) && c <= ('Z' as u8)
             || c >= ('0' as u8) && c <= ('9' as u8)
@@ -47,13 +49,14 @@ pub fn shell_quote(s: string) -> string {
 
     var out: string = "'"
     for var i: usize = 0; i < r.size(); ++i {
-        if r[i] == ('\'' as u8) {
+        if r.data()[i] == ('\'' as u8) {
             out = out + "'\\''"
             continue
         }
 
-        var one: string = r.subslice(i, 1)
-        out = out + one
+        var e = utf8_next(r, i)
+        out = out + r[i..e]
+        i   = e - 1
     }
 
     return out + "'"

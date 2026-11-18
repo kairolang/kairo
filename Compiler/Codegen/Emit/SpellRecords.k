@@ -382,7 +382,7 @@ extend Speller {
         }
 
         // A declarator that starts with `*`/`&`/`(` binds without a space.
-        var c = name[0]
+        var c = name.data()[0]
         if c == ('*' as u8) || c == ('&' as u8) || c == ('(' as u8) || c == ('[' as u8) {
             return ty + name
         }

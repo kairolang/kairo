@@ -96,6 +96,7 @@ import Sema::SemaContext::{
 }
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
+import Support::Ascii::utf8_next
 import Token::Token::Token
 import Token::TokenKind::{
     TokenKind,
@@ -165,7 +166,9 @@ extend IndexWalker {
             }
 
             space = false
-            out += self.files[fi].text.subslice(i, 1)
+            var e = utf8_next(self.files[fi].text, i)
+            out += self.files[fi].text[i..e]
+            i = e - 1
         }
 
         return out
@@ -269,7 +272,9 @@ extend IndexWalker {
                 }
 
                 space = false
-                raw += self.files[fi].text.subslice(i, 1)
+                var e = utf8_next(self.files[fi].text, i)
+                raw += self.files[fi].text[i..e]
+                i = e - 1
             }
 
             i += 1

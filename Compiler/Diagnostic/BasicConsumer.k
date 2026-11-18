@@ -129,7 +129,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
             return p
         }
 
-        if p[0] == ('<' as u8) {
+        if p.data()[0] == ('<' as u8) {
             return p
         }
 

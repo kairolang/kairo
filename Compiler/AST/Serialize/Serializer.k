@@ -331,7 +331,9 @@ priv fn put_hash(@inout w: ByteWriter, const hex: string) {
     for var i: usize = 0; i < 16; ++i {
         var b: u8 = 0
         if hex.size() == 32 {
-            b = (hex_value(hex[i * 2]) << 4) | hex_value(hex[i * 2 + 1])
+            b = (hex_value(hex.data()[i * 2]) << 4) | hex_value(
+                hex.data()[i * 2 + 1],
+            )
         }
 
         w.put_u8(b)

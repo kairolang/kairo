@@ -294,14 +294,14 @@ extend EmitIR {
         var unsafe *sm  = self._cg->ctx->sm
         var        body = sm->get_text(d->body)
         for var i: usize = 0; i < body.size(); ++i {
-            if body[i] == ('_' as u8) {
+            if body.data()[i] == ('_' as u8) {
                 return false
             }
         }
 
         if d->has_flag(Immediate::IntFlags::HasPrefix) && d->prefix.is_valid() {
             var pre = sm->get_text(d->prefix)
-            if pre.size() == 2 && (pre[1] == ('o' as u8) || pre[1] == ('O' as u8)) {
+            if pre.size() == 2 && (pre.data()[1] == ('o' as u8) || pre.data()[1] == ('O' as u8)) {
                 return false
             }
         }

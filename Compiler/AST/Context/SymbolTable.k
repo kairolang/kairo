@@ -417,7 +417,7 @@ pub class SymbolTable {
         // `#name` is the escape for a foreign name that is a Kairo keyword:
         // `cxx::std::#thread`. Only on a miss, so a Kairo name declared with
         // the `#` keeps it, and a C or C++ name can never contain one.
-        if spelling.size() > 1 && spelling[0] == ('#' as u8) {
+        if spelling.size() > 1 && spelling.data()[0] == ('#' as u8) {
             src_imm = src_imms->find_ident(
                 spelling.subslice(1, spelling.size() - 1),
             )

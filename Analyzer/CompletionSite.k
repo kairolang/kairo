@@ -18,6 +18,7 @@
 ffi "c++" import "Native/Types.hh"
 
 import DocComment::doc_markdown_at
+import Support::Ascii::has_at
 import TextScan::is_ident_byte
 
 // Everything here reads bytes and the classes TextScan::classify gives them
@@ -1011,7 +1012,7 @@ pub fn decl_type_text(const line: string, const name: string, result: bool) -> s
 fn find_word_(const s: string, const w: string, from: usize) -> usize {
     var k = from
     while (k + w.size()) <= s.size() {
-        if (s.subslice(k, w.size()) == w)
+        if has_at(s, k, w)
             && ((k == 0) || (!is_ident_byte(s.data()[k - 1])))
             && (((k + w.size()) == s.size()) || (!is_ident_byte(s.data()[k + w.size()]))) {
             return k

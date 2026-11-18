@@ -3547,7 +3547,9 @@ pub class ASTParse
                     text = self.ctx->get_spelling(cast<NamedIdentExpr>(a)->name)
                 } else if a != &null && isa<StringLiteralExpr>(a) {
                     var sp = self.ctx->get_spelling(a->range)
-                    if sp.size() >= 2 && sp[0] == ('"' as u8) && sp[sp.size() - 1] == ('"' as u8) {
+                    if sp.size() >= 2
+                        && sp.data()[0] == ('"' as u8)
+                        && sp.data()[sp.size() - 1] == ('"' as u8) {
                         var inner: string = sp.subslice(1, sp.size() - 2)
                         text = inner.copy()
                     }

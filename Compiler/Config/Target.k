@@ -278,7 +278,7 @@ pub class TargetOptions {
                 cur += self.mfeatures[run..i]
                 run = i + 1
                 if cur.size() > 0 {
-                    if cur[0] == ('+' as u8) || cur[0] == ('-' as u8) {
+                    if cur.data()[0] == ('+' as u8) || cur.data()[0] == ('-' as u8) {
                         out.push_back(cur)
                     } else {
                         out.push_back("+" + cur)

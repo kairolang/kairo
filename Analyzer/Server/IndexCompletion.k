@@ -71,6 +71,7 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::Ascii::has_at
 import Support::FileIO::Path::Path
 import TextScan::{
     bytes_to_string,
@@ -954,7 +955,7 @@ extend Server {
                     continue
                 }
 
-                if init.subslice(b, 7) == "unsafe " {
+                if has_at(init, b, "unsafe ") {
                     b += 7
                     continue
                 }
@@ -1580,7 +1581,7 @@ extend Server {
             // The target as written, read off the header.
             var *text = &self.docs.docs[req->di].text
             var p     = b->hstart
-            while (p < b->open) && (text->subslice(p, 6) != "extend") {
+            while (p < b->open) && (!has_at(*text, p, "extend")) {
                 p += 1
             }
 
@@ -2473,7 +2474,7 @@ extend Server {
         if (steps.size() == 1)
             && (!steps[0].call)
             && (steps[0].index == 0)
-            && (text->subslice(req->site.recv_end, 2) == "::") {
+            && has_at(*text, req->site.recv_end, "::") {
             var pb = primitive_of(steps[0].name)
             if pb != BuiltinKind::COUNT {
                 self.primitive_members_(req, pb)
@@ -2489,7 +2490,7 @@ extend Server {
         // `.` (or `->`) cannot follow a type or a module (R027E): nothing
         // to offer, and nothing the compiler would. After `::` a type names
         // what needs no object; a module, a file, everything it declares.
-        var colons = text->subslice(req->site.recv_end, 2) == "::"
+        var colons = has_at(*text, req->site.recv_end, "::")
         if (recv.named || recv.file) && (!colons) {
             req->settled = true
             return true

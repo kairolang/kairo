@@ -28,6 +28,7 @@ import Json::{
 import Protocol::*
 import Server::Output::*
 import Server::Server::*
+import Support::Ascii::has_at
 import TextScan::classify
 
 /// True unless `formats` (a client's MarkupKind list for one kind of
@@ -611,7 +612,7 @@ fn trim_doc_(const s: string) -> string {
 
 fn find_doc_(const s: string, const needle: string) -> usize {
     for var i: usize = 0; (i + needle.size()) <= s.size(); ++i {
-        if s.subslice(i, needle.size()) == needle {
+        if has_at(s, i, needle) {
             return i
         }
     }

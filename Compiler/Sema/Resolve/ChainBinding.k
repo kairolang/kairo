@@ -2786,18 +2786,21 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         while off < size {
             var text       = sm->get_full_line(sm->get_loc(fid, off))
             var k:   usize = 0
-            while k < text.size() && (text[k] == (' ' as u8) || text[k] == ('\t' as u8)) {
+            while k < text.size()
+                && (text.data()[k] == (' ' as u8) || text.data()[k] == ('\t' as u8)) {
                 ++k
             }
 
-            if k + 1 < text.size() && text[k] == ('/' as u8) && text[k + 1] == ('/' as u8) {
+            if k + 1 < text.size()
+                && text.data()[k] == ('/' as u8)
+                && text.data()[k + 1] == ('/' as u8) {
                 comments = true
                 after    = off + text.size()
                 off      = after + 1
                 continue
             }
 
-            if comments && k < text.size() && text[k] != ('\r' as u8) {
+            if comments && k < text.size() && text.data()[k] != ('\r' as u8) {
                 comments = false
             }
 

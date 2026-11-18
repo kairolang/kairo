@@ -77,6 +77,7 @@ import AST::Node::Types::{
 }
 import Sema::Foreign::ForeignRegistry::ForeignRegistry
 import Sema::Resolve::NameLookup::NameLookup
+import Support::Ascii::utf8_floor
 
 pub class TypeImport {
     pub var store:     unsafe *CanonicalTypeStore
@@ -438,7 +439,7 @@ pub class TypeImport {
         }
 
         var h   = llvm::xxh3_64bits(kairo::sref(sp))
-        var key = sp.subslice(0, 160) + f"...#{h}"
+        var key = sp.subslice(0, utf8_floor(sp, 160)) + f"...#{h}"
         // A prefix of non-ASCII identifiers could still be over the cap once
         // encoded; the hash alone is always short enough.
         if key.size() >= 255 {

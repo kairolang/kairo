@@ -652,7 +652,7 @@ extend InterfaceEmitter {
             }
 
             var nm = self._spell->leaf(m)
-            if nm.size() == 0 || nm == own || nm[0] == ('~' as u8) {
+            if nm.size() == 0 || nm == own || nm.data()[0] == ('~' as u8) {
                 continue
             }
 
@@ -851,7 +851,7 @@ extend InterfaceEmitter {
             }
 
             var nm = self._spell->leaf(m)
-            if nm.size() == 0 || nm == own || nm[0] == ('~' as u8) {
+            if nm.size() == 0 || nm == own || nm.data()[0] == ('~' as u8) {
                 continue
             }
 

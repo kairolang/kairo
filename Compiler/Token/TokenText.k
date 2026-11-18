@@ -227,7 +227,7 @@ pub class TokenText {
                 // the source says.
                 if imm != u32::MAX && tok_range.is_valid() {
                     var text = sm->get_text(tok_range)
-                    if !text.is_empty() && is_illegal_ascii(text[0]) {
+                    if !text.is_empty() && is_illegal_ascii(text.data()[0]) {
                         return create(text.copy())
                     }
                 }

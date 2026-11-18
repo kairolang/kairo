@@ -784,7 +784,7 @@ pub class OperatorFacts {
         }
 
         var s = c->get_spelling(f->op_token[0])
-        return s.size() > 0 && s[0] == ('r' as u8)
+        return s.size() > 0 && s.data()[0] == ('r' as u8)
     }
 
     /// Index of the first token that is the operator itself.

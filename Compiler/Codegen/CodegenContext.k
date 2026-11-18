@@ -136,7 +136,7 @@ pub class CodegenContext {
             self.opts.agree_no_adl = ctx->ci->codegen.test_sema_agreement_no_adl
             var sw = ctx->ci->codegen.test_sema_agreement_swap.copy()
             for var i: usize = 0; i < sw.size(); ++i {
-                if sw[i] == (':' as u8) {
+                if sw.data()[i] == (':' as u8) {
                     self.opts.agree_swap_from = sw.subslice(0, i)
                     self.opts.agree_swap_to = sw.subslice(
                         i + 1,

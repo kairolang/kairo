@@ -99,7 +99,7 @@ import Support::EvalHash::{
 pub fn panic_fnv32(h_in: u32, const s: string) -> u32 {
     var h = h_in
     for var i: usize = 0; i < s.size(); ++i {
-        h = h ^ ((s[i]) as u32)
+        h = h ^ ((s.data()[i]) as u32)
         h = h * FNV1A32_PRIME
     }
 
@@ -111,7 +111,7 @@ pub fn panic_fnv32(h_in: u32, const s: string) -> u32 {
 pub fn panic_fnv64(const s: string) -> u64 {
     var h: u64 = FNV1A64_OFFSET
     for var i: usize = 0; i < s.size(); ++i {
-        h = h ^ ((s[i]) as u64)
+        h = h ^ ((s.data()[i]) as u64)
         h = h * FNV1A64_PRIME
     }
 

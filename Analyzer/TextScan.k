@@ -16,6 +16,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import Support::Ascii::has_at
+
 
 /// A matched bracket pair, or a run of comment lines (`kind` 3).
 pub struct Span {
@@ -747,7 +749,7 @@ pub fn interface_for(const text: string, at: usize, const iname_in: string) -> I
                         var bare_panic       = false
                         var sp:        usize = 0
                         while (sp + 5) <= sig.size() {
-                            if (sig.subslice(sp, 5) == "panic")
+                            if has_at(sig, sp, "panic")
                                 && ((sp == 0) || (!is_ident_byte(sig.data()[sp - 1])))
                                 && (((sp + 5) == sig.size())
                                     || (!is_ident_byte(sig.data()[sp + 5]))) {

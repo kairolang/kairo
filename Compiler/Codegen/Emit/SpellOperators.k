@@ -349,7 +349,7 @@ extend Speller {
 
         var unsafe *ctx = Speller::tu_of(unsafe (f as unsafe *Decl))->ctx
         var        s    = ctx->get_spelling(f->op_token[0])
-        return s.size() > 0 && s[0] == ('r' as u8)
+        return s.size() > 0 && s.data()[0] == ('r' as u8)
     }
 
     /// `[]` or `[]=` returning a safe `*T` / `*const T`: a place

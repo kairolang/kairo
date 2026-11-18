@@ -72,6 +72,7 @@ import Diagnostic::Registry::DiagID
 import Support::Ascii::{
     find,
     split,
+    utf8_next,
 }
 import std::c_char
 import std::io
@@ -346,8 +347,8 @@ pub class Command {
                 nm = if (result->get_feature(def->key) == 1) => (f"-f{def->key}")
                      else => f"-fno-{def->key}"
             } else if def->key.size() > 2
-                && def->key[0] == ('c' as u8)
-                && def->key[1] == (':' as u8) {
+                && def->key.data()[0] == ('c' as u8)
+                && def->key.data()[1] == (':' as u8) {
                 var bare = def->key.subslice(2, def->key.size())
                 nm = f"--c{bare}"
             } else if def->long_.size() > 0 {
@@ -434,6 +435,13 @@ pub class Command {
 
         var split: i32 = (name.size() as i32) - 1
         while split >= 1 {
+            // Flag keys are ASCII: a cut inside a multibyte character
+            // matches none of them.
+            if (name.data()[split as usize] & 0xc0) == 0x80 {
+                split -= 1
+                continue
+            }
+
             var        prefix = name.subslice(0, (split as usize))
             var        suffix = name.subslice(split as usize, name.size())
             var unsafe *def   = self._find(prefix)
@@ -476,10 +484,10 @@ pub class Command {
         for var i: usize = 1; i <= n; ++i {
             cur[0] = i
             for var j: usize = 1; j <= m; ++j {
-                var cost: usize = (if a[i - 1] == b[j - 1] => (0) else => (1))
-                var best        = prev[j] + 1                                  // deletion
-                var ins         = cur[j - 1] + 1                               // insertion
-                var sub         = prev[j - 1] + cost                           // substitution
+                var cost: usize = (if a.data()[i - 1] == b.data()[j - 1] => (0) else => (1))
+                var best = prev[j] + 1        // deletion
+                var ins  = cur[j - 1] + 1     // insertion
+                var sub  = prev[j - 1] + cost // substitution
                 if ins < best {
                     best = ins
                 }
@@ -732,7 +740,9 @@ pub class Command {
     /// features `'-f<name>'`. Rendering `-{short}` unconditionally printed a
     /// bare `'-'` for every long-only flag.
     priv fn _flag_name(self, def: unsafe *FlagDef) -> string {
-        if def->key.size() > 2 && def->key[0] == ('c' as u8) && def->key[1] == (':' as u8) {
+        if def->key.size() > 2
+            && def->key.data()[0] == ('c' as u8)
+            && def->key.data()[1] == (':' as u8) {
             var bare = def->key.subslice(2, def->key.size())
             return f"'--c{bare}'"
         }
@@ -771,7 +781,7 @@ pub class Command {
                 c += ('a' as i32) - ('A' as i32)
             }
 
-            if c != (word[k] as i32) {
+            if c != (word.data()[k] as i32) {
                 return false
             }
         }
@@ -877,7 +887,7 @@ pub class Command {
                 var items        = cxx::std::vector<string>()
                 var start: usize = 0
                 for var i: usize = 0; i <= raw.size(); ++i {
-                    if i == raw.size() || raw[i] == (',' as u8) {
+                    if i == raw.size() || raw.data()[i] == (',' as u8) {
                         items.push_back(raw.subslice(start, i - start))
                         start = i + 1
                     }
@@ -1021,7 +1031,7 @@ pub class Command {
                 // would swallow `-o` in `--xray -o out` and then parse the old output as
                 // a source file. Bare '-' stays a legal value (stdin); a value that
                 // really starts with '-' is spelled `--flag=-value`.
-                if elen > 1 && elem[0] == ('-' as u8) {
+                if elen > 1 && elem.data()[0] == ('-' as u8) {
                     var pnm = self._flag_name(pending)
                     self._diag->report(
                         DiagCode(DiagID::U004E),
@@ -1047,13 +1057,13 @@ pub class Command {
 
             // On Windows `/flag` is `-flag`, every form of it, and a message
             // names it with its own `/`. `/` alone and `/-...` are no flag there.
-            var slash = _IS_WINDOWS && elem[0] == ('/' as u8)
+            var slash = _IS_WINDOWS && elem.data()[0] == ('/' as u8)
             if slash && elen == 1 {
                 i += 1
                 continue
             }
 
-            if slash && elem[1] == ('-' as u8) {
+            if slash && elem.data()[1] == ('-' as u8) {
                 self._diag->report(
                     DiagCode(DiagID::U003E),
                     "'/-' is not a valid flag prefix; use '-flag', '--flag', or '/flag'",
@@ -1063,7 +1073,7 @@ pub class Command {
                 continue
             }
 
-            if elem[0] == ('-' as u8) || slash {
+            if elem.data()[0] == ('-' as u8) || slash {
                 var lead = elem.subslice(0, 1)
                 // bare '-' -> stdin file (POSIX convention)
                 if elen == 1 {
@@ -1072,7 +1082,7 @@ pub class Command {
                     continue
                 }
 
-                if elem[1] == ('-' as u8) { // '--'
+                if elem.data()[1] == ('-' as u8) { // '--'
                     // bare '--' -> end of options
                     if elen == 2 {
                         gstate = Self::GlobalState::PathsOnly
@@ -1082,7 +1092,7 @@ pub class Command {
 
                     // '--flag' or '--flag=value'
                     var j: usize = 2
-                    while j < elen && elem[j] != ('=' as u8) {
+                    while j < elen && elem.data()[j] != ('=' as u8) {
                         j += 1
                     }
 
@@ -1090,7 +1100,7 @@ pub class Command {
                     var unsafe *def = self._find(name)
 
                     // try config flag: --cmax-recursion-depth=128
-                    if def == &null && name.size() > 1 && name[0] == ('c' as u8) {
+                    if def == &null && name.size() > 1 && name.data()[0] == ('c' as u8) {
                         def = self._find_cfg(name.subslice(1, name.size()))
                     }
 
@@ -1126,7 +1136,7 @@ pub class Command {
                     }
                 } else if self.IS_LONG_FLAG[elem.data()[1]] { // '-Wall' / '-O2' / '-funsafe' / '-fno-unsafe'
                     var j: usize = 1
-                    while j < elen && elem[j] != ('=' as u8) {
+                    while j < elen && elem.data()[j] != ('=' as u8) {
                         j += 1
                     }
 
@@ -1158,7 +1168,7 @@ pub class Command {
                         }
                     }
 
-                    if def == &null && name.size() > 1 && name[0] == ('f' as u8) {
+                    if def == &null && name.size() > 1 && name.data()[0] == ('f' as u8) {
                         var unsafe *feat = self._find_feature(
                             name.subslice(1, name.size()),
                         )
@@ -1218,7 +1228,8 @@ pub class Command {
                 } else { // short cluster: '-abc' = -a -b -c
                     var j: usize = 1
                     while j < elen {
-                        var        ch   = elem.subslice(j, 1)
+                        var        e    = utf8_next(elem, j)
+                        var        ch   = elem[j..e].to_owned()
                         var unsafe *def = self._find(ch)
 
                         if def == &null {
@@ -1227,13 +1238,13 @@ pub class Command {
                                 f"unknown flag '{lead}{ch}'; run '--help' to see available options",
                             ).emit()
                             result.ok = false
-                            j += 1
+                            j         = e
                             continue
                         }
 
                         if def->kind == FlagKind::Bool {
                             self._apply(def, "", &result)
-                            j += 1
+                            j = e
                         } else {
                             // remaining chars are the inline value, or next element
                             if j + 1 < elen {
@@ -1347,7 +1358,7 @@ pub class Command {
         var start: usize = 0
         for var i: usize = 0; i <= cmdline.size(); ++i {
             var at_end = i == cmdline.size()
-            var is_sep = !at_end && cmdline[i] == (' ' as u8)
+            var is_sep = !at_end && cmdline.data()[i] == (' ' as u8)
             if at_end || is_sep {
                 if i > start {
                     args.push_back(cmdline.subslice(start, i - start))
@@ -1408,8 +1419,8 @@ pub class Command {
                 // -f[no-]<key>
                 lhs += f"-f[no-]{def->key}"
             } else if def->key.size() > 2
-                && def->key[0] == ('c' as u8)
-                && def->key[1] == (':' as u8) {
+                && def->key.data()[0] == ('c' as u8)
+                && def->key.data()[1] == (':' as u8) {
                 // config flag: --c<name>=<type>
                 var name = def->key.subslice(2, def->key.size())
                 lhs += f"--c{name}"

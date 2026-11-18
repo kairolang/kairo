@@ -330,14 +330,14 @@ pub class DepScanner {
             return 0
         }
 
-        var f = sp[n - 4]
+        var f = sp.data()[n - 4]
         if f != ('f' as u8) && f != ('F' as u8) {
             return 0
         }
 
-        var a = sp[n - 3]
-        var b = sp[n - 2]
-        var c = sp[n - 1]
+        var a = sp.data()[n - 3]
+        var b = sp.data()[n - 2]
+        var c = sp.data()[n - 1]
         if a == ('2' as u8) && b == ('5' as u8) && c == ('6' as u8) {
             return 256
         }

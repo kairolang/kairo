@@ -1003,8 +1003,8 @@ pub class <T: type> LiteralTyping {
             if (!head->prefix_kind.has(Immediate::TextPrefixKind::Raw))
                 && self._open_octal(body)
                 && text.size() > 0
-                && text[0] >= ('0' as u8)
-                && text[0] <= ('7' as u8) {
+                && text.data()[0] >= ('0' as u8)
+                && text.data()[0] <= ('7' as u8) {
                 return ""
             }
 
@@ -1035,10 +1035,10 @@ pub class <T: type> LiteralTyping {
         )
 
         return open.size() == 1
-            && open[0] == ('"' as u8)
+            && open.data()[0] == ('"' as u8)
             && close.size() >= 1
-            && close[0] == ('"' as u8)
-            && (close.size() == 1 || close[1] != ('"' as u8))
+            && close.data()[0] == ('"' as u8)
+            && (close.size() == 1 || close.data()[1] != ('"' as u8))
     }
 
     /// `text` ends in an octal escape of fewer than three digits: a
@@ -1049,8 +1049,8 @@ pub class <T: type> LiteralTyping {
         var digits: usize = 0
         while digits < 3
             && digits < n
-            && text[n - 1 - digits] >= ('0' as u8)
-            && text[n - 1 - digits] <= ('7' as u8) {
+            && text.data()[n - 1 - digits] >= ('0' as u8)
+            && text.data()[n - 1 - digits] <= ('7' as u8) {
             digits = digits + 1
         }
 
@@ -1060,7 +1060,7 @@ pub class <T: type> LiteralTyping {
 
         var k              = n - 1 - digits
         var slashes: usize = 0
-        while slashes <= k && text[k - slashes] == ('\\' as u8) {
+        while slashes <= k && text.data()[k - slashes] == ('\\' as u8) {
             slashes = slashes + 1
             if slashes > k {
                 break

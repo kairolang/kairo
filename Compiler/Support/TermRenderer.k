@@ -379,7 +379,7 @@ pub class TermRenderer {
     /// display_width), and in `len` its length in bytes, at least 1.
     priv fn char_width(self, const s: string, i: usize, @inout len: usize) -> u32 {
         var n       = s.size()
-        var b0      = ((s[i]) as u32)
+        var b0      = ((s.data()[i]) as u32)
         var cp: u32 = 0
         len = 0
         if b0 < 0x80 {
@@ -398,7 +398,7 @@ pub class TermRenderer {
 
         var ok = len > 0 && i + len <= n
         for var k: usize = 1; ok && k < len; ++k {
-            var bk = ((s[i + k]) as u32)
+            var bk = ((s.data()[i + k]) as u32)
             if (bk & 0xC0) != 0x80 {
                 ok = false
             } else {
@@ -440,7 +440,7 @@ pub class TermRenderer {
 
         var i: usize = 0
         while i < text.size() {
-            if text[i] == ('`' as u8) {
+            if text.data()[i] == ('`' as u8) {
                 // No closing backtick on this line: the backtick is text.
                 var close = find(text, "`", i + 1)
                 if close != usize::MAX {
@@ -461,7 +461,7 @@ pub class TermRenderer {
                 }
             }
 
-            if text[i] == (' ' as u8) {
+            if text.data()[i] == (' ' as u8) {
                 // lookahead for next word length
                 var next_end = self.find_word_end(text, i + 1)
                 var next_len = ((next_end - (i + 1)) as u32)
@@ -585,7 +585,7 @@ pub class TermRenderer {
         var n         = line.size()
 
         while i < n {
-            var c = line[i]
+            var c = line.data()[i]
 
             // whitespace - emit raw, preserves indentation
             if c == (' ' as u8) || c == ('\t' as u8) {
@@ -595,7 +595,7 @@ pub class TermRenderer {
             }
 
             // line comment
-            if c == ('/' as u8) && i + 1 < n && line[i + 1] == ('/' as u8) {
+            if c == ('/' as u8) && i + 1 < n && line.data()[i + 1] == ('/' as u8) {
                 var rest = line.subslice(i, n - i)
                 out += self.style(self.HL_COMMENT.copy()) + rest + self.style(
                     self.RESET.copy(),
@@ -606,9 +606,10 @@ pub class TermRenderer {
             }
 
             // block comment (same-line only)
-            if c == ('/' as u8) && i + 1 < n && line[i + 1] == ('*' as u8) {
+            if c == ('/' as u8) && i + 1 < n && line.data()[i + 1] == ('*' as u8) {
                 var j = i + 2
-                while j + 1 < n && !(line[j] == ('*' as u8) && line[j + 1] == ('/' as u8)) {
+                while j + 1 < n
+                    && !(line.data()[j] == ('*' as u8) && line.data()[j + 1] == ('/' as u8)) {
                     j += 1
                 }
 
@@ -625,9 +626,9 @@ pub class TermRenderer {
             // raw string  r"..."
             if (c == ('r' as u8) || c == ('R' as u8))
                 && i + 1 < n
-                && line[i + 1] == ('\x22' as u8) {
+                && line.data()[i + 1] == ('\x22' as u8) {
                 var j = i + 2
-                while j < n && line[j] != ('\x22' as u8) {
+                while j < n && line.data()[j] != ('\x22' as u8) {
                     j += 1
                 }
 
@@ -647,8 +648,8 @@ pub class TermRenderer {
             // string literal
             if c == ('\x22' as u8) {
                 var j = i + 1
-                while j < n && line[j] != ('\x22' as u8) {
-                    if line[j] == ('\\' as u8) && j + 1 < n {
+                while j < n && line.data()[j] != ('\x22' as u8) {
+                    if line.data()[j] == ('\\' as u8) && j + 1 < n {
                         j += 1
                     }
 
@@ -671,8 +672,8 @@ pub class TermRenderer {
             // char literal
             if c == ('\'' as u8) {
                 var j = i + 1
-                while j < n && line[j] != ('\'' as u8) {
-                    if line[j] == ('\\' as u8) && j + 1 < n {
+                while j < n && line.data()[j] != ('\'' as u8) {
+                    if line.data()[j] == ('\\' as u8) && j + 1 < n {
                         j += 1
                     }
 
@@ -695,7 +696,8 @@ pub class TermRenderer {
             // number  (handles 0xFF, 0b1010, 1.5, 1e3 prefix)
             if is_digit(c) {
                 var j = i
-                while j < n && (self.is_word_char(line[j]) || line[j] == ('.' as u8)) {
+                while j < n
+                    && (self.is_word_char(line.data()[j]) || line.data()[j] == ('.' as u8)) {
                     j += 1
                 }
 
@@ -711,7 +713,7 @@ pub class TermRenderer {
             // attributes (e.g., @property)
             if c == ('@' as u8) {
                 var j = i + 1
-                while j < n && self.is_word_char(line[j]) {
+                while j < n && self.is_word_char(line.data()[j]) {
                     j += 1
                 }
 
@@ -727,7 +729,7 @@ pub class TermRenderer {
             // identifier / keyword / type / call
             if self.is_word_start(c) {
                 var j = i
-                while j < n && self.is_word_char(line[j]) {
+                while j < n && self.is_word_char(line.data()[j]) {
                     j += 1
                 }
 
@@ -735,11 +737,11 @@ pub class TermRenderer {
 
                 // peek next non-space for '(' -> function call
                 var k = j
-                while k < n && (line[k] == (' ' as u8) || line[k] == ('\t' as u8)) {
+                while k < n && (line.data()[k] == (' ' as u8) || line.data()[k] == ('\t' as u8)) {
                     k += 1
                 }
 
-                var is_call = k < n && line[k] == ('(' as u8)
+                var is_call = k < n && line.data()[k] == ('(' as u8)
 
                 var kind = self.word_kind(word)
 
@@ -962,7 +964,8 @@ pub class TermRenderer {
                         || text == "import"
                         || text == "embed" {
                         var at = pos
-                        while at < n && (line[at] == (' ' as u8) || line[at] == ('\t' as u8)) {
+                        while at < n
+                            && (line.data()[at] == (' ' as u8) || line.data()[at] == ('\t' as u8)) {
                             at += 1
                         }
 
@@ -1041,17 +1044,17 @@ pub class TermRenderer {
         }
 
         var k = end
-        while k < line.size() && (line[k] == (' ' as u8) || line[k] == ('\t' as u8)) {
+        while k < line.size() && (line.data()[k] == (' ' as u8) || line.data()[k] == ('\t' as u8)) {
             k += 1
         }
 
-        if k < line.size() && line[k] == ('(' as u8) {
+        if k < line.size() && line.data()[k] == ('(' as u8) {
             return self.style(self.HL_FUNC.copy()) + text + self.style(
                 self.RESET.copy(),
             )
         }
 
-        if self.is_upper(text[0]) {
+        if self.is_upper(text.data()[0]) {
             return self.style(self.HL_TYPE.copy()) + text + self.style(
                 self.RESET.copy(),
             )
@@ -1066,7 +1069,7 @@ pub class TermRenderer {
         var lines        = cxx::std::vector<string>()
         var start: usize = 0
         for i in (0 as usize) .. (text.size()) {
-            if text[i] == ('\n' as u8) {
+            if text.data()[i] == ('\n' as u8) {
                 lines.push_back(text.subslice(start, i - start))
                 start = i + 1
             }
@@ -1089,11 +1092,15 @@ pub class TermRenderer {
 
     fn heading_level(self, const line: string) -> u32 {
         var level: u32 = 0
-        while level < 4 && (level as usize) < line.size() && line[level as usize] == ('#' as u8) {
+        while level < 4
+            && (level as usize) < line.size()
+            && line.data()[level as usize] == ('#' as u8) {
             level += 1
         }
 
-        if level > 0 && (level as usize) < line.size() && line[level as usize] == (' ' as u8) {
+        if level > 0
+            && (level as usize) < line.size()
+            && line.data()[level as usize] == (' ' as u8) {
             return level
         }
 
@@ -1112,11 +1119,14 @@ pub class TermRenderer {
     fn numbered_prefix(self, const line: string) -> string {
         // matches: "1. ", "12. ", "123. "
         var i: usize = 0
-        while i < line.size() && line[i] >= ('0' as u8) && line[i] <= ('9' as u8) {
+        while i < line.size() && line.data()[i] >= ('0' as u8) && line.data()[i] <= ('9' as u8) {
             i += 1
         }
 
-        if i > 0 && i + 1 < line.size() && line[i] == ('.' as u8) && line[i + 1] == (' ' as u8) {
+        if i > 0
+            && i + 1 < line.size()
+            && line.data()[i] == ('.' as u8)
+            && line.data()[i + 1] == (' ' as u8) {
             return line.subslice(0, i + 2)
         }
 
@@ -1125,7 +1135,10 @@ pub class TermRenderer {
 
     fn find_word_end(self, const s: string, from: usize) -> usize {
         var i = from
-        while i < s.size() && s[i] != (' ' as u8) && s[i] != ('`' as u8) && s[i] != ('\n' as u8) {
+        while i < s.size()
+            && s.data()[i] != (' ' as u8)
+            && s.data()[i] != ('`' as u8)
+            && s.data()[i] != ('\n' as u8) {
             i += 1
         }
 
@@ -1140,7 +1153,7 @@ pub class TermRenderer {
         var i: usize = 0
 
         // language
-        while i < rest.size() && rest[i] != (' ' as u8) {
+        while i < rest.size() && rest.data()[i] != (' ' as u8) {
             i += 1
         }
 
@@ -1148,12 +1161,12 @@ pub class TermRenderer {
 
         // remaining key=value pairs
         while i < rest.size() {
-            while i < rest.size() && rest[i] == (' ' as u8) {
+            while i < rest.size() && rest.data()[i] == (' ' as u8) {
                 i += 1
             }
 
             var kv_start = i
-            while i < rest.size() && rest[i] != (' ' as u8) {
+            while i < rest.size() && rest.data()[i] != (' ' as u8) {
                 i += 1
             }
 

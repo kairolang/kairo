@@ -442,7 +442,7 @@ pub class PrimitiveLimits {
     static fn _hex_digit(v: u32) -> string {
         var digits = "0123456789abcdef"
         var s      = ""
-        s.push(digits[v as usize])
+        s.push(digits.data()[v as usize])
         return s
     }
 

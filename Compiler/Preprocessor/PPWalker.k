@@ -895,8 +895,8 @@ pub class PPWalker {
         if !self._quiet {
             var text = self._ctx->get_spelling(t.range)
             var what = if (text.size() > 0
-                           && text[0] >= 0x20
-                           && text[0] < 0x7f) => (f"character '{text.subslice(0, 1)}'")
+                           && text.data()[0] >= 0x20
+                           && text.data()[0] < 0x7f) => (f"character '{text.subslice(0, 1)}'")
                        else => "character U+007F"
             var b = self._diag->report(
                 DiagCode(DiagID::S011E),
@@ -3633,12 +3633,12 @@ pub class PPWalker {
             return false
         }
 
-        if !is_ident_start(s[0]) && s[0] != ('#' as u8) {
+        if !is_ident_start(s.data()[0]) && s.data()[0] != ('#' as u8) {
             return false
         }
 
         for var i: usize = 1; i < s.size(); ++i {
-            if !is_ident_char(s[i]) && s[i] != ('#' as u8) {
+            if !is_ident_char(s.data()[i]) && s.data()[i] != ('#' as u8) {
                 return false
             }
         }

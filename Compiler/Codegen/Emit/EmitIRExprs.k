@@ -100,9 +100,11 @@ extend EmitIR {
     priv fn _char_lit(self, n: unsafe *CharacterLiteralExpr) {
         var text  = self._cg->ctx->sm->get_text(n->token.range)
         var cxx_v = "U"
-        if text.size() == 4 && text[1] == 0x5c && (text[2] == 0x7b || text[2] == 0x7d) {
+        if text.size() == 4
+            && text.data()[1] == 0x5c
+            && (text.data()[2] == 0x7b || text.data()[2] == 0x7d) {
             cxx_v += "'"
-            cxx_v.push(text[2])
+            cxx_v.push(text.data()[2])
             cxx_v += "'"
         } else {
             cxx_v += text

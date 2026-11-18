@@ -610,9 +610,9 @@ extend EmitIR {
         // construction, so its source text is what is read.
         if n->message != &null && n->message->range.is_valid() {
             var t = self._cg->ctx->sm->get_text(n->message->range)
-            if t.size() >= 3 && t[0] == 0x22 {
+            if t.size() >= 3 && t.data()[0] == 0x22 {
                 self._cg->sink->spell(n->range, ", " + t)
-            } else if t.size() >= 4 && t[0] == 0x72 && t[1] == 0x22 {
+            } else if t.size() >= 4 && t.data()[0] == 0x72 && t.data()[1] == 0x22 {
                 var inner = t.subslice(2, t.size() - 3)
                 self._cg->sink->spell(n->range, ", " + Speller::c_string(inner))
             }

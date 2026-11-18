@@ -35,6 +35,7 @@ import Location::SourceManager::{
 import Location::SourceRange::SourceRange
 import Support::Ascii::{
     find,
+    has_at,
     is_ident_char,
 }
 import Support::FileIO::Path::Path
@@ -229,7 +230,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             // "redefinition of 'Base'" (or "... as different kind of
             // symbol"): the quoted name, quotes kept.
             var q2: usize = 17
-            while q2 < msg.size() && msg[q2] != ('\x27' as u8) {
+            while q2 < msg.size() && msg.data()[q2] != ('\x27' as u8) {
                 q2 += 1
             }
 
@@ -470,7 +471,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var q1: usize = msg.size()
         var q2: usize = msg.size()
         for var i: usize = 0; i < msg.size(); ++i {
-            if msg[i] != ('\'' as u8) {
+            if msg.data()[i] != ('\'' as u8) {
                 continue
             }
 
@@ -489,7 +490,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var name = msg.subslice(q1 + 1, q2 - q1 - 1)
         // A qualified name is spelled by its last component at the declaration.
         for var i: usize = name.size(); i > 1; --i {
-            if name[i - 1] == (':' as u8) && name[i - 2] == (':' as u8) {
+            if name.data()[i - 1] == (':' as u8) && name.data()[i - 2] == (':' as u8) {
                 name = name.subslice(i, name.size() - i)
                 break
             }
@@ -513,7 +514,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     priv fn _in_kairo_source(self, r: SourceRange) -> bool {
         var nm = self.ksm->get_filename(r)
         var n  = nm.size()
-        return n >= 2 && nm[n - 2] == ('.' as u8) && nm[n - 1] == ('k' as u8)
+        return n >= 2 && nm.data()[n - 2] == ('.' as u8) && nm.data()[n - 1] == ('k' as u8)
     }
 
     /// clang's access refusals of a member, a constructor or a destructor:
@@ -1142,33 +1143,33 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var text = self.ksm->get_text(self.ksm->get_range(kf, off, n))
         var m    = nm.size()
         for var i: usize = 0; i + m <= text.size(); ++i {
-            var ch = text[i]
+            var ch = text.data()[i]
             if ch == ('{' as u8) || ch == (';' as u8) {
                 break
             }
 
-            if text.subslice(i, m) != nm {
+            if !has_at(text, i, nm) {
                 continue
             }
 
-            if i > 0 && is_ident_char(text[i - 1]) {
+            if i > 0 && is_ident_char(text.data()[i - 1]) {
                 continue
             }
 
             var j = i + m
-            if j < text.size() && is_ident_char(text[j]) {
+            if j < text.size() && is_ident_char(text.data()[j]) {
                 continue
             }
 
-            while j < text.size() && text[j] == (' ' as u8) {
+            while j < text.size() && text.data()[j] == (' ' as u8) {
                 j += 1
             }
 
-            if j >= text.size() || text[j] != (':' as u8) {
+            if j >= text.size() || text.data()[j] != (':' as u8) {
                 continue
             }
 
-            if i >= 6 && text.subslice(i - 6, 6) == "const " {
+            if i >= 6 && has_at(text, i - 6, "const ") {
                 return SourceRange::invalid()
             }
 

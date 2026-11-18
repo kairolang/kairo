@@ -67,6 +67,7 @@ import Support::Ascii::{
     find,
     parse_decimal,
     trim,
+    utf8_next,
 }
 import Support::FileIO::Path::Path
 import Support::TimeReport::{
@@ -122,14 +123,15 @@ fn replay_unescape(const s: string) -> string {
     var out       = ""
     var i:  usize = 0
     while i < s.size() {
-        if s[i] == (92 as u8) && i + 1 < s.size() && s[i + 1] == ('n' as u8) {
+        if s.data()[i] == (92 as u8) && i + 1 < s.size() && s.data()[i + 1] == ('n' as u8) {
             out += "\n"
             i += 2
             continue
         }
 
-        out += s.subslice(i, 1)
-        i += 1
+        var e = utf8_next(s, i)
+        out += s[i..e]
+        i = e
     }
 
     return out
@@ -521,7 +523,7 @@ pub fn incr_replay_main(argc:         i32,
     var asides: usize = 0                          ///< `aside` lines of the open step
     while at <= text.size() {
         var e = at
-        while e < text.size() && text[e] != ('\n' as u8) {
+        while e < text.size() && text.data()[e] != ('\n' as u8) {
             e += 1
         }
 
@@ -559,7 +561,7 @@ pub fn incr_replay_main(argc:         i32,
             if last
                 && (!line.is_empty())
                 && (!is_step)
-                && line[0] != ('#' as u8)
+                && line.data()[0] != ('#' as u8)
                 && cmd != "drain"
                 && cmd != "prefer" {
                 var why = replay_apply(line, &touched, &bufs)
@@ -638,7 +640,7 @@ pub fn incr_replay_main(argc:         i32,
             continue
         }
 
-        if last || line.is_empty() || line[0] == ('#' as u8) {
+        if last || line.is_empty() || line.data()[0] == ('#' as u8) {
             continue
         }
 
