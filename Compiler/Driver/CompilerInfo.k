@@ -519,7 +519,12 @@ extend CompilerInstance {
         }
 
         io::println(f"Data layout:     {data_layout}")
-        io::println(f"Default CPU:     {cpu}")
+        // An explicit --mcpu is the CPU in use, not the target's default.
+        if self.invocation()->args.is_set("mcpu") {
+            io::println(f"CPU:             {cpu}")
+        } else {
+            io::println(f"Default CPU:     {cpu}")
+        }
 
         return EXIT_OK
     }

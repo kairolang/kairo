@@ -3481,18 +3481,18 @@ group = "memory"
     """
 
 [SC150]
-brief = "'override' overrides nothing: C++ parameter types differ"
+brief = "'override' overrides nothing: a parameter is passed differently"
 group = "calling-convention"
 
     [SC150.E]
     explain = """
-    # 'override' overrides nothing: C++ parameter types differ
+    # 'override' overrides nothing: a parameter is passed differently
 
-    the method is marked 'override', but as C++ declares it the parameter types differ from the base method's, so it overrides nothing.
+    the method is marked 'override', but one of its parameters is passed differently from the base method's, so it overrides nothing. `const s: string` is passed by reference and `s: string` by value; an override keeps the base's parameter passing.
 
     ## how to fix
 
-    match the base method's parameter types.
+    write each parameter the way the base method does.
     """
 
 [SC151]
@@ -7162,4 +7162,34 @@ group = "const-self"
 
     apply the fix-it, which inserts `const` before each pointee, or write to the pointee if the
     function was meant to.
+    """
+
+[SC362]
+brief = "an optimizer assumption outside 'unsafe'"
+group = "optimizer-hints"
+
+    [SC362.W]
+    explain = """
+    # an optimizer assumption outside 'unsafe'
+
+    `@assume(c)` and `__builtin_unreachable()` promise the optimizer something the compiler does not
+    check. At `-O0` the condition of `@assume` is asserted and `__builtin_unreachable()` traps. At `-O1`
+    and above the assert is stripped, and a false condition or a reached `__builtin_unreachable()` is
+    undefined behavior. The warning is given at `-O1` and above, where the promise is unchecked.
+
+    ## example
+
+    ```kairo
+    fn f(n: i32) {
+        @assume(n > 0)    // warning at -O1: unchecked outside 'unsafe'
+    }
+    ```
+
+    ## how to fix
+
+    wrap the call in `unsafe` to acknowledge that it is unchecked:
+
+    ```kairo
+    unsafe { @assume(n > 0) }
+    ```
     """

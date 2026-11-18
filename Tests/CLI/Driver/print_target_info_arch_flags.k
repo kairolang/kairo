@@ -25,7 +25,7 @@ fn main() -> i32 { return 0 }
 // RUN: %kairo %s --print-target-info --target=x86_64-linux-gnu --m64 --m32 | %FileCheck %s --check-prefix=M32
 
 // RUN: %kairo %s --print-target-info --target=x86_64-linux-gnu --mcpu=znver3 | %FileCheck %s --check-prefix=MCPU
-// MCPU: Default CPU:     znver3
+// MCPU: CPU:             znver3
 
 // RUN: %kairo %s --print-target-info --target=x86_64-linux-gnu --march=x86-64-v3 | %FileCheck %s --check-prefix=MARCH
 // MARCH: Default CPU:     x86-64-v3

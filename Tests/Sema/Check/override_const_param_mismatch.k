@@ -17,4 +17,4 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not='error ['
-// CHECK: override_const_param_mismatch.k:10:5: error [SC150E]: 'f' is marked 'override' but overrides nothing
+// CHECK: override_const_param_mismatch.k:10:5: error [SC150E]: 'f' is marked 'override' but overrides nothing: one of its parameters is passed differently from the base method's; an override keeps the base's parameter passing

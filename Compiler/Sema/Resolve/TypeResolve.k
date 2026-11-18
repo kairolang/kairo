@@ -2492,13 +2492,54 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
                     if !r.found() {
                         var nm = self.sc->ctx->get_spelling(tok)
+                        // A member type of a base class is not in scope by
+                        // its bare name; say which base holds it.
+                        var inh_base = ""
+                        var has_base = false
+                        var unsafe *sd = self._self_decl_of(
+                            self._current_self(),
+                        )
+
+                        if !rooted && sd != &null && isa<Declarations::ClassDecl>(sd) {
+                            var through = cxx::std::vector<unsafe *Type>()
+                            var ir = self._in_bases(
+                                cast<Declarations::ClassDecl>(sd),
+                                self._current_self(),
+                                imm,
+                                nm,
+                                0,
+                                unsafe &through,
+                            )
+
+                            if ir.found() && through.size() > 0 {
+                                has_base = true
+                                inh_base = TypeUtil(self.sc).str(
+                                    through[through.size() - 1],
+                                )
+                            }
+                        }
+
+                        var msg = f"unknown type name '{nm}'"
+                        if has_base {
+                            var sn = TypeUtil(self.sc).str(self._current_self())
+                            msg = f"'{nm}' is not a member of '{sn}'; '{inh_base}::{nm}' is"
+                        }
+
                         var b = self.sc->diag->report(
                             DiagID::R021E,
                             seg0->name->range.start,
-                            f"unknown type name '{nm}'",
+                            msg,
                         )
 
                         b.first(seg0->name->range)
+                        if has_base {
+                            b.fix(
+                                seg0->name->range,
+                                f"{inh_base}::{nm}",
+                                f"name the member type through its base: '{inh_base}::{nm}'",
+                            )
+                        }
+
                         MemberLookup::note_failed_headers(
                             self.sc,
                             &b,

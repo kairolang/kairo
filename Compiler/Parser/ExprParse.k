@@ -1603,6 +1603,27 @@ pub class <T: type> ExprParse {
         /// # keyword prefix: unsafe
         if self.dyn()->check(TokenKind::KwUnsafe) {
             var kw_range = cur_range
+            // `unsafe { e }` holds one expression: the expression form is
+            // `unsafe (e)`, and the braces would read as a one-element set.
+            var brace_assigns = false
+            var brace_single = self._brace_is_single_after(
+                self.dyn()->c_idx,
+                &brace_assigns,
+            )
+
+            if brace_single && !brace_assigns {
+                self.dyn()->advance(T::SkipNL::After)
+                var unsafe *inner = self._recover_braced_branch(
+                    Self::BraceArm::UnsafeOperand,
+                )
+
+                return Expressions::UnsafeExpr::create(
+                    self.dyn()->ctx,
+                    kw_range | inner->range,
+                    inner,
+                )
+            }
+
             self.dyn()->advance()
             var unsafe *operand = self._parse_unary_expr(stop)
             if operand == &null {
@@ -4756,11 +4777,12 @@ pub class <T: type> ExprParse {
 
     /// what a braced arm stood for, which decides the S073E fix-it.
     enum BraceArm derives u8 {
-        Value,      ///< an arm value: `{ v }` becomes `=> v`.
-        TryOperand, ///< a `try` operand: `{ v }` becomes `v`.
-        ArrowBlock, ///< `=> { stmts }`: the arrow is already consumed; wrap in `({ ... })`.
-        ArrowStmts, ///< `=> { stmts }` in an `if` or `match` arm: the arrow goes (`_arm_arrow`).
-        ArrowValue, ///< `=> { v }`: the arrow is already consumed; the braces go.
+        Value,         ///< an arm value: `{ v }` becomes `=> v`.
+        TryOperand,    ///< a `try` operand: `{ v }` becomes `v`.
+        ArrowBlock,    ///< `=> { stmts }`: the arrow is already consumed; wrap in `({ ... })`.
+        ArrowStmts,    ///< `=> { stmts }` in an `if` or `match` arm: the arrow goes (`_arm_arrow`).
+        ArrowValue,    ///< `=> { v }`: the arrow is already consumed; the braces go.
+        UnsafeOperand, ///< `unsafe { v }` in an expression: the braces become parentheses.
     }
 
     /// true when the `{` that follows the current `=>` holds one
@@ -4772,8 +4794,14 @@ pub class <T: type> ExprParse {
     /// A `,` or `:` at the brace's own depth, a leading `.` and an
     /// empty brace are literals and are left alone.
     priv fn _arrow_brace_is_single(self, assigns: *bool) -> bool {
+        return self._brace_is_single_after(self.dyn()->c_idx, assigns)
+    }
+
+    /// _arrow_brace_is_single for the `{` that follows the token at
+    /// `at` (the `=>` there, or an `unsafe`).
+    priv fn _brace_is_single_after(self, at: usize, assigns: *bool) -> bool {
         *assigns = false
-        var i = self.dyn()->c_idx + 1   // past the `=>`
+        var i = at + 1
         var n = self.dyn()->span.size()
         while i < n {
             var k0 = self.dyn()->resolve_kind_deep(self.dyn()->span.get(i))
@@ -5176,6 +5204,8 @@ pub class <T: type> ExprParse {
             arm_msg = "a statement arm takes no '=>': write the block alone"
         } else if kind == Self::BraceArm::ArrowValue {
             arm_msg = "a value arm takes no braces: write the value after '=>'"
+        } else if kind == Self::BraceArm::UnsafeOperand {
+            arm_msg = "'unsafe { e }' in an expression is a set literal; the expression form is 'unsafe (e)'"
         }
 
         var arrowed = kind == Self::BraceArm::ArrowStmts || kind == Self::BraceArm::ArrowValue
@@ -5201,6 +5231,9 @@ pub class <T: type> ExprParse {
             }
 
             b.remove(gone, "remove '=>'")
+        } else if kind == Self::BraceArm::UnsafeOperand && value != &null {
+            b.fix(lbrace, "(", "replace '{' with '('")
+            b.fix(rbrace, ")", "replace '}' with ')'")
         } else if value != &null {
             var same_open = self._line_of(lbrace.start) == self._line_of(
                 value->range.start,

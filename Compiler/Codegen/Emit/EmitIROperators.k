@@ -513,9 +513,10 @@ extend EmitIR {
 
         var k     = n->op_token.kind
         var shift = k == TokenKind::OpLessLess || k == TokenKind::OpGreaterGreater
-        var ints = self._wraps(n->type_)
-            && self._wraps(n->lhs->type_)
-            && (shift || self._wraps(n->rhs->type_))
+        var ints = if (shift) => (self._wraps_shift(n->type_) && self._wraps_shift(n->lhs->type_))
+                   else => (self._wraps(n->type_)
+                       && self._wraps(n->lhs->type_)
+                       && self._wraps(n->rhs->type_))
         if n->no_wrap && ints && shift {
             // A count proven in [0, W) (SHIFT spec §4): no mask. A constant
             // count past the width is Sema's error, so reaching here with
@@ -810,8 +811,8 @@ extend EmitIR {
             var ck     = self._compound_op(n->op_token.kind)
             var cshift = ck == TokenKind::OpLessLess || ck == TokenKind::OpGreaterGreater
             if ck != TokenKind::TkUnknown
-                && self._wraps(n->lhs->type_)
-                && (cshift || self._wraps(n->rhs->type_)) {
+                && (if (cshift) => (self._wraps_shift(n->lhs->type_))
+                    else => (self._wraps(n->lhs->type_) && self._wraps(n->rhs->type_))) {
                 self._compound_form(n, ck)
                 return
             }

@@ -265,10 +265,10 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
 
     /// `override` on `m`, whose parameter list matches no base virtual of
     /// its name and arity as C++ declares them (SI8): a Kairo `x: D` is a
-    /// by-value `D`, not the `const D&` a C++ base takes, so clang says the
+    /// by-value `D`, not the by-reference `const x: D` a base takes, so the
     /// method overrides nothing. Reported only when such a base method
     /// exists, the one the override was meant for; the fix is the base's
-    /// parameter form (`const x: D` for `const D&`).
+    /// parameter form.
     priv fn _overrides_nothing(self, cd: unsafe *ClassDecl, m: unsafe *FunctionDecl) {
         var bt: unsafe *Type = &null
         var unsafe *meant = overridden_at(
@@ -309,13 +309,13 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
         var b = self.sc->diag->report(
             DiagID::SC150E,
             m->range.start,
-            f"'{nm}' is marked 'override' but overrides nothing: its parameter types differ from the base method's as C++ declares them",
+            f"'{nm}' is marked 'override' but overrides nothing: one of its parameters is passed differently from the base method's; an override keeps the base's parameter passing",
         )
 
         b.first(m->range)
         b.note(
             meant->range.start,
-            "the base method of that name; a C++ 'const T&' parameter is written 'const x: T'",
+            "the base method of that name; a 'const x: T' parameter is passed by reference and 'x: T' by value",
         )
 
         b.child_first(meant->range)

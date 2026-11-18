@@ -215,11 +215,12 @@ pub class <T: type> OperatorTyping {
     /// `e % K` (1 <= K <= W, e unsigned). Never reports on a poisoned node.
     priv fn _shift_count(self, n: unsafe *Expr, rhs: unsafe *Expr, lt: unsafe *Type) -> bool {
         var lv = self.dyn()->tu.as_value(lt)
-        if lv == &null || !self.dyn()->tu.is_integer(lv) || lv->is_dependent() {
+        var is_byte = lv != &null && self.dyn()->tu.is_builtin(lv, BuiltinKind::Byte)
+        if lv == &null || !(self.dyn()->tu.is_integer(lv) || is_byte) || lv->is_dependent() {
             return false
         }
 
-        var w = self.dyn()->tu.int_bits(lv)
+        var w = if (is_byte) => (8 as usize) else => self.dyn()->tu.int_bits(lv)
         if w == 0 || rhs == &null || rhs->is_poisoned() {
             return false
         }
@@ -1753,7 +1754,10 @@ pub class <T: type> OperatorTyping {
         }
 
         if self._is_shift(k) {
-            if !self.dyn()->tu.is_integer(lt) || !self.dyn()->tu.is_integer(rt) {
+            // `byte << n` and `byte >> n` are `byte`: shifted as its eight
+            // bits, like a `u8`.
+            var is_byte = self.dyn()->tu.is_builtin(lt, BuiltinKind::Byte)
+            if !(self.dyn()->tu.is_integer(lt) || is_byte) || !self.dyn()->tu.is_integer(rt) {
                 self.dyn()->fail(
                     n,
                     DiagID::SC067E,
@@ -4062,7 +4066,17 @@ pub class <T: type> OperatorTyping {
         // compound: the underlying binary op's rules, converting the RIGHT
         // operand only (§6).
         var base = OperatorFacts::compound_base(k)
-        var rt   = self.dyn()->type_of(n->rhs, lt)
+        // A `byte` shift count is an integer of its own type, not a byte.
+        var count_hint = lt
+        if self._is_shift(base)
+            && self.dyn()->tu.is_builtin(
+                self.dyn()->tu.as_value(lt),
+                BuiltinKind::Byte,
+            ) {
+            count_hint = &null
+        }
+
+        var rt = self.dyn()->type_of(n->rhs, count_hint)
         if rt == &null && self.dyn()->reject_type_value(n->rhs) {
             self.dyn()->poison_only(n)
             return &null
@@ -4138,7 +4152,12 @@ pub class <T: type> OperatorTyping {
         }
 
         if self._is_shift(base) {
-            if !self.dyn()->tu.is_integer(lt) || !self.dyn()->tu.is_integer(rt) {
+            var is_byte = self.dyn()->tu.is_builtin(
+                self.dyn()->tu.as_value(lt),
+                BuiltinKind::Byte,
+            )
+
+            if !(self.dyn()->tu.is_integer(lt) || is_byte) || !self.dyn()->tu.is_integer(rt) {
                 self.dyn()->fail(
                     n,
                     DiagID::SC067E,

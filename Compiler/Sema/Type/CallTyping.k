@@ -520,6 +520,36 @@ pub class <T: type> CallTyping {
         return false
     }
 
+    /// `@assume(c)` and `__builtin_unreachable()` outside an unsafe context
+    /// at -O1 and above: the assert that checks the promise at -O0 is gone
+    /// there, so a false condition is undefined behavior the compiler no
+    /// longer catches.
+    priv fn _warn_unchecked_assumption(self, n: unsafe *CallExpr, f: unsafe *FunctionDecl) {
+        if f == &null || self.dyn()->sc->ctx->ci->codegen.opt_level < 1 || self.dyn()->in_unsafe() {
+            return
+        }
+
+        var which = ""
+        var ub    = ""
+        if f->lowers_to_assume || f->canonical_decl()->lowers_to_assume {
+            which = "'@assume'"
+            ub    = "a false condition"
+        } else if !f->is_method() && self.dyn()->tu.decl_name(f) == "__builtin_unreachable" {
+            which = "'__builtin_unreachable'"
+            ub    = "reaching it"
+        }
+
+        if which.is_empty() {
+            return
+        }
+
+        self.dyn()->sc->diag->report(
+            DiagID::SC362W,
+            n->range.start,
+            f"{which} is unchecked at this optimization level: {ub} is undefined behavior; wrap it in 'unsafe' to acknowledge",
+        ).first(n->range)->emit()
+    }
+
     /// Migration tolerance: an unmarked argument to `@inout` bound; say so
     /// once per argument, at the argument, in words that say it will stop
     /// binding. No fixit by design (spec: MIGRATION).
@@ -2636,6 +2666,7 @@ pub class <T: type> CallTyping {
         }
 
         self._warn_unmarked(&args, &r)
+        self._warn_unchecked_assumption(n, r.decl)
         self._write_arg_map(n, r.decl, args, &r)
         self._check_forwarded_bounds(n, r.decl, &r)
         if !self._check_created_ctor(n, r.decl, &r) {

@@ -81,6 +81,19 @@ extend EmitIR {
         return b->info()->is_integer()
     }
 
+    /// `t` is an operand type of a `<<` / `>>` wrap form: an integer, or
+    /// `byte`, which shifts as an unsigned 8-bit integer.
+    prot fn _wraps_shift(self, t: unsafe *Type) -> bool {
+        if self._wraps(t) {
+            return true
+        }
+
+        var unsafe *c = Speller::strip_ref(t)
+        return c != &null
+            && isa<BuiltinType>(c)
+            && cast<BuiltinType>(c)->builtin == BuiltinKind::Byte
+    }
+
     /// A primitive whose `<=>` C++ answers with a `std::strong_ordering`: an
     /// integer, `char` or `bool`. A float's is a `std::partial_ordering`,
     /// whose unordered answer (NaN) has no Ordering variant, so it is left
