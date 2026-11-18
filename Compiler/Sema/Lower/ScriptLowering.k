@@ -471,6 +471,12 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     /// (`|*count|`) is the capture, not a read, and stays a name.
     priv var _closures: cxx::std::vector<unsafe *ClosureExpr>
 
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn ScriptLowering(self, const other: Self) = delete
+    @move fn ScriptLowering(self, other: Self) = delete
+
     fn ScriptLowering(self, sc: unsafe *SemaContext, root: bool) {
         self.sc    = sc
         self.ctx   = sc->ctx

@@ -523,7 +523,7 @@ pub class SysGen {
         var mval  = TomlValue{}
         while mtoml.next(&mkey, &mval) {
             if mtoml.table.is_empty() && mkey == "extra_cflags" && mval.kind == 3 {
-                extra = mval.list
+                extra = mval.take_list()
             }
         }
 
@@ -648,7 +648,7 @@ pub class SysGen {
                 continue
             }
 
-            var run = runner
+            var run = LinkText::copy_list(runner)
             run.push_back(bin)
             var rlog = LinkText::join(
                 work.copy(),
@@ -903,7 +903,7 @@ pub class SysGen {
         for *q in p.quirks {
             qids.push_back(q->id.copy())
             if !q->target_rewrite.is_empty() {
-                rewrites.push_back(q->id)
+                rewrites.push_back(q->id.copy())
                 p.target.clang_triple = p.recipe.expand(
                     q->target_rewrite,
                     &p.target,
@@ -1115,7 +1115,7 @@ pub class SysGen {
         }
 
         var ctx = StageCtx()
-        ctx.target      = p->target
+        ctx.target      = p->target.copy()
         ctx.recipe      = p->recipe
         ctx.quirks      = p->quirks
         ctx.share       = p->share.dir.copy()
@@ -1136,7 +1136,7 @@ pub class SysGen {
             var st = SysStage(c->stage_dir(name, p->stage_keys[i]))
             if st.done() {
                 ctx.done_names.push_back(name)
-                ctx.done_dirs.push_back(st.dir)
+                ctx.done_dirs.push_back(st.dir.copy())
                 continue
             }
 
@@ -1483,7 +1483,7 @@ pub class SysGen {
         SysUtil::field(&f, "stage_keys", SysUtil::json_list(&sk))
         var qids = cxx::std::vector<string>()
         for *q in p->quirks {
-            qids.push_back(q->id)
+            qids.push_back(q->id.copy())
         }
 
         SysUtil::field(&f, "quirks", SysUtil::json_list(&qids))
@@ -1863,10 +1863,10 @@ pub class SysGen {
         }
 
         var qs = cxx::std::vector<string>()
-        for var q: SysQuirk in p->quirks {
-            if stage.is_empty() || SysGen::_quirk_touches(&q, stage) {
+        for *q in p->quirks {
+            if stage.is_empty() || SysGen::_quirk_touches(q, stage) {
                 qs.push_back(
-                    q.id.copy() + ":" + SysUtil::joined(&q.effects, ";"),
+                    q->id.copy() + ":" + SysUtil::joined(&q->effects, ";"),
                 )
             }
         }
@@ -1953,7 +1953,7 @@ pub class SysGen {
         }
 
         var stamp = ""
-        for var b: string in bins {
+        for b in bins {
             stamp += f"{b} {SysUtil::file_size(b)} {LinkFS::mtime(b)}\n"
         }
 

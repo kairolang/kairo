@@ -156,7 +156,7 @@ pub class MinGWArgs {
         }
 
         argv.push_back("-o")
-        argv.push_back(job.output)
+        argv.push_back(job.output.copy())
 
         /// # crt startup
         if !no_crt {
@@ -250,7 +250,7 @@ pub class MinGWArgs {
         // goes in undecorated.
         if no_crt && !shared && !o->entry.is_empty() {
             argv.push_back("-e")
-            argv.push_back(o->entry)
+            argv.push_back(o->entry.copy())
         }
 
         for *f in o->ld_flags {
@@ -266,7 +266,7 @@ pub class MinGWArgs {
         // their archive, which every linker reads lazily. Eagerly they would
         // clash with a run's own builtin objects.
         if !job.lazy_archive.is_empty() {
-            argv.push_back(job.lazy_archive)
+            argv.push_back(job.lazy_archive.copy())
         } else if job.lazy_objects.size() > 0 {
             msgs.push_back(
                 LinkDiag::make(
@@ -279,7 +279,7 @@ pub class MinGWArgs {
         // The MinGW driver has no --def: a .def file is an input, like any
         // other, and the driver reads the exports from it.
         if !o->def.is_empty() {
-            argv.push_back(o->def)
+            argv.push_back(o->def.copy())
         }
 
         for *spec in o->link_libs {
@@ -547,8 +547,8 @@ pub class MinGWArgs {
                 )
             }
 
-            cxx_v = tc.manifest.libcxx_link
-            libc  = tc.manifest.libc_link
+            cxx_v = LinkText::copy_list(tc.manifest.libcxx_link)
+            libc  = LinkText::copy_list(tc.manifest.libc_link)
         } else {
             cxx_v.push_back("-lc++")
             if tc.unwindlib == "libunwind" {
@@ -581,7 +581,7 @@ pub class MinGWArgs {
 
         if tc.rtlib == "compiler-rt" {
             if !tc.builtins.is_empty() {
-                argv.push_back(tc.builtins)
+                argv.push_back(tc.builtins.copy())
             }
         } else {
             argv.push_back("-lgcc")

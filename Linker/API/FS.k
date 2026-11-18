@@ -364,10 +364,13 @@ pub class LinkFS {
     /// setenv, and its _putenv_s is the CRT's copy of the environment that
     /// llvm::sys::Process::GetEnv reads back.
     pub static fn set_env(const name: string, const value: string) {
+        // c_str() needs a mutable receiver on a string that may be a view.
+        var n = name.copy()
+        var v = value.copy()
         eval if defined!(_WIN32) {
-            _putenv_s(name.c_str(), value.c_str())
+            _putenv_s(n.c_str(), v.c_str())
         } else {
-            setenv(name.c_str(), value.c_str(), 1)
+            setenv(n.c_str(), v.c_str(), 1)
         }
     }
 

@@ -40,6 +40,25 @@ pub struct TomlValue {
     pub var list: cxx::std::vector<string>
 }
 
+/// `v.list`, moved out and left empty: the caller's TomlValue is read again
+/// by the next TomlLite::next, which replaces it whole.
+extend TomlValue {
+    pub fn copy(const self) -> TomlValue {
+        return TomlValue {
+            kind: self.kind,
+            text: self.text.copy(),
+            flag: self.flag,
+            list: LinkText::copy_list(self.list),
+        }
+    }
+
+    pub fn take_list(self) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        out.swap(&self.list)
+        return out
+    }
+}
+
 pub class TomlLite {
     priv var _s:    string
     priv var _i:    usize  = 0
@@ -470,7 +489,7 @@ pub class SysrootManifest {
             return false
         }
 
-        dst = v.list
+        dst = v.take_list()
         return true
     }
 }

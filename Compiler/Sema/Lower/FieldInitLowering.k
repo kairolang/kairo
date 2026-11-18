@@ -161,6 +161,12 @@ pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
     priv var synth: LowerSynth
     priv var ce:    ConstEval
 
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn FieldInitLowering(self, const other: Self) = delete
+    @move fn FieldInitLowering(self, other: Self) = delete
+
     fn FieldInitLowering(self, sc: unsafe *SemaContext) {
         self.sc    = sc
         self.ctx   = sc->ctx

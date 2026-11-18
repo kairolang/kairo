@@ -5396,7 +5396,7 @@ import Diagnostic::Severity::DiagSeverity;
 
 pub fn diag_meta(id: DiagID) -> DiagMeta;
 pub fn diag_explain(id: DiagID) -> string;
-pub fn diag_from_string(code_str: string) -> DiagID;
+pub fn diag_from_string(const code_str: string) -> DiagID;
 
 pub module Diag {
   pub fn S(num: u32, sev: DiagSeverity) -> DiagID;

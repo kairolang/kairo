@@ -223,12 +223,12 @@ pub class GlibcProvider derives SysrootProvider {
         var jobs = SysJobs()
         jobs.limit(ctx->jobs)
         for var li: usize = 0; li < libs.size(); ++li {
-            var l    = libs[li]
-            var syms = all[li]
-            var c    = ""
-            var map  = ""
-            GlibcProvider::stub_sources(&syms, &l.versions, &c, &map)
-            var dir = work.copy() + "/" + l.stem
+            var *l    = &libs[li]
+            var *syms = &all[li]
+            var c     = ""
+            var map   = ""
+            GlibcProvider::stub_sources(&*syms, &l->versions, &c, &map)
+            var dir = work.copy() + "/" + l->stem
             LinkFS::make_dirs(dir)
             if !LinkFS::write(dir.copy() + "/stub.c", c)
                 || !LinkFS::write(dir.copy() + "/stub.map", map) {
@@ -245,7 +245,7 @@ pub class GlibcProvider derives SysrootProvider {
             argv.push_back("-o")
             argv.push_back(dir.copy() + "/stub.o")
             argv.push_back(dir.copy() + "/stub.c")
-            if !jobs.add(&argv, f"{ctx->log_dir}/stub-{l.stem}.cc.log") {
+            if !jobs.add(&argv, f"{ctx->log_dir}/stub-{l->stem}.cc.log") {
                 break
             }
         }
@@ -258,18 +258,18 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         var links = SysJobs()
-        for var l: GlibcLib in libs {
-            var dir  = work.copy() + "/" + l.stem
+        for *l in libs {
+            var dir  = work.copy() + "/" + l->stem
             var argv = cxx::std::vector<string>()
             argv.push_back(ctx->tool("kld"))
             argv.push_back("-flavor")
             argv.push_back("gnu")
             argv.push_back("-shared")
             argv.push_back("-soname")
-            argv.push_back(l.soname.copy())
+            argv.push_back(l->soname.copy())
             // A library with no version node (a 2.34+ placeholder library on a
             // port newer than 2.34) has no script: lld rejects an empty one.
-            if !l.versions.empty() {
+            if !l->versions.empty() {
                 argv.push_back("--version-script")
                 argv.push_back(dir.copy() + "/stub.map")
             }
@@ -277,13 +277,13 @@ pub class GlibcProvider derives SysrootProvider {
             argv.push_back("-o")
             argv.push_back(
                 lib.copy() + "/" + GlibcProvider::file_name(
-                    &l,
+                    l,
                     ctx->target.libc_version,
                 ),
             )
 
             argv.push_back(dir.copy() + "/stub.o")
-            if !links.add(&argv, f"{ctx->log_dir}/stub-{l.stem}.ld.log") {
+            if !links.add(&argv, f"{ctx->log_dir}/stub-{l->stem}.ld.log") {
                 break
             }
         }
@@ -296,10 +296,10 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         LinkFS::remove_tree(work)
-        for var l: GlibcLib in libs {
-            var file = GlibcProvider::file_name(&l, ctx->target.libc_version)
-            if file != l.soname && !SysRun::symlink(file, lib.copy() + "/" + l.soname) {
-                return out.fail(f"cannot link {lib}/{l.soname}", "")
+        for *l in libs {
+            var file = GlibcProvider::file_name(l, ctx->target.libc_version)
+            if file != l->soname && !SysRun::symlink(file, lib.copy() + "/" + l->soname) {
+                return out.fail(f"cannot link {lib}/{l->soname}", "")
             }
         }
 
@@ -380,9 +380,9 @@ pub class GlibcProvider derives SysrootProvider {
         var val    = TomlValue{}
         while toml.next(&key, &val) {
             if toml.table.is_empty() && key == "arches" && val.kind == 3 {
-                arches = val.list
+                arches = val.take_list()
             } else if toml.table == "omit" && key == arch && val.kind == 3 {
-                omit = val.list
+                omit = val.take_list()
             }
         }
 
@@ -448,14 +448,16 @@ pub class GlibcProvider derives SysrootProvider {
         var minor = LinkText::slice(v, dot + 1, v.size())
         var fixed = ""
         var hits  = 0
-        for var line: string in LinkText::split_lines(ft.copy()) {
-            var w = GlibcProvider::_words(line)
+        var lines = LinkText::split_lines(ft.copy())
+        for *line in lines {
+            var w = GlibcProvider::_words(*line)
             if w.size() == 3 && w[0] == "#define" && w[1] == "__GLIBC_MINOR__" {
-                line = "#define\t__GLIBC_MINOR__\t" + minor
+                *line = "#define\t__GLIBC_MINOR__\t" + minor
                 hits += 1
             }
 
-            fixed += line.copy() + "\n"
+            fixed += *line
+            fixed += "\n"
         }
 
         if hits != 1 {
@@ -605,9 +607,9 @@ pub class GlibcProvider derives SysrootProvider {
         var jobs = SysJobs()
         jobs.limit(ctx->jobs)
         for var i: usize = 0; i < t.compiles.size(); ++i {
-            var c    = t.compiles[i]
+            var *c   = &t.compiles[i]
             var argv = ctx->kcc(ctx->stage)
-            for *a in c.args {
+            for *a in c->args {
                 var x = SysUtil::fill(*a, "src", src)
                 x = SysUtil::fill(x, "gen", gen)
                 x = SysUtil::fill(x, "uapi", uapi)
@@ -617,7 +619,7 @@ pub class GlibcProvider derives SysrootProvider {
 
             argv.push_back(f"-ffile-prefix-map={src}=glibc-{t.era}")
             argv.push_back(f"-ffile-prefix-map={gen}=glibc-gen")
-            LinkFS::make_dirs(LinkFS::parent(work.copy() + "/" + c.out))
+            LinkFS::make_dirs(LinkFS::parent(work.copy() + "/" + c->out))
             if !jobs.add(&argv, f"{ctx->log_dir}/glibc-crt-{i}.log") {
                 break
             }
@@ -631,21 +633,21 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         for var i: usize = 0; i < t.links.size(); ++i {
-            var l    = t.links[i]
+            var *l   = &t.links[i]
             var argv = cxx::std::vector<string>()
             argv.push_back(ctx->tool("kld"))
             argv.push_back("-flavor")
             argv.push_back("gnu")
             argv.push_back("-r")
             argv.push_back("-o")
-            argv.push_back(work.copy() + "/" + l.out)
-            for *x in l.args {
+            argv.push_back(work.copy() + "/" + l->out)
+            for *x in l->args {
                 argv.push_back(work.copy() + "/" + *x)
             }
 
             if SysRun::run(&argv, f"{ctx->log_dir}/glibc-crt-link-{i}.log") != 0 {
                 return out.fail(
-                    f"glibc start-file link {l.out} failed, see {ctx->log_dir}/glibc-crt-link-{i}.log",
+                    f"glibc start-file link {l->out} failed, see {ctx->log_dir}/glibc-crt-link-{i}.log",
                     "",
                 )
             }
@@ -790,7 +792,7 @@ pub class GlibcProvider derives SysrootProvider {
         for *line in LinkText::split_lines(nodes_text.copy()) {
             var w = GlibcProvider::_words(*line)
             if w.size() == 2 && !SysUtil::version_less(v, w[1]) {
-                nodes.push_back(w[0])
+                nodes.push_back(w[0].copy())
                 text += w[0].copy() + " " + w[0] + " A\n"
             }
         }
@@ -842,9 +844,9 @@ pub class GlibcProvider derives SysrootProvider {
                 } else if key == "releases" {
                     t.releases = val.text.copy()
                 } else if key == "crt" {
-                    t.crt = val.list
+                    t.crt = val.take_list()
                 } else if key == "nonshared" {
-                    t.nonshared = val.list
+                    t.nonshared = val.take_list()
                 }
             } else if LinkText::starts_with(tb.copy(), "compile.")
                 || LinkText::starts_with(tb.copy(), "link.") {
@@ -870,9 +872,9 @@ pub class GlibcProvider derives SysrootProvider {
                     }
                 } else if (key == "args" || key == "inputs") && val.kind == 3 {
                     if link {
-                        t.links[n - 1].args = val.list
+                        t.links[n - 1].args = val.take_list()
                     } else {
-                        t.compiles[n - 1].args = val.list
+                        t.compiles[n - 1].args = val.take_list()
                     }
                 }
             }
@@ -967,7 +969,7 @@ pub class GlibcProvider derives SysrootProvider {
             if key == "soname" && val.kind == 1 {
                 libs[libs.size() - 1].soname = val.text.copy()
             } else if key == "versions" && val.kind == 3 {
-                libs[libs.size() - 1].versions = val.list
+                libs[libs.size() - 1].versions = val.take_list()
             }
         }
 
@@ -1018,8 +1020,8 @@ pub class GlibcProvider derives SysrootProvider {
             }
 
             if !found {
-                names.push_back(s->name)
-                newest.push_back(s->version)
+                names.push_back(s->name.copy())
+                newest.push_back(s->version.copy())
             }
         }
 
@@ -1029,7 +1031,7 @@ pub class GlibcProvider derives SysrootProvider {
             var w = GlibcProvider::_words(*line)
             if w.size() == 3 {
                 over_keys.push_back(w[0].copy() + " " + w[1])
-                over_vals.push_back(w[2])
+                over_vals.push_back(w[2].copy())
             }
         }
 
@@ -1068,30 +1070,30 @@ pub class GlibcProvider derives SysrootProvider {
         var abs_nodes = cxx::std::vector<string>()
         var abs_names = cxx::std::vector<string>()
         for var i: usize = 0; i < syms.size(); ++i {
-            var e = syms[i]
-            if e.kind == "A" {
+            var *e = &syms[i]
+            if e->kind == "A" {
                 // lld does not invent GNU ld's version-name symbols: define
                 // each absolute, and the script binds it to its node.
-                c += "__asm__(" + q + ".globl \\" + q + e.name + "\\" + q + "\\n.set \\" + q + e.name + "\\" + q + ", 0" + q + ");\n"
-                abs_nodes.push_back(e.version)
-                abs_names.push_back(e.name)
+                c += "__asm__(" + q + ".globl \\" + q + e->name + "\\" + q + "\\n.set \\" + q + e->name + "\\" + q + ", 0" + q + ");\n"
+                abs_nodes.push_back(e->version.copy())
+                abs_names.push_back(e->name.copy())
                 continue
             }
 
             var s = f"__kairo_stub_{i}"
-            if e.kind == "F" {
+            if e->kind == "F" {
                 c += "void " + s + "(void) {}\n"
-            } else if e.kind == "T" {
-                c += "__thread char " + s + "[" + e.size + "] = {0};\n"
+            } else if e->kind == "T" {
+                c += "__thread char " + s + "[" + e->size + "] = {0};\n"
             } else {
-                c += "char " + s + "[" + e.size + "] = {0};\n"
+                c += "char " + s + "[" + e->size + "] = {0};\n"
             }
 
-            var at = if (e.dflt) => ("@@") else => "@"
-            c += "__asm__(" + q + ".symver " + s + ", " + e.name + at + e.version + q + ");\n"
-            if !e.dflt {
-                abs_nodes.push_back(e.version)
-                abs_names.push_back(e.name)
+            var at = if (e->dflt) => ("@@") else => "@"
+            c += "__asm__(" + q + ".symver " + s + ", " + e->name + at + e->version + q + ");\n"
+            if !e->dflt {
+                abs_nodes.push_back(e->version.copy())
+                abs_names.push_back(e->name.copy())
             }
         }
 
@@ -1100,7 +1102,7 @@ pub class GlibcProvider derives SysrootProvider {
         var extra = cxx::std::vector<string>()
         for *e in syms {
             if !SysUtil::contains(&nodes, e->version) && !SysUtil::contains(&extra, e->version) {
-                extra.push_back(e->version)
+                extra.push_back(e->version.copy())
             }
         }
 
@@ -1204,22 +1206,21 @@ pub class GlibcProvider derives SysrootProvider {
     }
 
     priv static fn _words(const line: string) -> cxx::std::vector<string> {
-        var out = cxx::std::vector<string>()
-        var cur = ""
+        var out          = cxx::std::vector<string>()
+        var start: usize = 0                          ///< where the current word begins
         for var i: usize = 0; i < line.size(); ++i {
             var ch = line.data()[i]
             if ch == (' ' as u8) || ch == ('\t' as u8) || ch == ('\r' as u8) {
-                if !cur.is_empty() {
-                    out.push_back(cur)
-                    cur = ""
+                if i > start {
+                    out.push_back(line[start..i].to_owned())
                 }
-            } else {
-                cur.push_back(ch)
+
+                start = i + 1
             }
         }
 
-        if !cur.is_empty() {
-            out.push_back(cur)
+        if line.size() > start {
+            out.push_back(line[start..].to_owned())
         }
 
         return out

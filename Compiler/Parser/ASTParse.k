@@ -394,6 +394,12 @@ pub class ASTParse
         }
     }
 
+    // Never transferred: a parser is built where it runs. Its mixin bases
+    // are copyable, which a non-transferable class may derive and a
+    // move-only one may not.
+    @copy fn ASTParse(self, const other: Self) = delete
+    @move fn ASTParse(self, other: Self) = delete
+
     /// initializes a parser for a specific context and token stream.
     ///
     /// ### Parameters

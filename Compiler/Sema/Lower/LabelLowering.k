@@ -90,6 +90,12 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
     priv var _depth: usize                       = 0 ///< _loops in use; entries past it are stale.
     priv var _count: usize                       = 0 ///< labeled loops lowered in this function.
 
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn LabelLowering(self, const other: Self) = delete
+    @move fn LabelLowering(self, other: Self) = delete
+
     fn LabelLowering(self, sc: unsafe *SemaContext) {
         self.sc    = sc
         self.ctx   = sc->ctx

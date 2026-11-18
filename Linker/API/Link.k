@@ -83,7 +83,7 @@ pub class Link {
     pub static fn execute(@inout job:  LinkJob,
                           @inout argv: cxx::std::vector<string>,
                           @inout res:  LinkResult) -> bool {
-        res.argv = argv
+        res.argv = LinkText::copy_list(argv)
 
         var parent = LinkFS::parent(job.output)
         if !parent.is_empty() && !LinkFS::make_dirs(parent) {

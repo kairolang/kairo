@@ -300,21 +300,25 @@ pub class HostSystem {
         var in_quote       = false
         var quote          = (' ' as u8)
         var i:       usize = 0
+        var run:     usize = 0 ///< the first byte of `text` not yet in `cur`
         while i < text.size() {
             var c = text.data()[i]
             if in_quote {
                 if c == quote {
+                    cur += text[run..i]
+                    run      = i + 1
                     in_quote = false
-                } else {
-                    cur.push_back(c)
                 }
 
                 i += 1
                 continue
             }
 
+            // The escaped byte starts the next run; every cut is at an ASCII
+            // byte, so a run never splits a character.
             if c == ('\\' as u8) && i + 1 < text.size() {
-                cur.push_back(text[i + 1])
+                cur += text[run..i]
+                run  = i + 1
                 have = true
                 i += 2
                 continue
@@ -322,6 +326,8 @@ pub class HostSystem {
 
             var code = ((c) as u32)
             if code == ('"' as u32) || code == ('\'' as u32) {
+                cur += text[run..i]
+                run      = i + 1
                 quote    = c
                 in_quote = true
                 have     = true
@@ -330,21 +336,23 @@ pub class HostSystem {
             }
 
             if c == (' ' as u8) || c == ('\t' as u8) || c == ('\n' as u8) || c == ('\r' as u8) {
+                cur += text[run..i]
                 if have {
                     out.push_back(cur)
                 }
 
                 cur  = ""
                 have = false
+                run  = i + 1
                 i += 1
                 continue
             }
 
-            cur.push_back(c)
             have = true
             i += 1
         }
 
+        cur += text[run..]
         if have {
             out.push_back(cur)
         }
@@ -573,14 +581,17 @@ pub class HostSystem {
             return ""
         }
 
-        var s   = ""
-        var p   = base + idx
-        var end = base + len
+        var start = base + idx
+        var p     = start
+        var end   = base + len
         while p < end && ((d.data()[p as usize]) as u32) != 0 {
-            s.push_back(d[p as usize])
             p += 1
         }
 
-        return s
+        // `d` is a file image, not text: copy the bytes, never a checked range.
+        return string(
+            unsafe ((d.data() + (start as usize)) as *const u8),
+            (p - start) as usize,
+        )
     }
 }

@@ -170,7 +170,7 @@ pub fn is_leftover_temp(const name: string) -> bool {
 /// True when `name` is a temporary of a publish of the file `base`:
 /// `<base>.tmp-<pid>-<n>.tmp` (temp_path_for).
 pub fn is_temp_of(const name: string, const base: string) -> bool {
-    return name.starts_with(base + ".tmp-") && name.ends_with(".tmp")
+    return name.starts_with(base.copy() + ".tmp-") && name.ends_with(".tmp")
 }
 
 /// Adds to `doomed` every entry of `dir` that `base` selects (is_temp_of
@@ -233,7 +233,7 @@ fn remove_stale_(const dir: string, const base: string, deep: bool, max_age_ns: 
     // under it.
     collect_stale_(dir, base, deep, now_ns(), max_age_ns, &doomed)
     var removed: usize = 0
-    for var p: string in doomed {
+    for p in doomed {
         if llvm::sys::fs::is_directory(llvm::Twine(kairo::sref(p))) {
             Path::remove_tree(p)
         } else {
@@ -362,7 +362,7 @@ pub fn Test() -> i32 {
         return 1
     }
 
-    var lock = dir + "/entry.lock"
+    var lock = dir.copy() + "/entry.lock"
     var day  = (86400 as u64) * (1000000000 as u64)
     errors += check("take a free lock", lock_file_take(lock, day, 0))
     errors += check("the lock is a file", Path::exists_at(lock))
@@ -388,7 +388,7 @@ pub fn Test() -> i32 {
     lock_file_drop(lock)
     errors += check(
         "no directory, no lock",
-        !lock_file_take(dir + "/none/entry.lock", day, day),
+        !lock_file_take(dir.copy() + "/none/entry.lock", day, day),
     )
 
     Path::remove_tree(dir)

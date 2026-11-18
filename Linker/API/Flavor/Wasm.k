@@ -122,7 +122,7 @@ pub class WasmArgs {
         }
 
         argv.push_back("-o")
-        argv.push_back(job.output)
+        argv.push_back(job.output.copy())
 
         /// # crt startup
         if reactor && !o->no_crt && !o->freestanding && !bare {

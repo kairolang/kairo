@@ -68,11 +68,11 @@ pub class SysRecipe {
         while toml.next(&key, &val) {
             self.raw_tables.push_back(toml.table.copy())
             self.raw_keys.push_back(key.copy())
-            self.raw_vals.push_back(val)
+            self.raw_vals.push_back(val.copy())
             if LinkText::starts_with(toml.table.copy(), "per_arch.") && val.kind == 1 {
                 var v = LinkText::slice(toml.table, 9, toml.table.size())
                 self.per_arch_keys.push_back(v.copy() + "." + key)
-                self.per_arch_vals.push_back(val.text)
+                self.per_arch_vals.push_back(val.text.copy())
                 continue
             }
 
@@ -89,11 +89,11 @@ pub class SysRecipe {
             } else if key == "os_version" && val.kind == 1 {
                 self.os_version = val.text.copy()
             } else if key == "arches" && val.kind == 3 {
-                self.arches = val.list
+                self.arches = val.take_list()
             } else if key == "inputs" && val.kind == 3 {
-                self.inputs = val.list
+                self.inputs = val.take_list()
             } else if key == "runtimes" && val.kind == 3 {
-                self.runtimes = val.list
+                self.runtimes = val.take_list()
             }
         }
 
@@ -152,7 +152,7 @@ pub class SysRecipe {
         var out = cxx::std::vector<string>()
         for var i: usize = 0; i < self.raw_keys.size(); ++i {
             if self.raw_tables[i] == table {
-                out.push_back(self.raw_keys[i])
+                out.push_back(self.raw_keys[i].copy())
             }
         }
 
@@ -246,7 +246,7 @@ pub class GlibcVersions {
         var val  = TomlValue{}
         while toml.next(&key, &val) {
             if key == "versions" && val.kind == 3 {
-                self.versions = val.list
+                self.versions = val.take_list()
             } else if key == "floor" && val.kind == 1 {
                 self.floor = val.text.copy()
             } else if key == "default" && val.kind == 1 {
@@ -288,6 +288,34 @@ pub struct SysQuirk {
     /// Every key as read, `key=value` in file order: what a stage key hashes
     /// when it hashes "this quirk's effects".
     pub var effects: cxx::std::vector<string>
+}
+
+extend SysQuirk {
+    pub fn copy(const self) -> SysQuirk {
+        return SysQuirk {
+            id:                   self.id.copy(),
+            match_arch:           LinkText::copy_list(self.match_arch),
+            match_cpu:            LinkText::copy_list(self.match_cpu),
+            match_family:         LinkText::copy_list(self.match_family),
+            match_os:             LinkText::copy_list(self.match_os),
+            match_env:            LinkText::copy_list(self.match_env),
+            match_probe:          LinkText::copy_list(self.match_probe),
+            target_rewrite:       self.target_rewrite.copy(),
+            cflags_stages:        LinkText::copy_list(self.cflags_stages),
+            cflags_add:           LinkText::copy_list(self.cflags_add),
+            cflags_add_cxx:       LinkText::copy_list(self.cflags_add_cxx),
+            cmake_stages:         LinkText::copy_list(self.cmake_stages),
+            cmake_defs:           LinkText::copy_list(self.cmake_defs),
+            force_include_stages: LinkText::copy_list(self.force_include_stages),
+            force_include_file:   self.force_include_file.copy(),
+            post_archive:         self.post_archive.copy(),
+            required_symbols:     LinkText::copy_list(self.required_symbols),
+            assert_file_contains: LinkText::copy_list(self.assert_file_contains),
+            assert_compiles:      LinkText::copy_list(self.assert_compiles),
+            musl_arch:            self.musl_arch.copy(),
+            effects:              LinkText::copy_list(self.effects),
+        }
+    }
 }
 
 pub class QuirkSet {
@@ -342,29 +370,30 @@ pub class QuirkSet {
                     const env_:   string,
                     @inout probe: cxx::std::vector<string>) -> cxx::std::vector<SysQuirk> {
         var out = cxx::std::vector<SysQuirk>()
-        for var q: SysQuirk in self.quirks {
-            if !q.match_arch.empty() && !SysUtil::contains(&q.match_arch, t->arch) {
+        for *q in self.quirks {
+            if !q->match_arch.empty() && !SysUtil::contains(&q->match_arch, t->arch) {
                 continue
             }
 
-            if !q.match_cpu.empty() && !SysUtil::contains(&q.match_cpu, SysNames::cpu_of(t->arch)) {
+            if !q->match_cpu.empty()
+                && !SysUtil::contains(&q->match_cpu, SysNames::cpu_of(t->arch)) {
                 continue
             }
 
-            if !q.match_family.empty() && !SysUtil::contains(&q.match_family, t->recipe) {
+            if !q->match_family.empty() && !SysUtil::contains(&q->match_family, t->recipe) {
                 continue
             }
 
-            if !q.match_os.empty() && !SysUtil::contains(&q.match_os, os) {
+            if !q->match_os.empty() && !SysUtil::contains(&q->match_os, os) {
                 continue
             }
 
-            if !q.match_env.empty() && !SysUtil::contains(&q.match_env, env_) {
+            if !q->match_env.empty() && !SysUtil::contains(&q->match_env, env_) {
                 continue
             }
 
             var probe_ok = true
-            for *p in q.match_probe {
+            for *p in q->match_probe {
                 var neg = LinkText::starts_with(p->copy(), "!")
                 var fact = if (neg) => (LinkText::slice(*p, 1, p->size())) else => *p
                 if SysUtil::contains(&probe, fact) == neg {
@@ -373,7 +402,7 @@ pub class QuirkSet {
             }
 
             if probe_ok {
-                out.push_back(q)
+                out.push_back(q->copy())
             }
         }
 
@@ -404,35 +433,35 @@ pub class QuirkSet {
         }
 
         if key == "match_arch" {
-            q->match_arch = v.list
+            q->match_arch = v.take_list()
         } else if key == "match_cpu" {
-            q->match_cpu = v.list
+            q->match_cpu = v.take_list()
         } else if key == "match_family" {
-            q->match_family = v.list
+            q->match_family = v.take_list()
         } else if key == "match_os" {
-            q->match_os = v.list
+            q->match_os = v.take_list()
         } else if key == "match_env" {
-            q->match_env = v.list
+            q->match_env = v.take_list()
         } else if key == "match_probe" {
-            q->match_probe = v.list
+            q->match_probe = v.take_list()
         } else if key == "cflags_stages" {
-            q->cflags_stages = v.list
+            q->cflags_stages = v.take_list()
         } else if key == "cflags_add" {
-            q->cflags_add = v.list
+            q->cflags_add = v.take_list()
         } else if key == "cflags_add_cxx" {
-            q->cflags_add_cxx = v.list
+            q->cflags_add_cxx = v.take_list()
         } else if key == "cmake_stages" {
-            q->cmake_stages = v.list
+            q->cmake_stages = v.take_list()
         } else if key == "cmake_defs" {
-            q->cmake_defs = v.list
+            q->cmake_defs = v.take_list()
         } else if key == "force_include_stages" {
-            q->force_include_stages = v.list
+            q->force_include_stages = v.take_list()
         } else if key == "required_symbols" {
-            q->required_symbols = v.list
+            q->required_symbols = v.take_list()
         } else if key == "assert_file_contains" {
-            q->assert_file_contains = v.list
+            q->assert_file_contains = v.take_list()
         } else if key == "assert_compiles" {
-            q->assert_compiles = v.list
+            q->assert_compiles = v.take_list()
         } else {
             return false
         }

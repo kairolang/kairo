@@ -155,23 +155,23 @@ pub class LinkABI {
             return
         }
 
-        var first = notes[0]
+        var *first = &notes[0]
         for var i: usize = 1; i < notes.size(); ++i {
-            var n = notes[i]
-            if n.major == first.major {
+            var *n = &notes[i]
+            if n->major == first->major {
                 continue
             }
 
             // The convention both use, if one is shared; else the first's.
-            var both = first.bits & n.bits
+            var both = first->bits & n->bits
             var nm = LinkABI::_conv_name(
-                if (both != 0) => (both) else => first.bits,
+                if (both != 0) => (both) else => first->bits,
             )
 
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
-                    f"'@{nm}' is used by {first.path} (LLVM {first.major}) and {n.path} (LLVM {n.major}); " + "this calling convention is not stable across LLVM versions; rebuild both",
+                    f"'@{nm}' is used by {first->path} (LLVM {first->major}) and {n->path} (LLVM {n->major}); " + "this calling convention is not stable across LLVM versions; rebuild both",
                 ),
             )
 
@@ -224,14 +224,14 @@ pub class LinkABI {
             return
         }
 
-        var s = allocs[setter as usize]
+        var *s = &allocs[setter as usize]
         for *a in allocs {
             if (a->flags & ABI_ALLOC_INLINES_SYSTEM) == 0 {
                 continue
             }
 
-            var how = if (a->path == s.path) => (f"{a->path} sets the global allocator, but was")
-                      else => f"{s.path} sets the global allocator, but {a->path} was"
+            var how = if (a->path == s->path) => (f"{a->path} sets the global allocator, but was")
+                      else => f"{s->path} sets the global allocator, but {a->path} was"
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,

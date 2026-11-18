@@ -205,10 +205,10 @@ pub class MuslProvider derives SysrootProvider {
         var archive = cxx::std::vector<string>()
         var crts    = cxx::std::vector<string>()
         for var i: usize = 0; i < objs.size(); ++i {
-            var o   = objs[i]
-            var crt = LinkText::starts_with(o.obj.copy(), "crt/")
-            var libc = LinkText::starts_with(o.obj.copy(), "src/")
-                || LinkText::starts_with(o.obj.copy(), "compat/")
+            var *o  = &objs[i]
+            var crt = LinkText::starts_with(o->obj.copy(), "crt/")
+            var libc = LinkText::starts_with(o->obj.copy(), "src/")
+                || LinkText::starts_with(o->obj.copy(), "compat/")
             if !crt && !libc {
                 continue
             }
@@ -216,11 +216,11 @@ pub class MuslProvider derives SysrootProvider {
             // libc objects are the Makefile's .lo (AOBJS = LOBJS); crt
             // objects stay .o.
             var ext  = if (crt) => (".o") else => ".lo"
-            var path = obj.copy() + "/" + o.obj + ext
+            var path = obj.copy() + "/" + o->obj + ext
             LinkFS::make_dirs(LinkFS::parent(path))
-            var argv = base
-            var stem = LinkFS::filename(o.obj)
-            if o.obj == "crt/Scrt1" || o.obj == "crt/rcrt1" {
+            var argv = LinkText::copy_list(base)
+            var stem = LinkFS::filename(o->obj)
+            if o->obj == "crt/Scrt1" || o->obj == "crt/rcrt1" {
                 argv.push_back("-fPIC")
             }
 
@@ -237,7 +237,7 @@ pub class MuslProvider derives SysrootProvider {
             argv.push_back("-c")
             argv.push_back("-o")
             argv.push_back(path.copy())
-            argv.push_back(src.copy() + "/" + o.src)
+            argv.push_back(src.copy() + "/" + o->src)
             if !jobs.add(&argv, f"{logs}/{i}.log") {
                 break
             }
@@ -481,7 +481,7 @@ pub class MuslProvider derives SysrootProvider {
         var out  = cxx::std::vector<MuslObj>()
         for var i: usize = 0; i < base_objs.size(); ++i {
             if !SysUtil::contains(&replaced, base_objs[i]) {
-                keys.push_back(base_objs[i])
+                keys.push_back(base_objs[i].copy())
             }
         }
 

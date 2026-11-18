@@ -239,8 +239,8 @@ pub class SysRun {
                     return false
                 }
 
-                rels.push_back(cols[0])
-                tgts.push_back(cols[1])
+                rels.push_back(cols[0].copy())
+                tgts.push_back(cols[1].copy())
             }
         }
 
@@ -395,7 +395,7 @@ pub class SysRun {
 
                 var next = SysUtil::split(tgts[hit], ('/' as u8))
                 for var i: usize = head + 1; i < parts.size(); ++i {
-                    next.push_back(parts[i])
+                    next.push_back(parts[i].copy())
                 }
 
                 parts = next

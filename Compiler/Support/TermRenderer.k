@@ -24,11 +24,7 @@ ffi "c++" import "vector"
 ffi "c++" import "string"
 
 import Support::Ascii::{
-    find,
-    is_digit,
-    is_ident_char,
-    is_ident_start,
-    trim,
+    ascii_byte, find, is_digit, is_ident_char, is_ident_start, trim, utf8_next,
 }
 import Support::EvalHash::compute_hash
 import Token::TokenKind::{
@@ -134,34 +130,34 @@ pub class TermRenderer {
                 }
 
                 // opening fence
-                var info = self.parse_fence(trimmed)
                 in_code_block   = true
-                code_block_info = info
+                code_block_info = self.parse_fence(trimmed)
 
                 // draw top border with lang/file
                 out += self.style(self.DIM.copy())
                 out += "  ┌"
 
                 var header = string()
-                if info.lang.size() > 0 {
-                    header += " " + info.lang + " "
+                if code_block_info.lang.size() > 0 {
+                    header += " " + code_block_info.lang + " "
                 }
 
-                if info.file.size() > 0 {
+                if code_block_info.file.size() > 0 {
                     if header.size() > 0 {
                         header += "· "
                     } else {
                         header += " "
                     }
 
-                    header += info.file + " "
+                    header += code_block_info.file
+                    header += " "
                 }
 
                 if header.size() > 0 {
                     out += "-"
-                    out += self.style(self.RESET + self.BOLD)
+                    out += self.style(self.RESET.copy() + self.BOLD)
                     out += header
-                    out += self.style(self.RESET + self.DIM)
+                    out += self.style(self.RESET.copy() + self.DIM)
                     var remaining = self._width - 3 - (header.size() as u32) - 2
                     for _ in (0 as u32) .. remaining {
                         out += "-"
@@ -217,7 +213,7 @@ pub class TermRenderer {
 
                 match heading_level {
                     case 1 {
-                        out += self.style(self.BOLD + self.UNDERLINE)
+                        out += self.style(self.BOLD.copy() + self.UNDERLINE)
                         out += heading_text
                         out += self.style(self.RESET.copy())
                     } case 2 {
@@ -225,7 +221,7 @@ pub class TermRenderer {
                         out += heading_text
                         out += self.style(self.RESET.copy())
                     } case 3 {
-                        out += self.style(self.BOLD + self.DIM)
+                        out += self.style(self.BOLD.copy() + self.DIM)
                         out += heading_text
                         out += self.style(self.RESET.copy())
                     } default {
@@ -482,9 +478,12 @@ pub class TermRenderer {
                 continue
             }
 
-            out.push_back(text[i])
-            col += 1
-            i += 1
+            // One character, all its bytes (a cut inside one traps); `col`
+            // counts bytes.
+            var e = utf8_next(text, i)
+            out += text[i..e]
+            col += (e - i) as u32
+            i = e
         }
 
         out += "\n"
@@ -504,6 +503,20 @@ pub class TermRenderer {
 
     priv fn is_word_char(self, c: u8) -> bool {
         return is_ident_char(c) || c == ('#' as u8)
+    }
+
+    // The same tests for a `char`, the string subscript of the other
+    // builtin library; a character past ASCII is in none.
+    priv fn is_upper(self, c: char) -> bool {
+        return self.is_upper(ascii_byte(c))
+    }
+
+    priv fn is_word_start(self, c: char) -> bool {
+        return self.is_word_start(ascii_byte(c))
+    }
+
+    priv fn is_word_char(self, c: char) -> bool {
+        return self.is_word_char(ascii_byte(c))
     }
 
     /// The kind `word` lexes as, or TkUnknown for a plain identifier. The
@@ -576,7 +589,7 @@ pub class TermRenderer {
 
             // whitespace - emit raw, preserves indentation
             if c == (' ' as u8) || c == ('\t' as u8) {
-                out.push_back(c)
+                out.push(c)
                 i += 1
                 continue
             }
@@ -755,9 +768,11 @@ pub class TermRenderer {
             }
 
 
-            // operators / punctuation - left neutral
-            out.push_back(c)
-            i += 1
+            // operators / punctuation - left neutral; one character, all
+            // its bytes
+            var e = utf8_next(line, i)
+            out += line[i..e]
+            i = e
         }
 
         return out

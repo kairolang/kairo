@@ -486,9 +486,9 @@ pub class COFFArgs {
                 )
             }
 
-            cxx_v = tc.manifest.libcxx_link
+            cxx_v = LinkText::copy_list(tc.manifest.libcxx_link)
             if !no_crt {
-                crt = tc.manifest.libc_link
+                crt = LinkText::copy_list(tc.manifest.libc_link)
             }
         } else {
             var s = COFFArgs::_lib(&tc, "libc++.lib")
@@ -536,7 +536,7 @@ pub class COFFArgs {
         }
 
         if tc.rtlib == "compiler-rt" && !tc.builtins.is_empty() {
-            argv.push_back(tc.builtins)
+            argv.push_back(tc.builtins.copy())
         }
 
         for *x in crt {

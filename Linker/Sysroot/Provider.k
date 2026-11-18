@@ -78,7 +78,7 @@ pub class StageCtx {
     /// "" when it lies in none.
     pub fn input_root(self, const path: string) -> string {
         var best = ""
-        for var d: string in self.inputs {
+        for d in self.inputs {
             if (path == d || LinkText::starts_with(path.copy(), d.copy() + "/"))
                 && d.size() > best.size() {
                 best = d.copy()

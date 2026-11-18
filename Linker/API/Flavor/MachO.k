@@ -115,10 +115,10 @@ pub class MachOArgs {
         argv.push_back(tc.darwin_arch.copy())
         argv.push_back("-platform_version")
         argv.push_back(tc.platform.copy())
-        argv.push_back(tc.min_version)
-        argv.push_back(tc.sdk_version)
+        argv.push_back(tc.min_version.copy())
+        argv.push_back(tc.sdk_version.copy())
         argv.push_back("-syslibroot")
-        argv.push_back(tc.sysroot)
+        argv.push_back(tc.sysroot.copy())
 
         // Only a dylib has an install name; on an executable ld64 would
         // accept and ignore it, so say so instead of looking like it worked.
@@ -134,7 +134,7 @@ pub class MachOArgs {
         if shared && !MachOArgs::_has_flag(&o->ld_flags, "-install_name") {
             argv.push_back("-install_name")
             if !o->install_name.is_empty() {
-                argv.push_back(o->install_name)
+                argv.push_back(o->install_name.copy())
             } else {
                 argv.push_back(f"@rpath/{LinkFS::filename(job.output)}")
             }
@@ -147,7 +147,7 @@ pub class MachOArgs {
         }
 
         argv.push_back("-o")
-        argv.push_back(job.output)
+        argv.push_back(job.output.copy())
 
         /// # search path, user's first
         /// The SDK's usr/lib comes from -syslibroot. A manifest sysroot may list
@@ -254,7 +254,7 @@ pub class MachOArgs {
 
         if !o->map_file.is_empty() {
             argv.push_back("-map")
-            argv.push_back(o->map_file)
+            argv.push_back(o->map_file.copy())
         }
 
         // --build-id none is not mapped to -no_uuid: dyld aborts a Mach-O with no
@@ -473,8 +473,8 @@ pub class MachOArgs {
                 )
             }
 
-            cxx_v = tc.manifest.libcxx_link
-            libc  = tc.manifest.libc_link
+            cxx_v = LinkText::copy_list(tc.manifest.libcxx_link)
+            libc  = LinkText::copy_list(tc.manifest.libc_link)
         }
 
         if cxx_v.empty() {
@@ -494,7 +494,7 @@ pub class MachOArgs {
         }
 
         if !tc.builtins.is_empty() {
-            argv.push_back(tc.builtins)
+            argv.push_back(tc.builtins.copy())
         }
     }
 

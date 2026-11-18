@@ -128,3 +128,16 @@ pub struct DiagMeta {
         return out
     }
 }
+
+extend DiagMeta {
+    pub fn copy(const self) -> DiagMeta {
+        return DiagMeta {
+            brief:    self.brief.copy(),
+            group:    self.group.copy(),
+            number:   self.number,
+            hash:     self.hash,
+            category: self.category,
+            severity: self.severity,
+        }
+    }
+}

@@ -340,7 +340,7 @@ pub class ELFArgs {
 
         if !o->linker_script.is_empty() {
             argv.push_back("-T")
-            argv.push_back(o->linker_script)
+            argv.push_back(o->linker_script.copy())
         }
 
         if !o->version_script.is_empty() {
@@ -359,7 +359,7 @@ pub class ELFArgs {
         // entry flag only names the ELF entry when there is no crt to do it.
         if no_crt && !shared && !o->no_entry && !o->entry.is_empty() {
             argv.push_back("-e")
-            argv.push_back(o->entry)
+            argv.push_back(o->entry.copy())
         }
 
         for *f in o->ld_flags {
@@ -423,11 +423,11 @@ pub class ELFArgs {
         }
 
         if !tc.toolchain_lib.is_empty() {
-            dirs.push_back(tc.toolchain_lib)
+            dirs.push_back(tc.toolchain_lib.copy())
         }
 
         if !tc.gcc_dir.is_empty() {
-            dirs.push_back(tc.gcc_dir)
+            dirs.push_back(tc.gcc_dir.copy())
         }
 
         for *d in tc.lib_dirs {
@@ -617,8 +617,8 @@ pub class ELFArgs {
                 )
             }
 
-            cxx_v = tc.manifest.libcxx_link
-            libc  = tc.manifest.libc_link
+            cxx_v = LinkText::copy_list(tc.manifest.libcxx_link)
+            libc  = LinkText::copy_list(tc.manifest.libc_link)
         } else if !tc.native_bundle.is_empty() {
             // --native: the bundled libc++ by path, never by -L (that dir's
             // libc would win over the host's), and the host's libc.
@@ -641,7 +641,7 @@ pub class ELFArgs {
         var rt = cxx::std::vector<string>()
         if tc.rtlib == "compiler-rt" {
             if !tc.builtins.is_empty() {
-                rt.push_back(tc.builtins)
+                rt.push_back(tc.builtins.copy())
             }
         } else {
             rt.push_back("-lgcc")

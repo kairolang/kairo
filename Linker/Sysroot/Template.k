@@ -96,7 +96,7 @@ pub class SysTemplate {
         }
 
         var tb = f"props.\x22{t->name}\x22"
-        for var k: string in self.index.keys_of(tb) {
+        for k in self.index.keys_of(tb) {
             var want = self.index.str(tb, k)
             if p->get(k) != want {
                 why = f"{t->name}: property {k} is {p->get(k)} here and {want} in {self.dir}/index.toml (the two property rules disagree)"
@@ -188,18 +188,18 @@ pub class SysTemplate {
         tt += f"family       = \x22{t->recipe}\x22\n"
         tt += f"arch         = \x22{t->arch}\x22\n"
         tt += f"clang_triple = \x22{t->clang_triple}\x22\n"
-        for var rt: TmplRuntime in rts {
-            if rt.entries.empty() {
+        for *rt in rts {
+            if rt->entries.empty() {
                 continue
             }
 
-            tt += f"{rt.name} = \x22{t->name}\x22\n"
+            tt += f"{rt->name} = \x22{t->name}\x22\n"
             if !SysTemplate::_write_runtime(
                 self.dir,
-                &rt,
+                rt,
                 &profs,
                 p,
-                f"{dst}/{rt.name}/{t->name}.toml",
+                f"{dst}/{rt->name}/{t->name}.toml",
                 &why,
             ) {
                 return false
@@ -384,7 +384,7 @@ pub class SysTemplate {
             var srcs = cxx::std::vector<string>()
             for var j: usize = i; j < rt->entries.size(); ++j {
                 if rt->langs[j] == rt->langs[i] && rt->pids[j] == rt->pids[i] {
-                    srcs.push_back(rt->entries[j])
+                    srcs.push_back(rt->entries[j].copy())
                 }
             }
 

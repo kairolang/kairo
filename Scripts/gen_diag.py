@@ -199,7 +199,7 @@ def gen_decls(diags, extra_uses=None, ffi_imports=()):
         "",
         "pub fn diag_meta(id: DiagID) -> DiagMeta;",
         "pub fn diag_explain(id: DiagID) -> string;",
-        "pub fn diag_from_string(code_str: string) -> DiagID;",
+        "pub fn diag_from_string(const code_str: string) -> DiagID;",
         "",
         "pub module Diag {",
     ]
@@ -264,12 +264,12 @@ def gen_full_registry(diags):
     # Constants from eval_hash.py, the Python copy every variant's value comes from.
     # Wrapping u64 arithmetic, as in EvalHash.k; an empty spelling is HASH_MAX there.
     lines += [
-        "pub fn diag_from_string(code_str: string) -> DiagID {",
-        "  const len: usize = code_str.length();",
+        "pub fn diag_from_string(const code_str: string) -> DiagID {",
+        "  const len: usize = code_str.size();",
         "  if len == 0 { return (0xFFFFFFFF as u32) as DiagID; }",
         f"  var h: u64 = {FNV_OFFSET_BASIS:#x};",
         "  for var i: usize = 0; i < len; ++i {",
-        "    h = h ^ ((code_str[i] as u8) as u64);",
+        "    h = h ^ (code_str.data()[i] as u64);",
         f"    h = h * {FNV_PRIME:#x};",
         "    h = h ^ (i as u64);",
         "  }",

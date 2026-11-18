@@ -87,6 +87,50 @@ pub inline fn is_illegal_ascii(c: u8) -> bool {
     return c == ('$' as u8) || c == ('`' as u8) || c == ('\\' as u8) || c == 0x7f
 }
 
+/// # The same classes for a `char`
+///
+/// A string subscript is a `u8` on one builtin library and a `char` on the
+/// other; each class takes both, so a call site reads the same on either.
+/// A character past ASCII is in no class, as a non-ASCII byte is not.
+
+/// `c` as its ASCII byte, or 0x80 (a byte in no class) when it is past ASCII.
+pub inline fn ascii_byte(c: char) -> u8 {
+    var v = c as u32
+    return if (v < 0x80) => (v as u8) else => 0x80
+}
+
+pub inline fn is_blank(c: char) -> bool {
+    return is_blank(ascii_byte(c))
+}
+
+pub inline fn is_control(c: char) -> bool {
+    return is_control(ascii_byte(c))
+}
+
+pub inline fn is_digit(c: char) -> bool {
+    return is_digit(ascii_byte(c))
+}
+
+pub inline fn is_ident_start(c: char) -> bool {
+    return is_ident_start(ascii_byte(c))
+}
+
+pub inline fn is_ident_char(c: char) -> bool {
+    return is_ident_char(ascii_byte(c))
+}
+
+pub inline fn is_hex_digit(c: char) -> bool {
+    return is_hex_digit(ascii_byte(c))
+}
+
+pub inline fn hex_value(c: char) -> u8 {
+    return hex_value(ascii_byte(c))
+}
+
+pub inline fn is_illegal_ascii(c: char) -> bool {
+    return is_illegal_ascii(ascii_byte(c))
+}
+
 /// # Text
 
 /// Byte offset of the first `needle` in `hay` at or after `from`;
@@ -111,6 +155,31 @@ pub fn find(const hay: string, const needle: string, from: usize) -> usize {
     }
 
     return usize::MAX
+}
+
+/// Byte offset of the last `c` in `s`; `s.size()` when there is none.
+pub fn rfind_byte(const s: string, c: u8) -> usize {
+    var i = s.size()
+    while i > 0 {
+        i -= 1
+        if s.data()[i] == c {
+            return i
+        }
+    }
+
+    return s.size()
+}
+
+/// The offset just past the UTF-8 sequence that starts at byte `i` of `s`:
+/// `i + 1` for an ASCII byte, past the continuation bytes for a lead byte.
+/// A cut at the result never splits a character.
+pub fn utf8_next(const s: string, i: usize) -> usize {
+    var e = i + 1
+    while e < s.size() && (s.data()[e] & 0xc0) == 0x80 {
+        e += 1
+    }
+
+    return e
 }
 
 /// The pieces of `s` between occurrences of `sep`, in order.

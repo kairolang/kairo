@@ -196,7 +196,7 @@ pub class LLDRunner {
         var flavor = LLDRunner::flavor_of(argv[0])
         var rest   = cxx::std::vector<string>()
         for var i: usize = 1; i < argv.size(); ++i {
-            rest.push_back(argv[i])
+            rest.push_back(argv[i].copy())
         }
 
         var out_path = LinkFS::temp_file("kld-out", "txt")

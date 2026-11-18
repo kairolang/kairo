@@ -75,6 +75,21 @@ pub struct SysTarget {
     pub var host_only:    bool   = false ///< darwin: built on a macOS host only
 }
 
+extend SysTarget {
+    pub fn copy(const self) -> SysTarget {
+        return SysTarget {
+            name:         self.name.copy(),
+            clang_triple: self.clang_triple.copy(),
+            arch:         self.arch.copy(),
+            family:       self.family.copy(),
+            recipe:       self.recipe.copy(),
+            provider:     self.provider.copy(),
+            libc_version: self.libc_version.copy(),
+            host_only:    self.host_only,
+        }
+    }
+}
+
 /// A target's properties, in SysNames::rule_props() order then the
 /// descriptive ones (threads, exceptions).
 pub class SysProps {
@@ -335,10 +350,10 @@ pub class SysNames {
         }
 
         var table = SysNames::all(glibc)
-        for var t: SysTarget in table {
-            if t.name == named
-                || t.family == "linux-gnu" && t.name == spelled.copy() + "-glibc" + glibc {
-                out = t
+        for *t in table {
+            if t->name == named
+                || t->family == "linux-gnu" && t->name == spelled.copy() + "-glibc" + glibc {
+                out = t->copy()
                 return true
             }
         }
@@ -346,12 +361,12 @@ pub class SysNames {
         var hits = cxx::std::vector<SysTarget>()
         for *t in table {
             if SysNames::same_target(spelled, t->clang_triple) {
-                hits.push_back(*t)
+                hits.push_back(t->copy())
             }
         }
 
         if hits.size() == 1 {
-            out = hits[0]
+            out = cxx::std::move(hits[0])
             return true
         }
 
@@ -360,12 +375,12 @@ pub class SysNames {
         if hits.empty() {
             for *t in table {
                 if LinkText::starts_with(t->name.copy(), input.copy() + "-") {
-                    hits.push_back(*t)
+                    hits.push_back(t->copy())
                 }
             }
 
             if hits.size() == 1 {
-                out = hits[0]
+                out = cxx::std::move(hits[0])
                 return true
             }
         }
@@ -385,7 +400,7 @@ pub class SysNames {
         }
 
         for *t in hits {
-            cands.push_back(t->name)
+            cands.push_back(t->name.copy())
         }
 
         var list = SysUtil::joined(&cands, ", ")

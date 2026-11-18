@@ -14,6 +14,17 @@
 ffi "c++" import "vector"
 
 pub class LinkText {
+    /// An owned copy of every string in `v`.
+    pub static fn copy_list(const v: cxx::std::vector<string>) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        out.reserve(v.size())
+        for *s in v {
+            out.push_back(s->copy())
+        }
+
+        return out
+    }
+
     /// `s` over [b, e), clamped. Empty when the range is.
     pub static fn slice(const s: string, b: usize, e: usize) -> string {
         var end = e

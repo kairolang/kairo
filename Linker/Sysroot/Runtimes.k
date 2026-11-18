@@ -617,7 +617,7 @@ pub class SysRuntimes {
                     var path   = SysRuntimes::_entry_path(*e)
                     var member = SysRuntimes::_entry_member(*e)
                     members.push_back(member.copy())
-                    var argv = base
+                    var argv = LinkText::copy_list(base)
                     for *f in fl {
                         argv.push_back(*f)
                     }

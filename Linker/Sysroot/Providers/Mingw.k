@@ -247,11 +247,11 @@ pub class MingwProvider derives SysrootProvider {
             )
         }
 
-        for var a: CrtArchive in t->archives {
-            var o = env->build.copy() + "/" + a.out
+        for *a in t->archives {
+            var o = env->build.copy() + "/" + a->out
             LinkFS::make_dirs(LinkFS::parent(o))
             LinkFS::remove(o)
-            if a.def.is_empty() {
+            if a->def.is_empty() {
                 continue
             }
 
@@ -264,12 +264,12 @@ pub class MingwProvider derives SysrootProvider {
             }
 
             args.push_back("-d")
-            args.push_back(SysCrt::expand(env, a.def))
+            args.push_back(SysCrt::expand(env, a->def))
             args.push_back("-l")
             args.push_back(o)
             if MingwProvider::dlltool(&args) != 0 {
                 return out.fail(
-                    f"dlltool -d {SysCrt::expand(env, a.def)} failed",
+                    f"dlltool -d {SysCrt::expand(env, a->def)} failed",
                     "",
                 )
             }

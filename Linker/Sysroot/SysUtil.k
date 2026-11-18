@@ -86,7 +86,7 @@ pub class SysUtil {
         cxx::std::sort(rels.begin(), rels.end())
 
         var stream = ""
-        for var r: string in rels {
+        for r in rels {
             var fh = SysUtil::sha256_file(LinkText::join(dir.copy(), r.copy()))
             if fh.is_empty() {
                 err = f"cannot read {LinkText::join(dir.copy(), r.copy())}"
@@ -137,21 +137,29 @@ pub class SysUtil {
 
     /// A JSON string literal.
     pub static fn json_str(const s: string) -> string {
-        var out = "\x22"
+        var out        = "\x22"
+        var run: usize = 0      ///< the first byte of `s` not yet in `out`
         for var i: usize = 0; i < s.size(); ++i {
-            var c = s.data()[i]
-            if c == ('\x22' as u8) || c == ('\\' as u8) {
-                out += "\\"
-                out.push_back(c)
+            var c   = s.data()[i]
+            var esc = ""
+            if c == ('\x22' as u8) {
+                esc = "\\\x22"
+            } else if c == ('\\' as u8) {
+                esc = "\\\\"
             } else if c == ('\n' as u8) {
-                out += "\\n"
+                esc = "\\n"
             } else if c == ('\t' as u8) {
-                out += "\\t"
+                esc = "\\t"
             } else {
-                out.push_back(c)
+                continue
             }
+
+            out += s[run..i]
+            out += esc
+            run = i + 1
         }
 
+        out += s[run..]
         out += "\x22"
         return out
     }
@@ -177,7 +185,7 @@ pub class SysUtil {
     pub static fn json_object(@inout fields: cxx::std::vector<SysJsonField>) -> string {
         var keys = cxx::std::vector<string>()
         for *f in fields {
-            keys.push_back(f->key)
+            keys.push_back(f->key.copy())
         }
 
         cxx::std::sort(keys.begin(), keys.end())
@@ -226,20 +234,23 @@ pub class SysUtil {
 
     /// Every `{name}` in `tmpl` replaced by `value`.
     pub static fn fill(const tmpl: string, const name: string, const value: string) -> string {
-        var pat       = "{" + name + "}"
-        var out       = ""
-        var i:  usize = 0
+        var pat        = "{" + name + "}"
+        var out        = ""
+        var i:   usize = 0
+        var run: usize = 0                ///< the first byte of `tmpl` not yet in `out`
         while i < tmpl.size() {
             if i + pat.size() <= tmpl.size() && LinkText::slice(tmpl, i, i + pat.size()) == pat {
+                out += tmpl[run..i]
                 out += value
                 i += pat.size()
+                run = i
                 continue
             }
 
-            out.push_back(tmpl[i])
             i += 1
         }
 
+        out += tmpl[run..]
         return out
     }
 

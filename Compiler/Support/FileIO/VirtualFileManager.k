@@ -154,10 +154,10 @@ pub class VirtualFileManager {
         /// constructs a new segment with provided metadata.
         fn Segment(self, fid: u32, const path: Path, offset: usize, size: usize) {
             self.fid         = fid
-            self.path        = path
+            self.path        = path.copy()
             self.offset      = offset
             self.size        = size
-            self.global_base = 0      // will be set by VirtualFileManager after creation
+            self.global_base = 0           // will be set by VirtualFileManager after creation
         }
 
         /// cleanup hook; ensures mapped region is closed if valid.

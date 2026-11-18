@@ -29,6 +29,7 @@ import Support::Ascii::{
     string_from_ref,
 }
 import Support::FileIO::FileSystem::FileType
+import std::c_char
 
 /// high-level abstraction over llvm::sys::path / llvm::sys::fs.
 ///
@@ -93,6 +94,11 @@ pub class Path {
     ///
     /// `abs` must already be absolute and generic-form (a
     /// Path::join off another Path is); it is stored as given.
+    /// A second Path naming the same entry, its cached type included.
+    pub fn copy(const self) -> Path {
+        return Path::from_known(self.path_data, self.entry_type)
+    }
+
     pub static fn from_known(const abs: string, t: FileType) -> Path {
         var p = Path()
         p.path_data  = abs.copy()
@@ -296,7 +302,7 @@ pub class Path {
             return false
         }
 
-        os.write(text.c_str(), text.size())
+        os.write(unsafe (text.data() as unsafe *const c_char), text.size())
         os.close()
         return !os.has_error()
     }

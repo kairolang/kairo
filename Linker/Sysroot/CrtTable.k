@@ -121,9 +121,9 @@ pub class SysCrtTable {
                 } else if key == "dlltool_machine" {
                     self.dlltool_machine = val.text.copy()
                 } else if key == "dlltool_flags" {
-                    self.dlltool_flags = val.list
+                    self.dlltool_flags = val.take_list()
                 } else if key == "empty" {
-                    self.empty = val.list
+                    self.empty = val.take_list()
                 }
             } else if tb == "files" || tb == "headers" || tb == "install" {
                 var pr = CrtPair{}
@@ -139,7 +139,7 @@ pub class SysCrtTable {
             } else if tb == "flags" {
                 var f = CrtFlags{}
                 f.lang = key.copy()
-                f.list = val.list
+                f.list = val.take_list()
                 self.flags.push_back(f)
             } else if LinkText::starts_with(tb.copy(), "group.") {
                 if fresh {
@@ -150,9 +150,9 @@ pub class SysCrtTable {
                 if key == "lang" {
                     g->lang = val.text.copy()
                 } else if key == "flags" {
-                    g->flags = val.list
+                    g->flags = val.take_list()
                 } else if key == "sources" {
-                    g->sources = val.list
+                    g->sources = val.take_list()
                 }
             } else if LinkText::starts_with(tb.copy(), "def.") {
                 if fresh {
@@ -165,7 +165,7 @@ pub class SysCrtTable {
                 } else if key == "out" {
                     d->out = val.text.copy()
                 } else if key == "flags" {
-                    d->flags = val.list
+                    d->flags = val.take_list()
                 } else if key == "strip_at" {
                     d->strip_at = val.flag
                 }
@@ -180,9 +180,9 @@ pub class SysCrtTable {
                 } else if key == "def" {
                     a->def = val.text.copy()
                 } else if key == "members" {
-                    a->members = val.list
+                    a->members = val.take_list()
                 } else if key == "addlib" {
-                    a->addlib = val.list
+                    a->addlib = val.take_list()
                 }
             } else if LinkText::starts_with(tb.copy(), "link.") {
                 if fresh {
@@ -193,9 +193,9 @@ pub class SysCrtTable {
                 if key == "out" {
                     l->out = val.text.copy()
                 } else if key == "ld" {
-                    l->ld = val.list
+                    l->ld = val.take_list()
                 } else if key == "members" {
-                    l->members = val.list
+                    l->members = val.take_list()
                 }
             }
         }
@@ -268,7 +268,7 @@ pub class SysCrt {
             var o = env->build.copy() + "/" + d->out
             LinkFS::make_dirs(LinkFS::parent(o))
             // -o, not stdout: a job's stdout is its log.
-            var argv = base
+            var argv = LinkText::copy_list(base)
             argv.push_back("-E")
             argv.push_back("-P")
             argv.push_back("-x")
@@ -315,7 +315,7 @@ pub class SysCrt {
                 )
 
                 LinkFS::make_dirs(LinkFS::parent(o))
-                var argv = base
+                var argv = LinkText::copy_list(base)
                 for *f in fl {
                     argv.push_back(*f)
                 }

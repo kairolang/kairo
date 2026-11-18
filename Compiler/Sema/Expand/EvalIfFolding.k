@@ -398,6 +398,12 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         return self._mode == FoldMode::LateFinal
     }
 
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn EvalIfFolding(self, const other: Self) = delete
+    @move fn EvalIfFolding(self, other: Self) = delete
+
     fn EvalIfFolding(self, sc: unsafe *SemaContext) {
         self.sc  = sc
         self.ctx = sc->ctx

@@ -242,6 +242,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     priv var _buckets:      usize = 0
     priv var _qi:           usize = 0 ///< next queued node to emit.
 
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn MatchLowering(self, const other: Self) = delete
+    @move fn MatchLowering(self, other: Self) = delete
+
     fn MatchLowering(self, sc: unsafe *SemaContext) {
         self.sc     = sc
         self.ctx    = sc->ctx

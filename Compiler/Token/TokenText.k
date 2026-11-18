@@ -365,7 +365,7 @@ pub class TokenText {
             return sm->get_text(tok.range)
         }
 
-        return *TokenText::resolve(tok, tcm).get_text()
+        return (*TokenText::resolve(tok, tcm).get_text()).copy()
     }
 
     /// raw source slice for a RANGE (not a token).

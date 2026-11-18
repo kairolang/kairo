@@ -92,6 +92,28 @@ pub class Sgr {
         self.macro_  = "\x1b[38;5;177m"   // purple macros
         self.err     = "\x1b[1;38;5;203m" // red    errors
     }
+
+    pub fn copy(const self) -> Sgr {
+        var o = Sgr()
+        o.reset   = self.reset.copy()
+        o.dim     = self.dim.copy()
+        o.bold    = self.bold.copy()
+        o.gutter  = self.gutter.copy()
+        o.kind    = self.kind.copy()
+        o.text    = self.text.copy()
+        o.range   = self.range.copy()
+        o.field   = self.field.copy()
+        o.fvalue  = self.fvalue.copy()
+        o.kw      = self.kw.copy()
+        o.opr     = self.opr.copy()
+        o.lit     = self.lit.copy()
+        o.ty      = self.ty.copy()
+        o.ident   = self.ident.copy()
+        o.comment = self.comment.copy()
+        o.macro_  = self.macro_.copy()
+        o.err     = self.err.copy()
+        return o
+    }
 }
 
 pub class TokenPrinter {
@@ -142,15 +164,15 @@ pub class TokenPrinter {
 
     /// prints the whole stream with a header.
     pub fn print_stream(self, tokens: unsafe *(TokenBuffer<512>), const path: string) {
-        var s = self._sgr
+        var *s = &self._sgr
 
         var header: string
-        header += s.bold
+        header += s->bold
         header += f"-- token stream: {path} "
-        header += s.reset
-        header += s.field
+        header += s->reset
+        header += s->field
         header += f"({tokens->size()} tokens) --"
-        header += s.reset
+        header += s->reset
         io::println(f"{header}")
 
         for var i: usize = 0; i < tokens->size(); ++i {
@@ -168,7 +190,7 @@ pub class TokenPrinter {
     /// ### Parameters
     /// - `depth`: 0 = top-level file token, >0 = inside an f-string hole.
     priv fn _print_token_at(self, idx: usize, tok: unsafe *Token, depth: usize) {
-        var s   = self._sgr
+        var *s  = &self._sgr
         var pad = self._indent(depth)
 
         /// # resolve display kind / imm / range, unwrapping macro expansion
@@ -192,23 +214,23 @@ pub class TokenPrinter {
         /// # gutter: [N]
         var line: string
         line += pad
-        line += s.gutter
+        line += s->gutter
         line += f"[{idx}]"
-        line += s.reset
+        line += s->reset
         line += " "
 
         /// # error token: imm is the *expected* TokenKind, not an imm index.
         if tok->kind == TokenKind::TkError {
-            line += s.err
+            line += s->err
             line += "error"
-            line += s.reset
+            line += s->reset
             line += " "
-            line += s.field
+            line += s->field
             line += "expected "
-            line += s.reset
-            line += s.err
+            line += s->reset
+            line += s->err
             line += f"`{token_kind_to_readable_string((tok->imm as TokenKind))}`"
-            line += s.reset
+            line += s->reset
             line += " "
             line += self._fmt_range(tok->range)
             io::println(f"{line}")
@@ -218,13 +240,13 @@ pub class TokenPrinter {
         /// # macro sentinel: imm >= Threshold means a builtin marker, no table
         if tok->kind == TokenKind::TkMacroExpand && tok->imm >= (MacroSentinel::Threshold as u32) {
             var sentinel = sentinel_text(tok->imm)
-            line += s.macro_
+            line += s->macro_
             line += "macro-sentinel"
-            line += s.reset
+            line += s->reset
             line += " "
-            line += s.macro_
+            line += s->macro_
             line += f"{sentinel}"
-            line += s.reset
+            line += s->reset
             line += " "
             line += self._fmt_range(tok->range)
             io::println(f"{line}")
@@ -236,19 +258,19 @@ pub class TokenPrinter {
 
         line += kind_color
         line += f"{token_kind_to_readable_string(kind)}"
-        line += s.reset
+        line += s->reset
 
         if is_macro {
             line += " "
-            line += s.macro_
+            line += s->macro_
             line += "(macro)"
-            line += s.reset
+            line += s->reset
         }
 
         line += " "
         line += kind_color
         line += f"'{(*TokenText::resolve(*tok, self._tcm).get_text())}'"
-        line += s.reset
+        line += s->reset
         line += " "
         line += self._fmt_range(tok->range)
         io::println(f"{line}")
@@ -261,68 +283,68 @@ pub class TokenPrinter {
             var sub: string
             sub += self._indent(depth)
             sub += "      "
-            sub += s.field
+            sub += s->field
             sub += "expanded-at: "
-            sub += s.reset
-            sub += s.fvalue
+            sub += s->reset
+            sub += s->fvalue
             sub += f"{tok->range}"
-            sub += s.reset
+            sub += s->reset
             io::println(f"{sub}")
         }
     }
 
     /// renders "@ [start, end)" in range color.
     priv fn _fmt_range(self, range: SourceRange) -> string {
-        var s           = self._sgr
+        var *s          = &self._sgr
         var out: string
-        out += s.range
+        out += s->range
         out += f"@ {range}"
-        out += s.reset
+        out += s->reset
         return out
     }
 
     /// picks a color from the token's class using Token::Type predicates,
     /// so colors stay correct as new kinds are added.
     priv fn _color_for_kind(self, kind: TokenKind) -> string {
-        var s = self._sgr
+        var *s = &self._sgr
 
         if kind == TokenKind::AtComment {
-            return s.comment.copy()
+            return s->comment.copy()
         }
 
         if kind == TokenKind::LitIdentifier {
-            return s.ident.copy()
+            return s->ident.copy()
         }
 
         if kind == TokenKind::TkWhitespace {
-            return s.range.copy()
+            return s->range.copy()
         }
 
         if is_keyword(kind) {
-            return s.kw.copy()
+            return s->kw.copy()
         }
 
         if is_literal(kind) {
-            return s.lit.copy()
+            return s->lit.copy()
         }
 
         if is_builtin(kind) {
-            return s.ty.copy()
+            return s->ty.copy()
         }
 
         if is_annotation(kind) { // primitive types are annotations
-            return s.ty.copy()
+            return s->ty.copy()
         }
 
         if is_operator(kind) {
-            return s.opr.copy()
+            return s->opr.copy()
         }
 
         if is_punctuator(kind) {
-            return s.opr.copy()
+            return s->opr.copy()
         }
 
-        return s.kind.copy() // fallback
+        return s->kind.copy() // fallback
     }
 
     // sentinel display text comes from Token::TokenText::sentinel_text
@@ -355,21 +377,21 @@ pub class TokenPrinter {
 
     /// begins a detail line: indent + "`- " connector + label.
     priv fn _field_line(self, const label: string, depth: usize) -> string {
-        var s   = self._sgr
+        var *s  = &self._sgr
         var out = self._indent(depth)
         out += "      "
-        out += s.range
+        out += s->range
         out += "`- "
-        out += s.reset
-        out += s.field
+        out += s->reset
+        out += s->field
         out += label
-        out += s.reset
+        out += s->reset
         return out
     }
 
     priv fn _print_int_detail(self, imm: u32, tbl: unsafe *ImmediateTable, depth: usize) {
         var unsafe *d = tbl->get<Immediate::IntData>(imm)
-        var        s  = self._sgr
+        var        *s = &self._sgr
 
         var is_unsigned = (d->flags & 0b00000001) != 0
         var is_negative = (d->flags & 0b00000010) != 0
@@ -381,27 +403,27 @@ pub class TokenPrinter {
         var line: string
         line += self._field_line("int", depth)
         line += " "
-        line += s.fvalue
+        line += s->fvalue
 
         if is_big {
             // value lives in ImmBigInt; lo/hi are a truncated convenience copy.
             line += f"big {sign}{d->bits}"
-            line += s.reset
-            line += s.field
+            line += s->reset
+            line += s->field
             line += f" (lo=0x{to_hex_string(((d->value_lo) as usize))} hi=0x{to_hex_string(((d->value_hi) as usize))}, truncated)"
-            line += s.reset
+            line += s->reset
         } else if d->value_hi != 0 {
             line += f"{sign}{d->bits} = 0x{to_hex_string(((d->value_hi) as usize))}:{to_hex_string(((d->value_lo) as usize))}"
-            line += s.reset
+            line += s->reset
         } else {
             line += f"{sign}{d->bits} = {d->value_lo}"
-            line += s.reset
-            line += s.field
+            line += s->reset
+            line += s->field
             line += f" (0x{to_hex_string(((d->value_lo) as usize))})"
-            line += s.reset
+            line += s->reset
         }
 
-        line += s.field
+        line += s->field
         line += f"  base={(d->base) as u64}"
         if has_prefix {
             line += f" prefix='{self._sm->get_text(d->prefix)}'"
@@ -415,13 +437,13 @@ pub class TokenPrinter {
             line += " neg"
         }
 
-        line += s.reset
+        line += s->reset
         io::println(f"{line}")
     }
 
     priv fn _print_float_detail(self, imm: u32, tbl: unsafe *ImmediateTable, depth: usize) {
         var unsafe *d = tbl->get<Immediate::FloatData>(imm)
-        var        s  = self._sgr
+        var        *s = &self._sgr
 
         var has_exponent = (d->flags & 0b00000001) != 0
         var is_negative  = (d->flags & 0b00000010) != 0
@@ -432,11 +454,11 @@ pub class TokenPrinter {
         var line: string
         line += self._field_line("float", depth)
         line += " "
-        line += s.fvalue
+        line += s->fvalue
         line += f"f{d->bits} = {d->value_ieee as f64}"
-        line += s.reset
+        line += s->reset
 
-        line += s.field
+        line += s->field
         line += f"  base={(d->base) as u64}"
         if has_exponent {
             line += " exp"
@@ -458,13 +480,13 @@ pub class TokenPrinter {
             line += f" suffix='{self._sm->get_text(d->suffix)}'"
         }
 
-        line += s.reset
+        line += s->reset
         io::println(f"{line}")
     }
 
     priv fn _print_string_detail(self, imm: u32, tbl: unsafe *ImmediateTable, depth: usize) {
         var unsafe *d = tbl->get<Immediate::StringData>(imm)
-        var        s  = self._sgr
+        var        *s = &self._sgr
 
         var body_text = tbl->string_text(imm, self._sm)            // owned bytes when synthesized
         var kind_str  = self._text_prefix_kind_str(d->prefix_kind)
@@ -472,17 +494,17 @@ pub class TokenPrinter {
         var line: string
         line += self._field_line("string", depth)
         line += " "
-        line += s.fvalue
+        line += s->fvalue
         line += f"\"{body_text}\" "
-        line += s.reset
+        line += s->reset
 
-        line += s.field
+        line += s->field
         line += f"  kind={kind_str} interp-exprs={d->exprs.size()}"
         if d->next != u32::MAX {
             line += f" next={d->next}"
         }
 
-        line += s.reset
+        line += s->reset
         io::println(f"{line}")
 
         self._print_interp_exprs(&d->exprs, depth)
@@ -490,7 +512,7 @@ pub class TokenPrinter {
 
     priv fn _print_char_detail(self, imm: u32, tbl: unsafe *ImmediateTable, depth: usize) {
         var unsafe *d = tbl->get<Immediate::CharData>(imm)
-        var        s  = self._sgr
+        var        *s = &self._sgr
 
         var body_text = self._sm->get_text(d->body)
         var kind_str  = self._text_prefix_kind_str(d->prefix_kind)
@@ -498,13 +520,13 @@ pub class TokenPrinter {
         var line: string
         line += self._field_line("char", depth)
         line += " "
-        line += s.fvalue
+        line += s->fvalue
         line += f"'{body_text}'"
-        line += s.reset
+        line += s->reset
 
-        line += s.field
+        line += s->field
         line += f"  kind={kind_str} interp-exprs={d->exprs.size()}"
-        line += s.reset
+        line += s->reset
         io::println(f"{line}")
 
         self._print_interp_exprs(&d->exprs, depth)
@@ -517,7 +539,7 @@ pub class TokenPrinter {
         @inout exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4>,
         depth:        usize,
     ) {
-        var s = self._sgr
+        var *s = &self._sgr
 
         for var e: usize = 0; e < exprs.size(); ++e {
             var unsafe *buf       = exprs[e].0

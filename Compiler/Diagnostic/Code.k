@@ -50,8 +50,17 @@ pub class DiagCode {
     /// Constructs from pre-resolved `DiagMeta`. The `DiagID` is recovered
     /// from `meta.hash`.
     fn DiagCode(self, const _meta: DiagMeta) {
-        self._meta = _meta
+        self._meta = _meta.copy()
         self._id   = (_meta.hash as DiagID)
+    }
+
+    /// A second handle to the same code. A reader takes `const DiagCode`
+    /// instead; this is for a field or a container that keeps its own.
+    pub fn copy(const self) -> DiagCode {
+        var o = DiagCode()
+        o._meta = self._meta.copy()
+        o._id   = self._id
+        return o
     }
 
     /// # Accessors
@@ -182,7 +191,7 @@ pub fn diag_from_code(const text: string) -> DiagID {
             pad = pad + "0"
         }
 
-        var cand = diag_from_string(prefix + pad + digits + sev)
+        var cand = diag_from_string(prefix.copy() + pad + digits + sev)
         if !diag_explain(cand).is_empty() {
             return cand
         }
