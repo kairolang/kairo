@@ -448,6 +448,7 @@ pub class Server {
             self.session = Session::Running
             self.say(MSG_INFO, "kals started in " + self.root)
             self.load_project()
+            self.sweep_bridge_temps_()
             self.br_rescan = true
             // The clangd bridge needs to hear of C/C++ sources too, and a
             // client watches only what its own configuration lists (Kairo

@@ -1051,6 +1051,7 @@ pub class CompilerInstance {
         {
             var _t = TimeRegion("ImportIndex")
             var rb = *ImportResolver::Builder().cwd(cwd)
+            rb.sm(self.sm())
             for *dir in self.invocation()->include_dirs {
                 self._add_root(&rb, (*dir))
             }

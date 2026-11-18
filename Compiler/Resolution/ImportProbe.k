@@ -37,6 +37,7 @@ ffi "c++" import "set"
 ffi "c++" import "algorithm"
 ffi "c++" import "string"
 
+import Location::SourceManager::SourceManager
 import Resolution::DirEntry::DirEntry
 import Resolution::FileExtensions::{
     FileCategory,
@@ -44,7 +45,7 @@ import Resolution::FileExtensions::{
 }
 import Resolution::SearchRoot::{
     SearchRoot,
-    read_module_pin,
+    read_module_pin_in,
     root_name_matches,
     root_names_equal,
     split_module_name,
@@ -197,6 +198,16 @@ pub class ImportResolver {
     /// module.k is read at most once per build.
     priv var _dir_pins: llvm::StringMap<cxx::std::vector<string>>
 
+    /// The source manager that holds a language server's unsaved buffers, or
+    /// null: a module.k's pin is read from its buffer there, not from the
+    /// disk (SearchRoot.k read_module_pin_in).
+    priv var _sm: unsafe *SourceManager = &null
+
+    /// Every module.k whose pin was read (the file's name, as probed): what
+    /// a tool that re-checks after an edit must treat as a dependency of the
+    /// result, since a changed pin renames a library.
+    priv var _pin_files: cxx::std::vector<string>
+
     /// Module identity -> the REAL path of the file that holds it, and the
     /// pairs already reported (ModuleIdentityCollision). Written by every
     /// resolution and by the driver for each input (claim_identity).
@@ -257,6 +268,7 @@ pub class ImportResolver {
     pub class Builder {
         priv var _cwd:      Path?
         priv var _includes: cxx::std::vector<ImportResolver::IncludeDir>
+        priv var _sm:       unsafe *SourceManager                        = &null
 
         /// default constructor; initializes all fields to null/empty
         pub fn Builder(self) {
@@ -273,6 +285,13 @@ pub class ImportResolver {
         /// pointer to self for chaining
         pub fn cwd(self, const path: Path) -> unsafe *Self {
             self._cwd = path
+            return unsafe &self
+        }
+
+        /// names the source manager whose unsaved buffers a module.k's pin
+        /// is read from before the disk
+        pub fn sm(self, sm: unsafe *SourceManager) -> unsafe *Self {
+            self._sm = sm
             return unsafe &self
         }
 
@@ -327,6 +346,7 @@ pub class ImportResolver {
         pub fn create_ptr(self, pool: unsafe *ThreadPool = &null) -> unsafe *ImportResolver {
             var        cwd_path  = self._cwd ?? Path::cwd()
             var unsafe *resolver = kairo::std::create<ImportResolver>()
+            resolver->_sm = self._sm
             resolver->build_index(cwd_path, self._includes)
             return resolver
         }
@@ -603,7 +623,8 @@ pub class ImportResolver {
         var pin   = cxx::std::vector<string>()
         var mod_k = Path::join_str(dir, "module.k")
         if Path::exists_at(mod_k) {
-            pin = read_module_pin(mod_k.copy())
+            pin = read_module_pin_in(self._sm, mod_k.copy())
+            self._pin_files.push_back(mod_k.copy())
         }
 
         self._dir_pins[kairo::sref(dir)] = pin
@@ -1331,6 +1352,26 @@ pub class ImportResolver {
         var out  = self._collisions
         self._collisions.clear()
         return out
+    }
+
+    /// The module.k files whose pins this resolver has read.
+    pub fn pin_files(self) -> cxx::std::vector<string> {
+        var lock = kairo::std::LockGuard(self._mu)
+        return self._pin_files
+    }
+
+    /// Whether `path` is a module.k whose pin this resolver has read, by
+    /// either spelling of it (as probed, or its real path).
+    pub fn reads_pin_of(self, const path: string) -> bool {
+        var lock = kairo::std::LockGuard(self._mu)
+        var real = self._real(path)
+        for var i: usize = 0; i < self._pin_files.size(); ++i {
+            if self._pin_files[i] == path || self._real(self._pin_files[i]) == real {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// drains duplicate-root-name findings from build_index.

@@ -361,6 +361,17 @@ pub class SourceManager {
         self._vfile_mgr->stage_overlay(real_path, data, size)
     }
 
+    /// The bytes of the unsaved buffer standing for `real_path`, when there
+    /// is one (VirtualFileManager::overlay_bytes). Readers that would
+    /// otherwise open the file by name (a module.k's pin) ask here first.
+    pub fn overlay_bytes(self,
+                         const real_path: Path,
+                         @inout data:     kairo::std::ConstPtr<u8>,
+                         @inout size:     usize) -> bool {
+        var lock = kairo::std::LockGuard(self._load_mu)
+        return self._vfile_mgr->overlay_bytes(real_path, &data, &size)
+    }
+
     /// drops one fid's loaded file: the SourceFile and its buffer view.
     ///
     /// Reset IN PLACE, never erased   `_files` is indexed by fid, so

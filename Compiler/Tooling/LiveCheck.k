@@ -229,7 +229,10 @@ pub class LiveCheck {
         if self.in_place {
             why = "no live check"
             if self._ci != &null && self._action != &null {
-                if self.two_tier {
+                if self._ci->imp()->reads_pin_of(path) {
+                    // The import index named libraries by the old pin.
+                    why = "a library's pin changed"
+                } else if self.two_tier {
                     why = self._tier_begin(path)
                     // What one refresh decides at its end is about the
                     // whole result once every importer is re-checked (an
@@ -1321,6 +1324,19 @@ pub class LiveCheck {
             out.push_back(self._ci->sm()->get_filename(f))
         }
 
+        // The module.k files read for a library's name are inputs of the
+        // result too, though no file of the graph is one of them.
+        for var f: string in self._ci->imp()->pin_files() {
+            var held = false
+            for var g: string in out {
+                held = held || g == f
+            }
+
+            if !held {
+                out.push_back(f.copy())
+            }
+        }
+
         return out
     }
 
@@ -1473,26 +1489,12 @@ pub class LiveCheck {
             return false
         }
 
-        self._ci->initialize(Path::cwd())
-        var inputs = self._ci->invocation()->input_files
-        if inputs.empty() {
-            return false
-        }
-
-        // What the instance reported while it was set up (a note about the
-        // toolchain) is before the per-file list and is printed before it.
-        self._pre = self._ci->incr_diag_count()
-        self._fd  = kairo::std::create<FileDiagConsumer>()
-        self._ci->diag()->add_consumer(self._fd)
-        self._ci->invocation()->frontend.file_diags = unsafe (self._fd as unsafe *void)
-        if !self.dump_interface.is_empty() {
-            self._ci->invocation()->frontend.dump_interface = self.dump_interface.copy()
-        }
-
         // The source manager keeps a VIEW of an overlay's bytes: they are
         // this object's, one heap string each, and are not touched while
         // the instance views them. The old instance is gone, so every
-        // staged text is the current one from here.
+        // staged text is the current one from here. Staged before the
+        // instance is initialized: the import index reads a module.k's pin
+        // from the buffer staged for it.
         for var i: usize = 0; i < self._ov.size(); ++i {
             if self._ov[i].next != &null || self._ov[i].gone || self._ov[i].disk {
                 if self._ov[i].cur != &null {
@@ -1515,6 +1517,22 @@ pub class LiveCheck {
                 bytes,
                 self._ov[i].cur->size(),
             )
+        }
+
+        self._ci->initialize(Path::cwd())
+        var inputs = self._ci->invocation()->input_files
+        if inputs.empty() {
+            return false
+        }
+
+        // What the instance reported while it was set up (a note about the
+        // toolchain) is before the per-file list and is printed before it.
+        self._pre = self._ci->incr_diag_count()
+        self._fd  = kairo::std::create<FileDiagConsumer>()
+        self._ci->diag()->add_consumer(self._fd)
+        self._ci->invocation()->frontend.file_diags = unsafe (self._fd as unsafe *void)
+        if !self.dump_interface.is_empty() {
+            self._ci->invocation()->frontend.dump_interface = self.dump_interface.copy()
         }
 
         self._ci->invocation()->frontend.sema_observer = self.observer

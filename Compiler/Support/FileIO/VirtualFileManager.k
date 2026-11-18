@@ -440,6 +440,33 @@ pub class VirtualFileManager {
         self._staged_size.push_back(size as u64)
     }
 
+    /// The bytes of an unsaved buffer standing for `path`: its caller-owned
+    /// segment once loaded (the text the compile reads), else the buffer
+    /// staged for it (stage_overlay). False when `path` has neither: the
+    /// disk's bytes are the file.
+    pub fn overlay_bytes(self,
+                         const path:  Path,
+                         @inout data: kairo::std::ConstPtr<u8>,
+                         @inout size: usize) -> bool {
+        var abs_full = Path(path.full_path()).full_path()
+        var hit      = self._by_path.find(kairo::sref(abs_full))
+        if hit != self._by_path.end() && self.is_virtual(hit->second) {
+            var mem = self._segments[hit->second]->buffer.bytes()
+            data = mem.data()
+            size = mem.size()
+            return true
+        }
+
+        var ov = self._staged.find(kairo::sref(abs_full))
+        if ov == self._staged.end() {
+            return false
+        }
+
+        data = self._staged_data[ov->second as usize]
+        size = self._staged_size[ov->second as usize] as usize
+        return true
+    }
+
     /// Address space to hold for a file of `total` bytes.
     ///
     /// 1.5x plus a 64KB floor, page-aligned. Slack is what makes an in-place

@@ -167,22 +167,31 @@ pub fn is_leftover_temp(const name: string) -> bool {
         || find(name, ".copy-", 0) != usize::MAX
 }
 
-/// Removes every entry directly in `dir` that is_leftover_temp names and
-/// that was last modified more than `max_age_ns` ago: a file, or a
-/// directory with everything under it. An entry that cannot be stat'd is
-/// kept. Returns how many were removed.
-pub fn sweep_leftover_temps(const dir: string, max_age_ns: u64) -> usize {
-    var now                           = now_ns()
-    var removed: usize                = 0
-    var ec:      cxx::std::error_code
+/// True when `name` is a temporary of a publish of the file `base`:
+/// `<base>.tmp-<pid>-<n>.tmp` (temp_path_for).
+pub fn is_temp_of(const name: string, const base: string) -> bool {
+    return name.starts_with(base + ".tmp-") && name.ends_with(".tmp")
+}
+
+/// Adds to `doomed` every entry of `dir` that `base` selects (is_temp_of
+/// `base`, or is_leftover_temp when `base` is empty) and that was last
+/// modified more than `max_age_ns` before `now`; with `deep`, the
+/// subdirectories are walked too. An entry that cannot be stat'd is kept.
+fn collect_stale_(const dir:  string,
+                  const base: string,
+                  deep:       bool,
+                  now:        u64,
+                  max_age_ns: u64,
+                  doomed:     *[string]) {
+    var ec: cxx::std::error_code
     var it = llvm::sys::fs::directory_iterator(
         llvm::Twine(kairo::sref(dir)),
         &ec,
         true,
     )
 
-    var end              = llvm::sys::fs::directory_iterator()
-    var doomed: [string]
+    var end            = llvm::sys::fs::directory_iterator()
+    var subs: [string]
     while ec.value() == 0 && it != end {
         var raw = it->path()
         var p = string(
@@ -191,7 +200,13 @@ pub fn sweep_leftover_temps(const dir: string, max_age_ns: u64) -> usize {
         )
 
         it.increment(&ec)
-        if !is_leftover_temp(Path::filename_of(p)) {
+        var name = Path::filename_of(p)
+        var hit = if base.is_empty() => is_leftover_temp(name) else => is_temp_of(name, base)
+        if !hit {
+            if deep && llvm::sys::fs::is_directory(llvm::Twine(kairo::sref(p))) {
+                subs.push(p.copy())
+            }
+
             continue
         }
 
@@ -202,12 +217,22 @@ pub fn sweep_leftover_temps(const dir: string, max_age_ns: u64) -> usize {
         }
 
         if now > mtime && now - mtime > max_age_ns {
-            doomed.push(p.copy())
+            doomed->push(p.copy())
         }
     }
 
+    for var q: usize = 0; q < subs.size(); ++q {
+        collect_stale_(subs[q], base, deep, now, max_age_ns, doomed)
+    }
+}
+
+/// Removes what collect_stale_ names; returns how many.
+fn remove_stale_(const dir: string, const base: string, deep: bool, max_age_ns: u64) -> usize {
+    var doomed: [string]
     // Removed after the walk: the iterator must not see its directory change
     // under it.
+    collect_stale_(dir, base, deep, now_ns(), max_age_ns, &doomed)
+    var removed: usize = 0
     for var p: string in doomed {
         if llvm::sys::fs::is_directory(llvm::Twine(kairo::sref(p))) {
             Path::remove_tree(p)
@@ -219,6 +244,27 @@ pub fn sweep_leftover_temps(const dir: string, max_age_ns: u64) -> usize {
     }
 
     return removed
+}
+
+/// Removes every entry directly in `dir` that is_leftover_temp names and
+/// that was last modified more than `max_age_ns` ago: a file, or a
+/// directory with everything under it. An entry that cannot be stat'd is
+/// kept. Returns how many were removed.
+pub fn sweep_leftover_temps(const dir: string, max_age_ns: u64) -> usize {
+    return remove_stale_(dir, "", false, max_age_ns)
+}
+
+/// As sweep_leftover_temps, over `dir` and every directory under it: for
+/// a tree only the publisher writes into.
+pub fn sweep_leftover_temps_tree(const dir: string, max_age_ns: u64) -> usize {
+    return remove_stale_(dir, "", true, max_age_ns)
+}
+
+/// Removes the temporaries of publishes of the file `base` (is_temp_of)
+/// directly in `dir` that are older than `max_age_ns`, and nothing else: for
+/// a directory other files live in. Returns how many were removed.
+pub fn sweep_temps_of(const dir: string, const base: string, max_age_ns: u64) -> usize {
+    return remove_stale_(dir, base, false, max_age_ns)
 }
 
 /// Creates the file `path` only if nothing is there, in one step: llvm's

@@ -14,6 +14,7 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import Location::SourceManager::SourceManager
 import Memory::MappedFileBuffer::MappedFileBuffer
 import Resolution::DirEntry::DirEntry
 import Resolution::FileExtensions::FileExtensions
@@ -344,8 +345,36 @@ pub fn read_module_pin(file: string) -> cxx::std::vector<string> {
     }
 
     var mem = buf.bytes()
-    var sc  = ModulePinScanner{}
-    sc.d = mem.data()
-    sc.n = mem.size()
+    return read_module_pin_bytes(mem.data(), mem.size())
+}
+
+/// The library name pinned by the first declaration of the text
+/// `data[0..size]`, or empty: read_module_pin's scan over bytes already in
+/// memory.
+pub fn read_module_pin_bytes(data: kairo::std::ConstPtr<u8>,
+                             size: usize) -> cxx::std::vector<string> {
+    var sc = ModulePinScanner{}
+    sc.d = data
+    sc.n = size
     return sc.scan()
+}
+
+/// read_module_pin of `file`, from the unsaved buffer `sm` holds for it
+/// when it holds one (a language server's open document), else from the
+/// disk. `sm` may be null.
+pub fn read_module_pin_in(sm: unsafe *SourceManager, file: string) -> cxx::std::vector<string> {
+    if sm != &null {
+        var data: kairo::std::ConstPtr<u8> = &null
+        var size: usize                    = 0
+        if sm->overlay_bytes(Path(file), &data, &size) {
+            return read_module_pin_bytes(data, size)
+        }
+
+        var real = Path::real_path_of(file.copy())
+        if real != file && sm->overlay_bytes(Path(real), &data, &size) {
+            return read_module_pin_bytes(data, size)
+        }
+    }
+
+    return read_module_pin(file.copy())
 }

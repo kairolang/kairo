@@ -73,7 +73,7 @@ import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerNative
 import Interop::Clang::ClangBackend::ClangBackendConfig
 import Resolution::SearchRoot::{
-    read_module_pin,
+    read_module_pin_in,
     root_names_equal,
     split_module_name,
 }
@@ -1094,7 +1094,7 @@ extend CompilerInstance {
                 continue
             }
 
-            var pin = read_module_pin(mod_k.copy())
+            var pin = read_module_pin_in(self.sm(), mod_k.copy())
             if pin.size() > 0 && root_names_equal(pin, want) {
                 if best.is_empty() || entry < LinkFS::filename(best) {
                     best = real.copy()
@@ -1127,7 +1127,7 @@ extend CompilerInstance {
                 var mod_k = Path::join_str(walk, "module.k")
                 var pin   = cxx::std::vector<string>()
                 if Path::exists_at(mod_k) {
-                    pin = read_module_pin(mod_k.copy())
+                    pin = read_module_pin_in(self.sm(), mod_k.copy())
                 }
 
                 if pin.size() > 0 {

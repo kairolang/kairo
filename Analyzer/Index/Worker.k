@@ -1008,14 +1008,11 @@ pub fn worker_main(@inout args: [string]) -> i32 {
 
     ci->invocation()->frontend.sema_observer = unsafe (observer as unsafe *void)
 
-    ci->initialize(Path::cwd())
-
-    var saved = ci->diag()->take_consumers()
-    ci->diag()->add_consumer(collector)
-
     // The editor's buffers, over the disk. The bytes must outlive the
     // compile (the source manager keeps a VIEW), so they are held here, in a
-    // vector that never grows after this loop.
+    // vector that never grows after this loop. Staged before the instance is
+    // initialized: its import index reads a module.k's pin from the buffer
+    // staged for it.
     var held: [string]
     held.reserve(real.size())
     for var k: usize = 0; k < real.size(); ++k {
@@ -1037,6 +1034,11 @@ pub fn worker_main(@inout args: [string]) -> i32 {
             held[held.size() - 1].size(),
         )
     }
+
+    ci->initialize(Path::cwd())
+
+    var saved = ci->diag()->take_consumers()
+    ci->diag()->add_consumer(collector)
 
     var t_run = worker_us()
     var opts  = ParseOptions{}
@@ -1117,6 +1119,19 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     w.begin_array()
     for var k: usize = 0; k < unit.fids.size(); ++k {
         w.str(ci->sm()->get_filename(unit.fids[k]))
+    }
+
+    // The module.k files read for a library's name: inputs of the result
+    // that no file of the graph is.
+    for var f: string in ci->imp()->pin_files() {
+        var held = false
+        for var k: usize = 0; k < unit.fids.size(); ++k {
+            held = held || (ci->sm()->get_filename(unit.fids[k]) == f)
+        }
+
+        if !held {
+            w.str(f)
+        }
     }
 
     w.end_array()

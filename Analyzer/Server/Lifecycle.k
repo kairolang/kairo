@@ -54,6 +54,10 @@ import Server::Structure::*
 import Server::TextUtil::*
 import Server::Tokens::*
 import Server::Workers::*
+import Support::FileIO::AtomicFile::{
+    sweep_leftover_temps_tree,
+    sweep_temps_of,
+}
 import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
@@ -71,6 +75,32 @@ import std::io
 
 extend Server {
     /// (Re)reads the project file and rebuilds the entry list from it.
+    /// Removes the temporaries a publish left when its process died between
+    /// the write and the rename. Only files older than ten minutes go: a
+    /// publish of one file takes well under a second, so anything that old
+    /// has no live writer, while a second kals on the same root keeps the
+    /// temporary it is writing now.
+    fn sweep_bridge_temps_(self) {
+        var root = self.bridge_root_()
+        if root.is_empty() {
+            return
+        }
+
+        // Only what the bridge publishes: `.clangd` in the project root,
+        // where other files live (so by name), and everything in its own
+        // cache directory, which only it writes.
+        var age:  u64 = 600000000000
+        var n         = sweep_temps_of(root, ".clangd", age)
+        var cache     = self.bridge_dir_()
+        if LinkFS::is_dir(cache) {
+            n += sweep_leftover_temps_tree(cache, age)
+        }
+
+        if n > 0 {
+            self.trace(f"swept {n} leftover temporaries")
+        }
+    }
+
     fn load_project(self) {
         self.project.load(self.root)
         if !self.project.error.is_empty() {

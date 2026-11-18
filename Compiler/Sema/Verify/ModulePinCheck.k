@@ -26,7 +26,7 @@
 
 import AST::Context::TranslationUnit::TranslationUnit
 import Diagnostic::Registry::DiagID
-import Resolution::SearchRoot::read_module_pin
+import Resolution::SearchRoot::read_module_pin_bytes
 import Sema::SemaContext::SemaContext
 import Support::FileIO::Path::Path
 
@@ -87,7 +87,14 @@ pub class ModulePinCheck {
             return true
         }
 
-        var read = read_module_pin(tu->ctx->sm->get_filename(tu->fid))
+        // The bytes the parse read (an editor's unsaved buffer, or the
+        // disk's), not the file by name.
+        var buf? = tu->ctx->sm->get_buffer(tu->fid)
+        if buf == null || !buf.is_valid() {
+            return true
+        }
+
+        var read = read_module_pin_bytes(buf.data(), buf.size())
         if read.size() != tu->pin_segments.size() {
             return false
         }
