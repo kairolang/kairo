@@ -1458,6 +1458,30 @@ pub class <T: type> OperatorTyping {
             if in_found {
                 return in_t
             }
+
+            // No `op in` is declared at all, member or free: the instance
+            // would reach clang with an `in` token, so it is the concrete
+            // form's error.
+            var in_cands = cxx::std::vector<unsafe *Decl>()
+            var in_frees = cxx::std::vector<unsafe *Decl>()
+            self._gather(
+                DeclName::op_name(TokenKind::KwIn, TokenKind::TkUnknown),
+                rt,
+                lt,
+                -1,
+                unsafe &in_cands,
+                unsafe &in_frees,
+            )
+
+            if in_cands.size() == 0 && in_frees.size() == 0 {
+                self.dyn()->fail(
+                    n,
+                    DiagID::SC066E,
+                    f"'in' needs an 'op in' on '{self.dyn()->tu.str(rt)}' taking a '{self.dyn()->tu.str(lt)}'",
+                )
+
+                return &null
+            }
         }
 
         var own_op = k != TokenKind::OpQuestionQuestion

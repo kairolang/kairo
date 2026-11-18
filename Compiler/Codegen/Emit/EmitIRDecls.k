@@ -190,6 +190,8 @@ extend EmitIR {
                         self.emit(fb->body[i])
                     }
                 }
+            } case DeclKind::EvalBlockDecl {
+                return // compile-time only: nothing to emit.
             } case DeclKind::ExtensionDecl {
                 var unsafe *x = cast<ExtensionDecl>(d)
                 // A conditional block's bodies are emitted where a use

@@ -69,6 +69,11 @@
 ///         EmitIR ICEs on both. (A `thread` variable is thread-local storage,
 ///         a declaration, and is compiled.)
 ///
+///       - a context binding (`x as var r { }`), a
+///         `test` block, an `ffi` block in a function body, and a pack
+///         expansion over a pattern (`Box<T>...`): nothing lowers or emits
+///         them.
+///
 ///     Reads the same guard IterLowering does: a poisoned or untyped
 ///     iterable is already diagnosed or dependent, and is not reported.
 ///
@@ -103,8 +108,9 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,        EnumDecl,      EvalBlockDecl, ExtensionDecl, FieldDecl, FunctionDecl,
-    GenericParamDecl, InterfaceDecl, ParamDecl,     StructDecl,    UnionDecl, VariableDecl,
+    ClassDecl,    EnumDecl,         EvalBlockDecl, ExtensionDecl, FFIBlockDecl, FieldDecl,
+    FunctionDecl, GenericParamDecl, InterfaceDecl, ParamDecl,     StructDecl,   TestDecl,
+    UnionDecl,    VariableDecl,
 }
 import AST::Node::Expressions::{
     AlignOfExpr, AttributedExpr, CallExpr, ClosureExpr, SizeOfExpr, SpawnExpr, ThreadExpr,
@@ -114,13 +120,16 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Statements::{
-    ConditionalStmt, DeclStmt,          DestructureKind,    DestructuringDeclStmt, EvalBlockStmt,
-    IterKind,        JumpIntrinsicStmt, LabelIntrinsicStmt, RangedForStmt,
+    ConditionalStmt,       ContextBindingStmt, DeclStmt, DestructureKind,
+    DestructuringDeclStmt, EvalBlockStmt,      IterKind, JumpIntrinsicStmt,
+    LabelIntrinsicStmt,    RangedForStmt,
 }
 import AST::Node::Types::{
+    ChainType,
     FixedArrayType,
     GenericParamType,
     NullableType,
+    PackExpansionType,
     PointerType,
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
@@ -412,6 +421,30 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
             "an 'eval' block in a function body",
         )
 
+        return true
+    }
+
+    /// `Box<T>...`: a pack expansion over a pattern. Only a bare pack
+    /// (`T...`, `Box<T...>`) is expanded; no pass maps a pattern over the
+    /// elements.
+    fn visit_pack_expansion_type(self, n: *PackExpansionType) -> bool {
+        var unsafe *c = dyn_cast<ChainType>(n->pattern)
+        if c != &null && !c->is_simple() {
+            self._gate(n->range, "a pack expansion over a pattern")
+        }
+
+        return true
+    }
+
+    /// `x as var r { ... }`: no lowering binds the context's enter/exit.
+    fn visit_context_binding_stmt(self, n: *ContextBindingStmt) -> bool {
+        self._gate(n->range, "a context binding ('as var')")
+        return true
+    }
+
+    /// `test "name" { ... }`: no test runner collects or emits it.
+    fn visit_test_decl(self, n: *TestDecl) -> bool {
+        self._gate(n->range, "a 'test' block")
         return true
     }
 
@@ -738,6 +771,11 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
         var unsafe *d = n->decl
         if isa<ExtensionDecl>(d) {
             self._gate(d->range, "an 'extend' in a function body")
+            return true
+        }
+
+        if isa<FFIBlockDecl>(d) {
+            self._gate(d->range, "an 'ffi' block in a function body")
             return true
         }
 
