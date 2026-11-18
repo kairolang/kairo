@@ -836,14 +836,12 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             self.synth.int_literal(at, 0, BuiltinKind::USize),
         )
 
+        // `k < n`, n the extent, holds wherever the element is read: the
+        // subscript needs no bounds check (SubscriptExpr::in_bounds).
+        var unsafe *elem_at = self._subscript(at, base, self._use(k, at), elem)
+        cast<SubscriptExpr>(elem_at)->in_bounds = true
         var body = self.list_builder<unsafe *Stmt>()
-        self._bind(
-            n,
-            unsafe &body,
-            at,
-            self._subscript(at, base, self._use(k, at), elem),
-            true,
-        )
+        self._bind(n, unsafe &body, at, elem_at, true)
 
         body.push(self._expr_stmt(self._preinc(self._use(k, at))))
         body.push(n->body)

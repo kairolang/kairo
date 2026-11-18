@@ -87,6 +87,7 @@ import AST::Context::InstantiationRegistry::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts
+import AST::ExprFacts::checked_array_index
 import AST::Kind::DeclKind::DeclKind
 import AST::Kind::ExprKind::ExprKind
 import AST::Kind::TypeKind::TypeKind
@@ -110,8 +111,8 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    AlignOfExpr,  BinaryOperatorExpr, CallExpr, ClosureExpr, ConstraintExpr, SizeOfExpr,
-    TypeCastExpr, TypeTraitExpr,
+    AlignOfExpr,   BinaryOperatorExpr, CallExpr,      ClosureExpr, ConstraintExpr, SizeOfExpr,
+    SubscriptExpr, TypeCastExpr,       TypeTraitExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -450,8 +451,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// A body holds a move its generic instance decides (TypeCastExpr::
     /// instance_move): the preamble must define LowerTargets::instance_move.
     /// Only then, so other TUs keep their text.
-    pub var  needs_instance_move: bool = false
-    priv var _ef_value_fn:        bool = false
+    pub var needs_instance_move: bool = false
+    /// A body indexes a fixed array with a run-time bounds check
+    /// (checked_array_index): the preamble must define LowerTargets::
+    /// index_check. Only then, so other TUs keep their text.
+    pub var  needs_index_check: bool = false
+    priv var _ef_value_fn:      bool = false
     /// Compile-time string literals too long for `__kairo_estr<...>`
     /// (LowerTargets::eval_str_inline_max, Compiler/Spec/Eval.md#value-nodes), once each by
     /// content: InterfaceEmitter defines each as a named `inline constexpr`
@@ -845,6 +850,11 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
 
         if e->kind == ExprKind::TypeCastExpr && cast<TypeCastExpr>(e)->instance_move {
             self.needs_instance_move = true
+        }
+
+        if e->kind == ExprKind::SubscriptExpr
+            && checked_array_index(cast<SubscriptExpr>(e)) != &null {
+            self.needs_index_check = true
         }
 
         if e->type_ != &null {

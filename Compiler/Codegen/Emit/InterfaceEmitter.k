@@ -181,6 +181,7 @@ pub enum HelperBlock derives u16 {
     CxxAlloc     = 1 << 12, ///< _cxx_alloc_helpers.
     UnionLocal   = 1 << 13, ///< _union_local_helpers.
     InstanceMove = 1 << 14, ///< LowerTargets::instance_move.
+    IndexCheck   = 1 << 15, ///< _index_check_helpers.
 }
 
 /// HelperBlock's variants are its FlagSet's bits (Support/FlagSet.k).
@@ -488,6 +489,15 @@ pub class InterfaceEmitter {
 
             self._cg->sink->unanchored(false)
             self.written.set(HelperBlock::InstanceMove)
+        }
+
+        // A fixed array's bounds check (EmitPlan::needs_index_check),
+        // guarded on its own for the same reason.
+        if !self.written.has(HelperBlock::IndexCheck) && self._plan->needs_index_check {
+            self._cg->sink->unanchored(true)
+            self._index_check_helpers(header)
+            self._cg->sink->unanchored(false)
+            self.written.set(HelperBlock::IndexCheck)
         }
 
         // A Kairo `fn` value (EmitPlan::needs_fn_value), guarded on its own

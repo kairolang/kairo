@@ -22,10 +22,12 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import AST::Kind::ExprKind::ExprKind
 import AST::Node::Base::{
     Decl,
     Expr,
 }
+import AST::Node::CanonicalNodes::canon_unqual
 import AST::Node::Casting::{
     cast,
     dyn_cast,
@@ -42,6 +44,7 @@ import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
+import AST::Node::Types::FixedArrayType
 import AST::OperatorFacts::OperatorFacts
 import Support::FlagSet::{
     FlagBit,
@@ -57,6 +60,37 @@ pub fn strip_parens(e: unsafe *Expr) -> unsafe *Expr {
     }
 
     return x
+}
+
+/// The fixed array `n` indexes when the access gets a run-time bounds
+/// check, else null: a builtin subscript (no `op []`) by one index (not a
+/// range) of a complete `[T; N]`, known or generic extent, whose index no
+/// pass proved in range (SubscriptExpr::in_bounds). EmitPlan reads it to
+/// write the check's helper and EmitIR to spell the check, so the two agree.
+pub fn checked_array_index(n: unsafe *SubscriptExpr) -> unsafe *FixedArrayType {
+    if n == &null
+        || n->in_bounds
+        || n->resolved_op != &null
+        || n->base == &null
+        || n->index == &null {
+        return &null
+    }
+
+    if n->base->type_ == &null || n->index->kind == ExprKind::RangeExpr {
+        return &null
+    }
+
+    var unsafe *bt = n->base->type_->canonical
+    if bt == &null {
+        bt = n->base->type_
+    }
+
+    var unsafe *a = dyn_cast<FixedArrayType>(canon_unqual(bt))
+    if a == &null || a->is_incomplete {
+        return &null
+    }
+
+    return a
 }
 
 /// The slots callee_decl reads besides the callee's own resolved_decl.

@@ -18,6 +18,14 @@
 ///     poisons that subscript: a poisoned subscript is skipped here, so the
 ///     index is reported once.
 ///
+///     Every other builtin subscript of a fixed array is checked at run
+///     time (EmitIR::_subscript). This pass marks the ones it proves in
+///     range, which need no check (SubscriptExpr::in_bounds): a constant
+///     index below the extent, and the binder of an enclosing
+///     `for i in lo..hi` / `lo..=hi` whose bounds are constants inside
+///     `0..N`, when the body never writes the binder (BinderWriteScan:
+///     an assignment, `++` / `--`, a mutable `&`, a mutating method).
+///
 ///   Phase: CHECK (after ExprTyper and CtorInitCheck).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -29,17 +37,34 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "vector"
+
 import AST::Kind::ExprKind::ExprKind
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Stmt,
+}
 import AST::Node::CanonicalNodes::canon_unqual
 import AST::Node::Casting::{
     cast,
+    dyn_cast,
     isa,
 }
-import AST::Node::Expressions::SubscriptExpr
+import AST::Node::Expressions::{
+    RangeExpr,
+    SubscriptExpr,
+}
+import AST::Node::PrimaryExpressions::NamedIdentExpr
+import AST::Node::Statements::{
+    IterKind,
+    RangedForStmt,
+}
 import AST::Node::Types::FixedArrayType
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
 import Sema::Check::ConstEval::ConstEval
+import Sema::Check::MoveCheck::BinderWriteScan
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 
@@ -47,6 +72,11 @@ pub class ArrayIndexCheck derives RecursiveASTVisitor<ArrayIndexCheck> {
     pub var  sc:  unsafe *SemaContext
     priv var _ce: ConstEval
     priv var _tu: TypeUtil
+    /// The binders of the bounded range loops seen so far, with the bound
+    /// each stays below (`hi`, or `hi + 1` for `..=`), parallel. A binder
+    /// is used only inside its own loop's body, so nothing is removed.
+    priv var _loop_binder: cxx::std::vector<unsafe *Decl>
+    priv var _loop_hi:     cxx::std::vector<u64>
 
     fn ArrayIndexCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -61,6 +91,61 @@ pub class ArrayIndexCheck derives RecursiveASTVisitor<ArrayIndexCheck> {
         }
 
         self.run(tu)
+    }
+
+    /// Records `for i in lo..hi` whose binder stays inside `lo..hi`: both
+    /// bounds constants, `lo` not negative, and the body never writes `i`.
+    fn visit_ranged_for_stmt(self, n: *RangedForStmt) -> bool {
+        if n->iter_kind != IterKind::RangeLit || n->bindings.size() != 1 || n->body == &null {
+            return true
+        }
+
+        var unsafe *vd = n->bindings.get(0)->decl
+        var unsafe *r  = dyn_cast<RangeExpr>(self._tu.strip_parens(n->iterable))
+        if vd == &null || r == &null || r->begin == &null || r->end == &null {
+            return true
+        }
+
+        var lo = self._ce.eval_int(r->begin)
+        if !lo.ok || lo.overflow || lo.neg {
+            return true
+        }
+
+        var hi = self._ce.eval_int(r->end)
+        if !hi.ok || hi.overflow || hi.neg || (r->is_inclusive && hi.mag == u64::MAX) {
+            return true
+        }
+
+        var scan = BinderWriteScan()
+        scan.binders.push_back(unsafe (vd as unsafe *Decl))
+        scan.dyn()->dispatch_stmt(unsafe (n->body as unsafe *Stmt))
+        if scan.sites.size() > 0 {
+            return true
+        }
+
+        self._loop_binder.push_back(unsafe (vd as unsafe *Decl))
+        self._loop_hi.push_back(
+            if (r->is_inclusive) => (hi.mag + 1) else => hi.mag,
+        )
+
+        return true
+    }
+
+    /// The bound `e` stays below when it names a recorded loop binder,
+    /// else u64::MAX.
+    priv fn _binder_bound(self, e: unsafe *Expr) -> u64 {
+        var unsafe *x = dyn_cast<NamedIdentExpr>(self._tu.strip_parens(e))
+        if x == &null || x->resolved_decl == &null {
+            return u64::MAX
+        }
+
+        for var i: usize = 0; i < self._loop_binder.size(); ++i {
+            if self._loop_binder[i] == x->resolved_decl {
+                return self._loop_hi[i]
+            }
+        }
+
+        return u64::MAX
     }
 
     fn visit_subscript_expr(self, n: *SubscriptExpr) -> bool {
@@ -90,10 +175,15 @@ pub class ArrayIndexCheck derives RecursiveASTVisitor<ArrayIndexCheck> {
         var len = a->size_bits
         var c   = self._ce.eval_int(n->index)
         if !c.ok || c.overflow {
+            if self._binder_bound(n->index) <= (len as u64) {
+                n->in_bounds = true
+            }
+
             return true
         }
 
         if (!c.neg) && c.mag < (len as u64) {
+            n->in_bounds = true
             return true
         }
 

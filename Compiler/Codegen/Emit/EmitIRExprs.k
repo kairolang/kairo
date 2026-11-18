@@ -22,6 +22,7 @@ ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
 import AST::DeclFacts::decl_pattern
+import AST::ExprFacts::checked_array_index
 import AST::Kind::DeclKind::to_string
 import AST::Kind::ExprKind::{
     ExprKind,
@@ -71,6 +72,7 @@ import AST::Node::PrimaryExpressions::{
     IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
 }
 import AST::Node::Types::{
+    FixedArrayType,
     FunctionPointerType,
     GenericParamType,
     PointerType,
@@ -718,9 +720,29 @@ extend EmitIR {
             )
         }
 
+        // A fixed array indexed by a value not proven in range is
+        // `a[::__kairo_ix(i, N)]`: the index is evaluated once, after the
+        // base, as for the builtin `a[i]`, and the access stays the builtin
+        // one (an lvalue of the element, constant-evaluable).
+        var unsafe *fa = checked_array_index(n)
         self.emit(n->base)
         self._cg->sink->spell(n->range, "[")
+        if fa != &null {
+            self._cg->sink->spell(
+                n->range,
+                "::" + LowerTargets::index_check() + "(",
+            )
+        }
+
         self.emit(n->index)
+        if fa != &null {
+            var ext = if (fa->extent_param != &null) => (self._spell._type(
+                          fa->extent_param,
+                      ))
+                      else => f"{fa->size_bits}"
+            self._cg->sink->spell(n->range, ", " + ext + ")")
+        }
+
         self._cg->sink->spell(n->range, "]")
     }
 

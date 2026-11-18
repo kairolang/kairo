@@ -2617,6 +2617,31 @@ pub class LowerTargets {
         return f"__kairo_{kind}{depth}"
     }
 
+    /// A fixed array's run-time bounds check (EmitIR::_subscript):
+    /// `a[::__kairo_ix(i, N)]` is `a[i]` when `i` is in `0..N`, and a crash
+    /// naming both otherwise. constexpr, so a constant evaluation that
+    /// indexes out of range is a compile error.
+    pub static fn index_check() -> string {
+        return "__kairo_ix"
+    }
+
+    /// Its cold path: writes "index I is out of bounds for length N", the
+    /// library's own message for a container, and crashes through rt_crash.
+    pub static fn index_fail() -> string {
+        return "__kairo_ix_fail"
+    }
+
+    /// The header guard around index_check and index_fail.
+    pub static fn index_check_guard() -> string {
+        return "__KAIRO_INDEX_CHECK"
+    }
+
+    /// The runtime's crash entry with a message (Lib/rt/crash.h): writes it
+    /// and aborts.
+    pub static fn rt_crash() -> string {
+        return "kairo_rt_crash"
+    }
+
     /// The runtime's division-by-zero crash (Lib/rt/crash.c), declared by the
     /// prelude: noreturn and cold, so the check costs one predicted branch.
     pub static fn div_zero_fn() -> string {

@@ -374,6 +374,12 @@ pub class SubscriptExpr derives Expr {
     /// declares `op []=`) selects. A PlaceCtx as u8;
     /// 0 is a read. A type with no `op []=` ignores it. Written by X only.
     pub var place_ctx: u8 = 0
+    /// A builtin subscript of a fixed array whose index is proven below the
+    /// extent (a constant, or the binder of a bounded loop over it): EmitIR
+    /// spells no bounds check. False means checked, so a node no pass has
+    /// looked at is never left unchecked. Written by ArrayIndexCheck and
+    /// IterLowering.
+    pub var in_bounds: bool = false
 
     pub static fn create(ctx:   unsafe *ASTContext,
                          range: SourceRange,
@@ -388,6 +394,7 @@ pub class SubscriptExpr derives Expr {
         node->op_via_free = false
         node->op_instance = &null
         node->place_ctx   = PlaceCtx::Read as u8
+        node->in_bounds   = false
         node->init_annotations(unsafe &ctx->ast_alloc)
         return node
     }

@@ -335,6 +335,57 @@ extend InterfaceEmitter {
         }
     }
 
+    /// `::__kairo_ix(i, n)` (LowerTargets::index_check), the index of a
+    /// checked fixed-array subscript, and its cold path. The comparison is
+    /// in the index's own type, made unsigned for a signed one after the
+    /// `i < 0` test, so no index wider than usize wraps into range. The
+    /// message is the library's for a container ("index I is out of bounds
+    /// for length N"), written to a stack buffer without allocating: 6 + 1
+    /// + 20 + 29 + 20 bytes at most.
+    prot fn _index_check_helpers(self, header: bool) {
+        var at = self._tu_at()
+        var z  = LowerTargets::cxx_size_t()
+        if header {
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::index_check_guard(),
+            )
+
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::index_check_guard(),
+            )
+        }
+
+        // crash.h declares the same function; this matches it, noexcept
+        // included, so either may come first.
+        self._cg->sink->spell(
+            at,
+            "extern \"C\" __attribute__((noreturn)) void " + LowerTargets::rt_crash() + "(const unsigned char* msg, " + z + " len) noexcept;",
+        )
+
+        self._cg->sink->brk()
+        var lead = "for (const char* p = \"index \"; *p; ++p) { b[at++] = static_cast<unsigned char>(*p); } "
+        var mid = "for (const char* p = \" is out of bounds for length \"; *p; ++p) { b[at++] = static_cast<unsigned char>(*p); } "
+        var di = "do { d[k++] = static_cast<unsigned char>(48 + i % 10); i /= 10; } while (i != 0); while (k > 0) { b[at++] = d[--k]; } "
+        var dn = "do { d[k++] = static_cast<unsigned char>(48 + n % 10); n /= 10; } while (n != 0); while (k > 0) { b[at++] = d[--k]; } "
+        self._cg->sink->spell(
+            at,
+            "[[gnu::cold, gnu::noinline]] __attribute__((noreturn)) inline void " + LowerTargets::index_fail() + "(unsigned long long i, bool neg, unsigned long long n) noexcept { " + "unsigned char b[80]; " + z + " at = 0; unsigned char d[20]; int k = 0; " + lead + "if (neg) { b[at++] = 45; i = 0ull - i; } " + di + mid + dn + "::" + LowerTargets::rt_crash() + "(b, at); }",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class I> [[gnu::always_inline]] constexpr I " + LowerTargets::index_check() + "(I i, " + z + " n) noexcept { " + "if constexpr (__is_signed(I)) { if (__builtin_expect(i < 0 || static_cast<__make_unsigned(I)>(i) >= n, 0)) { ::" + LowerTargets::index_fail() + "(static_cast<unsigned long long>(i), i < 0, n); } } " + "else { if (__builtin_expect(i >= n, 0)) { ::" + LowerTargets::index_fail() + "(static_cast<unsigned long long>(i), false, n); } } " + "return i; }",
+        )
+
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
+    }
+
     /// A record C++-facing text defines (as _needs_niche_helpers asks): it
     /// gets _cxx_alloc_ops. Never in the module's own object.
     prot fn _needs_cxx_alloc(self) -> bool {
