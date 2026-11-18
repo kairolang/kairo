@@ -37,6 +37,8 @@ end
 
 for b in $benches
     if test -f $b.k
+        # A failed build must not leave an earlier binary to be timed.
+        rm -f bin/$b.kairo
         $KAIRO $b.k -I . -O3 -o bin/$b.kairo >/dev/null 2>&1; or echo "kairo build failed: $b"
     end
     if test -f $b.rs; and command -q $RUSTC

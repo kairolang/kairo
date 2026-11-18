@@ -10,13 +10,13 @@ pub interface Less {
 // primitive (CL001E), so a wrapper type carries the order.
 struct Key {
     var v: i64
-    fn op < (const self, const o: Key) -> bool { return self.v < o.v }
+    pub fn op < (const self, const o: Key) -> bool { return self.v < o.v }
 }
 
 struct Pair {
     var key: i64
     var val: i32
-    fn op < (const self, const o: Pair) -> bool { return self.key < o.key }
+    pub fn op < (const self, const o: Pair) -> bool { return self.key < o.key }
 }
 
 fn <T impl Less> insertion(a: unsafe *T, lo: isize, hi: isize) {
