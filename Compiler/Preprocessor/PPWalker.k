@@ -178,6 +178,7 @@ class ArgSplitter {
 const BRACE_MODULE: u8 = 0
 const BRACE_BRANCH: u8 = 1
 const BRACE_BLOCK:  u8 = 2
+const BRACE_GROUP:  u8 = 3
 
 /// What the preprocessor knows of an `eval if` condition before Sema folds
 /// it. Only a condition that asks `defined!` is the preprocessor's to
@@ -245,9 +246,13 @@ pub class PPWalker {
     priv var _block_macros: cxx::std::vector<Self::BlockMacro> ///< innermost block last.
     /// Every `{` the walk has open, outermost first: BRACE_MODULE (a module's
     /// own), BRACE_BRANCH (an `eval if` branch: its declarations are the
-    /// enclosing scope's, so it is no scope for a macro either) or BRACE_BLOCK.
+    /// enclosing scope's, so it is no scope for a macro either), BRACE_GROUP
+    /// (an `ffi "lang" { }` or `eval { }` block, which groups declarations
+    /// of the enclosing scope and is no scope for a macro for the same
+    /// reason) or BRACE_BLOCK.
     priv var _braces:      cxx::std::vector<u8>
     priv var _branch_next: bool                 = false ///< the next `{` opens an `eval if` branch.
+    priv var _group_next:  bool                 = false ///< the next `{` opens an `ffi` or `eval` block.
     /// The next branch's BRANCH_* and its chain's CHAIN_* bits, read when
     /// its `{` is met (_branch_next).
     priv var _next_branch: u8 = BRANCH_LIVE
@@ -931,6 +936,8 @@ pub class PPWalker {
             var kind = BRACE_BLOCK
             if self._tracker->brace_depth() + 1 == self._tracker->scope_depth() {
                 kind = BRACE_MODULE
+            } else if self._group_next {
+                kind = BRACE_GROUP
             } else if self._branch_next {
                 kind = BRACE_BRANCH
                 self._branches.push_back(
@@ -948,6 +955,7 @@ pub class PPWalker {
             }
 
             self._branch_next = false
+            self._group_next  = false
             self._next_branch = BRANCH_LIVE
             self._next_chain  = 0
             self._braces.push_back(kind)
@@ -1294,11 +1302,12 @@ pub class PPWalker {
     }
 
     /// The place in _braces, from 1, of the innermost open `{` that scopes a
-    /// macro, or 0 at module level: an `eval if` branch is looked through.
+    /// macro, or 0 at module level: an `eval if` branch, an `ffi` block and
+    /// an `eval` block are looked through.
     priv fn _block_depth(self) -> i32 {
         var i = self._braces.size()
         while i > 0 {
-            if self._braces[i - 1] == BRACE_BRANCH {
+            if self._braces[i - 1] == BRACE_BRANCH || self._braces[i - 1] == BRACE_GROUP {
                 i -= 1
                 continue
             }
@@ -1314,10 +1323,29 @@ pub class PPWalker {
     }
 
     /// `eval if` at `k`: its branches' braces are no scope of their own.
+    /// Nor are an `ffi "lang" { }` block's and an `eval { }` block's: their
+    /// declarations belong to the enclosing scope (macros.mdx, Scoping).
     priv fn _note_eval_if(self, k: TokenKind) {
         if k == TokenKind::KwEval && self._src->peek(1).kind == TokenKind::KwIf {
             self._branch_next = true
             self._note_cond(2, 0)
+            return
+        }
+
+        if k == TokenKind::KwEval && self._src->peek(1).kind == TokenKind::OpLBrace {
+            self._group_next = true
+            return
+        }
+
+        if k == TokenKind::KwFfi && self._src->peek(1).kind == TokenKind::LitString {
+            var at: usize = 2
+            while self._src->peek(at).kind == TokenKind::TkNewLine {
+                at += 1
+            }
+
+            if self._src->peek(at).kind == TokenKind::OpLBrace {
+                self._group_next = true
+            }
         }
     }
 

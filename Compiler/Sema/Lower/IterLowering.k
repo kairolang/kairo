@@ -62,7 +62,11 @@
 ///     One binder. Plain `x` is a copy of the element, except over a
 ///     generator value (a call of a `-> yield T` function, a `Yield<T>`):
 ///     the generator gives each value up when it is resumed, so a MOVE
-///     value is moved into `x` (_given). `*x` is the element's address,
+///     value is moved into `x` (_given). A binder that borrows
+///     (VariableDecl::borrows: `const x`, or a plain `x` whose type cannot
+///     be copied) is `const T& x = element`, and one whose mode the instance
+///     decides (VariableDecl::borrow_inst) is declared through
+///     LowerTargets::binder_type by EmitIR. `*x` is the element's address,
 ///     except over a range, where it is the address of a per-iteration copy:
 ///     the counter itself is not the user's to write. `_` binds nothing.
 ///
@@ -124,6 +128,7 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations::{
     FunctionDecl,
+    StorageClass,
     VariableDecl,
 }
 import AST::Node::Expressions::{
@@ -1447,7 +1452,17 @@ pub class IterLowering derives ASTWriter<IterLowering> {
         }
 
         var as_ptr = b->shorthand.has(BindingShorthand::Pointer)
-        if !as_ptr {
+        if vd->borrows && !as_ptr {
+            // A borrowing binder (StmtTyping::_binder_modes) is a reference
+            // to const to the element; the `const` is in the type, so the
+            // storage keyword would be a second one.
+            vd->type_ = self.sc->types->cxx_lref(
+                self.sc->types->qualified(canon_unqual(vd->type_), QUAL_CONST),
+            )
+
+            vd->storage = StorageClass::Var
+            vd->init    = place
+        } else if !as_ptr {
             vd->init = if (self._give) => (self._given(place, vd->type_)) else => place
         } else if stable {
             vd->init = self.synth.addr_of(place)

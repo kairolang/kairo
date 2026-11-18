@@ -102,12 +102,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    EnumDecl,
-    FunctionDecl,
-    ParamDecl,
-    SpecKind,
-    TransferKind,
+    ClassDecl, EnumDecl, FunctionDecl, ParamDecl, SpecKind, TransferKind, VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -136,6 +131,10 @@ import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::ArgumentDeduction::Deduction
+import Sema::Type::BinderBorrow::{
+    borrowed_binder_of,
+    note_borrowed_binder,
+}
 import Sema::Type::Conversion::{
     Conversion,
     ImplicitRank,
@@ -424,6 +423,8 @@ pub class Candidate {
     pub var  rank:     u8                   = CAND_EXACT ///< CAND_EXACT / CAND_CONVERTED / CAND_USER_CONV.
     pub var  generic:  bool                 = false
     pub var  free:     bool                 = false ///< from resolve_mixed's free list: judged with no receiver.
+    /// Rejected because the object or an `@inout` argument is const.
+    pub var const_reject: bool = false
     /// Judged in defer mode: a dependent parameter or argument is viable and
     /// unranked instead of unified. Set before _judge, read by it.
     pub var defer:  bool   = false
@@ -604,7 +605,11 @@ pub class OverloadResolution {
     /// `operator<<` takes `raw_ostream&`) and a receiver have no marker to
     /// write and bind a `T&` as C++ does. Set by CallTyping around its
     /// resolution only.
-    pub var call_syntax: bool                = false
+    pub var call_syntax: bool = false
+    /// The callee of the call being resolved (`x.bump` of `x.bump()`), so a
+    /// failure on a borrowing binder's constness can say why it is const
+    /// (BinderBorrow). Set by CallTyping around its resolution only.
+    pub var call_callee: unsafe *Expr        = &null
     pub var sc:          unsafe *SemaContext
     pub var conv:        unsafe *Conversion
     pub var tu:          TypeUtil
@@ -879,7 +884,7 @@ pub class OverloadResolution {
             }
 
             if !any_poisoned {
-                self._report_no_viable(unsafe &cs, at, name)
+                self._report_no_viable(unsafe &cs, at, name, margs, fargs)
             }
 
             out.outcome = OvlOutcome::NoViable
@@ -2796,7 +2801,8 @@ pub class OverloadResolution {
                          c->f,
                      ))
                      else => self.tu.decl_name(c->f)
-            c->reason = f"'{nm}' is not const; it cannot be called on a const object"
+            c->reason       = f"'{nm}' is not const; it cannot be called on a const object"
+            c->const_reject = true
             return
         }
 
@@ -3381,6 +3387,8 @@ pub class OverloadResolution {
                              else => got
                     c->reject()
                     c->reason = f"parameter '{pn}' is {LangAttrs::quoted(LangAttrs::param_inout())} and needs a mutable lvalue of type '{self.tu.str(pt)}'; got '{iv}'"
+                    c->const_reject = a->ty != &null && canon_has_const(a->ty)
+                        || a->inner_ty != &null && canon_has_const(a->inner_ty)
                     var unsafe *ca = dyn_cast<UnaryOperatorExpr>(a->expr)
                     if ca != &null && ca->const_addr {
                         c->reason = f"parameter '{pn}' is {LangAttrs::quoted(LangAttrs::param_inout())} and writes its argument; 'const &' makes a pointer to const, not the '&' marker"
@@ -4696,10 +4704,65 @@ pub class OverloadResolution {
         return fk == BuiltinKind::U8 || fk == BuiltinKind::I8 || fk == BuiltinKind::Byte
     }
 
+    /// The borrowing binder (BinderBorrow) a failed call changes: the
+    /// object of a method a candidate refused for its constness, an
+    /// argument such a candidate refused, or an address `&x` of one.
+    priv fn _borrowed_in_call(self,
+                              cs:    unsafe *cxx::std::vector<Candidate>,
+                              margs: unsafe *cxx::std::vector<ArgInfo>,
+                              fargs: unsafe *cxx::std::vector<ArgInfo>) -> unsafe *VariableDecl {
+        var const_reject = false
+        for var i: usize = 0; i < cs->size(); ++i {
+            if (*cs)[i].const_reject {
+                const_reject = true
+            }
+        }
+
+        if const_reject && self.call_callee != &null {
+            var unsafe *cb = borrowed_binder_of(self.call_callee)
+            if cb != &null {
+                return cb
+            }
+        }
+
+        var lists = cxx::std::vector<unsafe *cxx::std::vector<ArgInfo>>()
+        lists.push_back(margs)
+        lists.push_back(fargs)
+        for var l: usize = 0; l < lists.size(); ++l {
+            var unsafe *as_ = lists[l]
+            if as_ == &null {
+                continue
+            }
+
+            for var i: usize = 0; i < as_->size(); ++i {
+                var unsafe *e = (*as_)[i].expr
+                if e == &null {
+                    continue
+                }
+
+                var unsafe *x = self.tu.strip_parens(e)
+                var addr = x != &null
+                    && isa<UnaryOperatorExpr>(x)
+                    && cast<UnaryOperatorExpr>(x)->op_token.kind == TokenKind::OpAmp
+                if addr || const_reject {
+                    var unsafe *ab = borrowed_binder_of(e)
+                    if ab != &null {
+                        return ab
+                    }
+                }
+            }
+        }
+
+        return &null
+    }
+
     priv fn _report_no_viable(self,
                               cs:         unsafe *cxx::std::vector<Candidate>,
                               at:         SourceRange,
-                              const name: string) {
+                              const name: string,
+                              margs:      unsafe *cxx::std::vector<ArgInfo> = &null,
+                              fargs:      unsafe *cxx::std::vector<ArgInfo> = &null) {
+        var unsafe *bb = self._borrowed_in_call(cs, margs, fargs)
         // One candidate: the rule that rejected it IS the error, named at the
         // call. "no matching overload" plus a single note says the same thing
         // twice and buries the part the user can act on.
@@ -4716,6 +4779,10 @@ pub class OverloadResolution {
                 sb.note(only->f->range.start, declared_here())->child_first(
                     only->f->range,
                 )
+
+                if bb != &null {
+                    note_borrowed_binder(self.sc, &sb, bb)
+                }
 
                 sb.emit()
                 return
@@ -4810,6 +4877,10 @@ pub class OverloadResolution {
 
         if cs->size() > shown {
             b.note(at.start, f"and {cs->size() - shown} more candidate(s)")
+        }
+
+        if bb != &null {
+            note_borrowed_binder(self.sc, &b, bb)
         }
 
         b.emit()

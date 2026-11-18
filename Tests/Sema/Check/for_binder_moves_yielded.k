@@ -1,7 +1,7 @@
 // The binder of a loop over a generator's MOVE values is an ordinary local:
 // moved onward, it is not read again. A record iterated through its `op in`
 // keeps its elements, whether the operator points at them (`-> yield *T`)
-// or yields them (`-> yield T`), so a plain binder would copy one.
+// or yields them (`-> yield T`): a plain binder of a MOVE type borrows one.
 
 class Str {
     pub var n: i32 = 0
@@ -60,8 +60,4 @@ fn main() -> i32 {
 // CHECK-NOT:  error
 // CHECK:      :42:16: error [SC052E]: 'piece' is used after being moved
 // CHECK-NEXT: :41:21: note [I900N]: 'piece' was moved here, into a by-value parameter
-// CHECK:      :46:9: error [SC182E]: cannot copy a value of type 'Str': it declares a move constructor and no copy constructor
-// CHECK-NEXT: :46:9: note [I900N]: the loop binder 'book' is a copy of each element; bind '*book' for the element's address instead
-// CHECK:      :51:9: error [SC182E]: cannot copy a value of type 'Str': it declares a move constructor and no copy constructor
-// CHECK-NEXT: :51:9: note [I900N]: the loop binder 'tool' is a copy of each element; its 'op in' yields values; declare it '-> yield *Str' and bind '*tool' for the element's address
 // CHECK-NOT:  error [

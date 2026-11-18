@@ -894,7 +894,9 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             var unsafe *vd = cast<VariableDecl>(b.pat->decl)
             var unsafe *vt = self._binder_type(vd)
             vd->init = self._binder_init(arm, vd)
-            if b.pat->is_const {
+            // `case const v`, and `case var v` of a type that cannot be
+            // copied (PatternTyping::_type_binder), read in place.
+            if b.pat->is_const || vd->borrows {
                 vd->type_ = self.sc->types->cxx_lref(
                     self.sc->types->qualified(vt, QUAL_CONST),
                 )
@@ -991,6 +993,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             var b = self._t->binds[(rep.bind0 + k) as usize]
             if b.pat->decl != s->resolved_decl || b.pat->is_const {
                 continue
+            }
+
+            // A borrowing binder holds no value of its own to move.
+            if cast<VariableDecl>(b.pat->decl)->borrows
+                || cast<VariableDecl>(b.pat->decl)->borrow_inst {
+                return e
             }
 
             var unsafe *vt = self._binder_type(cast<VariableDecl>(b.pat->decl))

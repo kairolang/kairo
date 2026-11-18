@@ -1065,6 +1065,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                     self.needs_raw_slot = true
                 }
 
+                if cast<Declarations::VariableDecl>(d)->borrow_inst {
+                    self.needs_instance_move = true
+                }
+
                 if cast<Declarations::VariableDecl>(
                     d,
                 )->dtor_mode != Declarations::LocalDtor::Scope {

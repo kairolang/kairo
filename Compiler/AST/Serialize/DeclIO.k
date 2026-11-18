@@ -477,6 +477,16 @@ fn io_function_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::FunctionDec
             "FunctionDecl::move_reuse_site",
         )
 
+        ar->sema_zero(
+            n->binder_write_site.size() as u64,
+            "FunctionDecl::binder_write_site",
+        )
+
+        ar->sema_zero(
+            n->binder_write_of.size() as u64,
+            "FunctionDecl::binder_write_of",
+        )
+
         ar->sema_zero(n->move_out.size() as u64, "FunctionDecl::move_out")
         ar->sema_zero(
             n->move_out_path.size() as u64,
@@ -573,6 +583,8 @@ fn io_variable_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::VariableDec
         ar->sema_false(n->place_ref, "VariableDecl::place_ref")
         ar->sema_false(n->auto_copy, "VariableDecl::auto_copy")
         ar->sema_false(n->header_scope, "VariableDecl::header_scope")
+        ar->sema_false(n->borrows, "VariableDecl::borrows")
+        ar->sema_false(n->borrow_inst, "VariableDecl::borrow_inst")
         ar->sema_zero(n->rebind as u64, "VariableDecl::rebind")
         ar->sema_zero(n->fold_pin as u64, "VariableDecl::fold_pin")
         ar->sema_false(n->fold_pin_neg, "VariableDecl::fold_pin_neg")

@@ -433,6 +433,23 @@ extend EmitIR {
             return
         }
 
+        // A binder whose mode its instance decides (VariableDecl::
+        // borrow_inst): a copy or a reference to const, per instance.
+        if n->borrow_inst && n->init != &null && n->type_ != &null {
+            self._cg->sink->spell(
+                n->name.range,
+                "::" + LowerTargets::binder_type() + "<" + self._spell._type(
+                    n->type_,
+                ) + ">",
+            )
+
+            self._local_ref(unsafe (n as unsafe *Decl), n->name)
+            self._cg->sink->spell(n->name.range, " = (")
+            self.emit(n->init)
+            self._cg->sink->spell(n->name.range, ")")
+            return
+        }
+
         if n->dtor_mode != LocalDtor::Scope && self._union_local_decl(n, self._in_for_init) {
             return
         }

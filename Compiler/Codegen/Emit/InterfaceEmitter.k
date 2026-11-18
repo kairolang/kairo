@@ -452,9 +452,9 @@ pub class InterfaceEmitter {
             self.written.set(HelperBlock::FmtDyn)
         }
 
-        // The instance-decided move (EmitPlan::needs_instance_move), guarded
-        // on its own for the same reason: the same test the instance check
-        // reads as "cannot be copied".
+        // The instance-decided move and binder type (EmitPlan::
+        // needs_instance_move), guarded on their own for the same reason:
+        // the same test the instance check reads as "cannot be copied".
         if !self.written.has(HelperBlock::InstanceMove) && self._plan->needs_instance_move {
             self._cg->sink->unanchored(true)
             if header {
@@ -472,6 +472,12 @@ pub class InterfaceEmitter {
             self._cg->sink->spell(
                 self._tu_at(),
                 "template <class T> constexpr decltype(auto) " + LowerTargets::instance_move() + "(T& v) noexcept { if constexpr (__is_constructible(T, T&)) { return static_cast<T&>(v); } else { return static_cast<T&&>(v); } }",
+            )
+
+            self._cg->sink->brk()
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T> using " + LowerTargets::binder_type() + " = __type_pack_element<__is_constructible(T, T&) ? 0 : 1, T, const T&>;",
             )
 
             self._cg->sink->brk()

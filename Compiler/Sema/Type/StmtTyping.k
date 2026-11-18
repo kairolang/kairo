@@ -102,6 +102,10 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::named_declared_here
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
+import Sema::Check::ClassLifecycle::{
+    binder_mode_by_instance,
+    cannot_copy,
+}
 import Sema::Check::ConstEval::ConstEval
 import Sema::Check::FfiRefReturnCheck::check_ref_return_value
 import Sema::Lower::LowerSynth::LowerSynth
@@ -3051,6 +3055,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             )
         }
 
+        self._binder_modes(n)
+
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
         self.dyn()->flow.loop_enter(n->body, &null)
@@ -3062,6 +3068,75 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var brk = self.dyn()->flow.loop_leave()
         self.dyn()->flow.env = self.dyn()->flow.join(&head, &brk)
         return n
+    }
+
+    /// Whether each binder of `n` copies its element or borrows it
+    /// (control-flow.mdx, Loop binders). Where the loop reads elements that
+    /// stay where they are -- an array, a slice, a record's `op in`, what a
+    /// generator points at, a C++ range whose `*it` is an lvalue -- a
+    /// `const` binder borrows, and so does a plain one whose type cannot be
+    /// copied (cannot_copy): a reference to const, read-only
+    /// (VariableDecl::borrows). A plain binder of a generic parameter's type
+    /// is decided per instance (VariableDecl::borrow_inst). A plain binder
+    /// of any other type is a copy.
+    ///
+    /// A range's binder is a copy of a counter the loop advances before the
+    /// body, and a generator value gives each value up to its binder
+    /// (IterLowering::_given): neither is borrowed. A binder with a written
+    /// type converts the element, and a `*x` binder is a pointer.
+    priv fn _binder_modes(self, n: unsafe *Statements::RangedForStmt) {
+        var k = n->iter_kind
+        if k != Statements::IterKind::Array
+            && k != Statements::IterKind::Slice
+            && k != Statements::IterKind::User
+            && k != Statements::IterKind::Cxx {
+            return
+        }
+
+        if k == Statements::IterKind::Cxx
+            && (n->cxx_deref == &null
+                || n->cxx_deref->value_category != Expr::ValueCategory::LValue) {
+            return
+        }
+
+        if n->binds_yielded_ptr {
+            return
+        }
+
+        var by_ptr = n->iter_yield == Statements::IterYield::Pointer
+            || n->iter_yield == Statements::IterYield::UnsafePointer
+        var generator = k == Statements::IterKind::User && n->iter_op == &null && !by_ptr
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *b = n->bindings.get(i)
+            if b == &null
+                || b->is_discard
+                || b->decl == &null
+                || b->type_ != &null
+                || b->shorthand.has(Statements::BindingShorthand::Pointer)
+                || b->shorthand.has(Statements::BindingShorthand::Nullable) {
+                continue
+            }
+
+            var unsafe *vd = dyn_cast<VariableDecl>(b->decl)
+            if vd == &null || vd->type_ == &null {
+                continue
+            }
+
+            // A generator's own value (`-> yield T`, a `Yield<T>`): each one
+            // is given to the binder, which owns it.
+            if generator
+                && (n->bindings.size() > 1
+                    || n->iter_elem != &null
+                        && canon_unqual(n->iter_elem) == canon_unqual(vd->type_)) {
+                continue
+            }
+
+            if b->is_const || cannot_copy(self.dyn()->sc, vd->type_) {
+                vd->borrows = true
+            } else if binder_mode_by_instance(vd->type_) {
+                vd->borrow_inst = true
+            }
+        }
     }
 
     /// # the binder rule of a record's `op in`

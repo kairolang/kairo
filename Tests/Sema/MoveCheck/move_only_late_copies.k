@@ -1,9 +1,9 @@
 // Three copies of a move-only value that Sema accepted and clang then
 // rejected (CL001E). Each is SC182E, at the copy.
 //
-// (a) `a + b` through an `op +` derived from `op +=` copies its left
-//     operand (operator-overloading.mdx, Compound assignment). A temporary
-//     left operand is built in the copy's place and is fine.
+// (a) `a + b` through an `op +` derived from `op +=`: a local left operand
+//     at its last use moves into the result, and a temporary one is built
+//     in the copy's place, so both are fine (no error at line 37 or 38).
 // (b) `return self.t` in a `const self` method: a const place cannot be
 //     moved from, and the type has no copy. Only the const case is touched:
 //     a non-const `self` field is moved out silently today (not covered
@@ -45,6 +45,4 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
 // CHECK: move_only_late_copies.k:31:41: error [SC182E]: cannot copy a value of type 'Tok': it declares a move constructor and no copy constructor
 // CHECK: move_only_late_copies.k:31:41: note [I900N]: 'self.t' is const, so the transfer out of the function cannot move it, and moving is the only transfer its type has
-// CHECK: move_only_late_copies.k:37:13: error [SC182E]: cannot copy a value of type 'M': it declares a move constructor and no copy constructor
-// CHECK: move_only_late_copies.k:37:13: note [I900N]: '+' is derived from 'op +=': it copies its left operand 'a', applies '+=' to the copy and yields it; write 'a += ...' to change it in place
 // CHECK: move_only_late_copies.k:40:25: error [SC182E]: a map literal of 'Tok' elements cannot be built yet

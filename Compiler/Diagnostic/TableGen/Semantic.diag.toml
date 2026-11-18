@@ -5796,6 +5796,36 @@ group = "extend"
     (`fn <T impl Show> describe(x: T) -> string`).
     """
 
+[SC361]
+brief = "a union cannot be extended"
+group = "extend"
+
+    [SC361.E]
+    explain = """
+    # a union cannot be extended
+
+    Unions do not support `extend` blocks. They are raw memory overlays with
+    no behavior: adding methods would blur the line between unions and
+    classes. The rule holds for a plain `extend U { }`, for `extend U impl I
+    { }` and for a generic `extend <T> U<T> { }`. An operator or a
+    constructor a union declares in its own body is still its own, and
+    meets an interface requirement as any member does.
+
+    ```kairo
+    union Bits {
+        var i: i32
+        var f: f32
+    }
+
+    extend Bits { fn raw(self) -> i32 { return self.i } }   // error
+    ```
+
+    ## how to fix
+
+    wrap the union in a struct or class and add the behavior there, or
+    write a free function that takes the union.
+    """
+
 [SC291]
 brief = "constant index out of range for a fixed array"
 group = "type-check"

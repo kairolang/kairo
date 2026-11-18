@@ -78,8 +78,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,    EnumDecl, EnumVariantDecl, FieldDecl, IntConst, StructDecl, TypeAliasDecl,
-    VariableDecl,
+    ClassDecl,     EnumDecl,     EnumVariantDecl, FieldDecl, IntConst, StorageClass, StructDecl,
+    TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::BinaryOperatorExpr
 import AST::Node::Patterns::{
@@ -98,6 +98,10 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import Diagnostic::Registry::DiagID
+import Sema::Check::ClassLifecycle::{
+    binder_mode_by_instance,
+    cannot_copy,
+}
 import Sema::Check::PatternSpace::PatternSpace
 import Sema::Type::VariadicEnum::VariadicEnum
 import Token::Token::Token
@@ -373,13 +377,26 @@ pub class <T: type> PatternTyping {
         var key = (vd as usize as u64)
         if self._binder_seen.insert(key).second {
             vd->type_ = t
+            // `case var v` of a type that cannot be copied reads what it
+            // matched in place, read-only, as `case const v` does
+            // (pattern-matching.mdx, Binders); a generic parameter's type
+            // is decided per instance.
+            if !b->is_const && b->type_ == &null {
+                if cannot_copy(self.dyn()->sc, t) {
+                    vd->borrows = true
+                } else if binder_mode_by_instance(t) {
+                    vd->borrow_inst = true
+                }
+            }
+
             return
         }
 
         // A later alternative reaching the first alternative's decl.
-        var nm = self.dyn()->sc->ctx->get_spelling(b->name)
-        if b->is_const != vd->is_const() {
-            var first = if (vd->is_const()) => ("const") else => "var"
+        var nm          = self.dyn()->sc->ctx->get_spelling(b->name)
+        var first_const = vd->storage == StorageClass::Const
+        if b->is_const != first_const {
+            var first = if (first_const) => ("const") else => "var"
             var here  = if (b->is_const) => ("const") else => "var"
             self.dyn()->sc->diag->report(
                 DiagID::SC125E,

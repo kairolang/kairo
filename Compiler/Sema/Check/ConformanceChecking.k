@@ -2326,7 +2326,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 cast<Declarations::FunctionDecl>(prim),
             )
 
-            if h->move_reuse_site.size() == 0 {
+            if h->move_reuse_site.size() == 0 && h->binder_write_site.size() == 0 {
                 return
             }
 
@@ -2348,7 +2348,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
 
             var unsafe *h = self._reuse_home(ms[k])
-            if h->move_reuse_site.size() == 0 {
+            if h->move_reuse_site.size() == 0 && h->binder_write_site.size() == 0 {
                 continue
             }
 
@@ -2652,6 +2652,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                       h:    unsafe *Declarations::FunctionDecl,
                       d:    *Deduction,
                       prim: unsafe *Decl) {
+        self._binder_writes_in(e, h, d)
         for var i: usize = 0; i < h->move_reuse_site.size() && i < h->move_reuse_read.size(); ++i {
             var unsafe *site = h->move_reuse_site[i]
             var unsafe *read = h->move_reuse_read[i]
@@ -2733,6 +2734,59 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             b.note(read->range.start, "and used again here")->child_first(
                 read->range,
             )
+
+            self.chain_notes(unsafe &b, e)
+            b.emit()
+        }
+    }
+
+    /// `h`'s writes to a plain binder whose mode the instance decides
+    /// (FunctionDecl::binder_write_site): at instance `e`, whose binder type
+    /// cannot be copied, the binder borrows its element read-only
+    /// (control-flow.mdx, Loop binders), and each write is refused here
+    /// rather than left to clang as a write through `const T&`.
+    priv fn _binder_writes_in(self,
+                              e: unsafe *InstanceEntry,
+                              h: unsafe *Declarations::FunctionDecl,
+                              d: *Deduction) {
+        for var i: usize = 0; i < h->binder_write_site.size() && i < h->binder_write_of.size(); ++i {
+            var unsafe *site = h->binder_write_site[i]
+            var unsafe *vd = dyn_cast<Declarations::VariableDecl>(
+                h->binder_write_of[i],
+            )
+
+            if site == &null || vd == &null || vd->type_ == &null {
+                continue
+            }
+
+            var unsafe *t = d->substitute(canon_unqual(vd->type_))
+            if t == &null || t->is_dependent() || t->is_instantiation_dependent() {
+                continue
+            }
+
+            if lifecycle_of(self.sc)->facts_of_type(t).copyable != LifecycleTri::No
+                && self.dropped_copy(t).ctor == &null {
+                continue
+            }
+
+            var nm   = self.sc->ctx->get_spelling(vd->name)
+            var ts   = self.tu.str(canon_unqual(t))
+            var inst = self._inst_name(e)
+            var b = self.sc->diag->report(
+                DiagID::SC071E,
+                e->use_at.start,
+                f"cannot change '{nm}' in '{inst}': it borrows its element, because '{ts}' cannot be copied",
+            )
+
+            b.first(e->use_at, f"'{inst}' is instantiated here")
+            b.note(site->range.start, f"'{nm}' is changed here")->child_first(
+                site->range,
+            )
+
+            b.note(
+                vd->name.range.start,
+                f"the binder '{nm}' copies its element where its type can be copied and borrows it, read-only, where it cannot; bind a local to change a copy, or bind '*{nm}' in a 'for' to change the element in place",
+            )->child_first(vd->name.range)
 
             self.chain_notes(unsafe &b, e)
             b.emit()

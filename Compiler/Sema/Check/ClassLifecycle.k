@@ -3364,3 +3364,39 @@ pub fn moves_on_pass(sc: unsafe *SemaContext, t: unsafe *Type) -> bool {
 
     return lifecycle_of(sc)->facts_of(d)->category == LifecycleCategory::Move
 }
+
+/// `t` (through a C++ reference) definitely cannot be copied: a record or a
+/// tuple whose facts say so. A type that hangs on a generic parameter is
+/// not one here; its instance decides (binder_mode_by_instance).
+///
+/// A plain `for` or `case` binder of such a type borrows its element
+/// read-only rather than copying it (control-flow.mdx, Loop binders).
+pub fn cannot_copy(sc: unsafe *SemaContext, t: unsafe *Type) -> bool {
+    if t == &null {
+        return false
+    }
+
+    var        tu = TypeUtil(sc)
+    var unsafe *c = tu.as_value(t)
+    if c == &null || c->is_dependent() || c->is_instantiation_dependent() {
+        return false
+    }
+
+    var unsafe *r = tu.record_decl(c)
+    if r == &null || isa<InterfaceDecl>(r) {
+        return false
+    }
+
+    if tu.is_tuple(c) {
+        return lifecycle_of(sc)->facts_of_type(c).copyable == LifecycleTri::No
+    }
+
+    return lifecycle_of(sc)->facts_of(r)->copyable == LifecycleTri::No
+}
+
+/// `t` hangs on a generic parameter, so whether a plain binder of it copies
+/// or borrows is each instance's: it borrows where the instance cannot copy
+/// the value.
+pub fn binder_mode_by_instance(t: unsafe *Type) -> bool {
+    return t != &null && (t->is_dependent() || t->is_instantiation_dependent())
+}

@@ -1,6 +1,6 @@
-// `for (k, v) in m` over a `{string: [i32]}` would copy each key and value,
-// and neither `string` nor `[i32]` can be copied in this library: SC182E at
-// each binder, with `const *` inserted before the name as the fix.
+// `for (k, v) in m` over a `{string: [i32]}`: neither `string` nor `[i32]`
+// can be copied in this library, so each plain binder borrows its part of
+// the entry, read-only, and nothing is copied.
 fn main() -> i32 {
     var m: {string: [i32]}
     m.insert("a", [1, 2])
@@ -14,9 +14,5 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // REQUIRES: newlib
-// RUN: { %kairo_new %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK:      :8:10: error [SC182E]: cannot copy a value of type 'string'
-// CHECK-NEXT: fix-it:"{{.*}}":{8:10-8:10}:"const *"
-// CHECK:      :8:13: error [SC182E]: cannot copy a value of type '[i32]'
-// CHECK-NEXT: fix-it:"{{.*}}":{8:13-8:13}:"const *"
+// RUN: { %kairo_new %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 // CHECK-NOT:  error [

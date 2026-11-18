@@ -696,6 +696,14 @@ pub class FunctionDecl
     /// _check_reuse). Recorded at the definition, in its own TU.
     pub var move_reuse_site: FrozenList<unsafe *Expr>
     pub var move_reuse_read: FrozenList<unsafe *Expr>
+    /// A generic body's writes to a plain binder whose mode its instance
+    /// decides (VariableDecl::borrow_inst): `binder_write_site[i]` changes
+    /// or gives away the binder `binder_write_of[i]`, parallel. An instance
+    /// at which the binder's type cannot be copied binds it read-only, and
+    /// reports each (ConformanceChecking::_check_reuse). Recorded by
+    /// MoveCheck at the definition, in its own TU.
+    pub var binder_write_site: FrozenList<unsafe *Expr>
+    pub var binder_write_of:   FrozenList<unsafe *Decl>
     /// What a call leaves moved-from in the caller's storage (MoveCheck):
     /// one MoveOut per part, `move_out_path` their paths, `move_out_panic`
     /// the panic types of the parts moved on a panic, and
@@ -1068,6 +1076,18 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     /// this in, so every const reader is too. Never set with Const or Eval
     /// storage (`eval const` is plain `eval`).
     pub var const_binding: bool = false
+    /// A `for` or `case` binder bound to its element by reference to const
+    /// (control-flow.mdx, Loop binders): a `const` binder, or a plain one
+    /// whose type cannot be copied. It is read-only, so is_const() folds it
+    /// in and every const rule applies to it; lowering declares it
+    /// `const T&`. Written by StmtTyping and PatternTyping.
+    pub var borrows: bool = false
+    /// A plain `for` or `case` binder of a generic parameter's type: it
+    /// borrows at an instance that cannot copy the element and copies at
+    /// every other, so EmitIR declares it through
+    /// LowerTargets::binder_type. A write to it is judged per instance
+    /// (FunctionDecl::binder_write_site).
+    pub var borrow_inst: bool = false
     /// A body local that shadows a visible local of the same name, as a
     /// `const` rebinding in one scope or any binding in an inner one
     /// (variables.mdx, Shadowing): one more than the binding it hides, 0
@@ -1151,6 +1171,7 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
         return self.storage == StorageClass::Const
             || self.storage == StorageClass::Eval
             || self.const_binding
+            || self.borrows
     }
 
     pub fn is_static(self) -> bool {

@@ -1,9 +1,9 @@
-// A plain binder that destructures a part of a value is a copy of that
-// part: over a tuple yield's pointer part (`-> yield (*const K, *const V)`)
-// a copy of what it points at. A part that cannot be copied is refused at
-// the binder, with `const *k` as the fix. `var (x, y) = t` over a named
-// tuple of MOVE parts moves the tuple, so a later read of it is SC052E.
-// `case var v` is a copy of what it matched; `case const v` reads it.
+// A plain `for` binder over a tuple yield's pointer part
+// (`-> yield (*const K, *const V)`) whose type cannot be copied borrows what
+// the part points at, read-only, as a `const` binder does: no copy and no
+// error. `var (x, y) = t` over a named tuple of MOVE parts moves the tuple,
+// so a later read of it is SC052E. `case var v` of a type that cannot be
+// copied reads what it matched in place, as `case const v` does.
 
 class Str {
     pub var n: i32 = 0
@@ -50,16 +50,7 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT:  error
-// CHECK:      :29:10: error [SC182E]: cannot copy a value of type 'Str': it declares a move constructor and no copy constructor
-// CHECK-NEXT: fix-it:"{{.*}}":{29:10-29:10}:"const *"
-// CHECK-NEXT: :29:10: note [I900N]: the loop binder 'k' is a copy of its part of each element; bind 'const *k' for a pointer to it instead
-// CHECK:      :29:13: error [SC182E]: cannot copy a value of type 'Str': it declares a move constructor and no copy constructor
-// CHECK-NEXT: fix-it:"{{.*}}":{29:19-29:19}:"*"
-// CHECK-NEXT: :29:13: note [I900N]: the loop binder 'v' is a copy of its part of each element; bind 'const *v' for a pointer to it instead
 // CHECK-NOT:  :33:{{[0-9]+}}: error
 // CHECK:      :39:24: error [SC052E]: 'pair' is used after being moved
 // CHECK-NEXT: :38:18: note [I900N]: 'pair' was moved here, into the destructured binders
-// CHECK:      :44:14: error [SC182E]: cannot copy a value of type 'Str': it declares a move constructor and no copy constructor
-// CHECK-NEXT: fix-it:"{{.*}}":{44:14-44:17}:"const"
-// CHECK-NEXT: :44:14: note [I900N]: the binder 'var s' is a copy of what it matched; 'const s' reads it in place
 // CHECK-NOT:  error [

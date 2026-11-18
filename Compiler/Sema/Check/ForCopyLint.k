@@ -27,7 +27,8 @@
 ///       read may be the next inner iteration's.
 ///     - `&x` that is not an `@inout` marker, or any mention of `x` inside
 ///       a closure: the copy escapes, and its later uses are not in order.
-///     - `for *x`, a `const` binder, an element that is a pointer or a C++
+///     - `for *x`, a `const` binder, a binder that borrows its element
+///       (VariableDecl::borrows, borrow_inst), an element that is a pointer or a C++
 ///       reference, a dependent element type, an integer range (RangeLit /
 ///       RangeValue), a pack, an `eval for`.
 ///
@@ -359,6 +360,11 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
         for var i: usize = 0; i < n->bindings.size(); ++i {
             var unsafe *b = n->bindings.get(i)
             if b->is_discard || b->is_const || b->name == &null || b->decl == &null {
+                continue
+            }
+
+            // A borrowing binder is read-only: a write to it is an error.
+            if b->decl->borrows || b->decl->borrow_inst {
                 continue
             }
 

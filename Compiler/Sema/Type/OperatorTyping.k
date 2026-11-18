@@ -142,6 +142,10 @@ import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
 import Sema::Check::ConstEval::ConstEval
 import Sema::Resolve::ConversionHop::ConversionHop
+import Sema::Type::BinderBorrow::{
+    borrowed_binder_of,
+    note_borrowed_binder,
+}
 import Sema::Type::Conversion::ImplicitRank
 import Sema::Type::MemberTyping::{
     SUB_SOFT,
@@ -3770,7 +3774,13 @@ pub class <T: type> OperatorTyping {
 
         var part = if (is_field) => ("a field") else => "an element"
         var msg  = "cannot " + verb + " a const place"
-        if by_decl {
+        // A plain binder is read-only because it borrows (BinderBorrow).
+        var unsafe *bb = if (by_decl || by_owner) => (borrowed_binder_of(x)) else => &null
+        if bb != &null && by_decl {
+            msg = "cannot " + verb + " \x27" + nm + "\x27: it borrows its element"
+        } else if bb != &null {
+            msg = "cannot " + verb + " " + part + " of \x27" + nm + "\x27: \x27" + nm + "\x27 borrows its element"
+        } else if by_decl {
             msg = "cannot " + verb + " \x27" + nm + "\x27: it is const"
         } else if by_owner {
             msg = "cannot " + verb + " " + part + " of \x27" + nm + "\x27: \x27" + nm + "\x27 is const"
@@ -3788,7 +3798,9 @@ pub class <T: type> OperatorTyping {
             )
 
             b.first(lhs->range)
-            if at.is_valid() {
+            if bb != &null {
+                note_borrowed_binder(self.dyn()->sc, &b, bb)
+            } else if at.is_valid() {
                 var why = "declared const here"
                 if (!by_decl) && (!by_owner) {
                     why = "declared as a pointer to const here"

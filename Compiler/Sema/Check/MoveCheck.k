@@ -246,6 +246,10 @@ import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
 }
+import Sema::Type::BinderBorrow::{
+    borrowed_binder_of,
+    note_borrowed_binder,
+}
 import Sema::Type::TypeUtil::TypeUtil
 import Token::Token::Token
 import Token::TokenKind::TokenKind
@@ -408,6 +412,9 @@ pub class PendingMove {
     pub var path:    string       = ""
     pub var site:    unsafe *Expr
     pub var is_pack: bool         = false ///< site is a PackExpansionExpr.
+    /// site is the left operand of a derived `op +` (MoveCheck::
+    /// _derived_operand): a later read leaves it a copy the type cannot make.
+    pub var is_derived: bool = false
     fn PendingMove(self) { }
 }
 
@@ -952,6 +959,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     priv var _reuse_site: cxx::std::vector<unsafe *Expr>
     priv var _reuse_read: cxx::std::vector<unsafe *Expr>
     priv var _reuse_decl: cxx::std::vector<unsafe *Decl>
+    /// The current body's plain binders whose mode each instance decides
+    /// (VariableDecl::borrow_inst): their writes are recorded on the
+    /// function when its walk ends (FunctionDecl::binder_write_site).
+    priv var _inst_binders: cxx::std::vector<unsafe *Decl>
+    /// The derived `a + b` whose left operand moves into the result if
+    /// nothing reads it again (_derived_operand), and for each demoted one
+    /// the read that followed it (site -> read, as u64).
+    priv var _derived_sites: cxx::std::vector<unsafe *Expressions::BinaryOperatorExpr>
+    priv var _derived_read:  llvm::DenseMap<u64, u64>
 
     fn MoveCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -1017,6 +1033,37 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self.sc->move_sites.insert(key)
             self.n_moves += 1
         }
+
+        self._settle_derived()
+    }
+
+    /// Each derived `a + b` whose left operand waited on a later read
+    /// (_derived_operand): never read again, `a` moves into the result;
+    /// read again on some path, or with its address taken, it is a copy
+    /// its type cannot make (SC182E).
+    priv fn _settle_derived(self) {
+        for var i: usize = 0; i < self._derived_sites.size(); ++i {
+            var unsafe *bo = self._derived_sites[i]
+            var        key = (bo->lhs as usize as u64)
+            var unsafe *x  = self._tu.strip_parens(bo->lhs)
+            var unsafe *d  = cast<NamedIdentExpr>(x)->resolved_decl
+            if self._demoted.count(key) == 0 && self._addr.count(d as usize as u64) == 0 {
+                self.sc->move_sites.insert(key)
+                self.n_moves += 1
+                continue
+            }
+
+            var read: unsafe *Expr = &null
+            var it                 = self._derived_read.find(key)
+            if it != self._derived_read.end() {
+                read = unsafe (it->second as usize as unsafe *Expr)
+            }
+
+            var nm = self._spelled(x)
+            var why = if (read != &null) => (f"'{nm}' is read again later, so it cannot be moved into the result")
+                      else => f"The address of '{nm}' is taken in this function, so it cannot be moved into the result"
+            self._derived_copy_error(bo, why, read)
+        }
     }
 
     /// # bodies
@@ -1073,9 +1120,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var saved_rs = self._reuse_site
         var saved_rr = self._reuse_read
         var saved_rd = self._reuse_decl
+        var saved_ib = self._inst_binders
         self._reuse_site.clear()
         self._reuse_read.clear()
         self._reuse_decl.clear()
+        self._inst_binders.clear()
         var unsafe *out = RecursiveASTVisitor<MoveCheck>::traverse_function_decl(
             self,
             n,
@@ -1103,9 +1152,20 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             n->move_reuse_read.from_vec(unsafe &self._reuse_read, self.sc->ctx)
         }
 
-        self._reuse_site = saved_rs
-        self._reuse_read = saved_rr
-        self._reuse_decl = saved_rd
+        if self._inst_binders.size() > 0 && n->body_block != &null {
+            var scan = BinderWriteScan()
+            scan.binders = self._inst_binders
+            scan.dyn()->dispatch_stmt(unsafe (n->body_block as unsafe *Stmt))
+            if scan.sites.size() > 0 {
+                n->binder_write_site.from_vec(unsafe &scan.sites, self.sc->ctx)
+                n->binder_write_of.from_vec(unsafe &scan.of, self.sc->ctx)
+            }
+        }
+
+        self._reuse_site   = saved_rs
+        self._reuse_read   = saved_rr
+        self._reuse_decl   = saved_rd
+        self._inst_binders = saved_ib
         return out
     }
 
@@ -2601,7 +2661,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         )
 
         var unsafe *vd = dyn_cast<VariableDecl>(n->decl)
-        if n->is_const || vd == &null || vd->type_ == &null || vd->is_poisoned() {
+        if vd != &null && vd->borrow_inst {
+            self._inst_binders.push_back(unsafe (vd as unsafe *Decl))
+        }
+
+        // A binder that borrows copies nothing (PatternTyping::_type_binder).
+        if n->is_const
+            || vd == &null
+            || vd->borrows
+            || vd->borrow_inst
+            || vd->type_ == &null
+            || vd->is_poisoned() {
             return out
         }
 
@@ -4203,6 +4273,22 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
+        // A borrowing binder is no local C++ moves on its own: returning it
+        // copies the element it borrows.
+        var unsafe *bv = dyn_cast<VariableDecl>(
+            cast<NamedIdentExpr>(self._tu.strip_parens(v))->resolved_decl,
+        )
+
+        if v != &null && bv != &null && (bv->borrows || bv->borrow_inst) {
+            self._transfer(
+                v,
+                "out of the function",
+                if (self._fn != &null) => (self._fn->return_type) else => &null,
+            )
+
+            return
+        }
+
         // A returned local or by-value parameter converted to the return
         // type (`return x` of an `M` from a `-> M?` function) is spelled as
         // the conversion, which is no longer the bare name C++ moves on its
@@ -4495,7 +4581,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // `const p` are const by their root (place_has_const_root). A slot
         // that only borrows (`copies` false) takes no copy.
         if self._const_place(x) || self._const_root(e) || place_has_const_root(x) {
-            if copies {
+            var unsafe *bb = borrowed_binder_of(e)
+            if copies && bb != &null {
+                self._no_copy(
+                    e,
+                    f"'{self._spelled(x)}' borrows its element, so the transfer {how} cannot move it away, and moving is the only transfer its type has",
+                    true,
+                    bb,
+                )
+            } else if copies {
                 self._no_copy(
                     e,
                     f"'{self._spelled(x)}' is const, so the transfer {how} cannot move it, and moving is the only transfer its type has",
@@ -4730,9 +4824,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return !p->is_self && p->mode == ParamMode::Value
         }
 
+        // A borrowing binder (VariableDecl::borrows, borrow_inst) holds no
+        // value of its own to move.
         if isa<VariableDecl>(d) {
             var unsafe *v = cast<VariableDecl>(d)
-            return v->storage == StorageClass::Var && self._fn->range.contains(v->range.start)
+            return v->storage == StorageClass::Var
+                && !v->borrows
+                && !v->borrow_inst
+                && self._fn->range.contains(v->range.start)
         }
 
         return false
@@ -4819,8 +4918,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// SC182E at `e`, whose value is copied and cannot be: `why` says why
     /// the copy is the transfer here. False when the type can be copied.
     /// With `offer`, a place whose type copies itself gets the `.copy()`
-    /// fix-it (_offer_copy).
-    priv fn _no_copy(self, e: unsafe *Expr, const why: string, offer: bool = true) -> bool {
+    /// fix-it (_offer_copy). `bb`: the borrowing binder `e` reads, which
+    /// gets its own note (BinderBorrow). `later`: a read of `e` after the
+    /// copy, which is why it cannot be a move.
+    priv fn _no_copy(self,
+                     e:         unsafe *Expr,
+                     const why: string,
+                     offer:     bool                 = true,
+                     bb:        unsafe *VariableDecl = &null,
+                     later:     unsafe *Expr         = &null) -> bool {
         var tf               = LifecycleFacts()
         var rd: unsafe *Decl = &null
         var unsafe *facts = self._uncopyable_facts(
@@ -4844,6 +4950,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         b.note(e->range.start, why)
         if offer {
             self._offer_copy(&b, e)
+        }
+
+        if bb != &null {
+            note_borrowed_binder(self.sc, &b, bb)
+        }
+
+        if later != &null {
+            b.note(later->range.start, "read again here")->child_first(
+                later->range,
+            )
         }
 
         if rd != &null {
@@ -4980,6 +5096,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
+        for var i: usize = 0; i < n->bindings.size(); ++i {
+            var unsafe *ib = n->bindings.get(i)->decl
+            if ib != &null && ib->borrow_inst {
+                self._inst_binders.push_back(unsafe (ib as unsafe *Decl))
+            }
+        }
+
         if n->bindings.size() == 1 {
             self._for_binder_copy(n, n->bindings.get(0), false)
             return
@@ -5031,6 +5154,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                              pointer_part: bool) {
         var unsafe *bd = bn->decl
         if bd == &null || bd->type_ == &null || bd->is_poisoned() {
+            return
+        }
+
+        // A borrowing binder copies nothing (StmtTyping::_binder_modes).
+        if bd->borrows || bd->borrow_inst {
             return
         }
 
@@ -5115,8 +5243,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// `a + b` through an `op +` derived from `op +=` copies `a`, applies
     /// `+=` to the copy and yields it (operator-overloading.mdx, Compound
     /// assignment; OperatorLowering::_derived_sum). A temporary `a` is
-    /// built in the copy's place; an lvalue of a type that cannot be copied
-    /// is refused here, not in clang.
+    /// built in the copy's place. An lvalue `a` whose type cannot be copied
+    /// moves into the result instead when it is a local or a by-value
+    /// parameter that nothing reads again on any path, the next iteration
+    /// of a loop included (a PendingMove, settled by _settle_derived). A
+    /// right operand that names `a` reads it after the move, so `a + a` is
+    /// a copy. Any other place (a field, `*p`, an element, a const binding,
+    /// a global, a local captured by a closure) is refused here, with the
+    /// `.copy()` fix-it.
     priv fn _derived_operand(self, bo: unsafe *Expressions::BinaryOperatorExpr) {
         var unsafe *f = dyn_cast<FunctionDecl>(bo->resolved_op)
         if f == &null || bo->lhs == &null || bo->lhs->is_poisoned() {
@@ -5133,24 +5267,85 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        var sym  = self.sc->ctx->get_spelling(bo->op_token)
-        var csym = sym + "="
+        var sym               = self.sc->ctx->get_spelling(bo->op_token)
+        var csym              = sym + "="
+        var tf                = LifecycleFacts()
+        var rd:  unsafe *Decl = &null
+        if self._uncopyable_facts(bo->lhs->type_, unsafe &tf, unsafe &rd) == &null {
+            self._deprecated_copy(
+                bo->lhs->range,
+                bo->lhs->type_,
+                f"'{sym}' is derived from 'op {csym}', which copies its left operand '{self._spelled(x)}'",
+                &null,
+            )
 
-        if self._no_copy(
-            bo->lhs,
-            f"'{sym}' is derived from 'op {csym}': it copies its left operand '{self._spelled(x)}', applies '{csym}' to the copy and yields it; write '{self._spelled(x)} {csym} ...' to change it in place",
-            false,
-        ) {
-            bo->poison()
             return
         }
 
-        self._deprecated_copy(
-            bo->lhs->range,
-            bo->lhs->type_,
-            f"'{sym}' is derived from 'op {csym}', which copies its left operand '{self._spelled(x)}'",
+        var unsafe *d = if (isa<NamedIdentExpr>(x)) => (cast<NamedIdentExpr>(x)->resolved_decl)
+                        else => &null
+        var local = self._returned_local(x)
+            && !self._const_place(x)
+            && !place_has_const_root(x)
+            && !self._names(bo->rhs, d)
+        if !local {
+            var nm = self._spelled(x)
+            var why = f"'{nm}' is not a local variable or by-value parameter read for the last time here, so it cannot be moved into the result"
+            if d != &null && self._names(bo->rhs, d) {
+                why = f"The right operand reads '{nm}' too, so it cannot be moved into the result"
+            }
+
+            self._derived_copy_error(bo, why, &null)
+            return
+        }
+
+        var pm = PendingMove()
+        pm.d          = d
+        pm.path       = ""
+        pm.site       = bo->lhs
+        pm.is_derived = true
+        self._st.add_pending(pm)
+        for var i: usize = 0; i < self._derived_sites.size(); ++i {
+            if self._derived_sites[i] == bo {
+                return
+            }
+        }
+
+        self._derived_sites.push_back(bo)
+    }
+
+    /// SC182E at the left operand of the derived `bo`, which copies it:
+    /// `why` says why it cannot move instead, `read` (or null) is the read
+    /// that follows it.
+    priv fn _derived_copy_error(self,
+                                bo:        unsafe *Expressions::BinaryOperatorExpr,
+                                const why: string,
+                                read:      unsafe *Expr) {
+        var unsafe *x   = self._tu.strip_parens(bo->lhs)
+        var        nm   = self._spelled(x)
+        var        sym  = self.sc->ctx->get_spelling(bo->op_token)
+        var        csym = sym + "="
+        if self._no_copy(
+            bo->lhs,
+            f"'{sym}' is derived from 'op {csym}': it copies its left operand '{nm}', applies '{csym}' to the copy and yields it; write '{nm} {csym} ...' to change it in place. {why}",
+            true,
             &null,
-        )
+            read,
+        ) {
+            bo->poison()
+        }
+    }
+
+    /// `e` names the binding `d` anywhere.
+    priv fn _names(self, e: unsafe *Expr, d: unsafe *Decl) -> bool {
+        if e == &null || d == &null {
+            return false
+        }
+
+        var scan = NameScan()
+        scan.d = d
+        scan.dyn()->dispatch_expr(e)
+        return scan.found
     }
 
     /// # literals
@@ -5623,6 +5818,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
+        // A binder that borrows at an instance that cannot copy it is never
+        // moved from: it copies, and that instance is told it cannot.
+        if isa<VariableDecl>(d) && cast<VariableDecl>(d)->borrow_inst {
+            self._instance_copy(e)
+            return
+        }
+
         var pm = PendingMove()
         pm.d    = d
         pm.path = pl.path.copy()
@@ -5696,7 +5898,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 }
             }
 
-            if !seen && at != &null {
+            if pm.is_derived {
+                if at != &null && self._derived_read.count(pm.site as usize as u64) == 0 {
+                    self._derived_read[pm.site as usize as u64] = at as usize as u64
+                }
+            } else if !seen && at != &null {
                 self._reuse_site.push_back(pm.site)
                 self._reuse_read.push_back(at)
                 self._reuse_decl.push_back(d)
@@ -6601,5 +6807,107 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         b.emit()
         n->poison()
         self.n_errored += 1
+    }
+}
+
+/// The writes in a generic body to its plain binders whose mode each
+/// instance decides (VariableDecl::borrow_inst): an assignment or compound
+/// assignment to the binder or a part of it, `++` / `--`, its address taken
+/// for writing (`&x`, an `@inout` marker), and a call of a method that is
+/// not `const` on it. An instance that cannot copy the binder's type binds
+/// it read-only, so each of these is an error there
+/// (ConformanceChecking::_check_reuse).
+pub class BinderWriteScan derives RecursiveASTVisitor<BinderWriteScan> {
+    pub var binders: cxx::std::vector<unsafe *Decl>
+    pub var sites:   cxx::std::vector<unsafe *Expr>
+    pub var of:      cxx::std::vector<unsafe *Decl>
+
+    fn BinderWriteScan(self) { }
+
+    /// The binder of `binders` that `e`, a place, is rooted at: `x`,
+    /// `x.f`, `x[i]`, parens aside.
+    priv fn _root(self, e: unsafe *Expr) -> unsafe *Decl {
+        var unsafe *x = e
+        while x != &null {
+            if isa<Expressions::ParenExpr>(x) {
+                x = cast<Expressions::ParenExpr>(x)->inner
+            } else if isa<ChainExpr>(x) {
+                x = cast<ChainExpr>(x)->base
+            } else if isa<Expressions::SubscriptExpr>(x) {
+                x = cast<Expressions::SubscriptExpr>(x)->base
+            } else {
+                break
+            }
+        }
+
+        if x == &null || !isa<NamedIdentExpr>(x) {
+            return &null
+        }
+
+        var unsafe *d = cast<NamedIdentExpr>(x)->resolved_decl
+        for var i: usize = 0; i < self.binders.size(); ++i {
+            if self.binders[i] == d {
+                return d
+            }
+        }
+
+        return &null
+    }
+
+    priv fn _note(self, site: unsafe *Expr, place: unsafe *Expr) {
+        var unsafe *d = self._root(place)
+        if d != &null {
+            self.sites.push_back(site)
+            self.of.push_back(d)
+        }
+    }
+
+    fn visit_assign_operator_expr(self, n: *Expressions::AssignOperatorExpr) -> bool {
+        self._note(unsafe (n as unsafe *Expr), n->lhs)
+        return true
+    }
+
+    fn visit_unary_operator_expr(self, n: *Expressions::UnaryOperatorExpr) -> bool {
+        var k = n->op_token.kind
+        if k == TokenKind::OpPlusPlus
+            || k == TokenKind::OpMinusMinus
+            || k == TokenKind::OpAmp && !n->const_addr {
+            self._note(unsafe (n as unsafe *Expr), n->operand)
+        }
+
+        return true
+    }
+
+    fn visit_call_expr(self, n: *Expressions::CallExpr) -> bool {
+        var unsafe *c = dyn_cast<ChainExpr>(n->callee)
+        if c == &null || c->steps.size() == 0 {
+            return true
+        }
+
+        var unsafe *f = dyn_cast<FunctionDecl>(
+            c->steps.get(c->steps.size() - 1)->resolved_decl,
+        )
+
+        if f != &null && f->is_method() && !f->is_const() {
+            self._note(unsafe (n as unsafe *Expr), c->base)
+        }
+
+        return true
+    }
+}
+
+/// Whether an expression names one binding anywhere inside it.
+pub class NameScan derives RecursiveASTVisitor<NameScan> {
+    pub var d:     unsafe *Decl = &null
+    pub var found: bool         = false
+
+    fn NameScan(self) { }
+
+    fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
+        if n->resolved_decl == self.d {
+            self.found = true
+        }
+
+        return true
     }
 }

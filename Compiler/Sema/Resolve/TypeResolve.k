@@ -5542,6 +5542,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     ///   - a bare type parameter, `extend <T> T` with or without bounds, and
     ///     `extend <T> T?` (SC284E): a target that matches every type (or
     ///     every nullable one) would join the member lookup of all of them.
+    ///   - a union, plain or generic, and through an alias (SC361E): a union
+    ///     is a raw memory overlay with no behavior (unions.mdx, No Extends).
     /// A nullable of anything else is an ordinary target (`extend i32?`,
     /// `extend <T> [T]?`). A nullable POINTER is still a pointer.
     priv fn _reject_unextendable_target(self, n: unsafe *Declarations::ExtensionDecl) {
@@ -5571,6 +5573,10 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             id = DiagID::SC283E
             msg = "a function type cannot be extended; write a free function that takes the function as a parameter, or wrap it in a struct or class and extend that"
             what = "function type target"
+        } else if !nullable && self._is_union_target(c) {
+            id = DiagID::SC361E
+            msg = "a union cannot be extended; unions are raw memory overlays with no behavior: wrap the union in a struct or class and add the behavior there"
+            what = "union target"
         } else if isa<GenericParamType>(c) || isa<SubstGenericParamType>(c) {
             id = DiagID::SC284E
             var sp    = self.sc->ctx->get_spelling(t->range)
@@ -5595,6 +5601,21 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // `Self` and `self` in the body still mean what was written and
         // cascade nothing. The TU has an error, so nothing is emitted.
         n->poison()
+    }
+
+    /// `c` names a union, or an instance of a generic one (unions.mdx, No
+    /// Extends).
+    priv fn _is_union_target(self, c: unsafe *Type) -> bool {
+        if c == &null || !isa<RecordType>(c) {
+            return false
+        }
+
+        var unsafe *d = cast<RecordType>(c)->decl
+        if d != &null && decl_is_instance(d) {
+            d = decl_instantiated_from(d)
+        }
+
+        return d != &null && isa<Declarations::UnionDecl>(d)
     }
 
     /// An operator in an `extend T?` block. Operator typing

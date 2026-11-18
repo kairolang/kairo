@@ -1,6 +1,6 @@
-// A `var` binding in a pattern is a copy of what it matched, so a value that
-// cannot be copied is refused there (SC182E) and bound with `const` instead,
-// which reads it in place. A binder of a loop over a generator's MOVE values
+// A `var` binding in a pattern of a value that cannot be copied reads what
+// it matched in place, read-only, as `const` does: neither is an error
+// (control-flow.mdx, loop binders). A binder of a loop over a generator's MOVE values
 // is an ordinary local: moved onward, it is not read again. `var (x, y) = t`
 // over a tuple of MOVE parts moves the tuple (pattern-matching.mdx, ADT
 // destructuring; control-flow.mdx, loop binders; ownership.mdx).
@@ -31,7 +31,7 @@ fn gen(n: i32) -> yield Tok {
 
 fn var_binder_copies_move_only(m: Msg) -> i32 {
     match m {
-        case .Data(var t) { return t.id } //! SC182E
+        case .Data(var t) { return t.id }
         default { return 0 }
     }
 }
@@ -46,7 +46,7 @@ fn const_binder_reads_in_place(m: Msg) -> i32 {
 fn nullable_var_binder(o: Tok?) -> i32 {
     match o {
         case null { return 0 }
-        case var s { return s.id } //! SC182E
+        case var s { return s.id }
     }
 }
 
@@ -119,7 +119,5 @@ fn scrutinee_not_moved_by_const_match(m: Msg) -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
-// CHECK: patterns_and_binders.k:34:{{[0-9]+}}: error [SC182E]:
-// CHECK: patterns_and_binders.k:49:{{[0-9]+}}: error [SC182E]:
 // CHECK: patterns_and_binders.k:63:{{[0-9]+}}: error [SC052E]:
 // CHECK: patterns_and_binders.k:84:{{[0-9]+}}: error [SC052E]:

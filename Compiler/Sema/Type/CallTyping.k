@@ -2537,8 +2537,10 @@ pub class <T: type> CallTyping {
         // the scope, which makes every call below it a checked one through
         // a duck-typed receiver (TODO(DUCK-GENERIC)); resolve writes none of
         // the context, so restoring call_syntax alone is the whole restore.
-        var outer_cs = self.dyn()->ovl.call_syntax
+        var outer_cs     = self.dyn()->ovl.call_syntax
+        var outer_callee = self.dyn()->ovl.call_callee
         self.dyn()->ovl.call_syntax = true
+        self.dyn()->ovl.call_callee = n->callee
         var r = self.dyn()->ovl.resolve(
             &all,
             &args,
@@ -2550,6 +2552,7 @@ pub class <T: type> CallTyping {
         )
 
         self.dyn()->ovl.call_syntax = outer_cs
+        self.dyn()->ovl.call_callee = outer_callee
         if r.outcome == OvlOutcome::Dependent {
             self._check_forwarded_pack(n, all, args)
             // A range literal waited for its parameter (range_literal_shape)

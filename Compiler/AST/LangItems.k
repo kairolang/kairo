@@ -2574,6 +2574,16 @@ pub class LowerTargets {
         return "__kairo_xfer"
     }
 
+    /// `template <class T> using __kairo_bind_t = ...`: `T` when T can be
+    /// copied from an lvalue, `const T&` when it cannot. A generic body's
+    /// plain binder whose mode its instance decides (VariableDecl::
+    /// borrow_inst) is declared with it: a copy at a COPY instance, a
+    /// read-only borrow at one that cannot copy. Defined beside
+    /// instance_move, under the same guard.
+    pub static fn binder_type() -> string {
+        return "__kairo_bind_t"
+    }
+
     /// The header guard around instance_move's definition.
     pub static fn instance_move_guard() -> string {
         return "__KAIRO_XFER"

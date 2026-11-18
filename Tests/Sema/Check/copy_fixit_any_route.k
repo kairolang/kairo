@@ -2,9 +2,9 @@
 // explicit `.copy()` when `.copy()` on the type calls a public
 // `fn copy(const self) -> Self`: declared in the class, or in an `extend`
 // of it whose bounds the type meets. An extension whose bound the type does
-// not meet offers nothing. A loop binder and the left operand of a derived
-// `op +` get no fix-it: the binder is no expression, and `a += b` is the
-// change the operand note already names.
+// not meet offers nothing. A local left operand of a derived `op +` at its
+// last use moves into the result, and a plain loop binder of such a type
+// borrows its element: neither copies, so neither is an error.
 
 interface Dup {
     fn dup(const self) -> i32
@@ -147,8 +147,4 @@ fn main() -> i32 = 0
 // CHECK-NEXT: :101:18: note [I900N]: 'Str' has a 'copy' method: write 's.copy()' for an explicit copy
 // CHECK-NEXT: fix-it:"{{.*}}":{101:18-101:18}:".copy()"
 // CHECK-NOT:  error
-// CHECK:      :106:13: error [SC182E]: cannot copy a value of type 'Str': it declares a move constructor and no copy constructor
-// CHECK-NOT:  fix-it
-// CHECK:      :113:9: error [SC182E]: cannot copy a value of type 'Str': it declares a move constructor and no copy constructor
-// CHECK-NOT:  fix-it
 // CHECK-NOT:  error [
