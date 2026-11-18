@@ -7193,3 +7193,31 @@ group = "optimizer-hints"
     unsafe { @assume(n > 0) }
     ```
     """
+
+[SC363]
+brief = "constant pointer offset outside a fixed array"
+group = "type-check"
+
+    [SC363.E]
+    explain = """
+    # constant pointer offset outside a fixed array
+
+    a safe pointer into a fixed array `[T; N]` is offset by a constant (`p + k`, `p - k`), and the
+    result is before the first element or past one past the last. a safe pointer stays within its
+    array or exactly one past its end, so the arithmetic can only be wrong, and it is reported where
+    it is written instead of being left to run.
+
+    the pointer is `&a[i]` with a constant `i`, written in place or as the initializer of a local
+    that nothing assigns to afterwards.
+
+    ```kairo
+    var a: [i32; 3] = [1, 2, 3]
+    var *p = &a[0]
+    var *q = p + 5        // error: offset 5 is outside '[i32; 3]', which allows 0 to 3
+    var *e = p + 3        // fine: one past the end
+    ```
+
+    ## how to fix
+
+    keep the offset from `0` to `N`, or index the array instead.
+    """
