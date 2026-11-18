@@ -1,22 +1,12 @@
-// Every consumer gives what a `next` loop over the same chain gives, and
-// pulls the same number of items from its source to get it. Each chain
-// below is built twice from one seed: `by_next` consumes it by calling
-// `next` and nothing else, `by_run` calls the consumer. The two digests and
-// the two pull counts must agree, for every consumer (those that stop early
-// included), with zero to three items pulled by hand before the consumer
-// runs. Inputs, lengths and the `take` / `skip` / `step_by` arguments come
-// from a seeded generator; a failure prints the chain, the consumer and the
-// seed.
-
 import std::iter::*
 import std::io
 
-var pulls: i64 = 0
-var overruns: i64 = 0
-var failed: i32 = 0
-var each_acc: u64 = 0
+pub static pulls: i64 = 0
+pub static overruns: i64 = 0
+pub static failed: i32 = 0
+pub static each_acc: u64 = 0
 
-fn scramble(x: u64) -> u64 {
+pub fn scramble(x: u64) -> u64 {
     var z = x + 0x9E3779B97F4A7C15u64
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9u64
     z = (z ^ (z >> 27)) * 0x94D049BB133111EBu64
@@ -25,7 +15,7 @@ fn scramble(x: u64) -> u64 {
 
 /// Yields `n` values in [0, 100) drawn from `seed`, counting every pull and
 /// every pull made after the end.
-class Source {
+pub class Source {
     var state: u64
     var left:  i64
     var ended: bool
@@ -59,7 +49,7 @@ extend Source impl Iterator {
 /// `n` values in [0, 100) drawn from `seed`, read from either end, with
 /// their count. Every pull from either end is counted, and every pull made
 /// after the end.
-class Deck {
+pub class Deck {
     var items: [i64]
     var lo:    usize
     var hi:    usize
@@ -116,7 +106,7 @@ extend Deck impl ExactSize {
 }
 
 /// Counts from `lo` up to `hi` (exclusive).
-class Span {
+pub class Span {
     var lo: i64
     var hi: i64
 
@@ -138,29 +128,29 @@ extend Span impl Iterator {
     }
 }
 
-fn add1(x: i64) -> i64 = x + 1
-fn third(x: *const i64) -> bool = *x % 3 == 0
-fn below70(x: *const i64) -> bool = *x < 70
-fn below30(x: *const i64) -> bool = *x < 30
-fn above90(x: *const i64) -> bool = *x > 90
-fn half_even(x: i64) -> i64? {
+pub fn add1(x: i64) -> i64 = x + 1
+pub fn third(x: *const i64) -> bool = *x % 3 == 0
+pub fn below70(x: *const i64) -> bool = *x < 70
+pub fn below30(x: *const i64) -> bool = *x < 30
+pub fn above90(x: *const i64) -> bool = *x > 90
+pub fn half_even(x: i64) -> i64? {
     if x % 2 == 0 {
         return x / 2
     }
 
     return null
 }
-fn spread(x: i64) -> Span = Span(x, x + x % 4)
-fn spread_two(x: i64) -> Iter<Take<Span>> = iter(Span(x, x + 5)).take(2)
-fn weigh(e: (usize, i64)) -> i64 = (e.0 as i64) * 1000 + e.1
-fn pair_sum(e: (i64, i64)) -> i64 = e.0 * 100 + e.1
-fn mix(acc: u64, x: i64) -> u64 = scramble(acc ^ (x as u64))
-fn larger(a: i64, b: i64) -> i64 = if a > b => a else => b - a
-fn note(x: i64) {
+pub fn spread(x: i64) -> Span = Span(x, x + x % 4)
+pub fn spread_two(x: i64) -> Iter<Take<Span>> = iter(Span(x, x + 5)).take(2)
+pub fn weigh(e: (usize, i64)) -> i64 = (e.0 as i64) * 1000 + e.1
+pub fn pair_sum(e: (i64, i64)) -> i64 = e.0 * 100 + e.1
+pub fn mix(acc: u64, x: i64) -> u64 = scramble(acc ^ (x as u64))
+pub fn larger(a: i64, b: i64) -> i64 = if a > b => a else => b - a
+pub fn note(x: i64) {
     each_acc = scramble(each_acc ^ (x as u64))
 }
 
-fn digest_of(const v: [i64]) -> u64 {
+pub fn digest_of(const v: [i64]) -> u64 {
     var d: u64 = v.size() as u64
     for var i: usize = 0; i < v.size(); i += 1 {
         d = mix(d, v[i])
@@ -169,10 +159,10 @@ fn digest_of(const v: [i64]) -> u64 {
     return d
 }
 
-const CONSUMERS: i32 = 16
+pub const CONSUMERS: i32 = 16
 
 /// The consumer `which`, written over `next` alone.
-fn <I impl Iterator> by_next(it: Iter<I>, which: i32, p: usize) -> u64 requires __builtin_is_same<I::Item, i64>() {
+pub fn <I impl Iterator> by_next(it: Iter<I>, which: i32, p: usize) -> u64 requires __builtin_is_same<I::Item, i64>() {
     var items: [i64]
     var stop_at: usize = 0xFFFFFFFF
     // The consumers that stop early stop pulling at the item that decides
@@ -310,15 +300,15 @@ fn <I impl Iterator> by_next(it: Iter<I>, which: i32, p: usize) -> u64 requires 
     return digest_of(items)
 }
 
-fn or_none(x: i64?) -> u64 {
+pub fn or_none(x: i64?) -> u64 {
     return if x? => unwrap!(x) as u64 else => 12345
 }
 
-fn index_or_none(x: usize?) -> u64 {
+pub fn index_or_none(x: usize?) -> u64 {
     return if x? => unwrap!(x) as u64 else => 12345
 }
 
-fn judge(const label: string, seed: u64, which: i32, p: usize, pre: usize, got: u64, want: u64, got_pulls: i64, want_pulls: i64) {
+pub fn judge(const label: string, seed: u64, which: i32, p: usize, pre: usize, got: u64, want: u64, got_pulls: i64, want_pulls: i64) {
     if got != want || got_pulls != want_pulls || overruns != 0 {
         failed += 1
         if failed < 20 {
@@ -331,7 +321,7 @@ fn judge(const label: string, seed: u64, which: i32, p: usize, pre: usize, got: 
 /// `pre` items pulled by hand first. A macro, so that each consumer is
 /// called on the chain's own type: the names `seed`, `which`, `p` and `pre`
 /// are the caller's.
-macro check!(label, chain) {
+pub macro check!(label, chain) {
     {
         pulls    = 0
         overruns = 0
@@ -407,7 +397,7 @@ macro check!(label, chain) {
     }
 }
 
-fn data(seed: u64, n: i64) -> [i64] {
+pub fn data(seed: u64, n: i64) -> [i64] {
     var v: [i64]
     var s = seed
     for var i: i64 = 0; i < n; i += 1 {
@@ -418,131 +408,9 @@ fn data(seed: u64, n: i64) -> [i64] {
     return v
 }
 
-fn counted(n: i64) -> yield i64 {
+pub fn counted(n: i64) -> yield i64 {
     for var i: i64 = 0; i < n; i += 1 {
         pulls += 1
         yield (i * 37) % 100
     }
 }
-
-/// Every chain, for one seed, one consumer and one count of items pulled by
-/// hand. `n` and `m` are source lengths; `k` and `j` the adapter arguments.
-fn round(seed: u64, which: i32, pre: usize) {
-    var r = scramble(seed)
-    var n = (r % 41) as i64
-    var m = ((r >> 8) % 23) as i64
-    var k = ((r >> 16) % 13) as usize
-    var j = ((r >> 24) % 5) as usize
-    var p = ((r >> 32) % 9) as usize
-    var s2 = seed ^ 0xABCDu64
-
-    check!("map", iter(Source(seed, n)).map<i64>(add1))
-    check!("filter", iter(Source(seed, n)).filter(third))
-    check!("filter_map", iter(Source(seed, n)).filter_map<i64>(half_even))
-    check!("flat_map", iter(Source(seed, n)).flat_map<Span>(spread))
-    check!("enumerate", iter(Source(seed, n)).enumerate().map<i64>(weigh))
-    check!("zip", iter(Source(seed, n)).zip(Source(s2, m)).map<i64>(pair_sum))
-    check!("chain", iter(Source(seed, n)).chain(Source(s2, m)))
-    check!("take", iter(Source(seed, n)).take(k))
-    check!("skip", iter(Source(seed, n)).skip(k))
-    check!("take_while", iter(Source(seed, n)).take_while(below70))
-    check!("skip_while", iter(Source(seed, n)).skip_while(below30))
-    check!("step_by", iter(Source(seed, n)).step_by(j + 1))
-    check!("peekable", iter(Source(seed, n)).peekable())
-
-    // An adapter that ends its own run, under one that goes on to a second
-    // part: the second part runs, and only after the first has ended.
-    check!("take.chain", iter(Source(seed, n)).take(k).chain(Source(s2, m)))
-    check!("take_while.chain", iter(Source(seed, n)).take_while(below70).chain(Source(s2, m)))
-    check!("zip.chain", iter(Source(seed, n)).zip(Source(s2, m)).map<i64>(pair_sum).chain(Source(s2, m)))
-    check!("step_by.chain", iter(Source(seed, n)).step_by(j + 1).chain(Source(s2, m)))
-    check!("flat_map(take)", iter(Source(seed, n)).flat_map<Iter<Take<Span>>>(spread_two))
-    check!("chain.flat_map", iter(Source(seed, n)).filter(third).chain(Source(s2, m)).flat_map<Span>(spread))
-
-    // Adapters that go on with their inner iterator after ending a run of
-    // their own over it.
-    check!("skip.take_while.skip_while.step_by", iter(Source(seed, n)).skip(k).take_while(below70).skip_while(below30).step_by(j + 1))
-    check!("flat_map.skip", iter(Source(seed, n)).flat_map<Span>(spread).skip(k))
-    check!("chain.skip_while", iter(Source(seed, n)).chain(Source(s2, m)).skip_while(below30))
-    check!("take.skip", iter(Source(seed, n)).map<i64>(add1).filter(third).take(k).skip(j))
-    check!("chain.take", iter(Source(seed, n)).chain(Source(s2, m)).take(k + 20))
-    check!("take.zip", iter(Source(seed, n)).take(k).zip(Source(s2, m)).map<i64>(pair_sum))
-    check!("peekable.skip.take", iter(Source(seed, n)).peekable().skip(j).take(k))
-    check!("enumerate.skip", iter(Source(seed, n)).enumerate().skip(k).map<i64>(weigh))
-
-    // A source with two ends and a count that counts its pulls: what an
-    // adapter drops from the back to reach its last item is pulled the same
-    // way by both paths.
-    check!("deck.rev", iter(Deck(seed, n)).rev())
-    check!("deck.take.rev", iter(Deck(seed, n)).take(k).rev())
-    check!("deck.take(0).rev", iter(Deck(seed, n)).take(0).rev())
-    check!("deck.skip.rev", iter(Deck(seed, n)).skip(k).rev())
-    check!("deck.enumerate.rev", iter(Deck(seed, n)).enumerate().rev().map<i64>(weigh))
-    check!("deck.zip.rev", iter(Deck(seed, n)).zip(Deck(s2, m)).rev().map<i64>(pair_sum))
-    check!("deck.rev.take", iter(Deck(seed, n)).rev().take(k))
-    check!("deck.map.take.rev", iter(Deck(seed, n)).map<i64>(add1).take(k).rev())
-    check!("deck.take.rev.skip", iter(Deck(seed, n)).take(k + 2).rev().skip(j))
-    check!("deck.skip.take.rev.take_while", iter(Deck(seed, n)).skip(j).take(k).rev().take_while(below70))
-
-    // A generator, which counts its own resumes.
-    check!("generator", iter(counted(n)).map<i64>(add1).filter(third))
-    check!("generator.take", iter(counted(n)).take(k))
-    check!("generator.skip.step_by", iter(counted(n)).skip(k).step_by(j + 1))
-
-    // A slice's `iter()`: its length is known, so `take` cuts it and `skip`
-    // and `step_by` count from it; it runs from either end.
-    var v = data(seed, n)
-    var w = data(s2, m)
-    var vs: [const i64;] = v
-    var ws: [const i64;] = w
-    check!("slice", iter(vs.iter()).copied())
-    check!("vector", iter(v.iter()).copied().map<i64>(add1))
-    check!("slice.take.rev", iter(vs.iter()).copied().take(k).rev())
-    check!("slice.skip.rev", iter(vs.iter()).copied().skip(k).rev())
-    check!("slice.enumerate.rev", iter(vs.iter()).copied().enumerate().rev().map<i64>(weigh))
-    check!("slice.zip.rev", iter(vs.iter()).copied().zip(iter(ws.iter()).copied()).rev().map<i64>(pair_sum))
-    check!("slice.chain(chain).rev", iter(vs.iter()).copied().chain(iter(ws.iter()).copied().take(k)).rev())
-    check!("slice.rev.copied", iter(vs.iter()).rev().take(k).copied())
-    check!("slice.rev", iter(vs.iter()).copied().rev())
-    check!("slice.rev.rev", iter(vs.iter()).copied().rev().rev())
-    check!("slice.map.rev", iter(vs.iter()).copied().map<i64>(add1).rev())
-    check!("slice.filter.rev", iter(vs.iter()).copied().filter(third).rev())
-    check!("slice.take", iter(vs.iter()).copied().map<i64>(add1).take(k))
-    check!("slice.rev.take", iter(vs.iter()).copied().rev().take(k))
-    check!("slice.enumerate.take", iter(vs.iter()).copied().enumerate().take(k).map<i64>(weigh))
-    check!("slice.skip.take", iter(vs.iter()).copied().skip(j).take(k))
-    check!("slice.take.take", iter(vs.iter()).copied().take(k + 3).take(k))
-    check!("slice.step_by", iter(vs.iter()).copied().step_by(j + 1))
-    check!("slice.rev.skip", iter(vs.iter()).copied().rev().skip(k))
-    check!("slice.zip", iter(vs.iter()).copied().zip(iter(ws.iter()).copied()).map<i64>(pair_sum))
-    check!("slice.zip.take", iter(vs.iter()).copied().zip(iter(ws.iter()).copied()).take(k).map<i64>(pair_sum))
-    check!("slice.chain", iter(vs.iter()).copied().chain(iter(ws.iter()).copied()))
-    check!("slice.chain.step_by", iter(vs.iter()).copied().chain(iter(ws.iter()).copied()).step_by(j + 1))
-    check!("slice.peekable.take", iter(vs.iter()).copied().peekable().take(k))
-}
-
-fn main() -> i32 {
-    var rounds: u64 = 0
-    for var seed: u64 = 1; seed <= 60; seed += 1 {
-        for var which: i32 = 0; which < CONSUMERS; which += 1 {
-            for var pre: usize = 0; pre < 4; pre += 1 {
-                round(seed * 0x1234567u64, which, pre)
-                rounds += 1
-            }
-        }
-    }
-
-    if failed != 0 {
-        io::println(f"{failed} of the comparisons failed")
-        return 1
-    }
-
-    return 0
-}
-
-// --- lit wiring ---
-// REQUIRES: newlib
-// RUN: rm -f %t.exe %t.O2.exe
-// RUN: rm -rf %t.d
-// RUN: %kairo_new -O2 %s -o %t.O2.exe --cache-dir %t.d
-// RUN: %t.O2.exe

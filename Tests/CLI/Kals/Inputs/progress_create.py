@@ -101,7 +101,9 @@ try:
     ok = wait_for(lambda: made(c), 30, c)
     print("refused: created:", "yes" if ok else "no")
     ok = wait_for(lambda: analysed(c), 120, c)
-    c.settle()
+    # `analysed` was seen above, and a settle would wait for a second one that
+    # never comes; the barrier returns once the server has finished its turn.
+    c.barrier()
     print("refused: progress:", " ".join(kinds(c)) or "none")
     print("refused: analysed:", "yes" if ok else "no")
     print("clean shutdown:", "yes" if c.stop() == 0 else "no")

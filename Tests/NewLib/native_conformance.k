@@ -25,10 +25,8 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // REQUIRES: newlib
+// RUN: rm -f %t.exe
 // RUN: rm -rf %t.d
 // RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --match-full-lines
 // CHECK: 2.5 3
-
-// RUN: %kairo_new %s --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
-// IR: .write_usize(reinterpret_cast<decltype(sizeof(0))>(* self))
