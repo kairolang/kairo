@@ -14,6 +14,8 @@
 ffi "c++" import "vector"
 ffi "c++" import "algorithm"
 
+import AST::ForeignReservedWords::is_cxx_keyword
+import Support::Ascii::is_ident_char
 import Token::IdentifierToken::IdentifierToken
 
 pub class ModulePath { // 256-bit class (32 bytes - max)
@@ -32,10 +34,41 @@ pub class ModulePath { // 256-bit class (32 bytes - max)
     }
 }
 
+/// `s`, a file or directory name, as one C++ identifier: any other byte
+/// (each byte of a multibyte character) becomes `_`, a leading digit gets a
+/// `_` before it, and a C++ keyword one after it (`operator` -> `operator_`;
+/// a trailing `_` cannot collide with another keyword). Idempotent.
+pub fn cxx_segment_of(const s: string) -> string {
+    var out = ""
+    for var i: usize = 0; i < s.size(); ++i {
+        var c = s.data()[i]
+        if is_ident_char(c) {
+            out.push(c)
+        } else {
+            out += "_"
+        }
+    }
+
+    if out.size() == 0 {
+        return "_"
+    }
+
+    if out.data()[0] >= ('0' as u8) && out.data()[0] <= ('9' as u8) {
+        return "_" + out
+    }
+
+    if is_cxx_keyword(out) {
+        return out + "_"
+    }
+
+    return out
+}
+
 /// `geo/vec.hh` for the module path `geo::vec`: where `--emit-headers` puts
-/// a module's header under its output directory. The one statement of that
-/// layout, for the emitter (Speller::header_path) and for kals, which tells
-/// the clangd bridge where the header is (Analyzer/Index/Worker.k).
+/// a module's header under its output directory, each segment spelled as a
+/// C++ identifier (cxx_segment_of). The one statement of that layout, for
+/// the emitter (Speller::header_path) and for kals, which tells the clangd
+/// bridge where the header is (Analyzer/Index/Worker.k).
 pub fn header_path_of(const segs: cxx::std::vector<string>) -> string {
     var s = ""
     for var i: usize = 0; i < segs.size(); ++i {
@@ -43,7 +76,7 @@ pub fn header_path_of(const segs: cxx::std::vector<string>) -> string {
             s += "/"
         }
 
-        s += segs[i]
+        s += cxx_segment_of(segs[i])
     }
 
     s += ".hh"

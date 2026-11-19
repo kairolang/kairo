@@ -23,7 +23,6 @@ import AST::Context::DeclContext::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts
-import AST::ForeignReservedWords::is_cxx_keyword
 import AST::LangItems::{
     LowerTargets,
     builtin_root_name,
@@ -59,6 +58,7 @@ import Codegen::Emit::SpellFacts
 import Codegen::Emit::SpellOperators
 import Codegen::Emit::SpellRecords
 import Codegen::Emit::SpellTypes
+import Resolution::ModulePath::cxx_segment_of
 import Support::Ascii::is_ident_char
 
 extend Speller {
@@ -226,30 +226,7 @@ extend Speller {
     /// a pathless TU's stem -- which reach the ABI only through here
     /// (invariant 9a).
     static fn cxx_segment(const s: string) -> string {
-        var out = ""
-        for var i: usize = 0; i < s.size(); ++i {
-            var c  = s.data()[i]
-            var ok = is_ident_char(c)
-            if ok {
-                out.push(c)
-            } else {
-                out += "_"
-            }
-        }
-
-        if out.size() == 0 {
-            return "_"
-        }
-
-        if out.data()[0] >= ('0' as u8) && out.data()[0] <= ('9' as u8) {
-            return "_" + out
-        }
-
-        if is_cxx_keyword(out) {
-            return out + "_"
-        }
-
-        return out
+        return cxx_segment_of(s)
     }
 
     /// `tu`'s first namespace segment as the module path spells it, before
