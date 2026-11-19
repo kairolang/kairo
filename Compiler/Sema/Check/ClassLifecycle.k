@@ -253,6 +253,7 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::NoteText::type_declared_here
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
+import Sema::Check::MoveSourceScan::MoveSourceScan
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -2329,6 +2330,40 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             )->emit()
             xfer->poison()
             self.n_errored += 1
+        }
+
+        // 3b. A move constructor with a body that only reads `other`, in a
+        //     class with a destructor: source and target both own the
+        //     resource, and the destructor runs on both.
+        if move_ctor != &null
+            && dtor != &null
+            && dtor->body_kind != FnBodyKind::Default
+            && dtor->body_kind != FnBodyKind::Delete
+            && move_ctor->body_kind == FnBodyKind::Block
+            && move_ctor->body_block != &null {
+            var src: unsafe *ParamDecl = &null
+            for var i: usize = 0; i < move_ctor->params.size(); ++i {
+                var unsafe *q = move_ctor->params[i]
+                if q != &null && !q->is_self {
+                    src = q
+                    break
+                }
+            }
+
+            if src != &null {
+                var scan = MoveSourceScan(unsafe (src as unsafe *Decl))
+                scan.scan(move_ctor->body_block)
+                if !scan.may_write() {
+                    self.sc->diag->report(
+                        DiagID::SC001W,
+                        move_ctor->range.start,
+                        f"the {LangAttrs::quoted(LangAttrs::transfer_move())} constructor of '{dn}' never writes '{self.sc->ctx->get_spelling(src->name)}', so both objects keep the resource and the destructor runs on each",
+                    ).first(move_ctor->range)->note(
+                        dtor->range.start,
+                        "the destructor is here; reset the source's fields in the constructor",
+                    )->child_first(dtor->range)->emit()
+                }
+            }
         }
 
         // 4. Custom destructor, implicit copy: almost always an owned
