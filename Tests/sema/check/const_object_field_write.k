@@ -114,7 +114,7 @@ fn main() -> i32 { return 0 }
 // CHECK: {{.*}}const_object_field_write.k:36:11: note [I900N]: 'c' declared const here
 // CHECK: {{.*}}const_object_field_write.k:42:5: error [SC071E]: cannot increment or decrement a field of 'c': 'c' is const
 // CHECK: {{.*}}const_object_field_write.k:36:11: note [I900N]: 'c' declared const here
-// CHECK: {{.*}}const_object_field_write.k:43:5: error [SC071E]: cannot assign to an element of 'c': 'c' is const
+// CHECK: {{.*}}const_object_field_write.k:43:5: error [SC071E]: cannot write through 'c.items[0]': its container is const, and 'op []=' takes 'self'
 // CHECK: {{.*}}const_object_field_write.k:36:11: note [I900N]: 'c' declared const here
 // CHECK: {{.*}}const_object_field_write.k:44:5: error [SC071E]: cannot assign to a field of 'g': 'g' is const
 // CHECK: {{.*}}const_object_field_write.k:28:7: note [I900N]: 'g' declared const here

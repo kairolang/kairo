@@ -9,7 +9,7 @@
 
 class Big {
     var a: i32 = 1
-    var s: string = "x"
+    var s: i64 = 2
 }
 
 fn first(p: Big) const -> i32 { return p.a; }

@@ -51,10 +51,10 @@ fn main() -> i32 {
 // no backing array, and no container is transferred.
 // RUN: %kairo %s --print-ir 2>/dev/null | %FileCheck %s --check-prefix=CXX
 // CXX: Vector< ::move_only_vector::M> w = ::builtin::containers::vector::Vector< ::move_only_vector::M>();
-// CXX-NEXT: w.reserve(static_cast<decltype(sizeof(0))>(3));
-// CXX-NEXT: w.push(static_cast< ::move_only_vector::M &&>(a));
-// CXX-NEXT: w.push( ::move_only_vector::M(11));
-// CXX-NEXT: w.push( ::move_only_vector::M(12));
+// CXX-NEXT: __kairo_ext_Vector::reserve<{{.*}}move_only_vector::M>((& w), static_cast<decltype(sizeof(0))>(3));
+// CXX-NEXT: __kairo_ext_Vector::push<{{.*}}move_only_vector::M>((& w), static_cast<{{.*}}move_only_vector::M &&>(a));
+// CXX-NEXT: __kairo_ext_Vector::push<{{.*}}move_only_vector::M>((& w), {{.*}}move_only_vector::M(11));
+// CXX-NEXT: __kairo_ext_Vector::push<{{.*}}move_only_vector::M>((& w), {{.*}}move_only_vector::M(12));
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

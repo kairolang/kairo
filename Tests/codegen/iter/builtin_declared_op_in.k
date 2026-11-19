@@ -3,19 +3,8 @@
 // The IterKind::Vector / String shapes are only the fallback for a builtin
 // that declares no iteration form, and that fallback is still SC116E.
 //
-// Vector declares its `op in` in Lib/builtin (containers/vector.k); string
-// declares none, so its operator comes from an extension in this file.
-
-extend string {
-    fn op in (self) -> yield u8 {
-        var i: usize = 0
-        while i < self.length() {
-            var b = self.as_ptr()[i]
-            yield b
-            i = i + 1
-        }
-    }
-}
+// Both builtins here declare their `op in` in Lib/builtin: Vector
+// (containers/vector.k) and string (string.k, its characters as `char`).
 
 fn sum(const v: [i32]) -> i32 {
     var t: i32 = 0
@@ -39,8 +28,8 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-NOT: Internal Compiler Error
 // CXX: Yield<const signed int *> __kairo_it{{[0-9]+}} = v.__kairo_iter();
-// CXX: Yield<unsigned char> __kairo_it{{[0-9]+}} = {{.*}}string::__kairo_iter(__kairo_seq{{[0-9]+}});
-// CXX: Yield<unsigned char> __kairo_it{{[0-9]+}} = {{.*}}string::__kairo_iter(s);
+// CXX: Yield<char32_t> __kairo_it{{[0-9]+}} ={{.*}}(& __kairo_seq{{[0-9]+}}))).__kairo_iter();
+// CXX: Yield<char32_t> __kairo_it{{[0-9]+}} ={{.*}}(& s))).__kairo_iter();
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

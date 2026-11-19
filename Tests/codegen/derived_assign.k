@@ -139,17 +139,17 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // Each row as C++ is given it. Only a TU whose classes rebuild in place
-// includes <new>: coro/generator.k writes Yield's, and the region between
-// the next two labels is builtin coro/suspend.k's preamble, which writes none
-// (coro/future.k's preamble comes next; later builtin preambles, the
-// containers', do include it).
+// includes <new>: builtin coro/suspend.k's preamble writes none (the region
+// between the next two labels), and coro/generator.k's, which comes right
+// after it, writes Yield's (later builtin preambles, the containers', do
+// include it).
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}generator.k
+// CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}coro/suspend.k
+// CXX-NOT:   #include <new>
+// CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}coro/generator.k
 // CXX-NEXT:  #include <new>
 // CXX:       Yield& operator=({{ ?}}::builtin::coro::generator::Yield<T>&& o) noexcept {
-// CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}suspend.k
-// CXX-NOT:   #include <new>
-// CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}future.k
+//
 // CXX-LABEL: CXX PREAMBLE fid {{[0-9]+}}: {{.*}}derived_assign.k
 // CXX-NEXT:  #include <new>
 // CXX:       class C {
@@ -172,13 +172,13 @@ fn main() -> i32 {
 
 // REQUIRES: clang, llvm-nm
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo %s -c --cache-dir %t.d/k
-// RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o -o %t.exe
+// RUN: rm -f %t.exe
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d/k
 // RUN: %t.exe; test $? -eq 127
 
 // The same at -O2. Neither level calls an allocation function: clang emits
 // the reserved placement form in place, so nothing has to define it.
-// RUN: %kairo %s -c -O2 --cache-dir %t.d/o2
-// RUN: %clangxx %t.d/o2/*.o %t.d/o2/builtin/*.o %t.d/o2/kairo/*.o -o %t.o2.exe
+// RUN: rm -f %t.o2.exe
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d/o2
 // RUN: %t.o2.exe; test $? -eq 127
 // RUN: %nm %t.d/k/derived_assign.o %t.d/o2/derived_assign.o | { ! grep -q _Znw; }

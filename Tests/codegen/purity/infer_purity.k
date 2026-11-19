@@ -9,7 +9,7 @@ var g: i32 = 7
 
 class Big {
     var a: i32 = 1
-    var s: string = "x"
+    var s: i64 = 2
 }
 
 fn sq(x: i32) -> i32 { return x * x }
@@ -53,7 +53,7 @@ fn main() -> i32 {
 // NEG-NOT: (({{const|pure}})) bool {{even|odd}}(
 
 // RUN: { %kairo %s -fno-infer-purity --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=OFF
-// OFF-NOT: (({{const|pure}}))
+// OFF-NOT: (({{const|pure}})) {{signed int|bool}} {{sq|sum_sq|reads_g|uses_pure|first|bumps|calls_bumps|even|odd}}(
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

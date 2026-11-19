@@ -45,7 +45,7 @@ fn twice(p: Pair) {
 // `value` is a string, so it can be passed where only a string fits.
 fn mixed(r: LookupResult<i32, string>) {
     match r {
-        case .Found(0..=9, var value) { takes_string(value) }
+        case .Found(0..=9, var value) { takes_string(value.copy()) }
 // SEMA: RangePattern @ [[@LINE-1]]:21 [field=key]
 // SEMA: BindingPattern @ [[@LINE-2]]:28 [field=value]
         default { }
@@ -56,7 +56,7 @@ fn mixed(r: LookupResult<i32, string>) {
 fn generic(r: LookupResult<string, i32>) -> i32 {
     match r {
         case .Found(var key, var value) {
-            takes_string(key)
+            takes_string(key.copy())
             var n: i32 = value
             return n
         }

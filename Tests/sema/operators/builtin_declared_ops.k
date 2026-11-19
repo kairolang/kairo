@@ -10,8 +10,8 @@
 extend string {
     fn op in (self, b: u8) -> bool {
         var i: usize = 0
-        while i < self.length() {
-            if self.as_ptr()[i] == b { return true }
+        while i < self.size() {
+            if self.data()[i] == b { return true }
             i = i + 1
         }
         return false
@@ -35,7 +35,7 @@ fn main() -> i32 {
     var r: i32 = 0
     if "ab" == "cd" { r += 1 }                  // derived from op <=>: false
     if "ab" != "abc" { r += 2 }                 // derived from op <=>
-    r += ("abc" + "de").length() as i32         // derived from op +=: 5
+    r += ("abc" + "de").size() as i32         // derived from op +=: 5
     var b: u8 = 98
     var z: u8 = 122
     if b in "abc" { r += 8 }

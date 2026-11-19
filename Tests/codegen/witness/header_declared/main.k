@@ -43,7 +43,7 @@ fn main() -> i32 {
 
 // The host, against lib's own header and objects.
 // RUN: %kairo %S/lib.k -c --cache-dir %t.d/k --emit-headers=%t.hl
-// RUN: %clangxx -std=c++23 -I%t.hl %S/host.cc %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o -o %t.host.exe
+// RUN: rm -f %t.host.exe && %kairo %S/lib.k %S/host.cc --cxx-include %t.hl --cxx-flags=-std=c++23 -o %t.host.exe --cache-dir %t.d/k2
 // RUN: %t.host.exe; test $? -eq 20
 // A host type whose own member is not the requirement's exact signature
 // fails at the concept, never compiling a different witness.

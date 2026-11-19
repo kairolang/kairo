@@ -6,8 +6,7 @@ fn upto(n: i32) -> yield i32 {
 
 fn main() -> i32 {
     var s: i32 = 0
-    var g = upto(10)
-    while g.next() { s += *g.current() }
+    for x in upto(10) { s += x }
     return s
 }
 

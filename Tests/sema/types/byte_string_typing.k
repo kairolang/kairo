@@ -6,11 +6,11 @@
 ffi "c++" import "cstring"
 
 fn take(xs: [const u8;]) -> usize {
-    return xs.len
+    return xs.size()
 }
 
 fn take_string(const s: string) -> usize {
-    return s.length()
+    return s.size()
 }
 
 eval fn in_eval() -> u8 {
@@ -21,7 +21,7 @@ eval fn in_eval() -> u8 {
 fn ok() -> usize {
     var s = b"ab"
     var t: [const u8;] = b"cd"
-    return take(b"ef") + s.len + t.len
+    return take(b"ef") + s.size() + t.size()
 }
 
 fn bad() {

@@ -21,14 +21,14 @@
 // RUN: python3 %S/../../../Scripts/incr_replay_check.py --kairo %kairo_bin --root %t.d/p --entry s/main.k --flag=-I --flag=s --flag=--threads=2 --flag=--incr-replay-in-place --two-tier --overlay --script %S/inputs/tier.replay --scratch %t.d/scratch | %FileCheck %s --implicit-check-not=DIFFERS
 
 // CHECK: step 0 initial: full (the first check) {{.*}} ok
-// CHECK: step 1 leaf_body: refresh (2 of 38 files, 0 pending) {{.*}} fg util.k refresh {{[0-9]+}} ms (1 of 38 files, 2 pending); ok
-// CHECK: step 2 signature_breaks_importer: refresh (1 of 38 files, 0 pending) {{.*}} fg geo.k refresh {{[0-9]+}} ms (1 of 38 files, 1 pending); ok
+// CHECK: step 1 leaf_body: refresh (2 of 50 files, 0 pending) {{.*}} fg util.k refresh {{[0-9]+}} ms (1 of 50 files, 2 pending); ok
+// CHECK: step 2 signature_breaks_importer: refresh (1 of 50 files, 0 pending) {{.*}} fg geo.k refresh {{[0-9]+}} ms (1 of 50 files, 1 pending); ok
 // CHECK: step 3 signature_fixed: refresh {{.*}} ok
-// CHECK: step 4 preempt_half_drained: refresh {{.*}} fg util.k refresh {{[0-9]+}} ms (1 of 38 files, 2 pending); fg counter.k refresh {{[0-9]+}} ms (1 of 38 files, 2 pending); ok
-// CHECK: step 5 alternating: refresh {{.*}} fg hidden.k refresh {{[0-9]+}} ms (1 of 38 files, 3 pending); ok
-// CHECK: step 6 edit_a_queued_file: refresh {{.*}} fg use_util.k refresh {{[0-9]+}} ms (1 of 38 files, 1 pending); ok
+// CHECK: step 4 preempt_half_drained: refresh {{.*}} fg util.k refresh {{[0-9]+}} ms (1 of 50 files, 2 pending); fg counter.k refresh {{[0-9]+}} ms (1 of 50 files, 2 pending); ok
+// CHECK: step 5 alternating: refresh {{.*}} fg hidden.k refresh {{[0-9]+}} ms (1 of 50 files, 3 pending); ok
+// CHECK: step 6 edit_a_queued_file: refresh {{.*}} fg use_util.k refresh {{[0-9]+}} ms (1 of 50 files, 1 pending); ok
 // The entry imports everything queued: its first tier is all of it.
-// CHECK: step 7 edit_the_entry_while_everything_is_queued: refresh {{.*}} fg main.k refresh {{[0-9]+}} ms ({{[0-9]+}} of 38 files, 0 pending); ok
+// CHECK: step 7 edit_the_entry_while_everything_is_queued: refresh {{.*}} fg main.k refresh {{[0-9]+}} ms ({{[0-9]+}} of 50 files, 0 pending); ok
 // CHECK: step 9 counter_back: refresh {{.*}} ok
 // CHECK: modes: full 1, refresh 9; 10 steps
 

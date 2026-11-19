@@ -9,14 +9,14 @@
 
 fn takes(const s: string) -> usize { return s.size() }
 
-fn join(const a: string, const b: string) -> string { return a + b }
+fn join(const a: string, const b: string) -> string { return a.copy() + b }
 
 fn main() -> i32 {
     // construction
     var lit = "héllo"                       // 6 bytes, 5 codepoints, borrowed
     if (lit.size() != 6) || (lit.codepoints() != 5) || (lit.capacity() != 0) { return 1 }
     var d = string()
-    if (!d.empty()) || (d.size() != 0) || (d.raw()[0] != 0) { return 2 }
+    if (!d.is_empty()) || (d.size() != 0) || (d.raw()[0] != 0) { return 2 }
     var c = lit                             // a copy of a literal still borrows
     if (c.capacity() != 0) || (c.raw() != lit.raw()) { return 3 }
     var cs = string(lit.raw())              // from a NUL-terminated pointer: owned

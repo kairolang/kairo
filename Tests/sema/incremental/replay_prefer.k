@@ -13,7 +13,7 @@
 // RUN: rm -rf %t.d && mkdir -p %t.d/p && cp -r %S/inputs/live %t.d/p/s
 // RUN: python3 %S/../../../Scripts/incr_replay_check.py --kairo %kairo_bin --root %t.d/p --entry s/main.k --flag=-I --flag=s --flag=--threads=2 --flag=--incr-replay-in-place --two-tier --overlay --script %S/inputs/live_prefer.replay --scratch %t.d/scratch | %FileCheck %s --implicit-check-not=DIFFERS --implicit-check-not="full (the edited"
 // CHECK: step 0 initial: full (the first check) {{.*}} ok
-// CHECK: step 1 record_body_prefer_the_later_file: refresh (3 of 33 files, 0 pending) {{.*}} ok
+// CHECK: step 1 record_body_prefer_the_later_file: refresh (3 of 45 files, 0 pending) {{.*}} ok
 // CHECK: step 4 conformance_broken_prefer_the_later_file: refresh {{.*}} ok
 // CHECK: modes: full 1, refresh 6; 7 steps
 

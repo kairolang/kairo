@@ -4,7 +4,7 @@
 // length back through both.
 
 fn head_plus_len(const xs: [i32;]) -> i32 {
-    return (*(xs.data)) + (xs.len as i32)
+    return xs[0] + (xs.size() as i32)
 }
 
 fn extended() -> i32 {

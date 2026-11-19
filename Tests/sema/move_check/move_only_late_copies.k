@@ -8,9 +8,9 @@
 //     moved from, and the type has no copy. Only the const case is touched:
 //     a non-const `self` field is moved out silently today (not covered
 //     here).
-// (c) a map literal of move-only elements: the map copies each element
-//     out of the literal's backing array, which the library cannot do for
-//     such a type yet. A vector literal moves its elements in: accepted.
+// (c) a map literal of move-only elements: the map moves each element
+//     out of the literal's backing array, as a vector literal does, so
+//     both are accepted (no error at line 40).
 
 class M {
     pub var v: i32 = 0
@@ -45,4 +45,4 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
 // CHECK: move_only_late_copies.k:31:41: error [SC182E]: cannot copy a value of type 'Tok': it declares a move constructor and no copy constructor
 // CHECK: move_only_late_copies.k:31:41: note [I900N]: 'self.t' is const, so the transfer out of the function cannot move it, and moving is the only transfer its type has
-// CHECK: move_only_late_copies.k:40:25: error [SC182E]: a map literal of 'Tok' elements cannot be built yet
+// CHECK-NOT: move_only_late_copies.k:40:

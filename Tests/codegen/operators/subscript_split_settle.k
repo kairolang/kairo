@@ -29,7 +29,7 @@ class B {
 
     fn op [] (const self, i: usize) -> *const i32 { return &self.e[i] }
     fn op []= (self, i: usize) -> *i32 { return &self.d[i] }
-    fn op [] (self, r: Range<usize>) -> [i32;] { return self.e[r.begin..r.end] }
+    fn op [] (self, r: Range<usize>) -> [const i32;] { return self.e[r.begin..r.end] }
     fn op [] (const self, k: i64) -> *const Cell { return &self.c }
 }
 
@@ -90,7 +90,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=TC --allow-empty
 // TC-NOT: {{error|warning}}
 // RUN: { %kairo %s --print-ir -o %t.ir.exe 2>&1 || true; } | %FileCheck %s --check-prefix=IR
-// IR-DAG: Slice<signed int> t = b.__kairo_op_get(
+// IR-DAG: Slice<const signed int> t = b.__kairo_op_get(
 // IR-DAG: b.__kairo_op_get(static_cast<signed long>(1)).get()
 // IR-DAG: (b.__kairo_op_set(0) = 4)
 // IR-DAG: h.__kairo_op_get(0).cells[1].get()

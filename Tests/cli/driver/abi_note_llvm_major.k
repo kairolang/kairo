@@ -13,9 +13,11 @@ fn main() -> i32 { return 0 }
 // RUN: %clangxx -x c -c %S/inputs/abi_note.c -DMAJOR=23 -DBITS=0 -DFN=n_fn -o %t.d/n.o
 // RUN: %clangxx -x c -c %S/inputs/abi_note.c -DMAJOR=22 -DBITS=0 -DFN=z_fn -o %t.d/z.o
 
-// Both use one: rejected, naming both and their majors.
+// Both use one: rejected, naming two of them and their majors. The builtin
+// library's own objects use one too and are built by LLVM 22, so the first
+// named may be one of them rather than a.o.
 // RUN: { %kairo %s %t.d/a.o %t.d/b.o -o %t.d/mix.exe --cache-dir %t.d/k1 2>&1 || true; } | %FileCheck %s --check-prefix=MIX
-// MIX: '@preserve_most' is used by {{.*}}a.o (LLVM 22) and {{.*}}b.o (LLVM 23); this calling convention is not stable across LLVM versions; rebuild both
+// MIX: '@preserve_most' is used by {{.*}}.o (LLVM 22) and {{.*}}b.o (LLVM 23); this calling convention is not stable across LLVM versions; rebuild both
 // RUN: test ! -e %t.d/mix.exe
 
 // Only one uses a convention: the other's major does not matter.

@@ -20,9 +20,9 @@ eval P = pick("x", "yz")
 fn main() -> i32 {
     var g = greet()
     var p = pick("aa", "bbb")
-    var q = p                         // a run-time copy of an eval result
+    var q = p.copy()                  // a run-time copy of an eval result
     // 1 + 3 + 5 + 3 + 2 + 3 + 0 + 3 == 20
-    return N + (g.length() + NAME.length() + G.length() + P.length() + p.length() + EMPTY.length() + q.length()) as i32
+    return N + (g.size() + NAME.size() + G.size() + P.size() + p.size() + EMPTY.size() + q.size()) as i32
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -30,7 +30,7 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
-// IR: inline constexpr::builtin::string::string const NAME = ::builtin::string::string( ::__kairo_estr<75, 97, 105, 114, 111>, 5, 5);
+// IR: inline constexpr::builtin::string::string const NAME = ::builtin::string::string( ::__kairo_slit_5_{{[0-9a-f]+}}.b, 5, 5);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

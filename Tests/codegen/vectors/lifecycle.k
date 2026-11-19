@@ -74,9 +74,9 @@ fn cp_vectors() -> i32 {
         var a: [Cp]
         a.reserve(8)
         var i: i32 = 0
-        while i < 8 { a.emplace_back(i); i += 1 }    // no growth: no transfers
+        while i < 8 { a.push(Cp(i)); i += 1 } // no growth: no transfers
         if (made != 8) || (copied != 0) { return 1 }
-        var b = a                                       // deep copy: 8 copies
+        var b = a.copy()                                // deep copy: 8 copies
         if copied != 8 { return 2 }
         b[0].v = 100
         if a[0].v != 0 { return 3 }

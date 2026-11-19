@@ -1,2 +1,2 @@
-// A user class named like the builtin `BigInt` (Lib/builtin/num/bigint.k).
+// A user class named BigInt; B.k declares another.
 pub class BigInt { pub var a: i32 = 0; }

@@ -8,9 +8,9 @@
 //   - `b[0] = 4` writes through it, `&e[1]` may: not warned.
 //   - `c` is passed on to a function: not a known read, so not warned.
 //   - `d` is `const` (the read form): not warned.
-//   - `f` is a range of an array (Slice's own `op []`, no `op []=`): not
-//     warned.
-//   - `h` reads a field of the view: not a known read, so not warned.
+//   - `f` is a range of an array, whose `[T;]` also declares `op []=`,
+//     and is only read: warned.
+//   - `h` calls a `const self` method of the view (`size()`): warned.
 
 class View {
     var d: [i32; 4]
@@ -20,8 +20,8 @@ class View {
         self.e = [5, 6, 7, 8]
     }
 
-    fn op [] (self, r: Range<usize>) -> [i32;] { return self.e[r.begin..r.end] }
-    fn op []= (self, r: Range<usize>) -> [i32;] { return self.d[r.begin..r.end] }
+    fn op [] (self, r: Range<usize>) -> [const i32;] { return self.e[r.begin..r.end] }
+    fn op []= (self, r: Range<usize>) -> [i32;] { var w: [i32;] = self.d[r.begin..r.end]; return w }
 }
 
 fn sink(s: [i32;]) -> i32 { return s[0] }
@@ -41,7 +41,7 @@ fn main() -> i32 {
     var f = arr[0..2]
     var z = f[0]
     var h = v[0..3]
-    var n = h.len
+    var n = h.size()
     return x + y + z + d[0] + *p + (n as i32)
 }
 
@@ -50,4 +50,8 @@ fn main() -> i32 {
 // RUN: %FileCheck %s --check-prefix=DIAG < %t.diag
 // DIAG:      subscript_split_range_binding.k:31:9: warning [SC281W]: 'a' binds the place form ('op []=') of its sub-range but is never written through; declare it 'const' to bind the read form
 // DIAG-NEXT: fix-it:{{.*}}:{31:5-31:8}:"const"
+// DIAG-NEXT: subscript_split_range_binding.k:41:9: warning [SC281W]: 'f' binds the place form ('op []=') of its sub-range but is never written through; declare it 'const' to bind the read form
+// DIAG-NEXT: fix-it:{{.*}}:{41:5-41:8}:"const"
+// DIAG-NEXT: subscript_split_range_binding.k:43:9: warning [SC281W]: 'h' binds the place form ('op []=') of its sub-range but is never written through; declare it 'const' to bind the read form
+// DIAG-NEXT: fix-it:{{.*}}:{43:5-43:8}:"const"
 // DIAG-NOT:  {{warning|error}}

@@ -4,8 +4,8 @@
 import std::io
 
 extend <T> [T;] {
-    fn count(const self) -> usize { return self.len }
-    fn head(const self) -> *const T { return &self.data[0] }
+    fn count(const self) -> usize { return self.size() }
+    fn head(const self) -> *const T { return unwrap!(self.data()) }
     fn count2(const self) -> usize { return self.count() * 2 }
 }
 

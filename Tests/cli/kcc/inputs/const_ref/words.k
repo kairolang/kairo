@@ -4,16 +4,16 @@
 
 pub fn make(n: usize) -> string {
     var s = string()
-    for var i: usize = 0; i < n; ++i { s.push_back(97) }
+    for var i: usize = 0; i < n; ++i { s.push('a') }
     return s
 }
 
-pub fn measure(s: string) -> usize { return s.length() }
+pub fn measure(s: string) -> usize { return s.size() }
 
-pub fn grow(s: string) -> usize { s.push_back(33); return s.length() }
+pub fn grow(s: string) -> usize { s.push('!'); return s.size() }
 
 pub class Bag {
     pub var total: usize = 0
     pub fn Bag(self) { }
-    pub fn add(self, s: string) { self.total += s.length() }
+    pub fn add(self, s: string) { self.total += s.size() }
 }

@@ -1,7 +1,7 @@
 // A bridge whose unconditional code uses its own conditional block.
 extend string requires __builtin_is_declared<cxx::std::string>() {
     @implicit pub fn op as (const self) -> cxx::std::string {
-        return cxx::std::string(self.c_str(), self.size())
+        return cxx::std::string(unsafe (self.data() as unsafe *const __builtin_c_char), self.size())
     }
 
     pub fn cxx_size(const self) -> usize {

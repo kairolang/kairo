@@ -49,4 +49,4 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX: ::__kairo_fn<signed int(signed int, signed int)> add = static_cast< ::__kairo_fn<signed int(signed int, signed int)>>((+[](signed int a, signed int b) noexcept->signed int {
-// CXX-NOT: own(
+// CXX-NOT: {{[^a-zA-Z_]}}own(

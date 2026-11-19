@@ -87,7 +87,7 @@ fn main() -> i32 {
 // LOW-NEXT: NamedIdentExpr {{ *}}@ 31:21
 // LOW: CallExpr {{ *}}@ 32:8 {{ *}}: i32
 // LOW-NEXT: NamedIdentExpr {{ *}}@ 32:15
-// RUN: { %kairo %s --type-check-only --print-lowered 2>&1 || true; } | grep -c "\[materialized\]" | %FileCheck %s --check-prefix=MAT
+// RUN: { %kairo %s --type-check-only --print-lowered 2>&1 || true; } | sed -n "/SEMA fid [0-9]*: .*receivers\.k/,\$p" | grep -c "\[materialized\]" | %FileCheck %s --check-prefix=MAT
 // MAT: {{^4$}}
 
 // REQUIRES: clang

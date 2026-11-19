@@ -20,11 +20,11 @@ fn take(@move o: Owned) -> i32 {
     return o.n
 }
 
-fn grow(@inout v: [i32]) {
+fn grow(@inout v: Bag) {
     v.push(1)
 }
 
-fn reads(v: [i32], s: {i32}) -> i32 {
+fn reads(v: Bag, s: Bag) -> i32 {
     var n = 0
     for x in v {
         n += x
@@ -37,7 +37,7 @@ fn reads(v: [i32], s: {i32}) -> i32 {
     return n
 }
 
-fn writes_through(v: [i32]) -> i32 {
+fn writes_through(v: Bag) -> i32 {
     var n = 0
     for *x in v {
         *x += 1
@@ -47,7 +47,7 @@ fn writes_through(v: [i32]) -> i32 {
     return n
 }
 
-fn mutated(v: [i32]) -> i32 {
+fn mutated(v: Bag) -> i32 {
     v.push(4)
     var n = 0
     for x in v {
@@ -57,7 +57,7 @@ fn mutated(v: [i32]) -> i32 {
     return n
 }
 
-fn passed_inout(v: [i32]) -> i32 {
+fn passed_inout(v: Bag) -> i32 {
     grow(&v)
     var n = 0
     for x in v {
@@ -67,7 +67,7 @@ fn passed_inout(v: [i32]) -> i32 {
     return n
 }
 
-fn address_taken(v: [i32]) -> i32 {
+fn address_taken(v: Bag) -> i32 {
     var *p = &v
     var n = 0
     for x in v {
@@ -85,7 +85,7 @@ fn trivial(p: Pt) -> i32 {
     return p.x + p.y
 }
 
-fn already(const v: [i32]) -> i32 {
+fn already(const v: Bag) -> i32 {
     var n = 0
     for x in v {
         n += x
@@ -95,12 +95,24 @@ fn already(const v: [i32]) -> i32 {
 }
 
 fn main() -> i32 {
-    var v: [i32] = [1, 2]
-    var s: {i32} = {3}
+    var v = Bag(1)
+    v.push(2)
+    var s = Bag(3)
     var r = reads(v, s) + writes_through(v) + mutated(v) + passed_inout(v)
     r += address_taken(v) + moved(Owned()) + trivial(Pt { x: 1, y: 1 }) + already(v)
     // 6 + 5 + 7 + 4 + 5 + 0 + 2 + 3
     return r - 32
+}
+
+class Bag {
+    var xs: [i32]
+    fn Bag(self) { self.xs = [] }
+    fn Bag(self, x: i32) { self.xs = []; self.xs.push(x) }
+    @copy fn Bag(self, const o: Self) { self.xs = o.xs.copy() }
+    fn push(self, x: i32) { self.xs.push(x) }
+    fn size(const self) -> usize { return self.xs.size() }
+    fn op in (self) -> yield *i32 { for *x in self.xs { yield x } }
+    fn op in (const self) -> yield *const i32 { for const *x in self.xs { yield x } }
 }
 
 // --- lit wiring ---
@@ -114,8 +126,8 @@ fn main() -> i32 {
 //
 // CHECK: param_never_mutated_loop.k:27:10: warning [SC224W]: parameter 'v' is never mutated; declare it 'const'
 // CHECK-NEXT: fix-it:"{{.*}}param_never_mutated_loop.k":{27:10-27:10}:"const "
-// CHECK: param_never_mutated_loop.k:27:20: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
-// CHECK-NEXT: fix-it:"{{.*}}param_never_mutated_loop.k":{27:20-27:20}:"const "
+// CHECK: param_never_mutated_loop.k:27:18: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
+// CHECK-NEXT: fix-it:"{{.*}}param_never_mutated_loop.k":{27:18-27:18}:"const "
 //
 // APPLIED: changed 1 file(s)
 // AFTER-NOT: SC224W

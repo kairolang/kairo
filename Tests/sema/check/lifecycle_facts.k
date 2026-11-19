@@ -65,7 +65,7 @@ struct StructUnique { var u: Unique; }
 // SEMA-NEXT:   lifecycle ScopeLock: category=NON_TRANSFER trivial_copy=0 trivial_dtor=0 destructible=1
 // SEMA-NEXT:   lifecycle Mode: category=COPY trivial_copy=1 trivial_dtor=1 destructible=1
 // SEMA-NEXT:   lifecycle Num: category=COPY trivial_copy=1 trivial_dtor=1 destructible=1
-// SEMA-NEXT:   lifecycle Text: category=COPY trivial_copy=0 trivial_dtor=0 destructible=1
+// SEMA-NEXT:   lifecycle Text: category=MOVE trivial_copy=0 trivial_dtor=0 destructible=1
 // SEMA-NEXT:   lifecycle Owned: category=MOVE trivial_copy=1 trivial_dtor=1 destructible=1
 // SEMA-NEXT:   lifecycle Locked: category=NON_TRANSFER trivial_copy=0 trivial_dtor={{[01]}} destructible=1
 // SEMA-NEXT:   lifecycle Guarded: category=NON_TRANSFER trivial_copy=0 trivial_dtor=0 destructible=1

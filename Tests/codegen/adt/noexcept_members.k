@@ -4,7 +4,7 @@
 // -funwind. Without it every construction site was an `invoke` with a
 // terminate landing pad, and the enclosing function carried a personality
 // and an exception table even at -O0. The defaulted members are left to
-// C++, which deduces theirs.
+// C++, which deduces theirs. Text holds a string, so Inst is move-only.
 
 enum Inst {
     Const { value: i32 },
@@ -23,7 +23,7 @@ fn num(v: i32) -> i32? = v
 fn score(i: Inst) -> i32 = match i {
     case .Const(var value)    => value
     case .Binary(var lhs)     => lhs
-    case .Text(const s)       => s.length() as i32
+    case .Text(const s)       => s.size() as i32
     case .Nop                 => 0
 }
 
@@ -50,9 +50,9 @@ fn main() -> i32 {
 // CXX:       Inst(::__kairo_vt<0>, signed int value) noexcept : __kairo_tag(
 // CXX:       Inst(::__kairo_vt<2>, F&& f) noexcept : __kairo_tag(
 // CXX:       Inst(::__kairo_vt<3>) noexcept : __kairo_tag(
-// CXX:       Inst(const Inst& o) noexcept : __kairo_tag(
+// CXX:       Inst(const Inst&) = delete;
 // CXX:       Inst(Inst&& o) noexcept : __kairo_tag(
-// CXX:       Inst& operator=(const Inst& o) noexcept {
+// CXX:       Inst& operator=(const Inst&) = delete;
 // CXX:       Inst& operator=(Inst&& o) noexcept {
 // CXX:       ~Inst() noexcept {
 // CXX:       void __kairo_destroy() noexcept {

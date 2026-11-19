@@ -3,15 +3,15 @@
 
 fn chk(c: bool) -> i32 { if c { return 1 } return 0 }
 
-fn count(const ...s: string, end: i32 = 7) -> i32 { return (s.len as i32) * 10 + end }
+fn count(const ...s: string, end: i32 = 7) -> i32 { return (s.size() as i32) * 10 + end }
 
 fn sum(...xs: i32) -> i32 {
     var t = 0
-    for var i: usize = 0; i < xs.len; ++i { t += xs.data[i] }
+    for var i: usize = 0; i < xs.size(); ++i { t += xs[i] }
     return t
 }
 
-fn mid(a: i32, ...xs: i32, b: i32 = 100) -> i32 { return a + (xs.len as i32) + b }
+fn mid(a: i32, ...xs: i32, b: i32 = 100) -> i32 { return a + (xs.size() as i32) + b }
 
 fn main() -> i32 {
     var n = chk(count("a", "b") == 27)

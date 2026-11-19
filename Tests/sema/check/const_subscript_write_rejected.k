@@ -70,7 +70,7 @@ fn loops(const v: [i32], const a: [i32; 3]) {
 }
 
 fn map_read(const m: {string: i32}) -> i32 {
-    return m["a"]
+    m["a"] = 1; return 0
 }
 
 fn main() -> i32 { return 0 }
@@ -98,21 +98,20 @@ fn main() -> i32 { return 0 }
 // CHECK: const_subscript_write_rejected.k:17:5: note [I900N]: candidate not viable: 'op []' is not const; it cannot be called on a const object
 // CHECK: const_subscript_write_rejected.k:52:5: error [SC071E]: cannot assign to a const place
 // CHECK: const_subscript_write_rejected.k:23:5: note [I900N]: 'op []' returns a const place here
-// CHECK: const_subscript_write_rejected.k:56:5: error [SC071E]: cannot assign to an element of 'v': 'v' is const
+// CHECK: const_subscript_write_rejected.k:56:5: error [SC071E]: cannot write an element of 'v': 'v' is const, and 'op []=' takes 'self'
 // CHECK: const_subscript_write_rejected.k:55:21: note [I900N]: 'v' declared const here
-// CHECK: const_subscript_write_rejected.k:57:5: error [SC071E]: cannot update an element of 'v': 'v' is const
+// CHECK: const_subscript_write_rejected.k:57:5: error [SC071E]: cannot write an element of 'v': 'v' is const, and 'op []=' takes 'self'
 // CHECK: const_subscript_write_rejected.k:55:21: note [I900N]: 'v' declared const here
 // CHECK: const_subscript_write_rejected.k:59:5: error [SC071E]: cannot assign to an element of 'ar': 'ar' is const
 // CHECK: fix-it:{{.*}}:{58:5-58:10}:"var"
 // CHECK: const_subscript_write_rejected.k:58:11: note [I900N]: 'ar' declared const here
-// CHECK: const_subscript_write_rejected.k:60:5: error [SC071E]: cannot assign to an element of 's': 's' is const
-// CHECK: const_subscript_write_rejected.k:55:37: note [I900N]: 's' declared const here
-// CHECK: const_subscript_write_rejected.k:64:5: error [SC071E]: cannot assign to an element of 'g': 'g' is const
+// CHECK: const_subscript_write_rejected.k:60:5: error [SC071E]: left side of assignment is not assignable
+// CHECK: const_subscript_write_rejected.k:64:5: error [SC071E]: cannot write an element of 'g': 'g' is const, and 'op []=' takes 'self'
 // CHECK: const_subscript_write_rejected.k:63:17: note [I900N]: 'g' declared const here
 // CHECK: const_subscript_write_rejected.k:68:19: error [SC071E]: cannot assign to '*e': 'e' points to const
 // CHECK: const_subscript_write_rejected.k:68:10: note [I900N]: 'e' declared as a pointer to const here
 // CHECK: const_subscript_write_rejected.k:69:19: error [SC071E]: cannot assign to '*e': 'e' points to const
 // CHECK: const_subscript_write_rejected.k:69:10: note [I900N]: 'e' declared as a pointer to const here
-// CHECK: const_subscript_write_rejected.k:73:12: error [SC063E]: no matching overload for call to 'op []'
-// CHECK: {{.*}}hash_map.k:{{[0-9]+:[0-9]+}}: note [I900N]: candidate not viable: 'op []' is not const; it cannot be called on a const object
+// CHECK: const_subscript_write_rejected.k:73:5: error [SC071E]: cannot write an element of 'm': 'm' is const, and 'op []=' takes 'self'
+// CHECK: const_subscript_write_rejected.k:72:19: note [I900N]: 'm' declared const here
 // CHECK-NOT: error

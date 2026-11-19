@@ -7,7 +7,7 @@
 
 class Good {
     var key: string
-    fn op panic (const self) -> string { return self.key }
+    fn op panic (const self) -> string { return self.key.copy() }
 }
 
 class MutableSelf {

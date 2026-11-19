@@ -35,7 +35,7 @@ fn main() -> i32 {
     twice(true)
     twice(Plain())
     twice(&x)
-    top(1.0, 2.0)
+    top(Plain(), Plain())
     rem(1.0, 2.0)
     ab(1)
     sc(3)
@@ -48,7 +48,7 @@ fn main() -> i32 {
 // CHECK: builtin_operator_bounds_unmet.k:35:5: error [SC162E]: 'bool' does not conform to 'Add': no member 'op +' with the requirement's signature
 // CHECK: builtin_operator_bounds_unmet.k:36:5: error [SC162E]: 'Plain' does not conform to 'Add': no member 'op +' with the requirement's signature
 // CHECK: builtin_operator_bounds_unmet.k:37:5: error [SC162E]: '*i32' does not conform to 'Add': no member 'op +' with the requirement's signature
-// CHECK: builtin_operator_bounds_unmet.k:38:5: error [SC162E]: 'f64' does not conform to 'Ord': no member 'op <=>' with the requirement's signature
+// CHECK: builtin_operator_bounds_unmet.k:38:5: error [SC162E]: 'Plain' does not conform to 'Ord': no member 'op <=>' with the requirement's signature
 // CHECK: builtin_operator_bounds_unmet.k:39:5: error [SC162E]: 'f64' does not conform to 'Rem': no member 'op %' with the requirement's signature
 // CHECK: builtin_operator_bounds_unmet.k:40:5: error [SC162E]: 'i32' does not conform to 'AddBool': no member 'op +' with the requirement's signature
 // CHECK: builtin_operator_bounds_unmet.k:41:5: error [SC162E]: 'i32' does not conform to 'Scaled': no member 'scale' with the requirement's signature

@@ -69,8 +69,8 @@ class View {
         self.e = [5, 6, 7, 8]
     }
 
-    fn op [] (self, r: Range<usize>) -> [i32;] { return self.e[r.begin..r.end] }
-    fn op []= (self, r: Range<usize>) -> [i32;] { return self.d[r.begin..r.end] }
+    fn op [] (self, r: Range<usize>) -> [const i32;] { return self.e[r.begin..r.end] }
+    fn op []= (self, r: Range<usize>) -> [i32;] { var w: [i32;] = self.d[r.begin..r.end]; return w }
 }
 
 class Legacy {
@@ -178,7 +178,7 @@ fn main() -> i32 {
 // IR-DAG: ([[ORD]] = v);
 // IR-DAG: return{{ *}}::{{.*}}Store_witness<S>::__kairo_op_index((* s), 1)
 // IR-DAG: Slice<signed int> s = v.__kairo_op_set(
-// IR-DAG: Slice<signed int> u = v.__kairo_op_get(
+// IR-DAG: Slice<const signed int> u = v.__kairo_op_get(
 // IR-DAG: (lg.operator[](0) = 5)
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d

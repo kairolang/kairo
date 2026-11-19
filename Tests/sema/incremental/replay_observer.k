@@ -21,11 +21,11 @@
 // CHECK-NEXT: lowered use_util.k
 // CHECK-NEXT: checked main.k
 // CHECK-NEXT: lowered main.k
-// CHECK-NEXT: incr-replay: step 1 body: refresh (3 of 38 files)
+// CHECK-NEXT: incr-replay: step 1 body: refresh (3 of 50 files)
 
 // geo.k and its one importer.
 // CHECK-NEXT: checked geo.k
 // CHECK-NEXT: lowered geo.k
 // CHECK-NEXT: checked main.k
 // CHECK-NEXT: lowered main.k
-// CHECK-NEXT: incr-replay: step 2 signature: refresh (2 of 38 files)
+// CHECK-NEXT: incr-replay: step 2 signature: refresh (2 of 50 files)

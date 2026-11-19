@@ -1,4 +1,4 @@
-// An ambiguous import (R016E: a user `BigInt` beside the builtin prelude's)
+// An ambiguous import (R016E: two user modules' `BigInt`, imported together)
 // is CONTAINED: it poisons the uses of that one name and nothing else. It
 // does not hard-stop the importing TU after I (which would leave no signature in it
 // resolved and fail every caller of an unrelated generic method:
@@ -10,13 +10,13 @@
 
 // RUN: cd %S/inputs/ambiguous_contained && { %kairo %s -I . --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
 
-// CHECK: Ctx.k:2:1: error [R016E]: ambiguous import: 'BigInt' names more than one non-function symbol
+// CHECK: Ctx.k:2:17: error [R016E]: ambiguous import: 'BigInt' names more than one non-function symbol
 // CHECK-DAG: A.k:2:5: note [R016N]: 'BigInt' could be the class declared here
-// CHECK-DAG: bigint.k:{{[0-9]+}}:{{[0-9]+}}: note [R016N]: 'BigInt' could be the struct declared here
-// CHECK: ambiguous_contained.k:[[@LINE+3]]:1: error [R016E]: ambiguous import: 'BigInt' names more than one non-function symbol
+// CHECK-DAG: B.k:3:5: note [R016N]: 'BigInt' could be the class declared here
+// CHECK: ambiguous_contained.k:[[@LINE+3]]:17: error [R016E]: ambiguous import: 'BigInt' names more than one non-function symbol
 
 import M::Ctx::*;
-import M::A::*;
+import M::A::*; import M::B::*;
 
 fn g(ctx: unsafe *Ctx) -> i32 {
     var a: unsafe *i32 = ctx->alloc<i32>();

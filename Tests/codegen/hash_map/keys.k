@@ -11,7 +11,7 @@ struct Pt {
     pub var y: i32
 }
 extend Pt impl Hash {
-    pub fn hash(const self) -> usize = to_usize(mix64(((self.x as u64) << 32) | (self.y as u32 as u64)))
+    pub fn hash(const self, @inout h: Hasher) { h.write_u64(((self.x as u64) << 32) | (self.y as u32 as u64)) }
     pub fn op ==(const self, const other: Pt) -> bool = (self.x == other.x) && (self.y == other.y)
 }
 
@@ -47,14 +47,8 @@ fn main() -> i32 {
     wide[(1u128 << 100) + 7u128] = 9
     if !wide.contains((1u128 << 100) + 7u128) || wide.contains(7u128) { return 7 }
 
-    // -0.0 == +0.0: one key
-    var f: {f64: i32}
-    f[0.0] = 1
-    f[-0.0] = 2
-    if (f.size() != 1) || (f[0.0] != 2) { return 8 }
-    var g: {f32}
-    g.insert(1.5f32)
-    if !g.contains(1.5f32) { return 9 }
+    // Floats key no map or set (NaN != NaN, -0.0 == 0.0): checks 8 and 9 are
+    // gone; Tests/sema/check/float_key_rejected.k has the error.
 
     // pointers: the address
     var xs: [i32; 3] = [1, 2, 3]
@@ -80,7 +74,13 @@ fn main() -> i32 {
     if !strs.contains("abcdefghijklmnopqrstuvwxyz") { return 13 }
     if !strs.contains("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz0123456789") { return 14 }
     if strs.contains("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz012345678X") || strs.contains("ac") { return 15 }
-    if ("abc".hash() != "abc".hash()) || ("abc".hash() == "abd".hash()) { return 16 }
+    var h1 = Hasher(0)
+    var h2 = Hasher(0)
+    var h3 = Hasher(0)
+    "abc".hash(&h1)
+    "abc".hash(&h2)
+    "abd".hash(&h3)
+    if (h1.finish() != h2.finish()) || (h1.finish() == h3.finish()) { return 16 }
     return 100
 }
 
@@ -91,14 +91,14 @@ fn main() -> i32 {
 // A builtin's `==` and a pointer's hash are the native operations.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX: template<> struct Hash_witness<signed int> {
-// CXX-NEXT: static decltype(sizeof(0)) hash(const signed int * self) noexcept {
-// CXX-NEXT: return{{ ?}}::builtin::base::hash::__kairo_ext_i32::hash(self);
-// CXX: static bool __kairo_op_eq(const signed int & self, const signed int & other) noexcept {
-// CXX-NEXT: return(self == static_cast<decltype(other) &&>(other));
+// CXX-NEXT: static bool __kairo_op_eq(const signed int & self, const signed int & o) noexcept {
+// CXX-NEXT: return(self == static_cast<decltype(o) &&>(o));
+// CXX: static void hash(const signed int * self, ::builtin::base::hash::Hasher & h) noexcept {
+// CXX-NEXT: return{{ ?}}::builtin::base::prim::__kairo_ext_i32::hash(self, static_cast<decltype(h) &&>(h));
 // CXX: template<> struct Hash_witness<typename::__kairo_ma<signed int>::t *> {
 // CXX-NEXT: using __kairo_Self = typename::__kairo_ma<signed int>::t *;
-// CXX-NEXT: static decltype(sizeof(0)) hash(const __kairo_Self * self) noexcept {
-// CXX-NEXT: return reinterpret_cast<decltype(sizeof(0))>(* self);
+// CXX: static void hash(const __kairo_Self * self, ::builtin::base::hash::Hasher & h) noexcept {
+// CXX-NEXT: return h.write_usize(reinterpret_cast<decltype(sizeof(0))>(* self));
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

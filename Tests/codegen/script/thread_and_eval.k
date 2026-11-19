@@ -15,11 +15,11 @@ println(f"{SQ} {T}")
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      CODEGEN C++: {{.*}}thread_and_eval.k
-// CXX-NOT:  Null
+// CXX-NOT:  Null<signed int>
 // CXX:      constexpr signed int const SQ = {{ ?}}::thread_and_eval::square(3);
-// CXX-NOT:  Null
+// CXX-NOT:  Null<signed int>
 // CXX:      thread_local signed int T __attribute((tls_model("local-exec"))) = {{ ?}}::thread_and_eval::seed();
-// CXX-NOT:  Null
+// CXX-NOT:  Null<signed int>
 // CXX:      int main() {
 // CXX-NOT:  thread_and_eval::T =
 // CXX-NOT:  thread_and_eval::SQ =

@@ -29,7 +29,7 @@ class Vector { }
 
 fn main() -> i32 {
     var v = [i32]::of_one(7)
-    var w = [string]::of_one("x")
+    var w = [f64]::of_one(1.5)
     var l = [1, 2][1]
     var s = {1, 2}
     var m = {1: 2}

@@ -3,14 +3,14 @@
 // Statement expression `({ s...; e })`: a prvalue of `e`, typed after the
 // leading statements. Checks sit below the code: they name line:col.
 
-fn get() -> i32 { return 4 }
+fn grb() -> i32 { return 4 }
 fn noth() { }
 
 fn Good() -> i32 {
     var a = ({ var t = 1; t * 2 })
     var b: u8 = ({ 5 })
     var c = ({
-        var u = get()
+        var u = grb()
         if u > 2 { return 0 }
         u + a
     })
@@ -32,9 +32,9 @@ fn Bad() {
 // `c`: a `return` inside the block targets the enclosing function.
 // `d`: top-level const drops off a prvalue.
 // `noth()`: a void value is allowed; the expression is just void.
-// Anchored on `get`'s literal: every TU prints its own types section, and
+// Anchored on `grb`'s literal: every TU prints its own types section, and
 // the prelude's come first.
-// SEMA: <tu>::get
+// SEMA: <tu>::grb
 // SEMA-NEXT: IntegerLiteralExpr @ 6:26
 // SEMA-DAG: StmtExpr @ 10:13 : i32
 // SEMA-DAG: IntegerLiteralExpr @ 11:20 : u8

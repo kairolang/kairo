@@ -100,6 +100,6 @@ fn main() -> i32 {
 // RUN: rm -rf %t.d %t.o2
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe; test $? -eq 63
-// RUN: %kairo %s -c -O2 --cache-dir %t.o2
-// RUN: %clangxx %t.o2/*.o %t.o2/builtin/*.o %t.o2/kairo/*.o -o %t.o2.exe
+// RUN: rm -f %t.o2.exe
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.o2
 // RUN: %t.o2.exe; test $? -eq 63

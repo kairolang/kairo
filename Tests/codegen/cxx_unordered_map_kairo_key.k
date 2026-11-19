@@ -14,7 +14,7 @@ class Key impl Hash {
     pub var a: i32 = 0;
     pub var b: i32 = 0;
     fn Key(self, a: i32, b: i32) { self.a = a; self.b = b; }
-    fn hash(const self) -> usize { return (self.a * 31 + self.b) as usize; }
+    fn hash(const self, @inout h: Hasher) { h.write_u64((self.a * 31 + self.b) as u64); }
     fn op ==(const self, const other: Key) -> bool { return (self.a == other.a) && (self.b == other.b); }
 }
 

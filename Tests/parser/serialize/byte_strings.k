@@ -3,7 +3,7 @@
 // tree prints the same and types the same.
 
 fn total(xs: [const u8;]) -> usize {
-    return xs.len
+    return xs.size()
 }
 
 fn main() -> i32 {

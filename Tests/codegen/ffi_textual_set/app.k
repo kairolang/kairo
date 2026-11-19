@@ -22,9 +22,9 @@ fn main() -> i32 {
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: clang
 // RUN: rm -rf %t.d %t.ir && mkdir -p %t.d
-// RUN: %clangxx -x c -c %S/c_add.c -o %t.d/c_add.c.o
-// RUN: %kairo %s -I %S/inc -c --cache-dir %t.d/k
-// RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o %t.d/c_add.c.o -o %t.exe
+// RUN: rm -f %t.exe
+// RUN: %kairo %s %S/c_add.c -I %S/inc -o %t.exe --cache-dir %t.d/k
+// The C file is compiled and linked by the same kairo invocation.
 // RUN: %t.exe; test $? -eq 42
 
 // RUN: %kairo %s -I %S/inc --emit=llvm-ir -O0 --cache-dir %t.ir

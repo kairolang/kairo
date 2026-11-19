@@ -6,7 +6,7 @@
 // `for x in xs` runs the body once per element: `continue`, `break` and
 // `return` inside it keep their meaning.
 
-fn <T> one(x: T) -> i32 { return 1 }
+fn <T> one(const x: T) -> i32 { return 1 }
 
 fn <...T> count(...args: T) -> i32 {
     var n = 0

@@ -14,7 +14,7 @@ struct <T> Box { var v: T }
 
 // the gate holds in this very file
 extend string requires __builtin_is_declared<cxx::std::string>() {
-    pub fn to_cxx(const self) -> cxx::std::string { return cxx::std::string(self.c_str(), self.size()) }
+    pub fn to_cxx(const self) -> cxx::std::string { return cxx::std::string(unsafe (self.data() as unsafe *const __builtin_c_char), self.size()) }
     @implicit pub fn op as (const self) -> cxx::std::string { return self.to_cxx() }
 }
 // mixed with a type-parameter test

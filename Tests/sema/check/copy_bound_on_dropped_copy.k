@@ -1,5 +1,5 @@
 // A container whose `@copy` constructor carries a `requires` on its
-// element is COPY only where that clause holds: `[Mo]` of a move-only
+// element is COPY only where that clause holds: `Box<Box<Mo>>` of a move-only
 // `Mo` meets no copy bound, as `Mo` itself does not, and Sema says so
 // before the C++ step.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
@@ -37,15 +37,15 @@ fn <T impl Copyable> dup(const t: T) -> T {
 }
 
 fn main() -> i32 {
-    var a: [i32] = [1]
+    var a = Box<i32>()
     var b        = dup(a)
-    var v: [Mo]  = []
-    // CHECK: copy_bound_on_dropped_copy.k:[[@LINE+1]]:13: error [SC162E]: '[Mo]' does not conform to 'Copyable': '[Mo]' is not a COPY type
+    var v = Box<Box<Mo>>()
+    // CHECK: copy_bound_on_dropped_copy.k:[[@LINE+1]]:13: error [SC162E]: 'Box<Box<Mo>>' does not conform to 'Copyable': 'Box<Box<Mo>>' is not a COPY type
     var w = dup(v)
     // CHECK: note [I900N]: required by this bound
     // CHECK: note [I900N]: the constructor is required here
-    // CHECK: vector.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: '[Mo]' declares a copy constructor, but its requirements do not hold here: 'Mo' cannot be copied
-    var vv: [[i32]] = []
+    // CHECK: copy_bound_on_dropped_copy.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: 'Box<Box<Mo>>' declares a copy constructor, but its requirements do not hold here: 'Box<Mo>' cannot be copied
+    var vv = Box<Box<i32>>()
     var ww          = dup(vv)
     var bi          = Box<i32>()
     var bj          = dup(bi)

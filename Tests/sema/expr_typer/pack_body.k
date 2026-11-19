@@ -1,6 +1,6 @@
-fn sum(...xs: i32) -> usize { return xs.len }
-fn first(...xs: i32) -> i32 { return xs.data[0] }
-fn <T> gen(...xs: T) -> usize { return xs.len }   // generic pack: deferred, no error
+fn sum(...xs: i32) -> usize { return xs.size() }
+fn first(...xs: i32) -> i32 { return xs[0] }
+fn <T> gen(...xs: T) -> usize { return xs.size() }   // generic pack: deferred, no error
 
 // --- lit wiring -----------------------------------------------------------
 // Inside its function a pack `...xs: T` is a slice `[T;]` over the run of
@@ -11,5 +11,5 @@ fn <T> gen(...xs: T) -> usize { return xs.len }   // generic pack: deferred, no 
 // DIAG-NOT: error
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 // SEMA: ===== SEMA fid {{[0-9]+}}: {{.*}}pack_body.k
-// SEMA: .len {{.*}}-> field len
+// SEMA: .size {{.*}}-> fn size
 // SEMA: NamedIdentExpr {{.*}}@ 1:{{[0-9]+}} {{ *}}: [i32;]

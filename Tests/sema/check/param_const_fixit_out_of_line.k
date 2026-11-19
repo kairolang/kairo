@@ -5,17 +5,19 @@
 // adds `const` at the declaration too, with a note there.
 class C {
     var n: usize = 0
-    fn take(self, s: string) -> usize
+    fn take(self, s: Big) -> usize
 }
 
-fn C::take(self, s: string) -> usize {
-    return s.size() + self.n
+fn C::take(self, s: Big) -> usize {
+    return s.n as usize + self.n
 }
 
 fn main() -> i32 {
     var c = C()
-    return c.take("ab") as i32
+    return c.take(Big()) as i32
 }
+
+class Big { pub var n: i32 = 0; fn Big(self) { } @copy fn Big(self, const o: Self) { self.n = o.n } }
 
 // --- lit wiring ---
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s

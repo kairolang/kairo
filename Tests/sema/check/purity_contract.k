@@ -32,7 +32,7 @@ fn reads_inout(@inout x: i32) const -> i32 { return x }
 // intrinsic, an eval constant, a const callee, a pointer read in @pure.
 class Big {
     var a: i32 = 1
-    var s: string = "x"
+    var s: i64 = 2
 }
 eval K: i32 = 3
 fn field_of(b: Big) const -> i32 { return b.a + K }

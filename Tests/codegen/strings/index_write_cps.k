@@ -20,7 +20,7 @@ fn main() -> i32 {
     if s.codepoints() == 4 { r += 8 }
     s[1] = 0x80
     if s.codepoints() == 3 { r += 16 }
-    var t = s + s                     // both stale
+    var t = s.copy() + s                     // both stale
     if t.codepoints() == 6 { r += 32 }
     var u = "xy"
     u += s                            // fresh += stale

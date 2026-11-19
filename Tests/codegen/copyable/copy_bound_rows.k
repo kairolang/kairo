@@ -41,7 +41,7 @@ extend <K> Slot<K> requires K impl Copyable {
 
 extend <K impl Hash> Slot<K> {
     fn same_hash(const self, const o: K) -> bool {
-        return self.k.hash() == o.hash()
+        var a = Hasher(0); var b = Hasher(0); self.k.hash(&a); o.hash(&b); return a.finish() == b.finish()
     }
 }
 
@@ -53,7 +53,7 @@ extend <K impl Copyable> Slot<K> {
 
 extend <K impl Hash> Slot<K> {
     static fn hash_of(const v: K) -> usize {
-        return v.hash()
+        var s = Hasher(0); v.hash(&s); return s.finish() as usize
     }
 }
 

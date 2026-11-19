@@ -5,7 +5,7 @@ import std::io::println
 
 class Named {
     var name: string = ""
-    fn Named(self, n: string) { self.name = n; println(f"ctor {n}") }
+    fn Named(self, n: string) { println(f"ctor {n}"); self.name = n }
     fn op finally(self) { println(f"dtor {self.name}") }
 }
 

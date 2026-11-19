@@ -90,6 +90,7 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// CXX-LABEL: CODEGEN C++: {{.*}}nullable/match.k
 // CXX:      if(x.is_null()) {
 // CXX-NEXT:     return(- 1);
 // CXX:      signed int __kairo_m0_s = x.__value();

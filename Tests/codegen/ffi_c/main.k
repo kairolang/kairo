@@ -15,9 +15,9 @@ fn main() -> i32 {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %clangxx -x c -c %S/c_add.c -o %t.d/c_add.c.o
-// RUN: %kairo %s -c --cache-dir %t.d/k
-// RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o %t.d/c_add.c.o -o %t.exe
+// RUN: rm -f %t.exe
+// RUN: %kairo %s %S/c_add.c -o %t.exe --cache-dir %t.d/k
+// The C file is compiled and linked by the same kairo invocation.
 // RUN: %t.exe; test $? -eq 42
 
 // The same program with the C source handed to kairo itself: compiled by the

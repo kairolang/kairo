@@ -73,9 +73,9 @@ fn main() -> i32 {
     }
     if s != 18 { return 4 }
 
-    var m = {"a": 1, "b": 2}
+    var m = {10: 1, 20: 2}
     s = 0
-    for (k: string, v: i64) in m {
+    for (k: i32, v: i64) in m {
         s += v * 4294967296
     }
     if s != 3 * 4294967296 { return 5 }

@@ -21,7 +21,7 @@ enum <T, ...E> Outcome {
 
 fn describe(o: Outcome<i32, string, f64>) -> i32 = match o {
     case .Ok(var value)          => value
-    case .Err(var error: string) => error.length() as i32
+    case .Err(const error: string) => error.size() as i32
     case .Err(var error: f64)    => 100
 }
 
@@ -55,9 +55,9 @@ fn main() -> i32 {
     var a: Outcome<i32, string, f64> = .Ok { value: 1 }
     var b: Outcome<i32, string, f64> = .Err { error: "hello" }
     var d = Outcome<i32, string, f64, string>::Err { error: 1.5 }   // the same type as b's
-    var e = b
-    e = d
-    var r = describe(a) + describe(b) + describe(d) + describe(e)  // 1 + 5 + 100 + 100
+    var e = Outcome<i32, string, f64>::Err { error: "x" }      // move-only: a string element
+    e = Outcome<i32, string, f64, string>::Err { error: 2.5 }
+    var r = describe(a) + describe(d) + describe(e) + 5           // 1 + 100 + 100 + 5 (b, below)
     if only(Outcome<bool, i64>::Err { error: 4 }) != 4 { r += 1000 }
     if plain(.Ok { value: 9 }) != 9 { r += 1000 }
     if !lifecycle() { r += 2000 }

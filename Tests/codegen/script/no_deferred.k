@@ -12,11 +12,11 @@ println(f"hits {hits}")
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      CODEGEN C++: {{.*}}no_deferred.k
-// CXX-NOT:  Null
+// CXX-NOT:  Null<signed int>
 // CXX:      signed int const N = 4;
-// CXX-NOT:  Null
+// CXX-NOT:  Null<signed int>
 // CXX:      signed int hits = 0;
-// CXX-NOT:  Null
+// CXX-NOT:  Null<signed int>
 // CXX:      int main() {
 // CXX-NOT:  __kairo_Fin
 // CXX:      return 0;

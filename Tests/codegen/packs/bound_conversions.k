@@ -26,12 +26,12 @@ pub class Mark {
 
 fn <...T impl Named> total(...args: T) -> usize {
     var n: usize = 0
-    for arg in args { n += (arg as string).length() }
+    for arg in args { n += (arg as string).size() }
     return n
 }
 fn <...T impl Shown> shown(...args: T) -> usize {
     var n: usize = 0
-    for arg in args { n += f"{arg}".length() }
+    for arg in args { n += f"{arg}".size() }
     return n
 }
 

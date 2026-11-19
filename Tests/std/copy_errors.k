@@ -22,7 +22,6 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// CHECK: copy_errors.k:19:13: error [SC063E]: no matching overload for call to 'copy'
-// CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: its 'requires' clause does not hold: 'Neither' does not implement 'CopiesItself': it has no 'copy'
-// CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: its 'requires' clause does not hold: 'Neither' does not implement 'Copy': it cannot be copied by a copy constructor
+// CHECK: copy_errors.k:19:13: error [SC162E]: 'Neither' does not conform to 'Copyable': no member 'copy' with the requirement's signature
+// CHECK: copy_errors.k:19:13: note [I900N]: 'Neither' is not a COPY type, so it has no implicit 'copy': declare 'fn copy(const self) -> Self' on it
 // CHECK-NOT: error

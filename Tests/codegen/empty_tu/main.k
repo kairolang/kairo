@@ -26,5 +26,5 @@ fn main() -> i32 { return 7 }
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %kairo %s -c --cache-dir %t.d/k
 // RUN: test -z "$(find %t.d -name 'empty.o' -o -name 'comments.o' -o -name 'reexport.o')"
-// RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o -o %t.exe
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d/k
 // RUN: %t.exe; test $? -eq 7

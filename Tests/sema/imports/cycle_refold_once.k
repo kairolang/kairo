@@ -14,8 +14,8 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: cd %S/inputs/import_cycle/reexport && %kairo main.k --type-check-only --print-stats --threads=1 2>&1 | %FileCheck %s
-// RUN: cd %S/inputs/import_cycle/reexport && %kairo main.k --type-check-only --print-stats --threads=2 2>&1 | %FileCheck %s
-// RUN: cd %S/inputs/import_cycle/reexport && %kairo main.k --type-check-only --print-stats --threads=16 2>&1 | %FileCheck %s
-// RUN: cd %S/inputs/import_cycle/reexport && %kairo main2.k --type-check-only --print-stats --threads=16 2>&1 | %FileCheck %s
+// RUN: cd %S/inputs/import_cycle/reexport && %kairo main.k --type-check-only --no-prelude --print-stats --threads=1 2>&1 | %FileCheck %s
+// RUN: cd %S/inputs/import_cycle/reexport && %kairo main.k --type-check-only --no-prelude --print-stats --threads=2 2>&1 | %FileCheck %s
+// RUN: cd %S/inputs/import_cycle/reexport && %kairo main.k --type-check-only --no-prelude --print-stats --threads=16 2>&1 | %FileCheck %s
+// RUN: cd %S/inputs/import_cycle/reexport && %kairo main2.k --type-check-only --no-prelude --print-stats --threads=16 2>&1 | %FileCheck %s
 // CHECK: [stats] import-cycle refolds: 4

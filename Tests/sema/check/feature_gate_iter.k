@@ -10,7 +10,7 @@ fn over_set(xs: {i32}) -> i32 {
 }
 fn over_map(xs: {i32: i32}) -> i32 {
     var n: i32 = 0
-    for kv in xs { n += 1 }
+    for (k, v) in xs { n += 1 }
     return n
 }
 fn over_string(s: string) -> i32 {
@@ -24,14 +24,12 @@ fn over_slice(xs: [i32;]) -> i32 {
     return n
 }
 
-// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 //
-// Iterating a string type-checks but has no lowering yet, so it is
-// reported as an error rather than reaching IterLowering. The vector, set
-// and map loops (lines 3, 8, 13) are driven by the `op in (self) -> yield`
-// each declares in Lib/builtin, and the slice loop at line 23 is built in:
-// those stay quiet.
+// Every loop type-checks quietly: the vector, set, map and string loops
+// (lines 3, 8, 13, 18) are driven by the `op in (self) -> yield` each
+// declares in Lib/builtin, and the slice loop at line 23 is built in.
 //
-// DIAG:     feature_gate_iter.k:18:{{[0-9]+}}: error [SC116E]: iterating a string is not yet supported
+//
 // DIAG-NOT: {{error|warning}} [
 // DIAG-NOT: Internal Compiler Error

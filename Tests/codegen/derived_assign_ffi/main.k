@@ -22,8 +22,8 @@ fn main() -> i32 {
 
 // The TU: the header set, <new> included, is entered ahead of the stream.
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo %s -c --cache-dir %t.d/k
-// RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o -o %t.exe
+// RUN: rm -f %t.exe
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d/k
 // RUN: %t.exe; test $? -eq 12
 
 // The header: <new> first, then a C++ consumer's <vector> after it and

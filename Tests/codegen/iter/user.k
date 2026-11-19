@@ -22,7 +22,7 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX: __kairo_iter()
-// CXX: .next()
+// CXX: .resume()
 // CXX: .current()
 
 // REQUIRES: clang, llvm-objdump

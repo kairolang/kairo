@@ -8,10 +8,10 @@ ffi "c++" import "cxx_key.h"
 
 fn main() -> i32 {
     var m: {cxx::std::string: i32}
-    m[make_str(3)] = 3
-    m[make_str(5)] = 5
+    m.insert(make_str(3), 3)
+    m.insert(make_str(5), 5)
     if (m[make_str(3)] != 3) || !m.contains(make_str(5)) || m.contains(make_str(4)) { return 1 }
-    if !m.erase(make_str(3)) || (m.size() != 1) { return 2 }
+    if !m.swap_remove(make_str(3))? || (m.size() != 1) { return 2 }
 
     var k: {CxxKey: i32}
     k[make_key(1, 2)] = 12
@@ -29,10 +29,10 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX: template<> struct Hash_witness< ::CxxKey> {
-// CXX-NEXT: static decltype(sizeof(0)) hash(const{{ ?}}::CxxKey * self) noexcept {
-// CXX-NEXT: return static_cast<decltype(sizeof(0))>( ::std::hash< ::CxxKey> {
-// CXX: static bool __kairo_op_eq(const{{ ?}}::CxxKey & self, const{{ ?}}::CxxKey & other) noexcept {
-// CXX-NEXT: return(self == static_cast<decltype(other) &&>(other));
+// CXX-NEXT: static bool __kairo_op_eq(const{{ ?}}::CxxKey & self, const{{ ?}}::CxxKey & o) noexcept {
+// CXX-NEXT: return(self == static_cast<decltype(o) &&>(o));
+// CXX: static void hash(const{{ ?}}::CxxKey * self, ::builtin::base::hash::Hasher & h) noexcept {
+// CXX-NEXT: return h.write_usize(static_cast<decltype(sizeof(0))>( ::std::hash< ::CxxKey> {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

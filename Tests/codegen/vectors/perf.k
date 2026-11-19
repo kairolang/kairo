@@ -7,10 +7,10 @@
 
 @no_inline fn k_index(const v: [i32], i: usize) -> i32 { return v[i] }
 @no_inline fn k_size(const v: [i32]) -> usize { return v.size() }
-@no_inline fn k_empty(const v: [i32]) -> bool { return v.empty() }
+@no_inline fn k_empty(const v: [i32]) -> bool { return v.is_empty() }
 @no_inline fn k_back(const v: [i32]) -> i32 { return *v.back() }
 @no_inline fn k_push(@inout v: [i32], x: i32) { v.push_back(x) }
-@no_inline fn k_pop(@inout v: [i32]) { v.pop_back() }
+@no_inline fn k_pop(@inout v: [i32]) { v.pop() }
 @no_inline fn k_clear(@inout v: [i32]) { v.clear() }
 @no_inline fn k_sum(const v: [i32]) -> i32 {
     var t: i32 = 0

@@ -2,10 +2,10 @@
 // its body (functions-parameters.mdx), a dependent slice: the function is
 // emitted as a template over T whose pack parameter is `Slice<T>`.
 
-fn <T> count(...xs: T) -> usize { return xs.len }
+fn <T> count(...xs: T) -> usize { return xs.size() }
 
 fn <T> first_or(d: T, ...xs: T) -> T {
-    if xs.len == 0 { return d }
+    if xs.size() == 0 { return d }
     return xs[0]
 }
 

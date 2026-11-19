@@ -8,7 +8,7 @@ pub fn magic() -> [const u8;] {
 
 pub fn total(xs: [const u8;]) -> u32 {
     var t: u32 = 0
-    for var i: usize = 0; i < xs.len; ++i {
+    for var i: usize = 0; i < xs.size(); ++i {
         t += xs[i]
     }
 

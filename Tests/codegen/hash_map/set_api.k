@@ -1,21 +1,21 @@
-// `{T}` (Lib/builtin/containers/hash_set.k): every entry of the API
-// Compiler/ uses of Stage 0's set, with
-// integer and string elements. Each check returns its own number on
+// `{T}` (Lib/builtin/containers/hash_set.k): the set's API with integer
+// and string elements. Each check returns its own number on
 // failure; 100 is success.
 
 fn main() -> i32 {
     var s: {u32}
-    if !s.empty() || s.contains(1u32) { return 1 }
-    // insert: true only for a new element (Stage 0's `.second`)
+    if !s.is_empty() || s.contains(1u32) { return 1 }
+    // insert: true only for a new element
     if !s.insert(3u32) || !s.insert(1u32) || !s.insert(2u32) { return 2 }
     if s.insert(1u32) { return 3 }
     if (s.size() != 3) || !s.contains(2u32) || s.contains(4u32) { return 4 }
 
-    // find / end, begin..end and `for x in s`: insertion order
-    if s.find(9u32) != s.end() { return 5 }
-    if *s.find(2u32) != 2u32 { return 6 }
+    // get, items() and `for x in s`: insertion order
+    if s.get(9u32)? { return 5 }
+    var *g? = s.get(2u32)
+    if !g? || *g != 2u32 { return 6 }
     var order: u32 = 0
-    for var *it = s.begin(); it != s.end(); it = it + 1 { order = order * 10u32 + *it }
+    for *it in s.items() { order = order * 10u32 + *it }
     if order != 312u32 { return 7 }
     order = 0
     for x in s { order = order * 10u32 + x }
@@ -24,23 +24,23 @@ fn main() -> i32 {
     for *p in s.items() { n += *p }
     if n != 6u32 { return 9 }
 
-    // erase (swap-remove) and erase_ordered
-    if !s.erase(3u32) || s.erase(3u32) { return 10 }
+    // swap_remove and shift_remove
+    if !s.swap_remove(3u32) || s.swap_remove(3u32) { return 10 }
     order = 0
     for x in s { order = order * 10u32 + x }
     if order != 21u32 { return 11 }                 // 2 took 3's place
     s.insert(5u32)
-    if !s.erase_ordered(2u32) { return 12 }
+    if !s.shift_remove(2u32) { return 12 }
     order = 0
     for x in s { order = order * 10u32 + x }
     if order != 15u32 { return 13 }
 
-    // copy ctor and `=` are deep
-    var c = s
+    // copy() is deep; `=` moves
+    var c = s.copy()
     c.insert(9u32)
     if s.contains(9u32) || !c.contains(9u32) { return 14 }
     var d: {u32}
-    d = c
+    d = c.copy()
     c.clear()
     if (d.size() != 3) || (c.size() != 0) || c.contains(9u32) { return 15 }
     d.reserve(500)
@@ -51,7 +51,7 @@ fn main() -> i32 {
     w.insert("x")
     w.insert("yy")
     if w.insert("x") || !w.contains("yy") || w.contains("z") { return 17 }
-    if !w.erase("x") || (w.size() != 1) { return 18 }
+    if !w.swap_remove("x") || (w.size() != 1) { return 18 }
 
     // literals: written order, a repeat keeps its first place
     var lit: {i32} = {5, 6, 5, 7}

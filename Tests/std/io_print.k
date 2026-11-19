@@ -30,7 +30,7 @@ fn main() -> i32 {
     io::println("after-flush")
 
     var big: string = ""
-    for var i: i32 = 0; i < 5000; ++i { big.push_back(120) }
+    for var i: i32 = 0; i < 5000; ++i { big.push('x') }
     io::eprintln(big)
     io::println("end")
     return 7

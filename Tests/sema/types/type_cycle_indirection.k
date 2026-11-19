@@ -14,7 +14,7 @@ class ByVector   { var kids: [ByVector];      }
 class ByMap      { var kids: {i32: ByMap};    }
 class BySet impl Hash {                      // a set's element is a key
     var kids: {BySet};
-    pub fn hash(const self) -> usize { return 0; }
+    pub fn hash(const self, @inout h: Hasher) { h.write_usize(0); }
     pub fn op ==(const self, const other: BySet) -> bool { return true; }
 }
 

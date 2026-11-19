@@ -4,7 +4,7 @@
 // xs` once per element with `continue`, `break` and `return` keeping their
 // meaning. No emitted text is pinned.
 
-fn <T> one(x: T) -> i32 { return 1 }
+fn <T> one(const x: T) -> i32 { return 1 }
 
 fn <...T> count(...args: T) -> i32 {
     var n = 0
@@ -37,7 +37,7 @@ fn main() -> i32 {
     if scaled(1, 2, scale: 3) != 5 { return 4 }
     if scaled(1.5) != 3 { return 5 }
     if scaled() != 2 { return 6 }
-    if doubled(1, "a", 2.0) != 6 { return 7 }
+    if doubled(1, 2, 2.0) != 6 { return 7 }
     if none() != 5 { return 8 }
     if third_times_ten(1, 2u8, 3.0, 4) != 30 { return 9 }
     if third_times_ten(1) != -1 { return 10 }

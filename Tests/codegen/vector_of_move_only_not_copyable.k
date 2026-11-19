@@ -1,9 +1,9 @@
 // RUN: rm -rf %t.d
 // RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s
 // Loosening Vector's copy constraint for a class still being defined
-// must not make a vector of a COMPLETE move-only element copyable.
+// must not let a vector of a COMPLETE move-only element be copied.
 // Kairo reports it itself, before clang sees it.
-// CHECK: error [SC182E]: cannot copy a value of type '[MoveOnly]': copying it copies each 'MoveOnly', and 'MoveOnly' cannot be copied
+// CHECK: error [SC162E]: 'MoveOnly' does not conform to 'Copyable': no member 'copy' with the requirement's signature
 class MoveOnly {
     pub var n: i32 = 0
     fn MoveOnly(self) { }
@@ -12,6 +12,6 @@ class MoveOnly {
 
 fn main() -> i32 {
     var a: [MoveOnly]
-    var b = a
+    var b = a.copy()
     return 0
 }

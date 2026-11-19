@@ -47,5 +47,5 @@ fn main() -> i32 {
 // CHECK: extension_bound_unmet.k:18:9: note [I900N]: required by this bound
 // CHECK: extension_bound_unmet.k:41:24: error [SC162E]: 'i32' does not conform to 'Named': no member 'name' with the requirement's signature
 // CHECK: extension_bound_unmet.k:24:28: note [I900N]: required by this bound
-// CHECK: extension_bound_unmet.k:41:42: error [SC162E]: 'E' does not conform to 'Hash': no member 'hash' with the requirement's signature
+// CHECK: extension_bound_unmet.k:41:42: error [SC162E]: 'E' does not conform to 'Hash': no member 'op ==' with the requirement's signature
 // CHECK: extension_bound_unmet.k:30:9: note [I900N]: required by this bound

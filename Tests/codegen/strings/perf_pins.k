@@ -5,7 +5,7 @@
 @no_inline fn k_lit() -> string { return "hello" }
 @no_inline fn k_copy(const s: string) -> string { return s }
 @no_inline fn k_size(const s: string) -> usize { return s.size() }
-@no_inline fn k_empty(const s: string) -> bool { return s.empty() }
+@no_inline fn k_empty(const s: string) -> bool { return s.is_empty() }
 @no_inline fn k_index(const s: string, i: usize) -> u8 { return s[i] }
 @no_inline fn k_push(s: *string, c: u8) { s->push_back(c) }
 @no_inline fn k_append(s: *string, const t: string) { (*s) += t }

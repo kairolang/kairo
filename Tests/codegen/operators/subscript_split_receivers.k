@@ -101,8 +101,8 @@ class Views {
         self.e = [5, 5]
     }
 
-    fn op [] (self, r: Range<usize>) -> [i32;] { return self.e[r.begin..r.end] }
-    fn op []= (self, r: Range<usize>) -> [i32;] { return self.d[r.begin..r.end] }
+    fn op [] (self, r: Range<usize>) -> [const i32;] { return self.e[r.begin..r.end] }
+    fn op []= (self, r: Range<usize>) -> [i32;] { var w: [i32;] = self.d[r.begin..r.end]; return w }
 }
 
 fn main() -> i32 {

@@ -6,8 +6,8 @@ ffi "c" import "string.h"
 
 fn main() -> i32 {
     var s = "hello"
-    var o = s + ", world"                   // owned: its block keeps the NUL
-    o.push_back(33)
+    var o = s.copy() + ", world"                // owned: its block keeps the NUL
+    o.push('!')
     return (strlen(s.c_str()) + strlen(o.c_str())) as i32   // 5 + 13
 }
 

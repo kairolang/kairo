@@ -29,4 +29,4 @@ fn main() -> i32 {
 // CHECK: writes.k:9:32: error [SC071E]: cannot assign to 'y': 'self' is const in a 'const self' method
 // CHECK-NEXT: writes.k:4:13: note [I900N]: 'y' is declared here; a 'mutable var' field may be written from a 'const self' method
 // CHECK: writes.k:10:33: error [SC071E]: cannot update 'y': 'self' is const in a 'const self' method
-// CHECK: writes.k:11:35: error [SC071E]: cannot assign to a const place
+// CHECK: writes.k:11:35: error [SC071E]: cannot write through 'self.v[0]': its container is const, and 'op []=' takes 'self'

@@ -261,9 +261,9 @@ fn main() -> i32 {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo %s -c --cache-dir %t.d/k
-// RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o -o %t.exe
+// RUN: rm -f %t.exe
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d/k
 // RUN: %t.exe; test $? -eq 31
-// RUN: %kairo %s -c -O2 --cache-dir %t.d/o2
-// RUN: %clangxx %t.d/o2/*.o %t.d/o2/builtin/*.o %t.d/o2/kairo/*.o -o %t.o2.exe
+// RUN: rm -f %t.o2.exe
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d/o2
 // RUN: %t.o2.exe; test $? -eq 31

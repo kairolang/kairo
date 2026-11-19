@@ -4,7 +4,7 @@
 // A by-value record parameter is fine, and so is a const fn that only
 // forwards the record without reading it.
 
-class Big { var a: i32 = 1  var s: string = "x" }
+class Big { var a: i32 = 1  var s: i64 = 2 }
 
 fn by_value(p: Big) const -> i32 { return p.a }
 fn const_param(const p: Big) const -> i32 { return p.a }

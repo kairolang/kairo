@@ -37,7 +37,7 @@ class Counting {
 @no_inline fn mutate_copy() -> i32 {
     var a = "literal"
     var b = a
-    b.push_back(33)
+    b.push('!')
     if (a != "literal") || (b != "literal!") || (a.capacity() != 0) { return 1 }
     var c = b                       // deep: one exact block
     c.push_back(63)

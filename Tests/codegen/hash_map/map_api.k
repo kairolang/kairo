@@ -4,35 +4,36 @@
 // number on failure; 100 is success.
 
 fn main() -> i32 {
-    // default ctor, size / empty, `[]` inserting a default value
+    // default ctor, size / is_empty, `[]` as a place inserting a default value
     var m: {i32: i32}
-    if !m.empty() || (m.size() != 0) { return 1 }
-    if m[7] != 0 { return 2 }                       // inserted, default 0
+    if !m.is_empty() || (m.size() != 0) { return 1 }
+    m[7] += 0; if m[7] != 0 { return 2 }            // inserted, default 0
     if (m.size() != 1) || !m.contains(7) { return 3 }
     m[7] = 70
     m[8] += 8                                       // a place: default, then +=
     if (m[7] != 70) || (m[8] != 8) { return 4 }
 
-    // insert / emplace: true only for a new key; a present key keeps its value
-    if !m.insert(9, 90) { return 5 }
-    if m.insert(9, 99) { return 6 }
+    // try_insert: null for a new key; a present key keeps its value and the
+    // new one comes back
+    if m.try_insert(9, 90)? { return 5 }
+    if !m.try_insert(9, 99)? { return 6 }
     if m[9] != 90 { return 7 }
-    if !m.emplace(10, 100) || m.emplace(10, 1) { return 8 }
+    if m.try_insert(10, 100)? || !m.try_insert(10, 1)? { return 8 }
 
-    // find / end, get
-    if m.find(11) != m.end() { return 9 }
-    var *e = m.find(9)
-    if (e->key != 9) || (e->value != 90) { return 10 }
-    e->value = 91
+    // get, get_mut
+    if m.get(11)? { return 9 }
+    var *e? = m.get_mut(9)
+    if !m.contains(9) || !e? || (*e != 90) { return 10 }
+    *e = 91
     if m[9] != 91 { return 11 }
     if m.get(11) != null { return 12 }
-    var *g = unwrap!(m.get(10))
+    var *g = unwrap!(m.get_mut(10))
     *g = 101
     if m[10] != 101 { return 13 }
 
-    // begin / end walk the entries in insertion order
+    // entries() walks them in insertion order
     var keys = 0
-    for var *it = m.begin(); it != m.end(); it = it + 1 { keys = keys * 100 + it->key }
+    for *en in m.entries() { keys = keys * 100 + en->key }
     if keys != 7080910 { return 14 }
 
     // `for (k, v) in m` and entries(), insertion order
@@ -44,25 +45,25 @@ fn main() -> i32 {
     for *en in m.entries() { n += en->key }
     if n != 34 { return 16 }
 
-    // erase: true when it was there; swap-remove moves the last entry in
-    if !m.erase(7) || m.erase(7) { return 17 }
+    // swap_remove: the value when it was there; the last entry moves in
+    if !m.swap_remove(7)? || m.swap_remove(7)? { return 17 }
     order = 0
     for (k, v) in m { order = order * 100 + k }
     if order != 100809 { return 18 }                // 10 took 7's place
-    // erase_ordered keeps the others' order
-    if !m.erase_ordered(8) { return 19 }
+    // shift_remove keeps the others' order
+    if !m.shift_remove(8)? { return 19 }
     order = 0
     for (k, v) in m { order = order * 100 + k }
     if order != 1009 { return 20 }
 
-    // copy ctor and `=` are deep: the copies are independent
-    var c = m
+    // copy() is deep: the copies are independent; `=` moves
+    var c = m.copy()
     c[10] = -1
     c[42] = 42
     if (m[10] != 101) || m.contains(42) { return 21 }
     var d: {i32: i32}
     d[1] = 1
-    d = c
+    d = c.copy()
     if (d.size() != 3) || (d[42] != 42) || d.contains(1) { return 22 }
     c.clear()
     if (d.size() != 3) || (c.size() != 0) { return 23 }
@@ -70,7 +71,7 @@ fn main() -> i32 {
     // clear keeps the capacity; reserve grows without inserting
     var cap = d.capacity()
     d.clear()
-    if !d.empty() || (d.capacity() != cap) || d.contains(42) { return 24 }
+    if !d.is_empty() || (d.capacity() != cap) || d.contains(42) { return 24 }
     d.reserve(1000)
     if (d.capacity() < 1000) || (d.size() != 0) { return 25 }
     d[5] = 5
@@ -82,11 +83,11 @@ fn main() -> i32 {
     s["two"] = 2
     s["three"] = 3
     if (s["two"] != 2) || !s.contains("three") || s.contains("four") { return 27 }
-    if !s.erase("one") || (s.size() != 2) { return 28 }
-    var t = s
+    if !s.swap_remove("one")? || (s.size() != 2) { return 28 }
+    var t = s.copy()
     t["two"] = 22
     if s["two"] != 2 { return 29 }
-    if s.find("one") != s.end() { return 30 }
+    if s.contains("one") { return 30 }
 
     // literals: written order; a repeated key keeps its first place, last value
     var lit: {string: i32} = {"a": 1, "b": 2, "a": 3}
@@ -97,13 +98,12 @@ fn main() -> i32 {
     var empty: {i32: i32} = {}
     if empty.size() != 0 { return 33 }
 
-    // emptied by erase, then reused; reserve keeps every key. (`++it` is no
-    // operator on a safe pointer: a begin()..end() walk steps `it = it + 1`.)
+    // emptied by swap_remove, then reused; reserve keeps every key.
     var r: {i32: i32}
     var i = 0
     while i < 20 { r[i] = i; i += 1 }
     i = 0
-    while i < 20 { if !r.erase(i) { return 34 }; i += 1 }
+    while i < 20 { if !r.swap_remove(i)? { return 34 }; i += 1 }
     r[100] = 1
     r[200] = 2
     if (r.size() != 2) || (r[100] != 1) || (r[200] != 2) || r.contains(5) { return 35 }
@@ -113,7 +113,7 @@ fn main() -> i32 {
     i = 0
     while i < 20 { if !r.contains(i) || (r[i] != i) { return 36 }; i += 1 }
     var walked = 0
-    for var *it = r.begin(); it != r.end(); it = it + 1 { walked += 1 }
+    for *en in r.entries() { walked += 1 }
     if walked != 22 { return 37 }
     return 100
 }

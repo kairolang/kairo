@@ -38,8 +38,8 @@ fn main() -> i32 {
     io::println(f"stackbuf {sum} {buf.size()}")
 
     var s: string = "ab"
-    s.push_back(0)
-    s.push_back(99)
+    s.push(0 as char)
+    s.push('c')
     var n: usize = kairo::sref(s).size()
     io::println(f"sref {n}")
 

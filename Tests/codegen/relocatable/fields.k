@@ -248,11 +248,12 @@ eval if defined!(BAD) {
         pub fn op finally(self) {}
     }
 
-    // ERR: [[@LINE+1]]:5: error [SC356E]: '@relocatable' cannot be applied to 'BadString': its field 'f' of type 'string' is not relocatable
+    // string is itself @relocatable, so a class holding one may be too.
+    // ERR-NOT: StringOk
     @relocatable
-    class BadString {
+    class StringOk {
         pub var f: string
-        @move pub fn BadString(self, other: Self) = default
+        @move pub fn StringOk(self, other: Self) = default
         pub fn op finally(self) {}
     }
 

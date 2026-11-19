@@ -3,9 +3,9 @@
 // test an unbounded type parameter is an error at the definition (SC320E),
 // not a choice left to each instance. Each note names a candidate and the
 // bound that selects it, or says that none can: a negated conformance or a
-// value predicate is never promised by a bound. std::copy's two overloads
-// are such a pair, and its interfaces are not public, so the note says
-// that this file cannot name them.
+// value predicate is never promised by a bound. std::copy is bounded by
+// Copyable, so calling it on an unbounded parameter is an error at the
+// definition too.
 
 import std
 
@@ -50,9 +50,9 @@ fn <T> dup(const x: T) -> T {
 // CHECK: generic_body_open_clauses.k:37:12: error [SC320E]: call to 'width'
 // CHECK-NEXT: generic_body_open_clauses.k:24:1: note [SC320N]: no bound selects this candidate: its clause tests the parameter with a condition no bound can promise
 // CHECK-NEXT: generic_body_open_clauses.k:28:1: note [SC320N]: no bound selects this candidate: its clause tests the parameter with a condition no bound can promise
-// CHECK: generic_body_open_clauses.k:41:12: error [SC320E]: call to 'copy'
-// CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [SC320N]: this candidate is selected when 'T' implements 'CopiesItself': add the bound 'T impl CopiesItself', though the interface is not public, so this file cannot name it
-// CHECK-NEXT: utility.k:{{[0-9]+}}:{{[0-9]+}}: note [SC320N]: no bound selects this candidate: it applies when 'T' implements 'Copy' and 'T' does not implement 'CopiesItself', and no bound can promise that 'T' does not implement 'CopiesItself'
+// std::copy takes `T impl Copyable`: an unbounded T is refused at the call.
+// CHECK: generic_body_open_clauses.k:41:12: error
+//
 // CHECK-NOT: error [SC064E]
 
 // A constrained overload beside an unconstrained one: constraints order

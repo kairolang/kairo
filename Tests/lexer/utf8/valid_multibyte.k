@@ -3,8 +3,10 @@
 // DIAG-NOT: S072E
 // DIAG-NOT: error
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
-// IR: reinterpret_cast<const unsigned char *>("\360\237\223\243"), 4, 1
-// IR: reinterpret_cast<const unsigned char *>("\357\277\275"), 3, 1
+// IR-DAG: 240, 159, 147, 163, 0
+// IR-DAG: 239, 191, 189, 0
+// IR: string( ::__kairo_slit_4_{{[0-9a-f]+}}.b, 4, 1)
+// IR: string( ::__kairo_slit_3_{{[0-9a-f]+}}.b, 3, 1)
 fn main() -> i32 {
     var a = "📣"
     var b = "�"

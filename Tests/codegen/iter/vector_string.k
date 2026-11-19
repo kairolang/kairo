@@ -2,13 +2,13 @@
 // range and iterator; collections.mdx): a vector yields its elements, a
 // string its characters.
 //
-// XFAIL: *
-// `for ... in` over Kairo vectors, sets, maps and
-// strings is SC116E. Today:
-// SC116E "iterating a string is not yet supported" (the vector loop works
-// since Vector declared `op in`, codegen/vectors/api.k). (Sets and maps also need their literals,
-// codegen/literals/.) When it XPASSes, delete the XFAIL -- the run below is
-// already the real assertion.
+//
+// Both loops compile and run: a vector yields its elements by value, a
+// string its characters (`char`). The exit code is the sum and the count.
+//
+//
+//
+//
 
 fn main() -> i32 {
     var v: [i32] = [1, 2, 3]

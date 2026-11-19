@@ -1,11 +1,11 @@
 // A builtin type's own `op []` wins over its built-in subscript shape
 // (RESOLUTION.md, "A builtin type's declared operator wins"). `op []` must
 // be a member (SC055E in an extension). Both builtins here declare their
-// own in Lib/builtin: Vector (containers/vector.k) and string (string.k, a
-// byte place, `*u8` / `*const u8`), so no fixture root is needed any more.
+// own in Lib/builtin: Vector (containers/vector.k, split into `op []` and
+// `op []=`) and string (string.k, the character at a byte offset).
 //
-// string runs: its `op []` is the byte, a `u8`, where the built-in shape (a
-// `char`) would not even convert. `at` is compiled and linked but never
+// string runs: its `op []` is the declared one, a `char` read at a character
+// boundary, not a built-in shape. `at` is compiled and linked but never
 // called. With `op []` declared, a subscript none of its overloads takes is
 // the ordinary overload error, never a silent fall back to the shape (BAD
 // below). The BAD check names a line, so code above it keeps its place;
@@ -22,7 +22,7 @@ eval if defined!(BAD) {
 
 fn main() -> i32 {
     var s = "abc"
-    var b: u8 = s[1]                            // 'b' = 98
+    var b: char = s[1]                          // 'b' = 98
     return (b as i32) - 89                      // 9
 }
 
@@ -39,9 +39,9 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-NOT: Internal Compiler Error
 // The place is evaluated first, bound once (SequenceLowering).
-// CXX: auto && __kairo_ord0 =(v.operator[](i));
-// CXX-NEXT: (__kairo_ord0 = static_cast<signed int>(static_cast<unsigned int>(v.operator[](i)) + static_cast<unsigned int>(1)));
-// CXX: unsigned char b = s.operator[](1);
+// CXX: auto && __kairo_ord0 =(v.__kairo_op_set(i));
+// CXX-NEXT: (__kairo_ord0 = static_cast<signed int>(static_cast<unsigned int>(v.__kairo_op_get(i)) + static_cast<unsigned int>(1)));
+// CXX: char32_t b = s.operator[](1);
 
 // REQUIRES: clang
 // RUN: %kairo %s -o %t/a.exe --cache-dir %t/cache

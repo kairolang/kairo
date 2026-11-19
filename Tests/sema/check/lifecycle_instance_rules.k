@@ -7,7 +7,7 @@
 // destructor over a base without a virtual one (SC056E). An instance that
 // meets them (`Cell<i32>`, `Der<i32>`) is not reported, and neither is the
 // generic declaration itself.
-
+class Dt { pub var n: i32; fn Dt(self) { self.n = 0; } @copy fn Dt(self, const o: Self) { self.n = o.n; } fn op finally(self) { } }
 class Mv {
     pub var id: i32
     pub fn Mv(self, id: i32) { self.id = id; }
@@ -44,7 +44,7 @@ class <T> Der derives Base {
 fn direct() -> i32 {
     var a = Der<i32>(1)
     var b = Der<Mv>(Mv(2))
-    var c = Der<string>("x")
+    var c = Der<Dt>(Dt())
     return 0
 }
 
@@ -60,6 +60,6 @@ fn main() -> i32 { return 0; }
 // DIAG: lifecycle_instance_rules.k:46:13: error [SC061E]: 'Der<Mv>' is move-only (@move), but its base 'Base' is copyable (@copy); a derived class's lifecycle category must match its base's, or be non-transferable
 // DIAG-NEXT: lifecycle_instance_rules.k:39:23: note [I900N]: 'Base' is a base of 'Der<Mv>' here
 // DIAG-NEXT: lifecycle_instance_rules.k:34:1: note [I900N]: base declared here
-// DIAG: lifecycle_instance_rules.k:47:13: error [SC056E]: class 'Der<string>' has a non-trivial destructor, but its base 'Base' does not have a virtual destructor; deleting a 'Der<string>' through a '*Base' would run only 'Base''s destructor and leak the rest
-// DIAG-NEXT: lifecycle_instance_rules.k:39:23: note [I900N]: 'Base' is a base of 'Der<string>' here
+// DIAG: lifecycle_instance_rules.k:47:13: error [SC056E]: class 'Der<Dt>' has a non-trivial destructor, but its base 'Base' does not have a virtual destructor; deleting a 'Der<Dt>' through a '*Base' would run only 'Base''s destructor and leak the rest
+// DIAG-NEXT: lifecycle_instance_rules.k:39:23: note [I900N]: 'Base' is a base of 'Der<Dt>' here
 // DIAG-NEXT: lifecycle_instance_rules.k:34:1: note [I900N]: declare 'virtual fn op finally(self)' in 'Base'

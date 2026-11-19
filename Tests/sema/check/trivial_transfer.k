@@ -22,8 +22,9 @@ class MoveBody {
     @move
     fn MoveBody(self, other: Self) { }
 }
+class Dt { pub var n: i32 = 0; fn Dt(self) { } @copy fn Dt(self, const o: Self) { self.n = o.n } fn op finally(self) { } }
 class CopyDefaultString {
-    var s: string;
+    var s: Dt;
     @copy
     fn CopyDefaultString(self, const other: Self) = default
 }
@@ -79,6 +80,7 @@ enum HoldsMoveDefault { Has { m: MoveDefault }, Empty }
 // SEMA-NEXT: lifecycle CopyBody: category=COPY trivial_copy=0 trivial_dtor=1 destructible=1
 // SEMA-NEXT: lifecycle MoveDefault: category=MOVE trivial_copy=1 trivial_dtor=1 destructible=1
 // SEMA-NEXT: lifecycle MoveBody: category=MOVE trivial_copy=0 trivial_dtor=1 destructible=1
+// SEMA-NEXT: lifecycle Dt: category=COPY trivial_copy=0 trivial_dtor=0 destructible=1
 // SEMA-NEXT: lifecycle CopyDefaultString: category=COPY trivial_copy=0 trivial_dtor=0 destructible=1
 // SEMA-NEXT: lifecycle DtorDefault: category=COPY trivial_copy=1 trivial_dtor=1 destructible=1
 // SEMA-NEXT: lifecycle DtorBody: category=COPY trivial_copy=0 trivial_dtor=0 destructible=1

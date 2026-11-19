@@ -12,7 +12,7 @@ extend cxx::std::string {
     fn op as (const self) -> string {
         var out = string()
         for var i: usize = 0; i < self.size(); ++i {
-            out.push_back(self.at(i) as u8)
+            out.push((self.at(i) as u8) as char)
         }
 
         return out
@@ -21,7 +21,7 @@ extend cxx::std::string {
 
 extend string {
     @implicit fn op as (const self) -> cxx::std::string {
-        return cxx::std::string(self.c_str(), self.size())
+        return cxx::std::string(unsafe (self.data() as unsafe *const __builtin_c_char), self.size())
     }
 }
 

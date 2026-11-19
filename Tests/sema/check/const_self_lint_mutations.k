@@ -15,13 +15,13 @@ class C {
     fn m2(self) { self.v[0] = 1 }
     fn m3(self) { ++self.n }
     fn m4(self) { take(&self.n) }
-    fn m5(self) { self.s = self.s + "b" }
+    fn m5(self) { self.s = self.s.copy() + "b" }
     fn m6(self) -> *i32 { return &self.n }
     fn m7(self) { var f = fn () { self.n = 1 }; f() }
     fn m8(self) { self.v.clear() }
     fn r1(self) -> i32 { var t = 0; for x in self.v { t += x }; return t }
     fn r2(self) -> string { return f"{self.n}" }
-    fn r3(self) -> usize { return self.s.length() }
+    fn r3(self) -> usize { return self.s.size() }
     fn r4(self) -> i32 { return self.p.x }
 }
 

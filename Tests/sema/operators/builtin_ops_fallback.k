@@ -17,7 +17,7 @@ extend <T> {T} {
 fn index(v: [i32], m: {i32: i32}, s: string) -> i32 {
     var a: i32 = v[0]
     var b: i32 = m[1]
-    var c: u8 = s[0]
+    var c: char = s[0]
     return a + b
 }
 
@@ -29,4 +29,4 @@ fn walk(v: [i32], st: {i32}, s: string) {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not=error
-// DIAG: builtin_ops_fallback.k:27:14: error [SC116E]: iterating a string is not yet supported
+// DIAG-NOT: SC116E

@@ -8,7 +8,7 @@ class Box {
     fn Box(self, n: i32) { self.n = n }
 }
 
-fn parse(s: string) -> i32 { return s.size() as i32 }
+fn parse(const s: string) -> i32 { return s.size() as i32 }
 
 fn main() -> i32 {
     const raw = "4242"

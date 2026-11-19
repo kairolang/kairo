@@ -10,8 +10,8 @@ import std::env
 fn main() -> i32 {
     var p = env::exe_path()
     io::println(p)
-    if p.length() == 0 { return 1 }
-    if p.as_ptr()[0] != 47 { return 2 }         // absolute: starts with '/'
+    if p.size() == 0 { return 1 }
+    if p.data()[0] != 47 { return 2 }         // absolute: starts with '/'
     return 0
 }
 

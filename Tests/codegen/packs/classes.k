@@ -3,7 +3,7 @@
 // a member through a pack-typed base reads its instance's base, and a member
 // may have a pack of its own. A function returns a record over its own pack.
 
-fn <T> one(x: T) -> i32 { return 1 }
+fn <T> one(const x: T) -> i32 { return 1 }
 
 class <...T> Base {
     pub var tag: i32

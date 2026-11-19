@@ -11,7 +11,7 @@ fn main() -> i32 {
     var s: string = "hey"
     var e: string = ""
     if s.is_empty() || !e.is_empty() { bad += 1 }
-    if s.data() != s.as_ptr() || s.data()[1] != 101 { bad += 2 }
+    if s.data() != s.data() || s.data()[1] != 101 { bad += 2 }
 
     var v: [string] = ["a", "bb"]
     if v.is_empty() { bad += 4 }

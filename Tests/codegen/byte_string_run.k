@@ -9,7 +9,7 @@ const MAGIC: [const u8;] = b"\x7fELF"
 
 fn sum(xs: [const u8;]) -> u32 {
     var t: u32 = 0
-    for var i: usize = 0; i < xs.len; ++i {
+    for var i: usize = 0; i < xs.size(); ++i {
         t += xs[i]
     }
 
@@ -25,19 +25,19 @@ macro twice!(b) { b + b }
 
 fn main() -> i32 {
     var s = b"a\x00\xffz"
-    io::println(f"{s.len} {s[0]} {s[1]} {s[2]} {s[3]}")
+    io::println(f"{s.size()} {s[0]} {s[1]} {s[2]} {s[3]}")
 
     var e = b""
-    io::println(f"{e.len}")
+    io::println(f"{e.size()}")
 
     var esc = b"\n\t\\\"\0\033\377"
-    io::println(f"{esc.len} {esc[0]} {esc[1]} {esc[2]} {esc[3]} {esc[4]} {esc[5]} {esc[6]}")
+    io::println(f"{esc.size()} {esc[0]} {esc[1]} {esc[2]} {esc[3]} {esc[4]} {esc[5]} {esc[6]}")
 
     var joined = b"ab" b"\x01"
         b"cd"
-    io::println(f"{joined.len} {sum(joined)}")
+    io::println(f"{joined.size()} {sum(joined)}")
 
-    io::println(f"{sum(b"\x01\x02\x03")} {tag().len} {MAGIC.len} {MAGIC[0]} {sum(MAGIC[1..])}")
+    io::println(f"{sum(b"\x01\x02\x03")} {tag().size()} {MAGIC.size()} {MAGIC[0]} {sum(MAGIC[1..])}")
 
     var count: u32 = 0
     for c in b"\x05\x06" {

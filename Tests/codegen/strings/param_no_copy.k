@@ -20,13 +20,13 @@ class Counting {
 
 @set_global_allocator(Counting)
 
-@no_inline fn reads(s: string) -> usize { return s.length() }
+@no_inline fn reads(s: string) -> usize { return s.size() }
 @no_inline fn forwards(s: string) -> usize { return reads(s) + 1 }
-@no_inline fn mutates(s: string) -> usize { s.push_back(33); return s.length() }
+@no_inline fn mutates(s: string) -> usize { s.push('!'); return s.size() }
 
 fn main() -> i32 {
     var s = string()
-    for var i: usize = 0; i < 1000; ++i { s.push_back(120) }
+    for var i: usize = 0; i < 1000; ++i { s.push('x') }
     var base = allocs
     var total: usize = 0
     for var i: usize = 0; i < 100; ++i { total += reads(s) + forwards(s) }

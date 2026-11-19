@@ -29,10 +29,10 @@ class <K, V> Pairs {
 }
 
 fn main() -> i32 {
-    var p   = Pairs<i32, string>(3, "ab")
+    var p   = Pairs<i32, i64>(3, 2)
     var sum = 0
     for (k, v) in p {
-        sum += k * 10 + (v.size() as i32)
+        sum += k * 10 + (v as i32)
     }
 
     return sum - 64

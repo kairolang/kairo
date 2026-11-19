@@ -7,8 +7,8 @@
 
 fn walk(v: [i32]) -> i32 {
     var sum = 0
-    for var *it = v.begin(); it != v.end(); ++it { sum += *it }
-    var *e = v.end()
+    var *b = unwrap!(v.data()); for var *it = b; it != b + v.size(); ++it { sum += *it }
+    var *e = b + v.size()
     --e
     var *old = e--
     return sum + *old + *(++e)
@@ -38,9 +38,9 @@ fn nullable_step(p: *i32?) {
 // DIAG: pointer_incdec.k:31:5: error [SC265E]: 'q' may be null here; check it with 'if q?' first
 // DIAG-NEXT: pointer_incdec.k:30:5: note [I900N]: 'q' is given a value that may be null here
 // SEMA-LABEL: SEMA fid {{[0-9]+}}: {{.*}}pointer_incdec.k
-// SEMA:       UnaryOperatorExpr {{ *}}@ 10:45 {{ *}}: *i32
-// SEMA:       UnaryOperatorExpr {{ *}}@ 12:5 {{ *}}: *i32
-// SEMA:       UnaryOperatorExpr {{ *}}@ 13:16 {{ *}}: *i32
-// SEMA:       UnaryOperatorExpr {{ *}}@ 14:27 {{ *}}: *i32
+// SEMA:       UnaryOperatorExpr {{ *}}@ 10:70 {{ *}}: *const i32
+// SEMA:       UnaryOperatorExpr {{ *}}@ 12:5 {{ *}}: *const i32
+// SEMA:       UnaryOperatorExpr {{ *}}@ 13:16 {{ *}}: *const i32
+// SEMA:       UnaryOperatorExpr {{ *}}@ 14:27 {{ *}}: *const i32
 // SEMA:       UnaryOperatorExpr {{ *}}@ 19:5 {{ *}}: unsafe *u8
 // SEMA:       UnaryOperatorExpr {{ *}}@ 20:5 {{ *}}: unsafe *u8

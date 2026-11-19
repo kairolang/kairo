@@ -23,7 +23,7 @@ fn main() -> i32 {
     s += nested[0][1] + nested[1][0]              // 11
     s += m::inner[2] + m::more[0]                 // 109
     s += fixed[1] + after                         // 24
-    s += (nested.len + m::inner.len) as i32       // 5
+    s += (nested.size() + m::inner.size()) as i32       // 5
     return s - 150                                // 5
 }
 

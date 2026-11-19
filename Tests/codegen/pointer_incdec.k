@@ -1,22 +1,22 @@
 // `++it` / `--it` and the postfix forms on a safe pointer run as
-// C++'s pointer increment: the Stage 0 iterator loop `for it = v.begin();
-// it != v.end(); ++it`, a step back from end(), a postfix whose old
+// C++'s pointer increment: a loop from the vector's data() pointer to one
+// past its last element, a step back from that end, a postfix whose old
 // pointer is read, and a prefix whose result is the stepped pointer.
 
 fn main() -> i32 {
     var v: [i32] = [1, 2, 3, 4]
     var r = 0
     var sum = 0
-    for var *it = v.begin(); it != v.end(); ++it { sum += *it }
+    var *b = unwrap!(v.data()); for var *it = b; it != b + v.size(); ++it { sum += *it }
     if sum == 10 { r += 1 }
-    var *e = v.end()
+    var *e = b + v.size()
     --e
     if *e == 4 { r += 2 }
-    var *q = v.begin()
+    var *q = b
     var *old = q++
     if (*old == 1) && (*q == 2) { r += 4 }
     q--
-    if q == v.begin() { r += 8 }
+    if q == b { r += 8 }
     var *w = ++q
     if (*w == 2) && (w == q) { r += 16 }
     return r

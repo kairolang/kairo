@@ -7,7 +7,7 @@ ffi "c++" import "cxx_key.h"
 
 interface OnlyHash derives Hash { }
 
-fn <T impl OnlyHash> h(const x: T) -> usize { return x.hash() }
+fn <T impl OnlyHash> h(const x: T) -> usize { var s = Hasher(0); x.hash(&s); return s.finish() as usize }
 
 fn main() -> i32 {
     var a: i32 = 1
@@ -23,9 +23,9 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX: template<> struct OnlyHash_witness< ::CxxKey> {
-// CXX: return static_cast<decltype(sizeof(0))>( ::std::hash< ::CxxKey> {
+// CXX: return h.write_usize(static_cast<decltype(sizeof(0))>( ::std::hash< ::CxxKey> {
 // CXX: template<> struct OnlyHash_witness<signed int *> {
-// CXX: return reinterpret_cast<decltype(sizeof(0))>(* self);
+// CXX: return h.write_usize(reinterpret_cast<decltype(sizeof(0))>(* self));
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
