@@ -1,7 +1,6 @@
 // Reading a present key of a HashMap, and the nullable lookups on a missing one.
-// REQUIRES: newlib
 // RUN: rm -f %t.exe
-// RUN: %kairo_new %s -O2 -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s
 // CHECK: ok
 

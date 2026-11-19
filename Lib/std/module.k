@@ -28,6 +28,9 @@ pub import ctypes::*
 pub import env
 /// The `std::io` module: `print`, `println`, `eprint`, `eprintln` and `flush`.
 pub import io
+/// The iterator adapters and consumers from `std::iter` (`iter`, `Iter`, `Map`, ...), re-exported
+/// at the std root.
+pub import iter::*
 /// The allocation API from `std::mem` (`create`, `destroy`, `AllocatorScope`, ...),
 /// re-exported at the std root.
 pub import mem::*

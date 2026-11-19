@@ -32,8 +32,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --type-check-only 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK:      :19:13: error [SC052E]: 's' is used after being moved
 // CHECK:      fix-it:"{{.*}}":{18:11-18:11}:".copy()"
 // CHECK:      :23:10: error [SC052E]: 'v' is used after being moved

@@ -29,19 +29,18 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -DKAIRO_STATIC_HEAP=65536 -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -DKAIRO_STATIC_HEAP=65536 -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s
 // CHECK: 190 3
 // RUN: %nm -S %t.exe | %FileCheck %s --check-prefix=SYMS
 // SYMS: 0000000000010000 {{[bB]}} {{.*}}static_arena9arena_memE
-// RUN: %kairo_new %s -DKAIRO_STATIC_HEAP=65536 -DOVERFLOW_ARENA -o %t.full.exe --cache-dir %t.d2
+// RUN: %kairo %s -DKAIRO_STATIC_HEAP=65536 -DOVERFLOW_ARENA -o %t.full.exe --cache-dir %t.d2
 // RUN: not %t.full.exe 2>&1 | %FileCheck %s --check-prefix=FULL
 // FULL: out of memory
 // FULL-NOT: not reached
 // The define sets the size: 128 KiB here, not the 64 KiB default.
-// RUN: %kairo_new %s -DKAIRO_STATIC_HEAP=131072 -o %t.big.exe --cache-dir %t.d3
+// RUN: %kairo %s -DKAIRO_STATIC_HEAP=131072 -o %t.big.exe --cache-dir %t.d3
 // RUN: %t.big.exe | %FileCheck %s
 // RUN: %nm -S %t.big.exe | %FileCheck %s --check-prefix=BIG
 // BIG: 0000000000020000 {{[bB]}} {{.*}}static_arena9arena_memE

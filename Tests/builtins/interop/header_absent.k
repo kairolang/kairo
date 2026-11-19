@@ -22,14 +22,13 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // REQUIRES: llvm-nm
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --check-prefix=OUT
 // RUN: %nm %t.exe | %FileCheck %s --check-prefix=ABSENT
-// RUN: %kairo_new %s --print-ir | %FileCheck %s --check-prefix=IR
-// RUN: %kairo_new %S/inputs/header_present.k -o %t.p.exe --cache-dir %t.pd
+// RUN: %kairo %s --print-ir | %FileCheck %s --check-prefix=IR
+// RUN: %kairo %S/inputs/header_present.k -o %t.p.exe --cache-dir %t.pd
 // RUN: %nm %t.p.exe | %FileCheck %s --check-prefix=PRESENT
 // OUT: no 1 header 1 1 1
 // ABSENT-NOT: cxx_containers

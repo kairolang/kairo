@@ -11,10 +11,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -f %t.exe
-// RUN: { %kairo_new %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 // CHECK-NOT: error [
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d/run
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d/run
 // RUN: %t.exe

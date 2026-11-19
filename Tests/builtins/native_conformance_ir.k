@@ -24,6 +24,5 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: %kairo_new %s --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
+// RUN: %kairo %s --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
 // IR: .write_usize(reinterpret_cast<decltype(sizeof(0))>(* self))

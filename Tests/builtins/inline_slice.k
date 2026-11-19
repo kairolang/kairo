@@ -32,7 +32,6 @@ fn main() -> i32 {
 // CHECK: {{^}}}
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu --emit=llvm-ir -o %t.d/out.ll --cache-dir %t.d/c
+// RUN: %kairo %s -O2 --target=x86_64-linux-gnu --emit=llvm-ir -o %t.d/out.ll --cache-dir %t.d/c
 // RUN: %FileCheck %s --input-file=%t.d/out.ll

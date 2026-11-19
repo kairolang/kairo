@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes Lib/builtin2/base/text_float_tables.k: the 128-bit powers of ten shared by the float
+"""Writes Lib/builtin/base/text_float_tables.k: the 128-bit powers of ten shared by the float
 printer (Schubfach) and the float parser (Eisel-Lemire).
 
 Entry q holds 10^q as a 128-bit significand sig with 2^127 <= sig < 2^128:
@@ -97,7 +97,7 @@ def main():
         rows.append((hi, lo, q))
 
     out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                       "Lib", "builtin2", "base", "text_float_tables.k")
+                       "Lib", "builtin", "base", "text_float_tables.k")
     with open(out, "w") as f:
         f.write("/// builtin/base/text_float_tables.k\n")
         f.write("///\n")

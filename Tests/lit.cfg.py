@@ -346,21 +346,6 @@ config.substitutions.append(
         _sh(os.path.join(config.test_source_root, "overlay_builtins.py")),
         _sh(os.path.normpath(os.path.join(config.test_source_root, "..", "Lib"))))))
 config.substitutions.append(("%kairo_overlay", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + _clang_roots(with_builtins=False)))
-# The two-word library, Lib/builtin2 and Lib/std2 (move-only string, Vector,
-# HashMap and HashSet), beside the one every other test compiles against:
-# `%kairo_new` is %kairo with --builtins-dir / --std-dir naming those two
-# trees and nothing else changed (the runtime is still Lib/rt, the builtin
-# tree's sibling). A test that uses it says `REQUIRES: newlib`, the feature
-# set while both directories exist. Tests/builtins holds them. Before %kairo,
-# as %kairo_bin is.
-_new_builtin = os.path.normpath(os.path.join(config.test_source_root, "..", "Lib", "builtin2"))
-_new_std = os.path.normpath(os.path.join(config.test_source_root, "..", "Lib", "std2"))
-if os.path.isdir(_new_builtin) and os.path.isdir(_new_std):
-    config.available_features.add("newlib")
-config.substitutions.append(
-    ("%kairo_new", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads
-     + _clang_roots(with_builtins=False, with_std=False)
-     + " --builtins-dir=%s --std-dir=%s" % (_sh(_new_builtin), _sh(_new_std))))
 config.substitutions.append(("%kairo", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + kairo_roots))
 
 # --- kcc ----------------------------------------------------------------------
@@ -372,14 +357,6 @@ kcc_bin = os.path.join(os.path.dirname(kairo_bin), "kcc")
 if os.path.isfile(kcc_bin):
     config.available_features.add("kcc")
     _kcc_x = "".join(" -Xkairo " + _sh(w) for w in ["--error-format=basic", _kairo_threads.strip()] + _shlex.split(kairo_roots))
-    # `%kcc_new` is %kcc on the two-word library, as %kairo_new is %kairo:
-    # the roots name Lib/builtin2 and Lib/std2 and nothing else changes.
-    # Before %kcc, which lit would otherwise substitute inside it.
-    _kcc_new_x = "".join(" -Xkairo " + _sh(w) for w in
-                         ["--error-format=basic", _kairo_threads.strip()]
-                         + _shlex.split(_clang_roots(with_builtins=False, with_std=False))
-                         + ["--builtins-dir=" + _new_builtin, "--std-dir=" + _new_std])
-    config.substitutions.append(("%kcc_new", _sh(kcc_bin) + _kcc_new_x))
     config.substitutions.append(("%kcc", _sh(kcc_bin) + _kcc_x))
 # --- long-tests ----------------------------------------------------------------
 # Tests that take more than ~30 s (ksys sysroot builds, kcc/runtime-cache

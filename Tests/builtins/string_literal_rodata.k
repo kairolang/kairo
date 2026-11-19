@@ -37,16 +37,15 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe
 
 // The object: a constant with a constant initializer, 5 codepoints, the
 // six bytes and a NUL; the constructor takes its bytes member as it is.
-// RUN: %kairo_new %s --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
+// RUN: %kairo %s --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
 // IR:      template<decltype(sizeof(0)) N> struct __kairo_slit_t {
 // IR-NEXT: decltype(sizeof(0)) cp;
 // IR-NEXT: unsigned char b[N];

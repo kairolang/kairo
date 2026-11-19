@@ -10,4 +10,4 @@
 /// The result type of `spawn f()`: a handle to a value of type `T` that is still being computed.
 ///
 /// Layout only for now: `state` points at the task's shared state.
-pub struct <T> Future  { var state: *void }
+pub struct <T> Future { var state: *void }

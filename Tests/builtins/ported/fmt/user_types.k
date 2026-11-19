@@ -4,7 +4,7 @@
 // returns, so its width, fill, alignment and precision are applied to that string; it has no other way to see them.
 // Rules asserted (Compiler/Spec/FormatStrings.md, Hole facts: `repr()` is preferred, then `op as` returning string,
 // `?` skips `op as`, a record with no conversion prints its address, a plain enum its underlying integer, a proven
-// non-null nullable its value; Lib/builtin2/fmt/fmt_buf.k put_ptr: `<name> @ 0x<hex>` or `&null`; website
+// non-null nullable its value; Lib/builtin/fmt/fmt_buf.k put_ptr: `<name> @ 0x<hex>` or `&null`; website
 // language/generics.mdx, f-strings in a generic body: a hole is formatted per instance with the rules of a concrete
 // value; spec grammar comment above `_parse_spec` in Compiler/Sema/Type/LiteralTyping.k: a record takes width,
 // alignment and precision).
@@ -246,11 +246,10 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d %t.exe %t.o2.exe
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe | %FileCheck %s
 // CHECK-NOT: FAIL
 // CHECK: ok

@@ -287,14 +287,13 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe | %FileCheck %s
 // The tag compare as one 128-bit word, the form targets without SSE2 take.
-// RUN: %kairo_new %s -O2 -DKAIRO_TABLE_NO_SIMD -o %t.word.exe --cache-dir %t.dw
+// RUN: %kairo %s -O2 -DKAIRO_TABLE_NO_SIMD -o %t.word.exe --cache-dir %t.dw
 // RUN: %t.word.exe | %FileCheck %s
 // CHECK-NOT: FAIL
 // CHECK: {{[0-9]+}} checks, 0 failures

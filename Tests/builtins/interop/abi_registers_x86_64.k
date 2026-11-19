@@ -44,13 +44,12 @@ pub fn take_vector(v: [i32]) -> usize {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // REQUIRES: clang, host-x86_64, host-linux
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new %s -O2 --emit=llvm-ir -o %t.d/k.ll --cache-dir %t.d/c
+// RUN: %kairo %s -O2 --emit=llvm-ir -o %t.d/k.ll --cache-dir %t.d/c
 // RUN: %FileCheck %s --check-prefix=KIR --input-file=%t.d/k.ll
 // RUN: %clangxx -std=c++23 -S -emit-llvm -O2 -o - %S/inputs/abi_twin.cc | %FileCheck %s --check-prefix=CIR
-// RUN: %kairo_new %S/inputs/abi_twin.cc %s -o %t.exe --cache-dir %t.d/c2
+// RUN: %kairo %S/inputs/abi_twin.cc %s -o %t.exe --cache-dir %t.d/c2
 // RUN: %t.exe
 
 // KIR-DAG: define {{.*}}{ ptr, i64 } @_ZN20abi_registers_x86_6411echo_stringEN7builtin6string6stringE(ptr %{{[^,]*}}, i64 %{{[^,)]*}})

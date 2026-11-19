@@ -6,7 +6,7 @@ pub const SEED: u64 = 0x9E3779B97F4A7C15
 
 pub class Rng {
     var s: u64
-    pub fn Rng(self) { self.s = SEED }
+    pub inline fn Rng(self) { self.s = SEED }
     pub inline fn next(self) -> u64 {
         self.s ^= self.s << 13
         self.s ^= self.s >> 7

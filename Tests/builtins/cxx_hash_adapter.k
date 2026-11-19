@@ -26,10 +26,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
-// RUN: %kairo_new %s --print-ir 2>&1 | %FileCheck %s
+// RUN: %kairo %s --print-ir 2>&1 | %FileCheck %s
 // CHECK: ::builtin::base::hash::Hasher h(0);
 // CHECK: return static_cast<decltype(sizeof(0))>(h.finish());

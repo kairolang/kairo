@@ -114,9 +114,8 @@ fn pointers() {
 
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --cmax-errors=0 --type-check-only 2>&1 || true; } | %FileCheck %s
-// RUN: { %kairo_new %s --cmax-errors=0 --type-check-only 2>&1 || true; } | grep -c 'error \[SC036E\]' | %FileCheck %s --check-prefix=COUNT
+// RUN: { %kairo %s --cmax-errors=0 --type-check-only 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --cmax-errors=0 --type-check-only 2>&1 || true; } | grep -c 'error \[SC036E\]' | %FileCheck %s --check-prefix=COUNT
 // COUNT: 53
 // CHECK: :19:{{[0-9]+}}: error [SC036E]
 // CHECK: :20:{{[0-9]+}}: error [SC036E]

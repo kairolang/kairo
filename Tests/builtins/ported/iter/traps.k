@@ -1,5 +1,5 @@
 // `step_by(0)` ends the program in every build mode: the step is never
-// zero (Lib/std2/iter.k, `step_by`: "Traps when `n` is zero"). The trap is at
+// zero (Lib/std/iter.k, `step_by`: "Traps when `n` is zero"). The trap is at
 // the call that builds the adapter, so it happens even when the chain is never
 // pulled and when the source is empty. CASE picks the call; case 0 uses the
 // legal steps and exits 0.
@@ -45,11 +45,10 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
 // RUN: rm -f %t.exe %t.o2.exe
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: env CASE=1 not --crash %t.exe
 // RUN: env CASE=1 not --crash %t.o2.exe
 // RUN: env CASE=2 not --crash %t.exe

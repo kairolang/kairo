@@ -1,8 +1,23 @@
-// Hash map and set rows (ops.toml, group "map") on the old library: `{K: V}`
-// and `{T}` as Lib/builtin/containers implements them. Kairo has one hasher,
-// so a `_fast` row is the same measurement as the row it follows.
-import self::support::*
+// Hash map and set rows (ops.toml, group "map"):
+// HashMap / HashSet as Lib/builtin/containers implements them. Kairo has
+// one hasher, so a `_fast` row is the same measurement as the row it
+// follows. Same inputs and checksums as kairo/map.k.
 ffi "c++" import "bench.h"
+
+eval SEED: u64 = 0x9E3779B97F4A7C15
+
+class Rng {
+    var s: u64
+    pub fn Rng(self) { self.s = SEED }
+    pub inline fn next(self) -> u64 {
+        self.s ^= self.s << 13
+        self.s ^= self.s >> 7
+        self.s ^= self.s << 17
+        return self.s
+    }
+    // Uniform in [0, n) for n < 2^32, with no division.
+    pub inline fn below(self, n: u64) -> u64 { return ((self.next() >> 32) * n) >> 32 }
+}
 
 // A bijection on u64, so the "random" keys are distinct.
 inline fn scramble(i: u64) -> u64 { return i * SEED }
@@ -35,8 +50,8 @@ fn lookup(n: u64, hit: bool) {
         var acc: u64 = 0
         bench_tic()
         for var i: u64 = 0; i < ops; i += 1 {
-            var *e = m.find(scramble(rng.below(n) + shift))
-            if e != m.end() { acc += e->value } else { acc += 7 }
+            var *e? = m.get(scramble(rng.below(n) + shift))
+            if e? { acc += *e } else { acc += 7 }
         }
         bench_toc(acc)
     }
@@ -52,7 +67,7 @@ fn churn(n: u64) {
     while bench_next() {
         bench_tic()
         for var i: u64 = 0; i < ops; i += 1 {
-            m.erase(scramble(next - n))
+            m.swap_remove(scramble(next - n))
             m.insert(scramble(next), next)
             next += 1
         }
@@ -81,10 +96,10 @@ fn iterate(n: u64) {
 fn string_keys(n: u64, len: u64) -> [string] {
     var rng = Rng()
     var keys: [string]
+    var buf: [u8; 64]
     for var i: u64 = 0; i < n; i += 1 {
-        var s: string
-        for var j: u64 = 0; j < len; j += 1 { s.push_back(('a' as u8) + (rng.below(26) as u8)) }
-        keys.push(s)
+        for var j: u64 = 0; j < len; j += 1 { buf[j as usize] = ('a' as u8) + (rng.below(26) as u8) }
+        keys.push(string(&buf[0], len as usize))
     }
     return keys
 }
@@ -96,7 +111,7 @@ fn str_insert(len: u64) {
     while bench_next() {
         var m: {string: u64}
         bench_tic()
-        for var i: u64 = 0; i < n; i += 1 { m.insert(keys[i as usize], i) }
+        for var i: u64 = 0; i < n; i += 1 { m.insert(keys[i as usize].copy(), i) }
         bench_toc(m.size() as u64)
     }
     bench_end()
@@ -107,15 +122,15 @@ fn str_lookup(len: u64) {
     const ops: u64 = 1u64 << 18
     var keys = string_keys(n, len)
     var m: {string: u64}
-    for var i: u64 = 0; i < n; i += 1 { m.insert(keys[i as usize], i) }
+    for var i: u64 = 0; i < n; i += 1 { m.insert(keys[i as usize].copy(), i) }
     bench_begin(ops)
     while bench_next() {
         var rng = Rng()
         var acc: u64 = 0
         bench_tic()
         for var i: u64 = 0; i < ops; i += 1 {
-            var *e = m.find(keys[rng.below(n) as usize])
-            if e != m.end() { acc += e->value } else { acc += 7 }
+            var *e? = m.get(keys[rng.below(n) as usize])
+            if e? { acc += *e } else { acc += 7 }
         }
         bench_toc(acc)
     }
@@ -123,12 +138,17 @@ fn str_lookup(len: u64) {
 }
 
 fn copy_row(n: u64) {
+    // COMPILER-WORKAROUND(witness-unused-bound): `m.copy()` alone leaves
+    // clang without the `Copyable` witness for u64; a call through the
+    // witness in this unit makes the compiler emit it.
+    var seen: u64 = copy(n)
+    bench_sink(seen)
     var m: {u64: u64}
     for var i: u64 = 0; i < n; i += 1 { m.insert(scramble(i), i) }
     bench_begin(n)
     while bench_next() {
         bench_tic()
-        var c: {u64: u64} = m
+        var c = m.copy()
         bench_toc(c.size() as u64)
     }
     bench_end()

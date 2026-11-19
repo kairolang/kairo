@@ -11,10 +11,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // REQUIRES: host-x86_64
 // RUN: rm -rf %t.dir && mkdir -p %t.dir && cd %t.dir
-// RUN: cd %t.dir && %kairo_new %s -O2 -S -o %t.dir/out.s
+// RUN: cd %t.dir && %kairo %s -O2 -S -o %t.dir/out.s
 // RUN: %FileCheck %s --input-file=%t.dir/out.s
 // CHECK-LABEL: 3litEv:
 // CHECK-NOT:   call

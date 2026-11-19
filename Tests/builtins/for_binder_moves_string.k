@@ -14,8 +14,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --print-ir 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT:   error [
 // CHECK-LABEL: int main() noexcept {
 // CHECK:       string piece = static_cast<{{ ?}}::builtin::string::string &&>((* __kairo_it{{[0-9]+}}.current()));

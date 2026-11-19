@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------- Lib/builtin/num/softfloat_text.k --- ///
 ///
-///   \brief Decimal text for the software floats: correctly rounded
-///          parsing (decimal and hex), and the shortest round-trip and
-///          fixed-precision digits the f-string formatter lays out.
+/// Decimal text for the software floats: correctly rounded
+/// parsing (decimal and hex), and the shortest round-trip and
+/// fixed-precision digits the f-string formatter lays out.
 ///
 ///   \detail
 ///     Both directions reduce to one question: where does x * 10^t fall
@@ -583,7 +583,11 @@ fn dec_to_bin_(f: SfFmt, out: *SfW, neg: bool, d: *const SfB, q: i32) {
             var n     = -q
             var exact = pow5_(n, wp, &lo, &xlo, &hi, &xhi, POW5_EXACT_DIV)
             // value = d / (5^n 2^n); quotients of prec + 4 or more bits.
-            var s = f.prec + 4 + sfb_bitlen(&hi, SFB_LIMBS) - sfb_bitlen(d, SFB_LIMBS)
+            var s = f.prec + 4 + sfb_bitlen(&hi, SFB_LIMBS) - sfb_bitlen(
+                d,
+                SFB_LIMBS,
+            )
+
             if s < 0 {
                 s = 0
             }

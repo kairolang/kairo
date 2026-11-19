@@ -30,13 +30,12 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // REQUIRES: sysroot-x86_64-linux-gnu
 // REQUIRES: sysroot-armv7-linux-musl
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu --emit=llvm-ir -o %t.d/out.ll --cache-dir %t.d/c
+// RUN: %kairo %s -O2 --target=x86_64-linux-gnu --emit=llvm-ir -o %t.d/out.ll --cache-dir %t.d/c
 // RUN: %FileCheck %s --input-file=%t.d/out.ll
-// RUN: %kairo_new %s -O2 --target=armv7-linux-musl --emit=llvm-ir -o %t.d/arm.ll --cache-dir %t.d/arm
+// RUN: %kairo %s -O2 --target=armv7-linux-musl --emit=llvm-ir -o %t.d/arm.ll --cache-dir %t.d/arm
 // RUN: %FileCheck %s --check-prefix=W4 --input-file=%t.d/arm.ll
 
 // CHECK-LABEL: define {{.*}}4lessE

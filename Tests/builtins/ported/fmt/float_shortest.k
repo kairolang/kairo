@@ -4,7 +4,7 @@
 // exponent is below -4 or at least P, trailing zeros dropped; `e` / `E` print d[.ddd]e+XX with at least two exponent digits.
 // A precision gives C printf semantics: that many significant digits for the default layout (0 reads as 1), that many digits
 // after the point for `e`, every digit exact, the last rounded to even (Lib/rt/fmt.h, contract of kairo_rt_fmt_f64;
-// Lib/builtin2/fmt/fmt_buf.k put_f64: "the `e` base selects exponent form, `E` with the upper flag"; website
+// Lib/builtin/fmt/fmt_buf.k put_f64: "the `e` base selects exponent form, `E` with the upper flag"; website
 // library/core/formatting.mdx FmtBuf.put_f64; language/primitives.mdx, Formatting under f256: "the last rounded to even").
 // This differs from Rust and {fmt}, whose `.N` counts digits after the point: Kairo has no `f` presentation type and its
 // `{x:.2}` is two significant digits.
@@ -218,11 +218,10 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d %t.exe %t.o2.exe
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe | %FileCheck %s
 // CHECK-NOT: FAIL
 // CHECK: ok

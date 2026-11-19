@@ -9,9 +9,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import coro::suspend::*
-
 ffi "c++" import "coroutine"
+
+import coro::suspend::*
 
 /// The coroutine promise behind a generator: C++ coroutine plumbing for `Yield<T>`.
 ///
@@ -24,18 +24,30 @@ pub class <T> YieldPromise {
     /// Builds the `Yield<T>` handle for this coroutine's frame.
     pub inline fn get_return_object(self) -> Yield<T> {
         unsafe {
-            return Yield<T>(__builtin_coro_promise(&self as unsafe *void, alignof(Self) as i32, true))
+            return Yield<T>(
+                __builtin_coro_promise(
+                    &self as unsafe *void,
+                    alignof(Self) as i32,
+                    true,
+                ),
+            )
         }
     }
 
-    /// Suspends at the start, so nothing runs until the first `next()`.
-    pub inline fn initial_suspend(self) -> Suspend { return Suspend {} }
+    /// Suspends at the start, so nothing runs until the first `resume()`.
+    pub inline fn initial_suspend(self) -> Suspend {
+        return Suspend {}
+    }
+
     /// Suspends at the end, keeping the frame alive so `Yield` can destroy it.
-    @no_unwind pub inline fn final_suspend(self) -> Suspend { return Suspend {} }
+    @no_unwind pub inline fn final_suspend(self) -> Suspend {
+        return Suspend {}
+    }
 
     /// Handles `yield v`: records the address of `v` and suspends.
     ///
-    /// \param v  Taken `@inout`: the reader sees the generator's own value, not a copy.
+    /// ### Parameters
+    /// - `v`: Taken `@inout`: the reader sees the generator's own value, not a copy.
     pub inline fn yield_value(self, @inout v: T) -> Suspend {
         self.cur = &v
         return Suspend {}
@@ -44,9 +56,10 @@ pub class <T> YieldPromise {
     /// Handles `yield e` of a temporary (`yield i * i`, `yield (a, b)`, a value converted to `T`):
     /// records its address and suspends.
     ///
-    /// \param v  Taken `@move` (`T&&`): the temporary lives to the end of the full `co_yield`
-    ///           expression, which spans the suspension, so the reader sees it until the next
-    ///           resume. `@inout` alone cannot bind a temporary (P317, P324).
+    /// ### Parameters
+    /// - `v`: Taken `@move` (`T&&`): the temporary lives to the end of the full `co_yield`
+    ///   expression, which spans the suspension, so the reader sees it until the next
+    ///   resume. `@inout` alone cannot bind a temporary (P317, P324).
     pub inline fn yield_value(self, @move v: T) -> Suspend {
         self.cur = &v
         return Suspend {}
@@ -55,15 +68,17 @@ pub class <T> YieldPromise {
     /// Handles falling off the end of the generator body.
     pub inline fn return_void(self) { }
     /// Traps (`__builtin_trap`): generators do not propagate exceptions.
-    pub inline fn unhandled_exception(self) { __builtin_trap() }
+    pub inline fn unhandled_exception(self) {
+        __builtin_trap()
+    }
 }
 
 /// The handle a generator function returns: the `Yield` lang item, the target of `yield`.
 ///
-/// A function containing `yield` returns one; a `for` loop over it drives `next()` and reads
+/// A function containing `yield` returns one; a `for` loop over it drives `resume()` and reads
 /// `current()`. Move-only; destroying the handle destroys the coroutine frame.
 ///
-/// \see YieldPromise
+/// See `YieldPromise`.
 pub class <T> Yield {
     /// The promise type clang's coroutine machinery looks up.
     pub type promise_type = YieldPromise<T>
@@ -71,24 +86,30 @@ pub class <T> Yield {
     var frame: unsafe *void
 
     /// Wraps a coroutine frame; called by `YieldPromise::get_return_object`.
-    pub inline fn Yield(self, f: unsafe *void) { self.frame = f }
+    pub inline fn Yield(self, f: unsafe *void) {
+        self.frame = f
+    }
 
     @no_unwind @move inline fn Yield(self, other: Self) {
         self.frame  = other.frame
         other.frame = &null
     }
 
-    @no_unwind inline fn op delete(self) {
-        unsafe { if self.frame != &null { __builtin_coro_destroy(self.frame) } }
+    @no_unwind inline fn op finally(self) {
+        unsafe {
+            if self.frame != &null {
+                __builtin_coro_destroy(self.frame)
+            }
+        }
     }
 
     /// Resumes the generator to its next `yield`. Returns false once the body has finished, true
     /// when
     /// `current()` holds a new value.
     ///
-    /// \note Resuming a finished generator is undefined in clang's coroutine model; stop at the
+    /// **Note:** Resuming a finished generator is undefined in clang's coroutine model; stop at the
     /// first false.
-    pub inline fn next(self) -> bool {
+    pub inline fn resume(self) -> bool {
         unsafe {
             __builtin_coro_resume(self.frame)
             return !__builtin_coro_done(self.frame)
@@ -97,7 +118,7 @@ pub class <T> Yield {
 
     /// Returns a pointer to the most recently yielded value.
     ///
-    /// Valid only after `next()` returned true and until the next `next()` call.
+    /// Valid only after `resume()` returned true and until the next `resume()` call.
     pub inline fn current(self) -> *T {
         unsafe {
             var p = __builtin_coro_promise(self.frame, alignof(YieldPromise<T>) as i32, false) as unsafe *YieldPromise<T>
@@ -105,7 +126,3 @@ pub class <T> Yield {
         }
     }
 }
-
-// pub class <T> Yield {
-//     pub var frame: unsafe *void
-// }

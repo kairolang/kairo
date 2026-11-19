@@ -103,14 +103,13 @@ fn main() -> i32 {
 // CHECK: {{^}}}
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -f %t.exe
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new -O2 --target=x86_64-linux-gnu --emit=llvm-ir %s -o %t.ll --cache-dir %t.d
+// RUN: %kairo -O2 --target=x86_64-linux-gnu --emit=llvm-ir %s -o %t.ll --cache-dir %t.d
 // RUN: %FileCheck %s --input-file=%t.ll
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new -O3 --target=x86_64-linux-gnu --emit=llvm-ir %s -o %t.O3.ll --cache-dir %t.d
+// RUN: %kairo -O3 --target=x86_64-linux-gnu --emit=llvm-ir %s -o %t.O3.ll --cache-dir %t.d
 // RUN: %FileCheck %s --input-file=%t.O3.ll
 // RUN: rm -rf %t.d
-// RUN: %kairo_new -O2 %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo -O2 %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe

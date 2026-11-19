@@ -11,9 +11,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import string::*
-
 ffi "c" import "rt/crash.h"
+
+import string::*
 
 /// Crashes with a compiler-built message; the `UnwrapFailed` lang item.
 ///
@@ -24,10 +24,13 @@ ffi "c" import "rt/crash.h"
 /// stderr and aborts. `-> !` makes the failing arm `Never`. Not a panic: no `try` catches it and
 /// it is in no panic set.
 ///
-/// \param msg  Pointer to `len` bytes of message.
-/// \safety `msg` must be valid for reads of `len` bytes (a null `msg` is an empty message).
+/// ### Parameters
+/// - `msg`: Pointer to `len` bytes of message.
+///   \safety `msg` must be valid for reads of `len` bytes (a null `msg` is an empty message).
 pub fn unwrap_failed(msg: *const u8, len: usize) -> ! {
-    unsafe { kairo_rt_crash(msg as unsafe *const u8, len) }
+    unsafe {
+        kairo_rt_crash(msg as unsafe *const u8, len)
+    }
 }
 
 /// Writes `msg` and a newline to stderr (nothing when `msg` is empty), then aborts. This is what
@@ -38,7 +41,9 @@ pub fn unwrap_failed(msg: *const u8, len: usize) -> ! {
 /// method. A literal costs no allocation. `-> !`, so a call ends its path for the flow checks.
 /// Not a panic.
 ///
-/// \see crash!
+/// See `crash!`.
 pub fn crash_with(msg: string = "") -> ! {
-    unsafe { kairo_rt_crash(msg.as_ptr() as unsafe *const u8, msg.length()) }
+    unsafe {
+        kairo_rt_crash(msg.data() as unsafe *const u8, msg.size())
+    }
 }

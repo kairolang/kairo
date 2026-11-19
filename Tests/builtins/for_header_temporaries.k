@@ -32,8 +32,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --print-ir 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT:   error [
 // CHECK-LABEL: count_lines() noexcept {
 // CHECK:       string __kairo_ord[[R:[0-9]+]] ={{ ?}}::for_header_temporaries::make_heap();

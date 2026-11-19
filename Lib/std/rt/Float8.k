@@ -1,7 +1,7 @@
 /// --- The Kairo Project -------------------------- Lib/std/rt/Float8.k --- ///
 ///
-///   \brief The two OCP FP8 formats as classes: F8E4M3 and F8E5M2, what C++
-///          spells `f8e4m3` and `f8e5m2`.
+/// The two OCP FP8 formats as classes: F8E4M3 and F8E5M2, what C++
+/// spells `f8e4m3` and `f8e5m2`.
 ///
 ///   \detail
 ///        LLVM has no IR type at 8 bits of float (llvm/IR/Type.h's TypeID
@@ -64,11 +64,17 @@ import fmt::fmt_buf::FmtBuf
 /// The encoding nearest `sig * 2^(e - 63)` (the value's leading bit at bit
 /// 63 of `sig`, `sticky` set when nonzero bits lie below it), with sign `neg`,
 /// rounded to nearest even. Overflow saturates (fn) or is an infinity.
-priv fn f8_encode_(neg: bool, e: i32, sig: u64, sticky: bool, mant: u32, bias: i32, fnz: bool) -> u8 {
-    var s: u8   = if (neg) => (0x80) else => 0
-    var emin    = 1 - bias
-    var field   = 0
-    var shift   = 0
+priv fn f8_encode_(neg:    bool,
+                   e:      i32,
+                   sig:    u64,
+                   sticky: bool,
+                   mant:   u32,
+                   bias:   i32,
+                   fnz:    bool) -> u8 {
+    var s:    u8 = if (neg) => (0x80) else => 0
+    var emin     = 1 - bias
+    var field    = 0
+    var shift    = 0
     if e >= emin {
         field = e + bias
         shift = 63 - (mant as i32)
@@ -119,7 +125,7 @@ priv fn f8_encode_(neg: bool, e: i32, sig: u64, sticky: bool, mant: u32, bias: i
         field = 1 // a subnormal rounded up to the smallest normal.
     }
 
-    var m = (q & (top - 1)) as u8
+    var m               = (q & (top - 1)) as u8
     var emax_field: i32 = ((1 as i32) << ((7 - mant) as i32)) - 1
     if fnz {
         if field > emax_field || (field == emax_field && (m as u64) == top - 1) {
@@ -173,12 +179,12 @@ priv fn f8_from_f64_(v: f64, mant: u32, bias: i32, fnz: bool) -> u8 {
 
 /// The encoding as an f32, exactly: every value of both formats is one.
 priv fn f8_to_f32_(b: u8, mant: u32, bias: i32, fnz: bool) -> f32 {
-    var neg              = (b & 0x80) != 0
-    var top: u32         = (1 as u32) << mant
-    var field            = ((b & 0x7F) as u32) >> mant
-    var m                = (b as u32) & (top - 1)
-    var emax_field: u32  = ((1 as u32) << (7 - mant)) - 1
-    var sw: u32          = if (neg) => ((1 as u32) << 31) else => 0
+    var neg             = (b & 0x80) != 0
+    var top:        u32 = (1 as u32) << mant
+    var field           = ((b & 0x7F) as u32) >> mant
+    var m               = (b as u32) & (top - 1)
+    var emax_field: u32 = ((1 as u32) << (7 - mant)) - 1
+    var sw:         u32 = if (neg) => ((1 as u32) << 31) else => 0
     if field == emax_field {
         if fnz && m == top - 1 {
             return __builtin_bitcast<f32, u32>(sw | 0x7FC00000)
@@ -199,7 +205,10 @@ priv fn f8_to_f32_(b: u8, mant: u32, bias: i32, fnz: bool) -> f32 {
         }
 
         // Subnormal: m * 2^(1 - bias - mant), exact in f32.
-        var mag = (m as f32) * __builtin_bitcast<f32, u32>(((128 - bias - (mant as i32)) as u32) << 23)
+        var mag = (m as f32) * __builtin_bitcast<f32, u32>(
+            ((128 - bias - (mant as i32)) as u32) << 23,
+        )
+
         return if (neg) => (-mag) else => mag
     }
 
@@ -209,8 +218,7 @@ priv fn f8_to_f32_(b: u8, mant: u32, bias: i32, fnz: bool) -> f32 {
 
 // === F8E4M3 ===================================================================
 
-/// \class F8E4M3
-/// \brief OCP E4M3, finite-only. 1 sign / 4 exponent / 3 mantissa, bias 7.
+/// OCP E4M3, finite-only. 1 sign / 4 exponent / 3 mantissa, bias 7.
 ///
 ///        Layout:  S EEEE MMM
 ///        Max finite:   448.0    (S.1111.110)
@@ -240,31 +248,69 @@ pub class F8E4M3 {
     // --- from other types: what `x as f8e4m3` lowers to ---------------------
 
     /// From f64, rounded once.
-    pub fn F8E4M3(self, v: f64) { self.bits = f8_from_f64_(v, 3, 7, true) }
+    pub fn F8E4M3(self, v: f64) {
+        self.bits = f8_from_f64_(v, 3, 7, true)
+    }
+
     /// From f32, rounded once (f32 is exact in f64).
-    pub fn F8E4M3(self, v: f32) { self.bits = f8_from_f64_(v, 3, 7, true) }
+    pub fn F8E4M3(self, v: f32) {
+        self.bits = f8_from_f64_(v, 3, 7, true)
+    }
+
     /// From E5M2, rounded once (E5M2 is exact in f64).
-    pub fn F8E4M3(self, v: F8E5M2) { self.bits = f8_from_f64_(v.to_f32(), 3, 7, true) }
+    pub fn F8E4M3(self, v: F8E5M2) {
+        self.bits = f8_from_f64_(v.to_f32(), 3, 7, true)
+    }
+
     /// From i8.
-    pub fn F8E4M3(self, v: i8) { self.bits = f8_from_f64_(v, 3, 7, true) }
+    pub fn F8E4M3(self, v: i8) {
+        self.bits = f8_from_f64_(v, 3, 7, true)
+    }
+
     /// From i16.
-    pub fn F8E4M3(self, v: i16) { self.bits = f8_from_f64_(v, 3, 7, true) }
+    pub fn F8E4M3(self, v: i16) {
+        self.bits = f8_from_f64_(v, 3, 7, true)
+    }
+
     /// From i32.
-    pub fn F8E4M3(self, v: i32) { self.bits = f8_from_f64_(v, 3, 7, true) }
+    pub fn F8E4M3(self, v: i32) {
+        self.bits = f8_from_f64_(v, 3, 7, true)
+    }
+
     /// From i64: through f64, which is exact wherever the result is finite.
-    pub fn F8E4M3(self, v: i64) { self.bits = f8_from_f64_(v as f64, 3, 7, true) }
+    pub fn F8E4M3(self, v: i64) {
+        self.bits = f8_from_f64_(v as f64, 3, 7, true)
+    }
+
     /// From i128.
-    pub fn F8E4M3(self, v: i128) { self.bits = f8_from_f64_(v as f64, 3, 7, true) }
+    pub fn F8E4M3(self, v: i128) {
+        self.bits = f8_from_f64_(v as f64, 3, 7, true)
+    }
+
     /// From u8.
-    pub fn F8E4M3(self, v: u8) { self.bits = f8_from_f64_(v, 3, 7, true) }
+    pub fn F8E4M3(self, v: u8) {
+        self.bits = f8_from_f64_(v, 3, 7, true)
+    }
+
     /// From u16.
-    pub fn F8E4M3(self, v: u16) { self.bits = f8_from_f64_(v, 3, 7, true) }
+    pub fn F8E4M3(self, v: u16) {
+        self.bits = f8_from_f64_(v, 3, 7, true)
+    }
+
     /// From u32.
-    pub fn F8E4M3(self, v: u32) { self.bits = f8_from_f64_(v, 3, 7, true) }
+    pub fn F8E4M3(self, v: u32) {
+        self.bits = f8_from_f64_(v, 3, 7, true)
+    }
+
     /// From u64.
-    pub fn F8E4M3(self, v: u64) { self.bits = f8_from_f64_(v as f64, 3, 7, true) }
+    pub fn F8E4M3(self, v: u64) {
+        self.bits = f8_from_f64_(v as f64, 3, 7, true)
+    }
+
     /// From u128.
-    pub fn F8E4M3(self, v: u128) { self.bits = f8_from_f64_(v as f64, 3, 7, true) }
+    pub fn F8E4M3(self, v: u128) {
+        self.bits = f8_from_f64_(v as f64, 3, 7, true)
+    }
 
     // clang defines __FLT16_MAX__ exactly where _Float16 exists (fmt_buf.k).
     eval if defined!(__FLT16_MAX__) {
@@ -318,60 +364,128 @@ pub class F8E4M3 {
     // --- to other types: what `x as T` lowers to ----------------------------
 
     /// The value as an f32, exactly.
-    pub fn to_f32(const self) -> f32 { return f8_to_f32_(self.bits, 3, 7, true) }
+    pub fn to_f32(const self) -> f32 {
+        return f8_to_f32_(self.bits, 3, 7, true)
+    }
 
     /// To f32, exactly.
-    pub fn op as (const self) -> f32 { return self.to_f32() }
+    pub fn op as (const self) -> f32 {
+        return self.to_f32()
+    }
+
     /// To f64, exactly.
-    pub fn op as (const self) -> f64 { return self.to_f32() }
+    pub fn op as (const self) -> f64 {
+        return self.to_f32()
+    }
+
     /// To i8: toward zero, saturating, NaN 0 (as every float).
-    pub fn op as (const self) -> i8 { return self.to_f32() as i8 }
+    pub fn op as (const self) -> i8 {
+        return self.to_f32() as i8
+    }
+
     /// To i16.
-    pub fn op as (const self) -> i16 { return self.to_f32() as i16 }
+    pub fn op as (const self) -> i16 {
+        return self.to_f32() as i16
+    }
+
     /// To i32.
-    pub fn op as (const self) -> i32 { return self.to_f32() as i32 }
+    pub fn op as (const self) -> i32 {
+        return self.to_f32() as i32
+    }
+
     /// To i64.
-    pub fn op as (const self) -> i64 { return self.to_f32() as i64 }
+    pub fn op as (const self) -> i64 {
+        return self.to_f32() as i64
+    }
+
     /// To i128.
-    pub fn op as (const self) -> i128 { return self.to_f32() as i128 }
+    pub fn op as (const self) -> i128 {
+        return self.to_f32() as i128
+    }
+
     /// To u8.
-    pub fn op as (const self) -> u8 { return self.to_f32() as u8 }
+    pub fn op as (const self) -> u8 {
+        return self.to_f32() as u8
+    }
+
     /// To u16.
-    pub fn op as (const self) -> u16 { return self.to_f32() as u16 }
+    pub fn op as (const self) -> u16 {
+        return self.to_f32() as u16
+    }
+
     /// To u32.
-    pub fn op as (const self) -> u32 { return self.to_f32() as u32 }
+    pub fn op as (const self) -> u32 {
+        return self.to_f32() as u32
+    }
+
     /// To u64.
-    pub fn op as (const self) -> u64 { return self.to_f32() as u64 }
+    pub fn op as (const self) -> u64 {
+        return self.to_f32() as u64
+    }
+
     /// To u128.
-    pub fn op as (const self) -> u128 { return self.to_f32() as u128 }
+    pub fn op as (const self) -> u128 {
+        return self.to_f32() as u128
+    }
 
     // --- arithmetic: in f32, the result rounded once -------------------------
 
     /// self + o.
-    pub fn op + (const self, const o: F8E4M3) -> F8E4M3 { return F8E4M3(self.to_f32() + o.to_f32()) }
+    pub fn op + (const self, const o: F8E4M3) -> F8E4M3 {
+        return F8E4M3(self.to_f32() + o.to_f32())
+    }
+
     /// self - o.
-    pub fn op - (const self, const o: F8E4M3) -> F8E4M3 { return F8E4M3(self.to_f32() - o.to_f32()) }
+    pub fn op - (const self, const o: F8E4M3) -> F8E4M3 {
+        return F8E4M3(self.to_f32() - o.to_f32())
+    }
+
     /// self * o.
-    pub fn op * (const self, const o: F8E4M3) -> F8E4M3 { return F8E4M3(self.to_f32() * o.to_f32()) }
+    pub fn op * (const self, const o: F8E4M3) -> F8E4M3 {
+        return F8E4M3(self.to_f32() * o.to_f32())
+    }
+
     /// self / o.
-    pub fn op / (const self, const o: F8E4M3) -> F8E4M3 { return F8E4M3(self.to_f32() / o.to_f32()) }
+    pub fn op / (const self, const o: F8E4M3) -> F8E4M3 {
+        return F8E4M3(self.to_f32() / o.to_f32())
+    }
+
     /// -self: the sign bit flipped, NaN included.
-    pub fn op - (const self) -> F8E4M3 { return F8E4M3::from_bits(self.bits ^ 0x80) }
+    pub fn op - (const self) -> F8E4M3 {
+        return F8E4M3::from_bits(self.bits ^ 0x80)
+    }
 
     // --- comparison: IEEE's, through f32 (NaN unordered, -0 == +0) ----------
 
     /// self == o.
-    pub fn op == (const self, const o: F8E4M3) -> bool { return self.to_f32() == o.to_f32() }
+    pub fn op == (const self, const o: F8E4M3) -> bool {
+        return self.to_f32() == o.to_f32()
+    }
+
     /// self != o.
-    pub fn op != (const self, const o: F8E4M3) -> bool { return self.to_f32() != o.to_f32() }
+    pub fn op != (const self, const o: F8E4M3) -> bool {
+        return self.to_f32() != o.to_f32()
+    }
+
     /// self < o.
-    pub fn op < (const self, const o: F8E4M3) -> bool { return self.to_f32() < o.to_f32() }
+    pub fn op < (const self, const o: F8E4M3) -> bool {
+        return self.to_f32() < o.to_f32()
+    }
+
     /// self <= o.
-    pub fn op <= (const self, const o: F8E4M3) -> bool { return self.to_f32() <= o.to_f32() }
+    pub fn op <= (const self, const o: F8E4M3) -> bool {
+        return self.to_f32() <= o.to_f32()
+    }
+
     /// self > o.
-    pub fn op > (const self, const o: F8E4M3) -> bool { return self.to_f32() > o.to_f32() }
+    pub fn op > (const self, const o: F8E4M3) -> bool {
+        return self.to_f32() > o.to_f32()
+    }
+
     /// self >= o.
-    pub fn op >= (const self, const o: F8E4M3) -> bool { return self.to_f32() >= o.to_f32() }
+    pub fn op >= (const self, const o: F8E4M3) -> bool {
+        return self.to_f32() >= o.to_f32()
+    }
 
     // --- text ------------------------------------------------------------------
 
@@ -380,12 +494,18 @@ pub class F8E4M3 {
     /// f256). The digits are rt's (kairo_rt_fmt_f8e4m3): the shortest that
     /// read back as the same encoding, or `spec`'s precision.
     pub fn fmt_put_(const self, b: *FmtBuf, spec: u64) {
-        var prec = FmtBuf::prec_(spec)
+        var prec          = FmtBuf::prec_(spec)
         var digits: usize = (if prec >= 0 => prec as usize else => 0) + 48
-        var slot = b->number_slot_(spec, digits)
-        var n: i32 = 0
+        var slot          = b->number_slot_(spec, digits)
+        var n:      i32   = 0
         unsafe {
-            n = kairo_rt_fmt_f8e4m3(unsafe &b->data[slot], digits, self.bits & 0x7F, prec as i32, FmtBuf::conv_(spec))
+            n = kairo_rt_fmt_f8e4m3(
+                unsafe &b->data[slot],
+                digits,
+                self.bits & 0x7F,
+                prec as i32,
+                FmtBuf::conv_(spec),
+            )
         }
 
         b->number_at_(slot, n as usize, (self.bits & 0x80) != 0, spec)
@@ -404,18 +524,23 @@ pub class F8E4M3 {
             }
         }
 
-        return F8E4M3(0.0).bits == 0x00 && F8E4M3(1.0).bits == 0x38 && F8E4M3(2.0).bits == 0x40
-            && F8E4M3(448.0).bits == 0x7E && F8E4M3(1000.0).bits == 0x7E && F8E4M3(-1.0).bits == 0xB8
-            && F8E4M3(464.0).bits == 0x7E && F8E4M3(0.001953125).bits == 0x01
-            && F8E4M3(0.0009765625).bits == 0x00 && F8E4M3(0.00146484375).bits == 0x01
+        return F8E4M3(0.0).bits == 0x00
+            && F8E4M3(1.0).bits == 0x38
+            && F8E4M3(2.0).bits == 0x40
+            && F8E4M3(448.0).bits == 0x7E
+            && F8E4M3(1000.0).bits == 0x7E
+            && F8E4M3(-1.0).bits == 0xB8
+            && F8E4M3(464.0).bits == 0x7E
+            && F8E4M3(0.001953125).bits == 0x01
+            && F8E4M3(0.0009765625).bits == 0x00
+            && F8E4M3(0.00146484375).bits == 0x01
     }
 }
 
 // === F8E5M2 ===================================================================
 
-/// \class F8E5M2
-/// \brief OCP E5M2. 1 sign / 5 exponent / 2 mantissa, bias 15. IEEE-shaped:
-///        infinities AND NaN both present, unlike E4M3FN.
+/// OCP E5M2. 1 sign / 5 exponent / 2 mantissa, bias 15. IEEE-shaped:
+/// infinities AND NaN both present, unlike E4M3FN.
 ///
 ///        Layout:  S EEEEE MM
 ///        Max finite:   57344.0  (S.11110.11)
@@ -443,31 +568,69 @@ pub class F8E5M2 {
     }
 
     /// From f64, rounded once.
-    pub fn F8E5M2(self, v: f64) { self.bits = f8_from_f64_(v, 2, 15, false) }
+    pub fn F8E5M2(self, v: f64) {
+        self.bits = f8_from_f64_(v, 2, 15, false)
+    }
+
     /// From f32, rounded once.
-    pub fn F8E5M2(self, v: f32) { self.bits = f8_from_f64_(v, 2, 15, false) }
+    pub fn F8E5M2(self, v: f32) {
+        self.bits = f8_from_f64_(v, 2, 15, false)
+    }
+
     /// From E4M3, rounded once.
-    pub fn F8E5M2(self, v: F8E4M3) { self.bits = f8_from_f64_(v.to_f32(), 2, 15, false) }
+    pub fn F8E5M2(self, v: F8E4M3) {
+        self.bits = f8_from_f64_(v.to_f32(), 2, 15, false)
+    }
+
     /// From i8.
-    pub fn F8E5M2(self, v: i8) { self.bits = f8_from_f64_(v, 2, 15, false) }
+    pub fn F8E5M2(self, v: i8) {
+        self.bits = f8_from_f64_(v, 2, 15, false)
+    }
+
     /// From i16.
-    pub fn F8E5M2(self, v: i16) { self.bits = f8_from_f64_(v, 2, 15, false) }
+    pub fn F8E5M2(self, v: i16) {
+        self.bits = f8_from_f64_(v, 2, 15, false)
+    }
+
     /// From i32.
-    pub fn F8E5M2(self, v: i32) { self.bits = f8_from_f64_(v, 2, 15, false) }
+    pub fn F8E5M2(self, v: i32) {
+        self.bits = f8_from_f64_(v, 2, 15, false)
+    }
+
     /// From i64.
-    pub fn F8E5M2(self, v: i64) { self.bits = f8_from_f64_(v as f64, 2, 15, false) }
+    pub fn F8E5M2(self, v: i64) {
+        self.bits = f8_from_f64_(v as f64, 2, 15, false)
+    }
+
     /// From i128.
-    pub fn F8E5M2(self, v: i128) { self.bits = f8_from_f64_(v as f64, 2, 15, false) }
+    pub fn F8E5M2(self, v: i128) {
+        self.bits = f8_from_f64_(v as f64, 2, 15, false)
+    }
+
     /// From u8.
-    pub fn F8E5M2(self, v: u8) { self.bits = f8_from_f64_(v, 2, 15, false) }
+    pub fn F8E5M2(self, v: u8) {
+        self.bits = f8_from_f64_(v, 2, 15, false)
+    }
+
     /// From u16.
-    pub fn F8E5M2(self, v: u16) { self.bits = f8_from_f64_(v, 2, 15, false) }
+    pub fn F8E5M2(self, v: u16) {
+        self.bits = f8_from_f64_(v, 2, 15, false)
+    }
+
     /// From u32.
-    pub fn F8E5M2(self, v: u32) { self.bits = f8_from_f64_(v, 2, 15, false) }
+    pub fn F8E5M2(self, v: u32) {
+        self.bits = f8_from_f64_(v, 2, 15, false)
+    }
+
     /// From u64.
-    pub fn F8E5M2(self, v: u64) { self.bits = f8_from_f64_(v as f64, 2, 15, false) }
+    pub fn F8E5M2(self, v: u64) {
+        self.bits = f8_from_f64_(v as f64, 2, 15, false)
+    }
+
     /// From u128.
-    pub fn F8E5M2(self, v: u128) { self.bits = f8_from_f64_(v as f64, 2, 15, false) }
+    pub fn F8E5M2(self, v: u128) {
+        self.bits = f8_from_f64_(v as f64, 2, 15, false)
+    }
 
     eval if defined!(__FLT16_MAX__) {
         /// From f16, rounded once.
@@ -519,65 +682,139 @@ pub class F8E5M2 {
     }
 
     /// The value as an f32, exactly.
-    pub fn to_f32(const self) -> f32 { return f8_to_f32_(self.bits, 2, 15, false) }
+    pub fn to_f32(const self) -> f32 {
+        return f8_to_f32_(self.bits, 2, 15, false)
+    }
 
     /// To f32, exactly.
-    pub fn op as (const self) -> f32 { return self.to_f32() }
+    pub fn op as (const self) -> f32 {
+        return self.to_f32()
+    }
+
     /// To f64, exactly.
-    pub fn op as (const self) -> f64 { return self.to_f32() }
+    pub fn op as (const self) -> f64 {
+        return self.to_f32()
+    }
+
     /// To i8: toward zero, saturating, NaN 0.
-    pub fn op as (const self) -> i8 { return self.to_f32() as i8 }
+    pub fn op as (const self) -> i8 {
+        return self.to_f32() as i8
+    }
+
     /// To i16.
-    pub fn op as (const self) -> i16 { return self.to_f32() as i16 }
+    pub fn op as (const self) -> i16 {
+        return self.to_f32() as i16
+    }
+
     /// To i32.
-    pub fn op as (const self) -> i32 { return self.to_f32() as i32 }
+    pub fn op as (const self) -> i32 {
+        return self.to_f32() as i32
+    }
+
     /// To i64.
-    pub fn op as (const self) -> i64 { return self.to_f32() as i64 }
+    pub fn op as (const self) -> i64 {
+        return self.to_f32() as i64
+    }
+
     /// To i128.
-    pub fn op as (const self) -> i128 { return self.to_f32() as i128 }
+    pub fn op as (const self) -> i128 {
+        return self.to_f32() as i128
+    }
+
     /// To u8.
-    pub fn op as (const self) -> u8 { return self.to_f32() as u8 }
+    pub fn op as (const self) -> u8 {
+        return self.to_f32() as u8
+    }
+
     /// To u16.
-    pub fn op as (const self) -> u16 { return self.to_f32() as u16 }
+    pub fn op as (const self) -> u16 {
+        return self.to_f32() as u16
+    }
+
     /// To u32.
-    pub fn op as (const self) -> u32 { return self.to_f32() as u32 }
+    pub fn op as (const self) -> u32 {
+        return self.to_f32() as u32
+    }
+
     /// To u64.
-    pub fn op as (const self) -> u64 { return self.to_f32() as u64 }
+    pub fn op as (const self) -> u64 {
+        return self.to_f32() as u64
+    }
+
     /// To u128.
-    pub fn op as (const self) -> u128 { return self.to_f32() as u128 }
+    pub fn op as (const self) -> u128 {
+        return self.to_f32() as u128
+    }
 
     /// self + o.
-    pub fn op + (const self, const o: F8E5M2) -> F8E5M2 { return F8E5M2(self.to_f32() + o.to_f32()) }
+    pub fn op + (const self, const o: F8E5M2) -> F8E5M2 {
+        return F8E5M2(self.to_f32() + o.to_f32())
+    }
+
     /// self - o.
-    pub fn op - (const self, const o: F8E5M2) -> F8E5M2 { return F8E5M2(self.to_f32() - o.to_f32()) }
+    pub fn op - (const self, const o: F8E5M2) -> F8E5M2 {
+        return F8E5M2(self.to_f32() - o.to_f32())
+    }
+
     /// self * o.
-    pub fn op * (const self, const o: F8E5M2) -> F8E5M2 { return F8E5M2(self.to_f32() * o.to_f32()) }
+    pub fn op * (const self, const o: F8E5M2) -> F8E5M2 {
+        return F8E5M2(self.to_f32() * o.to_f32())
+    }
+
     /// self / o.
-    pub fn op / (const self, const o: F8E5M2) -> F8E5M2 { return F8E5M2(self.to_f32() / o.to_f32()) }
+    pub fn op / (const self, const o: F8E5M2) -> F8E5M2 {
+        return F8E5M2(self.to_f32() / o.to_f32())
+    }
+
     /// -self: the sign bit flipped, NaN included.
-    pub fn op - (const self) -> F8E5M2 { return F8E5M2::from_bits(self.bits ^ 0x80) }
+    pub fn op - (const self) -> F8E5M2 {
+        return F8E5M2::from_bits(self.bits ^ 0x80)
+    }
 
     /// self == o.
-    pub fn op == (const self, const o: F8E5M2) -> bool { return self.to_f32() == o.to_f32() }
+    pub fn op == (const self, const o: F8E5M2) -> bool {
+        return self.to_f32() == o.to_f32()
+    }
+
     /// self != o.
-    pub fn op != (const self, const o: F8E5M2) -> bool { return self.to_f32() != o.to_f32() }
+    pub fn op != (const self, const o: F8E5M2) -> bool {
+        return self.to_f32() != o.to_f32()
+    }
+
     /// self < o.
-    pub fn op < (const self, const o: F8E5M2) -> bool { return self.to_f32() < o.to_f32() }
+    pub fn op < (const self, const o: F8E5M2) -> bool {
+        return self.to_f32() < o.to_f32()
+    }
+
     /// self <= o.
-    pub fn op <= (const self, const o: F8E5M2) -> bool { return self.to_f32() <= o.to_f32() }
+    pub fn op <= (const self, const o: F8E5M2) -> bool {
+        return self.to_f32() <= o.to_f32()
+    }
+
     /// self > o.
-    pub fn op > (const self, const o: F8E5M2) -> bool { return self.to_f32() > o.to_f32() }
+    pub fn op > (const self, const o: F8E5M2) -> bool {
+        return self.to_f32() > o.to_f32()
+    }
+
     /// self >= o.
-    pub fn op >= (const self, const o: F8E5M2) -> bool { return self.to_f32() >= o.to_f32() }
+    pub fn op >= (const self, const o: F8E5M2) -> bool {
+        return self.to_f32() >= o.to_f32()
+    }
 
     /// `{x}` on an `f8e5m2` (F8E4M3::fmt_put_'s rule, kairo_rt_fmt_f8e5m2).
     pub fn fmt_put_(const self, b: *FmtBuf, spec: u64) {
-        var prec = FmtBuf::prec_(spec)
+        var prec          = FmtBuf::prec_(spec)
         var digits: usize = (if prec >= 0 => prec as usize else => 0) + 48
-        var slot = b->number_slot_(spec, digits)
-        var n: i32 = 0
+        var slot          = b->number_slot_(spec, digits)
+        var n:      i32   = 0
         unsafe {
-            n = kairo_rt_fmt_f8e5m2(unsafe &b->data[slot], digits, self.bits & 0x7F, prec as i32, FmtBuf::conv_(spec))
+            n = kairo_rt_fmt_f8e5m2(
+                unsafe &b->data[slot],
+                digits,
+                self.bits & 0x7F,
+                prec as i32,
+                FmtBuf::conv_(spec),
+            )
         }
 
         b->number_at_(slot, n as usize, (self.bits & 0x80) != 0, spec)
@@ -599,8 +836,13 @@ pub class F8E5M2 {
             }
         }
 
-        return F8E5M2(0.0).bits == 0x00 && F8E5M2(1.0).bits == 0x3C && F8E5M2(2.0).bits == 0x40
-            && F8E5M2(57344.0).bits == 0x7B && F8E5M2(1.0e30).bits == 0x7C && F8E5M2(-1.0).bits == 0xBC
-            && F8E5M2(61440.0).bits == 0x7C && F8E5M2(0.0000152587890625).bits == 0x01
+        return F8E5M2(0.0).bits == 0x00
+            && F8E5M2(1.0).bits == 0x3C
+            && F8E5M2(2.0).bits == 0x40
+            && F8E5M2(57344.0).bits == 0x7B
+            && F8E5M2(1.0e30).bits == 0x7C
+            && F8E5M2(-1.0).bits == 0xBC
+            && F8E5M2(61440.0).bits == 0x7C
+            && F8E5M2(0.0000152587890625).bits == 0x01
     }
 }

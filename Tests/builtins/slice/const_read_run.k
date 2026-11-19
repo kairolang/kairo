@@ -47,9 +47,8 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --match-full-lines
 // CHECK:      size 6 first 1 last 9 get 4 at 7
 // CHECK-NEXT: split 2/4 sum 28 windows 3 chunks 6

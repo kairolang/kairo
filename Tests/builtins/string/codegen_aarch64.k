@@ -3,10 +3,9 @@
 // halves are preserve_most, and the fast paths call nothing else.
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // REQUIRES: sysroot-aarch64-linux-gnu
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new %S/codegen_x86_64.k -O2 --target=aarch64-linux-gnu --emit=llvm-ir -o %t.d/out.ll --cache-dir %t.d/c
+// RUN: %kairo %S/codegen_x86_64.k -O2 --target=aarch64-linux-gnu --emit=llvm-ir -o %t.d/out.ll --cache-dir %t.d/c
 // RUN: %FileCheck %s --input-file=%t.d/out.ll
 
 // CHECK-LABEL: define {{.*}} @_ZN{{[0-9a-zA-Z_]*}}2szE

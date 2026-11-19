@@ -1,257 +1,261 @@
-/// --- The Kairo Project ---------------------- Lib/builtin/base/hash.k --- ///
+/// builtin/base/hash.k
 ///
-///   \brief The Hash lang item: what a `{K: V}` / `{T}` key conforms to, and
-///          its conformances for the primitives, pointers and `string`.
+/// A folded-multiply hasher. Hashes are the same on every target that takes
+/// the same `mum` path with the same seed: bytes are assembled little-endian
+/// everywhere. The wide path (one 64x64->128 multiply) and the narrow path
+/// (two 32x32->64 multiplies) do not agree with each other.
 ///
-///   \detail
-///     `interface Hash` asks for a hash and an equality consistent with it
-///     (a == b implies a.hash() == b.hash()). A key type conforms the way
-///     any type conforms to any interface (interfaces.md): its own
-///     members, an `extend X impl Hash`, or structurally.
-///
-///     What conforms with no Kairo code (ConformanceChecking::
-///     _native_implementation, CODEGEN.md 7b.4):
-///       - `op ==` on a builtin, a pointer and an imported C++ type is the
-///         type's own `==` (the witness spells `self == other`; for a C++
-///         type C++ picks the member or free operator, and checks it);
-///       - `hash` on an imported C++ type is `std::hash<X>{}(v)`: a C++ type
-///         that keys a `std::unordered_map` keys a `{K: V}` as is;
-///       - `hash` on a pointer is its address (the table mixes it).
-///     The primitives' `hash` is below (`extend i32 impl Hash`): a builtin
-///     has no members, so its conformance is an extension here, in the
-///     interface's file (extends.md, "Same-File Restriction").
-///
-///     The functions (all deterministic: no per-process seed, so a map's
-///     layout -- and its iteration order, which is insertion order anyway --
-///     is the same on every run):
-///       - integers, chars, bool: `mix64`, rapidhash's / wyhash's folded
-///         multiply: the 128-bit product of (x ^ S0) and S1, its two halves
-///         xored. One `mul` and two `xor`s on a 64-bit target; a full-
-///         avalanche mix, so a weak key distribution (multiples of 8,
-///         sequential ids) spreads over every bit.
-///       - bytes (`string`): `hash_bytes`, rapidhash (v1, Nicolas De
-///         Carli, MIT; wyhash's successor): 16-byte and shorter inputs in
-///         one folded multiply after two overlapping reads, longer ones in
-///         three 16-byte lanes per 48 bytes. Reads are unaligned 4/8-byte
-///         loads in the target's byte order, so a hash is stable per
-///         target, not across targets of different endianness.
-///       - floats: the bit pattern's, after +0.0 / -0.0 are made one (they
-///         compare equal). A NaN compares unequal to everything, itself
-///         included, so a NaN key can be inserted but never found again;
-///         do not key a map by a float that may be NaN.
-///     Where usize is 32 bits the 64-bit result is folded (hi ^ lo).
-///
-///     Not provided: i256..i512 / u256..u512 and the f8 / f16 / f128-and-up
-///     floats (no key use yet; extend them here when one appears).
-///
-///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
-///   Copyright (c) 2026 Dhruvan Kartik
-///
-/// ------------------------------------------------------------------------ ///
+/// Flood resistance rests on the seed being secret. `process_seed` draws it
+/// from address-space layout, which is constant on targets with no ASLR
+/// (wasm, freestanding): those need a real entropy source behind it.
 
+import base::cmp::*
 import base::intrinsics::*
-import string::*
+import containers::slice::*
 
-/// The requirements for a `{K: V}` / `{T}` key: a hash and an equality consistent with it.
+// Odd in both 32-bit halves, so neither narrow-path multiplier is even.
+priv eval K0: u64 = 0x9e3779b97f4a7c15u64
+priv eval K1: u64 = 0xbf58476d1ce4e5b9u64
+priv eval K2: u64 = 0x94d049bb133111ebu64
+
+priv eval PINNED_SEED: u64 = 0x243f6a8885a308d3u64
+
+// The `mum` path, by architecture rather than pointer width: x32 and arm64_32
+// have 32-bit pointers and a native 64x64->128 multiply. `__SIZEOF_INT128__`
+// cannot decide it, since `u128` exists on 32-bit targets too.
+// `-DKAIRO_HASH_NARROW` takes the narrow path anywhere, which is how a
+// 64-bit host tests it.
+priv eval WIDE_MUM: bool = !defined!(KAIRO_HASH_NARROW) && (defined!(__x86_64__) || defined!(__aarch64__) || defined!(__LP64__) || defined!(_WIN64) || defined!(__mips64))
+
+/// The fold every step is made of.
 ///
-/// If `a == b` then `a.hash() == b.hash()`. Hashes are deterministic: no per-process seed, so a
-/// map's layout is the same on every run. The primitives, pointers and `string` conform out of the
-/// box; a key type conforms like any type conforms to an interface (its own members, an
-/// `extend X impl Hash`, or structurally). `other` is `const`, so comparing two keys copies
-/// neither.
-pub interface Hash {
-    /// Returns the key's hash, to be folded into a table slot by the container.
-    fn hash(const self) -> usize
-    /// Returns true when the keys are equal; must agree with `hash`.
-    fn op ==(const self, const other: Self) -> bool
-}
-
-// --- the mixers --------------------------------------------------------------
-
-/// rapidhash's default secrets.
-eval HASH_S0: u64 = 0x2d358dccaa6c78a5u64
-eval HASH_S1: u64 = 0x8bb84b93962eacc9u64
-eval HASH_S2: u64 = 0x4b33a62ed433d4a3u64
-
-/// The 128-bit product of a and b, its high and low halves xored: the
-/// folded multiply every mix below is made of. One `mul` where the target
-/// has a 64x64->128 multiply; four 32x32 products elsewhere.
-pub inline fn fold_mul(a: u64, b: u64) -> u64 {
-    eval if defined!(__SIZEOF_INT128__) {
+/// Wide: the 128-bit product of `a` and `b`, high half xor low half. One
+/// `mul` on x86-64, `mul` + `umulh` on AArch64.
+///
+/// Narrow: the two cross products of the 32-bit halves, the second rotated
+/// by 32 so each half of the result holds the high word of one product. A
+/// 32x32 product moves a bit at most 32 places up, so one narrow fold mixes
+/// less than a wide one; `finish` runs two of them to make up for it.
+priv inline fn mum(a: u64, b: u64) -> u64 {
+    eval if WIDE_MUM {
         var r = (a as u128) * (b as u128)
         return (r as u64) ^ ((r >> 64) as u64)
     } else {
-        var lo: u64 = 0
-        var hi: u64 = 0
-        mul_wide(a, b, &lo, &hi)
-        return lo ^ hi
+        var x = (a & 0xffffffffu64) * (b >> 32)
+        var y = (a >> 32) * (b & 0xffffffffu64)
+        return x ^ ((y << 32) | (y >> 32))
     }
 }
 
-/// a * b as two 64-bit halves, for targets with no 128-bit integer.
-inline fn mul_wide(a: u64, b: u64, lo: *u64, hi: *u64) {
-    var ha = a >> 32
-    var hb = b >> 32
-    var la = a & 0xffffffffu64
-    var lb = b & 0xffffffffu64
-    var rh = ha * hb
-    var rm0 = ha * lb
-    var rm1 = hb * la
-    var rl = la * lb
-    var t = rl + (rm0 << 32)
-    var c: u64 = (if t < rl => 1u64 else => 0u64)
-    var l = t + (rm1 << 32)
-    c += (if l < t => 1u64 else => 0u64)
-    (*lo) = l
-    (*hi) = rh + (rm0 >> 32) + (rm1 >> 32) + c
-}
-
-/// Both halves of a * b, written back: rapidhash's `rapid_mum`.
-inline fn mum(a: *u64, b: *u64) {
-    eval if defined!(__SIZEOF_INT128__) {
-        var r = ((*a) as u128) * ((*b) as u128)
-        (*a) = r as u64
-        (*b) = (r >> 64) as u64
-    } else {
-        var lo: u64 = 0
-        var hi: u64 = 0
-        mul_wide(*a, *b, &lo, &hi)
-        (*a) = lo
-        (*b) = hi
-    }
-}
-
-/// A 64-bit hash as a usize: itself on a 64-bit target, folded on a 32-bit one.
-pub inline fn to_usize(h: u64) -> usize {
-    if sizeof usize >= 8 { return h as usize }
-    return (h ^ (h >> 32)) as usize
-}
-
-/// The integer mix: a full-avalanche hash of 64 bits.
-pub inline fn mix64(x: u64) -> u64 { return fold_mul(x ^ HASH_S0, HASH_S1) }
-
-/// 8 bytes at p, unaligned, in the target's byte order.
-inline fn read64(p: unsafe *const u8) -> u64 {
+/// 8 bytes at `p`, any alignment, little-endian.
+priv inline fn read64(p: unsafe *const u8) -> u64 {
     var v: u64 = 0
-    unsafe { __builtin_copy(&v as unsafe *u8, p, 8) }
-    return v
+    unsafe {
+        __builtin_copy(&v as unsafe *u8, p, 8)
+    }
+
+    eval if defined!(__BIG_ENDIAN__) {
+        return __builtin_bswap(v)
+    } else {
+        return v
+    }
 }
 
-/// 4 bytes at p, unaligned, widened.
-inline fn read32(p: unsafe *const u8) -> u64 {
+/// 4 bytes at `p`, any alignment, little-endian, zero-extended.
+priv inline fn read32(p: unsafe *const u8) -> u64 {
     var v: u32 = 0
-    unsafe { __builtin_copy(&v as unsafe *u8, p, 4) }
-    return v
+    unsafe {
+        __builtin_copy(&v as unsafe *u8, p, 4)
+    }
+
+    eval if defined!(__BIG_ENDIAN__) {
+        return __builtin_bswap(v) as u64
+    } else {
+        return v
+    }
 }
 
-/// rapidhash (v1) of the `len` bytes at p.
-pub inline fn hash_bytes(p: unsafe *const u8, len: usize) -> u64 { return hash_bytes_seeded(p, len, 0) }
+/// The state after absorbing `n > 32` bytes at `p`.
+///
+/// Over 64 bytes, three lanes take 16 bytes each per step, so three
+/// multiplies are in flight at once. Then up to three 16-byte steps for what
+/// is left beyond the last 16 bytes, with no loop, so up to 64 bytes are
+/// straight-line code; then the last 16 bytes of the input, which overlap
+/// whatever the steps already took. Each multiply has a secret on both sides (a lane, or
+/// the seed), so no input word can zero an operand for every seed.
+@no_inline priv fn write_long(state: u64, seed: u64, p: unsafe *const u8, n: usize) -> u64 {
+    var        k   = seed ^ K1
+    var        s0  = state
+    var        s1  = seed ^ K2
+    var unsafe *q  = p
+    var        rem = n
+    if rem > 64 {
+        var s2 = seed ^ K0
+        while rem > 48 {
+            unsafe {
+                s0 = mum(read64(q) ^ s0, read64(q + 8) ^ k)
+                s1 = mum(read64(q + 16) ^ s1, read64(q + 24) ^ k)
+                s2 = mum(read64(q + 32) ^ s2, read64(q + 40) ^ k)
+                q  = q + 48
+            }
 
-/// rapidhash (v1) of the `len` bytes at p, seeded with `seed`. (No default
-/// argument: a defaulted call goes through an out-of-line thunk.)
-pub fn hash_bytes_seeded(p: unsafe *const u8, len: usize, seed: u64) -> u64 {
-    var n = len as u64
-    var s = seed ^ fold_mul(seed ^ HASH_S0, HASH_S1) ^ n
+            rem -= 48
+        }
+
+        s1 = s1 ^ s2
+    }
+
+    if rem > 16 {
+        unsafe {
+            s0 = mum(read64(q) ^ s0, read64(q + 8) ^ k)
+            if rem > 32 {
+                s1 = mum(read64(q + 16) ^ s1, read64(q + 24) ^ k)
+                if rem > 48 {
+                    s0 = mum(read64(q + 32) ^ s0, read64(q + 40) ^ k)
+                }
+            }
+        }
+    }
+
     var a: u64 = 0
     var b: u64 = 0
     unsafe {
-        if len <= 16 {
-            if len >= 4 {
-                var unsafe *last = p + (len - 4)
-                a = (read32(p) << 32) | read32(last)
-                var delta = (len & 24) >> (len >> 3)
-                b = (read32(p + delta) << 32) | read32(last - delta)
-            } else if len > 0 {
-                a = ((p[0] as u64) << 56) | ((p[len >> 1] as u64) << 32) | (p[len - 1] as u64)
-            }
-        } else {
-            var unsafe *q = p
-            var i = len
-            if i > 48 {
-                var s1 = s
-                var s2 = s
-                while i >= 48 {
-                    s  = fold_mul(read64(q) ^ HASH_S0, read64(q + 8) ^ s)
-                    s1 = fold_mul(read64(q + 16) ^ HASH_S1, read64(q + 24) ^ s1)
-                    s2 = fold_mul(read64(q + 32) ^ HASH_S2, read64(q + 40) ^ s2)
-                    q = q + 48
-                    i -= 48
-                }
-                s ^= s1 ^ s2
-            }
-            if i > 16 {
-                s = fold_mul(read64(q) ^ HASH_S2, read64(q + 8) ^ s ^ HASH_S1)
-                if i > 32 { s = fold_mul(read64(q + 16) ^ HASH_S2, read64(q + 24) ^ s) }
-            }
-            // The last 16 bytes of the input, overlapping what the lanes read.
-            a = read64(p + (len - 16))
-            b = read64(p + (len - 8))
+        a = read64(p + (n - 16))
+        b = read64(p + (n - 8))
+    }
+
+    return mum(a ^ s0, b ^ s1) ^ (n as u64)
+}
+
+/// Absorbs `n` bytes at `p` into `state`. `p` is not read when `n` is 0.
+///
+/// Up to 16 bytes take one fold: two words (two overlapping 8-byte reads for
+/// 8..16, two 4-byte reads for 4..7, the first / middle / last byte for 1..3,
+/// zeros for 0), the length mixed in after it. 17 to 32 bytes take two, on
+/// the first 16 bytes and the last 16, which overlap, without a call.
+@hot_path priv inline fn write_bytes(state: u64, seed: u64, p: unsafe *const u8, n: usize) -> u64 {
+    if n > 16 {
+        if n > 32 {
+            return write_long(state, seed, p, n)
+        }
+
+        var s0: u64 = 0
+        var a:  u64 = 0
+        var b:  u64 = 0
+        unsafe {
+            s0 = mum(read64(p) ^ state, read64(p + 8) ^ seed ^ K1)
+            a  = read64(p + (n - 16))
+            b  = read64(p + (n - 8))
+        }
+
+        return mum(a ^ s0, b ^ seed ^ K2) ^ (n as u64)
+    }
+
+    var a: u64 = 0
+    var b: u64 = 0
+    if n >= 8 {
+        a = read64(p)
+        unsafe {
+            b = read64(p + (n - 8))
+        }
+    } else if n >= 4 {
+        a = read32(p)
+        unsafe {
+            b = read32(p + (n - 4))
+        }
+    } else if n > 0 {
+        unsafe {
+            a = ((p[0] as u64) << 16) | ((p[n >> 1] as u64) << 8) | (p[n - 1] as u64)
         }
     }
-    a ^= HASH_S1
-    b ^= s
-    mum(&a, &b)
-    return fold_mul(a ^ HASH_S0 ^ n, b ^ HASH_S1)
+
+    return mum(a ^ state, b ^ seed ^ K1) ^ (n as u64)
 }
 
-// --- the primitives ------------------------------------------------------------
-// `op ==` is each type's own (ConformanceChecking::_native_implementation).
-
-/// `true` and `false` hash as 1 and 0 through `mix64`.
-extend bool impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(if self => 1u64 else => 0u64)) }
-/// Unsigned integers (and `char`) hash through `mix64` of their value.
-extend u8   impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
-extend u16  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
-extend u32  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
-extend u64  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
-/// Signed integers hash through `mix64` of their value sign-extended to 64 bits.
-extend i8   impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
-extend i16  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
-extend i32  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
-extend i64  impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
-/// Pointer-sized integers hash through `mix64` of their value widened to 64 bits.
-extend usize impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
-extend isize impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self as u64)) }
-/// A `char` hashes through `mix64` of its value.
-extend char impl Hash { pub inline fn hash(const self) -> usize = to_usize(mix64(self)) }
-
-/// A 128-bit integer hashes as `fold_mul` of its two 64-bit halves.
-extend u128 impl Hash {
-    pub inline fn hash(const self) -> usize = to_usize(fold_mul((self as u64) ^ HASH_S0, ((self >> 64) as u64) ^ HASH_S1))
-}
-/// A 128-bit integer hashes as `fold_mul` of its two 64-bit halves.
-extend i128 impl Hash {
-    pub inline fn hash(const self) -> usize = to_usize(fold_mul((self as u64) ^ HASH_S0, (((self as u128) >> 64) as u64) ^ HASH_S1))
-}
-
-/// A float hashes through `mix64` of its bit pattern, with `+0.0` and `-0.0` hashing alike.
+/// Seeded by the container; types only feed bytes into it.
 ///
-/// A NaN compares unequal to everything, itself included, so a NaN key can be inserted but never
-/// found again. Do not key a map by a float that may be NaN.
-extend f32 impl Hash {
-    /// -0.0 == +0.0, so both hash as +0.0's bits (0).
-    pub inline fn hash(const self) -> usize {
-        if self == 0.0f32 { return to_usize(mix64(0)) }
-        return to_usize(mix64(__builtin_bitcast<u32>(self)))
+/// Every member is `inline`: a non-inline member of another module is an
+/// out-of-line call at -O2, and an integer key must hash with no call.
+pub class Hasher {
+    priv var state: u64
+    priv var seed:  u64
+
+    pub inline fn Hasher(self, seed: u64) {
+        self.state = seed
+        self.seed  = seed
     }
-}
-/// A float hashes through `mix64` of its bit pattern, with `+0.0` and `-0.0` hashing alike.
-///
-/// A NaN key can be inserted but never found again; see the `f32` conformance.
-extend f64 impl Hash {
-    pub inline fn hash(const self) -> usize {
-        if self == 0.0 { return to_usize(mix64(0)) }
-        return to_usize(mix64(__builtin_bitcast<u64>(self)))
+
+    @hot_path pub inline fn write(self, const b: [const u8;]) { // mixes the length in, so ("ab","c") != ("a","bc")
+        self.state = write_bytes(self.state, self.seed, b.first_(), b.count_())
+    }
+
+    /// One fold: no loop, no call, no branch.
+    @hot_path pub inline fn write_u64(self, v: u64) {
+        self.state = mum(self.state ^ v, K0)
+    }
+
+    @hot_path pub inline fn write_usize(self, v: usize) {
+        self.write_u64(v as u64)
+    }
+
+    pub inline fn finish(const self) -> u64 {
+        eval if WIDE_MUM {
+            return mum(self.state, self.seed ^ K1)
+        } else {
+            // Constant multipliers: a seed whose half cancels a half of K1
+            // would otherwise multiply half the state by zero.
+            return mum(mum(self.state, K1) ^ self.seed, K2)
+        }
+    }
+
+    /// Absorbs `n` bytes at `p`, as `write` does a slice of them. For the
+    /// library's own byte owners, which hold a pointer and a count.
+    ///
+    /// \safety `p` must be valid for reads of `n` bytes; it is not read when
+    /// `n` is 0.
+    @hot_path prot inline fn write_raw_(self, p: unsafe *const u8, n: usize) {
+        self.state = write_bytes(self.state, self.seed, p, n)
     }
 }
 
-// --- string ------------------------------------------------------------------
-// `op ==` is string's own, derived from string.k's `op <=>` (length first,
-// then one memcmp); `hash` stays here, beside the other conformances.
+pub interface Hash derives Eq {
+    fn hash(const self, @inout h: Hasher)
+}
 
-/// A `string` hashes its bytes with `hash_bytes` (rapidhash v1).
-extend string impl Hash {
-    pub inline fn hash(const self) -> usize {
-        unsafe { return to_usize(hash_bytes(self.as_ptr() as unsafe *const u8, self.length())) }
+// 0 until the first call. Racing first calls store the same value: it
+// depends only on the addresses of two statics, so every thread derives one
+// seed and a table may read it again at each lookup.
+priv static process_seed_cache:  u64 = 0
+priv static process_seed_anchor: u64 = 1
+
+/// The process-wide seed a table starts from; never 0.
+///
+/// Defining `KAIRO_HASH_SEED` pins it to a fixed constant, so hashes and
+/// table layouts repeat from run to run; the define's value is not read,
+/// since the branch `eval if defined!(X)` discards still expands `X!`.
+/// Otherwise it is derived once from the addresses of two statics, which
+/// differ from run to run where the loader randomizes addresses and are no
+/// entropy at all where the address space is fixed.
+prot fn process_seed() -> u64 {
+    eval if defined!(KAIRO_HASH_SEED) {
+        return PINNED_SEED
+    } else {
+        if process_seed_cache == 0 {
+            var a: usize = 0
+            var b: usize = 0
+            unsafe {
+                a = (&process_seed_cache as unsafe *u64) as usize
+                b = (&process_seed_anchor as unsafe *u64) as usize
+            }
+
+            var s = mum(mum((a as u64) ^ K0, K1) ^ (b as u64), K2)
+            if s == 0 {
+                s = K0
+            }
+
+            process_seed_cache = s
+        }
+
+        return process_seed_cache
     }
 }

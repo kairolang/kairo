@@ -21,17 +21,16 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --match-full-lines
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe | %FileCheck %s --match-full-lines
 // CHECK:      sum = 10
 // CHECK-NEXT: 3 words, 6 bytes
 // CHECK-NEXT: empty = 0
 
 // The lowered literal names the calls.
-// RUN: %kairo_new %s --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
+// RUN: %kairo %s --print-ir 2>&1 | %FileCheck %s --check-prefix=IR
 // IR: __kairo_ext_Vector::reserve<signed int>((& xs), static_cast<decltype(sizeof(0))>(4));
 // IR: __kairo_ext_Vector::push<signed int>((& xs), 1);

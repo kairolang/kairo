@@ -12,19 +12,19 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib, sysroot-x86_64-windows-gnu, sysroot-x86_64-windows-msvc, sysroot-aarch64-windows-msvc, sysroot-arm64-macosx, sysroot-armv7-linux-gnueabihf, sysroot-riscv64-linux-gnu
+// REQUIRES: sysroot-x86_64-windows-gnu, sysroot-x86_64-windows-msvc, sysroot-aarch64-windows-msvc, sysroot-arm64-macosx, sysroot-armv7-linux-gnueabihf, sysroot-riscv64-linux-gnu
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -O2 --emit=llvm-ir --target=x86_64-windows-gnu -o %t.wgnu.ll --cache-dir %t.d/wgnu
+// RUN: %kairo %s -O2 --emit=llvm-ir --target=x86_64-windows-gnu -o %t.wgnu.ll --cache-dir %t.d/wgnu
 // RUN: %FileCheck %s --check-prefix=PM < %t.wgnu.ll
-// RUN: %kairo_new %s -O2 --emit=llvm-ir --target=x86_64-windows-msvc -o %t.wmsvc.ll --cache-dir %t.d/wmsvc
+// RUN: %kairo %s -O2 --emit=llvm-ir --target=x86_64-windows-msvc -o %t.wmsvc.ll --cache-dir %t.d/wmsvc
 // RUN: %FileCheck %s --check-prefix=PM < %t.wmsvc.ll
-// RUN: %kairo_new %s -O2 --emit=llvm-ir --target=aarch64-windows-msvc -o %t.a64w.ll --cache-dir %t.d/a64w
+// RUN: %kairo %s -O2 --emit=llvm-ir --target=aarch64-windows-msvc -o %t.a64w.ll --cache-dir %t.d/a64w
 // RUN: %FileCheck %s --check-prefix=PM < %t.a64w.ll
-// RUN: %kairo_new %s -O2 --emit=llvm-ir --target=arm64-apple-macosx11.0 -o %t.mac.ll --cache-dir %t.d/mac
+// RUN: %kairo %s -O2 --emit=llvm-ir --target=arm64-apple-macosx11.0 -o %t.mac.ll --cache-dir %t.d/mac
 // RUN: %FileCheck %s --check-prefix=PM < %t.mac.ll
-// RUN: %kairo_new %s -O2 --emit=llvm-ir --target=armv7-linux-gnueabihf -o %t.arm.ll --cache-dir %t.d/arm
+// RUN: %kairo %s -O2 --emit=llvm-ir --target=armv7-linux-gnueabihf -o %t.arm.ll --cache-dir %t.d/arm
 // RUN: %FileCheck %s --check-prefix=PLAIN < %t.arm.ll
-// RUN: %kairo_new %s -O2 --emit=llvm-ir --target=riscv64-linux-gnu -o %t.rv.ll --cache-dir %t.d/rv
+// RUN: %kairo %s -O2 --emit=llvm-ir --target=riscv64-linux-gnu -o %t.rv.ll --cache-dir %t.d/rv
 // RUN: %FileCheck %s --check-prefix=PLAIN < %t.rv.ll
 
 // PM-LABEL:    define {{.*}}push_i32

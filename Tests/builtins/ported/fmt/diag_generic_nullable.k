@@ -35,9 +35,8 @@ fn proven(n: i32?, s: string?) -> string {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --cmax-errors=0 --type-check-only 2>&1 || true; } | %FileCheck %s
-// RUN: { %kairo_new %s --cmax-errors=0 --type-check-only 2>&1 || true; } | grep -c ' error ' | %FileCheck %s --check-prefix=COUNT
+// RUN: { %kairo %s --cmax-errors=0 --type-check-only 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --cmax-errors=0 --type-check-only 2>&1 || true; } | grep -c ' error ' | %FileCheck %s --check-prefix=COUNT
 // COUNT: 5
 // CHECK: :11:{{[0-9]+}}: error [SC080E]
 // CHECK: :15:{{[0-9]+}}: error [SC080E]

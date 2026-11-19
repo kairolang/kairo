@@ -56,10 +56,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // REQUIRES: llvm-nm
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 --target=x86_64-linux-gnu -o %t.exe --cache-dir %t.d
 // Each core member is defined once.
 // RUN: %nm --defined-only %t.exe | grep -c 'RawTable4growE' | %FileCheck %s --check-prefix=ONE
 // RUN: %nm --defined-only %t.exe | grep -c 'RawTable5claimE' | %FileCheck %s --check-prefix=ONE

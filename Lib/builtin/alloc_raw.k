@@ -1,9 +1,9 @@
 /// --- The Kairo Project ---------------------- Lib/builtin/alloc_raw.k --- ///
 ///
-///   \brief The allocator model's byte layer: the allocator interfaces, the
-///          OOM hook, the global allocator (Global, System), the per-thread
-///          scope stack AllocatorScope (base/alloc.k) pushes and pops, and
-///          the current-allocator family alloc_raw / free_raw / resize_raw.
+/// The allocator model's byte layer: the allocator interfaces, the
+/// OOM hook, the global allocator (Global, System), the per-thread
+/// scope stack AllocatorScope (base/alloc.k) pushes and pops, and
+/// the current-allocator family alloc_raw / free_raw / resize_raw.
 ///
 ///   \detail
 ///     Split out of base/alloc.k so a builtin type can own memory: it
@@ -29,8 +29,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import builtin::base::intrinsics::*;
 ffi "c++" import "rt/alloc.h"
+
+import builtin::base::intrinsics::*
 
 // --- interfaces -------------------------------------------------------------
 
@@ -41,8 +42,9 @@ ffi "c++" import "rt/alloc.h"
 pub interface Allocator {
     /// Returns `size` bytes aligned to `align`, or `&null` on failure.
     ///
-    /// \param size   Nonzero; the front end never forwards a zero-size request.
-    /// \param align  A power of two.
+    /// ### Parameters
+    /// - `size`: Nonzero; the front end never forwards a zero-size request.
+    /// - `align`: A power of two.
     static fn alloc(size: usize, align: usize) -> unsafe *u8
     /// Gives a block back.
     ///
@@ -98,17 +100,26 @@ pub interface ScopedFullAllocator derives ScopedAllocator + FullAllocator { }
 // --- helpers ----------------------------------------------------------------
 
 /// Returns true when `v` is a power of two (zero is not).
-pub inline fn is_pow2(v: usize) -> bool { return v != 0 && (v & (v - 1)) == 0 }
+pub inline fn is_pow2(v: usize) -> bool {
+    return v != 0 && (v & (v - 1)) == 0
+}
 
 /// Rounds `v` up to the next multiple of `align`.
 ///
-/// \param align  A power of two.
-pub inline fn align_up(v: usize, align: usize) -> usize { return (v + align - 1) & ~(align - 1) }
+/// ### Parameters
+/// - `align`: A power of two.
+pub inline fn align_up(v: usize, align: usize) -> usize {
+    return (v + align - 1) & ~(align - 1)
+}
 
 /// Returns a non-null, aligned pointer that owns nothing: what a zero-size request gets.
 ///
 /// \safety Never dereference or free the result.
-pub inline fn dangling(align: usize) -> unsafe *u8 { unsafe { return align as unsafe *u8 } }
+pub inline fn dangling(align: usize) -> unsafe *u8 {
+    unsafe {
+        return align as unsafe *u8
+    }
+}
 
 
 /// A `realloc` for an allocator with no faster path: allocates, copies, frees the old block.
@@ -116,9 +127,15 @@ pub inline fn dangling(align: usize) -> unsafe *u8 { unsafe { return align as un
 /// Returns `&null`, with the original block untouched, when the new allocation fails.
 ///
 /// \safety `ptr` must be a block `A` allocated with `old_size` and `align`.
-pub fn <A impl Allocator> realloc_by_copy(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
+pub fn <A impl Allocator> realloc_by_copy(ptr:      unsafe *u8,
+                                          old_size: usize,
+                                          new_size: usize,
+                                          align:    usize) -> unsafe *u8 {
     var unsafe *n = A::alloc(new_size, align)
-    if n == &null { return &null }
+    if n == &null {
+        return &null
+    }
+
     __builtin_copy(n, ptr, if old_size < new_size => old_size else => new_size)
     A::free(ptr, old_size, align)
     return n
@@ -130,7 +147,11 @@ static oom_handler: fn(usize, usize) -> ! = default_oom
 
 /// The message as bytes, not a string literal: this file sits below the
 /// string lang item (string.k allocates through it), so it cannot name one.
-static OOM_MSG: [u8; 20] = [107, 97, 105, 114, 111, 58, 32, 111, 117, 116, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121]   // "kairo: out of memory"
+static OOM_MSG: [u8; 20] = [ // "kairo: out of memory"
+    107, 97,  105, 114, 111, 58, 32,  111,
+    117, 116, 32,  111, 102, 32, 109, 101,
+    109, 111, 114, 121,
+]
 
 fn default_oom(size: usize, align: usize) -> ! {
     __builtin_crash(&OOM_MSG[0], 20, 134)
@@ -140,7 +161,9 @@ fn default_oom(size: usize, align: usize) -> ! {
 ///
 /// The handler never returns. The default writes `kairo: out of memory` to stderr and exits with
 /// code 134. The handler is process-wide, not per thread, and the call is not synchronized.
-pub fn set_oom_handler(h: fn(usize, usize) -> !) { oom_handler = h }
+pub fn set_oom_handler(h: fn(usize, usize) -> !) {
+    oom_handler = h
+}
 
 /// Runs the OOM handler for a failed allocation of `size` bytes at `align`; never returns.
 pub fn oom(size: usize, align: usize) -> ! {
@@ -180,16 +203,26 @@ eval if !defined!(__KAIRO_GLOBAL_ALLOCATOR_SET) {
         static inline fn alloc(size: usize, align: usize) -> unsafe *u8 {
             return kairo_global_alloc(size, align)
         }
+
         static inline fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
             return kairo_global_alloc_zeroed(size, align)
         }
+
         static inline fn free(ptr: unsafe *u8, size: usize, align: usize) {
             kairo_global_free(ptr, size, align)
         }
-        static inline fn resize(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
+
+        static inline fn resize(ptr:      unsafe *u8,
+                                old_size: usize,
+                                new_size: usize,
+                                align:    usize) -> bool {
             return kairo_global_resize(ptr, old_size, new_size, align)
         }
-        static inline fn realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
+
+        static inline fn realloc(ptr:      unsafe *u8,
+                                 old_size: usize,
+                                 new_size: usize,
+                                 align:    usize) -> unsafe *u8 {
             return kairo_global_realloc(ptr, old_size, new_size, align)
         }
     }
@@ -239,7 +272,7 @@ pub struct ScopeChunk {
     var frames: [ScopeFrame; 16]
     var lo:     [usize; 17]
     var span:   [usize; 17]
-    var base:   usize                 // depth of frames[0]
+    var base:   usize              // depth of frames[0]
     var prev:   unsafe *ScopeChunk
     var next:   unsafe *ScopeChunk
 }
@@ -250,11 +283,11 @@ eval if defined!(__linux__) || defined!(_WIN32) || defined!(__APPLE__)
      || defined!(__FreeBSD__) || defined!(__NetBSD__) || defined!(__OpenBSD__)
      || defined!(__ANDROID__) || defined!(__wasi__) || defined!(__EMSCRIPTEN__) {
     thread scope_top:   unsafe *ScopeFrame = &null
-    thread scope_depth: usize = 0
+    thread scope_depth: usize              = 0
     thread scope_chunk: unsafe *ScopeChunk = &null
 } else {
     static scope_top:   unsafe *ScopeFrame = &null
-    static scope_depth: usize = 0
+    static scope_depth: usize              = 0
     static scope_chunk: unsafe *ScopeChunk = &null
 }
 
@@ -266,15 +299,20 @@ fn scope_grow(c: unsafe *ScopeChunk) -> unsafe *ScopeChunk {
         var unsafe *n = c->next
         if n == &null {
             var unsafe *m = System::alloc(sizeof ScopeChunk, alignof ScopeChunk)
-            @unlikely if m == &null { oom(sizeof ScopeChunk, alignof ScopeChunk) }
-            n = m as unsafe *ScopeChunk
-            n->base = c->base + SCOPE_CHUNK
-            n->lo[0] = 0
+            @unlikely
+            if m == &null {
+                oom(sizeof ScopeChunk, alignof ScopeChunk)
+            }
+
+            n          = m as unsafe *ScopeChunk
+            n->base    = c->base + SCOPE_CHUNK
+            n->lo[0]   = 0
             n->span[0] = ~0usize
-            n->prev = c
-            n->next = &null
-            c->next = n
+            n->prev    = c
+            n->next    = &null
+            c->next    = n
         }
+
         return n
     }
 }
@@ -285,20 +323,29 @@ fn scope_grow(c: unsafe *ScopeChunk) -> unsafe *ScopeChunk {
 fn owner_scan(ptr: unsafe *u8) -> unsafe *ScopeFrame {
     // One cursor over lo[]: span[k] sits a fixed distance after lo[k], and the
     // frame index is computed only on a hit.
-    var a: usize = 0
-    var unsafe *c = scope_chunk
-    var n: usize = 0
+    var        a: usize = 0
+    var unsafe *c       = scope_chunk
+    var        n: usize = 0
     unsafe {
         a = ptr as usize
         n = scope_depth - c->base
         while true {
             var unsafe *lo0 = &c->lo[0] as unsafe *usize
-            var unsafe *q = lo0 + n
-            while a - *q >= *(q + 17) { q = q - 1 }
+            var unsafe *q   = lo0 + n
+            while a - *q >= *(q + 17) {
+                q = q - 1
+            }
+
             var k = ((q as usize) - (lo0 as usize)) / sizeof usize
-            if k != 0 { return unsafe &c->frames[k - 1] }
+            if k != 0 {
+                return unsafe &c->frames[k - 1]
+            }
+
             c = c->prev
-            if c == &null { return &null }
+            if c == &null {
+                return &null
+            }
+
             n = SCOPE_CHUNK
         }
     }
@@ -309,11 +356,20 @@ fn owner_scan(ptr: unsafe *u8) -> unsafe *ScopeFrame {
 /// outside every open range.
 inline fn owner_of(ptr: unsafe *u8) -> unsafe *ScopeFrame {
     var unsafe *f = scope_top
-    if f == &null { return &null }
-    unsafe {
-        if ptr >= f->lo && ptr < f->hi { return f }
-        if ptr < f->agg_lo || ptr >= f->agg_hi { return &null }
+    if f == &null {
+        return &null
     }
+
+    unsafe {
+        if ptr >= f->lo && ptr < f->hi {
+            return f
+        }
+
+        if ptr < f->agg_lo || ptr >= f->agg_hi {
+            return &null
+        }
+    }
+
     return owner_scan(ptr)
 }
 
@@ -321,91 +377,117 @@ inline fn owner_of(ptr: unsafe *u8) -> unsafe *ScopeFrame {
 /// allocator nested in itself (same range, same free): a block there goes to
 /// the innermost frame, which frees it through the same allocator.
 @cold_path @no_inline
-fn range_is_free(lo: unsafe *u8, hi: unsafe *u8, free: unsafe fn(unsafe *u8, usize, usize)) -> bool {
-    var unsafe *c = scope_chunk
-    var n: usize = 0
-    unsafe { n = scope_depth - c->base }
+fn range_is_free(lo:   unsafe *u8,
+                 hi:   unsafe *u8,
+                 free: unsafe fn(unsafe *u8, usize, usize)) -> bool {
+    var unsafe *c       = scope_chunk
+    var        n: usize = 0
+    unsafe {
+        n = scope_depth - c->base
+    }
+
     while c != &null {
         unsafe {
             while n > 0 {
                 n -= 1
-                var unsafe *f = unsafe &c->frames[n]
-                var same = f->lo == lo && f->hi == hi && f->free == free
-                if !same && lo < f->hi && f->lo < hi { return false }
+                var unsafe *f   = unsafe &c->frames[n]
+                var        same = f->lo == lo && f->hi == hi && f->free == free
+                if !same && lo < f->hi && f->lo < hi {
+                    return false
+                }
             }
+
             c = c->prev
         }
+
         n = SCOPE_CHUNK
     }
+
     return true
 }
 
 /// Pushes a frame; returns its depth, which scope_pop takes back.
 /// prot: AllocatorScope (base/alloc.k) is its one caller outside this file.
-prot inline fn scope_push(alloc: unsafe fn(usize, usize) -> unsafe *u8,
-              free: unsafe fn(unsafe *u8, usize, usize),
-              resize: unsafe fn(unsafe *u8, usize, usize, usize) -> bool,
-              realloc: unsafe fn(unsafe *u8, usize, usize, usize) -> unsafe *u8,
-              lo: unsafe *u8, hi: unsafe *u8) -> usize {
-    var d = scope_depth
-    var unsafe *top = scope_top
-    var unsafe *c = scope_chunk
-    var i: usize = 0
-    var unsafe *agg_lo = lo
-    var unsafe *agg_hi = hi
+prot inline fn scope_push(alloc:   unsafe fn(usize, usize) -> unsafe *u8,
+                          free:    unsafe fn(unsafe *u8, usize, usize),
+                          resize:  unsafe fn(unsafe *u8, usize, usize, usize) -> bool,
+                          realloc: unsafe fn(unsafe *u8, usize, usize, usize) -> unsafe *u8,
+                          lo:      unsafe *u8,
+                          hi:      unsafe *u8) -> usize {
+    var        d             = scope_depth
+    var unsafe *top          = scope_top
+    var unsafe *c            = scope_chunk
+    var        i:      usize = 0
+    var unsafe *agg_lo       = lo
+    var unsafe *agg_hi       = hi
     unsafe {
         if top == &null {
             // The first chunk's storage is in rt/alloc.h (see there for why).
-            assert sizeof ScopeChunk <= SCOPE_FIRST_BYTES   // ScopeChunk outgrew its first-chunk storage
-            c = kairo_rt_scope_first() as unsafe *ScopeChunk
+            assert sizeof ScopeChunk <= SCOPE_FIRST_BYTES // ScopeChunk outgrew its first-chunk storage
+            c           = kairo_rt_scope_first() as unsafe *ScopeChunk
             scope_chunk = c
-            c->lo[0] = 0
-            c->span[0] = ~0usize
+            c->lo[0]    = 0
+            c->span[0]  = ~0usize
         } else {
             // O(1) when the new range lies outside everything open; the scan
             // only runs when it falls inside the bounding box.
             if lo < top->agg_hi && top->agg_lo < hi {
-                assert range_is_free(lo, hi, free)   // a scoped allocator's range overlaps an open scope's
+                assert range_is_free(lo, hi, free) // a scoped allocator's range overlaps an open scope's
             }
-            if top->agg_lo < agg_lo { agg_lo = top->agg_lo }
-            if top->agg_hi > agg_hi { agg_hi = top->agg_hi }
+
+            if top->agg_lo < agg_lo {
+                agg_lo = top->agg_lo
+            }
+
+            if top->agg_hi > agg_hi {
+                agg_hi = top->agg_hi
+            }
+
             i = d - c->base
-            @unlikely if i == SCOPE_CHUNK {
-                c = scope_grow(c)
+            @unlikely
+            if i == SCOPE_CHUNK {
+                c           = scope_grow(c)
                 scope_chunk = c
-                i = 0
+                i           = 0
             }
         }
+
         var unsafe *f = unsafe &c->frames[i]
-        f->alloc = alloc
-        f->free = free
-        f->resize = resize
-        f->realloc = realloc
-        f->lo = lo
-        f->hi = hi
-        f->agg_lo = agg_lo
-        f->agg_hi = agg_hi
-        c->lo[i + 1] = lo as usize
+        f->alloc       = alloc
+        f->free        = free
+        f->resize      = resize
+        f->realloc     = realloc
+        f->lo          = lo
+        f->hi          = hi
+        f->agg_lo      = agg_lo
+        f->agg_hi      = agg_hi
+        c->lo[i + 1]   = lo as usize
         c->span[i + 1] = (hi as usize) - (lo as usize)
-        scope_top = f
+        scope_top      = f
     }
+
     scope_depth = d + 1
     return d
 }
 
 /// Pops the frame scope_push returned d for. Scopes close in reverse order.
 prot inline fn scope_pop(d: usize) {
-    assert scope_depth == d + 1   // allocator scopes must close in reverse order
+    assert scope_depth == d + 1 // allocator scopes must close in reverse order
     scope_depth = d
-    if d == 0 { scope_top = &null; return }
+    if d == 0 {
+        scope_top = &null
+        return
+    }
+
     unsafe {
         var unsafe *c = scope_chunk
-        var i = d - c->base
+        var        i  = d - c->base
         if i == 0 {
-            c = c->prev
+            c           = c->prev
             scope_chunk = c
-            i = SCOPE_CHUNK
+            i           = SCOPE_CHUNK
         }
+
         scope_top = unsafe &c->frames[i - 1]
     }
 }
@@ -417,15 +499,25 @@ prot inline fn scope_pop(d: usize) {
 ///
 /// A zero `size` returns `dangling(align)`. Pair the block with `free_raw`.
 ///
-/// \param align  A power of two (asserted).
-/// \safety The result is uninitialized memory; free it with `free_raw` using the same `size` and
-/// `align`.
+/// ### Parameters
+/// - `align`: A power of two (asserted).
+///   \safety The result is uninitialized memory; free it with `free_raw` using the same `size` and
+///   `align`.
 pub inline fn alloc_raw(size: usize, align: usize) -> unsafe *u8 {
-    assert is_pow2(align)   // alignment must be a power of two
-    if size == 0 { return dangling(align) }
+    assert is_pow2(align) // alignment must be a power of two
+    if size == 0 {
+        return dangling(align)
+    }
+
     var unsafe *f = scope_top
-    @likely if f == &null { return Global::alloc(size, align) }
-    unsafe { return f->alloc(size, align) }
+    @likely
+    if f == &null {
+        return Global::alloc(size, align)
+    }
+
+    unsafe {
+        return f->alloc(size, align)
+    }
 }
 
 /// Gives a block back to whichever allocator it came from: the open scope whose range holds it,
@@ -437,8 +529,16 @@ pub inline fn alloc_raw(size: usize, align: usize) -> unsafe *u8 {
 /// \safety `ptr` must come from `alloc_raw` / `resize_raw` (or `dangling` for size 0), with the
 /// `size` and `align` it was last allocated with.
 pub inline fn free_raw(ptr: unsafe *u8, size: usize, align: usize) {
-    if size == 0 { return }
-    @likely if scope_top == &null { Global::free(ptr, size, align); return }
+    if size == 0 {
+        return
+    }
+
+    @likely
+    if scope_top == &null {
+        Global::free(ptr, size, align)
+        return
+    }
+
     free_scoped(ptr, size, align)
 }
 
@@ -447,9 +547,17 @@ pub inline fn free_raw(ptr: unsafe *u8, size: usize, align: usize) {
 fn free_scoped(ptr: unsafe *u8, size: usize, align: usize) {
     var unsafe *f = scope_top
     unsafe {
-        if ptr >= f->lo && ptr < f->hi { f->free(ptr, size, align); return }
-        if ptr < f->agg_lo || ptr >= f->agg_hi { Global::free(ptr, size, align); return }
+        if ptr >= f->lo && ptr < f->hi {
+            f->free(ptr, size, align)
+            return
+        }
+
+        if ptr < f->agg_lo || ptr >= f->agg_hi {
+            Global::free(ptr, size, align)
+            return
+        }
     }
+
     free_below(ptr, size, align)
 }
 
@@ -458,8 +566,14 @@ fn free_scoped(ptr: unsafe *u8, size: usize, align: usize) {
 @cold_path @no_inline
 fn free_below(ptr: unsafe *u8, size: usize, align: usize) {
     var unsafe *f = owner_scan(ptr)
-    if f == &null { Global::free(ptr, size, align); return }
-    unsafe { f->free(ptr, size, align) }
+    if f == &null {
+        Global::free(ptr, size, align)
+        return
+    }
+
+    unsafe {
+        f->free(ptr, size, align)
+    }
 }
 
 /// Resizes a block with the allocator it came from: in place if that allocator can, else moved.
@@ -470,16 +584,33 @@ fn free_below(ptr: unsafe *u8, size: usize, align: usize) {
 ///
 /// \safety `ptr` must come from `alloc_raw` / `resize_raw` with `old_size` and `align`.
 pub fn resize_raw(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
-    if new_size == 0 { free_raw(ptr, old_size, align); return dangling(align) }
-    if old_size == 0 { return alloc_raw(new_size, align) }
+    if new_size == 0 {
+        free_raw(ptr, old_size, align)
+        return dangling(align)
+    }
+
+    if old_size == 0 {
+        return alloc_raw(new_size, align)
+    }
+
     var f: unsafe *ScopeFrame = &null
-    if scope_top != &null { f = owner_of(ptr) }
+    if scope_top != &null {
+        f = owner_of(ptr)
+    }
+
     if f == &null {
-        if Global::resize(ptr, old_size, new_size, align) { return ptr }
+        if Global::resize(ptr, old_size, new_size, align) {
+            return ptr
+        }
+
         return Global::realloc(ptr, old_size, new_size, align)
     }
+
     unsafe {
-        if f->resize(ptr, old_size, new_size, align) { return ptr }
+        if f->resize(ptr, old_size, new_size, align) {
+            return ptr
+        }
+
         return f->realloc(ptr, old_size, new_size, align)
     }
 }
@@ -503,33 +634,59 @@ eval SMALL_MAX: usize = 128 * sizeof usize
 pub class System impl FullAllocator {
     /// Allocates from mimalloc.
     static inline fn alloc(size: usize, align: usize) -> unsafe *u8 {
-        @likely if align <= MAX_ALIGN { return kairo_rt_malloc(size) }
+        @likely
+        if align <= MAX_ALIGN {
+            return kairo_rt_malloc(size)
+        }
+
         return kairo_rt_aligned_alloc(size, align)
     }
 
     /// Allocates zeroed memory from mimalloc.
     static inline fn alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
-        @likely if align <= MAX_ALIGN { return kairo_rt_calloc(size) }
+        @likely
+        if align <= MAX_ALIGN {
+            return kairo_rt_calloc(size)
+        }
+
         return kairo_rt_aligned_calloc(size, align)
     }
 
     /// Frees to mimalloc.
     static inline fn free(ptr: unsafe *u8, size: usize, align: usize) {
-        @likely if align <= MAX_ALIGN { kairo_rt_free(ptr, size); return }
+        @likely
+        if align <= MAX_ALIGN {
+            kairo_rt_free(ptr, size)
+            return
+        }
+
         kairo_rt_aligned_free(ptr, size, align)
     }
 
     /// Never grows in place. A shrink keeps the block, except one from a
     /// large page into the small range: the small free that size would get
     /// cannot release a large-page block (rt/alloc.h), so that one moves.
-    static inline fn resize(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
-        if new_size > old_size { return false }
+    static inline fn resize(ptr:      unsafe *u8,
+                            old_size: usize,
+                            new_size: usize,
+                            align:    usize) -> bool {
+        if new_size > old_size {
+            return false
+        }
+
         return !(align <= MAX_ALIGN && new_size <= SMALL_MAX && old_size > SMALL_MAX)
     }
 
     /// Reallocates through mimalloc, moving the block if it has to.
-    static fn realloc(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
-        @likely if align <= MAX_ALIGN { return kairo_rt_realloc(ptr, old_size, new_size) }
+    static fn realloc(ptr:      unsafe *u8,
+                      old_size: usize,
+                      new_size: usize,
+                      align:    usize) -> unsafe *u8 {
+        @likely
+        if align <= MAX_ALIGN {
+            return kairo_rt_realloc(ptr, old_size, new_size)
+        }
+
         return kairo_rt_aligned_realloc(ptr, new_size, align)
     }
 }

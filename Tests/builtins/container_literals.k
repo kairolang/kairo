@@ -12,9 +12,8 @@ fn build() -> i32 {
 fn main() -> i32 { return 0 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: %kairo_new %s --type-check-only
-// RUN: %kairo_new %s --print-ir 2>&1 | %FileCheck %s
+// RUN: %kairo %s --type-check-only
+// RUN: %kairo %s --print-ir 2>&1 | %FileCheck %s
 // CHECK: __kairo_ext_HashMap::reserve< ::builtin::string::string, signed int>((& m), static_cast<decltype(sizeof(0))>(2));
 // CHECK: __kairo_ext_HashMap::insert< ::builtin::string::string, signed int>((& m), ::builtin::string::string( ::__kairo_slit_1_{{[0-9a-f]+}}.b, 1, 1), 1);
 // CHECK: __kairo_ext_HashSet::reserve<signed int>((& s), static_cast<decltype(sizeof(0))>(3));

@@ -23,11 +23,10 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --print-ir 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT:   error [
 // CHECK-LABEL: int main() noexcept {
 // CHECK:       auto && __kairo_ord{{[0-9]+}} =(tr);
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe

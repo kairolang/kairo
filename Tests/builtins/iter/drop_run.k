@@ -292,10 +292,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
 // RUN: rm -rf %t.d
-// RUN: %kairo_new -O2 %s -o %t.O2.exe --cache-dir %t.d
+// RUN: %kairo -O2 %s -o %t.O2.exe --cache-dir %t.d
 // RUN: %t.O2.exe

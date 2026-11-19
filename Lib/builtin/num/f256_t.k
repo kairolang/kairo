@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------------- Lib/builtin/num/f256_t.k --- ///
 ///
-///   \brief `f256`, IEEE 754 binary256, as a library class: the C++ spelling
-///          of the `f256` type keyword (AST/Node/CanonicalNodes.k).
+/// `f256`, IEEE 754 binary256, as a library class: the C++ spelling
+/// of the `f256` type keyword (AST/Node/CanonicalNodes.k).
 ///
 ///   \detail
 ///     Sign, 19-bit exponent (bias 262143), 236-bit fraction with a
@@ -384,7 +384,12 @@ pub class F256 {
         var r       = F256()
         var v: u512 = 0
         unsafe {
-            sf_parse_bits(F256::fmt_(), p as unsafe *const u8 as *const u8, n, &v)
+            sf_parse_bits(
+                F256::fmt_(),
+                p as unsafe *const u8 as *const u8,
+                n,
+                &v,
+            )
         }
 
         r.bits = v as u256
@@ -395,11 +400,11 @@ pub class F256 {
     /// sign, `_` between digits), correctly rounded, into `*out`; false
     /// (out untouched) when `s` is not a float.
     ///
-    /// \note Not `-> F256?`: a nullable return from a builtin class with
+    /// **Note:** Not `-> F256?`: a nullable return from a builtin class with
     /// this alignment does not compile yet (P721).
     pub static fn parse(const s: string, out: *F256) -> bool {
         var v: u512 = 0
-        if !sf_parse_bits(F256::fmt_(), s.as_ptr(), s.length(), &v) {
+        if !sf_parse_bits(F256::fmt_(), s.data(), s.size(), &v) {
             return false
         }
 
@@ -411,7 +416,14 @@ pub class F256 {
     /// 'e' or 'E', prec < 0 for the shortest round-trip digits); returns the
     /// bytes written. The sign is the caller's (fmt_put_).
     pub fn format_into_(const self, out: unsafe *u8, cap: usize, prec: i32, conv: u8) -> i32 {
-        return sf_format_bits(F256::fmt_(), self.bits as u512, out, cap, prec, conv)
+        return sf_format_bits(
+            F256::fmt_(),
+            self.bits as u512,
+            out,
+            cap,
+            prec,
+            conv,
+        )
     }
 
     /// Appends self to `b` as an f-string hole, honouring the sign bit of -0.0 and NaN: what
@@ -427,7 +439,12 @@ pub class F256 {
         var slot     = b->number_slot_(spec, digits)
         var n:   i32 = 0
         unsafe {
-            n = self.format_into_(unsafe &b->data[slot], digits, prec as i32, FmtBuf::conv_(spec))
+            n = self.format_into_(
+                unsafe &b->data[slot],
+                digits,
+                prec as i32,
+                FmtBuf::conv_(spec),
+            )
         }
 
         b->number_at_(slot, n as usize, self.bits >> 255 != 0, spec)
@@ -472,7 +489,9 @@ pub class F256 {
 
     /// The square root, correctly rounded; sqrt(-0) is -0, other negatives NaN.
     pub fn sqrt(const self) -> F256 {
-        return F256::from_bits(sf_op(F256::fmt_(), SF_OP_SQRT, self.bits as u512, 0, 0) as u256)
+        return F256::from_bits(
+            sf_op(F256::fmt_(), SF_OP_SQRT, self.bits as u512, 0, 0) as u256,
+        )
     }
 
     /// self * b + c, rounded once.

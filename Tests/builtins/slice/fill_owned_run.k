@@ -37,9 +37,8 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --match-full-lines
 // CHECK:      u8 9 7 7 9 9
 // CHECK-NEXT: i64 -5 -5 -5

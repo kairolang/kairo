@@ -1,545 +1,1206 @@
-/// --- The Kairo Project -------------- Lib/builtin/containers/vector.k --- ///
+/// builtin/containers/vector.k
 ///
-///   The Vector lang item: `[T]`. Growable, owning, contiguous. Imports Slice
-///   so `[T;]` in its constructor resolves: a builtin file's lang items are
-///   bound before its types are resolved, in import order
-///   (NameResolution::fill_lang_items).
-///
-///   \par Ownership
-///     [0, len) are live Ts in cap slots from the allocator in effect
-///     (alloc.k's non-_in family). Every slot is constructed in place and
-///     destroyed exactly once: on pop / erase / clear / resize down, or by
-///     the destructor. An empty vector with no storage holds
-///     dangling(alignof T), never &null, so `data()` and the `[T;]` view are
-///     always valid pointers.
-///
-///   \par COPY
-///     A copy is a deep copy. The @copy constructor is constrained on T
-///     being copyable, so `[MoveOnly]` has no copy (C++ drops the
-///     constructor from the instance and InterfaceEmitter constrains the
-///     derived `op =` the same way). Kairo cannot say "COPY iff T is COPY"
-///     (ClassLifecycle reads a declared @copy as COPY whatever T is), and a
-///     class declares one transfer constructor (SC057E), so there is no
-///     cheap move: moving a vector copies it, and `[MoveOnly]` is neither
-///     copied nor moved -- build it in place and pass it by reference.
-///
-///   \par Constrained members
-///     Every home of an instance writes `template class Vector<X>;`, which
-///     instantiates each non-template member. So each member that copies or
-///     default-constructs a T carries a requires-clause, and C++ leaves it
-///     out of an instance whose T cannot (CXXSpell::member_requires): a
-///     `[MoveOnly]` has no copy, no `Vector(n)` and no `resize(n, value)`,
-///     and has every other member.
-///
-///   \par Element transfer
-///     Growth, insert and erase RELOCATE: the element is move-constructed
-///     into its new slot and the old one destroyed, so a MOVE T is never
-///     copied. A trivially relocatable T is moved as bytes.
-///
-///   \par Hot paths
-///     `[]` is one compare and a load (the trap is cold); size / empty /
-///     data / begin / end / back are loads; push_back with spare capacity
-///     makes no call. Growth and the element-wise slow paths are out of line.
-///
-///   Members are in this file, not in std: a record's members are one
-///   declaration (README, "Where a new API goes"), and `extend` cannot add
-///   constructors, `op []` or `op as`, nor extend a type from another file
-///   (extends.mdx, "Same-File Restriction").
-///
-///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
-///   Copyright (c) 2026 Dhruvan Kartik
-///
-/// ------------------------------------------------------------------------ ///
+/// Called by the compiler: a literal `[a, b, c]` is `Vector()`, then
+/// `reserve(n)`, then `push(v)` per element. Keep those three as they are.
 
-import containers::slice::*
+ffi "c++" import "rt/global_alloc.h"
+
+import base::cmp::*
+import base::copy::*
 import base::intrinsics::*
-import base::alloc::*
+import base::iter::*
+import base::range::*
+import builtin::Null
+import containers::slice::*
 
-/// Move-constructs a T at dst from src. The `@move` parameter is what makes
-/// the caller's `buf[i]` an xvalue: Kairo has no std::move.
-inline fn <T> vector_move_into(dst: unsafe *u8, @move src: T) {
-    __builtin_construct_at<T>(dst, src)
+// The block every empty vector points just past: 64 bytes, 64-aligned, all
+// zero, so the capacity word at `buf - W` reads 0 on every word size and the
+// address is a valid `*T` for any `T` aligned to 64 or less. Nothing writes
+// or frees it: every path that writes the header or frees the block first
+// sees a capacity of 0. Constant, so the optimizer reads that 0 at compile
+// time and a vector that never grows costs no call to destroy.
+@align(64) priv eval VEC_EMPTY: [u64; 8] = [0, 0, 0, 0, 0, 0, 0, 0]
+
+/// Bytes in front of element 0: the capacity word, padded to the element's
+/// alignment.
+priv inline fn vec_header(elem_align: usize) -> usize {
+    return if elem_align > sizeof usize => elem_align else => sizeof usize
 }
 
-/// Moves `src` out of its slot; the slot is left to be destroyed.
-inline fn <T> vector_take(@move src: T) -> T {
-    return src
+priv inline fn vec_block_align(elem_align: usize) -> usize {
+    return if elem_align > alignof usize => elem_align else => alignof usize
 }
 
-/// Out of line and cold: what an out-of-range `[]`, `front`, `back` or
-/// `pop_back` runs.
 @cold_path @no_inline
-fn vector_out_of_range() -> ! {
+priv fn vec_capacity_overflow() -> ! {
     __builtin_trap()
 }
 
-/// Growable, owning, contiguous array. `[T]` desugars to `Vector<T>`, and the list literal
-/// `[a, b, c]` against a `[T]` target builds one.
-///
-/// Elements live in one heap block from the allocator in effect. Indexing, `front`, `back` and
-/// `pop_back` check bounds and trap (see \panics on each); growth is geometric (twice the
-/// capacity, at least 4), so `push_back` is O(1) amortized. A copy is a deep copy; a `[MoveOnly]`
-/// has no copy and no `Vector(n)` / `resize(n, value)` (those members need T to be copyable /
-/// default-constructible).
-///
-/// References and pointers into a vector (`v[i]`, `begin()`, `data()`) are invalidated by any
-/// operation that grows, inserts, erases or clears.
-///
-/// \see Slice
-/// \example
-/// ```kairo
-/// var v: [i32] = [1, 2, 3]
-/// v.push(4)
-/// var sum: i32 = 0
-/// for x in v { sum += x }
-/// ```
+@cold_path @no_inline
+priv fn vec_alloc_fail() -> ! {
+    __builtin_trap()
+}
+
+/// `H + cap * elem_size`; traps when it does not fit in a usize.
+priv inline fn vec_block_bytes(cap: usize, elem_size: usize, elem_align: usize) -> usize {
+    var body: usize = 0
+    if __builtin_mul_overflow(cap, elem_size, &body) {
+        vec_capacity_overflow()
+    }
+
+    var bytes: usize = 0
+    if __builtin_add_overflow(body, vec_header(elem_align), &bytes) {
+        vec_capacity_overflow()
+    }
+
+    return bytes
+}
+
+/// The capacity a grower allocates: at least `need`, and at least double the
+/// old one. The generic caller has already raised `need` to its element
+/// type's minimum (`Vector::min_cap_`), a constant there, so no division by
+/// the element size happens here.
+priv inline fn vec_next_cap(old: usize, need: usize) -> usize {
+    if old <= usize::MAX >> 1 && old * 2 > need {
+        return old * 2
+    }
+
+    return need
+}
+
+/// A new block for exactly `cap` elements (`cap > 0`); returns element 0,
+/// with the capacity word written.
+priv fn vec_alloc(cap: usize, elem_size: usize, elem_align: usize, zeroed: bool) -> unsafe *u8 {
+    var bytes            = vec_block_bytes(cap, elem_size, elem_align)
+    var al               = vec_block_align(elem_align)
+    var blk:  unsafe *u8 = &null
+    if zeroed {
+        blk = kairo_global_alloc_zeroed(bytes, al)
+    } else {
+        blk = kairo_global_alloc(bytes, al)
+    }
+
+    if blk == &null {
+        vec_alloc_fail()
+    }
+
+    unsafe {
+        var nb: unsafe *u8 = blk + vec_header(elem_align)
+        *((nb as unsafe *usize) - 1) = cap
+        return nb
+    }
+}
+
+/// Frees the block whose element 0 is `buf`, holding `cap > 0` elements.
+priv inline fn vec_free(buf: unsafe *u8, cap: usize, elem_size: usize, elem_align: usize) {
+    var h = vec_header(elem_align)
+    unsafe {
+        kairo_global_free(
+            buf - h,
+            h + cap * elem_size,
+            vec_block_align(elem_align),
+        )
+    }
+}
+
+/// Tries to give the block whose element 0 is `buf` room for exactly
+/// `new_cap` elements without moving it; on success the capacity word holds
+/// `new_cap`.
+priv fn vec_resize_in_place(buf:        unsafe *u8,
+                            old_cap:    usize,
+                            new_cap:    usize,
+                            elem_size:  usize,
+                            elem_align: usize) -> bool {
+    var h     = vec_header(elem_align)
+    var bytes = vec_block_bytes(new_cap, elem_size, elem_align)
+    unsafe {
+        if !kairo_global_resize(
+            buf - h,
+            h + old_cap * elem_size,
+            bytes,
+            vec_block_align(elem_align),
+        ) {
+            return false
+        }
+
+        *((buf as unsafe *usize) - 1) = new_cap
+    }
+
+    return true
+}
+
+/// Gives the block whose element 0 is `buf` room for exactly `new_cap`
+/// elements, moving it if it must; the first `old_cap` elements' bytes go
+/// with it. Valid only for relocatable elements.
+priv fn vec_realloc(buf:        unsafe *u8,
+                    old_cap:    usize,
+                    new_cap:    usize,
+                    elem_size:  usize,
+                    elem_align: usize) -> unsafe *u8 {
+    if vec_resize_in_place(buf, old_cap, new_cap, elem_size, elem_align) {
+        return buf
+    }
+
+    var h                = vec_header(elem_align)
+    var bytes            = vec_block_bytes(new_cap, elem_size, elem_align)
+    var blk:  unsafe *u8 = &null
+    unsafe {
+        blk = kairo_global_realloc(
+            buf - h,
+            h + old_cap * elem_size,
+            bytes,
+            vec_block_align(elem_align),
+        )
+    }
+
+    if blk == &null {
+        vec_alloc_fail()
+    }
+
+    unsafe {
+        var nb: unsafe *u8 = blk + h
+        *((nb as unsafe *usize) - 1) = new_cap
+        return nb
+    }
+}
+
+/// The growth core shared by every relocatable element type, expanded into
+/// both forms of grow_bytes below so the cold call is one function. `buf` is
+/// element 0 of the current block, the shared empty header, or null (an
+/// element aligned above 64 with no block). Gives element 0 of a block holding
+/// at least `need` elements with the old ones in place; the capacity word in
+/// front of it is written. realloc carries the whole old block, so `len` is
+/// not needed.
+priv macro vec_grow_body!(buf, need, elem_size, elem_align) {
+    var ob:  unsafe *u8 = &null
+    var old: usize      = 0
+    if buf? {
+        unsafe {
+            ob  = buf as unsafe *u8
+            old = *((ob as unsafe *const usize) - 1)
+        }
+    }
+
+    var cap            = vec_next_cap(old, need)
+    var nb: unsafe *u8 = &null
+    if old == 0 {
+        nb = vec_alloc(cap, elem_size, elem_align, false)
+    } else {
+        nb = vec_realloc(ob, old, cap, elem_size, elem_align)
+    }
+
+    unsafe {
+        return nb as *u8
+    }
+}
+
+// Growth for relocatable elements: byte-level, one copy for every `T`.
+// Returns the new buffer; the header in front of it holds the new cap.
+eval if defined!(__x86_64__) || defined!(__aarch64__) {
+    @cold_path @preserve_most @no_inline
+    priv fn grow_bytes(buf:        *u8?,
+                       len:        usize,
+                       need:       usize,
+                       elem_size:  usize,
+                       elem_align: usize) -> *u8 {
+        vec_grow_body!(buf, need, elem_size, elem_align)
+    }
+} else {
+    @cold_path @no_inline
+    priv fn grow_bytes(buf:        *u8?,
+                       len:        usize,
+                       need:       usize,
+                       elem_size:  usize,
+                       elem_align: usize) -> *u8 {
+        vec_grow_body!(buf, need, elem_size, elem_align)
+    }
+}
+
+/// Two words, the same two as a `Slice<T>`: the conversion to a slice is a
+/// reinterpretation. `[cap: usize]` sits just before element 0, padded to
+/// `T`'s alignment. An empty vector points at a shared header with cap 0,
+/// so push needs no null check (an over-aligned `T` uses null instead).
+/// Slice members are reached through the one-hop lookup rule: `v.sort()`.
+/// MOVE-ONLY: `copy()` duplicates. A literal `[a, b]` moves its temporaries in.
+@relocatable
 pub class <T> Vector {
-    var buf: *T
-    var len: usize
-    var cap: usize
+    // Element 0. Never null, except for a `T` aligned above 64 with no block.
+    // Elements [0, len) are live, [len, cap) are raw. cap is 0 exactly when
+    // buf is the shared empty header (or null).
+    priv var buf: *T?
+    priv var len: usize
 
-    /// Empty, no storage.
-    /// Creates an empty vector. Allocates nothing; `capacity()` is 0.
-    pub inline fn Vector(self) {
-        self.set_empty()
+    pub fn Vector(self) {
+        self.set_empty_()
     }
 
-    /// Creates a vector holding a copy of every element of `items`.
-    ///
-    /// This is what `[a, b, c]` lowers to against a `[T]` target, and what `s as [T]` calls. O(n).
-    pub fn Vector(self, const items: [T;]) requires (!__builtin_is_complete<T>()) || __builtin_is_constructible<T, const T>() {
-        self.set_empty()
-        if items.len == 0 { return }
-        self.allocate(items.len)
-        self.copy_from(items.data, items.len)
-    }
-
-    /// Creates a vector of `n` default-constructed elements, with capacity exactly `n`. O(n).
-    ///
-    /// Only available when T is default-constructible.
-    pub fn Vector(self, n: usize) requires (!__builtin_is_complete<T>()) || __builtin_is_default_constructible<T>() {
-        self.set_empty()
-        if n == 0 { return }
-        self.allocate(n)
-        while self.len < n {
-            __builtin_construct_at<T>(self.slot(self.len))
-            self.len += 1
+    pub fn <R impl ElemRange<T>> Vector(self, const r: R) requires T impl Copyable { // copies r.size() elements from r.data(); names no C++ type
+        self.set_empty_()
+        var n = r.size()
+        if n == 0 {
+            return
         }
-    }
 
-    /// A deep copy, with capacity for exactly other's elements.
-    ///
-    /// The one transfer constructor a class may declare today (SC057E). If
-    /// a COPY class may also declare a cheap move, it is this, beside it:
-    ///     @move pub inline fn Vector(self, other: Self) {
-    ///         self.buf = other.buf; self.len = other.len; self.cap = other.cap
-    ///         other.set_empty()
-    ///     }
-    /// Nothing else changes: the destructor frees an empty vector's
-    /// storage as a no-op (cap 0), and `op =` is derived per constructor.
-    ///
-    /// The constraint is lazy for a recursive element: while `T` is still being
-    /// defined (`class Json { var items: [Json] }`) clang asks it to declare
-    /// Json's implicit copy constructor, and a false answer, cached, would
-    /// delete that constructor for good. An incomplete `T` therefore passes;
-    /// a complete one (`[MoveOnly]`) is judged for real and stays uncopyable.
-    @copy
-    pub fn Vector(self, const other: Self) requires (!__builtin_is_complete<T>()) || __builtin_is_constructible<T, const T>() {
-        self.set_empty()
-        if other.len == 0 { return }
-        self.allocate(other.len)
-        self.copy_from(other.buf, other.len)
-    }
-
-    /// A deep copy, made by the copy constructor: the spelling of a copy
-    /// the source means to make.
-    pub fn copy(const self) -> Vector<T> requires (!__builtin_is_complete<T>()) || __builtin_is_constructible<T, const T>() {
-        return Vector<T>(self)
-    }
-
-    fn op delete(self) {
-        self.destroy_range(0, self.len)
-        free_raw(self.storage(), self.cap * sizeof T, alignof T)
-    }
-
-    /// A vector passes where a slice is wanted: a view, nothing copied.
-    @implicit pub inline fn op as (const self) -> [T;] {
-        return Slice<T>(self.buf, self.len)
-    }
-
-    // --- access ------------------------------------------------------------
-
-    /// Returns the element at index `i` as a place, so `v[i] = x` assigns.
-    ///
-    /// \panics when `i >= size()` (traps; no message).
-    pub inline fn op [] (self, i: usize) -> *T {
-        @unlikely if i >= self.len { vector_out_of_range() }
-        return &self.buf[i]
-    }
-
-    /// Returns the element at index `i` through a const vector.
-    ///
-    /// \panics when `i >= size()` (traps; no message).
-    pub inline fn op [] (const self, i: usize) -> *const T {
-        @unlikely if i >= self.len { vector_out_of_range() }
-        return &self.buf[i]
-    }
-
-    /// Returns the number of live elements. O(1).
-    pub inline fn size(const self) -> usize { return self.len }
-    /// Returns true when the vector holds no elements. O(1).
-    pub inline fn empty(const self) -> bool { return self.len == 0 }
-    /// Returns true when there are no elements; same as `empty()`.
-    pub inline fn is_empty(const self) -> bool { return self.len == 0 }
-    /// Returns how many elements fit before the next reallocation. O(1).
-    pub inline fn capacity(const self) -> usize { return self.cap }
-
-    /// Returns a pointer to the first element (never null: a dangling, aligned pointer while the
-    /// vector has no storage).
-    ///
-    /// One accessor for const and mutable receivers alike: it returns a mutable `*T` even from a
-    /// `const self`.
-    pub inline fn data(const self) -> *T { return self.buf }
-
-    /// Returns a pointer to the first element; equal to `end()` when empty.
-    ///
-    /// Together with `end()` this is the pointer pair `insert` / `erase` positions are spelled in.
-    pub inline fn begin(const self) -> *T { return self.buf }
-    /// Returns a pointer one past the last element. Not dereferenceable.
-    pub inline fn end(const self) -> *T { return &self.buf[self.len] }
-
-    /// Returns a pointer to the first element.
-    ///
-    /// \panics when the vector is empty (traps).
-    pub inline fn front(const self) -> *T {
-        @unlikely if self.len == 0 { vector_out_of_range() }
-        return &self.buf[0]
-    }
-    /// Returns a pointer to the last element.
-    ///
-    /// \panics when the vector is empty (traps).
-    pub inline fn back(const self) -> *T {
-        @unlikely if self.len == 0 { vector_out_of_range() }
-        return &self.buf[self.len - 1]
-    }
-
-    /// Iterates the elements in order: `for x in v` / `for *x in v`.
-    ///
-    /// `for x in v` binds a copy of each element; `for *x in v` binds a pointer to the element
-    /// itself, so it can be modified. Do not grow or erase while iterating.
-    pub fn op in (self) -> yield *T {
-        var i: usize = 0
-        while i < self.len {
-            yield &self.buf[i]
-            i += 1
+        unsafe {
+            var unsafe *nb = vec_alloc(n, sizeof T, alignof T, false) as unsafe *T
+            Vector<T>::copy_run_(nb, r.data(), n)
+            self.set_base_(nb)
         }
+
+        self.len = n
     }
 
-    /// Iterates the elements of a const vector in order: `for x in v` / `for const *x in v`.
-    ///
-    /// `for const *x in v` binds a read-only pointer to the element, with no copy.
-    pub fn op in (const self) -> yield *const T {
-        var i: usize = 0
-        while i < self.len {
-            yield &self.buf[i]
-            i += 1
+    @move pub fn Vector(self, other: Self) { // bitwise; other becomes empty
+        unsafe {
+            *(&self.buf as unsafe *usize) = *(&other.buf as unsafe *const usize)
         }
+
+        self.len = other.len
+        other.set_empty_()
+        other.len = 0
     }
 
-    // --- adding ------------------------------------------------------------
-
-    /// Appends `v` to the end. O(1) amortized; reallocates when full.
-    ///
-    /// `v` is taken by value, so it stays valid across the growth (`v.push_back(v[0])` is fine).
-    /// A copyable lvalue is copied, a MOVE value is moved.
-    pub inline fn push_back(self, v: T) {
-        @unlikely if self.len == self.cap { self.push_grow(v); return }
-        __builtin_construct_at<T>(self.slot(self.len), v)
-        self.len += 1
-    }
-
-    /// push_back under the name collections.mdx documents.
-    /// Appends `v` to the end; the name `collections` documents for `push_back`. Same cost.
-    pub inline fn push(self, v: T) {
-        @unlikely if self.len == self.cap { self.push_grow(v); return }
-        __builtin_construct_at<T>(self.slot(self.len), v)
-        self.len += 1
-    }
-
-    /// Appends a T constructed in place from `args` and returns a pointer to it. O(1) amortized.
-    ///
-    /// On growth the new element is built in the new block before the old ones move, so an argument
-    /// that refers into this vector is still valid when read.
-    pub inline fn <...A> emplace_back(self, ...args: A) -> *T {
-        @unlikely if self.len == self.cap { return self.emplace_grow(args...) }
-        var p: *T = __builtin_construct_at<T>(self.slot(self.len), args...)
-        self.len += 1
-        return p
-    }
-
-    /// Inserts `v` before `pos` and returns a pointer to the new element. O(n): later elements
-    /// shift up one slot.
-    ///
-    /// \param pos  a pointer in `[begin(), end()]`; `end()` appends.
-    /// \panics when `pos` is outside that range (traps).
-    pub fn insert(self, pos: *T, v: T) -> *T {
-        var at = self.index_of(pos)
-        if at > self.len { vector_out_of_range() }
-        if self.len == self.cap { self.grow(self.len + 1) }
-        var k = self.len
-        if __builtin_is_trivially_relocatable<T>() {
-            __builtin_move_mem(self.slot(at + 1), self.slot(at), (k - at) * sizeof T)
-        } else {
-            while k > at {
-                vector_move_into<T>(self.slot(k), self.buf[k - 1])
-                __builtin_destruct_at(&self.buf[k - 1])
-                k -= 1
+    pub fn op finally(self) {
+        var c = self.cap_()
+        Vector<T>::destroy_(self.base_(), self.len)
+        if c != 0 {
+            unsafe {
+                vec_free(self.base_() as unsafe *u8, c, sizeof T, alignof T)
             }
         }
-        var p: *T = __builtin_construct_at<T>(self.slot(at), v)
-        self.len += 1
-        return p
     }
 
-    // --- removing ----------------------------------------------------------
-
-    /// Destroys the last element. O(1).
-    ///
-    /// \panics when the vector is empty (traps).
-    pub inline fn pop_back(self) {
-        @unlikely if self.len == 0 { vector_out_of_range() }
-        self.len -= 1
-        if !__builtin_is_trivially_destructible<T>() { __builtin_destruct_at(&self.buf[self.len]) }
+    // A slice of a temporary vector dies with the statement. Until Tether.
+    @implicit pub fn op as (const self) -> [const T;] {
+        unsafe {
+            return Slice<const T>(self.base_() as unsafe *const T, self.len)
+        }
     }
 
-    /// Removes the last element and returns it, or returns null when the vector is empty. O(1).
+    @implicit pub fn op as (self) -> [T;] {
+        return Slice<T>(self.base_(), self.len)
+    }
+
+    @hot_path pub fn op []  (const self, i: usize) -> *const T { // traps
+        @unlikely
+        if i >= self.len {
+            index_fail(i, self.len)
+        }
+
+        unsafe {
+            return (self.base_() + i) as unsafe *const T as *const T
+        }
+    }
+
+    @hot_path pub fn op []= (self, i: usize) -> *T { // traps
+        @unlikely
+        if i >= self.len {
+            index_fail(i, self.len)
+        }
+
+        unsafe {
+            return (self.base_() + i) as *T
+        }
+    }
+
+    pub fn op []  (const self, r: Range<usize>) -> [const T;] {
+        var hi = self.range_end_(r.begin, r.end, r.inclusive)
+        unsafe {
+            return Slice<const T>(
+                (self.base_() + r.begin) as unsafe *const T,
+                hi - r.begin,
+            )
+        }
+    }
+
+    pub fn op []= (self, r: Range<usize>) -> [T;] {
+        var hi = self.range_end_(r.begin, r.end, r.inclusive)
+        unsafe {
+            return Slice<T>(self.base_() + r.begin, hi - r.begin)
+        }
+    }
+
+    pub fn op []  (const self, r: RangeFrom<usize>) -> [const T;] {
+        @unlikely
+        if r.begin > self.len {
+            range_fail(r.begin, self.len, self.len)
+        }
+
+        unsafe {
+            return Slice<const T>(
+                (self.base_() + r.begin) as unsafe *const T,
+                self.len - r.begin,
+            )
+        }
+    }
+
+    pub fn op []= (self, r: RangeFrom<usize>) -> [T;] {
+        @unlikely
+        if r.begin > self.len {
+            range_fail(r.begin, self.len, self.len)
+        }
+
+        unsafe {
+            return Slice<T>(self.base_() + r.begin, self.len - r.begin)
+        }
+    }
+
+    pub fn op []  (const self, r: RangeTo<usize>) -> [const T;] {
+        var hi = self.range_end_(0, r.end, r.inclusive)
+        unsafe {
+            return Slice<const T>(self.base_() as unsafe *const T, hi)
+        }
+    }
+
+    pub fn op []= (self, r: RangeTo<usize>) -> [T;] {
+        var hi = self.range_end_(0, r.end, r.inclusive)
+        return Slice<T>(self.base_(), hi)
+    }
+
+    pub fn op in (self) -> yield *T {
+        var p = self.base_()
+        unsafe {
+            var e = p + self.len
+            while p != e {
+                yield p as *T
+                p += 1
+            }
+        }
+    }
+
+    pub fn op in (const self) -> yield *const T {
+        var p = self.base_()
+        unsafe {
+            var e = p + self.len
+            while p != e {
+                yield p as unsafe *const T as *const T
+                p += 1
+            }
+        }
+    }
+
+    @cold_path @no_inline
+    priv fn grow_moving(self, need: usize) { // elements that are not relocatable
+        // Compiled only where it can be called: the class is instantiated
+        // whole, and a relocatable T grows through grow_bytes.
+        eval if !__builtin_is_trivially_relocatable<T>() {
+            var old = self.cap_()
+            var cap = vec_next_cap(old, Vector<T>::min_need_(need))
+            var ob  = self.base_()
+            unsafe {
+                if old != 0
+                    && vec_resize_in_place(
+                        ob as unsafe *u8,
+                        old,
+                        cap,
+                        sizeof T,
+                        alignof T,
+                    ) {
+                    return
+                }
+            }
+
+            unsafe {
+                var unsafe *nb = vec_alloc(cap, sizeof T, alignof T, false) as unsafe *T
+                for var i: usize = 0; i < self.len; ++i {
+                    __builtin_construct_at<T>(
+                        (nb + i) as unsafe *u8,
+                        move(*(ob + i)),
+                    )
+
+                    __builtin_destruct_at((ob + i) as *T)
+                }
+
+                if old != 0 {
+                    vec_free(ob as unsafe *u8, old, sizeof T, alignof T)
+                }
+
+                self.set_base_(nb)
+            }
+        } else {
+            __builtin_trap()
+        }
+    }
+
+    // --- the funnel ---------------------------------------------------------
+
+    /// Element 0: the block, the shared empty header, or null for a `T`
+    /// aligned above 64 with no block. Not dereferenced unless `len > 0`.
+    prot inline fn base_(const self) -> unsafe *T {
+        unsafe {
+            return *(&self.buf as unsafe *const unsafe *T)
+        }
+    }
+
+    /// One load from the word in front of element 0.
+    prot inline fn cap_(const self) -> usize {
+        eval if __builtin_align_of<T>() > 64 {
+            if self.base_() == &null {
+                return 0
+            }
+        }
+
+        unsafe {
+            return *((self.base_() as unsafe *const usize) - 1)
+        }
+    }
+
+    prot inline fn len_(const self) -> usize {
+        return self.len
+    }
+
+    prot inline fn set_len_(self, n: usize) {
+        self.len = n
+    }
+
+    priv inline fn set_base_(self, p: unsafe *T) {
+        unsafe {
+            *(&self.buf as unsafe *unsafe *T) = p
+        }
+    }
+
+    priv inline fn set_empty_(self) {
+        eval if __builtin_align_of<T>() > 64 {
+            self.buf = null
+        } else {
+            unsafe {
+                self.set_base_(
+                    ((&VEC_EMPTY[7] as unsafe *const u64) + 1) as unsafe *T,
+                )
+            }
+        }
+    }
+
+    /// Grows to hold at least `need` elements, keeping the live ones.
+    priv inline fn grow_to_(self, need: usize) {
+        eval if __builtin_is_trivially_relocatable<T>() {
+            unsafe {
+                var *nb = grow_bytes(
+                    self.base_() as unsafe *u8 as *u8?,
+                    self.len,
+                    Vector<T>::min_need_(need),
+                    sizeof T,
+                    alignof T,
+                )
+
+                self.set_base_(nb as unsafe *u8 as unsafe *T)
+            }
+        } else {
+            self.grow_moving(need)
+        }
+    }
+
+    /// The exclusive end of `lo..end` (`lo..=end` when `inclusive`); traps
+    /// unless the range lies inside `[0, len]`.
+    priv inline fn range_end_(const self, lo: usize, end: usize, inclusive: bool) -> usize {
+        var hi = end
+        if inclusive {
+            @unlikely
+            if end >= self.len {
+                // The message names the exclusive end, as a slice's does.
+                var shown = end
+                if end != usize::MAX {
+                    shown = end + 1
+                }
+
+                range_fail(lo, shown, self.len)
+            }
+
+            hi = end + 1
+        }
+
+        @unlikely
+        if lo > hi || hi > self.len {
+            range_fail(lo, hi, self.len)
+        }
+
+        return hi
+    }
+
+    /// Writes `n` copies of `v` into the raw slots at `dst`.
+    priv static inline fn fill_run_(dst: unsafe *T, const v: T, n: usize) requires T impl Copyable {
+        unsafe {
+            eval if Vector<T>::bitwise_copy_() {
+                for var i: usize = 0; i < n; ++i {
+                    __builtin_copy(
+                        (dst + i) as unsafe *u8,
+                        &v as unsafe *const T as unsafe *const u8,
+                        sizeof T,
+                    )
+                }
+            } else {
+                for var i: usize = 0; i < n; ++i {
+                    __builtin_construct_at<T>((dst + i) as unsafe *u8, copy(v))
+                }
+            }
+        }
+    }
+
+    /// The default `T` is all zero bytes: the primitives, whose default is
+    /// zero.
+    priv static eval fn zero_default_() -> bool {
+        return __builtin_is_integral<T>() || __builtin_is_floating_point<T>()
+    }
+
+    // --- element runs -------------------------------------------------------
+
+    /// Moves the value out of `*p`, leaving the slot raw.
+    prot static inline fn take_(p: unsafe *T) -> T {
+        unsafe {
+            var t = move(*p)
+            eval if !__builtin_is_trivially_destructible<T>() {
+                __builtin_destruct_at(p as *T)
+            }
+
+            return t
+        }
+    }
+
+    /// Destroys `n` live elements from `p`, back to front.
+    prot static inline fn destroy_(p: unsafe *T, n: usize) {
+        eval if !__builtin_is_trivially_destructible<T>() {
+            var i = n
+            while i != 0 {
+                i -= 1
+                unsafe {
+                    __builtin_destruct_at((p + i) as *T)
+                }
+            }
+        }
+    }
+
+    /// Relocates `n` live elements from `src` to `dst`; the ranges may
+    /// overlap. Afterwards `dst` holds them and the part of `src` outside
+    /// `dst` is raw.
+    prot static inline fn relocate_(dst: unsafe *T, src: unsafe *T, n: usize) {
+        if n == 0 {
+            return
+        }
+
+        eval if __builtin_is_trivially_relocatable<T>() {
+            // memmove is defined when dst == src: no test for it.
+            unsafe {
+                __builtin_move_mem(
+                    dst as unsafe *u8,
+                    src as unsafe *const u8,
+                    n * sizeof T,
+                )
+            }
+        } else {
+            if dst == src {
+                return
+            }
+
+            unsafe {
+                if (dst as usize) < (src as usize) {
+                    for var i: usize = 0; i < n; ++i {
+                        __builtin_construct_at<T>(
+                            (dst + i) as unsafe *u8,
+                            move(*(src + i)),
+                        )
+
+                        __builtin_destruct_at((src + i) as *T)
+                    }
+                } else {
+                    var i = n
+                    while i != 0 {
+                        i -= 1
+                        __builtin_construct_at<T>(
+                            (dst + i) as unsafe *u8,
+                            move(*(src + i)),
+                        )
+
+                        __builtin_destruct_at((src + i) as *T)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Copies `n` elements from `src` into the raw slots at `dst`; the ranges
+    /// do not overlap.
+    priv static inline fn copy_run_(dst: unsafe *T,
+                                    src: unsafe *const T,
+                                    n:   usize) requires T impl Copyable {
+        eval if Vector<T>::bitwise_copy_() {
+            unsafe {
+                __builtin_copy(
+                    dst as unsafe *u8,
+                    src as unsafe *const u8,
+                    n * sizeof T,
+                )
+            }
+        } else {
+            unsafe {
+                for var i: usize = 0; i < n; ++i {
+                    __builtin_construct_at<T>(
+                        (dst + i) as unsafe *u8,
+                        copy(*(src + i)),
+                    )
+                }
+            }
+        }
+    }
+
+    /// `need` raised to one cache line of elements, four at least: the
+    /// smallest block a grower makes.
+    priv static inline fn min_need_(need: usize) -> usize {
+        var m: usize = 64 / sizeof T
+        if m < 4 {
+            m = 4
+        }
+
+        return if need < m => m else => need
+    }
+
+    /// A copy of a `T` is its bytes: its copy constructor is trivial (which
+    /// a move-only class with a `copy()` method does not have).
+    priv static eval fn bitwise_copy_() -> bool {
+        return __builtin_is_trivially_copyable<T>()
+            && __builtin_is_trivially_constructible<T, const T>()
+    }
+}
+
+extend <T> Vector<T> {
+    pub static fn with_capacity(n: usize) -> [T] {
+        var v = Vector<T>()
+        if n != 0 {
+            unsafe {
+                v.set_base_(
+                    vec_alloc(n, sizeof T, alignof T, false) as unsafe *T,
+                )
+            }
+        }
+
+        return v
+    }
+
+    pub fn size(const self) -> usize {
+        return self.len
+    }
+
+    pub fn is_empty(const self) -> bool {
+        return self.len == 0
+    }
+
+    pub fn capacity(const self) -> usize {
+        return self.cap_()
+    }
+
+    pub fn reserve(self, n: usize) {
+        if n > self.cap_() {
+            self.grow_to_(n)
+        }
+    }
+
+    pub fn shrink_to_fit(self) {
+        var c = self.cap_()
+        if c == self.len {
+            return
+        }
+
+        var ob = self.base_()
+        if self.len == 0 {
+            unsafe {
+                vec_free(ob as unsafe *u8, c, sizeof T, alignof T)
+            }
+
+            self.set_empty_()
+            return
+        }
+
+        eval if __builtin_is_trivially_relocatable<T>() {
+            unsafe {
+                self.set_base_(
+                    vec_realloc(ob as unsafe *u8, c, self.len, sizeof T, alignof T) as unsafe *T,
+                )
+            }
+        } else {
+            unsafe {
+                if vec_resize_in_place(
+                    ob as unsafe *u8,
+                    c,
+                    self.len,
+                    sizeof T,
+                    alignof T,
+                ) {
+                    return
+                }
+
+                var unsafe *nb = vec_alloc(self.len, sizeof T, alignof T, false) as unsafe *T
+                Vector<T>::relocate_(nb, ob, self.len)
+                vec_free(ob as unsafe *u8, c, sizeof T, alignof T)
+                self.set_base_(nb)
+            }
+        }
+    }
+
+    @hot_path pub fn push(self, v: T) {
+        var n = self.len
+        @unlikely
+        if n == self.cap_() {
+            self.grow_to_(n + 1)
+        }
+
+        unsafe {
+            __builtin_construct_at<T>((self.base_() + n) as unsafe *u8, v)
+        }
+
+        self.len = n + 1
+    }
+
     pub fn pop(self) -> T? {
-        var none: T?
-        if self.len == 0 { return none }
+        if self.len == 0 {
+            return null
+        }
+
         self.len -= 1
-        var out: T? = vector_take<T>(self.buf[self.len])
-        if !__builtin_is_trivially_destructible<T>() { __builtin_destruct_at(&self.buf[self.len]) }
+        unsafe {
+            return Vector<T>::take_(self.base_() + self.len)
+        }
+    }
+
+    pub fn insert(self, i: usize, v: T) {
+        var n = self.len
+        @unlikely
+        if i > n {
+            index_fail(i, n)
+        }
+
+        if n == self.cap_() {
+            self.grow_to_(n + 1)
+        }
+
+        unsafe {
+            var p = self.base_() + i
+            Vector<T>::relocate_(p + 1, p, n - i)
+            __builtin_construct_at<T>(p as unsafe *u8, v)
+        }
+
+        self.len = n + 1
+    }
+
+    pub fn remove(self, i: usize) -> T { // traps
+        var n = self.len
+        @unlikely
+        if i >= n {
+            index_fail(i, n)
+        }
+
+        unsafe {
+            var p = self.base_() + i
+            var t = Vector<T>::take_(p)
+            Vector<T>::relocate_(p, p + 1, n - i - 1)
+            self.len = n - 1
+            return t
+        }
+    }
+
+    pub fn swap_remove(self, i: usize) -> T { // traps
+        var n = self.len
+        @unlikely
+        if i >= n {
+            index_fail(i, n)
+        }
+
+        unsafe {
+            var b = self.base_()
+            var t = Vector<T>::take_(b + i)
+            Vector<T>::relocate_(b + i, b + (n - 1), 1)
+            self.len = n - 1
+            return t
+        }
+    }
+
+    pub fn drain(self, r: Range<usize>) -> Drain<T> {
+        var hi  = self.range_end_(r.begin, r.end, r.inclusive)
+        var old = self.len
+        self.len = r.begin
+        return Drain<T>(&self, r.begin, hi, old)
+    }
+
+    pub fn append(self, other: [T]) { // consumes other
+        var m = other.len
+        if m == 0 {
+            return
+        }
+
+        // An empty vector takes other's block, unless its own already has
+        // the room: a reserved block is kept, and the elements move into it.
+        if self.len == 0 && self.cap_() < m {
+            // Swapped, not overwritten: other's destructor frees this block.
+            var mine = self.base_()
+            self.set_base_(other.base_())
+            other.set_base_(mine)
+            self.len  = m
+            other.len = 0
+            return
+        }
+
+        var n = self.len
+        self.reserve(n + m)
+        unsafe {
+            Vector<T>::relocate_(self.base_() + n, other.base_(), m)
+        }
+
+        other.len = 0
+        self.len  = n + m
+    }
+
+    pub fn retain(self, keep: fn(*const T) -> bool) {
+        // len stays 0 while elements are moved: a trap in keep leaks the
+        // rest rather than destroying an element twice.
+        var n = self.len
+        self.len = 0
+        var b        = self.base_()
+        var w: usize = 0
+        unsafe {
+            for var r: usize = 0; r < n; ++r {
+                if keep((b + r) as unsafe *const T as *const T) {
+                    Vector<T>::relocate_(b + w, b + r, 1)
+                    w += 1
+                } else {
+                    Vector<T>::destroy_(b + r, 1)
+                }
+            }
+        }
+
+        self.len = w
+    }
+
+    pub fn truncate(self, n: usize) {
+        var old = self.len
+        if n >= old {
+            return
+        }
+
+        // len first: a trap in a destructor cannot destroy an element twice.
+        self.len = n
+        unsafe {
+            Vector<T>::destroy_(self.base_() + n, old - n)
+        }
+    }
+
+    pub fn clear(self) {
+        eval if __builtin_is_trivially_destructible<T>() {
+            self.len = 0
+        } else {
+            self.truncate(0)
+        }
+    }
+}
+
+extend <T impl Default> Vector<T> {
+    pub static fn with_len(n: usize) -> [T] {
+        var v = Vector<T>()
+        if n == 0 {
+            return v
+        }
+
+        eval if Vector<T>::zero_default_() {
+            unsafe {
+                v.set_base_(
+                    vec_alloc(n, sizeof T, alignof T, true) as unsafe *T,
+                )
+            }
+        } else {
+            unsafe {
+                var unsafe *b = vec_alloc(n, sizeof T, alignof T, false) as unsafe *T
+                v.set_base_(b)
+                for var i: usize = 0; i < n; ++i {
+                    __builtin_construct_at<T>(
+                        (b + i) as unsafe *u8,
+                        T::make_default(),
+                    )
+                }
+            }
+        }
+
+        v.len = n
+        return v
+    }
+
+    pub fn resize(self, n: usize) {
+        var old = self.len
+        if n <= old {
+            self.truncate(n)
+            return
+        }
+
+        self.reserve(n)
+        unsafe {
+            var b = self.base_()
+            eval if Vector<T>::zero_default_() {
+                __builtin_set_mem(
+                    (b + old) as unsafe *u8,
+                    0 as byte,
+                    (n - old) * sizeof T,
+                )
+            } else {
+                for var i = old; i < n; ++i {
+                    __builtin_construct_at<T>(
+                        (b + i) as unsafe *u8,
+                        T::make_default(),
+                    )
+                }
+            }
+        }
+
+        self.len = n
+    }
+}
+
+extend <T impl Copyable> Vector<T> {
+    pub fn copy(const self) -> Self { // deep
+        var v = Vector<T>()
+        var n = self.len
+        if n == 0 {
+            return v
+        }
+
+        unsafe {
+            var unsafe *b = vec_alloc(n, sizeof T, alignof T, false) as unsafe *T
+            Vector<T>::copy_run_(b, self.base_() as unsafe *const T, n)
+            v.set_base_(b)
+        }
+
+        v.len = n
+        return v
+    }
+
+    pub static fn filled(n: usize, const v: T) -> [T] {
+        var out = Vector<T>()
+        if n == 0 {
+            return out
+        }
+
+        unsafe {
+            var unsafe *b = vec_alloc(n, sizeof T, alignof T, false) as unsafe *T
+            out.set_base_(b)
+            Vector<T>::fill_run_(b, v, n)
+        }
+
+        out.len = n
         return out
     }
 
-    /// Destroys every element and sets the size to 0. Keeps the storage. O(n), O(1) for trivial T.
-    pub inline fn clear(self) {
-        if !__builtin_is_trivially_destructible<T>() { self.destroy_range(0, self.len) }
+    pub static fn from_slice(const items: [const T;]) -> [T] {
+        var v = Vector<T>()
+        var n = items.count_()
+        if n == 0 {
+            return v
+        }
+
+        unsafe {
+            var unsafe *b = vec_alloc(n, sizeof T, alignof T, false) as unsafe *T
+            Vector<T>::copy_run_(b, items.first_(), n)
+            v.set_base_(b)
+        }
+
+        v.len = n
+        return v
+    }
+
+    pub fn resize(self, n: usize, const v: T) { // overloads resize(self, n) in the Default extend
+        var old = self.len
+        if n <= old {
+            self.truncate(n)
+            return
+        }
+
+        // `v` may be an element of this vector: keep its offset across the
+        // growth and read it from the new block.
+        var src = unsafe &v as usize
+        var lo  = self.base_() as usize
+        var off = src - lo
+        var own = src >= lo && off < old * sizeof T
+        self.reserve(n)
+        if own {
+            src = (self.base_() as usize) + off
+        }
+
+        unsafe {
+            Vector<T>::fill_run_(
+                self.base_() + old,
+                *(src as unsafe *const T),
+                n - old,
+            )
+        }
+
+        self.len = n
+    }
+
+    pub fn extend_from(self, const items: [const T;]) {
+        var m = items.count_()
+        if m == 0 {
+            return
+        }
+
+        // `items` may be a view of this vector: keep its offset across the
+        // growth and read it from the new block.
+        var n   = self.len
+        var src = items.first_() as usize
+        var lo  = self.base_() as usize
+        var off = src - lo
+        var own = src >= lo && off < n * sizeof T
+        self.reserve(n + m)
+        if own {
+            src = (self.base_() as usize) + off
+        }
+
+        unsafe {
+            Vector<T>::copy_run_(self.base_() + n, src as unsafe *const T, m)
+        }
+
+        self.len = n + m
+    }
+}
+
+extend <T impl Eq> Vector<T> {
+    /// `x in v`: the iteration `op in` above does not take an operand, so
+    /// the containment test is spelled here and searches as `contains` does.
+    pub fn op in (const self, const x: T) -> bool {
+        var s: [const T;] = self
+        return s.contains(x)
+    }
+
+    pub fn dedup(self) {
+        var n = self.len
+        if n < 2 {
+            return
+        }
+
         self.len = 0
+        var b        = self.base_()
+        var w: usize = 1
+        unsafe {
+            for var r: usize = 1; r < n; ++r {
+                if *(b + r) == *(b + (w - 1)) {
+                    Vector<T>::destroy_(b + r, 1)
+                } else {
+                    Vector<T>::relocate_(b + w, b + r, 1)
+                    w += 1
+                }
+            }
+        }
+
+        self.len = w
+    }
+}
+
+extend <T> Vector<T> impl FromIterator<T> {
+    static fn <J impl Iterator> from_iter(it:   J,
+                                          hint: usize) -> Self requires __builtin_is_same<J::Item, T>() {
+        var v = Vector<T>()
+        v.reserve(hint)
+        loop {
+            var x = it.next()
+            // COMPILER-WORKAROUND(dependent-narrow): `if x?` does not narrow
+            // a `J::Item?` in the emitted C++ of a static of a generic extend
+            // block when `Item` is a class (the nullable itself reaches
+            // push), and `unwrap!(x)` names the variable, so it is moved.
+            if x? {
+                v.push(move(unwrap!(x)))
+            } else {
+                break
+            }
+        }
+
+        return v
+    }
+}
+
+/// Move-only: it points into the vector and closes the gap when it ends,
+/// so a copy would close it twice.
+///
+/// While it lives the vector's length is the start of the drained range;
+/// the vector must not be used until the drain ends. Elements [head, tail)
+/// are still to be yielded; the kept tail is [tail, end) and moves down to
+/// the start of the range at the end.
+pub class <T> Drain {
+    priv var vec:  *Vector<T>
+    priv var head: usize
+    priv var tail: usize
+    priv var end:  usize
+
+    prot fn Drain(self, v: *Vector<T>, head: usize, tail: usize, end: usize) {
+        self.vec  = v
+        self.head = head
+        self.tail = tail
+        self.end  = end
     }
 
-    /// Removes the element at `pos` and returns a pointer to the element that followed it (now at
-    /// `pos`). O(n): later elements shift down one slot.
-    ///
-    /// \panics when `pos` is not in `[begin(), end())` (traps).
-    pub fn erase(self, pos: *T) -> *T {
-        var at = self.index_of(pos)
-        if at >= self.len { vector_out_of_range() }
-        return self.erase_range(at, at + 1)
+    @move pub fn Drain(self, other: Self) {
+        self.vec   = other.vec
+        self.head  = other.head
+        self.tail  = other.tail
+        self.end   = other.end
+        other.head = 0
+        other.tail = 0
+        other.end  = 0
     }
 
-    /// Removes the elements in `[first, last)` and returns a pointer to the element that followed
-    /// them. O(n). An empty range removes nothing.
-    ///
-    /// \panics when `first > last` or `last > end()` (traps).
-    pub fn erase(self, first: *T, last: *T) -> *T {
-        var lo = self.index_of(first)
-        var hi = self.index_of(last)
-        if (lo > hi) || (hi > self.len) { vector_out_of_range() }
-        return self.erase_range(lo, hi)
-    }
-
-    // --- capacity ----------------------------------------------------------
-
-    /// Ensures capacity for at least `n` elements. Never shrinks. O(size()) when it reallocates.
-    pub inline fn reserve(self, n: usize) {
-        if n > self.cap { self.reallocate(n) }
-    }
-
-    /// Resizes to `n` elements: destroys the tail, or appends default-constructed elements.
-    ///
-    /// Only available when T is default-constructible. O(|n - size()|).
-    pub fn resize(self, n: usize) requires __builtin_is_default_constructible<T>() {
-        if n <= self.len {
-            if !__builtin_is_trivially_destructible<T>() { self.destroy_range(n, self.len) }
-            self.len = n
+    pub fn op finally(self) { // drops the rest, closes the gap
+        var kept = self.end - self.tail
+        if self.head == self.tail && kept == 0 {
             return
         }
-        if n > self.cap { self.grow(n) }
-        while self.len < n {
-            __builtin_construct_at<T>(self.slot(self.len))
-            self.len += 1
+
+        var b  = self.vec->base_()
+        var lo = self.vec->len_()
+        unsafe {
+            Vector<T>::destroy_(b + self.head, self.tail - self.head)
+            Vector<T>::relocate_(b + lo, b + self.tail, kept)
+        }
+
+        self.vec->set_len_(lo + kept)
+        self.head = 0
+        self.tail = 0
+        self.end  = 0
+    }
+}
+
+extend <T> Drain<T> impl DoubleEnded {
+    type Item = T
+    fn next(self) -> T? {
+        if self.head == self.tail {
+            return null
+        }
+
+        var i = self.head
+        self.head = i + 1
+        unsafe {
+            return Vector<T>::take_(self.vec->base_() + i)
         }
     }
 
-    /// Resizes to `n` elements: destroys the tail, or appends copies of `value`.
-    ///
-    /// `value` may be an element of this vector. Only available when T is copyable.
-    pub fn resize(self, n: usize, const value: T) requires __builtin_is_constructible<T, const T>() {
-        if n <= self.len {
-            if !__builtin_is_trivially_destructible<T>() { self.destroy_range(n, self.len) }
-            self.len = n
-            return
+    fn next_back(self) -> T? {
+        if self.head == self.tail {
+            return null
         }
-        // value may be one of ours: copy it before the storage moves. Read
-        // through a pointer: each construction copies, and a by-name use
-        // in a loop is a move to MoveCheck, which checks this body for
-        // every instance, `[MoveOnly]` (constrained out in C++) included.
-        var keep = value
-        var *src = &keep
-        if n > self.cap { self.grow(n) }
-        while self.len < n {
-            __builtin_construct_at<T>(self.slot(self.len), *src)
-            self.len += 1
+
+        // The slot taken is closed at once by moving the kept tail down one,
+        // so the kept tail always starts at `tail`: four words hold no other
+        // record of where it starts. Free when the range reaches the end.
+        self.tail -= 1
+        unsafe {
+            var p = self.vec->base_() + self.tail
+            var t = Vector<T>::take_(p)
+            Vector<T>::relocate_(p, p + 1, self.end - self.tail - 1)
+            self.end -= 1
+            return t
         }
     }
+}
 
-    // --- internals ---------------------------------------------------------
-
-    /// No elements, no storage: what every constructor starts from and what
-    /// a moved-from vector would be left as.
-    priv inline fn set_empty(self) {
-        unsafe { self.buf = dangling(alignof T) as unsafe *T as *T }
-        self.len = 0
-        self.cap = 0
+extend <T> Drain<T> impl ExactSize {
+    fn remaining(const self) -> usize {
+        return self.tail - self.head
     }
+}
 
-    priv inline fn storage(const self) -> unsafe *u8 {
-        unsafe { return self.buf as unsafe *u8 }
-    }
-
-    priv inline fn slot(const self, i: usize) -> unsafe *u8 {
-        unsafe { return (self.buf as unsafe *u8) + i * sizeof T }
-    }
-
-    priv inline fn index_of(const self, p: *const T) -> usize {
-        unsafe { return ((p as usize) - (self.buf as usize)) / sizeof T }
-    }
-
-    /// n * sizeof T, or the OOM hook when that overflows.
-    priv inline fn bytes_for(const self, n: usize) -> usize {
-        @unlikely if n > (~0usize) / sizeof T { oom(~0usize, alignof T) }
-        return n * sizeof T
-    }
-
-    /// Storage for n on an empty vector with none.
-    priv fn allocate(self, n: usize) {
-        var bytes = self.bytes_for(n)
-        var unsafe *p = alloc_raw(bytes, alignof T)
-        @unlikely if p == &null { oom(bytes, alignof T) }
-        unsafe { self.buf = p as unsafe *T as *T }
-        self.cap = n
-    }
-
-    /// Copy-constructs n elements from src after the live ones.
-    priv fn copy_from(self, src: *const T, n: usize) requires (!__builtin_is_complete<T>()) || __builtin_is_constructible<T, const T>() {
-        if __builtin_is_trivially_copyable<T>() {
-            unsafe { __builtin_copy(self.slot(self.len), src as unsafe *const u8, n * sizeof T) }
-            self.len += n
-            return
-        }
-        var i: usize = 0
-        while i < n {
-            __builtin_construct_at<T>(self.slot(self.len), src[i])
-            self.len += 1
-            i += 1
-        }
-    }
-
-    /// Destroys [lo, hi), first to last.
-    priv fn destroy_range(self, lo: usize, hi: usize) {
-        if __builtin_is_trivially_destructible<T>() { return }
-        var i = lo
-        while i < hi {
-            __builtin_destruct_at(&self.buf[i])
-            i += 1
-        }
-    }
-
-    /// Relocates [lo, hi) of this vector to dst, slot by slot, first to
-    /// last: correct for a new buffer and for a move down within this one.
-    priv fn relocate_to(self, dst: unsafe *u8, lo: usize, hi: usize) {
-        if __builtin_is_trivially_relocatable<T>() {
-            __builtin_move_mem(dst, self.slot(lo), (hi - lo) * sizeof T)
-            return
-        }
-        var i = lo
-        var unsafe *d = dst
-        while i < hi {
-            vector_move_into<T>(d, self.buf[i])
-            __builtin_destruct_at(&self.buf[i])
-            unsafe { d = d + sizeof T }
-            i += 1
-        }
-    }
-
-    /// Geometric: twice the capacity, at least need, at least 4.
-    priv inline fn next_cap(const self, need: usize) -> usize {
-        var c = self.cap * 2
-        if c < need { c = need }
-        if c < 4 { c = 4 }
-        return c
-    }
-
-    @cold_path @no_inline
-    priv fn grow(self, need: usize) {
-        self.reallocate(self.next_cap(need))
-    }
-
-    /// Capacity exactly n (n >= len). A trivially relocatable T resizes the
-    /// block (the allocator may extend it, or move it as bytes); anything
-    /// else gets a new block and each element relocated into it.
-    @no_inline
-    priv fn reallocate(self, n: usize) {
-        var bytes = self.bytes_for(n)
-        var old = self.cap * sizeof T
-        if __builtin_is_trivially_relocatable<T>() {
-            var unsafe *q = resize_raw(self.storage(), old, bytes, alignof T)
-            @unlikely if q == &null { oom(bytes, alignof T) }
-            unsafe { self.buf = q as unsafe *T as *T }
-            self.cap = n
-            return
-        }
-        var unsafe *p = alloc_raw(bytes, alignof T)
-        @unlikely if p == &null { oom(bytes, alignof T) }
-        self.relocate_to(p, 0, self.len)
-        free_raw(self.storage(), old, alignof T)
-        unsafe { self.buf = p as unsafe *T as *T }
-        self.cap = n
-    }
-
-    /// push_back's full case, whole, so the fast path is a tail call away
-    /// from it and keeps no registers or frame of its own.
-    @cold_path @no_inline
-    priv fn push_grow(self, v: T) {
-        self.reallocate(self.next_cap(self.len + 1))
-        __builtin_construct_at<T>(self.slot(self.len), v)
-        self.len += 1
-    }
-
-    /// emplace_back's full case: the new element is built in the new block
-    /// first, while args may still point into the old one.
-    @cold_path @no_inline
-    priv fn <...A> emplace_grow(self, ...args: A) -> *T {
-        var n = self.next_cap(self.len + 1)
-        var bytes = self.bytes_for(n)
-        var unsafe *p = alloc_raw(bytes, alignof T)
-        @unlikely if p == &null { oom(bytes, alignof T) }
-        var e: *T = __builtin_construct_at<T>(p + self.len * sizeof T, args...)
-        self.relocate_to(p, 0, self.len)
-        free_raw(self.storage(), self.cap * sizeof T, alignof T)
-        unsafe { self.buf = p as unsafe *T as *T }
-        self.cap = n
-        self.len += 1
-        return e
-    }
-
-    /// Destroys [lo, hi) and moves the tail down over it.
-    priv fn erase_range(self, lo: usize, hi: usize) -> *T {
-        if lo == hi { return &self.buf[lo] }
-        self.destroy_range(lo, hi)
-        self.relocate_to(self.slot(lo), hi, self.len)
-        self.len -= hi - lo
-        return &self.buf[lo]
+extend <T> Vector<T> impl Default {
+    static inline fn make_default() -> Vector<T> {
+        return Vector<T>()
     }
 }

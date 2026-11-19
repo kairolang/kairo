@@ -1,10 +1,10 @@
 /// --- The Kairo Project --------------------- Lib/builtin/base/alloc.k --- ///
 ///
-///   \brief The allocator model: typed uninitialized storage, the allocation
-///          front end and the AllocatorScope guard, over the byte layer in
-///          alloc_raw.k (the allocator interfaces, the OOM hook, Global /
-///          System, the scope stack and alloc_raw / free_raw / resize_raw),
-///          which this file re-exports.
+/// The allocator model: typed uninitialized storage, the allocation
+/// front end and the AllocatorScope guard, over the byte layer in
+/// alloc_raw.k (the allocator interfaces, the OOM hook, Global /
+/// System, the scope stack and alloc_raw / free_raw / resize_raw),
+/// which this file re-exports.
 ///
 ///   \detail
 ///     Three layers, each knowing only about the one below it:
@@ -42,14 +42,15 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import builtin::base::intrinsics::*;
+ffi "c++" import "rt/alloc.h"
+
+pub import builtin::alloc_raw::*
+import builtin::base::intrinsics::*
 // The string lang item, for the messages here; not the root (`import
 // builtin::Null`, which `T?` does not need): that closed a cycle,
 // module.k -> containers/vector.k -> alloc.k -> module.k, warning R001W on
 // every compile once a builtin the root imports allocates.
-import builtin::string::*;
-pub import builtin::alloc_raw::*;
-ffi "c++" import "rt/alloc.h"
+import builtin::string::*
 
 // --- helpers ----------------------------------------------------------------
 
@@ -68,7 +69,9 @@ pub class <T> Uninitialized {
     priv var ptr: unsafe *u8
 
     /// Wraps raw bytes. The caller vouches for size and alignment.
-    pub inline fn Uninitialized(self, ptr: unsafe *u8) { self.ptr = ptr }
+    pub inline fn Uninitialized(self, ptr: unsafe *u8) {
+        self.ptr = ptr
+    }
 
     /// Move constructor: takes over other's storage.
     @move
@@ -84,11 +87,15 @@ pub class <T> Uninitialized {
     /// copyable and destructible).
     pub inline fn assume_init(self) -> *T
       requires __builtin_is_trivially_copyable<T>() && __builtin_is_trivially_destructible<T>() {
-        unsafe { return __builtin_launder(self.ptr as unsafe *T as *T) }
+        unsafe {
+            return __builtin_launder(self.ptr as unsafe *T as *T)
+        }
     }
 
     /// Returns the storage as raw bytes.
-    pub inline fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
+    pub inline fn as_bytes(const self) -> unsafe *u8 {
+        return self.ptr
+    }
 
     /// Reinterprets the storage for a U of the same or smaller size and
     /// alignment. Nothing lives in it either way.
@@ -103,7 +110,9 @@ pub class <T> Uninitialized {
 /// \safety `p` must point at a live `T` that is not used afterwards.
 pub inline fn <T> uninitialized_from(p: *T) -> Uninitialized<T> {
     __builtin_destruct_at(p)
-    unsafe { return Uninitialized<T>(p as unsafe *u8) }
+    unsafe {
+        return Uninitialized<T>(p as unsafe *u8)
+    }
 }
 
 /// Storage for `cap` Ts, of which `[0, len)` are live.
@@ -138,27 +147,48 @@ pub class <T> UninitializedSlice {
     }
 
     /// Returns the number of live elements.
-    pub inline fn size(const self) -> usize { return self.len }
+    pub inline fn size(const self) -> usize {
+        return self.len
+    }
+
     /// Returns the number of elements the storage has room for.
-    pub inline fn capacity(const self) -> usize { return self.cap }
+    pub inline fn capacity(const self) -> usize {
+        return self.cap
+    }
+
     /// Returns the storage as raw bytes.
-    pub inline fn as_bytes(const self) -> unsafe *u8 { return self.ptr }
+    pub inline fn as_bytes(const self) -> unsafe *u8 {
+        return self.ptr
+    }
 
     /// Constructs a `T` from `args` in the next free slot.
     ///
     /// \panics Traps (`__builtin_trap`) when the slice is full.
     pub inline fn <...A> push(self, ...args: A) {
-        @unlikely if self.len == self.cap { __builtin_trap() }
-        __builtin_construct_at<T>(byte_offset(self.ptr, self.len * sizeof T), args...)
+        @unlikely
+        if self.len == self.cap {
+            __builtin_trap()
+        }
+
+        __builtin_construct_at<T>(
+            byte_offset(self.ptr, self.len * sizeof T),
+            args...,
+        )
+
         self.len += 1
     }
 
     /// Every slot is live: ownership of the cap Ts moves to the caller, who
     /// destroys them and frees capacity() * sizeof T bytes.
     pub inline fn finish(self) -> *T {
-        if self.len != self.cap { __builtin_trap() }
+        if self.len != self.cap {
+            __builtin_trap()
+        }
+
         self.len = 0
-        unsafe { return self.ptr as unsafe *T as *T }
+        unsafe {
+            return self.ptr as unsafe *T as *T
+        }
     }
 
     /// Destroys the live prefix, last first. Idempotent.
@@ -166,12 +196,16 @@ pub class <T> UninitializedSlice {
         while self.len > 0 {
             self.len -= 1
             unsafe {
-                __builtin_destruct_at(byte_offset(self.ptr, self.len * sizeof T) as unsafe *T as *T)
+                __builtin_destruct_at(
+                    byte_offset(self.ptr, self.len * sizeof T) as unsafe *T as *T,
+                )
             }
         }
     }
 
-    fn op delete(self) { self.clear() }
+    fn op finally(self) {
+        self.clear()
+    }
 }
 
 // --- the front end ----------------------------------------------------------
@@ -180,10 +214,14 @@ pub class <T> UninitializedSlice {
 /// Allocates `size` bytes from allocator `A`. Returns `&null` on failure; a zero `size` returns
 /// `dangling(align)` without calling `A`.
 ///
-/// \param align  A power of two (asserted).
+/// ### Parameters
+/// - `align`: A power of two (asserted).
 pub inline fn <A impl Allocator> alloc_bytes(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align), "alignment must be a power of two"
-    if size == 0 { return dangling(align) }
+    if size == 0 {
+        return dangling(align)
+    }
+
     return A::alloc(size, align)
 }
 
@@ -191,47 +229,82 @@ pub inline fn <A impl Allocator> alloc_bytes(size: usize, align: usize) -> unsaf
 ///
 /// \safety `ptr` must be a block `A` returned for this `size` and `align`.
 pub inline fn <A impl Allocator> free_bytes(ptr: unsafe *u8, size: usize, align: usize) {
-    if size == 0 { return }
+    if size == 0 {
+        return
+    }
+
     A::free(ptr, size, align)
 }
 
 /// Allocates `size` zeroed bytes from allocator `A`. Returns `&null` on failure.
 ///
-/// \param align  A power of two (asserted).
+/// ### Parameters
+/// - `align`: A power of two (asserted).
 pub inline fn <A impl FullAllocator> alloc_zeroed(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align), "alignment must be a power of two"
-    if size == 0 { return dangling(align) }
+    if size == 0 {
+        return dangling(align)
+    }
+
     return A::alloc_zeroed(size, align)
 }
 
 /// In place if the allocator can, else move. &null: nothing changed.
-pub inline fn <A impl FullAllocator> resize_bytes(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
-    if new_size == 0 { free_bytes<A>(ptr, old_size, align); return dangling(align) }
-    if old_size == 0 { return alloc_bytes<A>(new_size, align) }
-    if A::resize(ptr, old_size, new_size, align) { return ptr }
+pub inline fn <A impl FullAllocator> resize_bytes(ptr:      unsafe *u8,
+                                                  old_size: usize,
+                                                  new_size: usize,
+                                                  align:    usize) -> unsafe *u8 {
+    if new_size == 0 {
+        free_bytes<A>(ptr, old_size, align)
+        return dangling(align)
+    }
+
+    if old_size == 0 {
+        return alloc_bytes<A>(new_size, align)
+    }
+
+    if A::resize(ptr, old_size, new_size, align) {
+        return ptr
+    }
+
     return A::realloc(ptr, old_size, new_size, align)
 }
 
 /// Grows only without moving. For containers holding objects that are not
 /// trivially relocatable.
-pub inline fn <A impl FullAllocator> try_resize_in_place(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
-    if old_size == 0 || new_size == 0 { return false }
+pub inline fn <A impl FullAllocator> try_resize_in_place(ptr:      unsafe *u8,
+                                                         old_size: usize,
+                                                         new_size: usize,
+                                                         align:    usize) -> bool {
+    if old_size == 0 || new_size == 0 {
+        return false
+    }
+
     return A::resize(ptr, old_size, new_size, align)
 }
 
 /// Storage for one T, or null.
 pub inline fn <T, A impl Allocator> alloc_in() -> Uninitialized<T>? {
     var unsafe *p = alloc_bytes<A>(sizeof T, alignof T)
-    if p == &null { return null }
+    if p == &null {
+        return null
+    }
+
     return Uninitialized<T>(p)
 }
 
 /// Storage for n Ts, or null (including when n * sizeof T overflows).
 pub inline fn <T, A impl Allocator> create_slice_in(n: usize) -> UninitializedSlice<T>? {
     var bytes: usize = 0
-    if __builtin_mul_overflow(n, sizeof T, &bytes) { return null }
+    if __builtin_mul_overflow(n, sizeof T, &bytes) {
+        return null
+    }
+
     var unsafe *p = alloc_bytes<A>(bytes, alignof T)
-    if p == &null { return null }
+    if p == &null {
+        return null
+    }
+
     return UninitializedSlice<T>(p, n)
 }
 
@@ -252,14 +325,21 @@ pub inline fn <T, A impl Allocator> destroy_slice_in(@move s: UninitializedSlice
 /// once the storage exists.
 pub inline fn <T, A impl Allocator, ...Args> create_in(...args: Args) -> *T {
     var unsafe *p = alloc_bytes<A>(sizeof T, alignof T)
-    @unlikely if p == &null { oom(sizeof T, alignof T) }
+    @unlikely
+    if p == &null {
+        oom(sizeof T, alignof T)
+    }
+
     return Uninitialized<T>(p).construct(args...)
 }
 
 /// T(args...) from A, or null instead of the OOM hook.
 pub inline fn <T, A impl Allocator, ...Args> try_create_in(...args: Args) -> *T? {
     var unsafe *p = alloc_bytes<A>(sizeof T, alignof T)
-    if p == &null { return null }
+    if p == &null {
+        return null
+    }
+
     return Uninitialized<T>(p).construct(args...)
 }
 
@@ -269,21 +349,28 @@ pub inline fn <T, A impl Allocator> destroy_in(p: *T) {
     // runs: a *Base holding a Derived frees sizeof Derived.
     var size  = __builtin_dynamic_size<T>(p)
     var align = __builtin_dynamic_align<T>(p)
-    var u = uninitialized_from(p)
+    var u     = uninitialized_from(p)
     free_bytes<A>(u.as_bytes(), size, align)
 }
 
 /// A T from the allocator in effect. Runs the OOM hook on failure.
 pub inline fn <T, ...Args> create(...args: Args) -> *T {
     var unsafe *p = alloc_raw(sizeof T, alignof T)
-    @unlikely if p == &null { oom(sizeof T, alignof T) }
+    @unlikely
+    if p == &null {
+        oom(sizeof T, alignof T)
+    }
+
     return Uninitialized<T>(p).construct(args...)
 }
 
 /// A T from the allocator in effect, or null.
 pub inline fn <T, ...Args> try_create(...args: Args) -> *T? {
     var unsafe *p = alloc_raw(sizeof T, alignof T)
-    if p == &null { return null }
+    if p == &null {
+        return null
+    }
+
     return Uninitialized<T>(p).construct(args...)
 }
 
@@ -291,16 +378,22 @@ pub inline fn <T, ...Args> try_create(...args: Args) -> *T? {
 pub inline fn <T> destroy(p: *T) {
     var size  = __builtin_dynamic_size<T>(p)
     var align = __builtin_dynamic_align<T>(p)
-    var u = uninitialized_from(p)
+    var u     = uninitialized_from(p)
     free_raw(u.as_bytes(), size, align)
 }
 
 /// Storage for n Ts from the allocator in effect, or null.
 pub inline fn <T> create_slice(n: usize) -> UninitializedSlice<T>? {
     var bytes: usize = 0
-    if __builtin_mul_overflow(n, sizeof T, &bytes) { return null }
+    if __builtin_mul_overflow(n, sizeof T, &bytes) {
+        return null
+    }
+
     var unsafe *p = alloc_raw(bytes, alignof T)
-    if p == &null { return null }
+    if p == &null {
+        return null
+    }
+
     return UninitializedSlice<T>(p, n)
 }
 
@@ -334,7 +427,15 @@ pub class <A impl ScopedFullAllocator> AllocatorScope {
     pub inline fn AllocatorScope(self) {
         self.mark = A::enter()
         var r = A::range()
-        self.depth = scope_push(A::alloc, A::free, A::resize, A::realloc, r.0, r.1)
+        self.depth = scope_push(
+            A::alloc,
+            A::free,
+            A::resize,
+            A::realloc,
+            r.0,
+            r.1,
+        )
+
         self.active = true
     }
 
@@ -342,15 +443,18 @@ pub class <A impl ScopedFullAllocator> AllocatorScope {
     /// scope stays open; other no longer closes it.
     @move
     pub fn AllocatorScope(self, other: Self) {
-        self.mark = other.mark
-        self.depth = other.depth
-        self.active = other.active
+        self.mark    = other.mark
+        self.depth   = other.depth
+        self.active  = other.active
         other.active = false
     }
 
     /// Idempotent. Scopes close in reverse order of opening.
-    fn op delete(self) {
-        if !self.active { return }
+    fn op finally(self) {
+        if !self.active {
+            return
+        }
+
         self.active = false
         scope_pop(self.depth)
         A::leave(self.mark)

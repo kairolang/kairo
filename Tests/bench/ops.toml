@@ -23,7 +23,7 @@
 
 [kairo]
 # What the Kairo column measures; the report prints it in the column's legend.
-library = "old library (Lib/builtin as installed)"
+library = "Lib/builtin as installed"
 
 [[group]]
 id = "string"

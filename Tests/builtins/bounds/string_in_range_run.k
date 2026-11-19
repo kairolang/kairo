@@ -1,7 +1,6 @@
 // Every in-range string access at its edges: 0, len - 1, empty ranges at 0 and at len, char boundaries.
-// REQUIRES: newlib
 // RUN: rm -f %t.exe
-// RUN: %kairo_new %s -O2 -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s
 // CHECK: ok
 

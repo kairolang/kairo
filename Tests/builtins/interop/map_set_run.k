@@ -237,10 +237,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --match-full-lines
-// RUN: %kairo_new -O2 %s -o %t.o2.exe --cache-dir %t.d2
+// RUN: %kairo -O2 %s -o %t.o2.exe --cache-dir %t.d2
 // RUN: %t.o2.exe | %FileCheck %s --match-full-lines
 // CHECK: map/set interop: checks=23 failures=0 live=0

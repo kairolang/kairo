@@ -16,7 +16,6 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new --type-check-only %s 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo --type-check-only %s 2>&1 || true; } | %FileCheck %s
 // CHECK: no_map_equality.k:13:16: error [SC066E]: no 'op ==' on '{u64: u64}'
 // CHECK: no_map_equality.k:14:17: error [SC066E]: no 'op ==' on '{u64: u64}'

@@ -6,7 +6,7 @@ whole directory out of collection).
 
   1. The builtin-library benchmarks: ops.toml, run.py, cpp/, rust/, kairo/.
      One row per library operation (string, slice and sort, vector, hash map
-     and set, hasher, number text, iterator chains), measured in five
+     and set, hasher, number text, iterator chains), measured in four
      columns and written up as one Markdown report. The rest of this file
      is about them.
   2. Whole-program benchmarks: the *.k / *.cc / *.rs files in this directory
@@ -14,15 +14,10 @@ whole directory out of collection).
      bench-timing.py. Their header comments say how.
 
 
-The five columns
+The four columns
 ----------------
 
     Kairo         kairo/<group>.k    kairo -O3, the installed library
-    Kairo (new    kairo2/<group>.k   the compiler --kairo-new names (default:
-    library)                         the most recently built debug or release
-                                     kairo of this tree), -O3, with
-                                     --builtins-dir Lib/builtin2 --std-dir
-                                     Lib/std2 of this tree
     C++ (clang)   cpp/<group>.cpp    the toolchain's clang++, its libc++,
                                      the C library's malloc
     C++ (kcc)     cpp/<group>.cpp    kcc, the same libc++, linked with
@@ -42,9 +37,7 @@ The clang column is not `clang++ -stdlib=libc++` with the host's libc++: it
 uses the sysroot kcc links with (run.py reads it from `kcc -###`), so the
 library is the same in both.
 
-A group with no kairo2 program yet leaves that column `nan`. A debug build
-of the compiler is slower to compile; the code it emits goes through the
-same clang at -O3. The report's header names the binary used.
+A group with no Kairo program leaves that column `nan`.
 
 Every compiler gets -O3 and the same target CPU: the name clang resolves
 -march=native to (override with --cpu-name).
@@ -73,9 +66,8 @@ it may not, the report says so and has times only.
 Output goes to out/ (--out): bin/<group>.<column>, results.json (every
 number, with each process's time) and report.md (first a summary: one line per operation and size with
 every column and the name of the fastest; then one table per group, the
-fastest cell among all columns in bold, Kairo against the fastest baseline
-as a ratio, and the new library against Rust and against the fastest
-baseline).
+fastest cell among all columns in bold, Kairo against Rust and against the
+fastest baseline as ratios).
 
 One program can be run by hand:
 

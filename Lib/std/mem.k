@@ -21,14 +21,12 @@
 /// `AllocatorScope` on this thread, otherwise `Global`. The `*_in<.., A>` functions name the
 /// allocator `A` explicitly. Each re-exported item is documented in the core library reference.
 pub import builtin::base::alloc::{
-    Allocator, Resizer, Reallocator, ZeroAllocator, ScopedAllocator,
-    FullAllocator, ScopedFullAllocator,
-    Uninitialized, UninitializedSlice, uninitialized_from,
-    AllocatorScope, Global, System,
-    create, try_create, destroy, create_slice, destroy_slice,
-    alloc_raw, free_raw, resize_raw,
-    create_in, try_create_in, destroy_in, create_slice_in, destroy_slice_in,
-    alloc_in, release_in, alloc_bytes, free_bytes, alloc_zeroed,
-    resize_bytes, try_resize_in_place, realloc_by_copy,
-    set_oom_handler, oom,
+    Allocator,          AllocatorScope,  FullAllocator,       Global,           Reallocator,
+    Resizer,            ScopedAllocator, ScopedFullAllocator, System,           Uninitialized,
+    UninitializedSlice, ZeroAllocator,   alloc_bytes,         alloc_in,         alloc_raw,
+    alloc_zeroed,       create,          create_in,           create_slice,     create_slice_in,
+    destroy,            destroy_in,      destroy_slice,       destroy_slice_in, free_bytes,
+    free_raw,           oom,             realloc_by_copy,     release_in,       resize_bytes,
+    resize_raw,         set_oom_handler, try_create,          try_create_in,    try_resize_in_place,
+    uninitialized_from,
 }

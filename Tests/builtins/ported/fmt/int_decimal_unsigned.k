@@ -1,7 +1,7 @@
 // Unsigned integers (u8, u16, u32, u64, usize) in decimal: zero, one, the maximum and its neighbour, every sign / width / fill / alignment / zero-padding combination on the maximum.
 // Rules asserted (library docs): an integer hole prints in decimal or, with `x`, `X`, `o`, `b`, in that base; `#` adds the
 // 0x / 0o / 0b prefix, `+` a sign, `0` pads with zeros after the sign and prefix, width and fill pad in code points and numbers
-// default to right alignment (website library/core/formatting.mdx, FmtBuf.put_i8 .. put_u512; Lib/builtin2/fmt/fmt_buf.k
+// default to right alignment (website library/core/formatting.mdx, FmtBuf.put_i8 .. put_u512; Lib/builtin/fmt/fmt_buf.k
 // number_). The spec grammar is the one in the comment above `_parse_spec` in Compiler/Sema/Type/LiteralTyping.k.
 // Expected texts come from a Python oracle that applies those rules to exact Python integers.
 // Not asserted because the docs do not state them: negative values in a base, `#X`, `#` on decimal, `0` together with an
@@ -247,11 +247,10 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d %t.exe %t.o2.exe
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe | %FileCheck %s
 // CHECK-NOT: FAIL
 // CHECK: ok

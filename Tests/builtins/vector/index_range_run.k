@@ -181,9 +181,8 @@ fn main(argc: i32) -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --match-full-lines
 // RUN: not --crash %t.exe 1
 // RUN: not --crash %t.exe 1 2
@@ -193,7 +192,7 @@ fn main(argc: i32) -> i32 {
 // RUN: not --crash %t.exe 1 2 3 4 5 6
 // RUN: not --crash %t.exe 1 2 3 4 5 6 7
 // RUN: not --crash %t.exe 1 2 3 4 5 6 7 8
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe | %FileCheck %s --match-full-lines
 // RUN: not --crash %t.o2.exe 1
 // RUN: not --crash %t.o2.exe 1 2

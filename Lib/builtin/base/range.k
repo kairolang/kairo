@@ -1,12 +1,25 @@
-/// --- The Kairo Project --------------------- Lib/builtin/base/range.k --- ///
-///
-///   The range lang items: `a..b` / `a..=b` is Range, `a..` (and `..`)
-///   RangeFrom, `..b` / `..=b` RangeTo.
-///
-///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
-///   Copyright (c) 2026 Dhruvan Kartik
-///
-/// ------------------------------------------------------------------------ ///
+/// builtin/base/range.k
+
+import base::c_char::*
+
+/// A foreign string-like value: a pointer to its first char and a byte count.
+/// Structural, so nothing declares it: `cxx::std::string`,
+/// `cxx::std::string_view`, `cxx::llvm::StringRef` all meet it as they are.
+/// It is how `string` takes a C++ string without the library naming one.
+pub interface ByteRange {
+    fn data(const self) -> unsafe *const __builtin_c_char
+    fn size(const self) -> usize
+}
+
+/// A foreign contiguous run of `T`: a pointer to the first element and a
+/// count. Structural: `cxx::std::vector<T>`, `cxx::std::span<T>`,
+/// `cxx::std::array<T, N>`, `cxx::llvm::ArrayRef<T>` and
+/// `cxx::llvm::SmallVector<T>` meet it as they are (`std::vector<bool>` has
+/// no `data()` and does not).
+pub interface <T> ElemRange {
+    fn data(const self) -> unsafe *const T
+    fn size(const self) -> usize
+}
 
 /// A bounded range: `a..b` (exclusive end) and `a..=b` (inclusive end).
 ///
@@ -24,9 +37,9 @@
 /// ```
 pub struct <T> Range {
     /// The first value of the range.
-    var begin:     T
+    var begin: T
     /// The end value; excluded unless `inclusive` is set.
-    var end:       T
+    var end: T
     /// True for `a..=b`, false for `a..b`.
     var inclusive: bool
 }
@@ -44,7 +57,7 @@ pub struct <T> RangeFrom {
 /// Only valid as a subscript index, such as `v[..3]`.
 pub struct <T> RangeTo {
     /// The end index; excluded unless `inclusive` is set.
-    var end:       T
+    var end: T
     /// True for `..=b`, false for `..b`.
     var inclusive: bool
 }

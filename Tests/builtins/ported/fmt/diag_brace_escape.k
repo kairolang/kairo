@@ -18,9 +18,8 @@ fn inside() -> string {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --type-check-only 2>&1 || true; } | %FileCheck %s
-// RUN: { %kairo_new %s --type-check-only 2>&1 || true; } | grep -c 'S022W' | %FileCheck %s --check-prefix=COUNT
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | grep -c 'S022W' | %FileCheck %s --check-prefix=COUNT
 // COUNT: 3
 // CHECK:      :8:{{[0-9]+}}: warning [S022W]
 // CHECK-NEXT: fix-it:"{{.*}}":{8:15-8:16}:""

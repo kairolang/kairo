@@ -44,9 +44,8 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu -S -o %t.d/out.s --cache-dir %t.d/c
+// RUN: %kairo %s -O2 --target=x86_64-linux-gnu -S -o %t.d/out.s --cache-dir %t.d/c
 // RUN: %FileCheck %s --input-file=%t.d/out.s
 // CHECK-LABEL: _ZN11codegen_asm2atE{{.*}}:
 // CHECK:       cmpq

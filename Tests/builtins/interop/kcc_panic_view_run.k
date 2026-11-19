@@ -4,9 +4,9 @@
 // size(). The same host and module as cli/kcc/kcc_panic_cxx_view.k.
 
 // --- lit wiring ---
-// REQUIRES: newlib, kcc
+// REQUIRES: kcc
 // RUN: rm -rf %t.d && mkdir -p %t.d && cd %t.d
-// RUN: %kcc_new %S/../../cli/kcc/inputs/panic_view/view_main.cpp -o %t.d/app
+// RUN: %kcc %S/../../cli/kcc/inputs/panic_view/view_main.cpp -o %t.d/app
 // RUN: %t.d/app | %FileCheck %s --match-full-lines
 // CHECK:      ok 1 value 10
 // CHECK-NEXT: ok 0 is<ConfigError> 1 is<Plain> 0 is<int> 0 key 7

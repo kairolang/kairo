@@ -17,41 +17,45 @@
 
 module builtin
 
-pub import string::*
-
-pub import base::range::*
-pub import base::ordering::*
 pub import base::byte_t::*
-pub import base::pow::*
-pub import base::intrinsics::*
-pub import base::hash::*
 pub import base::c_char::*
-
-pub import num::bigint::*
+pub import base::cmp::*
+pub import base::copy::*
+pub import base::hash::*
+pub import base::intrinsics::*
+pub import base::iter::*
+pub import base::ops::*
+pub import base::pow::*
+pub import base::prim::*
+pub import base::range::*
+pub import base::static_arena::*
 pub import num::bigfloat::*
+pub import num::bigint::*
 pub import num::float_ext::*
-// num::f256_t / num::f512_t (and the softfloat engine under them) are NOT
+pub import string::*
+pub import string::pattern::*
+// num::f256_t / num::f512_t (and the softfloat engine under them) are not
 // re-exported: four large files every program would compile. The compiler
 // imports them into the files that name `f256` / `f512` (Preprocessor::
-// _add_wide_floats, P723). num::f128_ext (f128's methods, whose sqrt and
-// fma run that engine) is imported the same way, for files that name `f128`.
+// _add_wide_floats). num::f128_ext (f128's methods, whose sqrt and fma run
+// that engine) is imported the same way, for files that name `f128`.
 
-pub import errors::panic_result::*
-pub import errors::panic_raise::*
-pub import errors::panic_catch::*
-pub import errors::assert_fail::*
-pub import errors::crash::*
-
+pub import compat::*
+pub import containers::hash_map::*
+pub import containers::hash_set::*
 pub import containers::slice::*
 pub import containers::vector::*
-pub import containers::hash_set::*
-pub import containers::hash_map::*
-
 pub import coro::future::*
-pub import coro::suspend::*
 pub import coro::generator::*
-
+pub import coro::suspend::*
+pub import errors::assert_fail::*
+pub import errors::crash::*
+pub import errors::panic_catch::*
+pub import errors::panic_raise::*
+pub import errors::panic_result::*
 pub import fmt::fmt_buf::*
+pub import interop::cxx_containers::*
+pub import interop::cxx_string::*
 
 // --- declared in the root ---------------------------------------------------
 //
@@ -66,11 +70,16 @@ pub import fmt::fmt_buf::*
 //   crash!            a prelude macro is found in the root's own scope
 //                     only: the preprocessor does not follow a `pub import`.
 
+/// Marks this library for the compiler: `string`, `Vector`, `HashMap` and `HashSet` are move-only
+/// two-word records. The compiler reads the declaration's presence to choose the literal
+/// entry points, member names and layouts it lowers against; nothing reads the value.
+pub eval __builtin_library_edition: u32 = 2
+
 /// The type of the `null` constant.
 ///
 /// Every `null` converts to a `T?`, and a C++ host spells the constant
 /// `::builtin::null`. It carries nothing, so the struct is empty.
-pub struct null_t {}
+pub struct null_t { }
 
 /// The type behind `T?`. Kairo code spells it only as the `?` suffix; C++ hosts name it.
 ///
@@ -80,7 +89,7 @@ pub struct null_t {}
 /// `__value()`, and `==` when `T` has one. The compiler may lay it out niche-filled (a null
 /// pointer as the null case, for instance), so nothing may depend on the layout.
 ///
-/// \see __builtin_niche_of
+/// See `__builtin_niche_of`.
 pub enum <T> Null {
     /// A present value: `T?` holding `v`.
     Value { v: T },
@@ -139,12 +148,12 @@ pub eval fn <T> __builtin_tuple_arity() -> usize = 0
 /// returns and ends its path for the flow checks. What it reports is not final; rely only on "it
 /// does not return". A file's own `crash!` shadows this one.
 ///
-/// \see crash_with
+/// See crash_with
 /// \example
 /// ```kairo
 /// fn main() -> i32 {
-///     if false { crash!("unreachable state") }
-///     return 0
+/// if false { crash!("unreachable state") }
+/// return 0
 /// }
-/// ```
+/// ```.
 pub macro crash!(...msg) { crash_with(msg...) }

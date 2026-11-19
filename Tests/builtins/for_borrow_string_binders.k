@@ -21,13 +21,12 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --print-ir 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s
 // CHECK-NOT:   error [
 // CHECK-LABEL: int main() noexcept {
 // CHECK:       const{{ ?}}::builtin::string::string & s = 
 // CHECK:       const{{ ?}}::builtin::string::string & k = 
 // RUN: rm -f %t.exe
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d/run
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d/run
 // RUN: %t.exe

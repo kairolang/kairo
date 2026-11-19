@@ -1,340 +1,676 @@
-/// --- The Kairo Project ------------ Lib/builtin/containers/hash_set.k --- ///
-///
-///   \brief The HashSet lang item: `{T}`.
-///
-///   \detail
-///     HashMap's design with the element as the entry (hash_map.k's header
-///     has the order, mutation, cost and copy rules; they hold here word for
-///     word): a dense array of elements in INSERTION order plus the
-///     open-addressing index of containers/hash_index.k. Iteration
-///     (`for x in s`, `s.items()`, begin()..end()) is insertion order;
-///     `erase` swap-removes (the last element takes the erased one's place),
-///     `erase_ordered` keeps the order. No sorted order: sort where it
-///     matters.
-///
-///     Migration from Stage 0's set: `insert(x)` returns whether x was new
-///     (Stage 0's `.second`); `erase(x)` returns whether x was there;
-///     iterator loops become `for x in s` or `for *p in s.items()`.
-///
-///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
-///   Copyright (c) 2026 Dhruvan Kartik
-///
-/// ------------------------------------------------------------------------ ///
+/// builtin/containers/hash_set.k
 
-import base::intrinsics::*
-import base::alloc::*
+import base::cmp::*
+import base::copy::*
 import base::hash::*
+import base::intrinsics::*
+import base::iter::*
+import builtin::Null
+import containers::raw_table::*
 import containers::slice::*
-import containers::hash_index::*
 
-/// Hash set of `T`. `{T}` desugars to `HashSet<T>`, and `{a, b, ...}` builds one.
+priv inline fn <T impl Copyable> set_copy_of(const x: T) -> T {
+    return x.copy()
+}
+
+/// Insertion-ordered. Two words. MOVE-ONLY: `copy()` duplicates.
 ///
-/// Elements are stored densely in insertion order, so iteration order is deterministic. `insert`,
-/// `contains` and `erase` are O(1) expected. T must implement `Hash`. The mutation and
-/// invalidation rules are HashMap's: do not insert or erase during iteration.
+/// A set literal is built as `HashSet()`, `reserve(n)`, then `insert(x)` per
+/// element in written order; a repeated element keeps its first place.
 ///
-/// \see HashMap
-/// \example
-/// ```kairo
-/// var s: {i32} = {1, 2, 3}
-/// s.insert(2)
-/// var n = s.size()
-/// ```
+/// Any insert may move every element (growth), and any removal moves at
+/// least one: a pointer from `get`, `first`, `last` or an iteration is good
+/// until the next insert or removal.
+///
+/// The set operations walk `self` in its order unless they say otherwise;
+/// none of them allocates except `|=` and `^=`, which reserve once.
+@relocatable
 pub class <T impl Hash> HashSet {
-    /// slots, then elements: one block (hash_index.k); never null (a
-    /// dangling, aligned pointer while cap == 0: HashMap's `block` note).
-    priv var block: unsafe *u8
-    priv var len:   usize
-    priv var cap:   usize
-    priv var shift: u32
+    priv var t: RawTable
 
-    /// Creates an empty set. Allocates nothing.
-    pub inline fn HashSet(self) {
-        self.block = block_empty(alignof T)
-        self.len = 0
-        self.cap = 0
-        self.shift = 0
+    pub fn HashSet(self) { }
+
+    @move pub fn HashSet(self, other: Self) {
+        self.t.steal(&other.t)
     }
 
-    /// Creates a set from `items`, as `{a, b, ...}` lowers to. Elements keep written order; a
-    /// repeated
-    /// element keeps its first place.
-    pub fn HashSet(self, const items: [T;]) {
-        self.block = block_empty(alignof T)
-        self.len = 0
-        self.cap = 0
-        self.shift = 0
-        if items.len == 0 { return }
-        self.grow(items.len)
-        var i: usize = 0
-        while i < items.len {
-            self.insert(items.data[i])
-            i += 1
-        }
+    pub fn op finally(self) {
+        rt_release<T>(&self.t)
     }
 
-    /// A deep copy: the same capacity, the same slots, every element copied.
-    @copy
-    pub fn HashSet(self, const other: Self) {
-        self.block = block_empty(alignof T)
-        self.len = 0
-        self.cap = 0
-        self.shift = other.shift
-        if other.cap == 0 { return }
-        var unsafe *b = block_alloc(other.cap, sizeof T, alignof T)
-        unsafe { __builtin_copy(b, other.block, other.cap * 16) }
-        self.block = b
-        self.cap = other.cap
-        var unsafe *src = other.item_array()
-        var unsafe *dst = self.item_array()
-        var i: usize = 0
-        while i < other.len {
-            unsafe { __builtin_construct_at<T>((dst + i) as unsafe *u8, src[i]) }
-            i += 1
-            self.len = i
-        }
-    }
-
-    /// A deep copy, made by the copy constructor: the spelling of a copy
-    /// the source means to make.
-    pub fn copy(const self) -> HashSet<T> {
-        return HashSet<T>(self)
-    }
-
-    fn op delete(self) {
-        self.destroy_items()
-        block_free(self.block, self.cap, sizeof T, alignof T)
-    }
-
-    // --- size ---------------------------------------------------------------
-
-    /// Returns the number of elements. O(1).
-    pub inline fn size(const self) -> usize { return self.len }
-    /// Returns true when the set has no elements. O(1).
-    pub inline fn empty(const self) -> bool { return self.len == 0 }
-    /// Returns true when the set has no elements; same as `empty()`.
-    pub inline fn is_empty(const self) -> bool { return self.len == 0 }
-    /// Returns how many elements fit before the next growth.
-    pub inline fn capacity(const self) -> usize { return self.cap }
-
-    // --- lookup -------------------------------------------------------------
-
-    /// Returns true when an element equal to `x` is present. O(1) expected.
-    pub inline fn contains(const self, const x: T) -> bool { return self.index_of(x) != HASH_NPOS }
-
-    /// Returns a pointer to the element equal to `x`, or `end()` when absent. O(1) expected.
-    pub inline fn find(self, const x: T) -> *T {
-        var e = self.index_of(x)
-        if e == HASH_NPOS { return self.end() }
-        unsafe { return (self.item_array() + e) as *T }
-    }
-
-    // --- iteration (insertion order) -----------------------------------------
-
-    /// Returns a pointer to the first element in insertion order; equal to `end()` when empty.
-    pub inline fn begin(self) -> *T {
-        unsafe { return self.item_array() as *T }
-    }
-
-    /// Returns a pointer one past the last element. Not dereferenceable.
-    pub inline fn end(self) -> *T {
-        unsafe { return (self.item_array() + self.len) as *T }
-    }
-
-    /// Returns every element, in order, as a view: `for *p in s.items()` walks them with no copy.
-    /// The view is invalidated by an insert or erase.
-    pub inline fn items(self) -> [T;] {
-        unsafe { return Slice<T>(self.item_array() as *T, self.len) }
-    }
-
-    /// Iterates the elements in insertion order: `for x in s` (a copy) or `for const *x in s`
-    /// (a read-only pointer to the element). An element is never written in place: it is a key.
+    // Reads the entry array's address and the size once: an insert or a
+    // removal during the walk invalidates it.
     pub fn op in (const self) -> yield *const T {
-        var i: usize = 0
-        while i < self.len {
+        var unsafe *p   = self.at_(0)
+        var unsafe *end = self.at_(self.t.size())
+        while p != end {
             unsafe {
-                var unsafe *p = self.item_array() + i
                 yield p as *const T
+                p = p + 1
             }
-            i += 1
         }
     }
 
-    // --- insertion ------------------------------------------------------------
+    /// Element `i`.
+    priv inline fn at_(const self, i: usize) -> unsafe *T {
+        return rt_entry<T>(self.t, i)
+    }
 
-    /// Adds `x` when absent and returns true; returns false when an equal element is present.
-    /// O(1) amortized.
-    pub inline fn insert(self, const x: T) -> bool {
-        var t = tag_of(x.hash())
+    /// The index of `x`, or NO_ENTRY.
+    priv inline fn find_(const self, const x: T) -> usize {
+        var h           = hash_of(self.t, x)
         var slot: usize = 0
-        if (self.len != 0) && (self.probe(x, t, &slot) != HASH_NPOS) { return false }
-        self.add(slot, t, x)
+        return raw_find_slot(self.t, x, h, sizeof T, &slot)
+    }
+
+    /// `insert`, as a member of the class itself: the extension blocks call
+    /// it on a set they hold.
+    priv inline fn insert_(self, x: T) -> bool {
+        var h           = hash_of(self.t, x)
+        var slot: usize = 0
+        if raw_find_slot(self.t, x, h, sizeof T, &slot) != NO_ENTRY {
+            return false
+        }
+
+        unsafe {
+            __builtin_construct_at<T>(rt_link<T>(&self.t, h, slot), move(x))
+        }
+
+        rt_inserted<T, T>(&self.t)
         return true
     }
 
-    /// Ensures room for `n` elements without growing. O(size()) when it grows.
-    pub fn reserve(self, n: usize) {
-        if n > self.cap { self.grow(n) }
+    /// Removes element `i`, which the caller has moved out of or not; the
+    /// last element takes its place. `slot` names it.
+    priv fn remove_at_(self, i: usize, slot: usize) {
+        unsafe {
+            __builtin_destruct_at(self.at_(i) as *T)
+        }
+
+        rt_remove_swap<T, T>(&self.t, slot, i)
     }
 
-    // --- removal ----------------------------------------------------------------
+    priv inline fn same_(const self, const o: HashSet<T>) -> bool {
+        unsafe {
+            return (&self as unsafe *const u8) == (&o as unsafe *const u8)
+        }
+    }
 
-    /// Removes `x` and returns true, or returns false when it was absent. O(1) expected.
-    ///
-    /// The last element moves into the removed one's place (swap-remove). Use `erase_ordered` to
-    /// keep
-    /// the order.
-    pub fn erase(self, const x: T) -> bool {
-        if self.len == 0 { return false }
-        var t = tag_of(x.hash())
-        var slot: usize = 0
-        var e = self.probe(x, t, &slot)
-        if e == HASH_NPOS { return false }
-        var mask = self.cap * 2 - 1
-        remove_slot(self.slot_table(), mask, self.shift, slot)
-        var unsafe *es = self.item_array()
-        var last = self.len - 1
-        unsafe { __builtin_destruct_at((es + e) as *T) }
-        if e != last {
+    /// Keeps the elements whose membership in `o` is `in_o`, in order. The
+    /// lookups run while entries move, so `o` must not be this set.
+    priv fn filter_(self, const o: HashSet<T>, in_o: bool) {
+        var n        = self.t.size()
+        var w: usize = 0
+        var r: usize = 0
+        while r < n {
             unsafe {
-                var lt = tag_of(es[last].hash())
-                var ls = slot_of_entry(self.slot_table(), mask, self.shift, lt, last)
-                relocate_entry((es + e) as unsafe *u8, es + last)
-                self.slot_table()[ls] = slot_word(lt, e)
-            }
-        }
-        self.len = last
-        return true
-    }
+                var unsafe *p = self.at_(r)
+                if (o.find_(*p) != NO_ENTRY) == in_o {
+                    if w != r {
+                        rt_relocate<T>(self.at_(w), p)
+                    }
 
-    /// Removes `x` keeping the others' order; returns true if it was there. O(n).
-    pub fn erase_ordered(self, const x: T) -> bool {
-        if self.len == 0 { return false }
-        var t = tag_of(x.hash())
-        var slot: usize = 0
-        var e = self.probe(x, t, &slot)
-        if e == HASH_NPOS { return false }
-        remove_slot(self.slot_table(), self.cap * 2 - 1, self.shift, slot)
-        var unsafe *es = self.item_array()
-        unsafe { __builtin_destruct_at((es + e) as *T) }
-        var i = e
-        while i + 1 < self.len {
-            unsafe { relocate_entry((es + i) as unsafe *u8, es + (i + 1)) }
-            i += 1
-        }
-        shift_down_after(self.slot_table(), self.cap * 2, e)
-        self.len -= 1
-        return true
-    }
-
-    /// Removes `x` and returns true, or returns false when it was absent; same as `erase`.
-    pub inline fn swap_remove(self, const x: T) -> bool { return self.erase(x) }
-
-    /// Removes `x` keeping the others' order and returns true, or returns false when it was
-    /// absent; same as `erase_ordered`.
-    pub inline fn shift_remove(self, const x: T) -> bool { return self.erase_ordered(x) }
-
-    /// Removes every element, keeping the capacity. O(capacity).
-    pub fn clear(self) {
-        if self.cap == 0 { return }
-        self.destroy_items()
-        self.len = 0
-        unsafe { __builtin_set_mem(self.block, 0 as byte, self.cap * 16) }
-    }
-
-    // --- internals ----------------------------------------------------------------
-
-    priv inline fn slot_table(const self) -> unsafe *u64 { return block_slots(self.block) }
-
-    priv inline fn item_array(const self) -> unsafe *T {
-        unsafe { return block_entries(self.block, self.cap) as unsafe *T }
-    }
-
-    priv inline fn index_of(const self, const x: T) -> usize {
-        if self.len == 0 { return HASH_NPOS }
-        var slot: usize = 0
-        // The tag first, as its own statement: in one call, the effectful
-        // hash() after `x` makes SequenceLowering bind `x` by value, a
-        // deep copy of a string key on every lookup.
-        var t = tag_of(x.hash())
-        return self.probe(x, t, &slot)
-    }
-
-    /// HashMap::probe: x's index, or HASH_NPOS and the empty slot. len > 0.
-    priv inline fn probe(const self, const x: T, t: u32, slot: *usize) -> usize {
-        var mask = self.cap * 2 - 1
-        var i = (t >> self.shift) as usize
-        var unsafe *ss = self.slot_table()
-        var unsafe *es = self.item_array()
-        unsafe {
-            while true {
-                var s = ss[i]
-                if s == 0 { break }
-                if slot_tag(s) == t {
-                    var e = slot_entry(s)
-                    // `es[e]`, not `*(es + e)`: a dereference as an operand
-                    // of `==` on a T is emitted as C++'s own `==`, not the
-                    // bound's witness (a compiler bug).
-                    if es[e] == x { (*slot) = i; return e }
+                    w += 1
+                } else {
+                    __builtin_destruct_at(p as *T)
                 }
-                i = (i + 1) & mask
             }
+
+            r += 1
         }
-        (*slot) = i
-        return HASH_NPOS
+
+        if w != n {
+            rt_compact_end<T, T>(&self.t, w)
+        }
     }
 
-    /// HashMap::place.
-    priv inline fn place(self, t: u32, slot: usize) -> usize {
-        if self.len == self.cap {
-            self.grow(self.len + 1)
-            return empty_slot(self.slot_table(), self.cap * 2 - 1, self.shift, t)
+    /// Every element is in `o`. Short-circuits on size.
+    priv fn subset_(const self, const o: HashSet<T>) -> bool {
+        if self.t.size() > o.t.size() {
+            return false
         }
-        if self.len == 0 { return (t >> self.shift) as usize }
-        return slot
-    }
 
-    /// A new element x at the end, named by `slot`.
-    @no_inline
-    priv fn add(self, miss: usize, t: u32, const x: T) {
-        var slot = self.place(t, miss)
-        unsafe {
-            __builtin_construct_at<T>((self.item_array() + self.len) as unsafe *u8, x)
-            self.slot_table()[slot] = slot_word(t, self.len)
-        }
-        self.len += 1
-    }
-
-    @cold_path @no_inline
-    priv fn grow(self, want: usize) {
-        var nc = grown_cap(self.cap, want)
-        var unsafe *b = block_alloc(nc, sizeof T, alignof T)
-        var nslots = nc * 2
-        var sh = shift_for(nslots)
-        var ne: unsafe *T = &null
-        unsafe { ne = block_entries(b, nc) as unsafe *T }
-        if self.cap > 0 {
-            rebuild(block_slots(b), nslots - 1, sh, self.slot_table(), self.cap * 2)
-            var unsafe *oe = self.item_array()
-            var i: usize = 0
-            while i < self.len {
-                unsafe { relocate_entry((ne + i) as unsafe *u8, oe + i) }
-                i += 1
-            }
-            block_free(self.block, self.cap, sizeof T, alignof T)
-        }
-        self.block = b
-        self.cap = nc
-        self.shift = sh
-    }
-
-    priv fn destroy_items(self) {
-        if __builtin_is_trivially_destructible<T>() { return }
-        var unsafe *es = self.item_array()
         var i: usize = 0
-        while i < self.len {
-            unsafe { __builtin_destruct_at((es + i) as *T) }
+        while i < self.t.size() {
+            unsafe {
+                if o.find_(*self.at_(i)) == NO_ENTRY {
+                    return false
+                }
+            }
+
             i += 1
         }
+
+        return true
+    }
+
+    /// The number of elements of `o` not in this set.
+    priv fn count_missing_(const self, const o: HashSet<T>) -> usize {
+        var c: usize = 0
+        var i: usize = 0
+        while i < o.t.size() {
+            unsafe {
+                if self.find_(*o.at_(i)) == NO_ENTRY {
+                    c += 1
+                }
+            }
+
+            i += 1
+        }
+
+        return c
+    }
+}
+
+extend <T impl Hash> HashSet<T> {
+    pub static fn with_capacity(n: usize) -> Self {
+        var s = HashSet<T>()
+        rt_reserve<T>(&s.t, n)
+        return s
+    }
+
+    /// From any foreign range a `for x in r` loop accepts whose elements
+    /// are `T` (`cxx::std::unordered_set<T>`, `cxx::std::set<T>`, a C++
+    /// vector, ...). Names no C++ type. See NOTES.md change 12 for the bound.
+    pub static fn <R> from_range(const r: R) -> Self {
+        // STUB-BLOCKED(unbounded-range): `for x in r` over a parameter with
+        // no bound is SC095E ('const R' is not iterable), and R has no bound
+        // to call through.
+        __builtin_trap()
+    }
+
+    pub inline fn size(const self) -> usize {
+        return self.t.size()
+    }
+
+    pub inline fn is_empty(const self) -> bool {
+        return self.t.size() == 0
+    }
+
+    pub inline fn capacity(const self) -> usize {
+        return self.t.capacity()
+    }
+
+    /// Room for `n` elements in all without growing. Never shrinks.
+    pub fn reserve(self, n: usize) {
+        rt_reserve<T>(&self.t, n)
+    }
+
+    /// The smallest block that holds the elements; an empty set frees its
+    /// block.
+    pub fn shrink_to_fit(self) {
+        rt_shrink<T>(&self.t)
+    }
+
+    pub inline fn op in (const self, const x: T) -> bool {
+        return self.find_(x) != NO_ENTRY
+    }
+
+    @hot_path pub inline fn contains(const self, const x: T) -> bool {
+        return self.find_(x) != NO_ENTRY
+    }
+
+    /// The stored element equal to `x`.
+    pub inline fn get(const self, const x: T) -> *const T? {
+        var i = self.find_(x)
+        if i == NO_ENTRY {
+            return null
+        }
+
+        unsafe {
+            return self.at_(i) as *const T
+        }
+    }
+
+    pub fn first(const self) -> *const T? {
+        if self.t.size() == 0 {
+            return null
+        }
+
+        unsafe {
+            return self.at_(0) as *const T
+        }
+    }
+
+    pub fn last(const self) -> *const T? {
+        if self.t.size() == 0 {
+            return null
+        }
+
+        unsafe {
+            return self.at_(self.t.size() - 1) as *const T
+        }
+    }
+
+    /// False, and `x` is dropped, when an equal element is already there.
+    pub inline fn insert(self, x: T) -> bool {
+        return self.insert_(move(x))
+    }
+
+    /// Inserts `x`, or puts it in the place of the equal element and returns
+    /// that one.
+    pub fn replace(self, x: T) -> T? {
+        var h           = hash_of(self.t, x)
+        var slot: usize = 0
+        var i           = raw_find_slot(self.t, x, h, sizeof T, &slot)
+        if i != NO_ENTRY {
+            unsafe {
+                var unsafe *p      = self.at_(i)
+                var        old: T? = move(*p)
+                *p = move(x)
+                return old
+            }
+        }
+
+        unsafe {
+            __builtin_construct_at<T>(rt_link<T>(&self.t, h, slot), move(x))
+        }
+
+        rt_inserted<T, T>(&self.t)
+        return null
+    }
+
+    /// Removes `x`; the last element takes its place. O(1).
+    pub fn swap_remove(self, const x: T) -> bool {
+        var h           = hash_of(self.t, x)
+        var slot: usize = 0
+        var i           = raw_find_slot(self.t, x, h, sizeof T, &slot)
+        if i == NO_ENTRY {
+            return false
+        }
+
+        // `x` may be the stored element: nothing reads it after the destroy.
+        self.remove_at_(i, slot)
+        return true
+    }
+
+    /// Removes `x`; later elements shift down, so insertion order is kept.
+    /// O(n).
+    pub fn shift_remove(self, const x: T) -> bool {
+        var i = self.find_(x)
+        if i == NO_ENTRY {
+            return false
+        }
+
+        unsafe {
+            __builtin_destruct_at(self.at_(i) as *T)
+        }
+
+        rt_remove_shift<T>(&self.t, i)
+        return true
+    }
+
+    /// Removes the element equal to `x` and returns it; the last element
+    /// takes its place. O(1).
+    pub fn take(self, const x: T) -> T? {
+        var h           = hash_of(self.t, x)
+        var slot: usize = 0
+        var i           = raw_find_slot(self.t, x, h, sizeof T, &slot)
+        if i == NO_ENTRY {
+            return null
+        }
+
+        unsafe {
+            var out: T? = move(*self.at_(i))
+            self.remove_at_(i, slot)
+            return out
+        }
+    }
+
+    /// Removes the last element. O(1).
+    pub fn pop(self) -> T? {
+        var n = self.t.size()
+        if n == 0 {
+            return null
+        }
+
+        unsafe {
+            var unsafe *p      = self.at_(n - 1)
+            var        out: T? = move(*p)
+            __builtin_destruct_at(p as *T)
+            rt_remove_last(&self.t)
+            return out
+        }
+    }
+
+    /// Keeps the elements `keep` accepts, in order. `keep` sees each element
+    /// once, front to back. O(n).
+    pub fn retain(self, keep: fn(*const T) -> bool) {
+        var n        = self.t.size()
+        var w: usize = 0
+        var r: usize = 0
+        while r < n {
+            unsafe {
+                var unsafe *p = self.at_(r)
+                if keep(p as *const T) {
+                    if w != r {
+                        rt_relocate<T>(self.at_(w), p)
+                    }
+
+                    w += 1
+                } else {
+                    __builtin_destruct_at(p as *T)
+                }
+            }
+
+            r += 1
+        }
+
+        if w != n {
+            rt_compact_end<T, T>(&self.t, w)
+        }
+    }
+
+    /// Destroys every element; the capacity stays.
+    pub fn clear(self) {
+        rt_clear<T>(&self.t)
+    }
+
+    pub fn items(const self) -> [const T;] {
+        unsafe {
+            return Slice<const T>(self.at_(0) as unsafe *const T, self.t.size())
+        }
+    }
+
+    /// The elements of `self`, then those of `o` not in `self`.
+    pub fn set_union(const self, const o: Self) -> yield *const T {
+        var i: usize = 0
+        while i < self.t.size() {
+            unsafe {
+                yield self.at_(i) as *const T
+            }
+
+            i += 1
+        }
+
+        var j: usize = 0
+        while j < o.t.size() {
+            unsafe {
+                var unsafe *p = o.at_(j)
+                if self.find_(*p) == NO_ENTRY {
+                    yield p as *const T
+                }
+            }
+
+            j += 1
+        }
+    }
+
+    /// The elements in both, in the order of the smaller set (of `self` when
+    /// the sizes are equal), pointing into that set.
+    pub fn set_intersection(const self, const o: Self) -> yield *const T {
+        var small = &self
+        var large = &o
+        if o.t.size() < self.t.size() {
+            small = &o
+            large = &self
+        }
+
+        var i: usize = 0
+        while i < small->t.size() {
+            unsafe {
+                var unsafe *p = small->at_(i)
+                if large->find_(*p) != NO_ENTRY {
+                    yield p as *const T
+                }
+            }
+
+            i += 1
+        }
+    }
+
+    /// The elements of `self` not in `o`.
+    pub fn set_difference(const self, const o: Self) -> yield *const T {
+        var i: usize = 0
+        while i < self.t.size() {
+            unsafe {
+                var unsafe *p = self.at_(i)
+                if o.find_(*p) == NO_ENTRY {
+                    yield p as *const T
+                }
+            }
+
+            i += 1
+        }
+    }
+
+    /// The elements of `self` not in `o`, then those of `o` not in `self`.
+    pub fn set_xor(const self, const o: Self) -> yield *const T {
+        var i: usize = 0
+        while i < self.t.size() {
+            unsafe {
+                var unsafe *p = self.at_(i)
+                if o.find_(*p) == NO_ENTRY {
+                    yield p as *const T
+                }
+            }
+
+            i += 1
+        }
+
+        var j: usize = 0
+        while j < o.t.size() {
+            unsafe {
+                var unsafe *p = o.at_(j)
+                if self.find_(*p) == NO_ENTRY {
+                    yield p as *const T
+                }
+            }
+
+            j += 1
+        }
+    }
+
+    /// Keeps the elements also in `o`, in order.
+    pub fn op &= (self, const o: Self) {
+        if !self.same_(o) {
+            self.filter_(o, true)
+        }
+    }
+
+    /// Removes the elements in `o`, keeping the order of the rest.
+    pub fn op -= (self, const o: Self) {
+        if self.same_(o) {
+            rt_clear<T>(&self.t)
+        } else {
+            self.filter_(o, false)
+        }
+    }
+
+    pub fn is_subset(const self, const o: Self) -> bool {
+        return self.subset_(o)
+    }
+
+    pub fn is_superset(const self, const o: Self) -> bool {
+        return o.subset_(self)
+    }
+
+    /// Walks the smaller set.
+    pub fn is_disjoint(const self, const o: Self) -> bool {
+        var small = &self
+        var large = &o
+        if o.t.size() < self.t.size() {
+            small = &o
+            large = &self
+        }
+
+        var i: usize = 0
+        while i < small->t.size() {
+            unsafe {
+                if large->find_(*small->at_(i)) != NO_ENTRY {
+                    return false
+                }
+            }
+
+            i += 1
+        }
+
+        return true
+    }
+
+    /// The same elements; order does not take part.
+    pub fn op == (const self, const o: Self) -> bool {
+        return self.t.size() == o.t.size() && self.subset_(o)
+    }
+}
+
+extend <T impl Hash> HashSet<T> requires T impl Copyable {
+    /// Deep. The index is copied as bytes: element order and positions are
+    /// the same, so nothing is hashed.
+    pub fn copy(const self) -> Self { // deep
+        var s = HashSet<T>()
+        var n = self.t.size()
+        if n == 0 {
+            return s
+        }
+
+        s.t.copy_index_from(self.t, sizeof T, alignof T)
+        var unsafe *src = self.at_(0)
+        var unsafe *dst = s.at_(0)
+        eval if __builtin_is_trivially_copyable<T>() && __builtin_is_trivially_destructible<T>() {
+            unsafe {
+                __builtin_copy(
+                    dst as unsafe *u8,
+                    src as unsafe *const u8,
+                    n * sizeof T,
+                )
+            }
+
+            s.t.set_size(n)
+        } else {
+            var i: usize = 0
+            while i < n {
+                unsafe {
+                    __builtin_construct_at<T>(
+                        (dst + i) as unsafe *u8,
+                        set_copy_of(src[i]),
+                    )
+                }
+
+                i += 1
+                s.t.set_size(i)
+            }
+        }
+
+        return s
+    }
+
+    pub static fn from_slice(const items: [const T;]) -> Self {
+        var s = HashSet<T>()
+        set_extend_from(&s, items)
+        return s
+    }
+
+    pub fn extend_from(self, const items: [const T;]) {
+        set_extend_from(&self, items)
+    }
+
+    /// Copies in the elements of `o` this set lacks, in `o`'s order.
+    pub fn op |= (self, const o: Self) { // copies o's elements in
+        if self.same_(o) {
+            return
+        }
+
+        rt_reserve<T>(&self.t, self.t.size() + self.count_missing_(o))
+        var i: usize = 0
+        while i < o.t.size() {
+            unsafe {
+                var unsafe *p = o.at_(i)
+                if self.find_(*p) == NO_ENTRY {
+                    self.insert_(set_copy_of(*p))
+                }
+            }
+
+            i += 1
+        }
+    }
+
+    /// Removes the elements in both and copies in those only `o` has: the
+    /// survivors keep their order, then `o`'s, in `o`'s order.
+    pub fn op ^= (self, const o: Self) {
+        if self.same_(o) {
+            rt_clear<T>(&self.t)
+            return
+        }
+
+        var n0 = self.t.size()
+        rt_reserve<T>(&self.t, n0 + self.count_missing_(o))
+        // Appended elements are `o`'s and distinct, so the lookups below
+        // still see `self` as it was for the elements of `o`.
+        var i: usize = 0
+        while i < o.t.size() {
+            unsafe {
+                var unsafe *p = o.at_(i)
+                if self.find_(*p) == NO_ENTRY {
+                    self.insert_(set_copy_of(*p))
+                }
+            }
+
+            i += 1
+        }
+
+        var n        = self.t.size()
+        var w: usize = 0
+        var r: usize = 0
+        while r < n {
+            unsafe {
+                var unsafe *p = self.at_(r)
+                if r >= n0 || o.find_(*p) == NO_ENTRY {
+                    if w != r {
+                        rt_relocate<T>(self.at_(w), p)
+                    }
+
+                    w += 1
+                } else {
+                    __builtin_destruct_at(p as *T)
+                }
+            }
+
+            r += 1
+        }
+
+        if w != n {
+            rt_compact_end<T, T>(&self.t, w)
+        }
+    }
+}
+
+extend <T impl Hash> HashSet<T> impl FromIterator<T> {
+    static fn <J impl Iterator> from_iter(it:   J,
+                                          hint: usize) -> Self requires __builtin_is_same<J::Item, T>() {
+        var s = HashSet<T>()
+        rt_reserve<T>(&s.t, hint)
+        loop {
+            var x = it.next()
+            if !x? {
+                break
+            }
+
+            s.insert_(move(unwrap!(x)))
+        }
+
+        return s
+    }
+}
+
+/// Copies each element in.
+priv fn <T impl Hash> set_extend_from(s:           *HashSet<T>,
+                                      const items: [const T;]) requires T impl Copyable {
+    var        n    = items.count_()
+    var unsafe *src = items.first_()
+    rt_reserve<T>(&s->t, s->t.size() + n)
+    var i: usize = 0
+    while i < n {
+        unsafe {
+            s->insert_(set_copy_of(*(src + i)))
+        }
+
+        i += 1
+    }
+}
+
+extend <T impl Hash> HashSet<T> impl Default {
+    static inline fn make_default() -> HashSet<T> {
+        return HashSet<T>()
     }
 }

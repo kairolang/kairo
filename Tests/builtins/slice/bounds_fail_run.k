@@ -47,10 +47,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: env CASE=1 not --crash %t.exe 2>&1 | %FileCheck %s --check-prefix=C1
 // RUN: env CASE=1 not --crash %t.o2.exe 2>&1 | %FileCheck %s --check-prefix=C1
 // RUN: env CASE=2 not --crash %t.o2.exe 2>&1 | %FileCheck %s --check-prefix=C2

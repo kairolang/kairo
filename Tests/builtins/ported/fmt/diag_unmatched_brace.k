@@ -9,6 +9,5 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --type-check-only 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK: :7:{{[0-9]+}}: error [S016E]

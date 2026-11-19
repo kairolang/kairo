@@ -23,10 +23,9 @@ pub fn take_string(s: string) -> usize {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // REQUIRES: kcc
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new %s --type-check-only --emit-headers %t.d/h
+// RUN: %kairo %s --type-check-only --emit-headers %t.d/h
 // RUN: printf '#include "h/emitted_header_cxx.hh"\nusing S = ::builtin::string::string;\nusing V = ::builtin::containers::vector::Vector<int>;\nS pass_s(S s) { return s; }\nV pass_v(V v) { return v; }\nint main() { return emitted_header_cxx::take_string(pass_s(emitted_header_cxx::echo_string(emitted_header_cxx::make_string(3)))) == 38 ? 0 : 1; }\n' > %t.d/use.cc
-// RUN: %kcc_new -std=c++23 -I %t.d -I %t.d/h %t.d/use.cc %s -o %t.exe
+// RUN: %kcc -std=c++23 -I %t.d -I %t.d/h %t.d/use.cc %s -o %t.exe
 // RUN: %t.exe

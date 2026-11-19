@@ -42,12 +42,11 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu --emit=llvm-ir -o %t.ll --cache-dir %t.d/x86_64
+// RUN: %kairo %s -O2 --target=x86_64-linux-gnu --emit=llvm-ir -o %t.ll --cache-dir %t.d/x86_64
 // RUN: %FileCheck %s --check-prefixes=IR,X64 < %t.ll
 // RUN: %FileCheck %s --check-prefix=GROW < %t.d/x86_64/builtin/containers/vector.ll
-// RUN: %kairo_new %s -O2 --target=aarch64-linux-gnu --emit=llvm-ir -o %t.a64.ll --cache-dir %t.d/aarch64
+// RUN: %kairo %s -O2 --target=aarch64-linux-gnu --emit=llvm-ir -o %t.a64.ll --cache-dir %t.d/aarch64
 // RUN: %FileCheck %s --check-prefixes=IR,A64 < %t.a64.ll
 // RUN: %FileCheck %s --check-prefix=GROW < %t.d/aarch64/builtin/containers/vector.ll
 

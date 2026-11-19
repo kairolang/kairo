@@ -7,7 +7,7 @@
 //
 // Documented behaviour that differs from the Rust adapter: from the back the
 // chain does not remember that the second source has ended, so each further
-// `next_back` asks it again (Lib/std2/iter.k, the `DoubleEnded` extension of
+// `next_back` asks it again (Lib/std/iter.k, the `DoubleEnded` extension of
 // `Chain`). The cases that drain a chain from the back therefore check the
 // items and the balance of what is alive, not that a source is never asked
 // after its end; the others check both.
@@ -256,10 +256,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
 // RUN: rm -f %t.exe %t.o2.exe
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe

@@ -18,13 +18,12 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -fsema-agreement -o %t.exe --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=AGREE --allow-empty
+// RUN: %kairo %s -fsema-agreement -o %t.exe --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=AGREE --allow-empty
 // AGREE-NOT: I012W
 // AGREE-NOT: error [
 
-// RUN: { %kairo_new %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-NOT: Vector<const
 // CXX:     Slice<const signed int>
 // CXX-NOT: Vector<const

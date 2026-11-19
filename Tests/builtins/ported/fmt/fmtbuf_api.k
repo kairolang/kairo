@@ -4,7 +4,7 @@
 // Rules asserted (website library/core/formatting.mdx, FmtBuf: up to 127 bytes live inside the object, longer text
 // spills to the heap; `FmtBuf(cap)` below 128 uses the inline storage, from 128 up the block is allocated now and
 // sized once; `len` counts bytes and `cp_len` code points; `finish` hands the buffer over as an owned string and
-// empties it; `view` is a borrowed string; `clear` empties the buffer; Lib/builtin2/fmt/fmt_buf.k: after `finish()`
+// empties it; `view` is a borrowed string; `clear` empties the buffer; Lib/builtin/fmt/fmt_buf.k: after `finish()`
 // and before anything is written, the view is the empty string).
 // Not asserted because the docs do not state them: the capacity after a spill, and `data` after `clear`.
 // Cases from Rust library/alloctests/tests/fmt.rs (writing into a String through fmt::Write: write_str, write_fmt)
@@ -196,11 +196,10 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d %t.exe %t.o2.exe
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe | %FileCheck %s
 // CHECK-NOT: FAIL
 // CHECK: ok

@@ -1,7 +1,7 @@
 /// --- The Kairo Project ----------------------- Lib/builtin/num/f512_t.k --- ///
 ///
-///   \brief `f512`, IEEE 754 "binary512", as a library class: the C++ spelling
-///          of the `f512` type keyword (AST/Node/CanonicalNodes.k).
+/// `f512`, IEEE 754 "binary512", as a library class: the C++ spelling
+/// of the `f512` type keyword (AST/Node/CanonicalNodes.k).
 ///
 ///   \detail
 ///     Sign, 23-bit exponent (bias 4194303), 488-bit fraction with a
@@ -75,12 +75,20 @@ pub class F512 {
 
     /// `x as f512` from f64, exactly (every f64 is an f512).
     pub fn F512(self, v: f64) {
-        self.bits = sf_cvt(F512::fmt_(), sf_fmt(64, 11), __builtin_bitcast<u64, f64>(v) as u512)
+        self.bits = sf_cvt(
+            F512::fmt_(),
+            sf_fmt(64, 11),
+            __builtin_bitcast<u64, f64>(v) as u512,
+        )
     }
 
     /// `x as f512` from f32.
     pub fn F512(self, v: f32) {
-        self.bits = sf_cvt(F512::fmt_(), sf_fmt(32, 8), __builtin_bitcast<u32, f32>(v) as u512)
+        self.bits = sf_cvt(
+            F512::fmt_(),
+            sf_fmt(32, 8),
+            __builtin_bitcast<u32, f32>(v) as u512,
+        )
     }
 
     /// `x as f512` from i8, rounded to nearest even.
@@ -174,7 +182,9 @@ pub class F512 {
 
     /// `x as f256`, rounded once.
     pub fn op as (const self) -> F256 {
-        return F256::from_bits(sf_cvt(F256::fmt_(), F512::fmt_(), self.bits) as u256)
+        return F256::from_bits(
+            sf_cvt(F256::fmt_(), F512::fmt_(), self.bits) as u256,
+        )
     }
 
     // clang defines __FLT16_MAX__ exactly where _Float16 exists (fmt_buf.k).
@@ -256,12 +266,16 @@ pub class F512 {
 
     /// `x as f64`, rounded once (never through an intermediate format).
     pub fn op as (const self) -> f64 {
-        return __builtin_bitcast<f64, u64>(sf_cvt(sf_fmt(64, 11), F512::fmt_(), self.bits) as u64)
+        return __builtin_bitcast<f64, u64>(
+            sf_cvt(sf_fmt(64, 11), F512::fmt_(), self.bits) as u64,
+        )
     }
 
     /// `x as f32`, rounded once.
     pub fn op as (const self) -> f32 {
-        return __builtin_bitcast<f32, u32>(sf_cvt(sf_fmt(32, 8), F512::fmt_(), self.bits) as u32)
+        return __builtin_bitcast<f32, u32>(
+            sf_cvt(sf_fmt(32, 8), F512::fmt_(), self.bits) as u32,
+        )
     }
 
     /// `x as i8`: toward zero, saturating, NaN 0.
@@ -385,7 +399,12 @@ pub class F512 {
         var r       = F512()
         var v: u512 = 0
         unsafe {
-            sf_parse_bits(F512::fmt_(), p as unsafe *const u8 as *const u8, n, &v)
+            sf_parse_bits(
+                F512::fmt_(),
+                p as unsafe *const u8 as *const u8,
+                n,
+                &v,
+            )
         }
 
         r.bits = v
@@ -396,11 +415,11 @@ pub class F512 {
     /// sign, `_` between digits), correctly rounded, into `*out`; false
     /// (out untouched) when `s` is not a float.
     ///
-    /// \note Not `-> F512?`: a nullable return from a builtin class with
+    /// **Note:** Not `-> F512?`: a nullable return from a builtin class with
     /// this alignment does not compile yet (P721).
     pub static fn parse(const s: string, out: *F512) -> bool {
         var v: u512 = 0
-        if !sf_parse_bits(F512::fmt_(), s.as_ptr(), s.length(), &v) {
+        if !sf_parse_bits(F512::fmt_(), s.data(), s.size(), &v) {
             return false
         }
 
@@ -428,7 +447,12 @@ pub class F512 {
         var slot     = b->number_slot_(spec, digits)
         var n:   i32 = 0
         unsafe {
-            n = self.format_into_(unsafe &b->data[slot], digits, prec as i32, FmtBuf::conv_(spec))
+            n = self.format_into_(
+                unsafe &b->data[slot],
+                digits,
+                prec as i32,
+                FmtBuf::conv_(spec),
+            )
         }
 
         b->number_at_(slot, n as usize, self.bits >> 511 != 0, spec)
@@ -438,22 +462,30 @@ pub class F512 {
 
     /// self + o, rounded to nearest even.
     pub fn op + (const self, const o: F512) -> F512 {
-        return F512::from_bits(sf_op(F512::fmt_(), SF_OP_ADD, self.bits, o.bits, 0))
+        return F512::from_bits(
+            sf_op(F512::fmt_(), SF_OP_ADD, self.bits, o.bits, 0),
+        )
     }
 
     /// self - o, rounded to nearest even.
     pub fn op - (const self, const o: F512) -> F512 {
-        return F512::from_bits(sf_op(F512::fmt_(), SF_OP_SUB, self.bits, o.bits, 0))
+        return F512::from_bits(
+            sf_op(F512::fmt_(), SF_OP_SUB, self.bits, o.bits, 0),
+        )
     }
 
     /// self * o, rounded to nearest even.
     pub fn op * (const self, const o: F512) -> F512 {
-        return F512::from_bits(sf_op(F512::fmt_(), SF_OP_MUL, self.bits, o.bits, 0))
+        return F512::from_bits(
+            sf_op(F512::fmt_(), SF_OP_MUL, self.bits, o.bits, 0),
+        )
     }
 
     /// self / o, rounded to nearest even.
     pub fn op / (const self, const o: F512) -> F512 {
-        return F512::from_bits(sf_op(F512::fmt_(), SF_OP_DIV, self.bits, o.bits, 0))
+        return F512::from_bits(
+            sf_op(F512::fmt_(), SF_OP_DIV, self.bits, o.bits, 0),
+        )
     }
 
     /// -self: the sign bit flipped (NaN included).
@@ -470,7 +502,9 @@ pub class F512 {
 
     /// self * b + c, rounded once.
     pub fn fma(const self, const b: F512, const c: F512) -> F512 {
-        return F512::from_bits(sf_op(F512::fmt_(), SF_OP_FMA, self.bits, b.bits, c.bits))
+        return F512::from_bits(
+            sf_op(F512::fmt_(), SF_OP_FMA, self.bits, b.bits, c.bits),
+        )
     }
 
     /// |self|: the sign bit cleared.

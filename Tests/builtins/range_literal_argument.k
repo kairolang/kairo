@@ -9,6 +9,5 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --allow-empty
 // CHECK-NOT: error

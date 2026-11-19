@@ -357,7 +357,7 @@ fn ys_are(const want: [i64]) -> bool {
 
 /// Side effects of the callbacks under a zip. The first side is pulled first
 /// and the item it gives when the second side has ended is dropped
-/// (Lib/std2/iter.k, `Zip`); from the back the longer side is trimmed first.
+/// (Lib/std/iter.k, `Zip`); from the back the longer side is trimmed first.
 fn rust_zip_side_effects() {
     // The second side is one item longer: trimmed from the back.
     clear_logs()
@@ -519,10 +519,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
 // RUN: rm -f %t.exe %t.o2.exe
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe

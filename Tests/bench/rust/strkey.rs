@@ -1,4 +1,4 @@
-// Strings as keys, in isolation: the twin of kairo2/strkey.k (which has the
+// Strings as keys, in isolation: the twin of kairo/strkey.k (which has the
 // row list). Run by hand; no rows in ops.toml.
 #[path = "bench.rs"]
 mod bench;

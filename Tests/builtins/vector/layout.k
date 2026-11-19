@@ -30,10 +30,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s --emit=obj --target=x86_64-linux-gnu -o %t.x86_64.o --cache-dir %t.d/x86_64
-// RUN: %kairo_new %s --emit=obj --target=aarch64-linux-gnu -o %t.aarch64.o --cache-dir %t.d/aarch64
-// RUN: %kairo_new %s --emit=obj --target=armv7-linux-gnueabihf -o %t.armv7.o --cache-dir %t.d/armv7
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d/run
+// RUN: %kairo %s --emit=obj --target=x86_64-linux-gnu -o %t.x86_64.o --cache-dir %t.d/x86_64
+// RUN: %kairo %s --emit=obj --target=aarch64-linux-gnu -o %t.aarch64.o --cache-dir %t.d/aarch64
+// RUN: %kairo %s --emit=obj --target=armv7-linux-gnueabihf -o %t.armv7.o --cache-dir %t.d/armv7
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d/run
 // RUN: %t.exe

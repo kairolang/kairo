@@ -123,9 +123,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib, clang
+// REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new %s -O2 -o %t.d/k.exe --cache-dir %t.d/c
+// RUN: %kairo %s -O2 -o %t.d/k.exe --cache-dir %t.d/c
 // RUN: %clangxx -O2 -std=c++20 %S/inputs/fuzz_std.cpp -o %t.d/c.exe
 // RUN: env SEED=1 %t.d/k.exe > %t.d/k1.txt
 // RUN: env SEED=1 %t.d/c.exe > %t.d/c1.txt

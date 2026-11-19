@@ -322,8 +322,7 @@ fn main(argc: i32) -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s --cxx-include %S/inputs -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s --cxx-include %S/inputs -o %t.exe --cache-dir %t.d
 // RUN: %t.exe | %FileCheck %s --match-full-lines
 // CHECK: fuzz: ok

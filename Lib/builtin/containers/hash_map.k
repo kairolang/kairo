@@ -1,495 +1,705 @@
-/// --- The Kairo Project ------------ Lib/builtin/containers/hash_map.k --- ///
-///
-///   \brief The HashMap lang item: `{K: V}`.
-///
-///   \detail
-///     A dense array of entries in insertion order plus an open-addressing
-///     index (containers/hash_index.k has the layout). What that buys:
-///
-///     ORDER. Iteration -- `for (k, v) in m`, `m.entries()`, begin()..end()
-///     -- visits entries in INSERTION order, the same on every run and every
-///     target: nothing depends on hash values or addresses. Re-inserting a
-///     present key (`insert`, `m[k] = v`) keeps its place. `erase` is O(1)
-///     and moves the LAST entry into the erased one's place (swap-remove),
-///     so after an erase the order is insertion order with that one move;
-///     `erase_ordered` keeps the order exactly, for O(len). Sorted order is
-///     not provided: sort the keys where it matters.
-///
-///     ITERATION AND MUTATION. Inserting or erasing during a `for ... in m`
-///     is undefined (it may reallocate the entries); so is using a pointer
-///     from find / begin / `[]` / get across an insert or erase. To erase
-///     while walking, walk the indices backwards (`entries()` and
-///     erase_ordered, or swap-remove from the end).
-///
-///     COST. Lookup: one hash, one multiply, a slot load, a tag compare and
-///     one key compare on a hit. Insert of a new key: the same probe plus a
-///     slot store and the entry's construction; growth (doubling, out of
-///     line) relocates the entries and re-places the slots from their tags
-///     without rehashing. A table is never more than half full.
-///
-///     COPY. A copy is deep: every entry is copied (K and V's own copies).
-///     There is no cheap move yet: a COPY class cannot also declare `@move`
-///     (SC057E), so passing a map by value copies it (pass `const m` to
-///     read). Moving the entries on growth copies them unless the entry is
-///     trivially relocatable.
-///
-///     Migration from Stage 0's map / unordered_map: `m.find(k) == m.end()`
-///     and `it->first` / `it->second` read as `m.find(k) == m.end()` and
-///     `it->key` / `it->value` (find returns a pointer to the entry, end()
-///     one past the last); `m.get(k)` is the nullable form. `erase(k)`
-///     returns whether it erased (Stage 0 returned a count).
-///
-///   Allocation is the allocator in effect (base/alloc.k's alloc_raw /
-///   free_raw): one block per map, nothing for an empty one.
-///
-///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
-///   Copyright (c) 2026 Dhruvan Kartik
-///
-/// ------------------------------------------------------------------------ ///
+/// builtin/containers/hash_map.k
 
-import base::intrinsics::*
-import base::alloc::*
+import base::cmp::*
+import base::copy::*
 import base::hash::*
+import base::intrinsics::*
+import base::iter::*
+import builtin::Null
+import containers::raw_table::*
 import containers::slice::*
-import containers::hash_index::*
+import string::*
 
-/// Moves `src` out of its entry; the entry is left to be destroyed.
-inline fn <T> map_take(@move src: T) -> T {
-    return src
-}
-
-/// One key and its value, as a HashMap stores and iterates them (`m.find(k)`, `m.begin()`,
-/// `m.entries()`).
-///
-/// No constructor: it is a C++ aggregate built in place as `MapEntry(k, v)` or `MapEntry(k)`.
 pub class <K, V> MapEntry {
-    /// The entry's key. Do not change it through a pointer from the map: the index is keyed on it.
     pub var key:   K
-    /// The entry's value. May be assigned through a pointer from `find` / `begin` / `entries`.
     pub var value: V
 }
 
-/// Hash map from `K` to `V`. `{K: V}` desugars to `HashMap<K, V>`, and `{k: v, ...}` builds one.
+/// A lookup with `m[k]` found no entry. One copy for every map type.
+@cold_path @no_inline
+priv fn key_fail() -> ! {
+    key_missing_fail()
+}
+
+priv inline fn <T impl Copyable> map_copy_of(const x: T) -> T {
+    return x.copy()
+}
+
+/// Insertion-ordered. Two words. MOVE-ONLY: `copy()` duplicates.
+///   m[k]         reads; traps on a miss
+///   m[k] = v     sets: replaces the value, or inserts (the setter form)
+///   m[k] += 1    goes through the place form and inserts V::make_default() on a miss
+/// Both write forms copy `k` only on a miss; `insert(k, v)` moves a key in.
 ///
-/// Entries are stored densely in insertion order, so iteration order is deterministic. Lookup,
-/// insert and `erase` are O(1) expected; `erase_ordered` is O(n). K must implement `Hash` (a
-/// `hash()` method and `==`).
+/// A map literal is built as `HashMap()`, `reserve(n)`, then `insert(k, v)`
+/// per entry in written order, so a repeated key keeps its first place and
+/// takes its last value.
 ///
-/// Inserting or erasing invalidates every pointer from `find` / `get` / `begin` / `[]` and must
-/// not happen during `for ... in m`. A copy is a deep copy.
-///
-/// \see HashSet
-/// \example
-/// ```kairo
-/// var m: {i32: i32} = {}
-/// m[1] = 10
-/// m.insert(2, 20)
-/// var found = false
-/// if let v = m.get(2) { found = (*v == 20) }
-/// ```
+/// Any insert may move every entry (growth), and any removal moves at least
+/// one: a pointer from a lookup, a place form or an iteration is good until
+/// the next insert or removal.
+@relocatable
 pub class <K impl Hash, V> HashMap {
-    /// slots, then entries: one block (hash_index.k). Never null: while
-    /// cap == 0 it is a dangling pointer aligned for the entries, so the
-    /// entry array is `block + 16 * cap` with no test and begin() == end()
-    /// is a valid empty range. Slots are read only while len > 0.
-    priv var block: unsafe *u8
-    priv var len:   usize
-    priv var cap:   usize
-    priv var shift: u32
+    priv var t: RawTable
 
-    /// Creates an empty map. Allocates nothing.
-    pub inline fn HashMap(self) {
-        self.block = block_empty(alignof MapEntry<K, V>)
-        self.len = 0
-        self.cap = 0
-        self.shift = 0
+    pub fn HashMap(self) { }
+
+    @move pub fn HashMap(self, other: Self) {
+        self.t.steal(&other.t)
     }
 
-    /// Creates a map from `(key, value)` pairs, as `{k: v, ...}` lowers to.
-    ///
-    /// Entries keep written order; a repeated key keeps its first place and takes its last value.
-    /// V must be default-constructible (each value is assigned after the entry is created).
-    pub fn HashMap(self, const items: [(K, V);]) {
-        self.block = block_empty(alignof MapEntry<K, V>)
-        self.len = 0
-        self.cap = 0
-        self.shift = 0
-        if items.len == 0 { return }
-        self.grow(items.len)
-        var i: usize = 0
-        while i < items.len {
-            var e = self.intern(items.data[i].0)
-            unsafe { (self.entry_array() + e)->value = items.data[i].1 }
-            i += 1
-        }
+    pub fn op finally(self) {
+        rt_release<MapEntry<K, V>>(&self.t)
     }
 
-    /// A deep copy: the same capacity, the same slots, every entry copied.
-    @copy
-    pub fn HashMap(self, const other: Self) {
-        self.block = block_empty(alignof MapEntry<K, V>)
-        self.len = 0
-        self.cap = 0
-        self.shift = other.shift
-        if other.cap == 0 { return }
-        var unsafe *b = block_alloc(other.cap, sizeof MapEntry<K, V>, alignof MapEntry<K, V>)
-        unsafe { __builtin_copy(b, other.block, other.cap * 16) }
-        self.block = b
-        self.cap = other.cap
-        var unsafe *src = other.entry_array()
-        var unsafe *dst = self.entry_array()
-        var i: usize = 0
-        while i < other.len {
-            unsafe { __builtin_construct_at<MapEntry<K, V>>((dst + i) as unsafe *u8, src[i]) }
-            i += 1
-            self.len = i
-        }
+    /// Entry `i`.
+    priv inline fn ent(const self, i: usize) -> unsafe *MapEntry<K, V> {
+        return rt_entry<MapEntry<K, V>>(self.t, i)
     }
 
-    /// A deep copy, made by the copy constructor: the spelling of a copy
-    /// the source means to make.
-    pub fn copy(const self) -> HashMap<K, V> {
-        return HashMap<K, V>(self)
-    }
-
-    fn op delete(self) {
-        self.destroy_entries()
-        block_free(self.block, self.cap, sizeof MapEntry<K, V>, alignof MapEntry<K, V>)
-    }
-
-    // --- size ---------------------------------------------------------------
-
-    /// Returns the number of entries. O(1).
-    pub inline fn size(const self) -> usize { return self.len }
-    /// Returns true when the map has no entries. O(1).
-    pub inline fn empty(const self) -> bool { return self.len == 0 }
-    /// Returns true when the map has no entries; same as `empty()`.
-    pub inline fn is_empty(const self) -> bool { return self.len == 0 }
-    /// Returns how many entries fit before the next growth.
-    pub inline fn capacity(const self) -> usize { return self.cap }
-
-    // --- lookup -------------------------------------------------------------
-
-    /// Returns true when `k` is a key of the map. O(1) expected.
-    pub inline fn contains(const self, const k: K) -> bool { return self.index_of(k) != HASH_NPOS }
-
-    /// Returns a pointer to the entry for `k`, or `end()` when absent. O(1) expected.
-    ///
-    /// Compare against `end()` to test for a miss; the pointer is valid until the next
-    /// insert/erase.
-    pub inline fn find(self, const k: K) -> *MapEntry<K, V> {
-        var e = self.index_of(k)
-        if e == HASH_NPOS { return self.end() }
-        unsafe { return (self.entry_array() + e) as *MapEntry<K, V> }
-    }
-
-    /// Returns a pointer to `k`'s value, or null when `k` is absent. O(1) expected.
-    ///
-    /// The nullable form of `find`; the pointer is valid until the next insert/erase.
-    pub inline fn get(self, const k: K) -> *V? {
-        var e = self.index_of(k)
-        if e == HASH_NPOS { return null }
-        unsafe { return &(self.entry_array() + e)->value as unsafe *V as *V }
-    }
-
-    /// Returns `k`'s value as a place, inserting a default-constructed value when `k` is absent.
-    ///
-    /// So even a read through `m[k]` can insert. V must be default-constructible. O(1) expected.
-    pub inline fn op [] (self, const k: K) -> *V {
-        var t = tag_of(k.hash())
+    /// The entry index of `k`, or NO_ENTRY.
+    priv inline fn find_(const self, const k: K) -> usize {
+        var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = HASH_NPOS
-        if self.len != 0 { e = self.probe(k, t, &slot) }
-        if e == HASH_NPOS { e = self.add_default(slot, t, k) }
-        unsafe { return &(self.entry_array() + e)->value as unsafe *V as *V }
+        return raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
     }
 
-    // --- iteration (insertion order) -----------------------------------------
-
-    /// Returns a pointer to the first entry in insertion order; equal to `end()` when empty.
-    pub inline fn begin(self) -> *MapEntry<K, V> {
-        unsafe { return self.entry_array() as *MapEntry<K, V> }
+    /// A new entry for `k` at the end, linked under `h` into `slot` (where
+    /// the miss stopped). Returns its address, uninitialized.
+    priv inline fn add_(self, h: u64, slot: usize) -> unsafe *u8 {
+        return rt_link<MapEntry<K, V>>(&self.t, h, slot)
     }
 
-    /// Returns a pointer one past the last entry. Not dereferenceable.
-    pub inline fn end(self) -> *MapEntry<K, V> {
-        unsafe { return (self.entry_array() + self.len) as *MapEntry<K, V> }
+    /// `insert`, as a member of the class itself: the extension blocks call
+    /// it on a map they hold.
+    priv inline fn insert_(self, k: K, v: V) -> V? {
+        var h           = hash_of(self.t, k)
+        var slot: usize = 0
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
+
+        if e != NO_ENTRY {
+            unsafe {
+                var unsafe *p      = self.ent(e)
+                var        old: V? = move(p->value)
+                p->value = move(v)
+                return old
+            }
+        }
+
+        unsafe {
+            __builtin_construct_at<MapEntry<K, V>>(
+                self.add_(h, slot),
+                move(k),
+                move(v),
+            )
+        }
+
+        rt_inserted<MapEntry<K, V>, K>(&self.t)
+        return null
     }
 
-    /// Returns every entry, in order, as a view: `for *e in m.entries()` walks them with no copy.
-    ///
-    /// The view is invalidated by an insert or erase.
-    pub inline fn entries(self) -> [MapEntry<K, V>;] {
-        unsafe { return Slice<MapEntry<K, V>>(self.entry_array() as *MapEntry<K, V>, self.len) }
+    @hot_path pub inline fn op []  (const self, const k: K) -> *const V {
+        var e = self.find_(k)
+        @unlikely
+        if e == NO_ENTRY {
+            key_fail()
+        }
+
+        unsafe {
+            return &self.ent(e)->value as unsafe *const V as *const V
+        }
     }
 
-    /// Iterates the entries in insertion order: `for (k, v) in m` copies the key and the value;
-    /// `for (k, *v) in m` binds a pointer to the stored value, so `*v = x` writes the map. A key
-    /// is never written through iteration. Do not insert or erase while iterating.
+    pub inline fn op []= (self, const k: K, v: V)   requires K impl Copyable {
+        var h           = hash_of(self.t, k)
+        var slot: usize = 0
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
+
+        unsafe {
+            if e != NO_ENTRY {
+                var unsafe *p = self.ent(e)
+                p->value = move(v)
+                return
+            }
+
+            __builtin_construct_at<MapEntry<K, V>>(
+                self.add_(h, slot),
+                map_key_copy(k),
+                move(v),
+            )
+        }
+
+        rt_inserted<MapEntry<K, V>, K>(&self.t)
+    }
+
+    pub inline fn op []= (self, const k: K) -> *V   requires K impl Copyable && V impl Default {
+        var h           = hash_of(self.t, k)
+        var slot: usize = 0
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
+
+        if e == NO_ENTRY {
+            e = self.t.size()
+            unsafe {
+                __builtin_construct_at<MapEntry<K, V>>(
+                    self.add_(h, slot),
+                    map_key_copy(k),
+                    map_value_default<V>(),
+                )
+            }
+
+            rt_inserted<MapEntry<K, V>, K>(&self.t)
+        }
+
+        unsafe {
+            return &self.ent(e)->value as unsafe *V as *V
+        }
+    }
+
+    // The walks below read the entry array's address and the size once: an
+    // insert or a removal during a walk invalidates it.
     pub fn op in (self) -> yield (*const K, *V) {
-        var i: usize = 0
-        while i < self.len {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
             unsafe {
-                var unsafe *e = self.entry_array() + i
-                var kv = (&e->key as *const K, &e->value)
+                var kv = (&e->key as unsafe *const K as *const K, &e->value as unsafe *V as *V)
                 yield kv
+                e = e + 1
             }
-            i += 1
         }
     }
 
-    /// Iterates the entries of a const map in insertion order: `for (k, v) in m` copies;
-    /// `for (const *k, const *v) in m` binds read-only pointers to the stored key and value.
     pub fn op in (const self) -> yield (*const K, *const V) {
-        var i: usize = 0
-        while i < self.len {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
             unsafe {
-                var unsafe *e = self.entry_array() + i
-                var kv = (&e->key as *const K, &e->value as *const V)
+                var kv = (
+                    &e->key as unsafe *const K as *const K,
+                    &e->value as unsafe *const V as *const V,
+                )
+
                 yield kv
+                e = e + 1
             }
-            i += 1
         }
     }
+}
 
-    // --- insertion ------------------------------------------------------------
-
-    /// Adds `(k, v)` when `k` is absent and returns true; returns false and changes nothing when
-    /// `k`
-    /// is present (the old value and its place are kept). O(1) amortized.
-    pub inline fn insert(self, const k: K, const v: V) -> bool {
-        var t = tag_of(k.hash())
-        var slot: usize = 0
-        if (self.len != 0) && (self.probe(k, t, &slot) != HASH_NPOS) { return false }
-        self.add(slot, t, k, v)
-        return true
+extend <K impl Hash, V> HashMap<K, V> {
+    /// From any foreign range of pairs a `for p in r` loop accepts
+    /// (`cxx::std::unordered_map<K, V>`, `cxx::std::map<K, V>`, a vector of
+    /// `cxx::std::pair<K, V>`): each element's `first` is the key and
+    /// `second` the value; a later key replaces an earlier one. Names no
+    /// C++ type. See NOTES.md change 12 for the bound.
+    pub static fn <R> from_pairs(const r: R) -> Self {
+        // STUB-BLOCKED(unbounded-range): `for p in r` over a parameter with
+        // no bound is SC095E ('const R' is not iterable), and R has no bound
+        // to call through.
+        __builtin_trap()
     }
 
-    /// Stage 0's `emplace(k, v)`: insert.
-    /// Stage 0's `emplace(k, v)`: the same as `insert`.
-    pub inline fn emplace(self, const k: K, const v: V) -> bool { return self.insert(k, v) }
-
-    /// Adds `(k, v)` when `k` is absent and returns null; when `k` is present, changes nothing
-    /// and returns `v`. O(1) amortized.
-    pub fn try_insert(self, k: K, v: V) -> V? {
-        var none: V?
-        if self.insert(k, v) { return none }
-        return v
+    pub static fn with_capacity(n: usize) -> Self {
+        var m = HashMap<K, V>()
+        rt_reserve<MapEntry<K, V>>(&m.t, n)
+        return m
     }
 
-    /// Room for n entries without growing.
-    /// Ensures room for `n` entries without growing. O(size()) when it grows.
+    pub inline fn size(const self) -> usize {
+        return self.t.size()
+    }
+
+    pub inline fn is_empty(const self) -> bool {
+        return self.t.size() == 0
+    }
+
+    pub inline fn capacity(const self) -> usize {
+        return self.t.capacity()
+    }
+
+    /// Room for `n` entries in all without growing. Never shrinks.
     pub fn reserve(self, n: usize) {
-        if n > self.cap { self.grow(n) }
+        rt_reserve<MapEntry<K, V>>(&self.t, n)
     }
 
-    // --- removal ----------------------------------------------------------------
+    /// The smallest block that holds the entries; an empty map frees its
+    /// block.
+    pub fn shrink_to_fit(self) {
+        rt_shrink<MapEntry<K, V>>(&self.t)
+    }
 
-    /// Removes `k` and returns true, or returns false when it was absent. O(1) expected.
-    ///
-    /// The last entry moves into the removed entry's place (swap-remove), so insertion order is
-    /// kept except for that one entry. Use `erase_ordered` to keep the order exactly.
-    pub fn erase(self, const k: K) -> bool {
-        if self.len == 0 { return false }
-        var t = tag_of(k.hash())
+    pub inline fn op in (const self, const k: K) -> bool {
+        return self.find_(k) != NO_ENTRY
+    }
+
+    @hot_path pub inline fn contains(const self, const k: K) -> bool {
+        return self.find_(k) != NO_ENTRY
+    }
+
+    @hot_path pub inline fn get(const self, const k: K) -> *const V? {
+        var e = self.find_(k)
+        if e == NO_ENTRY {
+            return null
+        }
+
+        unsafe {
+            return &self.ent(e)->value as unsafe *const V as *const V
+        }
+    }
+
+    pub inline fn get_mut(self, const k: K) -> *V? {
+        var e = self.find_(k)
+        if e == NO_ENTRY {
+            return null
+        }
+
+        unsafe {
+            return &self.ent(e)->value as unsafe *V as *V
+        }
+    }
+
+    pub fn get_entry(const self, const k: K) -> *const MapEntry<K, V>? {
+        var e = self.find_(k)
+        if e == NO_ENTRY {
+            return null
+        }
+
+        unsafe {
+            return self.ent(e) as *const MapEntry<K, V>
+        }
+    }
+
+    pub fn first(const self) -> *const MapEntry<K, V>? {
+        if self.t.size() == 0 {
+            return null
+        }
+
+        unsafe {
+            return self.ent(0) as *const MapEntry<K, V>
+        }
+    }
+
+    pub fn last(const self) -> *const MapEntry<K, V>? {
+        if self.t.size() == 0 {
+            return null
+        }
+
+        unsafe {
+            return self.ent(self.t.size() - 1) as *const MapEntry<K, V>
+        }
+    }
+
+    /// Inserts or replaces; a replaced entry keeps its place and the key
+    /// already stored.
+    pub inline fn insert(self, k: K, v: V) -> V? { // the value it replaced
+        return self.insert_(move(k), move(v))
+    }
+
+    pub fn try_insert(self, k: K, v: V) -> V? { // null on success; v back when the key exists
+        var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = self.probe(k, t, &slot)
-        if e == HASH_NPOS { return false }
-        var mask = self.cap * 2 - 1
-        remove_slot(self.slot_table(), mask, self.shift, slot)
-        var unsafe *es = self.entry_array()
-        var last = self.len - 1
-        unsafe { __builtin_destruct_at((es + e) as *MapEntry<K, V>) }
-        if e != last {
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
+
+        if e != NO_ENTRY {
+            var back: V? = move(v)
+            return back
+        }
+
+        unsafe {
+            __builtin_construct_at<MapEntry<K, V>>(
+                self.add_(h, slot),
+                move(k),
+                move(v),
+            )
+        }
+
+        rt_inserted<MapEntry<K, V>, K>(&self.t)
+        return null
+    }
+
+    pub fn get_or_insert(self, k: K, v: V) -> *V {
+        var h           = hash_of(self.t, k)
+        var slot: usize = 0
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
+
+        if e == NO_ENTRY {
+            e = self.t.size()
             unsafe {
-                var lt = tag_of((es + last)->key.hash())
-                var ls = slot_of_entry(self.slot_table(), mask, self.shift, lt, last)
-                relocate_entry((es + e) as unsafe *u8, es + last)
-                self.slot_table()[ls] = slot_word(lt, e)
+                __builtin_construct_at<MapEntry<K, V>>(
+                    self.add_(h, slot),
+                    move(k),
+                    move(v),
+                )
             }
+
+            rt_inserted<MapEntry<K, V>, K>(&self.t)
         }
-        self.len = last
-        return true
+
+        unsafe {
+            return &self.ent(e)->value as unsafe *V as *V
+        }
     }
 
-    /// Removes `k` keeping every other entry's order; returns true if it was there. O(n): the
-    /// entries
-    /// after `k` move down one and the index is renumbered.
-    pub fn erase_ordered(self, const k: K) -> bool {
-        if self.len == 0 { return false }
-        var t = tag_of(k.hash())
+    /// `make` runs only on a miss.
+    pub fn get_or_insert_with(self, k: K, make: fn() -> V) -> *V {
+        var h           = hash_of(self.t, k)
         var slot: usize = 0
-        var e = self.probe(k, t, &slot)
-        if e == HASH_NPOS { return false }
-        remove_slot(self.slot_table(), self.cap * 2 - 1, self.shift, slot)
-        var unsafe *es = self.entry_array()
-        unsafe { __builtin_destruct_at((es + e) as *MapEntry<K, V>) }
-        var i = e
-        while i + 1 < self.len {
-            unsafe { relocate_entry((es + i) as unsafe *u8, es + (i + 1)) }
-            i += 1
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
+
+        if e == NO_ENTRY {
+            // Before the link: `make` may not see a half-built entry.
+            var v = make()
+            e = self.t.size()
+            unsafe {
+                __builtin_construct_at<MapEntry<K, V>>(
+                    self.add_(h, slot),
+                    move(k),
+                    move(v),
+                )
+            }
+
+            rt_inserted<MapEntry<K, V>, K>(&self.t)
         }
-        shift_down_after(self.slot_table(), self.cap * 2, e)
-        self.len -= 1
-        return true
+
+        unsafe {
+            return &self.ent(e)->value as unsafe *V as *V
+        }
     }
 
-    /// Removes `k` and returns its value, or returns null when it was absent. The last entry
-    /// takes its place, as in `erase`. O(1) expected.
-    pub fn swap_remove(self, const k: K) -> V? {
-        var e = self.index_of(k)
-        var none: V?
-        if e == HASH_NPOS { return none }
-        var ent: *MapEntry<K, V> = &null
-        unsafe { ent = (self.entry_array() + e) as *MapEntry<K, V> }
-        var out: V? = map_take<V>(ent->value)
-        self.erase(k)
-        return out
+    /// Removes `k`; the last entry takes its place. O(1).
+    pub inline fn swap_remove(self, const k: K) -> V? {
+        var h           = hash_of(self.t, k)
+        var slot: usize = 0
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
+
+        if e == NO_ENTRY {
+            return null
+        }
+
+        // `k` may be the stored key: nothing reads it after the destroy.
+        unsafe {
+            var unsafe *p      = self.ent(e)
+            var        out: V? = move(p->value)
+            __builtin_destruct_at(p as *MapEntry<K, V>)
+            rt_remove_swap<MapEntry<K, V>, K>(&self.t, slot, e)
+            return out
+        }
     }
 
-    /// Removes `k` and returns its value, or returns null when it was absent. Every other
-    /// entry keeps its order, as in `erase_ordered`. O(n).
+    /// Removes `k`; later entries shift down, so insertion order is kept.
+    /// O(n).
     pub fn shift_remove(self, const k: K) -> V? {
-        var e = self.index_of(k)
-        var none: V?
-        if e == HASH_NPOS { return none }
-        var ent: *MapEntry<K, V> = &null
-        unsafe { ent = (self.entry_array() + e) as *MapEntry<K, V> }
-        var out: V? = map_take<V>(ent->value)
-        self.erase_ordered(k)
-        return out
-    }
+        var e = self.find_(k)
+        if e == NO_ENTRY {
+            return null
+        }
 
-    /// Removes every entry, keeping the capacity. O(capacity).
-    pub fn clear(self) {
-        if self.cap == 0 { return }
-        self.destroy_entries()
-        self.len = 0
-        unsafe { __builtin_set_mem(self.block, 0 as byte, self.cap * 16) }
-    }
-
-    // --- internals ----------------------------------------------------------------
-
-    priv inline fn slot_table(const self) -> unsafe *u64 { return block_slots(self.block) }
-
-    /// The entries (`block`'s note: valid, if dangling, while cap == 0).
-    priv inline fn entry_array(const self) -> unsafe *MapEntry<K, V> {
-        unsafe { return block_entries(self.block, self.cap) as unsafe *MapEntry<K, V> }
-    }
-
-    /// k's entry index, or HASH_NPOS.
-    priv inline fn index_of(const self, const k: K) -> usize {
-        if self.len == 0 { return HASH_NPOS }
-        var slot: usize = 0
-        // The tag first, as its own statement: in one call, the effectful
-        // hash() after `k` makes SequenceLowering bind `k` by value, a
-        // deep copy of a string key on every lookup.
-        var t = tag_of(k.hash())
-        return self.probe(k, t, &slot)
-    }
-
-    /// k's entry index, or HASH_NPOS with `*slot` the empty slot where k
-    /// would go. Only while len > 0: an empty map may have no table.
-    priv inline fn probe(const self, const k: K, t: u32, slot: *usize) -> usize {
-        var mask = self.cap * 2 - 1
-        var i = (t >> self.shift) as usize
-        var unsafe *ss = self.slot_table()
-        var unsafe *es = self.entry_array()
         unsafe {
-            while true {
-                var s = ss[i]
-                if s == 0 { break }
-                if slot_tag(s) == t {
-                    var e = slot_entry(s)
-                    if (es + e)->key == k { (*slot) = i; return e }
+            var unsafe *p      = self.ent(e)
+            var        out: V? = move(p->value)
+            __builtin_destruct_at(p as *MapEntry<K, V>)
+            rt_remove_shift<MapEntry<K, V>>(&self.t, e)
+            return out
+        }
+    }
+
+    /// Removes the last entry. O(1).
+    pub fn pop(self) -> (K, V)? {
+        var n = self.t.size()
+        if n == 0 {
+            return null
+        }
+
+        unsafe {
+            var unsafe *p           = self.ent(n - 1)
+            var        out: (K, V)? = (move(p->key), move(p->value))
+            __builtin_destruct_at(p as *MapEntry<K, V>)
+            rt_remove_last(&self.t)
+            return out
+        }
+    }
+
+    /// Keeps the entries `keep` accepts, in order. `keep` sees each entry
+    /// once, front to back. O(n).
+    pub fn retain(self, keep: fn(*const K, *V) -> bool) {
+        var n        = self.t.size()
+        var w: usize = 0
+        var r: usize = 0
+        while r < n {
+            unsafe {
+                var unsafe *p = self.ent(r)
+                if keep(
+                    &p->key as unsafe *const K as *const K,
+                    &p->value as unsafe *V as *V,
+                ) {
+                    if w != r {
+                        rt_relocate<MapEntry<K, V>>(self.ent(w), p)
+                    }
+
+                    w += 1
+                } else {
+                    __builtin_destruct_at(p as *MapEntry<K, V>)
                 }
-                i = (i + 1) & mask
             }
+
+            r += 1
         }
-        (*slot) = i
-        return HASH_NPOS
+
+        if w != n {
+            rt_compact_end<MapEntry<K, V>, K>(&self.t, w)
+        }
     }
 
-    /// k's entry index, inserting k with a default value when absent.
-    priv inline fn intern(self, const k: K) -> usize {
-        var t = tag_of(k.hash())
-        var slot: usize = 0
-        if self.len != 0 {
-            var e = self.probe(k, t, &slot)
-            if e != HASH_NPOS { return e }
-        }
-        return self.add_default(slot, t, k)
-    }
-
-    /// The slot a new key with tag t goes in, growing first when the entries
-    /// are full: `slot` (probe's miss) unless the table moved or was empty.
-    priv inline fn place(self, t: u32, slot: usize) -> usize {
-        if self.len == self.cap {
-            self.grow(self.len + 1)
-            return empty_slot(self.slot_table(), self.cap * 2 - 1, self.shift, t)
-        }
-        if self.len == 0 { return (t >> self.shift) as usize }
-        return slot
-    }
-
-    /// A new entry (k, v) at the end; `slot` is probe's miss. Out of line:
-    /// the construction (and any growth) is the cost, and the lookup paths
-    /// that reach it stay small enough to inline.
-    @no_inline
-    priv fn add(self, miss: usize, t: u32, const k: K, const v: V) {
-        var slot = self.place(t, miss)
-        unsafe {
-            __builtin_construct_at<MapEntry<K, V>>((self.entry_array() + self.len) as unsafe *u8, k, v)
-            self.slot_table()[slot] = slot_word(t, self.len)
-        }
-        self.len += 1
-    }
-
-    /// A new entry for k, its value default-constructed; its index.
-    @no_inline
-    priv fn add_default(self, miss: usize, t: u32, const k: K) -> usize {
-        var slot = self.place(t, miss)
-        var e = self.len
-        unsafe {
-            __builtin_construct_at<MapEntry<K, V>>((self.entry_array() + e) as unsafe *u8, k)
-            self.slot_table()[slot] = slot_word(t, e)
-        }
-        self.len = e + 1
-        return e
-    }
-
-    /// A bigger block for at least `want` entries: the entries relocated,
-    /// the slots re-placed from their tags. No key is hashed.
-    @cold_path @no_inline
-    priv fn grow(self, want: usize) {
-        var nc = grown_cap(self.cap, want)
-        var unsafe *b = block_alloc(nc, sizeof MapEntry<K, V>, alignof MapEntry<K, V>)
-        var nslots = nc * 2
-        var sh = shift_for(nslots)
-        var ne: unsafe *MapEntry<K, V> = &null
-        unsafe { ne = block_entries(b, nc) as unsafe *MapEntry<K, V> }
-        if self.cap > 0 {
-            rebuild(block_slots(b), nslots - 1, sh, self.slot_table(), self.cap * 2)
-            var unsafe *oe = self.entry_array()
-            var i: usize = 0
-            while i < self.len {
-                unsafe { relocate_entry((ne + i) as unsafe *u8, oe + i) }
-                i += 1
-            }
-            block_free(self.block, self.cap, sizeof MapEntry<K, V>, alignof MapEntry<K, V>)
-        }
-        self.block = b
-        self.cap = nc
-        self.shift = sh
-    }
-
-    priv fn destroy_entries(self) {
-        if __builtin_is_trivially_destructible<MapEntry<K, V>>() { return }
-        var unsafe *es = self.entry_array()
+    /// Moves every entry of `other` in, in its order; where both have a key,
+    /// the value becomes `resolve(mine, theirs)`.
+    pub fn merge(self, other: Self, resolve: fn(V, V) -> V) { // consumes other
+        var n        = other.t.size()
         var i: usize = 0
-        while i < self.len {
-            unsafe { __builtin_destruct_at((es + i) as *MapEntry<K, V>) }
+        while i < n {
+            unsafe {
+                var unsafe *p          = rt_entry<MapEntry<K, V>>(other.t, i)
+                var        h           = hash_of(self.t, p->key)
+                var        slot: usize = 0
+                var e = raw_find_slot(
+                    self.t,
+                    p->key,
+                    h,
+                    sizeof MapEntry<K, V>,
+                    &slot,
+                )
+
+                if e != NO_ENTRY {
+                    var unsafe *q = self.ent(e)
+                    q->value = resolve(move(q->value), move(p->value))
+                } else {
+                    __builtin_construct_at<MapEntry<K, V>>(
+                        self.add_(h, slot),
+                        move(p->key),
+                        move(p->value),
+                    )
+
+                    rt_inserted<MapEntry<K, V>, K>(&self.t)
+                }
+            }
+
             i += 1
         }
+
+        // other's moved-from entries are destroyed with it.
+    }
+
+    /// Destroys every entry; the capacity stays.
+    pub fn clear(self) {
+        rt_clear<MapEntry<K, V>>(&self.t)
+    }
+
+    pub fn entries(const self) -> [const MapEntry<K, V>;] {
+        unsafe {
+            return Slice<const MapEntry<K, V>>(
+                self.ent(0) as unsafe *const MapEntry<K, V>,
+                self.t.size(),
+            )
+        }
+    }
+
+    pub fn keys(const self) -> yield *const K {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
+            unsafe {
+                yield &e->key as unsafe *const K as *const K
+                e = e + 1
+            }
+        }
+    }
+
+    pub fn values(const self) -> yield *const V {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
+            unsafe {
+                yield &e->value as unsafe *const V as *const V
+                e = e + 1
+            }
+        }
+    }
+
+    pub fn values_mut(self) -> yield *V {
+        var unsafe *e   = self.ent(0)
+        var unsafe *end = self.ent(self.t.size())
+        while e != end {
+            unsafe {
+                yield &e->value as unsafe *V as *V
+                e = e + 1
+            }
+        }
+    }
+}
+
+extend <K impl Hash, V impl Default> HashMap<K, V> {
+    pub fn get_or_default(self, k: K) -> *V {
+        var h           = hash_of(self.t, k)
+        var slot: usize = 0
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
+
+        if e == NO_ENTRY {
+            e = self.t.size()
+            unsafe {
+                __builtin_construct_at<MapEntry<K, V>>(
+                    self.add_(h, slot),
+                    move(k),
+                    V::make_default(),
+                )
+            }
+
+            rt_inserted<MapEntry<K, V>, K>(&self.t)
+        }
+
+        unsafe {
+            return &self.ent(e)->value as unsafe *V as *V
+        }
+    }
+}
+
+extend <K impl Hash, V impl Copyable> HashMap<K, V> {
+    pub fn get_or(const self, const k: K, const fallback: V) -> V {
+        var e = self.find_(k)
+        if e == NO_ENTRY {
+            return map_copy_of(fallback)
+        }
+
+        unsafe {
+            return map_copy_of(self.ent(e)->value)
+        }
+    }
+}
+
+extend <K impl Hash, V impl Copyable> HashMap<K, V> requires K impl Copyable {
+    /// Deep. The index is copied as bytes: entry order and positions are the
+    /// same, so nothing is hashed.
+    pub fn copy(const self) -> Self { // deep
+        var m = HashMap<K, V>()
+        var n = self.t.size()
+        if n == 0 {
+            return m
+        }
+
+        m.t.copy_index_from(
+            self.t,
+            sizeof MapEntry<K, V>,
+            alignof MapEntry<K, V>,
+        )
+
+        var unsafe *src = self.ent(0)
+        var unsafe *dst = m.ent(0)
+        eval if __builtin_is_trivially_copyable<MapEntry<K, V>>() && __builtin_is_trivially_destructible<MapEntry<K, V>>() {
+            unsafe {
+                __builtin_copy(
+                    dst as unsafe *u8,
+                    src as unsafe *const u8,
+                    n * sizeof MapEntry<K, V>,
+                )
+            }
+
+            m.t.set_size(n)
+        } else {
+            var i: usize = 0
+            while i < n {
+                unsafe {
+                    __builtin_construct_at<MapEntry<K, V>>(
+                        (dst + i) as unsafe *u8,
+                        map_copy_of(src[i].key),
+                        map_copy_of(src[i].value),
+                    )
+                }
+
+                i += 1
+                m.t.set_size(i)
+            }
+        }
+
+        return m
+    }
+
+    pub static fn from_slice(const items: [const (K, V);]) -> Self {
+        var m = HashMap<K, V>()
+        map_extend_from(&m, items)
+        return m
+    }
+
+    /// Copies each pair in; a later key replaces an earlier one.
+    pub fn extend_from(self, const items: [const (K, V);]) {
+        map_extend_from(&self, items)
+    }
+}
+
+// The key is copied by the key's own `copy()` unless it is a string or is
+// copy-constructible, which the helper copies directly. The bound sits on
+// the helper's own parameter so the `Copyable` witness reaches the call.
+// A value is made by its default constructor when it has one:
+// `V::make_default()` under the `requires` clause reaches no `Default`
+// witness for a primitive value, so a type with only `make_default()` traps
+// (insert moves a value in and is unaffected).
+priv inline fn <K impl Copyable> map_key_copy(const k: K) -> K {
+    eval if __builtin_is_same<K, string>() {
+        unsafe {
+            var c = (&k as unsafe *const string)->copy()
+            return move(*(&c as unsafe *K))
+        }
+    } else if __builtin_is_constructible<K, const K>() {
+        return k
+    } else {
+        return map_copy_of(k)
+    }
+}
+
+priv inline fn <V> map_value_default() -> V {
+    eval if __builtin_is_default_constructible<V>() {
+        var v: V
+        return v
+    } else {
+        __builtin_trap()
+    }
+}
+
+extend <K impl Hash, V> HashMap<K, V> impl FromIterator<(K, V)> {
+    /// A later key replaces an earlier one.
+    static fn <J impl Iterator> from_iter(it:   J,
+                                          hint: usize) -> Self requires __builtin_is_same<J::Item, (K, V)>() {
+        var m = HashMap<K, V>()
+        rt_reserve<MapEntry<K, V>>(&m.t, hint)
+        loop {
+            var x = it.next()
+            if !x? {
+                break
+            }
+
+            var pair: (K, V) = move(unwrap!(x))
+            m.insert_(move(pair.0), move(pair.1))
+        }
+
+        return m
+    }
+}
+
+/// Copies each pair in; a later key replaces an earlier one.
+priv fn <K impl Hash, V impl Copyable> map_extend_from(m:           *HashMap<K, V>,
+                                                       const items: [const (K, V);]) requires K impl Copyable {
+    var        n    = items.count_()
+    var unsafe *src = items.first_()
+    rt_reserve<MapEntry<K, V>>(&m->t, m->t.size() + n)
+    var i: usize = 0
+    while i < n {
+        unsafe {
+            m->insert_(map_copy_of((*(src + i)).0), map_copy_of((*(src + i)).1))
+        }
+
+        i += 1
+    }
+}
+
+extend <K impl Hash, V> HashMap<K, V> impl Default {
+    static inline fn make_default() -> HashMap<K, V> {
+        return HashMap<K, V>()
     }
 }

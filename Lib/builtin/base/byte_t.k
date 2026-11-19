@@ -14,5 +14,6 @@
 /// `@open`: a byte holds any of its 256 values and none of them is a variant. Sema keeps its own
 /// `byte` rules; only the C++ spelling points here.
 ///
-/// **Note:** Bitwise operators (`&`, `|`, `^`, `~`, `<<`, `>>`) on `byte` are not defined yet.
+/// **Note:** `&`, `|`, `^` and `~` on `byte` are Sema's own. The shifts `<<` and `>>` are not
+/// defined on it.
 @open pub enum Byte derives u8 { }

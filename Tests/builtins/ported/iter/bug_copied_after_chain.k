@@ -1,5 +1,5 @@
 // `copied()` on a chain of two slice iterators is rejected: `Chain` does not
-// implement `PointerItems`. The doc comment on `Copied` (Lib/std2/iter.k)
+// implement `PointerItems`. The doc comment on `Copied` (Lib/std/iter.k)
 // states that the inner iterator may be "an adapter over one that passes its
 // items on unchanged", which a chain does; `Filter`, `Take`, `Skip`,
 // `TakeWhile`, `SkipWhile`, `StepBy`, `Peekable` and `Rev` each have the
@@ -17,10 +17,9 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
 // RUN: rm -f %t.exe %t.o2.exe
-// RUN: %kairo_new %s -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
-// RUN: %kairo_new %s -O2 -o %t.o2.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
 // RUN: %t.o2.exe

@@ -25,8 +25,7 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
-// RUN: { %kairo_new %s --type-check-only 2>&1 || true; } | %FileCheck %s
+// RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s
 // CHECK: const_reject.k:10:7: error [R025E]: no member named 'reverse' in 'Slice'
 // CHECK: const_reject.k:11:7: error [R025E]: no member named 'rotate' in 'Slice'
 // CHECK: const_reject.k:12:7: error [R025E]: no member named 'swap' in 'Slice'

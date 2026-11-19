@@ -14,7 +14,10 @@
 /// three are marked `@no_unwind`.
 pub class Suspend {
     /// Returns false: the awaiter always suspends.
-    @no_unwind pub inline fn await_ready(self) -> bool { return false }
+    @no_unwind pub inline fn await_ready(self) -> bool {
+        return false
+    }
+
     /// Does nothing on suspend; the handle `h` is ignored.
     @no_unwind pub inline fn <H> await_suspend(self, h: H) { }
     /// Does nothing on resume.

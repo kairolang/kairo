@@ -12,4 +12,4 @@
 ///
 /// Fields: `limbs` points at the 64-bit limbs of the magnitude, `len` counts them, and `neg`
 /// is the sign flag.
-pub struct BigInt   { var limbs: *u64; var len: usize; var neg: bool }
+pub struct BigInt { var limbs: *u64; var len: usize; var neg: bool }

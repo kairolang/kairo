@@ -87,13 +87,12 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu -o %t.exe --cache-dir %t.d
+// RUN: %kairo %s -O2 --target=x86_64-linux-gnu -o %t.exe --cache-dir %t.d
 // RUN: %t.exe
-// RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu --emit=llvm-ir -o %t.ll --cache-dir %t.d
+// RUN: %kairo %s -O2 --target=x86_64-linux-gnu --emit=llvm-ir -o %t.ll --cache-dir %t.d
 // RUN: %FileCheck %s --check-prefix=IR --input-file=%t.ll
-// RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu -S -o %t.s --cache-dir %t.d
+// RUN: %kairo %s -O2 --target=x86_64-linux-gnu -S -o %t.s --cache-dir %t.d
 // RUN: %FileCheck %s --check-prefix=ASM --input-file=%t.s
 //
 // IR-LABEL: define {{.*}}6lt_i32Eii(

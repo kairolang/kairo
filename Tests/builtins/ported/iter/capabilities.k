@@ -10,7 +10,7 @@
 //
 // `filter_map`, `flat_map`, `step_by` and `peekable` have no DoubleEnded
 // extension and `step_by` and `peekable` no ExactSize one in
-// Lib/std2/iter.k, where the Rust adapters have them; nothing asserts their
+// Lib/std/iter.k, where the Rust adapters have them; nothing asserts their
 // absence here.
 //
 // Cases from Rust library/coretests/tests/iter/adapters/ (the size and
@@ -109,9 +109,8 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: { %kairo_new --type-check-only %s --cache-dir %t.d || true; } 2>&1 | %FileCheck %s
+// RUN: { %kairo --type-check-only %s --cache-dir %t.d || true; } 2>&1 | %FileCheck %s
 // CHECK-NOT: capabilities.k:{{(6[4-9]|7[0-8])}}:
 // CHECK: capabilities.k:81:{{[0-9]+}}: error [SC162E]: 'Filter<Span>' does not conform to 'ExactSize'
 // CHECK: capabilities.k:82:{{[0-9]+}}: error [SC162E]: 'FilterMap<Span, i64>' does not conform to 'ExactSize'

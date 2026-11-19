@@ -33,9 +33,8 @@ fn main() -> i32 {
 }
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: %kairo_new %s -O2 --target=x86_64-linux-gnu --emit asm --cache-dir %t.d -o %t.s
+// RUN: %kairo %s -O2 --target=x86_64-linux-gnu --emit asm --cache-dir %t.d -o %t.s
 // RUN: %FileCheck %s --check-prefix=PROBE < %t.s
 // RUN: %FileCheck %s --check-prefix=HAS < %t.s
 // RUN: %FileCheck %s --check-prefix=SUM < %t.s

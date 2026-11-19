@@ -17,6 +17,5 @@ fn main() -> i32 {
 // CHECK: filter_not_exact_size.k:12:{{[0-9]+}}: error [SC162E]: 'Filter<Copied<SliceIter<i32>>>' does not conform to 'ExactSize'
 
 // --- lit wiring ---
-// REQUIRES: newlib
 // RUN: rm -rf %t.d
-// RUN: { %kairo_new --type-check-only %s --cache-dir %t.d || true; } 2>&1 | %FileCheck %s
+// RUN: { %kairo --type-check-only %s --cache-dir %t.d || true; } 2>&1 | %FileCheck %s
