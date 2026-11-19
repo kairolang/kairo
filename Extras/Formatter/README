@@ -168,8 +168,9 @@ Which form each list gets:
   `fn f(` line.
 - Call arguments, tuple and list literals, named initializers: always block.
 - Imports: always block (rule 5.2).
-- Long name lists in imports and in list / tuple / set / map literals: the
-  grid form below instead of one per line, when it applies.
+- Long name lists in list / tuple / set / map literals: the grid form
+  below instead of one per line, when it applies. An import list never
+  takes it.
 - Fallback for parameters: if the aligned column leaves too little room (the
   widest parameter would still cross the width), use the block form.
   (proposed)
@@ -186,7 +187,7 @@ import foo::{
     Sazs, Ianhs, Achoo,
 }
 ```
-- Where: imports and list / tuple / set / map literals. Not call
+- Where: list / tuple / set / map literals. Not imports, call
   arguments, parameters or named initializers. A `case` with many
   alternatives has its own grid, rule 8.4.
 - When: the list has more than 6 items, no item is over 24
@@ -360,9 +361,8 @@ import Foo::Bar as Baz
 > base).
 
 **5.2 Two or more names: always broken.** [spec-only] Even when the
-list would fit on one line. Up to 6 names (or any long name): rule 4.1's
-block form, one per line. More than 6 short names: the grid form (rule 4.1).
-Either way the list ends with a trailing comma (revising the
+list would fit on one line: rule 4.1's block form, one per line, however
+many names (a grid would pad a column to its widest name). The list ends with a trailing comma (revising the
 earlier "no trailing comma" call to match the grid example, rule 4.2) and
 there is no `;` after the closing `}` (section 13).
 ```rs
@@ -386,7 +386,7 @@ import foo::{
     Sazs,
 }
 ```
-With a seventh name the same list takes the grid form, sorted, row by row.
+With a seventh name it stays one per line, sorted.
 The language docs write `import math::{Vector3, Matrix4}` on one line; that
 is a difference from this rule, not an error in the docs.
 

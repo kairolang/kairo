@@ -1604,7 +1604,8 @@ pub class Formatter {
             return Doc::text(head.copy() + "::{" + im->items[0] + "}")
         }
 
-        // 5.2: two or more names are always broken, block or grid form
+        // 5.2: two or more names are always broken, one per line (a grid
+        // would pad a column to its widest name)
         var xs   = self.import_items(*im)
         var keys = cxx::std::vector<Doc>()
         var vals = cxx::std::vector<Doc>()
@@ -1613,14 +1614,9 @@ pub class Formatter {
             vals.push_back(Doc::text(xs[i]))
         }
 
-        var flags = LIST_FORCE()
-        if xs.size() > import_block_max() {
-            flags |= LIST_GRID()
-        }
-
         return Doc::concat2(
             Doc::text(head.copy() + "::"),
-            Doc::list("{", "}", keys, vals, Doc::nothing(), flags),
+            Doc::list("{", "}", keys, vals, Doc::nothing(), LIST_FORCE()),
         )
     }
 

@@ -3,7 +3,7 @@
 //
 // Section 5: ffi imports first in their own order, one blank line, then
 // the Kairo imports sorted by path. One name loses its braces (5.1), two to
-// six go one per line, more than six short names take the grid (5.2), and a
+// more go one per line, never a grid (5.2), and a
 // comment directly above an import travels with it (5.4).
 
 ffi "c++" import "zlib.h"
@@ -25,7 +25,14 @@ import kit::parts::*
 import kit::parts::nested::Bolt
 import self::local::thing // trailing comment stays with its import
 import many::{
-    Alpha, Beta, Delta, Epsilon, Eta, Gamma, Theta, Zeta,
+    Alpha,
+    Beta,
+    Delta,
+    Epsilon,
+    Eta,
+    Gamma,
+    Theta,
+    Zeta,
 }
 import zeta::Gamma
 

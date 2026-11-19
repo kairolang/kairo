@@ -63,11 +63,6 @@ pub fn match_expr_max_flat() -> usize {
     return 2
 }
 
-/// Imports with more than this many names take the grid form (5.2).
-pub fn import_block_max() -> usize {
-    return 6
-}
-
 /// The rules kfmt implements (README
 /// 8.1-8.4, 8.11, 14.4), one switch each. `true` is the spec's rule; a
 /// review can flip them here.
