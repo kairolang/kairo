@@ -174,7 +174,7 @@ fn fields_member() {
     ck(jf("one") == "one|", 72, "one field")
     ck(jf("") == "", 73, "no fields in empty")
     ck(jf("a  b") == "a|b|", 74, "runs of space")
-    ck(jf(" a b c\u0085d") == "a|b|c|d|", 75, "unicode separators")
+    ck(jf(" a b\u2028c\u0085d") == "a|b|c|d|", 75, "unicode separators")
     ck(jf("a​b") == "a​b|", 76, "zero width space is not space")
     ck(jf("a b") == "a|b|", 77, "no-break space is space")
     ck(jf("€ 😀") == "€|😀|", 78, "multi-byte fields")
@@ -190,7 +190,7 @@ fn trim_members() {
         ck(mk(k, "   ").trim().is_empty(), b + 5, "trim only space")
         ck(mk(k, "").trim().is_empty(), b + 6, "trim empty")
         ck(mk(k, "\t\n\r abc \u000b\u000c").trim() == "abc", b + 7, "trim ascii space kinds")
-        ck(mk(k, "  é　 ").trim() == "é", b + 8, "trim unicode space")
+        ck(mk(k, "  é　\u2028").trim() == "é", b + 8, "trim unicode space")
         ck(mk(k, "​abc").trim() == "​abc", b + 9, "zero width space stays")
         ck(mk(k, "a b").trim() == "a b", b + 10, "inner space stays")
         ck(mk(k, "\u0085x").trim_start() == "x" && mk(k, "x\u0085").trim_end() == "x", b + 11, "NEL")
