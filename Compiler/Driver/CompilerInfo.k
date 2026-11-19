@@ -112,6 +112,12 @@ extend CompilerInstance {
     /// target (_use_bundled_sysroot's lookup, without its validation), else
     /// --sysroot, else "".
     priv fn _version_sysroot(self) -> string {
+        // --sysroot-exact names the root as given (_use_bundled_sysroot).
+        if self.invocation()->args.get_bool("sysroot-exact")
+            && !self.invocation()->target.sysroot.is_empty() {
+            return self.invocation()->target.sysroot.copy()
+        }
+
         var want = self._sysroot_target()
         if !want.is_empty() {
             var dir = self._bundled_sysroot_dir(want)
