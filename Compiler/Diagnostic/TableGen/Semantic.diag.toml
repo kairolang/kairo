@@ -1248,8 +1248,10 @@ group = "lifecycle"
     }
     ```
 
-    a base with no virtual method is not checked, as clang's `-Wdelete-non-virtual-dtor` does not
-    check one: such a base is a mixin, never the type a derived object is deleted through.
+    a base with no virtual method is not checked at its declaration, as clang's
+    `-Wdelete-non-virtual-dtor` does not check one. it is checked where it is destroyed: `@destroy p`
+    with `p: *Base`, when a class in the same unit derives from that base and has destructor work,
+    is SC056E at the `@destroy`, since only the base's destructor would run.
 
     ## how to fix
 
