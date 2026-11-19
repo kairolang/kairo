@@ -29,7 +29,11 @@ import AST::Context::DeclContext::{
 }
 import AST::Context::SymbolTable::DeclName
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::DeclFacts::tu_of
+import AST::DeclFacts::{
+    dc_of,
+    decl_instantiated_from,
+    tu_of,
+}
 import AST::LangItems::LangAttrs
 import AST::Node::Base::Type
 import AST::Node::CanonicalNodes::canon_unqual
@@ -983,6 +987,30 @@ pub class OperatorFacts {
 
         return OperatorFacts::declares_subscript_set(f->semantic_dc)
             || OperatorFacts::declares_subscript_set(f->lexical_dc)
+            || OperatorFacts::_primary_splits(f->semantic_dc)
+            || OperatorFacts::_primary_splits(f->lexical_dc)
+    }
+
+    /// `dc` is a specialization (or an instance of one) whose primary
+    /// declares `op []=`. Its `op []` is spelled as the primary's read form:
+    /// a generic body typed against the primary (`extend <T> [T;]`) calls
+    /// that name whichever specialization the instance selects
+    /// (`Slice<const T>` declares no `op []=` of its own).
+    priv static fn _primary_splits(dc: unsafe *DeclContext) -> bool {
+        if dc == &null || !dc->is_type_scope() {
+            return false
+        }
+
+        var unsafe *p = decl_instantiated_from(dc->owner_decl())
+        for var guard: usize = 0; p != &null && guard < 8; ++guard {
+            if OperatorFacts::declares_subscript_set(dc_of(p)) {
+                return true
+            }
+
+            p = decl_instantiated_from(p)
+        }
+
+        return false
     }
 
     /// `dc`'s own table holds an `op []=`.

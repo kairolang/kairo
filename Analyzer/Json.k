@@ -838,9 +838,9 @@ pub fn utf8_append(out: *string, cp: u32) {
         raw.push((0xE0 | (cp >> 12)) as u8)
         raw.push((0x80 | ((cp >> 6) & 0x3F)) as u8)
         raw.push((0x80 | (cp & 0x3F)) as u8)
-        out->push_str(string(&raw[0], raw.size()))
+        out->push_str(string::from_bytes_unchecked(const &raw[0], raw.size()))
     } else {
-        out->push(cp as char)
+        out->push(cp)
     }
 }
 

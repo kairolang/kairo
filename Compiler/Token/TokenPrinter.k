@@ -267,9 +267,12 @@ pub class TokenPrinter {
             line += s->reset
         }
 
+        // Held in a local: get_text() points into it, and an f-string's
+        // holes are evaluated into statements of their own.
+        var text = TokenText::resolve(*tok, self._tcm)
         line += " "
         line += kind_color
-        line += f"'{(*TokenText::resolve(*tok, self._tcm).get_text())}'"
+        line += f"'{*text.get_text()}'"
         line += s->reset
         line += " "
         line += self._fmt_range(tok->range)

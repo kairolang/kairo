@@ -4722,7 +4722,8 @@ pub class FrontendAction {
             }
 
             at_line_start = false
-            out += *TokenText::resolve(*tok, tcm).get_text()
+            var text = TokenText::resolve(*tok, tcm)
+            out += *text.get_text()
         }
 
         io::println(f"{out}")

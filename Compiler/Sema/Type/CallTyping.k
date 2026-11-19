@@ -400,12 +400,20 @@ pub class <T: type> CallTyping {
 
     fn build_args(self,
                   list:       FrozenList<unsafe *Expr>,
-                  @inout out: cxx::std::vector<ArgInfo>) -> bool {
+                  @inout out: cxx::std::vector<ArgInfo>,
+                  cands:      unsafe *cxx::std::vector<unsafe *Decl> = &null) -> bool {
         var ok = true
         for var i: usize = 0; i < list.size(); ++i {
             var unsafe *e = list[i]
             if e == &null {
                 continue
+            }
+
+            // Moving an element out writes its container: an argument a
+            // candidate takes `@move` is the place form of a split subscript
+            // on a mutable container (as `&x[i]` is), else the read form.
+            if cands != &null && self._some_moves_at(cands, i) {
+                self.dyn()->mark_subscript_use(e, SUB_SOFT)
             }
 
             var a = self.arg_info(e)
@@ -417,6 +425,36 @@ pub class <T: type> CallTyping {
         }
 
         return ok
+    }
+
+    /// Some function in `cands` takes its `i`th explicit argument `@move`.
+    priv fn _some_moves_at(self, cands: unsafe *cxx::std::vector<unsafe *Decl>, i: usize) -> bool {
+        for var k: usize = 0; k < cands->size(); ++k {
+            var unsafe *f = dyn_cast<FunctionDecl>((*cands)[k])
+            if f == &null {
+                continue
+            }
+
+            var seen: usize = 0
+            for var j: usize = 0; j < f->params.size(); ++j {
+                var unsafe *p = f->params[j]
+                if p == &null || p->is_self {
+                    continue
+                }
+
+                if seen == i {
+                    if p->mode == ParamMode::Move {
+                        return true
+                    }
+
+                    break
+                }
+
+                ++seen
+            }
+        }
+
+        return false
     }
 
     /// The `&x` node, now known to be the marker: it reads as its operand.
@@ -2459,7 +2497,7 @@ pub class <T: type> CallTyping {
             var _ctx = OvlCallScope(unsafe &self.dyn()->ovl)
             self.dyn()->ovl.explicit_args.clear()
             self.dyn()->ovl.recv_cat = Expr::ValueCategory::LValue
-            ok                       = self.build_args(n->args, &args)
+            ok                       = self.build_args(n->args, &args, cands)
         }
 
         // ADL ([basic.lookup.argdep]): an unqualified call also sees functions

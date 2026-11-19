@@ -249,8 +249,15 @@ extend EmitPlan {
             }
 
             // A native operation (the requirement itself as the witness, e.g. a
-            // builtin's `==`) forwards to no decl: nothing to admit.
+            // builtin's `==`) forwards to no decl. Its body is spelled inline
+            // and calls into its by-reference parameters (Hash's `hash` on an
+            // imported type or a pointer: `h.write_usize(...)`), so their
+            // records are complete first.
             if DeclFacts::decl_is_requirement(w) {
+                if i < ms.size() && ms[i] != &null {
+                    self._native_witness_params(k, ms[i])
+                }
+
                 continue
             }
 
@@ -456,6 +463,18 @@ extend EmitPlan {
             }
 
             self._witness_dep(k, p->type_)
+        }
+    }
+
+    /// The by-reference parameters of requirement `f`, which a native
+    /// witness's inline body calls members of: Complete dependencies of
+    /// witness `k` (_witness_sig declares them only).
+    fn _native_witness_params(self, k: usize, f: unsafe *Declarations::FunctionDecl) {
+        for var j: usize = 0; j < f->params.size(); ++j {
+            var unsafe *p = f->params[j]
+            if p != &null && !p->is_self && p->mode != ParamMode::Value {
+                self._witness_dep(k, p->type_)
+            }
         }
     }
 

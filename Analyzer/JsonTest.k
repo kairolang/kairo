@@ -38,7 +38,8 @@ pub fn probe(const text: string) -> string {
 fn bytes(const a: [u8]) -> string {
     var s = string()
     for var i: usize = 0; i < a.size(); ++i {
-        s.push_back(a[i])
+        var b = a[i]
+        s += string::from_bytes_unchecked(const &b, 1)
     }
 
     return s
@@ -47,8 +48,9 @@ fn bytes(const a: [u8]) -> string {
 /// `n` copies of `c`.
 fn repeat(c: u8, n: usize) -> string {
     var s = string()
+    var b = c
     for var i: usize = 0; i < n; ++i {
-        s.push_back(c)
+        s += string::from_bytes_unchecked(const &b, 1)
     }
 
     return s
@@ -56,20 +58,15 @@ fn repeat(c: u8, n: usize) -> string {
 
 /// The first `n` bytes of `s`.
 fn prefix(const s: string, n: usize) -> string {
-    var r = string()
-    for var i: usize = 0; i < n; ++i {
-        r.push_back(s[i])
-    }
-
-    return r
+    return string::from_bytes_unchecked(s.data(), n)
 }
 
 /// `"` + body + `"`, so a case spells only what is inside the quotes.
 fn quoted(const body: string) -> string {
     var s = string()
-    s.push_back('"' as u8)
+    s.push('"')
     s += body
-    s.push_back('"' as u8)
+    s.push('"')
     return s
 }
 
@@ -1004,7 +1001,7 @@ class Checker {
         self.eq_s("short escapes", e.out, "\"\\\"\\\\\\n\\r\\t\"")
         var all = string()
         for var c: u32 = 0; c < 32; ++c {
-            all.push_back(c as u8)
+            all.push(c)
         }
 
         var ew = JsonWriter()
@@ -1041,7 +1038,7 @@ class Checker {
         // content plus all of ASCII).
         var asc = string()
         for var c: u32 = 0; c < 128; ++c {
-            asc.push_back(c as u8)
+            asc.push(c)
         }
 
         asc += utf

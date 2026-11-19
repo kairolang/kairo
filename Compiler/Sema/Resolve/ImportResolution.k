@@ -1258,9 +1258,7 @@ pub class ImportResolution {
         //
         // So: a real import evicts a prelude handle of the same name, and a
         // prelude handle never lands on a name a real import already bound.
-        // Narrow on purpose -- handles only. builtin's wildcard folds Type
-        // and FunctionSet targets, and a user import colliding with one of
-        // those is still the R016E it is today.
+        // Handles only here; the prelude's other targets yield below.
         if self._is_prelude_handle(t) {
             for var i: usize = 0; i < entry->targets.size(); ++i {
                 if !self._is_prelude_handle(entry->targets[i]) {
@@ -1269,6 +1267,23 @@ pub class ImportResolution {
             }
         } else {
             self._drop_prelude_handles(entry)
+        }
+
+        // The prelude is consulted last: a name an import the user wrote
+        // brings shadows the builtin library's, so a new public builtin
+        // name never breaks a program that declares its own. A prelude
+        // target yields to any other target and is kept only when it is the
+        // name's sole target (a private one is then R047E, "declared
+        // private", rather than an unknown name). Function sets still merge
+        // into one overload set, as two imports' do.
+        if self._yields_to_imports(t) {
+            for var i: usize = 0; i < entry->targets.size(); ++i {
+                if !self._yields_to_imports(entry->targets[i]) {
+                    return
+                }
+            }
+        } else {
+            self._drop_prelude_yielders(entry)
         }
 
         entry->add_target(t)
@@ -1501,6 +1516,38 @@ pub class ImportResolution {
         }
 
         return o->is_prelude
+    }
+
+    priv fn _yields_to_imports(self, t: OverlayTarget) -> bool {
+        var unsafe *o = dyn_cast<ImportDecl>(t.origin)
+        if o == &null || !o->is_prelude {
+            return false
+        }
+
+        return t.vis == OverlayVisibility::Private || t.kind != OverlayTargetKind::FunctionSet
+    }
+
+    priv fn _drop_prelude_yielders(self, entry: unsafe *OverlayEntry) {
+        var any = false
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            if self._yields_to_imports(entry->targets[i]) {
+                any = true
+                break
+            }
+        }
+
+        if !any {
+            return
+        }
+
+        var keep = cxx::std::vector<OverlayTarget>()
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            if !self._yields_to_imports(entry->targets[i]) {
+                keep.push_back(entry->targets[i])
+            }
+        }
+
+        entry->targets = keep
     }
 
     priv fn _drop_prelude_handles(self, entry: unsafe *OverlayEntry) {
