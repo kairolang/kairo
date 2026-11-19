@@ -573,7 +573,8 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         }
 
         if nm == LangAttrs::transfer_copy() || nm == LangAttrs::transfer_move() {
-            if !fnd {
+            // A constructor takes `self`; a free or static function never is one.
+            if !fnd || !cast<FunctionDecl>(d)->is_method() {
                 self._misplaced(
                     e,
                     nm,

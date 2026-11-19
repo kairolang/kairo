@@ -209,7 +209,10 @@ import AST::DeclFacts::{
     decl_is_instance,
 }
 import AST::Kind::TypeKind::TypeKind
-import AST::LangItems::LangAttrs
+import AST::LangItems::{
+    LangAttrs,
+    WellKnownType,
+}
 import AST::Mixin::FFILinkage::ForeignLayout
 import AST::Node::Base::{
     Decl,
@@ -230,7 +233,10 @@ import AST::Node::Declarations::{
     FnBodyKind, FunctionDecl, ImplicitTransfer, InterfaceDecl, ParamDecl, StorageClass,
     StructDecl, TransferKind, TypeAliasDecl,    UnionDecl,
 }
-import AST::Node::Expressions::AssignOperatorExpr
+import AST::Node::Expressions::{
+    AssignOperatorExpr,
+    CallExpr,
+}
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
@@ -450,6 +456,12 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     priv var _facts_arena: llvm::SpecificBumpPtrAllocator<LifecycleFacts>
     pub var  n_checked:    usize                                          = 0
     pub var  n_errored:    usize                                          = 0
+    /// Bases with no virtual destructor that a class with destructor work
+    /// derives from, and the `destroy` calls met, both of this TU: a
+    /// `destroy` of the base type is checked once the whole TU is walked,
+    /// since a derived class may follow the call.
+    priv var _plain_bases:   cxx::std::vector<unsafe *Decl>
+    priv var _destroy_calls: cxx::std::vector<unsafe *CallExpr>
 
     /// Unwired. Exists for the by-value member Sema::lifecycle, which is
     /// assigned the wired form once the SemaContext it borrows sits at its
@@ -483,6 +495,80 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         self.run(tu)
+        self._check_destroy_calls()
+    }
+
+    /// # destroy through a base
+
+    fn visit_call_expr(self, n: unsafe *CallExpr) -> bool {
+        if n == &null || n->args.size() != 1 {
+            return true
+        }
+
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(n->callee)
+        if ni != &null && self._is_destroy(ni->resolved_decl) {
+            self._destroy_calls.push_back(n)
+        }
+
+        return true
+    }
+
+    priv fn _is_destroy(self, d: unsafe *Decl) -> bool {
+        if d == &null || self.sc->well_known == &null {
+            return false
+        }
+
+        var unsafe *ld = self.sc->well_known->get(WellKnownType::Destroy)
+        return ld != &null && NameLookup::representative(d) == NameLookup::representative(ld)
+    }
+
+    /// `@destroy p` with `p: *Base`, where Base has no virtual destructor
+    /// and a class with destructor work derives from it: the derived part
+    /// of whatever `p` points at is never destroyed. SC056E at the
+    /// declaration covers a polymorphic base; this covers the others, which
+    /// are only unsafe at a `destroy` of the base type.
+    priv fn _check_destroy_calls(self) {
+        for var i: usize = 0; i < self._destroy_calls.size(); ++i {
+            var unsafe *c = self._destroy_calls[i]
+            if c->args[0] == &null {
+                continue
+            }
+
+            var unsafe *bd = self._tu.record_decl(
+                self._tu.pointee(c->args[0]->type_),
+            )
+
+            if bd == &null {
+                continue
+            }
+
+            var unsafe *rep = NameLookup::representative(bd)
+            var        hit  = false
+            for var j: usize = 0; j < self._plain_bases.size(); ++j {
+                if self._plain_bases[j] == rep {
+                    hit = true
+                }
+            }
+
+            if !hit {
+                continue
+            }
+
+            var bn = self._tu.decl_name(bd)
+            var b = self.sc->diag->report(
+                DiagID::SC056E,
+                c->range.start,
+                f"'{bn}' has no virtual destructor and a class with a destructor derives from it; destroying a '*{bn}' would run only '{bn}''s destructor and leak the rest",
+            )
+
+            b.first(c->range)
+            b.note(
+                bd->range.start,
+                f"declare 'virtual fn op finally(self)' in '{bn}', or destroy through a pointer to the most derived type",
+            )->child_first(bd->range)
+            b.emit()
+            self.n_errored += 1
+        }
     }
 
     /// # facts
@@ -1683,6 +1769,12 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             // An Unknown is the pattern's; each instance is asked again (instance_failures).
             if bf->virtual_dtor == LifecycleTri::Unknown {
                 continue
+            }
+
+            // A base that is not polymorphic is reported at a `destroy` of
+            // its type instead (_check_destroy_calls).
+            if bf->polymorphic != LifecycleTri::Yes {
+                self._plain_bases.push_back(NameLookup::representative(bd))
             }
 
             // Only a POLYMORPHIC base is deleted through, as clang's
