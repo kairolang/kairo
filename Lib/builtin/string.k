@@ -192,6 +192,13 @@ pub class string {
         }
     }
 
+    /// A copy of `n` bytes at `d` that are not checked to be UTF-8 (this string does not check any).
+    /// The caller accepts that the bytes may not be UTF-8: source text, argv and paths that must
+    /// round-trip.
+    static fn from_bytes_unchecked(d: *const u8, n: usize) -> string {
+        return string(d, n)
+    }
+
     /// Creates a string of `n` copies of the byte `c`. O(n).
     ///
     /// The count comes second, so a literal count is never read as a pointer.

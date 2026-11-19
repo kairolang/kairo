@@ -2643,6 +2643,33 @@ extend string {
         return s
     }
 
+    /// A copy of the `n` bytes at `d`, not checked to be UTF-8. The caller accepts
+    /// that the bytes may not be UTF-8: source text, argv and paths that must
+    /// round-trip. Such a string is for storing, comparing and printing back;
+    /// character iteration over invalid bytes is not meaningful.
+    pub static fn from_bytes_unchecked(d: *const u8, n: usize) -> string {
+        if n == 0 {
+            return string()
+        }
+
+        @unlikely
+        if n > MAX_LEN {
+            string::too_long()
+        }
+
+        // Continuation bytes counted as a valid string's would be.
+        var conts: usize = 0
+        unsafe {
+            for var i: usize = 0; i < n; i++ {
+                if (d[i] & 0xC0) == 0x80 {
+                    conts++
+                }
+            }
+
+            return string::owned_(d as unsafe *const u8, n, conts, n)
+        }
+    }
+
     pub static fn from_utf8(const b: [const u8;]) -> string? { // null on invalid UTF-8
         var n = b.size()
         if n == 0 {
