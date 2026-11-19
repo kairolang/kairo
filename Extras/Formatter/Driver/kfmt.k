@@ -923,13 +923,15 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var roots = copy_strings(ci->invocation()->include_dirs)
 
     // every .k file named, or under a named directory; sorted so runs agree
-    var files = cxx::std::vector<string>()
+    var files            = cxx::std::vector<string>()
+    var bad_paths: usize = 0
     for var x: usize = 0; x < inputs.size(); ++x {
         var target_path = inputs[x].copy()
         var path = cxx::std::filesystem::path(kairo::sref(target_path).str())
         if !cxx::std::filesystem::exists(path) {
             io::eprintln(f"kfmt: path does not exist: {target_path}")
-            return 1
+            bad_paths += 1
+            continue
         }
 
         if cxx::std::filesystem::is_directory(path) {
@@ -957,7 +959,8 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         } else {
             if Path::extension_of(target_path) != ".k" {
                 io::eprintln(f"kfmt: not a .k file: {target_path}")
-                return 1
+                bad_paths += 1
+                continue
             }
 
             files.push_back(target_path)
@@ -984,7 +987,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         )
     }
 
-    if failed > 0 {
+    if failed > 0 || bad_paths > 0 {
         return 1
     }
 

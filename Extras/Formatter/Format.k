@@ -5436,6 +5436,17 @@ pub class Formatter {
             PCtx { kind: 3, prec: 0, right: false },
         )
 
+        // the call starts before its callee only for `@assume(...)`, whose
+        // range includes the `@`
+        if self._es(c) < self._es(c->callee) {
+            var pre = self._span(self._es(c), self._es(c->callee))
+            if pre.hard {
+                return self._ev(c)
+            }
+
+            callee = Doc::concat3(pre, Doc::nothing(), callee)
+        }
+
         var mid = self._span(self._ee(c->callee), self.toks[lp].start)
         if mid.hard {
             return self._ev(c)
