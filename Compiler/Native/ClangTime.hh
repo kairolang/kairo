@@ -70,6 +70,7 @@
 #ifndef __KAIRO_TOOLCHAIN_CORE_KTIMECLANG_HH__
 #define __KAIRO_TOOLCHAIN_CORE_KTIMECLANG_HH__
 
+#include "Progress.hh"
 #include "TimeReport.hh"
 
 #include <algorithm>
@@ -214,7 +215,8 @@ inline KClangFillMarks &clang_fill_marks() {
 /// ExecuteAction, while the region the spans belong under is open.
 inline KClangTimeCapture ktime_clang_begin() {
     KClangTimeCapture c;
-    if (!TimeReport::enabled() || llvm::timeTraceProfilerEnabled()) { return c; }
+    // Armed for --time-passes and for the progress display's stages.
+    if (!(TimeReport::enabled() || ProgressMeter::wants_stages()) || llvm::timeTraceProfilerEnabled()) { return c; }
 
     llvm::timeTraceProfilerInitialize(kClangTraceGranularityUs, "kairo");
 
@@ -297,6 +299,23 @@ inline void ktime_clang_end(const KClangTimeCapture &c) {
     auto by_ts = [](const Span &a, const Span &b) { return a.ts < b.ts; };
     libcxx::sort(fe.begin(), fe.end(), by_ts);
     libcxx::sort(fn.begin(), fn.end(), by_ts);
+
+    // The progress display's stages: IR generation is the outermost
+    // "CodeGen Function" spans plus the finishing "Frontend" span, as billed
+    // below; the optimizer and the code generator are their "Total".
+    if (ProgressMeter::wants_stages()) {
+        uint64_t irgen_us = fe.empty() ? 0 : fe.back().dur;
+        uint64_t last     = 0;
+        for (const Span &f : fn) {
+            if (f.ts < last) { continue; }
+            irgen_us += f.dur;
+            last = f.ts + f.dur;
+        }
+        ProgressMeter::stage(ProgressMeter::IRGen, irgen_us * 1000ull);
+        ProgressMeter::stage(ProgressMeter::Opt, tot_opt * 1000ull);
+        ProgressMeter::stage(ProgressMeter::Emit, tot_mc * 1000ull);
+    }
+    if (!TimeReport::enabled()) { return; }
 
     TimeReport::Record *at = TimeReport::current();
     auto at_ns = [&](uint64_t us) { return c.anchor_ns + us * 1000ull; };

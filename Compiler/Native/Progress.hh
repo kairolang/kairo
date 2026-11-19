@@ -51,7 +51,11 @@ namespace kairo {
 
 class ProgressMeter {
   public:
-    enum Phase : int { Parse = 0, Sema = 1, Codegen = 2, PhaseCount = 3 };
+    /// Codegen counts whole TUs; IRGen, Opt and Emit are its stages, counted
+    /// once per TU as clang finishes it (stage()) and timed in the CPU time
+    /// the TUs spent there; Link is the one link, timed on the wall clock.
+    /// The pinned line shows the stages in place of Codegen.
+    enum Phase : int { Parse = 0, Sema = 1, Codegen = 2, IRGen = 3, Opt = 4, Emit = 5, Link = 6, PhaseCount = 7 };
 
     /// Resolves \p flag (auto|always|never|lines; "" is auto). False for any
     /// other spelling, with the meter left off. \p quiet_auto is ignored (kept
@@ -94,6 +98,8 @@ class ProgressMeter {
         ::std::lock_guard<::std::mutex> g(s.mu);
         s.done[p].store(0);
         s.reused[p].store(0);
+        s.cpu_ns[p].store(0);
+        s.t0[p] = ::std::chrono::steady_clock::now();
         s.total[p].store(total);
         s.active[p] = true;
         s.file.clear();
@@ -116,6 +122,21 @@ class ProgressMeter {
         if (s.mode == Lines) { emit_line(s, p, d, file ? s.file.c_str() : nullptr); }
     }
 
+    /// A TU finished stage \p p (IRGen, Opt or Emit) after \p ns of CPU time.
+    /// A TU clang runs twice (a retry) counts once. Called from any thread.
+    static void stage(int p, uint64_t ns) {
+        State &s = st();
+        if (s.mode == Off) { return; }
+        ::std::lock_guard<::std::mutex> g(s.mu);
+        s.cpu_ns[p] += ns;
+        size_t d = s.done[p].load();
+        if (d < s.total[p].load()) { s.done[p] = ++d; }
+        if (s.mode == Lines) { emit_line(s, p, d, nullptr); }
+    }
+
+    /// Whether the stage phases are being fed (the caller arms its timer).
+    static bool wants_stages() { return st().mode != Off; }
+
     /// \p n units of phase \p p were not done at all: the incremental cache
     /// already held their object. They count as done.
     static void reuse(int p, size_t n) {
@@ -127,11 +148,16 @@ class ProgressMeter {
         if (s.mode == Lines) { emit_line(s, p, d, nullptr); }
     }
 
-    /// Phase \p p is over; its row leaves the pinned line.
+    /// Phase \p p is over; its row leaves the pinned line. Link ends with
+    /// its one unit done.
     static void end(int p) {
         State &s = st();
         if (s.mode == Off) { return; }
         ::std::lock_guard<::std::mutex> g(s.mu);
+        if (p == Link && s.active[p]) {
+            s.done[p] = s.total[p].load();
+            if (s.mode == Lines) { emit_line(s, p, s.done[p].load(), nullptr); }
+        }
         s.active[p] = false;
     }
 
@@ -190,6 +216,8 @@ class ProgressMeter {
         ::std::atomic<size_t>                    done[PhaseCount]{};
         ::std::atomic<size_t>                    total[PhaseCount]{};
         ::std::atomic<size_t>                    reused[PhaseCount]{};
+        ::std::atomic<uint64_t>                  cpu_ns[PhaseCount]{};
+        ::std::chrono::steady_clock::time_point  t0[PhaseCount]{};
         bool                                     active[PhaseCount]{};
         ::std::string                            file;
         ::std::string                            cwd;
@@ -210,6 +238,10 @@ class ProgressMeter {
         switch (p) {
         case Parse: return "parse";
         case Sema: return "sema";
+        case IRGen: return "irgen";
+        case Opt: return "opt";
+        case Emit: return "emit";
+        case Link: return "link";
         default: return "codegen";
         }
     }
@@ -248,10 +280,21 @@ class ProgressMeter {
         l += " done=" + ::std::to_string(d);
         l += " total=" + ::std::to_string(s.total[p].load());
         if (p == Codegen) { l += " reused=" + ::std::to_string(s.reused[p].load()); }
+        if (p >= IRGen) { l += " ms=" + ::std::to_string(phase_ns(s, p) / 1000000ull); }
         if (file && *file) { l += ::std::string(" file=") + file; }
         l += '\n';
         ::std::fwrite(l.data(), 1, l.size(), stderr);
         ::std::fflush(stderr);
+    }
+
+    /// The time shown for phase \p p: CPU time for a stage, wall time since
+    /// the phase began for Link.
+    static uint64_t phase_ns(State &s, int p) {
+        if (p == Link) {
+            return static_cast<uint64_t>(::std::chrono::duration_cast<::std::chrono::nanoseconds>(
+                ::std::chrono::steady_clock::now() - s.t0[p]).count());
+        }
+        return s.cpu_ns[p].load();
     }
 
     static ::std::string tail(const ::std::string &f, size_t comps) {
@@ -267,11 +310,19 @@ class ProgressMeter {
         bool first = true;
         for (int p = 0; p < PhaseCount; ++p) {
             if (!s.active[p]) { continue; }
+            // The stages stand for Codegen while they run.
+            if (p == Codegen && s.active[IRGen]) { continue; }
             out += (first ? "[" : "  [");
             out += name(p);
             out += " " + ::std::to_string(s.done[p].load()) + "/" + ::std::to_string(s.total[p].load());
             size_t r = s.reused[p].load();
             if (r) { out += ", " + ::std::to_string(r) + " reused"; }
+            if (p >= IRGen) {
+                uint64_t t = phase_ns(s, p) / 1000000000ull;
+                char     b[32];
+                ::std::snprintf(b, sizeof b, ", %llu:%02llu", static_cast<unsigned long long>(t / 60), static_cast<unsigned long long>(t % 60));
+                out += b;
+            }
             out += "]";
             if (first && !s.file.empty()) { out += " " + tail(s.file, PATH_COMPONENTS); }
             first = false;

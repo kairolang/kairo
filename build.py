@@ -755,7 +755,7 @@ def tu_objects(obj_dir: Path):
             yield f
 
 
-_PROGRESS_RE = re.compile(r"^@progress phase=(\w+) done=(\d+) total=(\d+)(?: reused=(\d+))?(?: file=(.*))?$")
+_PROGRESS_RE = re.compile(r"^@progress phase=(\w+) done=(\d+) total=(\d+)(?: reused=(\d+))?(?: ms=\d+)?(?: file=(.*))?$")
 
 
 def parse_progress(line: str):

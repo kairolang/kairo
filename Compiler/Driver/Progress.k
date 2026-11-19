@@ -25,6 +25,16 @@ const PROGRESS_SEMA: i32 = 1
 pub
 const PROGRESS_CODEGEN: i32 = 2
 
+/// Codegen's stages (fed by clang's timing, Native/ClangTime.hh) and the link.
+pub
+const PROGRESS_IRGEN: i32 = 3
+pub
+const PROGRESS_OPT: i32 = 4
+pub
+const PROGRESS_EMIT: i32 = 5
+pub
+const PROGRESS_LINK: i32 = 6
+
 /// Resolves --progress. False for a value that is none of auto, always,
 /// never, lines; the meter is then off. `auto` is on whenever stderr is a
 /// terminal, --verbose included.

@@ -160,8 +160,8 @@ import Driver::CompilerNative
 import Driver::CompilerRecovery
 import Driver::ObjectCache::ObjectCache
 import Driver::Progress::{
-    PROGRESS_CODEGEN, PROGRESS_PARSE, PROGRESS_SEMA, progress_begin, progress_end, progress_finish,
-    progress_on,      progress_reuse, progress_tick,
+    PROGRESS_CODEGEN, PROGRESS_EMIT, PROGRESS_IRGEN,  PROGRESS_OPT, PROGRESS_PARSE, PROGRESS_SEMA,
+    progress_begin,   progress_end,  progress_finish, progress_on,  progress_reuse, progress_tick,
 }
 import Driver::TUResult::TUResult
 import Driver::TUStage::TUStage
@@ -4164,6 +4164,12 @@ pub class FrontendAction {
         }
 
         progress_reuse(PROGRESS_CODEGEN, jobs.size() - todo.size())
+        progress_begin(PROGRESS_IRGEN, jobs.size())
+        progress_begin(PROGRESS_OPT, jobs.size())
+        progress_begin(PROGRESS_EMIT, jobs.size())
+        progress_reuse(PROGRESS_IRGEN, jobs.size() - todo.size())
+        progress_reuse(PROGRESS_OPT, jobs.size() - todo.size())
+        progress_reuse(PROGRESS_EMIT, jobs.size() - todo.size())
 
         // The interface PCHs: every TU's declarations and template / inline
         // bodies parsed once, chained on the header PCH, so each TU parses
@@ -4357,6 +4363,9 @@ pub class FrontendAction {
         }
 
         progress_end(PROGRESS_CODEGEN)
+        progress_end(PROGRESS_IRGEN)
+        progress_end(PROGRESS_OPT)
+        progress_end(PROGRESS_EMIT)
         // The post-pass prints (`kairo: wrote`, [stats]); the line must be gone.
         progress_finish()
 

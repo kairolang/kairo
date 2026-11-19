@@ -49,6 +49,12 @@ import Driver::InputKinds::{
     InputClass,
     classify_input,
 }
+import Driver::Progress::{
+    PROGRESS_LINK,
+    progress_begin,
+    progress_end,
+    progress_finish,
+}
 import Support::Ascii::find
 import Support::FileIO::Path::Path
 import Support::TimeReport::TimeRegion
@@ -834,6 +840,14 @@ extend CompilerInstance {
 
         if missing {
             return
+        }
+
+        // The link is the last progress phase; the line is gone before the
+        // link's own messages print.
+        progress_begin(PROGRESS_LINK, 1)
+        finally {
+            progress_end(PROGRESS_LINK)
+            progress_finish()
         }
 
         var tc      = Toolchain()
