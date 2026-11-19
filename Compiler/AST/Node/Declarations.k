@@ -1070,6 +1070,13 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     /// this one, instead of leaving it to end with the declaration. Never
     /// written by the user.
     pub var header_scope: bool = false
+    /// Flagged union storage (`dtor_mode` Flagged) that starts with no
+    /// object in it: a temporary of a `for` header that only one arm of an
+    /// `if`, `&&` or `||` builds (SequenceLowering). The arm builds it in
+    /// place (AssignOperatorExpr::remake, REMAKE_DEAD), and the end of the
+    /// loop's block destroys it only if one was built. Never written by the
+    /// user.
+    pub var starts_empty: bool = false
     /// `static const x` / `const static x` (or `thread const`): the binding
     /// of a Static-storage variable is const. `storage` stays the storage
     /// keyword so every is_static() reader is unchanged; is_const() folds

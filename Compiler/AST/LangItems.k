@@ -3185,6 +3185,13 @@ pub class LowerTargets {
         return "__drop"
     }
 
+    /// The union's second member, a `char`: the one a storage that starts
+    /// with no object initializes (`{.__none = 0}`), so no constructor of
+    /// the object runs.
+    pub static fn union_local_none() -> string {
+        return "__none"
+    }
+
     /// A flagged storage's member that destroys the object if `live` says
     /// one is there; the placement tag a construction in the storage uses
     /// (its own `operator new`, so no <new>); the destroy that also takes

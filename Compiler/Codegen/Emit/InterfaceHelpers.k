@@ -290,7 +290,7 @@ extend InterfaceEmitter {
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "template <class T> union " + ul + " { T " + ob + "; ~" + ul + "() {} void " + en + "() noexcept { " + ds + "(" + ob + "); } static void " + dr + "(void* p) noexcept { " + ds + "(static_cast<" + ul + "*>(p)->" + ob + "); } };",
+            "template <class T> union " + ul + " { T " + ob + "; char " + LowerTargets::union_local_none() + "; ~" + ul + "() {} void " + en + "() noexcept { " + ds + "(" + ob + "); } static void " + dr + "(void* p) noexcept { " + ds + "(static_cast<" + ul + "*>(p)->" + ob + "); } };",
         )
 
         self._cg->sink->brk()

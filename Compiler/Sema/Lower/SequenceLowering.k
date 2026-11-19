@@ -100,12 +100,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    EnumDecl,
-    EnumVariantDecl,
-    FieldDecl,
-    FunctionDecl,
-    ParamDecl,
-    VariableDecl,
+    EnumDecl, EnumVariantDecl, FieldDecl, FunctionDecl, LocalDtor, ParamDecl, VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
@@ -257,6 +252,10 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// call made on that result is moved INTO the block (_sink_into_temp_block)
     /// rather than run after the block, and the prvalue, has ended.
     priv var _temp_blocks: cxx::std::vector<unsafe *Expressions::StmtExpr>
+    /// How many arms of an `if`, `&&` or `||` of a `for` header
+    /// _lift_header is inside: a temporary there is built only when its
+    /// arm runs, so it is bound to storage that starts empty (_bind_arm).
+    priv var _hdr_arm: u32 = 0
 
     fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
         var saved = self._escaped
@@ -312,6 +311,10 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                          e:        unsafe *Expr,
                          consumed: bool,
                          out:      unsafe *cxx::std::vector<unsafe *Stmt>) -> unsafe *Expr {
+        if self._hdr_arm > 0 {
+            return self._bind_arm(e, out)
+        }
+
         var        stmts  = self.list_builder<unsafe *Stmt>()
         var unsafe *use   = self._hoist(e, unsafe &stmts, consumed, false)
         var        frozen = FrozenList<unsafe *Stmt>()
@@ -326,6 +329,74 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         }
 
         return use
+    }
+
+    /// `e`, a temporary under an arm of an `if`, `&&` or `||` of a `for`
+    /// header: it may not be built at all, so it cannot be bound ahead of
+    /// the declaration. Its storage can: flagged union storage that starts
+    /// empty (VariableDecl::starts_empty), declared ahead and taken by
+    /// `out`. The arm builds `e` in it, in place, and reads it there:
+    /// `*({ slot = e; &slot })`, the assignment a construction
+    /// (REMAKE_DEAD). The end of the loop's block destroys it only if the
+    /// arm ran. Only a record prvalue of a concrete type; anything else is
+    /// left as it is.
+    priv fn _bind_arm(self,
+                      e:   unsafe *Expr,
+                      out: unsafe *cxx::std::vector<unsafe *Stmt>) -> unsafe *Expr {
+        if e == &null || e->type_ == &null || !self._record_prvalue(e) {
+            return e
+        }
+
+        if e->type_->is_dependent() || e->type_->is_instantiation_dependent() {
+            return e
+        }
+
+        var unsafe *t  = canon_unqual(e->type_)
+        var unsafe *vd = self.synth.local(e->range, "arm", t, &null)
+        vd->dtor_mode    = LocalDtor::Flagged
+        vd->starts_empty = true
+        vd->header_scope = true
+        out->push_back(
+            unsafe (DeclStmt::create(self.ctx, e->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
+        )
+
+        var unsafe *asg = Expressions::AssignOperatorExpr::create(
+            self.ctx,
+            e->range,
+            self.synth.use_of(vd, e->range, Expr::ValueCategory::LValue),
+            e,
+            self.synth.punct(e->range, TokenKind::OpEqual),
+        )
+
+        asg->type_          = t
+        asg->value_category = Expr::ValueCategory::LValue
+        asg->remake         = Expressions::REMAKE_DEAD
+        var stmts = self.list_builder<unsafe *Stmt>()
+        stmts.push(
+            unsafe (ExpressionStmt::create(self.ctx, e->range, unsafe (asg as unsafe *Expr)) as unsafe *Stmt),
+        )
+
+        var unsafe *addr = self.synth.addr_of(
+            self.synth.use_of(vd, e->range, Expr::ValueCategory::LValue),
+        )
+
+        stmts.push(
+            unsafe (ExpressionStmt::create(self.ctx, e->range, addr) as unsafe *Stmt),
+        )
+
+        var unsafe *se = self.synth.stmt_expr(e, &stmts, addr->type_)
+        return self.synth.deref(e->range, se, t)
+    }
+
+    /// `e` under an arm of an `if`, `&&` or `||`: _lift_header with its
+    /// temporaries bound by _bind_arm.
+    priv fn _lift_arm(self,
+                      e:   unsafe *Expr,
+                      out: unsafe *cxx::std::vector<unsafe *Stmt>) -> unsafe *Expr {
+        self._hdr_arm += 1
+        var unsafe *r = self._lift_header(e, out)
+        self._hdr_arm -= 1
+        return r
     }
 
     /// `e`, part of a `for` header's initializer that is evaluated
@@ -373,7 +444,11 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                 return e
             } case ExprKind::StmtExpr {
                 var unsafe *se = cast<Expressions::StmtExpr>(e)
-                if se->is_jump || se->body == &null || se->body->body.size() == 0 {
+                // Its locals are hoisted to run ahead: never under an arm.
+                if self._hdr_arm > 0
+                    || se->is_jump
+                    || se->body == &null
+                    || se->body->body.size() == 0 {
                     return e
                 }
 
@@ -456,6 +531,54 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
                 }
 
                 args.freeze_into(&n->args)
+                return e
+            } case ExprKind::IfExpr {
+                // The condition runs whenever the `if` does; each arm only
+                // when it is taken.
+                var unsafe *ie = cast<Expressions::IfExpr>(e)
+                ie->then_expr = self._lift_arm(ie->then_expr, out)
+                for var i: usize = 0; i < ie->else_ifs.size(); ++i {
+                    var unsafe *ei = ie->else_ifs.get(i)
+                    ei->body = self._lift_arm(ei->body, out)
+                }
+
+                ie->else_expr = self._lift_arm(ie->else_expr, out)
+                return e
+            } case ExprKind::BinaryOperatorExpr {
+                // `a && b`, `a || b`: `b` runs only on one outcome of `a`.
+                var unsafe *b = cast<Expressions::BinaryOperatorExpr>(e)
+                var        k  = b->op_token.kind
+                var logical = k == TokenKind::OpAmpAmp
+                    || k == TokenKind::OpPipePipe
+                    || k == TokenKind::KwAnd
+                    || k == TokenKind::KwOr
+                if b->resolved_op == &null && logical {
+                    b->rhs = self._lift_arm(b->rhs, out)
+                }
+
+                return e
+            } case ExprKind::ListLiteralExpr {
+                // `[make().view(), make().view()]`: every element runs, left
+                // to right. Its temporaries are lifted, and an element that
+                // still has an effect is bound ahead too, so the next
+                // element's temporaries are not built before it runs. Under
+                // an arm nothing moves ahead (_bind_arm builds in place), so
+                // only the temporaries are bound.
+                var unsafe *l = cast<Expressions::ListLiteralExpr>(e)
+                for var i: usize = 0; i < l->elements.size(); ++i {
+                    var unsafe **slot = l->elements.get(i)
+                    if *slot == &null {
+                        continue
+                    }
+
+                    *slot = self._lift_header(*slot, out)
+                    if self._hdr_arm == 0
+                        && i + 1 < l->elements.size()
+                        && !self.synth.pure_read(*slot) {
+                        *slot = self._bind_header(*slot, true, out)
+                    }
+                }
+
                 return e
             } default {
                 return e

@@ -99,7 +99,8 @@ extend EmitIR {
     prot fn _ul_leave(self, mark: usize) {
         for var i: usize = mark; i < self._ul_decl.size(); ++i {
             var unsafe *v = self._ul_decl[i]
-            if v->dtor_mode != LocalDtor::Cleanup && self._ul_ends[i] == 0 {
+            // Storage that starts empty is ended by its flag alone.
+            if v->dtor_mode != LocalDtor::Cleanup && self._ul_ends[i] == 0 && !v->starts_empty {
                 self._ice(
                     v->range,
                     "EmitIR: a local whose destructor is elided or flagged has no site that ends it; its mode and its sites disagree",
@@ -192,22 +193,37 @@ extend EmitIR {
         var st = if (m == LocalDtor::Flagged) => ("::" + LowerTargets::union_local_flagged() + "<" + ty + ">")
                  else => ul
         var at = n->name.range
-        self._cg->sink->spell(at, st.copy() + " " + store + "{")
-        if m == LocalDtor::Flagged {
-            self._cg->sink->spell(at, "{")
-        }
+        if n->starts_empty {
+            if m != LocalDtor::Flagged || n->init != &null {
+                self._ice(
+                    n->range,
+                    "EmitIR: storage that starts empty must be flagged and have no initializer",
+                )
+            }
 
-        if n->init == &null {
-            self._cg->sink->spell(at, "{}")
+            self._cg->sink->spell(
+                at,
+                st.copy() + " " + store + "{{." + LowerTargets::union_local_none() + " = 0}, false}",
+            )
         } else {
-            self._value(n->init, n->type_)
+            self._cg->sink->spell(at, st.copy() + " " + store + "{")
+            if m == LocalDtor::Flagged {
+                self._cg->sink->spell(at, "{")
+            }
+
+            if n->init == &null {
+                self._cg->sink->spell(at, "{}")
+            } else {
+                self._value(n->init, n->type_)
+            }
+
+            if m == LocalDtor::Flagged {
+                self._cg->sink->spell(at, "}, true")
+            }
+
+            self._cg->sink->spell(at, "}")
         }
 
-        if m == LocalDtor::Flagged {
-            self._cg->sink->spell(at, "}, true")
-        }
-
-        self._cg->sink->spell(at, "}")
         if m != LocalDtor::Elided {
             self._cg->sink->spell(
                 at,
