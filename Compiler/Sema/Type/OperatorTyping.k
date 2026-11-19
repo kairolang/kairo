@@ -88,6 +88,7 @@ import AST::Context::DeclContext::{
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
+    decl_extension_of,
     decl_instantiated_from,
     decl_is_imported,
     decl_is_instance,
@@ -1508,8 +1509,14 @@ pub class <T: type> OperatorTyping {
             // A dependent record's own operator (`self - other` in `class
             // <T> Q`): a viable one is found as on any record, so the result
             // has its declared type and a local deduced from it has one. Left
-            // unbound, `var d = self - other` had no type to declare.
-            if own_op && self._is_dependent(lt) && self.dyn()->tu.record_decl(lt) != &null {
+            // unbound, `var d = self - other` had no type to declare. Only
+            // an operator the record declares itself: an extension's or a
+            // free one is spelled through a helper C++ resolves per
+            // instance, which a binding here would bypass.
+            if own_op
+                && self._is_dependent(lt)
+                && self.dyn()->tu.record_decl(lt) != &null
+                && self._record_declares_op(k, lt, rt) {
                 var dep_found = false
                 var dep_args  = cxx::std::vector<unsafe *Expr>()
                 dep_args.push_back(n->rhs)
@@ -2323,6 +2330,33 @@ pub class <T: type> OperatorTyping {
         }
 
         return &null
+    }
+
+    /// Every `op k` found for `lt` and `rt` is a member the record
+    /// declares itself: none is free and none is an extension's.
+    priv fn _record_declares_op(self, k: TokenKind, lt: unsafe *Type, rt: unsafe *Type) -> bool {
+        var cands = cxx::std::vector<unsafe *Decl>()
+        var frees = cxx::std::vector<unsafe *Decl>()
+        self._gather(
+            DeclName::op_name(k, TokenKind::TkUnknown),
+            lt,
+            rt,
+            -1,
+            unsafe &cands,
+            unsafe &frees,
+        )
+
+        if cands.size() == 0 || frees.size() > 0 {
+            return false
+        }
+
+        for var i: usize = 0; i < cands.size(); ++i {
+            if cands[i] == &null || decl_extension_of(cands[i]) != &null {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// `t`, or its referee when it is a C++ reference.
