@@ -33,12 +33,15 @@ fn nest(d: usize, max: usize, g: unsafe *u8) {
         free_raw(g, 32, 8)    // global block, deep inside
         return
     }
+    nest_in(d, max, g)
+    level -= 1                // after the scope's destructor has left its own level
+}
+fn nest_in(d: usize, max: usize, g: unsafe *u8) {
     var s = open_scope()      // moved out of open_scope
     var unsafe *p = alloc_raw(16, 8)
     check(level_of(p) == d, "alloc goes to the top scope")
     unsafe { blocks[d] = p as usize }
     nest(d + 1, max, g)
-    level -= 1
 }
 fn main() -> i32 {
     for var max: usize = 1; max <= 40; max += 13 {
