@@ -140,14 +140,14 @@ fn move_field_in_branch(c: bool) {
 fn move_field_through_pointer() {
     var p = Pair(1, 2)
     var q: *Pair = &p
-    var x = q->a
+    var x = cxx::std::move(q->a)
     ev("moved")
 }
 
 fn move_field_through_pointer_and_refill() {
     var p = Pair(1, 2)
     var q: *Pair = &p
-    var x = q->a
+    var x = cxx::std::move(q->a)
     q->a = R(3)
     ev("refilled")
 }
@@ -275,3 +275,4 @@ fn main() -> i32 {
 // RUN: %t.exe
 // RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.o2.d
 // RUN: %t.o2.exe
+ffi "c++" import "utility"

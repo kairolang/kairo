@@ -116,48 +116,48 @@ fn map_value_moves_whole() -> i32 {
 fn pointer_deref_move() -> i32 {
     var t = Tok(1)
     var p: *Tok = &t
-    var x = *p
+    var x = cxx::std::move(*p)
     return (*p).id + x.id //! SC052E
 }
 
 fn pointer_deref_move_reassign() -> i32 {
     var t = Tok(1)
     var p: *Tok = &t
-    var x = *p
+    var x = cxx::std::move(*p)
     *p = Tok(4)
     return (*p).id + x.id
 }
 
 fn pointer_field_move_other_ok(q: *Pair) -> i32 {
-    var y = q->a
+    var y = cxx::std::move(q->a)
     return q->b.id + y.id
 }
 
 fn pointer_field_move_same(q: *Pair) -> i32 {
-    var y = q->a
+    var y = cxx::std::move(q->a)
     return q->a.id + y.id //! SC052E
 }
 
 fn pointer_field_move_whole_after(q: *Pair) -> i32 {
-    var y = q->a
-    var w = *q //! SC052E
+    var y = cxx::std::move(q->a)
+    var w = cxx::std::move(*q) //! SC052E
     return y.id
 }
 
 fn pointer_field_reassign(q: *Pair) -> i32 {
-    var y = q->a
+    var y = cxx::std::move(q->a)
     q->a = Tok(6)
     return q->a.id + y.id
 }
 
 fn pointer_field_move_into_call(q: *Pair) -> i32 {
-    var r = eat(q->a)
+    var r = eat(cxx::std::move(q->a))
     return q->a.id + r //! SC052E
 }
 
 fn pointer_field_move_in_branch(q: *Pair, c: bool) -> i32 {
     if c {
-        var y = q->a
+        var y = cxx::std::move(q->a)
     }
     return q->a.id //! SC052E
 }
@@ -167,7 +167,7 @@ fn pointer_const_field_read(const q: *const Pair) -> i32 {
 }
 
 fn pointer_to_array_element(q: *[Tok; 2]) -> i32 {
-    var f = (*q)[0]
+    var f = cxx::std::move((*q)[0])
     return (*q)[1].id + f.id //! SC052E
 }
 
@@ -175,7 +175,7 @@ fn pointer_pointee_unrelated_local_unaffected() -> i32 {
     var t = Tok(1)
     var u = Tok(2)
     var p: *Tok = &t
-    var x = *p
+    var x = cxx::std::move(*p)
     return u.id + x.id
 }
 
@@ -198,3 +198,4 @@ fn pointer_pointee_unrelated_local_unaffected() -> i32 {
 // CHECK: containers_and_pointers.k:155:{{[0-9]+}}: error [SC052E]:
 // CHECK: containers_and_pointers.k:162:{{[0-9]+}}: error [SC052E]:
 // CHECK: containers_and_pointers.k:171:{{[0-9]+}}: error [SC052E]:
+ffi "c++" import "utility"

@@ -69,7 +69,7 @@ extend Holder {
 }
 
 fn drain(@inout h: Holder) -> Str { return h.p.a }
-fn drain_ptr(p: *Holder) -> Str { return p->p.a }
+fn drain_ptr(p: *Holder) -> Str { return cxx::std::move(p->p.a) }
 fn pass_on(@inout h: Holder) -> Str { return h.take_a() }
 
 // 1.
@@ -158,7 +158,7 @@ fn ptr_addr() -> i32 {
     return h.p.a.n
 // DIAG: partial_caller.k:[[@LINE-1]]:12: error [SC052E]: 'h.p.a' is used after being moved
 // DIAG: partial_caller.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'h.p.a' was moved here, by the call to 'drain_ptr'
-// DIAG: partial_caller.k:[[@LINE-89]]:42: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
+// DIAG: partial_caller.k:[[@LINE-89]]:57: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
 }
 
 fn ptr_binding(q: *Holder) -> i32 {
@@ -166,7 +166,7 @@ fn ptr_binding(q: *Holder) -> i32 {
     return q->p.a.n
 // DIAG: partial_caller.k:[[@LINE-1]]:12: error [SC052E]: 'q->p.a' is used after being moved
 // DIAG: partial_caller.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'q->p.a' was moved here, by the call to 'drain_ptr'
-// DIAG: partial_caller.k:[[@LINE-97]]:42: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
+// DIAG: partial_caller.k:[[@LINE-97]]:57: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
 }
 
 // 6.
@@ -191,12 +191,13 @@ fn carried() -> i32 {
 // 8.
 fn closure_capture() -> i32 {
     var h = Holder()
-    var f = fn ()|*h| -> i32 { return eat(h->p.a) }
+    var f = fn ()|*h| -> i32 { return eat(cxx::std::move(h->p.a)) }
     return h.p.a.n
 // DIAG: partial_caller.k:[[@LINE-1]]:12: error [SC052E]: 'h.p.a' is used after being moved
 // DIAG: partial_caller.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'h.p.a' was moved here, by the closure that captures it
-// DIAG: partial_caller.k:[[@LINE-4]]:43: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
+// DIAG: partial_caller.k:[[@LINE-4]]:58: note [{{[A-Z0-9]+}}]: it is moved here, and not assigned again before the body returns
 }
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
+ffi "c++" import "utility"

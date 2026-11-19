@@ -188,7 +188,7 @@ fn reinit_by_call_result() -> i32 {
 fn pointer_assign_through_revives() -> i32 {
     var a = Tok(1)
     var p: *Tok = &a
-    var b = *p
+    var b = cxx::std::move(*p)
     *p = Tok(3)
     return (*p).id + b.id
 }
@@ -212,3 +212,4 @@ fn plain_copy_assign_never_moves() -> i32 {
 // CHECK: reinitialization.k:120:{{[0-9]+}}: error [SC052E]:
 // CHECK: reinitialization.k:140:{{[0-9]+}}: error [SC052E]:
 // CHECK: reinitialization.k:160:{{[0-9]+}}: error [SC052E]:
+ffi "c++" import "utility"

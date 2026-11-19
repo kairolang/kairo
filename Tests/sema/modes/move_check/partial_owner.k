@@ -97,59 +97,59 @@ fn inout_reassign(@inout h: Holder) -> i32 {
 
 // 3.
 fn arrow_reuse(p: *Holder) -> i32 {
-    var a = p->p.a
+    var a = cxx::std::move(p->p.a)
     return p->p.a.n
 // DIAG: partial_owner.k:[[@LINE-1]]:12: error [SC052E]: 'p->p.a' is used after being moved
-// DIAG: partial_owner.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'p->p.a' was moved here, into 'a'
+// DIAG: partial_owner.k:[[@LINE-3]]:28: note [{{[A-Z0-9]+}}]: 'p->p.a' was moved here, into a '@move' parameter
 }
 
 fn arrow_sibling(p: *Holder) -> i32 {
-    var a = p->p.a
+    var a = cxx::std::move(p->p.a)
     return p->p.b.n
 }
 
 fn arrow_reassign(p: *Holder) -> i32 {
-    var a = p->p.a
+    var a = cxx::std::move(p->p.a)
     p->p.a = Str(3)
     return p->p.a.n
 }
 
 fn arrow_then_star(p: *Pair) -> i32 {
-    var a = p->a
+    var a = cxx::std::move(p->a)
     return (*p).a.n
 // DIAG: partial_owner.k:[[@LINE-1]]:14: error [SC052E]: 'p->a' is used after being moved
-// DIAG: partial_owner.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'p->a' was moved here, into 'a'
+// DIAG: partial_owner.k:[[@LINE-3]]:28: note [{{[A-Z0-9]+}}]: 'p->a' was moved here, into a '@move' parameter
 }
 
 fn star_then_arrow(p: *Pair) -> i32 {
-    var a = (*p).b
+    var a = cxx::std::move((*p).b)
     return p->b.n
 // DIAG: partial_owner.k:[[@LINE-1]]:12: error [SC052E]: 'p->b' is used after being moved
-// DIAG: partial_owner.k:[[@LINE-3]]:14: note [{{[A-Z0-9]+}}]: 'p->b' was moved here, into 'a'
+// DIAG: partial_owner.k:[[@LINE-3]]:29: note [{{[A-Z0-9]+}}]: 'p->b' was moved here, into a '@move' parameter
 }
 
 fn pointer_value_stays(p: *Holder) {
-    var a = p->p.a
+    var a = cxx::std::move(p->p.a)
     peek_ptr(p)
 }
 
 fn pointer_rebound(p: *Pair, q: *Pair) -> i32 {
     var *r = p
-    var a = r->a
+    var a = cxx::std::move(r->a)
     r = q
     return r->a.n
 }
 
 // 4.
 fn star_reuse(p: *Str) -> i32 {
-    var a = *p
-    return eat(*p)
-// DIAG: partial_owner.k:[[@LINE-1]]:17: error [SC052E]: '*p' is used after being moved
-// DIAG: partial_owner.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: '*p' was moved here, into 'a'
+    var a = cxx::std::move(*p)
+    return eat(cxx::std::move(*p))
+// DIAG: partial_owner.k:[[@LINE-1]]:32: error [SC052E]: '*p' is used after being moved
+// DIAG: partial_owner.k:[[@LINE-3]]:28: note [{{[A-Z0-9]+}}]: '*p' was moved here, into a '@move' parameter
 }
 
 fn star_reassign(p: *Str) -> i32 {
-    var a = *p
+    var a = cxx::std::move(*p)
     *p = Str(4)
     return p->n
 }
@@ -196,14 +196,14 @@ fn elem_loop() -> i32 {
 
 // 6.
 fn link_reuse(@inout h: Holder) -> i32 {
-    var a = h.link->a
+    var a = cxx::std::move(h.link->a)
     return h.link->a.n
 // DIAG: partial_owner.k:[[@LINE-1]]:12: error [SC052E]: 'h.link->a' is used after being moved
-// DIAG: partial_owner.k:[[@LINE-3]]:13: note [{{[A-Z0-9]+}}]: 'h.link->a' was moved here, into 'a'
+// DIAG: partial_owner.k:[[@LINE-3]]:28: note [{{[A-Z0-9]+}}]: 'h.link->a' was moved here, into a '@move' parameter
 }
 
 fn link_sibling(@inout h: Holder) -> i32 {
-    var a = h.link->a
+    var a = cxx::std::move(h.link->a)
     peek_pair(h.link)
     return h.link->b.n + h.p.a.n
 }
@@ -212,7 +212,7 @@ fn link_sibling(@inout h: Holder) -> i32 {
 fn raw_elem(p: *Str, n: usize) -> i32 {
     var total = 0
     for var i: usize = 0; i < n; ++i {
-        total += eat(p[i])
+        total += eat(cxx::std::move(p[i]))
     }
 
     return total + p[0].n
@@ -220,3 +220,4 @@ fn raw_elem(p: *Str, n: usize) -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
+ffi "c++" import "utility"

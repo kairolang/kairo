@@ -80,7 +80,7 @@ fn moved_part() -> i32 {
 }
 
 fn moved_through_pointer(p: *Pair) -> i32 {
-    take(p->s)
+    take(cxx::std::move(p->s))
     return read(p->s)
 }
 
@@ -134,7 +134,7 @@ fn main() -> i32 = 0
 // CHECK:      fix-it:"{{.*}}":{78:13-78:13}:".copy()"
 // CHECK-NOT:  error
 // CHECK:      :84:17: error [SC052E]: 'p->s' is used after being moved
-// CHECK:      fix-it:"{{.*}}":{83:14-83:14}:".copy()"
+// CHECK:      fix-it:"{{.*}}":{83:29-83:29}:".copy()"
 // CHECK-NOT:  error
 // CHECK:      :90:12: error [SC052E]: 'b' is used after being moved
 // CHECK:      fix-it:"{{.*}}":{89:15-89:15}:".copy()"
@@ -148,3 +148,4 @@ fn main() -> i32 = 0
 // CHECK-NEXT: fix-it:"{{.*}}":{101:18-101:18}:".copy()"
 // CHECK-NOT:  error
 // CHECK-NOT:  error [
+ffi "c++" import "utility"

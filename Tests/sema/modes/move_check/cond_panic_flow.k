@@ -93,7 +93,7 @@ class Holder {
 fn clo() -> i32 {
     var h = Holder()
     var f = fn ()|*h| {
-        var k = h->a
+        var k = cxx::std::move(h->a)
         var g = fn () -> i32 { return 1 }
         var z = g()
         h->a = Task()
@@ -106,3 +106,4 @@ fn clo() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
 // DIAG: cond_panic_flow.k:81:16: error [SC052E]: 't' is used after being moved
 // DIAG: cond_panic_flow.k:78:14: note [{{[A-Z0-9]+}}]: 't' was moved here, into a by-value parameter
+ffi "c++" import "utility"
