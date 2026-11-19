@@ -54,7 +54,10 @@
 ///         cannot be copied is SC182E here rather than in clang: a MOVE value
 ///         out of a place const by its type or root (place_has_const_root:
 ///         `self.r` in a `const self` method, `p.r` of a `const p`), an
-///         element reached through a C++ `T&` (never moved from), a deleted
+///         element reached through a C++ `T&` (never moved from), a MOVE
+///         value reached through a pointer or a reference (`p->f`, `*p`, a
+///         reference a call returns: _unowned_move; `cxx::std::move(...)`
+///         is the explicit hand-off and moves), a deleted
 ///         or constraint-dropped `@copy`, `v[i] = v[j]` of a MOVE element (a
 ///         move out of `x[i]` is not decided), and four copies the language
 ///         makes on its own: `yield` of a const place, a plain `for` binder,
@@ -1030,6 +1033,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// The transfer being checked is an assignment's right-hand side
     /// (_uncopyable_place leaves a Kairo NON_TRANSFER record to SC071E).
     priv var _assigning: bool = false
+    /// The arguments being passed are those of `cxx::std::move` /
+    /// `cxx::std::forward`: an explicit hand-off, which may move out of any
+    /// place it names (_unowned_move).
+    priv var _handoff: bool = false
+    /// The variable a transfer initializes (traverse_variable_decl), for the
+    /// borrow fix-it of _unowned_move.
+    priv var _init_var: unsafe *VariableDecl = &null
     /// Where an implicit copy through a deprecated constructor was reported
     /// (_deprecated_copy): one warning a place, however many checks see it.
     priv var _copy_warned: cxx::std::vector<SourceLocation>
@@ -2677,11 +2687,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._link_call  = saved_lc
         self._init_owner = saved_io
         if n->init != &null {
+            self._init_var = n
             self._transfer(
                 n->init,
                 f"into '{self.sc->ctx->get_spelling(n->name)}'",
                 n->type_,
             )
+
+            self._init_var = &null
         }
 
         self._st.forget(n)
@@ -3940,9 +3953,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
-        var bound_p       = cxx::std::vector<unsafe *ParamDecl>()
-        var bound_e       = cxx::std::vector<unsafe *Expr>()
-        var pos:    usize = 0
+        var bound_p             = cxx::std::vector<unsafe *ParamDecl>()
+        var bound_e             = cxx::std::vector<unsafe *Expr>()
+        var pos:          usize = 0
+        var saved_handoff       = self._handoff
+        self._handoff = self._is_handoff(f)
         for var i: usize = 0; i < n->args.size(); ++i {
             var unsafe *a = n->args[i]
             if a == &null {
@@ -4022,6 +4037,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
+        self._handoff = saved_handoff
         self._moved_while_borrowed(borrowed)
         var cm = CallMarks{}
         if f != &null && !n->is_poisoned() {
@@ -4759,9 +4775,149 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
+        if !self._handoff && self._unowned_move(e, x, how) {
+            return
+        }
+
         self.sc->move_sites.insert(e as usize as u64)
         self.n_moves += 1
         self._mark(e, how, kind, dest)
+    }
+
+    /// `f` is `cxx::std::move` or `cxx::std::forward`: an imported `move` /
+    /// `forward` whose one parameter is a `T&&`, the explicit C++ hand-off
+    /// of its argument, which may name any place.
+    priv fn _is_handoff(self, f: unsafe *FunctionDecl) -> bool {
+        if f == &null || !decl_is_imported(f) || f->params.size() != 1 || f->params[0] == &null {
+            return false
+        }
+
+        var nm = self.sc->ctx->get_spelling(f->name)
+        return (nm == "move" || nm == "forward") && self._rref_param(f->params[0])
+    }
+
+    /// A transfer of the MOVE lvalue `x` (`e` unstripped) out of storage
+    /// this code reaches through a pointer or a reference (`p->f`, `*p`,
+    /// `self.q->f`, a C++ `T&` a call returns): refused with SC182E, since
+    /// moving would empty the object for every other reader of it and
+    /// nothing tracks it. A local or a by-value parameter moves, as does a
+    /// part of one reached without a pointer; `cxx::std::move(...)` is the
+    /// explicit hand-off and is never refused. True when reported.
+    priv fn _unowned_move(self, e: unsafe *Expr, x: unsafe *Expr, const how: string) -> bool {
+        if self._returned_local(x) {
+            return false
+        }
+
+        var pl      = self._place(e)
+        var through = false
+        if pl.d == &null {
+            through = self._reached_through(x)
+        } else {
+            through = pl.has_ptr || pl.deref || pl.opaque || !pl.whole
+        }
+
+        if !through {
+            return false
+        }
+
+        var ts = self._tu.str(self._tu.as_value(e->type_))
+        var b = self.sc->diag->report(
+            DiagID::SC182E,
+            e->range.start,
+            f"cannot move a value of type '{ts}' out of '{self._spelled(x)}': it is reached through a pointer or a reference",
+        )
+
+        b.first(e->range)
+        b.note(
+            e->range.start,
+            f"the transfer {how} would leave the object moved-from for every other reader of it; copy it, borrow it, or hand it off with 'cxx::std::move(...)'",
+        )
+
+        self._offer_copy(&b, e)
+        self._offer_borrow(&b, e)
+        b.emit()
+        e->poison()
+        self.n_errored += 1
+        return true
+    }
+
+    /// `x`, a place rooted at no tracked binding, is storage reached
+    /// through a pointer or a reference: a dereference, a `->` step, a
+    /// subscript of a pointer, or a call (an lvalue call returns a
+    /// reference). A global, a static and an `unwrap!` of a local are not.
+    priv fn _reached_through(self, x: unsafe *Expr) -> bool {
+        var unsafe *e = self._tu.strip_parens(x)
+        if e == &null {
+            return false
+        }
+
+        if isa<Expressions::CallExpr>(e) {
+            return true
+        }
+
+        if isa<Expressions::UnaryOperatorExpr>(e) {
+            return self._is_deref(cast<Expressions::UnaryOperatorExpr>(e))
+        }
+
+        if isa<Expressions::SubscriptExpr>(e) {
+            var unsafe *sx = cast<Expressions::SubscriptExpr>(e)
+            if sx->base == &null || sx->base->type_ == &null {
+                return false
+            }
+
+            return self._tu.pointee(sx->base->type_) != &null || self._reached_through(sx->base)
+        }
+
+        if !isa<ChainExpr>(e) {
+            return false
+        }
+
+        var unsafe *c = cast<ChainExpr>(e)
+        for var i: usize = 0; i < c->steps.size(); ++i {
+            if c->steps.get(i)->access_kind == ChainExpr::AccessKind::Arrow {
+                return true
+            }
+        }
+
+        return c->base != &null && self._reached_through(c->base)
+    }
+
+    /// The borrow fix-it of _unowned_move when `e` is the whole
+    /// initializer of a `var` with no written type: `var x = p->f` becomes
+    /// `var *x = &p->f`.
+    priv fn _offer_borrow(self, b: *DiagBuilder, e: unsafe *Expr) {
+        var unsafe *v = self._init_var
+        if v == &null
+            || v->init != e
+            || v->storage != StorageClass::Var
+            || v->pointer_depth != 0
+            || v->nullable_shorthand
+            || !v->name.range.end.is_valid()
+            || !e->range.start.is_valid() {
+            return
+        }
+
+        // `x = e` puts at most four characters between the name and the
+        // initializer; a written type (`x: T = e`) puts more.
+        var gap = e->range.start.raw() as i64 - v->name.range.end.raw() as i64
+        if gap < 0 || gap > 4 {
+            return
+        }
+
+        var nm  = self.sc->ctx->get_spelling(v->name)
+        var msg = f"borrow it instead: 'var *{nm} = &{self._spelled(self._tu.strip_parens(e))}'"
+        b->note(e->range.start, msg.copy())
+        b->child_fix(
+            SourceRange(v->name.range.start, v->name.range.start),
+            "*",
+            "borrow it",
+        )
+
+        b->child_fix(
+            SourceRange(e->range.start, e->range.start),
+            "&",
+            "borrow it",
+        )
     }
 
     /// ExprTyper accepted an implicit conversion of `e` through a
