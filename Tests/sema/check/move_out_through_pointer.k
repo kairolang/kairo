@@ -49,6 +49,9 @@ fn f(p: *H, q: unsafe *H) {
     sink(q->m)
     // CHECK: :[[@LINE+1]]:20: error [SC182E]: cannot move a value of type 'M' out of 'p->m'
     p->v.push_back(p->m)
+    // CHECK: :[[@LINE+2]]:14: error [SC182E]: cannot move a value of type 'M' out of '(*p).m'
+    // CHECK-NOT: fix-it:{{.*}}:"&"
+    var d = (*p).m
 }
 
 // --- lit wiring ---

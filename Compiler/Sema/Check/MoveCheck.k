@@ -4904,8 +4904,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
+        // A range that starts inside parentheses (`(*p).b`) has no
+        // position where `&` takes the whole place.
+        var shown = self._spelled(self._tu.strip_parens(e))
+        if shown != self.sc->ctx->get_spelling(e->range) {
+            return
+        }
+
         var nm  = self.sc->ctx->get_spelling(v->name)
-        var msg = f"borrow it instead: 'var *{nm} = &{self._spelled(self._tu.strip_parens(e))}'"
+        var msg = f"borrow it instead: 'var *{nm} = &{shown}'"
         b->note(e->range.start, msg.copy())
         b->child_fix(
             SourceRange(v->name.range.start, v->name.range.start),
@@ -6507,7 +6514,41 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
     /// The source text of `e`, for a note.
     priv fn _spelled(self, e: unsafe *Expr) -> string {
-        return self.sc->ctx->get_spelling(e->range)
+        var text = self.sc->ctx->get_spelling(e->range)
+        // A chain whose base is parenthesized (`(*p).b`) has a range that
+        // starts inside the parentheses: each `)` with no `(` before it
+        // gets its `(` back, outside quoted text.
+        var depth: i64   = 0
+        var open:  usize = 0
+        var quote: u8    = 0
+        for var i: usize = 0; i < text.size(); ++i {
+            var c = text.data()[i] as u8
+            if quote != 0 {
+                if c == ('\\' as u8) {
+                    ++i
+                } else if c == quote {
+                    quote = 0
+                }
+            } else if c == ('"' as u8) || c == ('\'' as u8) {
+                quote = c
+            } else if c == ('(' as u8) {
+                depth += 1
+            } else if c == (')' as u8) {
+                if depth == 0 {
+                    open += 1
+                } else {
+                    depth -= 1
+                }
+            }
+        }
+
+        var out = ""
+        for var k: usize = 0; k < open; ++k {
+            out.push('(')
+        }
+
+        out += text
+        return out
     }
 
     /// Locals and parameters, `self` included. Not fields, not statics.
