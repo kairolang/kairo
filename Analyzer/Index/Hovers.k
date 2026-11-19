@@ -96,7 +96,10 @@ import Sema::SemaContext::{
 }
 import Sema::SemaDump::sema_dump_decl_name
 import Sema::Type::TypeUtil::TypeUtil
-import Support::Ascii::utf8_next
+import Support::Ascii::{
+    has_at,
+    utf8_next,
+}
 import Token::Token::Token
 import Token::TokenKind::{
     TokenKind,
@@ -226,7 +229,7 @@ extend IndexWalker {
                 continue
             }
 
-            if hay.subslice(i, needle.size()) == needle {
+            if has_at(hay, i, needle) {
                 return i
             }
         }

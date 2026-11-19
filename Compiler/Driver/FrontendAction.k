@@ -201,6 +201,7 @@ import Sema::SemaContext::{
 import Sema::SemaDump::SemaDump
 import Support::Ascii::{
     copy_strings,
+    has_at,
     string_less,
 }
 import Support::Escape::json_string
@@ -5156,7 +5157,7 @@ pub class FrontendAction {
         for var i: usize = 0; i < idx.size(); ++i {
             var *f          = &self._incr[idx[i]]
             var rel: string = ""
-            if f->path.size() > prefix.size() && f->path.subslice(0, prefix.size()) == prefix {
+            if f->path.size() > prefix.size() && has_at(f->path, 0, prefix) {
                 rel = f->path.subslice(
                     prefix.size(),
                     f->path.size() - prefix.size(),

@@ -56,7 +56,10 @@ import Server::Structure::*
 import Server::SyntaxWorker::*
 import Server::TextUtil::*
 import Server::Tokens::*
-import Support::Ascii::utf8_next
+import Support::Ascii::{
+    utf8_ceil,
+    utf8_next,
+}
 import Support::FileIO::Path::Path
 import TextScan::{
     InterfacePlan,
@@ -617,7 +620,8 @@ extend Server {
                 var tail: string = ""
                 LinkFS::read(j->log, &tail)
                 if tail.size() > 600 {
-                    tail = tail.subslice(tail.size() - 600, 600)
+                    var from = utf8_ceil(tail, tail.size() - 600)
+                    tail = tail.subslice(from, tail.size() - from)
                 }
 
                 why = f"the analysis of {self.entries[ei].entry} stopped (exit {rc}); showing the last good results\n" + tail

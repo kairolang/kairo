@@ -1747,7 +1747,7 @@ pub class TextSink derives EmitSink {
         }
 
         for var i: usize = 0; (i + name.size()) <= s.size(); ++i {
-            if s.subslice(i, name.size()) != name {
+            if !has_at(s, i, name) {
                 continue
             }
 
