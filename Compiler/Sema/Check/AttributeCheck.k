@@ -89,6 +89,8 @@ import AST::Node::Expressions::{
     AssignOperatorExpr,
     BinaryOperatorExpr,
     CallExpr,
+    SubscriptExpr,
+    TypeCastExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -987,6 +989,31 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     fn visit_unary_operator_expr(self, n: *UnaryOperatorExpr) -> bool {
         if self._mode == 2 && n->resolved_op != &null {
             self._use(n->resolved_op, n->op_token.range)
+        }
+
+        return true
+    }
+
+    /// `x[i]` through a user `op []`: the warning sits on the `[`, which
+    /// SubscriptExpr does not keep, so it is the byte after the base.
+    fn visit_subscript_expr(self, n: *SubscriptExpr) -> bool {
+        if self._mode == 2
+            && n->resolved_op != &null
+            && n->base != &null
+            && !n->base->range.is_invalid() {
+            self._use(
+                n->resolved_op,
+                SourceRange::from_bounds(n->base->range.end, 1 as u32),
+            )
+        }
+
+        return true
+    }
+
+    /// `x as T` through a user conversion operator.
+    fn visit_type_cast_expr(self, n: *TypeCastExpr) -> bool {
+        if self._mode == 2 && n->resolved_op != &null {
+            self._use(n->resolved_op, n->range)
         }
 
         return true
