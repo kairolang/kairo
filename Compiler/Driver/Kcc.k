@@ -104,7 +104,7 @@ pub fn _kcc_words(argc:       i32,
     var clang  = cxx::std::vector<string>()
     var passed = cxx::std::vector<string>()
     for var i: i32 = 1; i < argc; ++i {
-        var a = string(
+        var a = string::from_bytes_unchecked(
             unsafe ((argv[i] as unsafe *const u8) as *const u8),
             cxx::std::strlen(argv[i]),
         )
@@ -116,7 +116,7 @@ pub fn _kcc_words(argc:       i32,
             }
 
             passed.push_back(
-                string(
+                string::from_bytes_unchecked(
                     unsafe ((argv[i + 1] as unsafe *const u8) as *const u8),
                     cxx::std::strlen(argv[i + 1]),
                 ),

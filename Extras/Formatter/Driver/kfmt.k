@@ -589,7 +589,7 @@ fn verify(ci:             unsafe *CompilerInstance,
         *why = "not idempotent: formatting the output changes it again"
         var unsafe *dir = cxx::std::getenv(r"KFMT_REFUSED_DIR")
         if dir != &null {
-            var d = string(
+            var d = string::from_bytes_unchecked(
                 unsafe ((dir as unsafe *const u8) as *const u8),
                 cxx::std::strlen(dir),
             )
@@ -680,7 +680,7 @@ fn format_one_file(ci:          unsafe *CompilerInstance,
         // pointing the variable at a source directory overwrites nothing.
         var unsafe *dir = cxx::std::getenv(r"KFMT_REFUSED_DIR")
         if dir != &null {
-            var d = string(
+            var d = string::from_bytes_unchecked(
                 unsafe ((dir as unsafe *const u8) as *const u8),
                 cxx::std::strlen(dir),
             )
@@ -786,7 +786,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var tab_size_given     = false
     var n:             i32 = 1
     for var i: i32 = 1; i < argc; ++i {
-        var a = string(
+        var a = string::from_bytes_unchecked(
             unsafe ((argv[i] as unsafe *const u8) as *const u8),
             cxx::std::strlen(argv[i]),
         )

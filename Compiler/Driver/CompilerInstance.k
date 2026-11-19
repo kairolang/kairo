@@ -378,7 +378,10 @@ pub class CompilerInstance {
         register_kairo_flags(self._cmd)
         for var i: i32 = 0; i < argc; ++i {
             self.incr_words.push_back(
-                string(unsafe ((argv[i] as unsafe *const u8) as *const u8)),
+                string::from_bytes_unchecked(
+                    unsafe ((argv[i] as unsafe *const u8) as *const u8),
+                    cxx::std::strlen(argv[i]),
+                ),
             )
         }
 

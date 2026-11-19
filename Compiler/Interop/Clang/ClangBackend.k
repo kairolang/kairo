@@ -756,7 +756,10 @@ pub class ClangBackend {
         var out = cxx::std::vector<string>()
         for var i: usize = 0; i < argv.size(); ++i {
             out.push_back(
-                string(unsafe ((argv[i] as unsafe *const u8) as *const u8)),
+                string::from_bytes_unchecked(
+                    unsafe ((argv[i] as unsafe *const u8) as *const u8),
+                    cxx::std::strlen(argv[i]),
+                ),
             )
         }
 

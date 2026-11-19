@@ -230,7 +230,7 @@ pub class Path {
             llvm::StringRef(buf.data(), buf.size()),
         )
 
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((generic.data() as unsafe *const u8) as *const u8),
             generic.size(),
         )
@@ -498,7 +498,7 @@ pub class Path {
         var folded  = Path::_fold_dot_dots(string_from_ref(buf.str()))
         var generic = llvm::sys::path::convert_to_slash(kairo::sref(folded))
 
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((generic.data() as unsafe *const u8) as *const u8),
             generic.size(),
         )

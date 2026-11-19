@@ -359,7 +359,7 @@ pub class IndexWalker derives RecursiveASTVisitor<IndexWalker> {
             // code point, which both corrupts the text and shifts
             // every offset after the first non-ASCII character.
             var view = self.sm->get_view(self.sm->get_range(fid, 0, size))
-            f.text = string(
+            f.text = string::from_bytes_unchecked(
                 unsafe ((view.data() as unsafe *const u8) as *const u8),
                 view.size(),
             )

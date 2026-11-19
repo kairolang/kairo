@@ -942,7 +942,7 @@ pub class OpaqueFFIType derives Type {
             return ""
         }
 
-        return string(unsafe ((self.sp as unsafe *const u8) as *const u8), (self.sp_len as usize))
+        return string::from_bytes_unchecked(unsafe ((self.sp as unsafe *const u8) as *const u8), (self.sp_len as usize))
     }
 
     static fn create(ctx: *ASTContext, range: SourceRange, name: u32) -> unsafe *OpaqueFFIType {

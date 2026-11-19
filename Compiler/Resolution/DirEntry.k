@@ -183,7 +183,7 @@ pub class DirEntry {
                 continue
             }
 
-            var name_raw = string(
+            var name_raw = string::from_bytes_unchecked(
                 unsafe ((fname.data() as unsafe *const u8) as *const u8),
                 fname.size(),
             )
@@ -210,14 +210,14 @@ pub class DirEntry {
                     ext_ref = ext_ref.drop_front(1)
                 }
 
-                var ext = string(
+                var ext = string::from_bytes_unchecked(
                     unsafe ((ext_ref.data() as unsafe *const u8) as *const u8),
                     ext_ref.size(),
                 )
 
                 if self.ext_cfg->should_index(ext) {
                     var stem_ref = llvm::sys::path::stem(fname)
-                    var stem = string(
+                    var stem = string::from_bytes_unchecked(
                         unsafe ((stem_ref.data() as unsafe *const u8) as *const u8),
                         stem_ref.size(),
                     )

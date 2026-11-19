@@ -401,7 +401,7 @@ pub class DiagCollector derives DiagConsumer {
             // code point, which both corrupts the text and shifts
             // every offset after the first non-ASCII character.
             var view = self.sm_->get_view(self.sm_->get_range(fid, 0, size))
-            f.text = string(
+            f.text = string::from_bytes_unchecked(
                 unsafe ((view.data() as unsafe *const u8) as *const u8),
                 view.size(),
             )
@@ -750,7 +750,7 @@ fn syntax_answer(const file:   string,
     var size = ci->sm()->get_file_size(fid)
     if size > 0 {
         var view = ci->sm()->get_view(ci->sm()->get_range(fid, 0, size))
-        ft.text = string(
+        ft.text = string::from_bytes_unchecked(
             unsafe ((view.data() as unsafe *const u8) as *const u8),
             view.size(),
         )

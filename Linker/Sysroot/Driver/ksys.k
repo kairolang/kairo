@@ -121,7 +121,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var args = cxx::std::vector<string>()
     for var i: i32 = 1; i < argc; ++i {
         args.push_back(
-            string(unsafe ((argv[i] as unsafe *const u8) as *const u8)),
+            string::from_bytes_unchecked(
+                unsafe ((argv[i] as unsafe *const u8) as *const u8),
+                cxx::std::strlen(argv[i]),
+            ),
         )
     }
 

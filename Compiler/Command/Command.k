@@ -135,7 +135,7 @@ pub class Command {
         self._args.reserve(argc as usize)
         for var i: i32 = 0; i < argc; ++i {
             self._args.emplace_back(
-                string(
+                string::from_bytes_unchecked(
                     unsafe ((argv[i] as unsafe *const u8) as *const u8),
                     cxx::std::strlen(argv[i]),
                 ),

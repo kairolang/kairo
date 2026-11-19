@@ -1598,7 +1598,7 @@ pub class ImmediateTable {
     // the list but never move or free slot `idx`. Same for get<T>.
     pub fn get_ident(self, idx: u32) -> string {
         var unsafe *d = self.ident_descs->get(idx as usize)
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((unsafe (d->ptr as kairo::std::ConstPtr<c_char>) as unsafe *const u8) as *const u8),
             d->len as usize,
         )
@@ -1763,7 +1763,7 @@ pub class ImmediateTable {
     pub fn string_text(self, idx: u32, sm: unsafe *SourceManager) -> string {
         var unsafe *d = self.string_literals->get(idx as usize)
         if d->owned_ptr != &null {
-            return string(
+            return string::from_bytes_unchecked(
                 unsafe ((unsafe (d->owned_ptr as kairo::std::ConstPtr<c_char>) as unsafe *const u8) as *const u8),
                 d->owned_len as usize,
             )

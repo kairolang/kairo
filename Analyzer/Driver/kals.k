@@ -214,7 +214,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var args: [string]
     for var i: i32 = 1; i < argc; ++i {
         args.push(
-            string(
+            string::from_bytes_unchecked(
                 unsafe ((argv[i] as unsafe *const u8) as *const u8),
                 cxx::std::strlen(argv[i]),
             ),
@@ -235,7 +235,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     // PATH, which a child process cannot be started from.
     var self_path = env::exe_path()
     if self_path.is_empty() {
-        self_path = string(
+        self_path = string::from_bytes_unchecked(
             unsafe ((argv[0] as unsafe *const u8) as *const u8),
             cxx::std::strlen(argv[0]),
         )

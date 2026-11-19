@@ -414,7 +414,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     priv fn _string_text(self, sl: unsafe *StringLiteralExpr) -> string {
         var out = ""
         if sl->imm != &null && sl->imm->has_owned_text() {
-            return string(
+            return string::from_bytes_unchecked(
                 unsafe ((sl->imm->owned_ptr as unsafe *const u8) as *const u8),
                 sl->imm->owned_len as usize,
             )

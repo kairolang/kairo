@@ -908,7 +908,7 @@ pub class SourceManager {
             return string()
         }
 
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((mbuf.data() as unsafe *const u8) as *const u8),
             mbuf.size() as usize,
         )

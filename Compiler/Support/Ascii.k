@@ -323,7 +323,7 @@ pub fn string_from_ref(sr: llvm::StringRef) -> string {
         return ""
     }
 
-    return string(
+    return string::from_bytes_unchecked(
         unsafe ((sr.data() as unsafe *const u8) as *const u8),
         sr.size(),
     )

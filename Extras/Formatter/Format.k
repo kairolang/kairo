@@ -378,7 +378,7 @@ pub class Formatter {
             )
 
             var unsafe *p = view.data()
-            self.src = string(
+            self.src = string::from_bytes_unchecked(
                 unsafe ((p as unsafe *const u8) as *const u8),
                 view.size(),
             )

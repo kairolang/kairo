@@ -54,7 +54,7 @@ pub class LinkFS {
             return p
         }
 
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((out.data() as unsafe *const u8) as *const u8),
             out.size(),
         )
@@ -73,7 +73,7 @@ pub class LinkFS {
             return p
         }
 
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((out.data() as unsafe *const u8) as *const u8),
             out.size(),
         )
@@ -81,7 +81,7 @@ pub class LinkFS {
 
     pub static fn parent(const p: string) -> string {
         var sr = llvm::sys::path::parent_path(kairo::sref(p))
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((sr.data() as unsafe *const u8) as *const u8),
             sr.size(),
         )
@@ -89,7 +89,7 @@ pub class LinkFS {
 
     pub static fn filename(const p: string) -> string {
         var sr = llvm::sys::path::filename(kairo::sref(p))
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((sr.data() as unsafe *const u8) as *const u8),
             sr.size(),
         )
@@ -110,7 +110,7 @@ pub class LinkFS {
             var p = it->path()
             out.push_back(
                 LinkFS::filename(
-                    string(
+                    string::from_bytes_unchecked(
                         unsafe ((p.data() as unsafe *const u8) as *const u8),
                         p.size(),
                     ),
@@ -162,7 +162,7 @@ pub class LinkFS {
         // reported as unreadable rather than stopping the process.
         var sr = mb.get()->getBuffer()
 
-        out = string(
+        out = string::from_bytes_unchecked(
             unsafe ((sr.data() as unsafe *const u8) as *const u8),
             sr.size(),
         )
@@ -189,7 +189,7 @@ pub class LinkFS {
             return ""
         }
 
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((out.data() as unsafe *const u8) as *const u8),
             out.size(),
         )
@@ -206,7 +206,7 @@ pub class LinkFS {
             return ""
         }
 
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((out.data() as unsafe *const u8) as *const u8),
             out.size(),
         )
@@ -389,7 +389,7 @@ pub class LinkFS {
         }
 
         var cs = v.value()
-        return string(
+        return string::from_bytes_unchecked(
             unsafe ((cs.data() as unsafe *const u8) as *const u8),
             cs.size(),
         )

@@ -306,7 +306,7 @@ fn io_opaque_ffi_type(ar: unsafe *ASTArchive, n: unsafe *Types::OpaqueFFIType) {
     ar->num32(&n->name)
     var sp: string
     if !ar->reading() && n->sp != &null {
-        sp = string(
+        sp = string::from_bytes_unchecked(
             unsafe ((n->sp as unsafe *const u8) as *const u8),
             n->sp_len as usize,
         )

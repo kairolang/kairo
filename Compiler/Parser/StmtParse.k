@@ -2763,7 +2763,7 @@ pub class <T: type> StmtParse {
         // owned-text strings (synthesized by the PP) have no source range
         var spelling = string()
         if imm->has_owned_text() {
-            spelling = string(
+            spelling = string::from_bytes_unchecked(
                 unsafe ((unsafe (imm->owned_ptr as kairo::std::ConstPtr<c_char>) as unsafe *const u8) as *const u8),
                 imm->owned_len as usize,
             )

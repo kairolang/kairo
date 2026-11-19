@@ -194,7 +194,7 @@ fn collect_stale_(const dir:  string,
     var subs: [string]
     while ec.value() == 0 && it != end {
         var raw = it->path()
-        var p = string(
+        var p = string::from_bytes_unchecked(
             unsafe ((raw.data() as unsafe *const u8) as *const u8),
             raw.size(),
         )
