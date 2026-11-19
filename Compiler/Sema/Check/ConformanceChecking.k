@@ -3038,11 +3038,16 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         for var i: usize = 0; i < bounds.size(); ++i {
             var unsafe *b  = bounds[i]
             var unsafe *gp = self._param_named(b, xdd)
-            if gp == &null || gp->is_pack {
+            if gp != &null && gp->is_pack {
                 continue
             }
 
-            var unsafe *x     = self._arg_of(e, prim, gp)
+            // `requires S::Item impl I`: the associated type at e's
+            // arguments, whose row the instance needs as much as a
+            // parameter's (a primitive's Copyable witness is emitted only
+            // where a row names it).
+            var unsafe *x = if (gp != &null) => (self._arg_of(e, prim, gp))
+                            else => self._assoc_bound_arg(b, xdd, e)
             var unsafe *iface = self._bound_iface(b, xdd, e)
             if x == &null || iface == &null || x->is_dependent() || iface->is_dependent() {
                 continue
@@ -6744,6 +6749,33 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         return &null
+    }
+
+    /// The associated type a bound of `owner` constrains (`S::Item impl
+    /// I`) at instance `e`'s arguments; null for any other subject, or one
+    /// still dependent.
+    priv fn _assoc_bound_arg(self,
+                             c:     unsafe *ConstraintExpr,
+                             owner: unsafe *Decl,
+                             e:     unsafe *InstanceEntry) -> unsafe *Type {
+        if !isa<ChainExpr>(self.tu.strip_parens(c->lhs)) {
+            return &null
+        }
+
+        var d   = Deduction(self.sc, &null)
+        var gps = decl_generic_params(owner)
+        for var i: usize = 0; i < gps.size() && i < e->args.size(); ++i {
+            if gps[i] != &null {
+                d.bind(owner, gps[i]->index, e->args[i])
+            }
+        }
+
+        var unsafe *x = self._bound_arg(c, unsafe &d)
+        if x == &null || x->is_dependent() {
+            return &null
+        }
+
+        return x
     }
 
     /// The bound's interface at instance `e`: `T impl Container<U>` with
