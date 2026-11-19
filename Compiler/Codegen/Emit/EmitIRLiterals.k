@@ -776,7 +776,22 @@ extend EmitIR {
             self._cg->sink->spell(n->range, t + "{" + tag)
             for var i: usize = 0; i < n->fields.size(); ++i {
                 self._cg->sink->spell(n->range, ",")
-                self._value(n->fields[i], v->payload[i]->type_)
+                // One field of a builtin type that names no parameter: the
+                // generic ADT's lambda form `(tag, F&&)` is the better match
+                // for an argument C++ sees at another type (the literal `7`
+                // for a `u8`), and then calls it. EnumLayoutLowering writes
+                // that conversion where the field's type is a parameter's;
+                // here the field's own type is spelled.
+                var unsafe *ft = v->payload[i]->type_
+                if n->fields.size() == 1
+                    && ft != &null
+                    && ft->canonical != &null
+                    && !ft->is_dependent()
+                    && isa<BuiltinType>(canon_unqual(ft->canonical)) {
+                    self._cast_to(ft, n->fields[i], "static_cast")
+                } else {
+                    self._value(n->fields[i], ft)
+                }
             }
 
             self._cg->sink->spell(n->range, "}")
