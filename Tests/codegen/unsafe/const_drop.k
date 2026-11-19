@@ -53,7 +53,7 @@ fn main() -> i32 {
 // IR-NOT:  reinterpret_cast
 // IR:      ::free((void *)(p));
 // IR-NOT:  reinterpret_cast
-// IR:      (w ={{ ?}}(signed int *)(q));
+// IR:      (w ={{ ?}}(typename{{ ?}}::__kairo_ma<signed int>::t *)(q));
 // IR-NOT:  reinterpret_cast
 // IR:      (bc ={{ ?}}({{ ?}}::const_drop::B *)(pc));
 // IR:      (bm ={{ ?}}static_cast<const{{ ?}}::const_drop::B *>(pm));

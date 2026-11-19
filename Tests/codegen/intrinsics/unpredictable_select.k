@@ -58,9 +58,9 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX-LABEL: hinted(const unsigned long * b, decltype(sizeof(0)) n, unsigned long v) noexcept {
+// CXX-LABEL: hinted(const typename::__kairo_ma<unsigned long>::t * b, decltype(sizeof(0)) n, unsigned long v) noexcept {
 // CXX:       if(__builtin_unpredictable((b[
-// CXX-LABEL: marked(const unsigned long * b, decltype(sizeof(0)) n, unsigned long v) noexcept {
+// CXX-LABEL: marked(const typename::__kairo_ma<unsigned long>::t * b, decltype(sizeof(0)) n, unsigned long v) noexcept {
 // CXX:       if(__builtin_unpredictable((b[
 
 // REQUIRES: clang

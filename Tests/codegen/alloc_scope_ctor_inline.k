@@ -32,6 +32,6 @@ fn main() -> i32 {
 // RUN: %objdump -d --no-show-raw-insn %t.exe > %t.asm
 // RUN: %FileCheck %s < %t.asm
 // CHECK-LABEL: 18k_scope_open_closeEv>:
-// CHECK: callq {{.*}}range_is_free
+// CHECK: callq {{.*}}scope_push
 // CHECK-NOT: ctor_pre
 // CHECK-LABEL: <main>:

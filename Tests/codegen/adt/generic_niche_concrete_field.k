@@ -31,7 +31,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>/dev/null || true; } | %FileCheck %s --check-prefix=IR
 // IR-NOT: requires( ::__kairo_niche<signed int>::count
 // IR-NOT: requires( ::__kairo_niche< ::{{.*}}::St>::count
-// IR: requires( ::__kairo_niche<signed int *>::count
+// IR: requires( ::__kairo_niche<typename::__kairo_ma<signed int>::t *>::count
 
 // REQUIRES: default-sysroot
 // RUN: rm -rf %t.d

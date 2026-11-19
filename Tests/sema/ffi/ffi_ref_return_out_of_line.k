@@ -42,11 +42,11 @@ fn main() -> i32 {
 // SEMA-DAG: c : i32{{$}}
 // RUN: { %kairo %s --print-ir -o /dev/null 2>/dev/null || true; } | %FileCheck %s --check-prefix=IR
 // IR: signed int &(Widget::at)(decltype(sizeof(0)) i) {
-// IR-NEXT: return this->items[i];
+// IR-NEXT: return this->items[{{.*}}__kairo_ix(i, 4)];
 // IR: signed int(Widget::at)(decltype(sizeof(0)) i) const {
 // IR: const signed int &(Widget::first)() const {
 // IR: signed int &&(Widget::steal)(decltype(sizeof(0)) i) {
-// IR-NEXT: return static_cast<signed int &&>(this->items[i]);
+// IR-NEXT: return static_cast<signed int &&>(this->items[{{.*}}__kairo_ix(i, 4)]);
 // IR: signed int &(refs::slot)(signed int & a) {
 // IR-NEXT: return a;
 // RUN: rm -rf %t.d

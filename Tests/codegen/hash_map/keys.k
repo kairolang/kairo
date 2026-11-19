@@ -95,8 +95,8 @@ fn main() -> i32 {
 // CXX-NEXT: return{{ ?}}::builtin::base::hash::__kairo_ext_i32::hash(self);
 // CXX: static bool __kairo_op_eq(const signed int & self, const signed int & other) noexcept {
 // CXX-NEXT: return(self == static_cast<decltype(other) &&>(other));
-// CXX: template<> struct Hash_witness<signed int *> {
-// CXX-NEXT: using __kairo_Self = signed int *;
+// CXX: template<> struct Hash_witness<typename::__kairo_ma<signed int>::t *> {
+// CXX-NEXT: using __kairo_Self = typename::__kairo_ma<signed int>::t *;
 // CXX-NEXT: static decltype(sizeof(0)) hash(const __kairo_Self * self) noexcept {
 // CXX-NEXT: return reinterpret_cast<decltype(sizeof(0))>(* self);
 

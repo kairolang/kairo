@@ -29,7 +29,7 @@ fn main() -> i32 { return 0 }
 // CXX-NEXT: static_cast<signed int>(static_cast<unsigned int>(__kairo_ord0) - static_cast<unsigned int>({{.*}}g()));
 // CXX: signed int __kairo_ord1 = {{.*}}f();
 // CXX-NEXT: h(__kairo_ord1, {{.*}}g());
-// CXX: auto && __kairo_ord2 =((* arr)[{{.*}}i()]);
+// CXX: auto && __kairo_ord2 =((* arr)[{{.*}}__kairo_ix({{.*}}i(), 2)]);
 // CXX-NEXT: (__kairo_ord2 = {{.*}}g());
 // CXX: signed int __kairo_ord3 = {{.*}}x;
 // CXX-NEXT: h(__kairo_ord3, {{.*}}g());

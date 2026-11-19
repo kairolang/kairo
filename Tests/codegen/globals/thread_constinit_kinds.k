@@ -29,7 +29,7 @@ fn main() -> i32 {
 // CXX-DAG: extern constinit thread_local double c __attribute((tls_model("local-exec")));
 // CXX-DAG: extern constinit thread_local bool d __attribute((tls_model("local-exec")));
 // CXX-DAG: extern constinit thread_local char32_t e __attribute((tls_model("local-exec")));
-// CXX-DAG: extern constinit thread_local signed int {{\*|\* }}f __attribute((tls_model("local-exec")));
+// CXX-DAG: extern constinit thread_local typename{{ ?}}::__kairo_ma<signed int>::t {{\*|\* }}f __attribute((tls_model("local-exec")));
 // CXX-DAG: extern thread_local signed int g __attribute((tls_model("local-exec")));
 // CXX-NOT: constinit thread_local signed int g
 

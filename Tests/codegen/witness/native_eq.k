@@ -35,8 +35,8 @@ fn main() -> i32 {
 // CXX: template<> struct Same_witness<signed int> {
 // CXX-NEXT: static bool __kairo_op_eq(const signed int & self, const signed int & other) noexcept {
 // CXX-NEXT: return(self == static_cast<decltype(other) &&>(other));
-// CXX: template<> struct Same_witness<signed int *> {
-// CXX-NEXT: using __kairo_Self = signed int *;
+// CXX: template<> struct Same_witness<typename::__kairo_ma<signed int>::t *> {
+// CXX-NEXT: using __kairo_Self = typename::__kairo_ma<signed int>::t *;
 // CXX-NEXT: static bool __kairo_op_eq(const __kairo_Self & self, const __kairo_Self & other) noexcept {
 
 // REQUIRES: clang
