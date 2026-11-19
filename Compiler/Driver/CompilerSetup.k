@@ -1655,6 +1655,11 @@ extend CompilerInstance {
         // but SC005 and S005 are not. Applied in this order so the stronger
         // intent wins on a repeated code: allow < warn < deny < forbid, i.e.
         // `-A X -W X` leaves X enabled.
+        // Defaults, before the user's lists replace them. C170: a call to a
+        // pure virtual member from a constructor or destructor is undefined
+        // behavior, so it is an error unless `-A C170W` allows it.
+        self._set_code_policy("C170W", DiagAction::Promote)
+
         for c in d->allow_list {
             self._set_code_policy(c, DiagAction::Silence)
         }
