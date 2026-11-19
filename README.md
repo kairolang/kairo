@@ -205,6 +205,70 @@ fn first(v: cxx::std::vector<i32>?) -> i32 {
   <img src="Assets/err-ex.png" alt="Error example">
 </div>
 
+### Kairo's UB Surface vs C++
+
+This is where each one stands as of 0.3.0. "C++" is the ISO C++ behaviour; "Kairo" is what Kairo code gets, without modifying any C++ it interops with.
+
+**Defined or rejected in Kairo**
+
+Overhead is the extra instructions on the path that runs, against the same code compiled as C++ by Clang (x86-64, `-O2`); a failure branch is out of line and runs only when the check fails. "None" means the same instructions as C++, within one. A rejected construct costs nothing at run time.
+
+| Undefined in C++ | In Kairo | Overhead (In Instruction count on `x86_64-linux-any`) compared to C++ |
+|---|---|---|
+| Signed integer overflow (`+`, `-`, `*`, unary `-`) | Two's complement wrapping | None |
+| Shift by a count >= the width, or negative | For run-time it's masked to the width; Constant is rejected (compile error `[SC262E]`) | None |
+| Integer `/ 0` and `% 0` | Terminates: `division by zero` | +2 per division |
+| `MIN / -1`, `MIN % -1` | Defined: `MIN` and `0` | +1 per signed division |
+| Float to integer out of range, NaN, infinity | Saturates; NaN gives 0 | +7 |
+| Narrowing integer cast | Defined, modulo 2^N | None |
+| Enum cast to a value that has no variant | Run time checked; Constant is rejected (compile error `[SC252E]`). `@open` enums take every value of their type | +2 |
+| Reading an uninitialised variable, field, array or heap object | Everything is default/zero-initialised | None |
+| No return on a non-`void` | Rejected (compile error `[SC104E]`) | None |
+| Unsequenced or unspecified evaluation order (`f(g(), h())`, `f(i++, i++)`, `a[i] = g(i)`) | Defined, left to right | None |
+| Out-of-bounds index on a vector, slice, string, map or fixed array | Traps `index I is out of bounds for length N`. A constant out-of-range index into a fixed array is rejected (compile error `[SC291E]`) | +2 to +3 per index; none where the index is proven in range |
+| Safe-pointer offset past its array (constant offset) | Rejected (compile error `[SC363E]`) | None |
+| Subtracting two safe pointers | Rejected (compile error `[SC067E]`) | None |
+| Use after move, including a moved field or element, a branch and a loop | Rejected (compile error `[SC052E]`) | None |
+| Moving a value out through a pointer or reference | Rejected (compile error `[SC182E]`) | None |
+| Deleting through a base with no virtual destructor | Rejected (compile error `[SC056E]`) | None |
+| Calling a pure virtual from a constructor or destructor | Rejected (compile error `[C170E]`) | None |
+| Failed downcast | `as *D` terminates; `as *D?` gives `null` | +2 for `as *D`; None for `as *D?` |
+| Writing to a `const` object | Rejected (compile error `[SC071E]`) | None |
+| Calling through the wrong function type | Rejected (compile error `[SC027E]`) | None |
+| Type punning through pointers to differently typed integers or floats | Defined: an `unsafe *` to an integer wider than a byte, or a float, may alias any object | None |
+| Two references to the same object passed as two `@inout` arguments | Defined: no `restrict` is assumed | None |
+| A side-effect-free loop that never ends | Runs forever: no forward-progress assumption | None |
+| A pointer to a temporary used after its full expression | Rejected (compile error `[SC069E]`) | None |
+| The optimiser deleting a null check after a dereference | Null checks are always kept | None |
+| A C++ exception escaping into Kairo code | Defined: terminates at the Kairo frame (unless `@unwind` is given) | None |
+
+**In progress**
+
+| Undefined in C++ | Kairo today | Where it is going |
+|---|---|---|
+| Dangling references: returning the address of a local, a slice of a local vector, a pointer held across a reallocating `push`, a closure or generator outliving what it captures | Compiles | Rejected by Tether, Kairo's lifetime checker |
+| Use after `@destroy`, double `@destroy`, `@destroy` of a local or interior pointer | Not checked | Tether |
+| Safe-pointer arithmetic with a run-time offset; `<` between pointers into different arrays | Not checked | Tether |
+| Null reaching a safe `*T` from C++ or from a cast | Not checked | Tether |
+| Moves are destructive by definition, but the moved-from object's destructor still runs in the generated code | `@relocatable` types move by `memcpy` with no destructor call; a `@move` constructor that leaves its source live is warned about | Destructive moves |
+| Static initialisation order across modules | Unspecified | Defined order |
+| `@destroy` through a plain base declared in another module | Checked only when the derived class is in the same module | Checked across modules |
+
+**Not planned for the near future**
+
+| Undefined in C++ | In Kairo |
+|---|---|
+| Out-of-bounds access through `unsafe *T` arithmetic | Undefined (requires `unsafe {}`) |
+| Writing through an `unsafe` cast that removes `const`, including string literal bytes | Undefined |
+| Misaligned access through `unsafe *T` | Undefined |
+| A `bool` holding a value other than 0 or 1 (from union or `unsafe` bytes) | Undefined |
+| Reading a union member other than the last one written | The bytes are reinterpreted |
+| Float `/ 0.0` | IEEE 754 |
+| Unbounded recursion | Stack overflow crashes the program |
+| Reaching `@assume(false)` or `__builtin_unreachable()` | asserts at O0, and without `unsafe` it warns at `-O1` and above as the check is removed |
+| Recursive initialisation of a function-local `static` | Aborts |
+| Code inside imported C and C++ headers | Keeps C and C++ rules (for example, signed overflow in a header is still undefined) |
+
 ### Getting Started
 
 **Download a release:** `curl -fsSL https://www.kairolang.org/install.sh | sh` (Linux, macOS, BSD) or `irm https://www.kairolang.org/install.ps1 | iex` (Windows PowerShell), or grab an acrhive from the [releases page](https://github.com/kairolang/kairo/releases).
