@@ -1505,6 +1505,33 @@ pub class <T: type> OperatorTyping {
                 return &null
             }
 
+            // A dependent record's own operator (`self - other` in `class
+            // <T> Q`): a viable one is found as on any record, so the result
+            // has its declared type and a local deduced from it has one. Left
+            // unbound, `var d = self - other` had no type to declare.
+            if own_op && self._is_dependent(lt) && self.dyn()->tu.record_decl(lt) != &null {
+                var dep_found = false
+                var dep_args  = cxx::std::vector<unsafe *Expr>()
+                dep_args.push_back(n->rhs)
+                var unsafe *dep_t = self.resolve_user_op(
+                    n,
+                    k,
+                    TokenKind::TkUnknown,
+                    n->lhs,
+                    lt,
+                    rt,
+                    dep_args,
+                    -1,
+                    self._label(n->op_token),
+                    unsafe &dep_found,
+                    true,
+                )
+
+                if dep_found {
+                    return dep_t
+                }
+            }
+
             self.dyn()->mark_unknown(n)
             return &null
         }
