@@ -90,7 +90,7 @@ builtin without a fallback (`__int128` and `__builtin_clzll` are both
 guarded), no libc formatting (no locale), only <stddef.h>, <stdint.h>,
 <float.h>, <stdlib.h> and <string.h> outside crash.c, and per-target code
 behind the target's own macro (crash.c's _WIN32 / __wasm__ split,
-fmt_float.c's LDBL_MANT_DIG). Tests/Codegen/builtin_fmt_arm64_msvc.k builds
+fmt_float.c's LDBL_MANT_DIG). Tests/codegen/builtin_fmt_arm64_msvc.k builds
 the builtin for aarch64-pc-windows-msvc.
 
 Where a new function goes

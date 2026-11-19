@@ -80,9 +80,9 @@ pub fn rename_path(const from: string, const to: string) -> bool {
     // never moves there; MoveFileExW moves either.
     eval if defined!(_WIN32) {
         return kairo::win32::move_path(
-            unsafe ((from.raw() as unsafe *const u8) as unsafe *const c_char),
+            unsafe ((from.data() as unsafe *const u8) as unsafe *const c_char),
             from.size(),
-            unsafe ((to.raw() as unsafe *const u8) as unsafe *const c_char),
+            unsafe ((to.data() as unsafe *const u8) as unsafe *const c_char),
             to.size(),
         )
     }

@@ -146,7 +146,7 @@ pub class Server {
     pub var refresh_tokens:   bool    = false ///< client honours semanticTokens/refresh
     pub var refresh_inlays:   bool    = false
     pub var highlight_panics: bool    = false ///< initializationOptions.highlightPanics: send `panics`
-    pub var inlay_max:        usize   = 25 ///< initializationOptions.inlayHintMaxLength: 0 is no limit
+    pub var inlay_max:        usize   = 39 ///< initializationOptions.inlayHintMaxLength: 0 is no limit
 
     /// Scratch files a finished worker may still have open; removed once no
     /// worker is running.

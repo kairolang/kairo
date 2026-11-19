@@ -108,7 +108,7 @@ pub class MMapRegion {
             var data: unsafe *u8 = &null
             var size: usize      = 0
             if !kairo::win32::map_readonly(
-                unsafe ((path->raw() as unsafe *const u8) as unsafe *const c_char),
+                unsafe ((path->data() as unsafe *const u8) as unsafe *const c_char),
                 path->size(),
                 unsafe &data,
                 unsafe &size,

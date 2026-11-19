@@ -188,11 +188,12 @@ pub fn cache_root() -> string {
     // library's own temporary entry was recorded as a source and the cache
     // was "incomplete" on every Windows run. Windows takes '/' everywhere.
     eval if defined!(_WIN32) {
-        for var i: usize = 0; i < root.size(); ++i {
-            if root[i] == ('\\' as u8) {
-                root[i] = ('/' as u8)
-            }
+        var fwd = ""
+        for c in root {
+            fwd.push(if (c == '\\') => ('/') else => c)
         }
+
+        root = fwd
     }
 
     // Absolute: the library cache compares the paths it builds under the

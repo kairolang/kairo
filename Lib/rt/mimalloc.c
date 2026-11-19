@@ -68,7 +68,7 @@
  *
  * Byte for byte Lib/rt/mimalloc/LICENSE, sized to it so the section holds the
  * text and no NUL; regenerate it from that file on a submodule bump that
- * changes it (Tests/Codegen/runtime_notices.k checks the linked text).
+ * changes it (Tests/codegen/runtime_notices.k checks the linked text).
  *
  * It must survive dead-stripping on every format, with nothing referencing it:
  *   ELF   `retain` (SHF_GNU_RETAIN) keeps the section from --gc-sections;

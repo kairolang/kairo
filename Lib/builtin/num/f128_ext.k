@@ -35,7 +35,7 @@ import num::softfloat::*
 eval if defined!(__SIZEOF_FLOAT128__) || defined!(__wasm__) {
     /// Operation `which` (SF_OP_SQRT, SF_OP_FMA) on binary128 encodings, through the
     /// softfloat engine at 128 bits, the width at which it is checked bit for
-    /// bit against the native f128 (Tests/Codegen/softfloat_native.k). Not
+    /// bit against the native f128 (Tests/codegen/softfloat_native.k). Not
     /// libm: x86_64 and i686 musl have no sqrtf128 / fmaf128, and LLVM then
     /// calls sqrtl / fmal, the x87 functions, on the binary128 bits.
     priv inline fn float_ext_soft_(which: i32, a: f128, b: f128, c: f128) -> f128 {

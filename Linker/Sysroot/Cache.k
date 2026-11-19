@@ -300,10 +300,9 @@ pub class SysCache {
     priv static fn _slashes(const s: string) -> string {
         var out = s.copy()
         eval if defined!(_WIN32) {
-            for var i: usize = 0; i < out.size(); ++i {
-                if out[i] == ('\\' as u8) {
-                    out[i] = ('/' as u8)
-                }
+            out = ""
+            for c in s {
+                out.push(if (c == '\\') => ('/') else => c)
             }
         }
 

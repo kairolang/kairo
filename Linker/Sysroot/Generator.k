@@ -1802,7 +1802,7 @@ pub class SysGen {
     pub static fn find_tool(const name: string) -> string {
         var exe = name.copy()
         eval if defined!(_WIN32) {
-            exe = name + ".exe"
+            exe = name.copy() + ".exe"
         }
 
         var beside = LinkText::join(LinkFS::parent(env::exe_path()), exe.copy())

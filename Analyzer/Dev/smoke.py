@@ -1991,7 +1991,7 @@ fn foo(arg: string) -> i32 { return 0 }
 fn fb(blob: [const u8;]) -> i32 { return 0 }
 fn two(first: string, second: string) -> i32 { return 0 }
 fn fc(ch: char) -> i32 { return 0 }
-fn deep() -> Wrap<Wrap<Wrap<Wrap<i32>>>> { return Wrap<Wrap<Wrap<Wrap<i32>>>>() }
+fn deep() -> Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<i32>>>>>> { return Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<i32>>>>>>() }
 
 fn main() -> i32 {
     var s = "x"
@@ -2043,8 +2043,8 @@ def inlay_hints(exe, root):
     check("inlay: no hint inside a prefix", not any(lines[h["position"]["line"]][h["position"]["character"] - 1:h["position"]["character"]] in "fr" and lines[h["position"]["line"]][h["position"]["character"]] == '"' for h in rs if h["label"].endswith(":")), rs)
 
     deep = [h for h in rs if h["position"]["line"] == pos(INLAY_SRC, "var w")[0]]
-    long_ty = "Wrap<Wrap<Wrap<Wrap<i32>>>>"
-    check("inlay: a long type hint is cut to 25 characters with an ellipsis", len(deep) == 1 and deep[0]["label"].endswith("\u2026") and len(deep[0]["label"]) == 25, deep)
+    long_ty = "Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<i32>>>>>>"
+    check("inlay: a long type hint is cut to 39 characters with an ellipsis", len(deep) == 1 and deep[0]["label"].endswith("\u2026") and len(deep[0]["label"]) == 39, deep)
     check("inlay: ... its tooltip is the full type", deep and deep[0].get("tooltip", {}).get("value") == "```kairo\n" + long_ty + "\n```", deep)
     short = [h for h in rs if h["label"] == ": i32"]
     check("inlay: a short type hint is whole and still has its tooltip", short and "\u2026" not in short[0]["label"] and short[0]["tooltip"]["value"] == "```kairo\ni32\n```", short)

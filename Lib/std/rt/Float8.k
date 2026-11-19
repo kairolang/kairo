@@ -31,7 +31,7 @@
 ///        semFloat8E5M2), and the compiler uses it for literals
 ///        (Native/Shims.hh, f8_literal_bits): the two implementations must
 ///        agree on all 256 encodings in both directions, which
-///        F8E4M3::verify_ / F8E5M2::verify_ check (Tests/Codegen/types).
+///        F8E4M3::verify_ / F8E5M2::verify_ check (Tests/codegen/types).
 ///
 ///   \par Which E4M3
 ///        E4M3 here is the FINITE-ONLY form (OCP, what every ML toolchain
