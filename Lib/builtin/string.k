@@ -1687,7 +1687,9 @@ pub class string {
             }
         }
 
-        __builtin_unreachable()
+        unsafe {
+            __builtin_unreachable()
+        }
     }
 
     /// The first byte of owned storage. Heap only (invariants 1 and 4).
@@ -1698,7 +1700,9 @@ pub class string {
             }
         }
 
-        __builtin_unreachable()
+        unsafe {
+            __builtin_unreachable()
+        }
     }
 
     /// The capacity word. Heap only (invariant 4).
@@ -3776,7 +3780,9 @@ pub class Chars {
             }
         }
 
-        __builtin_unreachable()
+        unsafe {
+            __builtin_unreachable()
+        }
     }
 }
 

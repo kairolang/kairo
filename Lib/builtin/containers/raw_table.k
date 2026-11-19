@@ -564,7 +564,9 @@ prot class RawTable {
             }
         }
 
-        __builtin_unreachable()
+        unsafe {
+            __builtin_unreachable()
+        }
     }
 
     prot inline fn size(const self) -> usize {

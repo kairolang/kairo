@@ -180,6 +180,20 @@ prim_hash!(isize)
 prim_hash!(bool)
 prim_hash!(char)
 
+// A 128-bit integer does not fit `hash_word`'s u64: both halves are fed.
+priv macro prim_hash_wide!(T) {
+    extend T impl Hash {
+        inline fn hash(const self, @inout h: Hasher) {
+            var v = self as u128
+            h.write_u64(v as u64)
+            h.write_u64((v >> 64) as u64)
+        }
+    }
+}
+
+prim_hash_wide!(u128)
+prim_hash_wide!(i128)
+
 prim_text!(u8)
 prim_text!(u16)
 prim_text!(u32)
