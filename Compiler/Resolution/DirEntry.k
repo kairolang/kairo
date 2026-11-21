@@ -260,7 +260,7 @@ pub class DirEntry {
         }
 
         self.ensure_scanned()
-        for var child: unsafe *DirEntry in self.sorted_children() {
+        for child in self.sorted_children() {
             if !child->is_dir && child->name == stem && child->category == cat {
                 return child
             }
@@ -277,7 +277,7 @@ pub class DirEntry {
     /// "first match" or collected list taken straight off the map
     /// was platform-dependent. Name is the one order every host
     /// agrees on. Names are the map's keys, so they never tie.
-    fn sorted_children(self) -> cxx::std::vector<unsafe *DirEntry> {
+    fn sorted_children(self) -> [unsafe *DirEntry] {
         // Views of the map's own key bytes: stable while the map is not
         // written, which nothing here does.
         var keyed: cxx::std::vector<cxx::std::pair<llvm::StringRef, unsafe *DirEntry>>
@@ -292,10 +292,10 @@ pub class DirEntry {
         }
 
         llvm::sort(keyed.begin(), keyed.end())
-        var out = cxx::std::vector<unsafe *DirEntry>()
+        var out: [unsafe *DirEntry]
         out.reserve(keyed.size())
         for var i: usize = 0; i < keyed.size(); ++i {
-            out.push_back(keyed[i].second)
+            out.push(keyed[i].second)
         }
 
         return out

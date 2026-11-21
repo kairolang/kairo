@@ -13,7 +13,6 @@
 
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "llvm/ADT/StringMap.h"
-ffi "c++" import "vector"
 
 pub type SymbolID = u32
 
@@ -26,7 +25,7 @@ pub class PreprocessorSymbolTable {
     /// intern concurrently, so a `vec::<string>` regrowing under a writer
     /// moved the string out from under a reader mid-copy (the fuzzer's
     /// bad_alloc in _walk_one: a garbage length read from a freed slot).
-    var symbols: cxx::std::vector<unsafe *string>
+    var symbols: [unsafe *string]
     var _mu:     kairo::std::SharedMutex          ///< mutex for synchronizing access
 
     pub fn intern(self, name: string) -> SymbolID {
@@ -47,7 +46,7 @@ pub class PreprocessorSymbolTable {
         }
 
         var id: SymbolID = (self.symbols.size() as u32)
-        self.symbols.push_back(kairo::std::create<string>(name.copy()))
+        self.symbols.push(kairo::std::create<string>(name.copy()))
         self.table.try_emplace(kairo::sref(name), id)
 
         return id
@@ -57,7 +56,7 @@ pub class PreprocessorSymbolTable {
         var rlock = kairo::std::SharedLock(self._mu)
 
         if (id as usize) < self.symbols.size() {
-            return self.symbols[id]
+            return self.symbols[id as usize]
         }
 
         return &null

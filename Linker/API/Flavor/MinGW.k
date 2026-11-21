@@ -536,8 +536,8 @@ pub class MinGWArgs {
                                  want_stat:   bool,
                                  @inout argv: cxx::std::vector<string>,
                                  @inout msgs: cxx::std::vector<LinkMessage>) {
-        var cxx_v = cxx::std::vector<string>()
-        var libc  = cxx::std::vector<string>()
+        var cxx_v: [string]
+        var libc: [string]
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
                 msgs.push_back(
@@ -548,24 +548,24 @@ pub class MinGWArgs {
                 )
             }
 
-            cxx_v = LinkText::copy_list(tc.manifest.libcxx_link)
-            libc  = LinkText::copy_list(tc.manifest.libc_link)
+            cxx_v = tc.manifest.libcxx_link.copy()
+            libc = tc.manifest.libc_link.copy()
         } else {
-            cxx_v.push_back("-lc++")
+            cxx_v.push("-lc++")
             if tc.unwindlib == "libunwind" {
-                cxx_v.push_back("-lunwind")
+                cxx_v.push("-lunwind")
             } else if tc.unwindlib == "libgcc" {
-                cxx_v.push_back("-lgcc_eh")
+                cxx_v.push("-lgcc_eh")
             }
 
-            libc.push_back("-lmingw32")
-            libc.push_back("-lmoldname")
-            libc.push_back("-lmingwex")
-            libc.push_back("-lmsvcrt")
-            libc.push_back("-ladvapi32")
-            libc.push_back("-lshell32")
-            libc.push_back("-luser32")
-            libc.push_back("-lkernel32")
+            libc.push("-lmingw32")
+            libc.push("-lmoldname")
+            libc.push("-lmingwex")
+            libc.push("-lmsvcrt")
+            libc.push("-ladvapi32")
+            libc.push("-lshell32")
+            libc.push("-luser32")
+            libc.push("-lkernel32")
         }
 
         if !want_stat {

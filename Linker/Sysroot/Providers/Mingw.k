@@ -103,12 +103,12 @@ pub class MingwProvider derives SysrootProvider {
         }
 
         var lib  = dst.copy() + "/lib"
-        var none = cxx::std::vector<string>()
+        var none: [string]
         if !SysRun::copy_tree(crt, lib, &none) {
             return out.fail(f"cannot copy {crt} into {lib}", "")
         }
 
-        var names = LinkFS::list_dir(defs)
+        var names = SysUtil::list_dir(defs)
         SysUtil::sort(&names)
         var flags = ctx->recipe.list("libc", "dlltool_flags")
         for *n in names {
@@ -117,18 +117,18 @@ pub class MingwProvider derives SysrootProvider {
             }
 
             var stem = LinkText::slice(*n, 0, n->size() - 4)
-            var args = cxx::std::vector<string>()
-            args.push_back("llvm-dlltool")
-            args.push_back("-m")
-            args.push_back(machine.copy())
+            var args: [string]
+            args.push("llvm-dlltool")
+            args.push("-m")
+            args.push(machine.copy())
             for *f in flags {
-                args.push_back(f->copy())
+                args.push(f->copy())
             }
 
-            args.push_back("-d")
-            args.push_back(defs.copy() + "/" + *n)
-            args.push_back("-l")
-            args.push_back(lib.copy() + "/lib" + stem + ".a")
+            args.push("-d")
+            args.push(defs.copy() + "/" + *n)
+            args.push("-l")
+            args.push(lib.copy() + "/lib" + stem + ".a")
             if MingwProvider::dlltool(&args) != 0 {
                 return out.fail(f"dlltool -d {defs}/{*n} failed", "")
             }
@@ -256,18 +256,18 @@ pub class MingwProvider derives SysrootProvider {
                 continue
             }
 
-            var args = cxx::std::vector<string>()
-            args.push_back("llvm-dlltool")
-            args.push_back("-m")
-            args.push_back(t->dlltool_machine.copy())
+            var args: [string]
+            args.push("llvm-dlltool")
+            args.push("-m")
+            args.push(t->dlltool_machine.copy())
             for *f in t->dlltool_flags {
-                args.push_back(f->copy())
+                args.push(f->copy())
             }
 
-            args.push_back("-d")
-            args.push_back(SysCrt::expand(env, a->def))
-            args.push_back("-l")
-            args.push_back(o)
+            args.push("-d")
+            args.push(SysCrt::expand(env, a->def))
+            args.push("-l")
+            args.push(o)
             if MingwProvider::dlltool(&args) != 0 {
                 return out.fail(
                     f"dlltool -d {SysCrt::expand(env, a->def)} failed",
@@ -282,16 +282,16 @@ pub class MingwProvider derives SysrootProvider {
         var n:   usize = 0
         jobs.limit(ctx->jobs)
         for *a in t->archives {
-            if a->members.empty() {
+            if a->members.is_empty() {
                 continue
             }
 
-            var argv = cxx::std::vector<string>()
-            argv.push_back(ctx->ar.copy())
-            argv.push_back("qc")
-            argv.push_back(env->build.copy() + "/" + a->out)
+            var argv: [string]
+            argv.push(ctx->ar.copy())
+            argv.push("qc")
+            argv.push(env->build.copy() + "/" + a->out)
             for *m in a->members {
-                argv.push_back(env->build.copy() + "/" + *m)
+                argv.push(env->build.copy() + "/" + *m)
             }
 
             if !jobs.add(&argv, f"{logs}/{n}.log") {
@@ -312,13 +312,13 @@ pub class MingwProvider derives SysrootProvider {
 
         for *a in t->archives {
             var o = env->build.copy() + "/" + a->out
-            if !a->addlib.empty() {
-                var argv = cxx::std::vector<string>()
-                argv.push_back(ctx->ar.copy())
-                argv.push_back("qcL")
-                argv.push_back(o.copy())
+            if !a->addlib.is_empty() {
+                var argv: [string]
+                argv.push(ctx->ar.copy())
+                argv.push("qcL")
+                argv.push(o.copy())
                 for *m in a->addlib {
-                    argv.push_back(env->build.copy() + "/" + *m)
+                    argv.push(env->build.copy() + "/" + *m)
                 }
 
                 var log = f"{logs}/addlib-{n}.log"
@@ -343,7 +343,7 @@ pub class MingwProvider derives SysrootProvider {
     }
 
     /// llvm-dlltool's main, in-process, over `args` (args[0] the name).
-    pub static fn dlltool(@inout args: cxx::std::vector<string>) -> i32 {
+    pub static fn dlltool(@inout args: [string]) -> i32 {
         // Pointers into args' own NUL-terminated bytes; args outlives the call.
         var cargv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
         cargv.reserve(args.size())

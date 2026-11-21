@@ -61,7 +61,7 @@ pub class FileImportIndex {
     pub var named: llvm::DenseMap<u64, unsafe *MacroEntry>
 
     /// resolved source scopes for wildcard imports (`import Foo::*`)
-    pub var wildcards: cxx::std::vector<ModulePath>
+    pub var wildcards: [ModulePath]
 
     /// module aliases for QUALIFIED invocation (`import Foo` -> Foo::mac!,
     /// `import Foo as f` -> f::mac!)
@@ -77,7 +77,7 @@ pub class FileImportIndex {
         var at:    SourceRange
     }
 
-    priv var _bare: cxx::std::vector<Self::BareItem>
+    priv var _bare: [Self::BareItem]
 
     priv var _sym:  *PreprocessorSymbolTable
     priv var _sm:   *SourceManager
@@ -137,7 +137,7 @@ pub class FileImportIndex {
         if id->is_wildcard {
             var rr = self._resolve(segs, id)
             if rr.found {
-                self.wildcards.push_back(rr.source_scope)
+                self.wildcards.push(rr.source_scope)
                 id->resolved_fid   = rr.target_fid
                 id->file_seg_count = (rr.seg_count as u32)
                 return rr.target_fid
@@ -164,7 +164,7 @@ pub class FileImportIndex {
             for var i: usize = 0; i < id->items.size(); ++i {
                 var it = id->items[i]
                 if it.is_wildcard {
-                    self.wildcards.push_back(rr.source_scope)
+                    self.wildcards.push(rr.source_scope)
                     continue
                 }
 
@@ -240,7 +240,7 @@ pub class FileImportIndex {
             bi.name  = self._sym->intern(segs[segs.size() - 1].copy())
             bi.scope = item_scope
             bi.at    = last.range
-            self._bare.push_back(bi)
+            self._bare.push(bi)
         }
 
         var alias_key = if (id->has_alias) => (self._sym->intern(
@@ -289,7 +289,7 @@ pub class FileImportIndex {
         bi.name  = self._sym->intern(self._spell(last))
         bi.scope = scope
         bi.at    = last.range
-        self._bare.push_back(bi)
+        self._bare.push(bi)
     }
 
     /// The name token of an import that spelled macro `name` without its

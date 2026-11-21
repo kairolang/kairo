@@ -12,8 +12,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "functional"
-ffi "c++" import "map"
-ffi "c++" import "vector"
 ffi "c++" import "Native/SmallFunction.hh"
 
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
@@ -23,7 +21,10 @@ import Diagnostic::Engine::{
     DiagEngine,
 }
 import Location::SourceManager::SourceManager
-import Preprocessor::DepScanner::DepGraph
+import Preprocessor::DepScanner::{
+    DepGraph,
+    sorted_fids,
+}
 import Resolution::ModulePath::ModulePath
 import Threading::ThreadPool::ThreadPool
 
@@ -34,7 +35,7 @@ pub class WaveExecutor {
     /// decrement would make 0 mean both "ready" and "dispatched", and a
     /// second run over the same graph would see every file as a
     /// root). What is left above 0 after a run is what stranded() reports.
-    priv var _pending: cxx::std::map<u32, i32>
+    priv var _pending: {u32: i32}
 
     fn WaveExecutor(self, pool: *ThreadPool) {
         self._pool = pool
@@ -66,19 +67,19 @@ pub class WaveExecutor {
            task_fn: fn(u32, ModulePath) -> void,
            diag:    unsafe *DiagEngine    = &null,
            sm:      unsafe *SourceManager = &null) -> usize {
-        self._pending = graph->in_degree
+        self._pending = graph->in_degree.copy()
         var ready             = graph->roots()
         var dispatched: usize = 0
 
         while ready.size() > 0 {
             dispatched += ready.size()
-            var sinks = cxx::std::vector<unsafe *BufferedDiagSink>()
+            var sinks: [unsafe *BufferedDiagSink]
             for fid in ready {
-                var mod_path                          = graph->mod_paths[fid]
+                var mod_path = graph->mod_paths[fid].copy()
                 var sink:    unsafe *BufferedDiagSink = &null
                 if diag != &null {
                     sink = kairo::std::create<BufferedDiagSink>()
-                    sinks.push_back(sink)
+                    sinks.push(sink)
                 }
 
                 self._pool->enqueue(
@@ -108,12 +109,12 @@ pub class WaveExecutor {
             }
 
             // compute next wave
-            var next = cxx::std::vector<u32>()
+            var next: [u32]
             for fid in ready {
-                for dependent in graph->rdeps[fid] {
+                for dependent in sorted_fids(graph->rdeps[fid]) {
                     self._pending[dependent] -= 1
                     if self._pending[dependent] == 0 {
-                        next.push_back(dependent)
+                        next.push(dependent)
                     }
                 }
             }
@@ -127,7 +128,7 @@ pub class WaveExecutor {
     /// after run(): `fid` never became ready (a dependency of it was
     /// never walked), so it was never dispatched.
     fn stranded(self, fid: u32) -> bool {
-        var it = self._pending.find(fid)
-        return it != self._pending.end() && it->second > 0
+        var left = self._pending.get(fid)
+        return left != null && *left > 0
     }
 }

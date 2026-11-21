@@ -36,10 +36,10 @@ import Sysroot::SysUtil::SysUtil
 pub class StageCtx {
     pub var target:      SysTarget
     pub var recipe:      SysRecipe
-    pub var quirks:      cxx::std::vector<SysQuirk> ///< the quirks that matched the target
+    pub var quirks:      [SysQuirk] ///< the quirks that matched the target
     pub var share:       string ///< the share tree root
     pub var inputs:      cxx::std::vector<string> ///< the recipe's input dirs, absolute, verified
-    pub var input_names: cxx::std::vector<string> ///< the same, as registry.toml names them
+    pub var input_names: [string] ///< the same, as registry.toml names them
     pub var input:       string ///< --input DIR (user provider), "" otherwise
     pub var stage:       string ///< the stage dir being written (<dir>.tmp)
     pub var log_dir:     string
@@ -48,8 +48,8 @@ pub class StageCtx {
     pub var jobs:        usize                      = 0 ///< compiles in flight, 0 = SysRun::jobs()
     /// The stages that ran before this one: names and their committed dirs,
     /// each holding its product under out/.
-    pub var done_names: cxx::std::vector<string>
-    pub var done_dirs:  cxx::std::vector<string>
+    pub var done_names: [string]
+    pub var done_dirs:  [string]
 
     /// The product dir (out/) of the earlier stage `name`; "" if it has not run.
     pub fn product(self, const name: string) -> string {
@@ -117,9 +117,9 @@ pub class StageCtx {
     }
 
     /// kcc, as every stage spawns it (KccArgv::push_target).
-    pub fn kcc(self, const sysroot: string) -> cxx::std::vector<string> {
-        var a = cxx::std::vector<string>()
-        a.push_back(self.tool("kcc"))
+    pub fn kcc(self, const sysroot: string) -> [string] {
+        var a: [string]
+        a.push(self.tool("kcc"))
         KccArgv::push_target(&a, self.target.clang_triple, sysroot)
         return a
     }
@@ -141,7 +141,7 @@ pub class SysrootProvider {
     /// recipe's arch list; a provider with more to check (an --input, the
     /// host) refines it. False sets `out` to the refusal.
     pub virtual fn supports(self, t: *SysTarget, r: *SysRecipe, @inout out: SysOutcome) -> bool {
-        if !r->arches.empty() && !SysUtil::contains(&r->arches, t->arch) {
+        if !r->arches.is_empty() && !SysUtil::contains(&r->arches, t->arch) {
             return out.refuse(f"{t->family} has no port for {t->arch}", "")
         }
 
@@ -169,7 +169,7 @@ pub class SysrootProvider {
 
     /// Anything besides the recipe, inputs and quirks that changes this
     /// provider's output, so it must enter the stage keys.
-    pub virtual fn key_extra(self, t: *SysTarget) -> cxx::std::vector<string> {
-        return cxx::std::vector<string>()
+    pub virtual fn key_extra(self, t: *SysTarget) -> [string] {
+        return []
     }
 }

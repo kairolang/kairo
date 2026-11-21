@@ -983,7 +983,7 @@ pub class ASTParse
     /// one note per additional annotation so each gets its own caret
     /// instead of one fused multi-line span.
     priv fn _diag_annot_on_vis_group(self, annot: unsafe *Self::PendingAnnotations) {
-        if annot->empty() {
+        if annot->entries.is_empty() {
             return
         }
 

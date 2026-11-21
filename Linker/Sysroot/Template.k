@@ -43,9 +43,9 @@ import Sysroot::SysUtil::SysUtil
 /// One runtime's compiles, collected from the outputs that take them.
 class TmplRuntime {
     pub var name:    string
-    pub var langs:   cxx::std::vector<string> ///< per entry
-    pub var pids:    cxx::std::vector<string> ///< per entry; "" = no profile
-    pub var entries: cxx::std::vector<string> ///< per entry: <path>=<member>
+    pub var langs:   [string] ///< per entry
+    pub var pids:    [string] ///< per entry; "" = no profile
+    pub var entries: [string] ///< per entry: <path>=<member>
 }
 
 pub class SysTemplate {
@@ -54,13 +54,13 @@ pub class SysTemplate {
     pub var error: string
 
     /// The runtimes the template has rules for, in compile order.
-    pub static fn runtimes() -> cxx::std::vector<string> {
-        var v = cxx::std::vector<string>()
-        v.push_back("builtins")
-        v.push_back("crt")
-        v.push_back("libunwind")
-        v.push_back("libcxxabi")
-        v.push_back("libcxx")
+    pub static fn runtimes() -> [string] {
+        var v: [string]
+        v.push("builtins")
+        v.push("crt")
+        v.push("libunwind")
+        v.push("libcxxabi")
+        v.push("libcxx")
         return v
     }
 
@@ -130,23 +130,23 @@ pub class SysTemplate {
             return false
         }
 
-        var rts = cxx::std::vector<TmplRuntime>()
+        var rts: [TmplRuntime]
         for *n in SysTemplate::runtimes() {
             var rt = TmplRuntime()
             rt.name = n->copy()
-            rts.push_back(rt)
+            rts.push(rt)
         }
 
         var rl   = r->expand(r->str("", "resource_layout"), t)
         var bn   = r->expand(r->str("", "builtins_name"), t)
         var lib  = r->list("layout", "lib")
-        var ldir = if (lib.empty()) => ("lib") else => lib[0].copy()
+        var ldir = if (lib.is_empty()) => ("lib") else => lib[0].copy()
         var sfx  = if (p->get("objfmt") == "coff") => (".obj") else => ".o"
 
         var arch = ""
         for *id in self.index.keys_of("archive_files") {
             var es = SysTemplate::pick(&outs, "archive." + *id, p)
-            if es.empty() {
+            if es.is_empty() {
                 continue
             }
 
@@ -169,7 +169,7 @@ pub class SysTemplate {
         var objs = ""
         for *id in self.index.keys_of("object_files") {
             var es = SysTemplate::pick(&outs, "object." + *id, p)
-            if es.empty() {
+            if es.is_empty() {
                 continue
             }
 
@@ -189,7 +189,7 @@ pub class SysTemplate {
         tt += f"arch         = \x22{t->arch}\x22\n"
         tt += f"clang_triple = \x22{t->clang_triple}\x22\n"
         for *rt in rts {
-            if rt->entries.empty() {
+            if rt->entries.is_empty() {
                 continue
             }
 
@@ -231,10 +231,8 @@ pub class SysTemplate {
 
     /// The `add` lists of `prefix`'s fragments ([<prefix>.fNNN]) whose
     /// `when` holds for `p`, concatenated in file order.
-    pub static fn pick(r:            *SysRecipe,
-                       const prefix: string,
-                       p:            *SysProps) -> cxx::std::vector<string> {
-        var out = cxx::std::vector<string>()
+    pub static fn pick(r: *SysRecipe, const prefix: string, p: *SysProps) -> [string] {
+        var out: [string]
         var pre = prefix.copy() + ".f"
         for var i: usize = 0; i < r->raw_keys.size(); ++i {
             var tb = r->raw_tables[i].copy()
@@ -256,7 +254,7 @@ pub class SysTemplate {
             }
 
             for *x in r->raw_vals[i].list {
-                out.push_back(x->copy())
+                out.push(x->copy())
             }
         }
 
@@ -265,8 +263,8 @@ pub class SysTemplate {
 
     /// `when`: alternatives (any holds), each space-separated `prop=v1|v2`
     /// clauses (all hold). An empty list always holds.
-    pub static fn holds(@inout when: cxx::std::vector<string>, p: *SysProps) -> bool {
-        if when.empty() {
+    pub static fn holds(@inout when: [string], p: *SysProps) -> bool {
+        if when.is_empty() {
             return true
         }
 
@@ -295,7 +293,7 @@ pub class SysTemplate {
 
     /// Template entry `<rt>:<path>[=<member>][@<profile>]` into its
     /// runtime's compiles; `ref` the table's member ref for it.
-    priv static fn _take(@inout rts: cxx::std::vector<TmplRuntime>,
+    priv static fn _take(@inout rts: [TmplRuntime],
                          const e:    string,
                          p:          *SysProps,
                          const sfx:  string,
@@ -334,9 +332,9 @@ pub class SysTemplate {
 
         for var i: usize = 0; i < rts.size(); ++i {
             if rts[i].name == rt {
-                rts[i].langs.push_back(lang)
-                rts[i].pids.push_back(pid)
-                rts[i].entries.push_back(path.copy() + "=" + member)
+                rts[i].langs.push(lang)
+                rts[i].pids.push(pid)
+                rts[i].entries.push(path.copy() + "=" + member)
                 ref = rt.copy() + ":" + path + "=" + member
                 return true
             }
@@ -363,32 +361,32 @@ pub class SysTemplate {
 
         var s = "# instantiated by ksys from the runtimes template; FORMAT.md (runtimes-recipe).\n"
         s += f"runtime = \x22{rt->name}\x22\n\n[flags]\n"
-        var langs = cxx::std::vector<string>()
+        var langs: [string]
         for *l in rt->langs {
             if !SysUtil::contains(&langs, *l) {
-                langs.push_back(l->copy())
+                langs.push(l->copy())
                 s += l->copy() + " = " + SysTemplate::_array(
                     SysTemplate::pick(&rules, "flags." + *l, p),
                 ) + "\n"
             }
         }
 
-        var keys = cxx::std::vector<string>()
+        var keys: [string]
         for var i: usize = 0; i < rt->entries.size(); ++i {
             var k = rt->langs[i].copy() + "@" + rt->pids[i]
             if SysUtil::contains(&keys, k) {
                 continue
             }
 
-            keys.push_back(k)
-            var srcs = cxx::std::vector<string>()
+            keys.push(k)
+            var srcs: [string]
             for var j: usize = i; j < rt->entries.size(); ++j {
                 if rt->langs[j] == rt->langs[i] && rt->pids[j] == rt->pids[i] {
-                    srcs.push_back(rt->entries[j].copy())
+                    srcs.push(rt->entries[j].copy())
                 }
             }
 
-            var fl = cxx::std::vector<string>()
+            var fl: [string]
             if !rt->pids[i].is_empty() {
                 fl = SysTemplate::pick(profs, "profile." + rt->pids[i], p)
             }
@@ -408,8 +406,8 @@ pub class SysTemplate {
         return true
     }
 
-    priv static fn _array(xs: cxx::std::vector<string>) -> string {
-        if xs.empty() {
+    priv static fn _array(xs: [string]) -> string {
+        if xs.is_empty() {
             return "[]"
         }
 

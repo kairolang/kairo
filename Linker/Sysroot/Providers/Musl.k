@@ -43,45 +43,45 @@ import Sysroot::SysRun::{
 import Sysroot::SysUtil::SysUtil
 
 /// configure's CFLAGS_C99FSE for kcc.
-fn musl_c99fse() -> cxx::std::vector<string> {
-    var v = cxx::std::vector<string>()
-    v.push_back("-std=c99")
-    v.push_back("-nostdinc")
-    v.push_back("-ffreestanding")
-    v.push_back("-fexcess-precision=standard")
-    v.push_back("-frounding-math")
-    v.push_back("-fno-strict-aliasing")
-    v.push_back("-Wa,--noexecstack")
+fn musl_c99fse() -> [string] {
+    var v: [string]
+    v.push("-std=c99")
+    v.push("-nostdinc")
+    v.push("-ffreestanding")
+    v.push("-fexcess-precision=standard")
+    v.push("-frounding-math")
+    v.push("-fno-strict-aliasing")
+    v.push("-Wa,--noexecstack")
     return v
 }
 
 /// configure's CFLAGS_AUTO for kcc.
-fn musl_cflags_auto() -> cxx::std::vector<string> {
-    var v = cxx::std::vector<string>()
-    v.push_back("-pipe")
-    v.push_back("-fomit-frame-pointer")
-    v.push_back("-fno-unwind-tables")
-    v.push_back("-fno-asynchronous-unwind-tables")
-    v.push_back("-ffunction-sections")
-    v.push_back("-fdata-sections")
-    v.push_back("-Wno-pointer-to-int-cast")
-    v.push_back("-Werror=implicit-function-declaration")
-    v.push_back("-Werror=implicit-int")
-    v.push_back("-Werror=pointer-sign")
-    v.push_back("-Werror=pointer-arith")
-    v.push_back("-Werror=int-conversion")
-    v.push_back("-Werror=incompatible-pointer-types")
-    v.push_back("-Waddress")
-    v.push_back("-Warray-bounds")
-    v.push_back("-Wchar-subscripts")
-    v.push_back("-Wduplicate-decl-specifier")
-    v.push_back("-Winit-self")
-    v.push_back("-Wreturn-type")
-    v.push_back("-Wsequence-point")
-    v.push_back("-Wstrict-aliasing")
-    v.push_back("-Wunused-function")
-    v.push_back("-Wunused-label")
-    v.push_back("-Wunused-variable")
+fn musl_cflags_auto() -> [string] {
+    var v: [string]
+    v.push("-pipe")
+    v.push("-fomit-frame-pointer")
+    v.push("-fno-unwind-tables")
+    v.push("-fno-asynchronous-unwind-tables")
+    v.push("-ffunction-sections")
+    v.push("-fdata-sections")
+    v.push("-Wno-pointer-to-int-cast")
+    v.push("-Werror=implicit-function-declaration")
+    v.push("-Werror=implicit-int")
+    v.push("-Werror=pointer-sign")
+    v.push("-Werror=pointer-arith")
+    v.push("-Werror=int-conversion")
+    v.push("-Werror=incompatible-pointer-types")
+    v.push("-Waddress")
+    v.push("-Warray-bounds")
+    v.push("-Wchar-subscripts")
+    v.push("-Wduplicate-decl-specifier")
+    v.push("-Winit-self")
+    v.push("-Wreturn-type")
+    v.push("-Wsequence-point")
+    v.push("-Wstrict-aliasing")
+    v.push("-Wunused-function")
+    v.push("-Wunused-label")
+    v.push("-Wunused-variable")
     return v
 }
 
@@ -186,23 +186,23 @@ pub class MuslProvider derives SysrootProvider {
         var objs = MuslProvider::objects(src, ma)
         var base = ctx->kcc(ctx->stage)
         for *f in musl_c99fse() {
-            base.push_back(f->copy())
+            base.push(f->copy())
         }
 
-        base.push_back("-D_XOPEN_SOURCE=700")
-        base.push_back("-I" + src + "/arch/" + ma)
-        base.push_back("-I" + src + "/arch/generic")
-        base.push_back("-I" + obj + "/src/internal")
-        base.push_back("-I" + src + "/src/include")
-        base.push_back("-I" + src + "/src/internal")
-        base.push_back("-I" + obj + "/include")
-        base.push_back("-I" + src + "/include")
+        base.push("-D_XOPEN_SOURCE=700")
+        base.push("-I" + src + "/arch/" + ma)
+        base.push("-I" + src + "/arch/generic")
+        base.push("-I" + obj + "/src/internal")
+        base.push("-I" + src + "/src/include")
+        base.push("-I" + src + "/src/internal")
+        base.push("-I" + obj + "/include")
+        base.push("-I" + src + "/include")
         for *f in musl_cflags_auto() {
-            base.push_back(f->copy())
+            base.push(f->copy())
         }
 
         for *f in ctx->recipe.list("libc", "cflags") {
-            base.push_back(f->copy())
+            base.push(f->copy())
         }
 
         var logs = ctx->log_dir.copy() + "/cc"
@@ -210,7 +210,7 @@ pub class MuslProvider derives SysrootProvider {
         var jobs = SysJobs()
         jobs.limit(ctx->jobs)
         var archive = cxx::std::vector<string>()
-        var crts    = cxx::std::vector<string>()
+        var crts: [string]
         for var i: usize = 0; i < objs.size(); ++i {
             var *o  = &objs[i]
             var crt = LinkText::starts_with(o->obj.copy(), "crt/")
@@ -225,32 +225,32 @@ pub class MuslProvider derives SysrootProvider {
             var ext  = if (crt) => (".o") else => ".lo"
             var path = obj.copy() + "/" + o->obj + ext
             LinkFS::make_dirs(LinkFS::parent(path))
-            var argv = LinkText::copy_list(base)
+            var argv = base.copy()
             var stem = LinkFS::filename(o->obj)
             if o->obj == "crt/Scrt1" || o->obj == "crt/rcrt1" {
-                argv.push_back("-fPIC")
+                argv.push("-fPIC")
             }
 
             if crt || musl_nossp(stem) {
-                argv.push_back("-fno-stack-protector")
+                argv.push("-fno-stack-protector")
             }
 
             if crt {
-                argv.push_back("-DCRT")
+                argv.push("-DCRT")
             } else {
-                argv.push_back("-fPIC")
+                argv.push("-fPIC")
             }
 
-            argv.push_back("-c")
-            argv.push_back("-o")
-            argv.push_back(path.copy())
-            argv.push_back(src.copy() + "/" + o->src)
+            argv.push("-c")
+            argv.push("-o")
+            argv.push(path.copy())
+            argv.push(src.copy() + "/" + o->src)
             if !jobs.add(&argv, f"{logs}/{i}.log") {
                 break
             }
 
             if crt {
-                crts.push_back(path)
+                crts.push(path)
             } else {
                 archive.push_back(path)
             }
@@ -306,7 +306,7 @@ pub class MuslProvider derives SysrootProvider {
     /// `inc`. Later writes win, in the Makefile's rule order: include/,
     /// then the generated bits, then arch/generic/bits, then arch/<ma>/bits.
     pub static fn install_headers(const src: string, const ma: string, const inc: string) -> bool {
-        var none = cxx::std::vector<string>()
+        var none: [string]
         var sub  = src.copy() + "/include"
         for *n in LinkFS::list_dir(sub) {
             var p = sub.copy() + "/" + *n
@@ -342,9 +342,9 @@ pub class MuslProvider derives SysrootProvider {
             return false
         }
 
-        var dirs = cxx::std::vector<string>()
-        dirs.push_back(src.copy() + "/arch/generic/bits")
-        dirs.push_back(src.copy() + "/arch/" + ma + "/bits")
+        var dirs: [string]
+        dirs.push(src.copy() + "/arch/generic/bits")
+        dirs.push(src.copy() + "/arch/" + ma + "/bits")
         for *d in dirs {
             for *n in LinkFS::list_dir(*d) {
                 if LinkText::ends_with(n->copy(), ".h")
@@ -399,37 +399,37 @@ pub class MuslProvider derives SysrootProvider {
 
     /// The Makefile's ALL_OBJS for ARCH `ma`, sorted as make sorts them,
     /// each with the source its pattern rules would pick.
-    pub static fn objects(const src: string, const ma: string) -> cxx::std::vector<MuslObj> {
-        var dirs = cxx::std::vector<string>()
-        var top  = LinkFS::list_dir(src.copy() + "/src")
+    pub static fn objects(const src: string, const ma: string) -> [MuslObj] {
+        var dirs: [string]
+        var top  = SysUtil::list_dir(src.copy() + "/src")
         SysUtil::sort(&top)
         for *d in top {
             if LinkFS::is_dir(src.copy() + "/src/" + *d) {
-                dirs.push_back("src/" + *d)
+                dirs.push("src/" + *d)
             }
         }
 
-        dirs.push_back("src/malloc/mallocng")
-        dirs.push_back("crt")
-        dirs.push_back("ldso")
+        dirs.push("src/malloc/mallocng")
+        dirs.push("crt")
+        dirs.push("ldso")
         var compat = MuslProvider::_compat_dirs(src, ma)
         for *d in compat {
-            dirs.push_back(d->copy())
+            dirs.push(d->copy())
         }
 
-        var base_objs = cxx::std::vector<string>()
-        var base_srcs = cxx::std::vector<string>()
-        var arch_objs = cxx::std::vector<string>()
-        var arch_srcs = cxx::std::vector<string>()
+        var base_objs: [string]
+        var base_srcs: [string]
+        var arch_objs: [string]
+        var arch_srcs: [string]
         for *d in dirs {
             for *n in LinkFS::list_dir(src.copy() + "/" + *d) {
                 if LinkText::ends_with(n->copy(), ".c")
                     && LinkFS::is_file(src.copy() + "/" + *d + "/" + *n) {
-                    base_objs.push_back(
+                    base_objs.push(
                         d->copy() + "/" + LinkText::slice(*n, 0, n->size() - 2),
                     )
 
-                    base_srcs.push_back(d->copy() + "/" + *n)
+                    base_srcs.push(d->copy() + "/" + *n)
                 }
             }
 
@@ -461,20 +461,20 @@ pub class MuslProvider derives SysrootProvider {
                 }
 
                 if !dup {
-                    arch_objs.push_back(stem)
-                    arch_srcs.push_back(ad.copy() + "/" + *n)
+                    arch_objs.push(stem)
+                    arch_srcs.push(ad.copy() + "/" + *n)
                 }
             }
         }
 
         // REPLACED_OBJS: an arch object stands in for the generic one at
         // the same path minus /<ARCH>/.
-        var replaced = cxx::std::vector<string>()
+        var replaced: [string]
         var marker   = "/" + ma + "/"
         for *o in arch_objs {
             var at = LinkText::find(o->copy(), marker.copy(), 0)
             if at < o->size() {
-                replaced.push_back(
+                replaced.push(
                     LinkText::slice(*o, 0, at) + "/" + LinkText::slice(
                         *o,
                         at + marker.size(),
@@ -484,17 +484,17 @@ pub class MuslProvider derives SysrootProvider {
             }
         }
 
-        var keys = cxx::std::vector<string>()
-        var out  = cxx::std::vector<MuslObj>()
+        var keys: [string]
+        var out: [MuslObj]
         for var i: usize = 0; i < base_objs.size(); ++i {
             if !SysUtil::contains(&replaced, base_objs[i]) {
-                keys.push_back(base_objs[i].copy())
+                keys.push(base_objs[i].copy())
             }
         }
 
         for *o in arch_objs {
             if !SysUtil::contains(&replaced, *o) {
-                keys.push_back(o->copy())
+                keys.push(o->copy())
             }
         }
 
@@ -514,19 +514,19 @@ pub class MuslProvider derives SysrootProvider {
 
             // libc.a lists src/ objects before compat/ ones; crt/ and ldso/
             // are not in it and keep their sorted place.
-            out.push_back(m)
+            out.push(m)
         }
 
-        var ordered = cxx::std::vector<MuslObj>()
+        var ordered: [MuslObj]
         for *m in out {
             if !LinkText::starts_with(m->obj.copy(), "compat/") {
-                ordered.push_back(m->copy())
+                ordered.push(m->copy())
             }
         }
 
         for *m in out {
             if LinkText::starts_with(m->obj.copy(), "compat/") {
-                ordered.push_back(m->copy())
+                ordered.push(m->copy())
             }
         }
 
@@ -571,8 +571,8 @@ pub class MuslProvider derives SysrootProvider {
 
     /// arch/<ma>/arch.mak's COMPAT_SRC_DIRS (compat/time32 on the 32-bit
     /// arches whose time_t was 32 bits).
-    priv static fn _compat_dirs(const src: string, const ma: string) -> cxx::std::vector<string> {
-        var out  = cxx::std::vector<string>()
+    priv static fn _compat_dirs(const src: string, const ma: string) -> [string] {
+        var out: [string]
         var text = ""
         if !LinkFS::read(src.copy() + "/arch/" + ma + "/arch.mak", &text) {
             return out
@@ -584,7 +584,7 @@ pub class MuslProvider derives SysrootProvider {
                 var eq = LinkText::find(t.copy(), "=", 0)
                 for *w in SysUtil::split(LinkText::trim(LinkText::slice(t, eq + 1, t.size())), (' ' as u8)) {
                     if !w->is_empty() {
-                        out.push_back(w->copy())
+                        out.push(w->copy())
                     }
                 }
             }
@@ -631,9 +631,9 @@ pub class MuslProvider derives SysrootProvider {
             return l.copy()
         }
 
-        var kinds = cxx::std::vector<string>()
-        kinds.push_back("STRUCT")
-        kinds.push_back("UNION")
+        var kinds: [string]
+        kinds.push("STRUCT")
+        kinds.push("UNION")
         for *k in kinds {
             if !LinkText::starts_with(l.copy(), k->copy()) || !LinkText::ends_with(l.copy(), ";") {
                 continue
@@ -668,18 +668,18 @@ pub class MuslProvider derives SysrootProvider {
     }
 
     /// Lines without their '\n'; a final line without one is kept.
-    priv static fn _lines(const s: string) -> cxx::std::vector<string> {
-        var out       = cxx::std::vector<string>()
+    priv static fn _lines(const s: string) -> [string] {
+        var out: [string]
         var b:  usize = 0
         for var i: usize = 0; i < s.size(); ++i {
             if s.data()[i] == ('\n' as u8) {
-                out.push_back(LinkText::slice(s, b, i))
+                out.push(LinkText::slice(s, b, i))
                 b = i + 1
             }
         }
 
         if b < s.size() {
-            out.push_back(LinkText::slice(s, b, s.size()))
+            out.push(LinkText::slice(s, b, s.size()))
         }
 
         return out
@@ -694,7 +694,7 @@ pub class MuslProvider derives SysrootProvider {
             }
         }
 
-        return if (lines.empty()) => ("a compile failed with no output")
+        return if (lines.is_empty()) => ("a compile failed with no output")
                else => LinkText::trim(lines[0])
     }
 }

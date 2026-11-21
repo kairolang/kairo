@@ -30,7 +30,6 @@ import API::SysrootManifest::{
     TomlValue,
 }
 import API::Text::LinkText
-import Support::Ascii::copy_strings
 import Sysroot::Outcome::SysOutcome
 import Sysroot::Provider::StageCtx
 import Sysroot::SysRun::{
@@ -48,21 +47,21 @@ pub struct CrtPair {
 /// [flags] <lang>: the leading flags of every compile of that language.
 pub struct CrtFlags {
     pub var lang: string
-    pub var list: cxx::std::vector<string>
+    pub var list: [string]
 }
 
 /// One [group.*]: sources compiled with the same flags.
 pub struct CrtGroup {
     pub var lang:    string
-    pub var flags:   cxx::std::vector<string>
-    pub var sources: cxx::std::vector<string> ///< `<source template>=<object>`
+    pub var flags:   [string]
+    pub var sources: [string] ///< `<source template>=<object>`
 }
 
 /// One [def.*]: a .def.in preprocessed into a .def (mingw-crt).
 pub struct CrtDef {
     pub var source:   string
     pub var out:      string
-    pub var flags:    cxx::std::vector<string>
+    pub var flags:    [string]
     pub var strip_at: bool                     = false
 }
 
@@ -71,15 +70,15 @@ pub struct CrtDef {
 pub struct CrtArchive {
     pub var out:     string
     pub var def:     string
-    pub var members: cxx::std::vector<string>
-    pub var addlib:  cxx::std::vector<string>
+    pub var members: [string]
+    pub var addlib:  [string]
 }
 
 /// One [link.*]: a wasm shared library (wasi-libc).
 pub struct CrtLink {
     pub var out:     string
-    pub var ld:      cxx::std::vector<string>
-    pub var members: cxx::std::vector<string>
+    pub var ld:      [string]
+    pub var members: [string]
 }
 
 pub class SysCrtTable {
@@ -87,16 +86,16 @@ pub class SysCrtTable {
     pub var error:           string
     pub var clang_triple:    string
     pub var dlltool_machine: string
-    pub var dlltool_flags:   cxx::std::vector<string>
-    pub var empty:           cxx::std::vector<string>     ///< root paths of member-less archives
-    pub var files:           cxx::std::vector<CrtPair>    ///< {build} path = gen:<path>
-    pub var headers:         cxx::std::vector<CrtPair>    ///< root path = src:<path> | gen:<path>
-    pub var install:         cxx::std::vector<CrtPair>    ///< root path = {build} path
-    pub var flags:           cxx::std::vector<CrtFlags>
-    pub var groups:          cxx::std::vector<CrtGroup>
-    pub var defs:            cxx::std::vector<CrtDef>
-    pub var archives:        cxx::std::vector<CrtArchive>
-    pub var links:           cxx::std::vector<CrtLink>
+    pub var dlltool_flags:   [string]
+    pub var empty:           [string]     ///< root paths of member-less archives
+    pub var files:           [CrtPair]    ///< {build} path = gen:<path>
+    pub var headers:         [CrtPair]    ///< root path = src:<path> | gen:<path>
+    pub var install:         [CrtPair]    ///< root path = {build} path
+    pub var flags:           [CrtFlags]
+    pub var groups:          [CrtGroup]
+    pub var defs:            [CrtDef]
+    pub var archives:        [CrtArchive]
+    pub var links:           [CrtLink]
 
     /// One pass over the file: the tables are large (1500 archives for
     /// armv7 MinGW), so nothing is looked up by key afterwards.
@@ -122,42 +121,42 @@ pub class SysCrtTable {
                 } else if key == "dlltool_machine" {
                     self.dlltool_machine = val.text.copy()
                 } else if key == "dlltool_flags" {
-                    self.dlltool_flags = val.take_list()
+                    self.dlltool_flags = SysUtil::taken(&val.list)
                 } else if key == "empty" {
-                    self.empty = val.take_list()
+                    self.empty = SysUtil::taken(&val.list)
                 }
             } else if tb == "files" || tb == "headers" || tb == "install" {
                 var pr = CrtPair{}
                 pr.key = key.copy()
                 pr.val = val.text.copy()
                 if tb == "files" {
-                    self.files.push_back(pr)
+                    self.files.push(pr)
                 } else if tb == "headers" {
-                    self.headers.push_back(pr)
+                    self.headers.push(pr)
                 } else {
-                    self.install.push_back(pr)
+                    self.install.push(pr)
                 }
             } else if tb == "flags" {
                 var f = CrtFlags{}
                 f.lang = key.copy()
-                f.list = val.take_list()
-                self.flags.push_back(f)
+                f.list = SysUtil::taken(&val.list)
+                self.flags.push(f)
             } else if LinkText::starts_with(tb.copy(), "group.") {
                 if fresh {
-                    self.groups.push_back(CrtGroup{})
+                    self.groups.push(CrtGroup{})
                 }
 
                 var *g = &self.groups[self.groups.size() - 1]
                 if key == "lang" {
                     g->lang = val.text.copy()
                 } else if key == "flags" {
-                    g->flags = val.take_list()
+                    g->flags = SysUtil::taken(&val.list)
                 } else if key == "sources" {
-                    g->sources = val.take_list()
+                    g->sources = SysUtil::taken(&val.list)
                 }
             } else if LinkText::starts_with(tb.copy(), "def.") {
                 if fresh {
-                    self.defs.push_back(CrtDef{})
+                    self.defs.push(CrtDef{})
                 }
 
                 var *d = &self.defs[self.defs.size() - 1]
@@ -166,13 +165,13 @@ pub class SysCrtTable {
                 } else if key == "out" {
                     d->out = val.text.copy()
                 } else if key == "flags" {
-                    d->flags = val.take_list()
+                    d->flags = SysUtil::taken(&val.list)
                 } else if key == "strip_at" {
                     d->strip_at = val.flag
                 }
             } else if LinkText::starts_with(tb.copy(), "archive.") {
                 if fresh {
-                    self.archives.push_back(CrtArchive{})
+                    self.archives.push(CrtArchive{})
                 }
 
                 var *a = &self.archives[self.archives.size() - 1]
@@ -181,22 +180,22 @@ pub class SysCrtTable {
                 } else if key == "def" {
                     a->def = val.text.copy()
                 } else if key == "members" {
-                    a->members = val.take_list()
+                    a->members = SysUtil::taken(&val.list)
                 } else if key == "addlib" {
-                    a->addlib = val.take_list()
+                    a->addlib = SysUtil::taken(&val.list)
                 }
             } else if LinkText::starts_with(tb.copy(), "link.") {
                 if fresh {
-                    self.links.push_back(CrtLink{})
+                    self.links.push(CrtLink{})
                 }
 
                 var *l = &self.links[self.links.size() - 1]
                 if key == "out" {
                     l->out = val.text.copy()
                 } else if key == "ld" {
-                    l->ld = val.take_list()
+                    l->ld = SysUtil::taken(&val.list)
                 } else if key == "members" {
-                    l->members = val.take_list()
+                    l->members = SysUtil::taken(&val.list)
                 }
             }
         }
@@ -215,14 +214,14 @@ pub class SysCrtTable {
     }
 
     /// [flags].<lang>; empty when the table has none for it.
-    pub fn lang_flags(self, const lang: string) -> cxx::std::vector<string> {
+    pub fn lang_flags(self, const lang: string) -> [string] {
         for *f in self.flags {
             if f->lang == lang {
-                return copy_strings(f->list)
+                return f->list.copy()
             }
         }
 
-        return cxx::std::vector<string>()
+        return []
     }
 }
 
@@ -258,9 +257,9 @@ pub class SysCrt {
         var base = ctx->kcc(env->sysroot)
         // The objects name neither the share tree nor the cache, so two
         // builds of one table compare byte for byte wherever they ran.
-        var maps = cxx::std::vector<string>()
-        maps.push_back(f"-ffile-prefix-map={env->src}={env->src_tag}")
-        maps.push_back(f"-ffile-prefix-map={env->build}=kairo-work")
+        var maps: [string]
+        maps.push(f"-ffile-prefix-map={env->src}={env->src_tag}")
+        maps.push(f"-ffile-prefix-map={env->build}=kairo-work")
 
         var jobs = SysJobs()
         jobs.limit(ctx->jobs)
@@ -269,19 +268,19 @@ pub class SysCrt {
             var o = env->build.copy() + "/" + d->out
             LinkFS::make_dirs(LinkFS::parent(o))
             // -o, not stdout: a job's stdout is its log.
-            var argv = LinkText::copy_list(base)
-            argv.push_back("-E")
-            argv.push_back("-P")
-            argv.push_back("-x")
-            argv.push_back("c")
+            var argv = base.copy()
+            argv.push("-E")
+            argv.push("-P")
+            argv.push("-x")
+            argv.push("c")
             for *f in d->flags {
-                argv.push_back(SysCrt::expand(env, *f))
+                argv.push(SysCrt::expand(env, *f))
             }
 
-            argv.push_back("-Wp,-w")
-            argv.push_back("-o")
-            argv.push_back(o)
-            argv.push_back(SysCrt::expand(env, d->source))
+            argv.push("-Wp,-w")
+            argv.push("-o")
+            argv.push(o)
+            argv.push(SysCrt::expand(env, d->source))
             if !jobs.add(&argv, f"{logs}/{n}.log") {
                 break
             }
@@ -290,13 +289,13 @@ pub class SysCrt {
         }
 
         for *g in t->groups {
-            var fl = cxx::std::vector<string>()
+            var fl: [string]
             for *f in t->lang_flags(g->lang) {
-                fl.push_back(SysCrt::expand(env, *f))
+                fl.push(SysCrt::expand(env, *f))
             }
 
             for *f in g->flags {
-                fl.push_back(SysCrt::expand(env, *f))
+                fl.push(SysCrt::expand(env, *f))
             }
 
             for *e in g->sources {
@@ -316,19 +315,19 @@ pub class SysCrt {
                 )
 
                 LinkFS::make_dirs(LinkFS::parent(o))
-                var argv = LinkText::copy_list(base)
+                var argv = base.copy()
                 for *f in fl {
-                    argv.push_back(f->copy())
+                    argv.push(f->copy())
                 }
 
                 for *f in maps {
-                    argv.push_back(f->copy())
+                    argv.push(f->copy())
                 }
 
-                argv.push_back("-c")
-                argv.push_back(SysCrt::expand(env, LinkText::slice(*e, 0, eq)))
-                argv.push_back("-o")
-                argv.push_back(o)
+                argv.push("-c")
+                argv.push(SysCrt::expand(env, LinkText::slice(*e, 0, eq)))
+                argv.push("-o")
+                argv.push(o)
                 if !jobs.add(&argv, f"{logs}/{n}.log") {
                     break
                 }

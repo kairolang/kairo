@@ -461,8 +461,8 @@ pub class MachOArgs {
     priv static fn _default_libs(@inout tc:   Toolchain,
                                  @inout argv: cxx::std::vector<string>,
                                  @inout msgs: cxx::std::vector<LinkMessage>) {
-        var cxx_v = cxx::std::vector<string>()
-        var libc  = cxx::std::vector<string>()
+        var cxx_v: [string]
+        var libc: [string]
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
                 msgs.push_back(
@@ -473,16 +473,16 @@ pub class MachOArgs {
                 )
             }
 
-            cxx_v = LinkText::copy_list(tc.manifest.libcxx_link)
-            libc  = LinkText::copy_list(tc.manifest.libc_link)
+            cxx_v = tc.manifest.libcxx_link.copy()
+            libc = tc.manifest.libc_link.copy()
         }
 
-        if cxx_v.empty() {
-            cxx_v.push_back("-lc++")
+        if cxx_v.is_empty() {
+            cxx_v.push("-lc++")
         }
 
-        if libc.empty() {
-            libc.push_back("-lSystem")
+        if libc.is_empty() {
+            libc.push("-lSystem")
         }
 
         for *x in cxx_v {
@@ -498,10 +498,10 @@ pub class MachOArgs {
         }
     }
 
-    priv static fn _anchors() -> cxx::std::vector<string> {
-        var v = cxx::std::vector<string>()
-        v.push_back("@loader_path")
-        v.push_back("@executable_path")
+    priv static fn _anchors() -> [string] {
+        var v: [string]
+        v.push("@loader_path")
+        v.push("@executable_path")
         return v
     }
 

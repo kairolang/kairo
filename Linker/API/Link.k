@@ -47,7 +47,7 @@ pub struct LinkResult {
     var     ran:         bool                          = false ///< lld (or kld) actually ran
     var     in_process:  bool                          = true
     var     ret:         i32                           = 1
-    var     argv:        cxx::std::vector<string>
+    var     argv:        [string]
     pub var messages:    cxx::std::vector<LinkMessage>
     pub var stdout_text: string
 }
@@ -83,7 +83,7 @@ pub class Link {
     pub static fn execute(@inout job:  LinkJob,
                           @inout argv: cxx::std::vector<string>,
                           @inout res:  LinkResult) -> bool {
-        res.argv = LinkText::copy_list(argv)
+        res.argv = Link::_argv_copy(&argv)
 
         var parent = LinkFS::parent(job.output)
         if !parent.is_empty() && !LinkFS::make_dirs(parent) {
@@ -184,12 +184,22 @@ pub class Link {
         var tc   = Toolchain()
         var argv = cxx::std::vector<string>()
         if !Link::plan(&job, &tc, &argv, &res.messages) {
-            res.argv = argv
+            res.argv = Link::_argv_copy(&argv)
             return res
         }
 
         Link::execute(&job, &argv, &res)
         return res
+    }
+
+    /// A copy of `argv` for the result.
+    priv static fn _argv_copy(@inout argv: cxx::std::vector<string>) -> [string] {
+        var out: [string]
+        for *a in argv {
+            out.push(a->copy())
+        }
+
+        return out
     }
 
     /// One shell-pasteable line.

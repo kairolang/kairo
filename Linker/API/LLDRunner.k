@@ -194,9 +194,9 @@ pub class LLDRunner {
         // kld is a generic lld: the flavor goes in as -flavor at argv[1],
         // which lld reads before any response file is expanded.
         var flavor = LLDRunner::flavor_of(argv[0])
-        var rest   = cxx::std::vector<string>()
+        var rest: [string]
         for var i: usize = 1; i < argv.size(); ++i {
-            rest.push_back(argv[i].copy())
+            rest.push(argv[i].copy())
         }
 
         var out_path = LinkFS::temp_file("kld-out", "txt")
@@ -216,12 +216,12 @@ pub class LLDRunner {
             }
         }
 
-        var args = cxx::std::vector<string>()
-        args.push_back(kld_path.copy())
-        args.push_back("-flavor")
-        args.push_back(flavor.copy())
+        var args: [string]
+        args.push(kld_path.copy())
+        args.push("-flavor")
+        args.push(flavor.copy())
         for *a in rest {
-            args.push_back(a->copy())
+            args.push(a->copy())
         }
 
         if !LLDRunner::_fits(&args) {
@@ -238,16 +238,16 @@ pub class LLDRunner {
             }
 
             args.clear()
-            args.push_back(kld_path.copy())
-            args.push_back("-flavor")
-            args.push_back(flavor.copy())
+            args.push(kld_path.copy())
+            args.push("-flavor")
+            args.push(flavor.copy())
             // quote_rsp escapes backslashes GNU-style. lld-link defaults to
             // Windows tokenization, which would keep both of them.
             if flavor == "gnu" || flavor == "wasm" || flavor == "link" {
-                args.push_back("--rsp-quoting=posix")
+                args.push("--rsp-quoting=posix")
             }
 
-            args.push_back(f"@{rsp_path}")
+            args.push(f"@{rsp_path}")
         }
 
         // Views of args' own bytes; args is not touched again while refs lives.
@@ -315,7 +315,7 @@ pub class LLDRunner {
         return res
     }
 
-    priv static fn _fits(@inout args: cxx::std::vector<string>) -> bool {
+    priv static fn _fits(@inout args: [string]) -> bool {
         // Views of args' own bytes; args is not touched again while refs lives.
         var refs: cxx::std::vector<llvm::StringRef>
         refs.reserve(args.size())

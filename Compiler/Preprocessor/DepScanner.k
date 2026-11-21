@@ -12,8 +12,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/DenseSet.h"
-ffi "c++" import "map"
-ffi "c++" import "set"
 ffi "c++" import "vector"
 
 import AST::LangItems::LangAttrs
@@ -53,62 +51,77 @@ pub struct DepEdge {
     var to_module_path: ModulePath
 }
 
+/// `fids` in ascending order. A wave dispatches its files in this order, and
+/// diagnostics print in the order the files were dispatched, so it cannot
+/// depend on the order the set was filled in.
+pub fn sorted_fids(const fids: {u32}) -> [u32] {
+    var out: [u32]
+    out.reserve(fids.size())
+    for fid in fids {
+        out.push(fid)
+    }
+
+    out.sort()
+    return out
+}
+
 pub class DepGraph {
-    pub var deps:                cxx::std::map<u32, cxx::std::set<u32>> ///< fid -> fids it depends on
-    pub var rdeps:               cxx::std::map<u32, cxx::std::set<u32>> ///< fid -> fids that depend on it
-    pub var in_degree:           cxx::std::map<u32, i32> ///< fid -> number of deps, as scanned (WaveExecutor counts down its own copy)
-    pub var mod_paths:           cxx::std::map<u32, ModulePath> ///< fid -> its module path
-    pub var all_fids:            cxx::std::set<u32> ///< every fid in the graph
+    pub var deps:                {u32: {u32}} ///< fid -> fids it depends on
+    pub var rdeps:               {u32: {u32}} ///< fid -> fids that depend on it
+    pub var in_degree:           {u32: i32} ///< fid -> number of deps, as scanned (WaveExecutor counts down its own copy)
+    pub var mod_paths:           {u32: ModulePath} ///< fid -> its module path
+    pub var all_fids:            {u32} ///< every fid in the graph
     pub var depth_exceeded_path: string                                 = "" ///< "" = under budget; else first file that hit --cmax-import-depth
     /// Every import cycle the scan met, one per edge that closes one: the
     /// files on it in import order, each importing the next and the last
     /// importing the first (a self-import is one file). The edge from the
     /// last back to the first is NOT in deps -- see _scan_one_import.
-    pub var cycles: cxx::std::vector<cxx::std::vector<u32>>
+    pub var cycles: [[u32]]
     /// Files that write `@create` / `@destroy`. The sugar lowers to
     /// alloc.k's create / destroy with no import written, so the
     /// preprocessor adds alloc.k to the graph for each of them -- the scan
     /// is the one place every token of every file is seen before the walk.
-    pub var alloc_sugar: cxx::std::set<u32>
+    pub var alloc_sugar: {u32}
     /// Files that name `f256` / `f512` (the type keyword, or a literal with
     /// the suffix), one set each. Their classes (num/f256_t.k, f512_t.k)
     /// and the engine under them are four large builtin files, so the root
     /// does not re-export them: the preprocessor adds them to the graph
     /// only for a program that has one of these, as alloc.k for
     /// `@create`.
-    pub var f256_users: cxx::std::set<u32>
-    pub var f512_users: cxx::std::set<u32>
+    pub var f256_users: {u32}
+    pub var f512_users: {u32}
     /// Files that name `f128`: num/f128_ext.k (f128's methods, whose sqrt
     /// and fma run the same engine) is added for them the same way.
-    pub var f128_users: cxx::std::set<u32>
+    pub var f128_users: {u32}
     /// Files that name `f8e4m3` or `f8e5m2` (the keyword; neither has a
     /// literal suffix): std/rt/Float8.k, the two classes C++ spells them as,
     /// is added for them the same way.
-    pub var f8_users: cxx::std::set<u32>
+    pub var f8_users: {u32}
 
     fn add_node(self, fid: u32, const path: ModulePath) {
         if !self.all_fids.contains(fid) {
             self.all_fids.insert(fid)
-            self.deps[fid]      = cxx::std::set<u32>()
-            self.rdeps[fid]     = cxx::std::set<u32>()
+            self.deps[fid]      = HashSet<u32>()
+            self.rdeps[fid]     = HashSet<u32>()
             self.in_degree[fid] = 0
-            self.mod_paths[fid] = path
+            self.mod_paths[fid] = path.copy()
         }
     }
 
     fn add_edge(self, from: u32, to: u32) {
-        if !self.deps[from].contains(to) {
-            self.deps[from].insert(to)
-            self.rdeps[to].insert(from)
+        var out_edges = self.deps.get_or_default(from)
+        if !out_edges->contains(to) {
+            out_edges->insert(to)
+            self.rdeps.get_or_default(to)->insert(from)
             self.in_degree[from] += 1
         }
     }
 
-    fn roots(self) -> cxx::std::vector<u32> {
-        var result = cxx::std::vector<u32>()
-        for fid in self.all_fids {
+    fn roots(self) -> [u32] {
+        var result: [u32]
+        for fid in sorted_fids(self.all_fids) {
             if self.in_degree[fid] == 0 {
-                result.push_back(fid)
+                result.push(fid)
             }
         }
 
@@ -122,7 +135,7 @@ pub class DepScanner {
     priv var _resolver:  *ImportResolver
     priv var _sym_table: unsafe *PreprocessorSymbolTable
     priv var _visiting:  llvm::DenseSet<u64> ///< cycle detection; membership only, so hash order is fine (`fid as u64`: clear of the reserved keys)
-    priv var _stack:     cxx::std::vector<u32> ///< _visiting in visit order: a cycle's files, read back off it
+    priv var _stack:     [u32] ///< _visiting in visit order: a cycle's files, read back off it
     priv var _max_depth: i32                             = 512 ///< --cmax-import-depth; 0 = unlimited
     /// What an earlier preprocess() of the batch scanned. A fid in it is
     /// followed through its recorded edges, never rescanned: a walked file's
@@ -190,6 +203,17 @@ pub class DepScanner {
         return dep.fid
     }
 
+    /// `fid`'s module path in the known graph; empty for a fid it holds only
+    /// as the target of an edge (an import past the depth limit is no node).
+    priv fn _known_mod_path(self, fid: u32) -> ModulePath {
+        var hit = self._known->mod_paths.get(fid)
+        if hit != null {
+            return (*hit).copy()
+        }
+
+        return ModulePath()
+    }
+
     priv fn visit(self, fid: u32, const mod_path: ModulePath, graph: *DepGraph, depth: u32) {
         if graph->all_fids.contains(fid) {
             return
@@ -209,8 +233,8 @@ pub class DepScanner {
 
         if self._known != &null && self._known->all_fids.contains(fid) {
             graph->add_node(fid, self._known->mod_paths[fid])
-            for dep in self._known->deps[fid] {
-                self.visit(dep, self._known->mod_paths[dep], graph, depth + 1)
+            for dep in sorted_fids(self._known->deps[fid]) {
+                self.visit(dep, self._known_mod_path(dep), graph, depth + 1)
                 graph->add_edge(fid, dep)
             }
 
@@ -219,10 +243,10 @@ pub class DepScanner {
 
         graph->add_node(fid, mod_path)
         self._visiting.insert(fid as u64)
-        self._stack.push_back(fid)
+        self._stack.push(fid)
         finally {
             self._visiting.erase(fid as u64)
-            self._stack.pop_back()
+            self._stack.pop()
         }
 
         var stream = self._tcm->open_scan_stream(fid)
@@ -480,7 +504,7 @@ pub class DepScanner {
         // on another, none is ever walked, and the cycle would vanish
         // from the build with exit 0 -- no error, and no file to point one at.
         if self._visiting.contains(dep.fid as u64) {
-            var cyc = cxx::std::vector<u32>()
+            var cyc: [u32]
             var on  = false
             for var i: usize = 0; i < self._stack.size(); ++i {
                 if self._stack[i] == dep.fid {
@@ -488,11 +512,11 @@ pub class DepScanner {
                 }
 
                 if on {
-                    cyc.push_back(self._stack[i])
+                    cyc.push(self._stack[i])
                 }
             }
 
-            graph->cycles.push_back(cyc)
+            graph->cycles.push(cyc)
             return
         }
 

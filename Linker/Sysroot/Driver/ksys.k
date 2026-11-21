@@ -91,7 +91,7 @@ fn ksys_usage_error(const what: string) -> i32 {
 
 /// `--name=value` or `--name value`; true when argv[i] is that option, with
 /// `i` advanced past its value.
-fn ksys_opt(@inout args: cxx::std::vector<string>,
+fn ksys_opt(@inout args: [string],
             @inout i:    usize,
             const name:  string,
             @inout val:  string) -> bool {
@@ -118,9 +118,9 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         kairo::std::destroy(llvm_init)
     }
 
-    var args = cxx::std::vector<string>()
+    var args: [string]
     for var i: i32 = 1; i < argc; ++i {
-        args.push_back(
+        args.push(
             string::from_bytes_unchecked(
                 unsafe ((argv[i] as unsafe *const u8) as *const u8),
                 cxx::std::strlen(argv[i]),
@@ -130,7 +130,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     var gen     = SysGen()
     var out_dir = ""
-    var words   = cxx::std::vector<string>()
+    var words: [string]
     for var i: usize = 0; i < args.size(); ++i {
         var a = args[i].copy()
         var v = ""
@@ -190,11 +190,11 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         } else if LinkText::starts_with(a.copy(), "-") && a.size() > 1 {
             return ksys_usage_error(f"unknown option {a}")
         } else {
-            words.push_back(a)
+            words.push(a)
         }
     }
 
-    if words.empty() {
+    if words.is_empty() {
         return ksys_usage_error("no command")
     }
 

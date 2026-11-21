@@ -25,42 +25,42 @@ pub enum FileCategory {
 }
 
 pub class FileExtensions {
-    priv var _kairo_source: cxx::std::vector<string>
-    priv var _kairo_lib:    cxx::std::vector<string>
-    priv var _cxx_source:   cxx::std::vector<string>
-    priv var _cxx_header:   cxx::std::vector<string>
+    priv var _kairo_source: [string]
+    priv var _kairo_lib:    [string]
+    priv var _cxx_source:   [string]
+    priv var _cxx_header:   [string]
 
     fn FileExtensions(self) {
         // kairo
-        self._kairo_source.push_back("k")
-        self._kairo_lib.push_back("hlib")
+        self._kairo_source.push("k")
+        self._kairo_lib.push("hlib")
 
         // c++
-        self._cxx_source.push_back("cpp")
-        self._cxx_source.push_back("cc")
-        self._cxx_source.push_back("cxx")
-        self._cxx_source.push_back("c++")
-        self._cxx_source.push_back("C")
-        self._cxx_source.push_back("c")
-        self._cxx_source.push_back("CPP")
+        self._cxx_source.push("cpp")
+        self._cxx_source.push("cc")
+        self._cxx_source.push("cxx")
+        self._cxx_source.push("c++")
+        self._cxx_source.push("C")
+        self._cxx_source.push("c")
+        self._cxx_source.push("CPP")
 
-        self._cxx_header.push_back("tpp")
-        self._cxx_header.push_back("txx")
-        self._cxx_header.push_back("t++")
-        self._cxx_header.push_back("T")
-        self._cxx_header.push_back("TPP")
+        self._cxx_header.push("tpp")
+        self._cxx_header.push("txx")
+        self._cxx_header.push("t++")
+        self._cxx_header.push("T")
+        self._cxx_header.push("TPP")
 
-        self._cxx_header.push_back("hpp")
-        self._cxx_header.push_back("hh")
-        self._cxx_header.push_back("hxx")
-        self._cxx_header.push_back("h++")
-        self._cxx_header.push_back("H")
-        self._cxx_header.push_back("h")
+        self._cxx_header.push("hpp")
+        self._cxx_header.push("hh")
+        self._cxx_header.push("hxx")
+        self._cxx_header.push("h++")
+        self._cxx_header.push("H")
+        self._cxx_header.push("h")
 
-        self._cxx_header.push_back("HPP")
-        self._cxx_header.push_back("HH")
-        self._cxx_header.push_back("HXX")
-        self._cxx_header.push_back("H++")
+        self._cxx_header.push("HPP")
+        self._cxx_header.push("HH")
+        self._cxx_header.push("HXX")
+        self._cxx_header.push("H++")
     }
 
     fn categorize(self, const ext: string) -> FileCategory {
@@ -94,8 +94,8 @@ pub class FileExtensions {
     // `const`: by reference. A vector, not a std::set: the lists hold a
     // dozen short names, and a std::set needs a C++ `<` the Kairo string
     // does not define on every builtin library.
-    priv fn contains(self, const li: cxx::std::vector<string>, const ext: string) -> bool {
-        for *e in li {
+    priv fn contains(self, const li: [string], const ext: string) -> bool {
+        for const *e in li {
             if *e == ext {
                 return true
             }

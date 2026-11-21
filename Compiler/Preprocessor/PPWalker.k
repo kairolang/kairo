@@ -126,7 +126,7 @@ pub enum WalkPhase derives u8 {
 /// `imm`); feed_as classifies it by the kind it was before the wrap, while
 /// the buffers keep the wrapped token so diagnostics still read its origin.
 class ArgSplitter {
-    var args:    cxx::std::vector<unsafe *TokenBuffer<512>>
+    var args:    [unsafe *TokenBuffer<512>]
     var current: unsafe *TokenBuffer<512>                   = &null
     var paren:   i32                                        = 0
     var square:  i32                                        = 0
@@ -158,7 +158,7 @@ class ArgSplitter {
             && self.paren == 0
             && self.square == 0
             && self.brace == 0 {
-            self.args.push_back(self.current)
+            self.args.push(self.current)
             self.current = kairo::std::create<TokenBuffer<512>>()
             return
         }
@@ -168,8 +168,8 @@ class ArgSplitter {
 
     /// Every argument fed, the run after the last top-level comma included;
     /// the caller owns the buffers.
-    fn finish(self) -> cxx::std::vector<unsafe *TokenBuffer<512>> {
-        self.args.push_back(self.current)
+    fn finish(self) -> [unsafe *TokenBuffer<512>] {
+        self.args.push(self.current)
         self.current = &null
         return self.args
     }
@@ -205,7 +205,7 @@ const CHAIN_TAKEN: u8 = 1
 const CHAIN_OPEN:  u8 = 2
 
 pub class PPWalker {
-    priv var _splices:          cxx::std::vector<unsafe *TokenBuffer<512>> ///< frame backing; freed in finalize
+    priv var _splices:          [unsafe *TokenBuffer<512>] ///< frame backing; freed in finalize
     priv var _opts:             PreprocessorOptions
     priv var _src:              unsafe *TokenSource
     priv var _imports:          unsafe *FileImportIndex
@@ -243,14 +243,14 @@ pub class PPWalker {
         var depth: i32                ///< the defining block's place in _braces, from 1.
     }
 
-    priv var _block_macros: cxx::std::vector<Self::BlockMacro> ///< innermost block last.
+    priv var _block_macros: [Self::BlockMacro] ///< innermost block last.
     /// Every `{` the walk has open, outermost first: BRACE_MODULE (a module's
     /// own), BRACE_BRANCH (an `eval if` branch: its declarations are the
     /// enclosing scope's, so it is no scope for a macro either), BRACE_GROUP
     /// (an `ffi "lang" { }` or `eval { }` block, which groups declarations
     /// of the enclosing scope and is no scope for a macro for the same
     /// reason) or BRACE_BLOCK.
-    priv var _braces:      cxx::std::vector<u8>
+    priv var _braces:      [u8]
     priv var _branch_next: bool                 = false ///< the next `{` opens an `eval if` branch.
     priv var _group_next:  bool                 = false ///< the next `{` opens an `ffi` or `eval` block.
     /// The next branch's BRANCH_* and its chain's CHAIN_* bits, read when
@@ -259,10 +259,10 @@ pub class PPWalker {
     priv var _next_chain:  u8 = 0
     /// One entry per BRACE_BRANCH in _braces, innermost last: the branch's
     /// BRANCH_* in the low two bits, its chain's CHAIN_* bits above them.
-    priv var _branches:    cxx::std::vector<u8>
+    priv var _branches:    [u8]
     priv var _open_depth:  i32                                  = 0 ///< BRANCH_OPEN branches the walk is inside.
     priv var _skip_dead:   bool                                 = false ///< the `{` just emitted opened a BRANCH_DEAD branch.
-    priv var _block_owned: cxx::std::vector<unsafe *MacroEntry> ///< every block macro of the walk; freed with it.
+    priv var _block_owned: [unsafe *MacroEntry] ///< every block macro of the walk; freed with it.
 
     /// ffi headers this file imports, spelled as HeaderSet::unquote does,
     /// deduped, in SOURCE ORDER: the key of the one HeaderSet _finalize
@@ -474,7 +474,7 @@ pub class PPWalker {
     }
 
     /// Frame 0 from tokens already lexed (TokenSource::set_replay).
-    fn set_replay(self, toks: unsafe *cxx::std::vector<Token>) {
+    fn set_replay(self, toks: unsafe *[Token]) {
         eval if defined!(DEBUG) {
             self._check_fresh("set_replay")
         }
@@ -760,7 +760,7 @@ pub class PPWalker {
                 continue
             }
 
-            var chain    = cxx::std::vector<InvokeHop>()
+            var chain:   [InvokeHop]
             var next_tok = self._src->next_with_origin(&chain)
             self._emit(next_tok, unsafe &chain)
         }
@@ -782,7 +782,7 @@ pub class PPWalker {
     ///   (the poison sentinel, a proc macro's `macro`). The walk's own
     ///   passthroughs (visibility keywords, braces, `module` paths, the
     ///   `ffi "lang"` head) go through _emit_next.
-    priv fn _emit(self, t: Token, chain: unsafe *cxx::std::vector<InvokeHop> = &null) {
+    priv fn _emit(self, t: Token, chain: unsafe *[InvokeHop] = &null) {
         // Sampled, same reasoning as _detect_invocation: the single choke
         // point every token passes through.
         var _t = TimeSampled(self._t_emit, 64, unsafe &self._c_emit)
@@ -842,7 +842,7 @@ pub class PPWalker {
     ///        (usually adjacent) column. Accepted imprecision: distinguishing
     ///        the two would need per-token provenance threaded out of
     ///        _substitute_body, which isn't worth the complexity here.
-    priv fn _wrap_origin(self, t: *Token, const chain: cxx::std::vector<InvokeHop>) {
+    priv fn _wrap_origin(self, t: *Token, const chain: [InvokeHop]) {
         if t->kind == TokenKind::TkMacroExpand {
             return
         }
@@ -914,7 +914,7 @@ pub class PPWalker {
     }
 
     priv fn _emit_next(self) {
-        var chain = cxx::std::vector<InvokeHop>()
+        var chain: [InvokeHop]
         var t     = self._src->next_with_origin(&chain)
         self._emit(t, unsafe &chain)
     }
@@ -940,9 +940,7 @@ pub class PPWalker {
                 kind = BRACE_GROUP
             } else if self._branch_next {
                 kind = BRACE_BRANCH
-                self._branches.push_back(
-                    self._next_branch | (self._next_chain << 2),
-                )
+                self._branches.push(self._next_branch | (self._next_chain << 2))
 
                 if self._next_branch == BRANCH_OPEN {
                     self._open_depth += 1
@@ -958,24 +956,24 @@ pub class PPWalker {
             self._group_next  = false
             self._next_branch = BRANCH_LIVE
             self._next_chain  = 0
-            self._braces.push_back(kind)
+            self._braces.push(kind)
         }
 
         self._tracker->feed_stream(self._src, vis, fn() { self._emit_next() })
         if k == TokenKind::OpRBrace {
             var was = BRACE_BLOCK
-            if !self._braces.empty() {
-                was = self._braces.back()
-                self._braces.pop_back()
+            if !self._braces.is_empty() {
+                was = self._braces[self._braces.size() - 1]
+                self._braces.pop()
             }
 
             // `} else {` and `} else if c {`, the `else` on this line or
             // a later one: the next `{` is a branch too.
             if was == BRACE_BRANCH {
                 var info: u8 = 0
-                if !self._branches.empty() {
-                    info = self._branches.back()
-                    self._branches.pop_back()
+                if !self._branches.is_empty() {
+                    info = self._branches[self._branches.size() - 1]
+                    self._branches.pop()
                 }
 
                 if (info & 3) == BRANCH_OPEN {
@@ -992,9 +990,9 @@ pub class PPWalker {
                 }
             }
 
-            while !self._block_macros.empty()
-                && (self._block_macros.back().depth as usize) > self._braces.size() {
-                self._block_macros.pop_back()
+            while !self._block_macros.is_empty()
+                && (self._block_macros[self._block_macros.size() - 1].depth as usize) > self._braces.size() {
+                self._block_macros.pop()
             }
         }
 
@@ -1051,7 +1049,7 @@ pub class PPWalker {
     /// and not consumed. They are expanded and emitted as any other text
     /// afterwards, so Sema folds the same condition to the same value.
     priv fn _cond_value(self, at: usize) -> u8 {
-        var toks  = cxx::std::vector<Token>()
+        var toks: [Token]
         var paren = 0
         var n     = at
         var asks  = false
@@ -1082,7 +1080,7 @@ pub class PPWalker {
             }
 
             if t.kind != TokenKind::TkNewLine {
-                toks.push_back(t)
+                toks.push(t)
             }
 
             n += 1
@@ -1101,7 +1099,7 @@ pub class PPWalker {
         return v
     }
 
-    priv fn _cond_or(self, toks: unsafe *cxx::std::vector<Token>, @inout pos: usize) -> u8 {
+    priv fn _cond_or(self, toks: unsafe *[Token], @inout pos: usize) -> u8 {
         var v = self._cond_and(toks, &pos)
         while pos < toks->size()
             && ((*toks)[pos].kind == TokenKind::OpPipePipe
@@ -1118,7 +1116,7 @@ pub class PPWalker {
         return v
     }
 
-    priv fn _cond_and(self, toks: unsafe *cxx::std::vector<Token>, @inout pos: usize) -> u8 {
+    priv fn _cond_and(self, toks: unsafe *[Token], @inout pos: usize) -> u8 {
         var v = self._cond_unary(toks, &pos)
         while pos < toks->size()
             && ((*toks)[pos].kind == TokenKind::OpAmpAmp || (*toks)[pos].kind == TokenKind::KwAnd) {
@@ -1136,7 +1134,7 @@ pub class PPWalker {
 
     /// A token outside the grammar leaves `pos` where it is, so the
     /// caller's "all tokens read" test fails and the condition is open.
-    priv fn _cond_unary(self, toks: unsafe *cxx::std::vector<Token>, @inout pos: usize) -> u8 {
+    priv fn _cond_unary(self, toks: unsafe *[Token], @inout pos: usize) -> u8 {
         if pos >= toks->size() {
             return COND_OPEN
         }
@@ -1935,12 +1933,12 @@ pub class PPWalker {
                     self._fid,
                 ) == &null
 
-            self._block_owned.push_back(entry)
+            self._block_owned.push(entry)
             if fresh {
                 var bm = Self::BlockMacro{}
                 bm.entry = entry
                 bm.depth = self._block_depth()
-                self._block_macros.push_back(bm)
+                self._block_macros.push(bm)
             }
         } else {
             fresh = self._macros->register_macro(entry)
@@ -1967,12 +1965,12 @@ pub class PPWalker {
 
     struct InvocationInfo {
         var qualified:    ModulePath
-        var chain:        cxx::std::vector<SymbolID>  ///< frame names live at detection
-        var parent_chain: cxx::std::vector<InvokeHop> ///< full origin chain live at detection;
+        var chain:        [SymbolID]  ///< frame names live at detection
+        var parent_chain: [InvokeHop] ///< full origin chain live at detection;
         ///  threaded into push_splice for
         ///  THIS invocation's own result
         ///  (see TokenSource::current_chain)
-        var arg_toks:     cxx::std::vector<Token> ///< raw tokens between ( ), balanced
+        var arg_toks:     [Token] ///< raw tokens between ( ), balanced
         var name:         Token
         var name_sym:     SymbolID                = 0
         var range:        SourceRange             = SourceRange::invalid()
@@ -1999,8 +1997,8 @@ pub class PPWalker {
         }
 
         /// ## try to parse a path: ident (:: ident)*
-        var path_toks = cxx::std::vector<Token>()
-        path_toks.push_back(self._src->peek(0))
+        var path_toks: [Token]
+        path_toks.push(self._src->peek(0))
 
         var n: usize = 1
         while true {
@@ -2012,7 +2010,7 @@ pub class PPWalker {
                 break
             }
 
-            path_toks.push_back(self._src->peek(n + 1))
+            path_toks.push(self._src->peek(n + 1))
             n += 2
         }
 
@@ -2135,7 +2133,7 @@ pub class PPWalker {
                     continue
                 }
 
-                result.arg_toks.push_back(at)
+                result.arg_toks.push(at)
             }
 
             total_consumed = m + 1 // past `)`
@@ -2391,8 +2389,8 @@ pub class PPWalker {
                          buf:          unsafe *(TokenBuffer<512>),
                          name:         SymbolID,
                          loc:          SourceRange,
-                         parent_chain: unsafe *cxx::std::vector<InvokeHop>) {
-        self._splices.push_back(buf) // own it for the run's lifetime
+                         parent_chain: unsafe *[InvokeHop]) {
+        self._splices.push(buf) // own it for the run's lifetime
         self._src->push_splice(buf, name, loc, *parent_chain)
     }
 
@@ -2409,7 +2407,7 @@ pub class PPWalker {
 
     priv fn _expand_buffer(self,
                            src_buf:      unsafe *(TokenBuffer<512>),
-                           parent_chain: unsafe *cxx::std::vector<InvokeHop>) -> unsafe *(TokenBuffer<512>) {
+                           parent_chain: unsafe *[InvokeHop]) -> unsafe *(TokenBuffer<512>) {
         // The sink is redirected for this expansion only: restored on every
         // way out, so a nested expansion hands its caller's sink back intact.
         var unsafe *out   = kairo::std::create<TokenBuffer<512>>()
@@ -2439,7 +2437,7 @@ pub class PPWalker {
                 continue
             }
 
-            var chain    = cxx::std::vector<InvokeHop>()
+            var chain:   [InvokeHop]
             var next_tok = self._src->next_with_origin(&chain)
             self._emit(next_tok, unsafe &chain)
         }
@@ -2528,12 +2526,12 @@ pub class PPWalker {
                 }
 
                 bindings[name_sym as u64] = dflt
-                self._splices.push_back(dflt) // owner; freed in op finally (leak fix)
+                self._splices.push(dflt) // owner; freed in op finally (leak fix)
             }
         }
 
         var variadic_name: SymbolID = 0
-        var variadic_bindings = cxx::std::vector<unsafe *(TokenBuffer<512>)>()
+        var variadic_bindings: [unsafe *(TokenBuffer<512>)]
         if has_variadic {
             var unsafe *vp = params->get(variadic_idx)
             variadic_name = self._sym->intern(
@@ -2541,7 +2539,7 @@ pub class PPWalker {
             )
 
             for var k: usize = non_variadic_count; k < args.size(); ++k {
-                variadic_bindings.push_back(args[k])
+                variadic_bindings.push(args[k])
             }
         }
 
@@ -2579,7 +2577,7 @@ pub class PPWalker {
         e:                       unsafe *MacroEntry,
         bindings:                unsafe *llvm::SmallDenseMap<u64, unsafe *(TokenBuffer<512>), 8>,
         variadic_name:           SymbolID,
-        const variadic_bindings: cxx::std::vector<unsafe *(TokenBuffer<512>)>,
+        const variadic_bindings: [unsafe *(TokenBuffer<512>)],
         invoke_loc:              SourceRange,
         anchor:                  SourceRange,
     ) -> unsafe *(TokenBuffer<512>) {
@@ -2865,8 +2863,8 @@ pub class PPWalker {
     priv fn _fstring_chain(self,
                            d:      unsafe *Immediate::StringData,
                            tbl:    unsafe *ImmediateTable,
-                           segs:   unsafe *cxx::std::vector<unsafe *Immediate::StringData>,
-                           copies: unsafe *cxx::std::vector<u32>) -> u32 {
+                           segs:   unsafe *[unsafe *Immediate::StringData],
+                           copies: unsafe *[u32]) -> u32 {
         var unsafe *seg = d
         while seg != &null {
             var idx = self._fstring_slot(seg)
@@ -2876,8 +2874,8 @@ pub class PPWalker {
                 )->next = idx
             }
 
-            segs->push_back(seg)
-            copies->push_back(idx)
+            segs->push(seg)
+            copies->push(idx)
             seg = next_string_segment(tbl, seg)
         }
 
@@ -2905,8 +2903,8 @@ pub class PPWalker {
         }
 
         var same_tbl = tbl == self._imm
-        var segs     = cxx::std::vector<unsafe *Immediate::StringData>()
-        var copies   = cxx::std::vector<u32>()
+        var segs:    [unsafe *Immediate::StringData]
+        var copies:  [u32]
         var idx      = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
         for var s: usize = 0; s < segs.size(); ++s {
             var unsafe *sd = segs[s]
@@ -2968,7 +2966,7 @@ pub class PPWalker {
     /// against that file's tables only once wrapped. A string another file
     /// lexed that no body rewrote (an argument from a macro of that file)
     /// is left to the parser (ASTContext::wrap_foreign_token).
-    priv fn _expand_fstring(self, t: Token, chain: unsafe *cxx::std::vector<InvokeHop>) -> Token {
+    priv fn _expand_fstring(self, t: Token, chain: unsafe *[InvokeHop]) -> Token {
         var        tbl: unsafe *ImmediateTable = &null
         var unsafe *d                          = self._fstring_data(t, &tbl)
         if d == &null {
@@ -3023,10 +3021,10 @@ pub class PPWalker {
             return t
         }
 
-        var        empty  = cxx::std::vector<InvokeHop>()
+        var empty: [InvokeHop]
         var unsafe *pc    = if (chain != &null) => (chain) else => unsafe &empty
-        var        segs   = cxx::std::vector<unsafe *Immediate::StringData>()
-        var        copies = cxx::std::vector<u32>()
+        var segs:   [unsafe *Immediate::StringData]
+        var copies: [u32]
         var idx = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
         for var s: usize = 0; s < segs.size(); ++s {
             var unsafe *sd = segs[s]
@@ -3049,7 +3047,7 @@ pub class PPWalker {
                         nb->append(*ex->get(k))
                     }
 
-                    self._splices.push_back(run) // owned for the run, as a splice frame's tokens.
+                    self._splices.push(run) // owned for the run, as a splice frame's tokens.
                     kairo::std::destroy(ex)
                 }
 
@@ -3292,8 +3290,8 @@ pub class PPWalker {
     /// `invoke.arg_toks` already excludes the outer `(` and `)`. There is no
     /// whole-file buffer and therefore no args_start/args_end arithmetic.
     priv fn _parse_builtin_arguments(self,
-                                     invoke: unsafe *Self::InvocationInfo) -> cxx::std::vector<unsafe *TokenBuffer<512>> {
-        var args: cxx::std::vector<unsafe *TokenBuffer<512>>
+                                     invoke: unsafe *Self::InvocationInfo) -> [unsafe *TokenBuffer<512>] {
+        var args: [unsafe *TokenBuffer<512>]
 
         if !invoke->has_args {
             return args
@@ -3333,8 +3331,8 @@ pub class PPWalker {
     /// silently arity-1. User macros keep C semantics (split, then expand each
     /// arg) so expansion cannot change a call's arity.
     priv fn _parse_expanded_builtin_arguments(self,
-                                              invoke: unsafe *Self::InvocationInfo) -> cxx::std::vector<unsafe *TokenBuffer<512>> {
-        var args: cxx::std::vector<unsafe *TokenBuffer<512>>
+                                              invoke: unsafe *Self::InvocationInfo) -> [unsafe *TokenBuffer<512>] {
+        var args: [unsafe *TokenBuffer<512>]
 
         if !invoke->has_args {
             return args

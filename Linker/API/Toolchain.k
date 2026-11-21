@@ -126,7 +126,7 @@ pub class Toolchain {
     pub var manifest:     SysrootManifest
     pub var static_only:  bool            = false
 
-    pub var lib_dirs:      cxx::std::vector<string> ///< system library search order
+    pub var lib_dirs:      [string] ///< system library search order
     pub var crt_dir:       string
     pub var gcc_dir:       string
     pub var toolchain_lib: string                   ///< libc++ outside the system dirs, or ""
@@ -134,7 +134,7 @@ pub class Toolchain {
     /// system defaults (TargetOptions::host_lib_dirs). Kept apart from
     /// lib_dirs so crt and libc lookups (find_lib_file) never take the
     /// host's crt1.o or libc.so over the sysroot's.
-    pub var host_lib_dirs: cxx::std::vector<string>
+    pub var host_lib_dirs: [string]
     /// --native: the bundled sysroot whose libc++, libunwind and compiler-rt
     /// are linked by path (never by -L: its libc would win over the host's).
     pub var native_bundle: string
@@ -153,7 +153,7 @@ pub class Toolchain {
     pub var min_version: string ///< Mach-O: deployment target
     pub var sdk_version: string ///< Mach-O: SDK the image was linked against
 
-    priv var _real_dirs: cxx::std::vector<string> ///< lib_dirs, symlinks resolved, for dedup
+    priv var _real_dirs: [string] ///< lib_dirs, symlinks resolved, for dedup
 
     /// # Resolution
 
@@ -421,7 +421,7 @@ pub class Toolchain {
             self._add_dir(LinkText::join(self.sysroot.copy(), d->copy()))
         }
 
-        if self.lib_dirs.empty() {
+        if self.lib_dirs.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -439,7 +439,7 @@ pub class Toolchain {
             )
         }
 
-        if !m->crt_startup.empty() {
+        if !m->crt_startup.is_empty() {
             for *d in self.lib_dirs {
                 if LinkFS::is_file(
                     LinkText::join(d->copy(), m->crt_startup[0].copy()),
@@ -469,7 +469,7 @@ pub class Toolchain {
         }
 
         self._add_dir(LinkText::join(self.sysroot.copy(), "usr/lib"))
-        if self.lib_dirs.empty() {
+        if self.lib_dirs.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -480,17 +480,17 @@ pub class Toolchain {
     }
 
     priv fn _layout_host(self, const spelled_arch: string) {
-        var bases = cxx::std::vector<string>()
+        var bases: [string]
         var usr   = LinkText::join(self.sysroot.copy(), "usr")
         if LinkFS::is_dir(LinkText::join(usr.copy(), "lib"))
             || LinkFS::is_dir(LinkText::join(usr.copy(), "lib64")) {
             self.style = "root"
-            bases.push_back(usr.copy())
-            bases.push_back(self.sysroot.copy())
+            bases.push(usr.copy())
+            bases.push(self.sysroot.copy())
             self.pass_sysroot = self.sysroot != "/"
         } else {
             self.style = "prefix"
-            bases.push_back(self.sysroot.copy())
+            bases.push(self.sysroot.copy())
             self.pass_sysroot = false
         }
 
@@ -539,13 +539,13 @@ pub class Toolchain {
 
         var tris  = Toolchain::mingw_triples(spelled_arch, self.arch)
         var usr   = LinkText::join(self.sysroot.copy(), "usr")
-        var bases = cxx::std::vector<string>()
+        var bases: [string]
         for *tr in tris {
-            bases.push_back(LinkText::join(self.sysroot.copy(), tr->copy()))
-            bases.push_back(LinkText::join(usr.copy(), tr->copy()))
+            bases.push(LinkText::join(self.sysroot.copy(), tr->copy()))
+            bases.push(LinkText::join(usr.copy(), tr->copy()))
         }
 
-        bases.push_back(self.sysroot.copy())
+        bases.push(self.sysroot.copy())
 
         for *b in bases {
             var lib = LinkText::join(b->copy(), "lib")
@@ -555,7 +555,7 @@ pub class Toolchain {
             }
         }
 
-        if self.lib_dirs.empty() {
+        if self.lib_dirs.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -575,18 +575,18 @@ pub class Toolchain {
 
         // GCC sits beside the mingw tree, not in it:
         // /usr/lib/gcc/x86_64-w64-mingw32/<v> for --sysroot=/usr/x86_64-w64-mingw32.
-        var groots = cxx::std::vector<string>()
-        groots.push_back(
+        var groots: [string]
+        groots.push(
             LinkText::join(LinkText::join(self.sysroot.copy(), "lib"), "gcc"),
         )
 
-        groots.push_back(
+        groots.push(
             LinkText::join(LinkText::join(usr.copy(), "lib"), "gcc"),
         )
 
         var up = LinkFS::parent(self.sysroot)
         if !up.is_empty() {
-            groots.push_back(
+            groots.push(
                 LinkText::join(LinkText::join(up.copy(), "lib"), "gcc"),
             )
         }
@@ -617,7 +617,7 @@ pub class Toolchain {
             }
         }
 
-        if self.lib_dirs.empty() {
+        if self.lib_dirs.is_empty() {
             var sr = self.sysroot.copy()
             var xw = Toolchain::xwin_arch_dir(self.arch.copy())
             var vs = Toolchain::msvc_arch_dir(self.arch.copy())
@@ -626,9 +626,9 @@ pub class Toolchain {
             self._add_dir(LinkText::join(sr.copy(), f"sdk/lib/um/{xw}"))
             self._add_dir(LinkText::join(sr.copy(), f"sdk/lib/ucrt/{xw}"))
 
-            var vcs = cxx::std::vector<string>()
-            vcs.push_back("VC/Tools/MSVC")
-            vcs.push_back("vc/tools/msvc")
+            var vcs: [string]
+            vcs.push("VC/Tools/MSVC")
+            vcs.push("vc/tools/msvc")
             for *vc in vcs {
                 var root = LinkText::join(sr.copy(), vc->copy())
                 var v    = Toolchain::newest_version(root)
@@ -637,10 +637,10 @@ pub class Toolchain {
                 }
             }
 
-            var kits = cxx::std::vector<string>()
-            kits.push_back("Windows Kits/10/Lib")
-            kits.push_back("kits/10/Lib")
-            kits.push_back("kits/10/lib")
+            var kits: [string]
+            kits.push("Windows Kits/10/Lib")
+            kits.push("kits/10/Lib")
+            kits.push("kits/10/lib")
             for *k in kits {
                 var root = LinkText::join(sr.copy(), k->copy())
                 var v    = Toolchain::newest_version(root)
@@ -706,7 +706,7 @@ pub class Toolchain {
             self._add_dir(lib)
         }
 
-        if self.lib_dirs.empty() {
+        if self.lib_dirs.is_empty() {
             msgs.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -884,16 +884,16 @@ pub class Toolchain {
         self.unwindlib = uw.copy()
     }
 
-    priv fn _rt_roots(self, t: *TargetOptions) -> cxx::std::vector<string> {
-        var roots = cxx::std::vector<string>()
+    priv fn _rt_roots(self, t: *TargetOptions) -> [string] {
+        var roots: [string]
         if !self.native_bundle.is_empty() {
-            roots.push_back(
+            roots.push(
                 LinkText::join(self.native_bundle.copy(), "compiler-rt"),
             )
         }
 
         if self.has_manifest && !self.manifest.resource_dir.is_empty() {
-            roots.push_back(
+            roots.push(
                 LinkText::join(
                     self.sysroot.copy(),
                     self.manifest.resource_dir.copy(),
@@ -902,7 +902,7 @@ pub class Toolchain {
         }
 
         if !t->resource_dir.is_empty() {
-            roots.push_back(LinkText::strip_slash(t->resource_dir.copy()))
+            roots.push(LinkText::strip_slash(t->resource_dir.copy()))
         }
 
         return roots
@@ -1075,8 +1075,8 @@ pub class Toolchain {
         return true
     }
 
-    priv fn _rt_triples(self, t: *TargetOptions) -> cxx::std::vector<string> {
-        var out = cxx::std::vector<string>()
+    priv fn _rt_triples(self, t: *TargetOptions) -> [string] {
+        var out: [string]
         var env = if (t->env_name.is_empty()) => ("") else => f"-{t->env_name}"
         // A root ksys built names the dir itself (SysRoot.md 4.8:
         // compiler-rt/lib/<clang_triple>); the spellings below are guesses
@@ -1127,14 +1127,14 @@ pub class Toolchain {
             return
         }
 
-        var cands = cxx::std::vector<string>()
+        var cands: [string]
         for *tr in self._rt_triples(t) {
-            cands.push_back(LinkText::join(base.copy(), tr->copy()))
+            cands.push(LinkText::join(base.copy(), tr->copy()))
         }
 
         // base is the host's own libc++; only a host-format link may take it.
         if self.format == ObjectFormat::Elf || self.format == ObjectFormat::MachO {
-            cands.push_back(base.copy())
+            cands.push(base.copy())
         }
 
         for *c in cands {
@@ -1292,15 +1292,15 @@ pub class Toolchain {
         return LinkText::slice(name, b, e)
     }
 
-    priv fn _find_gcc(self, @inout bases: cxx::std::vector<string>, const spelled_arch: string) {
+    priv fn _find_gcc(self, @inout bases: [string], const spelled_arch: string) {
         var best   = ""
         var best_v = ""
         var tris   = Toolchain::gcc_triples(spelled_arch, self.arch, self.env)
         var tris64 = Toolchain::gcc_triples("x86_64", "x86_64", self.env)
 
-        var libnames = cxx::std::vector<string>()
-        libnames.push_back("lib")
-        libnames.push_back("lib64")
+        var libnames: [string]
+        libnames.push("lib")
+        libnames.push("lib64")
 
         for *b in bases {
             for *ln in libnames {
@@ -1326,7 +1326,7 @@ pub class Toolchain {
 
     priv fn _scan_gcc(self,
                       const groot:    string,
-                      @inout tris:    cxx::std::vector<string>,
+                      @inout tris:    [string],
                       const multilib: string,
                       @inout best:    string,
                       @inout best_v:  string) {
@@ -1370,8 +1370,8 @@ pub class Toolchain {
             }
         }
 
-        self._real_dirs.push_back(r.copy())
-        self.lib_dirs.push_back(d.copy())
+        self._real_dirs.push(r.copy())
+        self.lib_dirs.push(d.copy())
     }
 
     /// A host dir, unless it is (by real path) already a lib_dir or a host
@@ -1388,8 +1388,8 @@ pub class Toolchain {
             }
         }
 
-        self._real_dirs.push_back(r.copy())
-        self.host_lib_dirs.push_back(d.copy())
+        self._real_dirs.push(r.copy())
+        self.host_lib_dirs.push(d.copy())
     }
 
     priv fn _has_dir(self, const d: string) -> bool {
@@ -1932,8 +1932,8 @@ pub class Toolchain {
     }
 
     /// Directory names a mingw-w64 tree and its GCC go under.
-    static fn mingw_triples(const spelled: string, const a: string) -> cxx::std::vector<string> {
-        var out = cxx::std::vector<string>()
+    static fn mingw_triples(const spelled: string, const a: string) -> [string] {
+        var out: [string]
         if a == "i386" {
             Toolchain::_push_unique(&out, "i686-w64-mingw32")
             Toolchain::_push_unique(&out, "i586-w64-mingw32")
@@ -1948,18 +1948,18 @@ pub class Toolchain {
     /// Directory names distros put a GCC install under, most specific first.
     static fn gcc_triples(const spelled: string,
                           const a:       string,
-                          const env:     string) -> cxx::std::vector<string> {
-        var out   = cxx::std::vector<string>()
-        var archs = cxx::std::vector<string>()
+                          const env:     string) -> [string] {
+        var out: [string]
+        var archs: [string]
         if a == "i386" {
-            archs.push_back("i686")
-            archs.push_back("i586")
-            archs.push_back("i486")
-            archs.push_back("i386")
+            archs.push("i686")
+            archs.push("i586")
+            archs.push("i486")
+            archs.push("i386")
         } else {
-            archs.push_back(a.copy())
+            archs.push(a.copy())
             if spelled != a {
-                archs.push_back(spelled.copy())
+                archs.push(spelled.copy())
             }
         }
 
@@ -2197,18 +2197,18 @@ pub class Toolchain {
             return sdkroot
         }
 
-        var devs = cxx::std::vector<string>()
+        var devs: [string]
         var dd   = LinkText::strip_slash(LinkFS::env(EnvNames::developer_dir()))
         if !dd.is_empty() {
-            devs.push_back(dd.copy())
+            devs.push(dd.copy())
         }
 
         if LinkFS::exists("/var/db/xcode_select_link") {
-            devs.push_back(LinkFS::real("/var/db/xcode_select_link"))
+            devs.push(LinkFS::real("/var/db/xcode_select_link"))
         }
 
-        devs.push_back("/Library/Developer/CommandLineTools")
-        devs.push_back("/Applications/Xcode.app/Contents/Developer")
+        devs.push("/Library/Developer/CommandLineTools")
+        devs.push("/Applications/Xcode.app/Contents/Developer")
 
         for *d in devs {
             // Xcode nests SDKs per platform; the Command Line Tools keep a
@@ -2408,27 +2408,27 @@ pub class Toolchain {
         return j
     }
 
-    priv static fn _push_unique(@inout out: cxx::std::vector<string>, const s: string) {
+    priv static fn _push_unique(@inout out: [string], const s: string) {
         for *x in out {
             if *x == s {
                 return
             }
         }
 
-        out.push_back(s.copy())
+        out.push(s.copy())
     }
 
-    priv static fn _split(s: string, sep: u8) -> cxx::std::vector<string> {
-        var out       = cxx::std::vector<string>()
+    priv static fn _split(s: string, sep: u8) -> [string] {
+        var out: [string]
         var b:  usize = 0
         for var i: usize = 0; i < s.size(); ++i {
             if s.data()[i] == sep {
-                out.push_back(LinkText::slice(s, b, i))
+                out.push(LinkText::slice(s, b, i))
                 b = i + 1
             }
         }
 
-        out.push_back(LinkText::slice(s, b, s.size()))
+        out.push(LinkText::slice(s, b, s.size()))
         return out
     }
 }

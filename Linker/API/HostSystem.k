@@ -220,11 +220,11 @@ pub class HostSystem {
             }
         }
 
-        var args = cxx::std::vector<string>()
-        args.push_back(prog.copy())
-        args.push_back("--cflags")
-        args.push_back("--libs")
-        args.push_back(name.copy())
+        var args: [string]
+        args.push(prog.copy())
+        args.push("--cflags")
+        args.push("--libs")
+        args.push(name.copy())
         // Views of args' own bytes; args is not touched again while refs lives.
         var refs: cxx::std::vector<llvm::StringRef>
         refs.reserve(args.size())
@@ -366,7 +366,7 @@ pub class HostSystem {
     /// per directory lib<name>.so, then lib<name>.a (only .a when
     /// `static_only`). "" when none matches.
     static fn find_lib(const name:  string,
-                       @inout dirs: cxx::std::vector<string>,
+                       @inout dirs: [string],
                        static_only: bool) -> string {
         for *d in dirs {
             if !static_only {
@@ -411,7 +411,7 @@ pub class HostSystem {
         var r    = HostLibNeeds{}
         var real = LinkFS::real(path.copy())
         r.soname = LinkFS::filename(real)
-        var d = cxx::std::vector<u8>()
+        var d: [u8]
         if !LinkFS::read_bytes(real, &d) {
             return r
         }
@@ -420,15 +420,15 @@ pub class HostSystem {
             return r
         }
 
-        if ((d.data()[0]) as u32) != 127
-            || d.data()[1] != ('E' as u8)
-            || d.data()[2] != ('L' as u8)
-            || d.data()[3] != ('F' as u8) {
+        if ((d[0]) as u32) != 127
+            || d[1] != ('E' as u8)
+            || d[2] != ('L' as u8)
+            || d[3] != ('F' as u8) {
             return r
         }
 
-        var cls = ((d.data()[4]) as u32)
-        var enc = ((d.data()[5]) as u32)
+        var cls = ((d[4]) as u32)
+        var enc = ((d[5]) as u32)
         if cls != 1 && cls != 2 || enc != 1 && enc != 2 {
             return r
         }
@@ -555,7 +555,7 @@ pub class HostSystem {
     }
 
     /// `n` bytes at `off` as an unsigned integer; 0 past the end.
-    priv static fn _rd(@inout d: cxx::std::vector<u8>, off: u64, n: u64, be: bool) -> u64 {
+    priv static fn _rd(@inout d: [u8], off: u64, n: u64, be: bool) -> u64 {
         if off + n > (d.size() as u64) {
             return 0
         }
@@ -567,7 +567,7 @@ pub class HostSystem {
                 idx = off + (n - 1 - i)
             }
 
-            var bv = ((d.data()[idx as usize]) as u64)
+            var bv = ((d[idx as usize]) as u64)
             v = v | bv << 8 * i
         }
 
@@ -576,7 +576,7 @@ pub class HostSystem {
 
     /// The NUL-terminated string at `idx` of the string table at
     /// [`base`, `base` + `len`); "" when out of range.
-    priv static fn _cstr(@inout d: cxx::std::vector<u8>, base: u64, len: u64, idx: u64) -> string {
+    priv static fn _cstr(@inout d: [u8], base: u64, len: u64, idx: u64) -> string {
         if idx >= len {
             return ""
         }
@@ -584,13 +584,13 @@ pub class HostSystem {
         var start = base + idx
         var p     = start
         var end   = base + len
-        while p < end && ((d.data()[p as usize]) as u32) != 0 {
+        while p < end && ((d[p as usize]) as u32) != 0 {
             p += 1
         }
 
         // `d` is a file image, not text: copy the bytes, never a checked range.
         return string(
-            unsafe (((d.data() as unsafe *const u8) + (start as usize)) as *const u8),
+            unsafe (((unwrap!(d.data()) as unsafe *const u8) + (start as usize)) as *const u8),
             (p - start) as usize,
         )
     }

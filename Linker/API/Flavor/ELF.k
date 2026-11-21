@@ -417,28 +417,28 @@ pub class ELFArgs {
                                    want_stat:   bool,
                                    @inout msgs: cxx::std::vector<LinkMessage>) {
         var *o   = job.opts
-        var dirs = cxx::std::vector<string>()
+        var dirs: [string]
         for *d in o->lib_dirs {
-            dirs.push_back(d->copy())
+            dirs.push(d->copy())
         }
 
         if !tc.toolchain_lib.is_empty() {
-            dirs.push_back(tc.toolchain_lib.copy())
+            dirs.push(tc.toolchain_lib.copy())
         }
 
         if !tc.gcc_dir.is_empty() {
-            dirs.push_back(tc.gcc_dir.copy())
+            dirs.push(tc.gcc_dir.copy())
         }
 
         for *d in tc.lib_dirs {
-            dirs.push_back(d->copy())
+            dirs.push(d->copy())
         }
 
         for *d in tc.host_lib_dirs {
-            dirs.push_back(d->copy())
+            dirs.push(d->copy())
         }
 
-        var found = cxx::std::vector<string>()
+        var found: [string]
         for *spec in o->link_libs {
             var name = spec->copy()
             var stat = want_stat
@@ -458,7 +458,7 @@ pub class ELFArgs {
                 || LinkText::ends_with(name.copy(), ".o")
                 || LinkText::ends_with(name.copy(), ".so") {
                 if LinkFS::is_file(name) {
-                    found.push_back(name)
+                    found.push(name)
                 }
 
                 continue
@@ -466,13 +466,13 @@ pub class ELFArgs {
 
             var p = HostSystem::find_lib(name, &dirs, stat)
             if !p.is_empty() {
-                found.push_back(p)
+                found.push(p)
             }
         }
 
         for *obj in job.objects {
             if HostSystem::is_shared(*obj) && LinkFS::is_file(*obj) {
-                found.push_back(obj->copy())
+                found.push(obj->copy())
             }
         }
 
@@ -605,8 +605,8 @@ pub class ELFArgs {
                                  want_stat:   bool,
                                  @inout argv: cxx::std::vector<string>,
                                  @inout msgs: cxx::std::vector<LinkMessage>) {
-        var cxx_v = cxx::std::vector<string>()
-        var libc  = cxx::std::vector<string>()
+        var cxx_v: [string]
+        var libc: [string]
         var libm  = false
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
@@ -618,38 +618,38 @@ pub class ELFArgs {
                 )
             }
 
-            cxx_v = LinkText::copy_list(tc.manifest.libcxx_link)
-            libc  = LinkText::copy_list(tc.manifest.libc_link)
+            cxx_v = tc.manifest.libcxx_link.copy()
+            libc = tc.manifest.libc_link.copy()
         } else if !tc.native_bundle.is_empty() {
             // --native: the bundled libc++ by path, never by -L (that dir's
             // libc would win over the host's), and the host's libc.
             var nb = LinkText::join(tc.native_bundle.copy(), "lib")
-            cxx_v.push_back(LinkText::join(nb.copy(), "libc++.a"))
-            cxx_v.push_back(LinkText::join(nb.copy(), "libc++abi.a"))
+            cxx_v.push(LinkText::join(nb.copy(), "libc++.a"))
+            cxx_v.push(LinkText::join(nb.copy(), "libc++abi.a"))
             if tc.libc == "glibc" {
-                libc.push_back("-lpthread")
+                libc.push("-lpthread")
             }
 
-            libc.push_back("-lc")
+            libc.push("-lc")
             libm = true
         } else {
-            cxx_v.push_back("-lc++")
-            cxx_v.push_back("-lc++abi")
-            libc.push_back("-lc")
+            cxx_v.push("-lc++")
+            cxx_v.push("-lc++abi")
+            libc.push("-lc")
             libm = true
         }
 
-        var rt = cxx::std::vector<string>()
+        var rt: [string]
         if tc.rtlib == "compiler-rt" {
             if !tc.builtins.is_empty() {
-                rt.push_back(tc.builtins.copy())
+                rt.push(tc.builtins.copy())
             }
         } else {
-            rt.push_back("-lgcc")
+            rt.push("-lgcc")
         }
 
         // A manifest's libcxx_link already names its unwinder.
-        var uw = cxx::std::vector<string>()
+        var uw: [string]
         if !tc.has_manifest {
             var nb_uw = LinkText::join(
                 LinkText::join(tc.native_bundle.copy(), "lib"),
@@ -659,43 +659,43 @@ pub class ELFArgs {
             if tc.unwindlib == "libunwind"
                 && !tc.native_bundle.is_empty()
                 && LinkFS::is_file(nb_uw) {
-                uw.push_back(nb_uw)
+                uw.push(nb_uw)
             } else if tc.unwindlib == "libunwind" {
-                uw.push_back("-lunwind")
+                uw.push("-lunwind")
             } else if tc.unwindlib == "libgcc" {
-                uw.push_back(if (want_stat) => ("-lgcc_eh") else => "-lgcc_s")
+                uw.push(if (want_stat) => ("-lgcc_eh") else => "-lgcc_s")
             }
         }
 
         if want_stat {
             argv.push_back("--start-group")
-            ELFArgs::_append(&argv, &cxx_v)
+            ELFArgs::_append(&argv, cxx_v)
             if libm {
                 argv.push_back("-lm")
             }
 
-            ELFArgs::_append(&argv, &uw)
-            ELFArgs::_append(&argv, &rt)
-            ELFArgs::_append(&argv, &libc)
+            ELFArgs::_append(&argv, uw)
+            ELFArgs::_append(&argv, rt)
+            ELFArgs::_append(&argv, libc)
             argv.push_back("--end-group")
             return
         }
 
-        ELFArgs::_append(&argv, &cxx_v)
+        ELFArgs::_append(&argv, cxx_v)
         if libm {
             argv.push_back("-lm")
         }
 
-        ELFArgs::_append(&argv, &uw)
-        ELFArgs::_append(&argv, &rt)
-        ELFArgs::_append(&argv, &libc)
-        ELFArgs::_append(&argv, &uw)
-        ELFArgs::_append(&argv, &rt)
+        ELFArgs::_append(&argv, uw)
+        ELFArgs::_append(&argv, rt)
+        ELFArgs::_append(&argv, libc)
+        ELFArgs::_append(&argv, uw)
+        ELFArgs::_append(&argv, rt)
     }
 
     priv static fn _append(@inout argv: cxx::std::vector<string>,
-                           @inout xs:   cxx::std::vector<string>) {
-        for *x in xs {
+                           const xs:    [string]) {
+        for const *x in xs {
             argv.push_back(x->copy())
         }
     }

@@ -80,13 +80,6 @@ pub enum ModuleOrigin derives u8 {
 ///          answered through two unnamed search dirs: a hard error at the
 ///          import site (R017E). The winner is still returned so resolution
 ///          does not cascade into a second "not found" for the same import.
-/// A named comparator: a closure's `const` parameter is spelled by value in
-/// its function type, which copies a MOVE string; a named function's is a
-/// reference.
-fn probe_name_less(const a: string, const b: string) -> bool {
-    return a < b
-}
-
 pub class ModuleResolution {
     pub var found:      bool                     = false
     pub var path:       Path ///< the resolved file.
@@ -184,7 +177,7 @@ pub class ModuleIdentityCollision {
 /// **Note:** the resolver uses raw pointers (`*T`) rather than managed handles.
 /// ensure the resolver outlives any references to returned paths.
 pub class ImportResolver {
-    priv var _roots:   cxx::std::vector<unsafe *SearchRoot> ///< priority-sorted search roots (index 0 = cwd)
+    priv var _roots:   [unsafe *SearchRoot]   ///< priority-sorted search roots (index 0 = cwd)
     priv var _ext_cfg: unsafe *FileExtensions ///< file extension classification config; owned
 
     /// Transient roots for sibling-relative probing, keyed by absolute dir.
@@ -278,13 +271,12 @@ pub class ImportResolver {
     /// ```
     pub class Builder {
         priv var _cwd:      Path?
-        priv var _includes: cxx::std::vector<ImportResolver::IncludeDir>
-        priv var _sm:       unsafe *SourceManager                        = &null
+        priv var _includes: [ImportResolver::IncludeDir]
+        priv var _sm:       unsafe *SourceManager        = &null
 
         /// default constructor; initializes all fields to null/empty
         pub fn Builder(self) {
-            self._cwd      = null
-            self._includes = cxx::std::vector<ImportResolver::IncludeDir>()
+            self._cwd = null
         }
 
         /// sets the current working directory as the highest-priority search root
@@ -341,7 +333,7 @@ pub class ImportResolver {
             inc.path     = path.copy()
             inc.name     = split_module_name(name)
             inc.spelling = split_module_name(spelling)
-            self._includes.push_back(inc)
+            self._includes.push(inc)
             return unsafe &self
         }
 
@@ -369,7 +361,6 @@ pub class ImportResolver {
 
     /// direct constructor; prefer using `Builder` instead
     fn ImportResolver(self) {
-        self._roots   = cxx::std::vector<unsafe *SearchRoot>()
         self._ext_cfg = kairo::std::create<FileExtensions>()
     }
 
@@ -378,7 +369,7 @@ pub class ImportResolver {
     /// ### Parameters
     /// - `cwd`: the current working directory (priority 0)
     /// - `includes`: additional include directories (priority 1+)
-    fn build_index(self, cwd: Path, const includes: cxx::std::vector<Self::IncludeDir>) {
+    fn build_index(self, cwd: Path, const includes: [Self::IncludeDir]) {
         kairo::Logger::info(
             kairo::Logger::Stage::Preprocessor,
             f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={includes.size() + 1}",
@@ -394,7 +385,7 @@ pub class ImportResolver {
                 self._ext_cfg,
             )
 
-            self._roots.push_back(root)
+            self._roots.push(root)
         }
 
         var priority: u32 = 1
@@ -494,7 +485,7 @@ pub class ImportResolver {
             }
 
             dir->ensure_scanned()
-            for var child: unsafe *DirEntry in dir->sorted_children() {
+            for child in dir->sorted_children() {
                 if child == &null || !child->is_dir || !child->fs_path? {
                     continue
                 }
@@ -567,7 +558,7 @@ pub class ImportResolver {
             sp,
         )
 
-        self._roots.push_back(root)
+        self._roots.push(root)
         return root
     }
 
@@ -648,7 +639,7 @@ pub class ImportResolver {
 
     /// destructor; frees the owned search roots and the extension config
     fn op finally (self) {
-        for var root: unsafe *SearchRoot in self._roots {
+        for root in self._roots {
             if root != &null {
                 kairo::std::destroy(root)
             }
@@ -782,7 +773,7 @@ pub class ImportResolver {
         // `builtin::containers` but never as `builtin` -- the spelling the
         // prelude uses -- and `import std` never resolves at all.
         if !root_hit {
-            var cands = cxx::std::vector<unsafe *SearchRoot>()
+            var cands: [unsafe *SearchRoot]
             for var ni: usize = 0; ni < self._roots.size(); ++ni {
                 var unsafe *r = self._roots[ni]
                 if r->spelling.size() == 0 {
@@ -793,11 +784,11 @@ pub class ImportResolver {
                     continue
                 }
 
-                cands.push_back(r)
+                cands.push(r)
             }
 
             if lib_root != &null && root_name_matches(lib_root->spelling, segments) {
-                cands.push_back(lib_root)
+                cands.push(lib_root)
             }
 
             // Insertion sort, descending by name length. The candidate set is
@@ -1077,7 +1068,7 @@ pub class ImportResolver {
         // `builtin::module`; unexercised only because the prelude folds it as
         // a wildcard and never binds its handle.)
         if leaf == "module" && (parts.size() > 1 || out.size() > 0) {
-            parts.pop_back()
+            parts.pop()
         }
 
         // The module.k at the top of an unnamed, unpinned dir names that dir,
@@ -1405,7 +1396,7 @@ pub class ImportResolver {
     /// file that would change a resolution with no source edited.
     pub fn root_dirs(self) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
-        for var r: unsafe *SearchRoot in self._roots {
+        for r in self._roots {
             if r != &null {
                 out.push_back(r->base_path.full_path())
             }
@@ -1593,8 +1584,8 @@ pub class ImportResolver {
 
         // Sorted, so a collision is reported with the same pair ordering on
         // every run (children is an unordered_map).
-        var names = cxx::std::vector<string>()
-        var dirs  = llvm::StringMap<bool>()    // name -> a directory claims it
+        var names: [string]
+        var dirs            = llvm::StringMap<bool>() // name -> a directory claims it
         for var it = dir->children.begin(); it != dir->children.end(); ++it {
             var unsafe *child = it->second
             if child == &null {
@@ -1609,13 +1600,13 @@ pub class ImportResolver {
                 continue
             }
 
-            names.push_back(child->name.copy())
+            names.push(child->name.copy())
             if child->is_dir {
                 dirs[kairo::sref(child->name)] = true
             }
         }
 
-        cxx::std::sort(names.begin(), names.end(), probe_name_less)
+        names.sort()
 
         var seen = llvm::StringMap<string>() // identity -> first claimant; probed only
         for var i: usize = 0; i < names.size(); ++i {
@@ -1689,9 +1680,9 @@ pub class ImportResolver {
         return out
     }
 
-    priv fn split_path(self, const path: string) -> cxx::std::vector<string> {
-        var result  = cxx::std::vector<string>()
-        var current = string()
+    priv fn split_path(self, const path: string) -> [string] {
+        var result: [string]
+        var current          = string()
 
         var run: usize = 0
         for i in (0 as usize)..path.size() {
@@ -1700,7 +1691,7 @@ pub class ImportResolver {
             if c == ('/' as u8) || c == ('\\' as u8) {
                 current += path[run..i]
                 if current.size() > 0 {
-                    result.push_back(current)
+                    result.push(current.copy())
                     current = string()
                 }
 
@@ -1711,7 +1702,7 @@ pub class ImportResolver {
         current += path[run..]
 
         if current.size() > 0 {
-            result.push_back(current)
+            result.push(current.copy())
         }
 
         return result

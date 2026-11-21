@@ -24,7 +24,6 @@ import API::SysrootManifest::{
     TomlValue,
 }
 import API::Text::LinkText
-import Support::Ascii::copy_strings
 import Sysroot::Names::{
     SysNames,
     SysTarget,
@@ -41,18 +40,18 @@ pub class SysRecipe {
     pub var clang_triple: string ///< template override, "" = built in
     /// [per_arch.<var>] tables flattened: `<var>.<arch>` -> value, for
     /// {per_arch.<var>} in any template.
-    pub var per_arch_keys: cxx::std::vector<string>
-    pub var per_arch_vals: cxx::std::vector<string>
+    pub var per_arch_keys: [string]
+    pub var per_arch_vals: [string]
     pub var os_version:    string
-    pub var arches:        cxx::std::vector<string> ///< empty = the built-in list
-    pub var inputs:        cxx::std::vector<string> ///< templates
-    pub var runtimes:      cxx::std::vector<string>
+    pub var arches:        [string] ///< empty = the built-in list
+    pub var inputs:        [string] ///< templates
+    pub var runtimes:      [string]
     /// Every key of the file as read, in file order: the later stages read
     /// [libc], [layout], [toml] and the rest through str() / list() /
     /// keys_of(), so a recipe key needs no field here to be usable.
-    pub var raw_tables: cxx::std::vector<string>
-    pub var raw_keys:   cxx::std::vector<string>
-    pub var raw_vals:   cxx::std::vector<TomlValue>
+    pub var raw_tables: [string]
+    pub var raw_keys:   [string]
+    pub var raw_vals:   [TomlValue]
     pub var error:      string
 
     /// A copy of every field; the strings and vectors are not copyable by
@@ -63,16 +62,16 @@ pub class SysRecipe {
         o.family        = self.family.copy()
         o.triple        = self.triple.copy()
         o.clang_triple  = self.clang_triple.copy()
-        o.per_arch_keys = copy_strings(self.per_arch_keys)
-        o.per_arch_vals = copy_strings(self.per_arch_vals)
+        o.per_arch_keys = self.per_arch_keys.copy()
+        o.per_arch_vals = self.per_arch_vals.copy()
         o.os_version    = self.os_version.copy()
-        o.arches        = copy_strings(self.arches)
-        o.inputs        = copy_strings(self.inputs)
-        o.runtimes      = copy_strings(self.runtimes)
-        o.raw_tables    = copy_strings(self.raw_tables)
-        o.raw_keys      = copy_strings(self.raw_keys)
-        for *v in self.raw_vals {
-            o.raw_vals.push_back(v->copy())
+        o.arches        = self.arches.copy()
+        o.inputs        = self.inputs.copy()
+        o.runtimes      = self.runtimes.copy()
+        o.raw_tables    = self.raw_tables.copy()
+        o.raw_keys      = self.raw_keys.copy()
+        for const *v in self.raw_vals {
+            o.raw_vals.push(v->copy())
         }
 
         o.error = self.error.copy()
@@ -91,13 +90,13 @@ pub class SysRecipe {
         var key  = ""
         var val  = TomlValue{}
         while toml.next(&key, &val) {
-            self.raw_tables.push_back(toml.table.copy())
-            self.raw_keys.push_back(key.copy())
-            self.raw_vals.push_back(val.copy())
+            self.raw_tables.push(toml.table.copy())
+            self.raw_keys.push(key.copy())
+            self.raw_vals.push(val.copy())
             if LinkText::starts_with(toml.table.copy(), "per_arch.") && val.kind == 1 {
                 var v = LinkText::slice(toml.table, 9, toml.table.size())
-                self.per_arch_keys.push_back(v.copy() + "." + key)
-                self.per_arch_vals.push_back(val.text.copy())
+                self.per_arch_keys.push(v.copy() + "." + key)
+                self.per_arch_vals.push(val.text.copy())
                 continue
             }
 
@@ -114,11 +113,11 @@ pub class SysRecipe {
             } else if key == "os_version" && val.kind == 1 {
                 self.os_version = val.text.copy()
             } else if key == "arches" && val.kind == 3 {
-                self.arches = val.take_list()
+                self.arches = SysUtil::taken(&val.list)
             } else if key == "inputs" && val.kind == 3 {
-                self.inputs = val.take_list()
+                self.inputs = SysUtil::taken(&val.list)
             } else if key == "runtimes" && val.kind == 3 {
-                self.runtimes = val.take_list()
+                self.runtimes = SysUtil::taken(&val.list)
             }
         }
 
@@ -163,13 +162,13 @@ pub class SysRecipe {
     }
 
     /// A string-array key, unexpanded; empty when absent.
-    pub fn list(self, const table: string, const key: string) -> cxx::std::vector<string> {
+    pub fn list(self, const table: string, const key: string) -> [string] {
         var v = self.value(table, key)
         if v == &null || v->kind != 3 {
-            return cxx::std::vector<string>()
+            return []
         }
 
-        return copy_strings(v->list)
+        return SysUtil::strings(&v->list)
     }
 
     /// The keys of `table`, in file order.
@@ -254,7 +253,7 @@ pub class SysRecipe {
 
 /// glibc/VERSIONS.toml.
 pub class GlibcVersions {
-    pub var versions: cxx::std::vector<string>
+    pub var versions: [string]
     pub var floor:    string
     pub var default_: string
     pub var error:    string
@@ -271,7 +270,7 @@ pub class GlibcVersions {
         var val  = TomlValue{}
         while toml.next(&key, &val) {
             if key == "versions" && val.kind == 3 {
-                self.versions = val.take_list()
+                self.versions = SysUtil::taken(&val.list)
             } else if key == "floor" && val.kind == 1 {
                 self.floor = val.text.copy()
             } else if key == "default" && val.kind == 1 {
@@ -291,60 +290,60 @@ pub class GlibcVersions {
 /// One `[quirk.<id>]` of quirks.toml (SysRoot.md section 6).
 pub struct SysQuirk {
     pub var id:                   string
-    pub var match_arch:           cxx::std::vector<string>
-    pub var match_cpu:            cxx::std::vector<string> ///< SysNames::cpu_of the arch
-    pub var match_family:         cxx::std::vector<string>
-    pub var match_os:             cxx::std::vector<string>
-    pub var match_env:            cxx::std::vector<string>
-    pub var match_probe:          cxx::std::vector<string>
+    pub var match_arch:           [string]
+    pub var match_cpu:            [string] ///< SysNames::cpu_of the arch
+    pub var match_family:         [string]
+    pub var match_os:             [string]
+    pub var match_env:            [string]
+    pub var match_probe:          [string]
     pub var target_rewrite:       string
-    pub var cflags_stages:        cxx::std::vector<string>
-    pub var cflags_add:           cxx::std::vector<string>
-    pub var cflags_add_cxx:       cxx::std::vector<string>
-    pub var cmake_stages:         cxx::std::vector<string>
-    pub var cmake_defs:           cxx::std::vector<string>
-    pub var force_include_stages: cxx::std::vector<string>
+    pub var cflags_stages:        [string]
+    pub var cflags_add:           [string]
+    pub var cflags_add_cxx:       [string]
+    pub var cmake_stages:         [string]
+    pub var cmake_defs:           [string]
+    pub var force_include_stages: [string]
     pub var force_include_file:   string
     pub var post_archive:         string
-    pub var required_symbols:     cxx::std::vector<string>
-    pub var assert_file_contains: cxx::std::vector<string>
-    pub var assert_compiles:      cxx::std::vector<string>
+    pub var required_symbols:     [string]
+    pub var assert_file_contains: [string]
+    pub var assert_compiles:      [string]
     pub var musl_arch:            string
     /// Every key as read, `key=value` in file order: what a stage key hashes
     /// when it hashes "this quirk's effects".
-    pub var effects: cxx::std::vector<string>
+    pub var effects: [string]
 }
 
 extend SysQuirk {
     pub fn copy(const self) -> SysQuirk {
         return SysQuirk {
             id:                   self.id.copy(),
-            match_arch:           LinkText::copy_list(self.match_arch),
-            match_cpu:            LinkText::copy_list(self.match_cpu),
-            match_family:         LinkText::copy_list(self.match_family),
-            match_os:             LinkText::copy_list(self.match_os),
-            match_env:            LinkText::copy_list(self.match_env),
-            match_probe:          LinkText::copy_list(self.match_probe),
+            match_arch:           self.match_arch.copy(),
+            match_cpu:            self.match_cpu.copy(),
+            match_family:         self.match_family.copy(),
+            match_os:             self.match_os.copy(),
+            match_env:            self.match_env.copy(),
+            match_probe:          self.match_probe.copy(),
             target_rewrite:       self.target_rewrite.copy(),
-            cflags_stages:        LinkText::copy_list(self.cflags_stages),
-            cflags_add:           LinkText::copy_list(self.cflags_add),
-            cflags_add_cxx:       LinkText::copy_list(self.cflags_add_cxx),
-            cmake_stages:         LinkText::copy_list(self.cmake_stages),
-            cmake_defs:           LinkText::copy_list(self.cmake_defs),
-            force_include_stages: LinkText::copy_list(self.force_include_stages),
+            cflags_stages:        self.cflags_stages.copy(),
+            cflags_add:           self.cflags_add.copy(),
+            cflags_add_cxx:       self.cflags_add_cxx.copy(),
+            cmake_stages:         self.cmake_stages.copy(),
+            cmake_defs:           self.cmake_defs.copy(),
+            force_include_stages: self.force_include_stages.copy(),
             force_include_file:   self.force_include_file.copy(),
             post_archive:         self.post_archive.copy(),
-            required_symbols:     LinkText::copy_list(self.required_symbols),
-            assert_file_contains: LinkText::copy_list(self.assert_file_contains),
-            assert_compiles:      LinkText::copy_list(self.assert_compiles),
+            required_symbols:     self.required_symbols.copy(),
+            assert_file_contains: self.assert_file_contains.copy(),
+            assert_compiles:      self.assert_compiles.copy(),
             musl_arch:            self.musl_arch.copy(),
-            effects:              LinkText::copy_list(self.effects),
+            effects:              self.effects.copy(),
         }
     }
 }
 
 pub class QuirkSet {
-    pub var quirks: cxx::std::vector<SysQuirk>
+    pub var quirks: [SysQuirk]
     pub var error:  string
 
     /// Validates the schema as it reads: an unknown key or table is an
@@ -366,10 +365,10 @@ pub class QuirkSet {
             }
 
             var id = LinkText::slice(toml.table, 6, toml.table.size())
-            if self.quirks.empty() || self.quirks[self.quirks.size() - 1].id != id {
+            if self.quirks.is_empty() || self.quirks[self.quirks.size() - 1].id != id {
                 var q = SysQuirk{}
                 q.id = id.copy()
-                self.quirks.push_back(q)
+                self.quirks.push(q)
             }
 
             var *q = &self.quirks[self.quirks.size() - 1]
@@ -393,27 +392,27 @@ pub class QuirkSet {
                     t:            *SysTarget,
                     const os:     string,
                     const env_:   string,
-                    @inout probe: cxx::std::vector<string>) -> cxx::std::vector<SysQuirk> {
-        var out = cxx::std::vector<SysQuirk>()
+                    @inout probe: [string]) -> [SysQuirk] {
+        var out: [SysQuirk]
         for *q in self.quirks {
-            if !q->match_arch.empty() && !SysUtil::contains(&q->match_arch, t->arch) {
+            if !q->match_arch.is_empty() && !SysUtil::contains(&q->match_arch, t->arch) {
                 continue
             }
 
-            if !q->match_cpu.empty()
+            if !q->match_cpu.is_empty()
                 && !SysUtil::contains(&q->match_cpu, SysNames::cpu_of(t->arch)) {
                 continue
             }
 
-            if !q->match_family.empty() && !SysUtil::contains(&q->match_family, t->recipe) {
+            if !q->match_family.is_empty() && !SysUtil::contains(&q->match_family, t->recipe) {
                 continue
             }
 
-            if !q->match_os.empty() && !SysUtil::contains(&q->match_os, os) {
+            if !q->match_os.is_empty() && !SysUtil::contains(&q->match_os, os) {
                 continue
             }
 
-            if !q->match_env.empty() && !SysUtil::contains(&q->match_env, env_) {
+            if !q->match_env.is_empty() && !SysUtil::contains(&q->match_env, env_) {
                 continue
             }
 
@@ -427,7 +426,7 @@ pub class QuirkSet {
             }
 
             if probe_ok {
-                out.push_back(q->copy())
+                out.push(q->copy())
             }
         }
 
@@ -435,8 +434,13 @@ pub class QuirkSet {
     }
 
     priv static fn _set(q: *SysQuirk, const key: string, @inout v: TomlValue) -> bool {
-        var as_text = if (v.kind == 3) => (SysUtil::joined(&v.list, ",")) else => v.text.copy()
-        q->effects.push_back(key.copy() + "=" + as_text)
+        var as_text = v.text.copy()
+        if v.kind == 3 {
+            var items = SysUtil::strings(&v.list)
+            as_text = SysUtil::joined(&items, ",")
+        }
+
+        q->effects.push(key.copy() + "=" + as_text)
         if v.kind == 1 {
             if key == "target_rewrite" {
                 q->target_rewrite = v.text.copy()
@@ -458,35 +462,35 @@ pub class QuirkSet {
         }
 
         if key == "match_arch" {
-            q->match_arch = v.take_list()
+            q->match_arch = SysUtil::taken(&v.list)
         } else if key == "match_cpu" {
-            q->match_cpu = v.take_list()
+            q->match_cpu = SysUtil::taken(&v.list)
         } else if key == "match_family" {
-            q->match_family = v.take_list()
+            q->match_family = SysUtil::taken(&v.list)
         } else if key == "match_os" {
-            q->match_os = v.take_list()
+            q->match_os = SysUtil::taken(&v.list)
         } else if key == "match_env" {
-            q->match_env = v.take_list()
+            q->match_env = SysUtil::taken(&v.list)
         } else if key == "match_probe" {
-            q->match_probe = v.take_list()
+            q->match_probe = SysUtil::taken(&v.list)
         } else if key == "cflags_stages" {
-            q->cflags_stages = v.take_list()
+            q->cflags_stages = SysUtil::taken(&v.list)
         } else if key == "cflags_add" {
-            q->cflags_add = v.take_list()
+            q->cflags_add = SysUtil::taken(&v.list)
         } else if key == "cflags_add_cxx" {
-            q->cflags_add_cxx = v.take_list()
+            q->cflags_add_cxx = SysUtil::taken(&v.list)
         } else if key == "cmake_stages" {
-            q->cmake_stages = v.take_list()
+            q->cmake_stages = SysUtil::taken(&v.list)
         } else if key == "cmake_defs" {
-            q->cmake_defs = v.take_list()
+            q->cmake_defs = SysUtil::taken(&v.list)
         } else if key == "force_include_stages" {
-            q->force_include_stages = v.take_list()
+            q->force_include_stages = SysUtil::taken(&v.list)
         } else if key == "required_symbols" {
-            q->required_symbols = v.take_list()
+            q->required_symbols = SysUtil::taken(&v.list)
         } else if key == "assert_file_contains" {
-            q->assert_file_contains = v.take_list()
+            q->assert_file_contains = SysUtil::taken(&v.list)
         } else if key == "assert_compiles" {
-            q->assert_compiles = v.take_list()
+            q->assert_compiles = SysUtil::taken(&v.list)
         } else {
             return false
         }
@@ -500,11 +504,11 @@ pub class ShareTree {
     pub var dir:   string
     pub var error: string
     /// registry.toml [inputs], as parallel lists (input dir -> tree_sha256).
-    pub var input_dirs: cxx::std::vector<string>
-    pub var input_sha:  cxx::std::vector<string>
+    pub var input_dirs: [string]
+    pub var input_sha:  [string]
     /// registry.toml [licenses], same keys.
-    pub var license_dirs: cxx::std::vector<string>
-    pub var license_ids:  cxx::std::vector<string>
+    pub var license_dirs: [string]
+    pub var license_ids:  [string]
     /// registry.toml `schema`: "1" (inputs may hold symlinks, the hash
     /// follows them) or "2" (none on disk; links.tsv / casefold.tsv say
     /// what to recreate in a root, FORMAT.md "schema 2").
@@ -547,11 +551,11 @@ pub class ShareTree {
             if toml.table.is_empty() && key == "schema" {
                 schema = val.text.copy()
             } else if toml.table == "inputs" && val.kind == 1 {
-                self.input_dirs.push_back(key.copy())
-                self.input_sha.push_back(val.text.copy())
+                self.input_dirs.push(key.copy())
+                self.input_sha.push(val.text.copy())
             } else if toml.table == "licenses" && val.kind == 1 {
-                self.license_dirs.push_back(key.copy())
-                self.license_ids.push_back(val.text.copy())
+                self.license_dirs.push(key.copy())
+                self.license_ids.push(val.text.copy())
             }
         }
 

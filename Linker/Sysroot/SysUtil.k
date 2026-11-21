@@ -43,10 +43,6 @@ pub struct SysJsonField {
     pub var json: string ///< already-encoded JSON value
 }
 
-fn sys_string_less(const a: string, const b: string) -> bool {
-    return a < b
-}
-
 pub class SysUtil {
     /// sha256 of `s`, 64 lowercase hex.
     pub static fn sha256(const s: string) -> string {
@@ -79,10 +75,10 @@ pub class SysUtil {
     /// error naming it. `dir` itself may be one: a share view links whole
     /// inputs in. "" with `err` set on either failure.
     pub static fn tree_sha256(const dir: string, follow: bool, @inout err: string) -> string {
-        var rels  = cxx::std::vector<string>()
-        var links = cxx::std::vector<string>()
+        var rels: [string]
+        var links: [string]
         SysUtil::_walk(dir, "", 0, follow, &rels, &links)
-        if !links.empty() {
+        if !links.is_empty() {
             err = f"{LinkText::join(dir.copy(), links[0].copy())} is a symlink; a schema 2 input holds none (links.tsv records them)"
             return ""
         }
@@ -111,8 +107,8 @@ pub class SysUtil {
     /// changes, which is a walk with no reads. A link under a schema 2
     /// input is in it, so a memo never hides one.
     pub static fn tree_stamp(const dir: string, follow: bool) -> string {
-        var rels  = cxx::std::vector<string>()
-        var links = cxx::std::vector<string>()
+        var rels: [string]
+        var links: [string]
         SysUtil::_walk(dir, "", 0, follow, &rels, &links)
         SysUtil::sort(&rels)
 
@@ -169,7 +165,7 @@ pub class SysUtil {
     }
 
     /// A JSON array of strings, in the order given.
-    pub static fn json_list(@inout xs: cxx::std::vector<string>) -> string {
+    pub static fn json_list(@inout xs: [string]) -> string {
         var out = "["
         for var i: usize = 0; i < xs.size(); ++i {
             if i > 0 {
@@ -186,10 +182,10 @@ pub class SysUtil {
     /// Canonical JSON object: keys sorted bytewise, no whitespace. Two runs
     /// that mean the same key spell it the same, whatever order the fields
     /// were added in.
-    pub static fn json_object(@inout fields: cxx::std::vector<SysJsonField>) -> string {
-        var keys = cxx::std::vector<string>()
+    pub static fn json_object(@inout fields: [SysJsonField]) -> string {
+        var keys: [string]
         for *f in fields {
-            keys.push_back(f->key.copy())
+            keys.push(f->key.copy())
         }
 
         SysUtil::sort(&keys)
@@ -213,34 +209,62 @@ pub class SysUtil {
         return out
     }
 
-    pub static fn field(@inout fields: cxx::std::vector<SysJsonField>,
-                        const key:     string,
-                        const json:    string) {
+    pub static fn field(@inout fields: [SysJsonField], const key: string, const json: string) {
         var f = SysJsonField{}
         f.key  = key.copy()
         f.json = json.copy()
-        fields.push_back(f)
+        fields.push(f)
     }
 
-    /// `v` in byte order. std::sort's default `<` does not compile for the
-    /// Kairo string (its `<=>` yields a Kairo Ordering), and a closure's
-    /// `const` parameter is spelled by value in the function type, which
-    /// copies; a named function's `const` parameter is a reference.
-    pub static fn sort(@inout v: cxx::std::vector<string>) {
-        cxx::std::sort(v.begin(), v.end(), sys_string_less)
+    /// `v` in byte order.
+    pub static fn sort(@inout v: [string]) {
+        v.sort()
     }
 
-    pub static fn split(const s: string, sep: u8) -> cxx::std::vector<string> {
-        var out       = cxx::std::vector<string>()
+    /// The entries of `dir`, as a Kairo list.
+    pub static fn list_dir(const dir: string) -> [string] {
+        var names = LinkFS::list_dir(dir)
+        return SysUtil::strings(&names)
+    }
+
+    /// A Kairo list of copies of `v`'s strings.
+    pub static fn strings(@inout v: cxx::std::vector<string>) -> [string] {
+        var out: [string]
+        for *s in v {
+            out.push(s->copy())
+        }
+
+        return out
+    }
+
+    /// `strings(v)`, leaving `v` empty.
+    pub static fn taken(@inout v: cxx::std::vector<string>) -> [string] {
+        var out = SysUtil::strings(&v)
+        v.clear()
+        return out
+    }
+
+    /// The same strings as a C++ vector, for an API that takes one.
+    pub static fn to_cxx(@inout v: [string]) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        for *s in v {
+            out.push_back(s->copy())
+        }
+
+        return out
+    }
+
+    pub static fn split(const s: string, sep: u8) -> [string] {
+        var out: [string]
         var b:  usize = 0
         for var i: usize = 0; i < s.size(); ++i {
             if s.data()[i] == sep {
-                out.push_back(LinkText::slice(s, b, i))
+                out.push(LinkText::slice(s, b, i))
                 b = i + 1
             }
         }
 
-        out.push_back(LinkText::slice(s, b, s.size()))
+        out.push(LinkText::slice(s, b, s.size()))
         return out
     }
 
@@ -282,7 +306,7 @@ pub class SysUtil {
         return false
     }
 
-    pub static fn contains(@inout xs: cxx::std::vector<string>, const s: string) -> bool {
+    pub static fn contains(@inout xs: [string], const s: string) -> bool {
         for *x in xs {
             if *x == s {
                 return true
@@ -292,7 +316,7 @@ pub class SysUtil {
         return false
     }
 
-    pub static fn joined(@inout xs: cxx::std::vector<string>, const sep: string) -> string {
+    pub static fn joined(@inout xs: [string], const sep: string) -> string {
         var out = ""
         for var i: usize = 0; i < xs.size(); ++i {
             if i > 0 {
@@ -326,8 +350,8 @@ pub class SysUtil {
                          const rel:    string,
                          depth:        u32,
                          follow:       bool,
-                         @inout out:   cxx::std::vector<string>,
-                         @inout links: cxx::std::vector<string>) {
+                         @inout out:   [string],
+                         @inout links: [string]) {
         if depth > 64 {
             return
         }
@@ -336,11 +360,11 @@ pub class SysUtil {
             var p = LinkText::join(dir.copy(), name->copy())
             var r = if (rel.is_empty()) => (name->copy()) else => rel.copy() + "/" + *name
             if !follow && llvm::sys::fs::is_symlink_file(llvm::Twine(kairo::sref(p))) {
-                links.push_back(r)
+                links.push(r)
             } else if LinkFS::is_dir(p) {
                 SysUtil::_walk(p, r, depth + 1, follow, &out, &links)
             } else if LinkFS::is_file(p) {
-                out.push_back(r)
+                out.push(r)
             }
         }
     }

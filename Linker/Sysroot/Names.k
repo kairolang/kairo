@@ -93,12 +93,12 @@ extend SysTarget {
 /// A target's properties, in SysNames::rule_props() order then the
 /// descriptive ones (threads, exceptions).
 pub class SysProps {
-    pub var keys: cxx::std::vector<string>
-    pub var vals: cxx::std::vector<string>
+    pub var keys: [string]
+    pub var vals: [string]
 
     pub fn put(self, const k: string, const v: string) {
-        self.keys.push_back(k.copy())
-        self.vals.push_back(v.copy())
+        self.keys.push(k.copy())
+        self.vals.push(v.copy())
     }
 
     /// "" when `k` is not a property.
@@ -129,55 +129,55 @@ pub class SysProps {
 
 pub class SysNames {
     /// The families of SysRoot.md section 14, in table order.
-    pub static fn families() -> cxx::std::vector<string> {
-        var out = cxx::std::vector<string>()
-        out.push_back("linux-musl")
-        out.push_back("linux-gnu")
-        out.push_back("windows-gnu")
-        out.push_back("freebsd")
-        out.push_back("netbsd")
-        out.push_back("wasi")
-        out.push_back("windows-msvc")
-        out.push_back("darwin")
+    pub static fn families() -> [string] {
+        var out: [string]
+        out.push("linux-musl")
+        out.push("linux-gnu")
+        out.push("windows-gnu")
+        out.push("freebsd")
+        out.push("netbsd")
+        out.push("wasi")
+        out.push("windows-msvc")
+        out.push("darwin")
         return out
     }
 
-    pub static fn arches(const family: string) -> cxx::std::vector<string> {
-        var out = cxx::std::vector<string>()
+    pub static fn arches(const family: string) -> [string] {
+        var out: [string]
         if family == "linux-musl" {
-            out.push_back("x86_64")
-            out.push_back("aarch64")
-            out.push_back("armv7")
-            out.push_back("armv6")
-            out.push_back("i686")
-            out.push_back("riscv64")
-            out.push_back("riscv32")
+            out.push("x86_64")
+            out.push("aarch64")
+            out.push("armv7")
+            out.push("armv6")
+            out.push("i686")
+            out.push("riscv64")
+            out.push("riscv32")
         } else if family == "linux-gnu" {
-            out.push_back("x86_64")
-            out.push_back("aarch64")
-            out.push_back("armv7")
-            out.push_back("i686")
-            out.push_back("riscv64")
+            out.push("x86_64")
+            out.push("aarch64")
+            out.push("armv7")
+            out.push("i686")
+            out.push("riscv64")
         } else if family == "windows-gnu" {
-            out.push_back("x86_64")
-            out.push_back("aarch64")
-            out.push_back("armv7")
-            out.push_back("i686")
+            out.push("x86_64")
+            out.push("aarch64")
+            out.push("armv7")
+            out.push("i686")
         } else if family == "freebsd" {
-            out.push_back("x86_64")
-            out.push_back("aarch64")
+            out.push("x86_64")
+            out.push("aarch64")
         } else if family == "netbsd" {
-            out.push_back("x86_64")
+            out.push("x86_64")
         } else if family == "wasi" {
-            out.push_back("wasm32")
+            out.push("wasm32")
         } else if family == "windows-msvc" {
-            out.push_back("x86_64")
-            out.push_back("aarch64")
-            out.push_back("i686")
+            out.push("x86_64")
+            out.push("aarch64")
+            out.push("i686")
         } else if family == "darwin" {
-            out.push_back("x86_64")
-            out.push_back("arm64")
-            out.push_back("arm64e")
+            out.push("x86_64")
+            out.push("arm64")
+            out.push("arm64e")
         }
 
         return out
@@ -286,11 +286,11 @@ pub class SysNames {
     }
 
     /// Every target the table knows, glibc at `glibc`.
-    pub static fn all(const glibc: string) -> cxx::std::vector<SysTarget> {
-        var out = cxx::std::vector<SysTarget>()
+    pub static fn all(const glibc: string) -> [SysTarget] {
+        var out: [SysTarget]
         for *f in SysNames::families() {
             for *a in SysNames::arches(*f) {
-                out.push_back(SysNames::make(*f, *a, glibc))
+                out.push(SysNames::make(*f, *a, glibc))
             }
         }
 
@@ -358,34 +358,34 @@ pub class SysNames {
             }
         }
 
-        var hits = cxx::std::vector<SysTarget>()
+        var hits: [SysTarget]
         for *t in table {
             if SysNames::same_target(spelled, t->clang_triple) {
-                hits.push_back(t->copy())
+                hits.push(t->copy())
             }
         }
 
         if hits.size() == 1 {
-            out = cxx::std::move(hits[0])
+            out = hits.remove(0)
             return true
         }
 
         // A prefix of names (`x86_64-linux`): the one it completes to, or
         // every one it could mean.
-        if hits.empty() {
+        if hits.is_empty() {
             for *t in table {
                 if LinkText::starts_with(t->name.copy(), input.copy() + "-") {
-                    hits.push_back(t->copy())
+                    hits.push(t->copy())
                 }
             }
 
             if hits.size() == 1 {
-                out = cxx::std::move(hits[0])
+                out = hits.remove(0)
                 return true
             }
         }
 
-        if hits.empty() {
+        if hits.is_empty() {
             var g = SysTarget{}
             if SysNames::_generic(spelled, glibc, &g, &why) {
                 out = g
@@ -403,7 +403,8 @@ pub class SysNames {
             cands.push_back(t->name.copy())
         }
 
-        var list = SysUtil::joined(&cands, ", ")
+        var names = SysUtil::strings(&cands)
+        var list  = SysUtil::joined(&names, ", ")
         why = f"\x27{input}\x27 is ambiguous: {list}"
         return false
     }
@@ -573,19 +574,19 @@ pub class SysNames {
 
     /// The properties the runtimes template's rules read, in its order
     /// (runtimes-template/index.toml `properties`).
-    pub static fn rule_props() -> cxx::std::vector<string> {
-        var v = cxx::std::vector<string>()
-        v.push_back("libc")
-        v.push_back("os")
-        v.push_back("objfmt")
-        v.push_back("bits")
-        v.push_back("int128")
-        v.push_back("cpu")
-        v.push_back("rt_arch")
-        v.push_back("float")
-        v.push_back("crt_arch")
-        v.push_back("endian")
-        v.push_back("arch")
+    pub static fn rule_props() -> [string] {
+        var v: [string]
+        v.push("libc")
+        v.push("os")
+        v.push("objfmt")
+        v.push("bits")
+        v.push("int128")
+        v.push("cpu")
+        v.push("rt_arch")
+        v.push("float")
+        v.push("crt_arch")
+        v.push("endian")
+        v.push("arch")
         return v
     }
 

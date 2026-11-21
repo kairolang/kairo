@@ -196,24 +196,24 @@ pub class WasiProvider derives SysrootProvider {
         // Not a kcc link: that would link the Kairo runtime  in. The
         // lines are what clang's driver ran for wasi-libc's own link.
         for *l in t.links {
-            var argv = cxx::std::vector<string>()
-            argv.push_back(ctx->tool("kld"))
-            argv.push_back("-flavor")
-            argv.push_back("wasm")
+            var argv: [string]
+            argv.push(ctx->tool("kld"))
+            argv.push("-flavor")
+            argv.push("wasm")
             for *x in l->ld {
                 if *x == "{members}" {
                     for *m in l->members {
-                        argv.push_back(env.build.copy() + "/" + *m)
+                        argv.push(env.build.copy() + "/" + *m)
                     }
                 } else {
-                    argv.push_back(SysCrt::expand(&env, *x))
+                    argv.push(SysCrt::expand(&env, *x))
                 }
             }
 
             var o = env.build.copy() + "/" + l->out
             LinkFS::make_dirs(LinkFS::parent(o))
-            argv.push_back("-o")
-            argv.push_back(o)
+            argv.push("-o")
+            argv.push(o)
             var log = f"{ctx->log_dir}/link-{LinkFS::filename(l->out)}.log"
             if SysRun::run(&argv, log) != 0 {
                 var text = ""
@@ -237,7 +237,7 @@ pub class WasiProvider derives SysrootProvider {
             }
         }
 
-        var none = cxx::std::vector<string>()
+        var none: [string]
         if !SysRun::link_tree(
             env.sysroot.copy() + "/lib",
             dst.copy() + "/lib",

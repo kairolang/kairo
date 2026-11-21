@@ -119,11 +119,11 @@ pub class SysSdk {
             // Only with developer tools selected: on a bare Mac the xcrun
             // shim pops the Command Line Tools installer instead of failing.
             var log  = LinkFS::temp_file("ksys-xcrun", ".txt")
-            var argv = cxx::std::vector<string>()
-            argv.push_back("/usr/bin/xcrun")
-            argv.push_back("--sdk")
-            argv.push_back("macosx")
-            argv.push_back("--show-sdk-path")
+            var argv: [string]
+            argv.push("/usr/bin/xcrun")
+            argv.push("--sdk")
+            argv.push("macosx")
+            argv.push("--show-sdk-path")
             var text = ""
             if SysRun::run(&argv, log) == 0 && LinkFS::read(log, &text) {
                 sdk = LinkText::trim(text)
@@ -149,13 +149,13 @@ pub class SysSdk {
     /// An xwin splat with the SDK headers and `xa`'s CRT: `input`, $XWIN,
     /// or the script's cached splat. "" for none.
     pub static fn find_msvc_splat(const input: string, const xa: string) -> string {
-        var cands = cxx::std::vector<string>()
+        var cands: [string]
         if !input.is_empty() {
-            cands.push_back(input.copy())
+            cands.push(input.copy())
         } else {
             var x = LinkFS::env(EnvNames::xwin())
             if !x.is_empty() {
-                cands.push_back(x.copy())
+                cands.push(x.copy())
             }
 
             var mc = LinkFS::env(EnvNames::msvc_cache())
@@ -163,7 +163,7 @@ pub class SysSdk {
                 mc = LinkText::join(SysSdk::prefix(), "share/kairo/msvc-cache")
             }
 
-            cands.push_back(LinkText::join(mc.copy(), "splat"))
+            cands.push(LinkText::join(mc.copy(), "splat"))
         }
 
         for *c in cands {
@@ -347,10 +347,10 @@ pub class SysSdk {
     priv static fn _stage_darwin(const sdk:  string,
                                  const dst:  string,
                                  @inout out: SysOutcome) -> bool {
-        var none     = cxx::std::vector<string>()
-        var settings = cxx::std::vector<string>()
-        settings.push_back("SDKSettings.json")
-        settings.push_back("SDKSettings.plist")
+        var none: [string]
+        var settings: [string]
+        settings.push("SDKSettings.json")
+        settings.push("SDKSettings.plist")
         for *f in settings {
             var s = LinkText::join(sdk.copy(), f->copy())
             if LinkFS::is_file(s)
@@ -363,8 +363,8 @@ pub class SysSdk {
             }
         }
 
-        var inc_skip = cxx::std::vector<string>()
-        inc_skip.push_back("c++")
+        var inc_skip: [string]
+        inc_skip.push("c++")
         if !SysSdk::_copy(
             LinkText::join(sdk.copy(), "usr/include"),
             LinkText::join(dst.copy(), "usr/include"),
@@ -375,9 +375,9 @@ pub class SysSdk {
             return out.fail(f"cannot copy {sdk}/usr/include", "")
         }
 
-        var lib_skip = cxx::std::vector<string>()
-        lib_skip.push_back("swift")
-        lib_skip.push_back("libc++*.tbd")
+        var lib_skip: [string]
+        lib_skip.push("swift")
+        lib_skip.push("libc++*.tbd")
         if !SysSdk::_copy(
             LinkText::join(sdk.copy(), "usr/lib"),
             LinkText::join(dst.copy(), "usr/lib"),
@@ -390,11 +390,11 @@ pub class SysSdk {
 
         var fw = LinkText::join(sdk.copy(), "System/Library/Frameworks")
         if LinkFS::is_dir(fw) {
-            var swift = cxx::std::vector<string>()
-            swift.push_back("*.swiftmodule")
-            swift.push_back("*.swiftinterface")
-            swift.push_back("*.swiftdoc")
-            swift.push_back("*.abi.json")
+            var swift: [string]
+            swift.push("*.swiftmodule")
+            swift.push("*.swiftinterface")
+            swift.push("*.swiftdoc")
+            swift.push("*.abi.json")
             if !SysSdk::_copy(
                 fw,
                 LinkText::join(dst.copy(), "System/Library/Frameworks"),
@@ -417,17 +417,17 @@ pub class SysSdk {
                                const xa:    string,
                                const dst:   string,
                                @inout out:  SysOutcome) -> bool {
-        var none = cxx::std::vector<string>()
+        var none: [string]
         var m    = LinkText::join(dst.copy(), "msvc")
-        var dirs = cxx::std::vector<string>()
-        dirs.push_back("crt/include")
-        dirs.push_back(f"crt/lib/{xa}")
-        dirs.push_back("sdk/include/ucrt")
-        dirs.push_back("sdk/include/um")
-        dirs.push_back("sdk/include/shared")
-        dirs.push_back("sdk/include/winrt")
-        dirs.push_back(f"sdk/lib/um/{xa}")
-        dirs.push_back(f"sdk/lib/ucrt/{xa}")
+        var dirs: [string]
+        dirs.push("crt/include")
+        dirs.push(f"crt/lib/{xa}")
+        dirs.push("sdk/include/ucrt")
+        dirs.push("sdk/include/um")
+        dirs.push("sdk/include/shared")
+        dirs.push("sdk/include/winrt")
+        dirs.push(f"sdk/lib/um/{xa}")
+        dirs.push(f"sdk/lib/ucrt/{xa}")
         for *d in dirs {
             var s = LinkText::join(splat.copy(), d->copy())
             if !LinkFS::is_dir(s) {
@@ -461,7 +461,7 @@ pub class SysSdk {
                                 const dst:  string,
                                 darwin:     bool,
                                 @inout out: SysOutcome) -> bool {
-        var none = cxx::std::vector<string>()
+        var none: [string]
         if darwin {
             if !SysRun::copy_tree(ov, dst, &none) {
                 return out.fail(f"cannot copy the overlay {ov}", "")
@@ -470,10 +470,10 @@ pub class SysSdk {
             return true
         }
 
-        var parts = cxx::std::vector<string>()
-        parts.push_back("include")
-        parts.push_back("lib")
-        parts.push_back("compiler-rt")
+        var parts: [string]
+        parts.push("include")
+        parts.push("lib")
+        parts.push("compiler-rt")
         for *d in parts {
             if !SysRun::copy_tree(
                 LinkText::join(ov.copy(), d->copy()),
@@ -557,16 +557,16 @@ pub class SysSdk {
                           const r:    string,
                           darwin:     bool,
                           @inout out: SysOutcome) -> bool {
-        var need = cxx::std::vector<string>()
+        var need: [string]
         if darwin {
-            need.push_back("usr/include/stdio.h")
-            need.push_back("usr/include/c++/v1/vector")
-            need.push_back("usr/lib/libSystem.tbd")
-            need.push_back("usr/lib/libc++.a")
+            need.push("usr/include/stdio.h")
+            need.push("usr/include/c++/v1/vector")
+            need.push("usr/lib/libSystem.tbd")
+            need.push("usr/lib/libc++.a")
         } else {
-            need.push_back("include/c++/v1/vector")
-            need.push_back("include/c++/v1/__config_site")
-            need.push_back("lib/libc++.lib")
+            need.push("include/c++/v1/vector")
+            need.push("include/c++/v1/__config_site")
+            need.push("lib/libc++.lib")
         }
 
         for *n in need {
@@ -650,14 +650,14 @@ pub class SysSdk {
         }
 
         var log  = LinkText::join(w.copy(), "compile.log")
-        var argv = cxx::std::vector<string>()
-        argv.push_back(kcc.copy())
+        var argv: [string]
+        argv.push(kcc.copy())
         KccArgv::push_target(&argv, ct, r)
-        argv.push_back("-std=c++20")
-        argv.push_back("-c")
-        argv.push_back(src.copy())
-        argv.push_back("-o")
-        argv.push_back(LinkText::join(w.copy(), "t.o"))
+        argv.push("-std=c++20")
+        argv.push("-c")
+        argv.push(src.copy())
+        argv.push("-o")
+        argv.push(LinkText::join(w.copy(), "t.o"))
         if SysRun::run(&argv, log) != 0 {
             var keep = LinkFS::temp_file("ksys-sdk-validate", ".log")
             SysRun::put_file(log, keep, false)
@@ -696,15 +696,15 @@ pub class SysSdk {
         }
 
         var log  = LinkFS::temp_file("ksys-vswhere", ".txt")
-        var argv = cxx::std::vector<string>()
-        argv.push_back(vswhere.copy())
-        argv.push_back("-latest")
-        argv.push_back("-products")
-        argv.push_back("*")
-        argv.push_back("-requires")
-        argv.push_back("Microsoft.VisualStudio.Component.VC.Tools.x86.x64")
-        argv.push_back("-property")
-        argv.push_back("installationPath")
+        var argv: [string]
+        argv.push(vswhere.copy())
+        argv.push("-latest")
+        argv.push("-products")
+        argv.push("*")
+        argv.push("-requires")
+        argv.push("Microsoft.VisualStudio.Component.VC.Tools.x86.x64")
+        argv.push("-property")
+        argv.push("installationPath")
         var text = ""
         if SysRun::run(&argv, log) != 0 || !LinkFS::read(log, &text) {
             text = ""
@@ -749,7 +749,7 @@ pub class SysSdk {
             ),
         )
 
-        var fields = cxx::std::vector<SysJsonField>()
+        var fields: [SysJsonField]
         SysUtil::field(&fields, "schema", SysCache::key_schema())
         SysUtil::field(&fields, "name", SysUtil::json_str(t->name))
         SysUtil::field(&fields, "vs", SysUtil::json_str(vs))
@@ -778,17 +778,17 @@ pub class SysSdk {
             )
 
             LinkFS::make_dirs(LinkFS::parent(log))
-            var argv = cxx::std::vector<string>()
-            argv.push_back(shell.copy())
-            argv.push_back("-NoProfile")
+            var argv: [string]
+            argv.push(shell.copy())
+            argv.push("-NoProfile")
             // A prompt (the license, in a branch this should never reach)
             // fails instead of waiting on a console nobody sees.
-            argv.push_back("-NonInteractive")
-            argv.push_back("-ExecutionPolicy")
-            argv.push_back("Bypass")
-            argv.push_back("-File")
-            argv.push_back(ps1.copy())
-            argv.push_back(t->arch.copy())
+            argv.push("-NonInteractive")
+            argv.push("-ExecutionPolicy")
+            argv.push("Bypass")
+            argv.push("-File")
+            argv.push(ps1.copy())
+            argv.push(t->arch.copy())
             // The script reads OUT / WORK from its environment; the driver
             // is still single-threaded here, so setting them is safe.
             var old_out  = LinkFS::env("OUT")
@@ -868,7 +868,7 @@ pub class SysSdk {
 
         var rev = ""
         LinkFS::read(LinkText::join(LinkFS::parent(ov), "REVISION"), &rev)
-        var fields = cxx::std::vector<SysJsonField>()
+        var fields: [SysJsonField]
         SysUtil::field(&fields, "schema", SysCache::key_schema())
         SysUtil::field(&fields, "name", SysUtil::json_str(t->name))
         SysUtil::field(&fields, "provider", SysUtil::json_str("user"))
@@ -901,14 +901,14 @@ pub class SysSdk {
     /// is used by the scripts).
     priv static fn _copy(const from: string,
                          const to:   string,
-                         @inout top: cxx::std::vector<string>,
-                         @inout any: cxx::std::vector<string>,
+                         @inout top: [string],
+                         @inout any: [string],
                          depth:      u32) -> bool {
         if depth > 64 || !LinkFS::make_dirs(to) {
             return false
         }
 
-        var none = cxx::std::vector<string>()
+        var none: [string]
         for *name in LinkFS::list_dir(from) {
             if SysSdk::_any_glob(*name, &top) || SysSdk::_any_glob(*name, &any) {
                 continue
@@ -941,7 +941,7 @@ pub class SysSdk {
         return true
     }
 
-    priv static fn _any_glob(const name: string, @inout pats: cxx::std::vector<string>) -> bool {
+    priv static fn _any_glob(const name: string, @inout pats: [string]) -> bool {
         for *p in pats {
             if SysSdk::_glob(name, *p) {
                 return true

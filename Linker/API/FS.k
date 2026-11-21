@@ -125,7 +125,7 @@ pub class LinkFS {
 
     /// The bytes of the file at `path`, for a file that need not be UTF-8
     /// (an object, an archive); a string holds UTF-8 only.
-    pub static fn read_bytes(const path: string, @inout out: cxx::std::vector<u8>) -> bool {
+    pub static fn read_bytes(const path: string, @inout out: [u8]) -> bool {
         var mb = llvm::MemoryBuffer::getFile(llvm::Twine(kairo::sref(path)))
         if mb.getError().value() != 0 {
             return false
@@ -135,7 +135,7 @@ pub class LinkFS {
         out.clear()
         out.reserve(sr.size())
         for var i: usize = 0; i < sr.size(); ++i {
-            out.push_back(sr.bytes_begin()[i] as u8)
+            out.push(sr.bytes_begin()[i] as u8)
         }
 
         return true

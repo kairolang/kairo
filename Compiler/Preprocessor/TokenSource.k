@@ -23,7 +23,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "vector"
 
 import Diagnostic::Engine::DiagEngine
 import Diagnostic::Registry::DiagID
@@ -58,12 +57,12 @@ pub class TokenSource {
         /// _pop_dead()-triggering call (e.g. _expand's own depth() check)
         /// before a token belonging to (deeper) child frames is ever emitted,
         /// so by read time the parent may already be gone from the stack.
-        var chain: cxx::std::vector<InvokeHop>
+        var chain: [InvokeHop]
     }
 
     priv var _lexer:       unsafe *Lexer
-    priv var _ring:        cxx::std::vector<Token> ///< frame-0 lookahead
-    priv var _frames:      cxx::std::vector<Self::SpliceFrame>
+    priv var _ring:        [Token]                     ///< frame-0 lookahead
+    priv var _frames:      [Self::SpliceFrame]
     priv var _next_serial: u64                                 = 0
     priv var _eof_seen:    bool                                = false ///< lexer has emitted its TkEof
 
@@ -88,7 +87,7 @@ pub class TokenSource {
 
     /// Frame 0 read back from tokens the lexer already produced, instead of
     /// from the lexer (set_replay). Null: the lexer.
-    priv var _replay:    unsafe *cxx::std::vector<Token> = &null
+    priv var _replay:    unsafe *[Token] = &null
     priv var _replay_at: usize                           = 0
 
     fn TokenSource(self, lexer: unsafe *Lexer) {
@@ -131,7 +130,7 @@ pub class TokenSource {
     /// first for its macro definitions, then for real. Call before the first
     /// pull. Comments, the token budget and the end are handled as for the
     /// lexer, so the two walks see what one lexer pass would have shown.
-    fn set_replay(self, toks: unsafe *cxx::std::vector<Token>) {
+    fn set_replay(self, toks: unsafe *[Token]) {
         eval if defined!(DEBUG) {
             self._check_unpulled("set_replay")
         }
@@ -164,7 +163,7 @@ pub class TokenSource {
                    tokens:             unsafe *(TokenBuffer<512>),
                    name:               SymbolID,
                    loc:                SourceRange,
-                   const parent_chain: cxx::std::vector<InvokeHop>) {
+                   const parent_chain: [InvokeHop]) {
         self._next_serial += 1
 
         var f = Self::SpliceFrame()
@@ -175,7 +174,7 @@ pub class TokenSource {
         f.serial     = self._next_serial
 
         for var i: usize = 0; i < parent_chain.size(); ++i {
-            f.chain.push_back((parent_chain)[i])
+            f.chain.push((parent_chain)[i])
         }
 
         // An invalid loc (e.g. _expand_buffer's synthetic argument-pre-expand
@@ -185,10 +184,10 @@ pub class TokenSource {
             var hop = InvokeHop()
             hop.loc  = loc
             hop.name = name
-            f.chain.push_back(hop)
+            f.chain.push(hop)
         }
 
-        self._frames.push_back(f)
+        self._frames.push(f)
     }
 
     fn current_expansion_serial(self) -> u64 {
@@ -196,7 +195,7 @@ pub class TokenSource {
             return 0
         }
 
-        return self._frames.back().serial
+        return self._frames[self._frames.size() - 1].serial
     }
 
     fn depth(self) -> usize {
@@ -223,10 +222,10 @@ pub class TokenSource {
         return false
     }
 
-    fn snapshot_chain(self, @inout out: cxx::std::vector<SymbolID>) {
+    fn snapshot_chain(self, @inout out: [SymbolID]) {
         for *f in self._frames {
             if f->macro_name != 0 {
-                out.push_back(f->macro_name)
+                out.push(f->macro_name)
             }
         }
     }
@@ -236,7 +235,7 @@ pub class TokenSource {
             return SourceRange::invalid()
         }
 
-        return self._frames.back().invoke_loc
+        return self._frames[self._frames.size() - 1].invoke_loc
     }
 
     fn bottom_invoke_loc(self) -> SourceRange {
@@ -261,15 +260,15 @@ pub class TokenSource {
     ///        exhausted-but-not-yet-popped parent frame via its depth()/budget
     ///        checks. Reading `self._frames` directly at push_splice's OWN
     ///        (later) call time would frequently be too late.
-    fn current_chain(self, @inout out: cxx::std::vector<InvokeHop>) {
+    fn current_chain(self, @inout out: [InvokeHop]) {
         out.clear()
         if self._frames.size() == 0 {
             return
         }
 
-        var *top = &self._frames.back()
+        var *top = &self._frames[self._frames.size() - 1]
         for var i: usize = 0; i < top->chain.size(); ++i {
-            out.push_back(top->chain[i])
+            out.push(top->chain[i])
         }
     }
 
@@ -289,14 +288,14 @@ pub class TokenSource {
     ///        order PPWalker::_wrap_origin wants for building the expansion
     ///        chain attach_macro_expansion_chain (ASTParse.k) later walks
     ///        outward, ending on the true call site.
-    fn next_with_origin(self, @inout out_chain: cxx::std::vector<InvokeHop>) -> Token {
+    fn next_with_origin(self, @inout out_chain: [InvokeHop]) -> Token {
         out_chain.clear()
         self._pop_dead()
 
         if self._frames.size() > 0 {
-            var *top = &self._frames.back()
+            var *top = &self._frames[self._frames.size() - 1]
             for var i: usize = 0; i < top->chain.size(); ++i {
-                out_chain.push_back(top->chain[i])
+                out_chain.push(top->chain[i])
             }
         }
 
@@ -307,12 +306,12 @@ pub class TokenSource {
 
     priv fn _pop_dead(self) {
         while self._frames.size() > 0 {
-            var *top = &self._frames.back()
+            var *top = &self._frames[self._frames.size() - 1]
             if top->cursor < top->tokens->size() {
                 return
             }
 
-            self._frames.pop_back()
+            self._frames.pop()
         }
     }
 
@@ -366,7 +365,7 @@ pub class TokenSource {
                 continue
             }
 
-            self._ring.push_back(t)
+            self._ring.push(t)
             return true
         }
 
@@ -379,7 +378,7 @@ pub class TokenSource {
         self._pop_dead()
 
         if self._frames.size() > 0 {
-            var *top = &self._frames.back()
+            var *top = &self._frames[self._frames.size() - 1]
             var idx  = top->cursor + n
             if idx < top->tokens->size() {
                 return *top->tokens->get(idx)
@@ -416,7 +415,7 @@ pub class TokenSource {
             return false
         }
 
-        var *top = &self._frames.back()
+        var *top = &self._frames[self._frames.size() - 1]
         return top->cursor + n >= top->tokens->size()
     }
 
@@ -424,7 +423,7 @@ pub class TokenSource {
         self._pop_dead()
 
         if self._frames.size() > 0 {
-            var *top = &self._frames.back()
+            var *top = &self._frames[self._frames.size() - 1]
             var t    = *top->tokens->get(top->cursor)
             top->cursor += 1
             return t
@@ -432,7 +431,7 @@ pub class TokenSource {
 
         if self._ring.size() > 0 {
             var t = self._ring[0]
-            self._ring.erase(self._ring.cbegin()) // small ring; fine
+            self._ring.remove(0) // small ring; fine
             return t
         }
 
@@ -443,7 +442,7 @@ pub class TokenSource {
         }
 
         var t = self._ring[0]
-        self._ring.erase(self._ring.cbegin())
+        self._ring.remove(0)
         return t
     }
 

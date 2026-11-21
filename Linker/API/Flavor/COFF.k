@@ -473,8 +473,8 @@ pub class COFFArgs {
                                  no_crt:      bool,
                                  @inout argv: cxx::std::vector<string>,
                                  @inout msgs: cxx::std::vector<LinkMessage>) {
-        var cxx_v = cxx::std::vector<string>()
-        var crt   = cxx::std::vector<string>()
+        var cxx_v: [string]
+        var crt: [string]
 
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
@@ -486,14 +486,14 @@ pub class COFFArgs {
                 )
             }
 
-            cxx_v = LinkText::copy_list(tc.manifest.libcxx_link)
+            cxx_v = tc.manifest.libcxx_link.copy()
             if !no_crt {
-                crt = LinkText::copy_list(tc.manifest.libc_link)
+                crt = tc.manifest.libc_link.copy()
             }
         } else {
             var s = COFFArgs::_lib(&tc, "libc++.lib")
             if !s.is_empty() {
-                cxx_v.push_back(s)
+                cxx_v.push(s)
             } else {
                 var d = COFFArgs::_lib(&tc, "c++.lib")
                 if d.is_empty() {
@@ -504,7 +504,7 @@ pub class COFFArgs {
                         ),
                     )
                 } else {
-                    cxx_v.push_back(d)
+                    cxx_v.push(d)
                     msgs.push_back(
                         LinkDiag::make(
                             LinkSeverity::Warning,
@@ -520,15 +520,15 @@ pub class COFFArgs {
                     argv.push_back("-nodefaultlib:libvcruntime.lib")
                     argv.push_back("-nodefaultlib:libucrt.lib")
                 } else {
-                    crt.push_back("libcmt.lib")
-                    crt.push_back("libvcruntime.lib")
-                    crt.push_back("libucrt.lib")
+                    crt.push("libcmt.lib")
+                    crt.push("libvcruntime.lib")
+                    crt.push("libucrt.lib")
                 }
 
-                crt.push_back("oldnames.lib")
+                crt.push("oldnames.lib")
             }
 
-            crt.push_back("kernel32.lib")
+            crt.push("kernel32.lib")
         }
 
         for *x in cxx_v {

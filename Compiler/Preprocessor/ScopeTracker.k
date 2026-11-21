@@ -11,8 +11,6 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "vector"
-
 import Lexer::Immediate::ImmediateTable
 import Location::SourceManager::SourceManager
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
@@ -41,7 +39,7 @@ pub class ScopeTracker {
     /// total size of members: 116 bytes or 928 bits (after padding its 128 bytes)
     priv var _file_base:   ModulePath ///< base path from filename (e.g., Baz from baz.k)
     priv var _current:     ModulePath ///< cached current scope
-    priv var _stack:       cxx::std::vector<Self::Frame> ///< scope stack
+    priv var _stack:       [Self::Frame] ///< scope stack
     priv var _sym_table:   *PreprocessorSymbolTable ///< for interning identifiers
     priv var _sm:          *SourceManager ///< source manager for error reporting
     priv var _tcm:         unsafe *TokenCacheManager ///< token cache manager for token text
@@ -59,7 +57,7 @@ pub class ScopeTracker {
                     imm_table:       *ImmediateTable,
                     tcm:             unsafe *TokenCacheManager,
                     const file_base: ModulePath) {
-        self._stack       = cxx::std::vector<Self::Frame>()
+        self._stack       = []
         self._sym_table   = sym_table
         self._file_base   = file_base
         self._current     = file_base
@@ -74,7 +72,7 @@ pub class ScopeTracker {
         initial.brace_depth = 0
         initial.visibility  = ModuleVisibility::Public
         initial.is_global   = false
-        self._stack.push_back(initial)
+        self._stack.push(initial)
     }
 
     /// the current module scope.
@@ -99,7 +97,7 @@ pub class ScopeTracker {
             return ModuleVisibility::Public
         }
 
-        return self._stack.back().visibility
+        return self._stack[self._stack.size() - 1].visibility
     }
 
     /// returns true if currently in global scope (module :: { })
@@ -108,7 +106,7 @@ pub class ScopeTracker {
             return false
         }
 
-        return self._stack.back().is_global
+        return self._stack[self._stack.size() - 1].is_global
     }
 
     /// returns current brace depth
@@ -124,7 +122,7 @@ pub class ScopeTracker {
             return 0
         }
 
-        return self._stack.back().brace_depth
+        return self._stack[self._stack.size() - 1].brace_depth
     }
 
 
@@ -248,7 +246,7 @@ pub class ScopeTracker {
         frame.visibility  = visibility
         frame.is_global   = false
 
-        self._stack.push_back(frame)
+        self._stack.push(frame)
         self.update_current()
     }
 
@@ -260,7 +258,7 @@ pub class ScopeTracker {
         frame.visibility  = visibility
         frame.is_global   = true
 
-        self._stack.push_back(frame)
+        self._stack.push(frame)
         self.update_current()
     }
 
@@ -272,7 +270,7 @@ pub class ScopeTracker {
         frame.visibility  = visibility
         frame.is_global   = false
 
-        self._stack.push_back(frame)
+        self._stack.push(frame)
         self.update_current()
     }
 
@@ -284,7 +282,7 @@ pub class ScopeTracker {
         frame.visibility  = visibility
         frame.is_global   = false
 
-        self._stack.push_back(frame)
+        self._stack.push(frame)
         // current scope doesn't change, just visibility
     }
 
@@ -292,12 +290,12 @@ pub class ScopeTracker {
     priv fn maybe_pop_scope(self) {
         // never pop the file-level scope
         while self._stack.size() > 1 {
-            var top = self._stack.back()
-            if self._brace_depth >= top.brace_depth {
+            var *top = &self._stack[self._stack.size() - 1]
+            if self._brace_depth >= top->brace_depth {
                 break
             }
 
-            self._stack.pop_back()
+            self._stack.pop()
         }
 
         self.update_current()
@@ -310,11 +308,11 @@ pub class ScopeTracker {
             return
         }
 
-        var top = self._stack.back()
-        if top.is_global {
+        var *top = &self._stack[self._stack.size() - 1]
+        if top->is_global {
             self._current = ModulePath() // empty = global
         } else {
-            self._current = top.path
+            self._current = top->path
         }
     }
 
@@ -329,6 +327,6 @@ pub class ScopeTracker {
         initial.brace_depth = 0
         initial.visibility  = ModuleVisibility::Public
         initial.is_global   = false
-        self._stack.push_back(initial)
+        self._stack.push(initial)
     }
 }

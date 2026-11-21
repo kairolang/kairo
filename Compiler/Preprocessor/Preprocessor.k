@@ -26,9 +26,7 @@ ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
-ffi "c++" import "map"
 ffi "c++" import "set"
-ffi "c++" import "string"
 ffi "c++" import "algorithm"
 
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
@@ -50,6 +48,7 @@ import Location::SourceRange::SourceRange
 import Preprocessor::DepScanner::{
     DepGraph,
     DepScanner,
+    sorted_fids,
 }
 import Preprocessor::FileImportIndex::FileImportIndex
 import Preprocessor::MacroTable::{
@@ -72,7 +71,6 @@ import Token::Token::Token
 import Token::TokenBuffer::TokenBuffer
 import Token::TokenCacheManager::TokenCacheManager
 import Token::TokenKind::TokenKind
-import std::c_char
 
 pub struct PPResult {
     pub var ok:   bool                  = false
@@ -90,12 +88,11 @@ pub struct PPResult {
 /// `to` is `from` or one of the files `from`'s imports reach in
 /// `graph`.
 fn _graph_reaches(graph: *DepGraph, from: u32, to: u32) -> bool {
-    var seen = llvm::DenseSet<u64>()
-    var work = cxx::std::vector<u32>()
-    work.push_back(from)
-    while !work.empty() {
-        var f = work.back()
-        work.pop_back()
+    var seen        = llvm::DenseSet<u64>()
+    var work: [u32]
+    work.push(from)
+    while !work.is_empty() {
+        var f = work.remove(work.size() - 1)
         if f == to {
             return true
         }
@@ -106,7 +103,7 @@ fn _graph_reaches(graph: *DepGraph, from: u32, to: u32) -> bool {
 
         if graph->deps.contains(f) {
             for d in graph->deps[f] {
-                work.push_back(d)
+                work.push(d)
             }
         }
     }
@@ -119,7 +116,7 @@ fn _graph_reaches(graph: *DepGraph, from: u32, to: u32) -> bool {
 /// produced, for _walk_one to replay.
 pub struct PrelexedFile {
     var lexer:  unsafe *Lexer
-    var tokens: unsafe *cxx::std::vector<Token>
+    var tokens: unsafe *[Token]
 }
 
 pub class PreProcessor {
@@ -154,16 +151,16 @@ pub class PreProcessor {
     /// Per file that names `f256` / `f512`: the class files it imports
     /// implicitly (_add_wide_floats). Written before the waves start and
     /// only read while they run (_walk_one).
-    priv var _wide_imports: cxx::std::map<u32, cxx::std::vector<u32>>
+    priv var _wide_imports: {u32: [u32]}
     /// Files on an import cycle, lexed ahead of the waves. Written before
     /// the waves start and only read while they run (_walk_one).
     priv var _prelexed:       llvm::DenseMap<u64, PrelexedFile>
-    priv var _define_storage: cxx::std::vector<cxx::std::string> ///< -D value bytes; load_virtual
+    priv var _define_storage: [string]                          ///< -D value bytes; load_virtual
     ///  needs them stable for the
     ///  whole compile. reserved
     ///  up front so it never
     ///  reallocates after that.
-    priv var _late_define_value: cxx::std::string         ///< define_late's one value
+    priv var _late_define_value: string         ///< define_late's one value
     priv var _late_define_used:  bool             = false
 
     fn PreProcessor(self,
@@ -215,8 +212,8 @@ pub class PreProcessor {
 
             var name:  string
             var value: string
-            var eq = kairo::std::to_std_string(raw).find(('=' as u8) as c_char)
-            if eq != cxx::std::string::npos {
+            var eq            = raw.find('=')
+            if eq? {
                 name  = raw.subslice(0, eq)
                 value = raw.subslice(eq + 1, raw.size() - (eq + 1))
             } else {
@@ -234,7 +231,7 @@ pub class PreProcessor {
                 continue
             }
 
-            self._define_storage.push_back(kairo::std::to_std_string(value))
+            self._define_storage.push(value.to_owned())
             self._register_define(
                 name,
                 self._define_storage[self._define_storage.size() - 1],
@@ -254,15 +251,14 @@ pub class PreProcessor {
             return
         }
 
-        self._late_define_used = true
-        var one: string = "1"
-        self._late_define_value = kairo::std::to_std_string(one)
+        self._late_define_used  = true
+        self._late_define_value = "1"
         self._register_define(name, self._late_define_value)
     }
 
     /// One `-D NAME` whose value bytes are `stored` (kept alive by the
     /// caller for the run): its own virtual file, lexed as a macro body.
-    priv fn _register_define(self, const name: string, const stored: cxx::std::string) {
+    priv fn _register_define(self, const name: string, const stored: string) {
         {
             var fid = self._sm->load_virtual(
                 Path(f"<command-line>:{name}"),
@@ -431,10 +427,15 @@ pub class PreProcessor {
             }
 
             self._reach_known.add_node(fid, graph.mod_paths[fid])
-            self._reach_known.deps[fid] = graph.deps[fid]
+            self._reach_known.deps[fid] = graph.deps[fid].copy()
         }
 
-        return graph.all_fids
+        var out = cxx::std::set<u32>()
+        for fid in graph.all_fids {
+            out.insert(fid)
+        }
+
+        return out
     }
 
     /// true if `fid` has already been walked in this batch.
@@ -484,7 +485,7 @@ pub class PreProcessor {
         // noise, the wave is queueing on that one mutex and widening the pool
         // will not help. NOT lex time   see Lexer::next, which bills "Lex".
         var lexer:  unsafe *Lexer                   = &null
-        var replay: unsafe *cxx::std::vector<Token> = &null
+        var replay: unsafe *[Token] = &null
         var pit = self._prelexed.find(fid as u64)
         if pit != self._prelexed.end() {
             // Opened, lexed and its macros registered by _prelex_cycles.
@@ -572,10 +573,10 @@ pub class PreProcessor {
         }
 
         walker->run()
-        var wit = self._wide_imports.find(fid)
-        if wit != self._wide_imports.end() {
-            for var i: usize = 0; i < wit->second.size(); ++i {
-                walker->add_implicit_import(wit->second[i])
+        var wit = self._wide_imports.get(fid)
+        if wit != null {
+            for var i: usize = 0; i < wit->size(); ++i {
+                walker->add_implicit_import((*wit)[i])
             }
         }
 
@@ -596,22 +597,20 @@ pub class PreProcessor {
                              const root:  string,
                              const dir:   string,
                              const leaf:  string,
-                             const users: cxx::std::set<u32>) {
+                             const users: {u32}) {
         if users.size() == 0 {
             return
         }
 
         var bsym  = self._sym->intern(builtin_root_name())
-        var takes = cxx::std::vector<u32>()
+        var takes: [u32]
         for f in users {
-            if graph->mod_paths.contains(f) {
-                var *segs = &graph->mod_paths[f].segments
-                if segs->size() > 0 && (*segs)[0].name == bsym {
-                    continue
-                }
+            var mp = graph->mod_paths.get(f)
+            if mp != null && mp->segments.size() > 0 && mp->segments[0].name == bsym {
+                continue
             }
 
-            takes.push_back(f)
+            takes.push(f)
         }
 
         if takes.size() == 0 {
@@ -633,7 +632,7 @@ pub class PreProcessor {
             }
 
             graph->add_edge(takes[i], w_fid)
-            self._wide_imports[takes[i]].push_back(w_fid)
+            self._wide_imports[takes[i]].push(w_fid)
         }
     }
 
@@ -674,13 +673,13 @@ pub class PreProcessor {
                     continue
                 }
 
-                var unsafe *toks = kairo::std::create<cxx::std::vector<Token>>()
+                var unsafe *toks = kairo::std::create<[Token]>()
                 var        t     = Token()
                 while lexer->next(&t) {
-                    toks->push_back(t)
+                    toks->push(t)
                 }
 
-                var mp = graph->mod_paths[fid]
+                var mp = graph->mod_paths[fid].copy()
                 var unsafe *ctx = self._gscope->get_or_create_context(
                     fid,
                     self._sm,
@@ -781,7 +780,7 @@ pub class PreProcessor {
     /// for a real cycle: which import to drop, or what to move into a third
     /// module, is a design call. A self-import is the exception: it only
     /// closes the cycle, and the fix-it removes it.
-    priv fn _report_cycle(self, @inout cyc: cxx::std::vector<u32>) {
+    priv fn _report_cycle(self, @inout cyc: [u32]) {
         var n = cyc.size()
         if n == 0 {
             return
@@ -983,9 +982,9 @@ pub class PreProcessor {
             asegs.push_back(builtin_root_name())
             asegs.push_back("base")
             asegs.push_back("alloc")
-            var users = cxx::std::vector<u32>()
+            var users: [u32]
             for f in graph.alloc_sugar {
-                users.push_back(f)
+                users.push(f)
             }
 
             var a_fid = scanner.add_module_dependency(asegs, &graph)
@@ -1050,18 +1049,17 @@ pub class PreProcessor {
         // builtin import of it would close a cycle.
         if self._prelude_fid != u32::MAX && graph.all_fids.contains(self._prelude_fid) {
             self._prelude_files.clear()
-            var work = cxx::std::vector<u32>()
-            work.push_back(self._prelude_fid)
-            while !work.empty() {
-                var f = work.back()
-                work.pop_back()
+            var work: [u32]
+            work.push(self._prelude_fid)
+            while !work.is_empty() {
+                var f = work.remove(work.size() - 1)
                 if !self._prelude_files.insert(f as u64).second {
                     continue
                 }
 
                 if graph.deps.contains(f) {
                     for d in graph.deps[f] {
-                        work.push_back(d)
+                        work.push(d)
                     }
                 }
             }
@@ -1132,7 +1130,7 @@ pub class PreProcessor {
         // both files of an import cycle without a word.
         if dispatched < graph.all_fids.size() {
             var lost = ""
-            for fid in graph.all_fids {
+            for fid in sorted_fids(graph.all_fids) {
                 if !executor.stranded(fid) {
                     continue
                 }
@@ -1155,7 +1153,7 @@ pub class PreProcessor {
             }
 
             self._scanned.add_node(fid, graph.mod_paths[fid])
-            self._scanned.deps[fid] = graph.deps[fid]
+            self._scanned.deps[fid] = graph.deps[fid].copy()
         }
 
         out.ok = !self._diag->has_fatal()

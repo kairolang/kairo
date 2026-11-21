@@ -199,10 +199,10 @@ pub class SysCache {
     }
 
     /// `name -> key` lines, sorted by name.
-    pub fn list(self) -> cxx::std::vector<string> {
-        var names = LinkFS::list_dir(f"{self.root}/by-name")
+    pub fn list(self) -> [string] {
+        var names = SysUtil::list_dir(f"{self.root}/by-name")
         SysUtil::sort(&names)
-        var out = cxx::std::vector<string>()
+        var out: [string]
         for *n in names {
             if LinkText::starts_with(n->copy(), ".") {
                 continue
@@ -210,9 +210,9 @@ pub class SysCache {
 
             var key = self.key_of(*n)
             if key.is_empty() {
-                out.push_back(f"{*n}  (dangling)")
+                out.push(f"{*n}  (dangling)")
             } else {
-                out.push_back(f"{*n}  {self.sysroot_dir(key)}")
+                out.push(f"{*n}  {self.sysroot_dir(key)}")
             }
         }
 
@@ -239,20 +239,20 @@ pub class SysCache {
     /// Drops sysroots no name points at, and stage dirs (finished, partial
     /// or failed) older than `max_age_ticks` before `now`. Returns what it
     /// removed, one path per entry.
-    pub fn gc(self, now: u64, max_age_ticks: u64) -> cxx::std::vector<string> {
-        var removed = cxx::std::vector<string>()
+    pub fn gc(self, now: u64, max_age_ticks: u64) -> [string] {
+        var removed: [string]
         for *name in LinkFS::list_dir(f"{self.root}/by-name") {
             if LinkText::starts_with(name->copy(), ".") {
                 var p = f"{self.root}/by-name/{*name}"
                 LinkFS::remove(p)
-                removed.push_back(p)
+                removed.push(p)
                 continue
             }
 
             if self.key_of(*name).is_empty() {
                 var p = f"{self.root}/by-name/{*name}"
                 LinkFS::remove(p)
-                removed.push_back(p)
+                removed.push(p)
             }
         }
 
@@ -260,7 +260,7 @@ pub class SysCache {
             if !self._referenced(*key) {
                 var p = self.sysroot_dir(*key)
                 LinkFS::remove_tree(p)
-                removed.push_back(p)
+                removed.push(p)
             }
         }
 
@@ -269,7 +269,7 @@ pub class SysCache {
             var t = LinkFS::mtime(p)
             if t != 0 && now > t && now - t > max_age_ticks {
                 LinkFS::remove_tree(p)
-                removed.push_back(p)
+                removed.push(p)
             }
         }
 

@@ -320,11 +320,11 @@ pub class SysrootManifest {
 
     pub var include_dirs: cxx::std::vector<string>
     pub var lib_dirs:     cxx::std::vector<string>
-    pub var crt_startup:  cxx::std::vector<string>
-    pub var crt_end:      cxx::std::vector<string>
-    pub var libc_link:    cxx::std::vector<string>
-    pub var libcxx_link:  cxx::std::vector<string>
-    pub var cc_isolation: cxx::std::vector<string>
+    pub var crt_startup:  [string]
+    pub var crt_end:      [string]
+    pub var libc_link:    [string]
+    pub var libcxx_link:  [string]
+    pub var cc_isolation: [string]
     pub var cc_defines:   cxx::std::vector<string> ///< -D names the prebuilt libc++ was built with
 
     /// The manifest's name inside a sysroot: what marks a directory as one.
@@ -490,6 +490,24 @@ pub class SysrootManifest {
         }
 
         dst = v.take_list()
+        return true
+    }
+
+    priv fn _list(self,
+                  const key:  string,
+                  @inout v:   TomlValue,
+                  @inout dst: [string]) -> bool {
+        if v.kind != 3 {
+            self.error = f"{key} must be an array of strings"
+            return false
+        }
+
+        dst.clear()
+        for *s in v.list {
+            dst.push(s->copy())
+        }
+
+        v.list.clear()
         return true
     }
 }

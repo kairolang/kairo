@@ -26,12 +26,10 @@ pub class KccArgv {
     /// root bundled beside kcc for the same triple never replaces
     /// the stage's own headers. kcc takes kairo-only words
     /// through -Xkairo.
-    pub static fn push_target(@inout argv:   cxx::std::vector<string>,
-                              const triple:  string,
-                              const sysroot: string) {
-        argv.push_back("--target=" + triple)
-        argv.push_back("--sysroot=" + sysroot)
-        argv.push_back("-Xkairo")
-        argv.push_back("--sysroot-exact")
+    pub static fn push_target(@inout argv: [string], const triple: string, const sysroot: string) {
+        argv.push("--target=" + triple)
+        argv.push("--sysroot=" + sysroot)
+        argv.push("-Xkairo")
+        argv.push("--sysroot-exact")
     }
 }

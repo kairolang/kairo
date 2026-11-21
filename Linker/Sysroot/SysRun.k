@@ -40,8 +40,8 @@ pub class SysRun {
     /// Runs `argv` (argv[0] a path) with stdout and stderr both in `log`
     /// (appended to nothing: the file is replaced). The exit status, or -1
     /// when the program could not be started; `log` then says why.
-    pub static fn run(@inout argv: cxx::std::vector<string>, const log: string) -> i32 {
-        if argv.empty() {
+    pub static fn run(@inout argv: [string], const log: string) -> i32 {
+        if argv.is_empty() {
             return -1
         }
 
@@ -156,18 +156,14 @@ pub class SysRun {
 
     /// Copies `from` into `to` (merged into what is there), symlinks kept
     /// as symlinks. `skip` names top-level entries to leave out.
-    pub static fn copy_tree(const from:  string,
-                            const to:    string,
-                            @inout skip: cxx::std::vector<string>) -> bool {
+    pub static fn copy_tree(const from: string, const to: string, @inout skip: [string]) -> bool {
         return SysRun::_tree(from, to, &skip, false, 0)
     }
 
     /// As copy_tree, but regular files are hard links where the filesystem
     /// allows one (a copy where it does not). For laying a finished stage
     /// into a root: both sides are cache dirs nothing writes to again.
-    pub static fn link_tree(const from:  string,
-                            const to:    string,
-                            @inout skip: cxx::std::vector<string>) -> bool {
+    pub static fn link_tree(const from: string, const to: string, @inout skip: [string]) -> bool {
         return SysRun::_tree(from, to, &skip, true, 0)
     }
 
@@ -212,7 +208,7 @@ pub class SysRun {
                               const from: string,
                               const to:   string,
                               @inout err: string) -> bool {
-        var none = cxx::std::vector<string>()
+        var none: [string]
         if !SysRun::copy_tree(from, to, &none) {
             err = f"cannot copy {from} to {to}"
             return false
@@ -224,8 +220,8 @@ pub class SysRun {
 
         var sub = if (from == root) => ("")
                   else => LinkText::slice(from, root.size() + 1, from.size())
-        var rels = cxx::std::vector<string>()
-        var tgts = cxx::std::vector<string>()
+        var rels: [string]
+        var tgts: [string]
         var text = ""
         if LinkFS::read(root.copy() + "/links.tsv", &text) {
             for *line in LinkText::split_lines(text.copy()) {
@@ -239,14 +235,14 @@ pub class SysRun {
                     return false
                 }
 
-                rels.push_back(cols[0].copy())
-                tgts.push_back(cols[1].copy())
+                rels.push(cols[0].copy())
+                tgts.push(cols[1].copy())
             }
         }
 
         // Rows are independent: a chain may dangle until its last link is
         // made. Copies wait until every link that could be made is.
-        var copies = cxx::std::vector<usize>()
+        var copies: [usize]
         for var i: usize = 0; i < rels.size(); ++i {
             var at = SysRun::_mapped(sub, rels[i], to)
             if at.is_empty() {
@@ -264,7 +260,7 @@ pub class SysRun {
             }
 
             if !linked {
-                copies.push_back(i)
+                copies.push(i)
             }
         }
 
@@ -295,8 +291,8 @@ pub class SysRun {
             return true
         }
 
-        var stored = cxx::std::vector<string>()
-        var real   = cxx::std::vector<string>()
+        var stored: [string]
+        var real: [string]
         for *line in LinkText::split_lines(text.copy()) {
             if line->is_empty() {
                 continue
@@ -310,12 +306,12 @@ pub class SysRun {
 
             var s = SysRun::_mapped(sub, cols[0], to)
             if !s.is_empty() {
-                stored.push_back(s.copy())
-                real.push_back(SysRun::_mapped(sub, cols[1], to))
+                stored.push(s.copy())
+                real.push(SysRun::_mapped(sub, cols[1], to))
             }
         }
 
-        if stored.empty() {
+        if stored.is_empty() {
             return true
         }
 
@@ -371,10 +367,10 @@ pub class SysRun {
     /// Scripts/ship_sysroot_inputs.py resolve_recorded().
     priv static fn _resolve_recorded(const root:  string,
                                      const rel:   string,
-                                     @inout rels: cxx::std::vector<string>,
-                                     @inout tgts: cxx::std::vector<string>) -> string {
+                                     @inout rels: [string],
+                                     @inout tgts: [string]) -> string {
         var parts       = SysUtil::split(rel, ('/' as u8))
-        var done        = cxx::std::vector<string>()
+        var done: [string]
         var seen: usize = 0
         var head: usize = 0
         while head < parts.size() {
@@ -395,7 +391,7 @@ pub class SysRun {
 
                 var next = SysUtil::split(tgts[hit], ('/' as u8))
                 for var i: usize = head + 1; i < parts.size(); ++i {
-                    next.push_back(parts[i].copy())
+                    next.push(parts[i].copy())
                 }
 
                 parts = next
@@ -410,15 +406,15 @@ pub class SysRun {
             }
 
             if h == ".." {
-                if done.empty() {
+                if done.is_empty() {
                     return ""
                 }
 
-                done.pop_back()
+                done.pop()
                 continue
             }
 
-            done.push_back(h.copy())
+            done.push(h.copy())
         }
 
         var res = SysUtil::joined(&done, "/")
@@ -431,14 +427,14 @@ pub class SysRun {
 
     priv static fn _tree(const from:  string,
                          const to:    string,
-                         @inout skip: cxx::std::vector<string>,
+                         @inout skip: [string],
                          hard:        bool,
                          depth:       u32) -> bool {
         if depth > 64 || !LinkFS::make_dirs(to) {
             return false
         }
 
-        var none = cxx::std::vector<string>()
+        var none: [string]
         for *name in LinkFS::list_dir(from) {
             var found = false
             for *s in skip {
@@ -492,7 +488,7 @@ pub class SysJobs {
     pub var  failed_rc:  i32                                      = 0
     priv var _max:       usize                                    = 1
     priv var _pis:       cxx::std::vector<llvm::sys::ProcessInfo>
-    priv var _logs:      cxx::std::vector<string>
+    priv var _logs:      [string]
     priv var _head:      usize                                    = 0
 
     pub fn SysJobs(self) {
@@ -511,7 +507,7 @@ pub class SysJobs {
     }
 
     /// Starts `argv` with its output in `log`. False once any job failed.
-    pub fn add(self, @inout argv: cxx::std::vector<string>, const log: string) -> bool {
+    pub fn add(self, @inout argv: [string], const log: string) -> bool {
         if !self.ok() {
             return false
         }
@@ -568,7 +564,7 @@ pub class SysJobs {
         }
 
         self._pis.push_back(pi)
-        self._logs.push_back(log.copy())
+        self._logs.push(log.copy())
         return true
     }
 
