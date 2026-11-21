@@ -646,14 +646,17 @@ pub fn resize_raw(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usiz
 
 // --- System: the default global allocator -----------------------------------
 // mimalloc (rt/mimalloc.c). On ELF and wasm targets it is also the C heap, so
-// C, C++ and Kairo share one heap; see rt/mimalloc.c for Windows and Apple.
-// Size and alignment are usually constants here, so the small-object paths
-// below fold to one direct call each.
+// C, C++ and Kairo share one heap, except for Linux's large blocks (rt/heap.h);
+// see rt/mimalloc.c for Windows and Apple. Size and alignment are usually
+// constants here, so the small-object paths below fold to one direct call
+// each.
 
-/// The default global allocator: mimalloc (`rt/mimalloc.c`).
+/// The default global allocator: mimalloc (`rt/mimalloc.c`), and on Linux a mapping of its own for
+/// each block of at least 128 KiB (`rt/heap.h`), grown with mremap.
 ///
-/// On ELF and wasm targets it is also the C heap, so C, C++ and Kairo share one heap. Alignments up
-/// to 2 * `sizeof usize` use the plain malloc paths; larger ones use the aligned entry points.
+/// On ELF and wasm targets mimalloc is also the C heap, so C, C++ and Kairo share one heap; a large
+/// block is the exception: C must not free one. Alignments up to 2 * `sizeof usize` use the plain
+/// malloc paths; larger ones use the aligned entry points.
 pub class System impl FullAllocator {
     /// Allocates from mimalloc.
     static inline fn alloc(size: usize, align: usize) -> unsafe *u8 {
@@ -686,9 +689,9 @@ pub class System impl FullAllocator {
         kairo_rt_aligned_free(ptr, size, align)
     }
 
-    /// Grows in place within mimalloc's block; a shrink keeps the block,
-    /// except one from a large page into the small range (rt/alloc.h),
-    /// which only realloc can do.
+    /// Grows in place within mimalloc's block (or, on Linux, a large
+    /// block's mapping); a shrink keeps the block, except where the block
+    /// would change path (rt/heap.h, rt/alloc.h), which only realloc can do.
     static inline fn resize(ptr:      unsafe *u8,
                             old_size: usize,
                             new_size: usize,

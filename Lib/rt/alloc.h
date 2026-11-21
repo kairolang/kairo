@@ -19,7 +19,7 @@
 #include <cstdlib>
 
 // The global allocator's symbols (Global calls them) and the heap's
-// out-of-line half (System's resize and realloc): declared
+// out-of-line half (System's resize and realloc, the large blocks): declared
 // here so the builtin reaches them through the header it already imports.
 #include "rt/global_alloc.h"
 #include "rt/heap.h"
@@ -66,28 +66,38 @@ consteval std::size_t kairo_rt_small_max() KAIRO_RT_NOEXCEPT { return 128 * size
 /// by moving any block that would shrink from a large page into the small
 /// range (mimalloc's realloc shrinks in place), and kairo_rt_heap_resize
 /// refuses that shrink for the same reason (rt/heap.c).
+///
+/// A block of at least KAIRO_RT_HEAP_LARGE_MIN bytes at no more than
+/// KAIRO_RT_HEAP_LARGE_ALIGN is rt/heap.h's large block; the size test sits
+/// past the small one, so the small paths are unchanged.
 
 KAIRO_RT_INL unsigned char* kairo_rt_malloc(std::size_t n) KAIRO_RT_NOEXCEPT {
     if (n <= kairo_rt_small_max()) { return static_cast<unsigned char*>(mi_malloc_small(n)); }
+    if (KAIRO_RT_HEAP_IS_LARGE(n, kairo_rt_malloc_align())) { return kairo_rt_heap_large_alloc(n, kairo_rt_malloc_align(), 0); }
     return static_cast<unsigned char*>(mi_malloc(n));
 }
 KAIRO_RT_INL unsigned char* kairo_rt_calloc(std::size_t n) KAIRO_RT_NOEXCEPT {
     if (n <= kairo_rt_small_max()) { return static_cast<unsigned char*>(mi_zalloc_small(n)); }
+    if (KAIRO_RT_HEAP_IS_LARGE(n, kairo_rt_malloc_align())) { return kairo_rt_heap_large_alloc(n, kairo_rt_malloc_align(), 1); }
     return static_cast<unsigned char*>(mi_zalloc(n));
 }
 KAIRO_RT_INL void kairo_rt_free(unsigned char* p, std::size_t n) KAIRO_RT_NOEXCEPT {
     if (n <= kairo_rt_small_max()) { mi_free_small_nonnull(p); return; }
+    if (KAIRO_RT_HEAP_IS_LARGE(n, kairo_rt_malloc_align())) { kairo_rt_heap_large_free(p, n); return; }
     mi_free(p);
 }
 
 /// Over-aligned blocks: never the small free, so any size is fine.
 KAIRO_RT_INL unsigned char* kairo_rt_aligned_alloc(std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
+    if (KAIRO_RT_HEAP_IS_LARGE(n, a)) { return kairo_rt_heap_large_alloc(n, a, 0); }
     return static_cast<unsigned char*>(mi_malloc_aligned(n, a));
 }
 KAIRO_RT_INL unsigned char* kairo_rt_aligned_calloc(std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
+    if (KAIRO_RT_HEAP_IS_LARGE(n, a)) { return kairo_rt_heap_large_alloc(n, a, 1); }
     return static_cast<unsigned char*>(mi_zalloc_aligned(n, a));
 }
 KAIRO_RT_INL void kairo_rt_aligned_free(unsigned char* p, std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
+    if (KAIRO_RT_HEAP_IS_LARGE(n, a)) { kairo_rt_heap_large_free(p, n); return; }
     mi_free(p);
 }
 

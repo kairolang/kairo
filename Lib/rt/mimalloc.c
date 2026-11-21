@@ -11,7 +11,8 @@
  *
  *   Where a static link can do it -- ELF and wasm -- mimalloc also replaces
  *   malloc, free and the rest of the C heap, so C, C++ and Kairo share one
- *   heap and a block may cross between them. Windows and Apple targets are
+ *   heap and a block may cross between them, except that C must not free a
+ *   large block Kairo made on Linux (rt/heap.h). Windows and Apple targets are
  *   not overridden statically (the CRT heap on Windows; malloc zones on
  *   Apple): there, a block Kairo allocates is freed by Kairo, and a block C
  *   or C++ allocates is freed by C or C++.
