@@ -1065,18 +1065,18 @@ pub class TermRenderer {
 
     /// # Helpers
 
-    fn split_lines(self, const text: string) -> cxx::std::vector<string> {
-        var lines        = cxx::std::vector<string>()
-        var start: usize = 0
+    fn split_lines(self, const text: string) -> [string] {
+        var lines: [string]
+        var start: usize    = 0
         for i in (0 as usize) .. (text.size()) {
             if text.data()[i] == ('\n' as u8) {
-                lines.push_back(text.subslice(start, i - start))
+                lines.push(text.subslice(start, i - start))
                 start = i + 1
             }
         }
 
         if start <= text.size() {
-            lines.push_back(text.subslice(start, text.size() - start))
+            lines.push(text.subslice(start, text.size() - start))
         }
 
         return lines

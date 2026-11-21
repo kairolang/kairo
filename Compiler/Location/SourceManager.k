@@ -14,7 +14,6 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "llvm/Support/FormatVariadic.h"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "vector"
 ffi "c++" import "string"
 
 import Diagnostic::Engine::DiagEngine
@@ -73,12 +72,12 @@ pub type FileID = u32
 ///   - computing line/column (`get_line_col`)
 ///   - fetching views, buffers, and metadata
 pub class SourceManager {
-    pub  var _line_table: SourceLineTable ///< global line mapping table
-    priv var _files:      cxx::std::vector<unsafe *SourceFile> ///< all loaded files
-    priv var _pool:       unsafe *ThreadPool ///< background worker pool
+    pub  var _line_table: SourceLineTable            ///< global line mapping table
+    priv var _files:      [unsafe *SourceFile]       ///< all loaded files
+    priv var _pool:       unsafe *ThreadPool         ///< background worker pool
     priv var _vfile_mgr:  unsafe *VirtualFileManager ///< underlying virtual filesystem
-    priv var _load_mu:    kairo::std::Mutex ///< mutex for synchronizing file loads
-    priv var _diag:       unsafe *DiagEngine ///< diagnostic engine for reporting errors
+    priv var _load_mu:    kairo::std::Mutex          ///< mutex for synchronizing file loads
+    priv var _diag:       unsafe *DiagEngine         ///< diagnostic engine for reporting errors
 
     /// constructs a new SourceManager with pool and vfile manager.
     ///
@@ -112,7 +111,7 @@ pub class SourceManager {
 
         self._diag      = diag
         self._pool      = pool
-        self._files     = cxx::std::vector<unsafe *SourceFile>()
+        self._files     = []
         self._vfile_mgr = vfile_mgr
         kairo::Logger::info(
             kairo::Logger::Stage::Driver,
@@ -271,10 +270,10 @@ pub class SourceManager {
     /// **Note:** Caller must hold `_load_mu`.
     priv fn _materialize(self, fid: FileID, const path: Path) {
         while self._files.size() <= (fid as usize) {
-            self._files.push_back(&null)
+            self._files.push(&null)
         }
 
-        if self._files[fid] != &null {
+        if self._files[fid as usize] != &null {
             return
         }
 
@@ -288,7 +287,7 @@ pub class SourceManager {
             return
         }
 
-        self._files[fid] = unsafe (@create SourceFile(path.copy(), buf) as unsafe *SourceFile)
+        self._files[fid as usize] = unsafe (@create SourceFile(path.copy(), buf) as unsafe *SourceFile)
     }
 
     /// `fid`'s bytes as a by-value view, or an empty one.
@@ -399,20 +398,20 @@ pub class SourceManager {
     /// ### Returns
     /// false if the fid has no live SourceFile.
     priv fn _drop_file(self, file_id: FileID) -> bool {
-        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
+        if (file_id as usize) >= self._files.size() || self._files[file_id as usize] == &null {
             return false
         }
 
-        @destroy unsafe (self._files[file_id] as *SourceFile)
-        self._files[file_id] = &null
+        @destroy unsafe (self._files[file_id as usize] as *SourceFile)
+        self._files[file_id as usize] = &null
         return true
     }
 
     /// `file_id`'s path: its SourceFile's, or the
     /// VirtualFileManager's when the SourceFile was released.
     priv fn _path_of(self, file_id: FileID) -> Path {
-        if (file_id as usize) < self._files.size() && self._files[file_id] != &null {
-            return self._files[file_id]->path.copy()
+        if (file_id as usize) < self._files.size() && self._files[file_id as usize] != &null {
+            return self._files[file_id as usize]->path.copy()
         }
 
         return Path(self._vfile_mgr->get_info(file_id).path.full_path())
@@ -544,7 +543,7 @@ pub class SourceManager {
         var file_id = res.fid
         var offset  = res.offset
 
-        if file_id >= self._files.size() || self._files[file_id] == &null {
+        if file_id >= self._files.size() || self._files[file_id as usize] == &null {
             kairo::Logger::warn(
                 kairo::Logger::Stage::Driver,
                 f"SourceManager::get_line_col: invalid fid={file_id}",
@@ -626,17 +625,17 @@ pub class SourceManager {
     /// true if the buffer is valid UTF-8 (or the fid is unknown).
     pub fn validate_utf8(self, fid: FileID) -> bool {
         var lock = kairo::std::LockGuard(self._load_mu)
-        if (fid as usize) >= self._files.size() || self._files[fid] == &null {
+        if (fid as usize) >= self._files.size() || self._files[fid as usize] == &null {
             return true
         }
 
-        if self._files[fid]->utf8_checked {
-            return self._files[fid]->utf8_valid
+        if self._files[fid as usize]->utf8_checked {
+            return self._files[fid as usize]->utf8_valid
         }
 
-        self._files[fid]->utf8_checked = true
+        self._files[fid as usize]->utf8_checked = true
 
-        var buf = self._files[fid]->buffer->bytes()
+        var buf = self._files[fid as usize]->buffer->bytes()
         const      base: kairo::std::ConstPtr<u8> = buf.data()
         const      end:  kairo::std::ConstPtr<u8> = base + buf.size()
         var unsafe *p                             = base
@@ -684,7 +683,7 @@ pub class SourceManager {
             b.emit()
         }
 
-        self._files[fid]->utf8_valid = valid
+        self._files[fid as usize]->utf8_valid = valid
         return valid
     }
 
@@ -725,20 +724,20 @@ pub class SourceManager {
 
     /// retrieves file buffer as MemoryBuffer view.
     pub fn get_buffer(self, file_id: FileID) -> MemoryBuffer? {
-        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
+        if (file_id as usize) >= self._files.size() || self._files[file_id as usize] == &null {
             return null
         }
 
-        return self._files[file_id]->buffer->bytes()
+        return self._files[file_id as usize]->buffer->bytes()
     }
 
     /// returns full path for file id.
     pub fn get_filename(self, file_id: FileID) -> string {
-        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
+        if (file_id as usize) >= self._files.size() || self._files[file_id as usize] == &null {
             return "<invalid>"
         }
 
-        return self._files[file_id]->path.full_path()
+        return self._files[file_id as usize]->path.full_path()
     }
 
     /// returns the DIRECTORY holding a file, for anchored import
@@ -749,11 +748,11 @@ pub class SourceManager {
     /// unknown (callers treat that as "no importing file").
     pub fn get_file_dir(self, file_id: FileID) -> Path {
         var out = Path()
-        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
+        if (file_id as usize) >= self._files.size() || self._files[file_id as usize] == &null {
             return out
         }
 
-        var full   = self._files[file_id]->path.copy()
+        var full   = self._files[file_id as usize]->path.copy()
         var parent = full.parent_path()
         if !parent.is_empty() {
             out = Path(parent, false)
@@ -787,11 +786,11 @@ pub class SourceManager {
 
     /// returns file extension (if any).
     fn get_file_extension(self, file_id: FileID) -> string? {
-        if (file_id as usize) >= self._files.size() || self._files[file_id] == &null {
+        if (file_id as usize) >= self._files.size() || self._files[file_id as usize] == &null {
             return null
         }
 
-        return self._files[file_id]->path.extension()
+        return self._files[file_id as usize]->path.extension()
     }
 
     /// fetches file view handle from VirtualFileManager.
@@ -859,7 +858,7 @@ pub class SourceManager {
             return MemoryBuffer()
         }
 
-        var unsafe *file = self._files[file_id]
+        var unsafe *file = self._files[file_id as usize]
         if file == &null || file->buffer == &null {
             kairo::Logger::warn(
                 kairo::Logger::Stage::Driver,
@@ -1080,11 +1079,11 @@ pub class SourceManager {
     }
 
     pub fn get_file_size(self, fid: FileID) -> usize {
-        if (fid as usize) >= self._files.size() || self._files[fid] == &null {
+        if (fid as usize) >= self._files.size() || self._files[fid as usize] == &null {
             return 0
         }
 
-        return self._files[fid]->size_bytes
+        return self._files[fid as usize]->size_bytes
     }
 
     fn get_file_size(self, loc: SourceLocation) -> usize {
@@ -1129,8 +1128,8 @@ pub fn Test() -> i32 {
 
     // HELPERS
 
-    static data0: cxx::std::string
-    static data1: cxx::std::string
+    static data0: string
+    static data1: string
 
     var file0_str = "hello world\nline two\n"
     var file1_str = "module Foo {\n    macro mac! { 10 }\n}\n"
@@ -1140,9 +1139,9 @@ pub fn Test() -> i32 {
     var file0_len = file0_str.size()
     var file1_len = file1_str.size()
     var nd0       = file0_str.copy()
-    data0 = kairo::std::to_std_string(nd0)
+    data0 = nd0
     var nd1 = file1_str.copy()
-    data1 = kairo::std::to_std_string(nd1)
+    data1 = nd1
 
     var fid0 = sm->load_virtual(
         Path("test_file0.k", false),

@@ -22,7 +22,6 @@ ffi "c++" import "llvm/Support/Path.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "Native/FileSystem.hh" // dir_entry_type: `type` is a keyword
 ffi "c++" import "system_error"
-ffi "c++" import "vector"
 
 import Support::Ascii::{
     find,
@@ -449,17 +448,17 @@ pub class Path {
         return self.entry_type == FileType::character_file
     }
 
-    fn as_qualified_path(const self) -> cxx::std::vector<string> {
+    fn as_qualified_path(const self) -> [string] {
         /// returns a vector of path components from root to leaf.
         /// like for foo/bar/baz.txt, returns [abs .. "foo", "bar", "baz"].
-        var components = cxx::std::vector<string>()
+        var components: [string]
         var range = llvm::make_range(
             llvm::sys::path::begin(kairo::sref(self.path_data)),
             llvm::sys::path::end(kairo::sref(self.path_data)),
         )
 
         for component in range {
-            components.emplace_back(string_from_ref(component))
+            components.push(string_from_ref(component))
         }
 
         return components

@@ -61,13 +61,13 @@ pub struct ClangNote {
 /// One clang primary and its notes, collected by ClangDiagAdapter until the
 /// group is whole (see ClangDiagAdapter::_g).
 pub class ClangDiagGroup {
-    pub var on: bool = false
-    pub var code: DiagCode = DiagCode(Diag::CL(1, DiagSeverity::Error))
-    pub var at:    SourceRange                    = SourceRange::invalid()
-    pub var msg:   string                         = ""
-    pub var hl:    cxx::std::vector<SourceRange>                           ///< highlighted ranges
-    pub var fixes: cxx::std::vector<ClangFixEdit>
-    pub var notes: cxx::std::vector<ClangNote>
+    pub var on:    bool           = false
+    pub var code:  DiagCode       = DiagCode(Diag::CL(1, DiagSeverity::Error))
+    pub var at:    SourceRange    = SourceRange::invalid()
+    pub var msg:   string         = ""
+    pub var hl:    [SourceRange] ///< highlighted ranges
+    pub var fixes: [ClangFixEdit]
+    pub var notes: [ClangNote]
     /// A record of the group that copies only from a non-const lvalue
     /// (clang_diag_mutable_copy): its name, the record whose copy
     /// constructor forces that and the field leading to it ("" for its
@@ -613,7 +613,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         for var i: u32 = 0; i < nr; ++i {
             var r = self._range_in_kfid(info.getRange(i), info)
             if r.is_valid() {
-                self._g.hl.push_back(r)
+                self._g.hl.push(r)
             }
         }
 
@@ -651,7 +651,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             var fx = ClangFixEdit()
             fx.at   = rr
             fx.text = text.copy()
-            self._g.fixes.push_back(fx)
+            self._g.fixes.push(fx)
         }
     }
 
@@ -756,7 +756,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         n.at    = kloc
         n.msg   = msg.copy()
         n.frame = frame
-        self._g.notes.push_back(n)
+        self._g.notes.push(n)
     }
 
     /// The open group is whole: build it. A held re-anchored error stays

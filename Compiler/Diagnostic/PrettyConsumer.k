@@ -15,8 +15,6 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "Native/Shims.hh"
-ffi "c++" import "algorithm" // stable_sort
-ffi "c++" import "vector"
 ffi "c++" import "cstdio"
 ffi "c++" import "system_error"
 ffi "c++" import "cstdlib"
@@ -59,7 +57,7 @@ pub struct DiagGroupKey {
     pub var file_id: u32
     pub var line:    u32
 
-    fn op== (self, other: DiagGroupKey) -> bool {
+    fn op== (const self, other: DiagGroupKey) -> bool {
         return self.file_id == other.file_id && self.line == other.line
     }
 }
@@ -89,16 +87,15 @@ extend CaretSpan {
     }
 }
 
-/// Orders by start column. A named function: a closure's parameters are
-/// values in its `fn` type, and a CaretSpan does not copy implicitly.
-fn caret_span_before(const a: CaretSpan, const b: CaretSpan) -> bool {
-    return a.start_col < b.start_col
+/// Orders by start column.
+fn caret_span_order(a: *const CaretSpan, b: *const CaretSpan) -> Ordering {
+    return a->start_col <=> b->start_col
 }
 
 /// Group of diagnostics on the same file:line, to be rendered together.
 pub struct DiagGroup {
     pub var key:      DiagGroupKey
-    pub var diags:    cxx::std::vector<unsafe *Diagnostic>
+    pub var diags:    [unsafe *Diagnostic]
     pub var filename: string
     pub var line_num: u32
     pub var col_num:  u32 ///< 1-based column of the group's first diagnostic (the header's :col)
@@ -114,12 +111,12 @@ pub struct DiagGroup {
 /// Overlapping caret spans use the color of the highest severity diagnostic.
 pub class PrettyDiagConsumer derives DiagConsumer {
     /// Pre-rendered text written before the buffer (ModuleRecords' replay).
-    pub var  replay:        string                               = ""
-    priv var _diags:        cxx::std::vector<unsafe *Diagnostic>
+    pub var  replay:        string                = ""
+    priv var _diags:        [unsafe *Diagnostic]
     priv var _sm:           unsafe *SourceManager
-    priv var _show_context: bool                                 = true ///< --diag-show-context: false hides the source snippet
-    priv var _ctx_lines:    u32                                  = 3 ///< --cmax-diag-context-lines: lines shown up to the caret line; 0 = no limit
-    priv var _abs_paths:    bool                                 = false ///< --diag-absolute-paths
+    priv var _show_context: bool                  = true ///< --diag-show-context: false hides the source snippet
+    priv var _ctx_lines:    u32                   = 3 ///< --cmax-diag-context-lines: lines shown up to the caret line; 0 = no limit
+    priv var _abs_paths:    bool                  = false ///< --diag-absolute-paths
 
     /// # ANSI escape codes
 
@@ -151,7 +148,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     /// # DiagConsumer interface
 
     fn handle(self, diag: unsafe *Diagnostic) {
-        self._diags.push_back(diag)
+        self._diags.push(diag)
     }
 
     /// Hands every buffered diagnostic to `other` and forgets it. The flag
@@ -230,10 +227,10 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     /// replay is exact only when nothing outside it shares a line with it
     /// (Compiler/Spec/IncrementalSema.md#phase-2).
     pub fn render_range(self, a: usize, b: usize) -> string {
-        var all  = self._diags
-        var part = cxx::std::vector<unsafe *Diagnostic>()
+        var all                        = self._diags.copy()
+        var part: [unsafe *Diagnostic]
         for var i: usize = a; i < b && i < all.size(); ++i {
-            part.push_back(all[i])
+            part.push(all[i])
         }
 
         self._diags = part
@@ -330,8 +327,8 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             return self.render_all_uncoalesced(color)
         }
 
-        var unsafe *sm                                 = self._sm
-        var        groups: cxx::std::vector<DiagGroup>
+        var unsafe *sm                 = self._sm
+        var        groups: [DiagGroup]
 
         for var i: usize = 0; i < self._diags.size(); ++i {
             var unsafe *diag = self._diags[i]
@@ -339,10 +336,10 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 var g: DiagGroup
                 g.key.file_id = u32::MAX
                 g.key.line    = (i as u32)
-                g.diags.push_back(diag)
+                g.diags.push(diag)
                 g.filename = ""
                 g.line_num = 0
-                groups.push_back(g)
+                groups.push(g)
                 continue
             }
 
@@ -361,15 +358,15 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             }
 
             if found >= 0 {
-                groups[found as usize].diags.push_back(diag)
+                groups[found as usize].diags.push(diag)
             } else {
                 var g: DiagGroup
                 g.key      = key
                 g.filename = self.display_path(sm->get_filename(diag->loc))
                 g.line_num = (loc_info.line as u32)
                 g.col_num  = (loc_info.column as u32)
-                g.diags.push_back(diag)
-                groups.push_back(g)
+                g.diags.push(diag)
+                groups.push(g)
             }
         }
 
@@ -413,7 +410,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         }
 
         /// ## Children (deduped: identical child notes render once)
-        var seen_children: cxx::std::vector<string>
+        var seen_children: [string]
         for var i: usize = 0; i < group.diags.size(); ++i {
             var unsafe *diag = group.diags[i]
             for var j: usize = 0; j < diag->children.size(); ++j {
@@ -433,7 +430,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                     continue
                 }
 
-                seen_children.push_back(key)
+                seen_children.push(key)
                 out += self.render_single(c, color, "    ", true)
             }
         }
@@ -564,7 +561,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var        line_text   = sm->get_full_line(first_diag->loc)
         var        lang        = self.snippet_lang(group.filename.copy())
 
-        var spans: cxx::std::vector<CaretSpan>
+        var spans: [CaretSpan]
 
         for var i: usize = 0; i < group.diags.size(); ++i {
             var unsafe *diag = group.diags[i]
@@ -608,7 +605,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 emitted_any = true
 
                 span.text = ltext.copy()
-                spans.push_back(span)
+                spans.push(span)
             }
 
             if !emitted_any {
@@ -623,13 +620,13 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 self._place_span(&span, line_text, at, sm)
 
                 span.text = default_text.copy()
-                spans.push_back(span)
+                spans.push(span)
             }
         }
 
         // Left to right by start column; spans that start together keep
         // their order (the diagnostic's, then its labels').
-        cxx::std::stable_sort(spans.begin(), spans.end(), caret_span_before)
+        spans.sort_by(caret_span_order)
 
         // Find a fix-it anchored on the primary line. If present, the fix is
         // rendered IN PLACE: the primary source line shows the edited text
@@ -709,8 +706,8 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             }
         }
 
-        var col_sev:   cxx::std::vector<DiagSeverity>
-        var col_style: cxx::std::vector<DiagLabel::Style>
+        var col_sev:   [DiagSeverity]
+        var col_style: [DiagLabel::Style]
         col_sev.resize(max_col + 1, DiagSeverity::Ignored)
         col_style.resize(max_col + 1, DiagLabel::Style::Primary)
 
@@ -767,11 +764,11 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 row_cols = fix_end_cell
             }
 
-            var row_glyph: cxx::std::vector<u8>
-            var row_color: cxx::std::vector<string>
+            var row_glyph: [u8]
+            var row_color: [string]
             row_glyph.resize(row_cols, ' ' as u8)
             for var rc: usize = 0; rc < row_cols; ++rc {
-                row_color.push_back(string())
+                row_color.push(string())
             }
 
             for var s: usize = 0; s < spans.size(); ++s {
@@ -821,10 +818,10 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             out += conn_gutter.copy() + caret_row + NL
 
             /// ### Stacked label rows
-            var active_spans: cxx::std::vector<CaretSpan>
+            var active_spans: [CaretSpan]
             for var s: usize = 0; s < spans.size(); ++s {
                 if spans[s].text.size() > 0 {
-                    active_spans.push_back(spans[s].copy())
+                    active_spans.push(spans[s].copy())
                 }
             }
 
@@ -920,13 +917,13 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var        filename = self.display_path(sm->get_filename(diag->loc))
 
         // Find the maximum line width in the target labels to calculate padding
-        var max_num_len                              = f"{loc_info.line}".size()
-        var temp_labels: cxx::std::vector<DiagLabel>
+        var max_num_len              = f"{loc_info.line}".size()
+        var temp_labels: [DiagLabel]
 
         var has_own_text = false
         if diag->labels.size() > 0 {
             for var i: usize = 0; i < diag->labels.size(); ++i {
-                temp_labels.push_back(diag->labels[i].copy())
+                temp_labels.push(diag->labels[i].copy())
                 var l_line = sm->get_line_col(diag->labels[i].range.start).line
                 var l_len  = f"{l_line}".size()
                 if l_len > max_num_len {
@@ -959,7 +956,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             label.range.end   = diag->loc
             label.style       = DiagLabel::Style::Primary
             label.text = self.code_prefix(diag->code, sev, color, is_child) + diag->message
-            temp_labels.push_back(label)
+            temp_labels.push(label)
         }
 
         var sev_len  = sev_name.size()
@@ -1018,7 +1015,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     }
 
     priv fn render_labels(self,
-                          @inout labels: cxx::std::vector<DiagLabel>,
+                          @inout labels: [DiagLabel],
                           sm:            unsafe *SourceManager,
                           indent:        string,
                           sev_col:       string,
@@ -1031,20 +1028,18 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         var renderer = TermRenderer(color, 80)
 
         // Labels by start line; labels on one line keep their order.
-        var order: cxx::std::vector<usize>
-        var lines: cxx::std::vector<usize>
+        var order: [usize]
+        var lines: [usize]
         order.reserve(labels.size())
         lines.reserve(labels.size())
         for var i: usize = 0; i < labels.size(); ++i {
-            order.push_back(i)
-            lines.push_back(sm->get_line_col(labels[i].range.start).line)
+            order.push(i)
+            lines.push(sm->get_line_col(labels[i].range.start).line)
         }
 
         var *lp = &lines
-        cxx::std::stable_sort(
-            order.begin(),
-            order.end(),
-            fn (a: usize, b: usize) |lp| -> bool = (*lp)[a] < (*lp)[b],
+        order.sort_by(
+            fn (a: *const usize, b: *const usize) |lp| -> Ordering = (*lp)[*a] <=> (*lp)[*b],
         )
 
         for var i: usize = 0; i < order.size(); ++i {

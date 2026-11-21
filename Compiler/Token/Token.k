@@ -116,7 +116,7 @@ pub class Token { // size=16B, align=4
         return !kinds.contains(self.kind)
     }
 
-    fn op == (self, const kinds: cxx::std::vector<TokenKind>) -> bool {
+    fn op == (self, const kinds: [TokenKind]) -> bool {
         for kind in kinds {
             if self.kind == kind {
                 return true
@@ -126,7 +126,7 @@ pub class Token { // size=16B, align=4
         return false
     }
 
-    fn op != (self, const kinds: cxx::std::vector<TokenKind>) -> bool {
+    fn op != (self, const kinds: [TokenKind]) -> bool {
         return !(self == kinds)
     }
 

@@ -71,7 +71,7 @@ pub class TokenCacheManager {
     /// Written under _lex_mu wherever a slot's imm changes (_publish_imm);
     /// 1024 pages x 4096 fids, a page allocated on first use and freed with the TCM.
     var _imm_dir: cxx::std::array<kairo::std::Atomic<unsafe *ImmPage>, 1024> = cxx::std::array<kairo::std::Atomic<unsafe *ImmPage>, 1024>()
-    var _slots: cxx::std::vector<Self::Slot>
+    var _slots: [Self::Slot]
     var _pool:  *ThreadPool
     var _sm:    unsafe *SourceManager
     var _diag:  *DiagEngine
@@ -179,10 +179,10 @@ pub class TokenCacheManager {
         var wlock = kairo::std::UniqueLock(self._lex_mu)
 
         while self._slots.size() <= (fid as usize) {
-            self._slots.push_back(Self::Slot())
+            self._slots.push(Self::Slot())
         }
 
-        var st = self._slots[fid].state
+        var st = self._slots[fid as usize].state
         if st != Self::SlotState::NotLexed {
             kairo::std::ice_fail("open_stream: fid already open or closed")
         }
@@ -200,7 +200,7 @@ pub class TokenCacheManager {
         if !lexer->open(fid) {
             kairo::std::destroy(lexer)
             kairo::std::destroy(imm)
-            self._slots[fid].state = Self::SlotState::Failed
+            self._slots[fid as usize].state = Self::SlotState::Failed
             kairo::Logger::error(
                 kairo::Logger::Stage::Lexer,
                 f"TCM::open_stream: open failed fid={fid}",
@@ -209,10 +209,10 @@ pub class TokenCacheManager {
             return &null
         }
 
-        self._slots[fid].imm = imm
+        self._slots[fid as usize].imm = imm
         self._publish_imm(fid, imm)
-        self._slots[fid].lexer = lexer
-        self._slots[fid].state = Self::SlotState::Streaming
+        self._slots[fid as usize].lexer = lexer
+        self._slots[fid as usize].state = Self::SlotState::Streaming
         return lexer
     }
 
@@ -224,27 +224,27 @@ pub class TokenCacheManager {
         var wlock = kairo::std::UniqueLock(self._lex_mu)
 
         eval if defined!(DEBUG) {
-            if !(self._slots[fid].state == Self::SlotState::Streaming) {
+            if !(self._slots[fid as usize].state == Self::SlotState::Streaming) {
                 kairo::std::ice_fail(r"close_stream: fid not Streaming")
             }
         }
 
-        self._slots[fid].lexer->close()
-        kairo::std::destroy(self._slots[fid].lexer)
-        self._slots[fid].lexer = &null
+        self._slots[fid as usize].lexer->close()
+        kairo::std::destroy(self._slots[fid as usize].lexer)
+        self._slots[fid as usize].lexer = &null
 
-        self._slots[fid].tokens = tokens
-        self._slots[fid].state  = Self::SlotState::Ready
+        self._slots[fid as usize].tokens = tokens
+        self._slots[fid as usize].state  = Self::SlotState::Ready
     }
 
     fn abort_stream(self, fid: u32) {
         var wlock = kairo::std::UniqueLock(self._lex_mu)
-        if self._slots[fid].lexer != &null {
-            kairo::std::destroy(self._slots[fid].lexer)
-            self._slots[fid].lexer = &null
+        if self._slots[fid as usize].lexer != &null {
+            kairo::std::destroy(self._slots[fid as usize].lexer)
+            self._slots[fid as usize].lexer = &null
         }
 
-        self._slots[fid].state = Self::SlotState::Failed
+        self._slots[fid as usize].state = Self::SlotState::Failed
     }
 
     pub fn get_tokens(self, fid: u32) -> unsafe *(TokenBuffer<512>) {
@@ -255,16 +255,16 @@ pub class TokenCacheManager {
         }
 
         eval if defined!(DEBUG) {
-            if !(self._slots[fid].state != Self::SlotState::Streaming) {
+            if !(self._slots[fid as usize].state != Self::SlotState::Streaming) {
                 kairo::std::ice_fail(r"get_tokens: fid still Streaming")
             }
         }
 
-        if self._slots[fid].state != Self::SlotState::Ready {
+        if self._slots[fid as usize].state != Self::SlotState::Ready {
             return &null
         }
 
-        return self._slots[fid].tokens
+        return self._slots[fid as usize].tokens
     }
 
     /// imm table for fid. valid from open_stream() onward, for the
@@ -294,19 +294,19 @@ pub class TokenCacheManager {
     pub fn ensure_imm_table(self, fid: u32) {
         var wlock = kairo::std::UniqueLock(self._lex_mu)
         while self._slots.size() <= (fid as usize) {
-            self._slots.push_back(Self::Slot())
+            self._slots.push(Self::Slot())
         }
 
-        if self._slots[fid].imm != &null {
+        if self._slots[fid as usize].imm != &null {
             return
         }
 
         var unsafe *imm = kairo::std::create<ImmediateTable>()
         imm->initialize(self._sm)
-        self._slots[fid].imm = imm
+        self._slots[fid as usize].imm = imm
         self._publish_imm(fid, imm)
-        if self._slots[fid].state == Self::SlotState::NotLexed {
-            self._slots[fid].state = Self::SlotState::Ready
+        if self._slots[fid as usize].state == Self::SlotState::NotLexed {
+            self._slots[fid as usize].state = Self::SlotState::Ready
         }
     }
 
@@ -359,7 +359,7 @@ pub class TokenCacheManager {
             return false
         }
 
-        var *slot = &self._slots[fid]
+        var *slot = &self._slots[fid as usize]
 
         // Streaming means a lexer task is still writing this slot. Tearing it
         // down here would free the buffer under that thread.

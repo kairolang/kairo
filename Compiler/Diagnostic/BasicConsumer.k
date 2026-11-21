@@ -29,7 +29,6 @@ ffi "c++" import "Native/Shims.hh" // std_out / std_err
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
-ffi "c++" import "vector"
 ffi "c++" import "cstdio"
 ffi "c++" import "system_error"
 
@@ -84,11 +83,11 @@ import std::io
 /// A fix that carries only a message prints nothing extra.
 pub class BasicDiagConsumer derives DiagConsumer {
     /// Pre-rendered text written before the buffer (ModuleRecords' replay).
-    pub var  replay:     string                               = ""
-    priv var _diags:     cxx::std::vector<unsafe *Diagnostic>
+    pub var  replay:     string                = ""
+    priv var _diags:     [unsafe *Diagnostic]
     priv var _sm:        unsafe *SourceManager
-    priv var _abs_paths: bool                                 = false ///< --diag-absolute-paths
-    priv var _json:      bool                                 = false ///< --error-format=json: one object per line
+    priv var _abs_paths: bool                  = false ///< --diag-absolute-paths
+    priv var _json:      bool                  = false ///< --error-format=json: one object per line
 
     fn BasicDiagConsumer(self, sm: unsafe *SourceManager) {
         self._diags.reserve(32)
@@ -104,7 +103,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
     /// # DiagConsumer interface
 
     fn handle(self, diag: unsafe *Diagnostic) {
-        self._diags.push_back(diag)
+        self._diags.push(diag)
     }
 
     pub fn attach_source_manager(self, sm: unsafe *SourceManager) {

@@ -44,10 +44,10 @@ pub struct DiagSortKey {
 }
 
 pub class BufferedDiagSink derives DiagEngineVBase {
-    priv var _diags:          cxx::std::vector<unsafe *Diagnostic>
-    priv var _error_count:    u32                                  = 0
-    priv var _suppress_depth: u32                                  = 0
-    priv var _warn_count:     u32                                  = 0
+    priv var _diags:          [unsafe *Diagnostic]
+    priv var _error_count:    u32                  = 0
+    priv var _suppress_depth: u32                  = 0
+    priv var _warn_count:     u32                  = 0
     /// `@no_warn(CODE)` scopes (AttributeCheck::register_suppressions): a
     /// warning whose code is `key` (diag_policy_key) and whose location is
     /// inside `scope` is dropped at emit, before it is counted. Warnings
@@ -58,7 +58,7 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         var scope: SourceRange
     }
 
-    priv var _quiet: cxx::std::vector<Self::QuietScope>
+    priv var _quiet: [Self::QuietScope]
 
     fn BufferedDiagSink(self) {
         self._diags.reserve(16)
@@ -141,7 +141,7 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         var q = Self::QuietScope{}
         q.key   = key
         q.scope = scope
-        self._quiet.push_back(q)
+        self._quiet.push(q)
 
         var kept: usize = 0
         for var i: usize = 0; i < self._diags.size(); ++i {
@@ -160,7 +160,7 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         }
 
         while self._diags.size() > kept {
-            self._diags.pop_back()
+            self._diags.pop()
         }
     }
 
@@ -216,7 +216,7 @@ pub class BufferedDiagSink derives DiagEngineVBase {
             } default { }
         }
 
-        self._diags.push_back(diag)
+        self._diags.push(diag)
     }
 
     pub fn error_count(self) -> u32 {
@@ -257,7 +257,7 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         }
 
         while self._diags.size() > n {
-            self._diags.pop_back()
+            self._diags.pop()
         }
 
         self._error_count = 0
@@ -365,10 +365,10 @@ pub class BufferedDiagSink derives DiagEngineVBase {
             fn (a: DiagSortKey, b: DiagSortKey) || -> bool = BufferedDiagSink::_key_less(a, b),
         )
 
-        var sorted: cxx::std::vector<unsafe *Diagnostic>
+        var sorted: [unsafe *Diagnostic]
         sorted.reserve(n)
         for var i: usize = 0; i < n; ++i {
-            sorted.push_back(self._diags[keys[i].seq])
+            sorted.push(self._diags[keys[i].seq])
         }
 
         self._diags = sorted

@@ -105,7 +105,7 @@ pub class SourceLineTable {
             LineEntryState::Absent as u8,
         )
 
-        pub var lines: kairo::std::Atomic<unsafe *cxx::std::vector<u32>> = kairo::std::Atomic<unsafe *cxx::std::vector<u32>>(
+        pub var lines: kairo::std::Atomic<unsafe *[u32]> = kairo::std::Atomic<unsafe *[u32]>(
             &null,
         )
 
@@ -201,7 +201,7 @@ pub class SourceLineTable {
         ///
         /// lines and line_count are stored first, then the state with
         /// release, so a reader that sees Ready sees both.
-        fn publish_lines(self, lines: unsafe *cxx::std::vector<u32>, count: u32) {
+        fn publish_lines(self, lines: unsafe *[u32], count: u32) {
             eval if defined!(DEBUG) {
                 var s = self._state.load(kairo::std::MemoryOrder::acquire)
                 if s != (LineEntryState::Building as u8) {
@@ -292,7 +292,7 @@ pub class SourceLineTable {
     priv static fn _free_entry(entry: unsafe *Self::FileEntry) {
         var unsafe *lines = entry->lines.load(kairo::std::MemoryOrder::acquire)
         if lines != &null {
-            @destroy unsafe (lines as *cxx::std::vector<u32>)
+            @destroy unsafe (lines as *[u32])
         }
 
         @destroy unsafe (entry as *Self::FileEntry)
@@ -434,7 +434,7 @@ pub class SourceLineTable {
         var unsafe *old = entry->lines.load(kairo::std::MemoryOrder::acquire)
         entry->lines.store(&null, kairo::std::MemoryOrder::release)
         if old != &null {
-            @destroy unsafe (old as *cxx::std::vector<u32>)
+            @destroy unsafe (old as *[u32])
         }
 
         entry->file_size = (bytes.size() as u32)
@@ -566,18 +566,18 @@ pub class SourceLineTable {
         var fid = entry->file_id
 
         if buff.data() == &null || buff.size() == 0 {
-            var unsafe *lines = unsafe (@create cxx::std::vector<u32>() as unsafe *cxx::std::vector<u32>)
-            lines->push_back(0)
+            var unsafe *lines = unsafe (@create Vector<u32>() as unsafe *[u32])
+            lines->push(0)
             entry->publish_lines(lines, 1)
             return
         }
 
-        var   data: unsafe *const u8 = buff.data()
-        const size: usize            = buff.size()
-        var   unsafe *lines = unsafe (@create cxx::std::vector<u32>() as unsafe *cxx::std::vector<u32>)
+        var          data:  unsafe *const u8 = buff.data()
+        const        size:  usize            = buff.size()
+        var   unsafe *lines                  = unsafe (@create Vector<u32>() as unsafe *[u32])
 
         lines->reserve(size / 64)
-        lines->push_back(0)
+        lines->push(0)
 
         var count: u32   = 1
         var i:     usize = 0
@@ -610,14 +610,14 @@ pub class SourceLineTable {
 
                 while m0 != 0 {
                     var offset = cxx::std::countr_zero(m0) as usize
-                    lines->push_back((i + offset + 1) as u32)
+                    lines->push((i + offset + 1) as u32)
                     ++count
                     m0 &= m0 - 1
                 }
 
                 while m1 != 0 {
                     var offset = cxx::std::countr_zero(m1) as usize
-                    lines->push_back((i + STRIDE + offset + 1) as u32)
+                    lines->push((i + STRIDE + offset + 1) as u32)
                     ++count
                     m1 &= m1 - 1
                 }
@@ -656,7 +656,7 @@ pub class SourceLineTable {
                     while mask {
                         var offset: u32 = cxx::std::countr_zero(mask)
 
-                        lines->push_back(base + offset + 1)
+                        lines->push(base + offset + 1)
                         ++count
                         mask &= mask - 1
                     }
@@ -703,7 +703,7 @@ pub class SourceLineTable {
                 var emit = fn (mask: u32, base: u32) |lines, *count| {
                     while mask != 0 {
                         var offset: u32 = ((cxx::std::countr_zero(mask)) as u32)
-                        lines->push_back(base + offset + 1)
+                        lines->push(base + offset + 1)
                         ++(*count)
                         mask &= mask - 1
                     }
@@ -731,7 +731,7 @@ pub class SourceLineTable {
 
                 for var j: usize = 0; j < 32; ++j {
                     if tmp[j] == 0xFF {
-                        lines->push_back((i + j + 1) as u32)
+                        lines->push((i + j + 1) as u32)
                         ++count
                     }
                 }
@@ -744,7 +744,7 @@ pub class SourceLineTable {
         // tail scan
         for ; i < size; ++i {
             if data[i] == ('\n' as u8) {
-                lines->push_back((i + 1) as u32)
+                lines->push((i + 1) as u32)
                 ++count
             }
         }
@@ -912,7 +912,7 @@ pub class SourceLineTable {
             return 0
         }
 
-        return (*lines)[line_num - 1]
+        return (*lines)[(line_num - 1) as usize]
     }
 
     /// gets the ending offset of a line (start of next line or EOF).
@@ -949,7 +949,7 @@ pub class SourceLineTable {
 
         // otherwise return start of next line (which is after the newline)
         // we want the position before the newline
-        return (*lines)[line_num] - 1
+        return (*lines)[line_num as usize] - 1
     }
 
     /// resets the table to initial state.

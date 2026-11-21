@@ -71,7 +71,7 @@ pub class VirtualFileManager {
     /// are cache hits. A worker-side load that missed the cache would break
     /// that, and would need this read path locked.
     priv var _segments: cxx::std::vector<unsafe *Self::Segment> = cxx::std::vector<unsafe *Self::Segment>()
-    priv var _page_table: cxx::std::vector<u32> = cxx::std::vector<u32>() ///< page index -> segment index, 0xFFFFFFFF = gap/invalid.
+    priv var _page_table: [u32] ///< page index -> segment index, 0xFFFFFFFF = gap/invalid.
 
     /// Canonical path -> fid. THE authority on file identity.
     ///
@@ -91,11 +91,11 @@ pub class VirtualFileManager {
     ///       compiler hits today because callers canonicalize first.
     priv var _by_path:       llvm::StringMap<u32> ///< absolute path -> fid; probed with the path's bytes, never iterated
     priv var _staged:        llvm::StringMap<u32> ///< absolute path -> slot of a staged buffer (stage_overlay)
-    priv var _staged_data:   cxx::std::vector<kairo::std::ConstPtr<u8>>
-    priv var _staged_size:   cxx::std::vector<u64>
+    priv var _staged_data:   [kairo::std::ConstPtr<u8>]
+    priv var _staged_size:   [u64]
     priv var _diag:          *DiagEngine
-    priv var _global_offset: usize                                      = 0
-    priv var _next_fid:      u32                                        = 0
+    priv var _global_offset: usize                      = 0
+    priv var _next_fid:      u32                        = 0
 
     /// The phase the _segments invariant above is about, made checkable:
     /// how many preprocessor walks are running (Preprocessor brackets
@@ -267,11 +267,11 @@ pub class VirtualFileManager {
     // them twice. The source is left with none.
     @move fn VirtualFileManager(self, other: Self) {
         self._segments      = cxx::std::move(other._segments)
-        self._page_table    = cxx::std::move(other._page_table)
+        self._page_table    = other._page_table
         self._by_path       = cxx::std::move(other._by_path)
         self._staged        = cxx::std::move(other._staged)
-        self._staged_data   = cxx::std::move(other._staged_data)
-        self._staged_size   = cxx::std::move(other._staged_size)
+        self._staged_data   = other._staged_data
+        self._staged_size   = other._staged_size
         self._diag          = other._diag
         self._global_offset = other._global_offset
         self._next_fid      = other._next_fid
@@ -436,8 +436,8 @@ pub class VirtualFileManager {
     pub fn stage_overlay(self, const path: Path, data: kairo::std::ConstPtr<u8>, size: usize) {
         var abs_full = Path(path.full_path()).full_path()
         self._staged[kairo::sref(abs_full)] = (self._staged_data.size() as u32)
-        self._staged_data.push_back(data)
-        self._staged_size.push_back(size as u64)
+        self._staged_data.push(data)
+        self._staged_size.push(size as u64)
     }
 
     /// The bytes of an unsaved buffer standing for `path`: its caller-owned
@@ -1091,7 +1091,7 @@ pub class VirtualFileManager {
         var last_page  = base + len >> 12
 
         while self._page_table.size() <= last_page {
-            self._page_table.push_back(u32::MAX)
+            self._page_table.push(u32::MAX)
         }
 
         for p in (first_page)..(last_page + 1) {

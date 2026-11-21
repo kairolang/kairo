@@ -245,7 +245,7 @@ pub class DiagEngine derives DiagEngineVBase {
     priv var _mu:          kairo::std::Mutex
     priv var _ice_flushed: bool              = false ///< flush_consumers_for_ice ran.
 
-    priv var _poisoned:  cxx::std::vector<Self::PoisonEntry>
+    priv var _poisoned:  [Self::PoisonEntry]
     priv var _consumers: cxx::std::vector<unsafe *DiagConsumer>
     /// Owns every DELIVERED diagnostic, so consumers can take a borrowed
     /// *Diagnostic in handle() without a lifetime question.
@@ -259,26 +259,26 @@ pub class DiagEngine derives DiagEngineVBase {
     ///
     /// Still unbounded within a run by design. A tool that reparses in a loop
     /// must call clear_retained() between passes.
-    priv var _all_diags:             cxx::std::vector<unsafe *Diagnostic>
-    priv var _error_count:           u32                                  = 0
-    priv var _warn_count:            u32                                  = 0
-    priv var _note_count:            u32                                  = 0
-    priv var _remark_count:          u32                                  = 0
-    priv var _ignored_count:         u32                                  = 0
-    priv var _verbose_count:         u32                                  = 0
-    priv var _debug_count:           u32                                  = 0
-    priv var _fatal_count:           u32                                  = 0
-    priv var _suppressed_count:      u32                                  = 0
-    priv var _errors_delivered:      u32                                  = 0 ///< Errors and fatals that reached the consumers; what _error_limit caps.
-    priv var _error_limit:           u32                                  = 50 ///< Max errors before suppression kicks in.
-    priv var _suppress_depth:        u32                                  = 0
-    priv var _warnings_as_errors:    bool                                 = false
-    priv var _suppress_all_warnings: bool                                 = false ///< -w: drop every Warning-severity diagnostic.
+    priv var _all_diags:             [unsafe *Diagnostic]
+    priv var _error_count:           u32                             = 0
+    priv var _warn_count:            u32                             = 0
+    priv var _note_count:            u32                             = 0
+    priv var _remark_count:          u32                             = 0
+    priv var _ignored_count:         u32                             = 0
+    priv var _verbose_count:         u32                             = 0
+    priv var _debug_count:           u32                             = 0
+    priv var _fatal_count:           u32                             = 0
+    priv var _suppressed_count:      u32                             = 0
+    priv var _errors_delivered:      u32                             = 0 ///< Errors and fatals that reached the consumers; what _error_limit caps.
+    priv var _error_limit:           u32                             = 50 ///< Max errors before suppression kicks in.
+    priv var _suppress_depth:        u32                             = 0
+    priv var _warnings_as_errors:    bool                            = false
+    priv var _suppress_all_warnings: bool                            = false ///< -w: drop every Warning-severity diagnostic.
     priv var _policy:                llvm::DenseMap<u64, DiagAction> ///< diag_policy_key (as u64: clear of the reserved keys) -> per-code action (see DiagAction). Probed only.
-    priv var _warning_limit:         u32                                  = 0 ///< 0 = unlimited.
-    priv var _note_limit:            u32                                  = 0 ///< per diagnostic; 0 = unlimited.
-    priv var _fixit_limit:           u32                                  = u32::MAX ///< per diagnostic (and per child); none = unlimited.
-    priv var _quiet:                 bool                                 = false ///< --quiet: drop standalone warnings, notes, remarks.
+    priv var _warning_limit:         u32                             = 0 ///< 0 = unlimited.
+    priv var _note_limit:            u32                             = 0 ///< per diagnostic; 0 = unlimited.
+    priv var _fixit_limit:           u32                             = u32::MAX ///< per diagnostic (and per child); none = unlimited.
+    priv var _quiet:                 bool                            = false ///< --quiet: drop standalone warnings, notes, remarks.
     /// code hash : location : message of every located diagnostic delivered,
     /// so a second identical report is dropped. A file is tokenized
     /// more than once (the import scan, then the walk), and each lex
@@ -413,7 +413,7 @@ pub class DiagEngine derives DiagEngineVBase {
         var entry = Self::PoisonEntry{}
         entry.category = category
         entry.scope    = scope
-        self._poisoned.push_back(entry)
+        self._poisoned.push(entry)
     }
 
     /// Returns true if `loc` falls inside an active poison scope for `category`.
@@ -443,7 +443,7 @@ pub class DiagEngine derives DiagEngineVBase {
         }
 
         while self._poisoned.size() > j {
-            self._poisoned.pop_back()
+            self._poisoned.pop()
         }
     }
 
@@ -598,7 +598,7 @@ pub class DiagEngine derives DiagEngineVBase {
                         f"too many warnings emitted, further warnings will be suppressed",
                     )
 
-                    self._all_diags.push_back(wlimit_diag)
+                    self._all_diags.push(wlimit_diag)
                     for var i: usize = 0; i < self._consumers.size(); ++i {
                         self._consumers[i]->handle(wlimit_diag)
                     }
@@ -629,7 +629,7 @@ pub class DiagEngine derives DiagEngineVBase {
                         f"too many errors emitted, further errors will be suppressed",
                     )
 
-                    self._all_diags.push_back(limit_diag)
+                    self._all_diags.push(limit_diag)
                     for var i: usize = 0; i < self._consumers.size(); ++i {
                         self._consumers[i]->handle(limit_diag)
                     }
@@ -678,7 +678,7 @@ pub class DiagEngine derives DiagEngineVBase {
             }
         }
 
-        self._all_diags.push_back(diag)
+        self._all_diags.push(diag)
 
         for var i: usize = 0; i < self._consumers.size(); ++i {
             self._consumers[i]->handle(diag)
@@ -870,7 +870,7 @@ pub class DiagEngine derives DiagEngineVBase {
         }
 
         while self._poisoned.size() > j {
-            self._poisoned.pop_back()
+            self._poisoned.pop()
         }
     }
 

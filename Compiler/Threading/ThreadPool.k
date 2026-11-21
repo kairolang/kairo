@@ -70,8 +70,8 @@ pub class ThreadPool {
     /// C++ threading alias for std::thread.
     type Thread = cxx::std::#thread
 
-    priv var _count:  usize                                    = 0
-    priv var _queues: cxx::std::vector<unsafe *PartitionQueue>
+    priv var _count:  usize                    = 0
+    priv var _queues: [unsafe *PartitionQueue]
     priv var _groups: cxx::std::array<kairo::std::Atomic<u64>, 256> = cxx::std::array<kairo::std::Atomic<u64>, 256>()
     priv var _active: kairo::std::Atomic<bool> = kairo::std::Atomic<bool>(true)
     priv var _live_workers: kairo::std::Atomic<usize> = kairo::std::Atomic<usize>(
@@ -161,7 +161,7 @@ pub class ThreadPool {
 
         // Allocate all queues first before any thread can index into _queues
         for _ in (0 as usize)..n {
-            self._queues.push_back(
+            self._queues.push(
                 unsafe (@create PartitionQueue(DEFAULT_QUEUE_SIZE) as unsafe *PartitionQueue),
             )
         }
