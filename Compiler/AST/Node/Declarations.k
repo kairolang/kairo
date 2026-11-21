@@ -1087,7 +1087,8 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     /// (control-flow.mdx, Loop binders): a `const` binder, or a plain one
     /// whose type cannot be copied. It is read-only, so is_const() folds it
     /// in and every const rule applies to it; lowering declares it
-    /// `const T&`. Written by StmtTyping and PatternTyping.
+    /// `const T&`. Written by StmtTyping and PatternTyping; MoveCheck clears
+    /// it on a binder that takes its payload by move (moves_payload).
     pub var borrows: bool = false
     /// A plain `for` or `case` binder of a generic parameter's type: it
     /// borrows at an instance that cannot copy the element and copies at
@@ -1095,6 +1096,13 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     /// LowerTargets::binder_type. A write to it is judged per instance
     /// (FunctionDecl::binder_write_site).
     pub var borrow_inst: bool = false
+    /// A `case var x` binder that takes its payload by move: its match owns
+    /// the scrutinee (a temporary, a local or a by-value parameter) and an
+    /// arm moves the binder out. PatternTyping binds it borrowing; MoveCheck
+    /// decides the move once the body is walked, clears `borrows` and sets
+    /// this, and MatchLowering then declares the binder `T&` to its
+    /// occurrence: each transfer of it moves the payload out where it is.
+    pub var moves_payload: bool = false
     /// A body local that shadows a visible local of the same name, as a
     /// `const` rebinding in one scope or any binding in an inner one
     /// (variables.mdx, Shadowing): one more than the binding it hides, 0

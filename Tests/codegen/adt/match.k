@@ -89,7 +89,7 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}match.k
 // IR:       switch(static_cast<unsigned int>(__kairo_m{{[0-9]+}}_s.__kairo_tag)) {
-// IR:       ::builtin::string::string value = __kairo_m{{[0-9]+}}_s.__kairo_Found.value;
+// IR:       ::builtin::string::string & value = __kairo_m{{[0-9]+}}_s.__kairo_Found.value;
 // IR-NEXT:  (static_cast<{{ ?}}::builtin::string::string{{ ?}}&&>(value));
 
 // REQUIRES: clang

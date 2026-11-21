@@ -39,7 +39,12 @@
 ///     - Labels come from LowerTargets with a per-function match number: C++
 ///       labels are function-scoped.
 ///     - A binder `var x` copies its occurrence; `const x` is `const T&` to
-///       it. A guard reads its binders as `const T&` of its own.
+///       it, as is a `var x` of a type that cannot be copied. A guard reads
+///       its binders as `const T&` of its own.
+///     - A `var x` that takes its payload (VariableDecl::moves_payload: the
+///       match owns its scrutinee and an arm moves `x` out) is `T& x` to
+///       its occurrence, and a class lvalue scrutinee is then bound by
+///       `T&`: the payload moves at each transfer of `x`, cast there.
 ///     - A `var` binder that is an arm's whole value is moved out:
 ///       `(static_cast<T&&>(x))`.
 ///     - Statement-expression tails are parenthesized: `({ ...; R(k); })`
@@ -232,13 +237,17 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// # one match
 
-    priv var _n:         usize                                  = 0
-    priv var _t:         unsafe *DecisionTree                   = &null
-    priv var _cases:     unsafe *FrozenList<MatchCase>          = &null
-    priv var _at:        SourceRange
-    priv var _value:     bool                                   = false
-    priv var _ty:        unsafe *Type                           = &null ///< value form: the match's type.
-    priv var _columns:   usize                                  = 0
+    priv var _n:       usize                         = 0
+    priv var _t:       unsafe *DecisionTree          = &null
+    priv var _cases:   unsafe *FrozenList<MatchCase> = &null
+    priv var _at:      SourceRange
+    priv var _value:   bool                          = false
+    priv var _ty:      unsafe *Type                  = &null ///< value form: the match's type.
+    priv var _columns: usize                         = 0
+    /// A binder of this match takes its payload by move
+    /// (VariableDecl::moves_payload): the scrutinee is read in place
+    /// through a mutable reference, so the payload can be moved out.
+    priv var _owns:      bool                                   = false
     priv var _locals:    cxx::std::vector<unsafe *VariableDecl> ///< by occurrence; null when reached through a parent.
     priv var _labels:    cxx::std::vector<Token> ///< by node.
     priv var _queued:    cxx::std::vector<u8>
@@ -385,6 +394,13 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         self._ty    = ty
         self._n     = self._fn_matches
         self._reset()
+        self._owns = false
+        for var i: usize = 0; i < self._t->binds.size(); ++i {
+            var unsafe *bd = dyn_cast<VariableDecl>(self._t->binds[i].pat->decl)
+            if bd != &null && bd->moves_payload {
+                self._owns = true
+            }
+        }
 
         var pre = cxx::std::vector<unsafe *Stmt>()
         self._bind_scrutinee(scrutinee, 0, unsafe &pre)
@@ -549,9 +565,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         var unsafe *vt = canon_unqual(self._referee(e->type_))
         var unsafe *lt = vt
         if self._is_class(vt) && e->is_lvalue() {
-            lt = self.sc->types->cxx_lref(
-                self.sc->types->qualified(vt, QUAL_CONST),
-            )
+            lt = if (self._owns) => (self.sc->types->cxx_lref(vt))
+                 else => self.sc->types->cxx_lref(
+                     self.sc->types->qualified(vt, QUAL_CONST),
+                 )
         }
 
         var unsafe *vd = VariableDecl::create(
@@ -793,9 +810,13 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                     StorageClass::Var,
                 )
 
-                s.var_->type_ = self.sc->types->pointer(
-                    self.sc->types->qualified(self._binder_type(vd), QUAL_CONST),
-                )
+                // A binder that takes its payload names it through the slot.
+                var unsafe *pt = self._binder_type(vd)
+                if !vd->moves_payload {
+                    pt = self.sc->types->qualified(pt, QUAL_CONST)
+                }
+
+                s.var_->type_ = self.sc->types->pointer(pt)
 
                 s.var_->init = &null
                 pre.push_back(
@@ -923,6 +944,14 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 )
 
                 vd->storage = StorageClass::Var // the `const` is in the type; a keyword too would be `const const`.
+            } else if vd->moves_payload {
+                // MoveCheck::_take_payload: the binder names the payload in
+                // the scrutinee the match owns, and each transfer of it
+                // MoveCheck recorded moves out of it there, where MoveCheck
+                // marks the scrutinee moved-from. A copy made at entry
+                // would empty the payload before an earlier read of the
+                // scrutinee in the arm.
+                vd->type_ = self.sc->types->cxx_lref(vt)
             } else {
                 vd->type_ = vt
             }

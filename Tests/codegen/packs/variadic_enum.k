@@ -87,7 +87,7 @@ fn <...E> relay(o: Outcome<i32, E...>) -> Outcome<i32, E...> { return o }
 // CXX: ::__kairo_pu<__kairo_Err_t<E> ...> __kairo_Err;
 // CXX: template<unsigned int K, class F> Outcome( ::__kairo_vt<1>, ::__kairo_vt<K>, F && f) noexcept: __kairo_tag(static_cast<__kairo_Tag>(1 + K)), __kairo_Err( ::__kairo_vt<K> {
 // CXX: double error = __kairo_m{{[0-9]+}}_s.__kairo_Err.template __kairo_get<1>().error;
-// CXX: ::variadic_enum::relay< ::builtin::string::string, double>(b)
+// CXX: ::variadic_enum::relay< ::builtin::string::string, double>(static_cast< ::variadic_enum::Outcome<signed int, ::builtin::string::string, double> &&>(b))
 // CXX: template<class ... E> inline::variadic_enum::Outcome<signed int, E ...> relay( ::variadic_enum::Outcome<signed int, E ...> o) noexcept {
 
 // REQUIRES: clang

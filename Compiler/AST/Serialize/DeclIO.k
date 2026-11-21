@@ -586,6 +586,7 @@ fn io_variable_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::VariableDec
         ar->sema_false(n->starts_empty, "VariableDecl::starts_empty")
         ar->sema_false(n->borrows, "VariableDecl::borrows")
         ar->sema_false(n->borrow_inst, "VariableDecl::borrow_inst")
+        ar->sema_false(n->moves_payload, "VariableDecl::moves_payload")
         ar->sema_zero(n->rebind as u64, "VariableDecl::rebind")
         ar->sema_zero(n->fold_pin as u64, "VariableDecl::fold_pin")
         ar->sema_false(n->fold_pin_neg, "VariableDecl::fold_pin_neg")

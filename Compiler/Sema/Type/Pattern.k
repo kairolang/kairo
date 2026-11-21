@@ -383,11 +383,16 @@ pub class <T: type> PatternTyping {
 
         var key = (vd as usize as u64)
         if self._binder_seen.insert(key).second {
-            vd->type_ = t
+            vd->type_         = t
+            vd->moves_payload = false
             // `case var v` of a type that cannot be copied reads what it
             // matched in place, read-only, as `case const v` does
             // (pattern-matching.mdx, Binders); a generic parameter's type
-            // is decided per instance.
+            // is decided per instance. When the match owns its scrutinee
+            // and an arm moves `v` out, the binder takes the payload by
+            // move instead: whether the arm moves it is known only once
+            // the body is walked, so MoveCheck decides that and lifts the
+            // borrow (VariableDecl::moves_payload).
             if !b->is_const && b->type_ == &null {
                 if cannot_copy(self.dyn()->sc, t) {
                     vd->borrows = true

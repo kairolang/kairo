@@ -8,7 +8,9 @@
 ///     Loop binders). It is const to every rule, so each change to it --
 ///     an assignment, a compound assignment, a call of a method that is not
 ///     `const`, an `@inout` or `*T` argument, a transfer that would move it
-///     away -- is refused where that rule is checked. Those sites call here
+///     away -- is refused where that rule is checked. (A `case` binder whose
+///     match owns its scrutinee is moved out instead: MoveCheck,
+///     _take_payload.) Those sites call here
 ///     for the part that is about the binder: why it is read-only and how to
 ///     get a value that can be changed.
 ///

@@ -42,6 +42,19 @@
 ///         value of a record over the pack (`o: Outcome<i32, E...>`) is no
 ///         element and is pending like any other.
 ///
+///     (b'') Match binders. A `case var x` binder of a type that cannot be
+///         copied borrows what it matched (PatternTyping). A transfer of
+///         one inside a constructor pattern (`case .Found(var x)`) --
+///         the arm's value, a return, a by-value argument, an initializer
+///         -- takes the payload by move when the match owns its scrutinee:
+///         a temporary, or a local or by-value parameter of the body
+///         (_owned_scrutinee). That scrutinee is then moved-from, from the
+///         transfer on, so a later read of it is a use after move. Over any
+///         other scrutinee the transfer is a copy the type cannot make
+///         (d). The binder stays read-only either way; once every body is
+///         walked it names the payload by `T&` (VariableDecl::moves_payload),
+///         and each of its transfers moves the payload out at that point.
+///
 ///     (c) Use after move. A moved local or parameter (`self` included), or
 ///         a part of one, is MOVED-FROM from that point. A part is a field
 ///         path (`p.a.b`, `self.r`) or what a pointer on the path points at
@@ -214,7 +227,10 @@ import AST::Node::Declarations::{
     VariableDecl,
 }
 import AST::Node::Expressions
-import AST::Node::Patterns::BindingPattern
+import AST::Node::Patterns::{
+    BindingPattern,
+    ConstructorPattern,
+}
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
     ChainExpr,
@@ -279,6 +295,7 @@ import Sema::SemaContext::{
 }
 import Sema::Type::BinderBorrow::{
     borrowed_binder_of,
+    is_borrowing_binder,
     note_borrowed_binder,
 }
 import Sema::Type::TypeUtil::TypeUtil
@@ -1050,9 +1067,25 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// that whole initializer fills it (TypeUtil::literal_fills).
     priv var _init_owner: unsafe *VariableDecl = &null
     /// The tuple literal that is the scrutinee of the match being walked.
-    priv var _unbuilt_tuple: unsafe *Expr                  = &null
-    priv var _link_got:      unsafe *Expressions::CallExpr = &null
-    priv var _link:          CondLink
+    priv var _unbuilt_tuple: unsafe *Expr = &null
+    /// The scrutinee of the match whose case patterns are being walked:
+    /// each binder they declare inside a constructor pattern
+    /// (`.Found(var v)`, `_ctor_depth`) is recorded against it.
+    priv var _pattern_scrut: unsafe *Expr = &null
+    priv var _ctor_depth:    usize        = 0
+    /// A match expression whose value is discarded (an expression
+    /// statement): it yields nothing, so no arm transfers its value.
+    priv var _discarded_match: unsafe *Expr = &null
+    /// Every payload binder seen, to its match's scrutinee (both as u64),
+    /// and every match binder seen.
+    priv var _binder_scrut:  llvm::DenseMap<u64, u64>
+    priv var _match_binders: llvm::DenseSet<u64>
+    /// The borrowing binders an arm moves out of a match that owns its
+    /// scrutinee (_take_payload). They take the payload by move: written
+    /// to the binders once every body is walked (run).
+    priv var _taken:    cxx::std::vector<unsafe *VariableDecl>
+    priv var _link_got: unsafe *Expressions::CallExpr          = &null
+    priv var _link:     CondLink
     /// The expression body of the function being walked, until
     /// dispatch_expr meets it and walks it as the body's return (_return).
     priv var _ret_expr: unsafe *Expr = &null
@@ -1204,6 +1237,13 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         self._settle_derived()
+
+        // Written only now: every rule that ran during the walk read these
+        // binders as the borrows PatternTyping made them.
+        for var i: usize = 0; i < self._taken.size(); ++i {
+            self._taken[i]->borrows       = false
+            self._taken[i]->moves_payload = true
+        }
     }
 
     /// Each derived `a + b`, and each `x ?? y`, whose left operand waited on
@@ -2827,6 +2867,18 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         return out
     }
 
+    /// A binder inside it binds part of a payload (_binder_scrut).
+    fn traverse_constructor_pattern(self, n: *ConstructorPattern) -> *ConstructorPattern {
+        self._ctor_depth += 1
+        var out = RecursiveASTVisitor<MoveCheck>::traverse_constructor_pattern(
+            self,
+            n,
+        )
+
+        self._ctor_depth -= 1
+        return out
+    }
+
     /// `case var v`: the binder is a copy of what it matched (MatchLowering
     /// reads the scrutinee in place, by `const T&`), so a type that cannot
     /// be copied is refused here, not in clang; `case const v` reads it
@@ -2840,6 +2892,24 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var unsafe *vd = dyn_cast<VariableDecl>(n->decl)
         if vd != &null && vd->borrow_inst {
             self._inst_binders.push_back(unsafe (vd as unsafe *Decl))
+        }
+
+        // Each entry into the arm binds it anew: a move out of it on an
+        // earlier pass of a loop says nothing about this one.
+        if vd != &null && self._pattern_scrut != &null {
+            self._match_binders.insert(vd as usize as u64)
+            self._st.clear(unsafe (vd as unsafe *Decl), "")
+        }
+
+        if vd != &null && self._pattern_scrut != &null && self._ctor_depth > 0 {
+            self._binder_scrut[vd as usize as u64] = (self._pattern_scrut as usize as u64)
+        }
+
+        // A walk over a tree this pass has already decided starts from the
+        // borrow PatternTyping made; the move is decided again (run).
+        if vd != &null && vd->moves_payload {
+            vd->moves_payload = false
+            vd->borrows       = true
         }
 
         // A binder that borrows copies nothing (PatternTyping::_type_binder).
@@ -3276,10 +3346,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     self._unbuilt_tuple = saved_ut
                 }
 
+                var yields = self._discarded_match != e
                 self._arms_start()
                 for var i: usize = 0; i < m->cases.size(); ++i {
                     self._arm_begin()
-                    self.dyn()->traverse_match_case(m->cases.get(i))
+                    self._match_case(m->cases.get(i), m->scrutinee, yields)
                     self._arm_end()
                 }
 
@@ -3443,6 +3514,133 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st = acc
     }
 
+    /// # match arms
+
+    /// One case of a match over `scrut`: its patterns' binders are recorded
+    /// against `scrut`, and in a match that yields a value (`value`) an arm
+    /// whose value is a binder transfers it out of the match.
+    priv fn _match_case(self, mc: unsafe *Statements::MatchCase, scrut: unsafe *Expr, value: bool) {
+        var unsafe *saved = self._pattern_scrut
+        self._pattern_scrut = scrut
+        for var i: usize = 0; i < mc->patterns.size(); ++i {
+            if self.stop {
+                break
+            }
+
+            self.dyn()->dispatch_pattern(*mc->patterns.get(i))
+        }
+
+        self._pattern_scrut = saved
+        if self.stop {
+            return
+        }
+
+        if mc->guard != &null {
+            self.dispatch_expr(mc->guard)
+        }
+
+        if mc->body != &null {
+            self.dyn()->dispatch_stmt(mc->body)
+        }
+
+        if mc->expression != &null {
+            self.dispatch_expr(mc->expression)
+            if value {
+                self._yield_binder(mc->expression)
+            }
+        }
+    }
+
+    /// `case .V(var x) => x`: the arm's value is a binder. One whose type
+    /// moves is transferred out of the match (MatchLowering moves a binder
+    /// that holds a value of its own); one that borrows moves only out of
+    /// a match that owns its scrutinee (_take_payload), and is a copy its
+    /// type cannot make otherwise.
+    priv fn _yield_binder(self, e: unsafe *Expr) {
+        var unsafe *x = self._tu.strip_parens(e)
+        if x == &null || x->is_poisoned() || !isa<NamedIdentExpr>(x) {
+            return
+        }
+
+        var unsafe *vd = dyn_cast<VariableDecl>(
+            cast<NamedIdentExpr>(x)->resolved_decl,
+        )
+
+        if vd == &null
+            || self._match_binders.count(vd as usize as u64) == 0
+            || vd->borrow_inst
+            || !moves_on_pass(self.sc, e->type_) {
+            return
+        }
+
+        if !vd->borrows && vd->storage != StorageClass::Const {
+            return
+        }
+
+        self._transfer(e, "out of the match")
+    }
+
+    /// The match over `s` owns it, so a binder may take its payload: a
+    /// temporary, bound by value into the match's own local, or a local
+    /// or by-value parameter of the body, read in place and left
+    /// moved-from. A tuple literal is never built (each element is its own
+    /// column) and anything else is storage the match does not own.
+    priv fn _owned_scrutinee(self, s: unsafe *Expr) -> bool {
+        var unsafe *x = self._tu.strip_parens(s)
+        if x == &null || isa<Expressions::TupleLiteralExpr>(x) {
+            return false
+        }
+
+        if x->value_category != Expr::ValueCategory::LValue {
+            return true
+        }
+
+        // A `const` parameter is a by-value one C++ receives by `const T&`.
+        return self._returned_local(x) && !self._const_place(x)
+    }
+
+    /// A transfer of `bb`, a borrowing match binder: when its match owns
+    /// the scrutinee the binder takes the payload by move, and the
+    /// scrutinee, if it is a binding, is moved-from from here on. False
+    /// when the match does not own it: the transfer stays a copy.
+    priv fn _take_payload(self, bb: unsafe *VariableDecl) -> bool {
+        var it = self._binder_scrut.find(bb as usize as u64)
+        if it == self._binder_scrut.end() {
+            return false
+        }
+
+        var unsafe *s = unsafe (it->second as usize as unsafe *Expr)
+        if !self._owned_scrutinee(s) {
+            return false
+        }
+
+        var seen = false
+        for var i: usize = 0; i < self._taken.size(); ++i {
+            if self._taken[i] == bb {
+                seen = true
+                break
+            }
+        }
+
+        if !seen {
+            self._taken.push_back(bb)
+        }
+
+        // A scrutinee already reported (read after a move) is not moved
+        // again: one error for the one mistake.
+        var unsafe *sx = self._tu.strip_parens(s)
+        if sx->value_category == Expr::ValueCategory::LValue && !sx->is_poisoned() {
+            var nm = self.sc->ctx->get_spelling(bb->name)
+            self._mark(
+                s,
+                f"by the match, whose binder '{nm}' takes its payload",
+                MoveKind::Transfer,
+            )
+        }
+
+        return true
+    }
+
     /// # statements
 
     fn dispatch_stmt(self, s: unsafe *Stmt) -> unsafe *Stmt {
@@ -3452,6 +3650,18 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         if self.stop {
             return s
+        }
+
+        // A match whose value is discarded is lowered as the statement
+        // form: its arms' values go nowhere (_match_case).
+        if isa<Statements::ExpressionStmt>(s) {
+            var unsafe *ex = self._tu.strip_parens(
+                cast<Statements::ExpressionStmt>(s)->expr,
+            )
+
+            if ex != &null && isa<Expressions::MatchExpr>(ex) {
+                self._discarded_match = ex
+            }
         }
 
         match s->kind {
@@ -3609,7 +3819,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 self._arms_start()
                 for var i: usize = 0; i < n->cases.size(); ++i {
                     self._arm_begin()
-                    self.dyn()->traverse_match_case(n->cases.get(i))
+                    self._match_case(n->cases.get(i), n->scrutinee, false)
                     self._arm_end()
                 }
 
@@ -4787,6 +4997,21 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // transferred, and the binding stays live.
         if self._converted_by_op_as(e) || self._converted_by_op_as(x) {
             return
+        }
+
+        // A borrowing match binder moved out of a match that owns its
+        // scrutinee takes the payload (_take_payload): this is its move.
+        if copies && isa<NamedIdentExpr>(x) && cast<NamedIdentExpr>(x)->resolved_decl != &null {
+            var unsafe *pb = dyn_cast<VariableDecl>(
+                cast<NamedIdentExpr>(x)->resolved_decl,
+            )
+
+            if is_borrowing_binder(pb) && self._take_payload(pb) {
+                self.sc->move_sites.insert(e as usize as u64)
+                self.n_moves += 1
+                self._mark(e, how, kind, dest)
+                return
+            }
         }
 
         // A const place cannot be moved from, and a MOVE value cannot be
