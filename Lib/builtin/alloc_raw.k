@@ -686,30 +686,21 @@ pub class System impl FullAllocator {
         kairo_rt_aligned_free(ptr, size, align)
     }
 
-    /// Never grows in place. A shrink keeps the block, except one from a
-    /// large page into the small range: the small free that size would get
-    /// cannot release a large-page block (rt/alloc.h), so that one moves.
+    /// Grows in place within mimalloc's block; a shrink keeps the block,
+    /// except one from a large page into the small range (rt/alloc.h),
+    /// which only realloc can do.
     static inline fn resize(ptr:      unsafe *u8,
                             old_size: usize,
                             new_size: usize,
                             align:    usize) -> bool {
-        if new_size > old_size {
-            return false
-        }
-
-        return !(align <= MAX_ALIGN && new_size <= SMALL_MAX && old_size > SMALL_MAX)
+        return kairo_rt_heap_resize(ptr, old_size, new_size, align)
     }
 
-    /// Reallocates through mimalloc, moving the block if it has to.
+    /// Reallocates through the runtime heap, moving the block if it has to.
     static fn realloc(ptr:      unsafe *u8,
                       old_size: usize,
                       new_size: usize,
                       align:    usize) -> unsafe *u8 {
-        @likely
-        if align <= MAX_ALIGN {
-            return kairo_rt_realloc(ptr, old_size, new_size)
-        }
-
-        return kairo_rt_aligned_realloc(ptr, new_size, align)
+        return kairo_rt_heap_realloc(ptr, old_size, new_size, align)
     }
 }

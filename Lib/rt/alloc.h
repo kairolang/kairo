@@ -18,9 +18,11 @@
 #include <cstddef>
 #include <cstdlib>
 
-// The global allocator's symbols (Global calls them): declared here so the
-// builtin reaches them through the header it already imports.
+// The global allocator's symbols (Global calls them) and the heap's
+// out-of-line half (System's resize and realloc): declared
+// here so the builtin reaches them through the header it already imports.
 #include "rt/global_alloc.h"
+#include "rt/heap.h"
 
 
 #define KAIRO_RT_INL __attribute__((always_inline)) inline
@@ -47,12 +49,10 @@ void* mi_malloc(std::size_t size) KAIRO_RT_NOEXCEPT;
 void* mi_malloc_small(std::size_t size) KAIRO_RT_NOEXCEPT;
 void* mi_zalloc(std::size_t size) KAIRO_RT_NOEXCEPT;
 void* mi_zalloc_small(std::size_t size) KAIRO_RT_NOEXCEPT;
-void* mi_realloc(void* p, std::size_t newsize) KAIRO_RT_NOEXCEPT;
 void  mi_free(void* p) KAIRO_RT_NOEXCEPT;
 void  mi_free_small_nonnull(void* p) KAIRO_RT_NOEXCEPT;
 void* mi_malloc_aligned(std::size_t size, std::size_t alignment) KAIRO_RT_NOEXCEPT;
 void* mi_zalloc_aligned(std::size_t size, std::size_t alignment) KAIRO_RT_NOEXCEPT;
-void* mi_realloc_aligned(void* p, std::size_t newsize, std::size_t alignment) KAIRO_RT_NOEXCEPT;
 }
 
 /// mimalloc's small-object limit (MI_SMALL_SIZE_MAX): 128 words. A block of
@@ -62,30 +62,22 @@ void* mi_realloc_aligned(void* p, std::size_t newsize, std::size_t alignment) KA
 consteval std::size_t kairo_rt_small_max() KAIRO_RT_NOEXCEPT { return 128 * sizeof(void*); }
 
 /// The invariant the small free relies on: a block freed with a size at most
-/// kairo_rt_small_max() lives in a small page. kairo_rt_realloc keeps it by
-/// moving any block that would shrink from a large page into the small range
-/// (mimalloc's realloc shrinks in place), and System::resize refuses that
-/// shrink for the same reason.
+/// kairo_rt_small_max() lives in a small page. kairo_rt_heap_realloc keeps it
+/// by moving any block that would shrink from a large page into the small
+/// range (mimalloc's realloc shrinks in place), and kairo_rt_heap_resize
+/// refuses that shrink for the same reason (rt/heap.c).
 
 KAIRO_RT_INL unsigned char* kairo_rt_malloc(std::size_t n) KAIRO_RT_NOEXCEPT {
-    return static_cast<unsigned char*>(n <= kairo_rt_small_max() ? mi_malloc_small(n) : mi_malloc(n));
+    if (n <= kairo_rt_small_max()) { return static_cast<unsigned char*>(mi_malloc_small(n)); }
+    return static_cast<unsigned char*>(mi_malloc(n));
 }
 KAIRO_RT_INL unsigned char* kairo_rt_calloc(std::size_t n) KAIRO_RT_NOEXCEPT {
-    return static_cast<unsigned char*>(n <= kairo_rt_small_max() ? mi_zalloc_small(n) : mi_zalloc(n));
+    if (n <= kairo_rt_small_max()) { return static_cast<unsigned char*>(mi_zalloc_small(n)); }
+    return static_cast<unsigned char*>(mi_zalloc(n));
 }
 KAIRO_RT_INL void kairo_rt_free(unsigned char* p, std::size_t n) KAIRO_RT_NOEXCEPT {
     if (n <= kairo_rt_small_max()) { mi_free_small_nonnull(p); return; }
     mi_free(p);
-}
-KAIRO_RT_INL unsigned char* kairo_rt_realloc(unsigned char* p, std::size_t old_size, std::size_t n) KAIRO_RT_NOEXCEPT {
-    if (n <= kairo_rt_small_max() && old_size > kairo_rt_small_max()) {
-        void* q = mi_malloc_small(n);
-        if (q == nullptr) { return nullptr; }
-        __builtin_memcpy(q, p, n);
-        mi_free(p);
-        return static_cast<unsigned char*>(q);
-    }
-    return static_cast<unsigned char*>(mi_realloc(p, n));
 }
 
 /// Over-aligned blocks: never the small free, so any size is fine.
@@ -95,10 +87,7 @@ KAIRO_RT_INL unsigned char* kairo_rt_aligned_alloc(std::size_t n, std::size_t a)
 KAIRO_RT_INL unsigned char* kairo_rt_aligned_calloc(std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
     return static_cast<unsigned char*>(mi_zalloc_aligned(n, a));
 }
-KAIRO_RT_INL unsigned char* kairo_rt_aligned_realloc(unsigned char* p, std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
-    return static_cast<unsigned char*>(mi_realloc_aligned(p, n, a));
-}
-KAIRO_RT_INL void kairo_rt_aligned_free(unsigned char* p, std::size_t, std::size_t) KAIRO_RT_NOEXCEPT {
+KAIRO_RT_INL void kairo_rt_aligned_free(unsigned char* p, std::size_t n, std::size_t a) KAIRO_RT_NOEXCEPT {
     mi_free(p);
 }
 
