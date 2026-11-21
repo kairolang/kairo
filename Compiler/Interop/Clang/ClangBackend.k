@@ -811,12 +811,12 @@ pub class ClangBackend {
     priv fn _probe_cc1(self) -> cxx::std::vector<string> {
         var owned: llvm::BumpPtrAllocator ///< argv bytes, for this call (see _owned).
         var dargv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
-        var words = cxx::std::vector<string>()
-        words.push_back("clang")
-        words.push_back("--target=" + self._clang_triple())
-        words.push_back(f"-std={self._cfg.cxx_std}")
+        var words: [string]
+        words.push("clang")
+        words.push("--target=" + self._clang_triple())
+        words.push(f"-std={self._cfg.cxx_std}")
         for *w in self._cfg.driver_words {
-            words.push_back(w->copy())
+            words.push(w->copy())
         }
 
         var macro_triple = self._clang_triple()
@@ -827,13 +827,13 @@ pub class ClangBackend {
 
         for var w in FlagTranslator::debug_driver(self._cfg.debug_info, self._cfg.dwarf_version,
                                                       macro_info, self._cfg.embed_source) {
-            words.push_back(w.copy())
+            words.push(w.copy())
         }
 
-        words.push_back("-fsyntax-only")
-        words.push_back("-x")
-        words.push_back("c++")
-        words.push_back("-")
+        words.push("-fsyntax-only")
+        words.push("-x")
+        words.push("c++")
+        words.push("-")
         for *w in words {
             dargv.push_back(
                 llvm::StringSaver(&owned).save(kairo::sref(*w)).data(),
@@ -943,8 +943,9 @@ pub class ClangBackend {
             o.push_back(rd.copy())
         }
 
-        var kinds = cxx::std::vector<u8>()
-        for *d in self._system_roots(is_c, &kinds) {
+        var kinds: [u8]
+        var roots       = self._system_roots(is_c, &kinds)
+        for *d in roots {
             o.push_back("-isystem")
             o.push_back(d->copy())
         }
@@ -994,10 +995,8 @@ pub class ClangBackend {
     /// The roots sysroot_words passes as -isystem, in its order: libc++
     /// (left off when `is_c`), the clang builtins, the C library. `kinds`
     /// gets one entry per root: ROOT_CXX_LIB, ROOT_BUILTINS or ROOT_C_LIB.
-    priv fn _system_roots(self,
-                          is_c:         bool,
-                          @inout kinds: cxx::std::vector<u8>) -> cxx::std::vector<string> {
-        var o  = cxx::std::vector<string>()
+    priv fn _system_roots(self, is_c: bool, @inout kinds: [u8]) -> [string] {
+        var o: [string]
         var sr = self._cfg.sysroot.copy()
         var rd = self._cfg.resource_dir.copy()
         kinds.clear()
@@ -1005,28 +1004,28 @@ pub class ClangBackend {
         if !is_c {
             if declared {
                 for *d in self._cfg.cxx_include_dirs {
-                    o.push_back(d->copy())
-                    kinds.push_back(ROOT_CXX_LIB)
+                    o.push(d->copy())
+                    kinds.push(ROOT_CXX_LIB)
                 }
             } else if !sr.is_empty() {
-                o.push_back(f"{sr}/include/c++/v1")
-                kinds.push_back(ROOT_CXX_LIB)
+                o.push(f"{sr}/include/c++/v1")
+                kinds.push(ROOT_CXX_LIB)
             }
         }
 
         if !rd.is_empty() {
-            o.push_back(f"{rd}/include")
-            kinds.push_back(ROOT_BUILTINS)
+            o.push(f"{rd}/include")
+            kinds.push(ROOT_BUILTINS)
         }
 
         if declared {
             for *d in self._cfg.include_dirs {
-                o.push_back(d->copy())
-                kinds.push_back(ROOT_C_LIB)
+                o.push(d->copy())
+                kinds.push(ROOT_C_LIB)
             }
         } else if !sr.is_empty() {
-            o.push_back(f"{sr}/include")
-            kinds.push_back(ROOT_C_LIB)
+            o.push(f"{sr}/include")
+            kinds.push(ROOT_C_LIB)
         }
 
         return o
@@ -1044,8 +1043,8 @@ pub class ClangBackend {
     /// body declared under one of these (Compiler/Spec/
     /// Ownership.md, "C++ bodies").
     pub fn library_roots(self, cxx_lib: bool) -> cxx::std::vector<string> {
-        var kinds = cxx::std::vector<u8>()
-        var all   = self._system_roots(false, &kinds)
+        var kinds: [u8]
+        var all         = self._system_roots(false, &kinds)
         var o     = cxx::std::vector<string>()
         for var i: usize = 0; i < all.size(); ++i {
             var k = kinds[i]

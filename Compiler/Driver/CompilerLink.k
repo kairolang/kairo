@@ -116,7 +116,7 @@ extend CompilerInstance {
                 self._header_inputs += 1
             }
 
-            self._inputs.push_back(k)
+            self._inputs.push(k)
         }
 
         if bad {
@@ -690,10 +690,10 @@ extend CompilerInstance {
             }
 
             said = true
-            var who   = LinkDiag::definers(m->text)
-            var names = cxx::std::vector<string>()
+            var who             = LinkDiag::definers(m->text)
+            var names: [string]
             for *o in who {
-                names.push_back(self._object_module(o->copy()))
+                names.push(self._object_module(o->copy()))
             }
 
             var text = "the global allocator is set twice (@set_global_allocator)"

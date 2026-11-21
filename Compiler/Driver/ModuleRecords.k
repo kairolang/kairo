@@ -36,13 +36,8 @@ ffi "c++" import "vector"
 import API::EnvNames::EnvNames
 import API::FS::*
 import Driver::CacheFormat::{
-    CACHE_SCHEMA,
-    INCR_SEMA_SCHEMA,
-    cache_dir_name,
-    fingerprint_prefix,
-    fingerprint_schema_key,
-    fingerprint_version_key,
-    incr_run_header,
+    CACHE_SCHEMA,           INCR_SEMA_SCHEMA,        cache_dir_name,  fingerprint_prefix,
+    fingerprint_schema_key, fingerprint_version_key, incr_run_header,
 }
 import Driver::ObjectCache::ObjectCache
 import Native::ObjCache::objcache_file_hash
@@ -52,7 +47,6 @@ import Support::Ascii::{
     parse_decimal,
     rfind_byte,
     split,
-    string_less,
     utf8_next,
 }
 import Support::Escape::{
@@ -77,29 +71,29 @@ import std::env
 /// (or XDG_CACHE_HOME, or LOCALAPPDATA) decides which cached sysroot a
 /// target without a bundled one gets, so its headers, and a run that
 /// changed it was a hit replaying the other root's verdict.
-fn incr_env_names() -> cxx::std::vector<string> {
-    var v = cxx::std::vector<string>()
-    v.push_back(EnvNames::kairo_sysroot_share())
-    v.push_back(EnvNames::kairo_sysroot_cache())
-    v.push_back(EnvNames::kairo_cache_dir())
-    v.push_back(EnvNames::xdg_cache_home())
-    v.push_back(EnvNames::home())
-    v.push_back(EnvNames::local_app_data())
-    v.push_back(EnvNames::kairo_incr_test())
-    v.push_back(EnvNames::sdkroot())
-    v.push_back(EnvNames::developer_dir())
-    v.push_back(EnvNames::nix_cflags_compile())
-    v.push_back(EnvNames::pkg_config_sysroot_dir())
-    v.push_back(EnvNames::pkg_config_libdir())
-    v.push_back(EnvNames::cpath())
-    v.push_back(EnvNames::c_include_path())
-    v.push_back(EnvNames::cplus_include_path())
-    v.push_back(EnvNames::include())
-    v.push_back(EnvNames::lib())
-    v.push_back(EnvNames::xwin())
-    v.push_back(EnvNames::msvc_cache())
-    v.push_back(EnvNames::no_color())
-    v.push_back(EnvNames::term())
+fn incr_env_names() -> [string] {
+    var v = Vector<string>()
+    v.push(EnvNames::kairo_sysroot_share())
+    v.push(EnvNames::kairo_sysroot_cache())
+    v.push(EnvNames::kairo_cache_dir())
+    v.push(EnvNames::xdg_cache_home())
+    v.push(EnvNames::home())
+    v.push(EnvNames::local_app_data())
+    v.push(EnvNames::kairo_incr_test())
+    v.push(EnvNames::sdkroot())
+    v.push(EnvNames::developer_dir())
+    v.push(EnvNames::nix_cflags_compile())
+    v.push(EnvNames::pkg_config_sysroot_dir())
+    v.push(EnvNames::pkg_config_libdir())
+    v.push(EnvNames::cpath())
+    v.push(EnvNames::c_include_path())
+    v.push(EnvNames::cplus_include_path())
+    v.push(EnvNames::include())
+    v.push(EnvNames::lib())
+    v.push(EnvNames::xwin())
+    v.push(EnvNames::msvc_cache())
+    v.push(EnvNames::no_color())
+    v.push(EnvNames::term())
     return v
 }
 
@@ -110,10 +104,9 @@ pub struct SourceRead {
     pub var hash: string
 }
 
-/// Orders by path. A named function: a closure's `const` parameter is a
-/// value in its `fn` type, and a SourceRead does not copy implicitly.
-fn source_read_less(const a: SourceRead, const b: SourceRead) -> bool {
-    return a.path < b.path
+/// Orders by path.
+fn source_read_cmp(a: *const SourceRead, b: *const SourceRead) -> Ordering {
+    return a->path <=> b->path
 }
 
 extend SourceRead {
@@ -137,11 +130,11 @@ pub class ModuleRecords {
     pub var dir: string = ""
 
     /// What the hit run replays, loaded by check().
-    pub var old_diag:    string                   = ""
-    pub var old_warns:   u32                      = 0
-    pub var old_pthread: bool                     = false
-    pub var old_objects: cxx::std::vector<string>
-    pub var old_mods:    cxx::std::vector<string>         ///< "<module>\t<O keys>\t<I(m)>", sorted
+    pub var old_diag:    string   = ""
+    pub var old_warns:   u32      = 0
+    pub var old_pthread: bool     = false
+    pub var old_objects: [string]
+    pub var old_mods:    [string]         ///< "<module>\t<O keys>\t<I(m)>", sorted
     /// What a miss leaves for the re-check plan (Sema/Incremental/Plan.k).
     /// `plan_base`: the only inputs that moved are Kairo sources of the
     /// recorded graph (`changed`, their paths), so the stored rows can say
@@ -161,16 +154,16 @@ pub class ModuleRecords {
 
     /// What this run collected, for write(). Filled by the FrontendAction
     /// (modules, keys, header files) and by CompilerInstance (the rest).
-    pub var mod_names: cxx::std::vector<string>             ///< module path per record
-    pub var mod_hash:  cxx::std::vector<string>             ///< I(m), parallel
-    pub var mod_json:  cxx::std::vector<string>             ///< the record body, parallel
+    pub var mod_names: [string]                             ///< module path per record
+    pub var mod_hash:  [string]                             ///< I(m), parallel
+    pub var mod_json:  [string]                             ///< the record body, parallel
     pub var mod_plan:  cxx::std::vector<PlanModule>         ///< the plan record, parallel
     pub var errors:    bool                         = false ///< this run reported an error
-    pub var keys:      cxx::std::vector<string>             ///< "<module>\t<O(m)>" per codegen job
-    pub var hdr_files: cxx::std::vector<string>             ///< every header-set file path
-    pub var sources:   cxx::std::vector<SourceRead>         ///< every SourceManager file
+    pub var keys:      [string]                             ///< "<module>\t<O(m)>" per codegen job
+    pub var hdr_files: [string]                             ///< every header-set file path
+    pub var sources:   [SourceRead]                         ///< every SourceManager file
     pub var roots:     cxx::std::vector<string>             ///< the import search roots
-    pub var objects:   cxx::std::vector<string>
+    pub var objects:   [string]
     pub var pthread:   bool                         = false
     pub var diag:      string                       = ""
     pub var warns:     u32                          = 0
@@ -198,13 +191,13 @@ pub class ModuleRecords {
     /// - `color`: the diagnostic renderer's colour decision.
     pub fn setup(self,
                  const cache_dir: string,
-                 const words:     cxx::std::vector<string>,
+                 const words:     [string],
                  const input:     string,
                  const output:    string,
                  const format:    string,
                  color:           bool) -> bool {
         self.on = false
-        if cache_dir.is_empty() || words.empty() {
+        if cache_dir.is_empty() || words.is_empty() {
             return false
         }
 
@@ -378,7 +371,7 @@ pub class ModuleRecords {
                 }
 
                 if l.starts_with("obj ") {
-                    self.old_objects.push_back(
+                    self.old_objects.push(
                         ModuleRecords::_field_rest(self._lines[i], 4),
                     )
                 }
@@ -395,7 +388,7 @@ pub class ModuleRecords {
                 }
             } else if l.starts_with("mod ") {
                 nmods += 1
-                self.old_mods.push_back(ModuleRecords::_read_mod_line(l))
+                self.old_mods.push(ModuleRecords::_read_mod_line(l))
             } else if l.starts_with("warns ") {
                 self.old_warns = (parse_decimal(l.subslice(6, l.size() - 6)) as u32)
             } else if l.starts_with("pthread ") {
@@ -480,14 +473,14 @@ pub class ModuleRecords {
 
         // Every file the run opened, each once, by path order.
         var seen = llvm::StringSet<llvm::MallocAllocator>()
-        var all  = cxx::std::vector<SourceRead>()
+        var all  = Vector<SourceRead>()
         for *src in self.sources {
             if src->path.is_empty() || seen.contains(kairo::sref(src->path)) {
                 continue
             }
 
             seen.insert(kairo::sref(src->path))
-            all.push_back(src->copy())
+            all.push(src->copy())
         }
 
         for *p in self.hdr_files {
@@ -496,13 +489,13 @@ pub class ModuleRecords {
             }
 
             seen.insert(kairo::sref(*p))
-            all.push_back(SourceRead { path: p->copy(), hash: "" })
+            all.push(SourceRead { path: p->copy(), hash: "" })
         }
 
-        llvm::sort(all.begin(), all.end(), source_read_less)
+        all.sort_by(source_read_cmp)
 
-        var dirs     = llvm::StringSet<llvm::MallocAllocator>()
-        var dir_list = cxx::std::vector<string>()
+        var dirs               = llvm::StringSet<llvm::MallocAllocator>()
+        var dir_list: [string]
         for *e in all {
             var p = e->path.copy()
             m += self._file_line("file", p, e->hash)
@@ -511,7 +504,7 @@ pub class ModuleRecords {
             }
         }
 
-        llvm::sort(dir_list.begin(), dir_list.end(), string_less)
+        dir_list.sort()
         for *d in dir_list {
             m += "dir " + ModuleRecords::_listing(*d) + " " + *d + "\n"
         }
@@ -626,16 +619,16 @@ pub class ModuleRecords {
 
     /// the modules this run recorded, sorted: what verify compares
     /// with old_mods.
-    pub fn new_mods(self) -> cxx::std::vector<string> {
-        var out = cxx::std::vector<string>()
+    pub fn new_mods(self) -> [string] {
+        var out: [string]
         for var i: usize = 0; i < self.mod_names.size(); ++i {
             var name = self.mod_names[i].copy()
             var ks   = self._object_keys(name)
 
-            out.push_back(name + "\t" + ks + "\t" + self.mod_hash[i])
+            out.push(name + "\t" + ks + "\t" + self.mod_hash[i])
         }
 
-        llvm::sort(out.begin(), out.end(), string_less)
+        out.sort()
         return out
     }
 
@@ -657,7 +650,7 @@ pub class ModuleRecords {
         return if (ks.is_empty()) => ("-") else => ks
     }
 
-    pub static fn same_list(a: *cxx::std::vector<string>, b: *cxx::std::vector<string>) -> bool {
+    pub static fn same_list(a: *const [string], b: *const [string]) -> bool {
         if a->size() != b->size() {
             return false
         }
@@ -764,7 +757,7 @@ pub class ModuleRecords {
     priv fn _dirs_of(self,
                      const p: string,
                      set:     unsafe *llvm::StringSet<llvm::MallocAllocator>,
-                     list:    unsafe *cxx::std::vector<string>) {
+                     list:    unsafe *[string]) {
         var own = LinkFS::parent(p)
         ModuleRecords::_add_dir(own, set, list)
         var best = ""
@@ -780,12 +773,12 @@ pub class ModuleRecords {
             return
         }
 
-        var rel  = p.subslice(best.size() + 1, p.size() - best.size() - 1)
-        var segs = cxx::std::vector<string>()
-        var cur  = ""
+        var rel = p.subslice(best.size() + 1, p.size() - best.size() - 1)
+        var segs: [string]
+        var cur            = ""
         for var i: usize = 0; i < rel.size(); ++i {
             if rel.data()[i] == ('/' as u8) {
-                segs.push_back(cur)
+                segs.push(cur)
                 cur = ""
             } else {
                 var e = utf8_next(rel, i)
@@ -806,13 +799,13 @@ pub class ModuleRecords {
 
     priv static fn _add_dir(const d: string,
                             set:     unsafe *llvm::StringSet<llvm::MallocAllocator>,
-                            list:    unsafe *cxx::std::vector<string>) {
+                            list:    unsafe *[string]) {
         if d.is_empty() || set->contains(kairo::sref(d)) {
             return
         }
 
         set->insert(kairo::sref(d))
-        list->push_back(d.copy())
+        list->push(d.copy())
     }
 
     /// The hash of `d`'s module-relevant entries: every `.k` file and
@@ -824,16 +817,16 @@ pub class ModuleRecords {
             return "missing"
         }
 
-        var names = cxx::std::vector<string>()
+        var names: [string]
         for *n in LinkFS::list_dir(d) {
             if n->ends_with(".k") {
-                names.push_back(n->copy())
+                names.push(n->copy())
             } else if LinkFS::is_dir(d.copy() + "/" + *n) {
-                names.push_back(n->copy() + "/")
+                names.push(n->copy() + "/")
             }
         }
 
-        llvm::sort(names.begin(), names.end(), string_less)
+        names.sort()
         var s = ""
         for *n in names {
             s += n->copy() + "\n"

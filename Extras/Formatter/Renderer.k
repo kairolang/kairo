@@ -219,7 +219,7 @@ pub class Renderer {
         }
 
         if k == DocKind::List || k == DocKind::Group {
-            if doc->children.empty() {
+            if doc->children.is_empty() {
                 return 0
             }
 
@@ -240,21 +240,20 @@ pub class Renderer {
     static fn render(doc: unsafe *Doc, set: Settings) -> string {
         var pen = Pen()
         pen.set = set
-        var width = line_width()
-        var stack = cxx::std::vector<Cmd>()
-        var sfx   = cxx::std::vector<Cmd>()
+        var width        = line_width()
+        var stack: [Cmd]
+        var sfx:   [Cmd]
 
-        stack.push_back(Cmd { ind: 0, pad: 0, brk: true, doc: doc, lit: "" })
+        stack.push(Cmd { ind: 0, pad: 0, brk: true, doc: doc, lit: "" })
 
         while true {
-            while !stack.empty() {
-                var c = cxx::std::move(stack.back())
-                stack.pop_back()
+            while !stack.is_empty() {
+                var c = stack.remove(stack.size() - 1)
 
                 if Renderer::_is_newline(c) {
                     // line suffixes go out before the break that ends their line
-                    if !sfx.empty() {
-                        stack.push_back(c)
+                    if !sfx.is_empty() {
+                        stack.push(c)
                         Renderer::_drain(unsafe &stack, unsafe &sfx)
                         continue
                     }
@@ -294,7 +293,7 @@ pub class Renderer {
                     var i = d->children.size()
                     while i > 0 {
                         i -= 1
-                        stack.push_back(
+                        stack.push(
                             Cmd {
                                 ind: c.ind,
                                 pad: c.pad,
@@ -309,11 +308,11 @@ pub class Renderer {
                 }
 
                 if k == DocKind::Indent {
-                    if d->children.empty() {
+                    if d->children.is_empty() {
                         continue
                     }
 
-                    stack.push_back(
+                    stack.push(
                         Cmd {
                             ind: c.ind + 1,
                             pad: c.pad,
@@ -327,12 +326,12 @@ pub class Renderer {
                 }
 
                 if k == DocKind::Align {
-                    if d->children.empty() {
+                    if d->children.is_empty() {
                         continue
                     }
 
                     var pad = pen.at() - c.ind * pen.level_cols()
-                    stack.push_back(
+                    stack.push(
                         Cmd {
                             ind: c.ind,
                             pad: pad,
@@ -346,7 +345,7 @@ pub class Renderer {
                 }
 
                 if k == DocKind::Group {
-                    if d->children.empty() {
+                    if d->children.is_empty() {
                         continue
                     }
 
@@ -358,12 +357,12 @@ pub class Renderer {
                     }
 
                     if ok {
-                        stack.push_back(flat)
+                        stack.push(flat)
                     } else {
                         // a choice breaks into its second child
                         var unsafe *bd = if d->children.size() > 1 => unsafe &d->children[1]
                                          else => child
-                        stack.push_back(
+                        stack.push(
                             Cmd { ind: c.ind, pad: c.pad, brk: true, doc: bd, lit: "" },
                         )
                     }
@@ -383,7 +382,7 @@ pub class Renderer {
                     }
 
                     var arm: usize = if c.brk => 0 else => 1
-                    stack.push_back(
+                    stack.push(
                         Cmd {
                             ind: c.ind,
                             pad: c.pad,
@@ -397,11 +396,11 @@ pub class Renderer {
                 }
 
                 if k == DocKind::LineSuffix {
-                    if d->children.empty() {
+                    if d->children.is_empty() {
                         continue
                     }
 
-                    sfx.push_back(
+                    sfx.push(
                         Cmd {
                             ind: c.ind,
                             pad: c.pad,
@@ -427,7 +426,7 @@ pub class Renderer {
                 // SoftLine flat, BreakParent: nothing to print
             }
 
-            if sfx.empty() {
+            if sfx.is_empty() {
                 break
             }
 
@@ -458,12 +457,12 @@ pub class Renderer {
         return false
     }
 
-    priv static fn _drain(stack: unsafe *cxx::std::vector<Cmd>,
-                          sfx:   unsafe *cxx::std::vector<Cmd>) {
+    priv static fn _drain(stack: unsafe *[Cmd], sfx: unsafe *[Cmd]) {
         var i = sfx->size()
         while i > 0 {
             i -= 1
-            stack->push_back(cxx::std::move((*sfx)[i]))
+            var *e = &(*sfx)[i]
+            stack->push(move(*e))
         }
 
         sfx->clear()
@@ -472,12 +471,12 @@ pub class Renderer {
     /// `seq`, in print order, onto the stack (which pops from the back).
     ///
     /// The commands are moved: `seq` is left holding emptied ones.
-    priv static fn _push_seq(stack: unsafe *cxx::std::vector<Cmd>,
-                             seq:   unsafe *cxx::std::vector<Cmd>) {
+    priv static fn _push_seq(stack: unsafe *[Cmd], seq: unsafe *[Cmd]) {
         var i = seq->size()
         while i > 0 {
             i -= 1
-            stack->push_back(cxx::std::move((*seq)[i]))
+            var *e = &(*seq)[i]
+            stack->push(move(*e))
         }
     }
 
@@ -491,7 +490,7 @@ pub class Renderer {
 
     /// Rule 4.1. Flat when it fits (and, for a call, ends by its cap);
     /// otherwise the grid, aligned or block form, where the list allows it.
-    priv static fn _list(stack: unsafe *cxx::std::vector<Cmd>,
+    priv static fn _list(stack: unsafe *[Cmd],
                          d:     unsafe *Doc,
                          c:     Cmd,
                          pen:   unsafe *Pen,
@@ -503,7 +502,7 @@ pub class Renderer {
         var        set   = pen->set
 
         if n == 0 {
-            stack->push_back(Renderer::_lit(c.ind, c.pad, open.copy() + close))
+            stack->push(Renderer::_lit(c.ind, c.pad, open.copy() + close))
             return
         }
 
@@ -521,7 +520,7 @@ pub class Renderer {
             }
 
             if ok {
-                stack->push_back(fc)
+                stack->push(fc)
                 return
             }
         }
@@ -573,42 +572,42 @@ pub class Renderer {
             }
         }
 
-        var seq = cxx::std::vector<Cmd>()
-        seq.push_back(Renderer::_lit(c.ind, c.pad, open.copy()))
+        var seq: [Cmd]
+        seq.push(Renderer::_lit(c.ind, c.pad, open.copy()))
 
         if aligned {
             var col = pen->at() + width_of(open)
             var pad = col - c.ind * pen->level_cols()
             for var i: usize = 0; i < n; ++i {
                 if i > 0 {
-                    seq.push_back(Renderer::_lit(c.ind, pad, ","))
-                    seq.push_back(Renderer::_nl(c.ind, pad))
+                    seq.push(Renderer::_lit(c.ind, pad, ","))
+                    seq.push(Renderer::_nl(c.ind, pad))
                 }
 
                 Renderer::_item(unsafe &seq, d, i, c.ind, pad, keys, kw)
             }
 
-            seq.push_back(Renderer::_lit(c.ind, pad, close.copy()))
+            seq.push(Renderer::_lit(c.ind, pad, close.copy()))
             Renderer::_push_seq(stack, unsafe &seq)
             return
         }
 
         var trail = (d->flags & LIST_NOTRAIL()) == 0
         for var i: usize = 0; i < n; ++i {
-            seq.push_back(Renderer::_nl(c.ind + 1, c.pad))
+            seq.push(Renderer::_nl(c.ind + 1, c.pad))
             Renderer::_item(unsafe &seq, d, i, c.ind + 1, c.pad, keys, kw)
             if i + 1 < n || trail {
-                seq.push_back(Renderer::_lit(c.ind + 1, c.pad, ","))
+                seq.push(Renderer::_lit(c.ind + 1, c.pad, ","))
             }
         }
 
-        seq.push_back(Renderer::_nl(c.ind, c.pad))
-        seq.push_back(Renderer::_lit(c.ind, c.pad, close.copy()))
+        seq.push(Renderer::_nl(c.ind, c.pad))
+        seq.push(Renderer::_lit(c.ind, c.pad, close.copy()))
         Renderer::_push_seq(stack, unsafe &seq)
     }
 
     /// One list item: its key padded to `kw` (when `keys`), then its value.
-    priv static fn _item(seq:  unsafe *cxx::std::vector<Cmd>,
+    priv static fn _item(seq:  unsafe *[Cmd],
                          d:    unsafe *Doc,
                          i:    usize,
                          ind:  i32,
@@ -618,36 +617,32 @@ pub class Renderer {
         var unsafe *key = unsafe &d->children[1 + 2 * i]
         var unsafe *val = unsafe &d->children[2 + 2 * i]
         if !key->is_empty() {
-            seq->push_back(
-                Cmd { ind: ind, pad: pad, brk: false, doc: key, lit: "" },
-            )
+            seq->push(Cmd { ind: ind, pad: pad, brk: false, doc: key, lit: "" })
 
             var gap: i32 = 1
             if keys {
                 gap += kw - Renderer::flat_width(key)
             }
 
-            seq->push_back(Renderer::_lit(ind, pad, spaces(gap)))
+            seq->push(Renderer::_lit(ind, pad, spaces(gap)))
         }
 
-        seq->push_back(Cmd { ind: ind, pad: pad, brk: true, doc: val, lit: "" })
+        seq->push(Cmd { ind: ind, pad: pad, brk: true, doc: val, lit: "" })
     }
 
     /// Rule 4.1's grid: row-major, each column padded to its widest `item,`,
     /// as many columns (at most grid_max_cols) as fit at the list's indent;
     /// the last cell of a row is not padded. Scripts/import_lint.py's
     /// grid_rows is the same layout.
-    priv static fn _grid(stack: unsafe *cxx::std::vector<Cmd>,
+    priv static fn _grid(stack: unsafe *[Cmd],
                          d:     unsafe *Doc,
                          c:     Cmd,
                          pen:   unsafe *Pen,
                          width: i32,
                          n:     usize) {
-        var cw = cxx::std::vector<i32>()
+        var cw: [i32]
         for var i: usize = 0; i < n; ++i {
-            cw.push_back(
-                Renderer::flat_width(unsafe &d->children[2 + 2 * i]) + 1,
-            )
+            cw.push(Renderer::flat_width(unsafe &d->children[2 + 2 * i]) + 1)
         }
 
         var lead = (c.ind + 1) * pen->level_cols() + c.pad
@@ -657,11 +652,11 @@ pub class Renderer {
             ncol = n
         }
 
-        var widths = cxx::std::vector<i32>()
+        var widths: [i32]
         while ncol >= 1 {
             widths.clear()
             for var k: usize = 0; k < ncol; ++k {
-                widths.push_back(0)
+                widths.push(0)
             }
 
             for var i: usize = 0; i < n; ++i {
@@ -695,15 +690,15 @@ pub class Renderer {
             ncol -= 1
         }
 
-        var seq = cxx::std::vector<Cmd>()
-        seq.push_back(Renderer::_lit(c.ind, c.pad, d->seps[0].copy()))
+        var seq: [Cmd]
+        seq.push(Renderer::_lit(c.ind, c.pad, d->seps[0].copy()))
         for var i: usize = 0; i < n; ++i {
             var k = i % ncol
             if k == 0 {
-                seq.push_back(Renderer::_nl(c.ind + 1, c.pad))
+                seq.push(Renderer::_nl(c.ind + 1, c.pad))
             }
 
-            seq.push_back(
+            seq.push(
                 Cmd {
                     ind: c.ind + 1,
                     pad: c.pad,
@@ -715,9 +710,9 @@ pub class Renderer {
 
             var last = k + 1 == ncol || i + 1 == n
             if last {
-                seq.push_back(Renderer::_lit(c.ind + 1, c.pad, ","))
+                seq.push(Renderer::_lit(c.ind + 1, c.pad, ","))
             } else {
-                seq.push_back(
+                seq.push(
                     Renderer::_lit(
                         c.ind + 1,
                         c.pad,
@@ -727,8 +722,8 @@ pub class Renderer {
             }
         }
 
-        seq.push_back(Renderer::_nl(c.ind, c.pad))
-        seq.push_back(Renderer::_lit(c.ind, c.pad, d->seps[1].copy()))
+        seq.push(Renderer::_nl(c.ind, c.pad))
+        seq.push(Renderer::_lit(c.ind, c.pad, d->seps[1].copy()))
         Renderer::_push_seq(stack, unsafe &seq)
     }
 
@@ -737,20 +732,20 @@ pub class Renderer {
     /// its widest `item,`; as many columns (at most grid_max_cols) as fit;
     /// row-major, only the last row short; no `,` after the last item. The
     /// last row also leaves room for the ` {` / ` =>` that follows it.
-    priv static fn _case_grid(stack: unsafe *cxx::std::vector<Cmd>,
+    priv static fn _case_grid(stack: unsafe *[Cmd],
                               d:     unsafe *Doc,
                               c:     Cmd,
                               pen:   unsafe *Pen,
                               width: i32,
                               n:     usize) {
-        var cw = cxx::std::vector<i32>()
+        var cw: [i32]
         for var i: usize = 0; i < n; ++i {
             var w = Renderer::flat_width(unsafe &d->children[2 + 2 * i]) + 1
             if i + 1 == n {
                 w += 2
             }
 
-            cw.push_back(w)
+            cw.push(w)
         }
 
         var lead = pen->at()
@@ -760,11 +755,11 @@ pub class Renderer {
             ncol = n
         }
 
-        var widths = cxx::std::vector<i32>()
+        var widths: [i32]
         while ncol >= 1 {
             widths.clear()
             for var k: usize = 0; k < ncol; ++k {
-                widths.push_back(0)
+                widths.push(0)
             }
 
             for var i: usize = 0; i < n; ++i {
@@ -802,7 +797,7 @@ pub class Renderer {
         // alone widened is padded only as wide as its `item,` needs
         widths.clear()
         for var k: usize = 0; k < ncol; ++k {
-            widths.push_back(0)
+            widths.push(0)
         }
 
         for var i: usize = 0; i < n; ++i {
@@ -812,15 +807,15 @@ pub class Renderer {
             }
         }
 
-        var pad = lead - c.ind * pen->level_cols()
-        var seq = cxx::std::vector<Cmd>()
+        var pad        = lead - c.ind * pen->level_cols()
+        var seq: [Cmd]
         for var i: usize = 0; i < n; ++i {
             var k = i % ncol
             if k == 0 && i > 0 {
-                seq.push_back(Renderer::_nl(c.ind, pad))
+                seq.push(Renderer::_nl(c.ind, pad))
             }
 
-            seq.push_back(
+            seq.push(
                 Cmd {
                     ind: c.ind,
                     pad: pad,
@@ -836,10 +831,10 @@ pub class Renderer {
 
             var last = k + 1 == ncol
             if last {
-                seq.push_back(Renderer::_lit(c.ind, pad, ","))
+                seq.push(Renderer::_lit(c.ind, pad, ","))
             } else {
                 var iw = Renderer::flat_width(unsafe &d->children[2 + 2 * i]) + 1
-                seq.push_back(
+                seq.push(
                     Renderer::_lit(c.ind, pad, "," + spaces(widths[k] - iw + 1)),
                 )
             }
@@ -850,7 +845,7 @@ pub class Renderer {
 
     /// Section 11: one row per line, each column padded to its widest cell.
     /// A row stops at its last non-empty cell, so nothing trails it.
-    priv static fn _table(stack: unsafe *cxx::std::vector<Cmd>, d: unsafe *Doc, c: Cmd) {
+    priv static fn _table(stack: unsafe *[Cmd], d: unsafe *Doc, c: Cmd) {
         var cols = d->num as usize
         if cols == 0 {
             return
@@ -858,9 +853,9 @@ pub class Renderer {
 
         var rows = d->children.size() / cols
 
-        var w = cxx::std::vector<i32>()
+        var w: [i32]
         for var k: usize = 0; k < cols; ++k {
-            w.push_back(0)
+            w.push(0)
         }
 
         for var r: usize = 0; r < rows; ++r {
@@ -872,10 +867,10 @@ pub class Renderer {
             }
         }
 
-        var seq = cxx::std::vector<Cmd>()
+        var seq: [Cmd]
         for var r: usize = 0; r < rows; ++r {
             if r > 0 {
-                seq.push_back(Renderer::_nl(c.ind, c.pad))
+                seq.push(Renderer::_nl(c.ind, c.pad))
             }
 
             var last: usize = 0
@@ -895,7 +890,7 @@ pub class Renderer {
                 if cell->is_empty() {
                     // an empty cell under a later one: pad past it, separator included
                     if w[k] > 0 {
-                        seq.push_back(
+                        seq.push(
                             Renderer::_lit(
                                 c.ind,
                                 c.pad,
@@ -908,17 +903,17 @@ pub class Renderer {
                 }
 
                 if sep.size() > 0 {
-                    seq.push_back(Renderer::_lit(c.ind, c.pad, sep.copy()))
+                    seq.push(Renderer::_lit(c.ind, c.pad, sep.copy()))
                 }
 
-                seq.push_back(
+                seq.push(
                     Cmd { ind: c.ind, pad: c.pad, brk: false, doc: cell, lit: "" },
                 )
 
                 if k < last {
                     var gap = w[k] - Renderer::flat_width(cell)
                     if gap > 0 {
-                        seq.push_back(Renderer::_lit(c.ind, c.pad, spaces(gap)))
+                        seq.push(Renderer::_lit(c.ind, c.pad, spaces(gap)))
                     }
                 }
             }
@@ -929,29 +924,28 @@ pub class Renderer {
 
     /// Does `next` fit in `rem0` columns, followed by the rest of its line?
     /// The rest is the pending stack, read from the top down in its own modes.
-    priv static fn _fits(const next: Cmd, stack: unsafe *cxx::std::vector<Cmd>, rem0: i32) -> bool {
-        var rem  = rem0
-        var rest = stack->size()
-        var work = cxx::std::vector<Cmd>()
-        work.push_back(next.copy())
+    priv static fn _fits(const next: Cmd, stack: unsafe *[Cmd], rem0: i32) -> bool {
+        var rem         = rem0
+        var rest        = stack->size()
+        var work: [Cmd]
+        work.push(next.copy())
 
         while true {
             if rem < 0 {
                 return false
             }
 
-            if work.empty() {
+            if work.is_empty() {
                 if rest == 0 {
                     return true
                 }
 
                 rest -= 1
-                work.push_back((*stack)[rest].copy())
+                work.push((*stack)[rest].copy())
                 continue
             }
 
-            var c = cxx::std::move(work.back())
-            work.pop_back()
+            var c = work.remove(work.size() - 1)
 
             if c.doc == &null {
                 if c.lit == "\n" {
@@ -974,7 +968,7 @@ pub class Renderer {
                 var i = d->children.size()
                 while i > 0 {
                     i -= 1
-                    work.push_back(
+                    work.push(
                         Cmd {
                             ind: c.ind,
                             pad: c.pad,
@@ -989,13 +983,13 @@ pub class Renderer {
             }
 
             if k == DocKind::Group || k == DocKind::Indent {
-                if d->children.empty() {
+                if d->children.is_empty() {
                     continue
                 }
 
                 var b          = c.brk || k == DocKind::Group && d->hard
                 var arm: usize = if b && d->children.size() > 1 => 1 else => 0
-                work.push_back(
+                work.push(
                     Cmd { ind: c.ind, pad: c.pad, brk: b, doc: unsafe &d->children[arm], lit: "" },
                 )
 
@@ -1009,7 +1003,7 @@ pub class Renderer {
                     return rem >= 0
                 }
 
-                work.push_back(
+                work.push(
                     Cmd {
                         ind: c.ind,
                         pad: c.pad,
@@ -1047,11 +1041,11 @@ pub class Renderer {
             }
 
             if k == DocKind::Align {
-                if d->children.empty() {
+                if d->children.is_empty() {
                     continue
                 }
 
-                work.push_back(
+                work.push(
                     Cmd {
                         ind: c.ind,
                         pad: c.pad,
@@ -1070,7 +1064,7 @@ pub class Renderer {
                 }
 
                 var arm: usize = if c.brk => 0 else => 1
-                work.push_back(
+                work.push(
                     Cmd {
                         ind: c.ind,
                         pad: c.pad,

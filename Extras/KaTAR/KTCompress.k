@@ -45,7 +45,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     var unsafe *output_file = argv[2]
 
     var data_section: cxx::std::string
-    var table:        cxx::std::vector<TableEntry>
+    var table:        [TableEntry]
 
     for file in cxx::std::filesystem::recursive_directory_iterator(cxx::std::filesystem::path(root_path)) {
         if file.is_regular_file() {
@@ -66,7 +66,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
                 cxx::std::filesystem::path(root_path),
             ).generic_wstring()
 
-            table.push_back(
+            table.push(
                 TableEntry {
                     filename: to_utf8(unsafe &rel),
                     offset:   start,

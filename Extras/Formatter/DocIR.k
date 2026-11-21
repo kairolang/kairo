@@ -77,13 +77,13 @@ pub fn LIST_CASEGRID() -> u32 {
 }
 
 pub class Doc {
-    pub var kind:     DocKind               = DocKind::Concat
-    pub var txt:      string                = ""
-    pub var children: cxx::std::vector<Doc> = cxx::std::vector<Doc>()
+    pub var kind:     DocKind = DocKind::Concat
+    pub var txt:      string  = ""
+    pub var children: [Doc]
 
     /// List: [open, close]. Table: the separator in front of each column
     /// (seps[0] is unused).
-    pub var seps: cxx::std::vector<string> = cxx::std::vector<string>()
+    pub var seps: [string]
 
     /// Group: column the flat form must end by (0: none). Table: columns.
     pub var num:   i32 = 0
@@ -97,7 +97,7 @@ pub class Doc {
 
     fn Doc(self) = default
 
-    static fn _any_hard(const xs: cxx::std::vector<Doc>) -> bool {
+    static fn _any_hard(const xs: [Doc]) -> bool {
         for var i: usize = 0; i < xs.size(); ++i {
             if xs[i].hard {
                 return true
@@ -114,7 +114,7 @@ pub class Doc {
         return d
     }
 
-    static fn concat(xs: cxx::std::vector<Doc>) -> Doc {
+    static fn concat(xs: [Doc]) -> Doc {
         var d = Doc()
         d.kind     = DocKind::Concat
         d.hard     = Doc::_any_hard(xs)
@@ -125,36 +125,36 @@ pub class Doc {
     /// Fixed-arity concat helpers: there is no braced-init conversion to a
     /// vector of Docs.
     static fn concat2(a: Doc, b: Doc) -> Doc {
-        var xs = cxx::std::vector<Doc>()
-        xs.push_back(a)
-        xs.push_back(b)
+        var xs: [Doc]
+        xs.push(a)
+        xs.push(b)
         return Doc::concat(xs)
     }
 
     static fn concat3(a: Doc, b: Doc, c: Doc) -> Doc {
-        var xs = cxx::std::vector<Doc>()
-        xs.push_back(a)
-        xs.push_back(b)
-        xs.push_back(c)
+        var xs: [Doc]
+        xs.push(a)
+        xs.push(b)
+        xs.push(c)
         return Doc::concat(xs)
     }
 
     static fn concat4(a: Doc, b: Doc, c: Doc, d: Doc) -> Doc {
-        var xs = cxx::std::vector<Doc>()
-        xs.push_back(a)
-        xs.push_back(b)
-        xs.push_back(c)
-        xs.push_back(d)
+        var xs: [Doc]
+        xs.push(a)
+        xs.push(b)
+        xs.push(c)
+        xs.push(d)
         return Doc::concat(xs)
     }
 
     static fn concat5(a: Doc, b: Doc, c: Doc, d: Doc, e: Doc) -> Doc {
-        var xs = cxx::std::vector<Doc>()
-        xs.push_back(a)
-        xs.push_back(b)
-        xs.push_back(c)
-        xs.push_back(d)
-        xs.push_back(e)
+        var xs: [Doc]
+        xs.push(a)
+        xs.push(b)
+        xs.push(c)
+        xs.push(d)
+        xs.push(e)
         return Doc::concat(xs)
     }
 
@@ -193,7 +193,7 @@ pub class Doc {
         var d = Doc()
         d.kind = DocKind::Align
         d.hard = child.hard
-        d.children.push_back(child)
+        d.children.push(child)
         return d
     }
 
@@ -208,7 +208,7 @@ pub class Doc {
         var d = Doc()
         d.kind = DocKind::Group
         d.hard = child.hard
-        d.children.push_back(child)
+        d.children.push(child)
         return d
     }
 
@@ -219,8 +219,8 @@ pub class Doc {
         var d = Doc()
         d.kind = DocKind::Group
         d.hard = flat.hard
-        d.children.push_back(flat)
-        d.children.push_back(broken)
+        d.children.push(flat)
+        d.children.push(broken)
         return d
     }
 
@@ -236,7 +236,7 @@ pub class Doc {
         var d = Doc()
         d.kind = DocKind::Indent
         d.hard = child.hard
-        d.children.push_back(child)
+        d.children.push(child)
         return d
     }
 
@@ -245,15 +245,15 @@ pub class Doc {
         var d = Doc()
         d.kind = DocKind::IfBreak
         d.hard = when_broken.hard
-        d.children.push_back(when_broken)
-        d.children.push_back(when_flat)
+        d.children.push(when_broken)
+        d.children.push(when_flat)
         return d
     }
 
     static fn line_suffix(child: Doc) -> Doc {
         var d = Doc()
         d.kind = DocKind::LineSuffix
-        d.children.push_back(child)
+        d.children.push(child)
         return d
     }
 
@@ -269,20 +269,22 @@ pub class Doc {
     /// one-line form, built by the caller so the renderer's fit test reads it.
     static fn list(const open:  string,
                    const close: string,
-                   keys:        cxx::std::vector<Doc>,
-                   vals:        cxx::std::vector<Doc>,
+                   keys:        [Doc],
+                   vals:        [Doc],
                    flat:        Doc,
                    flags:       u32) -> Doc {
         var d = Doc()
         d.kind  = DocKind::List
         d.flags = flags
-        d.seps.push_back(open.copy())
-        d.seps.push_back(close.copy())
+        d.seps.push(open.copy())
+        d.seps.push(close.copy())
         d.hard = (flags & LIST_FORCE()) != 0 || flat.hard
-        d.children.push_back(flat)
+        d.children.push(flat)
         for var i: usize = 0; i < vals.size(); ++i {
-            d.children.push_back(cxx::std::move(keys[i]))
-            d.children.push_back(cxx::std::move(vals[i]))
+            var *k = &keys[i]
+            var *v = &vals[i]
+            d.children.push(move(*k))
+            d.children.push(move(*v))
         }
 
         return d
@@ -291,9 +293,7 @@ pub class Doc {
     /// Section 11 run. `cells` is row-major, `cols` per row; `seps[c]` sits
     /// in front of column c. An empty cell pads to its column only when a
     /// later cell of the row is not empty.
-    static fn table(cells: cxx::std::vector<Doc>,
-                    cols:  i32,
-                    seps:  cxx::std::vector<string>) -> Doc {
+    static fn table(cells: [Doc], cols: i32, seps: [string]) -> Doc {
         var d = Doc()
         d.kind     = DocKind::Table
         d.hard     = true
@@ -303,14 +303,15 @@ pub class Doc {
         return d
     }
 
-    static fn join(xs: cxx::std::vector<Doc>, const sep: Doc) -> Doc {
-        var out = cxx::std::vector<Doc>()
+    static fn join(xs: [Doc], const sep: Doc) -> Doc {
+        var out: [Doc]
         for var i: usize = 0; i < xs.size(); ++i {
             if i > 0 {
-                out.push_back(sep.copy())
+                out.push(sep.copy())
             }
 
-            out.push_back(cxx::std::move(xs[i]))
+            var *x = &xs[i]
+            out.push(move(*x))
         }
 
         return Doc::concat(out)
@@ -318,11 +319,11 @@ pub class Doc {
 
     /// For "did this produce nothing" checks.
     fn is_empty(self) -> bool {
-        return self.kind == DocKind::Concat && self.children.empty()
+        return self.kind == DocKind::Concat && self.children.is_empty()
     }
 
     static fn nothing() -> Doc {
-        return Doc::concat(cxx::std::vector<Doc>())
+        return Doc::concat([])
     }
 
     /// A copy of the whole subtree.
@@ -334,13 +335,13 @@ pub class Doc {
         d.flags = self.flags
         d.hard  = self.hard
         d.children.reserve(self.children.size())
-        for *c in self.children {
-            d.children.push_back(c->copy())
+        for const *c in self.children {
+            d.children.push(c->copy())
         }
 
         d.seps.reserve(self.seps.size())
-        for *s in self.seps {
-            d.seps.push_back(s->copy())
+        for const *s in self.seps {
+            d.seps.push(s->copy())
         }
 
         return d

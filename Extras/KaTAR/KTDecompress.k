@@ -207,7 +207,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     f.seekg(cxx::std::streampos(table_offset as i64))
 
-    var table: cxx::std::vector<TableEntry>
+    var table: [TableEntry]
     table.reserve(entry_count)
 
     for var i : usize = 0; i < (entry_count as usize); i += 1 {
@@ -227,7 +227,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         cxx::std::getline(&f, &length_str)
         var length: usize = (cxx::std::stoull(length_str) as usize)
 
-        table.push_back(
+        table.push(
             TableEntry { filename: name, offset: offset, length: length },
         )
     }

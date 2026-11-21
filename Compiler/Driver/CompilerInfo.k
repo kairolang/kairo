@@ -161,16 +161,24 @@ extend CompilerInstance {
     fn run_explain(self) -> i32 {
         var code = self.invocation()->args.get_string("explain")
 
-        var first: usize = kairo::std::to_std_string(code).find_first_not_of(
-            " \t\n\r\f\v",
-        )
+        // Spaces and C0 whitespace (" \t\n\r\f\v") trimmed from both ends; a
+        // code of nothing else is left as given.
+        var first: usize = 0
+        var last:  usize = code.size()
+        while first < last
+            && (code.data()[first] == (' ' as u8)
+                || (code.data()[first] >= ('\t' as u8) && code.data()[first] <= ('\r' as u8))) {
+            first += 1
+        }
 
-        if !(cxx::std::string::npos == first) {
-            var last: usize = kairo::std::to_std_string(code).find_last_not_of(
-                " \t\n\r\f\v",
-            )
+        if first < last {
+            while code.data()[last - 1] == (' ' as u8)
+                || (code.data()[last - 1] >= ('\t' as u8)
+                    && code.data()[last - 1] <= ('\r' as u8)) {
+                last -= 1
+            }
 
-            code = code.subslice(first, last - first + 1)
+            code = code.subslice(first, last - first)
         }
 
         var diag_id = diag_from_code(code)
@@ -193,28 +201,35 @@ extend CompilerInstance {
         io::println("Registered targets:")
 
         // collect into a vector so we can sort and align the output
-        var rows:     cxx::std::vector<cxx::std::pair<llvm::StringRef, llvm::StringRef>>
-        var max_name: usize                                                              = 0
+        var rows:     [(string, string)]
+        var max_name: usize              = 0
 
         for T in llvm::TargetRegistry::targets() {
-            rows.emplace_back(T.getName(), T.getShortDescription())
+            rows.push(
+                (
+                    string(
+                        unsafe ((T.getName() as unsafe *const u8) as *const u8),
+                    ),
+                    string(
+                        unsafe ((T.getShortDescription() as unsafe *const u8) as *const u8),
+                    ),
+                ),
+            )
+
             max_name = cxx::std::max(max_name, cxx::std::strlen(T.getName()))
         }
 
-        cxx::std::sort(
-            rows.begin(),
-            rows.end(),
-            fn (const a: cxx::std::pair<llvm::StringRef, llvm::StringRef>,
-                const b: cxx::std::pair<llvm::StringRef, llvm::StringRef>) || -> bool = a.first < b.first,
+        rows.sort_by(
+            fn (a: *const (string, string), b: *const (string, string)) || -> Ordering = a->0 <=> b->0,
         )
 
-        for row in rows {
-            var out = f"  {string(unsafe ((row.first.data() as unsafe *const u8) as *const u8), row.first.size())}"
-            for var i: usize = row.first.size(); i < max_name + 2; ++i {
+        for *row in rows {
+            var out = f"  {row->0}"
+            for var i: usize = row->0.size(); i < max_name + 2; ++i {
                 out += " "
             }
 
-            out += f"- {string(unsafe ((row.second.data() as unsafe *const u8) as *const u8), row.second.size())}"
+            out += f"- {row->1}"
             io::println(f"{out}")
         }
 
@@ -351,56 +366,58 @@ extend CompilerInstance {
 
         io::println(f"Available CPUs for target '{string(triple.data())}':")
 
-        var cpu_rows: cxx::std::vector<cxx::std::string>
-        var max_cpu:  usize                              = 0
+        var cpu_rows: [string]
+        var max_cpu:  usize    = 0
 
         for cpu in STI->getAllProcessorDescriptions() {
-            cpu_rows.emplace_back(cpu.Key)
+            cpu_rows.push(
+                string(unsafe ((cpu.Key as unsafe *const u8) as *const u8)),
+            )
+
             max_cpu = cxx::std::max(max_cpu, cxx::std::strlen(cpu.Key))
         }
 
-        cxx::std::sort(
-            cpu_rows.begin(),
-            cpu_rows.end(),
-            fn (const a: cxx::std::string, const b: cxx::std::string) || -> bool = a < b,
-        )
+        cpu_rows.sort()
 
         for *row in cpu_rows {
-            io::println(f"  {kairo::std::from_std_string<string>((*row))}")
+            io::println(f"  {*row}")
         }
 
         io::println("")
         io::println("Available features:")
 
-        var feat_rows: cxx::std::vector<cxx::std::pair<cxx::std::string, cxx::std::string>>
-        var max_feat:  usize                                                                = 0
+        var feat_rows: [(string, string)]
+        var max_feat:  usize              = 0
 
         for feat in STI->getAllProcessorFeatures() {
             var unsafe *d = feat.Desc
+            var key = string(
+                unsafe ((feat.Key as unsafe *const u8) as *const u8),
+            )
+
             if d != &null && *d != 0x00 {
-                feat_rows.emplace_back(feat.Key, d)
+                feat_rows.push(
+                    (key, string(unsafe ((d as unsafe *const u8) as *const u8))),
+                )
             } else {
-                feat_rows.emplace_back(feat.Key, cxx::std::string())
+                feat_rows.push((key, ""))
             }
 
             max_feat = cxx::std::max(max_feat, cxx::std::strlen(feat.Key))
         }
 
-        cxx::std::sort(
-            feat_rows.begin(),
-            feat_rows.end(),
-            fn (const a: cxx::std::pair<cxx::std::string, cxx::std::string>,
-                const b: cxx::std::pair<cxx::std::string, cxx::std::string>) || -> bool = a.first < b.first,
+        feat_rows.sort_by(
+            fn (a: *const (string, string), b: *const (string, string)) || -> Ordering = a->0 <=> b->0,
         )
 
         for *row in feat_rows {
-            var out = f"  {string(unsafe ((row->first.c_str() as unsafe *const u8) as *const u8), row->first.size())}"
-            for var i: usize = row->first.size(); i < max_feat + 2; ++i {
+            var out = f"  {row->0}"
+            for var i: usize = row->0.size(); i < max_feat + 2; ++i {
                 out += " "
             }
 
-            if row->second.size() > 0 {
-                out += f"- {string(unsafe ((row->second.c_str() as unsafe *const u8) as *const u8), row->second.size())}"
+            if row->1.size() > 0 {
+                out += f"- {row->1}"
             }
 
             io::println(f"{out}")

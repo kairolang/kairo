@@ -3062,7 +3062,7 @@ pub fn Test(bench: bool = false) -> i32 {
     var        suite = Assert("Lexer Tests")
 
     // HELPER: Create a lexer from string content
-    static data:     cxx::std::string
+    static data:     string
     static test_imm: unsafe *ImmediateTable = &null
 
     finally {
@@ -3080,7 +3080,7 @@ pub fn Test(bench: bool = false) -> i32 {
         var temp_path = Path::temp_dir().join("hlx_lexer_test.k")
         lsm->reset()
         var temp_data = content.copy()
-        data = kairo::std::to_std_string(temp_data)
+        data = temp_data
 
         var        path = Path(temp_path, false)
         var unsafe *ptr = unsafe (data.data() as kairo::std::ConstPtr<u8>)
@@ -3113,10 +3113,10 @@ pub fn Test(bench: bool = false) -> i32 {
     /// in profiles as string_to_nstring + wcslen. Neither has anything to do
     /// with lexing   the lexer only ever sees the narrow bytes   but both were
     /// being attributed to the lex run. Take the bytes already narrow.
-    var create_lexer_from_bytes = fn (@move bytes: cxx::std::string, lsm: unsafe *SourceManager, lpool: unsafe *ThreadPool, diag: unsafe *DiagEngine) -> (unsafe *Lexer, u32) {
+    var create_lexer_from_bytes = fn (@move bytes: string, lsm: unsafe *SourceManager, lpool: unsafe *ThreadPool, diag: unsafe *DiagEngine) -> (unsafe *Lexer, u32) {
         var temp_path = Path::temp_dir().join("hlx_lexer_test.k")
         lsm->reset()
-        data = cxx::std::move(bytes)
+        data = bytes
 
         var        path = Path(temp_path, false)
         var unsafe *ptr = unsafe (data.data() as kairo::std::ConstPtr<u8>)
@@ -3269,17 +3269,17 @@ pub fn Test(bench: bool = false) -> i32 {
                 return "lexer failed to lex"
             }
 
-            var unsafe *tokens  = lexer->tokens()
-            var        expected = cxx::std::vector<TokenKind>()
-            expected.push_back(TokenKind::KwFn)
-            expected.push_back(TokenKind::KwVar)
-            expected.push_back(TokenKind::KwConst)
-            expected.push_back(TokenKind::KwClass)
-            expected.push_back(TokenKind::KwIf)
-            expected.push_back(TokenKind::KwElse)
-            expected.push_back(TokenKind::KwWhile)
-            expected.push_back(TokenKind::KwFor)
-            expected.push_back(TokenKind::KwReturn)
+            var unsafe *tokens               = lexer->tokens()
+            var        expected: [TokenKind]
+            expected.push(TokenKind::KwFn)
+            expected.push(TokenKind::KwVar)
+            expected.push(TokenKind::KwConst)
+            expected.push(TokenKind::KwClass)
+            expected.push(TokenKind::KwIf)
+            expected.push(TokenKind::KwElse)
+            expected.push(TokenKind::KwWhile)
+            expected.push(TokenKind::KwFor)
+            expected.push(TokenKind::KwReturn)
 
             if content_count(tokens) != expected.size() {
                 return dump_tokens(tokens, expected.size())
@@ -3322,24 +3322,24 @@ pub fn Test(bench: bool = false) -> i32 {
                 return "lexer failed to lex"
             }
 
-            var unsafe *tokens  = lexer->tokens()
-            var        expected = cxx::std::vector<TokenKind>()
-            expected.push_back(TokenKind::AtVoid)
-            expected.push_back(TokenKind::AtBool)
-            expected.push_back(TokenKind::AtI8)
-            expected.push_back(TokenKind::AtI16)
-            expected.push_back(TokenKind::AtI32)
-            expected.push_back(TokenKind::AtI64)
-            expected.push_back(TokenKind::AtI128)
-            expected.push_back(TokenKind::AtU8)
-            expected.push_back(TokenKind::AtU16)
-            expected.push_back(TokenKind::AtU32)
-            expected.push_back(TokenKind::AtU64)
-            expected.push_back(TokenKind::AtU128)
-            expected.push_back(TokenKind::AtF32)
-            expected.push_back(TokenKind::AtF64)
-            expected.push_back(TokenKind::AtUsize)
-            expected.push_back(TokenKind::AtIsize)
+            var unsafe *tokens               = lexer->tokens()
+            var        expected: [TokenKind]
+            expected.push(TokenKind::AtVoid)
+            expected.push(TokenKind::AtBool)
+            expected.push(TokenKind::AtI8)
+            expected.push(TokenKind::AtI16)
+            expected.push(TokenKind::AtI32)
+            expected.push(TokenKind::AtI64)
+            expected.push(TokenKind::AtI128)
+            expected.push(TokenKind::AtU8)
+            expected.push(TokenKind::AtU16)
+            expected.push(TokenKind::AtU32)
+            expected.push(TokenKind::AtU64)
+            expected.push(TokenKind::AtU128)
+            expected.push(TokenKind::AtF32)
+            expected.push(TokenKind::AtF64)
+            expected.push(TokenKind::AtUsize)
+            expected.push(TokenKind::AtIsize)
 
             if content_count(tokens) != expected.size() {
                 return dump_tokens(tokens, expected.size())
@@ -3428,27 +3428,27 @@ pub fn Test(bench: bool = false) -> i32 {
                 return "lexer failed to lex"
             }
 
-            var unsafe *tokens  = lexer->tokens()
-            var        expected = cxx::std::vector<TokenKind>()
-            expected.push_back(TokenKind::OpPlus)
-            expected.push_back(TokenKind::OpMinus)
-            expected.push_back(TokenKind::OpStar)
-            expected.push_back(TokenKind::OpSlash)
-            expected.push_back(TokenKind::OpPercent)
-            expected.push_back(TokenKind::OpCaret)
-            expected.push_back(TokenKind::OpPipe)
-            expected.push_back(TokenKind::OpAmp)
-            expected.push_back(TokenKind::OpTilde)
-            expected.push_back(TokenKind::OpLess)
-            expected.push_back(TokenKind::OpGreater)
-            expected.push_back(TokenKind::OpExclaim)
-            expected.push_back(TokenKind::OpEqual)
-            expected.push_back(TokenKind::OpQuestion)
-            expected.push_back(TokenKind::OpAt)
-            expected.push_back(TokenKind::OpColon)
-            expected.push_back(TokenKind::OpSemicolon)
-            expected.push_back(TokenKind::OpComma)
-            expected.push_back(TokenKind::OpDot)
+            var unsafe *tokens               = lexer->tokens()
+            var        expected: [TokenKind]
+            expected.push(TokenKind::OpPlus)
+            expected.push(TokenKind::OpMinus)
+            expected.push(TokenKind::OpStar)
+            expected.push(TokenKind::OpSlash)
+            expected.push(TokenKind::OpPercent)
+            expected.push(TokenKind::OpCaret)
+            expected.push(TokenKind::OpPipe)
+            expected.push(TokenKind::OpAmp)
+            expected.push(TokenKind::OpTilde)
+            expected.push(TokenKind::OpLess)
+            expected.push(TokenKind::OpGreater)
+            expected.push(TokenKind::OpExclaim)
+            expected.push(TokenKind::OpEqual)
+            expected.push(TokenKind::OpQuestion)
+            expected.push(TokenKind::OpAt)
+            expected.push(TokenKind::OpColon)
+            expected.push(TokenKind::OpSemicolon)
+            expected.push(TokenKind::OpComma)
+            expected.push(TokenKind::OpDot)
 
             if content_count(tokens) != expected.size() {
                 return dump_tokens(tokens, expected.size())
@@ -3491,28 +3491,28 @@ pub fn Test(bench: bool = false) -> i32 {
                 return "lexer failed to lex"
             }
 
-            var unsafe *tokens  = lexer->tokens()
-            var        expected = cxx::std::vector<TokenKind>()
-            expected.push_back(TokenKind::OpPlusPlus)
-            expected.push_back(TokenKind::OpMinusMinus)
-            expected.push_back(TokenKind::OpArrow)
-            expected.push_back(TokenKind::OpColonColon)
-            expected.push_back(TokenKind::OpRange)
-            expected.push_back(TokenKind::OpEllipsis)
-            expected.push_back(TokenKind::OpEqualEqual)
-            expected.push_back(TokenKind::OpExclaimEqual)
-            expected.push_back(TokenKind::OpLessEqual)
-            expected.push_back(TokenKind::OpGreaterEqual)
-            expected.push_back(TokenKind::OpAmpAmp)
-            expected.push_back(TokenKind::OpPipePipe)
-            expected.push_back(TokenKind::OpLessLess)
-            expected.push_back(TokenKind::OpGreaterGreater)
-            expected.push_back(TokenKind::OpPlusEqual)
-            expected.push_back(TokenKind::OpMinusEqual)
-            expected.push_back(TokenKind::OpStarEqual)
-            expected.push_back(TokenKind::OpSlashEqual)
-            expected.push_back(TokenKind::OpLessEqualGreater)
-            expected.push_back(TokenKind::OpFatArrow)
+            var unsafe *tokens               = lexer->tokens()
+            var        expected: [TokenKind]
+            expected.push(TokenKind::OpPlusPlus)
+            expected.push(TokenKind::OpMinusMinus)
+            expected.push(TokenKind::OpArrow)
+            expected.push(TokenKind::OpColonColon)
+            expected.push(TokenKind::OpRange)
+            expected.push(TokenKind::OpEllipsis)
+            expected.push(TokenKind::OpEqualEqual)
+            expected.push(TokenKind::OpExclaimEqual)
+            expected.push(TokenKind::OpLessEqual)
+            expected.push(TokenKind::OpGreaterEqual)
+            expected.push(TokenKind::OpAmpAmp)
+            expected.push(TokenKind::OpPipePipe)
+            expected.push(TokenKind::OpLessLess)
+            expected.push(TokenKind::OpGreaterGreater)
+            expected.push(TokenKind::OpPlusEqual)
+            expected.push(TokenKind::OpMinusEqual)
+            expected.push(TokenKind::OpStarEqual)
+            expected.push(TokenKind::OpSlashEqual)
+            expected.push(TokenKind::OpLessEqualGreater)
+            expected.push(TokenKind::OpFatArrow)
 
             if content_count(tokens) != expected.size() {
                 return dump_tokens(tokens, expected.size())
@@ -3622,15 +3622,15 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, 8)
             }
 
-            var expected = cxx::std::vector<TokenKind>()
-            expected.push_back(TokenKind::OpArrow)
-            expected.push_back(TokenKind::OpArrowStar)
-            expected.push_back(TokenKind::OpQuestionArrow)
-            expected.push_back(TokenKind::OpQuestionArrowStar)
-            expected.push_back(TokenKind::OpExclaim)
-            expected.push_back(TokenKind::OpArrow)
-            expected.push_back(TokenKind::OpExclaim)
-            expected.push_back(TokenKind::OpArrowStar)
+            var expected: [TokenKind]
+            expected.push(TokenKind::OpArrow)
+            expected.push(TokenKind::OpArrowStar)
+            expected.push(TokenKind::OpQuestionArrow)
+            expected.push(TokenKind::OpQuestionArrowStar)
+            expected.push(TokenKind::OpExclaim)
+            expected.push(TokenKind::OpArrow)
+            expected.push(TokenKind::OpExclaim)
+            expected.push(TokenKind::OpArrowStar)
             for var i: usize = 0; i < 8; ++i {
                 if tokens->get(i)->kind != expected[i] {
                     return f"token {i}: expected {token_kind_to_readable_string(expected[i])}, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
@@ -3675,15 +3675,15 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, 8)
             }
 
-            var expected = cxx::std::vector<TokenKind>()
-            expected.push_back(TokenKind::OpDot)
-            expected.push_back(TokenKind::OpDotStar)
-            expected.push_back(TokenKind::OpQuestionDot)
-            expected.push_back(TokenKind::OpQuestionDotStar)
-            expected.push_back(TokenKind::OpExclaim)
-            expected.push_back(TokenKind::OpDot)
-            expected.push_back(TokenKind::OpExclaim)
-            expected.push_back(TokenKind::OpDotStar)
+            var expected: [TokenKind]
+            expected.push(TokenKind::OpDot)
+            expected.push(TokenKind::OpDotStar)
+            expected.push(TokenKind::OpQuestionDot)
+            expected.push(TokenKind::OpQuestionDotStar)
+            expected.push(TokenKind::OpExclaim)
+            expected.push(TokenKind::OpDot)
+            expected.push(TokenKind::OpExclaim)
+            expected.push(TokenKind::OpDotStar)
             for var i: usize = 0; i < 8; ++i {
                 if tokens->get(i)->kind != expected[i] {
                     return f"token {i}: expected {token_kind_to_readable_string(expected[i])}, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
@@ -3730,15 +3730,15 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, 8)
             }
 
-            var expected = cxx::std::vector<TokenKind>()
-            expected.push_back(TokenKind::LitIdentifier)
-            expected.push_back(TokenKind::OpExclaim)
-            expected.push_back(TokenKind::OpArrow)
-            expected.push_back(TokenKind::LitIdentifier)
-            expected.push_back(TokenKind::LitIdentifier)
-            expected.push_back(TokenKind::OpExclaim)
-            expected.push_back(TokenKind::OpDot)
-            expected.push_back(TokenKind::LitIdentifier)
+            var expected: [TokenKind]
+            expected.push(TokenKind::LitIdentifier)
+            expected.push(TokenKind::OpExclaim)
+            expected.push(TokenKind::OpArrow)
+            expected.push(TokenKind::LitIdentifier)
+            expected.push(TokenKind::LitIdentifier)
+            expected.push(TokenKind::OpExclaim)
+            expected.push(TokenKind::OpDot)
+            expected.push(TokenKind::LitIdentifier)
             for var i: usize = 0; i < 8; ++i {
                 if tokens->get(i)->kind != expected[i] {
                     return f"token {i}: expected {token_kind_to_readable_string(expected[i])}, got {token_kind_to_readable_string(tokens->get(i)->kind)}"
@@ -3784,12 +3784,12 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_values = cxx::std::vector<u64>()
-            expected_values.push_back(0 as u64)
-            expected_values.push_back(1 as u64)
-            expected_values.push_back(42 as u64)
-            expected_values.push_back(12345 as u64)
-            expected_values.push_back(999999 as u64)
+            var expected_values: [u64]
+            expected_values.push(0 as u64)
+            expected_values.push(1 as u64)
+            expected_values.push(42 as u64)
+            expected_values.push(12345 as u64)
+            expected_values.push(999999 as u64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitInt {
@@ -3854,11 +3854,11 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_values = cxx::std::vector<u64>()
-            expected_values.push_back(0x0 as u64)
-            expected_values.push_back(0xFF as u64)
-            expected_values.push_back(0xDEADBEEF as u64)
-            expected_values.push_back(0x123ABC as u64)
+            var expected_values: [u64]
+            expected_values.push(0x0 as u64)
+            expected_values.push(0xFF as u64)
+            expected_values.push(0xDEADBEEF as u64)
+            expected_values.push(0x123ABC as u64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitInt {
@@ -3922,11 +3922,11 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_values = cxx::std::vector<u64>()
-            expected_values.push_back(0b0 as u64)
-            expected_values.push_back(0b1 as u64)
-            expected_values.push_back(0b1010 as u64)
-            expected_values.push_back(0b11110000 as u64)
+            var expected_values: [u64]
+            expected_values.push(0b0 as u64)
+            expected_values.push(0b1 as u64)
+            expected_values.push(0b1010 as u64)
+            expected_values.push(0b11110000 as u64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitInt {
@@ -3986,11 +3986,11 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_values = cxx::std::vector<u64>()
-            expected_values.push_back(0 as u64)
-            expected_values.push_back(7 as u64)
-            expected_values.push_back(0755 as u64)     // octal literal in C++
-            expected_values.push_back(01234567 as u64) // octal literal in C++
+            var expected_values: [u64]
+            expected_values.push(0 as u64)
+            expected_values.push(7 as u64)
+            expected_values.push(0755 as u64)     // octal literal in C++
+            expected_values.push(01234567 as u64) // octal literal in C++
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitInt {
@@ -4050,17 +4050,17 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_values = cxx::std::vector<u64>()
-            expected_values.push_back(1000 as u64)
-            expected_values.push_back(1000000 as u64)
-            expected_values.push_back(0xFFFF as u64)
-            expected_values.push_back(0b10101010 as u64)
+            var expected_values: [u64]
+            expected_values.push(1000 as u64)
+            expected_values.push(1000000 as u64)
+            expected_values.push(0xFFFF as u64)
+            expected_values.push(0b10101010 as u64)
 
-            var expected_bases = cxx::std::vector<u8>()
-            expected_bases.push_back(10 as u8)
-            expected_bases.push_back(10 as u8)
-            expected_bases.push_back(16 as u8)
-            expected_bases.push_back(2 as u8)
+            var expected_bases: [u8]
+            expected_bases.push(10 as u8)
+            expected_bases.push(10 as u8)
+            expected_bases.push(16 as u8)
+            expected_bases.push(2 as u8)
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitInt {
@@ -4119,20 +4119,20 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_values = cxx::std::vector<u64>()
-            expected_values.push_back(42 as u64)
-            expected_values.push_back(100 as u64)
-            expected_values.push_back(0xFF as u64)
+            var expected_values: [u64]
+            expected_values.push(42 as u64)
+            expected_values.push(100 as u64)
+            expected_values.push(0xFF as u64)
 
-            var expected_bits = cxx::std::vector<u16>()
-            expected_bits.push_back(8 as u16)
-            expected_bits.push_back(32 as u16)
-            expected_bits.push_back(64 as u16)
+            var expected_bits: [u16]
+            expected_bits.push(8 as u16)
+            expected_bits.push(32 as u16)
+            expected_bits.push(64 as u16)
 
-            var expected_unsigned = cxx::std::vector<u8>()
-            expected_unsigned.push_back(1) // u8
-            expected_unsigned.push_back(0) // i32
-            expected_unsigned.push_back(1) // u64
+            var expected_unsigned: [u8]
+            expected_unsigned.push(1) // u8
+            expected_unsigned.push(0) // i32
+            expected_unsigned.push(1) // u64
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitInt {
@@ -4462,13 +4462,13 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_bits = cxx::std::vector<u16>()
-            expected_bits.push_back(8 as u16)  // 255 fits in 8 bits
-            expected_bits.push_back(16 as u16) // 256 needs 9 bits -> 16
-            expected_bits.push_back(16 as u16) // 65535 fits in 16 bits
-            expected_bits.push_back(32 as u16) // 65536 needs 17 bits -> 32
-            expected_bits.push_back(32 as u16) // 0xFFFFFFFF fits in 32 bits
-            expected_bits.push_back(64 as u16) // 0x100000000 needs 33 bits -> 64
+            var expected_bits: [u16]
+            expected_bits.push(8 as u16)  // 255 fits in 8 bits
+            expected_bits.push(16 as u16) // 256 needs 9 bits -> 16
+            expected_bits.push(16 as u16) // 65535 fits in 16 bits
+            expected_bits.push(32 as u16) // 65536 needs 17 bits -> 32
+            expected_bits.push(32 as u16) // 0xFFFFFFFF fits in 32 bits
+            expected_bits.push(64 as u16) // 0x100000000 needs 33 bits -> 64
 
             for var i: usize = 0; i < expected_count; ++i {
                 var unsafe *imm = lexer->get_imm<Immediate::IntData>(
@@ -4521,11 +4521,11 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_values = cxx::std::vector<f64>()
-            expected_values.push_back(0.0 as f64)
-            expected_values.push_back(1.5 as f64)
-            expected_values.push_back(3.14159 as f64)
-            expected_values.push_back(123.456 as f64)
+            var expected_values: [f64]
+            expected_values.push(0.0 as f64)
+            expected_values.push(1.5 as f64)
+            expected_values.push(3.14159 as f64)
+            expected_values.push(123.456 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitFloat {
@@ -4601,10 +4601,10 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count * 2 - 1)
             }
 
-            var expected_values = cxx::std::vector<f64>()
-            expected_values.push_back(0.5 as f64)
-            expected_values.push_back(0.123 as f64)
-            expected_values.push_back(0.0 as f64)
+            var expected_values: [f64]
+            expected_values.push(0.5 as f64)
+            expected_values.push(0.123 as f64)
+            expected_values.push(0.0 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i * 2)->kind != TokenKind::LitFloat {
@@ -4666,12 +4666,12 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_values = cxx::std::vector<f64>()
-            expected_values.push_back(1e10 as f64)
-            expected_values.push_back(1e10 as f64)
-            expected_values.push_back(1.5e-3 as f64)
-            expected_values.push_back(2.0e5 as f64)
-            expected_values.push_back(1e3 as f64)
+            var expected_values: [f64]
+            expected_values.push(1e10 as f64)
+            expected_values.push(1e10 as f64)
+            expected_values.push(1.5e-3 as f64)
+            expected_values.push(2.0e5 as f64)
+            expected_values.push(1e3 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitFloat {
@@ -4738,10 +4738,10 @@ pub fn Test(bench: bool = false) -> i32 {
             // 0x1.0p0 = 1.0 * 2^0 = 1.0
             // 0x1.0p4 = 1.0 * 2^4 = 16.0
             // 0x1.0p-4 = 1.0 * 2^-4 = 0.0625
-            var expected_values = cxx::std::vector<f64>()
-            expected_values.push_back(1.0 as f64)
-            expected_values.push_back(16.0 as f64)
-            expected_values.push_back(0.0625 as f64)
+            var expected_values: [f64]
+            expected_values.push(1.0 as f64)
+            expected_values.push(16.0 as f64)
+            expected_values.push(0.0625 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitFloat {
@@ -4814,9 +4814,9 @@ pub fn Test(bench: bool = false) -> i32 {
 
             // 0xA.Bp+2 = (10 + 11/16) * 2^2 = 10.6875 * 4 = 42.75
             // 0xC.8p-1 = (12 + 8/16) * 2^-1 = 12.5 * 0.5 = 6.25
-            var expected_values = cxx::std::vector<f64>()
-            expected_values.push_back(42.75 as f64)
-            expected_values.push_back(6.25 as f64)
+            var expected_values: [f64]
+            expected_values.push(42.75 as f64)
+            expected_values.push(6.25 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
@@ -4874,15 +4874,15 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, expected_count)
             }
 
-            var expected_bits = cxx::std::vector<u32>()
-            expected_bits.push_back(32 as u32)
-            expected_bits.push_back(64 as u32)
-            expected_bits.push_back(128 as u32)
+            var expected_bits: [u32]
+            expected_bits.push(32 as u32)
+            expected_bits.push(64 as u32)
+            expected_bits.push(128 as u32)
 
-            var expected_values = cxx::std::vector<f64>()
-            expected_values.push_back(1.0 as f64)
-            expected_values.push_back(2.5 as f64)
-            expected_values.push_back(3.14 as f64)
+            var expected_values: [f64]
+            expected_values.push(1.0 as f64)
+            expected_values.push(2.5 as f64)
+            expected_values.push(3.14 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 if tokens->get(i)->kind != TokenKind::LitFloat {
@@ -4951,10 +4951,10 @@ pub fn Test(bench: bool = false) -> i32 {
                 return dump_tokens(tokens, 3)
             }
 
-            var expected_values = cxx::std::vector<f64>()
-            expected_values.push_back(1000.0)
-            expected_values.push_back(1.234567)
-            expected_values.push_back(123.456e78)
+            var expected_values: [f64]
+            expected_values.push(1000.0)
+            expected_values.push(1.234567)
+            expected_values.push(123.456e78)
 
             for var i: usize = 0; i < 3; ++i {
                 var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
@@ -5082,11 +5082,11 @@ pub fn Test(bench: bool = false) -> i32 {
             }
 
             // all should evaluate to their base value (exponent is 0)
-            var expected_values = cxx::std::vector<f64>()
-            expected_values.push_back(1.0 as f64)
-            expected_values.push_back(1.0 as f64)
-            expected_values.push_back(1.0 as f64)
-            expected_values.push_back(0.0 as f64)
+            var expected_values: [f64]
+            expected_values.push(1.0 as f64)
+            expected_values.push(1.0 as f64)
+            expected_values.push(1.0 as f64)
+            expected_values.push(0.0 as f64)
 
             for var i: usize = 0; i < expected_count; ++i {
                 var unsafe *imm = lexer->get_imm<Immediate::FloatData>(
@@ -7186,7 +7186,7 @@ pub fn Test(bench: bool = false) -> i32 {
     //
     // Seeds are built wide (f-strings are wide) but converted ONCE while still
     // small; the 1 GiB replication is narrow. See create_lexer_from_bytes.
-    var build_seed = fn (real: bool) -> cxx::std::string {
+    var build_seed = fn (real: bool) -> string {
         var wide = string()
 
         for var i: i32 = 0; i < 1000; ++i {
@@ -7200,7 +7200,7 @@ pub fn Test(bench: bool = false) -> i32 {
             " +/// \\returns the resolved declaration, or null when lookup fails outright\n" + f"inline priv fn resolve_declaration_reference_{i}(\n" + "    self,\n" + "    @inout resolution_context: NameResolutionContext,\n" + "    candidate_reference: obs::<UnresolvedIdentifierExpr>\n" + ") -> own::<ResolvedDeclaration> {\n" + "    var enclosing_lexical_scope = resolution_context.scope_chain().innermost();\n" + "\n" + "    if enclosing_lexical_scope == &null {\n" + "        self.diagnostic_engine->report(DiagCode(DiagID::R001E),\n" + "            candidate_reference->range.start,\n" + "            f\"unresolved identifier {candidate_reference} in this scope\")\n" + "            .first(candidate_reference->range).emit();\n" + "        return &null;\n" + "    }\n" + "\n" + "    var depth = enclosing_lexical_scope->depth() + 1;\n" + "    if (depth > 0) && (depth < 64) && !candidate_reference->is_synthetic {\n" + "        resolution_context.record(candidate_reference, depth * 2 - 1);\n" + "    }\n" + "\n" + "    switch candidate_reference->lookup_kind {\n" + "        case LookupKind::Ordinary {\n" + "            return enclosing_lexical_scope->lookup_ordinary::<ResolvedDeclaration>(\n" + "                candidate_reference->qualified_name);\n" + "        } case LookupKind::Qualified {\n" + "            return enclosing_lexical_scope->lookup_qualified::<ResolvedDeclaration>(\n" + "                candidate_reference->qualified_name);\n" + "        } default {\n" + "            return &null;\n" + "        }\n" + "    }\n" + "}\n" + "\n"
         }
 
-        return kairo::std::to_std_string(wide)
+        return wide
     }
 
     var mismatch = false
@@ -7211,19 +7211,14 @@ pub fn Test(bench: bool = false) -> i32 {
         // Linear appends into a pre-reserved buffer. Doubling would overshoot
         // the target and force a realloc-copy of the whole buffer on the last
         // append.
-        var hot_code = cxx::std::string()
+        var hot_code: string
         hot_code.reserve(HOT_TARGET + seed.size())
         while hot_code.size() < HOT_TARGET {
             hot_code += seed
         }
 
         var hot_size = hot_code.size()
-        var hot_res = create_lexer_from_bytes(
-            cxx::std::move(hot_code),
-            sm,
-            pool,
-            test_diag_p,
-        )
+        var hot_res  = create_lexer_from_bytes(hot_code, sm, pool, test_diag_p)
 
         var unsafe *hot_lexer = hot_res.0
         var        hot_fid    = hot_res.1

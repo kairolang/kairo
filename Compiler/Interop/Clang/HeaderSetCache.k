@@ -51,7 +51,7 @@ pub class HeaderSetCache {
     /// request() only records a list (a view); start_shared() parses their
     /// union. -fno-shared-header-set keeps one parse per list.
     priv var _shared_mode: bool                                = true
-    priv var _pending:     cxx::std::vector<unsafe *HeaderSet>
+    priv var _pending:     [unsafe *HeaderSet]
 
     fn HeaderSetCache(self, be: unsafe *ClangBackend, pool: *ThreadPool, shared: bool) {
         self._be          = be
@@ -114,7 +114,7 @@ pub class HeaderSetCache {
         self._sets.try_emplace(kairo::sref(key), hs)
 
         if self._shared_mode {
-            self._pending.push_back(hs) // parsed by start_shared, with the others.
+            self._pending.push(hs) // parsed by start_shared, with the others.
             return hs
         }
 
@@ -173,10 +173,10 @@ pub class HeaderSetCache {
     /// imported both as C and as C++, or when the union fails to
     /// parse (its diagnostics are dropped; the per-list parses report).
     pub fn start_shared(self) {
-        var views = cxx::std::vector<unsafe *HeaderSet>()
+        var views: [unsafe *HeaderSet]
         {
             var lock = kairo::std::LockGuard(self._mu)
-            views = self._pending
+            views = self._pending.copy()
             self._pending.clear()
         }
 
@@ -189,10 +189,10 @@ pub class HeaderSetCache {
             return
         }
 
-        llvm::sort(
-            views.begin(),
-            views.end(),
-            fn (a: unsafe *const HeaderSet, b: unsafe *const HeaderSet) || -> bool = a->key < b->key,
+        views.sort_by(
+            fn (a: *const (unsafe *HeaderSet), b: *const (unsafe *HeaderSet)) -> Ordering {
+                return (*a)->key <=> (*b)->key
+            },
         )
 
         var u_headers = cxx::std::vector<string>()
@@ -249,9 +249,7 @@ pub class HeaderSetCache {
             self._sets.try_emplace(kairo::sref(u->key), u)
         }
 
-        var unsafe *job = kairo::std::create<cxx::std::vector<unsafe *HeaderSet>>(
-            views,
-        )
+        var unsafe *job = kairo::std::create<[unsafe *HeaderSet]>(views.copy())
 
         var unsafe *be  = self._be
         var        *me  = &self

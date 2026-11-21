@@ -310,29 +310,28 @@ pub class ClangJobs {
     /// combined -I<dir>, after the command line's own -I, so its LAST match
     /// is the one removed; the others are -c-isystem / -cxx-isystem pairs,
     /// which nothing else in a Kairo line spells.
-    priv static fn _env_drops(cmd:   unsafe *clang::driver::Command,
-                              strip: bool) -> cxx::std::vector<u8> {
+    priv static fn _env_drops(cmd: unsafe *clang::driver::Command, strip: bool) -> [u8] {
         var n    = cmd->getArguments().size()
-        var drop = cxx::std::vector<u8>()
+        var drop: [u8]
         for var k: usize = 0; k < n; ++k {
-            drop.push_back(0)
+            drop.push(0)
         }
 
         if !strip {
             return drop
         }
 
-        var sys = cxx::std::vector<string>()
+        var sys: [string]
         for var d in HostSystem::env_list(EnvNames::c_include_path()) {
-            sys.push_back(d.copy())
+            sys.push(d.copy())
         }
 
         for var d in HostSystem::env_list(EnvNames::cplus_include_path()) {
-            sys.push_back(d.copy())
+            sys.push(d.copy())
         }
 
         for var d in HostSystem::env_list(EnvNames::objc_include_path()) {
-            sys.push_back(d.copy())
+            sys.push(d.copy())
         }
 
         for var k: usize = 1; k < n; ++k {

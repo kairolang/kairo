@@ -285,9 +285,9 @@ pub class ScopeStack {
 pub class PendingAnnotations {
     type VisAnnotation = VisibilityAnnotation<Decl>
 
-    pub var visibility: VisibilityKind = VisibilityKind::None
-    pub var vis_range: SourceRange = SourceRange::invalid()
-    pub var entries: cxx::std::vector<AnnotationEntry>
+    pub var visibility: VisibilityKind    = VisibilityKind::None
+    pub var vis_range:  SourceRange       = SourceRange::invalid()
+    pub var entries:    [AnnotationEntry]
 
     fn PendingAnnotations(self) {
         self.entries.reserve(4)
@@ -295,7 +295,7 @@ pub class PendingAnnotations {
 
     /// returns true if no annotations or visibility modifiers are buffered.
     fn empty(self) -> bool {
-        return self.entries.empty() && self.visibility == VisibilityKind::None
+        return self.entries.is_empty() && self.visibility == VisibilityKind::None
     }
 
     /// appends a standard `@annotation` to the buffer.
@@ -305,7 +305,7 @@ pub class PendingAnnotations {
     /// - `name`: the identifier associated with the annotation.
     /// - `range`: source range covering the `@` through the closing delimiter.
     fn add(self, kind: AnnotationKind, name: u32, range: SourceRange) {
-        self.entries.push_back(AnnotationEntry(kind, name, range))
+        self.entries.push(AnnotationEntry(kind, name, range))
     }
 
     /// appends an `@attr(...)` with already-frozen args.
@@ -313,7 +313,7 @@ pub class PendingAnnotations {
         var e = AnnotationEntry(AnnotationKind::Attribute, name, range)
         e.args = args
 
-        self.entries.push_back(e)
+        self.entries.push(e)
     }
 
     /// records a visibility modifier (pub, prot, priv).

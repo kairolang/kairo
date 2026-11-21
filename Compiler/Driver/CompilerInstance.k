@@ -224,8 +224,6 @@ import Sema::Incremental::Plan::{
     incr_plan_verify,
 }
 import Sema::Type::PanicSets::PanicTypeIds
-import Support::Ascii::copy_strings
-import Support::Ascii::string_less
 import Support::ExitCodes::EXIT_FAILURE
 import Support::FileIO::Path::Path
 import Support::FileIO::VirtualFileManager::VirtualFileManager
@@ -278,12 +276,12 @@ pub class CompilerInstance {
     priv var _builtins: unsafe *BuiltinImport      = &null ///< clang builtins as foreign decls, build-wide; owned
     /// P001W message/note pairs from _discover_roots and _check_sysroot,
     /// reported by initialize() (_report_root_warnings).
-    prot var _root_warnings: cxx::std::vector<string>
-    prot var _link_out:      string                   = "" ///< executable/library path; "" = this run does not link
+    prot var _root_warnings: [string]
+    prot var _link_out:      string   = "" ///< executable/library path; "" = this run does not link
     /// The command line as given (argv, or kcc's words): incremental
     /// Sema keys the whole of it (Driver/ModuleRecords.k). Empty for an
     /// instance built from an invocation, which then never records.
-    pub var incr_words: cxx::std::vector<string>
+    pub var incr_words: [string]
     /// Incremental Sema, phase 2: the records this run checks and writes.
     /// The FrontendAction adds its modules, object keys and header files.
     pub var incr: ModuleRecords
@@ -321,30 +319,30 @@ pub class CompilerInstance {
     prot var _sysroot_status: i32 = 0
     /// The Kairo library's objects for this link (_kairo_lib): lazily, after
     /// everything else (LinkJob::lazy_objects).
-    prot var _lib_lazy: cxx::std::vector<string>
+    prot var _lib_lazy: [string]
     /// The same objects as an archive, for a MinGW link; "" otherwise.
     prot var _lib_archive: string
     /// The library build's entry file (_build_kairo_lib).
     prot var _lib_text: string = "pub import std\n"
     /// The bytes of the placeholder that takes fid 0 (_kairo_order).
-    prot var _fid0_text:   string                   = "\n"
-    prot var _native_objs: cxx::std::vector<string> ///< objects from _compile_sources / _compile_runtime, in order
+    prot var _fid0_text:   string   = "\n"
+    prot var _native_objs: [string] ///< objects from _compile_sources / _compile_runtime, in order
     // _start_runtime's work list, read by _finish_runtime (the runtime
     // compiles on the pool during Sema). Parallel vectors, one row per source.
     prot var _rt_invs:  cxx::std::vector<cxx::std::shared_ptr<clang::CompilerInvocation>>
-    prot var _rt_objs:  cxx::std::vector<string>
-    prot var _rt_logs:  cxx::std::vector<string>
-    prot var _rt_oks:   cxx::std::vector<u8> // not vec<bool>: its bits share bytes across threads
-    prot var _rt_ents:  cxx::std::vector<string> // the cache entry a compiled object is stored to; "" for none
-    prot var _rt_used:  cxx::std::vector<string> // the cache entries this run fetched or stored: _rt_cache_gc keeps them
+    prot var _rt_objs:  [string]
+    prot var _rt_logs:  [string]
+    prot var _rt_oks:   [u8] // not vec<bool>: its bits share bytes across threads
+    prot var _rt_ents:  [string] // the cache entry a compiled object is stored to; "" for none
+    prot var _rt_used:  [string] // the cache entries this run fetched or stored: _rt_cache_gc keeps them
     prot var _rt_cache: string
-    prot var _rt_started:        bool                     = false
-    prot var _rt_prestart_tried: bool                     = false
-    prot var _link_inputs:       cxx::std::vector<string> ///< .o/.a/.so given on the command line, in order
+    prot var _rt_started:        bool     = false
+    prot var _rt_prestart_tried: bool     = false
+    prot var _link_inputs:       [string]         ///< .o/.a/.so given on the command line, in order
     /// Every command-line input, classified once by _plan_outputs (in
     /// command-line order, with the -x each was given under). execute() and
     /// the output rules read this; nothing re-derives a kind from a path.
-    prot var _inputs: cxx::std::vector<InputKind>
+    prot var _inputs: [InputKind]
 
     /// # CLI state
     ///   The invocation IS the CLI state. Flag-level queries go through
@@ -376,7 +374,7 @@ pub class CompilerInstance {
         self._cmd = kairo::std::create<Command>(argc, argv, self._diag)
         register_kairo_flags(self._cmd)
         for var i: i32 = 0; i < argc; ++i {
-            self.incr_words.push_back(
+            self.incr_words.push(
                 string::from_bytes_unchecked(
                     unsafe ((argv[i] as unsafe *const u8) as *const u8),
                     cxx::std::strlen(argv[i]),
@@ -403,9 +401,9 @@ pub class CompilerInstance {
         self._cmd = kairo::std::create<Command>(0, &null, self._diag)
         register_kairo_flags(self._cmd)
         // A leading placeholder: setup() skips word 0, argv's program name.
-        self.incr_words.push_back("kcc")
+        self.incr_words.push("kcc")
         for *w in words {
-            self.incr_words.push_back(w->copy())
+            self.incr_words.push(w->copy())
         }
 
         var parsed = self._cmd->parse_words(&words)
@@ -1205,9 +1203,9 @@ pub class CompilerInstance {
     /// --type-check-only): anything else the frontend writes or
     /// prints (a dump, an .s beside the link, the `kairo: wrote`
     /// lines) would be missing from a replay.
-    priv fn _incr_ineligible(self, order: *cxx::std::vector<InputKind>) -> string {
+    priv fn _incr_ineligible(self, order: *[InputKind]) -> string {
         var *fe = &self.invocation()->frontend
-        if self.incr_words.empty() {
+        if self.incr_words.is_empty() {
             return "no command line"
         }
 
@@ -1273,7 +1271,7 @@ pub class CompilerInstance {
 
     /// sets the records up for this run and decides: true when the
     /// frontend is skipped (a hit, without --incr-verify).
-    priv fn _incr_begin(self, order: *cxx::std::vector<InputKind>) -> bool {
+    priv fn _incr_begin(self, order: *[InputKind]) -> bool {
         var *fe = &self.invocation()->frontend
         if LinkFS::env(EnvNames::kairo_incr_sema()) == "1" {
             fe->incremental_sema = true
@@ -1344,7 +1342,7 @@ pub class CompilerInstance {
         var tr = TUResult()
         tr.path        = Path(path).full_path()
         tr.stage       = TUStage::Done
-        tr.objects     = copy_strings(self.incr.old_objects)
+        tr.objects     = self.incr.old_objects.copy()
         tr.ffi_pthread = self.incr.old_pthread
         tr.warn_count  = self.incr.old_warns
         if renders_through_basic(self.invocation()->diag.error_format) {
@@ -1456,12 +1454,12 @@ pub class CompilerInstance {
                 f"incremental: plan: re-check {plan.mods.size()} of {now->size()} modules",
             )
 
-            var lines = cxx::std::vector<string>()
+            var lines: [string]
             for var i: usize = 0; i < plan.mods.size(); ++i {
-                lines.push_back(plan.mods[i].copy() + ": " + plan.why[i])
+                lines.push(plan.mods[i].copy() + ": " + plan.why[i])
             }
 
-            llvm::sort(lines.begin(), lines.end(), string_less)
+            lines.sort()
             for *l in lines {
                 io::println(f"incremental: plan:   {*l}")
             }
@@ -1508,13 +1506,13 @@ pub class CompilerInstance {
         var n1 = if (basic) => (self._basic->count()) else => self._pretty->count()
         var text = if (basic) => (self._basic->render_range(self.incr.diag0, n1))
                    else => self._pretty->render_range(self.incr.diag0, n1)
-        var warns = self._diag->warn_count() - self.incr.warns0
-        var objs  = cxx::std::vector<string>()
-        var pth   = false
-        var done  = true
+        var warns          = self._diag->warn_count() - self.incr.warns0
+        var objs: [string]
+        var pth            = false
+        var done           = true
         for *tr in result->tu_results {
             for *o in tr->objects {
-                objs.push_back(o->copy())
+                objs.push(o->copy())
             }
 
             if tr->ffi_pthread {
@@ -1573,7 +1571,7 @@ pub class CompilerInstance {
         // A run that stopped before Sema has nothing to record, and the
         // records of the last run that got there stay.
         var errs = self._diag->error_count() > 0 || !done
-        if result->aborted || self.incr.mod_names.empty() {
+        if result->aborted || self.incr.mod_names.is_empty() {
             return
         }
 
@@ -1597,7 +1595,7 @@ pub class CompilerInstance {
                 )
             }
 
-            self.incr.sources.push_back(
+            self.incr.sources.push(
                 SourceRead { path: name.copy(), hash: h.copy() },
             )
         }
@@ -1682,8 +1680,8 @@ pub class CompilerInstance {
 
         // C and C++ inputs are not Kairo TUs: they compile after every Kairo
         // file, through the same clang backend (_compile_sources, through clang's driver).
-        var natives             = cxx::std::vector<InputKind>()
-        var kairo_inputs: usize = 0
+        var natives:      [InputKind]
+        var kairo_inputs: usize       = 0
 
         // Every input is compiled even after one fails, as clang does with
         // several: each reports its own errors, and the batch fails if any
@@ -1700,18 +1698,18 @@ pub class CompilerInstance {
         for *k in order {
             var path_str = k->path.copy()
             if k->cls == InputClass::LinkInput {
-                self._link_inputs.push_back(path_str)
+                self._link_inputs.push(path_str)
                 continue
             }
 
             if k->cls == InputClass::Source || k->cls == InputClass::Header {
-                natives.push_back(k->copy())
+                natives.push(k->copy())
                 continue
             }
 
             kairo_inputs += 1
             if incr_hit {
-                result.tu_results.push_back(self._incr_replay(path_str))
+                result.tu_results.push(self._incr_replay(path_str))
                 continue
             }
 
@@ -1738,7 +1736,7 @@ pub class CompilerInstance {
                 result.aborted = true
             }
 
-            result.tu_results.push_back(cxx::std::move(action->result))
+            result.tu_results.push(move(action->result))
         }
 
         self._incr_end(&result, incr_hit)
@@ -1802,7 +1800,7 @@ pub class CompilerInstance {
             if self._obj_tmp && !self.invocation()->linker.save_temps {
                 LinkFS::remove_tree(self._obj_dir)
             }
-        } else if !self._link_inputs.empty() {
+        } else if !self._link_inputs.is_empty() {
             for *p in self._link_inputs {
                 self._diag->report(
                     DiagID::L006W,

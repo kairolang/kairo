@@ -198,8 +198,8 @@ extend CompilerInstance {
 
         var darwin = tri.isOSDarwin()
 
-        var root  = sr.copy()
-        var dirs  = cxx::std::vector<string>()
+        var root           = sr.copy()
+        var dirs: [string]
         var mpath = LinkText::join(sr.copy(), SysrootManifest::file_name())
         if LinkFS::is_file(mpath) {
             var m = SysrootManifest()
@@ -212,7 +212,7 @@ extend CompilerInstance {
             }
 
             for *d in m.include_dirs {
-                dirs.push_back(LinkText::join(root.copy(), d->copy()))
+                dirs.push(LinkText::join(root.copy(), d->copy()))
             }
 
             for *d in m.cc_defines {
@@ -221,8 +221,8 @@ extend CompilerInstance {
 
             bcfg.clang_triple = m.clang_triple.copy()
         } else if darwin {
-            dirs.push_back(LinkText::join(sr.copy(), "usr/include/c++/v1"))
-            dirs.push_back(LinkText::join(sr.copy(), "usr/include"))
+            dirs.push(LinkText::join(sr.copy(), "usr/include/c++/v1"))
+            dirs.push(LinkText::join(sr.copy(), "usr/include"))
         } else {
             return
         }
@@ -1566,8 +1566,8 @@ extend CompilerInstance {
     }
 
     priv fn _queue_root_warning(self, const msg: string, const note: string) {
-        self._root_warnings.push_back(msg.copy())
-        self._root_warnings.push_back(note.copy())
+        self._root_warnings.push(msg.copy())
+        self._root_warnings.push(note.copy())
     }
 
     /// The warnings _discover_roots and _check_sysroot queued, reported once

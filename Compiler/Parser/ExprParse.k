@@ -137,7 +137,7 @@ pub class <T: type> ExprParse {
 
     /// `if`/`try` expressions written inside grouping `( )`; see
     /// _was_parenthesized.
-    priv var _parened_open: cxx::std::vector<unsafe *Expr>
+    priv var _parened_open: [unsafe *Expr]
 
     /// 1 + the token index at which a `try` would be the bare operand or
     /// catch-arm value of an enclosing `try`; 0 when there is none. See
@@ -3719,7 +3719,7 @@ pub class <T: type> ExprParse {
             if isa<Expressions::IfExpr>(first)
                 || isa<Expressions::TryCatchExpr>(first)
                 || isa<Expressions::BinaryOperatorExpr>(first) {
-                self._parened_open.push_back(first)
+                self._parened_open.push(first)
             }
 
             return first

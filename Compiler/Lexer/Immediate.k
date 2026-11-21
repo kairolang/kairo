@@ -1306,13 +1306,13 @@ pub class ImmediateTable {
     /// Owned bytes of minted literal bodies (intern_bytes_copy). Not
     /// strings: a byte literal's body need not be UTF-8, and a string
     /// holds UTF-8 only on every builtin library.
-    var synth_bytes: unsafe *ArenaList<cxx::std::vector<u8>> = &null
+    var synth_bytes: unsafe *ArenaList<[u8]> = &null
     ///  (no backing source buffer); ArenaList
     ///  never moves, so raw() ptrs stay stable.
-    var ident_buckets:  cxx::std::vector<Immediate::InternBucket> ///< open-addressed (hash -> idx) table
-    var ident_mask:     u32                                       = 0 ///< bucket capacity - 1 (power of two); 0 = uninitialized
-    var ident_live:     u32                                       = 0 ///< number of occupied buckets (load factor)
-    var source_manager: unsafe *SourceManager                     = &null
+    var ident_buckets:  [Immediate::InternBucket] ///< open-addressed (hash -> idx) table
+    var ident_mask:     u32                       = 0 ///< bucket capacity - 1 (power of two); 0 = uninitialized
+    var ident_live:     u32                       = 0 ///< number of occupied buckets (load factor)
+    var source_manager: unsafe *SourceManager     = &null
 
     /// number of evaluate() calls currently in flight against this table.
     ///
@@ -1734,25 +1734,23 @@ pub class ImmediateTable {
     pub fn intern_bytes_copy(self, data: kairo::std::ConstPtr<u8>, len: usize) -> u32 {
         var wlock = kairo::std::LockGuard(self._ident_mu)
         if self.synth_bytes == &null {
-            self.synth_bytes = kairo::std::create<ArenaList<cxx::std::vector<u8>>>(
-                64,
-            )
+            self.synth_bytes = kairo::std::create<ArenaList<[u8]>>(64)
         }
 
         var        idx   = self.create<Immediate::StringData>()
         var unsafe *slot = self.get<Immediate::StringData>(idx)
 
         // A trailing NUL keeps data() valid for an empty body.
-        var bytes = cxx::std::vector<u8>()
+        var bytes: [u8]
         bytes.reserve(len + 1)
         for var i: usize = 0; i < len; ++i {
-            bytes.push_back(unsafe (data[i]) as u8)
+            bytes.push(unsafe (data[i]) as u8)
         }
 
-        bytes.push_back(0)
+        bytes.push(0)
         var unsafe *stored = self.synth_bytes->push(bytes)
 
-        slot->owned_ptr   = unsafe (stored->data() as kairo::std::ConstPtr<u8>)
+        slot->owned_ptr   = unsafe (unwrap!(stored->data()) as kairo::std::ConstPtr<u8>)
         slot->owned_len   = (len as u32)
         slot->prefix_kind = FlagSet<Immediate::TextPrefixKind, u8>()
         return idx
@@ -1820,21 +1818,26 @@ pub class ImmediateTable {
 
         var new_mask: u32 = new_cap - 1
 
-        var fresh = cxx::std::vector<Immediate::InternBucket>()
-        fresh.resize(new_cap as usize) // default-constructed => empty
+        var fresh: [Immediate::InternBucket]
+        fresh.reserve(new_cap as usize)
+        for var i: usize = 0; i < (new_cap as usize); ++i {
+            fresh.push(Immediate::InternBucket()) // default-constructed => empty
+        }
 
         for var i: usize = 0; i < self.ident_buckets.size(); ++i {
-            var ob = self.ident_buckets[i]
-            if ob.idx == u32::MAX {
+            var ob_hash = self.ident_buckets[i].hash
+            var ob_idx  = self.ident_buckets[i].idx
+            if ob_idx == u32::MAX {
                 continue
             }
 
-            var slot = ob.hash & new_mask
+            var slot = ob_hash & new_mask
             while fresh[slot as usize].idx != u32::MAX {
                 slot = slot + 1 & new_mask
             }
 
-            fresh[slot as usize] = ob
+            fresh[slot as usize].hash = ob_hash
+            fresh[slot as usize].idx  = ob_idx
         }
 
         self.ident_buckets = fresh

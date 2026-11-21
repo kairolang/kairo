@@ -126,13 +126,12 @@ extend CompilerInstance {
 
         var bfid = gs->builtin_fid()
         if bfid != u32::MAX && in_graph.contains(bfid as u64) {
-            var seen  = llvm::DenseSet<u64>()
-            var stack = cxx::std::vector<u32>()
-            stack.push_back(bfid)
+            var seen         = llvm::DenseSet<u64>()
+            var stack: [u32]
+            stack.push(bfid)
             seen.insert(bfid as u64)
-            while !stack.empty() {
-                var f = stack.back()
-                stack.pop_back()
+            while !stack.is_empty() {
+                var f = stack.remove(stack.size() - 1)
                 if broken.contains(f as u64) {
                     return false
                 }
@@ -151,7 +150,7 @@ extend CompilerInstance {
                     var t = e->target_fid as u64
                     if in_graph.contains(t) && !seen.contains(t) {
                         seen.insert(t)
-                        stack.push_back(e->target_fid)
+                        stack.push(e->target_fid)
                     }
                 }
             }

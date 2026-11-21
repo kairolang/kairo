@@ -157,18 +157,8 @@ import Driver::CompilerNative
 import Driver::CompilerRecovery
 import Driver::ObjectCache::ObjectCache
 import Driver::Progress::{
-    PROGRESS_CODEGEN,
-    PROGRESS_EMIT,
-    PROGRESS_IRGEN,
-    PROGRESS_OPT,
-    PROGRESS_PARSE,
-    PROGRESS_SEMA,
-    progress_begin,
-    progress_end,
-    progress_finish,
-    progress_on,
-    progress_reuse,
-    progress_tick,
+    PROGRESS_CODEGEN, PROGRESS_EMIT, PROGRESS_IRGEN,  PROGRESS_OPT, PROGRESS_PARSE, PROGRESS_SEMA,
+    progress_begin,   progress_end,  progress_finish, progress_on,  progress_reuse, progress_tick,
 }
 import Driver::TUResult::TUResult
 import Driver::TUStage::TUStage
@@ -267,7 +257,7 @@ pub class FrontendAction {
     /// Registry entries the last retract() re-armed (refresh() checks that
     /// its Sema made each live again).
     priv var _rearmed:     cxx::std::vector<unsafe *InstanceEntry>
-    priv var _rearmed_was: cxx::std::vector<string> ///< parallel: what each was, for the reason
+    priv var _rearmed_was: [string] ///< parallel: what each was, for the reason
     /// More about the last refresh()'s refusal (which instance), for a log.
     pub var refresh_detail: string = ""
 
@@ -284,15 +274,15 @@ pub class FrontendAction {
     ///    (`_tt_old_i`), whichever slice re-reads it.
     pub var  tiered:     bool                                    = false
     priv var _tt_sets:   cxx::std::vector<cxx::std::vector<u32>>
-    priv var _rearm_set: cxx::std::vector<u64> ///< parallel to _rearmed: its retraction's set
-    priv var _rearm_ok:  cxx::std::vector<u8> ///< parallel: used again by that set, or dropped
+    priv var _rearm_set: [u64] ///< parallel to _rearmed: its retraction's set
+    priv var _rearm_ok:  [u8] ///< parallel: used again by that set, or dropped
     priv var _tt_old_i:  llvm::StringMap<u32>
-    priv var _tt_old_v:  cxx::std::vector<string>
+    priv var _tt_old_v:  [string]
     priv var _tt_old_f:  llvm::DenseSet<u64> ///< files whose old hashes are in _tt_old_i
     /// RetractStats::first_* of every retraction since the last tier_finish.
-    priv var _tt_first_prim:  cxx::std::vector<u64>
-    priv var _tt_first_fid:   cxx::std::vector<u32>
-    priv var _tt_first_entry: cxx::std::vector<unsafe *InstanceEntry>
+    priv var _tt_first_prim:  [u64]
+    priv var _tt_first_fid:   [u32]
+    priv var _tt_first_entry: [unsafe *InstanceEntry]
     priv var _graph:          cxx::std::vector<u32> ///< every fid of the graph, an earlier input's too
     pub var  result:          TUResult
     priv var _stage:          TUStage
@@ -520,7 +510,7 @@ pub class FrontendAction {
 
         var all = cxx::std::vector<unsafe *InstanceEntry>()
         self._global_scope->instances()->collect(&all)
-        var rows = cxx::std::vector<string>()
+        var rows: [string]
         for var i: usize = 0; i < all.size(); ++i {
             var unsafe *e = all[i]
             if !ids->is_panic(e->primary) || e->type_ids.size() == 0 {
@@ -542,7 +532,7 @@ pub class FrontendAction {
             }
 
             var at = rows.size()
-            rows.push_back(r.copy())
+            rows.push(r.copy())
             while at > 0 && r < rows[at - 1] {
                 rows[at] = rows[at - 1].copy()
                 at -= 1
@@ -716,13 +706,13 @@ pub class FrontendAction {
         // never walks one), but a fid is only a number: filter anyway, because a
         // header TU reaching ASTParse would lex C++ as Kairo and overwrite the TU
         // Sema/Foreign filled.
-        var fids = cxx::std::vector<u32>()
+        var fids: [u32]
         for var f: u32 in self._fids {
             if self._ci->is_foreign_fid(f) {
                 continue
             }
 
-            fids.push_back(f)
+            fids.push(f)
         }
 
         // --syntax-only: the closure is indexed (the parser's disambiguation
@@ -1490,7 +1480,7 @@ pub class FrontendAction {
         if self._ci->incr.on {
             for var hs: unsafe *HeaderSet in self._graph_header_sets() {
                 for var i: usize = 0; i < hs->files.size(); ++i {
-                    self._ci->incr.hdr_files.push_back(hs->files[i].path.copy())
+                    self._ci->incr.hdr_files.push(hs->files[i].path.copy())
                 }
             }
         }
@@ -1791,8 +1781,8 @@ pub class FrontendAction {
         // declarations' interface hashes are kept by DeclId: a record whose
         // C++ stand-in is adopted must still have the layout it was
         // declared with.
-        var old_i = llvm::StringMap<u32>()
-        var old_v = cxx::std::vector<string>()
+        var old_i           = llvm::StringMap<u32>()
+        var old_v: [string]
         for var i: usize = 0; i < self._incr.size(); ++i {
             var mine = false
             for var fid: u32 in fids {
@@ -1827,11 +1817,11 @@ pub class FrontendAction {
         self._incr = kept
 
         // Import order over the whole graph, cut down to the files asked for.
-        var order = cxx::std::vector<u32>()
+        var order: [u32]
         for var f: u32 in self._import_order() {
             for var fid: u32 in fids {
                 if f == fid {
-                    order.push_back(f)
+                    order.push(f)
                 }
             }
         }
@@ -1944,8 +1934,8 @@ pub class FrontendAction {
         // its layout, has to be the one it had.
         var unsafe *freg = self._ci->foreign_registry()
         if freg != &null && freg->adopted.size() > 0 {
-            var new_i = llvm::StringMap<u32>()
-            var new_v = cxx::std::vector<string>()
+            var new_i           = llvm::StringMap<u32>()
+            var new_v: [string]
             for var i: usize = 0; i < self._incr.size(); ++i {
                 // In slices, the record may have been re-read by an earlier
                 // one: every file a retraction named, as it stands.
@@ -2142,9 +2132,19 @@ pub class FrontendAction {
     /// imports; in this order the first file's group imports nothing else
     /// of the list.
     pub fn group_order_of(self, const fids: cxx::std::vector<u32>) -> cxx::std::vector<u32> {
+        var order: [u32]
+        for *f in self.order_of(fids) {
+            order.push(*f)
+        }
+
         var groups = ImportGroups()
-        groups.build(self.order_of(fids), self._global_scope)
-        return groups.fids
+        groups.build(order, self._global_scope)
+        var out = cxx::std::vector<u32>()
+        for *f in groups.fids {
+            out.push_back(*f)
+        }
+
+        return out
     }
 
     /// KAIRO_LIVE_DEBUG: the stores retract() purges hold nothing of a
@@ -2341,7 +2341,7 @@ pub class FrontendAction {
             self._rearmed = st.rearmed_list
             self._rearmed_was.clear()
             for var i: usize = 0; i < st.rearmed_was.size(); ++i {
-                self._rearmed_was.push_back(st.rearmed_was[i].copy())
+                self._rearmed_was.push(st.rearmed_was[i].copy())
             }
 
             return st
@@ -2361,17 +2361,17 @@ pub class FrontendAction {
         }
 
         for var i: usize = 0; i < st.first_prim.size(); ++i {
-            self._tt_first_prim.push_back(st.first_prim[i])
-            self._tt_first_fid.push_back(st.first_fid[i])
-            self._tt_first_entry.push_back(st.first_entry[i])
+            self._tt_first_prim.push(st.first_prim[i])
+            self._tt_first_fid.push(st.first_fid[i])
+            self._tt_first_entry.push(st.first_entry[i])
         }
 
         self._tt_sets.push_back(set)
         for var i: usize = 0; i < st.rearmed_list.size(); ++i {
             self._rearmed.push_back(st.rearmed_list[i])
-            self._rearmed_was.push_back(st.rearmed_was[i].copy())
-            self._rearm_set.push_back((self._tt_sets.size() - 1) as u64)
-            self._rearm_ok.push_back(0 as u8)
+            self._rearmed_was.push(st.rearmed_was[i].copy())
+            self._rearm_set.push((self._tt_sets.size() - 1) as u64)
+            self._rearm_ok.push(0 as u8)
         }
 
         return st
@@ -2624,9 +2624,9 @@ pub class FrontendAction {
     /// error, and reached codegen untyped. A fid is placed once each fid it imports (in this graph)
     /// is placed; imports are acyclic, but should a pass place nothing the rest
     /// go in the old reverse order rather than be dropped.
-    priv fn _import_order(self) -> cxx::std::vector<u32> {
-        var n     = self._fids.size()
-        var order = cxx::std::vector<u32>()
+    priv fn _import_order(self) -> [u32] {
+        var n            = self._fids.size()
+        var order: [u32]
         // Membership only (order comes from the _fids walk). Keyed by the fid
         // WIDENED: an import edge's target_fid can be u32(-1), DenseSet<u32>'s
         // empty key, and even a find with it asserts.
@@ -2674,7 +2674,7 @@ pub class FrontendAction {
                     continue
                 }
 
-                order.push_back(fid)
+                order.push(fid)
                 placed.insert(fid as u64)
                 progressed = true
             }
@@ -2689,7 +2689,7 @@ pub class FrontendAction {
                 for var i: usize = 0; i < n; ++i {
                     var fid = self._fids[n - 1 - i]
                     if placed.find(fid) == placed.end() {
-                        order.push_back(fid)
+                        order.push(fid)
                         placed.insert(fid)
                         break
                     }
@@ -2835,12 +2835,12 @@ pub class FrontendAction {
         // ahead of what imports it, except around a cycle: a builtin file the
         // root imports that itself imports alloc.k (which names `T?`) put
         // alloc.k first, and NullTestLowering ICEd on the missing layout.
-        var order = cxx::std::vector<usize>()
+        var order: [usize]
         for var i: usize = 0; i < sems.size(); ++i {
             var unsafe *en = sems[i]->sc.nullable_enum()
             var unsafe *home = if (en != &null) => (tu_of(en->semantic_dc)) else => &null
             if home != &null && home == sems[i]->sc.tu {
-                order.push_back(i)
+                order.push(i)
                 break
             }
         }
@@ -2850,7 +2850,7 @@ pub class FrontendAction {
                 continue
             }
 
-            order.push_back(i)
+            order.push(i)
         }
 
         for var oi: usize = 0; oi < order.size(); ++oi {
@@ -3142,9 +3142,9 @@ pub class FrontendAction {
             }
         }
 
-        var slots   = cxx::std::vector<unsafe *SemaSlot>()
-        var maxdep  = cxx::std::vector<usize>() ///< 1 + the last group it imports; 0 for none.
-        var barrier = cxx::std::vector<u8>()
+        var slots:   [unsafe *SemaSlot]
+        var maxdep:  [usize]            ///< 1 + the last group it imports; 0 for none.
+        var barrier: [u8]
         for var g: usize = 0; g < m; ++g {
             var unsafe *slot = kairo::std::create<SemaSlot>()
             slot->rank = group_rank(rank_base, g as u64)
@@ -3193,9 +3193,9 @@ pub class FrontendAction {
             }
 
             slot->front = kairo_tus >= 1 && !serial
-            slots.push_back(slot)
-            maxdep.push_back(dep)
-            barrier.push_back(
+            slots.push(slot)
+            maxdep.push(dep)
+            barrier.push(
                 if (kairo_tus > 0 && serial) => (1 as u8) else => (0 as u8),
             )
         }
@@ -3402,16 +3402,15 @@ pub class FrontendAction {
         // THIS action claimed, and a TU an earlier input already analysed (and
         // reported) is one this graph imports but does not own.
         {
-            var seen  = llvm::DenseSet<u64>()
-            var stack = cxx::std::vector<u32>()
+            var seen         = llvm::DenseSet<u64>()
+            var stack: [u32]
             for var fid: u32 in self._fids {
-                stack.push_back(fid)
+                stack.push(fid)
                 seen.insert(fid as u64)
             }
 
             while stack.size() > 0 {
-                var fid = stack.back()
-                stack.pop_back()
+                var        fid   = stack.remove(stack.size() - 1)
                 var unsafe *ectx = self._global_scope->get_context(fid)
                 if ectx == &null {
                     continue
@@ -3448,7 +3447,7 @@ pub class FrontendAction {
                     }
 
                     seen.insert(t as u64)
-                    stack.push_back(t)
+                    stack.push(t)
                 }
             }
         }
@@ -3464,9 +3463,9 @@ pub class FrontendAction {
 
         // One object per Kairo TU with something to define. Foreign fids are C++
         // headers: clang parsed them, nothing is emitted for them.
-        var own       = cxx::std::vector<u32>()
-        var n         = self._fids.size()
-        var any_kairo = false
+        var own:      [u32]
+        var n               = self._fids.size()
+        var any_kairo       = false
         // --emit-scope=inputs: this action's own file only, and nothing for a
         // discovered one (a header to this run). The rest is analysed for it.
         var inputs_only = self._ci->invocation()->linker.inputs_only()
@@ -3546,7 +3545,7 @@ pub class FrontendAction {
                 continue
             }
 
-            own.push_back(f)
+            own.push(f)
         }
 
         if !any_kairo {
@@ -3561,26 +3560,26 @@ pub class FrontendAction {
         // the executable then.
         // What each TU writes (--emit), all under the object dir, one
         // ExecuteAction each. The extension is the kind's.
-        var kinds = cxx::std::vector<EmitKind>()
-        var exts  = cxx::std::vector<string>()
+        var kinds: [EmitKind]
+        var exts:  [string]
         if fe->emit_obj {
-            kinds.push_back(EmitKind::Obj)
-            exts.push_back(".o")
+            kinds.push(EmitKind::Obj)
+            exts.push(".o")
         }
 
         if fe->emit_asm {
-            kinds.push_back(EmitKind::Asm)
-            exts.push_back(".s")
+            kinds.push(EmitKind::Asm)
+            exts.push(".s")
         }
 
         if fe->emit_llvm_ir {
-            kinds.push_back(EmitKind::LLVMIR)
-            exts.push_back(".ll")
+            kinds.push(EmitKind::LLVMIR)
+            exts.push(".ll")
         }
 
         if fe->emit_llvm_bc {
-            kinds.push_back(EmitKind::LLVMBC)
-            exts.push_back(".bc")
+            kinds.push(EmitKind::LLVMBC)
+            exts.push(".bc")
         }
 
         if kinds.size() == 0 {
@@ -3629,9 +3628,9 @@ pub class FrontendAction {
         crun.psym      = psym
         crun.instances = insts
         crun.merged    = merged
-        var jobs       = cxx::std::vector<unsafe *CodegenJob>()
-        var all_sets   = cxx::std::vector<unsafe *HeaderSet>()
-        var used_stems = cxx::std::vector<string>()
+        var jobs: [unsafe *CodegenJob]
+        var all_sets             = cxx::std::vector<unsafe *HeaderSet>()
+        var used_stems: [string]
         for var fid: u32 in own {
             var unsafe *ctx = self._global_scope->get_context(fid)
             if ctx == &null {
@@ -3696,7 +3695,7 @@ pub class FrontendAction {
                     stem     = obj_stem.copy()
                 }
 
-                used_stems.push_back(obj_stem.copy())
+                used_stems.push(obj_stem.copy())
                 var beside = if (self.discovered || fid != self._file_id) => ("")
                              else => self._ci->emit_beside(self.path.stem())
                 if !beside.is_empty() {
@@ -3791,7 +3790,7 @@ pub class FrontendAction {
             }
 
             job->sets = sets
-            jobs.push_back(job)
+            jobs.push(job)
 
             // The one cache a plan fills in place that other TUs' plans read
             // (EmitPlan::prepare_shared): filled here, one TU at a time, so the
@@ -3936,15 +3935,15 @@ pub class FrontendAction {
             warn_shift = wcg.opts.warn_unproven_shift
         }
 
-        var flavours = cxx::std::vector<u8>()
+        var flavours: [u8]
         // u8, not bool: vector<bool> hands back bit references.
-        var flavour_on = cxx::std::vector<u8>()
-        flavour_on.push_back(0 as u8)
-        flavour_on.push_back(0 as u8)
+        var flavour_on: [u8]
+        flavour_on.push(0 as u8)
+        flavour_on.push(0 as u8)
         for var j: unsafe *CodegenJob in jobs {
             var fcg = CodegenContext(j->ctx, &null, psym, insts)
             var fsp = Speller(unsafe &fcg)
-            flavours.push_back(fsp.interface_flavour(j->ctx->tu))
+            flavours.push(fsp.interface_flavour(j->ctx->tu))
         }
 
         if iface_mode != 0 && !fe->print_cg && !fe->print_ir && !warn_shift {
@@ -3984,35 +3983,33 @@ pub class FrontendAction {
         // names that TU's file in its debug info, so its key says which
         // (ObjectCache::key's writer). By module path, not graph order, so
         // kairo and kfmt agree on it.
-        var iface_order = cxx::std::vector<usize>()
+        var iface_order: [usize]
         for var i: usize = 0; i < jobs.size(); ++i {
-            iface_order.push_back(i)
+            iface_order.push(i)
         }
 
         {
             var *kp = &jkeys
-            llvm::sort(
-                iface_order.begin(),
-                iface_order.end(),
-                fn (a: usize, b: usize) |kp| -> bool {
-                    if (*kp)[a] != (*kp)[b] {
-                        return (*kp)[a] < (*kp)[b]
+            iface_order.sort_by(
+                fn (a: *const usize, b: *const usize) |kp| -> Ordering {
+                    if (*kp)[*a] != (*kp)[*b] {
+                        return (*kp)[*a] <=> (*kp)[*b]
                     }
 
-                    return a < b
+                    return *a <=> *b
                 },
             )
         }
 
         // Per flavour: the first TU's module and job, and every TU's module
         // in that order, which is what the PCH's Sema agreement walk covers.
-        var iface_first   = cxx::std::vector<string>()
-        var iface_first_i = cxx::std::vector<usize>()
-        var iface_tus     = cxx::std::vector<string>()
+        var iface_first:   [string]
+        var iface_first_i: [usize]
+        var iface_tus:     [string]
         for var fl: usize = 0; fl < 2; ++fl {
-            iface_first.push_back("")
-            iface_first_i.push_back(jobs.size())
-            iface_tus.push_back("")
+            iface_first.push("")
+            iface_first_i.push(jobs.size())
+            iface_tus.push("")
         }
 
         for var oi: usize in iface_order {
@@ -4120,9 +4117,7 @@ pub class FrontendAction {
                 var modname = jkeys[ji].copy()
                 var why     = ""
                 if self._ci->incr.on {
-                    self._ci->incr.keys.push_back(
-                        modname.copy() + "\t" + j->key,
-                    )
+                    self._ci->incr.keys.push(modname.copy() + "\t" + j->key)
                 }
 
                 // --force-recompile: no lookup, every TU compiles, and the
@@ -4201,10 +4196,10 @@ pub class FrontendAction {
             }
         }
 
-        var todo = cxx::std::vector<unsafe *CodegenJob>()
+        var todo: [unsafe *CodegenJob]
         for var j: unsafe *CodegenJob in jobs {
             if !j->reused {
-                todo.push_back(j)
+                todo.push(j)
             }
         }
 
@@ -4220,7 +4215,7 @@ pub class FrontendAction {
         // bodies parsed once, chained on the header PCH, so each TU parses
         // only what its object defines. A flavour none of whose TUs compiles
         // this run builds none.
-        var ifaces = cxx::std::vector<unsafe *InterfacePCH>()
+        var ifaces: [unsafe *InterfacePCH]
         finally {
             for var p: unsafe *InterfacePCH in ifaces {
                 kairo::std::destroy(p)
@@ -4232,14 +4227,14 @@ pub class FrontendAction {
                 continue
             }
 
-            var mine   = cxx::std::vector<unsafe *CodegenJob>()
-            var needed = false
+            var mine:  [unsafe *CodegenJob]
+            var needed                      = false
             for var i: usize in iface_order {
                 if flavours[i] != flavour {
                     continue
                 }
 
-                mine.push_back(jobs[i])
+                mine.push(jobs[i])
                 if !jobs[i]->reused {
                     needed = true
                 }
@@ -4267,7 +4262,7 @@ pub class FrontendAction {
             }
 
             var unsafe *iface = kairo::std::create<InterfacePCH>()
-            ifaces.push_back(iface)
+            ifaces.push(iface)
             iface->path = HeaderSet::vfs_root() + f"/pch/interface-{flavour}.pch"
             for var j: unsafe *CodegenJob in mine {
                 iface->add(j->ctx, j->fid, j->ksize, j->plan)
@@ -4312,7 +4307,7 @@ pub class FrontendAction {
                 // carries it, whose key names the TUs the walk covered
                 // (ObjectCache::key's walk). When that TU is reused, its
                 // stored findings hold it.
-                if hi == mine.size() && !mine.empty() {
+                if hi == mine.size() && !mine.is_empty() {
                     hi = 0
                 }
 
@@ -4494,7 +4489,7 @@ pub class FrontendAction {
                 )
 
                 if job->kinds[k] == EmitKind::Obj {
-                    self.result.objects.push_back(job->written[k].copy())
+                    self.result.objects.push(job->written[k].copy())
                 }
             }
 
@@ -4543,16 +4538,16 @@ pub class FrontendAction {
     /// counting what the Sema agreement pass found over `jobs`, by kind. It counts a TU whose
     /// object was reused (its stored findings) as one that compiled, and
     /// does not depend on whether the findings were reported or on -w.
-    priv fn _agree_summary(self, const jobs: cxx::std::vector<unsafe *CodegenJob>) {
+    priv fn _agree_summary(self, const jobs: [unsafe *CodegenJob]) {
         if self._ci->invocation()->codegen.sema_agreement == 0 {
             io::eprintln("kairo: sema agreement: off")
             return
         }
 
-        var kinds        = cxx::std::vector<string>()
-        var counts       = cxx::std::vector<usize>()
-        var total: usize = 0
-        var files: usize = 0
+        var kinds:  [string]
+        var counts: [usize]
+        var total:  usize    = 0
+        var files:  usize    = 0
         for var j: unsafe *CodegenJob in jobs {
             if j->agree_found.size() > 0 {
                 files += 1
@@ -4569,8 +4564,8 @@ pub class FrontendAction {
                 }
 
                 if at == kinds.size() {
-                    kinds.push_back(f->kind.copy())
-                    counts.push_back(0)
+                    kinds.push(f->kind.copy())
+                    counts.push(0)
                 }
 
                 counts[at] += 1
@@ -5004,7 +4999,7 @@ pub class FrontendAction {
             // The written imports, in source order; an origin is named by its
             // index here. The prelude is listed (so indices match tu->imports)
             // but flagged: the lint never touches it.
-            var decls = cxx::std::vector<unsafe *Declarations::ImportDecl>()
+            var decls: [unsafe *Declarations::ImportDecl]
             for var pi: usize = 0; pi < tu->imports.size(); ++pi {
                 var unsafe **pslot = tu->imports.at(pi)
                 var imp: unsafe *Declarations::ImportDecl = &null
@@ -5012,7 +5007,7 @@ pub class FrontendAction {
                     imp = dyn_cast<Declarations::ImportDecl>(*pslot)
                 }
 
-                decls.push_back(imp)
+                decls.push(imp)
                 if pi > 0 {
                     o += ", "
                 }
@@ -5049,10 +5044,10 @@ pub class FrontendAction {
             o += "], \"names\": ["
 
             // Group the log by key, first-hit order.
-            var        order = cxx::std::vector<u32>()
-            var        slot  = llvm::DenseMap<u64, u64>()
-            var        sites = cxx::std::vector<cxx::std::vector<u32>>()
-            var unsafe *log  = ov->uses
+            var        order: [u32]
+            var        slot           = llvm::DenseMap<u64, u64>()
+            var        sites: [[u32]]
+            var unsafe *log           = ov->uses
             for var k: usize = 0; k < log->keys.size(); ++k {
                 var key       = log->keys[k] as u64
                 var it        = slot.find(key)
@@ -5060,13 +5055,13 @@ pub class FrontendAction {
                 if it == slot.end() {
                     at        = order.size()
                     slot[key] = at as u64
-                    order.push_back(log->keys[k])
-                    sites.push_back(cxx::std::vector<u32>())
+                    order.push(log->keys[k])
+                    sites.push(Vector<u32>())
                 } else {
                     at = it->second as usize
                 }
 
-                sites[at].push_back(log->ats[k])
+                sites[at].push(log->ats[k])
             }
 
             var first_name = true
@@ -5183,18 +5178,26 @@ pub class FrontendAction {
         var        prefix = root.copy() + "/"
 
         // Sorted by (module, path): the order of every file list below.
-        var idx = cxx::std::vector<usize>()
+        var idx: [usize]
         for var i: usize = 0; i < self._incr.size(); ++i {
-            idx.push_back(i)
+            idx.push(i)
         }
 
         var *ff = &self._incr
-        llvm::sort(
-            idx.begin(),
-            idx.end(),
-            fn (a: usize, b: usize) |ff| -> bool = (*ff)[a].mod_path < (*ff)[b].mod_path
-                || (*ff)[a].mod_path == (*ff)[b].mod_path && ((*ff)[a].path < (*ff)[b].path
-                    || (*ff)[a].path == (*ff)[b].path && a < b),
+        idx.sort_by(
+            fn (a: *const usize, b: *const usize) |ff| -> Ordering {
+                var c = (*ff)[*a].mod_path <=> (*ff)[*b].mod_path
+                if c != Ordering::Equal {
+                    return c
+                }
+
+                c = (*ff)[*a].path <=> (*ff)[*b].path
+                if c != Ordering::Equal {
+                    return c
+                }
+
+                return *a <=> *b
+            },
         )
 
         var overlays = llvm::DenseMap<u64, unsafe *TranslationUnit>()
@@ -5393,9 +5396,9 @@ pub class FrontendAction {
                 }
 
                 self._ci->incr.mod_plan.push_back(pm)
-                self._ci->incr.mod_names.push_back(name)
-                self._ci->incr.mod_hash.push_back(f->hash.copy())
-                self._ci->incr.mod_json.push_back(
+                self._ci->incr.mod_names.push(name)
+                self._ci->incr.mod_hash.push(f->hash.copy())
+                self._ci->incr.mod_json.push(
                     "\"imports\": [" + imps + "],\n\"interface\": " + io_.subslice(
                         io_at + 1,
                         io_.size() - io_at - 1,
@@ -5800,21 +5803,21 @@ fn sema_sub(code: u64, member: usize) {
 /// would read another group's late Sema (see SemaSlot::run_front); the
 /// driver then continues the group in order.
 fn sema_lockstep(sems: unsafe *cxx::std::vector<unsafe *Sema>, front: bool) -> bool {
-    var n      = sems->size()
-    var phases = cxx::std::vector<SemaPhase>()
-    phases.push_back(SemaPhase::ImportsResolved)
-    phases.push_back(SemaPhase::Expanded)
-    phases.push_back(SemaPhase::Verified)
-    phases.push_back(SemaPhase::NamesResolved)
-    phases.push_back(SemaPhase::TypesResolved)
-    phases.push_back(SemaPhase::Typed)
-    var codes = cxx::std::vector<u64>()
-    codes.push_back(1)
-    codes.push_back(3)
-    codes.push_back(4)
-    codes.push_back(5)
-    codes.push_back(7)
-    codes.push_back(8)
+    var n                   = sems->size()
+    var phases: [SemaPhase]
+    phases.push(SemaPhase::ImportsResolved)
+    phases.push(SemaPhase::Expanded)
+    phases.push(SemaPhase::Verified)
+    phases.push(SemaPhase::NamesResolved)
+    phases.push(SemaPhase::TypesResolved)
+    phases.push(SemaPhase::Typed)
+    var codes: [u64]
+    codes.push(1)
+    codes.push(3)
+    codes.push(4)
+    codes.push(5)
+    codes.push(7)
+    codes.push(8)
     // Whether THIS call ran I on a TU of the group. Only then is there a
     // re-export fixpoint to reach: a group resumed past I (the driver
     // continuing a front a worker ran) finished it there, and a round now
@@ -6047,19 +6050,19 @@ pub class SemaSlot {
 /// _import_order) wherever that order holds. With no import cycle every
 /// component is one fid and the groups are `order` itself.
 pub class ImportGroups {
-    pub var  fids:    cxx::std::vector<u32> ///< every fid, group by group.
-    pub var  starts:  cxx::std::vector<usize> ///< group g is fids[starts[g] .. starts[g + 1]).
-    priv var _order:  cxx::std::vector<u32>
-    priv var _adj:    cxx::std::vector<usize> ///< the imports of order[i], as indices: _adj[_adj_at[i] .. _adj_at[i + 1]).
-    priv var _adj_at: cxx::std::vector<usize>
-    priv var _reach:  cxx::std::vector<u8> ///< n*n: order[i] reaches order[j] through imports.
-    priv var _done:   cxx::std::vector<u8>
+    pub var  fids:    [u32] ///< every fid, group by group.
+    pub var  starts:  [usize] ///< group g is fids[starts[g] .. starts[g + 1]).
+    priv var _order:  [u32]
+    priv var _adj:    [usize] ///< the imports of order[i], as indices: _adj[_adj_at[i] .. _adj_at[i + 1]).
+    priv var _adj_at: [usize]
+    priv var _reach:  [u8] ///< n*n: order[i] reaches order[j] through imports.
+    priv var _done:   [u8]
 
     fn ImportGroups(self) { }
 
-    fn build(self, const order: cxx::std::vector<u32>, gs: unsafe *GlobalDisambigTable) {
+    fn build(self, const order: [u32], gs: unsafe *GlobalDisambigTable) {
         var n = order.size()
-        self._order = order
+        self._order = order.copy()
         // Index by fid, WIDENED: an edge's target can be u32(-1), DenseMap's
         // empty key (_import_order has the same note).
         var at = llvm::DenseMap<u64, u64>()
@@ -6068,7 +6071,7 @@ pub class ImportGroups {
         }
 
         for var i: usize = 0; i < n; ++i {
-            self._adj_at.push_back(self._adj.size())
+            self._adj_at.push(self._adj.size())
             var unsafe *ctx = gs->get_context((order)[i])
             var tu: unsafe *TranslationUnit = &null
             if ctx != &null {
@@ -6092,25 +6095,24 @@ pub class ImportGroups {
 
                 var k = (it->second as usize)
                 if k != i {
-                    self._adj.push_back(k)
+                    self._adj.push(k)
                 }
             }
         }
 
-        self._adj_at.push_back(self._adj.size())
+        self._adj_at.push(self._adj.size())
 
         // Reachability by one walk from each fid: graphs are small, and a
         // component is then "reaches and is reached by".
         for var i: usize = 0; i < n * n; ++i {
-            self._reach.push_back(0)
+            self._reach.push(0)
         }
 
         for var i: usize = 0; i < n; ++i {
-            var stack = cxx::std::vector<usize>()
-            stack.push_back(i)
+            var stack: [usize]
+            stack.push(i)
             while stack.size() > 0 {
-                var v = stack[stack.size() - 1]
-                stack.pop_back()
+                var v = stack.remove(stack.size() - 1)
                 for var a: usize = (self._adj_at[(v)]); a < (self._adj_at[v + 1]); ++a {
                     var w = self._adj[a]
                     if self._reach[i * n + (w)] != 0 {
@@ -6118,20 +6120,20 @@ pub class ImportGroups {
                     }
 
                     self._reach[i * n + (w)] = 1
-                    stack.push_back(w)
+                    stack.push(w)
                 }
             }
         }
 
         for var i: usize = 0; i < n; ++i {
-            self._done.push_back(0)
+            self._done.push(0)
         }
 
         for var i: usize = 0; i < n; ++i {
             self._place(i)
         }
 
-        self.starts.push_back(self.fids.size())
+        self.starts.push(self.fids.size())
     }
 
     priv fn _same(self, i: usize, j: usize) -> bool {
@@ -6151,11 +6153,11 @@ pub class ImportGroups {
             return
         }
 
-        var n       = self._order.size()
-        var members = cxx::std::vector<usize>()
+        var n                = self._order.size()
+        var members: [usize]
         for var j: usize = 0; j < n; ++j {
             if self._same(i, j) {
-                members.push_back(j)
+                members.push(j)
                 self._done[j] = 1
             }
         }
@@ -6170,9 +6172,9 @@ pub class ImportGroups {
             }
         }
 
-        self.starts.push_back(self.fids.size())
+        self.starts.push(self.fids.size())
         for var m: usize = 0; m < members.size(); ++m {
-            self.fids.push_back(self._order[members[m]])
+            self.fids.push(self._order[members[m]])
         }
     }
 }
@@ -6310,15 +6312,13 @@ fn _copy_agree_finding(const f: *AgreeFinding) -> AgreeFinding {
     return r
 }
 
-fn _facts_hashes(f:    unsafe *FileFacts,
-                 at:   unsafe *llvm::StringMap<u32>,
-                 vals: unsafe *cxx::std::vector<string>) {
+fn _facts_hashes(f: unsafe *FileFacts, at: unsafe *llvm::StringMap<u32>, vals: unsafe *[string]) {
     for var k: usize = 0; k < f->plain_decls.size(); ++k {
-        var l   = f->plain_decls[k].copy()
-        var cut = cxx::std::vector<usize>()
+        var l            = f->plain_decls[k].copy()
+        var cut: [usize]
         for var c: usize = 0; c < l.size() && cut.size() < 4; ++c {
             if l.data()[c] == ('\t' as u8) {
-                cut.push_back(c)
+                cut.push(c)
             }
         }
 
@@ -6331,7 +6331,7 @@ fn _facts_hashes(f:    unsafe *FileFacts,
         var it = at->find(kairo::sref(id))
         if it == at->end() {
             at->try_emplace(kairo::sref(id), vals->size() as u32)
-            vals->push_back(ih)
+            vals->push(ih.to_owned())
         } else {
             (*vals)[it->second as usize] = (*vals)[it->second as usize].copy() + "," + ih
         }

@@ -121,7 +121,7 @@ pub class ClangLocMap {
 
     /// index == kairo fid; value == clang's raw SLoc base for that file.
     /// Dense, u32, contiguous with _cfid0's block.
-    priv var _sloc: cxx::std::vector<u32>
+    priv var _sloc: [u32]
 
     /// clang FileID of kairo fid 0. MEASURED at rebind, never assumed.
     priv var _cfid0: clang::FileID
@@ -227,7 +227,7 @@ pub class ClangLocMap {
                 }
             }
 
-            self._sloc.push_back(
+            self._sloc.push(
                 self._csm->getLocForStartOfFile(cfid).getRawEncoding(),
             )
         }
@@ -306,7 +306,7 @@ pub class ClangLocMap {
         }
 
         return clang::SourceLocation::getFromRawEncoding(
-            self._sloc[res.fid] + (res.offset as u32),
+            self._sloc[res.fid as usize] + (res.offset as u32),
         )
     }
 
@@ -452,7 +452,7 @@ pub class ClangLocMap {
         }
 
         return self._csm->getFileID(
-            clang::SourceLocation::getFromRawEncoding(self._sloc[kfid]),
+            clang::SourceLocation::getFromRawEncoding(self._sloc[kfid as usize]),
         )
     }
 
@@ -471,7 +471,7 @@ pub class ClangLocMap {
             return u32::MAX
         }
 
-        return self._sloc[kfid]
+        return self._sloc[kfid as usize]
     }
 
     /// Kairo's raw SourceLocation for byte 0 of `kfid`.
@@ -493,7 +493,7 @@ pub class ClangLocMap {
             kairo::std::ice_fail("ClangLocMap::delta on an unmapped fid")
         }
 
-        return self._sloc[kfid] as i64 - (self.kairo_base(kfid) as i64)
+        return self._sloc[kfid as usize] as i64 - (self.kairo_base(kfid) as i64)
     }
 
     /// Kairo loc for byte `off` of `kfid`. eof() needs a loc for the last
@@ -584,17 +584,17 @@ pub class ClangLocMap {
                 continue
             }
 
-            var probes: cxx::std::vector<usize>
-            probes.push_back(0)
+            var probes: [usize]
+            probes.push(0)
             if size > 1 {
-                probes.push_back(1)
+                probes.push(1)
             }
 
             if size > 2 {
-                probes.push_back(size / 2)
+                probes.push(size / 2)
             }
 
-            probes.push_back(size - 1)
+            probes.push(size - 1)
 
             for var off: usize in probes {
                 var kloc = self._ksm->get_loc(kfid, (off))

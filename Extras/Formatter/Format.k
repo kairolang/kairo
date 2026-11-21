@@ -56,7 +56,6 @@ import Location::SourceManager::*
 import Location::SourceRange::*
 import Options::*
 import Renderer::*
-import Support::Ascii::copy_strings
 import Support::FileIO::Path::*
 import Token::Token::*
 import Token::TokenKind::*
@@ -99,22 +98,22 @@ pub fn ROW_COLS() -> usize {
 /// One element of a list, before layout.
 pub struct Entry {
     var doc:        Doc ///< the element, without its `;` or trailing comment
-    var cells:      cxx::std::vector<Doc> ///< ROW_COLS cells when row != ROW_NONE
-    var row:        u8                    = 0
-    var capped:     bool                  = false ///< holds a call: its row must end by call_width (4.1)
-    var semi:       bool                  = false ///< written with a `;`
-    var sep:        string                = "" ///< a `,` written after it (enum variants)
-    var next_kind:  TokenKind             = TokenKind::TkEof ///< first code token after it
-    var cmt:        string                = "" ///< trailing comment (12.4)
-    var cmt_first:  bool                  = false ///< put the comment on its first line
-    var first:      usize                 = 0 ///< source line of its first byte
-    var last:       usize                 = 0 ///< source line of its last byte
-    var is_comment: bool                  = false
-    var imp:        i32                   = -1 ///< index into Formatter::imps
-    var member:     bool                  = false ///< a field or variant rule 7.5 may join on one line
-    var variant:    bool                  = false ///< an enum variant (its `,` is in its doc)
-    var chain_from: bool                  = false ///< ends in a broken block a clause may chain onto (8.4 / 8.11)
-    var chain_to:   bool                  = false ///< a clause that chains onto it: a block `case` / `default`, a `finally`
+    var cells:      [Doc] ///< ROW_COLS cells when row != ROW_NONE
+    var row:        u8        = 0
+    var capped:     bool      = false ///< holds a call: its row must end by call_width (4.1)
+    var semi:       bool      = false ///< written with a `;`
+    var sep:        string    = "" ///< a `,` written after it (enum variants)
+    var next_kind:  TokenKind = TokenKind::TkEof ///< first code token after it
+    var cmt:        string    = "" ///< trailing comment (12.4)
+    var cmt_first:  bool      = false ///< put the comment on its first line
+    var first:      usize     = 0 ///< source line of its first byte
+    var last:       usize     = 0 ///< source line of its last byte
+    var is_comment: bool      = false
+    var imp:        i32       = -1 ///< index into Formatter::imps
+    var member:     bool      = false ///< a field or variant rule 7.5 may join on one line
+    var variant:    bool      = false ///< an enum variant (its `,` is in its doc)
+    var chain_from: bool      = false ///< ends in a broken block a clause may chain onto (8.4 / 8.11)
+    var chain_to:   bool      = false ///< a clause that chains onto it: a block `case` / `default`, a `finally`
 }
 
 /// One thing a list holds, as the AST names it. Exactly one pointer is set.
@@ -140,25 +139,23 @@ pub struct ListOut {
 /// parts so they can be restyled and sorted; anything not understood is
 /// `raw`: copied as written and never moved.
 pub struct ImportInfo {
-    var start:  u32                      = 0 ///< first token
-    var end:    u32                      = 0 ///< past the last token, its `;` included
-    var core:   u32                      = 0 ///< past the last token before the `;`
-    var semi:   bool                     = false
-    var is_ffi: bool                     = false
-    var raw:    bool                     = false
-    var vis:    string                   = "" ///< `pub` / `prot` / `priv`, or empty
-    var anchor: string                   = "" ///< `self` / `module`, or empty
-    var path:   string                   = "" ///< the segments before the tail, `::`-joined
-    var braced: bool                     = false
-    var star:   bool                     = false
-    var alias:  string                   = ""
-    var items:  cxx::std::vector<string> ///< braced items, each as `name`, `a::B` or `x as y`
+    var start:  u32      = 0     ///< first token
+    var end:    u32      = 0     ///< past the last token, its `;` included
+    var core:   u32      = 0     ///< past the last token before the `;`
+    var semi:   bool     = false
+    var is_ffi: bool     = false
+    var raw:    bool     = false
+    var vis:    string   = ""    ///< `pub` / `prot` / `priv`, or empty
+    var anchor: string   = ""    ///< `self` / `module`, or empty
+    var path:   string   = ""    ///< the segments before the tail, `::`-joined
+    var braced: bool     = false
+    var star:   bool     = false
+    var alias:  string   = ""
+    var items:  [string]         ///< braced items, each as `name`, `a::B` or `x as y`
 }
 
 /// Lexes `fid` on its own, comments and newlines included.
-pub fn lex_file(ci:  unsafe *CompilerInstance,
-                fid: u32,
-                out: unsafe *cxx::std::vector<RawTok>) -> bool {
+pub fn lex_file(ci: unsafe *CompilerInstance, fid: u32, out: unsafe *[RawTok]) -> bool {
     var unsafe *imm = kairo::std::create<ImmediateTable>()
     imm->initialize(ci->sm())
     // No thread pool: a whole-file lex of one file needs none (the pool only
@@ -182,9 +179,7 @@ pub fn lex_file(ci:  unsafe *CompilerInstance,
         // A string chain's later segments stay in the gap after its head,
         // where _chain_end finds them: the head at its own length.
         var end = t.range.start.raw() + chain_head_len(imm, t, t.range.size())
-        out->push_back(
-            RawTok { kind: t.kind, start: t.range.start.raw(), end: end },
-        )
+        out->push(RawTok { kind: t.kind, start: t.range.start.raw(), end: end })
     }
 
     lx->close()
@@ -329,22 +324,22 @@ pub class Formatter {
     pub var size:     u32                      = 0  ///< file size in bytes
     pub var set:      Settings
     pub var file_dir: string                   = "" ///< for the 5.1 module-collision test
-    pub var roots:    cxx::std::vector<string>      ///< search roots, likewise
+    pub var roots:    [string]                      ///< search roots, likewise
 
-    pub var toks:          cxx::std::vector<RawTok> ///< every token, comments and newlines included
-    pub var imps:          cxx::std::vector<ImportInfo>
-    var     cm_lo:         cxx::std::vector<u32> ///< comment starts, ascending
-    var     ms_lo:         cxx::std::vector<u32> ///< macro invocation sites, ascending, disjoint
-    var     ms_hi:         cxx::std::vector<u32>
-    var     cb_lo:         cxx::std::vector<u32> ///< closure block bodies `{`..`}`, ascending by start; may nest
-    var     cb_hi:         cxx::std::vector<u32>
-    var     lstart:        cxx::std::vector<u32> ///< line start offsets, line 1 first
-    var     src:           string                       = "" ///< the file's bytes
-    var     _depth:        i32                          = 0 ///< block nesting, for alignment fits
-    var     _calls:        usize                        = 0 ///< calls built so far (Entry::capped)
-    var     _ungroup_next: bool                         = false ///< the next _block leaves its one-line group to its chain
-    var     _blk_broken:   bool                         = false ///< the last _block ended in a `}` line of its own
-    var     _braced_empty: bool                         = false ///< the last _braced was `{ }`
+    pub var toks:          [RawTok] ///< every token, comments and newlines included
+    pub var imps:          [ImportInfo]
+    var     cm_lo:         [u32] ///< comment starts, ascending
+    var     ms_lo:         [u32] ///< macro invocation sites, ascending, disjoint
+    var     ms_hi:         [u32]
+    var     cb_lo:         [u32] ///< closure block bodies `{`..`}`, ascending by start; may nest
+    var     cb_hi:         [u32]
+    var     lstart:        [u32] ///< line start offsets, line 1 first
+    var     src:           string       = "" ///< the file's bytes
+    var     _depth:        i32          = 0 ///< block nesting, for alignment fits
+    var     _calls:        usize        = 0 ///< calls built so far (Entry::capped)
+    var     _ungroup_next: bool         = false ///< the next _block leaves its one-line group to its chain
+    var     _blk_broken:   bool         = false ///< the last _block ended in a `}` line of its own
+    var     _braced_empty: bool         = false ///< the last _braced was `{ }`
 
     fn Formatter(self,
                  ctx: unsafe *ASTContext,
@@ -387,10 +382,10 @@ pub class Formatter {
         // Our own line table: the source manager's is not part of its API,
         // and a virtual buffer (the output being checked) needs one too.
         var src = self.src.copy()
-        self.lstart.push_back(0)
+        self.lstart.push(0)
         for var i: usize = 0; i < src.size(); ++i {
             if src.data()[i] == ('\n' as u8) {
-                self.lstart.push_back((i + 1) as u32)
+                self.lstart.push((i + 1) as u32)
             }
         }
 
@@ -401,7 +396,7 @@ pub class Formatter {
         var n = self.toks.size()
         for var i: usize = 0; i < n; ++i {
             if self.toks[i].kind == TokenKind::AtComment {
-                self.cm_lo.push_back(self.toks[i].start)
+                self.cm_lo.push(self.toks[i].start)
             }
         }
 
@@ -438,8 +433,8 @@ pub class Formatter {
                 }
             }
 
-            self.ms_lo.push_back(a.start)
-            self.ms_hi.push_back(end)
+            self.ms_lo.push(a.start)
+            self.ms_hi.push(end)
             i = j
         }
 
@@ -559,8 +554,8 @@ pub class Formatter {
                 continue
             }
 
-            self.cb_lo.push_back(self.toks[o].start)
-            self.cb_hi.push_back(self.toks[z].end)
+            self.cb_lo.push(self.toks[o].start)
+            self.cb_hi.push(self.toks[z].end)
         }
     }
 
@@ -595,7 +590,7 @@ pub class Formatter {
     }
 
     fn run(self, prog: unsafe *Program) -> string {
-        var els = cxx::std::vector<Elem>()
+        var els: [Elem]
         for var i: usize = 0; i < prog->items.size(); ++i {
             var unsafe *item = prog->items.get(i)
             if item == &null {
@@ -610,7 +605,7 @@ pub class Formatter {
                 } case TopLevelKind::Expr {
                     var unsafe *e = item->as_expr()
                     if e != &null {
-                        els.push_back(
+                        els.push(
                             Elem { start: e->range.start.raw(), end: e->range.end.raw(), expr: e },
                         )
                     }
@@ -961,35 +956,35 @@ pub class Formatter {
         }
 
         var exact = self._has_ml_literal(a, b)
-        var base  = self._lead_ws(self._line_start(l1), self._line_end(l1))
-        var parts = cxx::std::vector<Doc>()
+        var base = self._lead_ws(self._line_start(l1), self._line_end(l1))
+        var parts: [Doc]
 
         var e1 = self._line_end(l1)
         if !exact {
             e1 = self._trim_back(a, e1, true)
         }
 
-        parts.push_back(Doc::text(self._text(a, e1)))
+        parts.push(Doc::text(self._text(a, e1)))
 
         for var l = l1 + 1; l <= l2; ++l {
             var ls = self._line_start(l)
             var le = if l == l2 => b else => self._line_end(l)
 
             if exact {
-                parts.push_back(Doc::literal_line())
-                parts.push_back(Doc::text(self._text(ls, le)))
+                parts.push(Doc::literal_line())
+                parts.push(Doc::text(self._text(ls, le)))
                 continue
             }
 
             le = self._trim_back(ls, le, true)
             var ws = self._lead_ws(ls, le)
-            parts.push_back(Doc::hardline())
+            parts.push(Doc::hardline())
             if ls + ws >= le { // blank: no indent written
                 continue
             }
 
             var cut = if ws < base => ws else => base
-            parts.push_back(Doc::text(self._text(ls + cut, le)))
+            parts.push(Doc::text(self._text(ls + cut, le)))
         }
 
         return Doc::concat(parts)
@@ -1016,7 +1011,7 @@ pub class Formatter {
 
     /// The tokens in [a, b) as written, whitespace at both ends dropped.
     fn _span(self, a: u32, b: u32) -> Doc {
-        return self._span_glued(a, b, cxx::std::vector<usize>())
+        return self._span_glued(a, b, [])
     }
 
     /// `_span(a, b)` with each `:` token in `cols` glued to the code before
@@ -1025,7 +1020,7 @@ pub class Formatter {
     /// Only a span on one line is rewritten, and a `:` with a comment beside
     /// it keeps its spacing: a multi-line span is re-indented by `_v`, which
     /// works on whole lines.
-    priv fn _span_glued(self, a: u32, b: u32, const cols: cxx::std::vector<usize>) -> Doc {
+    priv fn _span_glued(self, a: u32, b: u32, const cols: [usize]) -> Doc {
         var n = self.toks.size()
         var i = self._lb(a)
         while i < n
@@ -1062,7 +1057,7 @@ pub class Formatter {
             }
         }
 
-        if cols.empty() || self._line(s0) != self._line(e1 - 1) {
+        if cols.is_empty() || self._line(s0) != self._line(e1 - 1) {
             return self._v(s0, e1)
         }
 
@@ -1107,7 +1102,7 @@ pub class Formatter {
     /// Returns the index of the token that closes the list, or toks.size()
     /// when the list does not close (a `<` list ended by `>>` counts as
     /// unclosed: its colons are still collected).
-    priv fn _list_colons(self, o: usize, out: unsafe *cxx::std::vector<usize>) -> usize {
+    priv fn _list_colons(self, o: usize, out: unsafe *[usize]) -> usize {
         var n          = self.toks.size()
         var angle      = self.toks[o].kind == TokenKind::OpLess
         var depth: i32 = 0
@@ -1124,7 +1119,7 @@ pub class Formatter {
             } else if angle && k == TokenKind::OpGreaterGreater {
                 return n
             } else if k == TokenKind::OpColon && depth == 0 {
-                out->push_back(i)
+                out->push(i)
             }
         }
 
@@ -1134,10 +1129,10 @@ pub class Formatter {
     /// The `:` of each generic parameter of the `fn` head in [a, b)
     /// (`fn <eval N: usize>`), and with `params` those of its parameter list
     /// (a closure's `fn (u: i32)`).
-    priv fn _head_colons(self, a: u32, b: u32, params: bool) -> cxx::std::vector<usize> {
-        var out = cxx::std::vector<usize>()
-        var n   = self.toks.size()
-        var i   = self._sig_after(a)
+    priv fn _head_colons(self, a: u32, b: u32, params: bool) -> [usize] {
+        var out: [usize]
+        var n            = self.toks.size()
+        var i            = self._sig_after(a)
         while i < n && self.toks[i].start < b && self.toks[i].kind != TokenKind::KwFn {
             i += 1
         }
@@ -1302,7 +1297,7 @@ pub class Formatter {
                 im.raw = true
             }
 
-            self.imps.push_back(im)
+            self.imps.push(im)
             i = s
         }
     }
@@ -1383,7 +1378,7 @@ pub class Formatter {
             var k = self.toks[j].kind
             if k == TokenKind::OpRBrace {
                 if cur.size() > 0 {
-                    im->items.push_back(cur)
+                    im->items.push(cur)
                 }
 
                 *last = j
@@ -1395,7 +1390,7 @@ pub class Formatter {
                     return false
                 }
 
-                im->items.push_back(cur)
+                im->items.push(cur)
                 cur = ""
             } else if k == TokenKind::KwAs {
                 cur += " as "
@@ -1456,11 +1451,11 @@ pub class Formatter {
 
         rel += segs[run..]
 
-        var bases = cxx::std::vector<string>()
-        var d     = self.file_dir.copy()
+        var bases: [string]
+        var d               = self.file_dir.copy()
         while d.size() > 0 {
-            bases.push_back(d.copy())
-            bases.push_back(Path::join_str(d, "Lib"))
+            bases.push(d.copy())
+            bases.push(Path::join_str(d, "Lib"))
             var p = Path::parent_of(d)
             if p == d || p.size() == 0 {
                 break
@@ -1470,7 +1465,7 @@ pub class Formatter {
         }
 
         for var r: usize = 0; r < self.roots.size(); ++r {
-            bases.push_back(self.roots[r].copy())
+            bases.push(self.roots[r].copy())
         }
 
         for var b: usize = 0; b < bases.size(); ++b {
@@ -1501,8 +1496,8 @@ pub class Formatter {
     }
 
     /// The braced items in print order (5.2: sorted like 5.4).
-    fn import_items(self, const im: ImportInfo) -> cxx::std::vector<string> {
-        var xs = copy_strings(im.items)
+    fn import_items(self, const im: ImportInfo) -> [string] {
+        var xs = im.items.copy()
         if rules().import_sort_items {
             sort_strings(unsafe &xs)
         }
@@ -1606,12 +1601,12 @@ pub class Formatter {
 
         // 5.2: two or more names are always broken, one per line (a grid
         // would pad a column to its widest name)
-        var xs   = self.import_items(*im)
-        var keys = cxx::std::vector<Doc>()
-        var vals = cxx::std::vector<Doc>()
+        var xs          = self.import_items(*im)
+        var keys: [Doc]
+        var vals: [Doc]
         for var i: usize = 0; i < xs.size(); ++i {
-            keys.push_back(Doc::nothing())
-            vals.push_back(Doc::text(xs[i]))
+            keys.push(Doc::nothing())
+            vals.push(Doc::text(xs[i]))
         }
 
         return Doc::concat2(
@@ -1624,17 +1619,17 @@ pub class Formatter {
     //  Lists: statements, members, items, enum variants, match cases
     // ----------------------------------------------------------------------
 
-    priv fn _push_decl(self, d: unsafe *Decl, els: unsafe *cxx::std::vector<Elem>) {
+    priv fn _push_decl(self, d: unsafe *Decl, els: unsafe *[Elem]) {
         if d == &null || d->range.is_invalid() {
             return
         }
 
-        els->push_back(
+        els->push(
             Elem { start: self._decl_start(d), end: d->range.end.raw(), decl: d },
         )
     }
 
-    priv fn _push_stmt(self, s: unsafe *Stmt, els: unsafe *cxx::std::vector<Elem>) {
+    priv fn _push_stmt(self, s: unsafe *Stmt, els: unsafe *[Elem]) {
         if s == &null || s->range.is_invalid() {
             return
         }
@@ -1650,10 +1645,10 @@ pub class Formatter {
             }
         }
 
-        els->push_back(Elem { start: a, end: s->range.end.raw(), stmt: s })
+        els->push(Elem { start: a, end: s->range.end.raw(), stmt: s })
     }
 
-    priv fn _push_dc(self, dc: unsafe *DeclContext, els: unsafe *cxx::std::vector<Elem>) {
+    priv fn _push_dc(self, dc: unsafe *DeclContext, els: unsafe *[Elem]) {
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
             self._push_decl(*dc->dc_decls.get(i), els)
         }
@@ -1685,7 +1680,7 @@ pub class Formatter {
         return a
     }
 
-    priv fn _sort(self, els: unsafe *cxx::std::vector<Elem>) {
+    priv fn _sort(self, els: unsafe *[Elem]) {
         for var i: usize = 1; i < els->size(); ++i {
             var j = i
             while j > 0 && (*els)[j - 1].start > (*els)[j].start {
@@ -1700,17 +1695,13 @@ pub class Formatter {
     /// Lays out the elements of the region [lo, hi), with everything between
     /// them: comments, blank lines (rule 14.1), imports, and code no element
     /// covers. `opener` is the line of the region's `{`, or 0 at file scope.
-    priv fn _list(self,
-                  lo:     u32,
-                  hi:     u32,
-                  opener: usize,
-                  els:    unsafe *cxx::std::vector<Elem>) -> ListOut {
+    priv fn _list(self, lo: u32, hi: u32, opener: usize, els: unsafe *[Elem]) -> ListOut {
         self._sort(els)
 
-        var r    = ListOut{}
-        var es   = cxx::std::vector<Entry>()
-        var cur  = lo
-        var done = lo
+        var r            = ListOut{}
+        var es:  [Entry]
+        var cur          = lo
+        var done         = lo
 
         for var i: usize = 0; i < els->size(); ++i {
             var el = (*els)[i]
@@ -1784,12 +1775,12 @@ pub class Formatter {
             cur         = self._trailing(cur, hi, &e)
             e.next_kind = self._kind_at(self._sig_after(cur))
 
-            es.push_back(e)
+            es.push(e)
             done = en
         }
 
         self._between(cur, hi, opener, unsafe &es, &r)
-        r.empty = es.empty()
+        r.empty = es.is_empty()
         r.body  = self._layout(unsafe &es)
         self._oneline_members(unsafe &es, &r)
         return r
@@ -1819,12 +1810,7 @@ pub class Formatter {
     }
 
     /// Comments, imports and uncovered code in [a, b).
-    priv fn _between(self,
-                     a:      u32,
-                     b:      u32,
-                     opener: usize,
-                     es:     unsafe *cxx::std::vector<Entry>,
-                     r:      *ListOut) {
+    priv fn _between(self, a: u32, b: u32, opener: usize, es: unsafe *[Entry], r: *ListOut) {
         var n       = self.toks.size()
         var i       = self._lb(a)
         var on      = false
@@ -1855,7 +1841,7 @@ pub class Formatter {
                     on = false
                 }
 
-                if es->empty() && opener != 0 && cl == opener && cl == ce && r->head.is_empty() {
+                if es->is_empty() && opener != 0 && cl == opener && cl == ce && r->head.is_empty() {
                     r->head = Doc::line_suffix(
                         Doc::text(" " + self._text(t.start, t.end)),
                     )
@@ -1868,7 +1854,7 @@ pub class Formatter {
                 e.first      = cl
                 e.last       = ce
                 e.is_comment = true
-                es->push_back(e)
+                es->push(e)
                 continue
             }
 
@@ -1891,7 +1877,7 @@ pub class Formatter {
                     var cur = self._trailing(im->end, b, &e)
                     e.cmt_first = false // after the import's last line, as import_lint writes it
                     e.next_kind = self._kind_at(self._sig_after(cur))
-                    es->push_back(e)
+                    es->push(e)
                     i = self._lb(cur)
                     continue
                 }
@@ -1918,14 +1904,14 @@ pub class Formatter {
         }
     }
 
-    priv fn _gap(self, a: u32, b: u32, es: unsafe *cxx::std::vector<Entry>, const cmt: string) {
+    priv fn _gap(self, a: u32, b: u32, es: unsafe *[Entry], const cmt: string) {
         var e = Entry{}
         e.doc       = self._v(a, b)
         e.first     = self._line(a)
         e.last      = self._line(b - 1)
         e.cmt       = cmt.copy()
         e.next_kind = self._kind_at(self._sig_after(b))
-        es->push_back(e)
+        es->push(e)
     }
 
     /// The `;` an entry keeps (rule 13.1): only when the next line would
@@ -1953,7 +1939,7 @@ pub class Formatter {
         return Doc::concat2(d, s)
     }
 
-    priv fn _blank_lines(self, parts: unsafe *cxx::std::vector<Doc>, prev: usize, next: usize) {
+    priv fn _blank_lines(self, parts: unsafe *[Doc], prev: usize, next: usize) {
         if next <= prev + 1 {
             return
         }
@@ -1964,14 +1950,14 @@ pub class Formatter {
         }
 
         for var b: usize = 0; b < blank; ++b {
-            parts->push_back(Doc::hardline())
+            parts->push(Doc::hardline())
         }
     }
 
-    priv fn _layout(self, es: unsafe *cxx::std::vector<Entry>) -> Doc {
-        var parts       = cxx::std::vector<Doc>()
-        var n           = es->size()
-        var i:    usize = 0
+    priv fn _layout(self, es: unsafe *[Entry]) -> Doc {
+        var parts: [Doc]
+        var n            = es->size()
+        var i:     usize = 0
 
         while i < n {
             if i > 0 {
@@ -1986,8 +1972,8 @@ pub class Formatter {
                     && (p->cmt.size() == 0 || p->cmt_first)
                     && !p->is_comment
                     && self._semi_of(p).size() == 0 {
-                    parts.push_back(Doc::text(" "))
-                    parts.push_back(self._entry_doc(q))
+                    parts.push(Doc::text(" "))
+                    parts.push(self._entry_doc(q))
                     i += 1
                     continue
                 }
@@ -1995,35 +1981,35 @@ pub class Formatter {
                 if rules().blank_after_closer && q->first <= p->last + 1 {
                     // rule 14.4: the renderer adds the blank
                     // line when the line this ends holds only closers
-                    parts.push_back(Doc::gap_line())
+                    parts.push(Doc::gap_line())
                 } else {
-                    parts.push_back(Doc::hardline())
+                    parts.push(Doc::hardline())
                     self._blank_lines(unsafe &parts, p->last, q->first)
                 }
             }
 
             var j = self._import_run(es, i)
             if j > i {
-                parts.push_back(self._import_block(es, i, j))
+                parts.push(self._import_block(es, i, j))
                 i = j
                 continue
             }
 
             j = self._run(es, i)
             if j > i + 1 {
-                parts.push_back(self._row_table(es, i, j))
+                parts.push(self._row_table(es, i, j))
                 i = j
                 continue
             }
 
             j = self._comment_run(es, i)
             if j > i + 1 {
-                parts.push_back(self._comment_table(es, i, j))
+                parts.push(self._comment_table(es, i, j))
                 i = j
                 continue
             }
 
-            parts.push_back(self._entry_doc(&(*es)[i]))
+            parts.push(self._entry_doc(&(*es)[i]))
             i += 1
         }
 
@@ -2039,7 +2025,7 @@ pub class Formatter {
     /// run only when it sits directly above an import of it (no blank line),
     /// so a comment the run would carry off is never orphaned: it ends the
     /// run instead.
-    priv fn _import_run(self, es: unsafe *cxx::std::vector<Entry>, i: usize) -> usize {
+    priv fn _import_run(self, es: unsafe *[Entry], i: usize) -> usize {
         var n   = es->size()
         var j   = i
         var end = i
@@ -2093,12 +2079,12 @@ pub class Formatter {
     /// The run [i, j) rebuilt: ffi imports first in their order, one blank
     /// line, then the Kairo imports sorted (Scripts/import_lint.py's layout).
     /// Comment lines directly above an import travel with it.
-    priv fn _import_block(self, es: unsafe *cxx::std::vector<Entry>, i: usize, j: usize) -> Doc {
-        var ffis = cxx::std::vector<usize>() // import entry indices
-        var kai  = cxx::std::vector<usize>()
-        var lead = cxx::std::vector<usize>() // per entry: index of its first lead comment
+    priv fn _import_block(self, es: unsafe *[Entry], i: usize, j: usize) -> Doc {
+        var ffis: [usize] // import entry indices
+        var kai:  [usize]
+        var lead: [usize] // per entry: index of its first lead comment
         for var k = i; k < j; ++k {
-            lead.push_back(k)
+            lead.push(k)
         }
 
         var k = i
@@ -2110,20 +2096,18 @@ pub class Formatter {
 
             lead[k - i] = s
             if self.imps[(*es)[k].imp as usize].is_ffi {
-                ffis.push_back(k)
+                ffis.push(k)
             } else {
-                kai.push_back(k)
+                kai.push(k)
             }
 
             k += 1
         }
 
         // stable sort of the Kairo imports by key
-        var keys = cxx::std::vector<string>()
+        var keys: [string]
         for var x: usize = 0; x < kai.size(); ++x {
-            keys.push_back(
-                self.import_key(self.imps[(*es)[kai[x]].imp as usize]),
-            )
+            keys.push(self.import_key(self.imps[(*es)[kai[x]].imp as usize]))
         }
 
         for var x: usize = 1; x < kai.size(); ++x {
@@ -2139,8 +2123,8 @@ pub class Formatter {
             }
         }
 
-        var parts = cxx::std::vector<Doc>()
-        var first = true
+        var parts: [Doc]
+        var first        = true
         for var x: usize = 0; x < ffis.size(); ++x {
             self._import_unit(
                 es,
@@ -2153,8 +2137,8 @@ pub class Formatter {
             first = false
         }
 
-        if !ffis.empty() && !kai.empty() {
-            parts.push_back(Doc::hardline())
+        if !ffis.is_empty() && !kai.is_empty() {
+            parts.push(Doc::hardline())
         }
 
         for var x: usize = 0; x < kai.size(); ++x {
@@ -2173,17 +2157,17 @@ pub class Formatter {
     }
 
     priv fn _import_unit(self,
-                         es:    unsafe *cxx::std::vector<Entry>,
+                         es:    unsafe *[Entry],
                          from:  usize,
                          at:    usize,
-                         parts: unsafe *cxx::std::vector<Doc>,
+                         parts: unsafe *[Doc],
                          first: bool) {
         for var k = from; k <= at; ++k {
             if !first || k > from {
-                parts->push_back(Doc::hardline())
+                parts->push(Doc::hardline())
             }
 
-            parts->push_back(self._entry_doc(&(*es)[k]))
+            parts->push(self._entry_doc(&(*es)[k]))
         }
     }
 
@@ -2219,13 +2203,13 @@ pub class Formatter {
         return w + width_of(self._semi_of(e))
     }
 
-    priv static fn _row_seps() -> cxx::std::vector<string> {
-        var s = cxx::std::vector<string>()
-        s.push_back("")
-        s.push_back(" ")
-        s.push_back(" ")
-        s.push_back(" = ")
-        s.push_back(" ") // a trailing comment (11.4)
+    priv static fn _row_seps() -> [string] {
+        var s: [string]
+        s.push("")
+        s.push(" ")
+        s.push(" ")
+        s.push(" = ")
+        s.push(" ") // a trailing comment (11.4)
         return s
     }
 
@@ -2238,7 +2222,7 @@ pub class Formatter {
     /// Past the end of the alignment run starting at `i` (rules 11.1, 11.2,
     /// 7.4). A run is one-line rows of one kind on consecutive source lines,
     /// each of which fits flat; then trimmed so every row also fits padded.
-    priv fn _run(self, es: unsafe *cxx::std::vector<Entry>, i: usize) -> usize {
+    priv fn _run(self, es: unsafe *[Entry], i: usize) -> usize {
         if !self.set.align {
             return i
         }
@@ -2307,13 +2291,10 @@ pub class Formatter {
         return j
     }
 
-    priv fn _col_widths(self,
-                        es: unsafe *cxx::std::vector<Entry>,
-                        i:  usize,
-                        j:  usize) -> cxx::std::vector<i32> {
-        var w = cxx::std::vector<i32>()
+    priv fn _col_widths(self, es: unsafe *[Entry], i: usize, j: usize) -> [i32] {
+        var w: [i32]
         for var k: usize = 0; k < ROW_COLS(); ++k {
-            w.push_back(0)
+            w.push(0)
         }
 
         for var r = i; r < j; ++r {
@@ -2329,7 +2310,7 @@ pub class Formatter {
     }
 
     /// The row's width once its columns are padded to `w`, up to its value.
-    priv fn _padded_width(self, e: *Entry, w: unsafe *cxx::std::vector<i32>) -> i32 {
+    priv fn _padded_width(self, e: *Entry, w: unsafe *[i32]) -> i32 {
         var seps        = Formatter::_row_seps()
         var last: usize = 0
         for var k: usize = 0; k < ROW_COLS(); ++k {
@@ -2354,9 +2335,9 @@ pub class Formatter {
         return t + width_of(self._semi_of(e))
     }
 
-    priv fn _row_table(self, es: unsafe *cxx::std::vector<Entry>, i: usize, j: usize) -> Doc {
-        var cells = cxx::std::vector<Doc>()
-        var cmts  = self._aligned_comments(es, i, j)
+    priv fn _row_table(self, es: unsafe *[Entry], i: usize, j: usize) -> Doc {
+        var cells: [Doc]
+        var cmts         = self._aligned_comments(es, i, j)
         for var r = i; r < j; ++r {
             var *e          = &(*es)[r]
             var semi        = self._semi_of(e)
@@ -2379,13 +2360,13 @@ pub class Formatter {
                     }
                 }
 
-                cells.push_back(c)
+                cells.push(c)
             }
 
             if cmts && e->cmt.size() > 0 {
-                cells.push_back(Doc::text(e->cmt))
+                cells.push(Doc::text(e->cmt))
             } else {
-                cells.push_back(Doc::nothing())
+                cells.push(Doc::nothing())
             }
         }
 
@@ -2398,10 +2379,7 @@ pub class Formatter {
 
     /// Rule 11.4 inside a row run: align the trailing comments when every
     /// row with one still fits the width with it.
-    priv fn _aligned_comments(self,
-                              es: unsafe *cxx::std::vector<Entry>,
-                              i:  usize,
-                              j:  usize) -> bool {
+    priv fn _aligned_comments(self, es: unsafe *[Entry], i: usize, j: usize) -> bool {
         if !rules().align_trailing_comments {
             return false
         }
@@ -2436,7 +2414,7 @@ pub class Formatter {
 
     /// Rule 11.4 outside row runs: past the end of a run of one-line entries
     /// on consecutive lines, each ending with a trailing comment.
-    priv fn _comment_run(self, es: unsafe *cxx::std::vector<Entry>, i: usize) -> usize {
+    priv fn _comment_run(self, es: unsafe *[Entry], i: usize) -> usize {
         if !self.set.align || !rules().align_trailing_comments {
             return i
         }
@@ -2487,20 +2465,18 @@ pub class Formatter {
         return j
     }
 
-    priv fn _comment_table(self, es: unsafe *cxx::std::vector<Entry>, i: usize, j: usize) -> Doc {
-        var cells = cxx::std::vector<Doc>()
+    priv fn _comment_table(self, es: unsafe *[Entry], i: usize, j: usize) -> Doc {
+        var cells: [Doc]
         for var r = i; r < j; ++r {
             var *e = &(*es)[r]
-            cells.push_back(
-                Doc::concat2(e->doc.copy(), Doc::text(self._semi_of(e))),
-            )
+            cells.push(Doc::concat2(e->doc.copy(), Doc::text(self._semi_of(e))))
 
-            cells.push_back(Doc::text(e->cmt))
+            cells.push(Doc::text(e->cmt))
         }
 
-        var seps = cxx::std::vector<string>()
-        seps.push_back("")
-        seps.push_back(" ")
+        var seps: [string]
+        seps.push("")
+        seps.push(" ")
         return Doc::table(cells, 2, seps)
     }
 
@@ -2510,12 +2486,12 @@ pub class Formatter {
 
     /// The members of a body written on one line, joined on one line, when
     /// every member is a one-line field or variant with no comment.
-    priv fn _oneline_members(self, es: unsafe *cxx::std::vector<Entry>, r: *ListOut) {
-        if es->empty() {
+    priv fn _oneline_members(self, es: unsafe *[Entry], r: *ListOut) {
+        if es->is_empty() {
             return
         }
 
-        var parts = cxx::std::vector<Doc>()
+        var parts: [Doc]
         for var i: usize = 0; i < es->size(); ++i {
             var *e = &(*es)[i]
             if !e->member || e->cmt.size() > 0 || e->doc.hard {
@@ -2526,13 +2502,13 @@ pub class Formatter {
                 // fields on one line are separated by `;` (13.2: required there);
                 // enum variants carry their own `,`, as written
                 if !(*es)[i - 1].variant {
-                    parts.push_back(Doc::text(";"))
+                    parts.push(Doc::text(";"))
                 }
 
-                parts.push_back(Doc::text(" "))
+                parts.push(Doc::text(" "))
             }
 
-            parts.push_back(e->doc.copy())
+            parts.push(e->doc.copy())
         }
 
         r->oneline     = Doc::concat(parts)
@@ -2638,7 +2614,7 @@ pub class Formatter {
             return Doc::group(one)
         }
 
-        var els = cxx::std::vector<Elem>()
+        var els: [Elem]
         for var i: usize = 0; i < b->body.size(); ++i {
             self._push_stmt(b->body[i], unsafe &els)
         }
@@ -2664,7 +2640,7 @@ pub class Formatter {
                     lo:      u32,
                     hi:      u32,
                     opener:  usize,
-                    els:     unsafe *cxx::std::vector<Elem>,
+                    els:     unsafe *[Elem],
                     oneline: bool) -> Doc {
         self._depth += 1
         var l = self._list(lo, hi, opener, els)
@@ -3096,14 +3072,14 @@ pub class Formatter {
             return self._v(st, en)
         }
 
-        var els = cxx::std::vector<Elem>()
+        var els: [Elem]
         for var i: usize = 0; i < s->cases.size(); ++i {
             var unsafe *mc = s->cases.get(i)
             if mc->range.is_invalid() {
                 continue
             }
 
-            els.push_back(
+            els.push(
                 Elem { start: mc->range.start.raw(), end: mc->range.end.raw(), mcase: mc },
             )
         }
@@ -3173,11 +3149,11 @@ pub class Formatter {
             return Doc::nothing()
         }
 
-        var n     = mc->patterns.size()
-        var keys  = cxx::std::vector<Doc>()
-        var vals  = cxx::std::vector<Doc>()
-        var prev  = self.toks[kc].end
-        var first = true
+        var n           = mc->patterns.size()
+        var keys: [Doc]
+        var vals: [Doc]
+        var prev        = self.toks[kc].end
+        var first       = true
         for var i: usize = 0; i < n; ++i {
             var unsafe *p = mc->patterns[i]
             if p == &null || p->range.is_invalid() {
@@ -3204,16 +3180,16 @@ pub class Formatter {
                 return Doc::nothing()
             }
 
-            keys.push_back(Doc::nothing())
-            vals.push_back(self._v(ps, pe))
+            keys.push(Doc::nothing())
+            vals.push(self._v(ps, pe))
             prev  = pe
             first = false
         }
 
-        var tail  = self._span(prev, b)
-        var parts = cxx::std::vector<Doc>()
-        parts.push_back(Doc::text("case "))
-        parts.push_back(
+        var tail         = self._span(prev, b)
+        var parts: [Doc]
+        parts.push(Doc::text("case "))
+        parts.push(
             Doc::list(
                 "",
                 "",
@@ -3225,8 +3201,8 @@ pub class Formatter {
         )
 
         if !tail.is_empty() {
-            parts.push_back(Doc::text(" "))
-            parts.push_back(tail)
+            parts.push(Doc::text(" "))
+            parts.push(tail)
         }
 
         return Doc::concat(parts)
@@ -3317,7 +3293,7 @@ pub class Formatter {
             return self._hb(st, p->body)
         }
 
-        var els = cxx::std::vector<Elem>()
+        var els: [Elem]
         if isa<ClassDecl>(d) {
             var unsafe *c = cast<ClassDecl>(d)
             for var i: usize = 0; i < c->fields.size(); ++i {
@@ -3388,7 +3364,7 @@ pub class Formatter {
                     continue
                 }
 
-                els.push_back(
+                els.push(
                     Elem { start: self._decl_start(v), end: v->range.end.raw(), variant: v },
                 )
             }
@@ -3435,10 +3411,10 @@ pub class Formatter {
 
         e->row = kind
         e->cells.clear()
-        e->cells.push_back(c0)
-        e->cells.push_back(c1)
-        e->cells.push_back(c2)
-        e->cells.push_back(c3)
+        e->cells.push(c0)
+        e->cells.push(c1)
+        e->cells.push(c2)
+        e->cells.push(c3)
     }
 
     /// `var`/`const`/field. Rule 11.2 columns: everything before the name,
@@ -3614,27 +3590,27 @@ pub class Formatter {
             return self._span(st, be)
         }
 
-        var starts = cxx::std::vector<u32>()
+        var starts: [u32]
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]
             if p == &null || p->range.is_invalid() {
                 return self._span(st, be)
             }
 
-            starts.push_back(p->range.start.raw())
+            starts.push(p->range.start.raw())
         }
 
-        var lo = cxx::std::vector<u32>()
-        var hi = cxx::std::vector<u32>()
+        var lo: [u32]
+        var hi: [u32]
         if !self._slots(o, c, starts, unsafe &lo, unsafe &hi) {
             return self._span(st, be)
         }
 
         // a parameter is its slot: an attribute before its range (`@inout x:`)
         // and a default after it (`= &null`) are the parameter's too
-        var keys = cxx::std::vector<Doc>()
-        var vals = cxx::std::vector<Doc>()
-        var flat = cxx::std::vector<Doc>()
+        var keys: [Doc]
+        var vals: [Doc]
+        var flat: [Doc]
         for var i: usize = 0; i < starts.size(); ++i {
             var a   = lo[i]
             var b   = hi[i]
@@ -3661,18 +3637,18 @@ pub class Formatter {
                 return self._span(st, be)
             }
 
-            keys.push_back(key.copy())
-            vals.push_back(val.copy())
+            keys.push(key.copy())
+            vals.push(val.copy())
             if i > 0 {
-                flat.push_back(Doc::text(", "))
+                flat.push(Doc::text(", "))
             }
 
             if !key.is_empty() {
-                flat.push_back(key)
-                flat.push_back(Doc::text(" "))
+                flat.push(key)
+                flat.push(Doc::text(" "))
             }
 
-            flat.push_back(val)
+            flat.push(val)
         }
 
         // a written trailing comma is not an item: the list's form decides it (4.2)
@@ -3703,17 +3679,17 @@ pub class Formatter {
     /// after an attribute; the separators are the commas between them. False
     /// when the commas are not where the items say.
     fn _slots(self,
-              o:      usize,
-              c:      usize,
-              starts: cxx::std::vector<u32>,
-              lo:     unsafe *cxx::std::vector<u32>,
-              hi:     unsafe *cxx::std::vector<u32>) -> bool {
+              o:            usize,
+              c:            usize,
+              const starts: [u32],
+              lo:           unsafe *[u32],
+              hi:           unsafe *[u32]) -> bool {
         var n = starts.size()
         if n == 0 {
             return false
         }
 
-        lo->push_back(self.toks[o].end)
+        lo->push(self.toks[o].end)
         for var i: usize = 1; i < n; ++i {
             if starts[i] <= starts[i - 1] || starts[i] > self.toks[c].start {
                 return false
@@ -3746,16 +3722,16 @@ pub class Formatter {
                 return false
             }
 
-            hi->push_back(self.toks[found].start)
-            lo->push_back(self.toks[found].end)
+            hi->push(self.toks[found].start)
+            lo->push(self.toks[found].end)
         }
 
         // the last slot ends at the closer, or at a trailing comma before it
         var l = self._sig_before(self.toks[c].start)
         if self._kind_at(l) == TokenKind::OpComma && self.toks[l].start >= starts[n - 1] {
-            hi->push_back(self.toks[l].start)
+            hi->push(self.toks[l].start)
         } else {
-            hi->push_back(self.toks[c].start)
+            hi->push(self.toks[c].start)
         }
 
         return true
@@ -3883,11 +3859,7 @@ pub class Formatter {
 
     /// class/struct/union/interface/extend/enum/module/`pub { }`/ffi block.
     /// `typebody`: a body rule 7.5 may keep on one line.
-    priv fn _aggregate(self,
-                       st:       u32,
-                       en:       u32,
-                       els:      unsafe *cxx::std::vector<Elem>,
-                       typebody: bool) -> Doc {
+    priv fn _aggregate(self, st: u32, en: u32, els: unsafe *[Elem], typebody: bool) -> Doc {
         var n          = self.toks.size()
         var o          = n
         var depth: i32 = 0
@@ -4588,10 +4560,10 @@ pub class Formatter {
         }
 
         if isa<ListLiteralExpr>(e) {
-            var unsafe *l = cast<ListLiteralExpr>(e)
-            var        xs = cxx::std::vector<unsafe *Expr>()
+            var unsafe *l                 = cast<ListLiteralExpr>(e)
+            var        xs: [unsafe *Expr]
             for var i: usize = 0; i < l->elements.size(); ++i {
-                xs.push_back(l->elements[i])
+                xs.push(l->elements[i])
             }
 
             return self._seq(
@@ -4604,10 +4576,10 @@ pub class Formatter {
         }
 
         if isa<TupleLiteralExpr>(e) {
-            var unsafe *t = cast<TupleLiteralExpr>(e)
-            var        xs = cxx::std::vector<unsafe *Expr>()
+            var unsafe *t                 = cast<TupleLiteralExpr>(e)
+            var        xs: [unsafe *Expr]
             for var i: usize = 0; i < t->elements.size(); ++i {
-                xs.push_back(t->elements[i])
+                xs.push(t->elements[i])
             }
 
             // (no one-element tuples: `(x,)` is S054E, so no comma is ever kept flat)
@@ -4634,21 +4606,21 @@ pub class Formatter {
                 return self._ev(e)
             }
 
-            var starts = cxx::std::vector<u32>()
+            var starts: [u32]
             for var i: usize = 0; i < ni->fields.size(); ++i {
-                starts.push_back(ni->fields.get(i)->name.range.start.raw())
+                starts.push(ni->fields.get(i)->name.range.start.raw())
             }
 
-            var lo = cxx::std::vector<u32>()
-            var hi = cxx::std::vector<u32>()
+            var lo: [u32]
+            var hi: [u32]
             if !self._slots(o, c, starts, unsafe &lo, unsafe &hi) {
                 return self._ev(e)
             }
 
-            var keys = cxx::std::vector<Doc>()
-            var vals = cxx::std::vector<Doc>()
-            var flat = cxx::std::vector<Doc>()
-            flat.push_back(Doc::text("{ "))
+            var keys: [Doc]
+            var vals: [Doc]
+            var flat: [Doc]
+            flat.push(Doc::text("{ "))
             for var i: usize = 0; i < ni->fields.size(); ++i {
                 var unsafe *f = ni->fields.get(i)
                 // `name: value`, the value alone in the rest of the slot
@@ -4666,26 +4638,26 @@ pub class Formatter {
                 }
 
                 if ok {
-                    keys.push_back(Doc::text(self._tok(f->name) + ":"))
-                    vals.push_back(val)
+                    keys.push(Doc::text(self._tok(f->name) + ":"))
+                    vals.push(val)
                 } else {
-                    keys.push_back(Doc::nothing())
-                    vals.push_back(self._span(lo[i], hi[i]))
+                    keys.push(Doc::nothing())
+                    vals.push(self._span(lo[i], hi[i]))
                 }
 
                 if i > 0 {
-                    flat.push_back(Doc::text(", "))
+                    flat.push(Doc::text(", "))
                 }
 
                 if !keys[i].is_empty() {
-                    flat.push_back(keys[i].copy())
-                    flat.push_back(Doc::text(" "))
+                    flat.push(keys[i].copy())
+                    flat.push(Doc::text(" "))
                 }
 
-                flat.push_back(vals[i].copy())
+                flat.push(vals[i].copy())
             }
 
-            flat.push_back(Doc::text(" }"))
+            flat.push(Doc::text(" }"))
             return Doc::concat3(
                 self.fxc(
                     ni->type_expr,
@@ -4969,18 +4941,18 @@ pub class Formatter {
             return self._ev(x)
         }
 
-        var parts = cxx::std::vector<Doc>()
+        var parts: [Doc]
         if !self._arrow_then(x->condition, x->then_expr) {
             return self._ev(x)
         }
 
-        parts.push_back(Doc::text("if "))
-        parts.push_back(self.fxc(x->condition, true, keep))
-        parts.push_back(Doc::text(" => "))
-        parts.push_back(self.fxc(x->then_expr, true, keep))
+        parts.push(Doc::text("if "))
+        parts.push(self.fxc(x->condition, true, keep))
+        parts.push(Doc::text(" => "))
+        parts.push(self.fxc(x->then_expr, true, keep))
 
-        var unsafe *prev = x->then_expr
-        var        tail  = cxx::std::vector<Doc>()
+        var unsafe *prev       = x->then_expr
+        var        tail: [Doc]
         for var i: usize = 0; i < x->else_ifs.size(); ++i {
             var unsafe *ei = x->else_ifs.get(i)
             if ei->condition == &null || ei->body == &null {
@@ -5002,11 +4974,11 @@ pub class Formatter {
                 return self._ev(x)
             }
 
-            tail.push_back(Doc::line())
-            tail.push_back(Doc::text("else if "))
-            tail.push_back(self.fxc(ei->condition, true, keep))
-            tail.push_back(Doc::text(" => "))
-            tail.push_back(self.fxc(ei->body, true, keep))
+            tail.push(Doc::line())
+            tail.push(Doc::text("else if "))
+            tail.push(self.fxc(ei->condition, true, keep))
+            tail.push(Doc::text(" => "))
+            tail.push(self.fxc(ei->body, true, keep))
             prev = ei->body
         }
 
@@ -5021,11 +4993,11 @@ pub class Formatter {
             return self._ev(x)
         }
 
-        tail.push_back(Doc::line())
-        tail.push_back(Doc::text("else => "))
-        tail.push_back(self.fxc(x->else_expr, true, keep))
+        tail.push(Doc::line())
+        tail.push(Doc::text("else => "))
+        tail.push(self.fxc(x->else_expr, true, keep))
         if !rules().if_expr_align {
-            parts.push_back(Doc::indent(Doc::concat(tail)))
+            parts.push(Doc::indent(Doc::concat(tail)))
             return Doc::group(Doc::concat(parts))
         }
 
@@ -5033,7 +5005,7 @@ pub class Formatter {
         // right-aligned under the `else if`s so the conditions line up
         // (`     if` / `else if` / `else`); the last `else` has no condition
         // and starts the column
-        parts.push_back(Doc::concat(tail))
+        parts.push(Doc::concat(tail))
         var body = Doc::concat(parts)
         if x->else_ifs.size() > 0 {
             body = Doc::concat2(
@@ -5067,10 +5039,10 @@ pub class Formatter {
             return self._ev(x)
         }
 
-        var flat  = cxx::std::vector<Doc>()
-        var cells = cxx::std::vector<Doc>()
-        flat.push_back(Doc::text("try "))
-        flat.push_back(opd.copy())
+        var flat:  [Doc]
+        var cells: [Doc]
+        flat.push(Doc::text("try "))
+        flat.push(opd.copy())
         var unsafe *prev = x->try_expr
         for var i: usize = 0; i < x->catch_arms.size(); ++i {
             var unsafe *arm = x->catch_arms.get(i)
@@ -5104,18 +5076,18 @@ pub class Formatter {
                 return self._ev(x)
             }
 
-            flat.push_back(Doc::text(" "))
-            flat.push_back(head.copy())
-            flat.push_back(Doc::text(" => "))
-            flat.push_back(val.copy())
-            cells.push_back(head)
-            cells.push_back(Doc::concat2(Doc::text("=> "), val))
+            flat.push(Doc::text(" "))
+            flat.push(head.copy())
+            flat.push(Doc::text(" => "))
+            flat.push(val.copy())
+            cells.push(head)
+            cells.push(Doc::concat2(Doc::text("=> "), val))
             prev = arm->body
         }
 
-        var seps = cxx::std::vector<string>()
-        seps.push_back("")
-        seps.push_back(" ")
+        var seps: [string]
+        seps.push("")
+        seps.push(" ")
         var broken = Doc::align(
             Doc::concat5(
                 Doc::text("try "),
@@ -5154,8 +5126,8 @@ pub class Formatter {
             return self._ev(x)
         }
 
-        var rows = cxx::std::vector<Doc>()
-        var cur  = self.toks[o].end
+        var rows: [Doc]
+        var cur         = self.toks[o].end
         for var i: usize = 0; i < x->cases.size(); ++i {
             var unsafe *mc = x->cases.get(i)
             if mc->range.is_invalid() || mc->expression == &null {
@@ -5173,8 +5145,8 @@ pub class Formatter {
                 return self._ev(x)
             }
 
-            rows.push_back(Doc::hardline())
-            rows.push_back(d)
+            rows.push(Doc::hardline())
+            rows.push(d)
             // past the value and the parens glued around it
             var q = self._after_expr(mc->expression)
             if q >= self.toks.size() {
@@ -5244,7 +5216,7 @@ pub class Formatter {
                  e:     unsafe *Expr,
                  open:  TokenKind,
                  close: TokenKind,
-                 items: cxx::std::vector<unsafe *Expr>,
+                 items: [unsafe *Expr],
                  flags: u32) -> Doc {
         var o = self._sig_after(self._es(e))
         var c = self._sig_before(self._ee(e))
@@ -5254,41 +5226,41 @@ pub class Formatter {
 
         var os = self.tok_text(o)
         var cs = self.tok_text(c)
-        if items.empty() {
+        if items.is_empty() {
             return Doc::text(os.copy() + cs)
         }
 
-        var starts = cxx::std::vector<u32>()
+        var starts: [u32]
         for var i: usize = 0; i < items.size(); ++i {
             if items[i] == &null {
                 return self._ev(e)
             }
 
-            starts.push_back(self._es(items[i]))
+            starts.push(self._es(items[i]))
         }
 
-        var lo = cxx::std::vector<u32>()
-        var hi = cxx::std::vector<u32>()
+        var lo: [u32]
+        var hi: [u32]
         if !self._slots(o, c, starts, unsafe &lo, unsafe &hi) {
             return self._ev(e)
         }
 
-        var keys = cxx::std::vector<Doc>()
-        var vals = cxx::std::vector<Doc>()
-        var flat = cxx::std::vector<Doc>()
-        flat.push_back(Doc::text(os))
+        var keys: [Doc]
+        var vals: [Doc]
+        var flat: [Doc]
+        flat.push(Doc::text(os))
         for var i: usize = 0; i < items.size(); ++i {
             var ok = false
-            keys.push_back(Doc::nothing())
-            vals.push_back(self._slot_expr(items[i], lo[i], hi[i], unsafe &ok))
+            keys.push(Doc::nothing())
+            vals.push(self._slot_expr(items[i], lo[i], hi[i], unsafe &ok))
             if i > 0 {
-                flat.push_back(Doc::text(", "))
+                flat.push(Doc::text(", "))
             }
 
-            flat.push_back(vals[i].copy())
+            flat.push(vals[i].copy())
         }
 
-        flat.push_back(Doc::text(cs))
+        flat.push(Doc::text(cs))
         return Doc::list(os, cs, keys, vals, Doc::concat(flat), flags)
     }
 
@@ -5299,9 +5271,9 @@ pub class Formatter {
             }
         }
 
-        var parts = cxx::std::vector<Doc>()
+        var parts: [Doc]
         if c->base != &null {
-            parts.push_back(
+            parts.push(
                 self.fxc(c->base, true, PCtx { kind: 3, prec: 0, right: false }),
             )
         }
@@ -5314,22 +5286,22 @@ pub class Formatter {
 
             match s->access_kind {
                 case ChainExpr::AccessKind::Dot {
-                    parts.push_back(Doc::text("."))
+                    parts.push(Doc::text("."))
                 } case ChainExpr::AccessKind::Arrow {
-                    parts.push_back(Doc::text("->"))
+                    parts.push(Doc::text("->"))
                 } case ChainExpr::AccessKind::ColonColon {
-                    parts.push_back(Doc::text("::"))
+                    parts.push(Doc::text("::"))
                 } case ChainExpr::AccessKind::QuestionDot {
-                    parts.push_back(Doc::text("?."))
+                    parts.push(Doc::text("?."))
                 } case ChainExpr::AccessKind::QuestionArrow {
-                    parts.push_back(Doc::text("?->"))
+                    parts.push(Doc::text("?->"))
                 }
             }
 
             if s->is_tuple_index() {
-                parts.push_back(Doc::text(f"{s->index}"))
+                parts.push(Doc::text(f"{s->index}"))
             } else if s->name != &null {
-                parts.push_back(Doc::text(self._tok(s->name->name)))
+                parts.push(Doc::text(self._tok(s->name->name)))
             } else {
                 return self._ev(c)
             }
@@ -5358,22 +5330,22 @@ pub class Formatter {
 
         self._calls += 1
 
-        var keys = cxx::std::vector<Doc>()
-        var vals = cxx::std::vector<Doc>()
-        var flat = cxx::std::vector<Doc>()
-        flat.push_back(Doc::text("("))
+        var keys: [Doc]
+        var vals: [Doc]
+        var flat: [Doc]
+        flat.push(Doc::text("("))
         if !c->args.is_empty() {
-            var starts = cxx::std::vector<u32>()
+            var starts: [u32]
             for var i: usize = 0; i < c->args.size(); ++i {
                 if c->args[i] == &null {
                     return self._ev(c)
                 }
 
-                starts.push_back(self._es(c->args[i]))
+                starts.push(self._es(c->args[i]))
             }
 
-            var lo = cxx::std::vector<u32>()
-            var hi = cxx::std::vector<u32>()
+            var lo: [u32]
+            var hi: [u32]
             if !self._slots(lp, cl, starts, unsafe &lo, unsafe &hi) {
                 return self._ev(c)
             }
@@ -5381,7 +5353,7 @@ pub class Formatter {
             for var i: usize = 0; i < c->args.size(); ++i {
                 var unsafe *a = c->args[i]
                 if i > 0 {
-                    flat.push_back(Doc::text(", "))
+                    flat.push(Doc::text(", "))
                 }
 
                 var ok = false
@@ -5402,27 +5374,27 @@ pub class Formatter {
                     }
 
                     if ok {
-                        keys.push_back(Doc::text(self._tok(na->name) + ":"))
-                        vals.push_back(val.copy())
-                        flat.push_back(keys[i].copy())
-                        flat.push_back(Doc::text(" "))
-                        flat.push_back(val)
+                        keys.push(Doc::text(self._tok(na->name) + ":"))
+                        vals.push(val.copy())
+                        flat.push(keys[i].copy())
+                        flat.push(Doc::text(" "))
+                        flat.push(val)
                         continue
                     }
 
-                    keys.push_back(Doc::nothing())
-                    vals.push_back(self._span(lo[i], hi[i]))
-                    flat.push_back(vals[i].copy())
+                    keys.push(Doc::nothing())
+                    vals.push(self._span(lo[i], hi[i]))
+                    flat.push(vals[i].copy())
                     continue
                 }
 
-                keys.push_back(Doc::nothing())
-                vals.push_back(self._slot_expr(a, lo[i], hi[i], unsafe &ok))
-                flat.push_back(vals[i].copy())
+                keys.push(Doc::nothing())
+                vals.push(self._slot_expr(a, lo[i], hi[i], unsafe &ok))
+                flat.push(vals[i].copy())
             }
         }
 
-        flat.push_back(Doc::text(")"))
+        flat.push(Doc::text(")"))
 
         // the callee, then whatever sits between it and the `(` (generic
         // arguments the chain did not take), as written
@@ -5486,18 +5458,18 @@ pub class Formatter {
         }
 
         if k == TokenKind::OpAmpAmp || k == TokenKind::OpPipePipe {
-            var xs  = cxx::std::vector<unsafe *Expr>()
-            var ops = cxx::std::vector<string>()
+            var xs:  [unsafe *Expr]
+            var ops: [string]
             self._flatten(b->lhs, k, unsafe &xs, unsafe &ops)
-            ops.push_back(_op)
+            ops.push(_op)
             self._flatten(b->rhs, k, unsafe &xs, unsafe &ops)
 
             // rule 4.6: break BEFORE every operator of the chain
-            var tail = cxx::std::vector<Doc>()
+            var tail: [Doc]
             for var i: usize = 1; i < xs.size(); ++i {
-                tail.push_back(Doc::line())
-                tail.push_back(Doc::text(ops[i - 1].copy() + " "))
-                tail.push_back(
+                tail.push(Doc::line())
+                tail.push(Doc::text(ops[i - 1].copy() + " "))
+                tail.push(
                     self.fxc(
                         xs[i],
                         true,
@@ -5531,8 +5503,8 @@ pub class Formatter {
     priv fn _flatten(self,
                      e:   unsafe *Expr,
                      k:   TokenKind,
-                     xs:  unsafe *cxx::std::vector<unsafe *Expr>,
-                     ops: unsafe *cxx::std::vector<string>) {
+                     xs:  unsafe *[unsafe *Expr],
+                     ops: unsafe *[string]) {
         var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
         if b != &null
             && b->op_token.kind == k
@@ -5540,12 +5512,12 @@ pub class Formatter {
             && !self._comment_in(self._es(e), self._ee(e))
             && !self._macro_in(self._es(e), self._ee(e)) {
             self._flatten(b->lhs, k, xs, ops)
-            ops->push_back(self._tok(b->op_token))
+            ops->push(self._tok(b->op_token))
             self._flatten(b->rhs, k, xs, ops)
             return
         }
 
-        xs->push_back(e)
+        xs->push(e)
     }
 }
 
@@ -5575,7 +5547,7 @@ pub fn find_str(const hay: string, const needle: string) -> usize {
 }
 
 /// Byte-wise ascending, stable (insertion: these lists are short).
-pub fn sort_strings(xs: unsafe *cxx::std::vector<string>) {
+pub fn sort_strings(xs: unsafe *[string]) {
     for var i: usize = 1; i < xs->size(); ++i {
         var j = i
         while j > 0 && (*xs)[j] < (*xs)[j - 1] {

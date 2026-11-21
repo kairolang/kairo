@@ -68,15 +68,15 @@ pub class DriverIncludeSource derives KairoIncludeSource {
     priv var _seen:   IncludedDecls                               ///< this host TU's
     /// The records of `agree`, on the Kairo side and in its order, and for
     /// each the context of the file whose stream wrote it.
-    priv var _agree_sites: cxx::std::vector<AgreeSite>
-    priv var _agree_ctx:   cxx::std::vector<unsafe *ASTContext>
+    priv var _agree_sites: [AgreeSite]
+    priv var _agree_ctx:   [unsafe *ASTContext]
     /// What the Sema agreement walk found in the host TUs run so far, with
     /// the context each is reported through. The driver reports and
     /// clears them after each run (take_agree_found): a disagreement in a
     /// stream a C++ file included is Kairo's finding, said at the Kairo
     /// call, never a diagnostic of the C++ file.
-    pub var agree_found: cxx::std::vector<AgreeFinding>
-    pub var agree_ctx:   cxx::std::vector<unsafe *ASTContext>
+    pub var agree_found: [AgreeFinding]
+    pub var agree_ctx:   [unsafe *ASTContext]
 
     fn DriverIncludeSource(self,
                            ksm:     *SourceManager,
@@ -174,8 +174,8 @@ pub class DriverIncludeSource derives KairoIncludeSource {
             self.agree->block_n    = self._locmap->mapped_count() as u32
             agree_fill_from(self.agree, s)
             for var k: usize = 0; k < s->agree_sites.size(); ++k {
-                self._agree_sites.push_back(s->agree_sites[k])
-                self._agree_ctx.push_back(ctx)
+                self._agree_sites.push(s->agree_sites[k])
+                self._agree_ctx.push(ctx)
             }
         }
 
@@ -198,7 +198,7 @@ pub class DriverIncludeSource derives KairoIncludeSource {
                         continue
                     }
 
-                    self.agree_found.push_back(
+                    self.agree_found.push(
                         agree_finding(
                             self.agree,
                             i,
@@ -208,7 +208,7 @@ pub class DriverIncludeSource derives KairoIncludeSource {
                         ),
                     )
 
-                    self.agree_ctx.push_back(self._agree_ctx[site])
+                    self.agree_ctx.push(self._agree_ctx[site])
                 }
             }
 

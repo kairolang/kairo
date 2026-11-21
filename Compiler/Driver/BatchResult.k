@@ -21,11 +21,11 @@ import Driver::TUResult::TUResult
 /// input files. `aborted` is set when any file emits a fatal diagnostic,
 /// causing `execute()` to skip remaining files.
 pub class BatchResult {
-    pub var tu_results:     cxx::std::vector<TUResult> ///< One entry per input file, in order.
-    pub var elapsed_ms:     f64                        = 0.0 ///< Total wall time for the batch.
-    pub var total_errors:   u32                        = 0
-    pub var total_warnings: u32                        = 0
-    pub var aborted:        bool                       = false ///< True if a fatal triggered early exit.
+    pub var tu_results:     [TUResult]         ///< One entry per input file, in order.
+    pub var elapsed_ms:     f64        = 0.0   ///< Total wall time for the batch.
+    pub var total_errors:   u32        = 0
+    pub var total_warnings: u32        = 0
+    pub var aborted:        bool       = false ///< True if a fatal triggered early exit.
 
     fn BatchResult(self) {
         self.tu_results.reserve(8)

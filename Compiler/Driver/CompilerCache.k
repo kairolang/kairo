@@ -41,9 +41,7 @@ import Driver::ObjectCache::{
 }
 import Location::SourceManager::FileID
 import Resolution::ModulePath::ModulePath
-import Support::Ascii::copy_strings
 import Support::Ascii::find
-import Support::Ascii::string_less
 import Support::FileIO::AtomicFile::{
     file_stat,
     is_leftover_temp,
@@ -120,16 +118,16 @@ extend CompilerInstance {
             return out
         }
 
-        var rt    = Path::join_str(rroot, ResourceLayout::rt_subdir())
-        var files = cxx::std::vector<string>()
+        var rt              = Path::join_str(rroot, ResourceLayout::rt_subdir())
+        var files: [string]
         for *name in LinkFS::list_dir(rt) {
             var p = rt.copy() + "/" + *name
             if LinkFS::is_file(p) {
-                files.push_back(p)
+                files.push(p)
             }
         }
 
-        llvm::sort(files.begin(), files.end(), string_less)
+        files.sort()
 
         for *p in files {
             out += CompilerInstance::_rt_stamp(*p)
@@ -242,14 +240,14 @@ extend CompilerInstance {
     /// `used` (what this run fetched or stored), as the object cache
     /// does (cache_evict_to_cap). Run after a store, which is
     /// rare; a hit lists nothing.
-    prot static fn _rt_cache_gc(const dir: string, const used: cxx::std::vector<string>) {
+    prot static fn _rt_cache_gc(const dir: string, const used: [string]) {
         if dir.is_empty() {
             return
         }
 
-        var now        = now_ns()
-        var kept       = cxx::std::vector<CacheEntryStat>()
-        var total: u64 = 0
+        var now                     = now_ns()
+        var kept:  [CacheEntryStat]
+        var total: u64              = 0
         for *name in LinkFS::list_dir(dir) {
             var p = dir.copy() + "/" + *name
             if !LinkFS::is_file(p) {
@@ -286,7 +284,7 @@ extend CompilerInstance {
                 }
 
                 var bytes = LinkFS::size(p)
-                kept.push_back(
+                kept.push(
                     CacheEntryStat { path: p.copy(), at: last, bytes: bytes, pinned: pinned },
                 )
 
@@ -400,14 +398,14 @@ extend CompilerInstance {
     /// The library's objects from `dir`'s manifest into _lib_lazy; false
     /// when there is none or a recorded source has changed.
     priv fn _read_kairo_lib(self, const dir: string) -> bool {
-        var objs    = cxx::std::vector<string>()
-        var archive = ""
+        var objs:   [string]
+        var archive          = ""
         if !CompilerInstance::_check_kairo_lib(dir, &objs, &archive) {
             return false
         }
 
         for *o in objs {
-            self._lib_lazy.push_back(o->copy())
+            self._lib_lazy.push(o->copy())
         }
 
         self._lib_archive = archive.copy()
@@ -422,7 +420,7 @@ extend CompilerInstance {
     /// only: _build_kairo_lib asks it too, of a library another build may
     /// have just published.
     priv static fn _check_kairo_lib(const dir:      string,
-                                    @inout objs:    cxx::std::vector<string>,
+                                    @inout objs:    [string],
                                     @inout archive: string) -> bool {
         var text = ""
         if !LinkFS::read(dir.copy() + "/manifest", &text) {
@@ -438,9 +436,7 @@ extend CompilerInstance {
             var line = text.subslice(start, i - start)
             start = i + 1
             if line.starts_with("obj ") {
-                objs.push_back(
-                    dir.copy() + "/" + line.subslice(4, line.size() - 4),
-                )
+                objs.push(dir.copy() + "/" + line.subslice(4, line.size() - 4))
 
                 continue
             }
@@ -535,7 +531,10 @@ extend CompilerInstance {
             return false
         }
 
-        var objs = copy_strings(action->result.objects)
+        var objs = cxx::std::vector<string>()
+        for *o in action->result.objects {
+            objs.push_back(o->copy())
+        }
 
         if !self._compile_runtime() {
             return false
@@ -546,7 +545,7 @@ extend CompilerInstance {
         }
 
         while self._native_objs.size() > saved_objs {
-            self._native_objs.pop_back()
+            self._native_objs.pop()
         }
 
         var man = ""
@@ -586,8 +585,8 @@ extend CompilerInstance {
             man += f"src {LinkFS::mtime(p)} {p}\n"
         }
 
-        for var k in self._runtime_sources() {
-            man += f"src {LinkFS::mtime(k.path)} {k.path}\n"
+        for *k in self._runtime_sources() {
+            man += f"src {LinkFS::mtime(k->path)} {k->path}\n"
         }
 
         for *p in self._runtime_deps() {
@@ -654,8 +653,8 @@ extend CompilerInstance {
                                const tmp:    string,
                                @inout aside: string) -> LibPublish {
         if LinkFS::is_dir(dir) {
-            var their_objs    = cxx::std::vector<string>()
-            var their_archive = ""
+            var their_objs:   [string]
+            var their_archive          = ""
             if CompilerInstance::_check_kairo_lib(
                 dir,
                 &their_objs,
@@ -702,10 +701,10 @@ extend CompilerInstance {
     /// (_read_kairo_lib). `keep`, the one this run built, is never
     /// removed.
     priv fn _gc_kairo_libs(self, const keep: string) {
-        var root       = LinkFS::parent(keep)
-        var now        = now_ns()
-        var kept       = cxx::std::vector<CacheEntryStat>()
-        var total: u64 = LinkFS::tree_size(keep)
+        var root                    = LinkFS::parent(keep)
+        var now                     = now_ns()
+        var kept:  [CacheEntryStat]
+        var total: u64              = LinkFS::tree_size(keep)
         for *name in LinkFS::list_dir(root) {
             var p = root.copy() + "/" + *name
             if p == keep || !LinkFS::is_dir(p) {
@@ -743,7 +742,7 @@ extend CompilerInstance {
 
             if !partial {
                 var bytes = LinkFS::tree_size(p)
-                kept.push_back(
+                kept.push(
                     CacheEntryStat { path: p.copy(), at: last, bytes: bytes, tree: true },
                 )
 

@@ -21,14 +21,14 @@ import Location::SourceRange::SourceRange
 /// Owned by `BatchResult` after `execute()` completes. All fields are
 /// immutable once `FrontendAction` transitions to `Done` or `Failed`.
 pub class TUResult {
-    pub var path:        string ///< Canonical source path.
-    pub var elapsed_ms:  f64 ///< Wall time from dispatch to completion.
-    pub var file_id:     u32 ///< SourceManager ID. \c u32(-1) if load failed.
-    pub var error_count: u32 ///< Errors attributed to this TU at halt time.
-    pub var warn_count:  u32 ///< Warnings attributed to this TU at halt time.
-    pub var stage:       TUStage ///< Last stage reached before halt or Done.
-    pub var had_fatal:   bool ///< True if this TU emitted a fatal diagnostic.
-    pub var objects:     cxx::std::vector<string> ///< objects this TU's action emitted, in emission order
+    pub var path:        string   ///< Canonical source path.
+    pub var elapsed_ms:  f64      ///< Wall time from dispatch to completion.
+    pub var file_id:     u32      ///< SourceManager ID. \c u32(-1) if load failed.
+    pub var error_count: u32      ///< Errors attributed to this TU at halt time.
+    pub var warn_count:  u32      ///< Warnings attributed to this TU at halt time.
+    pub var stage:       TUStage  ///< Last stage reached before halt or Done.
+    pub var had_fatal:   bool     ///< True if this TU emitted a fatal diagnostic.
+    pub var objects:     [string] ///< objects this TU's action emitted, in emission order
     /// The first top-level statement of the script this action lowered
     /// into `main` (SemaContext::script_at); invalid when it compiled no
     /// script. The batch reads it to reject two scripts in one link.

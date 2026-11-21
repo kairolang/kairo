@@ -108,10 +108,10 @@ pub class InputKind {
 }
 
 /// A second owner of every input of `v`.
-pub fn copy_inputs(const v: cxx::std::vector<InputKind>) -> cxx::std::vector<InputKind> {
-    var r = cxx::std::vector<InputKind>()
-    for *k in v {
-        r.push_back(k->copy())
+pub fn copy_inputs(const v: [InputKind]) -> [InputKind] {
+    var r: [InputKind]
+    for const *k in v {
+        r.push(k->copy())
     }
 
     return r
@@ -191,9 +191,8 @@ pub fn _class_of_type(k: *InputKind) {
 /// libfoo.so.1, libfoo.so.1.2.3: a versioned shared library, whose
 /// "extension" is the last version number.
 pub fn _is_versioned_so(const path: string) -> bool {
-    var name       = Path(path).filename()
-    var at:  usize = kairo::std::to_std_string(name).find(r".so.")
-    return !(cxx::std::string::npos == at)
+    var name = Path(path).filename()
+    return name.contains(".so.")
 }
 
 /// classifies one input.

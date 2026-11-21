@@ -47,15 +47,15 @@ pub class KairoIncludeScan {
     pub var found: cxx::std::vector<string>
     /// Every file scanned, absolute: the include graph may have cycles
     /// (`#pragma once` headers including each other).
-    priv var _seen: cxx::std::vector<string>
+    priv var _seen: [string]
     /// The quoted search directories after the includer's own (-iquote,
     /// then -I), and the angled ones (-I).
-    priv var _dirs:  cxx::std::vector<string>
-    priv var _angle: cxx::std::vector<string>
+    priv var _dirs:  [string]
+    priv var _angle: [string]
 
     pub fn KairoIncludeScan(self, dirs: cxx::std::vector<string>, angle: cxx::std::vector<string>) {
-        self._dirs  = dirs
-        self._angle = angle
+        self._dirs  = Vector<string>(dirs)
+        self._angle = Vector<string>(angle)
     }
 
     /// scans `path` and every quoted header it reaches.
@@ -67,7 +67,7 @@ pub class KairoIncludeScan {
             }
         }
 
-        self._seen.push_back(abs.copy())
+        self._seen.push(abs.copy())
 
         var r = llvm::MemoryBuffer::getFile(llvm::Twine(kairo::sref(abs)))
         if r.getError().value() != 0 {
@@ -167,7 +167,7 @@ pub class KairoIncludeScan {
     priv fn _resolve_in(self,
                         const here: string,
                         const name: string,
-                        const dirs: cxx::std::vector<string>) -> string {
+                        const dirs: [string]) -> string {
         if !here.is_empty() {
             var first = Path::absolute_if_exists(
                 Path::join_str(here, name.copy()),

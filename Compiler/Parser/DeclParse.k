@@ -97,7 +97,7 @@ import Token::TokenKind::{
 /// name, each with its generic arguments. Null for any other expression.
 /// It reads no parser state, so code outside the parser can call it.
 pub fn expr_as_type(ctx: unsafe *ASTContext, e: unsafe *Expr) -> unsafe *Type {
-    var segs = cxx::std::vector<ChainType::ChainSegment>()
+    var segs: [ChainType::ChainSegment]
     if isa<NamedIdentExpr>(e) {
         _push_type_segment(
             ctx,
@@ -155,7 +155,7 @@ pub fn expr_as_type(ctx: unsafe *ASTContext, e: unsafe *Expr) -> unsafe *Type {
 }
 
 fn _push_type_segment(ctx:        unsafe *ASTContext,
-                      @inout out: cxx::std::vector<ChainType::ChainSegment>,
+                      @inout out: [ChainType::ChainSegment],
                       name:       Token,
                       args:       FrozenList<ChainType::GenericArg>,
                       range:      SourceRange,
@@ -169,7 +169,7 @@ fn _push_type_segment(ctx:        unsafe *ASTContext,
     seg.sep           = sep
     seg.seg_kind = if (args.size() > 0) => (ChainType::SegmentKind::GenericApp)
                    else => ChainType::SegmentKind::Named
-    out.push_back(seg)
+    out.push(seg)
 }
 
 // TODO(DUCK-GENERIC): T uses _consume_mode, _index_skip_block, _index_skip_stmt, _index_skip_to_body, _is_terminator_tok, _peek_mode, pay_close, _reject_mode_binding, _restore_cursor, advance, advance_raw, apply_annotations_to_decl, ... (60). Stage 0 was duck-typed; bound it or keep `: type`.
@@ -4015,9 +4015,9 @@ pub class <T: type> DeclParse {
     /// `-` and `&` group LOOSER than `+`/`-` here, as in every C expression:
     /// `A + B & C` is `(A + B) & C`. Unparenthesized, that is a guess.
     priv fn _warn_mixed_amp(self, b: unsafe *BinaryOperatorExpr) {
-        var sides = cxx::std::vector<unsafe *Expr>()
-        sides.push_back(b->lhs)
-        sides.push_back(b->rhs)
+        var sides: [unsafe *Expr]
+        sides.push(b->lhs)
+        sides.push(b->rhs)
         for var i: usize = 0; i < sides.size(); ++i {
             var unsafe *o = dyn_cast<BinaryOperatorExpr>(sides[i])
             if o == &null {
@@ -5664,7 +5664,7 @@ pub class <T: type> DeclParse {
 
         // MacroDecl keeps its lossy Token parameter list; this block is a
         // pure adapter and would be replaced by FrozenList<MacroParamSpec>.
-        var params: cxx::std::vector<Declarations::MacroParamSpec>
+        var params: [Declarations::MacroParamSpec]
         for var i: usize = 0; i < hdr.params.size(); ++i {
             if hdr.params[i].variadic != 0 {
                 mac->is_variadic = true
@@ -5674,11 +5674,16 @@ pub class <T: type> DeclParse {
                 var sp = Declarations::MacroParamSpec{}
                 sp.name     = hdr.params[i].name
                 sp.variadic = hdr.params[i].variadic
-                params.push_back(sp)
+                params.push(sp)
             }
         }
 
-        mac->params_spec.from_buf(params.data(), params.size(), self.dyn()->ctx)
+        var pbuf: unsafe *Declarations::MacroParamSpec = &null
+        if !params.is_empty() {
+            pbuf = unsafe (unwrap!(params.data_mut()) as unsafe *Declarations::MacroParamSpec)
+        }
+
+        mac->params_spec.from_buf(pbuf, params.size(), self.dyn()->ctx)
 
         // body: unchanged from current implementation (brace-balance, span)
         if !self.dyn()->check(TokenKind::OpLBrace) {

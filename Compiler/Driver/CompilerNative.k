@@ -55,16 +55,14 @@ import Interop::Clang::ClangJobs::ClangJobs
 import Location::SourceManager::SourceManager
 import Native::TimeReport::TimeReport
 import Support::Ascii::copy_strings
-import Support::Ascii::string_less
 import Support::FileIO::FileSystem::FileType
 import Support::FileIO::Path::Path
 import std::env
 import std::io
 
-/// Orders by path. A named function: a closure's `const` parameter is a
-/// value in its `fn` type, and an InputKind does not copy implicitly.
-fn input_kind_before(const a: InputKind, const b: InputKind) -> bool {
-    return a.path < b.path
+/// Orders by path.
+fn input_kind_before(a: *const InputKind, b: *const InputKind) -> Ordering {
+    return a->path <=> b->path
 }
 
 extend CompilerInstance {
@@ -240,7 +238,7 @@ extend CompilerInstance {
                         f"runtime cache hit: {entry}",
                     )
 
-                    self._rt_used.push_back(entry.copy())
+                    self._rt_used.push(entry.copy())
                     hit = true
                 } else {
                     kairo::Logger::info(
@@ -252,22 +250,22 @@ extend CompilerInstance {
 
             if hit {
                 self._rt_invs.push_back(none)
-                self._rt_ents.push_back("")
-                self._rt_oks.push_back(1 as u8)
+                self._rt_ents.push("")
+                self._rt_oks.push(1 as u8)
             } else {
                 self._rt_invs.push_back(inv)
-                self._rt_ents.push_back(entry)
-                self._rt_oks.push_back(0 as u8)
+                self._rt_ents.push(entry)
+                self._rt_oks.push(0 as u8)
             }
 
-            self._rt_objs.push_back(obj)
-            self._rt_logs.push_back("")
+            self._rt_objs.push(obj)
+            self._rt_logs.push("")
         }
 
         var unsafe *be    = self._backend
         var unsafe *inv_p = self._rt_invs.data()
-        var unsafe *log_p = self._rt_logs.data()
-        var unsafe *ok_p  = self._rt_oks.data()
+        var unsafe *log_p = unsafe (unwrap!(self._rt_logs.data_mut()) as unsafe *string)
+        var unsafe *ok_p  = unsafe (unwrap!(self._rt_oks.data_mut()) as unsafe *u8)
         var unsafe *rec   = TimeReport::current()
         for var i: usize = 0; i < n; ++i {
             if inv_p[i].get() == &null {
@@ -316,11 +314,11 @@ extend CompilerInstance {
                     self._rt_ents[i],
                 ) {
                     stored = true
-                    self._rt_used.push_back(self._rt_ents[i].copy())
+                    self._rt_used.push(self._rt_ents[i].copy())
                 }
             }
 
-            self._native_objs.push_back(self._rt_objs[i].copy())
+            self._native_objs.push(self._rt_objs[i].copy())
             kairo::Logger::info(
                 kairo::Logger::Stage::Driver,
                 f"emitted object {self._rt_objs[i]}",
@@ -501,7 +499,7 @@ extend CompilerInstance {
     ///                             the .o files join the link.
     ///
     ///        -o names the output only when it is the build's one output.
-    prot fn _compile_sources(self, @inout natives: cxx::std::vector<InputKind>) -> bool {
+    prot fn _compile_sources(self, @inout natives: [InputKind]) -> bool {
         if natives.size() == 0 {
             return true
         }
@@ -560,26 +558,26 @@ extend CompilerInstance {
 
         // What each input writes (--emit), the same kinds and extensions a
         // Kairo TU writes, one driver run each.
-        var kinds = cxx::std::vector<EmitKind>()
-        var exts  = cxx::std::vector<string>()
+        var kinds: [EmitKind]
+        var exts:  [string]
         if fe->emit_obj {
-            kinds.push_back(EmitKind::Obj)
-            exts.push_back(".o")
+            kinds.push(EmitKind::Obj)
+            exts.push(".o")
         }
 
         if fe->emit_asm {
-            kinds.push_back(EmitKind::Asm)
-            exts.push_back(".s")
+            kinds.push(EmitKind::Asm)
+            exts.push(".s")
         }
 
         if fe->emit_llvm_ir {
-            kinds.push_back(EmitKind::LLVMIR)
-            exts.push_back(".ll")
+            kinds.push(EmitKind::LLVMIR)
+            exts.push(".ll")
         }
 
         if fe->emit_llvm_bc {
-            kinds.push_back(EmitKind::LLVMBC)
-            exts.push_back(".bc")
+            kinds.push(EmitKind::LLVMBC)
+            exts.push(".bc")
         }
 
         // A header writes one .pch whatever --emit says.
@@ -654,7 +652,7 @@ extend CompilerInstance {
                 var one = self._run_native(*k, &w)
                 ok = one && ok
                 if one && kind == EmitKind::Obj {
-                    self._native_objs.push_back(out.copy())
+                    self._native_objs.push(out.copy())
                     kairo::Logger::info(
                         kairo::Logger::Stage::Driver,
                         f"emitted object {out}",
@@ -685,9 +683,9 @@ extend CompilerInstance {
     /// the runtime's C/C++ sources: every one directly in
     /// <runtime root>/rt. No root, no runtime. Sorted, so object
     /// order does not follow readdir.
-    prot fn _runtime_sources(self) -> cxx::std::vector<InputKind> {
-        var out   = cxx::std::vector<InputKind>()
-        var rroot = self._runtime_root()
+    prot fn _runtime_sources(self) -> [InputKind] {
+        var out:  [InputKind]
+        var rroot             = self._runtime_root()
         if rroot.is_empty() {
             return out
         }
@@ -719,11 +717,11 @@ extend CompilerInstance {
             )
 
             if k.cls == InputClass::Source {
-                out.push_back(k)
+                out.push(k)
             }
         }
 
-        llvm::sort(out.begin(), out.end(), input_kind_before)
+        out.sort_by(input_kind_before)
 
         return out
     }
@@ -737,16 +735,16 @@ extend CompilerInstance {
     /// manifest of _runtime_sources() alone would keep a cached
     /// runtime object built from the old mimalloc. Sorted, so the
     /// manifest does not follow readdir.
-    prot fn _runtime_deps(self) -> cxx::std::vector<string> {
-        var out   = cxx::std::vector<string>()
-        var rroot = self._runtime_root()
+    prot fn _runtime_deps(self) -> [string] {
+        var out:  [string]
+        var rroot          = self._runtime_root()
         if rroot.is_empty() {
             return out
         }
 
-        var subs = cxx::std::vector<string>()
-        subs.push_back(ResourceLayout::mimalloc_src_subdir())
-        subs.push_back(ResourceLayout::mimalloc_include_subdir())
+        var subs: [string]
+        subs.push(ResourceLayout::mimalloc_src_subdir())
+        subs.push(ResourceLayout::mimalloc_include_subdir())
         for *sub in subs {
             var root                      = Path::join_str(rroot, sub->copy())
             var ec:  cxx::std::error_code
@@ -763,7 +761,7 @@ extend CompilerInstance {
                 }
 
                 var p = it->path()
-                out.push_back(
+                out.push(
                     string(
                         unsafe ((p.data() as unsafe *const u8) as *const u8),
                         p.size(),
@@ -772,7 +770,7 @@ extend CompilerInstance {
             }
         }
 
-        llvm::sort(out.begin(), out.end(), string_less)
+        out.sort()
 
         return out
     }

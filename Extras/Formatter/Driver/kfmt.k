@@ -217,17 +217,15 @@ fn tree_dump(const u: Parsed) -> string {
 
 /// What checks 2 and 3 compare, read from one lexed file.
 pub struct Sig {
-    var code: cxx::std::vector<string> ///< code tokens, in order
-    var cmts: cxx::std::vector<string> ///< comments not travelling with an import, in order
-    var imps: cxx::std::vector<string> ///< Kairo imports + their comments, sorted (a multiset)
-    var ffis: cxx::std::vector<string> ///< ffi imports + their comments, in order
+    var code: [string] ///< code tokens, in order
+    var cmts: [string] ///< comments not travelling with an import, in order
+    var imps: [string] ///< Kairo imports + their comments, sorted (a multiset)
+    var ffis: [string] ///< ffi imports + their comments, in order
 }
 
 /// Comment tokens that travel with import `im` (5.4): the own-line ones
 /// directly above it, and one trailing its last line. Marked in `used`.
-fn import_comments(f:        *Formatter,
-                   const im: ImportInfo,
-                   used:     unsafe *cxx::std::vector<u8>) -> string {
+fn import_comments(f: *Formatter, const im: ImportInfo, used: unsafe *[u8]) -> string {
     var s: string = ""
     // above: walk back over whitespace / newlines; a comment ending on the
     // line just above, which starts its own line, is part of the import
@@ -297,18 +295,18 @@ fn import_comments(f:        *Formatter,
 /// `import a::{x, y}`, `import a::{y, x}` and, for one name, the 5.1 forms
 /// all read the same.
 fn import_names(const im: ImportInfo) -> string {
-    var s: string = im.vis.copy() + "|" + im.anchor + "|"
-    var xs        = cxx::std::vector<string>()
+    var s:  string   = im.vis.copy() + "|" + im.anchor + "|"
+    var xs: [string]
     if im.braced {
         for var i: usize = 0; i < im.items.size(); ++i {
-            xs.push_back(im.path.copy() + "::" + im.items[i])
+            xs.push(im.path.copy() + "::" + im.items[i])
         }
     } else if im.star {
-        xs.push_back(im.path.copy() + "::*")
+        xs.push(im.path.copy() + "::*")
     } else if im.alias.size() > 0 {
-        xs.push_back(im.path.copy() + " as " + im.alias)
+        xs.push(im.path.copy() + " as " + im.alias)
     } else {
-        xs.push_back(im.path.copy())
+        xs.push(im.path.copy())
     }
 
     sort_strings(unsafe &xs)
@@ -323,11 +321,11 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
     var g = Sig{}
     var n = f->toks.size()
     // u8, not bool: a vector of bool hands out proxies, not bools
-    var used   = cxx::std::vector<u8>()
-    var in_imp = cxx::std::vector<u8>()
+    var used:   [u8]
+    var in_imp: [u8]
     for var i: usize = 0; i < n; ++i {
-        used.push_back(0)
-        in_imp.push_back(0)
+        used.push(0)
+        in_imp.push(0)
     }
 
     for var x: usize = 0; x < f->imps.size(); ++x {
@@ -352,9 +350,9 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
                 t += f->tok_text(i) + " "
             }
 
-            g.ffis.push_back(t.copy() + "#" + cm)
+            g.ffis.push(t.copy() + "#" + cm)
         } else {
-            g.imps.push_back(import_names(*im) + "#" + cm)
+            g.imps.push(import_names(*im) + "#" + cm)
         }
     }
 
@@ -369,7 +367,7 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
             // string segment) is code too
             var gtxt = f->_trimmed(prev, t.start)
             if gtxt.size() > 0 {
-                g.code.push_back("\x01" + squeeze(gtxt.copy()))
+                g.code.push("\x01" + squeeze(gtxt.copy()))
             }
         }
 
@@ -382,7 +380,7 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
 
         if t.kind == TokenKind::AtComment {
             if used[i] == 0 {
-                g.cmts.push_back(f->_trimmed(t.start, t.end))
+                g.cmts.push(f->_trimmed(t.start, t.end))
             }
 
             continue
@@ -409,7 +407,7 @@ fn signature(f: *Formatter, set: Settings) -> Sig {
             continue
         }
 
-        g.code.push_back(f->tok_text(i))
+        g.code.push(f->tok_text(i))
     }
 
     return g
@@ -464,8 +462,8 @@ fn squeeze(const s: string) -> string {
     return out
 }
 
-fn same_list(const a:    cxx::std::vector<string>,
-             const b:    cxx::std::vector<string>,
+fn same_list(const a:    [string],
+             const b:    [string],
              const what: string,
              why:        unsafe *string) -> bool {
     var n = if a.size() < b.size() => a.size() else => b.size()
@@ -523,7 +521,7 @@ fn verify(ci:             unsafe *CompilerInstance,
           const a:        Sig,
           const ta:       string,
           const file_dir: string,
-          const roots:    cxx::std::vector<string>,
+          const roots:    [string],
           const out:      string,
           set:            Settings,
           buf:            unsafe *cxx::std::string,
@@ -552,7 +550,7 @@ fn verify(ci:             unsafe *CompilerInstance,
 
     var f2 = Formatter(v.ctx, ci, vfid, set)
     f2.file_dir = file_dir.copy()
-    f2.roots    = copy_strings(roots)
+    f2.roots    = roots.copy()
     if !f2.prepare() {
         *why = "the output does not lex"
         return false
@@ -611,7 +609,7 @@ fn format_one_file(ci:          unsafe *CompilerInstance,
                    const name:  string,
                    mode:        FmtMode,
                    set:         Settings,
-                   const roots: cxx::std::vector<string>) -> i32 {
+                   const roots: [string]) -> i32 {
     // the checked output's bytes: declared before the release below so they
     // outlive the virtual file that points at them
     var buf = cxx::std::string()
@@ -640,7 +638,7 @@ fn format_one_file(ci:          unsafe *CompilerInstance,
 
     var fmt = Formatter(u.ctx, ci, fid, set)
     fmt.file_dir = Path::parent_of(Path::absolute_if_exists(name.copy()))
-    fmt.roots    = copy_strings(roots)
+    fmt.roots    = roots.copy()
     if !fmt.prepare() {
         io::eprintln(f"kfmt: {name}: could not lex")
         return 2
@@ -920,11 +918,14 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     ci->initialize(Path::cwd())
 
     // the -I directories, for the 5.1 module-collision test
-    var roots = copy_strings(ci->invocation()->include_dirs)
+    var roots: [string]
+    for *r in ci->invocation()->include_dirs {
+        roots.push(r->copy())
+    }
 
     // every .k file named, or under a named directory; sorted so runs agree
-    var files            = cxx::std::vector<string>()
-    var bad_paths: usize = 0
+    var files:     [string]
+    var bad_paths: usize    = 0
     for var x: usize = 0; x < inputs.size(); ++x {
         var target_path = inputs[x].copy()
         var path = cxx::std::filesystem::path(kairo::sref(target_path).str())
@@ -935,7 +936,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         }
 
         if cxx::std::filesystem::is_directory(path) {
-            var found = cxx::std::vector<string>()
+            var found: [string]
             for entry in cxx::std::filesystem::recursive_directory_iterator(path) {
                 if !entry.is_regular_file() {
                     continue
@@ -949,13 +950,11 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
                     continue
                 }
 
-                found.push_back(std_to_string(entry.path().generic_string()))
+                found.push(std_to_string(entry.path().generic_string()))
             }
 
             sort_strings(unsafe &found)
-            for var i: usize = 0; i < found.size(); ++i {
-                files.push_back(cxx::std::move(found[i]))
-            }
+            files.append(found)
         } else {
             if Path::extension_of(target_path) != ".k" {
                 io::eprintln(f"kfmt: not a .k file: {target_path}")
@@ -963,7 +962,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
                 continue
             }
 
-            files.push_back(target_path)
+            files.push(target_path)
         }
     }
 

@@ -119,21 +119,17 @@ pub struct CacheEntryStat {
 /// Removing an entry cannot break a parallel build sharing the
 /// cache: every reader copies an entry out, or finds it gone and
 /// rebuilds it.
-/// Orders by last use. A named function: a closure's `const` parameter is
-/// a value in its `fn` type, and a CacheEntryStat does not copy implicitly.
-fn cache_entry_older(const a: CacheEntryStat, const b: CacheEntryStat) -> bool {
-    return a.at < b.at
+/// Orders by last use.
+fn cache_entry_older(a: *const CacheEntryStat, b: *const CacheEntryStat) -> Ordering {
+    return a->at <=> b->at
 }
 
-pub fn cache_evict_to_cap(@inout entries: cxx::std::vector<CacheEntryStat>,
-                          total:          u64,
-                          cap:            u64,
-                          now:            u64) {
+pub fn cache_evict_to_cap(@inout entries: [CacheEntryStat], total: u64, cap: u64, now: u64) {
     if total <= cap {
         return
     }
 
-    llvm::sort(entries.begin(), entries.end(), cache_entry_older)
+    entries.sort_by(cache_entry_older)
 
     var left   = total
     var target = cap / 4 * 3
@@ -172,26 +168,26 @@ pub class ObjectCache {
     pub var compiled:  usize = 0
     pub var stored:    usize = 0
 
-    priv var _f_lines:   string                   = "" ///< F's parts, one per line, for the record
-    priv var _diag_part: string                   = "" ///< clang -W words: what clang reports, not what it emits
-    priv var _includes:  cxx::std::vector<string> ///< -include files, hashed with the headers
-    priv var _fmt:       u8                       = 0 ///< 0 ELF, 1 Mach-O, 2 COFF
+    priv var _f_lines:   string   = "" ///< F's parts, one per line, for the record
+    priv var _diag_part: string   = "" ///< clang -W words: what clang reports, not what it emits
+    priv var _includes:  [string]      ///< -include files, hashed with the headers
+    priv var _fmt:       u8       = 0  ///< 0 ELF, 1 Mach-O, 2 COFF
     /// begin_run's view of the graph for tu_headers: every header file once
     /// (index = rank in path order) with its content hash (filled on first
     /// use) and whether it is imported as C; header kfid -> index; Kairo
     /// module fid -> index into _edges, its import edge targets.
-    priv var _hdr_path: cxx::std::vector<string>
-    priv var _hdr_hash: cxx::std::vector<string>
-    priv var _hdr_c:    cxx::std::vector<u8>
+    priv var _hdr_path: [string]
+    priv var _hdr_hash: [string]
+    priv var _hdr_c:    [u8]
     priv var _hdr_of:   llvm::DenseMap<u64, u32>
     priv var _mod_of:   llvm::DenseMap<u64, u32>
     /// -g only: each header's place in the merged PCH's file order, and the
     /// hash of that order's every prefix (paths and contents).
-    priv var _hdr_pos:    cxx::std::vector<u32>
-    priv var _prefix:     cxx::std::vector<string>
-    priv var _edges:      cxx::std::vector<cxx::std::vector<u32>>
-    priv var _hdr_global: string                                  = "" ///< in every TU's headers: the merged-PCH verdict and -include files
-    priv var _tu_part:    string                                  = "" ///< the "headers" (and "iface-walk") lines of the TU key() was last asked for
+    priv var _hdr_pos:    [u32]
+    priv var _prefix:     [string]
+    priv var _edges:      [[u32]]
+    priv var _hdr_global: string   = "" ///< in every TU's headers: the merged-PCH verdict and -include files
+    priv var _tu_part:    string   = "" ///< the "headers" (and "iface-walk") lines of the TU key() was last asked for
     /// The entries this run fetched or stored: gc's size bound never
     /// evicts one, so the generation in use survives however old its
     /// store time is (mtime is when an entry was stored, not used).
@@ -263,30 +259,28 @@ pub class ObjectCache {
                      const edges: cxx::std::vector<cxx::std::vector<u32>>) {
         // Each header file once, by path, in path order: the key's lines
         // must not follow which set or which graph listed a file first.
-        var paths = cxx::std::vector<string>()
-        var kfids = cxx::std::vector<u32>()
-        var seen  = llvm::StringMap<u32>()
+        var paths: [string]
+        var kfids: [u32]
+        var seen            = llvm::StringMap<u32>()
         for var hs: unsafe *HeaderSet in sets {
             for var i: usize = 0; i < hs->files.size(); ++i {
                 if hs->files[i].kfid == 0 {
                     continue
                 }
 
-                paths.push_back(hs->files[i].path.copy())
-                kfids.push_back(hs->files[i].kfid)
+                paths.push(hs->files[i].path.copy())
+                kfids.push(hs->files[i].kfid)
             }
         }
 
-        var ix = cxx::std::vector<usize>()
+        var ix: [usize]
         for var i: usize = 0; i < paths.size(); ++i {
-            ix.push_back(i)
+            ix.push(i)
         }
 
         var *pp = &paths
-        llvm::sort(
-            ix.begin(),
-            ix.end(),
-            fn (a: usize, b: usize) |pp| -> bool = (*pp)[a] < (*pp)[b],
+        ix.sort_by(
+            fn (a: *const usize, b: *const usize) |pp| -> Ordering = (*pp)[*a] <=> (*pp)[*b],
         )
 
         for var r: usize = 0; r < ix.size(); ++r {
@@ -296,9 +290,9 @@ pub class ObjectCache {
             if at == seen.end() {
                 h = (self._hdr_path.size() as u32)
                 seen.try_emplace(kairo::sref(p), h)
-                self._hdr_path.push_back(p)
-                self._hdr_hash.push_back("")
-                self._hdr_c.push_back(0 as u8)
+                self._hdr_path.push(p)
+                self._hdr_hash.push("")
+                self._hdr_c.push(0 as u8)
             } else {
                 h = at->second
             }
@@ -334,7 +328,7 @@ pub class ObjectCache {
         // in first-touch order), and the running hash of its prefixes
         // (tu_headers says why).
         if self.with_locs {
-            var placed = cxx::std::vector<u8>()
+            var placed: [u8]
             placed.resize(self._hdr_path.size(), 0 as u8)
             self._hdr_pos.resize(self._hdr_path.size(), u32::MAX)
             var run = ""
@@ -363,7 +357,7 @@ pub class ObjectCache {
                         ),
                     )
 
-                    self._prefix.push_back(run.copy())
+                    self._prefix.push(run.copy())
                 }
             }
         }
@@ -372,7 +366,15 @@ pub class ObjectCache {
             self._mod_of.try_emplace(mods[i] as u64, (i as u32))
         }
 
-        self._edges = edges
+        self._edges.clear()
+        for *row in edges {
+            var r: [u32]
+            for *t in *row {
+                r.push(*t)
+            }
+
+            self._edges.push(r)
+        }
 
         var g = f"merged {merged_ok}\n"
         for *p in self._includes {
@@ -407,19 +409,19 @@ pub class ObjectCache {
     /// key even though the merged PCH holds it
     /// (Compiler/Spec/Incremental.md, deviation 3).
     pub fn tu_headers(self, fid: u32, const files: cxx::std::vector<u32>) -> string {
-        var hmark = cxx::std::vector<u8>()
+        var hmark: [u8]
         hmark.resize(self._hdr_path.size(), 0 as u8)
-        var mmark = cxx::std::vector<u8>()
+        var mmark: [u8]
         mmark.resize(self._edges.size(), 0 as u8)
-        var work  = cxx::std::vector<usize>()
-        var start = files
+        var work: [usize]
+        var start         = files
         start.push_back(fid)
         for var f: u32 in start {
             var mi = self._mod_of.find(f as u64)
             if mi != self._mod_of.end() {
                 if mmark[mi->second as usize] == (0 as u8) {
                     mmark[mi->second as usize] = (1 as u8)
-                    work.push_back(mi->second as usize)
+                    work.push(mi->second as usize)
                 }
 
                 continue
@@ -431,15 +433,14 @@ pub class ObjectCache {
             }
         }
 
-        while !work.empty() {
-            var m = work[work.size() - 1]
-            work.pop_back()
-            for var t: u32 in self._edges[m] {
+        while !work.is_empty() {
+            var m = work.remove(work.size() - 1)
+            for t in self._edges[m] {
                 var mi = self._mod_of.find(t as u64)
                 if mi != self._mod_of.end() {
                     if mmark[mi->second as usize] == (0 as u8) {
                         mmark[mi->second as usize] = (1 as u8)
-                        work.push_back(mi->second as usize)
+                        work.push(mi->second as usize)
                     }
 
                     continue
@@ -749,10 +750,10 @@ pub class ObjectCache {
             return
         }
 
-        var now        = now_ns()
-        var objs       = self.dir.copy() + "/objects"
-        var kept       = cxx::std::vector<CacheEntryStat>()
-        var total: u64 = 0
+        var now                     = now_ns()
+        var objs                    = self.dir.copy() + "/objects"
+        var kept:  [CacheEntryStat]
+        var total: u64              = 0
         for *name in LinkFS::list_dir(objs) {
             var p       = objs.copy() + "/" + *name
             var partial = is_leftover_temp(*name)
@@ -766,7 +767,7 @@ pub class ObjectCache {
             if !partial {
                 var bytes = LinkFS::size(p)
                 var used  = self._used.contains(kairo::sref(p))
-                kept.push_back(
+                kept.push(
                     CacheEntryStat { path: p.copy(), at: last, bytes: bytes, pinned: used },
                 )
 
@@ -933,7 +934,7 @@ pub class ObjectCache {
             }
 
             if a == "-include" && i + 1 < n {
-                self._includes.push_back((*args)[i + 1].copy())
+                self._includes.push((*args)[i + 1].copy())
                 skip_next = true
                 continue
             }

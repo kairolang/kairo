@@ -87,7 +87,7 @@ extend CompilerInstance {
                 f"CompilerInstance: {(*f)} is included by a C++ input; building it",
             )
 
-            self._inputs.push_back(nk)
+            self._inputs.push(nk)
         }
     }
 
@@ -185,7 +185,7 @@ extend CompilerInstance {
     /// (_input_module_path), so this order does not decide a file's
     /// identity; the importer claims the file it reaches first
     /// (claim_fid). The fid-0 placeholder below is needed either way.
-    prot fn _kairo_order(self) -> cxx::std::vector<InputKind> {
+    prot fn _kairo_order(self) -> [InputKind] {
         var nk: usize = 0
         for *k in self._inputs {
             if k->cls == InputClass::LinkInput
@@ -217,7 +217,7 @@ extend CompilerInstance {
             )
         }
 
-        var kfids = cxx::std::vector<u32>()
+        var kfids: [u32]
         for *k in self._inputs {
             if k->cls == InputClass::LinkInput
                 || k->cls == InputClass::Source
@@ -225,7 +225,7 @@ extend CompilerInstance {
                 continue
             }
 
-            kfids.push_back(self._sm->load_file(Path(k->path)))
+            kfids.push(self._sm->load_file(Path(k->path)))
         }
 
         // An input reached from ANOTHER input (not from itself).
@@ -247,28 +247,28 @@ extend CompilerInstance {
             return copy_inputs(self._inputs)
         }
 
-        var first       = cxx::std::vector<InputKind>()
-        var last        = cxx::std::vector<InputKind>()
-        var n:    usize = 0
+        var first: [InputKind]
+        var last:  [InputKind]
+        var n:     usize       = 0
         for *k in self._inputs {
             if k->cls == InputClass::LinkInput
                 || k->cls == InputClass::Source
                 || k->cls == InputClass::Header {
-                first.push_back(k->copy())
+                first.push(k->copy())
                 continue
             }
 
             var f = kfids[n]
             n += 1
             if f != u32::MAX && reached.contains(f) {
-                last.push_back(k->copy())
+                last.push(k->copy())
             } else {
-                first.push_back(k->copy())
+                first.push(k->copy())
             }
         }
 
         for *k in last {
-            first.push_back(k->copy())
+            first.push(k->copy())
         }
 
         return first
@@ -610,8 +610,8 @@ extend CompilerInstance {
     }
 
     /// fids whose TU holds a resolved import edge directly into `fid`.
-    fn importers_of(self, fid: u32) -> cxx::std::vector<u32> {
-        var out = cxx::std::vector<u32>()
+    fn importers_of(self, fid: u32) -> [u32] {
+        var out: [u32]
 
         for var other: u32 in self._g_scope->all_fids() {
             if other == fid {
@@ -635,7 +635,7 @@ extend CompilerInstance {
                 }
 
                 if e->target_fid == fid {
-                    out.push_back(other)
+                    out.push(other)
                     break
                 }
             }
@@ -657,11 +657,11 @@ extend CompilerInstance {
         var seen = llvm::DenseSet<u64>() // membership only; `as u64` keeps clear of the reserved keys
         seen.insert(fid as u64)
 
-        var frontier = cxx::std::vector<u32>()
-        frontier.push_back(fid)
+        var frontier: [u32]
+        frontier.push(fid)
 
-        while !frontier.empty() {
-            var next = cxx::std::vector<u32>()
+        while !frontier.is_empty() {
+            var next: [u32]
 
             for var f: u32 in frontier {
                 for var imp: u32 in self.importers_of(f) {
@@ -670,7 +670,7 @@ extend CompilerInstance {
                     }
 
                     out.push_back(imp)
-                    next.push_back(imp)
+                    next.push(imp)
                 }
             }
 

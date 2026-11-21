@@ -130,12 +130,12 @@ pub class KairoIncludeHook {
     /// clang's own engine would fail the set and lose the rest of the header.
     pub var  refuse:   bool                                                     = false
     priv var _ci:      unsafe *clang::CompilerInstance                          = &null
-    priv var _streams: cxx::std::vector<unsafe *cxx::std::vector<clang::Token>>         ///< owned
+    priv var _streams: [unsafe *cxx::std::vector<clang::Token>]         ///< owned
     /// Streams made on a file's first entry and held for its second, from
     /// the header buffer (_enter_headers); by FileEntry UID, parallel. A
     /// taken slot's stream goes null.
-    priv var _held_uids: cxx::std::vector<u32>
-    priv var _held:      cxx::std::vector<unsafe *cxx::std::vector<clang::Token>>
+    priv var _held_uids: [u32]
+    priv var _held:      [unsafe *cxx::std::vector<clang::Token>]
 
     fn install(self, @inout ci: clang::CompilerInstance) {
         // An LLVM IR input (.ll/.bc) runs the same codegen actions with no
@@ -181,7 +181,7 @@ pub class KairoIncludeHook {
             )
 
             var unsafe *skip = kairo::std::create<cxx::std::vector<clang::Token>>()
-            self._streams.push_back(skip)
+            self._streams.push(skip)
             self._sentinel(skip, fid)
             return cxx::std::optional<llvm::ArrayRef<clang::Token>>(
                 llvm::ArrayRef<clang::Token>(skip->data(), skip->size()),
@@ -212,7 +212,7 @@ pub class KairoIncludeHook {
         }
 
         var unsafe *toks = kairo::std::create<cxx::std::vector<clang::Token>>()
-        self._streams.push_back(toks)
+        self._streams.push(toks)
 
         var why = ""
         if self._ci->getLangOpts().CPlusPlus == 0 {
@@ -238,8 +238,8 @@ pub class KairoIncludeHook {
         // sentinel and the headers come from a buffer entered beneath it,
         // which includes them and then this file again.
         if why.is_empty() && !self.source->include_lines.empty() {
-            self._held_uids.push_back(uid)
-            self._held.push_back(toks)
+            self._held_uids.push(uid)
+            self._held.push(toks)
             // Absolute: a quoted include from a buffer has no directory of
             // its own to be relative to.
             var real = fe->getFileEntry().tryGetRealPathName()
@@ -250,7 +250,7 @@ pub class KairoIncludeHook {
                         else => path
             self._enter_headers(fid, again, self.source->include_lines)
             var unsafe *stand_in = kairo::std::create<cxx::std::vector<clang::Token>>()
-            self._streams.push_back(stand_in)
+            self._streams.push(stand_in)
             self._sentinel(stand_in, fid)
             return cxx::std::optional<llvm::ArrayRef<clang::Token>>(
                 llvm::ArrayRef<clang::Token>(stand_in->data(), stand_in->size()),

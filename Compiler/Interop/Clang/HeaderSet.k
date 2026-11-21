@@ -337,8 +337,8 @@ pub class HeaderSet {
     /// The include graph by node number: a node per distinct path (the
     /// injected main is ""), its edges' target nodes in include order.
     priv var _node_of:      llvm::StringMap<u32>
-    priv var _node_out:     cxx::std::vector<cxx::std::vector<u32>>
-    priv var _node_path:    cxx::std::vector<string>
+    priv var _node_out:     [[u32]]
+    priv var _node_path:    [string]
     priv var _closure_memo: llvm::StringMap<cxx::std::vector<u32>> ///< spelled header -> closure_kfids' answer.
 
     fn HeaderSet(self) {
@@ -843,7 +843,7 @@ pub class HeaderSet {
         for var i: usize = 0; i < self.includes.size(); ++i {
             var a = self._node(self.includes[i].from_path)
             var b = self._node(self.includes[i].to_path)
-            self._node_out[a].push_back(b)
+            self._node_out[a as usize].push(b)
         }
     }
 
@@ -855,8 +855,8 @@ pub class HeaderSet {
 
         var n = (self._node_path.size() as u32)
         self._node_of.try_emplace(kairo::sref(p), n)
-        self._node_path.push_back(p.copy())
-        self._node_out.push_back(cxx::std::vector<u32>())
+        self._node_path.push(p.copy())
+        self._node_out.push([])
         return n
     }
 
@@ -879,11 +879,11 @@ pub class HeaderSet {
         var root = u32::MAX
         var mit  = self._node_of.find(kairo::sref(""))
         if mit != self._node_of.end() {
-            var *direct = &self._node_out[mit->second]
+            var *direct = &self._node_out[mit->second as usize]
             for var k: usize = 0; k < direct->size(); ++k {
                 if self._spelling_matches(
                     spelled,
-                    self._node_path[(*direct)[k]],
+                    self._node_path[(*direct)[k] as usize],
                 ) {
                     root = (*direct)[k]
                     break
@@ -892,13 +892,12 @@ pub class HeaderSet {
         }
 
         if root != u32::MAX {
-            var seen = cxx::std::vector<u8>()
+            var seen: [u8]
             seen.resize(self._node_path.size(), 0)
-            var work = cxx::std::vector<u32>()
-            work.push_back(root)
-            while !work.empty() {
-                var p = work[work.size() - 1]
-                work.pop_back()
+            var work: [u32]
+            work.push(root)
+            while !work.is_empty() {
+                var p = work.remove(work.size() - 1) as usize
                 if seen[p] != 0 {
                     continue
                 }
@@ -910,7 +909,7 @@ pub class HeaderSet {
                 }
 
                 for var j: usize = 0; j < self._node_out[p].size(); ++j {
-                    work.push_back(self._node_out[p][j])
+                    work.push(self._node_out[p][j])
                 }
             }
         }

@@ -263,12 +263,12 @@ pub class ASTParse
     pub var _top_item_failed: bool = false
     /// TypeParse::parse_bound_type: a rooted type path `::m::I` is legal
     ///.
-    pub var rooted_type_ok:     bool                             = false
-    pub var error_count_base:   u32                              = 0 ///< error count recorded at parse start.
-    pub var nl_depth:           u32                              = 0 ///< if non-zero, the parser ignores newlines.
-    pub var _no_comment_skip:   bool                             = false
-    pub var _pending_trailing:  cxx::std::vector<PendingComment>
-    pub var _last_exp_diag_loc: u32                              = 0 ///< raw loc of the last expansion-site diagnostic;
+    pub var rooted_type_ok:     bool             = false
+    pub var error_count_base:   u32              = 0 ///< error count recorded at parse start.
+    pub var nl_depth:           u32              = 0 ///< if non-zero, the parser ignores newlines.
+    pub var _no_comment_skip:   bool             = false
+    pub var _pending_trailing:  [PendingComment]
+    pub var _last_exp_diag_loc: u32              = 0 ///< raw loc of the last expansion-site diagnostic;
     ///  collapses repeated backtraces for one invocation.
 
     /// # Index mode (merged indexer)
@@ -318,7 +318,7 @@ pub class ASTParse
     }
 
     var _index_path: cxx::std::vector<string> ///< named-scope path for hoisted inserts (index mode only).
-    var _sym_tables: cxx::std::vector<unsafe *SymbolTable> ///< tables created by _build_symbols; frozen at parse exit.
+    var _sym_tables: [unsafe *SymbolTable] ///< tables created by _build_symbols; frozen at parse exit.
 
 
     /// a speculative parse with its diagnostics suppressed, rolled
@@ -351,7 +351,7 @@ pub class ASTParse
                 self._parser->rewind(self._cp)
                 self._parser->nl_depth = self._cp.nl_depth
                 while self._parser->_pending_trailing.size() > self._cp.comments {
-                    self._parser->_pending_trailing.pop_back()
+                    self._parser->_pending_trailing.pop()
                 }
             }
         }
@@ -404,7 +404,7 @@ pub class ASTParse
             self._p->_peek    = self._peek
             self._p->nl_depth = self._nl_depth
             while self._p->_pending_trailing.size() > self._saved_comments {
-                self._p->_pending_trailing.pop_back()
+                self._p->_pending_trailing.pop()
             }
         }
     }
@@ -987,7 +987,7 @@ pub class ASTParse
             return
         }
 
-        var first_span: SourceRange = annot->entries.front().range
+        var first_span: SourceRange = annot->entries[0].range
 
         var b = self.diag->report(
             DiagID::S048E,
@@ -1272,7 +1272,7 @@ pub class ASTParse
         if dc->dc_symbols == &null {
             var unsafe *t = self.ctx->alloc_init_cleanup<SymbolTable>(self.ctx)
             dc->set_symbols(t)
-            self._sym_tables.push_back(t)
+            self._sym_tables.push(t)
         }
 
         return dc->dc_symbols
@@ -3398,14 +3398,11 @@ pub class ASTParse
 
     /// removes the comment entries gathered so far, keeping attributes.
     priv fn _drop_comment_entries(self, out: unsafe *Self::PendingAnnotations) {
-        var kept = cxx::std::vector<AnnotationEntry>()
-        for var i: usize = 0; i < out->entries.size(); ++i {
-            if out->entries[i].kind == AnnotationKind::Attribute {
-                kept.push_back(out->entries[i])
-            }
-        }
-
-        out->entries = kept
+        out->entries.retain(
+            fn (e: *const AnnotationEntry) -> bool {
+                return e->kind == AnnotationKind::Attribute
+            },
+        )
     }
 
     /// a comment that opens its own line is not a trailing comment.
@@ -3482,7 +3479,7 @@ pub class ASTParse
         var pc = PendingComment{}
         pc.kind  = self._comment_kind_from_imm(tok->imm)
         pc.range = tok->range
-        self._pending_trailing.push_back(pc)
+        self._pending_trailing.push(pc)
     }
 
     priv fn _absorb_trailing_comments(self) {
