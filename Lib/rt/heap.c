@@ -128,16 +128,29 @@ static unsigned char *cache_take(size_t len) {
     return NULL;
 }
 
-/* A fresh allocation maps only at or above this size; below it, with no
- * cached mapping to reuse, it is mimalloc's, whose freed memory stays
- * resident and so costs no page faults when it is reused. A mapped block
- * the cache has no room for raises it past that block's length (glibc's
- * mmap threshold rule, without glibc's cap: mimalloc reuses a block of any
- * size), so a program that keeps freeing blocks of a size stops paying a
- * fresh mapping's faults for each one. Growth by realloc maps at any large
- * size, which is where mremap saves the copy. The page map tells every
- * free which heap a block is in. */
-static size_t fresh_min = KAIRO_RT_HEAP_LARGE_MIN;
+/* Where a block of large size goes when no cached mapping serves it: a
+ * fresh mapping at or above the threshold, mimalloc below it, whose freed
+ * memory stays resident and so costs no page faults when it is reused.
+ * Every mapping the cache has no room for raises the threshold past its
+ * length (glibc's mmap threshold rule), so a program that keeps freeing
+ * blocks of a size, or growing blocks to it, stops paying a fresh mapping's
+ * faults for each one.
+ *
+ * Two thresholds, because the cache serves only lengths up to
+ * KAIRO_RT_HEAP_CACHE_MAX: fresh_min_cacheable gates a fresh allocation of
+ * such a length and rises only when one of those finds the cache full;
+ * fresh_min gates every other fresh allocation and every growth by realloc
+ * out of mimalloc, and rises with every unmapped block. So a block too long
+ * for the cache, once freed, keeps longer blocks and growing ones in
+ * mimalloc without sending cacheable allocations there too. Neither has a
+ * cap: mimalloc reuses a block of any size. The page map tells every free
+ * which heap a block is in. */
+static size_t fresh_min           = KAIRO_RT_HEAP_LARGE_MIN;
+static size_t fresh_min_cacheable = KAIRO_RT_HEAP_LARGE_MIN;
+
+static void raise_threshold(size_t *threshold, size_t len) {
+    if (len >= __atomic_load_n(threshold, __ATOMIC_RELAXED)) { __atomic_store_n(threshold, len + 1, __ATOMIC_RELAXED); }
+}
 
 /* A mapping for `size` bytes: a cached one cut to length (not for a zeroed
  * block: a cached one holds old bytes), else a fresh one, which is zero.
@@ -158,7 +171,8 @@ static unsigned char *map_block(size_t size, size_t align, int zeroed, int fresh
 }
 
 unsigned char *kairo_rt_heap_large_alloc(size_t size, size_t align, int zeroed) {
-    return map_block(size, align, zeroed, size >= __atomic_load_n(&fresh_min, __ATOMIC_RELAXED));
+    size_t *threshold = large_len(size) <= KAIRO_RT_HEAP_CACHE_MAX ? &fresh_min_cacheable : &fresh_min;
+    return map_block(size, align, zeroed, size >= __atomic_load_n(threshold, __ATOMIC_RELAXED));
 }
 
 void kairo_rt_heap_large_free(unsigned char *ptr, size_t size) {
@@ -169,7 +183,8 @@ void kairo_rt_heap_large_free(unsigned char *ptr, size_t size) {
     size_t len = large_len(size);
     if (cache_put(ptr, len)) { return; }
     munmap(ptr, len);
-    if (len >= __atomic_load_n(&fresh_min, __ATOMIC_RELAXED)) { __atomic_store_n(&fresh_min, len + 1, __ATOMIC_RELAXED); }
+    raise_threshold(&fresh_min, len);
+    if (len <= KAIRO_RT_HEAP_CACHE_MAX) { raise_threshold(&fresh_min_cacheable, len); }
 }
 
 #endif /* KAIRO_RT_HEAP_LARGE */
@@ -199,16 +214,27 @@ unsigned char *kairo_rt_heap_realloc(unsigned char *ptr, size_t old_size, size_t
         void *q = mremap(ptr, old_len, new_len, MREMAP_MAYMOVE);
         return q == MAP_FAILED ? NULL : (unsigned char *)q;
     }
-    if (old_mapped || new_large) {
-        /* Across the threshold: the block changes path, so it moves. */
-        unsigned char *q = new_large ? map_block(new_size, align, 0, 1) : mi_side_alloc(new_size, align, 0);
-        if (q == NULL) { return NULL; }
-        memcpy(q, ptr, old_size < new_size ? old_size : new_size);
-        if (old_mapped) {
-            kairo_rt_heap_large_free(ptr, old_size);
-        } else {
-            mi_free(ptr);
+    if (!old_mapped && new_large) {
+        /* mimalloc's block stays mimalloc's unless it grows past both its
+         * usable size and the threshold: a shrink, a growth mi_expand
+         * serves, and a growth below the threshold are mimalloc's realloc,
+         * in place where it can be. */
+        if (new_size <= old_size || new_size < __atomic_load_n(&fresh_min, __ATOMIC_RELAXED)) {
+            return mi_side_realloc(ptr, old_size, new_size, align);
         }
+        if (mi_expand(ptr, new_size) != NULL) { return ptr; }
+        unsigned char *q = map_block(new_size, align, 0, 1);
+        if (q == NULL) { return NULL; }
+        memcpy(q, ptr, old_size);
+        mi_free(ptr);
+        return q;
+    }
+    if (old_mapped) {
+        /* Below the large range: the block becomes mimalloc's, so it moves. */
+        unsigned char *q = mi_side_alloc(new_size, align, 0);
+        if (q == NULL) { return NULL; }
+        memcpy(q, ptr, new_size);
+        kairo_rt_heap_large_free(ptr, old_size);
         return q;
     }
 #endif

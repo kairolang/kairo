@@ -9,9 +9,11 @@
  *   least KAIRO_RT_HEAP_LARGE_MIN bytes at no more than
  *   KAIRO_RT_HEAP_LARGE_ALIGN alignment may be its own anonymous mapping
  *   of its size rounded up to KAIRO_RT_HEAP_LARGE_ALIGN, outside mimalloc.
- *   Growth by realloc to such a size always maps; a fresh allocation reuses
- *   a cached mapping, else maps at or above a threshold that rises the way
- *   glibc's mmap threshold does (rt/heap.c), else is mimalloc's. A mapping:
+ *   A fresh allocation reuses a cached mapping, else maps at or above a
+ *   threshold that rises the way glibc's mmap threshold does (rt/heap.c),
+ *   else is mimalloc's. A mimalloc block that realloc grows past its usable
+ *   size and that threshold moves to a mapping; any other realloc of it
+ *   stays in mimalloc. A mapping:
  *
  *     - realloc between two large sizes is mremap, which moves page table
  *       entries rather than bytes (no copy, at any size);
@@ -31,8 +33,8 @@
  *   mapped block never shrinks below it in place (resize refuses, realloc
  *   moves it). A block of at least that size is mapped unless mimalloc's
  *   page map holds it, which is the case for a fresh one below the
- *   threshold, one mimalloc grew in place, one allocated when mmap failed,
- *   and one the C heap made.
+ *   threshold, one realloc kept in mimalloc, one allocated when mmap
+ *   failed, and one the C heap made.
  *
  *   Consequence on the targets where mimalloc is also the C heap (ELF): C
  *   or C++ must not free() or realloc() a large block Kairo allocated, since
