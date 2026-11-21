@@ -187,10 +187,10 @@ import Token::TokenKind::TokenKind
 /// Collected, not checked: ConformanceChecking substitutes and checks them
 /// per instance of the enclosing generic.
 pub class _NestedUses derives RecursiveASTVisitor<_NestedUses> {
-    pub var calls: cxx::std::vector<unsafe *CallExpr>
-    pub var types: cxx::std::vector<unsafe *Type>
+    pub var calls: [unsafe *CallExpr]
+    pub var types: [unsafe *Type]
     /// Parallel to `types`: where each was found, the hop note's place.
-    pub var type_at: cxx::std::vector<SourceRange>
+    pub var type_at: [SourceRange]
     fn _NestedUses(self) { }
 
     fn visit_expr(self, e: unsafe *Expr) -> bool {
@@ -199,8 +199,8 @@ pub class _NestedUses derives RecursiveASTVisitor<_NestedUses> {
         }
 
         if e->type_ != &null && e->type_->is_dependent() {
-            self.types.push_back(e->type_)
-            self.type_at.push_back(e->range)
+            self.types.push(e->type_)
+            self.type_at.push(e->range)
         }
 
         if e->kind != ExprKind::CallExpr {
@@ -209,7 +209,7 @@ pub class _NestedUses derives RecursiveASTVisitor<_NestedUses> {
 
         var unsafe *c = cast<CallExpr>(e)
         if c->dep_args.size() > 0 {
-            self.calls.push_back(c)
+            self.calls.push(c)
         }
 
         return true
@@ -217,8 +217,8 @@ pub class _NestedUses derives RecursiveASTVisitor<_NestedUses> {
 
     fn visit_type(self, t: unsafe *Type) -> bool {
         if t != &null && t->is_dependent() {
-            self.types.push_back(t)
-            self.type_at.push_back(t->range)
+            self.types.push(t)
+            self.type_at.push(t->range)
         }
 
         return true
@@ -422,9 +422,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
-        var names = cxx::std::vector<string>()
+        var names: [string]
         for var k: usize = 0; k < (GlobalAllocFn::COUNT as u8 as usize); ++k {
-            names.push_back(
+            names.push(
                 AllocNames::global_alloc_member((k as u8) as GlobalAllocFn),
             )
         }
@@ -645,7 +645,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             self._bind_instance(&d, inst, unsafe (f as unsafe *Decl))
         }
 
-        var vps = cxx::std::vector<unsafe *Expr>()
+        var vps: [unsafe *Expr]
         if f->generic_params.size() == 0 {
             self._value_preds(f->requires_clause, unsafe &vps)
         }
@@ -717,7 +717,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                           rec: unsafe *Type,
                           d:   unsafe *Deduction) -> ImplBlocker {
         var out    = ImplBlocker{}
-        var bounds = cxx::std::vector<unsafe *ConstraintExpr>()
+        var bounds: [unsafe *ConstraintExpr]
         self._impl_bounds(f->requires_clause, unsafe &bounds)
         var unsafe *rd = self.tu.record_decl(rec)
         if bounds.size() == 0 || rd == &null {
@@ -883,12 +883,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     }
 
     /// The value conjuncts of clause `e` (not `impl` / `derives`).
-    priv fn _value_preds(self, e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
+    priv fn _value_preds(self, e: unsafe *Expr, out: unsafe *[unsafe *Expr]) {
         var leaves = cxx::std::vector<unsafe *Expr>()
         conjuncts(e, unsafe &leaves)
         for var i: usize = 0; i < leaves.size(); ++i {
             if !isa<ConstraintExpr>(leaves[i]) {
-                out->push_back(leaves[i])
+                out->push(leaves[i])
             }
         }
     }
@@ -2045,7 +2045,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
-        self._copy_callees.push_back(ch)
+        self._copy_callees.push(ch)
         var empty = cxx::std::vector<unsafe *Type>()
         var unsafe *iface = self.sc->types->record(
             NameLookup::representative(
@@ -2066,7 +2066,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// The `x.copy` chains _check_copy_call saw as a call's callee: any
     /// other is the method named as a value.
-    priv var _copy_callees: cxx::std::vector<unsafe *ChainExpr>
+    priv var _copy_callees: [unsafe *ChainExpr]
 
     /// `x.copy` with no call, x of a concrete type with no member `copy`:
     /// there is no method to name, only the copy constructor a call runs.
@@ -2243,12 +2243,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     priv var _cur_at: SourceRange = SourceRange::invalid()
     /// Roots whose chain already reported the depth limit: one error per
     /// use, however many branches of its chain run past it.
-    priv var _too_deep: cxx::std::vector<unsafe *InstanceEntry>
+    priv var _too_deep: [unsafe *InstanceEntry]
     priv var _indexed:  bool                                    = false
     /// Instances first met with no range, and the range the visitor was
     /// under: checked there if no written use came by the end of the TU.
-    priv var _rangeless:    cxx::std::vector<unsafe *InstanceEntry>
-    priv var _rangeless_at: cxx::std::vector<SourceRange>
+    priv var _rangeless:    [unsafe *InstanceEntry]
+    priv var _rangeless_at: [SourceRange]
 
     /// `e` is used at `site`: a root of the discovery fixpoint. Its bounds
     /// are checked here, once for the build -- a non-conforming instance is
@@ -2347,8 +2347,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             // decl's inferred type before its initializer): wait for it, and
             // fall back to the enclosing range at the end of the TU (run).
             if self._cur_at.start.is_valid() {
-                self._rangeless.push_back(e)
-                self._rangeless_at.push_back(self._cur_at)
+                self._rangeless.push(e)
+                self._rangeless_at.push(self._cur_at)
             }
 
             return
@@ -2516,7 +2516,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return out
         }
 
-        var vps = cxx::std::vector<unsafe *Expr>()
+        var vps: [unsafe *Expr]
         self._value_preds(f->requires_clause, unsafe &vps)
         for var i: usize = 0; i < vps.size(); ++i {
             out = self._pred_false(vps[i], d, 0)
@@ -3009,7 +3009,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// became live (reported there, D6), and not for a reached one: a
     /// reached instance's rows are implied by its root's bounds, which its
     /// root's own use checks here.
-    priv var _rechecked: cxx::std::vector<unsafe *InstanceEntry>
+    priv var _rechecked: [unsafe *InstanceEntry]
     priv fn _recheck(self, e: unsafe *InstanceEntry, site: SourceRange) {
         if e->failed {
             return
@@ -3030,7 +3030,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
         }
 
-        self._rechecked.push_back(e)
+        self._rechecked.push(e)
         var rows = cxx::std::vector<unsafe *ConformanceRow>()
         if self._bound_rows(e, at, &null, unsafe &rows) {
             self.sc->instances->add_rows(e, unsafe &rows)
@@ -3049,7 +3049,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var        ok    = true
         if prim != &null {
             var unsafe *req   = decl_requires_clause(prim)
-            var        bounds = cxx::std::vector<unsafe *ConstraintExpr>()
+            var bounds: [unsafe *ConstraintExpr]
             self._impl_bounds(req, unsafe &bounds)
             for var i: usize = 0; i < bounds.size(); ++i {
                 var unsafe *b  = bounds[i]
@@ -3085,7 +3085,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             // base's `&self as *X` a static_cast (CastTyping 3b), and a
             // class naming `Mixin<Other>` would otherwise compile to a cast
             // clang rejects inside the base.
-            var ds = cxx::std::vector<unsafe *ConstraintExpr>()
+            var ds: [unsafe *ConstraintExpr]
             self._derives_bounds(req, unsafe &ds)
             for var i: usize = 0; i < ds.size(); ++i {
                 var unsafe *b  = ds[i]
@@ -3220,7 +3220,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var        ok     = true
         var unsafe *xdd   = unsafe (xd as unsafe *Decl)
-        var        bounds = cxx::std::vector<unsafe *ConstraintExpr>()
+        var        bounds: [unsafe *ConstraintExpr]
         self._impl_bounds(decl_requires_clause(xdd), unsafe &bounds)
         for var i: usize = 0; i < bounds.size(); ++i {
             var unsafe *b  = bounds[i]
@@ -3272,7 +3272,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         var d = Deduction(self.sc, &null)
         self._bind_instance(&d, e, prim)
-        var vps = cxx::std::vector<unsafe *Expr>()
+        var vps: [unsafe *Expr]
         self._value_preds(req, unsafe &vps)
         for var i: usize = 0; i < vps.size(); ++i {
             if !self._pred_false(vps[i], unsafe &d, 0).known {
@@ -3402,7 +3402,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     pub fn more_constrained(self,
                             a: unsafe *Declarations::FunctionDecl,
                             b: unsafe *Declarations::FunctionDecl) -> bool {
-        var        atoms = cxx::std::vector<ClauseAtom>()
+        var        atoms: [ClauseAtom]
         var unsafe *ra   = self._clause_of(a)
         var unsafe *rb   = self._clause_of(b)
         var unsafe *xa   = self._ext_clause_of(a)
@@ -3560,7 +3560,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                                      b:     unsafe *Declarations::FunctionDecl,
                                      rb:    unsafe *Expr,
                                      xb:    unsafe *Expr,
-                                     atoms: unsafe *cxx::std::vector<ClauseAtom>) -> bool {
+                                     atoms: unsafe *[ClauseAtom]) -> bool {
         if rb == &null && xb == &null {
             return true
         }
@@ -3569,8 +3569,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return false
         }
 
-        var p = cxx::std::vector<cxx::std::vector<u32>>()
-        var q = cxx::std::vector<cxx::std::vector<u32>>()
+        var p: [[u32]]
+        var q: [[u32]]
         if !self._normal_form_of(a, ra, xa, true, unsafe &p, atoms)
             || !self._normal_form_of(b, rb, xb, false, unsafe &q, atoms) {
             return false
@@ -3606,8 +3606,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                          f:     unsafe *Declarations::FunctionDecl,
                          e0:    unsafe *Expr,
                          dnf:   bool,
-                         out:   unsafe *cxx::std::vector<cxx::std::vector<u32>>,
-                         atoms: unsafe *cxx::std::vector<ClauseAtom>,
+                         out:   unsafe *[[u32]],
+                         atoms: unsafe *[ClauseAtom],
                          depth: u32) -> bool {
         var unsafe *e = self.tu.strip_parens(e0)
         if e == &null || depth > 64 {
@@ -3620,8 +3620,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             var is_and = k == TokenKind::OpAmpAmp || k == TokenKind::KwAnd
             var is_or  = k == TokenKind::OpPipePipe || k == TokenKind::KwOr
             if is_and || is_or {
-                var l = cxx::std::vector<cxx::std::vector<u32>>()
-                var r = cxx::std::vector<cxx::std::vector<u32>>()
+                var l: [[u32]]
+                var r: [[u32]]
                 if !self._normal_form(
                     f,
                     b->lhs,
@@ -3647,12 +3647,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 if is_and == dnf {
                     for var i: usize = 0; i < l.size(); ++i {
                         for var j: usize = 0; j < r.size(); ++j {
-                            var c = l[i]
+                            var c = l[i].copy()
                             for var x: usize = 0; x < r[j].size(); ++x {
-                                c.push_back(r[j][x])
+                                c.push(r[j][x])
                             }
 
-                            out->push_back(c)
+                            out->push(c)
                             if out->size() > CLAUSE_NORMAL_MAX {
                                 return false
                             }
@@ -3663,20 +3663,20 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 }
 
                 for var i: usize = 0; i < l.size(); ++i {
-                    out->push_back(l[i])
+                    out->push(l[i].copy())
                 }
 
                 for var j: usize = 0; j < r.size(); ++j {
-                    out->push_back(r[j])
+                    out->push(r[j].copy())
                 }
 
                 return out->size() <= CLAUSE_NORMAL_MAX
             }
         }
 
-        var one = cxx::std::vector<u32>()
-        one.push_back(self._atom_id(f, e, atoms))
-        out->push_back(one)
+        var one: [u32]
+        one.push(self._atom_id(f, e, atoms))
+        out->push(one)
         return true
     }
 
@@ -3687,8 +3687,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                             r:     unsafe *Expr,
                             x:     unsafe *Expr,
                             dnf:   bool,
-                            out:   unsafe *cxx::std::vector<cxx::std::vector<u32>>,
-                            atoms: unsafe *cxx::std::vector<ClauseAtom>) -> bool {
+                            out:   unsafe *[[u32]],
+                            atoms: unsafe *[ClauseAtom]) -> bool {
         if x == &null || r == &null {
             return self._normal_form(
                 f,
@@ -3700,8 +3700,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             )
         }
 
-        var l = cxx::std::vector<cxx::std::vector<u32>>()
-        var m = cxx::std::vector<cxx::std::vector<u32>>()
+        var l: [[u32]]
+        var m: [[u32]]
         if !self._normal_form(f, r, dnf, unsafe &l, atoms, 0)
             || !self._normal_form(f, x, dnf, unsafe &m, atoms, 0) {
             return false
@@ -3712,11 +3712,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         // the other.
         if !dnf {
             for var i: usize = 0; i < l.size(); ++i {
-                out->push_back(l[i])
+                out->push(l[i].copy())
             }
 
             for var j: usize = 0; j < m.size(); ++j {
-                out->push_back(m[j])
+                out->push(m[j].copy())
             }
 
             return out->size() <= CLAUSE_NORMAL_MAX
@@ -3724,12 +3724,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         for var i: usize = 0; i < l.size(); ++i {
             for var j: usize = 0; j < m.size(); ++j {
-                var c = l[i]
+                var c = l[i].copy()
                 for var k: usize = 0; k < m[j].size(); ++k {
-                    c.push_back(m[j][k])
+                    c.push(m[j][k])
                 }
 
-                out->push_back(c)
+                out->push(c)
                 if out->size() > CLAUSE_NORMAL_MAX {
                     return false
                 }
@@ -3744,7 +3744,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     priv fn _atom_id(self,
                      f:     unsafe *Declarations::FunctionDecl,
                      e:     unsafe *Expr,
-                     atoms: unsafe *cxx::std::vector<ClauseAtom>) -> u32 {
+                     atoms: unsafe *[ClauseAtom]) -> u32 {
         var a = ClauseAtom{}
         a.expr = e
         var unsafe *ce = dyn_cast<ConstraintExpr>(e)
@@ -3800,7 +3800,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
         }
 
-        atoms->push_back(a)
+        atoms->push(a)
         return (atoms->size() - 1) as u32
     }
 
@@ -4575,14 +4575,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// Every `derives` conjunct of `e`, in clause order (_impl_bounds' other
     /// half).
-    priv fn _derives_bounds(self,
-                            e:   unsafe *Expr,
-                            out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) {
+    priv fn _derives_bounds(self, e: unsafe *Expr, out: unsafe *[unsafe *ConstraintExpr]) {
         var cs = cxx::std::vector<unsafe *ConstraintExpr>()
         constraint_conjuncts(e, unsafe &cs)
         for var i: usize = 0; i < cs.size(); ++i {
             if cs[i]->is_derives() {
-                out->push_back(cs[i])
+                out->push(cs[i])
             }
         }
     }
@@ -4713,7 +4711,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return
         }
 
-        var fails = cxx::std::vector<LifecycleFailure>()
+        var fails: [LifecycleFailure]
         lifecycle_of(self.sc)->instance_failures(e, unsafe &fails)
         for var i: usize = 0; i < fails.size(); ++i {
             var *x = &fails[i]
@@ -4844,8 +4842,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                     continue
                 }
 
-                uses.types.push_back(f->type_)
-                uses.type_at.push_back(f->range)
+                uses.types.push(f->type_)
+                uses.type_at.push(f->range)
             }
         }
 
@@ -5050,10 +5048,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// chain is too long (D4). One error per root, at the root's use, naming
     /// the chain's first three and last three instances.
     priv fn _too_deep_at(self, e: unsafe *InstanceEntry, const next: string, at: SourceRange) {
-        var        chain = cxx::std::vector<unsafe *InstanceEntry>()
+        var        chain: [unsafe *InstanceEntry]
         var unsafe *r    = e
         while r != &null {
-            chain.push_back(r)
+            chain.push(r)
             r = r->via
         }
 
@@ -5064,13 +5062,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
         }
 
-        self._too_deep.push_back(root)
-        var names = cxx::std::vector<string>()
+        self._too_deep.push(root)
+        var names: [string]
         for var i: usize = chain.size(); i > 0; --i {
-            names.push_back(self._inst_name(chain[i - 1]))
+            names.push(self._inst_name(chain[i - 1]))
         }
 
-        names.push_back(next.copy())
+        names.push(next.copy())
         var n     = names.size()
         var shown = ""
         for var i: usize = 0; i < n; ++i {
@@ -5119,10 +5117,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// nothing. Nothing for a root (`e` used directly). Public: a fact that
     /// fails for an instance (a lifecycle failure) reports at `use_at` with this.
     fn chain_notes(self, b: unsafe *DiagBuilder, e: unsafe *InstanceEntry) {
-        var        hops = cxx::std::vector<unsafe *InstanceEntry>()
+        var        hops: [unsafe *InstanceEntry]
         var unsafe *h   = e
         while h != &null && h->via != &null {
-            hops.push_back(h)
+            hops.push(h)
             h = h->via
         }
 
@@ -5326,13 +5324,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         // associated type's witness is the conformer's alias (or, for a
         // default, the requirement itself) and its type goes in
         // `assoc_types`; one the conformer does not supply fails the row.
-        var decls = cxx::std::vector<unsafe *Decl>()
-        var srcs  = cxx::std::vector<unsafe *Type>()
+        var decls: [unsafe *Decl]
+        var srcs:  [unsafe *Type]
         self._reqs(idecl, iface, &decls, &srcs)
         for var i: usize = 0; i < decls.size(); ++i {
             var unsafe *m = dyn_cast<Declarations::FunctionDecl>(decls[i])
             var w:  unsafe *Decl = &null
-            var ea               = cxx::std::vector<unsafe *Type>()
+            var ea: [unsafe *Type]
             var at: unsafe *Type = &null
             var unsafe *ta = dyn_cast<Declarations::TypeAliasDecl>(decls[i])
             if ta != &null {
@@ -5798,12 +5796,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     priv fn _reqs(self,
                   idecl:        unsafe *Declarations::InterfaceDecl,
                   iface:        unsafe *Type,
-                  @inout decls: cxx::std::vector<unsafe *Decl>,
-                  @inout srcs:  cxx::std::vector<unsafe *Type>) {
+                  @inout decls: [unsafe *Decl],
+                  @inout srcs:  [unsafe *Type]) {
         if idecl->compose_state != 2 {
             for var i: usize = 0; i < idecl->methods.size(); ++i {
-                decls.push_back(idecl->methods[i])
-                srcs.push_back(iface)
+                decls.push(idecl->methods[i])
+                srcs.push(iface)
             }
 
             return
@@ -5811,8 +5809,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
         for var i: usize = 0; i < idecl->requirements.size(); ++i {
             var unsafe *r = idecl->requirements.get(i)
-            decls.push_back(r->decl)
-            srcs.push_back(self._through_iface(self._canon(r->source), iface))
+            decls.push(r->decl)
+            srcs.push(self._through_iface(self._canon(r->source), iface))
         }
     }
 
@@ -5823,7 +5821,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     priv fn _ext_args(self,
                       f:          unsafe *Declarations::FunctionDecl,
                       x:          unsafe *Type,
-                      @inout out: cxx::std::vector<unsafe *Type>) -> bool {
+                      @inout out: [unsafe *Type]) -> bool {
         var unsafe *ext = decl_extension_of(f)
         if ext == &null {
             return true
@@ -5871,7 +5869,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 return false
             }
 
-            out.push_back(b)
+            out.push(b)
         }
 
         return true
@@ -5957,13 +5955,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         var unsafe *xdd   = unsafe (ext as unsafe *Decl)
-        var        bounds = cxx::std::vector<unsafe *ConstraintExpr>()
+        var        bounds: [unsafe *ConstraintExpr]
         self._impl_bounds(decl_requires_clause(xdd), unsafe &bounds)
         if bounds.size() == 0 {
             return &null
         }
 
-        var args = cxx::std::vector<unsafe *Type>()
+        var args: [unsafe *Type]
         if !self._ext_args(f, x, &args) {
             return &null
         }
@@ -6506,12 +6504,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         var unsafe *dc   = NameLookup::context_of(self.sc->body_of(d)) // an unfilled instance has an empty table; its body's.
-        var        cands = cxx::std::vector<unsafe *Decl>()
+        var cands: [unsafe *Decl]
         if dc != &null {
             var cell = self.sc->lookup.in_context(dc, DeclName::ctor())
             if cell.found() {
                 for var i: usize = 0; i < cell.cell->size(); ++i {
-                    cands.push_back(cell.cell->get(i))
+                    cands.push(cell.cell->get(i))
                 }
             }
         }
@@ -6898,14 +6896,12 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
     /// Every `impl` conjunct of `e`, in clause order (RequiresDesugar hoisted
     /// the inline bounds in; ConstraintExtraction splits it the same way).
-    priv fn _impl_bounds(self,
-                         e:   unsafe *Expr,
-                         out: unsafe *cxx::std::vector<unsafe *ConstraintExpr>) {
+    priv fn _impl_bounds(self, e: unsafe *Expr, out: unsafe *[unsafe *ConstraintExpr]) {
         var cs = cxx::std::vector<unsafe *ConstraintExpr>()
         constraint_conjuncts(e, unsafe &cs)
         for var i: usize = 0; i < cs.size(); ++i {
             if !cs[i]->is_derives() {
-                out->push_back(cs[i])
+                out->push(cs[i])
             }
         }
     }
@@ -7090,8 +7086,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var req:    unsafe *Declarations::FunctionDecl  = &null
         var areq:   unsafe *Declarations::TypeAliasDecl = &null
         if row != &null {
-            var decls = cxx::std::vector<unsafe *Decl>()
-            var srcs  = cxx::std::vector<unsafe *Type>()
+            var decls: [unsafe *Decl]
+            var srcs:  [unsafe *Type]
             self._reqs(
                 cast<Declarations::InterfaceDecl>(row->iface_decl),
                 row->iface,

@@ -74,7 +74,7 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
     /// Canonical target of every `extend` block seen so far in this file, in
     /// order: the Nth block on one type is the one that crosses
     /// --cmax-extend-chain, and a count is all that needs remembering.
-    priv var _ext_seen: cxx::std::vector<unsafe *Type>
+    priv var _ext_seen: [unsafe *Type]
 
     fn FlagGates(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -572,7 +572,7 @@ pub class FlagGates derives RecursiveASTVisitor<FlagGates> {
             }
         }
 
-        self._ext_seen.push_back(key)
+        self._ext_seen.push(key)
         if before + 1 == (cap as usize) + 1 {
             self._limit(
                 n->range,

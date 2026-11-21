@@ -94,12 +94,12 @@ pub class ArrayIndexCheck derives RecursiveASTVisitor<ArrayIndexCheck> {
     /// The binders of the bounded range loops seen so far, with the bound
     /// each stays below (`hi`, or `hi + 1` for `..=`), parallel. A binder
     /// is used only inside its own loop's body, so nothing is removed.
-    priv var _loop_binder: cxx::std::vector<unsafe *Decl>
-    priv var _loop_hi:     cxx::std::vector<u64>
+    priv var _loop_binder: [unsafe *Decl]
+    priv var _loop_hi:     [u64]
     /// `p + k` on a local `p` (SC363E), judged once the pass has seen every
     /// write: the locals assigned, stepped or taken `&` of (_ptr_written).
-    priv var _ptr_site:    cxx::std::vector<unsafe *BinaryOperatorExpr>
-    priv var _ptr_written: cxx::std::vector<unsafe *Decl>
+    priv var _ptr_site:    [unsafe *BinaryOperatorExpr]
+    priv var _ptr_written: [unsafe *Decl]
 
     fn ArrayIndexCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -289,7 +289,7 @@ pub class ArrayIndexCheck derives RecursiveASTVisitor<ArrayIndexCheck> {
         if self._array_element(p, unsafe &at) != &null {
             self._check_offset(unsafe (n as unsafe *BinaryOperatorExpr), false)
         } else if self._local_pointer(p) != &null {
-            self._ptr_site.push_back(unsafe (n as unsafe *BinaryOperatorExpr))
+            self._ptr_site.push(unsafe (n as unsafe *BinaryOperatorExpr))
         }
 
         return true
@@ -300,7 +300,7 @@ pub class ArrayIndexCheck derives RecursiveASTVisitor<ArrayIndexCheck> {
     priv fn _written(self, place: unsafe *Expr) {
         var unsafe *x = dyn_cast<NamedIdentExpr>(self._tu.strip_parens(place))
         if x != &null && x->resolved_decl != &null && self._safe_pointer(place) {
-            self._ptr_written.push_back(x->resolved_decl)
+            self._ptr_written.push(x->resolved_decl)
         }
     }
 
@@ -350,10 +350,8 @@ pub class ArrayIndexCheck derives RecursiveASTVisitor<ArrayIndexCheck> {
             return true
         }
 
-        self._loop_binder.push_back(unsafe (vd as unsafe *Decl))
-        self._loop_hi.push_back(
-            if (r->is_inclusive) => (hi.mag + 1) else => hi.mag,
-        )
+        self._loop_binder.push(unsafe (vd as unsafe *Decl))
+        self._loop_hi.push(if (r->is_inclusive) => (hi.mag + 1) else => hi.mag)
 
         return true
     }

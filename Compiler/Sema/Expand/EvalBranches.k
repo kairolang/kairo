@@ -40,8 +40,6 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "vector"
-
 import AST::Context::DeclContext::DeclContext
 import AST::Node::Base::{
     Decl,
@@ -66,8 +64,8 @@ struct EvalDeclRow {
 }
 
 pub class EvalBranchTable {
-    priv var _ifs:   cxx::std::vector<EvalIfRow>
-    priv var _decls: cxx::std::vector<EvalDeclRow>
+    priv var _ifs:   [EvalIfRow]
+    priv var _decls: [EvalDeclRow]
 
     fn EvalBranchTable(self) { }
 
@@ -76,7 +74,7 @@ pub class EvalBranchTable {
         var r = EvalIfRow{}
         r.head  = head
         r.owner = owner
-        self._ifs.push_back(r)
+        self._ifs.push(r)
         return self._ifs.size() - 1
     }
 
@@ -86,7 +84,7 @@ pub class EvalBranchTable {
         r.decl = d
         r.at   = at
         r.arm  = arm
-        self._decls.push_back(r)
+        self._decls.push(r)
     }
 
     /// `head` is decided, or gone with a discarded branch: it holds nothing

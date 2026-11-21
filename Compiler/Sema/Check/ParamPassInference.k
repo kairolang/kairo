@@ -254,13 +254,13 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     priv var _tu: TypeUtil
     /// Candidates of every function being walked (a local `fn` nests one
     /// walk inside another), innermost function's last.
-    priv var _cand: cxx::std::vector<PassCand>
+    priv var _cand: [PassCand]
     /// ParamDecl -> its index in _cand, plus one.
     priv var _index: llvm::DenseMap<u64, u64>
     /// The references an approving node has claimed: one approval each.
     priv var _approved: llvm::DenseSet<u64>
     /// Return types of the functions being walked, innermost last.
-    priv var _ret:       cxx::std::vector<unsafe *Type>
+    priv var _ret:       [unsafe *Type]
     priv var _closures:  usize                          = 0
     priv var _library:   bool                           = false
     pub var  n_inferred: usize                          = 0
@@ -269,15 +269,15 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     priv var _lint: bool = false
     /// Lint slots, for the whole TU: the parameter (`self` or an `@inout`
     /// one), its function, and whether it is still const-able.
-    priv var _s_param: cxx::std::vector<unsafe *ParamDecl>
-    priv var _s_fn:    cxx::std::vector<unsafe *FunctionDecl>
-    priv var _s_ok:    cxx::std::vector<u8>
+    priv var _s_param: [unsafe *ParamDecl]
+    priv var _s_fn:    [unsafe *FunctionDecl]
+    priv var _s_ok:    [u8]
     /// A method's first declaration -> its `self` slot, plus one.
     priv var _s_self: llvm::DenseMap<u64, u64>
     /// Fixpoint edges: slot _e_from[i] stays const-able only if the method
     /// _e_to[i] (a first declaration) does.
-    priv var _e_from:       cxx::std::vector<usize>
-    priv var _e_to:         cxx::std::vector<unsafe *FunctionDecl>
+    priv var _e_from:       [usize]
+    priv var _e_to:         [unsafe *FunctionDecl]
     pub var  n_const_self:  usize                                  = 0
     pub var  n_const_inout: usize                                  = 0
     /// -Wconst-self's pointee half: the candidates of the functions being
@@ -285,10 +285,10 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     /// for each reference a parent use claimed, the levels that use leaves
     /// unwritten. A function's own entry in _pl_fns says whether its
     /// locals may be candidates.
-    priv var _pl:        cxx::std::vector<PointeeCand>
+    priv var _pl:        [PointeeCand]
     priv var _pl_index:  llvm::DenseMap<u64, u64>
     priv var _pl_claims: llvm::DenseMap<u64, u32>
-    priv var _pl_fns:    cxx::std::vector<u8>
+    priv var _pl_fns:    [u8]
     pub var  n_pointee:  usize                         = 0
 
     fn ParamPassInference(self, sc: unsafe *SemaContext) {
@@ -363,15 +363,15 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             }
         }
 
-        self._pl_fns.push_back(if (pl_on) => (1 as u8) else => (0 as u8))
+        self._pl_fns.push(if (pl_on) => (1 as u8) else => (0 as u8))
 
-        self._ret.push_back(n->return_type)
+        self._ret.push(n->return_type)
         var unsafe *out = RecursiveASTVisitor<ParamPassInference>::traverse_function_decl(
             self,
             n,
         )
 
-        self._ret.pop_back()
+        self._ret.pop()
         // Decide this function's candidates, then drop them: a reference to
         // one can only be in its own body.
         while self._cand.size() > first {
@@ -388,17 +388,17 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             }
 
             self._index.erase(p as usize as u64)
-            self._cand.pop_back()
+            self._cand.pop()
         }
 
-        self._pl_fns.pop_back()
+        self._pl_fns.pop()
         while self._pl.size() > pl_first {
             self._pl_decide(self._pl.size() - 1)
             self._pl_index.erase(
                 self._pl[self._pl.size() - 1].decl as usize as u64,
             )
 
-            self._pl.pop_back()
+            self._pl.pop()
         }
 
         return out
@@ -424,7 +424,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         var unsafe *head        = f->first_decl()
         var unsafe *cur         = head
         var        guard: usize = 0
-        var        links        = cxx::std::vector<unsafe *ParamDecl>()
+        var        links: [unsafe *ParamDecl]
         while cur != &null && guard < 64 {
             if idx < cur->params.size() {
                 var unsafe *q = cur->params[idx]
@@ -432,7 +432,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
                     q->inferred_const = true
                     // A link that already spells `const` needs no edit.
                     if q != p && (!q->is_const) {
-                        links.push_back(q)
+                        links.push(q)
                     }
                 }
             }
@@ -572,7 +572,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         c.param = p
         c.depth = self._closures
         c.slot  = slot
-        self._cand.push_back(c)
+        self._cand.push(c)
         self._index[p as usize as u64] = (self._cand.size() as u64)
     }
 
@@ -609,9 +609,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             }
 
             var slot = self._s_param.size()
-            self._s_param.push_back(p)
-            self._s_fn.push_back(f)
-            self._s_ok.push_back(1)
+            self._s_param.push(p)
+            self._s_fn.push(f)
+            self._s_ok.push(1)
             if p->is_self {
                 self._s_self[f->first_decl() as usize as u64] = (slot as u64) + 1
             }
@@ -682,8 +682,8 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             return
         }
 
-        self._e_from.push_back(self._cand[k].slot)
-        self._e_to.push_back(m->first_decl())
+        self._e_from.push(self._cand[k].slot)
+        self._e_to.push(m->first_decl())
         self._claim(r)
     }
 
@@ -1161,7 +1161,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         }
 
         if f != &null {
-            var view = cxx::std::vector<unsafe *ParamDecl>()
+            var view: [unsafe *ParamDecl]
             for var i: usize = 0; i < f->params.size(); ++i {
                 var unsafe *p = f->params[i]
                 if p == &null {
@@ -1172,7 +1172,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
                     continue
                 }
 
-                view.push_back(p)
+                view.push(p)
             }
 
             for var i: usize = 0; i < n->args.size(); ++i {
@@ -1601,7 +1601,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         pc.written = w
         pc.depth   = depth
         pc.levels  = depth
-        self._pl.push_back(pc)
+        self._pl.push(pc)
         self._pl_index[d as usize as u64] = (self._pl.size() as u64)
     }
 
@@ -1894,14 +1894,14 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         }
 
         if f != &null {
-            var view = cxx::std::vector<unsafe *ParamDecl>()
+            var view: [unsafe *ParamDecl]
             for var i: usize = 0; i < f->params.size(); ++i {
                 var unsafe *p = f->params[i]
                 if p == &null || p->is_self && (bound || n->ctor_decl != &null) {
                     continue
                 }
 
-                view.push_back(p)
+                view.push(p)
             }
 
             for var i: usize = 0; i < n->args.size(); ++i {
@@ -1983,10 +1983,10 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     /// level is suggested only with every level above it: `**T` to
     /// `**const T` is no implicit conversion, so callers would break.
     priv fn _pl_decide(self, k: usize) {
-        var        c     = self._pl[k]
-        var        upto  = if (c.levels < c.depth) => (c.levels) else => c.depth
-        var unsafe *node = c.written
-        var        at    = cxx::std::vector<SourceRange>()
+        var        c                   = self._pl[k]
+        var        upto                = if (c.levels < c.depth) => (c.levels) else => c.depth
+        var unsafe *node               = c.written
+        var        at:   [SourceRange]
         for var lv: u32 = 1; lv <= upto; ++lv {
             if node == &null || !isa<PointerType>(node) {
                 return
@@ -2000,7 +2000,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             if !canon_has_const(
                 if (pe->canonical != &null) => (pe->canonical) else => pe,
             ) {
-                at.push_back(pe->range)
+                at.push(pe->range)
             }
 
             node = pe

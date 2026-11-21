@@ -166,8 +166,8 @@ pub struct ScriptUse {
 /// that might not run is not definite, so a function that reads a global
 /// only on some path is left to the runtime guard.
 pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
-    pub var  reads:    cxx::std::vector<ScriptUse>
-    pub var  calls:    cxx::std::vector<ScriptUse>
+    pub var  reads:    [ScriptUse]
+    pub var  calls:    [ScriptUse]
     priv var _tu:      TypeUtil
     priv var _cond:    u32                         = 0 ///< branches, loops and short-circuits above the cursor.
     priv var _closure: u32                         = 0 ///< closure bodies above the cursor: they run later, if at all.
@@ -191,7 +191,7 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
             u.decl     = n->resolved_decl
             u.range    = n->range
             u.definite = self._definite()
-            self.reads.push_back(u)
+            self.reads.push(u)
         }
 
         return RecursiveASTVisitor<ScriptUseScan>::traverse_named_ident_expr(
@@ -211,7 +211,7 @@ pub class ScriptUseScan derives RecursiveASTVisitor<ScriptUseScan> {
                 u.decl     = d
                 u.range    = n->range
                 u.definite = self._definite()
-                self.calls.push_back(u)
+                self.calls.push(u)
             }
         }
 
@@ -465,9 +465,9 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     priv var _root: bool = true
 
     // The deferred globals, three parallel lists in declaration order.
-    priv var _deferred: cxx::std::vector<unsafe *VariableDecl>
-    priv var _storage:  cxx::std::vector<unsafe *Type> ///< each one's `T?`.
-    priv var _line:     cxx::std::vector<usize> ///< the ordinal of its assignment among main's statements.
+    priv var _deferred: [unsafe *VariableDecl]
+    priv var _storage:  [unsafe *Type] ///< each one's `T?`.
+    priv var _line:     [usize] ///< the ordinal of its assignment among main's statements.
 
     // Where the rewrite walk is.
     priv var _in_main: bool  = false ///< walking a statement that moves into main.
@@ -475,7 +475,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     priv var _closure: u32   = 0     ///< closure bodies above the cursor.
     /// Those closures, innermost last: a name in one's capture list
     /// (`|*count|`) is the capture, not a read, and stays a name.
-    priv var _closures: cxx::std::vector<unsafe *ClosureExpr>
+    priv var _closures: [unsafe *ClosureExpr]
 
     // Never transferred: a pass is built where it runs. ASTWriter is
     // copyable, which a non-transferable class may derive and a move-only
@@ -615,9 +615,9 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
                     continue
                 }
 
-                self._deferred.push_back(v)
-                self._storage.push_back(self.sc->types->nullable(c))
-                self._line.push_back(ord)
+                self._deferred.push(v)
+                self._storage.push(self.sc->types->nullable(c))
+                self._line.push(ord)
                 ord += 1
                 continue
             }
@@ -990,13 +990,13 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     /// order does not decide: its reads are guarded, even in main.
     fn transform_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *Expr {
         self._closure += 1
-        self._closures.push_back(n)
+        self._closures.push(n)
         var unsafe *out = ASTWriter<ScriptLowering>::transform_closure_expr(
             self,
             n,
         )
 
-        self._closures.pop_back()
+        self._closures.pop()
         self._closure -= 1
         return out
     }
@@ -1004,7 +1004,7 @@ pub class ScriptLowering derives ASTWriter<ScriptLowering> {
     /// `n` names a capture of the closure being walked (ASTWriter keeps
     /// a capture's name a NamedIdentExpr, and a guarded read is not one).
     priv fn _capture_name(self, n: unsafe *NamedIdentExpr) -> bool {
-        if self._closures.empty() {
+        if self._closures.is_empty() {
             return false
         }
 

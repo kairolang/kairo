@@ -93,7 +93,7 @@ pub class TypeImport {
     /// DeclImport::define before it imports anything. A CANONICAL template
     /// type parameter carries only (depth, index), and this is how it finds
     /// the GenericParamDecl it stands for.
-    pub var tpl_owners: cxx::std::vector<unsafe *Decl>
+    pub var tpl_owners: [unsafe *Decl]
 
     /// A fill's Kairo pointer arguments, by the clang type they spell
     /// (unqualified canonical clang::Type* -> unqualified Kairo canonical).

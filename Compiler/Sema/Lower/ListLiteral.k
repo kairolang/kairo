@@ -154,7 +154,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
 
     /// Backing declarations minted under the DeclStmt being rewritten, in the
     /// order they must run. Drained by the DeclStmt that opened the window.
-    priv var _pending: cxx::std::vector<unsafe *Stmt>
+    priv var _pending: [unsafe *Stmt]
 
     /// True while a DeclStmt that sits in a statement LIST is being rewritten.
     priv var _window: bool = false
@@ -172,11 +172,11 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     priv var _local_owner: unsafe *VariableDecl = &null
 
     /// Namespace-scope backings minted under _ns_owner, in run order.
-    priv var _ns_pending: cxx::std::vector<unsafe *Decl>
+    priv var _ns_pending: [unsafe *Decl]
 
     /// The statements that fill the local of the DeclStmt being rewritten,
     /// in order. Drained, after that DeclStmt, by the window it opened.
-    priv var _fill: cxx::std::vector<unsafe *Stmt>
+    priv var _fill: [unsafe *Stmt]
 
     /// What _open_window saved.
     struct Window {
@@ -189,6 +189,12 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     }
 
     priv var synth: LowerSynth
+
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn ListLiteralLowering(self, const other: Self) = delete
+    @move fn ListLiteralLowering(self, other: Self) = delete
 
     fn ListLiteralLowering(self, sc: unsafe *SemaContext) {
         self.sc    = sc
@@ -280,11 +286,11 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         }
 
         while self._pending.size() > w.mark {
-            self._pending.pop_back()
+            self._pending.pop()
         }
 
         while self._fill.size() > w.fill {
-            self._fill.pop_back()
+            self._fill.pop()
         }
 
         return out
@@ -324,7 +330,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         }
 
         while self._ns_pending.size() > mark {
-            self._ns_pending.pop_back()
+            self._ns_pending.pop()
         }
 
         return out
@@ -508,11 +514,11 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         }
 
         if self._built(unsafe (n as unsafe *Expr)) {
-            var keys = cxx::std::vector<unsafe *Expr>()
-            var vals = cxx::std::vector<unsafe *Expr>()
+            var keys: [unsafe *Expr]
+            var vals: [unsafe *Expr]
             for var i: usize = 0; i < n->entries.size(); ++i {
-                keys.push_back(n->entries.get(i)->key)
-                vals.push_back(n->entries.get(i)->value)
+                keys.push(n->entries.get(i)->key)
+                vals.push(n->entries.get(i)->value)
             }
 
             return self._build(
@@ -641,8 +647,8 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
     priv fn _build(self,
                    n:          unsafe *Expr,
                    k:          WellKnownType,
-                   const vals: cxx::std::vector<unsafe *Expr>,
-                   const keys: cxx::std::vector<unsafe *Expr> = cxx::std::vector<unsafe *Expr>(),
+                   const vals: [unsafe *Expr],
+                   const keys: [unsafe *Expr] = [],
                    kt:         unsafe *Type = &null) -> unsafe *Expr {
         var lb = self.tu.literal_build(k)
         self._reserve_inst = &null
@@ -675,7 +681,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             && self._window
             && self._local_owner != &null
         if fills {
-            var into = cxx::std::vector<unsafe *Stmt>()
+            var into: [unsafe *Stmt]
             self._fill_calls(
                 n,
                 lb,
@@ -687,7 +693,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             )
 
             for var i: usize = 0; i < into.size(); ++i {
-                self._fill.push_back(into[i])
+                self._fill.push(into[i])
             }
 
             return empty
@@ -702,7 +708,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             unsafe &stmts,
         )
 
-        var into = cxx::std::vector<unsafe *Stmt>()
+        var into: [unsafe *Stmt]
         self._fill_calls(n, lb, vd, keys, vals, kt, unsafe &into)
         for var i: usize = 0; i < into.size(); ++i {
             stmts.push(into[i])
@@ -728,10 +734,10 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
                         n:          unsafe *Expr,
                         lb:         LiteralBuild,
                         vd:         unsafe *VariableDecl,
-                        const keys: cxx::std::vector<unsafe *Expr>,
-                        const vals: cxx::std::vector<unsafe *Expr>,
+                        const keys: [unsafe *Expr],
+                        const vals: [unsafe *Expr],
                         kt:         unsafe *Type,
-                        out:        unsafe *cxx::std::vector<unsafe *Stmt>) {
+                        out:        unsafe *[unsafe *Stmt]) {
         var unsafe *unit = self.sc->builtin(BuiltinKind::Void)
         if lb.reserve != &null {
             var args = self.list_builder<unsafe *Expr>()
@@ -748,7 +754,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
                 ),
             )
 
-            out->push_back(
+            out->push(
                 self._expr_stmt(
                     self._built_call(
                         n->range,
@@ -790,7 +796,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             )
 
             if kd == &null {
-                out->push_back(add)
+                out->push(add)
                 continue
             }
 
@@ -803,7 +809,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
 
             body.push(add)
             body.freeze_into(&blk->body)
-            out->push_back(unsafe (blk as unsafe *Stmt))
+            out->push(unsafe (blk as unsafe *Stmt))
         }
     }
 
@@ -859,10 +865,10 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
         return call
     }
 
-    priv fn _exprs(self, l: unsafe *FrozenList<unsafe *Expr>) -> cxx::std::vector<unsafe *Expr> {
-        var out = cxx::std::vector<unsafe *Expr>()
+    priv fn _exprs(self, l: unsafe *FrozenList<unsafe *Expr>) -> [unsafe *Expr] {
+        var out: [unsafe *Expr]
         for var i: usize = 0; i < l->size(); ++i {
-            out.push_back((*l)[i])
+            out.push((*l)[i])
         }
 
         return out
@@ -962,7 +968,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             gv->adopt_sema(unsafe (self._ns_owner as unsafe *Decl))
             gv->is_implicit = true
 
-            self._ns_pending.push_back(unsafe (gv as unsafe *Decl))
+            self._ns_pending.push(unsafe (gv as unsafe *Decl))
             return self.synth.use_of(gv, at, Expr::ValueCategory::LValue)
         }
 
@@ -988,7 +994,7 @@ pub class ListLiteralLowering derives ASTWriter<ListLiteralLowering> {
             vd->is_thread = self._local_owner->is_thread
         }
 
-        self._pending.push_back(
+        self._pending.push(
             unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
         )
 

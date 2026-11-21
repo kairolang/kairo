@@ -229,7 +229,7 @@ pub class HeaderIndex {
         self._g->types()->init(pbits, i64_long, ldb, lda, wcb, aligns)
 
         // 1. fids + contexts + TUs, in clang's touch order.
-        var fresh = cxx::std::vector<unsafe *HeaderTarget>()
+        var fresh: [unsafe *HeaderTarget]
         for var i: usize = 0; i < hs->files.size(); ++i {
             var *f  = &hs->files[i]
             var fid = self._sm->load_file(Path(f->path)) // a known path answers with its existing fid (VFM cache hit).
@@ -241,7 +241,7 @@ pub class HeaderIndex {
             hs->cfid_to_kfid.try_emplace(f->cfid_hash as u64, fid)
             var unsafe *t = self._target(fid, f->path)
             if !t->frozen {
-                fresh.push_back(t)
+                fresh.push(t)
             }
         }
 
@@ -258,7 +258,7 @@ pub class HeaderIndex {
         var home_fid: u32 = if (fresh.size() > 0) => (fresh[0]->fid) else => 0
         var ti            = self.type_importer_for(hs, any_ctx, home_fid)
 
-        var pairs = cxx::std::vector<(unsafe *void, unsafe *Decl)>() // (clang::Decl*, Kairo decl) for pass 2.
+        var pairs: [(unsafe *void, unsafe *Decl)] // (clang::Decl*, Kairo decl) for pass 2.
         self.walk_declare(hs->ast()->getTranslationUnitDecl(), &di, &pairs)
         for var i: usize = 0; i < pairs.size(); ++i {
             di.define(
@@ -395,7 +395,7 @@ pub class HeaderIndex {
     fn walk_declare(self,
                     dc:         unsafe *clang::DeclContext,
                     di:         *DeclImport,
-                    @inout out: cxx::std::vector<(unsafe *void, unsafe *Decl)>) {
+                    @inout out: [(unsafe *void, unsafe *Decl)]) {
         // clang declares a record's implicit special members lazily (the
         // default constructor of `struct S : B { APValue v; }` only when
         // something looks it up). Kairo never asks clang, it reads decls(), so
@@ -459,7 +459,7 @@ pub class HeaderIndex {
                 || kind == clang::Decl::TypeAliasTemplate {
                 var unsafe *kd = di->declare(d)
                 if kd != &null {
-                    out.push_back((unsafe (d as unsafe *void), kd))
+                    out.push((unsafe (d as unsafe *void), kd))
                     // Members of a CLASS template only. A templated FunctionDecl
                     // is a DeclContext too, and its decls() are the function's
                     // locals and parameters: walking it filed every local of
@@ -483,7 +483,7 @@ pub class HeaderIndex {
                                 continue
                             }
 
-                            out.push_back((unsafe (sp as unsafe *void), ks))
+                            out.push((unsafe (sp as unsafe *void), ks))
                             self.walk_declare(sp, di, &out)
                         }
 
@@ -495,7 +495,7 @@ pub class HeaderIndex {
                                 continue
                             }
 
-                            out.push_back(
+                            out.push(
                                 (unsafe (parts[i] as unsafe *void), ks),
                             )
 
@@ -517,7 +517,7 @@ pub class HeaderIndex {
                 if fr != &null && llvm::isa<clang::FunctionDecl>(fr) && !fr->isTemplated() {
                     var unsafe *kf = di->declare_friend(fr, dc)
                     if kf != &null {
-                        out.push_back((unsafe (fr as unsafe *void), kf))
+                        out.push((unsafe (fr as unsafe *void), kf))
                     }
                 }
 
@@ -540,7 +540,7 @@ pub class HeaderIndex {
                     var        before = di->n_declared
                     var unsafe *kt    = di->declare_using(sh)
                     if kt != &null && di->n_declared != before {
-                        out.push_back(
+                        out.push(
                             (unsafe (sh->getTargetDecl() as unsafe *void), kt),
                         )
                     }
@@ -560,7 +560,7 @@ pub class HeaderIndex {
                 continue
             }
 
-            out.push_back((unsafe (d as unsafe *void), kd))
+            out.push((unsafe (d as unsafe *void), kd))
 
             // Scopes with members: records and enums (their members are
             // declared BEFORE the record's define sees them).

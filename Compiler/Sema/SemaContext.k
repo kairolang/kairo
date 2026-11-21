@@ -739,11 +739,11 @@ pub class SemaContext {
         }
 
         self.ext_visible.insert(self.ctx->fid as u64)
-        var work = cxx::std::vector<unsafe *TranslationUnit>()
-        work.push_back(root)
+        var work: [unsafe *TranslationUnit]
+        work.push(root)
         while work.size() > 0 {
             var unsafe *t = work[work.size() - 1]
-            work.pop_back()
+            work.pop()
             for var i: usize = 0; i < t->import_edges.size(); ++i {
                 var unsafe *ed = t->import_edges.get(i)
                 if ed == &null {
@@ -793,7 +793,7 @@ pub class SemaContext {
 
                 var unsafe *ot = c->tu
                 if ot != &null {
-                    work.push_back(ot)
+                    work.push(ot)
                 }
             }
         }

@@ -2528,7 +2528,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                         )
 
                         if !rooted && sd != &null && isa<Declarations::ClassDecl>(sd) {
-                            var through = cxx::std::vector<unsafe *Type>()
+                            var through: [unsafe *Type]
                             var ir = self._in_bases(
                                 cast<Declarations::ClassDecl>(sd),
                                 self._current_self(),
@@ -2671,7 +2671,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var        went_dependent = false
         // Kairo generic records the walk stepped THROUGH with arguments
         // (`L<i32>` of `L<i32>::M::P`), outermost first.
-        var through = cxx::std::vector<unsafe *Type>()
+        var through: [unsafe *Type]
 
         for var i: usize = 1; i < n; ++i {
             var unsafe *seg = ct->segments.get(i)
@@ -2769,7 +2769,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                     }
 
                     if kt != &null {
-                        through.push_back(kt)
+                        through.push(kt)
                         prev->resolved_type = kt
                         // The body the instance selects: a partial
                         // specialization's members are its own.
@@ -2889,7 +2889,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                         && MemberLookup::unfilled(ad) {
                         var unsafe *abody = self.sc->record_body(ac)
                         if abody != &null && abody != ad {
-                            through.push_back(ac)
+                            through.push(ac)
                             prev->resolved_type = ac
                             cur                 = abody
                         }
@@ -3527,7 +3527,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             return false
         }
 
-        var conj = cxx::std::vector<unsafe *ConstraintExpr>()
+        var conj: [unsafe *ConstraintExpr]
         if owner != &null {
             self._param_conjuncts(
                 decl_requires_clause(owner),
@@ -3801,7 +3801,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     /// Associated types whose clause _ready_assoc_clause is resolving: a
     /// clause that reaches its own associated type through a member
     /// (`type Item impl P<Self::Item::X>`) sees it unresolved, not again.
-    priv var _readying: cxx::std::vector<unsafe *Declarations::TypeAliasDecl>
+    priv var _readying: [unsafe *Declarations::TypeAliasDecl]
 
     /// Resolve associated type `ta`'s own clause now, in its declaration
     /// scope, if the walk has not reached it yet: its bounds are what a
@@ -3833,7 +3833,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             }
         }
 
-        self._readying.push_back(ta)
+        self._readying.push(ta)
         var sv = self._enter_decl_scope(unsafe (ta as unsafe *Decl))
         for var k: usize = 0; k < ta->generic_params.size(); ++k {
             self.dyn()->dispatch_decl(*ta->generic_params.get(k))
@@ -3841,7 +3841,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         ta->requires_clause = self.dyn()->dispatch_expr(ta->requires_clause)
         self._leave_decl_scope(&sv)
-        self._readying.pop_back()
+        self._readying.pop()
     }
 
     /// The `impl` / `derives` conjuncts of `e` that constrain `gp`, in
@@ -3851,7 +3851,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                              e:     unsafe *Expr,
                              gp:    unsafe *Declarations::GenericParamDecl,
                              owner: unsafe *Decl,
-                             out:   unsafe *cxx::std::vector<unsafe *ConstraintExpr>) {
+                             out:   unsafe *[unsafe *ConstraintExpr]) {
         if e == &null {
             return
         }
@@ -3877,7 +3877,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         if id->resolved_decl == gp {
-            out->push_back(c)
+            out->push(c)
             return
         }
 
@@ -3895,7 +3895,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         var gps = decl_generic_params(owner)
         for var i: usize = 0; i < gps.size(); ++i {
             if gps[i] == g2 {
-                out->push_back(c)
+                out->push(c)
                 return
             }
         }
@@ -4143,7 +4143,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // one the cell's entry is.
         // Entries of one ring all expand to the same scopes, so a ring is
         // expanded once per cell: the repeat calls were pure re-walks.
-        var heads = cxx::std::vector<unsafe *Decl>()
+        var heads: [unsafe *Decl]
         for var i: usize = 0; i < r.cell->size(); ++i {
             var unsafe *head = unsafe (cast<Declarations::ModuleDecl>(r.cell->get(i))->first_decl() as unsafe *Decl)
             var done = false
@@ -4158,7 +4158,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 continue
             }
 
-            heads.push_back(head)
+            heads.push(head)
             NameLookup::module_scopes(r.cell->get(i), &out)
         }
     }
@@ -4195,7 +4195,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                       simm:           u32,
                       const spelling: string,
                       depth:          u32,
-                      via:            unsafe *cxx::std::vector<unsafe *Type>) -> SemaLookupResult {
+                      via:            unsafe *[unsafe *Type]) -> SemaLookupResult {
         var none = SemaLookupResult::not_found()
         if depth > 32 {
             return none
@@ -4207,7 +4207,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         var found                  = none
-        var found_via              = cxx::std::vector<unsafe *Type>()
+        var found_via: [unsafe *Type]
         var found_bc: unsafe *Type = &null
         for var i: usize = 0; i < cd->derives_list.size(); ++i {
             var unsafe *e = cd->derives_list.get(i)
@@ -4259,7 +4259,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             }
 
             var        hit  = none
-            var        path = cxx::std::vector<unsafe *Type>()
+            var        path: [unsafe *Type]
             var unsafe *bdc = NameLookup::context_of(body)
             if bdc != &null {
                 hit = self.sc->lookup.in_context(
@@ -4269,7 +4269,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 )
 
                 if hit.found() {
-                    path.push_back(bc)
+                    path.push(bc)
                 }
             }
 
@@ -4306,7 +4306,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         }
 
         for var k: usize = 0; k < found_via.size(); ++k {
-            via->push_back(found_via[k])
+            via->push(found_via[k])
         }
 
         return found
@@ -5268,7 +5268,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
     priv var _eval_fns: u32 = 0
     /// Bindings of the unrolled `eval for`s around the walk: each copy's
     /// constant (Compiler/Spec/Eval.md#eval-for), usable in a computed value.
-    priv var _ef_binds: cxx::std::vector<unsafe *Decl>
+    priv var _ef_binds: [unsafe *Decl]
 
     fn traverse_ranged_for_stmt(self, n: unsafe *RangedForStmt) -> unsafe *RangedForStmt {
         var pushed = false
@@ -5277,7 +5277,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             && self._eval_fns == 0
             && n->bindings.size() == 1
             && n->bindings[0].decl != &null {
-            self._ef_binds.push_back(n->bindings[0].decl)
+            self._ef_binds.push(n->bindings[0].decl)
             pushed = true
         }
 
@@ -5287,7 +5287,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         )
 
         if pushed {
-            self._ef_binds.pop_back()
+            self._ef_binds.pop()
         }
 
         return r
@@ -5952,7 +5952,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         self._selfs.clear()
 
         // Innermost first; pushed reversed below.
-        var        owners = cxx::std::vector<unsafe *Decl>()
+        var        owners: [unsafe *Decl]
         var        local  = false
         var unsafe *c     = home
         while c != &null {
@@ -5963,7 +5963,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             var unsafe *o = c->owner_decl()
             if c->is_type_scope() || c->is_function() {
                 if o != &null {
-                    owners.push_back(o)
+                    owners.push(o)
                 }
             }
 

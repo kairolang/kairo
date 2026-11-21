@@ -219,13 +219,13 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// silently into _fail instead of reporting.
     priv var _walk:  PurityWalk                             = PurityWalk::Check
     priv var _fail:  bool                                   = false
-    priv var _cands: cxx::std::vector<unsafe *FunctionDecl>
+    priv var _cands: [unsafe *FunctionDecl]
     /// The Prove walk's findings for the function being walked: a loop
     /// whose end is not proven, a callee that is not proven, and the
     /// callees whose proof is still Pending (appended to _deps).
     priv var _unbounded: bool                                   = false
     priv var _bad_call:  bool                                   = false
-    priv var _deps:      cxx::std::vector<unsafe *FunctionDecl>
+    priv var _deps:      [unsafe *FunctionDecl]
     /// Inferred levels kept, and the inferred levels the termination proof
     /// took away, by the reason it failed first: a loop in the function's
     /// own body, or a call (a callee not proven, or a call cycle).
@@ -272,7 +272,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             // A local function is never a candidate (nothing outside its
             // parent names it), so bodies are not entered.
             if !n->is_poisoned() {
-                self._cands.push_back(n)
+                self._cands.push(n)
             }
 
             return false
@@ -326,7 +326,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         self._walk_items()
         self._walk = PurityWalk::Check
 
-        var live = cxx::std::vector<unsafe *FunctionDecl>()
+        var live: [unsafe *FunctionDecl]
         if infer {
             self._infer(unsafe &live)
         }
@@ -347,7 +347,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
     /// -finfer-purity over the collected candidates; `live` receives the
     /// ones inference asked about.
-    priv fn _infer(self, live: unsafe *cxx::std::vector<unsafe *FunctionDecl>) {
+    priv fn _infer(self, live: unsafe *[unsafe *FunctionDecl]) {
         // The candidates, all optimistic: const until shown otherwise.
         for var i: usize = 0; i < self._cands.size(); ++i {
             var unsafe *f = self._cands[i]
@@ -355,7 +355,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 continue
             }
 
-            live->push_back(f)
+            live->push(f)
             self._stamp(f, PurityLevel::Const)
         }
 
@@ -395,8 +395,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// proven once every callee it waits on is. Whatever is still Pending
     /// sits on a call cycle or waits on one, and is not proven.
     priv fn _prove(self) {
-        var fns    = cxx::std::vector<unsafe *FunctionDecl>()
-        var levels = cxx::std::vector<PurityLevel>()
+        var fns:    [unsafe *FunctionDecl]
+        var levels: [PurityLevel]
         // The nodes are this TU's bodies. A link without one (a forward
         // declaration, an import) proves nothing: its proof is the
         // definition's, read through _proof_of.
@@ -415,25 +415,25 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 continue
             }
 
-            fns.push_back(f)
-            levels.push_back(lvl)
+            fns.push(f)
+            levels.push(lvl)
             self._mark(f, PurityProof::Pending)
         }
 
-        if fns.empty() {
+        if fns.is_empty() {
             return
         }
 
         // Per function: 0 its body is bounded and every callee is proven
         // or Pending, 1 a loop, 2 a call; and its Pending callees, as the
         // range [dep_lo[i], dep_lo[i + 1]) of _deps.
-        var why    = cxx::std::vector<u8>()
-        var dep_lo = cxx::std::vector<usize>()
+        var why:    [u8]
+        var dep_lo: [usize]
         self._deps.clear()
         self._walk = PurityWalk::Prove
         for var i: usize = 0; i < fns.size(); ++i {
             var unsafe *f = fns[i]
-            dep_lo.push_back(self._deps.size())
+            dep_lo.push(self._deps.size())
             self._f         = f
             self._level     = levels[i]
             self._fail      = false
@@ -447,10 +447,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 w = 2
             }
 
-            why.push_back(w)
+            why.push(w)
         }
 
-        dep_lo.push_back(self._deps.size())
+        dep_lo.push(self._deps.size())
         self._f     = &null
         self._level = PurityLevel::None
         self._walk  = PurityWalk::Check
@@ -536,14 +536,14 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     /// Every link of `f`'s redeclaration chain, `f` included.
-    priv fn _links(self, f: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *FunctionDecl> {
-        var        out          = cxx::std::vector<unsafe *FunctionDecl>()
+    priv fn _links(self, f: unsafe *FunctionDecl) -> [unsafe *FunctionDecl] {
+        var        out:   [unsafe *FunctionDecl]
         var unsafe *head        = f->first_decl()
         var unsafe *cur         = head
         var        guard: usize = 0
         while cur != &null && guard < 64 {
             if cur != f {
-                out.push_back(cur)
+                out.push(cur)
             }
 
             cur = cur->next_in_chain()
@@ -553,7 +553,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             }
         }
 
-        out.push_back(f)
+        out.push(f)
         return out
     }
 
@@ -610,7 +610,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         if p == PurityProof::Pending {
-            self._deps.push_back(f)
+            self._deps.push(f)
             return
         }
 

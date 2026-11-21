@@ -476,8 +476,7 @@ pub class RedeclMerge {
     /// which holds a scope's declarations in source order. Runs after the
     /// pairwise loop, so a second fallback is already poisoned (R029E) and
     /// stays out, and so is anything else that loop rejected.
-    priv fn _stamp_where_groups(self,
-                                const group: cxx::std::vector<unsafe *Declarations::FunctionDecl>) {
+    priv fn _stamp_where_groups(self, const group: [unsafe *Declarations::FunctionDecl]) {
         for var i: usize = 0; i < group.size(); ++i {
             var unsafe *g = (group)[i]
             if !g->has_where() || g->is_unsafe() || g->is_poisoned() {
@@ -515,9 +514,8 @@ pub class RedeclMerge {
     /// many different decls under one name, but the SAME *Decl twice is a
     /// walk bug upstream, and judging it here would report a function as a
     /// redefinition of itself. Same guard, same reason, as N(a).
-    priv fn _fn_group(self,
-                      cell: unsafe *OverloadCell) -> cxx::std::vector<unsafe *Declarations::FunctionDecl> {
-        var out = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+    priv fn _fn_group(self, cell: unsafe *OverloadCell) -> [unsafe *Declarations::FunctionDecl] {
+        var out: [unsafe *Declarations::FunctionDecl]
         for var i: usize = 0; i < cell->size(); ++i {
             var unsafe *d = cell->get(i)
             if d == &null {
@@ -530,7 +528,7 @@ pub class RedeclMerge {
 
             var unsafe *f = dyn_cast<Declarations::FunctionDecl>(d)
             if f == &null { // not all-fn: N(a) owns it.
-                return cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+                return []
             }
 
             // A function specialization is its own entity and never links
@@ -551,7 +549,7 @@ pub class RedeclMerge {
                 continue
             }
 
-            out.push_back(f)
+            out.push(f)
         }
 
         return out
@@ -607,8 +605,8 @@ pub class RedeclMerge {
             return
         }
 
-        var specs = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
-        var prims = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        var specs: [unsafe *Declarations::FunctionDecl]
+        var prims: [unsafe *Declarations::FunctionDecl]
         for var i: usize = 0; i < e.cell->size(); ++i {
             var unsafe *f = dyn_cast<Declarations::FunctionDecl>(e.cell->get(i))
             if f == &null || f->is_poisoned() {
@@ -616,7 +614,7 @@ pub class RedeclMerge {
             }
 
             if f->spec_kind == Declarations::SpecKind::Explicit {
-                specs.push_back(f)
+                specs.push(f)
                 continue
             }
 
@@ -638,7 +636,7 @@ pub class RedeclMerge {
             }
 
             if !seen {
-                prims.push_back(r)
+                prims.push(r)
             }
         }
 
@@ -656,7 +654,7 @@ pub class RedeclMerge {
             }
         }
 
-        if specs.empty() {
+        if specs.is_empty() {
             return
         }
 
@@ -669,7 +667,7 @@ pub class RedeclMerge {
         // function specialization may specialize an imported primary
         // (generics.mdx, Function specializations). A record's may not: it
         // is extended instead.
-        if prims.empty() && !in_type_body && e.name.is_ident() {
+        if prims.is_empty() && !in_type_body && e.name.is_ident() {
             self._imported_prims(specs[0], e.name.payload, &prims)
         }
 
@@ -727,16 +725,16 @@ pub class RedeclMerge {
     priv fn _pair_spec(self,
                        const name: string,
                        s:          unsafe *Declarations::FunctionDecl,
-                       prims:      *cxx::std::vector<unsafe *Declarations::FunctionDecl>) {
+                       prims:      *[unsafe *Declarations::FunctionDecl]) {
         var unsafe *sd = unsafe (s as unsafe *Decl)
         // `extend <T> G<T> { fn <> m<i32>(self) ... }`: a specialization of a
         // class-body method, written in an extension of the class.
-        if prims->empty() && decl_extension_of(sd) != &null {
+        if prims->is_empty() && decl_extension_of(sd) != &null {
             self._pair_member_spec(name, s)
             return
         }
 
-        if prims->empty() {
+        if prims->is_empty() {
             self.sc->diag->report(
                 DiagID::R042E,
                 s->range.start,
@@ -775,15 +773,15 @@ pub class RedeclMerge {
             return
         }
 
-        var matches = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        var matches: [unsafe *Declarations::FunctionDecl]
         for var i: usize = 0; i < prims->size(); ++i {
             if self._spec_matches((*prims)[i], s) {
-                matches.push_back((*prims)[i])
+                matches.push((*prims)[i])
             }
         }
 
         if matches.size() != 1 {
-            var what = if (matches.empty()) => ("matches no primary template")
+            var what = if (matches.is_empty()) => ("matches no primary template")
                        else => "matches more than one primary template"
             var b = self.sc->diag->report(
                 DiagID::SC330E,
@@ -792,7 +790,7 @@ pub class RedeclMerge {
             )
 
             b.first(s->name.range)
-            var cands = if (matches.empty()) => (prims) else => (&matches)
+            var cands = if (matches.is_empty()) => (prims) else => (&matches)
             for var i: usize = 0; i < cands->size(); ++i {
                 b.note(
                     DiagCode(DiagID::SC330N),
@@ -845,7 +843,7 @@ pub class RedeclMerge {
     priv fn _imported_prims(self,
                             s:     unsafe *Declarations::FunctionDecl,
                             imm:   u32,
-                            prims: *cxx::std::vector<unsafe *Declarations::FunctionDecl>) {
+                            prims: *[unsafe *Declarations::FunctionDecl]) {
         var unsafe *dc = (unsafe (s as unsafe *Decl))->semantic_dc
         var unsafe *tu = self.sc->tu
         if dc == &null || tu == &null || dc != unsafe (tu as unsafe *DeclContext) {
@@ -883,7 +881,7 @@ pub class RedeclMerge {
             }
 
             if !seen {
-                prims->push_back(r)
+                prims->push(r)
             }
         }
     }
@@ -935,7 +933,7 @@ pub class RedeclMerge {
     priv fn _class_methods_named(self,
                                  cls: unsafe *Decl,
                                  f:   unsafe *Declarations::FunctionDecl,
-                                 out: *cxx::std::vector<unsafe *Declarations::FunctionDecl>) {
+                                 out: *[unsafe *Declarations::FunctionDecl]) {
         var tu = TypeUtil(self.sc)
         var nm = tu.decl_name(unsafe (f as unsafe *Decl))
         var ms = decl_methods(cls)
@@ -962,7 +960,7 @@ pub class RedeclMerge {
             }
 
             if !seen {
-                out->push_back(r)
+                out->push(r)
             }
         }
     }
@@ -974,8 +972,8 @@ pub class RedeclMerge {
                                 cls: unsafe *Decl,
                                 m:   unsafe *Declarations::FunctionDecl,
                                 f:   unsafe *Declarations::FunctionDecl,
-                                xs:  *cxx::std::vector<unsafe *Type>,
-                                ys:  *cxx::std::vector<unsafe *Type>) -> bool {
+                                xs:  *[unsafe *Type],
+                                ys:  *[unsafe *Type]) -> bool {
         if m->params.size() != f->params.size() || m->is_variadic || f->is_variadic {
             return false
         }
@@ -1114,7 +1112,7 @@ pub class RedeclMerge {
                                 cls:   unsafe *Decl,
                                 rt:    unsafe *RecordType,
                                 ext:   unsafe *Declarations::ExtensionDecl,
-                                xs:    *cxx::std::vector<unsafe *Type>,
+                                xs:    *[unsafe *Type],
                                 fixed: *bool) -> bool {
         var cgs = decl_generic_params(cls)
         var egs = decl_generic_params(unsafe (ext as unsafe *Decl))
@@ -1128,7 +1126,7 @@ pub class RedeclMerge {
                     return false
                 }
 
-                xs->push_back(rt->args[i])
+                xs->push(rt->args[i])
             }
 
             *fixed = true
@@ -1149,7 +1147,7 @@ pub class RedeclMerge {
                 return false
             }
 
-            xs->push_back(gp)
+            xs->push(gp)
         }
 
         *fixed = false
@@ -1173,7 +1171,7 @@ pub class RedeclMerge {
             return
         }
 
-        var xs    = cxx::std::vector<unsafe *Type>()
+        var xs:   [unsafe *Type]
         var fixed = false
         if !self._member_target_args(cls, rt, ext, &xs, &fixed) {
             self._member_refuse(
@@ -1185,16 +1183,16 @@ pub class RedeclMerge {
             return
         }
 
-        var ms = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        var ms: [unsafe *Declarations::FunctionDecl]
         self._class_methods_named(cls, s, &ms)
-        var matches = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        var matches: [unsafe *Declarations::FunctionDecl]
         for var i: usize = 0; i < ms.size(); ++i {
             var unsafe *m = ms[i]
             if m->generic_params.size() != s->spec_args.size() || m->generic_params.size() == 0 {
                 continue
             }
 
-            var ys = cxx::std::vector<unsafe *Type>()
+            var ys: [unsafe *Type]
             var ok = true
             for var j: usize = 0; j < s->spec_args.size(); ++j {
                 var unsafe *a = s->spec_args[j]
@@ -1203,16 +1201,16 @@ pub class RedeclMerge {
                     break
                 }
 
-                ys.push_back(a->canonical)
+                ys.push(a->canonical)
             }
 
             if ok && self._member_sig_matches(cls, m, s, &xs, &ys) {
-                matches.push_back(m)
+                matches.push(m)
             }
         }
 
         if matches.size() != 1 {
-            var what = if (matches.empty()) => ("matches no generic method of its class")
+            var what = if (matches.is_empty()) => ("matches no generic method of its class")
                        else => "matches more than one generic method of its class"
             var b = self.sc->diag->report(
                 DiagID::SC330E,
@@ -1221,7 +1219,7 @@ pub class RedeclMerge {
             )
 
             b.first(s->name.range)
-            var cands = if (matches.empty()) => (&ms) else => (&matches)
+            var cands = if (matches.is_empty()) => (&ms) else => (&matches)
             for var i: usize = 0; i < cands->size(); ++i {
                 b.note(
                     DiagCode(DiagID::SC330N),
@@ -1267,13 +1265,13 @@ pub class RedeclMerge {
         }
 
         var unsafe *ext  = decl_extension_of(unsafe (f as unsafe *Decl))
-        var        xs    = cxx::std::vector<unsafe *Type>()
+        var xs:   [unsafe *Type]
         var        fixed = false
         if !self._member_target_args(cls, rt, ext, &xs, &fixed) || !fixed {
             return
         }
 
-        var ms = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
+        var ms: [unsafe *Declarations::FunctionDecl]
         self._class_methods_named(cls, f, &ms)
         var unsafe *fr = NameLookup::representative(unsafe (f as unsafe *Decl))
         for var i: usize = 0; i < ms.size(); ++i {
@@ -1282,9 +1280,9 @@ pub class RedeclMerge {
                 continue
             }
 
-            var ys = cxx::std::vector<unsafe *Type>()
+            var ys: [unsafe *Type]
             for var j: usize = 0; j < f->generic_params.size(); ++j {
-                ys.push_back(self.sc->types->generic_param(fr, j as u32, false))
+                ys.push(self.sc->types->generic_param(fr, j as u32, false))
             }
 
             if !self._member_sig_matches(cls, m, f, &xs, &ys) {
@@ -1963,8 +1961,8 @@ pub class RedeclMerge {
         constraint_conjuncts(prev->requires_clause, unsafe &ca)
         constraint_conjuncts(cur->requires_clause, unsafe &cb)
         for var i: usize = 0; i < n; ++i {
-            var ba = cxx::std::vector<ParamBound>()
-            var bb = cxx::std::vector<ParamBound>()
+            var ba: [ParamBound]
+            var bb: [ParamBound]
             if !self._param_bounds(&ca, prev->generic_params[i], &null, &ba) {
                 continue
             }
@@ -1994,7 +1992,7 @@ pub class RedeclMerge {
                           @inout cs:  cxx::std::vector<unsafe *ConstraintExpr>,
                           gp:         unsafe *Declarations::GenericParamDecl,
                           sub:        unsafe *Substitution,
-                          @inout out: cxx::std::vector<ParamBound>) -> bool {
+                          @inout out: [ParamBound]) -> bool {
         if gp == &null {
             return false
         }
@@ -2018,16 +2016,14 @@ pub class RedeclMerge {
                 }
             }
 
-            out.push_back(ParamBound(canon_unqual(t), c->is_derives()))
+            out.push(ParamBound(canon_unqual(t), c->is_derives()))
         }
 
         return true
     }
 
     /// Every bound of `x` is one of `y`.
-    priv fn _bounds_within(self,
-                           const x: cxx::std::vector<ParamBound>,
-                           const y: cxx::std::vector<ParamBound>) -> bool {
+    priv fn _bounds_within(self, const x: [ParamBound], const y: [ParamBound]) -> bool {
         for var i: usize = 0; i < x.size(); ++i {
             var hit = false
             for var j: usize = 0; j < y.size(); ++j {

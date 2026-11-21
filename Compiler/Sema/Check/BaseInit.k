@@ -187,7 +187,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
     priv var _tu: TypeUtil
     /// The base initializers the constructor being walked admitted; any
     /// other call of a constructor by name is an error (visit_call_expr).
-    priv var _ok: cxx::std::vector<unsafe *CallExpr>
+    priv var _ok: [unsafe *CallExpr]
 
     fn BaseInitCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -430,7 +430,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
 
     fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
         var saved = self._ok
-        self._ok = cxx::std::vector<unsafe *CallExpr>()
+        self._ok = []
         if !n->is_poisoned()
             && base_init_is_ctor(n)
             && n->body_kind == FnBodyKind::Block
@@ -452,7 +452,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
     priv fn _lead(self, f: unsafe *FunctionDecl) {
         var unsafe *owner = base_init_owner(f)
         var        stmts  = f->body_block->body
-        var        done   = cxx::std::vector<unsafe *Decl>()
+        var        done:  [unsafe *Decl]
         for var i: usize = 0; i < stmts.size(); ++i {
             var unsafe *n = base_init_stmt(stmts[i])
             if n == &null {
@@ -464,7 +464,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
             var        bname = self._tu.decl_name(base)
             var        cname = self._tu.decl_name(owner)
             if n->is_poisoned() {
-                self._ok.push_back(n)
+                self._ok.push(n)
                 continue
             }
 
@@ -482,7 +482,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                     "this constructor builds the object itself",
                 )->child_first(f->name.range)
                 b.emit()
-                self._ok.push_back(n)
+                self._ok.push(n)
                 continue
             }
 
@@ -500,7 +500,7 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                     named_declared_here(bname),
                 )->child_first(decl_name_tok(base).range)
                 b.emit()
-                self._ok.push_back(n)
+                self._ok.push(n)
                 continue
             }
 
@@ -522,13 +522,13 @@ pub class BaseInitCheck derives RecursiveASTVisitor<BaseInitCheck> {
                 b.first(n->range)
                 b.remove(stmts[i]->range, "remove the second initialization")
                 b.emit()
-                self._ok.push_back(n)
+                self._ok.push(n)
                 continue
             }
 
-            done.push_back(base)
+            done.push(base)
             self._args(n, bname)
-            self._ok.push_back(n)
+            self._ok.push(n)
         }
     }
 

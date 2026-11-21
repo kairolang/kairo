@@ -258,18 +258,25 @@ pub struct PanicArm {
 /// The state of one body (a function's or a closure's) while PanicLowering
 /// is inside it.
 pub struct PanicBody {
-    var targets: cxx::std::vector<PanicTarget> ///< innermost last; empty in a body that cannot panic, outside a `try`.
+    var targets: [PanicTarget] ///< innermost last; empty in a body that cannot panic, outside a `try`.
     /// Per enclosing `eval for` / pack `for` (a copy loop: EmitIR expands its
     /// body into one C++ lambda per copy), innermost last: targets.size()
     /// at its entry. A target below that is outside the copy.
-    var copy_bars:  cxx::std::vector<usize>
-    var copy_exits: cxx::std::vector<PanicCopyExit>
-    var holders:    cxx::std::vector<PanicHolder>
+    var copy_bars:  [usize]
+    var copy_exits: [PanicCopyExit]
+    var holders:    [PanicHolder]
     var fn_r:       unsafe *Type                    = &null ///< the body's result, or null when it does not panic.
     var fn_t:       unsafe *Type                    = &null ///< its value type T.
     /// The variables declared so far in the body, when it panics: the ones
     /// a `return` or `panic` of the bare name moves (_moved_local).
-    var locals: cxx::std::vector<unsafe *VariableDecl>
+    var locals: [unsafe *VariableDecl]
+}
+
+/// `b` moved out, `b` left as a fresh body.
+fn take_panic_body(@inout b: PanicBody) -> PanicBody {
+    var r = move(b)
+    b = PanicBody{}
+    return r
 }
 
 pub class PanicLowering derives ASTWriter<PanicLowering> {
@@ -283,7 +290,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     priv var _b: PanicBody
     /// The bindings of C++ exception arms: `panic e` of one panics a copy of
     /// the caught object (its arm's type, what the set holds), from here.
-    priv var _cxx_binders: cxx::std::vector<unsafe *Decl>
+    priv var _cxx_binders: [unsafe *Decl]
     /// Inside the body of a `try` with a C++ arm: a value that can throw is
     /// computed first too (_leaves).
     priv var _cxx_depth: i32 = 0
@@ -294,12 +301,17 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     /// The function being lowered, and the dependent panic results its body
     /// names so far (_dep): its FunctionDecl::panic_deps.
     priv var _cur:  unsafe *FunctionDecl           = &null
-    priv var _deps: cxx::std::vector<unsafe *Type>
+    priv var _deps: [unsafe *Type]
     /// Lowers a panicking operator to its call ahead of OperatorLowering
     /// (_op_call); made on the first one. One for the run: the names it
     /// mints stay unique.
     priv var _ol:       OperatorLowering
     priv var _ol_ready: bool             = false
+
+    // Never transferred: the pass is built where it runs, and an ASTWriter
+    // base is copyable, which a class with a move-only field may not derive.
+    @copy fn PanicLowering(self, const other: Self) = delete
+    @move fn PanicLowering(self, other: Self) = delete
 
     fn PanicLowering(self, sc: unsafe *SemaContext) {
         self.sc    = sc
@@ -446,11 +458,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         }
 
         var unsafe *owner = NameLookup::representative(dc->owner_decl())
-        var        by     = cxx::std::vector<unsafe *Decl>()
+        var by: [unsafe *Decl]
         if isa<ExtensionDecl>(owner) {
-            by.push_back(owner)
+            by.push(owner)
         } else if isa<ClassDecl>(owner) || isa<StructDecl>(owner) {
-            by.push_back(owner)
+            by.push(owner)
             if !self._ml_ready {
                 self._ml = MemberLookup(self.sc)
                 self._ml.index_extensions()
@@ -462,7 +474,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                 for var i: usize = 0;
                 i < exts->size();
                 ++i {
-                    by.push_back(unsafe ((*exts)[i] as unsafe *Decl))
+                    by.push(unsafe ((*exts)[i] as unsafe *Decl))
                 }
             }
         } else {
@@ -560,7 +572,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             }
         }
 
-        self._deps.push_back(c)
+        self._deps.push(c)
     }
 
     /// `r` as `f`'s result, on every link of its chain in this TU (a
@@ -720,9 +732,9 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             return ASTWriter<PanicLowering>::transform_function_decl(self, n)
         }
 
-        var        sb  = self._b
+        var        sb  = take_panic_body(&self._b)
         var unsafe *sc = self._cur
-        var        sd  = self._deps
+        var        sd  = self._deps.copy()
         self._cur = n
         self._deps.clear()
         self._dep(r)
@@ -733,7 +745,11 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         }
 
         if self._deps.size() > 0 {
-            panic_home(n)->panic_deps.from_vec(unsafe &self._deps, self.ctx)
+            panic_home(n)->panic_deps.from_buf(
+                unsafe (unwrap!(self._deps.data_mut()) as unsafe *(unsafe *Type)),
+                self._deps.size(),
+                self.ctx,
+            )
         }
 
         self._b    = sb
@@ -744,7 +760,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     fn transform_closure_expr(self, n: unsafe *Expressions::ClosureExpr) -> unsafe *Expr {
         var unsafe *r = self._closure_result(n)
-        var        sb = self._b
+        var        sb = take_panic_body(&self._b)
         self._enter(r, self._value_type(n->return_type))
         var unsafe *out = ASTWriter<PanicLowering>::transform_closure_expr(
             self,
@@ -766,7 +782,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         if r != &null {
             var tg = PanicTarget()
             tg.type_ = r
-            self._b.targets.push_back(tg)
+            self._b.targets.push(tg)
         }
     }
 
@@ -800,7 +816,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     fn transform_variable_decl(self, n: unsafe *VariableDecl) -> cxx::std::vector<unsafe *Decl> {
         if self._b.fn_r != &null {
-            self._b.locals.push_back(n)
+            self._b.locals.push(n)
         }
 
         return ASTWriter<PanicLowering>::transform_variable_decl(self, n)
@@ -1461,7 +1477,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                 var ex = PanicCopyExit()
                 ex.copy   = c
                 ex.target = t
-                self._b.copy_exits.push_back(ex)
+                self._b.copy_exits.push(ex)
             }
         }
 
@@ -1519,16 +1535,16 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         }
 
         var c = self._b.copy_bars.size()
-        self._b.copy_bars.push_back(self._b.targets.size())
+        self._b.copy_bars.push(self._b.targets.size())
         n->body = cast<CompoundStmt>(self.transform_stmt_scalar(n->body))
-        self._b.copy_bars.pop_back()
+        self._b.copy_bars.pop()
         var out = cxx::std::vector<unsafe *Stmt>()
         out.push_back(n)
-        var keep = cxx::std::vector<PanicCopyExit>()
+        var keep: [PanicCopyExit]
         for var k: usize = 0; k < self._b.copy_exits.size(); ++k {
             var ex = self._b.copy_exits[k]
             if ex.copy != c {
-                keep.push_back(ex)
+                keep.push(ex)
                 continue
             }
 
@@ -1580,8 +1596,8 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     fn transform_try_catch_stmt(self, n: unsafe *TryCatchStmt) -> cxx::std::vector<unsafe *Stmt> {
         var at    = n->range
-        var arms  = cxx::std::vector<PanicArm>()
-        var cxx_v = cxx::std::vector<PanicArm>()
+        var arms:  [PanicArm]
+        var cxx_v: [PanicArm]
         for var i: usize = 0; i < n->arms.size(); ++i {
             var unsafe *a = n->arms.get(i)
             var        pa = PanicArm()
@@ -1596,9 +1612,9 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
             pa.is_cxx = a->is_cxx
             if pa.is_cxx {
-                cxx_v.push_back(pa)
+                cxx_v.push(pa)
             } else {
-                arms.push_back(pa)
+                arms.push(pa)
             }
         }
 
@@ -1678,7 +1694,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         tg.type_ = st
         tg.label = self.synth.fresh(at, "catch")
         var done = self.synth.fresh(at, "done")
-        self._b.targets.push_back(tg)
+        self._b.targets.push(tg)
         if cxx_v.size() > 0 {
             self._cxx_depth += 1
         }
@@ -1692,7 +1708,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         }
 
         var unsafe *efj = self._b.targets[self._b.targets.size() - 1].efj
-        self._b.targets.pop_back()
+        self._b.targets.pop()
         // A copy loop's flag (_to_slot), ahead of the body and the label.
         if efj != &null {
             lb.push(
@@ -1728,8 +1744,8 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
     fn transform_try_catch_expr(self, n: unsafe *Expressions::TryCatchExpr) -> unsafe *Expr {
         var at    = n->range
-        var arms  = cxx::std::vector<PanicArm>()
-        var cxx_v = cxx::std::vector<PanicArm>()
+        var arms:  [PanicArm]
+        var cxx_v: [PanicArm]
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
             var unsafe *a = n->catch_arms.get(i)
             var        pa = PanicArm()
@@ -1741,9 +1757,9 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             pa.range    = a->range
             pa.is_cxx   = a->is_cxx
             if pa.is_cxx {
-                cxx_v.push_back(pa)
+                cxx_v.push(pa)
             } else {
-                arms.push_back(pa)
+                arms.push(pa)
             }
         }
 
@@ -1816,7 +1832,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             tg.type_ = st
             tg.label = self.synth.fresh(at, "catch")
             var done = self.synth.fresh(at, "done")
-            self._b.targets.push_back(tg)
+            self._b.targets.push(tg)
             if cxx_v.size() > 0 {
                 self._cxx_depth += 1
             }
@@ -1827,7 +1843,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             }
 
             var unsafe *efj = self._b.targets[self._b.targets.size() - 1].efj
-            self._b.targets.pop_back()
+            self._b.targets.pop()
             if efj != &null {
                 lb.push(
                     unsafe (DeclStmt::create(self.ctx, at, unsafe (efj as unsafe *Decl)) as unsafe *Stmt),
@@ -1903,7 +1919,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     priv fn _cxx_try(self,
                      at:           SourceRange,
                      body:         unsafe *Stmt,
-                     @inout cxx_v: cxx::std::vector<PanicArm>,
+                     @inout cxx_v: [PanicArm],
                      res:          unsafe *VariableDecl) -> unsafe *Stmt {
         var unsafe *blk = dyn_cast<CompoundStmt>(body)
         if blk == &null {
@@ -1914,7 +1930,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
 
         var unsafe *t = TryCatchStmt::create(self.ctx, at, blk)
         t->cxx = true
-        var cas = cxx::std::vector<CatchArm>()
+        var cas: [CatchArm]
         for var i: usize = 0; i < cxx_v.size(); ++i {
             var unsafe *a    = unsafe &(cxx_v)[i]
             var        stmts = cxx::std::vector<unsafe *Stmt>()
@@ -1928,7 +1944,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                 vd->type_   = self.sc->types->cxx_lref(et)
                 vd->storage = StorageClass::Var            // the `const` is in the type.
                 vd->init    = &null
-                self._cxx_binders.push_back(a->decl)
+                self._cxx_binders.push(a->decl)
             }
 
             self._arm_body(a, &null, res, &stmts)
@@ -1940,10 +1956,15 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             ca.decl    = a->decl
             ca.is_dead = false
             ca.is_cxx  = true
-            cas.push_back(ca)
+            cas.push(ca)
         }
 
-        t->arms.from_vec(unsafe &cas, self.ctx)
+        var items: unsafe *CatchArm = &null
+        if cas.size() > 0 {
+            items = unsafe (unwrap!(cas.data_mut()) as unsafe *CatchArm)
+        }
+
+        t->arms.from_buf(items, cas.size(), self.ctx)
         return unsafe (t as unsafe *Stmt)
     }
 
@@ -1963,7 +1984,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                          at:   SourceRange,
                          slot: unsafe *VariableDecl,
                          st:   unsafe *Type,
-                         arms: unsafe *cxx::std::vector<PanicArm>,
+                         arms: unsafe *[PanicArm],
                          res:  unsafe *VariableDecl) -> unsafe *Stmt {
         var unsafe *take = Expressions::PanicOpExpr::create(
             self.ctx,
@@ -1996,7 +2017,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     priv fn _dispatch(self,
                       at:          SourceRange,
                       h:           unsafe *VariableDecl,
-                      @inout arms: cxx::std::vector<PanicArm>,
+                      @inout arms: [PanicArm],
                       res:         unsafe *VariableDecl,
                       reach:       unsafe *FrozenList<unsafe *Type> = &null) -> unsafe *Stmt {
         var hset = self.tu.record_args(self.tu.as_value(h->type_))
@@ -2017,7 +2038,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             }
         }
 
-        var typed      = cxx::std::vector<usize>()
+        var typed: [usize]
         var caught     = cxx::std::vector<unsafe *Type>()
         var bare:  i64 = -1
         for var i: usize = 0; i < arms.size(); ++i {
@@ -2036,7 +2057,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                 continue
             }
 
-            typed.push_back(i)
+            typed.push(i)
             caught.push_back(c)
         }
 
@@ -2169,7 +2190,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         var ph = PanicHolder()
         ph.decl   = a->decl
         ph.holder = holder
-        self._b.holders.push_back(ph)
+        self._b.holders.push(ph)
         if a->sbody != &null {
             out.push_back(
                 self.transform_stmt_scalar(unsafe (a->sbody as unsafe *Stmt)),
@@ -2193,7 +2214,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             }
         }
 
-        self._b.holders.pop_back()
+        self._b.holders.pop()
     }
 
     /// # the direct form's shape

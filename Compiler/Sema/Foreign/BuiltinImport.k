@@ -125,7 +125,7 @@ pub class BuiltinImport {
     priv var _text: cxx::std::string
 
     priv var _name_tok: llvm::DenseMap<u32, Token> ///< builtin ID -> its line's token.
-    priv var _arg_tok:  cxx::std::vector<Token> ///< `__arg0` .. `__arg{MAX-1}`.
+    priv var _arg_tok:  [Token] ///< `__arg0` .. `__arg{MAX-1}`.
     priv var _done:     llvm::DenseMap<u32, BuiltinEntry>
     priv var _mu:       kairo::std::SharedMutex
     priv var _ready:    bool                              = false
@@ -177,16 +177,16 @@ pub class BuiltinImport {
         // ASCII only, so a code-point offset IS a byte offset.
         var n    = oracle->count()
         var text = ""
-        var offs = cxx::std::vector<usize>()
+        var offs: [usize]
         for var i: usize = 0; i < n; ++i {
-            offs.push_back(text.size())
+            offs.push(text.size())
             text += oracle->name_at(i)
             text += "\n"
         }
 
-        var arg_offs = cxx::std::vector<usize>()
+        var arg_offs: [usize]
         for var i: usize = 0; i < BUILTIN_MAX_PARAMS; ++i {
-            arg_offs.push_back(text.size())
+            arg_offs.push(text.size())
             text += LowerTargets::foreign_param(i) + "\n"
         }
 
@@ -249,7 +249,7 @@ pub class BuiltinImport {
         for var i: usize = 0; i < BUILTIN_MAX_PARAMS; ++i {
             var nm = LowerTargets::foreign_param(i)
             var at = ksm->get_range(fid, ((arg_offs[i])), nm.size())
-            self._arg_tok.push_back(
+            self._arg_tok.push(
                 t->ctx->make_token(at, TokenKind::LitIdentifier, nm),
             )
         }
@@ -373,7 +373,7 @@ pub class BuiltinImport {
             }
         }
 
-        var ptys = cxx::std::vector<unsafe *Type>()
+        var ptys: [unsafe *Type]
         for var i: usize = 0; i < np; ++i {
             var        pq  = fpt->getParamType(i as u32)
             var unsafe *pt = self._slot_type(&ti, pq, &slots, i + 1)
@@ -382,7 +382,7 @@ pub class BuiltinImport {
                 return out
             }
 
-            ptys.push_back(pt)
+            ptys.push(pt)
         }
 
         out.decl = self._mint(
@@ -407,7 +407,7 @@ pub class BuiltinImport {
     priv fn _slot_type(self,
                        ti:           *TypeImport,
                        qt:           clang::QualType,
-                       @inout slots: cxx::std::vector<u8>,
+                       @inout slots: [u8],
                        i:            usize) -> unsafe *Type {
         if i < slots.size() {
             if slots[i] == 1 {
@@ -427,7 +427,7 @@ pub class BuiltinImport {
                   const name:  string,
                   fpt:         unsafe *const clang::FunctionProtoType,
                   rt:          unsafe *Type,
-                  @inout ptys: cxx::std::vector<unsafe *Type>,
+                  @inout ptys: [unsafe *Type],
                   ti:          *TypeImport,
                   mask:        u32,
                   noreturn:    bool,
@@ -518,8 +518,8 @@ pub class BuiltinImport {
     /// char, then suffixes `*`[addrspace], `&`, `C`, `D`, `R`. `V`/`E`/`q` take
     /// a count and an element type, `X` an element type, `Q` one more char.
     /// A trailing `.` is C variadic, not a type.
-    static fn sized_slots(const ts: string) -> cxx::std::vector<u8> {
-        var out       = cxx::std::vector<u8>()
+    static fn sized_slots(const ts: string) -> [u8] {
+        var out: [u8]
         var i:  usize = 0
         var n         = ts.size()
         while i < n {
@@ -565,7 +565,7 @@ pub class BuiltinImport {
                 k = 2
             }
 
-            out.push_back(k)
+            out.push(k)
         }
 
         return out

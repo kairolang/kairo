@@ -798,9 +798,9 @@ pub class <T: type> CastTyping {
             }
 
             if exact.size() > 1 {
-                var ops = cxx::std::vector<unsafe *FunctionDecl>()
+                var ops: [unsafe *FunctionDecl]
                 for var i: usize = 0; i < exact.size(); ++i {
-                    ops.push_back(
+                    ops.push(
                         unsafe (cast<FunctionDecl>(exact[i]) as unsafe *FunctionDecl),
                     )
                 }
@@ -817,7 +817,7 @@ pub class <T: type> CastTyping {
             }
 
             if exact.size() > 0 {
-                var args = cxx::std::vector<ArgInfo>()
+                var args: [ArgInfo]
                 var r = self.dyn()->ovl.resolve(
                     &exact,
                     &args,
@@ -918,8 +918,8 @@ pub class <T: type> CastTyping {
                     }
 
                     if ctors.size() > 0 {
-                        var args = cxx::std::vector<ArgInfo>()
-                        args.push_back(self.dyn()->arg_info(n->operand))
+                        var args: [ArgInfo]
+                        args.push(self.dyn()->arg_info(n->operand))
                         var r = self.dyn()->ovl.resolve(
                             &ctors,
                             &args,

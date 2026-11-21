@@ -441,15 +441,15 @@ pub class LifecycleFailure {
     /// is reported at its use.
     pub var at: SourceRange = SourceRange::invalid()
     /// Parallel: each note's code (I900N for a plain one), place, text.
-    pub var note_ids: cxx::std::vector<DiagID>
-    pub var note_at:  cxx::std::vector<SourceRange>
-    pub var note_msg: cxx::std::vector<string>
+    pub var note_ids: [DiagID]
+    pub var note_at:  [SourceRange]
+    pub var note_msg: [string]
     fn LifecycleFailure(self) { }
 
     fn add_note(self, id: DiagID, at: SourceRange, const msg: string) {
-        self.note_ids.push_back(id)
-        self.note_at.push_back(at)
-        self.note_msg.push_back(msg.copy())
+        self.note_ids.push(id)
+        self.note_at.push(at)
+        self.note_msg.push(msg.copy())
     }
 }
 
@@ -475,8 +475,8 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     /// derives from, and the `destroy` calls met, both of this TU: a
     /// `destroy` of the base type is checked once the whole TU is walked,
     /// since a derived class may follow the call.
-    priv var _plain_bases:   cxx::std::vector<unsafe *Decl>
-    priv var _destroy_calls: cxx::std::vector<unsafe *CallExpr>
+    priv var _plain_bases:   [unsafe *Decl]
+    priv var _destroy_calls: [unsafe *CallExpr]
 
     /// Unwired. Exists for the by-value member Sema::lifecycle, which is
     /// assigned the wired form once the SemaContext it borrows sits at its
@@ -522,7 +522,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
         var unsafe *ni = dyn_cast<NamedIdentExpr>(n->callee)
         if ni != &null && self._is_destroy(ni->resolved_decl) {
-            self._destroy_calls.push_back(n)
+            self._destroy_calls.push(n)
         }
 
         return true
@@ -1837,7 +1837,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             // A base that is not polymorphic is reported at a `destroy` of
             // its type instead (_check_destroy_calls).
             if bf->polymorphic != LifecycleTri::Yes {
-                self._plain_bases.push_back(NameLookup::representative(bd))
+                self._plain_bases.push(NameLookup::representative(bd))
             }
 
             // Only a POLYMORPHIC base is deleted through, as clang's
@@ -1956,7 +1956,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                                   d:          unsafe *Decl,
                                   sub:        unsafe *Substitution,
                                   const dn:   string,
-                                  @inout out: cxx::std::vector<LifecycleFailure>) {
+                                  @inout out: [LifecycleFailure]) {
         var at   = AttrFacts::find(d, LangAttrs::relocatable())->range
         var head = f"'{LangAttrs::at(LangAttrs::relocatable())}' cannot be applied to '{dn}'"
         if isa<ClassDecl>(d) {
@@ -2005,7 +2005,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     x.add_note(DiagID::I900N, at, f"'{dn}' is marked here")
                 }
 
-                out.push_back(x)
+                out.push(x)
             }
         }
 
@@ -2050,7 +2050,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 x.add_note(DiagID::I900N, at, f"'{dn}' is marked here")
             }
 
-            out.push_back(x)
+            out.push(x)
         }
 
         if out.size() != 0 || sub != &null {
@@ -2074,7 +2074,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         x.id  = DiagID::SC356E
         x.at  = at
         x.msg = f"{head}: {why}"
-        out.push_back(x)
+        out.push(x)
     }
 
     priv fn _check_relocatable(self, d: unsafe *Decl) {
@@ -2082,7 +2082,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             return
         }
 
-        var fails = cxx::std::vector<LifecycleFailure>()
+        var fails: [LifecycleFailure]
         self._relocatable_failures(d, &null, self._tu.decl_name(d), &fails)
 
         for var i: usize = 0; i < fails.size(); ++i {
@@ -2685,9 +2685,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
     /// NOT already report, so a failure the declaration shows is never
     /// reported again per instance. Nothing for an explicit specialization
     /// (it is a declaration of its own, checked as one) or a non-class.
-    fn instance_failures(self,
-                         e:   unsafe *InstanceEntry,
-                         out: unsafe *cxx::std::vector<LifecycleFailure>) {
+    fn instance_failures(self, e: unsafe *InstanceEntry, out: unsafe *[LifecycleFailure]) {
         if e == &null || out == &null || e->is_explicit || e->decl == &null {
             return
         }
@@ -2784,7 +2782,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 "the destructor is declared here",
             )
 
-            out->push_back(x)
+            out->push(x)
         }
 
         for var i: usize = 0; i < n->derives_list.size(); ++i {
@@ -2829,7 +2827,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     x.add_note(DiagID::I900N, ib->range, "base declared here")
                 }
 
-                out->push_back(x)
+                out->push(x)
             }
 
             // The virtual-destructor rule.
@@ -2858,7 +2856,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     )
                 }
 
-                out->push_back(x)
+                out->push(x)
             }
         }
     }
@@ -2872,7 +2870,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                                 sub:         *Substitution,
                                 const iname: string,
                                 x:           unsafe *FunctionDecl,
-                                @inout out:  cxx::std::vector<LifecycleFailure>) {
+                                @inout out:  [LifecycleFailure]) {
         var is_copy = x->transfer == TransferKind::Copy
         var kind    = if (is_copy) => ("copy") else => "move"
         for var i: usize = 0; i < n->derives_list.size(); ++i {
@@ -2915,7 +2913,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 f"the defaulted {kind} constructor is declared here",
             )
 
-            out.push_back(f)
+            out.push(f)
             return
         }
 
@@ -2957,7 +2955,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 f"the defaulted {kind} constructor is declared here",
             )
 
-            out.push_back(f)
+            out.push(f)
             return
         }
     }
@@ -3539,8 +3537,8 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         return &null
     }
 
-    priv fn _methods(self, d: unsafe *Decl) -> cxx::std::vector<unsafe *FunctionDecl> {
-        var out = cxx::std::vector<unsafe *FunctionDecl>()
+    priv fn _methods(self, d: unsafe *Decl) -> [unsafe *FunctionDecl] {
+        var out: [unsafe *FunctionDecl]
         var lst: unsafe *FrozenList<unsafe *FunctionDecl> = &null
         if isa<ClassDecl>(d) {
             lst = unsafe &cast<ClassDecl>(d)->methods
@@ -3563,14 +3561,14 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 continue
             }
 
-            out.push_back(m)
+            out.push(m)
         }
 
         return out
     }
 
-    priv fn _fields(self, d: unsafe *Decl) -> cxx::std::vector<unsafe *FieldDecl> {
-        var out = cxx::std::vector<unsafe *FieldDecl>()
+    priv fn _fields(self, d: unsafe *Decl) -> [unsafe *FieldDecl] {
+        var out: [unsafe *FieldDecl]
         var lst: unsafe *FrozenList<unsafe *FieldDecl> = &null
         if isa<ClassDecl>(d) {
             lst = unsafe &cast<ClassDecl>(d)->fields
@@ -3585,7 +3583,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         for var i: usize = 0; i < lst->size(); ++i {
-            out.push_back((*lst)[i])
+            out.push((*lst)[i])
         }
 
         return out

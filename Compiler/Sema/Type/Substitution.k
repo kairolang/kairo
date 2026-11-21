@@ -1285,7 +1285,7 @@ pub class Substitution {
         // requirement its default (`interface D derives G { type Node = i64
         // }`); InterfaceComposition kept it on D's composed requirement.
         // Its `Self::...` are D's Self (or any interface between D and G).
-        var homes = cxx::std::vector<unsafe *Decl>()
+        var homes: [unsafe *Decl]
         var d: unsafe *Type = self._derived_default(
             x,
             req,
@@ -1715,7 +1715,7 @@ pub class Substitution {
                 continue
             }
 
-            var ms = cxx::std::vector<unsafe *FunctionDecl>()
+            var ms: [unsafe *FunctionDecl]
             if idecl->compose_state == (ComposeState::Done as u8) {
                 for var j: usize = 0; j < idecl->requirements.size(); ++j {
                     var unsafe *m = dyn_cast<FunctionDecl>(
@@ -1723,12 +1723,12 @@ pub class Substitution {
                     )
 
                     if m != &null {
-                        ms.push_back(m)
+                        ms.push(m)
                     }
                 }
             } else {
                 for var j: usize = 0; j < idecl->methods.size(); ++j {
-                    ms.push_back(idecl->methods[j])
+                    ms.push(idecl->methods[j])
                 }
             }
 
@@ -1766,7 +1766,7 @@ pub class Substitution {
                         x:     unsafe *Type,
                         req:   unsafe *Decl,
                         ml:    unsafe *MemberLookup,
-                        homes: unsafe *cxx::std::vector<unsafe *Decl>) -> unsafe *Type {
+                        homes: unsafe *[unsafe *Decl]) -> unsafe *Type {
         var tys   = cxx::std::vector<unsafe *Type>()
         var nodes = cxx::std::vector<unsafe *Type>()
         var ins   = cxx::std::vector<unsafe *Decl>()
@@ -1877,7 +1877,7 @@ pub class Substitution {
                                   c:    unsafe *Type,
                                   id:   unsafe *Decl,
                                   edge: unsafe *Type) -> unsafe *Type {
-        var homes = cxx::std::vector<unsafe *Decl>()
+        var homes: [unsafe *Decl]
         self._iface_closure(id, unsafe &homes, 0)
         var        s  = Substitution(self.sc)
         var unsafe *d = c
@@ -1926,10 +1926,7 @@ pub class Substitution {
     }
 
     /// `d` and every interface it derives, representatives, once each.
-    priv fn _iface_closure(self,
-                           d:     unsafe *Decl,
-                           out:   unsafe *cxx::std::vector<unsafe *Decl>,
-                           depth: u32) {
+    priv fn _iface_closure(self, d: unsafe *Decl, out: unsafe *[unsafe *Decl], depth: u32) {
         if d == &null || depth > 32 {
             return
         }
@@ -1941,7 +1938,7 @@ pub class Substitution {
             }
         }
 
-        out->push_back(r)
+        out->push(r)
         var unsafe *id = dyn_cast<InterfaceDecl>(r)
         if id == &null {
             return

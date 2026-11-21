@@ -116,7 +116,7 @@ pub class ImportResolution {
     /// reads it before the overlay is frozen, or through _reexported_cell,
     /// and both flush first (_flush_merged).
     priv var _merge_set:  llvm::DenseSet<u64>
-    priv var _merge_list: cxx::std::vector<unsafe *OverlayEntry>
+    priv var _merge_list: [unsafe *OverlayEntry]
 
     pub fn ImportResolution(self, sc: *SemaContext) {
         self.sc = sc
@@ -140,7 +140,7 @@ pub class ImportResolution {
         // closure, accumulated across imports and bound ONCE as `cxx::std`
         // below. Collected here rather than in _resolve_ffi because `cxx` is
         // one name for the whole TU, not one per import.
-        var cxx_std = cxx::std::vector<unsafe *Decl>()
+        var cxx_std: [unsafe *Decl]
         self._cxx_std_seen.clear()
         self._cxx_std_fids.clear()
         var ffi_orig: unsafe *ImportDecl = &null
@@ -252,7 +252,7 @@ pub class ImportResolution {
     priv fn _resolve_one(self,
                          id:             unsafe *ImportDecl,
                          overlay:        unsafe *ImportOverlay,
-                         @inout cxx_std: cxx::std::vector<unsafe *Decl>) {
+                         @inout cxx_std: [unsafe *Decl]) {
         // ffi: clang parsed the header set and Sema/Foreign indexed it into
         // one Kairo TU per header BEFORE sema; the driver stamped the closure
         // (the header and everything it transitively includes) onto the node.
@@ -806,7 +806,7 @@ pub class ImportResolution {
                            cell:          unsafe *OverloadCell,
                            proto:         OverlayTarget) {
         var fns: unsafe *OverloadCell = &null
-        var seen                      = cxx::std::vector<unsafe *Decl>()
+        var seen: [unsafe *Decl]
         for var i: usize = 0; i < cell->size(); ++i {
             var unsafe *d = cell->get(i)
             if d == &null {
@@ -840,7 +840,7 @@ pub class ImportResolution {
                 continue
             }
 
-            seen.push_back(r)
+            seen.push(r)
             var t = proto
             t.decl = d
             t.kind = if (isa<ModuleDecl>(d)) => (OverlayTargetKind::ModuleHandle)
@@ -875,7 +875,7 @@ pub class ImportResolution {
     priv fn _resolve_ffi(self,
                          id:             unsafe *ImportDecl,
                          overlay:        unsafe *ImportOverlay,
-                         @inout cxx_std: cxx::std::vector<unsafe *Decl>) {
+                         @inout cxx_std: [unsafe *Decl]) {
         var alias: string = ""
         if id->has_alias {
             alias = self.sc->ctx->get_spelling(id->alias)
@@ -997,10 +997,10 @@ pub class ImportResolution {
     /// The imported tag named `nm` in any closure header of `tu`'s ffi
     /// imports: a hidden one first (its internal key), then a visible one.
     priv fn _find_header_tag(self, tu: unsafe *TranslationUnit, const nm: string) -> unsafe *Decl {
-        var hidden_keys = cxx::std::vector<string>()
-        hidden_keys.push_back("struct " + nm)
-        hidden_keys.push_back("class " + nm)
-        hidden_keys.push_back("union " + nm)
+        var hidden_keys: [string]
+        hidden_keys.push("struct " + nm)
+        hidden_keys.push("class " + nm)
+        hidden_keys.push("union " + nm)
         for var pass: usize = 0; pass < 2; ++pass {
             for var i: usize = 0; i < tu->imports.size(); ++i {
                 var unsafe **slot = tu->imports.at(i)
@@ -1069,7 +1069,7 @@ pub class ImportResolution {
     priv fn _collect_cxx_std(self,
                              src_tu:     unsafe *TranslationUnit,
                              fid:        u32,
-                             @inout out: cxx::std::vector<unsafe *Decl>) {
+                             @inout out: [unsafe *Decl]) {
         if !self._cxx_std_fids.insert(fid as u64).second {
             return
         }
@@ -1109,7 +1109,7 @@ pub class ImportResolution {
             // The list keeps first-seen order (what _bind_cxx binds); the
             // set only answers "already in it".
             if self._cxx_std_seen.insert(d as usize as u64).second {
-                out.push_back(d)
+                out.push(d)
             }
         }
     }
@@ -1134,7 +1134,7 @@ pub class ImportResolution {
     /// has, so hard invariant #2 stands.
     priv fn _bind_cxx(self,
                       overlay:         unsafe *ImportOverlay,
-                      @inout std_mods: cxx::std::vector<unsafe *Decl>,
+                      @inout std_mods: [unsafe *Decl],
                       origin:          unsafe *ImportDecl) {
         var at = origin->range
 
@@ -1339,7 +1339,7 @@ pub class ImportResolution {
             )
 
             b.first(d->range)
-            var seen = cxx::std::vector<unsafe *Decl>()
+            var seen: [unsafe *Decl]
             for var i: usize = 0; i < entry->targets.size(); ++i {
                 var o = entry->targets[i]
                 if o.kind != OverlayTargetKind::Type || o.hidden || o.decl == &null {
@@ -1358,7 +1358,7 @@ pub class ImportResolution {
                     continue
                 }
 
-                seen.push_back(o.decl)
+                seen.push(o.decl)
                 var what = MemberLookup::kind_word(o.decl)
                 b.note(
                     DiagCode(DiagID::R016N),
@@ -1580,7 +1580,7 @@ pub class ImportResolution {
 
     priv fn _mark_merged(self, entry: unsafe *OverlayEntry) {
         if self._merge_set.insert(entry as usize as u64).second {
-            self._merge_list.push_back(entry)
+            self._merge_list.push(entry)
         }
     }
 

@@ -212,14 +212,14 @@ pub class ForeignInstantiate {
     /// The toolchain's library roots, filled from the first set asked
     /// about (every set shares the build's backend); guarded by `_mu`.
     priv var _lib:       CxxLibRoots
-    priv var _active:    cxx::std::vector<unsafe *Decl> ///< shells mid-fill, outermost first; guarded by `_mu`.
+    priv var _active:    [unsafe *Decl] ///< shells mid-fill, outermost first; guarded by `_mu`.
     priv var _hindex:    *HeaderIndex
     priv var _reg:       unsafe *ForeignRegistry
     priv var _instances: unsafe *InstantiationRegistry
     /// Fills that came back Unspelled, guarded by `_mu`. Such a failure is
     /// not sticky (the shell stays Shell): another TU's set may see the
     /// argument's header, so only the same (shell, set) pair is not retried.
-    priv var _unspelled: cxx::std::vector<UnspelledRec>
+    priv var _unspelled: [UnspelledRec]
     /// For TypeExport's stand-ins of Kairo records (`vector<S>`), which
     /// are named as EmitIR names them. Null until the driver has a
     /// preprocessor; a Kairo-record argument is refused until then.
@@ -298,7 +298,7 @@ pub class ForeignInstantiate {
             }
         }
 
-        self._active.push_back(shell)
+        self._active.push(shell)
         // Every registry request the fill makes is recorded on the shell's
         // entry, for a TU earlier in import order that comes later.
         var unsafe *fe = self._instances->entry_of(shell)
@@ -311,7 +311,7 @@ pub class ForeignInstantiate {
         var why = string()
         var r   = self._fill_locked(shell, sink, fid, alt, unsafe &why)
         self._instances->end_fill(fe, prev)
-        self._active.pop_back()
+        self._active.pop()
         if r == FillResult::Filled {
             self.n_filled += 1
             return true
@@ -329,7 +329,7 @@ pub class ForeignInstantiate {
             var rec = UnspelledRec()
             rec.shell = shell
             rec.set   = alt
-            self._unspelled.push_back(rec)
+            self._unspelled.push(rec)
         } else {
             decl_publish_fill(shell, ForeignFill::FailedSticky)
         }
@@ -696,7 +696,7 @@ pub class ForeignInstantiate {
             variant,
         )
 
-        var pairs = cxx::std::vector<(unsafe *void, unsafe *Decl)>()
+        var pairs: [(unsafe *void, unsafe *Decl)]
         self._hindex->walk_declare(spec, &di, &pairs)
         self._complete_nested(csema, cctx, &di, &pairs)
         for var i: usize = 0; i < pairs.size(); ++i {
@@ -1571,7 +1571,7 @@ pub class ForeignInstantiate {
                              csema:        unsafe *clang::Sema,
                              cctx:         unsafe *clang::ASTContext,
                              di:           *DeclImport,
-                             @inout pairs: cxx::std::vector<(unsafe *void, unsafe *Decl)>) {
+                             @inout pairs: [(unsafe *void, unsafe *Decl)]) {
         var seen   = llvm::DenseSet<u64>()    // record addresses: never the reserved keys
         var *diags = &csema->getDiagnostics()
         for var i: usize = 0; i < pairs.size(); ++i {

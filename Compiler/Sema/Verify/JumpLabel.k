@@ -54,18 +54,18 @@ import Token::Token::Token
 /// the top-level frame: none inside a closure, a function or a `finally`
 /// body, each its own frame (JumpLabelCheck::run's rule).
 pub class ScriptJumpScan derives RecursiveASTVisitor<ScriptJumpScan> {
-    pub var labels: cxx::std::vector<*LabelIntrinsicStmt>
-    pub var jumps:  cxx::std::vector<*JumpIntrinsicStmt>
+    pub var labels: [*LabelIntrinsicStmt]
+    pub var jumps:  [*JumpIntrinsicStmt]
 
     fn ScriptJumpScan(self) { }
 
     fn visit_label_intrinsic_stmt(self, n: *LabelIntrinsicStmt) -> bool {
-        self.labels.push_back(n)
+        self.labels.push(n)
         return true
     }
 
     fn visit_jump_intrinsic_stmt(self, n: *JumpIntrinsicStmt) -> bool {
-        self.jumps.push_back(n)
+        self.jumps.push(n)
         return true
     }
 
@@ -103,8 +103,8 @@ struct ScriptJumpAt {
 pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
     pub var sc: unsafe *SemaContext
 
-    var labels:      cxx::std::vector<Token>                  ///< label! decls, frame-stacked.
-    var jumps:       cxx::std::vector<*JumpIntrinsicStmt>     ///< jump! uses, frame-stacked.
+    var labels:      [Token]                  ///< label! decls, frame-stacked.
+    var jumps:       [*JumpIntrinsicStmt]     ///< jump! uses, frame-stacked.
     var label_floor: usize                                = 0 ///< current frame start in labels.
     var jump_floor:  usize                                = 0 ///< current frame start in jumps.
 
@@ -132,15 +132,15 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
 
         var *items = &self.sc->tu->program->items
 
-        var deferred = cxx::std::vector<ScriptDeferredLine>()
-        var labels   = cxx::std::vector<ScriptLabelAt>()
-        var jumps    = cxx::std::vector<ScriptJumpAt>()
+        var deferred: [ScriptDeferredLine]
+        var labels:   [ScriptLabelAt]
+        var jumps:    [ScriptJumpAt]
         for var i: usize = 0; i < items->size(); i++ {
             var item = *items->get(i)
             if item.kind == TopLevelKind::Decl {
                 var unsafe *dv = rules.binding_of(item)
                 if dv != &null && rules.defers(dv) {
-                    deferred.push_back(ScriptDeferredLine { at: i, v: dv })
+                    deferred.push(ScriptDeferredLine { at: i, v: dv })
                 }
 
                 continue
@@ -149,7 +149,7 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
             var unsafe *v = rules.binding_of(item)
             if v != &null {
                 if rules.defers(v) {
-                    deferred.push_back(ScriptDeferredLine { at: i, v: v })
+                    deferred.push(ScriptDeferredLine { at: i, v: v })
                 }
 
                 continue
@@ -163,15 +163,15 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
             }
 
             for var k: usize = 0; k < scan.labels.size(); k++ {
-                labels.push_back(ScriptLabelAt { at: i, n: scan.labels[k] })
+                labels.push(ScriptLabelAt { at: i, n: scan.labels[k] })
             }
 
             for var k: usize = 0; k < scan.jumps.size(); k++ {
-                jumps.push_back(ScriptJumpAt { at: i, n: scan.jumps[k] })
+                jumps.push(ScriptJumpAt { at: i, n: scan.jumps[k] })
             }
         }
 
-        if deferred.empty() {
+        if deferred.is_empty() {
             return
         }
 
@@ -279,11 +279,11 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
         }
 
         while self.labels.size() > lf {
-            self.labels.pop_back()
+            self.labels.pop()
         }
 
         while self.jumps.size() > jf {
-            self.jumps.pop_back()
+            self.jumps.pop()
         }
     }
 
@@ -299,12 +299,12 @@ pub class JumpLabelCheck derives RecursiveASTVisitor<JumpLabelCheck> {
             }
         }
 
-        self.labels.push_back(n->name)
+        self.labels.push(n->name)
         return true
     }
 
     fn visit_jump_intrinsic_stmt(self, n: *JumpIntrinsicStmt) -> bool {
-        self.jumps.push_back(n)
+        self.jumps.push(n)
         return true
     }
 

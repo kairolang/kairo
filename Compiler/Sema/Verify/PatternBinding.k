@@ -69,14 +69,14 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
 
     /// Collect every binding name token in `p`. For a nested alternation,
     /// the first alternative stands for the whole (see header).
-    priv fn _collect(self, p: unsafe *AstPattern, out: unsafe *cxx::std::vector<Token>) {
+    priv fn _collect(self, p: unsafe *AstPattern, out: unsafe *[Token]) {
         if p == &null {
             return
         }
 
         match p->kind {
             case PatternKind::BindingPattern {
-                out->push_back(cast<BindingPattern>(p)->name)
+                out->push(cast<BindingPattern>(p)->name)
             } case PatternKind::TupleDestructurePattern {
                 self._collect_each(
                     cast<TupleDestructurePattern>(p)->elements,
@@ -110,16 +110,14 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
     }
 
     /// _collect over each pattern of `ps`, in order.
-    priv fn _collect_each(self,
-                          const ps: FrozenList<unsafe *AstPattern>,
-                          out:      unsafe *cxx::std::vector<Token>) {
+    priv fn _collect_each(self, const ps: FrozenList<unsafe *AstPattern>, out: unsafe *[Token]) {
         for var i: usize = 0; i < ps.size(); i++ {
             self._collect(*ps.get(i), out)
         }
     }
 
     /// Report each name bound more than once in `v` (at the later token).
-    priv fn _dup_check(self, const v: cxx::std::vector<Token>) {
+    priv fn _dup_check(self, const v: [Token]) {
         for var i: usize = 1; i < v.size(); i++ {
             for var j: usize = 0; j < i; j++ {
                 if (v)[j].imm == (v)[i].imm {
@@ -135,9 +133,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
         }
     }
 
-    priv fn _sets_equal(self,
-                        const a: cxx::std::vector<Token>,
-                        const b: cxx::std::vector<Token>) -> bool {
+    priv fn _sets_equal(self, const a: [Token], const b: [Token]) -> bool {
         // set semantics over imms; dup reporting is _dup_check's job.
         for var i: usize = 0; i < a.size(); i++ {
             var found: bool = false
@@ -173,7 +169,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
     /// The shared core: `alts` are sibling alternatives (an alternation's
     /// list, or a case's pattern list same FrozenList shape, same rules).
     priv fn _check_alternatives(self, const alts: FrozenList<unsafe *AstPattern>) {
-        var first_set = cxx::std::vector<Token>()
+        var first_set: [Token]
 
         for var i: usize = 0; i < alts.size(); i++ {
             var unsafe *p = *alts.get(i)
@@ -181,7 +177,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
                 continue
             }
 
-            var names = cxx::std::vector<Token>()
+            var names: [Token]
             self._collect(p, unsafe &names)
 
             // nested alternation dup checks itself via its own visit.
@@ -237,7 +233,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
     /// Destructuring bindings are plain named slots, not patterns; the
     /// only structural rule is no duplicate names.
     fn visit_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> bool {
-        var names = cxx::std::vector<Token>()
+        var names: [Token]
         for var i: usize = 0; i < n->bindings.size(); i++ {
             var unsafe *b = n->bindings.get(i)
             if b->is_discard {
@@ -248,7 +244,7 @@ pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
                 continue
             }
 
-            names.push_back(b->name->name)
+            names.push(b->name->name)
         }
 
         self._dup_check(names)

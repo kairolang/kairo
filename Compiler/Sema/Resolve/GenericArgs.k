@@ -233,18 +233,18 @@ pub class GenericArgs {
                stand_in: bool,
                out:      unsafe *cxx::std::vector<unsafe *Type>) -> bool {
         var total             = gps.size()
-        var slots             = cxx::std::vector<unsafe *Type>()
-        var filled            = cxx::std::vector<u8>()
+        var slots:      [unsafe *Type]
+        var filled:     [u8]
         var pack_index: usize = usize::MAX
         for var i: usize = 0; i < total; ++i {
-            slots.push_back(&null)
-            filled.push_back(0)
+            slots.push(&null)
+            filled.push(0)
             if gps[i] != &null && gps[i]->is_pack && pack_index == usize::MAX {
                 pack_index = i
             }
         }
 
-        var pack_args = cxx::std::vector<unsafe *Type>()
+        var pack_args: [unsafe *Type]
 
         var pos: usize = 0
         for var i: usize = 0; i < gargs.size(); ++i {
@@ -328,7 +328,7 @@ pub class GenericArgs {
             }
 
             if target == pack_index {
-                pack_args.push_back(cty)
+                pack_args.push(cty)
                 continue
             }
 

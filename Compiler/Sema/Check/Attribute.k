@@ -138,7 +138,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     priv var _mode: u8 = 0
     /// The uses already reported (a type segment's name may be reached
     /// twice): one warning per location.
-    priv var _seen: cxx::std::vector<SourceLocation>
+    priv var _seen: [SourceLocation]
 
     fn AttributeCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -233,8 +233,8 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             return n
         }
 
-        var prev: cxx::std::vector<usize>
-        var cur:  cxx::std::vector<usize>
+        var prev: [usize]
+        var cur:  [usize]
         prev.resize(m + 1, 0 as usize)
         cur.resize(m + 1, 0 as usize)
         for var j: usize = 0; j <= m; ++j {
@@ -928,7 +928,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             }
         }
 
-        self._seen.push_back(at.start)
+        self._seen.push(at.start)
         var name = self._tu.decl_name(carrier)
         var msg  = "'" + name + "' is deprecated"
         if e->args.size() == 1 {

@@ -745,8 +745,8 @@ pub class PatternSpace {
 
     /// Expand every row whose head is an alternation into one row per
     /// alternative, recursively, keeping arm / alt / guard.
-    fn expand_heads(self, @inout rows: cxx::std::vector<PatRow>) -> cxx::std::vector<PatRow> {
-        var out = cxx::std::vector<PatRow>()
+    fn expand_heads(self, @inout rows: [PatRow]) -> [PatRow] {
+        var out: [PatRow]
         for var i: usize = 0; i < rows.size(); ++i {
             self._expand_into(&(rows)[i], unsafe &out)
         }
@@ -754,11 +754,11 @@ pub class PatternSpace {
         return out
     }
 
-    priv fn _expand_into(self, r: *PatRow, out: unsafe *cxx::std::vector<PatRow>) {
+    priv fn _expand_into(self, r: *PatRow, out: unsafe *[PatRow]) {
         if r->cols.size() == 0
             || r->cols[0] == &null
             || r->cols[0]->kind != PatternKind::AlternationPattern {
-            out->push_back(*r)
+            out->push((*r).copy())
             return
         }
 
@@ -772,10 +772,8 @@ pub class PatternSpace {
 
     /// Rows of `rows` whose head survives `c`, with the head replaced by
     /// its `c.arity` sub-columns.
-    fn specialize(self,
-                  @inout rows: cxx::std::vector<PatRow>,
-                  const c:     Ctor) -> cxx::std::vector<PatRow> {
-        var out = cxx::std::vector<PatRow>()
+    fn specialize(self, @inout rows: [PatRow], const c: Ctor) -> [PatRow] {
+        var out: [PatRow]
         for var i: usize = 0; i < rows.size(); ++i {
             var        *r = &(rows)[i]
             var unsafe *h = r->cols[0]
@@ -793,15 +791,15 @@ pub class PatternSpace {
                 nr.cols.push_back(r->cols[k])
             }
 
-            out.push_back(nr)
+            out.push(nr)
         }
 
         return out
     }
 
     /// Rows whose head is a wildcard, head dropped.
-    fn default_rows(self, @inout rows: cxx::std::vector<PatRow>) -> cxx::std::vector<PatRow> {
-        var out = cxx::std::vector<PatRow>()
+    fn default_rows(self, @inout rows: [PatRow]) -> [PatRow] {
+        var out: [PatRow]
         for var i: usize = 0; i < rows.size(); ++i {
             var *r = &(rows)[i]
             if !self.is_wild(r->cols[0]) {
@@ -816,14 +814,14 @@ pub class PatternSpace {
                 nr.cols.push_back(r->cols[k])
             }
 
-            out.push_back(nr)
+            out.push(nr)
         }
 
         return out
     }
 
     /// The domain of column 0: read off the first head that carries a type.
-    fn head_domain(self, const rows: cxx::std::vector<PatRow>) -> Domain {
+    fn head_domain(self, const rows: [PatRow]) -> Domain {
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]
             if self.is_wild(h) {
@@ -842,10 +840,7 @@ pub class PatternSpace {
 
     /// Cut [lo, hi] at every boundary of the Int heads in column 0, so each
     /// segment is either inside or outside each head's range.
-    fn int_segments(self,
-                    const rows: cxx::std::vector<PatRow>,
-                    lo:         u64,
-                    hi:         u64) -> cxx::std::vector<Ctor> {
+    fn int_segments(self, const rows: [PatRow], lo: u64, hi: u64) -> [Ctor] {
         var cuts = cxx::std::vector<u64>() // segment starts, beyond `lo`
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]
@@ -868,15 +863,15 @@ pub class PatternSpace {
         }
 
         sort_unique_keys(unsafe &cuts)
-        var out   = cxx::std::vector<Ctor>()
-        var start = lo
+        var out:  [Ctor]
+        var start        = lo
         for var i: usize = 0; i <= cuts.size(); ++i {
             var end = if (i < cuts.size()) => (cuts[i] - (1 as u64)) else => hi
             var c   = Ctor{}
             c.kind = CtorKind::Int
             c.lo   = start
             c.hi   = end
-            out.push_back(c)
+            out.push(c)
             if i < cuts.size() {
                 start = cuts[i]
             }

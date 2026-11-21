@@ -354,30 +354,66 @@ pub enum NullWhy derives u8 {
 /// write the analysis cannot place (`*p = ...`).
 pub struct NullEscape {
     var node:  unsafe *Expr                   = &null
-    var place: cxx::std::vector<unsafe *Decl>
+    var place: [unsafe *Decl]
     var at:    SourceRange
+}
+
+extend NullEscape impl Copyable {
+    pub fn copy(const self) -> NullEscape {
+        return NullEscape { node: self.node, place: self.place.copy(), at: self.at }
+    }
 }
 
 /// One fact: `place` holds `state` here.
 pub struct NullFact {
-    var place:  cxx::std::vector<unsafe *Decl>
+    var place:  [unsafe *Decl]
     var state:  Nullness                       = Nullness::Maybe
     var why:    NullWhy                        = NullWhy::None
     var at:     SourceRange
     var global: bool                           = false
 }
 
+extend NullFact impl Copyable {
+    pub fn copy(const self) -> NullFact {
+        return NullFact {
+            place:  self.place.copy(),
+            state:  self.state,
+            why:    self.why,
+            at:     self.at,
+            global: self.global,
+        }
+    }
+}
+
 /// The state at one program point. `dead` is the state after a divergence:
 /// unreachable, so a join ignores it, and a read there is allowed.
 pub struct NullEnv {
-    var facts: cxx::std::vector<NullFact>
+    var facts: [NullFact]
     var dead:  bool                       = false
+}
+
+extend NullEnv impl Copyable {
+    pub fn copy(const self) -> NullEnv {
+        return NullEnv { facts: self.facts.copy(), dead: self.dead }
+    }
+}
+
+/// A free function: a member call on a dependent receiver reaches C++ as a
+/// member, and `copy` is not one.
+pub fn null_env_copy(const e: NullEnv) -> NullEnv {
+    return e.copy()
 }
 
 /// A condition's two sets (3.3): what holds when it is true, when false.
 pub struct NullCond {
     var t: NullEnv
     var f: NullEnv
+}
+
+extend NullCond impl Copyable {
+    pub fn copy(const self) -> NullCond {
+        return NullCond { t: self.t.copy(), f: self.f.copy() }
+    }
 }
 
 /// An access error held back while the right side of a §4.1 trap is
@@ -390,14 +426,36 @@ pub struct NullHeld {
     var on_trap: bool         = false ///< it reads the place the trap's `&&` tested.
 }
 
+extend NullHeld impl Copyable {
+    pub fn copy(const self) -> NullHeld {
+        return NullHeld {
+            e:       self.e,
+            range:   self.range,
+            fact:    self.fact.copy(),
+            on_trap: self.on_trap,
+        }
+    }
+}
+
 /// `a? && y || z` being typed: z is analysed under the false set of
 /// `a? && y`, where `a` is Maybe. Parenthesizing `y || z` puts z on the
 /// checked path (4.1).
 pub struct NullTrap {
-    var place:    cxx::std::vector<unsafe *Decl>
+    var place:    [unsafe *Decl]
     var open_at:  SourceLocation                 ///< the start of y.
     var close_at: SourceLocation                 ///< the end of z.
-    var held:     cxx::std::vector<NullHeld>
+    var held:     [NullHeld]
+}
+
+extend NullTrap impl Copyable {
+    pub fn copy(const self) -> NullTrap {
+        return NullTrap {
+            place:    self.place.copy(),
+            open_at:  self.open_at,
+            close_at: self.close_at,
+            held:     self.held.copy(),
+        }
+    }
 }
 
 /// A note's location (invalid: none) and text.
@@ -412,7 +470,13 @@ pub struct NullNote {
 /// carries what its source does. A `*const` one carries nothing.
 pub struct NullCarrier {
     var decl:   unsafe *Decl                                     = &null
-    var places: cxx::std::vector<cxx::std::vector<unsafe *Decl>>
+    var places: [[unsafe *Decl]]
+}
+
+extend NullCarrier impl Copyable {
+    pub fn copy(const self) -> NullCarrier {
+        return NullCarrier { decl: self.decl, places: self.places.copy() }
+    }
 }
 
 /// Where a write through a pointer lands: `known`, the places a
@@ -420,7 +484,13 @@ pub struct NullCarrier {
 /// pointer escaped to.
 pub struct NullThrough {
     var known:  bool                                             = false
-    var places: cxx::std::vector<cxx::std::vector<unsafe *Decl>>
+    var places: [[unsafe *Decl]]
+}
+
+extend NullThrough impl Copyable {
+    pub fn copy(const self) -> NullThrough {
+        return NullThrough { known: self.known, places: self.places.copy() }
+    }
 }
 
 pub struct NullFrame {
@@ -428,18 +498,36 @@ pub struct NullFrame {
     var closure:    unsafe *Expressions::ClosureExpr = &null ///< the body is this closure's.
     var loops_base: usize                            = 0
     var traps_base: usize                            = 0
-    var escapes:    cxx::std::vector<NullEscape> ///< the enclosing body's, kept for leave().
-    var carriers:   cxx::std::vector<NullCarrier> ///< likewise.
+    var escapes:    [NullEscape] ///< the enclosing body's, kept for leave().
+    var carriers:   [NullCarrier] ///< likewise.
+}
+
+extend NullFrame impl Copyable {
+    pub fn copy(const self) -> NullFrame {
+        return NullFrame {
+            env:        self.env.copy(),
+            closure:    self.closure,
+            loops_base: self.loops_base,
+            traps_base: self.traps_base,
+            escapes:    self.escapes.copy(),
+            carriers:   self.carriers.copy(),
+        }
+    }
 }
 
 pub struct NullLoop {
-    var breaks: cxx::std::vector<NullEnv>
+    var breaks: [NullEnv]
     var label:  string                    = "" ///< the loop's label, or empty.
 }
 
+extend NullLoop impl Copyable {
+    pub fn copy(const self) -> NullLoop {
+        return NullLoop { breaks: self.breaks.copy(), label: self.label.copy() }
+    }
+}
+
 /// `a` and `b` name the same place.
-pub fn null_place_eq(a: unsafe *cxx::std::vector<unsafe *Decl>,
-                     b: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+pub fn null_place_eq(a: unsafe *[unsafe *Decl], b: unsafe *[unsafe *Decl]) -> bool {
     if a->size() != b->size() {
         return false
     }
@@ -454,8 +542,7 @@ pub fn null_place_eq(a: unsafe *cxx::std::vector<unsafe *Decl>,
 }
 
 /// `p` is `root` or a path under it.
-pub fn null_place_under(const p:    cxx::std::vector<unsafe *Decl>,
-                        const root: cxx::std::vector<unsafe *Decl>) -> bool {
+pub fn null_place_under(const p: [unsafe *Decl], const root: [unsafe *Decl]) -> bool {
     if p.size() < root.size() {
         return false
     }
@@ -479,7 +566,7 @@ pub fn null_join_state(a: Nullness, b: Nullness) -> Nullness {
 }
 
 /// The index of `place`'s fact in `env`, or -1.
-pub fn null_env_find(env: unsafe *NullEnv, place: unsafe *cxx::std::vector<unsafe *Decl>) -> i64 {
+pub fn null_env_find(env: unsafe *NullEnv, place: unsafe *[unsafe *Decl]) -> i64 {
     for var i: usize = 0; i < env->facts.size(); ++i {
         if null_place_eq(unsafe &env->facts[i].place, place) {
             return i as i64
@@ -498,16 +585,16 @@ pub fn null_env_put(env: unsafe *NullEnv, f: NullFact) {
         return
     }
 
-    env->facts.push_back(f)
+    env->facts.push(f)
 }
 
 /// Drop the fact of `place` and of every path under it: what an
 /// assignment to `place` does to them before it sets its own.
-pub fn null_env_kill_under(env: unsafe *NullEnv, place: unsafe *cxx::std::vector<unsafe *Decl>) {
-    var keep = cxx::std::vector<NullFact>()
+pub fn null_env_kill_under(env: unsafe *NullEnv, place: unsafe *[unsafe *Decl]) {
+    var keep: [NullFact]
     for var i: usize = 0; i < env->facts.size(); ++i {
         if !null_place_under(env->facts[i].place, *place) {
-            keep.push_back(env->facts[i])
+            keep.push(env->facts[i].copy())
         }
     }
 
@@ -519,7 +606,7 @@ pub fn null_env_kill_under(env: unsafe *NullEnv, place: unsafe *cxx::std::vector
 /// write the analysis cannot see the value of does (3.4). The facts are
 /// kept, Maybe, so the access error can say what ended the check.
 pub fn null_env_weaken_under(env:    *NullEnv,
-                             place:  unsafe *cxx::std::vector<unsafe *Decl>,
+                             place:  unsafe *[unsafe *Decl],
                              strict: bool,
                              why:    NullWhy,
                              at:     SourceRange) {
@@ -543,47 +630,47 @@ pub fn null_env_weaken_under(env:    *NullEnv,
 /// place proven on one side only is Maybe after; a Maybe keeps its note.
 pub fn null_env_join(a: unsafe *NullEnv, b: unsafe *NullEnv) -> NullEnv {
     if a->dead {
-        return *b
+        return (*b).copy()
     }
 
     if b->dead {
-        return *a
+        return (*a).copy()
     }
 
     var out = NullEnv{}
     for var i: usize = 0; i < a->facts.size(); ++i {
-        var fa = a->facts[i]
+        var fa = a->facts[i].copy()
         var j  = null_env_find(b, unsafe &fa.place)
         if j < 0 {
             if fa.state == Nullness::Maybe {
-                out.facts.push_back(fa)
+                out.facts.push(fa)
             }
 
             continue
         }
 
-        var fb = b->facts[j as usize]
+        var fb = b->facts[j as usize].copy()
         var st = null_join_state(fa.state, fb.state)
         if st == fa.state {
-            out.facts.push_back(fa)
+            out.facts.push(fa)
             continue
         }
 
         // NonNull against Null, or one side Maybe: Maybe, noted by whichever
         // side says why.
         if fb.state == Nullness::Maybe {
-            out.facts.push_back(fb)
+            out.facts.push(fb)
             continue
         }
 
         var m = fa
         m.state = Nullness::Maybe
         m.why   = NullWhy::None
-        out.facts.push_back(m)
+        out.facts.push(m)
     }
 
     for var i: usize = 0; i < b->facts.size(); ++i {
-        var fb = b->facts[i]
+        var fb = b->facts[i].copy()
         if fb.state != Nullness::Maybe {
             continue
         }
@@ -592,7 +679,7 @@ pub fn null_env_join(a: unsafe *NullEnv, b: unsafe *NullEnv) -> NullEnv {
             continue
         }
 
-        out.facts.push_back(fb)
+        out.facts.push(fb)
     }
 
     return out
@@ -670,8 +757,8 @@ pub fn null_root_decl(e: unsafe *Expr) -> unsafe *Decl {
 /// then any number of `.` steps naming instance fields. Syntactic over
 /// bound steps; an unbound step (one the typer has not reached yet) ends
 /// it, and so does a capture the typer has not marked yet (capture_ptr).
-pub fn null_place_of(e: unsafe *Expr) -> cxx::std::vector<unsafe *Decl> {
-    var        out = cxx::std::vector<unsafe *Decl>()
+pub fn null_place_of(e: unsafe *Expr) -> [unsafe *Decl] {
+    var        out: [unsafe *Decl]
     var unsafe *x  = null_flow_strip_parens(e)
     if x == &null {
         return out
@@ -685,7 +772,7 @@ pub fn null_place_of(e: unsafe *Expr) -> cxx::std::vector<unsafe *Decl> {
 
         var unsafe *d = n->resolved_decl
         if d != &null && (isa<VariableDecl>(d) || isa<ParamDecl>(d)) {
-            out.push_back(d)
+            out.push(d)
         }
 
         return out
@@ -709,7 +796,7 @@ pub fn null_place_of(e: unsafe *Expr) -> cxx::std::vector<unsafe *Decl> {
 
         var unsafe *d = on->resolved_decl
         if d != &null && (isa<VariableDecl>(d) || isa<ParamDecl>(d)) {
-            out.push_back(d)
+            out.push(d)
         }
 
         return out
@@ -728,8 +815,8 @@ pub fn null_place_of(e: unsafe *Expr) -> cxx::std::vector<unsafe *Decl> {
 }
 
 /// The place `c.base` + steps 0..=`upto` names, or an empty one.
-pub fn null_chain_place(c: unsafe *ChainExpr, upto: usize) -> cxx::std::vector<unsafe *Decl> {
-    var out = cxx::std::vector<unsafe *Decl>()
+pub fn null_chain_place(c: unsafe *ChainExpr, upto: usize) -> [unsafe *Decl] {
+    var out: [unsafe *Decl]
     if c->base == &null || upto >= c->steps.size() {
         return out
     }
@@ -745,23 +832,22 @@ pub fn null_chain_place(c: unsafe *ChainExpr, upto: usize) -> cxx::std::vector<u
             || st->access_kind != ChainExpr::AccessKind::Dot
             || st->is_operator()
             || st->is_tuple_index() {
-            return cxx::std::vector<unsafe *Decl>()
+            return []
         }
 
         var unsafe *d = st->resolved_decl
         if d == &null || (!isa<FieldDecl>(d)) || cast<FieldDecl>(d)->is_static() {
-            return cxx::std::vector<unsafe *Decl>()
+            return []
         }
 
-        root.push_back(d)
+        root.push(d)
     }
 
     return root
 }
 
 /// `into` with every place of `from` it does not hold yet.
-pub fn null_places_union(into: unsafe *cxx::std::vector<cxx::std::vector<unsafe *Decl>>,
-                         from: unsafe *cxx::std::vector<cxx::std::vector<unsafe *Decl>>) {
+pub fn null_places_union(into: unsafe *[[unsafe *Decl]], from: unsafe *[[unsafe *Decl]]) {
     for var i: usize = 0; i < from->size(); ++i {
         var dup = false
         for var j: usize = 0; j < into->size(); ++j {
@@ -772,13 +858,13 @@ pub fn null_places_union(into: unsafe *cxx::std::vector<cxx::std::vector<unsafe 
         }
 
         if !dup {
-            into->push_back((*from)[i])
+            into->push((*from)[i].copy())
         }
     }
 }
 
 /// The carrier of `d` in `list`, or -1.
-pub fn null_carrier_find(const list: cxx::std::vector<NullCarrier>, d: unsafe *Decl) -> i64 {
+pub fn null_carrier_find(const list: [NullCarrier], d: unsafe *Decl) -> i64 {
     if d == &null {
         return -1
     }
@@ -806,8 +892,8 @@ pub fn null_flow_is_local(d: unsafe *Decl) -> bool {
 /// by non-const pointer (named, or every outer local it names under `|*|`)
 /// and what each carrier it captures by copy carries (`carriers`).
 pub fn null_closure_places(c:        unsafe *Expressions::ClosureExpr,
-                           carriers: unsafe *cxx::std::vector<NullCarrier>) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
-    var out = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
+                           carriers: unsafe *[NullCarrier]) -> [[unsafe *Decl]] {
+    var out: [[unsafe *Decl]]
     if c == &null {
         return out
     }
@@ -837,10 +923,10 @@ pub fn null_closure_places(c:        unsafe *Expressions::ClosureExpr,
                 continue
             }
 
-            var p = cxx::std::vector<unsafe *Decl>()
-            p.push_back(d)
-            var one = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
-            one.push_back(p)
+            var p: [unsafe *Decl]
+            p.push(d)
+            var one: [[unsafe *Decl]]
+            one.push(p)
             null_places_union(unsafe &out, unsafe &one)
             continue
         }
@@ -877,10 +963,10 @@ pub fn null_closure_places(c:        unsafe *Expressions::ClosureExpr,
                     continue
                 }
 
-                var p = cxx::std::vector<unsafe *Decl>()
-                p.push_back(d)
-                var one = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
-                one.push_back(p)
+                var p: [unsafe *Decl]
+                p.push(d)
+                var one: [[unsafe *Decl]]
+                one.push(p)
                 null_places_union(unsafe &out, unsafe &one)
                 continue
             }
@@ -914,9 +1000,15 @@ const NULL_SCAN_LOST: u8 = 4
 /// candidate was last lost on it. A dead path (it returned, broke out, or
 /// went back to an outer loop) reaches no back edge.
 pub struct NullScanState {
-    var flags: cxx::std::vector<u8>
-    var at:    cxx::std::vector<SourceRange>
+    var flags: [u8]
+    var at:    [SourceRange]
     var dead:  bool                          = false
+}
+
+extend NullScanState impl Copyable {
+    pub fn copy(const self) -> NullScanState {
+        return NullScanState { flags: self.flags.copy(), at: self.at.copy(), dead: self.dead }
+    }
 }
 
 /// A loop the scan is inside: the scanned loop itself first, then each
@@ -924,21 +1016,31 @@ pub struct NullScanState {
 /// head by `continue`.
 pub struct NullScanLoop {
     var label:  string                          = ""
-    var breaks: cxx::std::vector<NullScanState>
-    var conts:  cxx::std::vector<NullScanState>
+    var breaks: [NullScanState]
+    var conts:  [NullScanState]
+}
+
+extend NullScanLoop impl Copyable {
+    pub fn copy(const self) -> NullScanLoop {
+        return NullScanLoop {
+            label:  self.label.copy(),
+            breaks: self.breaks.copy(),
+            conts:  self.conts.copy(),
+        }
+    }
 }
 
 /// The merge of two paths: each place may have had what either did to it.
 pub fn null_scan_join(a: *NullScanState, b: *NullScanState) -> NullScanState {
     if a->dead {
-        return *b
+        return (*b).copy()
     }
 
     if b->dead {
-        return *a
+        return (*a).copy()
     }
 
-    var out = *a
+    var out = (*a).copy()
     for var i: usize = 0; i < out.flags.size(); ++i {
         var lost_a = (a->flags[i] & NULL_SCAN_LOST) != 0
         out.flags[i] = a->flags[i] | b->flags[i]
@@ -1315,20 +1417,20 @@ pub fn null_scan_inout_at(d: unsafe *Decl, i: usize, recv: bool) -> bool {
 /// written, and a by-pointer capture is followed elsewhere.
 pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
     pub var sc:    unsafe *SemaContext                              = &null
-    pub var cands: cxx::std::vector<cxx::std::vector<unsafe *Decl>>
+    pub var cands: [[unsafe *Decl]]
     pub var st:    NullScanState
-    pub var loops: cxx::std::vector<NullScanLoop>
+    pub var loops: [NullScanLoop]
     /// > 0: inside a part whose order is not followed; an effect adds to
     /// what a place may have instead of replacing it.
     pub var taint: u32 = 0
     /// The carriers live at the loop's head (3.7), and those the body makes.
-    pub var carriers: cxx::std::vector<NullCarrier>
+    pub var carriers: [NullCarrier]
     /// Per candidate: a pointer to it may outlive this pass (an `&` not
     /// known to be the `@inout` marker, a by-pointer capture, a carrier
     /// passed on): on a later pass any call before that point may write
     /// it, so it is lost at the head whatever the paths say.
-    pub var sticky:    cxx::std::vector<u8>
-    pub var sticky_at: cxx::std::vector<SourceRange>
+    pub var sticky:    [u8]
+    pub var sticky_at: [SourceRange]
     /// collect: every effect also lands here, whatever path or order (a
     /// `catch` arm may start after any of them).
     pub var collect: bool          = false
@@ -1344,13 +1446,13 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
     priv fn _init(self) {
         self.st = NullScanState{}
         for var i: usize = 0; i < self.cands.size(); ++i {
-            self.st.flags.push_back(NULL_SCAN_KEPT)
-            self.st.at.push_back(SourceRange())
-            self.sticky.push_back(0)
-            self.sticky_at.push_back(SourceRange())
+            self.st.flags.push(NULL_SCAN_KEPT)
+            self.st.at.push(SourceRange())
+            self.sticky.push(0)
+            self.sticky_at.push(SourceRange())
         }
 
-        self.all = self.st
+        self.all = self.st.copy()
     }
 
     /// What a `catch` arm may start with after `body` (or `value`) ran
@@ -1359,13 +1461,13 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         self._init()
         self.collect = true
         var l = NullScanLoop{}
-        self.loops.push_back(l)
+        self.loops.push(l)
         if body != &null {
             self.scan_stmt(body)
         }
 
         self.scan_expr(value)
-        self.loops.pop_back()
+        self.loops.pop()
         for var i: usize = 0; i < self.cands.size(); ++i {
             if self.sticky[i] == 0 {
                 continue
@@ -1378,29 +1480,29 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             self.all.flags[i] = self.all.flags[i] | NULL_SCAN_LOST
         }
 
-        return self.all
+        return self.all.copy()
     }
 
     fn run(self, body: unsafe *Stmt, update: unsafe *Expr, const label: string) -> NullScanState {
         self._init()
         var l = NullScanLoop{}
         l.label = label.copy()
-        self.loops.push_back(l)
+        self.loops.push(l)
         if body != &null {
             self.scan_stmt(body)
         }
 
-        var back = self.st
+        var back = self.st.copy()
         var *top = &self.loops[self.loops.size() - 1]
         for var i: usize = 0; i < top->conts.size(); ++i {
             back = null_scan_join(&back, &top->conts[i])
         }
 
-        self.loops.pop_back()
+        self.loops.pop()
         if update != &null {
             self.st = back
             self.scan_expr(update)
-            back = self.st
+            back = self.st.copy()
         }
 
         if !back.dead {
@@ -1446,7 +1548,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
     }
 
     /// `q = rhs`: `q` itself takes the value, every path under it is lost.
-    priv fn _write(self, q: unsafe *cxx::std::vector<unsafe *Decl>, value: bool, at: SourceRange) {
+    priv fn _write(self, q: unsafe *[unsafe *Decl], value: bool, at: SourceRange) {
         for var i: usize = 0; i < self.cands.size(); ++i {
             var *p = &self.cands[i]
             if !null_place_under(*p, *q) {
@@ -1467,7 +1569,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
 
     /// `q` and every path under it (only those strictly under it, when
     /// `strict`) may hold anything.
-    priv fn _lose(self, q: unsafe *cxx::std::vector<unsafe *Decl>, strict: bool, at: SourceRange) {
+    priv fn _lose(self, q: unsafe *[unsafe *Decl], strict: bool, at: SourceRange) {
         if q->size() == 0 {
             return
         }
@@ -1487,9 +1589,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
     }
 
     /// Every place of `set` may hold anything, and stays so at the head.
-    priv fn _lose_sticky(self,
-                         @inout set: cxx::std::vector<cxx::std::vector<unsafe *Decl>>,
-                         at:         SourceRange) {
+    priv fn _lose_sticky(self, @inout set: [[unsafe *Decl]], at: SourceRange) {
         for var j: usize = 0; j < set.size(); ++j {
             var unsafe *q = unsafe &(set)[j]
             for var i: usize = 0; i < self.cands.size(); ++i {
@@ -1503,28 +1603,26 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         }
     }
 
-    priv fn _lose_set(self,
-                      @inout set: cxx::std::vector<cxx::std::vector<unsafe *Decl>>,
-                      at:         SourceRange) {
+    priv fn _lose_set(self, @inout set: [[unsafe *Decl]], at: SourceRange) {
         for var j: usize = 0; j < set.size(); ++j {
             self._lose(unsafe &(set)[j], false, at)
         }
     }
 
     /// The places `d` carries, if it is a carrier.
-    priv fn _carried(self, d: unsafe *Decl) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
+    priv fn _carried(self, d: unsafe *Decl) -> [[unsafe *Decl]] {
         var k = null_carrier_find(self.carriers, d)
         if k < 0 {
-            return cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
+            return []
         }
 
-        return self.carriers[k as usize].places
+        return self.carriers[k as usize].places.copy()
     }
 
     /// Every place any carrier carries: what a call through a function
     /// value the scan cannot follow may write.
-    priv fn _all_carried(self) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
-        var out = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
+    priv fn _all_carried(self) -> [[unsafe *Decl]] {
+        var out: [[unsafe *Decl]]
         for var i: usize = 0; i < self.carriers.size(); ++i {
             null_places_union(unsafe &out, unsafe &self.carriers[i].places)
         }
@@ -1534,8 +1632,8 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
 
     /// The places the value `e` carries, read before typing: `&place`, a
     /// carrier's name, a closure.
-    priv fn _carry_of(self, e: unsafe *Expr) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
-        var        out = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
+    priv fn _carry_of(self, e: unsafe *Expr) -> [[unsafe *Decl]] {
+        var        out: [[unsafe *Decl]]
         var unsafe *x  = null_flow_strip_parens(e)
         if x == &null {
             return out
@@ -1546,7 +1644,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             if u->is_prefix() && u->op_token.kind == TokenKind::OpAmp {
                 var q = null_place_of(u->operand)
                 if q.size() > 0 {
-                    out.push_back(q)
+                    out.push(q)
                     return out
                 }
 
@@ -1589,7 +1687,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         if k < 0 {
             var c = NullCarrier{}
             c.decl = d
-            self.carriers.push_back(c)
+            self.carriers.push(c)
             k = ((self.carriers.size() - 1) as i64)
         }
 
@@ -1625,7 +1723,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             return false
         }
 
-        var empty = cxx::std::vector<NullCarrier>()
+        var empty: [NullCarrier]
         var ptrs  = null_closure_places(n, unsafe &empty)
         self._lose_sticky(&ptrs, n->range)
         return false
@@ -1663,8 +1761,8 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             // write through a carrier (`*p = v`) lands in what it carries.
             var unsafe *d = null_root_decl(n->lhs)
             if d != &null && (isa<VariableDecl>(d) || isa<ParamDecl>(d)) {
-                var r = cxx::std::vector<unsafe *Decl>()
-                r.push_back(d)
+                var r: [unsafe *Decl]
+                r.push(d)
                 self._lose(unsafe &r, false, n->range)
                 var cs = self._carried(d)
                 self._lose_set(&cs, n->range)
@@ -1692,8 +1790,8 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             // `@inout` marker (visit_call_expr skips those).
             var q = null_place_of(n->operand)
             if q.size() > 0 {
-                var one = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
-                one.push_back(q)
+                var one: [[unsafe *Decl]]
+                one.push(q)
                 self._lose_sticky(&one, n->range)
             }
         } else if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
@@ -2017,8 +2115,8 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
                     may_skip: bool) {
         var l = NullScanLoop{}
         l.label = self._take_label()
-        self.loops.push_back(l)
-        var s0 = self.st
+        self.loops.push(l)
+        var s0 = self.st.copy()
         if cond != &null {
             self.scan_expr(cond)
         }
@@ -2027,7 +2125,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             self.scan_stmt(body)
         }
 
-        var back = self.st
+        var back = self.st.copy()
         var *me  = &self.loops[self.loops.size() - 1]
         for var i: usize = 0; i < me->conts.size(); ++i {
             back = null_scan_join(&back, &me->conts[i])
@@ -2036,7 +2134,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         if update != &null {
             self.st = back
             self.scan_expr(update)
-            back = self.st
+            back = self.st.copy()
         }
 
         var head = null_scan_join(&s0, &back)
@@ -2045,9 +2143,8 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             self.scan_expr(cond)
         }
 
-        var done = cxx::std::move(self.loops.back())
-        self.loops.pop_back()
-        var after = self.st
+        var done  = self.loops.remove(self.loops.size() - 1)
+        var after = self.st.copy()
         if !may_skip {
             after      = NullScanState{}
             after.dead = true
@@ -2095,7 +2192,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
                 var unsafe *b = cast<Statements::BreakStmt>(s)
                 var        t  = self._target(b->has_label, b->label)
                 if t >= 0 && !self.st.dead {
-                    self.loops[t as usize].breaks.push_back(self.st)
+                    self.loops[t as usize].breaks.push(self.st.copy())
                 }
 
                 self.st.dead = true
@@ -2103,19 +2200,19 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
                 var unsafe *c = cast<Statements::ContinueStmt>(s)
                 var        t  = self._target(c->has_label, c->label)
                 if t >= 0 && !self.st.dead {
-                    self.loops[t as usize].conts.push_back(self.st)
+                    self.loops[t as usize].conts.push(self.st.copy())
                 }
 
                 self.st.dead = true
             } case StmtKind::ConditionalStmt {
                 var unsafe *c = cast<Statements::ConditionalStmt>(s)
                 self.scan_expr(c->cond)
-                var s0 = self.st
+                var s0 = self.st.copy()
                 if c->then_ != &null {
                     self.scan_stmt(c->then_)
                 }
 
-                var s1 = self.st
+                var s1 = self.st.copy()
                 self.st = s0
                 if c->else_ != &null {
                     self.scan_stmt(c->else_)
@@ -2155,11 +2252,11 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
             } case StmtKind::MatchStmt {
                 var unsafe *m = cast<Statements::MatchStmt>(s)
                 self.scan_expr(m->scrutinee)
-                var s0  = self.st
-                var acc = s0
+                var s0  = self.st.copy()
+                var acc = s0.copy()
                 for var i: usize = 0; i < m->cases.size(); ++i {
                     var unsafe *mc = m->cases.get(i)
-                    self.st = s0
+                    self.st = s0.copy()
                     self.scan_expr(mc->guard)
                     if mc->body != &null {
                         self.scan_stmt(mc->body)
@@ -2179,24 +2276,24 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
                 // A catch arm may start after any part of the body ran: from
                 // everything the body may have done along the way.
                 var unsafe *t = cast<Statements::TryCatchStmt>(s)
-                var        s0 = self.st
+                var        s0 = self.st.copy()
                 if t->try_body != &null {
                     self.scan_stmt(t->try_body)
                 }
 
-                var end = self.st
-                self.st    = s0
+                var end = self.st.copy()
+                self.st    = s0.copy()
                 self.taint = self.taint + 1
                 if t->try_body != &null {
                     self.dispatch_stmt(t->try_body)
                 }
 
                 self.taint = self.taint - 1
-                var entry = self.st
+                var entry = self.st.copy()
                 entry.dead = s0.dead
                 var acc = end
                 for var i: usize = 0; i < t->arms.size(); ++i {
-                    self.st = entry
+                    self.st = entry.copy()
                     var unsafe *arm = t->arms.get(i)
                     if arm->body != &null {
                         self.scan_stmt(arm->body)
@@ -2240,24 +2337,24 @@ pub class NullnessFlow {
     /// The state here. Mixins read and replace it around branches.
     pub var env: NullEnv
 
-    priv var _frames: cxx::std::vector<NullFrame>
-    priv var _loops:  cxx::std::vector<NullLoop>
-    priv var _traps:  cxx::std::vector<NullTrap>
+    priv var _frames: [NullFrame]
+    priv var _loops:  [NullLoop]
+    priv var _traps:  [NullTrap]
     /// The pointers taken in this body that may still be written through.
-    priv var _escapes: cxx::std::vector<NullEscape>
+    priv var _escapes: [NullEscape]
     /// A label waiting for the loop statement it labels (label_next).
     priv var _label: string = ""
     /// The pointers and pointer-capturing closures held by locals here (3.7).
-    priv var _carriers: cxx::std::vector<NullCarrier>
+    priv var _carriers: [NullCarrier]
     /// closure node -> index in _closure_list: what calling it may write.
     priv var _closure_sets: llvm::DenseMap<u64, u64>
-    priv var _closure_list: cxx::std::vector<cxx::std::vector<cxx::std::vector<unsafe *Decl>>>
+    priv var _closure_list: [[[unsafe *Decl]]]
     /// expr -> index in _read_list: the fact its place had where it was written.
     priv var _reads:     llvm::DenseMap<u64, u64>
-    priv var _read_list: cxx::std::vector<NullFact>
+    priv var _read_list: [NullFact]
     /// `&&` / `||` node -> index in _cond_list: its sets, stored as typed.
     priv var _conds:     llvm::DenseMap<u64, u64>
-    priv var _cond_list: cxx::std::vector<NullCond>
+    priv var _cond_list: [NullCond]
 
     fn NullnessFlow(self) { }
 
@@ -2276,16 +2373,16 @@ pub class NullnessFlow {
         fr.env        = self.env
         fr.loops_base = self._loops.size()
         fr.traps_base = self._traps.size()
-        fr.escapes    = self._escapes
-        fr.carriers   = self._carriers
-        self._frames.push_back(fr)
+        fr.escapes    = self._escapes.copy()
+        fr.carriers   = self._carriers.copy()
+        self._frames.push(fr.copy())
         self.env = NullEnv{}
         if closure != &null {
             self.env = self._closure_entry(closure, &fr.env)
         }
 
-        self._escapes  = cxx::std::vector<NullEscape>()
-        self._carriers = cxx::std::vector<NullCarrier>()
+        self._escapes  = []
+        self._carriers = []
     }
 
     /// Where the body of `c` starts (3.7): a by-copy capture is the
@@ -2317,9 +2414,9 @@ pub class NullnessFlow {
 
         var scan = NullLoopScan()
         scan.sc = self.sc
-        var keep = cxx::std::vector<NullFact>()
+        var keep: [NullFact]
         for var i: usize = 0; i < outer->facts.size(); ++i {
-            var f = outer->facts[i]
+            var f = outer->facts[i].copy()
             if f.global || f.place.size() == 0 || f.state == Nullness::Maybe {
                 continue
             }
@@ -2339,8 +2436,8 @@ pub class NullnessFlow {
                 continue
             }
 
-            keep.push_back(f)
-            scan.cands.push_back(f.place)
+            keep.push(f.copy())
+            scan.cands.push(f.place)
         }
 
         if keep.size() == 0 {
@@ -2362,7 +2459,7 @@ pub class NullnessFlow {
             }
 
             if ok {
-                out.facts.push_back(keep[i])
+                out.facts.push(keep[i].copy())
             }
         }
 
@@ -2370,47 +2467,46 @@ pub class NullnessFlow {
     }
 
     fn leave(self) {
-        if self._frames.empty() {
+        if self._frames.is_empty() {
             return
         }
 
-        var fr = self._frames.back()
-        self._frames.pop_back()
+        var fr = self._frames.remove(self._frames.size() - 1)
         self.env       = fr.env
         self._escapes  = fr.escapes
         self._carriers = fr.carriers
         while self._loops.size() > fr.loops_base {
-            self._loops.pop_back()
+            self._loops.pop()
         }
 
         while self._traps.size() > fr.traps_base {
-            self._traps.pop_back()
+            self._traps.pop()
         }
     }
 
     priv fn _loops_base(self) -> usize {
-        if self._frames.empty() {
+        if self._frames.is_empty() {
             return 0
         }
 
-        return self._frames.back().loops_base
+        return self._frames[self._frames.size() - 1].loops_base
     }
 
     priv fn _traps_base(self) -> usize {
-        if self._frames.empty() {
+        if self._frames.is_empty() {
             return 0
         }
 
-        return self._frames.back().traps_base
+        return self._frames[self._frames.size() - 1].traps_base
     }
 
     /// ## the state
 
     /// `place`'s fact here. An address-taken root is never narrowed, and
     /// unreachable code reads every place as NonNull (nothing runs there).
-    fn get(self, place: unsafe *cxx::std::vector<unsafe *Decl>) -> NullFact {
+    fn get(self, place: unsafe *[unsafe *Decl]) -> NullFact {
         var f = NullFact{}
-        f.place = *place
+        f.place = (*place).copy()
         if place->size() == 0 {
             return f
         }
@@ -2423,7 +2519,7 @@ pub class NullnessFlow {
 
         var i = null_env_find(unsafe &self.env, place)
         if i >= 0 {
-            return self.env.facts[i as usize]
+            return self.env.facts[i as usize].copy()
         }
 
         return f
@@ -2451,7 +2547,7 @@ pub class NullnessFlow {
     /// was passed `@inout`, or a pointer to it was written through. Noted
     /// `why` at `at`. A nullable place with no fact gets a Maybe one, so
     /// the access error names this write rather than the declaration.
-    fn weaken(self, place: unsafe *cxx::std::vector<unsafe *Decl>, why: NullWhy, at: SourceRange) {
+    fn weaken(self, place: unsafe *[unsafe *Decl], why: NullWhy, at: SourceRange) {
         if self.env.dead || place->size() == 0 {
             return
         }
@@ -2460,18 +2556,18 @@ pub class NullnessFlow {
         if null_env_find(unsafe &self.env, place) < 0
             && null_flow_type_is_nullable(self._place_type(*place)) {
             var f = NullFact{}
-            f.place  = *place
+            f.place  = (*place).copy()
             f.why    = why
             f.at     = at
             f.global = self._shared((*place)[0])
-            self.env.facts.push_back(f)
+            self.env.facts.push(f)
         }
     }
 
     /// Every path strictly under `place` may now hold anything, `place`
     /// itself not: a call took it as mutable `self` (3.4), which can write
     /// its fields but not make the value itself null.
-    fn weaken_inside(self, place: unsafe *cxx::std::vector<unsafe *Decl>, at: SourceRange) {
+    fn weaken_inside(self, place: unsafe *[unsafe *Decl], at: SourceRange) {
         if self.env.dead || place->size() == 0 {
             return
         }
@@ -2499,16 +2595,16 @@ pub class NullnessFlow {
         esc.node  = unsafe (n as unsafe *Expr)
         esc.place = place
         esc.at    = n->range
-        self._escapes.push_back(esc)
+        self._escapes.push(esc)
     }
 
     /// The pointer `node` made is accounted for: it was the `@inout`
     /// marker (whose write the call weakens itself) or went to a `*const`.
     fn unescape(self, node: unsafe *Expr) {
-        var keep = cxx::std::vector<NullEscape>()
+        var keep: [NullEscape]
         for var i: usize = 0; i < self._escapes.size(); ++i {
             if self._escapes[i].node != node {
-                keep.push_back(self._escapes[i])
+                keep.push(self._escapes[i].copy())
             }
         }
 
@@ -2565,7 +2661,7 @@ pub class NullnessFlow {
 
         var        k     = callee->steps.size()
         var unsafe *last = callee->steps.get(k - 1)
-        var        place = cxx::std::vector<unsafe *Decl>()
+        var        place: [unsafe *Decl]
         if last->access_kind == ChainExpr::AccessKind::Dot {
             place = if (k == 1) => (null_place_of(callee->base))
                     else => null_chain_place(callee, k - 2)
@@ -2604,8 +2700,8 @@ pub class NullnessFlow {
     /// The places the typed value `e` carries: `&place` (unless it is a
     /// `*const`), a carrier's name, a closure that captures by pointer, the
     /// arms of an if-expression, a cast's operand.
-    fn carry_of(self, e: unsafe *Expr) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
-        var        out = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
+    fn carry_of(self, e: unsafe *Expr) -> [[unsafe *Decl]] {
+        var        out: [[unsafe *Decl]]
         var unsafe *x  = null_flow_strip_parens(e)
         if x == &null {
             return out
@@ -2624,7 +2720,7 @@ pub class NullnessFlow {
 
             var q = null_place_of(u->operand)
             if q.size() > 0 {
-                out.push_back(q)
+                out.push(q)
                 return out
             }
 
@@ -2647,7 +2743,7 @@ pub class NullnessFlow {
         if isa<Expressions::ClosureExpr>(x) {
             var it = self._closure_sets.find(x as usize as u64)
             if it != self._closure_sets.end() {
-                return self._closure_list[((it->second) as usize)]
+                return self._closure_list[((it->second) as usize)].copy()
             }
 
             return out
@@ -2673,25 +2769,22 @@ pub class NullnessFlow {
         return out
     }
 
-    priv fn _carried(self, d: unsafe *Decl) -> cxx::std::vector<cxx::std::vector<unsafe *Decl>> {
+    priv fn _carried(self, d: unsafe *Decl) -> [[unsafe *Decl]] {
         var k = null_carrier_find(self._carriers, d)
         if k < 0 {
-            return cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
+            return []
         }
 
-        return self._carriers[k as usize].places
+        return self._carriers[k as usize].places.copy()
     }
 
-    priv fn _escape_set(self,
-                        node:      unsafe *Expr,
-                        const set: cxx::std::vector<cxx::std::vector<unsafe *Decl>>,
-                        at:        SourceRange) {
+    priv fn _escape_set(self, node: unsafe *Expr, const set: [[unsafe *Decl]], at: SourceRange) {
         for var i: usize = 0; i < set.size(); ++i {
             var esc = NullEscape{}
             esc.node  = node
-            esc.place = (set)[i]
+            esc.place = (set)[i].copy()
             esc.at    = at
-            self._escapes.push_back(esc)
+            self._escapes.push(esc)
         }
     }
 
@@ -2705,7 +2798,7 @@ pub class NullnessFlow {
             return
         }
 
-        var set = self._carriers[k as usize].places
+        var set = self._carriers[k as usize].places.copy()
         self._escape_set(n, set, n->range)
     }
 
@@ -2744,7 +2837,7 @@ pub class NullnessFlow {
 
         var set = null_closure_places(c, unsafe &self._carriers)
         self._closure_sets[c as usize as u64] = (self._closure_list.size() as u64)
-        self._closure_list.push_back(set)
+        self._closure_list.push(set.copy())
         self._escape_set(unsafe (c as unsafe *Expr), set, c->range)
     }
 
@@ -2771,7 +2864,7 @@ pub class NullnessFlow {
         if k < 0 {
             var nc = NullCarrier{}
             nc.decl = d
-            self._carriers.push_back(nc)
+            self._carriers.push(nc)
             k = ((self._carriers.size() - 1) as i64)
         }
 
@@ -2855,7 +2948,7 @@ pub class NullnessFlow {
         }
 
         for var i: usize = 0; i < th.places.size(); ++i {
-            var q = th.places[i]
+            var q = th.places[i].copy()
             if strict {
                 self.weaken_inside(unsafe &q, at)
             } else {
@@ -3044,7 +3137,7 @@ pub class NullnessFlow {
             f = self.value_state(v->init, v->range)
         }
 
-        f.place.push_back(v)
+        f.place.push(v)
         self._set(f)
     }
 
@@ -3080,14 +3173,14 @@ pub class NullnessFlow {
             return
         }
 
-        var f = f_in
+        var f = f_in.copy()
         f.global = self._shared(f.place[0])
         null_env_kill_under(unsafe &self.env, unsafe &f.place)
         if f.state == Nullness::Maybe && f.why == NullWhy::None {
             return
         }
 
-        self.env.facts.push_back(f)
+        self.env.facts.push(f)
     }
 
     /// ## conditions (3.3)
@@ -3098,8 +3191,8 @@ pub class NullnessFlow {
     /// else refines nothing.
     fn cond_of(self, e: unsafe *Expr) -> NullCond {
         var c = NullCond{}
-        c.t = self.env
-        c.f = self.env
+        c.t = self.env.copy()
+        c.f = self.env.copy()
         var unsafe *x = null_flow_strip_parens(e)
         if x == &null {
             return c
@@ -3107,7 +3200,7 @@ pub class NullnessFlow {
 
         var it = self._conds.find(x as usize as u64)
         if it != self._conds.end() {
-            return self._cond_list[((it->second) as usize)]
+            return self._cond_list[((it->second) as usize)].copy()
         }
 
         var nt = null_test_of(x)
@@ -3118,12 +3211,12 @@ pub class NullnessFlow {
             }
 
             var yes = NullFact{}
-            yes.place  = place
+            yes.place  = place.copy()
             yes.state  = Nullness::NonNull
             yes.why    = NullWhy::Tested
             yes.at     = x->range
             yes.global = self._shared(place[0])
-            var no = yes
+            var no = yes.copy()
             no.state = Nullness::Null
             if nt.present {
                 null_env_put(unsafe &c.t, yes)
@@ -3193,7 +3286,7 @@ pub class NullnessFlow {
         }
 
         var f = NullFact{}
-        f.place  = place
+        f.place  = place.copy()
         f.state  = state
         f.why    = NullWhy::Tested
         f.at     = at
@@ -3211,7 +3304,7 @@ pub class NullnessFlow {
         }
 
         var f = NullFact{}
-        f.place  = place
+        f.place  = place.copy()
         f.state  = Nullness::NonNull
         f.why    = NullWhy::Tested
         f.at     = at
@@ -3222,7 +3315,7 @@ pub class NullnessFlow {
     /// Record `e`'s sets (an `&&` / `||`, computed while it was typed).
     fn store_cond(self, e: *Expr, const c: NullCond) {
         self._conds[e as usize as u64] = (self._cond_list.size() as u64)
-        self._cond_list.push_back(c)
+        self._cond_list.push(c.copy())
     }
 
     /// ## loops (3.5, conservatively)
@@ -3247,16 +3340,16 @@ pub class NullnessFlow {
         if !self.env.dead {
             var scan = NullLoopScan()
             scan.sc       = self.sc
-            scan.carriers = self._carriers
-            var idx = cxx::std::vector<usize>()
+            scan.carriers = self._carriers.copy()
+            var idx: [usize]
             for var i: usize = 0; i < self.env.facts.size(); ++i {
                 var *f = &self.env.facts[i]
                 if f->global || f->state == Nullness::Maybe {
                     continue
                 }
 
-                idx.push_back(i)
-                scan.cands.push_back(f->place)
+                idx.push(i)
+                scan.cands.push(f->place.copy())
             }
 
             var back = scan.run(body, update, l.label)
@@ -3283,10 +3376,10 @@ pub class NullnessFlow {
                 f->at    = if ((fl & NULL_SCAN_LOST) != 0) => (back.at[j]) else => body->range
             }
 
-            var keep = cxx::std::vector<NullFact>()
+            var keep: [NullFact]
             for var i: usize = 0; i < self.env.facts.size(); ++i {
                 if !self.env.facts[i].global {
-                    keep.push_back(self.env.facts[i])
+                    keep.push(self.env.facts[i].copy())
                 }
             }
 
@@ -3302,7 +3395,7 @@ pub class NullnessFlow {
             }
         }
 
-        self._loops.push_back(l)
+        self._loops.push(l)
     }
 
     /// The loop is done: the join of the states its `break`s left.
@@ -3312,8 +3405,7 @@ pub class NullnessFlow {
             return out
         }
 
-        var l = cxx::std::move(self._loops.back())
-        self._loops.pop_back()
+        var l = self._loops.remove(self._loops.size() - 1)
         for var i: usize = 0; i < l.breaks.size(); ++i {
             out = null_env_join(unsafe &out, unsafe &l.breaks[i])
         }
@@ -3328,14 +3420,14 @@ pub class NullnessFlow {
         var base = self._loops_base()
         if self._loops.size() > base {
             if label.size() == 0 {
-                self._loops[self._loops.size() - 1].breaks.push_back(self.env)
+                self._loops[self._loops.size() - 1].breaks.push(self.env.copy())
             } else {
                 var found = false
                 var i     = self._loops.size()
                 while i > base {
                     i = i - 1
                     if self._loops[i].label == label {
-                        self._loops[i].breaks.push_back(self.env)
+                        self._loops[i].breaks.push(self.env.copy())
                         found = true
                         break
                     }
@@ -3343,7 +3435,7 @@ pub class NullnessFlow {
 
                 if !found {
                     for var k = base; k < self._loops.size(); ++k {
-                        self._loops[k].breaks.push_back(self.env)
+                        self._loops[k].breaks.push(self.env.copy())
                     }
                 }
             }
@@ -3357,22 +3449,22 @@ pub class NullnessFlow {
     /// order, NullLoopScan::run_unordered) is Maybe, and so is every global
     /// and escaped place, since any call in it may write one.
     fn try_entry(self, entry: *NullEnv, body: unsafe *Stmt, value: unsafe *Expr) -> NullEnv {
-        var out = *entry
+        var out = (*entry).copy()
         if out.dead {
             return out
         }
 
         var scan = NullLoopScan()
         scan.sc       = self.sc
-        scan.carriers = self._carriers
-        var idx = cxx::std::vector<usize>()
+        scan.carriers = self._carriers.copy()
+        var idx: [usize]
         for var i: usize = 0; i < out.facts.size(); ++i {
             if out.facts[i].global || out.facts[i].state == Nullness::Maybe {
                 continue
             }
 
-            idx.push_back(i)
-            scan.cands.push_back(out.facts[i].place)
+            idx.push(i)
+            scan.cands.push(out.facts[i].place.copy())
         }
 
         var all = scan.run_unordered(body, value)
@@ -3393,10 +3485,10 @@ pub class NullnessFlow {
             f->at    = if ((fl & NULL_SCAN_LOST) != 0) => (all.at[j]) else => f->at
         }
 
-        var keep = cxx::std::vector<NullFact>()
+        var keep: [NullFact]
         for var i: usize = 0; i < out.facts.size(); ++i {
             if !out.facts[i].global {
-                keep.push_back(out.facts[i])
+                keep.push(out.facts[i].copy())
             }
         }
 
@@ -3415,7 +3507,7 @@ pub class NullnessFlow {
     }
 
     /// The declared type of `place`'s last decl, or null.
-    priv fn _place_type(self, const place: cxx::std::vector<unsafe *Decl>) -> unsafe *Type {
+    priv fn _place_type(self, const place: [unsafe *Decl]) -> unsafe *Type {
         if place.size() == 0 {
             return &null
         }
@@ -3427,13 +3519,13 @@ pub class NullnessFlow {
 
     /// `e`, a use of the nullable `place`, was just typed: remember the
     /// state the place has HERE, for the consumer that may read its value.
-    fn note_read(self, e: unsafe *Expr, place: unsafe *cxx::std::vector<unsafe *Decl>) {
+    fn note_read(self, e: unsafe *Expr, place: unsafe *[unsafe *Decl]) {
         if e == &null || place->size() == 0 {
             return
         }
 
         self._reads[e as usize as u64] = (self._read_list.size() as u64)
-        self._read_list.push_back(self.get(place))
+        self._read_list.push(self.get(place))
     }
 
     /// `T?` -> `T` with the nullable's cv (a `const` binding reads `const T`).
@@ -3475,7 +3567,7 @@ pub class NullnessFlow {
             return NULL_READ_NONE
         }
 
-        var        f   = self._read_list[((it->second) as usize)]
+        var        f   = self._read_list[((it->second) as usize)].copy()
         var unsafe *nt = self.narrowed_type(x->type_)
         if nt == &null {
             return NULL_READ_NONE
@@ -3615,7 +3707,7 @@ pub class NullnessFlow {
     /// `a`, `o.cache`, `(*x).cache`: how a place is written. A place rooted
     /// at a pointer capture is the dereference, parenthesized so the
     /// suggested `if (*x)?` tests the value and not the pointer.
-    fn place_name(self, const place: cxx::std::vector<unsafe *Decl>) -> string {
+    fn place_name(self, const place: [unsafe *Decl]) -> string {
         var s = ""
         for var i: usize = 0; i < place.size(); ++i {
             if i > 0 {
@@ -3634,7 +3726,7 @@ pub class NullnessFlow {
     }
 
     priv fn _refuse(self, x: unsafe *Expr, const f: NullFact) {
-        self._refuse_at(x, x->range, f, self.narrowed_type(x->type_))
+        self._refuse_at(x, x->range, f.copy(), self.narrowed_type(x->type_))
     }
 
     /// Report (or hold, inside a trap) the read of `f.place` at `r`, and
@@ -3647,10 +3739,10 @@ pub class NullnessFlow {
             var h  = NullHeld{}
             h.e     = x
             h.range = r
-            h.fact  = f
+            h.fact  = f.copy()
             h.on_trap = f.state == Nullness::Maybe
                 && null_place_eq(unsafe &f.place, unsafe &t->place)
-            t->held.push_back(h)
+            t->held.push(h)
             return
         }
 
@@ -3775,11 +3867,11 @@ pub class NullnessFlow {
     /// The current body is a closure's and `d` is declared outside it: a
     /// capture (closure_declares; a decl from another file is outside too).
     priv fn _captured(self, d: unsafe *Decl) -> bool {
-        if self._frames.empty() {
+        if self._frames.is_empty() {
             return false
         }
 
-        var unsafe *c = self._frames.back().closure
+        var unsafe *c = self._frames[self._frames.size() - 1].closure
         if c == &null || d == &null {
             return false
         }
@@ -3888,7 +3980,7 @@ pub class NullnessFlow {
         tr.place    = place
         tr.open_at  = a->rhs->range.start
         tr.close_at = n->rhs->range.end
-        self._traps.push_back(tr)
+        self._traps.push(tr)
         return true
     }
 
@@ -3900,8 +3992,7 @@ pub class NullnessFlow {
             return
         }
 
-        var tr = self._traps.back()
-        self._traps.pop_back()
+        var tr  = self._traps.remove(self._traps.size() - 1)
         var all = tr.held.size() > 0
         for var i: usize = 0; i < tr.held.size(); ++i {
             if !tr.held[i].on_trap {
@@ -3910,7 +4001,7 @@ pub class NullnessFlow {
         }
 
         for var i: usize = 0; i < tr.held.size(); ++i {
-            var h               = tr.held[i]
+            var h               = tr.held[i].copy()
             var fix: *NullTrap? = &null
             if all && i == 0 {
                 fix = &tr

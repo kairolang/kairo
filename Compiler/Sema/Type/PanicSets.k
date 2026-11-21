@@ -451,9 +451,9 @@ pub class PanicTypeIds derives PackSetOrder {
         }
 
         var els = cxx::std::vector<unsafe *Type>()
-        var ids = cxx::std::vector<u32>()
-        var kys = cxx::std::vector<u64>()
-        var tis = cxx::std::vector<u32>()
+        var ids: [u32]
+        var kys: [u64]
+        var tis: [u32]
         for var i: usize = at; i < args->size(); ++i {
             var unsafe *e = (*args)[i]
             var        s  = self.spelling(e)
@@ -467,9 +467,9 @@ pub class PanicTypeIds derives PackSetOrder {
             // Insertion sort: a set is a handful of types.
             var k = els.size()
             els.push_back(e)
-            ids.push_back(id)
-            kys.push_back(ky)
-            tis.push_back(ti)
+            ids.push(id)
+            kys.push(ky)
+            tis.push(ti)
             while k > 0
                 && (ids[k - 1] > id
                     || ids[k - 1] == id && kys[k - 1] > ky

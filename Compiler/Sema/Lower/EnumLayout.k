@@ -276,9 +276,9 @@ pub enum AdtShape derives u8 {
 /// twice in one class (a base and a field) is one clang record, as it is
 /// one class in the emitted C++. Never kept past the query.
 pub class TwinMemo {
-    pub var keys: cxx::std::vector<unsafe *Type>
-    pub var qs:   cxx::std::vector<clang::QualType>
-    pub var unc:  cxx::std::vector<u8>
+    pub var keys: [unsafe *Type]
+    pub var qs:   [clang::QualType]
+    pub var unc:  [u8]
 
     fn TwinMemo(self) = default
 }
@@ -1383,18 +1383,18 @@ pub class EnumLayoutQuery {
     /// then the nearest one through the asking TU's imports -- a file with
     /// no `ffi` import still has a clang AST in reach (the builtins' sets),
     /// and a twin of Kairo-only parts needs nothing more than the target.
-    priv fn _twin_sets(self, d: unsafe *Decl) -> cxx::std::vector<unsafe *HeaderSet> {
-        var        out   = cxx::std::vector<unsafe *HeaderSet>()
+    priv fn _twin_sets(self, d: unsafe *Decl) -> [unsafe *HeaderSet] {
+        var out: [unsafe *HeaderSet]
         var unsafe *mine = self.sc->tu
         if mine != &null && mine->header_set != &null {
-            out.push_back(unsafe (mine->header_set as unsafe *HeaderSet))
+            out.push(unsafe (mine->header_set as unsafe *HeaderSet))
         }
 
         var unsafe *dtu = Speller::tu_of(d)
         if dtu != &null && dtu->header_set != &null {
             var unsafe *hs = unsafe (dtu->header_set as unsafe *HeaderSet)
             if out.size() == 0 || out[0] != hs {
-                out.push_back(hs)
+                out.push(hs)
             }
         }
 
@@ -1403,16 +1403,16 @@ pub class EnumLayoutQuery {
         }
 
         // Breadth first over the import edges, nearest TU first; bounded.
-        var queue = cxx::std::vector<unsafe *TranslationUnit>()
-        var seen  = cxx::std::vector<u32>()
-        queue.push_back(mine)
-        seen.push_back(mine->fid)
+        var queue: [unsafe *TranslationUnit]
+        var seen: [u32]
+        queue.push(mine)
+        seen.push(mine->fid)
         var at: usize = 0
         while at < queue.size() && at < 512 {
             var unsafe *tu = queue[at]
             at += 1
             if tu->header_set != &null {
-                out.push_back(unsafe (tu->header_set as unsafe *HeaderSet))
+                out.push(unsafe (tu->header_set as unsafe *HeaderSet))
                 return out
             }
 
@@ -1430,10 +1430,10 @@ pub class EnumLayoutQuery {
                     continue
                 }
 
-                seen.push_back(fid)
+                seen.push(fid)
                 var unsafe *ctx = self.sc->g->get_context(fid)
                 if ctx != &null && ctx->tu != &null {
-                    queue.push_back(ctx->tu)
+                    queue.push(ctx->tu)
                 }
             }
         }
@@ -1756,9 +1756,9 @@ pub class EnumLayoutQuery {
         }
 
         *unc = any_unc && TypeExport::twin_pod(q)
-        memo->keys.push_back(c)
-        memo->qs.push_back(q)
-        memo->unc.push_back(if (*unc) => (1 as u8) else => (0 as u8))
+        memo->keys.push(c)
+        memo->qs.push(q)
+        memo->unc.push(if (*unc) => (1 as u8) else => (0 as u8))
         return q
     }
 
@@ -2143,18 +2143,18 @@ pub class EnumLayoutQuery {
         // the remark is the forming TU's, whichever sweeps first.
         if e->type_ids.size() == 0 {
             var ps    = PanicSets(self.sc)
-            var ids   = cxx::std::vector<u32>()
-            var keys  = cxx::std::vector<u64>()
-            var names = cxx::std::vector<string>()
+            var ids: [u32]
+            var keys: [u64]
+            var names: [string]
             for var i: usize = p; i < e->args.size(); ++i {
                 var id = ps.type_id(e->args[i])
                 if id == (0 as u32) {
                     return
                 }
 
-                ids.push_back(id)
-                keys.push_back(ps.type_key(e->args[i]))
-                names.push_back(self.tu.str(e->args[i]))
+                ids.push(id)
+                keys.push(ps.type_key(e->args[i]))
+                names.push(self.tu.str(e->args[i]))
             }
 
             for var i: usize = 0; i < ids.size(); ++i {
@@ -3352,7 +3352,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
 
         // A struct and a union member for each variant that has a payload.
         var members = self.list_builder<unsafe *Declarations::FieldDecl>()
-        var mvec    = cxx::std::vector<unsafe *Declarations::FieldDecl>()
+        var mvec: [unsafe *Declarations::FieldDecl]
         for var i: usize = 0; i < en->variants.size(); ++i {
             var unsafe *v = en->variants[i]
             if v->payload.is_empty() {
@@ -3388,7 +3388,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
 
             self._place(m, edc, VisibilityKind::Public, v->name.range)
             members.push(m)
-            mvec.push_back(m)
+            mvec.push(m)
             v->adt_member = m
             v->adt_ctor = if (v->is_pack_expansion
                               || knobs.void_payload) => (Declarations::AdtCtorForm::Lambda)
@@ -3657,9 +3657,9 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
         // variant's; the tag is positional (InterfaceEmitter::_tag_leaf
         // reads the enumerator by position), so the Kairo variant keeps its
         // name and nothing else sees the change.
-        var taken = cxx::std::vector<string>()
+        var taken: [string]
         for var i: usize = 0; i < en->generic_params.size(); ++i {
-            taken.push_back(
+            taken.push(
                 self.tu.decl_name(
                     unsafe (en->generic_params[i] as unsafe *Decl),
                 ),
@@ -3668,7 +3668,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
 
         var nparams = taken.size()
         for var i: usize = 0; i < en->variants.size(); ++i {
-            taken.push_back(
+            taken.push(
                 self.tu.decl_name(unsafe (en->variants[i] as unsafe *Decl)),
             )
         }
@@ -3700,7 +3700,7 @@ pub class EnumLayoutLowering derives ASTWriter<EnumLayoutLowering> {
                     }
                 }
 
-                taken.push_back(fresh.copy())
+                taken.push(fresh.copy())
                 nm = self.synth.ident(v->name.range, fresh)
             }
 

@@ -93,7 +93,7 @@ pub struct LoopLabel {
 pub class LabelLowering derives ASTWriter<LabelLowering> {
     pub var  sc:     unsafe *SemaContext
     priv var synth:  LowerSynth
-    priv var _loops: cxx::std::vector<LoopLabel>     ///< innermost last.
+    priv var _loops: [LoopLabel]     ///< innermost last.
     priv var _depth: usize                       = 0 ///< _loops in use; entries past it are stale.
     priv var _count: usize                       = 0 ///< labeled loops lowered in this function.
 
@@ -193,7 +193,7 @@ pub class LabelLowering derives ASTWriter<LabelLowering> {
         if self._depth < self._loops.size() {
             self._loops[self._depth] = e
         } else {
-            self._loops.push_back(e)
+            self._loops.push(e)
         }
 
         self._depth += 1

@@ -1056,7 +1056,7 @@ pub class Conversion {
     /// conversion are still one answer here (a rank is asked many times per
     /// call); implicit_ops lists them for the site that accepts one.
     fn implicit_op(self, from: unsafe *Type, to: unsafe *Type) -> unsafe *FunctionDecl {
-        var all = cxx::std::vector<unsafe *FunctionDecl>()
+        var all: [unsafe *FunctionDecl]
         self.implicit_ops(from, to, unsafe &all, true)
         return if (all.size() > 0) => (all[0]) else => &null
     }
@@ -1067,7 +1067,7 @@ pub class Conversion {
     fn implicit_ops(self,
                     from:  unsafe *Type,
                     to:    unsafe *Type,
-                    out:   unsafe *cxx::std::vector<unsafe *FunctionDecl>,
+                    out:   unsafe *[unsafe *FunctionDecl],
                     first: bool = false) {
         var unsafe *fu = canon_unqual(from)
         var unsafe *tq = canon_unqual(to)
@@ -1093,7 +1093,7 @@ pub class Conversion {
             }
 
             if self.conversion_yields(f, fu, tq) {
-                out->push_back(f)
+                out->push(f)
                 if first {
                     return
                 }

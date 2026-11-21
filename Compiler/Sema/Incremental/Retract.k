@@ -105,9 +105,9 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
     st.entries = all.size()
 
     // The records each entry's arguments name, once.
-    var arg_decls = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
+    var arg_decls: [[unsafe *Decl]]
     for var i: usize = 0; i < all.size(); ++i {
-        var ds = cxx::std::vector<unsafe *Decl>()
+        var ds: [unsafe *Decl]
         for var k: usize = 0; k < all[i]->args.size(); ++k {
             incr_type_records(all[i]->args[k], 0, unsafe &ds)
         }
@@ -116,14 +116,14 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
             incr_type_records(all[i]->pattern_args[k], 0, unsafe &ds)
         }
 
-        arg_decls.push_back(ds)
+        arg_decls.push(ds)
     }
 
     // Dead: names a declaration of the set, or an instance that does.
     var dead_nodes = llvm::DenseSet<u64>()
-    var dead       = cxx::std::vector<u8>()
+    var dead: [u8]
     for var i: usize = 0; i < all.size(); ++i {
-        dead.push_back(0 as u8)
+        dead.push(0 as u8)
     }
 
     var grew = true
@@ -136,15 +136,15 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
 
             var unsafe *e  = all[i]
             var        hit = false
-            var        own = cxx::std::vector<unsafe *Decl>()
-            own.push_back(e->primary)
-            own.push_back(e->pattern)
+            var        own: [unsafe *Decl]
+            own.push(e->primary)
+            own.push(e->pattern)
             if e->is_explicit {
-                own.push_back(e->decl)
+                own.push(e->decl)
             }
 
             for var k: usize = 0; k < arg_decls[i].size(); ++k {
-                own.push_back(arg_decls[i][k])
+                own.push(arg_decls[i][k])
             }
 
             for var k: usize = 0; k < own.size() && !hit; ++k {
@@ -278,12 +278,12 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
     // (the C++ stand-in of a Kairo record) or for something imported into a
     // dropped shell would hand the next fill the old declaration.
     if freg != &null {
-        var usrs  = cxx::std::vector<llvm::StringRef>()
-        var decls = cxx::std::vector<unsafe *Decl>()
+        var usrs:  [llvm::StringRef]
+        var decls: [unsafe *Decl]
         freg->entries(unsafe &usrs, unsafe &decls)
-        var dbg     = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
-        var gone    = cxx::std::vector<llvm::StringRef>()
-        var orphans = cxx::std::vector<llvm::StringRef>()
+        var dbg = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
+        var gone:    [llvm::StringRef]
+        var orphans: [llvm::StringRef]
         // The verdict of every declaration a walk passed: the registry
         // holds a USR for each member of each imported class (hundreds of
         // thousands on a graph that uses C++ containers), and they share
@@ -292,7 +292,7 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
         for var i: usize = 0; i < usrs.size(); ++i {
             var unsafe *cur    = decls[i]
             var        is_dead = false
-            var        path    = cxx::std::vector<u64>()
+            var        path: [u64]
             for var hop: usize = 0; hop < 16 && cur != &null && !is_dead; ++hop {
                 var seen = memo.find(cur as usize as u64)
                 if seen != memo.end() {
@@ -300,7 +300,7 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                     break
                 }
 
-                path.push_back(cur as usize as u64)
+                path.push(cur as usize as u64)
                 if dead_nodes.contains(cur as usize as u64) {
                     is_dead = true
                     break
@@ -335,7 +335,7 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                 if own != &null
                     && ctxs.contains(own as usize as u64)
                     && !dead_nodes.contains(decls[i] as usize as u64) {
-                    orphans.push_back(usrs[i])
+                    orphans.push(usrs[i])
                     if dbg {
                         var us = kairo::std::from_std_string<string>(
                             usrs[i].str(),
@@ -344,7 +344,7 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
                         io::eprintln(f"[retract] orphan {us}")
                     }
                 } else {
-                    gone.push_back(usrs[i])
+                    gone.push(usrs[i])
                     if dbg {
                         var unsafe *oc = NameLookup::ctx_of(decls[i])
                         var where_ = if (oc != &null && oc->sm != &null) => (oc->sm->get_filename(
@@ -367,10 +367,10 @@ pub fn retract_instances(gs:         unsafe *GlobalDisambigTable,
             }
         }
 
-        var shells = cxx::std::vector<unsafe *Decl>()
+        var shells: [unsafe *Decl]
         for var i: usize = 0; i < drop.size(); ++i {
             if drop[i]->decl != &null && dead_nodes.contains(drop[i]->decl as usize as u64) {
-                shells.push_back(drop[i]->decl)
+                shells.push(drop[i]->decl)
             }
         }
 
@@ -430,11 +430,11 @@ pub fn verify_retired(gs:            unsafe *GlobalDisambigTable,
     gs->instances()->collect(&all)
     for var i: usize = 0; i < all.size(); ++i {
         var unsafe *e  = all[i]
-        var        own = cxx::std::vector<unsafe *Decl>()
-        own.push_back(e->primary)
-        own.push_back(e->pattern)
+        var        own: [unsafe *Decl]
+        own.push(e->primary)
+        own.push(e->pattern)
         if e->is_explicit {
-            own.push_back(e->decl)
+            own.push(e->decl)
         }
 
         for var k: usize = 0; k < e->args.size(); ++k {
@@ -466,8 +466,8 @@ pub fn verify_retired(gs:            unsafe *GlobalDisambigTable,
     }
 
     if freg != &null {
-        var usrs  = cxx::std::vector<llvm::StringRef>()
-        var decls = cxx::std::vector<unsafe *Decl>()
+        var usrs:  [llvm::StringRef]
+        var decls: [unsafe *Decl]
         freg->entries(unsafe &usrs, unsafe &decls)
         for var i: usize = 0; i < usrs.size(); ++i {
             var unsafe *cur = decls[i]

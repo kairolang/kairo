@@ -1340,8 +1340,8 @@ pub class TypeUtil {
             return &null
         }
 
-        var chain  = cxx::std::vector<unsafe *Decl>()
-        var depths = cxx::std::vector<u32>()
+        var chain:  [unsafe *Decl]
+        var depths: [u32]
         self._chain_walk(
             NameLookup::representative(d),
             unsafe &chain,
@@ -1373,8 +1373,8 @@ pub class TypeUtil {
 
     priv fn _overridden_below(self,
                               p:            unsafe *Declarations::FunctionDecl,
-                              const chain:  cxx::std::vector<unsafe *Decl>,
-                              const depths: cxx::std::vector<u32>,
+                              const chain:  [unsafe *Decl],
+                              const depths: [u32],
                               depth:        u32) -> bool {
         var pname = self.decl_name(unsafe (p as unsafe *Decl))
         for var i: usize = 0; i < chain.size(); ++i {
@@ -1408,8 +1408,8 @@ pub class TypeUtil {
 
     priv fn _chain_walk(self,
                         d:      unsafe *Decl,
-                        out:    unsafe *cxx::std::vector<unsafe *Decl>,
-                        depths: unsafe *cxx::std::vector<u32>,
+                        out:    unsafe *[unsafe *Decl],
+                        depths: unsafe *[u32],
                         depth:  u32,
                         of:     unsafe *Type = &null) {
         if depth > 64 {
@@ -1422,8 +1422,8 @@ pub class TypeUtil {
             }
         }
 
-        out->push_back(d)
-        depths->push_back(depth)
+        out->push(d)
+        depths->push(depth)
         var unsafe *cd = dyn_cast<Declarations::ClassDecl>(d)
         if cd == &null {
             return
@@ -1479,13 +1479,13 @@ pub class TypeUtil {
             return false
         }
 
-        var seen = cxx::std::vector<unsafe *Decl>()
+        var seen: [unsafe *Decl]
         return self._poly_walk(NameLookup::representative(d), unsafe &seen, 0)
     }
 
     priv fn _poly_walk(self,
                        d:     unsafe *Decl,
-                       seen:  unsafe *cxx::std::vector<unsafe *Decl>,
+                       seen:  unsafe *[unsafe *Decl],
                        depth: u32,
                        inst:  unsafe *Decl = &null) -> bool {
         if depth > 64 {
@@ -1498,7 +1498,7 @@ pub class TypeUtil {
             }
         }
 
-        seen->push_back(d)
+        seen->push(d)
         var unsafe *cd = dyn_cast<Declarations::ClassDecl>(d)
         if cd == &null {
             return false

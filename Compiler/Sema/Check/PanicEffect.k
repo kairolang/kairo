@@ -219,15 +219,15 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
     /// Every (method, base method or requirement, where it is met) pair
     /// held so far (_met): a method can be reached through a visibility
     /// group and the list, and can meet several.
-    priv var _met_fn:  cxx::std::vector<unsafe *Declarations::FunctionDecl>
-    priv var _met_sup: cxx::std::vector<unsafe *Declarations::FunctionDecl>
-    priv var _met_at:  cxx::std::vector<unsafe *Type>
+    priv var _met_fn:  [unsafe *Declarations::FunctionDecl]
+    priv var _met_sup: [unsafe *Declarations::FunctionDecl]
+    priv var _met_at:  [unsafe *Type]
     /// Methods already reported meeting two different sets.
     priv var _two_done: llvm::DenseSet<u64>
     priv var _scratch:  cxx::std::vector<unsafe *Type>
     /// The functions whose bodies the traversal is inside, innermost last:
     /// a closure's enclosing function (a `<T: type>` gate reaches it).
-    priv var _fn_stack: cxx::std::vector<unsafe *Declarations::FunctionDecl>
+    priv var _fn_stack: [unsafe *Declarations::FunctionDecl]
     /// Structural conformance rows already held to their requirements' sets.
     priv var _rows_done: llvm::DenseSet<u64>
 
@@ -633,13 +633,13 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
 
     fn traverse_function_decl(self,
                               f: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
-        self._fn_stack.push_back(f)
+        self._fn_stack.push(f)
         var unsafe *r = RecursiveASTVisitor<PanicEffectChecking>::traverse_function_decl(
             self,
             f,
         )
 
-        self._fn_stack.pop_back()
+        self._fn_stack.pop()
         return r
     }
 
@@ -1519,9 +1519,9 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             }
         }
 
-        self._met_fn.push_back(w)
-        self._met_sup.push_back(sup)
-        self._met_at.push_back(through)
+        self._met_fn.push(w)
+        self._met_sup.push(sup)
+        self._met_at.push(through)
         self._subset(w, sup, through, verb, what)
     }
 
@@ -2182,9 +2182,9 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             var *t = &w->tries[i]
             var n = if (t->stmt != &null) => (t->stmt->arms.size())
                     else => t->expr->catch_arms.size()
-            var mine = cxx::std::vector<unsafe *Type>()
-            var mat  = cxx::std::vector<SourceRange>()
-            var dep  = false
+            var mine: [unsafe *Type]
+            var mat:  [SourceRange]
+            var dep                  = false
             for var k: usize = 0; k < n; ++k {
                 var unsafe *filt = self._arm_filter(t, k)
                 if filt == &null || filt->canonical == &null {
@@ -2204,8 +2204,8 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
                     dep = true
                 }
 
-                mine.push_back(c)
-                mat.push_back(filt->range)
+                mine.push(c)
+                mat.push(filt->range)
             }
 
             if mine.size() < 2 || !dep {

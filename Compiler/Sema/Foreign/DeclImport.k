@@ -132,7 +132,7 @@ pub class HeaderTarget {
     /// qualified namespace name -> this header's ModuleDecl for it.
     pub var namespaces: llvm::StringMap<unsafe *Declarations::ModuleDecl>
     /// every DeclContext this header owns whose table must be frozen at the end.
-    pub var scopes: cxx::std::vector<unsafe *DeclContext>
+    pub var scopes: [unsafe *DeclContext]
     fn HeaderTarget(self) { }
 }
 
@@ -185,7 +185,7 @@ pub class DeclImport {
     priv var _fill_target: unsafe *HeaderTarget                  = &null ///< Fill: every decl lands here.
     priv var _fill_scope:  unsafe *DeclContext                   = &null ///< Fill: the instance shell.
     priv var _fill_spec:   unsafe *clang::Decl                   = &null ///< Fill: the ClassTemplateSpecializationDecl it stands for.
-    priv var _fill_scopes: cxx::std::vector<unsafe *DeclContext> ///< Fill: every table the fill created; end_fill freezes them.
+    priv var _fill_scopes: [unsafe *DeclContext] ///< Fill: every table the fill created; end_fill freezes them.
     /// VariantFill only (else null): the USR -> decl table for the
     /// members this fill mints. `vector<usize>` and `vector<u64>` are two
     /// Kairo instances of ONE clang specialization (`vector<unsigned long>`
@@ -206,12 +206,12 @@ pub class DeclImport {
     /// Index mode's diagnostics (_conflicting_definition); null in a fill.
     pub var diag: unsafe *DiagEngine = &null
     /// Entities already reported by _conflicting_definition.
-    priv var _conflicts: cxx::std::vector<unsafe *DeclContext>
+    priv var _conflicts: [unsafe *DeclContext]
 
     /// Debug: every decl this fill minted, so table_of can tell a scope the
     /// fill made from a published one. Empty in a header walk and in a
     /// release build.
-    priv var _fill_minted: cxx::std::vector<unsafe *Decl>
+    priv var _fill_minted: [unsafe *Decl]
 
     pub var n_declared: usize = 0
     pub var n_defined:  usize = 0
@@ -497,9 +497,9 @@ pub class DeclImport {
             // A fill's tables are the fill's to freeze: HeaderIndex froze
             // `t->scopes` once, when the set finished, and never reads it again.
             if self.in_fill() {
-                self._fill_scopes.push_back(dc)
+                self._fill_scopes.push(dc)
             } else {
-                t->scopes.push_back(dc)
+                t->scopes.push(dc)
             }
         }
 
@@ -575,7 +575,7 @@ pub class DeclImport {
             }
         }
 
-        self._conflicts.push_back(dc)
+        self._conflicts.push(dc)
         var unsafe *owner = dc->owner_decl()
         var        on     = self._clang_name_of(owner)
         // Interned where _ident_key interned it: the scope's own TU.
@@ -1124,7 +1124,7 @@ pub class DeclImport {
         out->set_visibility(self._vis(nd), at)
         eval if defined!(DEBUG) {
             if self.in_fill() {
-                self._fill_minted.push_back(out)
+                self._fill_minted.push(out)
             }
         }
 
@@ -1754,13 +1754,13 @@ pub class DeclImport {
     /// it adds itself at depth 1.
     priv fn _template_owners(self,
                              d:          unsafe *clang::Decl,
-                             @inout out: cxx::std::vector<unsafe *Decl>) {
-        var        inner_first = cxx::std::vector<unsafe *Decl>()
+                             @inout out: [unsafe *Decl]) {
+        var        inner_first: [unsafe *Decl]
         var unsafe *cur        = d
         while cur != &null {
             var unsafe *kd = self._tpl_owner(cur)
             if kd != &null {
-                inner_first.push_back(kd)
+                inner_first.push(kd)
             }
 
             var unsafe *dc = cur->getDeclContext()
@@ -1773,7 +1773,7 @@ pub class DeclImport {
 
         var n = inner_first.size()
         for var i: usize = 0; i < n; ++i {
-            out.push_back(inner_first[n - 1 - i])
+            out.push(inner_first[n - 1 - i])
         }
     }
 

@@ -177,6 +177,7 @@ import Sema::Type::Member::{
 import Sema::Type::NullnessFlow::{
     NULL_READ_NARROWED,
     NullCond,
+    null_env_copy,
     null_flow_type_is_nullable,
     null_literal_of,
     null_place_of,
@@ -876,7 +877,7 @@ pub class <T: type> OperatorTyping {
                        recv:         unsafe *Expr,
                        recv_ty:      unsafe *Type,
                        other:        unsafe *Type,
-                       const args:   cxx::std::vector<unsafe *Expr>,
+                       const args:   [unsafe *Expr],
                        want_postfix: i32,
                        const label:  string,
                        found:        unsafe *bool,
@@ -927,16 +928,16 @@ pub class <T: type> OperatorTyping {
 
         *found = true
 
-        var margs = cxx::std::vector<ArgInfo>()
+        var margs: [ArgInfo]
         for var i: usize = 0; i < args.size(); ++i {
-            margs.push_back(self.dyn()->arg_info((args)[i]))
+            margs.push(self.dyn()->arg_info((args)[i]))
         }
 
         // A free operator takes the receiver operand as its first argument.
-        var fargs = cxx::std::vector<ArgInfo>()
-        fargs.push_back(self.dyn()->arg_info(recv))
+        var fargs: [ArgInfo]
+        fargs.push(self.dyn()->arg_info(recv))
         for var i: usize = 0; i < margs.size(); ++i {
-            fargs.push_back(margs[i].copy())
+            fargs.push(margs[i].copy())
         }
 
         // `copy_recv`: the operator runs on a COPY of the receiver (a
@@ -1141,7 +1142,7 @@ pub class <T: type> OperatorTyping {
     /// chain is typed bottom-up here instead, in the order the recursion would
     /// have: each node's own typing then finds its left operand done.
     priv fn _prewarm_left_spine(self, n: unsafe *BinaryOperatorExpr, expected: unsafe *Type) {
-        var        spine = cxx::std::vector<unsafe *Expr>()
+        var        spine: [unsafe *Expr]
         var unsafe *cur  = n->lhs
         while cur != &null && isa<BinaryOperatorExpr>(cur) && !self.dyn()->is_memoized(cur) {
             var ck = cast<BinaryOperatorExpr>(cur)->op_token.kind
@@ -1149,7 +1150,7 @@ pub class <T: type> OperatorTyping {
                 break
             }
 
-            spine.push_back(cur)
+            spine.push(cur)
             cur = cast<BinaryOperatorExpr>(cur)->lhs
         }
 
@@ -1505,8 +1506,8 @@ pub class <T: type> OperatorTyping {
             && self._is_dependent(rt)
             && self.dyn()->tu.record_decl(rt) != &null {
             var in_found = false
-            var in_args  = cxx::std::vector<unsafe *Expr>()
-            in_args.push_back(n->lhs)
+            var in_args: [unsafe *Expr]
+            in_args.push(n->lhs)
             var unsafe *in_t = self.resolve_user_op(
                 n,
                 TokenKind::KwIn,
@@ -1583,8 +1584,8 @@ pub class <T: type> OperatorTyping {
                 && self.dyn()->tu.record_decl(lt) != &null
                 && self._record_declares_op(k, lt, rt) {
                 var dep_found = false
-                var dep_args  = cxx::std::vector<unsafe *Expr>()
-                dep_args.push_back(n->rhs)
+                var dep_args: [unsafe *Expr]
+                dep_args.push(n->rhs)
                 var unsafe *dep_t = self.resolve_user_op(
                     n,
                     k,
@@ -1666,8 +1667,8 @@ pub class <T: type> OperatorTyping {
         var rb = self.dyn()->tu.kind_of(rt) != BuiltinKind::COUNT
         if !(lb && rb) {
             var found = false
-            var args  = cxx::std::vector<unsafe *Expr>()
-            args.push_back(n->rhs)
+            var args: [unsafe *Expr]
+            args.push(n->rhs)
             // C++ operands get C++20's rewrite rule: a `!=` / `<` that cannot
             // take them yields to a derived one. Kairo's own rule derives only
             // when the type declares no `!=` at all.
@@ -2118,14 +2119,14 @@ pub class <T: type> OperatorTyping {
         var builtin = inner != &null && self.dyn()->tu.kind_of(inner) != BuiltinKind::COUNT
         // T "has" the operator when it declares it or one type_binary
         // derives it from: `<` from `op <=>`, `+` from `op +=`.
-        var ks = cxx::std::vector<TokenKind>()
-        ks.push_back(k)
+        var ks: [TokenKind]
+        ks.push(k)
         if self._is_relational(k) {
-            ks.push_back(TokenKind::OpLessEqualGreater)
+            ks.push(TokenKind::OpLessEqualGreater)
         }
 
         if OperatorFacts::compound_of(k) != TokenKind::TkUnknown {
-            ks.push_back(OperatorFacts::compound_of(k))
+            ks.push(OperatorFacts::compound_of(k))
         }
 
         for var j: usize = 0; inner != &null && j < ks.size(); ++j {
@@ -2158,8 +2159,8 @@ pub class <T: type> OperatorTyping {
             return &null
         }
 
-        var args = cxx::std::vector<ArgInfo>()
-        args.push_back(self.dyn()->arg_info(n->rhs))
+        var args: [ArgInfo]
+        args.push(self.dyn()->arg_info(n->rhs))
         var unsafe *rcv = self._receiver_of(n->lhs)
         var r = self.dyn()->ovl.resolve(
             &own,
@@ -2233,7 +2234,7 @@ pub class <T: type> OperatorTyping {
         var is_and = k == TokenKind::OpAmpAmp || k == TokenKind::KwAnd
         self.dyn()->type_of(n->lhs, &null)
         var cl = self.dyn()->flow.cond_of(n->lhs)
-        self.dyn()->flow.env = if (is_and) => (cl.t) else => cl.f
+        self.dyn()->flow.env = if (is_and) => (null_env_copy(cl.t)) else => null_env_copy(cl.f)
         var trap = !is_and && self.dyn()->flow.trap_begin(n)
         self.dyn()->type_of(n->rhs, &null)
         if trap {
@@ -2243,11 +2244,11 @@ pub class <T: type> OperatorTyping {
         var cr = self.dyn()->flow.cond_of(n->rhs)
         var r  = NullCond{}
         if is_and {
-            r.t = cr.t
+            r.t = null_env_copy(cr.t)
             r.f = self.dyn()->flow.join(&cl.f, &cr.f)
         } else {
             r.t = self.dyn()->flow.join(&cl.t, &cr.t)
-            r.f = cr.f
+            r.f = null_env_copy(cr.f)
         }
 
         self.dyn()->flow.env = self.dyn()->flow.join(&r.t, &r.f)
@@ -2739,15 +2740,15 @@ pub class <T: type> OperatorTyping {
         }
 
         *found = true
-        var margs = cxx::std::vector<ArgInfo>()
+        var margs: [ArgInfo]
         var ra    = self._typed_arg(n->rhs, ri)
         ra.cat = Expr::ValueCategory::LValue // the narrowed read is the place's value.
-        margs.push_back(ra.copy())
-        var fargs = cxx::std::vector<ArgInfo>()
+        margs.push(ra.copy())
+        var fargs: [ArgInfo]
         var la    = self._typed_arg(n->lhs, li)
         la.cat = Expr::ValueCategory::LValue
-        fargs.push_back(la)
-        fargs.push_back(ra)
+        fargs.push(la)
+        fargs.push(ra)
         var r = self.dyn()->ovl.resolve_mixed(
             &cands,
             &margs,
@@ -2782,8 +2783,8 @@ pub class <T: type> OperatorTyping {
                            lt: unsafe *Type,
                            rt: unsafe *Type) -> unsafe *Type {
         var found = false
-        var args  = cxx::std::vector<unsafe *Expr>()
-        args.push_back(n->lhs)
+        var args: [unsafe *Expr]
+        args.push(n->lhs)
         var unsafe *ut = self.resolve_user_op(
             n,
             TokenKind::KwIn,
@@ -2837,8 +2838,8 @@ pub class <T: type> OperatorTyping {
         var pg = self.dyn()->tu.op_checked_head(lt)
         if pg != &null && self._bounded(lt) {
             var pfound = false
-            var pargs  = cxx::std::vector<unsafe *Expr>()
-            pargs.push_back(n->rhs)
+            var pargs: [unsafe *Expr]
+            pargs.push(n->rhs)
             var put = self.resolve_user_op(
                 n,
                 TokenKind::OpCaretCaret,
@@ -2875,8 +2876,8 @@ pub class <T: type> OperatorTyping {
 
         if self.dyn()->tu.kind_of(lt) == BuiltinKind::COUNT {
             var found = false
-            var args  = cxx::std::vector<unsafe *Expr>()
-            args.push_back(n->rhs)
+            var args: [unsafe *Expr]
+            args.push(n->rhs)
             var ut = self.resolve_user_op(
                 n,
                 TokenKind::OpCaretCaret,
@@ -2939,9 +2940,9 @@ pub class <T: type> OperatorTyping {
 
         var cands = cxx::std::vector<*Decl>()
         cands.push_back(d)
-        var fargs = cxx::std::vector<ArgInfo>()
-        fargs.push_back(self._typed_arg(n->lhs, lt))
-        fargs.push_back(self._typed_arg(n->rhs, rt))
+        var fargs: [ArgInfo]
+        fargs.push(self._typed_arg(n->lhs, lt))
+        fargs.push(self._typed_arg(n->rhs, rt))
         var r = self.dyn()->ovl.resolve(
             &cands,
             &fargs,
@@ -3198,7 +3199,7 @@ pub class <T: type> OperatorTyping {
             }
 
             var found = false
-            var args  = cxx::std::vector<*Expr>()
+            var args: [*Expr]
             var ut = self.resolve_user_op(
                 n,
                 k,
@@ -3227,7 +3228,7 @@ pub class <T: type> OperatorTyping {
             && self.dyn()->tu.pointee(ot) == &null
             && self._is_imported_record(ot) {
             var found = false
-            var args  = cxx::std::vector<*Expr>()
+            var args: [*Expr]
             var ut = self.resolve_user_op(
                 n,
                 k,
@@ -4462,8 +4463,8 @@ pub class <T: type> OperatorTyping {
         }
 
         var found = false
-        var args  = cxx::std::vector<unsafe *Expr>()
-        args.push_back(n->rhs)
+        var args: [unsafe *Expr]
+        args.push(n->rhs)
         var rk = if (has_c) => (k) else => base
         var unsafe *ut = self.resolve_user_op(
             unsafe (n as unsafe *Expr),

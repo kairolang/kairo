@@ -103,7 +103,7 @@ struct SelfAssocUse {
 /// Every `Self::N` a declaration's written types name, in source order.
 pub class _SelfAssocUses derives RecursiveASTVisitor<_SelfAssocUses> {
     pub var ctx:  unsafe *ASTContext             = &null
-    pub var uses: cxx::std::vector<SelfAssocUse>
+    pub var uses: [SelfAssocUse]
     fn _SelfAssocUses(self) { }
 
     fn visit_type(self, t: *Type) -> bool {
@@ -122,7 +122,7 @@ pub class _SelfAssocUses derives RecursiveASTVisitor<_SelfAssocUses> {
             return true
         }
 
-        self.uses.push_back(
+        self.uses.push(
             SelfAssocUse { name: self.ctx->get_spelling(s1->name->name), at: s1->range },
         )
 
@@ -189,7 +189,7 @@ pub class InterfaceComposition {
         }
 
         id->compose_state = 1
-        var out = cxx::std::vector<Requirement>()
+        var out: [Requirement]
         var ok  = true
         if id->derives_expr != &null {
             var leaf: usize = 0
@@ -197,7 +197,7 @@ pub class InterfaceComposition {
         }
 
         if ok {
-            var own = cxx::std::vector<Requirement>()
+            var own: [Requirement]
             self._own(id, unsafe &own)
             ok = self._union(id, unsafe &out, &own, id->derives_end)
         }
@@ -240,11 +240,11 @@ pub class InterfaceComposition {
                   id:         unsafe *InterfaceDecl,
                   e:          unsafe *Expr,
                   leaf:       unsafe *usize,
-                  @inout out: cxx::std::vector<Requirement>) -> bool {
+                  @inout out: [Requirement]) -> bool {
         var unsafe *b = dyn_cast<BinaryOperatorExpr>(e)
         if b != &null {
-            var l = cxx::std::vector<Requirement>()
-            var r = cxx::std::vector<Requirement>()
+            var l: [Requirement]
+            var r: [Requirement]
             if !self._eval(id, b->lhs, leaf, &l) {
                 return false
             }
@@ -260,7 +260,7 @@ pub class InterfaceComposition {
                 }
 
                 for var i: usize = 0; i < l.size(); ++i {
-                    out.push_back(l[i])
+                    out.push(l[i])
                 }
 
                 return true
@@ -269,7 +269,7 @@ pub class InterfaceComposition {
             if k == TokenKind::OpMinus {
                 for var i: usize = 0; i < l.size(); ++i {
                     if self._find(id, unsafe &l[i], &r) == usize::MAX {
-                        out.push_back(l[i])
+                        out.push(l[i])
                     }
                 }
 
@@ -288,7 +288,7 @@ pub class InterfaceComposition {
                     self._intersect_assoc(&keep, &r[j])
                 }
 
-                out.push_back(keep)
+                out.push(keep)
             }
 
             return true
@@ -333,7 +333,7 @@ pub class InterfaceComposition {
             var rq = *jd->requirements.get(k)
             rq.source = self._through(rq.source, t)
             rq.leaf   = (i as u32)
-            out.push_back(rq)
+            out.push(rq)
         }
 
         return true
@@ -344,14 +344,14 @@ pub class InterfaceComposition {
     /// reported at `at`.
     priv fn _union(self,
                    id:       unsafe *InterfaceDecl,
-                   l:        unsafe *cxx::std::vector<Requirement>,
-                   @inout r: cxx::std::vector<Requirement>,
+                   l:        unsafe *[Requirement],
+                   @inout r: [Requirement],
                    at:       SourceRange) -> bool {
         var ok = true
         for var i: usize = 0; i < r.size(); ++i {
             var j = self._find(id, unsafe &(r)[i], &*l)
             if j == usize::MAX {
-                l->push_back((r)[i])
+                l->push((r)[i])
                 continue
             }
 
@@ -500,7 +500,7 @@ pub class InterfaceComposition {
     }
 
     /// `id`'s own members, each its own requirement.
-    priv fn _own(self, id: unsafe *InterfaceDecl, out: unsafe *cxx::std::vector<Requirement>) {
+    priv fn _own(self, id: unsafe *InterfaceDecl, out: unsafe *[Requirement]) {
         var unsafe *me = self._self_instance(id)
         for var i: usize = 0; i < id->methods.size(); ++i {
             var unsafe *m = id->methods[i]
@@ -508,9 +508,7 @@ pub class InterfaceComposition {
                 continue
             }
 
-            out->push_back(
-                self._req(unsafe (m as unsafe *Decl), me, &null, &null),
-            )
+            out->push(self._req(unsafe (m as unsafe *Decl), me, &null, &null))
         }
 
         var unsafe *dc = unsafe (id as unsafe *DeclContext)
@@ -520,7 +518,7 @@ pub class InterfaceComposition {
                 continue
             }
 
-            out->push_back(self._req(ta, me, ta->requires_clause, ta->aliased))
+            out->push(self._req(ta, me, ta->requires_clause, ta->aliased))
         }
     }
 
@@ -544,7 +542,7 @@ pub class InterfaceComposition {
     priv fn _find(self,
                   id:          unsafe *InterfaceDecl,
                   a:           unsafe *Requirement,
-                  @inout pool: cxx::std::vector<Requirement>) -> usize {
+                  @inout pool: [Requirement]) -> usize {
         for var i: usize = 0; i < pool.size(); ++i {
             if self._same(id, a, unsafe &(pool)[i]) {
                 return i
@@ -801,13 +799,11 @@ pub class InterfaceComposition {
 
     /// A kept method that names `Self::N` where the result has no associated
     /// type N: nothing would supply it.
-    priv fn _check_dangling(self,
-                            id:         unsafe *InterfaceDecl,
-                            const reqs: cxx::std::vector<Requirement>) -> bool {
-        var have = cxx::std::vector<string>()
+    priv fn _check_dangling(self, id: unsafe *InterfaceDecl, const reqs: [Requirement]) -> bool {
+        var have: [string]
         for var i: usize = 0; i < reqs.size(); ++i {
             if isa<TypeAliasDecl>((reqs)[i].decl) {
-                have.push_back(self._name((reqs)[i].decl))
+                have.push(self._name((reqs)[i].decl))
             }
         }
 

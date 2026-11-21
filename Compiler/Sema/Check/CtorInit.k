@@ -303,9 +303,9 @@ pub class CtorPartWriteFind derives RecursiveASTVisitor<CtorPartWriteFind> {
 /// and each of `elems` written as `self.f[k] = ...` (built element by
 /// element, CtorInitCheck::_elem_ok).
 pub class CtorFieldWriteFind derives RecursiveASTVisitor<CtorFieldWriteFind> {
-    pub var fields: cxx::std::vector<unsafe *FieldDecl>
-    pub var at:     cxx::std::vector<SourceRange>
-    pub var elems:  cxx::std::vector<unsafe *FieldDecl>
+    pub var fields: [unsafe *FieldDecl]
+    pub var at:     [SourceRange]
+    pub var elems:  [unsafe *FieldDecl]
 
     fn visit_assign_operator_expr(self, n: *AssignOperatorExpr) -> bool {
         var unsafe *f = ctor_init_self_field(n->lhs)
@@ -332,8 +332,8 @@ pub class CtorFieldWriteFind derives RecursiveASTVisitor<CtorFieldWriteFind> {
             }
         }
 
-        self.fields.push_back(f)
-        self.at.push_back(n->range)
+        self.fields.push(f)
+        self.at.push(n->range)
         return true
     }
 }
@@ -344,7 +344,7 @@ pub class CtorFieldWriteFind derives RecursiveASTVisitor<CtorFieldWriteFind> {
 pub class CtorInheritedFind derives RecursiveASTVisitor<CtorInheritedFind> {
     pub var self_decl: unsafe *Decl                        = &null
     pub var own:       FrozenList<unsafe *FieldDecl>
-    pub var fields:    cxx::std::vector<unsafe *FieldDecl>
+    pub var fields:    [unsafe *FieldDecl]
 
     fn visit_chain_expr(self, n: *ChainExpr) -> bool {
         var unsafe *b = dyn_cast<NamedIdentExpr>(n->base)
@@ -370,18 +370,18 @@ pub class CtorInheritedFind derives RecursiveASTVisitor<CtorInheritedFind> {
             }
         }
 
-        self.fields.push_back(f)
+        self.fields.push(f)
         return true
     }
 }
 
 /// Every decl a name under a statement resolves to: what S_post reads.
 pub class CtorNameFind derives RecursiveASTVisitor<CtorNameFind> {
-    pub var decls: cxx::std::vector<unsafe *Decl>
+    pub var decls: [unsafe *Decl]
 
     fn visit_named_ident_expr(self, n: *NamedIdentExpr) -> bool {
         if n->resolved_decl != &null {
-            self.decls.push_back(n->resolved_decl)
+            self.decls.push(n->resolved_decl)
         }
 
         return true
@@ -463,7 +463,7 @@ pub struct CtorEvent {
 /// It records and never judges: CtorInitCheck replays the events against
 /// the flow state, so this class needs nothing from that one.
 pub class CtorExprScan derives RecursiveASTVisitor<CtorExprScan> {
-    pub var events: cxx::std::vector<CtorEvent>
+    pub var events: [CtorEvent]
 
     priv fn _push(self,
                   k:    CtorEventKind,
@@ -475,7 +475,7 @@ pub class CtorExprScan derives RecursiveASTVisitor<CtorExprScan> {
         e.field = f
         e.at    = at
         e.node  = node
-        self.events.push_back(e)
+        self.events.push(e)
     }
 
     fn visit_assign_operator_expr(self, n: unsafe *AssignOperatorExpr) -> bool {
@@ -617,16 +617,16 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     priv var _loops:    u32                                 = 0
     priv var _failed:   bool                                = false
     priv var _frontier: SourceRange
-    priv var _written:  cxx::std::vector<unsafe *FieldDecl>         ///< every field S_pre writes.
-    priv var _first_at: cxx::std::vector<SourceRange>               ///< parallel: its first write.
+    priv var _written:  [unsafe *FieldDecl]                   ///< every field S_pre writes.
+    priv var _first_at: [SourceRange]                         ///< parallel: its first write.
     /// Per field, where it was first assigned on the path being walked
     /// (valid while maybe[i]); the note on a second assignment.
-    priv var _assigned_at: cxx::std::vector<SourceRange>
+    priv var _assigned_at: [SourceRange]
     /// The walk that finds the frontier runs before the one that judges
     /// S_pre: it reports nothing and approves nothing.
     priv var _quiet: bool = false
     /// The fields _split_ctor_dependent's trial treats as having no default.
-    priv var _dependent: cxx::std::vector<unsafe *FieldDecl>
+    priv var _dependent: [unsafe *FieldDecl]
     /// Only const fields drive the frontier: the diagnostics keep saying
     /// "const field", as they did before any other field could.
     priv var _const_only: bool = true
@@ -634,17 +634,17 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     /// initializes it, or one it already reported. Any other one in a
     /// constructor is SC071E (visit_assign_operator_expr). Ranges, not
     /// nodes: an instance's constructor is a copy of its pattern's.
-    priv var _approved: cxx::std::vector<SourceRange>
+    priv var _approved: [SourceRange]
     /// The array fields whose write the walk reported, so the end of the
     /// walk does not report the same field's paths again.
-    priv var _erred: cxx::std::vector<unsafe *FieldDecl>
+    priv var _erred: [unsafe *FieldDecl]
     /// Per field (by index): where its elements start in CtorFlow::elems, or
     /// usize(-1) for a field not built element by element (_elem_ok); its
     /// element count; and per element, where it was first built on the path
     /// being walked (the note on a second write).
-    priv var _ebase: cxx::std::vector<usize>
-    priv var _elen:  cxx::std::vector<usize>
-    priv var _eat:   cxx::std::vector<SourceRange>
+    priv var _ebase: [usize]
+    priv var _elen:  [usize]
+    priv var _eat:   [SourceRange]
     priv var _ce:    ConstEval
 
     // The function being traversed, for the stray-assignment rule.
@@ -859,7 +859,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             }
 
             if self._tu.default_is_dependent(fd->type_->canonical) {
-                self._dependent.push_back(fd)
+                self._dependent.push(fd)
             }
         }
 
@@ -880,7 +880,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         kairo::std::destroy(sink)
         self._dependent.clear()
         if !clean {
-            self._approved.resize(approved)
+            self._approved.truncate(approved)
             f->ci_split = 0
         }
 
@@ -1151,7 +1151,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             reads.dispatch_stmt(stmts[i])
         }
 
-        var crossing = cxx::std::vector<unsafe *Decl>()
+        var crossing: [unsafe *Decl]
         for var i: usize = 0; i <= frontier; ++i {
             var unsafe *ds = dyn_cast<Statements::DeclStmt>(stmts[i])
             if ds == &null || ds->decl == &null || !isa<VariableDecl>(ds->decl) {
@@ -1194,7 +1194,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 continue
             }
 
-            crossing.push_back(v)
+            crossing.push(v)
         }
 
         if self._failed {
@@ -1488,7 +1488,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         self._replay(unsafe &sc.events)
     }
 
-    priv fn _replay(self, ev: unsafe *cxx::std::vector<CtorEvent>) {
+    priv fn _replay(self, ev: unsafe *[CtorEvent]) {
         for var i: usize = 0; i < ev->size(); ++i {
             var e = (*ev)[i]
             match e.kind {
@@ -1528,7 +1528,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             // one to a const or an array is refused as anywhere else.
         } else if !f->is_const() && ctor_init_is_array(f) && !compound {
             var nm = self.sc->ctx->get_spelling(f->name)
-            self._approved.push_back(at)
+            self._approved.push(at)
             if self._loops > 0 {
                 var b = self.sc->diag->report(
                     DiagID::SC071E,
@@ -1542,7 +1542,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     f"'{nm}' is declared here; initialize it before the loop",
                 )->child_first(f->name.range)
                 b.emit()
-                self._erred.push_back(f)
+                self._erred.push(f)
                 self._failed = true
             } else if self._st.fields[i] != FieldInit::No {
                 var b = self.sc->diag->report(
@@ -1561,7 +1561,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 }
 
                 b.emit()
-                self._erred.push_back(f)
+                self._erred.push(f)
                 self._failed = true
             } else {
                 self._array_gate(f, at)
@@ -1569,7 +1569,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         } else if f->is_const() {
             var nm = self.sc->ctx->get_spelling(f->name)
             if ctor_init_is_array(f) {
-                self._approved.push_back(at)
+                self._approved.push(at)
             }
 
             if f->init != &null {
@@ -1783,7 +1783,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 f"'{nm}' has no default; write 'self.{nm}[0] = ...' through 'self.{nm}[{len - 1}] = ...' outside the loop, or assign it whole ('self.{nm} = [...]')",
             )->child_first(f->name.range)
             b.emit()
-            self._erred.push_back(f)
+            self._erred.push(f)
             self._failed = true
             ok           = false
         } else if !c.ok || c.overflow {
@@ -1799,7 +1799,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 f"'{nm}' has no default, so the constructor builds it whole ('self.{nm} = [...]') or writes each of its {len} elements once with a constant index",
             )->child_first(f->name.range)
             b.emit()
-            self._erred.push_back(f)
+            self._erred.push(f)
             self._failed = true
         } else if !ok {
             var b = self.sc->diag->report(
@@ -1811,7 +1811,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
             b.first(sub->index->range)
             b.emit()
             sub->poison() // reported: ArrayIndexCheck skips it.
-            self._erred.push_back(f)
+            self._erred.push(f)
             self._failed = true
         } else if self._st.elems[self._ebase[i] + k] != FieldInit::No {
             var b = self.sc->diag->report(
@@ -2002,11 +2002,11 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     /// last whole write, so the reporting walk reaches the path missing it.
     priv fn _settle(self,
                     fields: FrozenList<unsafe *FieldDecl>,
-                    stmts:  FrozenList<unsafe *Stmt>) -> cxx::std::vector<usize> {
-        var out = cxx::std::vector<usize>()
+                    stmts:  FrozenList<unsafe *Stmt>) -> [usize] {
+        var out: [usize]
         var any = false
         for var i: usize = 0; i < fields.size(); ++i {
-            out.push_back(usize::MAX)
+            out.push(usize::MAX)
             if self._settles(fields[i]) {
                 any = true
             }
@@ -2070,7 +2070,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                 if (i >= self._own) => (FieldInit::Yes) else => FieldInit::No,
             )
 
-            self._assigned_at.push_back(SourceRange::invalid())
+            self._assigned_at.push(SourceRange::invalid())
         }
 
         self._eat.clear()
@@ -2081,7 +2081,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
 
             for var k: usize = 0; k < self._elen[i]; ++k {
                 self._st.elems.push_back(FieldInit::No)
-                self._eat.push_back(SourceRange::invalid())
+                self._eat.push(SourceRange::invalid())
             }
         }
     }
@@ -2201,25 +2201,25 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         var next: usize = 0
         for var i: usize = 0; i < fields.size(); ++i {
             if !self._elem_ok(fields[i]) {
-                self._ebase.push_back(usize::MAX)
-                self._elen.push_back(0 as usize)
+                self._ebase.push(usize::MAX)
+                self._elen.push(0 as usize)
                 continue
             }
 
             var n = cast<FixedArrayType>(
                 canon_unqual(fields[i]->type_->canonical),
             )->size_bits
-            self._ebase.push_back(next)
-            self._elen.push_back(n)
+            self._ebase.push(next)
+            self._elen.push(n)
             next += n
         }
     }
 
-    priv fn _elem_fields(self) -> cxx::std::vector<unsafe *FieldDecl> {
-        var out = cxx::std::vector<unsafe *FieldDecl>()
+    priv fn _elem_fields(self) -> [unsafe *FieldDecl] {
+        var out: [unsafe *FieldDecl]
         for var i: usize = 0; i < self._fields.size(); ++i {
             if self._ebase[i] != usize::MAX {
-                out.push_back(self._fields[i])
+                out.push(self._fields[i])
             }
         }
 
@@ -2260,10 +2260,10 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     /// "element 1 is" / "elements 1, 3 and 4 are": the elements of field
     /// `i` not built on every path walked so far.
     priv fn _missing_elems(self, i: usize) -> string {
-        var miss = cxx::std::vector<usize>()
+        var miss: [usize]
         for var k: usize = 0; k < self._elen[i]; ++k {
             if self._st.elems[self._ebase[i] + k] != FieldInit::Yes {
-                miss.push_back(k)
+                miss.push(k)
             }
         }
 

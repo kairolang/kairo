@@ -188,8 +188,8 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
         var unsafe *usize_t = self.sc->builtin(BuiltinKind::USize)
 
         var stmts      = self.list_builder<unsafe *Stmt>()
-        var args       = cxx::std::vector<unsafe *Expr>() // per hole: what the put reads.
-        var lens       = cxx::std::vector<unsafe *VariableDecl>() // the string locals whose `len` joins the bound.
+        var args: [unsafe *Expr] // per hole: what the put reads.
+        var lens: [unsafe *VariableDecl] // the string locals whose `len` joins the bound.
         var bound: u64 = 0
 
         // 1. Bind, in source order.
@@ -228,7 +228,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                     unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
                 )
 
-                lens.push_back(vd)
+                lens.push(vd)
                 arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
             } else if h->kind == FormatKind::String {
                 // Read twice (its len, then its bytes): one local.
@@ -240,7 +240,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                     unsafe (DeclStmt::create(self.ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
                 )
 
-                lens.push_back(vd)
+                lens.push(vd)
                 arg = self.synth.use_of(vd, at, Expr::ValueCategory::LValue)
             } else if h->by_addr {
                 // The value's address: its own if it has one, a local's if not.
@@ -292,7 +292,7 @@ pub class FStringLowering derives ASTWriter<FStringLowering> {
                 }
             }
 
-            args.push_back(arg)
+            args.push(arg)
             bound += self._max_bytes(h, e)
         }
 

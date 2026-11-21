@@ -365,10 +365,10 @@ pub class ArgInfo {
 }
 
 /// An independent copy of `v`.
-pub fn copy_args(const v: cxx::std::vector<ArgInfo>) -> cxx::std::vector<ArgInfo> {
-    var out = cxx::std::vector<ArgInfo>()
+pub fn copy_args(const v: [ArgInfo]) -> [ArgInfo] {
+    var out: [ArgInfo]
     for var i: usize = 0; i < v.size(); ++i {
-        out.push_back(v[i].copy())
+        out.push(v[i].copy())
     }
 
     return out
@@ -521,9 +521,9 @@ pub class Candidate {
     /// ARG_C_VARARG for a C `...` tail (no parameter at all;
     /// finish_call_args finds none and types a literal there with its
     /// default, which is C's promotion).
-    pub var arg_to_param: cxx::std::vector<usize>
+    pub var arg_to_param: [usize]
     /// per arg: how it was judged (ArgJudgment), one entry per argument.
-    pub var judged: cxx::std::vector<ArgJudgment>
+    pub var judged: [ArgJudgment]
     /// The implicit object parameter, judged like one more reference
     /// argument: ConstLRef `const self`, LRef plain `self`, RRef a `q() &&`,
     /// None not judged (no receiver object known). recv_const is the
@@ -536,17 +536,17 @@ pub class Candidate {
     /// Arguments that reached an `@inout` parameter WITHOUT the marker.
     /// Viable (migration tolerance); CallTyping warns after selection. The
     /// two are parallel: arg index, the parameter it landed on.
-    pub var inout_unmarked: cxx::std::vector<usize>
-    pub var inout_params:   cxx::std::vector<unsafe *ParamDecl>
+    pub var inout_unmarked: [usize]
+    pub var inout_params:   [unsafe *ParamDecl]
     /// Arguments a C++ callee takes through ONE implicit user-defined
     /// conversion (-fcxx-implicit-conv): ranked below every standard
     /// conversion (rank 2), emitted as written for C++ to convert.
-    pub var user_convs: cxx::std::vector<usize>
+    pub var user_convs: [usize]
     /// The subset of user_convs whose parameter Kairo cannot read before
     /// clang substitutes it (`fmt::format_string<T...>`: an alias over the
     /// pack, a non-deduced context): clang checks the conversion against
     /// the specialization's own parameter (_clang_substitute).
-    pub var clang_convs: cxx::std::vector<usize>
+    pub var clang_convs: [usize]
     /// Without the flag: the record a C++ user-defined conversion would
     /// have reached ("" none), and how, for the note on the argument.
     pub var uconv_to:  string    = ""
@@ -601,7 +601,7 @@ pub class Candidate {
 pub class OvlResult {
     pub var outcome:      OvlOutcome              = OvlOutcome::Empty
     pub var decl:         unsafe *FunctionDecl    = &null
-    pub var arg_to_param: cxx::std::vector<usize>
+    pub var arg_to_param: [usize]
     pub var via_free:     bool                    = false ///< winner came from the free list: arg_to_param indexes fargs.
     /// The receiver was bound to the winner's `self`, which then matched no
     /// argument: arg_to_param indexes the params AFTER `self`.
@@ -619,9 +619,9 @@ pub class OvlResult {
     /// call had no receiver.
     pub var receiver: unsafe *Type = &null
     /// Copied off the winner; see Candidate.
-    pub var inout_unmarked: cxx::std::vector<usize>
-    pub var inout_params:   cxx::std::vector<unsafe *ParamDecl>
-    pub var user_convs:     cxx::std::vector<usize>
+    pub var inout_unmarked: [usize]
+    pub var inout_params:   [unsafe *ParamDecl]
+    pub var user_convs:     [usize]
     /// The instance a GENERIC winner was registered as (call_result_type),
     /// null for a non-generic one or a dependent call.
     pub var instance: unsafe *InstanceEntry = &null
@@ -736,7 +736,7 @@ pub class OverloadResolution {
     ///   by the receiver. Null on every other call.
     fn resolve(self,
                cands:        unsafe *cxx::std::vector<unsafe *Decl>,
-               args:         unsafe *cxx::std::vector<ArgInfo>,
+               args:         unsafe *[ArgInfo],
                has_receiver: bool,
                at:           SourceRange,
                const name:   string,
@@ -770,7 +770,7 @@ pub class OverloadResolution {
     /// candidate is OvlOutcome::Deferred, silently.
     fn resolve_deferred(self,
                         cands:        unsafe *cxx::std::vector<unsafe *Decl>,
-                        args:         unsafe *cxx::std::vector<ArgInfo>,
+                        args:         unsafe *[ArgInfo],
                         has_receiver: bool,
                         at:           SourceRange,
                         const name:   string,
@@ -804,16 +804,16 @@ pub class OverloadResolution {
     /// iterators, beside a std full of `!=` for optional, variant, pair.
     fn any_viable(self,
                   members:      unsafe *cxx::std::vector<unsafe *Decl>,
-                  margs:        unsafe *cxx::std::vector<ArgInfo>,
+                  margs:        unsafe *[ArgInfo],
                   has_receiver: bool,
                   frees:        unsafe *cxx::std::vector<unsafe *Decl>,
-                  fargs:        unsafe *cxx::std::vector<ArgInfo>,
+                  fargs:        unsafe *[ArgInfo],
                   receiver:     unsafe *Type = &null) -> bool {
         if self._any_dependent(margs) || self._any_dependent(fargs) {
             return true
         }
 
-        var cs = cxx::std::vector<Candidate>()
+        var cs: [Candidate]
         self._collect(
             unsafe &cs,
             members,
@@ -867,10 +867,10 @@ pub class OverloadResolution {
 
     fn resolve_mixed(self,
                      members:      unsafe *cxx::std::vector<unsafe *Decl>,
-                     margs:        unsafe *cxx::std::vector<ArgInfo>,
+                     margs:        unsafe *[ArgInfo],
                      has_receiver: bool,
                      frees:        unsafe *cxx::std::vector<unsafe *Decl>,
-                     fargs:        unsafe *cxx::std::vector<ArgInfo>,
+                     fargs:        unsafe *[ArgInfo],
                      at:           SourceRange,
                      const name:   string,
                      receiver:     unsafe *Type = &null,
@@ -899,7 +899,7 @@ pub class OverloadResolution {
             return out
         }
 
-        var cs = cxx::std::vector<Candidate>()
+        var cs: [Candidate]
         self._collect(
             unsafe &cs,
             members,
@@ -965,10 +965,10 @@ pub class OverloadResolution {
             return out
         }
 
-        var winners = cxx::std::vector<usize>()
+        var winners: [usize]
         for var i: usize = 0; i < cs.size(); ++i {
             if cs[i].viable() && cs[i].rank == best {
-                winners.push_back(i)
+                winners.push(i)
             }
         }
 
@@ -976,10 +976,10 @@ pub class OverloadResolution {
         // Exact winner at best -- never beat one. Only at Exact: a firm
         // Converted winner could still tie an assumed one at the instance.
         if defer && winners.size() > 1 && best == 0 {
-            var firm = cxx::std::vector<usize>()
+            var firm: [usize]
             for var i: usize = 0; i < winners.size(); ++i {
                 if cs[winners[i]].verdict() != Verdict::Assumed {
-                    firm.push_back(winners[i])
+                    firm.push(winners[i])
                 }
             }
 
@@ -994,10 +994,10 @@ pub class OverloadResolution {
         // stand-in for `Cp` answers truly. Alone, it stands: the concept a
         // Kairo record meets through its methods is not one a stand-in can.
         if winners.size() > 1 {
-            var firm = cxx::std::vector<usize>()
+            var firm: [usize]
             for var i: usize = 0; i < winners.size(); ++i {
                 if cs[winners[i]].verdict() != Verdict::SoftRejected {
-                    firm.push_back(winners[i])
+                    firm.push(winners[i])
                 }
             }
 
@@ -1030,10 +1030,10 @@ pub class OverloadResolution {
 
         // non-generic beats generic.
         if winners.size() > 1 {
-            var nongen = cxx::std::vector<usize>()
+            var nongen: [usize]
             for var i: usize = 0; i < winners.size(); ++i {
                 if !cs[winners[i]].generic {
-                    nongen.push_back(winners[i])
+                    nongen.push(winners[i])
                 }
             }
 
@@ -1106,13 +1106,13 @@ pub class OverloadResolution {
         out.outcome        = OvlOutcome::Selected
         out.decl           = w->f
         out.overloaded     = cs.size() > 1
-        out.arg_to_param   = w->arg_to_param
+        out.arg_to_param   = w->arg_to_param.copy()
         out.via_free       = w->free
         out.receiver_bound = has_receiver && !w->free
         out.ded            = w->ded
-        out.inout_unmarked = w->inout_unmarked
-        out.inout_params   = w->inout_params
-        out.user_convs     = w->user_convs
+        out.inout_unmarked = w->inout_unmarked.copy()
+        out.inout_params   = w->inout_params.copy()
+        out.user_convs     = w->user_convs.copy()
         out.cxx_ret        = w->cxx_ret
         out.cxx_spec       = w->cxx_spec
         out.cxx_spec_set   = w->cxx_spec_set
@@ -1130,13 +1130,13 @@ pub class OverloadResolution {
     /// standing against the one viable candidate it stays selected, and
     /// ConformanceChecking reports the clause at the instance; with
     /// several, each rejection is a note of the no-viable error.
-    priv fn _requires_filter(self, cs: unsafe *cxx::std::vector<Candidate>) {
+    priv fn _requires_filter(self, cs: unsafe *[Candidate]) {
         if cs->size() < 2 {
             return
         }
 
-        var fails = cxx::std::vector<usize>()
-        var whys  = cxx::std::vector<string>()
+        var fails: [usize]
+        var whys:  [string]
         var held  = 0 as usize
         for var i: usize = 0; i < cs->size(); ++i {
             var *c = &(*cs)[i]
@@ -1169,8 +1169,8 @@ pub class OverloadResolution {
                 continue
             }
 
-            fails.push_back(i)
-            whys.push_back(f"{what} does not hold: {r.why}")
+            fails.push(i)
+            whys.push(f"{what} does not hold: {r.why}")
         }
 
         if fails.size() == 0 || (held == 0 && fails.size() == 1) {
@@ -1190,14 +1190,12 @@ pub class OverloadResolution {
     /// parameters the call's arguments landed on; a pack or C `...` slot
     /// leaves the tie for the ambiguity diagnostic. Two candidates equally
     /// specialized are ordered by their constraints (_more_specialized).
-    priv fn _partial_order(self,
-                           cs:             unsafe *cxx::std::vector<Candidate>,
-                           @inout winners: cxx::std::vector<usize>) -> cxx::std::vector<usize> {
+    priv fn _partial_order(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
         var *first = &(*cs)[(((winners)[0]))]
         for var i: usize = 0; i < winners.size(); ++i {
             var *c = &(*cs)[(((winners)[i]))]
             if !(c->generic || self._of_generic_extension(c->f)) || c->free != first->free {
-                return winners
+                return winners.copy()
             }
         }
 
@@ -1217,13 +1215,13 @@ pub class OverloadResolution {
             }
 
             if best {
-                var one = cxx::std::vector<usize>()
-                one.push_back((winners)[i])
+                var one: [usize]
+                one.push((winners)[i])
                 return one
             }
         }
 
-        return winners
+        return winners.copy()
     }
 
     /// `f` is a member of a generic extension (`extend <T> Box<T>`): a
@@ -1396,7 +1394,7 @@ pub class OverloadResolution {
     /// The parameter types `c`'s arguments landed on, in argument order;
     /// empty if one landed on a pack or C `...` tail, or a type is missing.
     priv fn _ordering_params(self, c: *Candidate) -> cxx::std::vector<unsafe *Type> {
-        var params = cxx::std::vector<unsafe *ParamDecl>()
+        var params: [unsafe *ParamDecl]
         for var i: usize = 0; i < c->f->params.size(); ++i {
             var unsafe *p = c->f->params[i]
             if p == &null {
@@ -1407,7 +1405,7 @@ pub class OverloadResolution {
                 continue
             }
 
-            params.push_back(p)
+            params.push(p)
         }
 
         var out = cxx::std::vector<unsafe *Type>()
@@ -1445,9 +1443,7 @@ pub class OverloadResolution {
     /// with an assumed candidate in it is not an ambiguity anyone can see
     /// yet. A lone assumed winner is a choice only when it is the ONLY viable
     /// candidate; otherwise the instance may rank it below another.
-    priv fn _undecided(self,
-                       const cs:      cxx::std::vector<Candidate>,
-                       const winners: cxx::std::vector<usize>) -> bool {
+    priv fn _undecided(self, const cs: [Candidate], const winners: [usize]) -> bool {
         var any_assumed = false
         for var i: usize = 0; i < winners.size(); ++i {
             if (cs)[(((winners)[i]))].verdict() == Verdict::Assumed {
@@ -1475,9 +1471,7 @@ pub class OverloadResolution {
 
     /// Every one of `winners` is an imported template whose substitution
     /// waits on a dependent argument (Verdict::SfinaeDeferred).
-    priv fn _sfinae_pending(self,
-                            const cs:      cxx::std::vector<Candidate>,
-                            const winners: cxx::std::vector<usize>) -> bool {
+    priv fn _sfinae_pending(self, const cs: [Candidate], const winners: [usize]) -> bool {
         for var i: usize = 0; i < winners.size(); ++i {
             if (cs)[(((winners)[i]))].verdict() != Verdict::SfinaeDeferred {
                 return false
@@ -1489,11 +1483,11 @@ pub class OverloadResolution {
 
     /// The winners no other winner beats on reference kind.
     priv fn _ref_tiebreak(self,
-                          cs:             unsafe *cxx::std::vector<Candidate>,
-                          @inout winners: cxx::std::vector<usize>,
-                          margs:          unsafe *cxx::std::vector<ArgInfo>,
-                          fargs:          unsafe *cxx::std::vector<ArgInfo>) -> cxx::std::vector<usize> {
-        var keep = cxx::std::vector<usize>()
+                          cs:             unsafe *[Candidate],
+                          @inout winners: [usize],
+                          margs:          unsafe *[ArgInfo],
+                          fargs:          unsafe *[ArgInfo]) -> [usize] {
+        var keep: [usize]
         for var i: usize = 0; i < winners.size(); ++i {
             var *ci    = &(*cs)[(((winners)[i]))]
             var beaten = false
@@ -1511,12 +1505,12 @@ pub class OverloadResolution {
             }
 
             if !beaten {
-                keep.push_back((winners)[i])
+                keep.push((winners)[i])
             }
         }
 
         if keep.size() == 0 { // a strict order never beats everyone; defensive.
-            return winners
+            return winners.copy()
         }
 
         return keep
@@ -1532,10 +1526,7 @@ pub class OverloadResolution {
     /// Candidates from different argument lists (a member judged against the
     /// operands minus the receiver, a free function against all of them)
     /// are not position-aligned, so they never beat each other here.
-    priv fn _ref_better(self,
-                        x:    *Candidate,
-                        y:    *Candidate,
-                        args: unsafe *cxx::std::vector<ArgInfo>) -> bool {
+    priv fn _ref_better(self, x: *Candidate, y: *Candidate, args: unsafe *[ArgInfo]) -> bool {
         if x->free != y->free {
             return false
         }
@@ -1605,10 +1596,8 @@ pub class OverloadResolution {
     }
 
     /// The winners no other winner beats on integer spelling.
-    priv fn _int_tiebreak(self,
-                          cs:             unsafe *cxx::std::vector<Candidate>,
-                          @inout winners: cxx::std::vector<usize>) -> cxx::std::vector<usize> {
-        var keep = cxx::std::vector<usize>()
+    priv fn _int_tiebreak(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
+        var keep: [usize]
         for var i: usize = 0; i < winners.size(); ++i {
             var *ci    = &(*cs)[(((winners)[i]))]
             var beaten = false
@@ -1624,12 +1613,12 @@ pub class OverloadResolution {
             }
 
             if !beaten {
-                keep.push_back((winners)[i])
+                keep.push((winners)[i])
             }
         }
 
         if keep.size() == 0 { // defensive, as _ref_tiebreak.
-            return winners
+            return winners.copy()
         }
 
         return keep
@@ -1671,10 +1660,8 @@ pub class OverloadResolution {
     }
 
     /// The winners no other winner beats on pointee cv.
-    priv fn _cv_tiebreak(self,
-                         cs:             unsafe *cxx::std::vector<Candidate>,
-                         @inout winners: cxx::std::vector<usize>) -> cxx::std::vector<usize> {
-        var keep = cxx::std::vector<usize>()
+    priv fn _cv_tiebreak(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
+        var keep: [usize]
         for var i: usize = 0; i < winners.size(); ++i {
             var *ci    = &(*cs)[(((winners)[i]))]
             var beaten = false
@@ -1690,12 +1677,12 @@ pub class OverloadResolution {
             }
 
             if !beaten {
-                keep.push_back((winners)[i])
+                keep.push((winners)[i])
             }
         }
 
         if keep.size() == 0 { // defensive, as _ref_tiebreak.
-            return winners
+            return winners.copy()
         }
 
         return keep
@@ -1774,10 +1761,8 @@ pub class OverloadResolution {
     }
 
     /// The winners no other winner beats on a float literal's type.
-    priv fn _flit_tiebreak(self,
-                           cs:             unsafe *cxx::std::vector<Candidate>,
-                           @inout winners: cxx::std::vector<usize>) -> cxx::std::vector<usize> {
-        var keep = cxx::std::vector<usize>()
+    priv fn _flit_tiebreak(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
+        var keep: [usize]
         for var i: usize = 0; i < winners.size(); ++i {
             var *ci    = &(*cs)[(((winners)[i]))]
             var beaten = false
@@ -1793,12 +1778,12 @@ pub class OverloadResolution {
             }
 
             if !beaten {
-                keep.push_back((winners)[i])
+                keep.push((winners)[i])
             }
         }
 
         if keep.size() == 0 { // defensive, as _ref_tiebreak.
-            return winners
+            return winners.copy()
         }
 
         return keep
@@ -2022,7 +2007,7 @@ pub class OverloadResolution {
     /// Free candidates, and two methods of unrelated classes (two bases of
     /// a multiple-inheritance class: C++ calls that ambiguous too), are
     /// never compared.
-    priv fn _hide(self, cs: unsafe *cxx::std::vector<Candidate>) {
+    priv fn _hide(self, cs: unsafe *[Candidate]) {
         for var i: usize = 0; i < cs->size(); ++i {
             var *y = &(*cs)[i]
             if !y->viable() || y->free {
@@ -2085,17 +2070,17 @@ pub class OverloadResolution {
             return false
         }
 
-        var px = cxx::std::vector<unsafe *ParamDecl>()
-        var py = cxx::std::vector<unsafe *ParamDecl>()
+        var px: [unsafe *ParamDecl]
+        var py: [unsafe *ParamDecl]
         for var i: usize = 0; i < fx->params.size(); ++i {
             if fx->params[i] != &null && !fx->params[i]->is_self {
-                px.push_back(fx->params[i])
+                px.push(fx->params[i])
             }
         }
 
         for var i: usize = 0; i < fy->params.size(); ++i {
             if fy->params[i] != &null && !fy->params[i]->is_self {
-                py.push_back(fy->params[i])
+                py.push(fy->params[i])
             }
         }
 
@@ -2336,7 +2321,7 @@ pub class OverloadResolution {
         return RefBind::None
     }
 
-    priv fn _any_dependent(self, args: unsafe *cxx::std::vector<ArgInfo>) -> bool {
+    priv fn _any_dependent(self, args: unsafe *[ArgInfo]) -> bool {
         if args == &null {
             return false
         }
@@ -2354,9 +2339,9 @@ pub class OverloadResolution {
     /// `cs`, skipping one `cs` already holds (fwd + def are one entity,
     /// RedeclMerge; and a decl reached as both member and ADL free is one).
     priv fn _collect(self,
-                     cs:           unsafe *cxx::std::vector<Candidate>,
+                     cs:           unsafe *[Candidate],
                      cands:        unsafe *cxx::std::vector<unsafe *Decl>,
-                     args:         unsafe *cxx::std::vector<ArgInfo>,
+                     args:         unsafe *[ArgInfo],
                      has_receiver: bool,
                      receiver:     unsafe *Type,
                      free:         bool,
@@ -2412,7 +2397,7 @@ pub class OverloadResolution {
             c.generic = f->generic_params.size() > 0
             c.ded     = Deduction(self.sc, self.conv)
             if !self._bind_explicit(&c) {
-                cs->push_back(c)
+                cs->push(c)
                 continue
             }
 
@@ -2421,7 +2406,7 @@ pub class OverloadResolution {
                 self._clang_substitute(&c, args, has_receiver)
             }
 
-            cs->push_back(c)
+            cs->push(c)
         }
     }
 
@@ -2441,16 +2426,13 @@ pub class OverloadResolution {
     /// implicit object is not one of them (no explicit object parameters
     /// are imported), so a `Type::m(obj, ...)` call drops `obj`. Anything
     /// clang cannot be shown leaves the candidate as Kairo judged it.
-    priv fn _clang_substitute(self,
-                              c:            *Candidate,
-                              args:         unsafe *cxx::std::vector<ArgInfo>,
-                              has_receiver: bool) {
+    priv fn _clang_substitute(self, c: *Candidate, args: unsafe *[ArgInfo], has_receiver: bool) {
         if self.sc->foreign == &null || args == &null {
             return
         }
 
         var unsafe *f     = c->f
-        var        params = cxx::std::vector<unsafe *ParamDecl>()
+        var        params: [unsafe *ParamDecl]
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]
             if p == &null {
@@ -2461,10 +2443,10 @@ pub class OverloadResolution {
                 continue
             }
 
-            params.push_back(p)
+            params.push(p)
         }
 
-        var order = cxx::std::vector<usize>()
+        var order: [usize]
         for var k: usize = 0; k < params.size(); ++k {
             if params[k]->is_self {
                 continue
@@ -2473,7 +2455,7 @@ pub class OverloadResolution {
             if params[k]->is_pack {
                 for var i: usize = 0; i < args->size(); ++i {
                     if c->arg_to_param[i] == ARG_PACK_TAIL {
-                        order.push_back(i)
+                        order.push(i)
                     }
                 }
 
@@ -2482,14 +2464,14 @@ pub class OverloadResolution {
 
             for var i: usize = 0; i < args->size(); ++i {
                 if c->arg_to_param[i] == k {
-                    order.push_back(i)
+                    order.push(i)
                 }
             }
         }
 
         for var i: usize = 0; i < args->size(); ++i {
             if c->arg_to_param[i] == ARG_C_VARARG {
-                order.push_back(i)
+                order.push(i)
             }
         }
 
@@ -2917,14 +2899,14 @@ pub class OverloadResolution {
 
     priv fn _judge(self,
                    c:            unsafe *Candidate,
-                   args:         unsafe *cxx::std::vector<ArgInfo>,
+                   args:         unsafe *[ArgInfo],
                    has_receiver: bool,
                    receiver:     unsafe *Type,
                    qualifier:    unsafe *Type = &null) {
         var unsafe *f = c->f
 
         // parameter slots, skipping the receiver when it is bound elsewhere.
-        var params = cxx::std::vector<unsafe *ParamDecl>()
+        var params: [unsafe *ParamDecl]
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]
             if p == &null {
@@ -2940,7 +2922,7 @@ pub class OverloadResolution {
                 continue
             }
 
-            params.push_back(p)
+            params.push(p)
         }
 
         // An extension's own parameters are the receiver's, decided before any
@@ -3010,14 +2992,14 @@ pub class OverloadResolution {
             }
         }
 
-        var filled = cxx::std::vector<u8>()
+        var filled: [u8]
         for var i: usize = 0; i < nparams; ++i {
-            filled.push_back(0)
+            filled.push(0)
         }
 
         for var i: usize = 0; i < args->size(); ++i {
-            c->arg_to_param.push_back(ARG_PACK_TAIL) // placed below
-            c->judged.push_back(ArgJudgment{})
+            c->arg_to_param.push(ARG_PACK_TAIL) // placed below
+            c->judged.push(ArgJudgment{})
         }
 
         // 1. NAMED first, then positional. Placement has to know which slots a
@@ -3201,8 +3183,8 @@ pub class OverloadResolution {
         // `v: S::Item?`) is a non-deduced context ([temp.deduct.type]/5.1):
         // it is ranked after every other argument, against its type at what
         // they deduced (J := Count makes it Count's Item).
-        var order = cxx::std::vector<usize>()
-        var later = cxx::std::vector<usize>()
+        var order: [usize]
+        var later: [usize]
         for var i: usize = 0; i < args->size(); ++i {
             var pj                    = c->arg_to_param[i]
             var pd: unsafe *ParamDecl = &null
@@ -3216,14 +3198,14 @@ pub class OverloadResolution {
                 && !pd->is_self
                 && pd->type_ != &null
                 && self._reads_assoc(pd->type_->canonical) {
-                later.push_back(i)
+                later.push(i)
             } else {
-                order.push_back(i)
+                order.push(i)
             }
         }
 
         for var i: usize = 0; i < later.size(); ++i {
-            order.push_back(later[i])
+            order.push(later[i])
         }
 
         for var oi: usize = 0; oi < order.size(); ++oi {
@@ -3429,8 +3411,8 @@ pub class OverloadResolution {
                         && self._is_cxx_record(
                             canon_unqual(self.tu.as_value(a->ty)),
                         ))) {
-                c->user_convs.push_back(i)
-                c->clang_convs.push_back(i)
+                c->user_convs.push(i)
+                c->clang_convs.push(i)
                 if c->rank < CAND_USER_CONV {
                     c->rank = CAND_USER_CONV
                 }
@@ -3439,7 +3421,7 @@ pub class OverloadResolution {
             }
 
             if uvia != "" && cxx_conv {
-                c->user_convs.push_back(i)
+                c->user_convs.push(i)
                 if c->rank < CAND_USER_CONV {
                     c->rank = CAND_USER_CONV
                 }
@@ -3639,8 +3621,8 @@ pub class OverloadResolution {
             }
 
             if mode == ParamMode::Inout && !a->marked {
-                c->inout_unmarked.push_back(i)
-                c->inout_params.push_back(p)
+                c->inout_unmarked.push(i)
+                c->inout_params.push(p)
             }
         }
 
@@ -3679,7 +3661,7 @@ pub class OverloadResolution {
     priv fn _keyword_only_meant(self,
                                 c:        unsafe *Candidate,
                                 a:        *ArgInfo,
-                                params:   unsafe *cxx::std::vector<unsafe *ParamDecl>,
+                                params:   unsafe *[unsafe *ParamDecl],
                                 pack_at:  usize,
                                 nparams:  usize,
                                 receiver: unsafe *Type) -> usize {
@@ -3714,7 +3696,7 @@ pub class OverloadResolution {
     /// top-level cv dropped, `Self` resolved through the receiver.
     priv fn _param_target(self,
                           c:            unsafe *Candidate,
-                          const params: cxx::std::vector<unsafe *ParamDecl>,
+                          const params: [unsafe *ParamDecl],
                           j:            usize,
                           receiver:     unsafe *Type) -> unsafe *Type {
         var unsafe *p = (params)[j]
@@ -4782,9 +4764,9 @@ pub class OverloadResolution {
     /// object of a method a candidate refused for its constness, an
     /// argument such a candidate refused, or an address `&x` of one.
     priv fn _borrowed_in_call(self,
-                              cs:    unsafe *cxx::std::vector<Candidate>,
-                              margs: unsafe *cxx::std::vector<ArgInfo>,
-                              fargs: unsafe *cxx::std::vector<ArgInfo>) -> unsafe *VariableDecl {
+                              cs:    unsafe *[Candidate],
+                              margs: unsafe *[ArgInfo],
+                              fargs: unsafe *[ArgInfo]) -> unsafe *VariableDecl {
         var const_reject = false
         for var i: usize = 0; i < cs->size(); ++i {
             if (*cs)[i].const_reject {
@@ -4799,9 +4781,9 @@ pub class OverloadResolution {
             }
         }
 
-        var lists = cxx::std::vector<unsafe *cxx::std::vector<ArgInfo>>()
-        lists.push_back(margs)
-        lists.push_back(fargs)
+        var lists: [unsafe *[ArgInfo]]
+        lists.push(margs)
+        lists.push(fargs)
         for var l: usize = 0; l < lists.size(); ++l {
             var unsafe *as_ = lists[l]
             if as_ == &null {
@@ -4831,11 +4813,11 @@ pub class OverloadResolution {
     }
 
     priv fn _report_no_viable(self,
-                              cs:         unsafe *cxx::std::vector<Candidate>,
+                              cs:         unsafe *[Candidate],
                               at:         SourceRange,
                               const name: string,
-                              margs:      unsafe *cxx::std::vector<ArgInfo> = &null,
-                              fargs:      unsafe *cxx::std::vector<ArgInfo> = &null) {
+                              margs:      unsafe *[ArgInfo] = &null,
+                              fargs:      unsafe *[ArgInfo] = &null) {
         var unsafe *bb = self._borrowed_in_call(cs, margs, fargs)
         // One candidate: the rule that rejected it IS the error, named at the
         // call. "no matching overload" plus a single note says the same thing
@@ -4874,7 +4856,7 @@ pub class OverloadResolution {
         // record: the note names how, and `as` is the edit. Several (each
         // overload reachable by its own conversion): the note lists them and
         // no edit is offered, since which one is meant is the user's call.
-        var utargets       = cxx::std::vector<string>()
+        var utargets: [string]
         var ufirst:  usize = usize::MAX
         for var i: usize = 0; i < cs->size(); ++i {
             var *c = &(*cs)[i]
@@ -4891,7 +4873,7 @@ pub class OverloadResolution {
             }
 
             if !dup {
-                utargets.push_back(c->uconv_to.copy())
+                utargets.push(c->uconv_to.copy())
             }
 
             if ufirst == usize::MAX {
@@ -4967,10 +4949,10 @@ pub class OverloadResolution {
     /// `place(Shape, i64)`, `Shape::Empty` decides nothing, the tie is in
     /// another argument, and the cast hint is the right one.
     priv fn _variant_spellings(self,
-                               @inout cs:     cxx::std::vector<Candidate>,
-                               const winners: cxx::std::vector<usize>,
-                               margs:         unsafe *cxx::std::vector<ArgInfo>,
-                               fargs:         unsafe *cxx::std::vector<ArgInfo>) -> string {
+                               @inout cs:     [Candidate],
+                               const winners: [usize],
+                               margs:         unsafe *[ArgInfo],
+                               fargs:         unsafe *[ArgInfo]) -> string {
         // A member and a free winner index different argument lists, so the
         // `.V` is found per winner and matched across them by its node,
         // never by index.
@@ -4986,7 +4968,7 @@ pub class OverloadResolution {
                 continue
             }
 
-            var names = cxx::std::vector<string>()
+            var names: [string]
             for var i: usize = 0; i < winners.size(); ++i {
                 var        *c                 = &(cs)[(((winners)[i]))]
                 var unsafe *args              = if (c->free) => (fargs) else => margs
@@ -5018,7 +5000,7 @@ pub class OverloadResolution {
                 }
 
                 if !dup {
-                    names.push_back(n)
+                    names.push(n)
                 }
             }
 
@@ -5052,12 +5034,12 @@ pub class OverloadResolution {
     /// bound can (a negated conformance, a value predicate). False, with
     /// nothing reported, when no winner's clause is open.
     priv fn _report_open_tie(self,
-                             cs:         unsafe *cxx::std::vector<Candidate>,
-                             winners:    *cxx::std::vector<usize>,
+                             cs:         unsafe *[Candidate],
+                             winners:    *[usize],
                              at:         SourceRange,
                              const name: string) -> bool {
         var cc    = ConformanceChecking(self.sc)
-        var opens = cxx::std::vector<cxx::std::vector<unsafe *Expr>>()
+        var opens: [cxx::std::vector<unsafe *Expr>]
         var any   = false
         for var i: usize = 0; i < winners->size(); ++i {
             var *c = &(*cs)[(*winners)[i]]
@@ -5070,7 +5052,7 @@ pub class OverloadResolution {
                 any = true
             }
 
-            opens.push_back(os)
+            opens.push(os)
         }
 
         if !any {
@@ -5144,10 +5126,10 @@ pub class OverloadResolution {
     }
 
     priv fn _report_ambiguous(self,
-                              cs:         unsafe *cxx::std::vector<Candidate>,
-                              winners:    unsafe *cxx::std::vector<usize>,
-                              margs:      unsafe *cxx::std::vector<ArgInfo>,
-                              fargs:      unsafe *cxx::std::vector<ArgInfo>,
+                              cs:         unsafe *[Candidate],
+                              winners:    unsafe *[usize],
+                              margs:      unsafe *[ArgInfo],
+                              fargs:      unsafe *[ArgInfo],
                               at:         SourceRange,
                               const name: string) {
         var b = self.sc->diag->report(

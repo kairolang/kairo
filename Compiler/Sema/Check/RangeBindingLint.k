@@ -88,7 +88,7 @@ pub struct RangeBindCand {
 /// The pass. Read-only: emits SC281W, writes nothing to the AST.
 pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
     pub var  sc:    unsafe *SemaContext
-    priv var _cand: cxx::std::vector<RangeBindCand>
+    priv var _cand: [RangeBindCand]
     /// VariableDecl -> its index in _cand, plus one.
     priv var _index: llvm::DenseMap<u64, u64>
     /// The references an approving node has claimed: one approval each.
@@ -176,7 +176,7 @@ pub class RangeBindingLint derives RecursiveASTVisitor<RangeBindingLint> {
 
         var c = RangeBindCand{}
         c.decl = unsafe (v as unsafe *VariableDecl)
-        self._cand.push_back(c)
+        self._cand.push(c)
         self._index[v as usize as u64] = self._cand.size() as u64
         return true
     }

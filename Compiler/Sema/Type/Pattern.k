@@ -810,9 +810,9 @@ pub class <T: type> PatternTyping {
             p->pack_index = pick
         }
 
-        var used = cxx::std::vector<u8>()
+        var used: [u8]
         for var k: usize = 0; k < fields.size(); ++k {
-            used.push_back(0)
+            used.push(0)
         }
 
         for var i: usize = 0; i < subs.size(); ++i {

@@ -149,20 +149,20 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
 
     /// Every function seen with a guard or a stamp, once each: a method in a
     /// visibility group is reached through the group and the method list.
-    priv var _seen: cxx::std::vector<unsafe *FunctionDecl>
+    priv var _seen: [unsafe *FunctionDecl]
 
     // The boxes of the group being judged, flat: member m's interval for
     // parameter p is [_lo[m * _np + p], _hi[m * _np + p]].
     priv var _np:     usize                 = 0
-    priv var _lo:     cxx::std::vector<i64>
-    priv var _hi:     cxx::std::vector<i64>
-    priv var _simple: cxx::std::vector<u8>
-    priv var _empty:  cxx::std::vector<u8>
+    priv var _lo:     [i64]
+    priv var _hi:     [i64]
+    priv var _simple: [u8]
+    priv var _empty:  [u8]
     // Each parameter's whole range, and whether it is one the boxes speak
     // of at all (an integer or a bool).
-    priv var _dlo: cxx::std::vector<i64>
-    priv var _dhi: cxx::std::vector<i64>
-    priv var _dok: cxx::std::vector<u8>
+    priv var _dlo: [i64]
+    priv var _dhi: [i64]
+    priv var _dok: [u8]
 
     fn WhereGuardCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -221,7 +221,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
             n->where_lead = n
         }
 
-        self._seen.push_back(n)
+        self._seen.push(n)
         return out
     }
 
@@ -230,11 +230,11 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
     priv fn _judge(self, lead: unsafe *FunctionDecl) {
         // Members in source order. RedeclMerge picked the lead as the first
         // of them, so the lead is members[0].
-        var members = cxx::std::vector<unsafe *FunctionDecl>()
+        var members: [unsafe *FunctionDecl]
         for var i: usize = 0; i < self._seen.size(); ++i {
             var unsafe *f = self._seen[i]
             if f->where_lead == lead {
-                members.push_back(f)
+                members.push(f)
             }
         }
 
@@ -460,10 +460,10 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
                          a:   unsafe *FunctionDecl,
                          b:   unsafe *FunctionDecl,
                          sub: unsafe *Substitution) -> bool {
-        var ai = cxx::std::vector<u32>()
-        var at = cxx::std::vector<unsafe *Type>()
-        var bi = cxx::std::vector<u32>()
-        var bt = cxx::std::vector<unsafe *Type>()
+        var ai: [u32]
+        var at: [unsafe *Type]
+        var bi: [u32]
+        var bt: [unsafe *Type]
         self._bounds_of(a, &null, &ai, &at)
         self._bounds_of(b, sub, &bi, &bt)
         if ai.size() != bi.size() {
@@ -490,8 +490,8 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
     priv fn _bounds_of(self,
                        f:          unsafe *FunctionDecl,
                        sub:        unsafe *Substitution,
-                       @inout idx: cxx::std::vector<u32>,
-                       @inout tys: cxx::std::vector<unsafe *Type>) {
+                       @inout idx: [u32],
+                       @inout tys: [unsafe *Type]) {
         var it = self.sc->bounds.find(
             NameLookup::representative(unsafe (f as unsafe *Decl)) as usize as u64,
         )
@@ -521,11 +521,11 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
                     t = sub->substitute(t)
                 }
 
-                idx.push_back(
+                idx.push(
                     if (gp != &null) => (gp->index + pass * 65536) else => u32::MAX,
                 )
 
-                tys.push_back(t)
+                tys.push(t)
             }
         }
     }
@@ -536,7 +536,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
     /// and must name those parameters the same: the guards move into the
     /// dispatcher, whose template declares the first member's names.
     priv fn _members_agree(self,
-                           const members: cxx::std::vector<unsafe *FunctionDecl>,
+                           const members: [unsafe *FunctionDecl],
                            const name:    string) -> bool {
         var unsafe *a = (members)[0]
         for var i: usize = 1; i < members.size(); ++i {
@@ -715,9 +715,9 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
                 }
             }
 
-            self._dlo.push_back(lo)
-            self._dhi.push_back(hi)
-            self._dok.push_back(ok as u8)
+            self._dlo.push(lo)
+            self._dhi.push(hi)
+            self._dok.push(ok as u8)
         }
 
         self._lo.clear()
@@ -726,12 +726,12 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
         self._empty.clear()
         for var m: usize = 0; m < order.size(); ++m {
             for var p: usize = 0; p < self._np; ++p {
-                self._lo.push_back(self._dlo[p])
-                self._hi.push_back(self._dhi[p])
+                self._lo.push(self._dlo[p])
+                self._hi.push(self._dhi[p])
             }
 
-            self._simple.push_back(1)
-            self._empty.push_back(0)
+            self._simple.push(1)
+            self._empty.push(0)
             var unsafe *f = (order)[m]
             if !self._narrow(m, f, f->where_clause) {
                 self._simple[m] = 0

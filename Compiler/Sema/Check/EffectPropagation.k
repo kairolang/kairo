@@ -949,7 +949,7 @@ pub fn overridden_at(tu:       unsafe *TypeUtil,
     // matched by its symbol.
     var nm = if (m->is_operator) => (OperatorFacts::symbol(m))
              else => tu->decl_name(unsafe (m as unsafe *Decl))
-    var seen = cxx::std::vector<unsafe *Decl>()
+    var seen: [unsafe *Decl]
     var todo = cxx::std::vector<unsafe *Type>()
     for var i: usize = 0; i < cd->derives_list.size(); ++i {
         var unsafe *e = cd->derives_list.get(i)
@@ -988,7 +988,7 @@ pub fn overridden_at(tu:       unsafe *TypeUtil,
             continue
         }
 
-        seen.push_back(d)
+        seen.push(d)
         var unsafe *bc = dyn_cast<Declarations::ClassDecl>(d)
         if bc == &null {
             continue
@@ -1257,13 +1257,13 @@ pub class PanicWalk derives RecursiveASTVisitor<PanicWalk> {
     pub var unbound_fn: cxx::std::vector<unsafe *Declarations::FunctionDecl>
 
     /// The `try`s around the walk, innermost last: indices into `tries`.
-    priv var _open: cxx::std::vector<usize>
+    priv var _open: [usize]
     /// The catch arm being walked, innermost last: its binding's decl, and
     /// the `try` it belongs to. A `panic e` of a bare arm's binding re-panics
     /// whatever that arm caught.
-    priv var _arm_decl: cxx::std::vector<unsafe *Decl>
-    priv var _arm_try:  cxx::std::vector<usize>
-    priv var _arm_bare: cxx::std::vector<u8>
+    priv var _arm_decl: [unsafe *Decl]
+    priv var _arm_try:  [usize]
+    priv var _arm_bare: [u8]
     priv var _depth:    u32                            = 0
     /// What the call being recorded is written as (PanicSite::op_node,
     /// via_for); set around one _call.
@@ -1668,24 +1668,24 @@ pub class PanicWalk derives RecursiveASTVisitor<PanicWalk> {
 
         var idx = self.tries.size()
         self.tries.push_back(t)
-        self._open.push_back(idx)
+        self._open.push(idx)
         if n->try_body != &null {
             self.dyn()->dispatch_stmt(n->try_body)
         }
 
-        self._open.pop_back()
+        self._open.pop()
         for var i: usize = 0; i < n->arms.size(); ++i {
             var unsafe *arm = n->arms.get(i)
-            self._arm_decl.push_back(arm->decl)
-            self._arm_try.push_back(idx)
-            self._arm_bare.push_back((arm->filter == &null) as u8)
+            self._arm_decl.push(arm->decl)
+            self._arm_try.push(idx)
+            self._arm_bare.push((arm->filter == &null) as u8)
             if arm->body != &null {
                 self.dyn()->dispatch_stmt(arm->body)
             }
 
-            self._arm_decl.pop_back()
-            self._arm_try.pop_back()
-            self._arm_bare.pop_back()
+            self._arm_decl.pop()
+            self._arm_try.pop()
+            self._arm_bare.pop()
         }
 
         return n
@@ -1713,24 +1713,24 @@ pub class PanicWalk derives RecursiveASTVisitor<PanicWalk> {
 
         var idx = self.tries.size()
         self.tries.push_back(t)
-        self._open.push_back(idx)
+        self._open.push(idx)
         if n->try_expr != &null {
             self.dyn()->dispatch_expr(n->try_expr)
         }
 
-        self._open.pop_back()
+        self._open.pop()
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
             var unsafe *arm = n->catch_arms.get(i)
-            self._arm_decl.push_back(arm->decl)
-            self._arm_try.push_back(idx)
-            self._arm_bare.push_back((arm->filter == &null) as u8)
+            self._arm_decl.push(arm->decl)
+            self._arm_try.push(idx)
+            self._arm_bare.push((arm->filter == &null) as u8)
             if arm->body != &null {
                 self.dyn()->dispatch_expr(arm->body)
             }
 
-            self._arm_decl.pop_back()
-            self._arm_try.pop_back()
-            self._arm_bare.pop_back()
+            self._arm_decl.pop()
+            self._arm_try.pop()
+            self._arm_bare.pop()
         }
 
         return n
@@ -1804,10 +1804,10 @@ pub fn panic_inferable_closure(c: unsafe *ClosureExpr) -> bool {
 /// Finds every inferable body in one TU.
 pub class EffectCollect derives RecursiveASTVisitor<EffectCollect> {
     pub var  sc:    unsafe *SemaContext
-    pub var  out:   unsafe *cxx::std::vector<EffectEntry>
+    pub var  out:   unsafe *[EffectEntry]
     priv var _seen: llvm::DenseSet<u64>
 
-    fn EffectCollect(self, sc: unsafe *SemaContext, out: unsafe *cxx::std::vector<EffectEntry>) {
+    fn EffectCollect(self, sc: unsafe *SemaContext, out: unsafe *[EffectEntry]) {
         self.sc  = sc
         self.out = out
     }
@@ -1835,7 +1835,7 @@ pub class EffectCollect derives RecursiveASTVisitor<EffectCollect> {
         var e = EffectEntry()
         e.fd = n
         e.sc = self.sc
-        self.out->push_back(e)
+        self.out->push(e)
         return true
     }
 
@@ -1853,14 +1853,14 @@ pub class EffectCollect derives RecursiveASTVisitor<EffectCollect> {
         var e = EffectEntry()
         e.ce = n
         e.sc = self.sc
-        self.out->push_back(e)
+        self.out->push(e)
         return true
     }
 }
 
 /// The build-wide table: every inferable body of the graph, solved at once.
 pub class EffectTable {
-    pub var entries: cxx::std::vector<EffectEntry>
+    pub var entries: [EffectEntry]
     pub var solved:  bool                          = false
     pub var rounds:  u32                           = 0
 

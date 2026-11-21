@@ -68,7 +68,7 @@ pub class LoopContextCheck derives RecursiveASTVisitor<LoopContextCheck> {
     pub var sc: *SemaContext
 
     var loop_depth:    u32                     = 0 ///< enclosing loops this side of the barrier.
-    var labels:        cxx::std::vector<Token> ///< enclosing loop labels, stack order.
+    var labels:        [Token]     ///< enclosing loop labels, stack order.
     var label_floor:   usize                   = 0 ///< labels below this index are behind a fn/closure barrier.
     var finally_depth: u32                     = 0 ///< enclosing finally bodies this side of the barrier.
     var body_depth:    u32                     = 0 ///< enclosing function or closure bodies; 0 is file scope.
@@ -324,12 +324,12 @@ pub class LoopContextCheck derives RecursiveASTVisitor<LoopContextCheck> {
             ).first(n->range)->emit()
         }
 
-        self.labels.push_back(n->label)
+        self.labels.push(n->label)
         if n->inner != &null {
             n->inner = self.dyn()->dispatch_stmt(n->inner)
         }
 
-        self.labels.pop_back()
+        self.labels.pop()
         return n
     }
 

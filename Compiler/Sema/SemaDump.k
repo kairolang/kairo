@@ -497,7 +497,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     priv var _n_ex_typed:   usize                    = 0
     priv var _n_ex_unknown: usize                    = 0
     priv var _n_ex_err:     usize                    = 0
-    priv var _inferred:     cxx::std::vector<string>         ///< rows for the inferred-decls list.
+    priv var _inferred:     [string]         ///< rows for the inferred-decls list.
     priv var _tu:           TypeUtil                         ///< only for str(); holds no state.
 
     pub fn SemaDump(self, sc: unsafe *SemaContext, opts: PrintOptions) {
@@ -711,7 +711,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         if dc->dc_symbols != &null {
             var rows = cxx::std::vector<SymbolTable::Entry>()
             dc->dc_symbols->collect_entries(&rows)
-            var order = cxx::std::vector<usize>()
+            var order: [usize]
             self._source_order(&rows, &order)
 
             if rows.size() > 0 {
@@ -784,17 +784,15 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// is the position above the row's index, so the sort is total.
     priv fn _source_order(self,
                           @inout rows: cxx::std::vector<SymbolTable::Entry>,
-                          @inout out:  cxx::std::vector<usize>) {
-        var keys = cxx::std::vector<u64>()
+                          @inout out:  [usize]) {
+        var keys: [u64]
         for var i: usize = 0; i < rows.size(); ++i {
-            keys.push_back(
-                ((self._entry_pos(&rows, i) as u64) << 32) | (i as u64),
-            )
+            keys.push(((self._entry_pos(&rows, i) as u64) << 32) | (i as u64))
         }
 
-        llvm::sort(keys.begin(), keys.end())
+        keys.sort()
         for var k: usize = 0; k < keys.size(); ++k {
-            out.push_back((keys[k] & 0xFFFFFFFF) as usize)
+            out.push((keys[k] & 0xFFFFFFFF) as usize)
         }
     }
 
@@ -1099,7 +1097,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             return
         }
 
-        if tr->rows.empty() {
+        if tr->rows.is_empty() {
             self._p.paint(
                 Color::Dim,
                 "  (no lexical scopes: nothing with a body in this TU)",
@@ -2207,7 +2205,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         if isa<Declarations::VariableDecl>(n) {
             var unsafe *v = cast<Declarations::VariableDecl>(n)
             if self._is_inferred_slot(v->type_) {
-                self._inferred.push_back(
+                self._inferred.push(
                     f"{self.ctx->get_spelling(v->name)} : {self._tu.str(v->type_)}",
                 )
             }
@@ -2218,7 +2216,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
         if isa<Declarations::FunctionDecl>(n) {
             var unsafe *f = cast<Declarations::FunctionDecl>(n)
             if self._is_inferred_slot(f->return_type) {
-                self._inferred.push_back(
+                self._inferred.push(
                     f"{self.ctx->get_spelling(f->name)}() -> {self._tu.str(f->return_type)}",
                 )
             }

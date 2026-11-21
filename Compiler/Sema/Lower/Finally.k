@@ -160,11 +160,17 @@ import Token::TokenKind::TokenKind
 pub class CaptureRewrite derives ASTWriter<CaptureRewrite> {
     pub var  sc:         unsafe *SemaContext
     priv var synth:      LowerSynth
-    pub var  decls:      cxx::std::vector<unsafe *Decl> ///< captured bindings, the enclosing `self` among them.
-    pub var  fields:     cxx::std::vector<unsafe *FieldDecl> ///< parallel: the guard field holding its address.
-    pub var  pointees:   cxx::std::vector<unsafe *Type> ///< parallel: the field's pointee, cv kept.
+    pub var  decls:      [unsafe *Decl] ///< captured bindings, the enclosing `self` among them.
+    pub var  fields:     [unsafe *FieldDecl] ///< parallel: the guard field holding its address.
+    pub var  pointees:   [unsafe *Type] ///< parallel: the field's pointee, cv kept.
     pub var  guard_self: unsafe *ParamDecl                   = &null
     pub var  guard_ty:   unsafe *Type                        = &null
+
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn CaptureRewrite(self, const other: Self) = delete
+    @move fn CaptureRewrite(self, other: Self) = delete
 
     fn CaptureRewrite(self, sc: unsafe *SemaContext) {
         self.sc    = sc
@@ -229,8 +235,14 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
     priv var tu:    TypeUtil
     priv var synth: LowerSynth
     /// Enclosing functions and closures, innermost last.
-    priv var _frames: cxx::std::vector<FinallyFrame>
+    priv var _frames: [FinallyFrame]
     priv var _count:  u32                            = 0
+
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn FinallyLowering(self, const other: Self) = delete
+    @move fn FinallyLowering(self, other: Self) = delete
 
     fn FinallyLowering(self, sc: unsafe *SemaContext) {
         self.sc    = sc
@@ -254,22 +266,22 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
     fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
         var fr = FinallyFrame{}
         fr.fn_decl = n
-        self._frames.push_back(fr)
+        self._frames.push(fr)
         var out = ASTWriter<FinallyLowering>::transform_function_decl(self, n)
-        self._frames.pop_back()
+        self._frames.pop()
         return out
     }
 
     fn transform_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *Expr {
         var fr = FinallyFrame{}
         fr.closure = n
-        self._frames.push_back(fr)
+        self._frames.push(fr)
         var unsafe *out = ASTWriter<FinallyLowering>::transform_closure_expr(
             self,
             n,
         )
 
-        self._frames.pop_back()
+        self._frames.pop()
         return out
     }
 
@@ -463,9 +475,9 @@ pub class FinallyLowering derives ASTWriter<FinallyLowering> {
             init.range      = at
             init.field_decl = unsafe (fld as unsafe *Decl)
             inits.push(init)
-            rw.decls.push_back(d)
-            rw.fields.push_back(fld)
-            rw.pointees.push_back(pointee)
+            rw.decls.push(d)
+            rw.fields.push(fld)
+            rw.pointees.push(pointee)
         }
 
         fields.freeze_into(&rec->fields)

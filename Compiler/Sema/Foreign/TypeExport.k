@@ -205,7 +205,7 @@ pub class TypeExport {
     /// Parallel to _sub_args: the canonical value argument at each value
     /// parameter's index, null at a type parameter's. A fixed array whose
     /// extent is such a parameter (FixedArrayType::extent_param) reads it here.
-    priv var _sub_vals: unsafe *cxx::std::vector<unsafe *Type> = &null
+    priv var _sub_vals: unsafe *[unsafe *Type] = &null
 
     fn TypeExport(self,
                   cctx: unsafe *clang::ASTContext,
@@ -1056,7 +1056,7 @@ pub class TypeExport {
             return &null
         }
 
-        var        names = cxx::std::vector<string>()
+        var        names: [string]
         var unsafe *dc   = nd->getDeclContext()
         while dc != &null && !dc->isTranslationUnit() {
             var unsafe *ns = llvm::dyn_cast<clang::NamespaceDecl>(dc)
@@ -1080,7 +1080,7 @@ pub class TypeExport {
                 }
 
                 var rsr: llvm::StringRef = orec->getName()
-                names.push_back(
+                names.push(
                     string(
                         unsafe ((rsr.data() as unsafe *const u8) as *const u8),
                         rsr.size(),
@@ -1096,7 +1096,7 @@ pub class TypeExport {
             }
 
             var sr: llvm::StringRef = ns->getName()
-            names.push_back(
+            names.push(
                 string(
                     unsafe ((sr.data() as unsafe *const u8) as *const u8),
                     sr.size(),
@@ -1167,10 +1167,10 @@ pub class TypeExport {
         return self.reg != &null && self.psym != &null && self.instances != &null
     }
 
-    static fn _vec_of(l: FrozenList<unsafe *Type>) -> cxx::std::vector<unsafe *Type> {
-        var v = cxx::std::vector<unsafe *Type>()
+    static fn _vec_of(l: FrozenList<unsafe *Type>) -> [unsafe *Type] {
+        var v: [unsafe *Type]
         for var i: usize = 0; i < l.size(); ++i {
-            v.push_back(*l.get(i))
+            v.push(*l.get(i))
         }
 
         return v
@@ -1191,8 +1191,8 @@ pub class TypeExport {
             return clang::QualType()
         }
 
-        var args = cxx::std::vector<unsafe *Type>()
-        args.push_back(n->inner)
+        var args: [unsafe *Type]
+        args.push(n->inner)
         return self._standin_instance(nd, args)
     }
 
@@ -1215,8 +1215,8 @@ pub class TypeExport {
                    d:          unsafe *Decl,
                    tk:         unsafe *clang::TagTypeKind,
                    tag:        unsafe *clang::QualType,
-                   @inout out: cxx::std::vector<unsafe *Type>,
-                   bases:      unsafe *cxx::std::vector<unsafe *Type> = &null) -> bool {
+                   @inout out: [unsafe *Type],
+                   bases:      unsafe *[unsafe *Type] = &null) -> bool {
         *tk = clang::TagTypeKind::Struct
         var fields: unsafe *FrozenList<unsafe *FieldDecl> = &null
         if isa<StructDecl>(d) {
@@ -1247,7 +1247,7 @@ pub class TypeExport {
                         return false
                     }
 
-                    bases->push_back(e->base->canonical)
+                    bases->push(e->base->canonical)
                 }
             }
 
@@ -1268,7 +1268,7 @@ pub class TypeExport {
                 }
 
                 for var j: usize = 0; j < v->payload.size(); ++j {
-                    out.push_back(TypeExport::_canon_of(v->payload[j]))
+                    out.push(TypeExport::_canon_of(v->payload[j]))
                 }
             }
 
@@ -1285,7 +1285,7 @@ pub class TypeExport {
                 continue
             }
 
-            out.push_back(TypeExport::_canon_of(fd))
+            out.push(TypeExport::_canon_of(fd))
         }
 
         return true
@@ -1406,8 +1406,8 @@ pub class TypeExport {
     priv fn _define(self,
                     rd:            unsafe *clang::CXXRecordDecl,
                     tag:           clang::QualType,
-                    @inout fields: cxx::std::vector<unsafe *Type>,
-                    bases:         unsafe *cxx::std::vector<clang::QualType> = &null,
+                    @inout fields: [unsafe *Type],
+                    bases:         unsafe *[clang::QualType] = &null,
                     vptr:          bool = false,
                     owner:         unsafe *Decl = &null) -> bool {
         if !rd->isBeingDefined() {
@@ -1972,8 +1972,8 @@ pub class TypeExport {
 
         var tk     = clang::TagTypeKind::Struct
         var tag    = clang::QualType()
-        var fields = cxx::std::vector<unsafe *Type>()
-        var kbases = cxx::std::vector<unsafe *Type>()
+        var fields: [unsafe *Type]
+        var kbases: [unsafe *Type]
         if !self._shape(d, unsafe &tk, unsafe &tag, &fields, unsafe &kbases) {
             return clang::QualType()
         }
@@ -2034,10 +2034,10 @@ pub class TypeExport {
                           rd:              unsafe *clang::CXXRecordDecl,
                           dc:              unsafe *clang::DeclContext,
                           tag:             clang::QualType,
-                          const fields_in: cxx::std::vector<unsafe *Type>,
-                          const kbases_in: cxx::std::vector<unsafe *Type>) -> clang::QualType {
-        var fields = fields_in
-        var kbases = kbases_in
+                          const fields_in: [unsafe *Type],
+                          const kbases_in: [unsafe *Type]) -> clang::QualType {
+        var fields = fields_in.copy()
+        var kbases = kbases_in.copy()
         // Bases: `class DiagEngine derives DiagEngineVBase`, `Decl
         // derives VisibilityAnnotation<Decl>, Annotation<Decl>`. Refused
         // before, which left every container of such a class -- or of a
@@ -2052,7 +2052,7 @@ pub class TypeExport {
         // derives Annotation<Decl>`) names this record as its argument, and
         // the lookup above takes a record mid-definition as ours.
         rd->startDefinition()
-        var bq     = cxx::std::vector<clang::QualType>()
+        var bq: [clang::QualType]
         var dyn_at = usize::MAX
         for var i: usize = 0; i < kbases.size(); ++i {
             var q = self._layout_spelling(kbases[i])
@@ -2077,18 +2077,18 @@ pub class TypeExport {
                 dyn_at = bq.size()
             }
 
-            bq.push_back(q)
+            bq.push(q)
         }
 
         // Itanium places the first dynamic base at offset 0 (the primary
         // base) whatever its position in the list; a stand-in's dynamism is
         // a field clang does not see, so the order says it instead.
         if dyn_at != usize::MAX && dyn_at != 0 {
-            var ord = cxx::std::vector<clang::QualType>()
-            ord.push_back(bq[dyn_at])
+            var ord: [clang::QualType]
+            ord.push(bq[dyn_at])
             for var i: usize = 0; i < bq.size(); ++i {
                 if i != dyn_at {
-                    ord.push_back(bq[i])
+                    ord.push(bq[i])
                 }
             }
 
@@ -2258,7 +2258,7 @@ pub class TypeExport {
 
         var tk    = clang::TagTypeKind::Struct
         var tag0  = clang::QualType()
-        var probe = cxx::std::vector<unsafe *Type>()
+        var probe: [unsafe *Type]
         if !self._shape(prim, unsafe &tk, unsafe &tag0, &probe) {
             return &null
         }
@@ -2398,7 +2398,7 @@ pub class TypeExport {
     /// PRE: sema_lock() held.
     priv fn _standin_instance(self,
                               prim_in:    unsafe *Decl,
-                              const args: cxx::std::vector<unsafe *Type>) -> clang::QualType {
+                              const args: [unsafe *Type]) -> clang::QualType {
         if !self._can_standin() {
             return clang::QualType()
         }
@@ -2417,7 +2417,7 @@ pub class TypeExport {
         var qs:      llvm::SmallVector<clang::QualType, 8>
         var targs:   llvm::SmallVector<clang::TemplateArgument, 8>
         var concrete                                               = true
-        var vals = cxx::std::vector<unsafe *Type>()
+        var vals:    [unsafe *Type]
         for var i: usize = 0; i < args.size(); ++i {
             var unsafe *a = (args)[i]
             if a == &null {
@@ -2444,7 +2444,7 @@ pub class TypeExport {
 
                 qs.push_back(clang::QualType())
                 targs.push_back(va)
-                vals.push_back(a)
+                vals.push(a)
                 continue
             }
 
@@ -2455,7 +2455,7 @@ pub class TypeExport {
 
             qs.push_back(q)
             targs.push_back(clang::TemplateArgument(q))
-            vals.push_back(&null)
+            vals.push(&null)
         }
 
         var pos: unsafe *void = &null
@@ -2476,7 +2476,7 @@ pub class TypeExport {
 
         var tk     = clang::TagTypeKind::Struct
         var tag    = clang::QualType()
-        var fields = cxx::std::vector<unsafe *Type>()
+        var fields: [unsafe *Type]
         if !self._shape(prim, unsafe &tk, unsafe &tag, &fields) {
             return clang::QualType()
         }

@@ -109,13 +109,13 @@ import Sema::Type::TypeUtil::TypeUtil
 /// `witness` holds one rendered pattern per column of q.
 pub struct Usefulness {
     var useful:  bool                     = false
-    var witness: cxx::std::vector<string>
+    var witness: [string]
 }
 
 /// The constant-rows answer (PatternChecking::_flat_check): the dead
 /// verdict per row, and the non-exhaustive witness when one is missing.
 pub struct FlatVerdict {
-    var dead:      cxx::std::vector<u8>
+    var dead:      [u8]
     var missing:   Usefulness
     var open_tail: bool                 = false
 }
@@ -228,7 +228,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         var decl_open = sdom.en != &null && sdom.en->is_open
 
         // One row per case-level alternative; `default` is one wildcard row.
-        var rows  = cxx::std::vector<PatRow>()
+        var rows: [PatRow]
         var first = match_first_row(null_arm)
         for var i: usize = first; i < cases->size(); ++i {
             var unsafe *mc = cases->get(i)
@@ -238,7 +238,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
                 r.alt     = 0
                 r.guarded = mc->guard != &null
                 r.cols.push_back(&null)
-                rows.push_back(r)
+                rows.push(r)
                 continue
             }
 
@@ -248,13 +248,13 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
                 r.alt     = (j as u32)
                 r.guarded = mc->guard != &null
                 r.cols.push_back(mc->patterns[j])
-                rows.push_back(r)
+                rows.push(r)
             }
         }
 
         // Every head a constant (or a wildcard): usefulness is set
         // membership, in one pass over the rows (see _flat_check).
-        var flat = cxx::std::vector<cxx::std::vector<Ctor>>()
+        var flat: [[Ctor]]
         var fd   = Domain{}
         if self._flat_rows(&rows, &flat, &fd) {
             var fv = FlatVerdict{}
@@ -286,10 +286,10 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         self._report_dead(cases, &rows, dead)
 
         // Exhaustiveness, closed enums first.
-        var covering = cxx::std::vector<PatRow>()
+        var covering: [PatRow]
         for var i: usize = 0; i < rows.size(); ++i {
             if !rows[i].guarded {
-                covering.push_back(rows[i])
+                covering.push(rows[i])
             }
         }
 
@@ -372,19 +372,19 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
 
     /// Row i is dead when it is not useful against the unguarded rows
     /// before it. The general matrix: O(rows^2) specializations.
-    priv fn _dead_rows(self, const rows: cxx::std::vector<PatRow>) -> cxx::std::vector<u8> {
-        var dead = cxx::std::vector<u8>()
+    priv fn _dead_rows(self, const rows: [PatRow]) -> [u8] {
+        var dead: [u8]
         for var i: usize = 0; i < rows.size(); ++i {
-            var before = cxx::std::vector<PatRow>()
+            var before: [PatRow]
             for var k: usize = 0; k < i; ++k {
                 if !(rows)[k].guarded {
-                    before.push_back((rows)[k])
+                    before.push((rows)[k])
                 }
             }
 
             var q = (rows)[i].cols
             var u = self._useful(unsafe &before, unsafe &q, true, false)
-            dead.push_back((!u.useful) as u8)
+            dead.push((!u.useful) as u8)
         }
 
         return dead
@@ -392,9 +392,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
 
     /// A `default` row (no pattern) over an `@open` enum is never dead: the
     /// values no variant names reach it however many variants come before.
-    priv fn _spare_open_default(self,
-                                @inout rows: cxx::std::vector<PatRow>,
-                                @inout dead: cxx::std::vector<u8>) {
+    priv fn _spare_open_default(self, @inout rows: [PatRow], @inout dead: [u8]) {
         for var i: usize = 0; i < rows.size(); ++i {
             if i < dead.size()
                 && (dead)[i] != 0
@@ -407,9 +405,9 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
 
     priv fn _report_dead(self,
                          cases:       *FrozenList<MatchCase>,
-                         @inout rows: cxx::std::vector<PatRow>,
-                         const deadp: cxx::std::vector<u8>) {
-        var dead       = deadp
+                         @inout rows: [PatRow],
+                         const deadp: [u8]) {
+        var dead       = deadp.copy()
         var i:   usize = 0
         while i < rows.size() {
             var arm      = (rows)[i].arm
@@ -470,23 +468,20 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
     /// The heads of every row, an alternation's alternatives each a head;
     /// false when some head is not a constant of the column's one domain
     /// (`d`, from the first typed head), which leaves the general path.
-    priv fn _flat_rows(self,
-                       @inout rows: cxx::std::vector<PatRow>,
-                       @inout out:  cxx::std::vector<cxx::std::vector<Ctor>>,
-                       d:           *Domain) -> bool {
+    priv fn _flat_rows(self, @inout rows: [PatRow], @inout out: [[Ctor]], d: *Domain) -> bool {
         var have = false
         for var i: usize = 0; i < rows.size(); ++i {
             if (rows)[i].cols.size() != 1 {
                 return false
             }
 
-            var alts = cxx::std::vector<unsafe *AstPattern>()
+            var alts: [unsafe *AstPattern]
             self._flat_alts((rows)[i].cols[0], unsafe &alts)
-            var hs = cxx::std::vector<Ctor>()
+            var hs: [Ctor]
             for var k: usize = 0; k < alts.size(); ++k {
                 var unsafe *p = alts[k]
                 if self._ps.is_wild(p) {
-                    hs.push_back(Ctor{})
+                    hs.push(Ctor{})
                     continue
                 }
 
@@ -538,19 +533,17 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
                     }
                 }
 
-                hs.push_back(c)
+                hs.push(c)
             }
 
-            out.push_back(hs)
+            out.push(hs)
         }
 
         return true
     }
 
     /// `p`'s alternatives, nested alternations flattened, in order.
-    priv fn _flat_alts(self,
-                       p:   unsafe *AstPattern,
-                       out: unsafe *cxx::std::vector<unsafe *AstPattern>) {
+    priv fn _flat_alts(self, p: unsafe *AstPattern, out: unsafe *[unsafe *AstPattern]) {
         if p != &null && p->kind == PatternKind::AlternationPattern {
             var unsafe *a = cast<AlternationPattern>(p)
             for var k: usize = 0; k < a->alternatives.size(); ++k {
@@ -560,7 +553,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
             return
         }
 
-        out->push_back(p)
+        out->push(p)
     }
 
     /// One constant's identity within its domain.
@@ -598,8 +591,8 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
     }
 
     priv fn _flat_check(self,
-                        const rows:   cxx::std::vector<PatRow>,
-                        @inout heads: cxx::std::vector<cxx::std::vector<Ctor>>,
+                        const rows:   [PatRow],
+                        @inout heads: [[Ctor]],
                         d:            Domain,
                         out:          *FlatVerdict) {
         var seen:     llvm::StringMap<u32>
@@ -627,7 +620,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
                 }
             }
 
-            out->dead.push_back((!useful) as u8)
+            out->dead.push((!useful) as u8)
             if (rows)[i].guarded {
                 continue
             }
@@ -705,7 +698,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         }
 
         out->missing.useful = true
-        out->missing.witness.push_back(w)
+        out->missing.witness.push(w)
     }
 
     /// # non-exhaustive
@@ -744,7 +737,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
     /// Is `q` useful against `rows0`? `closed`: closed enums are complete
     /// when every variant is listed. `want`: build the witness.
     priv fn _useful(self,
-                    rows0:  unsafe *cxx::std::vector<PatRow>,
+                    rows0:  unsafe *[PatRow],
                     q:      unsafe *cxx::std::vector<unsafe *AstPattern>,
                     closed: bool,
                     want:   bool) -> Usefulness {
@@ -810,9 +803,9 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         match d.kind {
             case DomainKind::ClosedEnum {
                 var n    = (d.nctors as usize) // a pack-expanded variant counts once per element.
-                var seen = cxx::std::vector<u8>()
+                var seen: [u8]
                 for var k: usize = 0; k < n; ++k {
-                    seen.push_back(0)
+                    seen.push(0)
                 }
 
                 for var i: usize = 0; i < rows.size(); ++i {
@@ -959,10 +952,10 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
 
         var r = self._useful(unsafe &drows, unsafe &qt, closed, want)
         if r.useful && want {
-            var w = cxx::std::vector<string>()
-            w.push_back(missing)
+            var w: [string]
+            w.push(missing)
             for var k: usize = 0; k < r.witness.size(); ++k {
-                w.push_back(r.witness[k].copy())
+                w.push(r.witness[k].copy())
             }
 
             r.witness = w
@@ -973,7 +966,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
 
     /// Specialize rows and q by `c`, recurse, and wrap the sub-witness.
     priv fn _useful_ctor(self,
-                         rows:    unsafe *cxx::std::vector<PatRow>,
+                         rows:    unsafe *[PatRow],
                          const q: cxx::std::vector<unsafe *AstPattern>,
                          const c: Ctor,
                          d:       Domain,
@@ -988,19 +981,19 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
         var r = self._useful(unsafe &srows, unsafe &sq, closed, want)
         if r.useful && want {
             var subs = cxx::std::vector<string>()
-            var rest = cxx::std::vector<string>()
+            var rest: [string]
             for var k: usize = 0; k < r.witness.size(); ++k {
                 if k < (c.arity as usize) {
                     subs.push_back(r.witness[k].copy())
                 } else {
-                    rest.push_back(r.witness[k].copy())
+                    rest.push(r.witness[k].copy())
                 }
             }
 
-            var w = cxx::std::vector<string>()
-            w.push_back(self._ps.render(d, c, unsafe &subs))
+            var w: [string]
+            w.push(self._ps.render(d, c, unsafe &subs))
             for var k: usize = 0; k < rest.size(); ++k {
-                w.push_back(rest[k].copy())
+                w.push(rest[k].copy())
             }
 
             r.witness = w
@@ -1010,7 +1003,7 @@ pub class PatternChecking derives RecursiveASTVisitor<PatternChecking> {
     }
 
     /// Some Int head of column 0 contains segment `s`.
-    priv fn _segment_covered(self, const rows: cxx::std::vector<PatRow>, const s: Ctor) -> bool {
+    priv fn _segment_covered(self, const rows: [PatRow], const s: Ctor) -> bool {
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]
             if self._ps.is_wild(h) {

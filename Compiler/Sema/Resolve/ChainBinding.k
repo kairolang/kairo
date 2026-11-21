@@ -1935,8 +1935,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     /// What a generic parameter's declaration lets a body see.
     class ParamBounds {
         pub var duck:       bool                                   = false ///< `: type`: defer everything.
-        pub var interfaces: cxx::std::vector<unsafe *Decl> ///< `impl I` bounds.
-        pub var bases:      cxx::std::vector<unsafe *Decl> ///< `derives B` bounds.
+        pub var interfaces: [unsafe *Decl] ///< `impl I` bounds.
+        pub var bases:      [unsafe *Decl] ///< `derives B` bounds.
         pub var param:      unsafe *Declarations::GenericParamDecl = &null
         fn ParamBounds(self) { }
     }
@@ -1989,7 +1989,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
                 var unsafe *d = self._record_decl_of(c->rhs)
                 if d != &null {
-                    b.interfaces.push_back(d)
+                    b.interfaces.push(d)
                 }
             }
 
@@ -2001,7 +2001,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
                 var unsafe *d = self._record_decl_of(c->rhs)
                 if d != &null {
-                    b.bases.push_back(d)
+                    b.bases.push(d)
                 }
             }
         }
@@ -2016,7 +2016,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
             var unsafe *d = self._record_decl_of(c->rhs)
             if d != &null {
-                b.interfaces.push_back(d)
+                b.interfaces.push(d)
             }
         }
 
@@ -2024,7 +2024,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         // there (traverse_conditional_stmt).
         for var i: usize = 0; i < self._narrowed.size(); ++i {
             if self._narrowed[i].param == gp {
-                b.interfaces.push_back(self._narrowed[i].iface)
+                b.interfaces.push(self._narrowed[i].iface)
             }
         }
 
@@ -2055,7 +2055,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
     /// A stack: while a taken branch is walked, its parameters and the
     /// interface each one gained. Pushed and popped around then_ only.
-    priv var _narrowed: cxx::std::vector<Narrowing>
+    priv var _narrowed: [Narrowing]
 
     /// A member's `requires P impl I` (P a parameter of its record) holds
     /// wherever the member exists: C++ drops the member from an instance
@@ -2108,7 +2108,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         while self._narrowed.size() > mark {
-            self._narrowed.pop_back()
+            self._narrowed.pop()
         }
 
         var sup_else = dep && n->else_ != &null && !isa<ConditionalStmt>(n->else_)
@@ -2198,7 +2198,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return
         }
 
-        self._narrowed.push_back(Narrowing(gp, d))
+        self._narrowed.push(Narrowing(gp, d))
     }
 
     /// Whether conjunct `c` constrains `gp`. The lhs is an ordinary
@@ -2304,7 +2304,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             for var i: usize = 0; i < bis.size(); ++i {
                 var unsafe *bd = self._record_decl_of_canon(bis[i])
                 if bd != &null {
-                    b.interfaces.push_back(bd)
+                    b.interfaces.push(bd)
                 }
             }
 
@@ -2847,12 +2847,12 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         }
 
         var seen = llvm::DenseSet<u64>()
-        var work = cxx::std::vector<unsafe *TranslationUnit>()
-        work.push_back(start)
+        var work: [unsafe *TranslationUnit]
+        work.push(start)
         seen.insert(from_fid as u64)
-        while !work.empty() {
-            var unsafe *t = work.back()
-            work.pop_back()
+        while !work.is_empty() {
+            var unsafe *t = work[work.size() - 1]
+            work.pop()
             for var i: usize = 0; i < t->import_edges.size(); ++i {
                 var unsafe *ed  = t->import_edges.get(i)
                 var unsafe *eid = dyn_cast<Declarations::ImportDecl>(ed->decl)
@@ -2870,7 +2870,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
                 var unsafe *nt = self._tu_of_fid(ed->target_fid)
                 if nt != &null {
-                    work.push_back(nt)
+                    work.push(nt)
                 }
             }
         }

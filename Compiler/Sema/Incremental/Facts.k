@@ -436,7 +436,7 @@ pub fn incr_scope_id(dc: unsafe *DeclContext, psym: unsafe *PreprocessorSymbolTa
 /// retraction all read records in this order.
 pub fn incr_type_records(c_in:  unsafe *Type,
                          depth: u32,
-                         out:   unsafe *cxx::std::vector<unsafe *Decl>) {
+                         out:   unsafe *[unsafe *Decl]) {
     if c_in == &null || depth > 24 {
         return
     }
@@ -450,7 +450,7 @@ pub fn incr_type_records(c_in:  unsafe *Type,
         case TypeKind::RecordType {
             var unsafe *r = cast<RecordType>(c)
             if r->decl != &null {
-                out->push_back(r->decl)
+                out->push(r->decl)
             }
 
             for var i: usize = 0; i < r->args.size(); ++i {
@@ -589,13 +589,13 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
     priv var _tu:  TypeUtil
     priv var _out: unsafe *FileFacts               = &null
     priv var _ids: llvm::DenseMap<u64, u32>
-    priv var _idv: cxx::std::vector<string>
+    priv var _idv: [string]
     /// DeclIds of the records the type strings of the entry being built
     /// name: its `refs`, which is what closes a layout row over the layouts
     /// it contains by value.
-    priv var _refs:  cxx::std::vector<string>
+    priv var _refs:  [string]
     priv var _rows:  llvm::StringMap<u8>
-    priv var _lines: cxx::std::vector<string> ///< `id\tI\tbody`, what I(m) hashes.
+    priv var _lines: [string]            ///< `id\tI\tbody`, what I(m) hashes.
 
     pub fn IncrFacts(self, sc: unsafe *SemaContext, psym: unsafe *PreprocessorSymbolTable) {
         self.sc   = sc
@@ -647,7 +647,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             string_less,
         )
 
-        llvm::sort(self._lines.begin(), self._lines.end(), string_less)
+        self._lines.sort()
         var mac: string = ""
         for var i: usize = 0; i < tu->macros.size(); ++i {
             var unsafe *md = *tu->macros.get(i)
@@ -700,7 +700,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
 
         var s = incr_decl_id(d, self.psym)
         self._ids[d as usize as u64] = (self._idv.size() as u32)
-        self._idv.push_back(s.copy())
+        self._idv.push(s.copy())
         return s
     }
 
@@ -722,7 +722,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             c = t
         }
 
-        var decls = cxx::std::vector<unsafe *Decl>()
+        var decls: [unsafe *Decl]
         incr_type_records(c, 0, unsafe &decls)
         var s = self._tu.str(c) + "@"
         for var i: usize = 0; i < decls.size(); ++i {
@@ -732,7 +732,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
 
             var id = self._id(decls[i])
             s += id
-            self._refs.push_back(id)
+            self._refs.push(id)
         }
 
         return s
@@ -770,10 +770,10 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
 
         var entries = cxx::std::vector<SymbolTable::Entry>()
         dc->dc_symbols->collect_entries(&entries)
-        var names = cxx::std::vector<string>()
+        var names: [string]
         for var i: usize = 0; i < entries.size(); ++i {
             var nm = incr_key_name(self.ctx, entries[i].name)
-            names.push_back(nm.copy())
+            names.push(nm.copy())
             var unsafe *cell = entries[i].cell
             if cell == &null {
                 continue
@@ -799,7 +799,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             }
         }
 
-        llvm::sort(names.begin(), names.end(), string_less)
+        names.sort()
         var s = "{\"scope\": " + incr_json(scope) + ", \"ext\": " + incr_json(
             ext,
         ) + ", \"names\": ["
@@ -1122,7 +1122,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             row += ", \"ext\": " + incr_json(ext)
         }
 
-        llvm::sort(self._refs.begin(), self._refs.end(), string_less)
+        self._refs.sort()
         row += ", \"refs\": ["
         var last:  string = ""
         var first         = true
@@ -1148,7 +1148,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             id.copy() + "\t" + scope + "\t" + name + "\t" + ih + "\t" + body + "\t" + ext + "\t" + prefs,
         )
 
-        self._lines.push_back(id.copy() + "\t" + ih + "\t" + body)
+        self._lines.push(id.copy() + "\t" + ih + "\t" + body)
     }
 
     /// # Declaration rows, from the checked tree
@@ -1179,7 +1179,7 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
             return
         }
 
-        var decls = cxx::std::vector<unsafe *Decl>()
+        var decls: [unsafe *Decl]
         incr_type_records(t, 0, unsafe &decls)
         for var i: usize = 0; i < decls.size(); ++i {
             self._row("layout", decls[i])
@@ -1316,18 +1316,17 @@ fn _incr_surface(tu:   unsafe *TranslationUnit,
                  psym: unsafe *PreprocessorSymbolTable,
                  out:  unsafe *cxx::std::vector<string>) {
     var seen  = llvm::DenseSet<u64>()
-    var work  = cxx::std::vector<unsafe *TranslationUnit>()
+    var work: [unsafe *TranslationUnit]
     var first = true
-    work.push_back(tu)
+    work.push(tu)
     seen.insert(tu as usize as u64)
     while work.size() > 0 {
-        var unsafe *cur = work.back()
-        work.pop_back()
-        var fids = cxx::std::vector<u32>()
+        var unsafe *cur        = work.remove(work.size() - 1)
+        var        fids: [u32]
         for var i: usize = 0; i < cur->import_edges.size(); ++i {
             var unsafe *e = cur->import_edges.get(i)
             if first || e->decl == &null || e->decl->is_public() || e->decl->is_protected() {
-                fids.push_back(e->target_fid)
+                fids.push(e->target_fid)
             }
         }
 
@@ -1341,7 +1340,7 @@ fn _incr_surface(tu:   unsafe *TranslationUnit,
             }
 
             if first || imp->is_public() || imp->is_protected() || imp->is_prelude {
-                fids.push_back(imp->resolved_fid)
+                fids.push(imp->resolved_fid)
             }
         }
 
@@ -1357,7 +1356,7 @@ fn _incr_surface(tu:   unsafe *TranslationUnit,
             }
 
             seen.insert(c->tu as usize as u64)
-            work.push_back(c->tu)
+            work.push(c->tu)
             out->push_back(incr_module(c, psym))
         }
     }

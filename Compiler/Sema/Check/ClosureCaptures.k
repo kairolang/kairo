@@ -114,11 +114,11 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
     priv var _tu: TypeUtil
     /// The closures around the one being resolved, innermost last; each is
     /// resolved before anything nested in it.
-    priv var _open:     cxx::std::vector<unsafe *ClosureExpr>
+    priv var _open:     [unsafe *ClosureExpr]
     pub var  n_errored: usize                                 = 0
     /// Uses already reported by an inner function's scan: an enclosing
     /// local function's scan sees them free too.
-    priv var _reported: cxx::std::vector<unsafe *NamedIdentExpr>
+    priv var _reported: [unsafe *NamedIdentExpr]
     /// Functions around the walk: 0 is a script's top-level code, where its
     /// top-level `var`s read as locals.
     priv var _fn_depth: usize = 0
@@ -148,13 +148,13 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
         }
 
         self._resolve(n)
-        self._open.push_back(n)
+        self._open.push(n)
         var unsafe *out = RecursiveASTVisitor<ClosureCaptures>::traverse_closure_expr(
             self,
             n,
         )
 
-        self._open.pop_back()
+        self._open.pop()
         return out
     }
 
@@ -245,7 +245,7 @@ pub class ClosureCaptures derives RecursiveASTVisitor<ClosureCaptures> {
                 continue
             }
 
-            self._reported.push_back(at)
+            self._reported.push(at)
             var nm  = self._tu.decl_name(d)
             var fnm = self._tu.decl_name(unsafe (f as unsafe *Decl))
             var b = self.sc->diag->report(

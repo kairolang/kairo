@@ -446,7 +446,7 @@ pub class <T: type> CallTyping {
 
     fn build_args(self,
                   list:       FrozenList<unsafe *Expr>,
-                  @inout out: cxx::std::vector<ArgInfo>,
+                  @inout out: [ArgInfo],
                   cands:      unsafe *cxx::std::vector<unsafe *Decl> = &null) -> bool {
         var ok = true
         for var i: usize = 0; i < list.size(); ++i {
@@ -467,7 +467,7 @@ pub class <T: type> CallTyping {
                 ok = false
             }
 
-            out.push_back(a)
+            out.push(a)
         }
 
         return ok
@@ -595,7 +595,7 @@ pub class <T: type> CallTyping {
     }
 
     /// `i` is in `xs`.
-    priv fn _listed(self, xs: *cxx::std::vector<usize>, i: usize) -> bool {
+    priv fn _listed(self, xs: *[usize], i: usize) -> bool {
         for var k: usize = 0; k < xs->size(); ++k {
             if (*xs)[k] == i {
                 return true
@@ -638,7 +638,7 @@ pub class <T: type> CallTyping {
     /// Migration tolerance: an unmarked argument to `@inout` bound; say so
     /// once per argument, at the argument, in words that say it will stop
     /// binding. No fixit by design (spec: MIGRATION).
-    priv fn _warn_unmarked(self, args: unsafe *cxx::std::vector<ArgInfo>, r: *OvlResult) {
+    priv fn _warn_unmarked(self, args: unsafe *[ArgInfo], r: *OvlResult) {
         for var k: usize = 0; k < r->inout_unmarked.size(); ++k {
             var i = r->inout_unmarked[k]
             if i >= args->size() {
@@ -721,19 +721,16 @@ pub class <T: type> CallTyping {
     /// After selection: type the untyped literals against their parameters,
     /// commit `&` markers, and re-check every argument against the
     /// substituted parameter type.
-    fn finish_call_args(self,
-                        f:    unsafe *FunctionDecl,
-                        args: unsafe *cxx::std::vector<ArgInfo>,
-                        r:    *OvlResult) {
+    fn finish_call_args(self, f: unsafe *FunctionDecl, args: unsafe *[ArgInfo], r: *OvlResult) {
         self._array_copied_in_body(f, args, r)
-        var params = cxx::std::vector<unsafe *ParamDecl>()
+        var params: [unsafe *ParamDecl]
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]
             if p == &null {
                 continue
             }
 
-            params.push_back(p)
+            params.push(p)
         }
 
         // The resolver's param indices exclude a bound receiver; rebuild that
@@ -742,13 +739,13 @@ pub class <T: type> CallTyping {
         // argument -- once self is skipped the first real param IS index 0 --
         // and matched that argument against `self`: `x as Wrap` through a
         // converting ctor checked the operand against Wrap itself.
-        var view = cxx::std::vector<unsafe *ParamDecl>()
+        var view: [unsafe *ParamDecl]
         for var i: usize = 0; i < params.size(); ++i {
             if i == 0 && params[0]->is_self && r->receiver_bound {
                 continue
             }
 
-            view.push_back(params[i])
+            view.push(params[i])
         }
 
         for var i: usize = 0; i < args->size(); ++i {
@@ -1054,7 +1051,7 @@ pub class <T: type> CallTyping {
     /// the parameter and the array, with a note at the copy.
     priv fn _array_copied_in_body(self,
                                   f:    unsafe *FunctionDecl,
-                                  args: unsafe *cxx::std::vector<ArgInfo>,
+                                  args: unsafe *[ArgInfo],
                                   r:    *OvlResult) {
         if f == &null || r->ded.bindings.size() == 0 || args->size() == 0 {
             return
@@ -1547,7 +1544,7 @@ pub class <T: type> CallTyping {
             return true
         }
 
-        var args = cxx::std::vector<ArgInfo>()
+        var args: [ArgInfo]
         if !self.build_args(n->args, &args) {
             return true
         }
@@ -1591,7 +1588,7 @@ pub class <T: type> CallTyping {
     priv fn _check_forwarded_pack(self,
                                   n:          unsafe *CallExpr,
                                   const all:  cxx::std::vector<unsafe *Decl>,
-                                  const args: cxx::std::vector<ArgInfo>) {
+                                  const args: [ArgInfo]) {
         if all.size() != 1 {
             return
         }
@@ -2266,7 +2263,7 @@ pub class <T: type> CallTyping {
         }
 
         var have  = n->args.size()
-        var extra = cxx::std::vector<unsafe *Expr>()
+        var extra: [unsafe *Expr]
         for var i: usize = have; i < want; ++i {
             var p = ce->params[i]
             if p == &null || p->default_val == &null {
@@ -2278,7 +2275,7 @@ pub class <T: type> CallTyping {
                 return
             }
 
-            extra.push_back(x)
+            extra.push(x)
         }
 
         var all = cxx::std::vector<unsafe *Expr>()
@@ -2548,7 +2545,7 @@ pub class <T: type> CallTyping {
                              ident:        unsafe *NamedIdentExpr,
                              step:         unsafe *ChainExpr::Step,
                              adl:          bool = false) -> unsafe *Type {
-        var args = cxx::std::vector<ArgInfo>()
+        var args: [ArgInfo]
         // THIS call's (_functor_call), taken before any argument's own call
         // is typed and could read it.
         var functor = self._functor_next
@@ -2813,10 +2810,10 @@ pub class <T: type> CallTyping {
     /// that type-checks as written, is untouched.
     priv fn _narrow_args(self,
                          cands:        unsafe *cxx::std::vector<unsafe *Decl>,
-                         args:         unsafe *cxx::std::vector<ArgInfo>,
+                         args:         unsafe *[ArgInfo],
                          has_receiver: bool,
                          recv:         unsafe *Type) -> bool {
-        var idx = cxx::std::vector<usize>()
+        var idx: [usize]
         for var i: usize = 0; i < args->size(); ++i {
             var *a = &(*args)[i]
             if a->expr == &null || a->marked || a->ty == &null {
@@ -2827,7 +2824,7 @@ pub class <T: type> CallTyping {
                 continue
             }
 
-            idx.push_back(i)
+            idx.push(i)
         }
 
         if idx.size() == 0 {
@@ -2870,7 +2867,7 @@ pub class <T: type> CallTyping {
         }
 
         // Keep only the reads some viable candidate needs.
-        var need = cxx::std::vector<usize>()
+        var need: [usize]
         for var j: usize = 0; j < idx.size(); ++j {
             var unsafe *keep = alt[idx[j]].ty
             alt[idx[j]].ty = (*args)[idx[j]].ty
@@ -2886,7 +2883,7 @@ pub class <T: type> CallTyping {
             }
 
             alt[idx[j]].ty = keep
-            need.push_back(idx[j])
+            need.push(idx[j])
         }
 
         var ok = true
@@ -2919,7 +2916,7 @@ pub class <T: type> CallTyping {
     /// only move the error back into clang.
     priv fn _check_constant_args(self,
                                  f:    *FunctionDecl,
-                                 args: unsafe *cxx::std::vector<ArgInfo>,
+                                 args: unsafe *[ArgInfo],
                                  r:    *OvlResult) -> bool {
         if f->ffi_ice_mask == 0 {
             return true
@@ -3011,7 +3008,7 @@ pub class <T: type> CallTyping {
     priv fn _write_arg_map(self,
                            n:          unsafe *CallExpr,
                            f:          unsafe *FunctionDecl,
-                           const args: cxx::std::vector<ArgInfo>,
+                           const args: [ArgInfo],
                            r:          *OvlResult) {
         if n == &null || f == &null {
             return
@@ -3236,7 +3233,7 @@ pub class <T: type> CallTyping {
             return &null
         }
 
-        var args = cxx::std::vector<ArgInfo>()
+        var args: [ArgInfo]
         var ok   = self.build_args(n->args, &args)
         if !dep && !self._narrow_args(unsafe &cands, unsafe &args, true, rec) {
             self.dyn()->poison_only(n)
@@ -3376,7 +3373,7 @@ pub class <T: type> CallTyping {
     /// finish_call_args with no winner: there is no parameter to type an
     /// untyped literal against, so it takes its default (what clang will
     /// see it as), and a `name: value` wrapper takes its value's type.
-    priv fn _finish_args_unselected(self, @inout args: cxx::std::vector<ArgInfo>) {
+    priv fn _finish_args_unselected(self, @inout args: [ArgInfo]) {
         for var i: usize = 0; i < args.size(); ++i {
             var *a = &(args)[i]
             // A bare `&null` has no parameter to read its pointer type from

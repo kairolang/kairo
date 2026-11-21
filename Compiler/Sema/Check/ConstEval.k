@@ -407,7 +407,7 @@ pub class ConstEval {
                   ops:  unsafe *cxx::std::vector<unsafe *Type>,
                   ty:   unsafe *Type) -> unsafe *Type {
         var exact = vk == ValueOp::Unary || vk == ValueOp::Binary || vk == ValueOp::Cast
-        var vals  = cxx::std::vector<IntConst>()
+        var vals: [IntConst]
         for var i: usize = 0; i < ops->size(); ++i {
             var unsafe *v = dyn_cast<TypeExpr>((*ops)[i])
             if v == &null || !v->is_exact() {
@@ -415,7 +415,7 @@ pub class ConstEval {
                 break
             }
 
-            vals.push_back(self.make(v->vneg, v->vmag))
+            vals.push(self.make(v->vneg, v->vmag))
         }
 
         if exact {

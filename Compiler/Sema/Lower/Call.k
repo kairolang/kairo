@@ -190,9 +190,15 @@ pub class CallLowering derives ASTWriter<CallLowering> {
     pub var  sc:          unsafe *SemaContext
     priv var tu:          TypeUtil
     priv var synth:       LowerSynth
-    priv var _slots:      cxx::std::vector<ThunkSlot>
-    priv var _entered:    cxx::std::vector<unsafe *FunctionDecl> ///< every function whose own walk has begun.
+    priv var _slots:      [ThunkSlot]
+    priv var _entered:    [unsafe *FunctionDecl] ///< every function whose own walk has begun.
     priv var _slice_ctor: unsafe *Decl                           = &null
+
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn CallLowering(self, const other: Self) = delete
+    @move fn CallLowering(self, other: Self) = delete
 
     fn CallLowering(self, sc: unsafe *SemaContext) {
         self.sc    = sc
@@ -235,7 +241,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
     /// # declarations: mint and splice
 
     fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
-        self._entered.push_back(n)
+        self._entered.push(n)
         // Params (their defaults), then the body: a call inside either is
         // lowered before this function's own thunks are minted from them.
         var out = ASTWriter<CallLowering>::transform_function_decl(self, n)
@@ -340,7 +346,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         s.thunk   = th
         s.carrier = carrier
         s.home    = p
-        self._slots.push_back(s)
+        self._slots.push(s)
 
         p->default_thunk_home = true
         var unsafe *v = p->default_val
@@ -492,7 +498,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
         }
 
         var unsafe *me  = NameLookup::representative(unsafe (f as unsafe *Decl))
-        var        reps = cxx::std::vector<unsafe *Decl>()
+        var reps: [unsafe *Decl]
         var        at   = (0 as usize)
         for var i: usize = 0; i < cell.cell->size(); ++i {
             var unsafe *r   = NameLookup::representative(cell.cell->get(i))
@@ -512,7 +518,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
                 at = reps.size()
             }
 
-            reps.push_back(r)
+            reps.push(r)
         }
 
         if reps.size() <= 1 {
@@ -674,8 +680,8 @@ pub class CallLowering derives ASTWriter<CallLowering> {
             )
         }
 
-        var vals  = cxx::std::vector<unsafe *Expr>()
-        var used  = cxx::std::vector<u8>()
+        var vals: [unsafe *Expr]
+        var used: [u8]
         var named = false
         for var i: usize = 0; i < n->args.size(); ++i {
             var unsafe *a = n->args[i]
@@ -684,12 +690,12 @@ pub class CallLowering derives ASTWriter<CallLowering> {
                 named = true
             }
 
-            vals.push_back(a)
-            used.push_back(0)
+            vals.push(a)
+            used.push(0)
         }
 
         // (a) the plan, and whether it is the identity.
-        var plan         = cxx::std::vector<PlanSlot>()
+        var plan: [PlanSlot]
         var identity     = !named
         var next:    i32 = 0
         var omitted      = false
@@ -738,7 +744,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
                 omitted = true
             }
 
-            plan.push_back(s)
+            plan.push(s)
         }
 
         if identity {
@@ -982,7 +988,7 @@ pub class CallLowering derives ASTWriter<CallLowering> {
     priv fn _pack(self,
                   n:          unsafe *CallExpr,
                   s:          *PlanSlot,
-                  const vals: cxx::std::vector<unsafe *Expr>) -> unsafe *Expr {
+                  const vals: [unsafe *Expr]) -> unsafe *Expr {
         var unsafe *pt = self._pack_type(s->param)
         if pt == &null {
             kairo::std::ice_fail(

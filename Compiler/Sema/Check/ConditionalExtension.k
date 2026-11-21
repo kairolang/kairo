@@ -65,7 +65,7 @@ import Sema::SemaContext::SemaContext
 pub class ConditionalExtensionCheck derives RecursiveASTVisitor<ConditionalExtensionCheck> {
     pub var sc: unsafe *SemaContext
     /// The gates of the conditional blocks enclosing the walk, innermost last.
-    priv var _in: cxx::std::vector<unsafe *Declarations::ExtensionGate>
+    priv var _in: [unsafe *Declarations::ExtensionGate]
 
     fn ConditionalExtensionCheck(self, sc: unsafe *SemaContext) {
         self.sc = sc
@@ -101,13 +101,13 @@ pub class ConditionalExtensionCheck derives RecursiveASTVisitor<ConditionalExten
             )
         }
 
-        self._in.push_back(n->gate)
+        self._in.push(n->gate)
         RecursiveASTVisitor<ConditionalExtensionCheck>::traverse_extension_decl(
             self,
             n,
         )
 
-        self._in.pop_back()
+        self._in.pop()
         return n
     }
 

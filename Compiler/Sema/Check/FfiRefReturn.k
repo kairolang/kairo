@@ -145,7 +145,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
     priv var _tu: TypeUtil
     /// The return types judged as such by visit_function_decl; visit_type
     /// reports every other written `ffi::ref`.
-    priv var _returns: cxx::std::vector<unsafe *Type>
+    priv var _returns: [unsafe *Type]
 
     fn FfiRefReturnCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -203,7 +203,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
 
         // Recorded first: a function poisoned by an earlier error still
         // walks its return type, which is not a misplaced one.
-        self._returns.push_back(rt)
+        self._returns.push(rt)
         if n->is_poisoned() {
             return true
         }
@@ -430,7 +430,7 @@ pub class FfiRefReturnCheck derives RecursiveASTVisitor<FfiRefReturnCheck> {
         b.emit()
         // Judged here; visit_type must not report it a second time when the
         // method's own traversal reaches it (a poisoned method is skipped).
-        self._returns.push_back(m->return_type)
+        self._returns.push(m->return_type)
         m->poison()
     }
 

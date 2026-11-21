@@ -209,14 +209,14 @@ pub class LocalEndRow {
     pub var alive_unmoved: bool         = false
     /// Whole assignments that construct it again after a `finally()`
     /// (AssignOperatorExpr::remake).
-    pub var remakes: cxx::std::vector<unsafe *Expressions::AssignOperatorExpr>
+    pub var remakes: [unsafe *Expressions::AssignOperatorExpr]
     fn LocalEndRow(self) { }
 }
 
 /// MoveCheck's record of the locals of the body being walked; one per
 /// body (saved and restored around a nested one).
 pub class LocalEnds {
-    pub var rows: cxx::std::vector<LocalEndRow>
+    pub var rows: [LocalEndRow]
     fn LocalEnds(self) { }
 
     /// `d` is a local this body declares (a DeclStmt of one of its blocks);
@@ -229,7 +229,7 @@ pub class LocalEnds {
         var r = LocalEndRow()
         r.d       = d
         r.refusal = refusal.copy()
-        self.rows.push_back(r)
+        self.rows.push(r)
     }
 
     /// LocalEndRow::refusal of `d` ("" when it is not a row).
@@ -273,7 +273,7 @@ pub class LocalEnds {
             }
         }
 
-        self.rows[i].remakes.push_back(asn)
+        self.rows[i].remakes.push(asn)
     }
 
     /// An exit of `d`'s scope is reached with `d` not ended on every path.

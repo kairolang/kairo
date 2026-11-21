@@ -232,7 +232,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
 
         var deref = self.tu.identity_derefs(lt, rt)
         var stmts = self.list_builder<unsafe *Stmt>()
-        var tests = cxx::std::vector<unsafe *Expr>()
+        var tests: [unsafe *Expr]
         var bound = false
         var unsafe *lv = self._identity_side(
             n->lhs,
@@ -291,7 +291,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
                            e:            unsafe *Expr,
                            deref:        bool,
                            stmts:        unsafe *ListBuilder<unsafe *Stmt>,
-                           @inout tests: cxx::std::vector<unsafe *Expr>,
+                           @inout tests: [unsafe *Expr],
                            bound:        unsafe *bool) -> unsafe *Expr {
         var unsafe *v = e
         if self.tu.nullable_inner(self.tu.as_value(e->type_)) != &null {
@@ -300,7 +300,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
                 *bound = true
             }
 
-            tests.push_back(self._test(e->range, opd.#test))
+            tests.push(self._test(e->range, opd.#test))
             v = opd.value
         }
 
@@ -528,22 +528,22 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
 
         var base_marked = false
 
-        var acc   = cxx::std::vector<ChainExpr::Step>()
-        var tests = cxx::std::vector<unsafe *Expr>()
+        var acc: [ChainExpr::Step]
+        var tests: [unsafe *Expr]
         for var i: usize = 0; i < c->steps.size(); ++i {
             var st = *c->steps.get(i)
             var qd = st.access_kind == ChainExpr::AccessKind::QuestionDot
             var qa = st.access_kind == ChainExpr::AccessKind::QuestionArrow
             if qd || qa {
                 if i == 0 {
-                    tests.push_back(
+                    tests.push(
                         self._test(st.range, self._base_read(c, bvd, false)),
                     )
 
                     base_marked = true
                 } else {
                     var unsafe *held = acc[i - 1].resolved_type
-                    tests.push_back(
+                    tests.push(
                         self._test(
                             st.range,
                             self._prefix(c, bvd, base_marked, acc, i, held),
@@ -558,7 +558,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
                                  else => ChainExpr::AccessKind::Dot
             }
 
-            acc.push_back(st)
+            acc.push(st)
         }
 
         var then_ty: unsafe *Type = &null
@@ -659,7 +659,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
                     c:           unsafe *ChainExpr,
                     bvd:         unsafe *VariableDecl,
                     base_marked: bool,
-                    const acc:   cxx::std::vector<ChainExpr::Step>,
+                    const acc:   [ChainExpr::Step],
                     k:           usize,
                     ty:          unsafe *Type) -> unsafe *Expr {
         var unsafe *base = self._base_read(c, bvd, base_marked)

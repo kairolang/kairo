@@ -119,10 +119,10 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
     /// that declares its guard. A pointer belongs to the scope that was
     /// innermost when it was allocated, and an inner scope opening or
     /// closing changes nothing for a pointer of an outer one.
-    priv var _scopes: cxx::std::vector<OpenScope>
+    priv var _scopes: [OpenScope]
     /// The current function's locals, in declaration order. A block's
     /// locals die with it, so the taint a local carries dies there too.
-    priv var _locals: cxx::std::vector<ScopeLocal>
+    priv var _locals: [ScopeLocal]
 
     fn ScopeEscapeCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -158,11 +158,11 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         }
 
         var s_depth  = self._depth
-        var s_scopes = self._scopes
-        var s_locals = self._locals
-        self._depth = 0
-        self._scopes.clear()
-        self._locals.clear()
+        var s_scopes = move(self._scopes)
+        var s_locals = move(self._locals)
+        self._depth  = 0
+        self._scopes = []
+        self._locals = []
 
         if n->body_block != &null {
             self.dyn()->traverse_block(n->body_block)
@@ -195,12 +195,12 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         // local of an outer block keeps the pointer it was given in here.
         while self._locals.size() > 0
             && self._locals[self._locals.size() - 1].depth >= self._depth {
-            self._locals.pop_back()
+            self._locals.pop()
         }
 
         while self._scopes.size() > 0
             && self._scopes[self._scopes.size() - 1].depth >= self._depth {
-            self._scopes.pop_back()
+            self._scopes.pop()
         }
 
         self._depth -= 1
@@ -239,15 +239,15 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
         }
 
         if self._is_scope_guard(n) {
-            self._locals.push_back(
+            self._locals.push(
                 ScopeLocal { decl: d, depth: self._depth, origin: 0 },
             )
 
-            self._scopes.push_back(OpenScope { guard: n, depth: self._depth })
+            self._scopes.push(OpenScope { guard: n, depth: self._depth })
             return out
         }
 
-        self._locals.push_back(
+        self._locals.push(
             ScopeLocal { decl: d, depth: self._depth, origin: origin },
         )
 

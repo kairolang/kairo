@@ -135,8 +135,11 @@ import Token::Token::Token
 /// the dispatcher's: the i-th of `from` becomes the i-th of `to`. In place;
 /// every other node is left as it is.
 pub class WhereGuardRemap derives ASTWriter<WhereGuardRemap> {
-    pub var from: cxx::std::vector<unsafe *Decl>
-    pub var to:   cxx::std::vector<unsafe *Decl>
+    pub var from: [unsafe *Decl]
+    pub var to:   [unsafe *Decl]
+
+    @copy fn WhereGuardRemap(self, const other: Self) = delete
+    @move fn WhereGuardRemap(self, other: Self) = delete
 
     fn WhereGuardRemap(self, ctx: unsafe *ASTContext) {
         self.ctx = ctx
@@ -245,11 +248,11 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
 
     /// Mint every member's candidate, then make `lead` the dispatcher.
     priv fn _fold(self, lead: unsafe *FunctionDecl) {
-        var order = cxx::std::vector<unsafe *FunctionDecl>() // dispatch order (WhereGuardCheck)
+        var order: [unsafe *FunctionDecl] // dispatch order (WhereGuardCheck)
         for var i: usize = 0; i < self.sc->where_groups.size(); ++i {
             var unsafe *m = self.sc->where_groups[i]
             if m->where_lead == lead {
-                order.push_back(m)
+                order.push(m)
             }
         }
 
@@ -262,13 +265,13 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         var name = self.tu.decl_name(unsafe (lead as unsafe *Decl))
         // The guards, and the parameters each was written against, before
         // the candidates take the parameters away.
-        var guards = cxx::std::vector<unsafe *Expr>()
-        var olds   = cxx::std::vector<FrozenList<unsafe *ParamDecl>>()
+        var guards: [unsafe *Expr]
+        var olds:   [FrozenList<unsafe *ParamDecl>]
         for var i: usize = 0; i < order.size(); ++i {
             var unsafe *m = order[i]
-            guards.push_back(m->where_clause)
+            guards.push(m->where_clause)
             m->where_clause = &null // moved: one node, one parent.
-            olds.push_back(m->params)
+            olds.push(m->params)
             var k = self._source_rank(m, order)
             var unsafe *c = self._mint(
                 m,
@@ -336,7 +339,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
     /// share a k.
     priv fn _source_rank(self,
                          m:           unsafe *FunctionDecl,
-                         const order: cxx::std::vector<unsafe *FunctionDecl>) -> usize {
+                         const order: [unsafe *FunctionDecl]) -> usize {
         var k:   usize = 0
         var seen       = false
         for var i: usize = 0; i < order.size(); ++i {
@@ -355,9 +358,7 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
         return k
     }
 
-    priv fn _index_in(self,
-                      m:           unsafe *FunctionDecl,
-                      const order: cxx::std::vector<unsafe *FunctionDecl>) -> usize {
+    priv fn _index_in(self, m: unsafe *FunctionDecl, const order: [unsafe *FunctionDecl]) -> usize {
         for var i: usize = 0; i < order.size(); ++i {
             if (order)[i] == m {
                 return i
@@ -448,8 +449,8 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
                       const to:   FrozenList<unsafe *ParamDecl>) -> unsafe *Expr {
         var rm = WhereGuardRemap(self.ctx)
         for var i: usize = 0; i < from.size() && i < to.size(); ++i {
-            rm.from.push_back(unsafe ((from)[i] as unsafe *Decl))
-            rm.to.push_back(unsafe ((to)[i] as unsafe *Decl))
+            rm.from.push(unsafe ((from)[i] as unsafe *Decl))
+            rm.to.push(unsafe ((to)[i] as unsafe *Decl))
         }
 
         return rm.run_on_expr(g)
@@ -536,20 +537,25 @@ pub class WhereDispatchLowering derives ASTWriter<WhereDispatchLowering> {
             unsafe (lead as unsafe *Decl),
         )
 
-        var v = cxx::std::vector<ChainType::GenericArg>()
+        var v: [ChainType::GenericArg]
         for var i: usize = 0; i < lead->generic_params.size(); ++i {
             var unsafe *gp = lead->generic_params[i]
             var        a   = ChainType::GenericArg{}
             a.name       = &null
             a.name_range = SourceRange::invalid()
             a.ty = self.sc->types->generic_param(rep, gp->index, gp->is_pack)
-            v.push_back(a)
+            v.push(a)
+        }
+
+        var items: unsafe *ChainType::GenericArg = &null
+        if v.size() > 0 {
+            items = unsafe (unwrap!(v.data_mut()) as unsafe *ChainType::GenericArg)
         }
 
         if id != &null {
-            id->generic_args.from_vec(unsafe &v, self.ctx)
+            id->generic_args.from_buf(items, v.size(), self.ctx)
         } else {
-            ch->steps.get(0)->generic_args.from_vec(unsafe &v, self.ctx)
+            ch->steps.get(0)->generic_args.from_buf(items, v.size(), self.ctx)
         }
     }
 

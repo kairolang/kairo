@@ -411,12 +411,12 @@ pub class ExprTyper
     priv var _chain_arena: llvm::SpecificBumpPtrAllocator<ChainInfo>
     priv var _typeexp:     llvm::DenseMap<u64, unsafe *Type> ///< expr -> the type it denotes.
     priv var _modexp:      llvm::DenseSet<u64> ///< expr denotes a module.
-    priv var _panics:      cxx::std::vector<unsafe *Expr> ///< asserting downcasts.
+    priv var _panics:      [unsafe *Expr] ///< asserting downcasts.
     /// `as` into a closed enum typed before the enum's variant values were
     /// written (the enum is declared below the cast): checked after the
     /// walk, when every value is (CastTyping::check_closed_enum_cast).
-    priv var _enum_casts:    cxx::std::vector<unsafe *Expressions::TypeCastExpr>
-    priv var _lang_reported: cxx::std::vector<string>
+    priv var _enum_casts:    [unsafe *Expressions::TypeCastExpr]
+    priv var _lang_reported: [string]
     priv var _scratch_ded:   Deduction
 
     /// ## counters for the dump
@@ -552,7 +552,7 @@ pub class ExprTyper
         ts->clear()
     }
 
-    fn panic_sites(self) -> unsafe *cxx::std::vector<unsafe *Expr> {
+    fn panic_sites(self) -> unsafe *[unsafe *Expr] {
         return unsafe &self._panics
     }
 
@@ -1343,8 +1343,8 @@ pub class ExprTyper
             return
         }
 
-        var place = cxx::std::vector<unsafe *Decl>()
-        place.push_back(d)
+        var place: [unsafe *Decl]
+        place.push(d)
         self.flow.note_read(n, unsafe &place)
     }
 
@@ -1470,11 +1470,11 @@ pub class ExprTyper
             }
 
             var ded    = Deduction(self.sc, &null)
-            var owners = cxx::std::vector<unsafe *Decl>()
-            owners.push_back(d)
+            var owners: [unsafe *Decl]
+            owners.push(d)
             var unsafe *rep = NameLookup::representative(d)
             if rep != d {
-                owners.push_back(rep)
+                owners.push(rep)
             }
 
             for var o: usize = 0; o < owners.size(); ++o {
@@ -2090,7 +2090,7 @@ pub class ExprTyper
             return
         }
 
-        var all = cxx::std::vector<unsafe *FunctionDecl>()
+        var all: [unsafe *FunctionDecl]
         self.conv.implicit_ops(fu, tv, unsafe &all)
         if all.size() == 0 {
             return
@@ -2149,7 +2149,7 @@ pub class ExprTyper
                                    at:   SourceRange,
                                    from: unsafe *Type,
                                    to:   unsafe *Type,
-                                   ops:  unsafe *cxx::std::vector<unsafe *FunctionDecl>) -> bool {
+                                   ops:  unsafe *[unsafe *FunctionDecl]) -> bool {
         if ops->size() < 2 {
             return false
         }
@@ -2636,7 +2636,7 @@ pub class ExprTyper
             }
         }
 
-        self._lang_reported.push_back(name.copy())
+        self._lang_reported.push(name.copy())
         self.sc->diag->report(
             DiagID::SC032E,
             e->range.start,
@@ -2651,11 +2651,11 @@ pub class ExprTyper
     /// An asserting downcast is a panic site. PanicEffectChecking reads
     /// panic_sites() when it lands; until then the list is inert.
     fn note_panic_site(self, e: unsafe *Expr) {
-        self._panics.push_back(e)
+        self._panics.push(e)
     }
 
     fn defer_enum_cast(self, n: unsafe *Expressions::TypeCastExpr) {
-        self._enum_casts.push_back(n)
+        self._enum_casts.push(n)
     }
 
     /// # RAV routing

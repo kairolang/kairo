@@ -132,7 +132,7 @@ extend CRTPCall {
 /// Every `R()->name(args)` call shape in the bodies it walks.
 pub class CRTPCallScan derives RecursiveASTVisitor<CRTPCallScan> {
     pub var ctx:   unsafe *ASTContext         = &null
-    pub var calls: cxx::std::vector<CRTPCall>
+    pub var calls: [CRTPCall]
 
     pub fn scan(self, m: unsafe *FunctionDecl) {
         if m->body_block != &null {
@@ -181,7 +181,7 @@ pub class CRTPCallScan derives RecursiveASTVisitor<CRTPCallScan> {
         c.name  = self.ctx->get_spelling(st->name->name)
         c.arity = n->args.size()
         c.at    = n->range
-        self.calls.push_back(c)
+        self.calls.push(c)
         return true
     }
 }
@@ -192,8 +192,8 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
     /// Per class pattern, the call shapes of its bodies: a pattern is the
     /// base of many classes in one TU (every visitor derives the RAV), and
     /// its bodies are scanned once.
-    priv var _scanned: cxx::std::vector<unsafe *ClassDecl>
-    priv var _calls:   cxx::std::vector<cxx::std::vector<CRTPCall>>
+    priv var _scanned: [unsafe *ClassDecl]
+    priv var _calls:   [[CRTPCall]]
 
     fn CRTPHookCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -228,7 +228,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
             return true
         }
 
-        var bases = cxx::std::vector<unsafe *ClassDecl>()
+        var bases: [unsafe *ClassDecl]
         self._bases(
             unsafe (n as unsafe *ClassDecl),
             unsafe (n as unsafe *ClassDecl),
@@ -236,18 +236,18 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
             0,
         )
 
-        if bases.empty() {
+        if bases.is_empty() {
             return true
         }
 
         // The dyn methods C can call: its own and every base's.
-        var dyns = cxx::std::vector<string>()
+        var dyns: [string]
         self._dyn_names(unsafe (n as unsafe *ClassDecl), unsafe &dyns)
         for var i: usize = 0; i < bases.size(); ++i {
             self._dyn_names(bases[i], unsafe &dyns)
         }
 
-        if dyns.empty() {
+        if dyns.is_empty() {
             return true
         }
 
@@ -292,7 +292,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
     priv fn _bases(self,
                    root:  unsafe *ClassDecl,
                    cd:    unsafe *ClassDecl,
-                   out:   unsafe *cxx::std::vector<unsafe *ClassDecl>,
+                   out:   unsafe *[unsafe *ClassDecl],
                    depth: u32) {
         if cd == &null || depth > 32 {
             return
@@ -333,7 +333,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
                 continue
             }
 
-            out->push_back(bd)
+            out->push(bd)
             self._bases(root, bd, out, depth + 1)
         }
     }
@@ -367,7 +367,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
     /// # dyn methods and hooks
 
     /// The names of `cd`'s dyn methods, added to `out`.
-    priv fn _dyn_names(self, cd: unsafe *ClassDecl, out: unsafe *cxx::std::vector<string>) {
+    priv fn _dyn_names(self, cd: unsafe *ClassDecl, out: unsafe *[string]) {
         if cd->generic_params.size() == 0 {
             return
         }
@@ -389,7 +389,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
                 continue
             }
 
-            out->push_back(self._name(unsafe (m as unsafe *Decl)))
+            out->push(self._name(unsafe (m as unsafe *Decl)))
         }
     }
 
@@ -397,8 +397,8 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
     /// body of `cd` or of one of `bases`; the first one found into `out`.
     priv fn _hook_call(self,
                        cd:         unsafe *ClassDecl,
-                       bases:      *cxx::std::vector<unsafe *ClassDecl>,
-                       dyns:       *cxx::std::vector<string>,
+                       bases:      *[unsafe *ClassDecl],
+                       dyns:       *[string],
                        const name: string,
                        arity:      usize,
                        out:        *CRTPCall) -> bool {
@@ -417,7 +417,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
 
     priv fn _hook_in(self,
                      cd:         unsafe *ClassDecl,
-                     dyns:       *cxx::std::vector<string>,
+                     dyns:       *[string],
                      const name: string,
                      arity:      usize,
                      out:        *CRTPCall) -> bool {
@@ -440,7 +440,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
     }
 
     /// The call shapes in `cd`'s method bodies, scanned once per pattern.
-    priv fn _calls_of(self, cd: unsafe *ClassDecl) -> unsafe *cxx::std::vector<CRTPCall> {
+    priv fn _calls_of(self, cd: unsafe *ClassDecl) -> unsafe *[CRTPCall] {
         for var i: usize = 0; i < self._scanned.size(); ++i {
             if self._scanned[i] == cd {
                 return unsafe &self._calls[i]
@@ -458,8 +458,8 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
             s.scan(m)
         }
 
-        self._scanned.push_back(cd)
-        self._calls.push_back(cxx::std::move(s.calls))
+        self._scanned.push(cd)
+        self._calls.push(s.calls)
         return unsafe &self._calls[self._calls.size() - 1]
     }
 
@@ -469,7 +469,7 @@ pub class CRTPHookCheck derives RecursiveASTVisitor<CRTPHookCheck> {
     /// method of that name and arity takes the same parameters.
     priv fn _check(self,
                    m:          unsafe *FunctionDecl,
-                   bases:      *cxx::std::vector<unsafe *ClassDecl>,
+                   bases:      *[unsafe *ClassDecl],
                    const name: string,
                    arity:      usize,
                    call:       *CRTPCall) {

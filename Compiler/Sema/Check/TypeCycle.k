@@ -89,17 +89,17 @@ pub class TypeCycleCheck {
     pub var sc: *SemaContext
 
     /// The DFS stack: the grey set, in path order.
-    priv var _stack: cxx::std::vector<unsafe *Decl>
+    priv var _stack: [unsafe *Decl]
 
     /// `_site[i]` is the by-value edge inside `_stack[i]` that the walk
     /// descended through. One entry per stack entry, pushed together.
-    priv var _site: cxx::std::vector<SourceRange>
+    priv var _site: [SourceRange]
 
     /// Fully explored, acyclic. Never revisited.
-    priv var _black: cxx::std::vector<unsafe *Decl>
+    priv var _black: [unsafe *Decl]
 
     /// Decls already named on a reported cycle.
-    priv var _reported: cxx::std::vector<unsafe *Decl>
+    priv var _reported: [unsafe *Decl]
 
     fn TypeCycleCheck(self, sc: *SemaContext) {
         self.sc = sc
@@ -180,14 +180,14 @@ pub class TypeCycleCheck {
             return
         }
 
-        self._stack.push_back(d)
-        self._site.push_back(site)
+        self._stack.push(d)
+        self._site.push(site)
 
         self._edges(d)
 
-        self._stack.pop_back()
-        self._site.pop_back()
-        self._black.push_back(d)
+        self._stack.pop()
+        self._site.pop()
+        self._black.push(d)
     }
 
     /// Every by-value edge out of one record.
@@ -541,7 +541,7 @@ pub class TypeCycleCheck {
 
         for var i: usize = grey; i < self._stack.size(); ++i {
             var unsafe *d = self._stack[i]
-            self._reported.push_back(d)
+            self._reported.push(d)
             d->poison()
         }
     }
@@ -588,7 +588,7 @@ pub class TypeCycleCheck {
         return f"'{a}' holds '{b}' by value"
     }
 
-    priv fn _index_of(self, const v: cxx::std::vector<unsafe *Decl>, d: unsafe *Decl) -> usize {
+    priv fn _index_of(self, const v: [unsafe *Decl], d: unsafe *Decl) -> usize {
         for var i: usize = 0; i < v.size(); ++i {
             if (v)[i] == d {
                 return i

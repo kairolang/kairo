@@ -148,9 +148,9 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     priv var _tu: TypeUtil
     /// The functions being walked, innermost last: their classes are the
     /// use site's (a method's own class, a subclass for `prot`).
-    priv var _fns: cxx::std::vector<unsafe *FunctionDecl>
+    priv var _fns: [unsafe *FunctionDecl]
     /// The records being walked lexically: a field default is in its class.
-    priv var _recs: cxx::std::vector<unsafe *Decl>
+    priv var _recs: [unsafe *Decl]
     /// refuses(): a refusal is recorded, not reported.
     priv var _quiet:   bool = false
     priv var _refused: bool = false
@@ -179,10 +179,10 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     /// completion list): what it offers is then what this pass admits, by
     /// this pass's own rule.
     pub fn refuses(self, d: unsafe *Decl, through: unsafe *Type, f: unsafe *FunctionDecl) -> bool {
-        var fns = self._fns
+        var fns = self._fns.copy()
         self._fns.clear()
         if f != &null {
-            self._fns.push_back(f)
+            self._fns.push(f)
         }
 
         self._quiet   = true
@@ -201,46 +201,46 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     /// # where the use is
 
     fn traverse_function_decl(self, n: unsafe *FunctionDecl) -> unsafe *FunctionDecl {
-        self._fns.push_back(n)
+        self._fns.push(n)
         var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_function_decl(
             self,
             n,
         )
 
-        self._fns.pop_back()
+        self._fns.pop()
         return r
     }
 
     fn traverse_class_decl(self, n: unsafe *ClassDecl) -> unsafe *ClassDecl {
-        self._recs.push_back(n)
+        self._recs.push(n)
         var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_class_decl(
             self,
             n,
         )
 
-        self._recs.pop_back()
+        self._recs.pop()
         return r
     }
 
     fn traverse_struct_decl(self, n: unsafe *StructDecl) -> unsafe *StructDecl {
-        self._recs.push_back(n)
+        self._recs.push(n)
         var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_struct_decl(
             self,
             n,
         )
 
-        self._recs.pop_back()
+        self._recs.pop()
         return r
     }
 
     fn traverse_union_decl(self, n: unsafe *UnionDecl) -> unsafe *UnionDecl {
-        self._recs.push_back(n)
+        self._recs.push(n)
         var unsafe *r = RecursiveASTVisitor<AccessCheck>::traverse_union_decl(
             self,
             n,
         )
 
-        self._recs.pop_back()
+        self._recs.pop()
         return r
     }
 
@@ -252,10 +252,10 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     /// only what its own file may (extends.mdx: an `extend ... impl` in the
     /// interface's file cannot read the type's private members); its scope
     /// struct is not among the target's C++ friends either.
-    priv fn _use_classes(self) -> cxx::std::vector<unsafe *Decl> {
-        var out = cxx::std::vector<unsafe *Decl>()
+    priv fn _use_classes(self) -> [unsafe *Decl] {
+        var out: [unsafe *Decl]
         for var i: usize = 0; i < self._recs.size(); ++i {
-            out.push_back(self._rep(self._recs[i]))
+            out.push(self._rep(self._recs[i]))
         }
 
         if self._fns.size() == 0 {
@@ -279,11 +279,11 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                         && NameLookup::tu_of(dc) == NameLookup::tu_of(
                             NameLookup::context_of(tgt),
                         ) {
-                        out.push_back(tgt)
+                        out.push(tgt)
                     }
                 }
             } else if dc->is_type_scope() && dc->owner_decl() != &null {
-                out.push_back(self._rep(dc->owner_decl()))
+                out.push(self._rep(dc->owner_decl()))
             }
 
             dc = dc->dc_parent
@@ -649,7 +649,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
         var why: u8 = 1
         for var i: usize = 0; i < users.size(); ++i {
-            var seen = cxx::std::vector<unsafe *Decl>()
+            var seen: [unsafe *Decl]
             if !self._derives(users[i], owner, unsafe &seen, 0) {
                 continue
             }
@@ -700,7 +700,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return true
         }
 
-        var seen = cxx::std::vector<unsafe *Decl>()
+        var seen: [unsafe *Decl]
         return self._derives(from, user, unsafe &seen, 0)
     }
 
@@ -916,7 +916,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     priv fn _derives(self,
                      d:     unsafe *Decl,
                      base:  unsafe *Decl,
-                     seen:  unsafe *cxx::std::vector<unsafe *Decl>,
+                     seen:  unsafe *[unsafe *Decl],
                      depth: u32) -> bool {
         if d == &null || depth > DERIVES_WALK_DEPTH_MAX || !isa<ClassDecl>(d) {
             return false
@@ -928,7 +928,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             }
         }
 
-        seen->push_back(d)
+        seen->push(d)
         var unsafe *cd = cast<ClassDecl>(d)
         for var i: usize = 0; i < cd->derives_list.size(); ++i {
             var unsafe *bd = self._edge_rep(cd->derives_list.get(i))
@@ -993,8 +993,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             return
         }
 
-        var seen = cxx::std::vector<unsafe *Decl>()
-        var path = cxx::std::vector<DerivesStep>()
+        var seen: [unsafe *Decl]
+        var path: [DerivesStep]
         if !self._path(from, owner, unsafe &path, unsafe &seen, 0) {
             return
         }
@@ -1017,7 +1017,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                     ok = true
                 }
 
-                var s2 = cxx::std::vector<unsafe *Decl>()
+                var s2: [unsafe *Decl]
                 if ev == prot_edge && self._derives(users[k], holder, unsafe &s2, 0) {
                     ok = true
                 }
@@ -1079,8 +1079,8 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
     priv fn _path(self,
                   d:     unsafe *Decl,
                   base:  unsafe *Decl,
-                  path:  unsafe *cxx::std::vector<DerivesStep>,
-                  seen:  unsafe *cxx::std::vector<unsafe *Decl>,
+                  path:  unsafe *[DerivesStep],
+                  seen:  unsafe *[unsafe *Decl],
                   depth: u32) -> bool {
         if d == &null || depth > DERIVES_WALK_DEPTH_MAX || !isa<ClassDecl>(d) {
             return false
@@ -1092,7 +1092,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             }
         }
 
-        seen->push_back(d)
+        seen->push(d)
         var unsafe *cd = cast<ClassDecl>(d)
         for var i: usize = 0; i < cd->derives_list.size(); ++i {
             var unsafe *e  = cd->derives_list.get(i)
@@ -1101,7 +1101,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 continue
             }
 
-            path->push_back(DerivesStep(e, d))
+            path->push(DerivesStep(e, d))
             if bd == base {
                 return true
             }
@@ -1109,7 +1109,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
             // Through a base that is a type parameter, a member an argument
             // declares (a class deriving the bound) is reached by the same
             // edge as the bound's own.
-            var below = cxx::std::vector<unsafe *Decl>()
+            var below: [unsafe *Decl]
             if self._tu.param_edge(e) != &null && self._derives(base, bd, unsafe &below, 0) {
                 return true
             }
@@ -1118,7 +1118,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
                 return true
             }
 
-            path->pop_back()
+            path->pop()
         }
 
         return false
@@ -1245,7 +1245,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         )
 
         var unsafe *tgt = if (rd != &null) => (self._rep(rd)) else => &null
-        var        seen = cxx::std::vector<unsafe *Decl>()
+        var seen: [unsafe *Decl]
         if tgt == &null || tgt == owner || !self._derives(tgt, owner, unsafe &seen, 0) {
             return
         }
@@ -1282,7 +1282,7 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
         var un    = "the class it is used in"
         var users = self._use_classes()
         for var i: usize = 0; i < users.size(); ++i {
-            var seen = cxx::std::vector<unsafe *Decl>()
+            var seen: [unsafe *Decl]
             if self._derives(users[i], owner, unsafe &seen, 0) {
                 un = f"'{self._tu.decl_name(users[i])}'"
                 break

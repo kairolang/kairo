@@ -151,7 +151,7 @@ pub class DeclaredQuery {
     /// there (`segs` is then empty).
     fn path_of(self,
                c:                unsafe *CallExpr,
-               segs:             unsafe *cxx::std::vector<string>,
+               segs:             unsafe *[string],
                @inout primitive: bool) -> bool {
         primitive = false
         var unsafe *n = cast<NamedIdentExpr>(c->callee)
@@ -199,7 +199,7 @@ pub class DeclaredQuery {
                 return false
             }
 
-            segs->push_back(self.sc->ctx->get_spelling(s->name->name))
+            segs->push(self.sc->ctx->get_spelling(s->name->name))
         }
 
         if segs->size() == 0 {
@@ -228,9 +228,9 @@ pub class DeclaredQuery {
     /// branches), or null.
     fn resolve(self,
                from:       unsafe *DeclContext,
-               const segs: cxx::std::vector<string>,
-               dropped:    unsafe *cxx::std::vector<unsafe *Decl>,
-               out:        unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+               const segs: [string],
+               dropped:    unsafe *[unsafe *Decl],
+               out:        unsafe *[unsafe *Decl]) -> bool {
         self.pending = false
         out->clear()
         if from == &null || segs.size() == 0 {
@@ -248,7 +248,7 @@ pub class DeclaredQuery {
         // so an import that comes to supply the name re-checks this file.
         var imm = home->ctx->get_imm_table()->intern_ident_copy(segs[0])
 
-        var cur = cxx::std::vector<unsafe *Decl>()
+        var cur: [unsafe *Decl]
         var r   = self.sc->lookup.unqualified(from, DeclName::ident(imm))
         if !r.found() || !self._live(r.cell, dropped, unsafe &cur) {
             return false
@@ -260,12 +260,12 @@ pub class DeclaredQuery {
     /// resolve() from step `at` on, `cur` being what the steps before it
     /// named.
     fn resolve_from(self,
-                    cur:        unsafe *cxx::std::vector<unsafe *Decl>,
-                    const segs: cxx::std::vector<string>,
+                    cur:        unsafe *[unsafe *Decl],
+                    const segs: [string],
                     at:         usize,
-                    dropped:    unsafe *cxx::std::vector<unsafe *Decl>,
-                    out:        unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
-        var now = *cur
+                    dropped:    unsafe *[unsafe *Decl],
+                    out:        unsafe *[unsafe *Decl]) -> bool {
+        var now = cur->copy()
         for var i = at; i < segs.size(); ++i {
             var scopes = cxx::std::vector<unsafe *DeclContext>()
             for var k: usize = 0; k < now.size(); ++k {
@@ -292,7 +292,7 @@ pub class DeclaredQuery {
                 }
             }
 
-            var next    = cxx::std::vector<unsafe *Decl>()
+            var next: [unsafe *Decl]
             var waiting = false
             for var k: usize = 0; k < scopes.size(); ++k {
                 var unsafe *cell = self._in(scopes[k], segs[i])
@@ -315,10 +315,10 @@ pub class DeclaredQuery {
         }
 
         // The last step: a record nobody defined does not count.
-        var kept = cxx::std::vector<unsafe *Decl>()
+        var kept: [unsafe *Decl]
         for var k: usize = 0; k < now.size(); ++k {
             if DeclaredQuery::usable(now[k]) {
-                kept.push_back(now[k])
+                kept.push(now[k])
             }
         }
 
@@ -417,8 +417,8 @@ pub class DeclaredQuery {
     /// being folded: `pending` is then set, and it waits).
     priv fn _live(self,
                   cell:    unsafe *OverloadCell,
-                  dropped: unsafe *cxx::std::vector<unsafe *Decl>,
-                  out:     unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+                  dropped: unsafe *[unsafe *Decl],
+                  out:     unsafe *[unsafe *Decl]) -> bool {
         var n:      usize = 0
         var waiting       = true
         var first         = out->size()
@@ -456,7 +456,7 @@ pub class DeclaredQuery {
             }
 
             if !dup {
-                out->push_back(d)
+                out->push(d)
             }
         }
 
@@ -465,7 +465,7 @@ pub class DeclaredQuery {
         }
 
         if dropped != &null && waiting {
-            out->resize(first)
+            out->truncate(first)
             self.pending = true
             return false
         }
@@ -481,8 +481,8 @@ pub class DeclaredQuery {
     /// one per entity build-wide (ForeignRegistry), so a path that resolves
     /// in two files' scopes resolves to the same declarations here.
     fn resolve_in_headers(self,
-                          const segs: cxx::std::vector<string>,
-                          out:        unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+                          const segs: [string],
+                          out:        unsafe *[unsafe *Decl]) -> bool {
         self.pending = false
         out->clear()
         if segs.size() == 0 || self.sc->g == &null || self.sc->ctx->tcm == &null {
@@ -495,7 +495,7 @@ pub class DeclaredQuery {
         }
 
         var head  = if (is_cxx) => (cxx_std_name()) else => segs[0].copy()
-        var heads = cxx::std::vector<unsafe *Decl>()
+        var heads: [unsafe *Decl]
         var fids  = self.sc->g->all_fids()
         for var i: usize = 0; i < fids.size(); ++i {
             var unsafe *ctx = self.sc->g->get_context(fids[i])
@@ -528,7 +528,7 @@ pub class DeclaredQuery {
                 }
 
                 if !dup {
-                    heads.push_back(d)
+                    heads.push(d)
                 }
             }
         }
@@ -575,7 +575,7 @@ pub class DeclaredQuery {
         var from: usize = 0
         for var i: usize = 0; i < g->paths.size(); ++i {
             var segs  = DeclaredQuery::split(g->paths[i])
-            var found = cxx::std::vector<unsafe *Decl>()
+            var found: [unsafe *Decl]
             if !self.resolve(
                 unsafe (self.sc->tu as unsafe *DeclContext),
                 segs,
@@ -608,15 +608,15 @@ pub class DeclaredQuery {
     }
 
     /// `a::b::C` as its steps.
-    static fn split(const path: string) -> cxx::std::vector<string> {
-        var out        = cxx::std::vector<string>()
+    static fn split(const path: string) -> [string] {
+        var out: [string]
         var i:   usize = 0
         var run: usize = 0
         while i < path.size() {
             if path.data()[i] == (':' as u8)
                 && i + 1 < path.size()
                 && path.data()[i + 1] == (':' as u8) {
-                out.push_back(path[run..i].copy())
+                out.push(path[run..i].copy())
                 i += 2
                 run = i
                 continue
@@ -625,7 +625,7 @@ pub class DeclaredQuery {
             i += 1
         }
 
-        out.push_back(path[run..].copy())
+        out.push(path[run..].copy())
         return out
     }
 
@@ -648,11 +648,17 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
     pub var  sc: unsafe *SemaContext
     priv var _q: DeclaredQuery
     /// The declaration scopes enclosing the walk, innermost last.
-    priv var _dcs: cxx::std::vector<unsafe *DeclContext>
+    priv var _dcs: [unsafe *DeclContext]
     /// > 0 inside a live conditional extension; _gate_at is its index in
     /// _dcs.
     priv var _gate_depth: u32   = 0
     priv var _gate_at:    usize = 0
+
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn DeclaredQueryFolding(self, const other: Self) = delete
+    @move fn DeclaredQueryFolding(self, other: Self) = delete
 
     fn DeclaredQueryFolding(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -665,39 +671,39 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
             return
         }
 
-        self._dcs.push_back(unsafe (self.sc->tu as unsafe *DeclContext))
+        self._dcs.push(unsafe (self.sc->tu as unsafe *DeclContext))
         ASTWriter<DeclaredQueryFolding>::run(self, self.sc->tu)
     }
 
     fn transform_module_decl(self,
                              n: unsafe *Declarations::ModuleDecl) -> cxx::std::vector<unsafe *Decl> {
-        self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+        self._dcs.push(unsafe (n as unsafe *DeclContext))
         var out = ASTWriter<DeclaredQueryFolding>::transform_module_decl(
             self,
             n,
         )
 
-        self._dcs.pop_back()
+        self._dcs.pop()
         return out
     }
 
     fn transform_class_decl(self,
                             n: unsafe *Declarations::ClassDecl) -> cxx::std::vector<unsafe *Decl> {
-        self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+        self._dcs.push(unsafe (n as unsafe *DeclContext))
         var out = ASTWriter<DeclaredQueryFolding>::transform_class_decl(self, n)
-        self._dcs.pop_back()
+        self._dcs.pop()
         return out
     }
 
     fn transform_struct_decl(self,
                              n: unsafe *Declarations::StructDecl) -> cxx::std::vector<unsafe *Decl> {
-        self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+        self._dcs.push(unsafe (n as unsafe *DeclContext))
         var out = ASTWriter<DeclaredQueryFolding>::transform_struct_decl(
             self,
             n,
         )
 
-        self._dcs.pop_back()
+        self._dcs.pop()
         return out
     }
 
@@ -716,13 +722,13 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
             b.emit()
         }
 
-        self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+        self._dcs.push(unsafe (n as unsafe *DeclContext))
         var out = ASTWriter<DeclaredQueryFolding>::transform_function_decl(
             self,
             n,
         )
 
-        self._dcs.pop_back()
+        self._dcs.pop()
         return out
     }
 
@@ -747,15 +753,15 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
     /// paths, and never by this file's own unit, which may not.
     fn transform_extension_decl(self,
                                 n: unsafe *Declarations::ExtensionDecl) -> cxx::std::vector<unsafe *Decl> {
-        var leaves = cxx::std::vector<unsafe *Expr>()
+        var leaves: [unsafe *Expr]
         self._conjuncts(n->requires_clause, unsafe &leaves)
-        var gates       = cxx::std::vector<unsafe *CallExpr>()
+        var gates: [unsafe *CallExpr]
         var rest: usize = 0
         var bad         = false
         for var i: usize = 0; i < leaves.size(); ++i {
             var unsafe *c = self._q.call_of(leaves[i])
             if c != &null {
-                gates.push_back(c)
+                gates.push(c)
                 continue
             }
 
@@ -771,13 +777,13 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
         }
 
         if gates.size() == 0 && !bad {
-            self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+            self._dcs.push(unsafe (n as unsafe *DeclContext))
             var out = ASTWriter<DeclaredQueryFolding>::transform_extension_decl(
                 self,
                 n,
             )
 
-            self._dcs.pop_back()
+            self._dcs.pop()
             return out
         }
 
@@ -796,10 +802,10 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
         }
 
         var unsafe *g = self.ctx->alloc_init_cleanup<Declarations::ExtensionGate>()
-        var bound = cxx::std::vector<cxx::std::vector<string>>() // paths to bind in the block's scope.
-        var bdecl = cxx::std::vector<cxx::std::vector<unsafe *Decl>>()
+        var bound: [[string]] // paths to bind in the block's scope.
+        var bdecl: [[unsafe *Decl]]
         for var i: usize = 0; i < gates.size(); ++i {
-            var segs      = cxx::std::vector<string>()
+            var segs: [string]
             var primitive = false
             if !self._q.path_of(gates[i], unsafe &segs, &primitive) {
                 return none
@@ -809,7 +815,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
                 continue
             }
 
-            var found = cxx::std::vector<unsafe *Decl>()
+            var found: [unsafe *Decl]
             var here = self._q.resolve(
                 self._dcs[self._dcs.size() - 1],
                 segs,
@@ -843,8 +849,8 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
 
             g->ends.push_back(g->decls.size())
             if !here {
-                bound.push_back(segs)
-                bdecl.push_back(found)
+                bound.push(segs)
+                bdecl.push(found)
             }
         }
 
@@ -871,20 +877,20 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
         }
 
         self._gate_depth += 1
-        self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+        self._dcs.push(unsafe (n as unsafe *DeclContext))
         self._gate_at = self._dcs.size() - 1
         var out = ASTWriter<DeclaredQueryFolding>::transform_extension_decl(
             self,
             n,
         )
 
-        self._dcs.pop_back()
+        self._dcs.pop()
         self._gate_depth -= 1
         return out
     }
 
     /// The operands of `e`'s `&&` tree, parentheses dropped.
-    priv fn _conjuncts(self, e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
+    priv fn _conjuncts(self, e: unsafe *Expr, out: unsafe *[unsafe *Expr]) {
         var unsafe *x = e
         while x != &null && isa<ParenExpr>(x) {
             x = cast<ParenExpr>(x)->inner
@@ -902,7 +908,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
             return
         }
 
-        out->push_back(x)
+        out->push(x)
     }
 
     /// Bind each path of `paths` in the scope of the block `n`, to the
@@ -916,8 +922,8 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
     /// the same shape for a whole file).
     priv fn _bind_paths(self,
                         n:     unsafe *Declarations::ExtensionDecl,
-                        paths: unsafe *cxx::std::vector<cxx::std::vector<string>>,
-                        decls: unsafe *cxx::std::vector<cxx::std::vector<unsafe *Decl>>) {
+                        paths: unsafe *[[string]],
+                        decls: unsafe *[[unsafe *Decl]]) {
         var unsafe *dc  = unsafe (n as unsafe *DeclContext)
         var unsafe *old = dc->dc_symbols
         var unsafe *nt  = self.ctx->alloc_init_cleanup<SymbolTable>(self.ctx)
@@ -947,11 +953,11 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
                         tbl:          unsafe *SymbolTable,
                         parent:       unsafe *DeclContext,
                         n:            unsafe *Declarations::ExtensionDecl,
-                        paths:        unsafe *cxx::std::vector<cxx::std::vector<string>>,
-                        decls:        unsafe *cxx::std::vector<cxx::std::vector<unsafe *Decl>>,
+                        paths:        unsafe *[[string]],
+                        decls:        unsafe *[[unsafe *Decl]],
                         depth:        usize,
                         const prefix: string) {
-        var done = cxx::std::vector<string>()
+        var done: [string]
         for var i: usize = 0; i < paths->size(); ++i {
             var *p = &(*paths)[i]
             if p->size() <= depth || self._prefix_of(*p, depth) != prefix {
@@ -971,7 +977,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
                 continue
             }
 
-            done.push_back(step.copy())
+            done.push(step.copy())
             var key = self.sc->imm_table()->intern_ident_copy(step)
             // A path that ends here names its declarations; a longer one
             // through the same step goes on through them.
@@ -1020,7 +1026,7 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
         }
     }
 
-    priv fn _prefix_of(self, const p: cxx::std::vector<string>, depth: usize) -> string {
+    priv fn _prefix_of(self, const p: [string], depth: usize) -> string {
         var out = ""
         for var i: usize = 0; i < depth; ++i {
             out += p[i]
@@ -1042,14 +1048,14 @@ pub class DeclaredQueryFolding derives ASTWriter<DeclaredQueryFolding> {
             return BooleanLiteralExpr::create(self.ctx, n->range, true)
         }
 
-        var segs      = cxx::std::vector<string>()
+        var segs: [string]
         var primitive = false
         var value     = false
         if self._q.path_of(c, unsafe &segs, &primitive) {
             if primitive {
                 value = true
             } else {
-                var found = cxx::std::vector<unsafe *Decl>()
+                var found: [unsafe *Decl]
                 value = self._q.resolve(
                     self._dcs[self._dcs.size() - 1],
                     segs,

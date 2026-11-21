@@ -379,7 +379,7 @@ pub class <T: type> LiteralTyping {
         // The children are collected first and appended in one run: typing an
         // element can itself append (a nested list literal), and the range
         // this ArgInfo names has to be contiguous.
-        var kids = cxx::std::vector<ListShape>()
+        var kids: [ListShape]
         for var i: usize = 0; i < n->elements.size(); ++i {
             var el: ArgInfo = self.dyn()->arg_info(n->elements[i])
             if el.dependent {
@@ -397,7 +397,7 @@ pub class <T: type> LiteralTyping {
             sh.ty       = el.ty
             sh.kids_lo  = el.elems_lo
             sh.kids_n   = el.elems_n
-            kids.push_back(sh)
+            kids.push(sh)
         }
 
         a->elems_lo = self.dyn()->ovl.list_shapes.size()
@@ -428,11 +428,11 @@ pub class <T: type> LiteralTyping {
             return false
         }
 
-        var kids      = cxx::std::vector<ListShape>()
+        var kids: [ListShape]
         var form: u32 = 0
-        var ends      = cxx::std::vector<*Expr>()
-        ends.push_back(n->begin)
-        ends.push_back(n->end)
+        var ends: [*Expr]
+        ends.push(n->begin)
+        ends.push(n->end)
         for var i: usize = 0; i < ends.size(); ++i {
             if ends[i] == &null {
                 continue
@@ -454,7 +454,7 @@ pub class <T: type> LiteralTyping {
             sh.lit_big  = el.lit_big
             sh.lit_bits = el.lit_bits
             sh.lit_neg  = el.lit_neg
-            kids.push_back(sh)
+            kids.push(sh)
             form |= if (i == 0) => (RANGE_HAS_BEGIN) else => RANGE_HAS_END
         }
 
@@ -666,10 +666,10 @@ pub class <T: type> LiteralTyping {
         }
 
         // default: i32, widening only when it does not fit.
-        var order = cxx::std::vector<BuiltinKind>()
-        order.push_back(BuiltinKind::I32)
-        order.push_back(BuiltinKind::I64)
-        order.push_back(BuiltinKind::I128)
+        var order: [BuiltinKind]
+        order.push(BuiltinKind::I32)
+        order.push(BuiltinKind::I64)
+        order.push(BuiltinKind::I128)
         for var i: usize = 0; i < order.size(); ++i {
             if literal_fits_int(
                 n->get_value_lo(),
@@ -1499,11 +1499,11 @@ pub class <T: type> LiteralTyping {
 
         var        lc    = LiteralCalls{}
         var unsafe *recv = canon_unqual(self.dyn()->tu.strip_nullable(ct))
-        var        cap   = cxx::std::vector<ArgInfo>()
+        var cap: [ArgInfo]
         var        ci    = ArgInfo()
         ci.ty    = self.dyn()->tu.builtin(BuiltinKind::USize)
         ci.range = n->range
-        cap.push_back(ci)
+        cap.push(ci)
         self._bind_member(
             n,
             recv,
@@ -1513,16 +1513,16 @@ pub class <T: type> LiteralTyping {
             unsafe &lc.reserve_inst,
         )
 
-        var elems = cxx::std::vector<ArgInfo>()
+        var elems: [ArgInfo]
         var ea    = ArgInfo()
         ea.ty    = canon_unqual(a)
         ea.range = n->range
-        elems.push_back(ea)
+        elems.push(ea)
         if b != &null {
             var eb = ArgInfo()
             eb.ty    = canon_unqual(b)
             eb.range = n->range
-            elems.push_back(eb)
+            elems.push(eb)
         }
 
         if !self._bind_member(
@@ -1546,7 +1546,7 @@ pub class <T: type> LiteralTyping {
                          at:         unsafe *Expr,
                          recv:       unsafe *Type,
                          const name: string,
-                         args:       *cxx::std::vector<ArgInfo>,
+                         args:       *[ArgInfo],
                          out:        unsafe *(unsafe *Decl),
                          inst:       unsafe *(unsafe *InstanceEntry)) -> bool {
         var cands = cxx::std::vector<unsafe *Decl>()

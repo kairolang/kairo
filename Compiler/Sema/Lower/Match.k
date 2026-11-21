@@ -215,7 +215,7 @@ pub struct ArmPlan {
     var rep:     i32                   = -1 ///< a Leaf/Guard node whose binders stand for every path.
     var used:    bool                  = false ///< its label is a goto target.
     var label:   Token
-    var guards:  cxx::std::vector<u32> ///< its Guard nodes.
+    var guards:  [u32] ///< its Guard nodes.
     var glabel:  Token ///< the shared guard block, when guards.size() > 1.
 }
 
@@ -248,12 +248,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// (VariableDecl::moves_payload): the scrutinee is read in place
     /// through a mutable reference, so the payload can be moved out.
     priv var _owns:      bool                                   = false
-    priv var _locals:    cxx::std::vector<unsafe *VariableDecl> ///< by occurrence; null when reached through a parent.
-    priv var _labels:    cxx::std::vector<Token> ///< by node.
-    priv var _queued:    cxx::std::vector<u8>
-    priv var _queue:     cxx::std::vector<u32>
-    priv var _arms:      cxx::std::vector<ArmPlan>
-    priv var _slots:     cxx::std::vector<Slot>
+    priv var _locals:    [unsafe *VariableDecl] ///< by occurrence; null when reached through a parent.
+    priv var _labels:    [Token] ///< by node.
+    priv var _queued:    [u8]
+    priv var _queue:     [u32]
+    priv var _arms:      [ArmPlan]
+    priv var _slots:     [Slot]
     priv var _arm_ix:    unsafe *VariableDecl                   = &null
     priv var _cont:      unsafe *VariableDecl                   = &null
     priv var _fail:      Token
@@ -402,7 +402,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             }
         }
 
-        var pre = cxx::std::vector<unsafe *Stmt>()
+        var pre: [unsafe *Stmt]
         self._bind_scrutinee(scrutinee, 0, unsafe &pre)
         if !self._renderable() {
             return &null
@@ -420,7 +420,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
         self._declare_state(&pre)
 
-        var code = cxx::std::vector<unsafe *Stmt>()
+        var code: [unsafe *Stmt]
         var root = self._t->nodes[self._t->root as usize]
         var skip_root = !self._value
             && root.kind == DKind::Leaf
@@ -432,8 +432,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         self._drain(unsafe &code)
         self._shared_guards(unsafe &code)
         if self._fail_used {
-            code.push_back(self._label_stmt(self._fail))
-            code.push_back(self._policy(!self._fail_general))
+            code.push(self._label_stmt(self._fail))
+            code.push(self._policy(!self._fail_general))
         }
 
         if self._value {
@@ -441,7 +441,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 kairo::std::ice_fail("MatchLowering: empty decision tree")
             }
 
-            code.push_back(self._label_stmt(self._end))
+            code.push(self._label_stmt(self._end))
             return self._wrap_value(pre, self._ternary(), unsafe &code)
         }
 
@@ -460,27 +460,27 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             }
 
             if self._arms[k].used {
-                code.push_back(self._label_stmt(self._arms[k].label))
+                code.push(self._label_stmt(self._arms[k].label))
             }
 
-            code.push_back(unsafe (self._arm_block(k as u32) as unsafe *Stmt))
+            code.push(unsafe (self._arm_block(k as u32) as unsafe *Stmt))
             if (k as i32) != last {
-                code.push_back(self._jump(self._end))
+                code.push(self._jump(self._end))
                 end_used = true
             }
         }
 
         if end_used {
-            code.push_back(self._label_stmt(self._end))
+            code.push(self._label_stmt(self._end))
         }
 
-        var all = cxx::std::vector<unsafe *Stmt>()
+        var all: [unsafe *Stmt]
         for var i: usize = 0; i < pre.size(); ++i {
-            all.push_back(pre[i])
+            all.push(pre[i])
         }
 
         for var i: usize = 0; i < code.size(); ++i {
-            all.push_back(code[i])
+            all.push(code[i])
         }
 
         return self.synth.block(self._at, all)
@@ -489,31 +489,31 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     priv fn _reset(self) {
         var nn = self._t->nodes.size()
         self._columns = 0
-        self._locals  = cxx::std::vector<unsafe *VariableDecl>()
+        self._locals  = []
         for var i: usize = 0; i < self._t->occs.size(); ++i {
-            self._locals.push_back(&null)
+            self._locals.push(&null)
         }
 
-        self._labels = cxx::std::vector<Token>()
-        self._queued = cxx::std::vector<u8>()
+        self._labels = []
+        self._queued = []
         for var i: usize = 0; i < nn; ++i {
-            self._labels.push_back(
+            self._labels.push(
                 self._name(LowerTargets::match_node(self._n, i)),
             )
 
-            self._queued.push_back(0)
+            self._queued.push(0)
         }
 
-        self._queue = cxx::std::vector<u32>()
-        self._arms  = cxx::std::vector<ArmPlan>()
+        self._queue = []
+        self._arms  = []
         for var k: usize = 0; k < self._cases->size(); ++k {
             var a = ArmPlan{}
             a.label  = self._name(LowerTargets::match_arm(self._n, k))
             a.glabel = self._name(LowerTargets::match_guard(self._n, k))
-            self._arms.push_back(a)
+            self._arms.push(a)
         }
 
-        self._slots        = cxx::std::vector<Slot>()
+        self._slots        = []
         self._arm_ix       = &null
         self._cont         = &null
         self._fail         = self._name(LowerTargets::match_fail(self._n))
@@ -532,7 +532,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     priv fn _bind_scrutinee(self,
                             e0:  unsafe *Expr,
                             occ: i32,
-                            pre: unsafe *cxx::std::vector<unsafe *Stmt>) {
+                            pre: unsafe *[unsafe *Stmt]) {
         var unsafe *e  = self.tu.strip_parens(e0)
         var unsafe *tl = dyn_cast<TupleLiteralExpr>(e)
         if tl != &null {
@@ -580,7 +580,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
         vd->type_ = lt
         vd->init  = e
-        pre->push_back(
+        pre->push(
             unsafe (DeclStmt::create(self.ctx, self._at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
         )
 
@@ -740,7 +740,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             var *a = &self._arms[n.arm as usize]
             a->reached = true
             if n.kind == DKind::Guard {
-                a->guards.push_back(i as u32)
+                a->guards.push(i as u32)
             }
 
             if a->rep < 0 {
@@ -782,7 +782,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// Slots, the arm index and the guard continuation: declared before the
     /// first goto, all trivially constructible.
-    priv fn _declare_state(self, @inout pre: cxx::std::vector<unsafe *Stmt>) {
+    priv fn _declare_state(self, @inout pre: [unsafe *Stmt]) {
         var any_shared = false
         for var k: usize = 0; k < self._arms.size(); ++k {
             var *a = &self._arms[k]
@@ -819,11 +819,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 s.var_->type_ = self.sc->types->pointer(pt)
 
                 s.var_->init = &null
-                pre.push_back(
+                pre.push(
                     unsafe (DeclStmt::create(self.ctx, self._at, unsafe (s.var_ as unsafe *Decl)) as unsafe *Stmt),
                 )
 
-                self._slots.push_back(s)
+                self._slots.push(s)
             }
         }
 
@@ -837,7 +837,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
             self._arm_ix->type_ = self._u32()
             self._arm_ix->init  = &null
-            pre.push_back(
+            pre.push(
                 unsafe (DeclStmt::create(self.ctx, self._at, unsafe (self._arm_ix as unsafe *Decl)) as unsafe *Stmt),
             )
         }
@@ -852,7 +852,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
             self._cont->type_ = self._u32()
             self._cont->init  = &null
-            pre.push_back(
+            pre.push(
                 unsafe (DeclStmt::create(self.ctx, self._at, unsafe (self._cont as unsafe *Decl)) as unsafe *Stmt),
             )
         }
@@ -865,7 +865,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     }
 
     /// The statements that point `arm`'s slots at node `i`'s occurrences.
-    priv fn _set_slots(self, arm: u32, i: u32, @inout out: cxx::std::vector<unsafe *Stmt>) {
+    priv fn _set_slots(self, arm: u32, i: u32, @inout out: [unsafe *Stmt]) {
         if !self._arms[arm as usize].slots {
             return
         }
@@ -874,7 +874,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         for var k: u32 = 0; k < n.nbind; ++k {
             var        b  = self._t->binds[(n.bind0 + k) as usize]
             var unsafe *s = self._slot(arm, cast<VariableDecl>(b.pat->decl))
-            out.push_back(
+            out.push(
                 self._expr_stmt(
                     self._assign(
                         self.synth.use_of(
@@ -928,7 +928,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     }
 
     /// The arm's binder declarations, in the mode each was written with.
-    priv fn _arm_binders(self, arm: u32, @inout out: cxx::std::vector<unsafe *Stmt>) {
+    priv fn _arm_binders(self, arm: u32, @inout out: [unsafe *Stmt]) {
         var *a  = &self._arms[arm as usize]
         var rep = self._t->nodes[a->rep as usize]
         for var k: u32 = 0; k < rep.nbind; ++k {
@@ -956,7 +956,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 vd->type_ = vt
             }
 
-            out.push_back(
+            out.push(
                 unsafe (DeclStmt::create(self.ctx, b.pat->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
             )
         }
@@ -964,7 +964,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// The guard's own binders: `const T& x = <occurrence>`, never the
     /// arm's decls, which are declared in the arm block in their own mode.
-    priv fn _guard_binders(self, arm: u32, @inout out: cxx::std::vector<unsafe *Stmt>) {
+    priv fn _guard_binders(self, arm: u32, @inout out: [unsafe *Stmt]) {
         var *a  = &self._arms[arm as usize]
         var rep = self._t->nodes[a->rep as usize]
         for var k: u32 = 0; k < rep.nbind; ++k {
@@ -982,7 +982,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             )
 
             g->init = self._binder_init(arm, vd)
-            out.push_back(
+            out.push(
                 unsafe (DeclStmt::create(self.ctx, b.pat->range, unsafe (g as unsafe *Decl)) as unsafe *Stmt),
             )
         }
@@ -991,14 +991,14 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// Statement form: `{ binders; body }`.
     priv fn _arm_block(self, arm: u32) -> unsafe *CompoundStmt {
         var unsafe *mc = self._cases->get(arm as usize)
-        var        out = cxx::std::vector<unsafe *Stmt>()
+        var out: [unsafe *Stmt]
         self._arm_binders(arm, &out)
         if mc->body != &null {
             for var i: usize = 0; i < mc->body->body.size(); ++i {
-                out.push_back(mc->body->body[i])
+                out.push(mc->body->body[i])
             }
         } else if mc->expression != &null {
-            out.push_back(self._expr_stmt(mc->expression))
+            out.push(self._expr_stmt(mc->expression))
         }
 
         return self.synth.block(self._at, out)
@@ -1013,14 +1013,14 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             )
         }
 
-        var stmts = cxx::std::vector<unsafe *Stmt>()
+        var stmts: [unsafe *Stmt]
         self._arm_binders(arm, &stmts)
         var unsafe *e = self._moved_tail(arm, mc->expression)
         if stmts.size() == 0 {
             return e
         }
 
-        stmts.push_back(self._expr_stmt(self._paren(e)))
+        stmts.push(self._expr_stmt(self._paren(e)))
         var lb = self.list_builder<unsafe *Stmt>()
         for var i: usize = 0; i < stmts.size(); ++i {
             lb.push(stmts[i])
@@ -1153,10 +1153,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// `arm == 0 ? A0 : arm == 1 ? A1 : ... : AL` over the reached arms.
     priv fn _ternary(self) -> unsafe *Expr {
-        var reached = cxx::std::vector<u32>()
+        var reached: [u32]
         for var k: usize = 0; k < self._arms.size(); ++k {
             if self._arms[k].reached {
-                reached.push_back(k as u32)
+                reached.push(k as u32)
             }
         }
 
@@ -1207,9 +1207,9 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// `({ pre; code; (value); })` as a block holding its one statement,
     /// the shape _lower returns.
     priv fn _wrap_value(self,
-                        const pre: cxx::std::vector<unsafe *Stmt>,
+                        const pre: [unsafe *Stmt],
                         value:     unsafe *Expr,
-                        code:      unsafe *cxx::std::vector<unsafe *Stmt>) -> unsafe *CompoundStmt {
+                        code:      unsafe *[unsafe *Stmt]) -> unsafe *CompoundStmt {
         var lb = self.list_builder<unsafe *Stmt>()
         for var i: usize = 0; i < pre.size(); ++i {
             lb.push((pre)[i])
@@ -1229,8 +1229,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         var unsafe *se = StmtExpr::create(self.ctx, self._at, body)
         se->type_          = self._ty
         se->value_category = Expr::ValueCategory::RValue
-        var one = cxx::std::vector<unsafe *Stmt>()
-        one.push_back(self._expr_stmt(se))
+        var one: [unsafe *Stmt]
+        one.push(self._expr_stmt(se))
         return self.synth.block(self._at, one)
     }
 
@@ -1238,11 +1238,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// Node `i`'s code. Every path through it ends in a goto (or the
     /// noreturn policy call), so the order nodes are emitted in is free.
-    priv fn _node(self, i: u32, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
+    priv fn _node(self, i: u32, out: unsafe *[unsafe *Stmt]) {
         var n = self._t->nodes[i as usize]
         match n.kind {
             case DKind::Fail {
-                out->push_back(self._policy(false))
+                out->push(self._policy(false))
             } case DKind::Leaf {
                 self._accept(n.arm, i, out)
             } case DKind::Guard {
@@ -1252,7 +1252,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 self._if_goto(self._cond(n.occ, e), e.child as i32, &*out)
                 self._adt_ctx = e.kind == CtorKind::Variant
                     && self._holds_only_variants(self._enum_at(n.occ))
-                out->push_back(self._jump(self._target(n.other)))
+                out->push(self._jump(self._target(n.other)))
                 self._adt_ctx = false
             } case DKind::Switch {
                 self._switch(i, out)
@@ -1262,10 +1262,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// Taking arm `arm` from node `i`: point the slots, then jump to the
     /// arm (statement form) or record it and jump to the join (value form).
-    priv fn _accept(self, arm: u32, i: u32, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
+    priv fn _accept(self, arm: u32, i: u32, out: unsafe *[unsafe *Stmt]) {
         self._set_slots(arm, i, &*out)
         if self._value {
-            out->push_back(
+            out->push(
                 self._expr_stmt(
                     self._assign(
                         self.synth.use_of(
@@ -1278,18 +1278,18 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 ),
             )
 
-            out->push_back(self._jump(self._end))
+            out->push(self._jump(self._end))
             return
         }
 
         self._arms[arm as usize].used = true
-        out->push_back(self._jump(self._arms[arm as usize].label))
+        out->push(self._jump(self._arms[arm as usize].label))
     }
 
     /// A guard reached on one path is emitted where it is reached. One
     /// reached on several is a shared block (_shared_guards); each path
     /// points the slots, records which path it is, and jumps there.
-    priv fn _guard(self, i: u32, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
+    priv fn _guard(self, i: u32, out: unsafe *[unsafe *Stmt]) {
         var n  = self._t->nodes[i as usize]
         var *a = &self._arms[n.arm as usize]
         if a->guards.size() > 1 {
@@ -1299,7 +1299,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 j += 1
             }
 
-            out->push_back(
+            out->push(
                 self._expr_stmt(
                     self._assign(
                         self.synth.use_of(
@@ -1316,23 +1316,23 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 ),
             )
 
-            out->push_back(self._jump(a->glabel))
+            out->push(self._jump(a->glabel))
             return
         }
 
         self._set_slots(n.arm, i, &*out)
-        out->push_back(self._guard_block(n.arm))
-        out->push_back(self._jump(self._target(n.other)))
+        out->push(self._guard_block(n.arm))
+        out->push(self._jump(self._target(n.other)))
     }
 
     /// `{ const T& x = ...; if (guard) { <accept> } }`
     priv fn _guard_block(self, arm: u32) -> unsafe *CompoundStmt {
         var unsafe *mc   = self._cases->get(arm as usize)
-        var        inner = cxx::std::vector<unsafe *Stmt>()
+        var inner: [unsafe *Stmt]
         self._guard_binders(arm, &inner)
-        var take = cxx::std::vector<unsafe *Stmt>()
+        var take: [unsafe *Stmt]
         if self._value {
-            take.push_back(
+            take.push(
                 self._expr_stmt(
                     self._assign(
                         self.synth.use_of(
@@ -1345,13 +1345,13 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 ),
             )
 
-            take.push_back(self._jump(self._end))
+            take.push(self._jump(self._end))
         } else {
             self._arms[arm as usize].used = true
-            take.push_back(self._jump(self._arms[arm as usize].label))
+            take.push(self._jump(self._arms[arm as usize].label))
         }
 
-        inner.push_back(
+        inner.push(
             ConditionalStmt::create(
                 self.ctx,
                 mc->guard->range,
@@ -1366,16 +1366,16 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// The blocks of guards reached on several paths: the guard once, then
     /// a dispatch on the continuation to the failing path's next node.
-    priv fn _shared_guards(self, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
+    priv fn _shared_guards(self, out: unsafe *[unsafe *Stmt]) {
         for var k: usize = 0; k < self._arms.size(); ++k {
             var unsafe *a = unsafe &self._arms[k]
             if a->guards.size() < 2 {
                 continue
             }
 
-            out->push_back(self._label_stmt(a->glabel))
-            out->push_back(unsafe (self._guard_block(k as u32) as unsafe *Stmt))
-            var cases = cxx::std::vector<DispatchCase>()
+            out->push(self._label_stmt(a->glabel))
+            out->push(unsafe (self._guard_block(k as u32) as unsafe *Stmt))
+            var cases: [DispatchCase]
             for var j: usize = 0; j + 1 < a->guards.size(); ++j {
                 var c = DispatchCase{}
                 c.lo = self.synth.int_literal(
@@ -1389,11 +1389,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                     self._t->nodes[a->guards[j] as usize].other,
                 )
 
-                cases.push_back(c)
+                cases.push(c)
             }
 
             var last = self._t->nodes[a->guards[a->guards.size() - 1] as usize].other
-            out->push_back(
+            out->push(
                 self._dispatch(
                     self.synth.use_of(
                         self._cont,
@@ -1412,18 +1412,18 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// Emit every queued node not yet emitted, each under its label. A
     /// node's code can queue more; the loop takes them too.
-    priv fn _drain(self, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
+    priv fn _drain(self, out: unsafe *[unsafe *Stmt]) {
         while self._qi < self._queue.size() {
             var k = self._queue[self._qi]
             self._qi += 1
-            out->push_back(self._label_stmt(self._labels[k as usize]))
+            out->push(self._label_stmt(self._labels[k as usize]))
             self._node(k, out)
         }
     }
 
     /// # switches
 
-    priv fn _switch(self, i: u32, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
+    priv fn _switch(self, i: u32, out: unsafe *[unsafe *Stmt]) {
         var n = self._t->nodes[i as usize]
         if n.strings {
             self._switch_strings(n, out)
@@ -1445,7 +1445,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             }
 
             self._if_goto(self._occ(n.occ), yes, &*out)
-            out->push_back(self._jump(self._target(no)))
+            out->push(self._jump(self._target(no)))
             return
         }
 
@@ -1464,7 +1464,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             )
         }
 
-        var cases = cxx::std::vector<DispatchCase>()
+        var cases: [DispatchCase]
         var count = n.nedge
         var other = n.other
         // A complete integer switch has no default of its own: the last
@@ -1487,10 +1487,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 c.hi = if (e.lo == e.hi) => (&null) else => self._int_value(d, e.hi, t)
             }
 
-            cases.push_back(c)
+            cases.push(c)
         }
 
-        out->push_back(
+        out->push(
             self._dispatch(
                 value,
                 cases,
@@ -1505,7 +1505,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// the policy follows the last edge, the last edge is taken untested --
     /// it is the only variant left -- which is the switch's unreachable
     /// default spelled as control flow.
-    priv fn _chain(self, n: DNode, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
+    priv fn _chain(self, n: DNode, out: unsafe *[unsafe *Stmt]) {
         var        count    = n.nedge
         var        other    = n.other
         var        open_end = other < 0 || self._t->nodes[other as usize].kind == DKind::Fail
@@ -1515,7 +1515,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             if k + 1 == count
                 && open_end
                 && self.sc->opts.adt_unmatched == UnmatchedPolicy::Unreachable {
-                out->push_back(self._jump(self._target(e.child as i32)))
+                out->push(self._jump(self._target(e.child as i32)))
                 return
             }
 
@@ -1532,11 +1532,11 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         }
 
         if open_end {
-            out->push_back(self._policy(true))
+            out->push(self._policy(true))
             return
         }
 
-        out->push_back(self._jump(self._target(other)))
+        out->push(self._jump(self._target(other)))
     }
 
     /// The switch operand for an enum: the value itself, or for an ADT the
@@ -1565,7 +1565,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// Strings: `switch (s.len)` into one bucket per length, each a run of
     /// `memcmp`s; whatever no bucket takes goes to the default.
-    priv fn _switch_strings(self, n: DNode, out: unsafe *cxx::std::vector<unsafe *Stmt>) {
+    priv fn _switch_strings(self, n: DNode, out: unsafe *[unsafe *Stmt]) {
         // Each edge's text, decoded once: edge k's is texts[k].
         var texts = cxx::std::vector<cxx::std::vector<u8>>()
         for var k: u32 = 0; k < n.nedge; ++k {
@@ -1579,8 +1579,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             texts.push_back(b)
         }
 
-        var lens   = cxx::std::vector<usize>()
-        var bucket = cxx::std::vector<Token>()
+        var lens: [usize]
+        var bucket: [Token]
         for var k: u32 = 0; k < n.nedge; ++k {
             var *b   = &texts[k as usize]
             var seen = false
@@ -1592,8 +1592,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             }
 
             if !seen {
-                lens.push_back(b->size())
-                bucket.push_back(
+                lens.push(b->size())
+                bucket.push(
                     self._name(
                         LowerTargets::match_node(
                             self._n,
@@ -1606,7 +1606,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             }
         }
 
-        var cases = cxx::std::vector<DispatchCase>()
+        var cases: [DispatchCase]
         for var j: usize = 0; j < lens.size(); ++j {
             var c = DispatchCase{}
             c.lo = self.synth.int_literal(
@@ -1630,10 +1630,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 }
             }
 
-            cases.push_back(c)
+            cases.push(c)
         }
 
-        out->push_back(
+        out->push(
             self._dispatch(
                 self._string_call(
                     n.occ,
@@ -1651,7 +1651,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 continue
             }
 
-            out->push_back(self._label_stmt(bucket[j]))
+            out->push(self._label_stmt(bucket[j]))
             for var k: u32 = 0; k < n.nedge; ++k {
                 if texts[k as usize].size() != lens[j] {
                     continue
@@ -1664,7 +1664,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 )
             }
 
-            out->push_back(self._jump(self._target(n.other)))
+            out->push(self._jump(self._target(n.other)))
         }
     }
 
@@ -2053,7 +2053,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
         if self._queued[i as usize] == 0 {
             self._queued[i as usize] = 1
-            self._queue.push_back(i as u32)
+            self._queue.push(i as u32)
         }
 
         return self._labels[i as usize]
@@ -2063,10 +2063,10 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     priv fn _if_goto(self,
                      c:          unsafe *Expr,
                      child:      i32,
-                     @inout out: cxx::std::vector<unsafe *Stmt>) {
-        var take = cxx::std::vector<unsafe *Stmt>()
-        take.push_back(self._jump(self._target(child)))
-        out.push_back(
+                     @inout out: [unsafe *Stmt]) {
+        var take: [unsafe *Stmt]
+        take.push(self._jump(self._target(child)))
+        out.push(
             ConditionalStmt::create(
                 self.ctx,
                 self._at,
@@ -2083,7 +2083,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// over a tag (_policy).
     priv fn _dispatch(self,
                       value:       unsafe *Expr,
-                      const cases: cxx::std::vector<DispatchCase>,
+                      const cases: [DispatchCase],
                       other:       i32,
                       adt:         bool) -> unsafe *Stmt {
         var unsafe *s = SwitchDispatchStmt::create(self.ctx, self._at, value)

@@ -145,7 +145,7 @@ import Token::TokenKind::TokenKind
 /// or a closure names them. Conservative: one such use anywhere counts for
 /// the whole function.
 pub class SeqAddrScan derives RecursiveASTVisitor<SeqAddrScan> {
-    pub var  out:       cxx::std::vector<unsafe *Decl>
+    pub var  out:       [unsafe *Decl]
     priv var _closures: u32                            = 0
 
     fn SeqAddrScan(self) { }
@@ -161,7 +161,7 @@ pub class SeqAddrScan derives RecursiveASTVisitor<SeqAddrScan> {
             }
         }
 
-        self.out.push_back(d)
+        self.out.push(d)
     }
 
     /// The local an address-of reaches: `x`, `x.f`, `x[i]`, parens aside.
@@ -225,6 +225,9 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     priv var tu:    TypeUtil
     priv var synth: LowerSynth
 
+    @copy fn SequenceLowering(self, const other: Self) = delete
+    @move fn SequenceLowering(self, other: Self) = delete
+
     fn SequenceLowering(self, sc: unsafe *SemaContext) {
         self.sc    = sc
         self.ctx   = sc->ctx
@@ -247,7 +250,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// The locals of the function being lowered whose value something
     /// other than a plain write can change (SeqAddrScan): a read of one is a
     /// state read.
-    priv var _escaped: cxx::std::vector<unsafe *Decl>
+    priv var _escaped: [unsafe *Decl]
     /// The expression that is a whole statement: an assignment there needs
     /// no address of its result.
     priv var _stmt_top: unsafe *Expr = &null
@@ -257,17 +260,17 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// Call blocks holding such a prvalue: their result points into it, so a
     /// call made on that result is moved INTO the block (_sink_into_temp_block)
     /// rather than run after the block, and the prvalue, has ended.
-    priv var _temp_blocks: cxx::std::vector<unsafe *Expressions::StmtExpr>
+    priv var _temp_blocks: [unsafe *Expressions::StmtExpr]
     /// How many arms of an `if`, `&&` or `||` of a `for` header
     /// _lift_header is inside: a temporary there is built only when its
     /// arm runs, so it is bound to storage that starts empty (_bind_arm).
     priv var _hdr_arm: u32 = 0
 
     fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
-        var saved = self._escaped
+        var saved = self._escaped.copy()
         var scan  = SeqAddrScan()
         scan.dyn()->dispatch_decl(n)
-        self._escaped = scan.out
+        self._escaped = move(scan.out)
         var out = ASTWriter<SequenceLowering>::transform_function_decl(self, n)
         self._escaped = saved
         return out
@@ -691,16 +694,16 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             }
         }
 
-        var ops    = cxx::std::vector<unsafe *Expr>()
-        var places = cxx::std::vector<u8>()
+        var ops:    [unsafe *Expr]
+        var places: [u8]
         // The receiver object is a place; a pointer it is reached through
         // is a value, read once.
         // A receiver reached through an imported `T&` (`info.getSM().loc(x)`)
         // is the referee itself, not a pointer: copied, it would snapshot a
         // record that may not be copyable.
         if recv != &null {
-            ops.push_back(recv->base)
-            places.push_back(
+            ops.push(recv->base)
+            places.push(
                 (recv->base->is_lvalue()
                     && (!self._pointer_typed(recv->base) || self._lref_typed(recv->base))) as u8,
             )
@@ -708,8 +711,8 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
 
         var lrefs = self._lref_params(n, recv != &null)
         for var i: usize = 0; i < n->args.size(); ++i {
-            ops.push_back(n->args[i])
-            places.push_back(
+            ops.push(n->args[i])
+            places.push(
                 (n->args[i] != &null
                     && n->args[i]->is_lvalue()
                     && i < lrefs.size()
@@ -717,7 +720,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             )
         }
 
-        var hoist   = cxx::std::vector<u8>()
+        var hoist: [u8]
         var planned = self._plan(unsafe &ops, unsafe &hoist, unsafe &places)
         if n->recv_last && ops.size() == 2 && hoist.size() == 2 {
             planned = self._plan_recv_last(&ops, &hoist, &places)
@@ -785,7 +788,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         se->value_category = Expr::ValueCategory::RValue
         se->expr_flags     = n->expr_flags
         if self._bound_temp {
-            self._temp_blocks.push_back(se)
+            self._temp_blocks.push(se)
         }
 
         self._bound_temp = saved_bound
@@ -800,9 +803,9 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// has one or reads state. `xs` stays in place, evaluated after the
     /// local.
     priv fn _plan_recv_last(self,
-                            @inout ops:    cxx::std::vector<unsafe *Expr>,
-                            @inout hoist:  cxx::std::vector<u8>,
-                            @inout places: cxx::std::vector<u8>) -> bool {
+                            @inout ops:    [unsafe *Expr],
+                            @inout hoist:  [u8],
+                            @inout places: [u8]) -> bool {
         var unsafe *late    = (ops)[0]
         var unsafe *early   = (ops)[1]
         var        late_fx  = !self.synth.pure_read(late)
@@ -840,13 +843,13 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return out
         }
 
-        var ops = cxx::std::vector<unsafe *Expr>()
-        ops.push_back(n->lhs)
-        ops.push_back(n->rhs)
-        var places = cxx::std::vector<u8>()
-        places.push_back(0)
-        places.push_back(0)
-        var hoist = cxx::std::vector<u8>()
+        var ops: [unsafe *Expr]
+        ops.push(n->lhs)
+        ops.push(n->rhs)
+        var places: [u8]
+        places.push(0)
+        places.push(0)
+        var hoist: [u8]
         if !self._plan(unsafe &ops, unsafe &hoist, unsafe &places) {
             return out
         }
@@ -915,13 +918,13 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return out
         }
 
-        var ops = cxx::std::vector<unsafe *Expr>()
-        ops.push_back(n->lhs)
-        ops.push_back(n->rhs)
-        var places = cxx::std::vector<u8>()
-        places.push_back(1)
-        places.push_back(0)
-        var hoist = cxx::std::vector<u8>()
+        var ops: [unsafe *Expr]
+        ops.push(n->lhs)
+        ops.push(n->rhs)
+        var places: [u8]
+        places.push(1)
+        places.push(0)
+        var hoist: [u8]
         if !self._plan(unsafe &ops, unsafe &hoist, unsafe &places)
             && !SequenceLowering::target_first(n, &self.synth) {
             return out
@@ -1006,16 +1009,16 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return out
         }
 
-        var ops = cxx::std::vector<unsafe *Expr>()
-        ops.push_back(n->base)
-        ops.push_back(n->index)
-        var places = cxx::std::vector<u8>()
-        places.push_back(
+        var ops: [unsafe *Expr]
+        ops.push(n->base)
+        ops.push(n->index)
+        var places: [u8]
+        places.push(
             (n->base->type_ != &null && isa<FixedArrayType>(canon_unqual(n->base->type_))) as u8,
         )
 
-        places.push_back(0)
-        var hoist = cxx::std::vector<u8>()
+        places.push(0)
+        var hoist: [u8]
         if !self._plan(unsafe &ops, unsafe &hoist, unsafe &places) {
             return out
         }
@@ -1120,14 +1123,14 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// operand and everything after it stay where they are, which keeps a
     /// lone constructing argument's prvalue elided.
     priv fn _plan(self,
-                  ops:    unsafe *cxx::std::vector<unsafe *Expr>,
-                  hoist:  unsafe *cxx::std::vector<u8>,
-                  places: unsafe *cxx::std::vector<u8>) -> bool {
+                  ops:    unsafe *[unsafe *Expr],
+                  hoist:  unsafe *[u8],
+                  places: unsafe *[u8]) -> bool {
         var n             = ops->size()
         var last          = usize::MAX
         var impure: usize = 0
         for var i: usize = 0; i < n; ++i {
-            hoist->push_back(0)
+            hoist->push(0)
             var unsafe *e = (*ops)[i]
             if e == &null {
                 return false
@@ -1331,10 +1334,10 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     priv fn _lref_params(self,
                          n:          unsafe *Expressions::CallExpr,
                          bound_recv: bool,
-                         borrows:    bool = false) -> cxx::std::vector<u8> {
+                         borrows:    bool = false) -> [u8] {
         // u8, not bool: the self-host migration rewrites vec<bool> to vec<u8>
         // by name, and a local named like a field (`out`) dragged the field along.
-        var lrs                      = cxx::std::vector<u8>()
+        var lrs: [u8]
         var f:  unsafe *FunctionDecl = &null
         var is_ctor = n->ctor_decl != &null && isa<FunctionDecl>(n->ctor_decl)
         if is_ctor {
@@ -1391,9 +1394,9 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             }
 
             if lr {
-                lrs.push_back(1)
+                lrs.push(1)
             } else {
-                lrs.push_back(0)
+                lrs.push(0)
             }
         }
 

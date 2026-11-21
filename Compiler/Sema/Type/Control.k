@@ -115,6 +115,7 @@ import Sema::Resolve::NameLookup::NameLookup
 import Sema::Type::NullnessFlow::{
     NullEnv,
     Nullness,
+    null_env_copy,
     null_literal_of,
 }
 import Sema::Type::OverloadResolution::{
@@ -277,18 +278,18 @@ pub class <T: type> ControlTyping {
         var c                 = self.dyn()->flow.cond_of(n->condition)
         var acc: unsafe *Type = &null
         var ok                = true
-        self.dyn()->flow.env = c.t
+        self.dyn()->flow.env = null_env_copy(c.t)
         var unsafe *t       = self._arm_value(n->then_expr, expected)
         var        dep_seen = t == &null && !n->then_expr->is_poisoned()
-        var        out      = self.dyn()->flow.env
-        var        rest     = c.f
+        var        out      = null_env_copy(self.dyn()->flow.env)
+        var        rest     = null_env_copy(c.f)
         ok = self._join_into(unsafe &acc, t, n->then_expr, "the 'if' branch") && ok
         for var i: usize = 0; i < n->else_ifs.size(); ++i {
             var unsafe *arm = n->else_ifs.get(i)
-            self.dyn()->flow.env = rest
+            self.dyn()->flow.env = null_env_copy(rest)
             self.require_bool(arm->condition, "the 'else if' condition")
             var ac = self.dyn()->flow.cond_of(arm->condition)
-            self.dyn()->flow.env = ac.t
+            self.dyn()->flow.env = null_env_copy(ac.t)
             var at: unsafe *Type = &null
             if self._dependent_null_arm(arm->body, expected, acc, dep_seen) {
                 dep_seen = true
@@ -303,13 +304,13 @@ pub class <T: type> ControlTyping {
                 dep_seen = true
             }
 
-            var arm_end = self.dyn()->flow.env
+            var arm_end = null_env_copy(self.dyn()->flow.env)
             out  = self.dyn()->flow.join(&out, &arm_end)
-            rest = ac.f
+            rest = null_env_copy(ac.f)
             ok = self._join_into(unsafe &acc, at, arm->body, "this 'else if' branch") && ok
         }
 
-        self.dyn()->flow.env = rest
+        self.dyn()->flow.env = null_env_copy(rest)
         var et: unsafe *Type = &null
         if !self._dependent_null_arm(n->else_expr, expected, acc, dep_seen) {
             et = self._arm_value(
@@ -318,7 +319,7 @@ pub class <T: type> ControlTyping {
             )
         }
 
-        var else_end = self.dyn()->flow.env
+        var else_end = null_env_copy(self.dyn()->flow.env)
         self.dyn()->flow.env = self.dyn()->flow.join(&out, &else_end)
         ok = self._join_into(unsafe &acc, et, n->else_expr, "the 'else' branch") && ok
         if !ok {
@@ -504,7 +505,7 @@ pub class <T: type> ControlTyping {
                        i:         usize,
                        st:        unsafe *Type,
                        entry:     *NullEnv) -> unsafe *Type {
-        self.dyn()->flow.env = *entry
+        self.dyn()->flow.env = (*entry).copy()
         if st == &null {
             return st
         }
@@ -670,7 +671,7 @@ pub class <T: type> ControlTyping {
         var acc: unsafe *Type = &null
         var ok                = true
         // As the statement form (StmtTyping::traverse_match_stmt).
-        var entry = self.dyn()->flow.env
+        var entry = null_env_copy(self.dyn()->flow.env)
         n->null_arm = self.match_null_first(
             n->scrutinee,
             &n->cases,
@@ -684,7 +685,7 @@ pub class <T: type> ControlTyping {
         for var i: usize = 0; i < n->cases.size(); ++i {
             var unsafe *mc = n->cases.get(i)
             if i > 0 {
-                var end = self.dyn()->flow.env
+                var end = null_env_copy(self.dyn()->flow.env)
                 fl = self.dyn()->flow.join(&fl, &end)
             }
 
@@ -715,11 +716,11 @@ pub class <T: type> ControlTyping {
         }
 
         if n->cases.size() > 0 {
-            var last = self.dyn()->flow.env
+            var last = null_env_copy(self.dyn()->flow.env)
             fl = self.dyn()->flow.join(&fl, &last)
         }
 
-        self.dyn()->flow.env = fl
+        self.dyn()->flow.env = null_env_copy(fl)
         if bad_null {
             n->scrutinee->poison()
         }
@@ -751,26 +752,26 @@ pub class <T: type> ControlTyping {
         var ok                = true
         // A catch arm may start after any part of the `try` value ran: from
         // the state before it, with every global forgotten (calls).
-        var entry     = self.dyn()->flow.env
+        var entry     = null_env_copy(self.dyn()->flow.env)
         var arm_entry = self.dyn()->flow.try_entry(&entry, &null, n->try_expr)
         var t         = self.dyn()->type_of(n->try_expr, expected)
-        var fl        = self.dyn()->flow.env
+        var fl        = null_env_copy(self.dyn()->flow.env)
         ok = self._join_into(&acc, t, n->try_expr, "the 'try' value") && ok
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
             var unsafe *arm = n->catch_arms.get(i)
             self.dyn()->type_catch_binder(arm->decl, arm->filter)
-            self.dyn()->flow.env = arm_entry
+            self.dyn()->flow.env = null_env_copy(arm_entry)
             var at = self.dyn()->type_of(
                 arm->body,
                 if (expected != &null) => (expected) else => acc,
             )
 
-            var arm_end = self.dyn()->flow.env
+            var arm_end = null_env_copy(self.dyn()->flow.env)
             fl = self.dyn()->flow.join(&fl, &arm_end)
             ok = self._join_into(&acc, at, arm->body, "this 'catch' value") && ok
         }
 
-        self.dyn()->flow.env = fl
+        self.dyn()->flow.env = null_env_copy(fl)
         if !ok {
             self.dyn()->poison_only(n)
             return &null
@@ -1835,7 +1836,7 @@ pub class <T: type> ControlTyping {
                                ve:          *VariadicEnum,
                                const pes:   cxx::std::vector<unsafe *Type>) -> i32 {
         var pick: i32 = -1
-        var vals      = cxx::std::vector<unsafe *Expr>()
+        var vals: [unsafe *Expr]
         for var k: usize = 0; k < v->payload.size(); ++k {
             if !ve->is_pack_field(v->payload[k]) {
                 continue
@@ -1855,7 +1856,7 @@ pub class <T: type> ControlTyping {
                 return -1
             }
 
-            vals.push_back(e)
+            vals.push(e)
         }
 
         if vals.size() == 0 { // PackChecking: a pack-expanded payload names the pack.

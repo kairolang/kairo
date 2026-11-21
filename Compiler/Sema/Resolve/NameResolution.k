@@ -414,7 +414,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     var cur_dc: unsafe *DeclContext = &null ///< table-owning scope cursor.
     /// The declaration the innermost DeclStmt holds, while it is walked.
     var _stmt_var: unsafe *Decl                 = &null
-    var locals:    cxx::std::vector<LocalScope>         ///< executable-scope stack.
+    var locals:    [LocalScope]         ///< executable-scope stack.
 
     /// `self` lexes as KwSelf, not LitIdentifier, so ASTContext::
     /// get_ident_imm rejects it. We intern the spelling once and key both
@@ -695,7 +695,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                     continue
                 }
 
-                var group         = cxx::std::vector<unsafe *Decl>()
+                var group:  [unsafe *Decl]
                 var blocks: usize = 0
                 for var j: usize = k; j < scopes.size(); ++j {
                     var unsafe *cell = (scopes)[j]->lookup_symbol(e.name)
@@ -719,7 +719,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                             continue
                         }
 
-                        group.push_back(d)
+                        group.push(d)
                         took = true
                     }
 
@@ -1126,7 +1126,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return
         }
 
-        var group  = cxx::std::vector<unsafe *Decl>()
+        var group: [unsafe *Decl]
         var all_fn = true
 
         for var i: usize = 0; i < n; ++i {
@@ -1171,7 +1171,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 continue
             }
 
-            group.push_back(d)
+            group.push(d)
             if !isa<Declarations::FunctionDecl>(d) {
                 all_fn = false
             }
@@ -1193,14 +1193,14 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         if self.sc->eval_branches.has_rows() {
             var rest = group
             while rest.size() > 1 {
-                var part = cxx::std::vector<unsafe *Decl>()
-                var left = cxx::std::vector<unsafe *Decl>()
-                part.push_back(rest[0])
+                var part: [unsafe *Decl]
+                var left: [unsafe *Decl]
+                part.push(rest[0])
                 for var i: usize = 1; i < rest.size(); ++i {
                     if self.sc->eval_branches.exclusive(rest[0], rest[i]) {
-                        left.push_back(rest[i])
+                        left.push(rest[i])
                     } else {
-                        part.push_back(rest[i])
+                        part.push(rest[i])
                     }
                 }
 
@@ -1220,7 +1220,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     priv fn _judge_group(self,
                          dc:    unsafe *DeclContext,
                          e:     SymbolTable::Entry,
-                         group: unsafe *cxx::std::vector<unsafe *Decl>) {
+                         group: unsafe *[unsafe *Decl]) {
         if group->size() <= 1 {
             return
         }
@@ -1325,7 +1325,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     /// group is a conflict of kinds.
     priv fn _record_kind_mismatch(self,
                                   e:           SymbolTable::Entry,
-                                  const group: cxx::std::vector<unsafe *Decl>) -> bool {
+                                  const group: [unsafe *Decl]) -> bool {
         var def: unsafe *Decl = &null
         for var i: usize = 0; i < group.size(); ++i {
             var unsafe *d = (group)[i]
@@ -1387,11 +1387,11 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         // The agreeing declarations are still one entity.
-        var rest = cxx::std::vector<unsafe *Decl>()
+        var rest: [unsafe *Decl]
         for var i: usize = 0; i < group.size(); ++i {
             var unsafe *d = (group)[i]
             if !d->is_poisoned() && self._record_keyword(d) == ref_kw {
-                rest.push_back(d)
+                rest.push(d)
             }
         }
 
@@ -1428,9 +1428,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     }
 
     // TODO(DUCK-GENERIC): T uses canonical_decl, definition, first_decl, is_this_definition, retarget_canonical, set_prev. Stage 0 was duck-typed; bound it or keep `: type`.
-    priv fn <T: type> _link_group(self,
-                                  e:           SymbolTable::Entry,
-                                  const group: cxx::std::vector<unsafe *Decl>) {
+    priv fn <T: type> _link_group(self, e: SymbolTable::Entry, const group: [unsafe *Decl]) {
         var first = cast<T>((group)[0])
         if first == &null {
             return
@@ -1450,7 +1448,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         // At most one link may define. The parser's mark_definition guards
         // the single-decl case; only sema sees the whole chain, so the
         // two-definitions diagnostic is ours.
-        var defs = cxx::std::vector<unsafe *Decl>()
+        var defs: [unsafe *Decl]
         for var i: usize = 0; i < group.size(); ++i {
             var cur = cast<T>((group)[i])
             if cur == &null {
@@ -1458,7 +1456,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             }
 
             if cur->is_this_definition {
-                defs.push_back((group)[i])
+                defs.push((group)[i])
             }
         }
 
@@ -1571,7 +1569,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     priv fn _redefinition(self,
                           dc:          unsafe *DeclContext,
                           e:           SymbolTable::Entry,
-                          const group: cxx::std::vector<unsafe *Decl>,
+                          const group: [unsafe *Decl],
                           const what:  string) {
         var        name  = e.name.describe(self.sc->ctx)
         var unsafe *prev = (group)[0]
@@ -2037,7 +2035,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         // CompoundStmt joins that frame rather than nesting inside it, so a
         // top-level local colliding with a param is a redefinition, not
         // silent shadowing.
-        self.locals.push_back(LocalScope())
+        self.locals.push(LocalScope())
         self.sc->trace.open_scope(TraceScopeKind::Function, n, n->range, home)
         for var i: usize = 0; i < n->generic_params.size(); ++i {
             var unsafe *gp = n->generic_params[i]
@@ -2075,7 +2073,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self._fn_depth -= 1
 
         self.sc->trace.close_scope()
-        self.locals.pop_back()
+        self.locals.pop()
         self.cur_dc       = saved_dc
         self._ool_lexical = saved_ool
         self._join_block  = saved_join
@@ -2089,7 +2087,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         var unsafe *saved_join = self._join_block
 
-        self.locals.push_back(LocalScope())
+        self.locals.push(LocalScope())
         self.sc->trace.open_scope(
             TraceScopeKind::Closure,
             &null,
@@ -2133,7 +2131,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         self._fn_depth -= 1
 
         self.sc->trace.close_scope()
-        self.locals.pop_back()
+        self.locals.pop()
         self._join_block = saved_join
         return out
     }
@@ -2152,7 +2150,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         if push {
-            self.locals.push_back(LocalScope())
+            self.locals.push(LocalScope())
             self.sc->trace.open_scope(
                 TraceScopeKind::Block,
                 &null,
@@ -2168,7 +2166,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
         if push {
             self.sc->trace.close_scope()
-            self.locals.pop_back()
+            self.locals.pop()
         }
 
         return out
@@ -2194,7 +2192,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return false
         }
 
-        self.locals.push_back(LocalScope())
+        self.locals.push(LocalScope())
         self.sc->trace.open_scope(TraceScopeKind::Block, owner, at, home)
         for var i: usize = 0; i < gps.size(); ++i {
             var unsafe *gp = gps[i]
@@ -2218,7 +2216,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         self.sc->trace.close_scope()
-        self.locals.pop_back()
+        self.locals.pop()
     }
 
     /// Enter the body of type `owner`, whose scope is `dc`: its generic
@@ -2447,7 +2445,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         // visible before its own line.
         if unsafe (n as unsafe *Decl) == self._stmt_var {
             self._declare_local_var(n)
-        } else if !self.locals.empty() {
+        } else if !self.locals.is_empty() {
             self._declare_local(self._name_imm(n->name), n, n->range)
         }
 
@@ -2463,7 +2461,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     priv fn _declare_local_var(self, v: unsafe *Declarations::VariableDecl) {
         var imm = self._name_imm(v->name)
         v->rebind = self._rebind_of(imm)
-        if !self.locals.empty() {
+        if !self.locals.is_empty() {
             self._declare_local(imm, v, v->range)
         }
     }
@@ -2482,7 +2480,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return
         }
 
-        if self.locals.empty() {
+        if self.locals.is_empty() {
             return
         }
 
@@ -2675,7 +2673,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         // A binder's written type is named outside the binders' own scope.
         self.dyn()->traverse_binding_types(&n->bindings)
 
-        self.locals.push_back(LocalScope())
+        self.locals.push(LocalScope())
         self.sc->trace.open_scope(
             TraceScopeKind::ForBody,
             &null,
@@ -2689,7 +2687,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         n->body          = self.dyn()->traverse_block(n->body)
         self._join_block = saved_join
         self.sc->trace.close_scope()
-        self.locals.pop_back()
+        self.locals.pop()
         return n
     }
 
@@ -2704,7 +2702,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return n
         }
 
-        self.locals.push_back(LocalScope())
+        self.locals.push(LocalScope())
         self.sc->trace.open_scope(
             TraceScopeKind::ForBody,
             &null,
@@ -2729,7 +2727,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         n->body          = self.dyn()->traverse_block(n->body)
         self._join_block = saved_join
         self.sc->trace.close_scope()
-        self.locals.pop_back()
+        self.locals.pop()
         return n
     }
 
@@ -2748,7 +2746,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         self.dyn()->traverse_binding_types(&n->bindings)
-        self.locals.push_back(LocalScope())
+        self.locals.push(LocalScope())
         self.sc->trace.open_scope(
             TraceScopeKind::ContextBinding,
             &null,
@@ -2762,7 +2760,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         n->body          = self.dyn()->traverse_block(n->body)
         self._join_block = saved_join
         self.sc->trace.close_scope()
-        self.locals.pop_back()
+        self.locals.pop()
         return n
     }
 
@@ -2807,7 +2805,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 self.dyn()->dispatch_type(arm->filter)
             }
 
-            self.locals.push_back(LocalScope())
+            self.locals.push(LocalScope())
             self.sc->trace.open_scope(
                 TraceScopeKind::CatchArm,
                 &null,
@@ -2825,7 +2823,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             self._join_block = saved_join
 
             self.sc->trace.close_scope()
-            self.locals.pop_back()
+            self.locals.pop()
         }
 
         return n
@@ -2854,7 +2852,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 self.dyn()->dispatch_type(arm->filter)
             }
 
-            self.locals.push_back(LocalScope())
+            self.locals.push(LocalScope())
             self.sc->trace.open_scope(
                 TraceScopeKind::CatchArm,
                 &null,
@@ -2868,7 +2866,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             }
 
             self.sc->trace.close_scope()
-            self.locals.pop_back()
+            self.locals.pop()
         }
 
         return n
@@ -2883,7 +2881,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             return
         }
 
-        self.locals.push_back(LocalScope())
+        self.locals.push(LocalScope())
         self.sc->trace.open_scope(
             TraceScopeKind::MatchArm,
             &null,
@@ -2924,7 +2922,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         self.sc->trace.close_scope()
-        self.locals.pop_back()
+        self.locals.pop()
     }
 
     priv fn _declare_bindings(self, list: *FrozenList<Binding>) {
@@ -3019,7 +3017,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             case PatternKind::BindingPattern {
                 var unsafe *bp = cast<BindingPattern>(p)
                 var unsafe *vd = dyn_cast<Declarations::VariableDecl>(bp->decl)
-                if vd == &null || self.locals.empty() {
+                if vd == &null || self.locals.is_empty() {
                     return
                 }
 
@@ -3859,7 +3857,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         var imm = self._stmt_decl_imm(d)
-        if imm != u32::MAX && !self.locals.empty() {
+        if imm != u32::MAX && !self.locals.is_empty() {
             self._declare_local(imm, d, d->range)
         }
 

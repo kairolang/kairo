@@ -238,11 +238,11 @@ pub enum FoldMode derives u8 {
 /// one branch declares was bound to it.
 pub class LateFoldRebind derives RecursiveASTVisitor<LateFoldRebind> {
     pub var  sc:       unsafe *SemaContext
-    priv var _dropped: unsafe *cxx::std::vector<unsafe *Decl> = &null
+    priv var _dropped: unsafe *[unsafe *Decl] = &null
 
     fn LateFoldRebind(self,
                       sc:      unsafe *SemaContext,
-                      dropped: unsafe *cxx::std::vector<unsafe *Decl>) {
+                      dropped: unsafe *[unsafe *Decl]) {
         self.sc       = sc
         self._dropped = dropped
     }
@@ -358,16 +358,16 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     priv var _dq: DeclaredQuery
 
     /// The scopes a name in a condition is looked up from, innermost last.
-    priv var _dcs: cxx::std::vector<unsafe *DeclContext>
+    priv var _dcs: [unsafe *DeclContext]
     /// > 0 inside a function or closure body.
     priv var _body_depth: u32 = 0
     /// Every declaration in an untaken branch.
-    priv var _dropped: cxx::std::vector<unsafe *Decl>
+    priv var _dropped: [unsafe *Decl]
     /// A class branch's VariableDecl and the FieldDecl it became.
-    priv var _from: cxx::std::vector<unsafe *Decl>
-    priv var _to:   cxx::std::vector<unsafe *Decl>
+    priv var _from: [unsafe *Decl]
+    priv var _to:   [unsafe *Decl]
     /// Scopes whose table holds a branch's declarations (to rebuild).
-    priv var _dirty: cxx::std::vector<unsafe *DeclContext>
+    priv var _dirty: [unsafe *DeclContext]
     /// Why the last condition did not fold, and where.
     priv var _why:    string
     priv var _why_at: unsafe *Expr = &null
@@ -377,11 +377,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
     priv var _taken: unsafe *CompoundStmt = &null
     /// Per folded `eval if`, two entries: its whole range, then the range
     /// of the branch it kept (invalid when it kept none).
-    priv var _folded: cxx::std::vector<SourceRange>
+    priv var _folded: [SourceRange]
     /// Each condition the last _choose decided, and its truth, in chain
     /// order: what a late body fold pins (_body_pins).
-    priv var _decided:     cxx::std::vector<unsafe *Expr>
-    priv var _decided_val: cxx::std::vector<u8>
+    priv var _decided:     [unsafe *Expr]
+    priv var _decided_val: [u8]
     /// The last lookup found only declarations a deferred `eval if` may
     /// still discard: the condition waits for it rather than fails.
     priv var _pending_name: bool     = false
@@ -429,7 +429,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return
         }
 
-        self._dcs.push_back(unsafe (self.sc->tu as unsafe *DeclContext))
+        self._dcs.push(unsafe (self.sc->tu as unsafe *DeclContext))
         ASTWriter<EvalIfFolding>::run(self, self.sc->tu)
         for var i: usize = 0; i < self._dirty.size(); ++i {
             self._rebuild_table(self._dirty[i])
@@ -506,7 +506,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             self._progress = false
             self._waiting  = false
             self._dcs.clear()
-            self._dcs.push_back(tu)
+            self._dcs.push(tu)
             ASTWriter<EvalIfFolding>::run(self, tu)
             for var i: usize = 0; i < self._dirty.size(); ++i {
                 self._rebuild_table(self._dirty[i])
@@ -539,26 +539,26 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
     fn transform_module_decl(self,
                              n: unsafe *Declarations::ModuleDecl) -> cxx::std::vector<unsafe *Decl> {
-        self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+        self._dcs.push(unsafe (n as unsafe *DeclContext))
         var out = ASTWriter<EvalIfFolding>::transform_module_decl(self, n)
-        self._dcs.pop_back()
+        self._dcs.pop()
         return out
     }
 
     fn transform_class_decl(self,
                             n: unsafe *Declarations::ClassDecl) -> cxx::std::vector<unsafe *Decl> {
-        self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+        self._dcs.push(unsafe (n as unsafe *DeclContext))
         var out = ASTWriter<EvalIfFolding>::transform_class_decl(self, n)
-        self._dcs.pop_back()
+        self._dcs.pop()
         self._members_from_branches(n, &n->fields, &n->methods)
         return out
     }
 
     fn transform_struct_decl(self,
                              n: unsafe *Declarations::StructDecl) -> cxx::std::vector<unsafe *Decl> {
-        self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+        self._dcs.push(unsafe (n as unsafe *DeclContext))
         var out = ASTWriter<EvalIfFolding>::transform_struct_decl(self, n)
-        self._dcs.pop_back()
+        self._dcs.pop()
         self._members_from_branches(n, &n->fields, &n->methods)
         return out
     }
@@ -571,11 +571,11 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return self._one_decl(n)
         }
 
-        self._dcs.push_back(unsafe (n as unsafe *DeclContext))
+        self._dcs.push(unsafe (n as unsafe *DeclContext))
         self._body_depth += 1
         var out = ASTWriter<EvalIfFolding>::transform_function_decl(self, n)
         self._body_depth -= 1
-        self._dcs.pop_back()
+        self._dcs.pop()
         self._drop_from_dc(n)
         return out
     }
@@ -857,8 +857,8 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 return 0
             }
 
-            self._decided.push_back(c->cond)
-            self._decided_val.push_back(
+            self._decided.push(c->cond)
+            self._decided_val.push(
                 if (self._truth(v)) => (1 as u8) else => (0 as u8),
             )
 
@@ -883,8 +883,8 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
         self._drop_untaken(n, chosen)
         self._taken = chosen
-        self._folded.push_back(n->range)
-        self._folded.push_back(
+        self._folded.push(n->range)
+        self._folded.push(
             if (chosen != &null) => (chosen->range) else => SourceRange::invalid(),
         )
 
@@ -1498,7 +1498,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return self._bool(false)
         }
 
-        var segs      = cxx::std::vector<string>()
+        var segs: [string]
         var primitive = false
         if !self._dq.path_of(c, unsafe &segs, &primitive) {
             return self._bool(false)
@@ -1508,7 +1508,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             return self._bool(true)
         }
 
-        var found = cxx::std::vector<unsafe *Decl>()
+        var found: [unsafe *Decl]
         if self._dq.resolve(dc, segs, unsafe &self._dropped, unsafe &found) {
             return self._bool(true)
         }
@@ -1976,13 +1976,13 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
 
         var unsafe *home = d->semantic_dc
         if home != &null {
-            self._dcs.push_back(home)
+            self._dcs.push(home)
         }
 
         var leaves = self._leaves
         var v      = self._fold(init, depth + 1)
         if home != &null {
-            self._dcs.pop_back()
+            self._dcs.pop()
         }
 
         if !fold_ok(v) && !fold_deferred(v) {
@@ -2161,7 +2161,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         if isa<DeclStmt>(s) {
             var unsafe *d = cast<DeclStmt>(s)->decl
             if d != &null {
-                self._dropped.push_back(d)
+                self._dropped.push(d)
             }
 
             return
@@ -2207,7 +2207,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
             }
         }
 
-        self._dirty.push_back(dc)
+        self._dirty.push(dc)
     }
 
     /// The untaken branches' local fns and classes leave `dc`'s list
@@ -2345,10 +2345,10 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         }
 
         // slot[j]: the own field branch field kept + j goes before (kept: after all).
-        var all  = cxx::std::vector<unsafe *Declarations::FieldDecl>()
-        var slot = cxx::std::vector<usize>()
+        var all: [unsafe *Declarations::FieldDecl]
+        var slot: [usize]
         for var i: usize = 0; i < n; ++i {
-            all.push_back(*(fb->at(i)))
+            all.push(*(fb->at(i)))
         }
 
         for var j: usize = kept; j < n; ++j {
@@ -2366,7 +2366,7 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
                 }
             }
 
-            slot.push_back(at)
+            slot.push(at)
         }
 
         fb->clear()
@@ -2425,8 +2425,8 @@ pub class EvalIfFolding derives ASTWriter<EvalIfFolding> {
         f->const_binding = vd->const_binding
         f->visibility    = vd->visibility
         f->adopt_sema(vd)
-        self._from.push_back(vd)
-        self._to.push_back(f)
+        self._from.push(vd)
+        self._to.push(f)
         return f
     }
 

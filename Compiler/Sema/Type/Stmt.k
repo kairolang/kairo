@@ -138,6 +138,7 @@ import Sema::Type::Member::{
     SUB_SOFT,
     SUB_STORE,
 }
+import Sema::Type::NullnessFlow::null_env_copy
 import Sema::Type::OverloadResolution::{
     ArgInfo,
     OvlOutcome,
@@ -1964,7 +1965,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         var c = self.dyn()->flow.cond_of(n->cond)
-        self.dyn()->flow.env = c.t
+        self.dyn()->flow.env = null_env_copy(c.t)
         if n->then_ != &null {
             self.dyn()->dispatch_stmt(n->then_)
         }
@@ -1973,8 +1974,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             self.dyn()->sc->diag->pop_suppress()
         }
 
-        var then_env = self.dyn()->flow.env
-        self.dyn()->flow.env = c.f
+        var then_env = null_env_copy(self.dyn()->flow.env)
+        self.dyn()->flow.env = null_env_copy(c.f)
         // An else-if link is a ConditionalStmt of its own, decided when it
         // is dispatched; a final `else` here is the dependent chain's.
         var sup_else = sel == 2 && n->else_ != &null && !isa<Statements::ConditionalStmt>(n->else_)
@@ -1990,7 +1991,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             self.dyn()->sc->diag->pop_suppress()
         }
 
-        var else_env = self.dyn()->flow.env
+        var else_env = null_env_copy(self.dyn()->flow.env)
         self.dyn()->flow.env = self.dyn()->flow.join(&then_env, &else_env)
         return n
     }
@@ -2101,7 +2102,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         var c = self.dyn()->flow.cond_of(n->cond)
-        self.dyn()->flow.env = c.t
+        self.dyn()->flow.env = null_env_copy(c.t)
         if n->body != &null {
             self.dyn()->dispatch_stmt(n->body)
         }
@@ -2137,7 +2138,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         }
 
         self.dyn()->flow.loop_enter(n->body, n->update)
-        var head = self.dyn()->flow.env
+        var head = null_env_copy(self.dyn()->flow.env)
         if n->cond != &null {
             self.dyn()->require_bool(n->cond, "the loop condition")
         }
@@ -2145,13 +2146,13 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         var c = self.dyn()->flow.cond_of(n->cond)
         // The update runs after the body or a `continue`: the head's state
         // (which already assumes the body's assignments) covers both.
-        self.dyn()->flow.env = head
+        self.dyn()->flow.env = null_env_copy(head)
         if n->update != &null {
             self._mark_store(n->update)
             self.dyn()->type_of(n->update, &null)
         }
 
-        self.dyn()->flow.env = c.t
+        self.dyn()->flow.env = null_env_copy(c.t)
         if n->body != &null {
             self.dyn()->dispatch_stmt(n->body)
         }
@@ -2265,7 +2266,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // X's arguments, never clang's (ExtensionLowering refuses it without
         // them), and its `T` is the extension's, which member_through does
         // not reach.
-        var none  = cxx::std::vector<ArgInfo>()
+        var none: [ArgInfo]
         var recv  = canon_unqual(self.dyn()->tu.strip_nullable(t))
         var qrecv = recv
         if self._const_iterable(t) || self._binders_take_const(rf, &forms) {
@@ -2616,8 +2617,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             // A `begin` that cannot take this range is some other type's:
             // ADL reaches every free `begin` in the namespace. Not iterable,
             // not a failed call.
-            var probe = cxx::std::vector<ArgInfo>()
-            probe.push_back(self.dyn()->arg_info(at))
+            var probe: [ArgInfo]
+            probe.push(self.dyn()->arg_info(at))
             var nofree = cxx::std::vector<unsafe *Decl>()
             if !self.dyn()->ovl.any_viable(&nofree, &probe, false, &fb, &probe) {
                 return &null
@@ -2785,7 +2786,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                         const name: string,
                         ty:         unsafe *(unsafe *Type),
                         inst:       unsafe *(unsafe *InstanceEntry)) -> unsafe *FunctionDecl {
-        var args = cxx::std::vector<ArgInfo>()
+        var args: [ArgInfo]
         var r = self.dyn()->ovl.resolve(
             cands,
             &args,
@@ -2818,8 +2819,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                       const name: string,
                       ty:         unsafe *(unsafe *Type),
                       inst:       unsafe *(unsafe *InstanceEntry)) -> unsafe *FunctionDecl {
-        var args = cxx::std::vector<ArgInfo>()
-        args.push_back(self.dyn()->arg_info(at))
+        var args: [ArgInfo]
+        args.push(self.dyn()->arg_info(at))
         var r = self.dyn()->ovl.resolve(
             cands,
             &args,
@@ -2915,7 +2916,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return
         }
 
-        var ops = cxx::std::vector<unsafe *FunctionDecl>()
+        var ops: [unsafe *FunctionDecl]
         self.dyn()->conv.implicit_ops(fu, tv, unsafe &ops)
         if ops.size() == 0 || decl_extension_of(unsafe (ops[0] as unsafe *Decl)) == &null {
             return
@@ -3081,7 +3082,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // No condition refines it; it may run zero times, so after it is
         // the head's state joined with each `break`.
         self.dyn()->flow.loop_enter(n->body, &null)
-        var head = self.dyn()->flow.env
+        var head = null_env_copy(self.dyn()->flow.env)
         if n->body != &null {
             self.dyn()->dispatch_stmt(n->body)
         }
@@ -3845,7 +3846,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         var st = self.dyn()->type_of(n->scrutinee, &null)
         st = self.dyn()->match_infer_column(n->scrutinee, &n->cases, st)
-        var entry = self.dyn()->flow.env
+        var entry = null_env_copy(self.dyn()->flow.env)
         n->null_arm = self.dyn()->match_null_first(
             n->scrutinee,
             &n->cases,
@@ -3880,15 +3881,15 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 self.dyn()->type_of(mc->expression, &null)
             }
 
-            var end = self.dyn()->flow.env
+            var end = null_env_copy(self.dyn()->flow.env)
             acc = self.dyn()->flow.join(&acc, &end)
         }
 
         if n->cases.size() == 0 {
-            acc = entry
+            acc = null_env_copy(entry)
         }
 
-        self.dyn()->flow.env = acc
+        self.dyn()->flow.env = null_env_copy(acc)
         if bad_null {
             n->scrutinee->poison()
         }
@@ -3930,26 +3931,26 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return n
         }
 
-        var entry = self.dyn()->flow.env
+        var entry = null_env_copy(self.dyn()->flow.env)
         if n->try_body != &null {
             self.dyn()->dispatch_stmt(n->try_body)
         }
 
-        var acc       = self.dyn()->flow.env
+        var acc       = null_env_copy(self.dyn()->flow.env)
         var arm_entry = self.dyn()->flow.try_entry(&entry, n->try_body, &null)
         for var i: usize = 0; i < n->arms.size(); ++i {
             var unsafe *arm = n->arms.get(i)
             self.type_catch_binder(arm->decl, arm->filter)
-            self.dyn()->flow.env = arm_entry
+            self.dyn()->flow.env = null_env_copy(arm_entry)
             if arm->body != &null {
                 self.dyn()->dispatch_stmt(arm->body)
             }
 
-            var end = self.dyn()->flow.env
+            var end = null_env_copy(self.dyn()->flow.env)
             acc = self.dyn()->flow.join(&acc, &end)
         }
 
-        self.dyn()->flow.env = acc
+        self.dyn()->flow.env = null_env_copy(acc)
         return n
     }
 

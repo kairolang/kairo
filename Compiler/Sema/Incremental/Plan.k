@@ -31,11 +31,7 @@ ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
-import Support::Ascii::{
-    copy_strings,
-    parse_decimal,
-    string_less,
-}
+import Support::Ascii::parse_decimal
 
 /// Bumped by any change to a plan record's lines.
 pub
@@ -47,30 +43,30 @@ pub fn plan_list_sep() -> string {
     return "\x1f"
 }
 
-pub fn plan_split(const s: string, sep: u8) -> cxx::std::vector<string> {
-    var out          = cxx::std::vector<string>()
+pub fn plan_split(const s: string, sep: u8) -> [string] {
+    var out: [string]
     var start: usize = 0
     for var i: usize = 0; i < s.size(); ++i {
         if s.data()[i] == sep {
-            out.push_back(s.subslice(start, i - start))
+            out.push(s.subslice(start, i - start))
             start = i + 1
         }
     }
 
-    out.push_back(s.subslice(start, s.size() - start))
+    out.push(s.subslice(start, s.size() - start))
     return out
 }
 
 /// The items of a list field; none for an empty field.
-pub fn plan_items(const s: string) -> cxx::std::vector<string> {
+pub fn plan_items(const s: string) -> [string] {
     if s.is_empty() {
-        return cxx::std::vector<string>()
+        return []
     }
 
     return plan_split(s, 31 as u8)
 }
 
-pub fn plan_join(v: *cxx::std::vector<string>, const sep: string) -> string {
+pub fn plan_join(v: *[string], const sep: string) -> string {
     var out = ""
     for var i: usize = 0; i < v->size(); ++i {
         if i > 0 {
@@ -229,9 +225,9 @@ fn plan_absent() -> string {
 /// key -> list of strings, compared as one sorted, joined string.
 class PlanLists {
     var index: llvm::StringMap<u32>
-    var keys:  cxx::std::vector<string>
-    var vals:  cxx::std::vector<cxx::std::vector<string>>
-    var text:  cxx::std::vector<string>
+    var keys:  [string]
+    var vals:  [[string]]
+    var text:  [string]
 
     fn PlanLists(self) = default
 
@@ -242,23 +238,23 @@ class PlanLists {
         }
 
         var id = self.keys.size() as u32
-        self.keys.push_back(k.copy())
-        self.vals.push_back(cxx::std::vector<string>())
+        self.keys.push(k.copy())
+        self.vals.push([])
         self.index.try_emplace(kairo::sref(k), id)
         return id as usize
     }
 
     fn add(self, const k: string, const v: string) {
         var at = self.slot(k)
-        self.vals[at].push_back(v.copy())
+        self.vals[at].push(v.copy())
     }
 
     /// Sorts every list and fixes its text. Nothing is added afterwards.
     fn seal(self) {
         self.text.clear()
         for var i: usize = 0; i < self.vals.size(); ++i {
-            llvm::sort(self.vals[i].begin(), self.vals[i].end(), string_less)
-            self.text.push_back(plan_join(&self.vals[i], "\n"))
+            self.vals[i].sort()
+            self.text.push(plan_join(&self.vals[i], "\n"))
         }
     }
 
@@ -287,7 +283,7 @@ class PlanLists {
     /// The key is absent or its list is empty.
     fn none(self, const k: string) -> bool {
         var i = self.at(k)
-        return i == usize::MAX || self.vals[i].empty()
+        return i == usize::MAX || self.vals[i].is_empty()
     }
 }
 
@@ -302,25 +298,25 @@ class PlanIndex {
     var surf:   PlanLists ///< module -> its surface
     /// extension scope id -> extended type
     var ext_of:   llvm::StringMap<u32>
-    var ext_of_v: cxx::std::vector<string>
+    var ext_of_v: [string]
     /// module \t name, for every name at a module's file scope
     var file_names: llvm::StringSet<llvm::MallocAllocator>
-    var modules:    cxx::std::vector<string>
+    var modules:    [string]
     var macros:     llvm::StringMap<u32>
-    var macros_v:   cxx::std::vector<string>
+    var macros_v:   [string]
 
     fn PlanIndex(self) = default
 
     fn build(self, mods: *cxx::std::vector<PlanModule>) {
         for var mi: usize = 0; mi < mods->size(); ++mi {
             var *m = &(*mods)[mi]
-            self.modules.push_back(m->name.copy())
+            self.modules.push(m->name.copy())
             self.macros.try_emplace(
                 kairo::sref(m->name),
                 self.macros_v.size() as u32,
             )
 
-            self.macros_v.push_back(m->macros.copy())
+            self.macros_v.push(m->macros.copy())
             self.surf.slot(m->name)
             for var s in m->surface {
                 self.surf.add(m->name, s)
@@ -345,7 +341,8 @@ class PlanIndex {
                 self.decl_i.add(f[0], f[3])
                 self.decl_b.add(f[0], f[4])
                 self.refs.slot(f[0])
-                for var r in plan_items(f[6]) {
+                var refs = plan_items(f[6])
+                for r in refs {
                     self.refs.add(f[0], r)
                 }
             }
@@ -364,13 +361,14 @@ class PlanIndex {
                             self.ext_of_v.size() as u32,
                         )
 
-                        self.ext_of_v.push_back(f[1].copy())
+                        self.ext_of_v.push(f[1].copy())
                     } else {
                         self.ext_of_v[it->second as usize] = f[1].copy()
                     }
                 }
 
-                for var nm in plan_items(f[2]) {
+                var nms = plan_items(f[2])
+                for nm in nms {
                     if f[0].is_empty() {
                         self.file_names.insert(
                             kairo::sref(m->name.copy() + "\t" + nm),
@@ -444,13 +442,13 @@ class PlanDiff {
         }
 
         var at = self.presence.slot(f[2])
-        for var have in self.presence.vals[at] {
+        for have in self.presence.vals[at] {
             if have == f[0] {
                 return
             }
         }
 
-        self.presence.vals[at].push_back(f[0].copy())
+        self.presence.vals[at].push(f[0].copy())
     }
 
     priv fn _lists(self, a: *PlanLists, b: *PlanLists, which: u8) {
@@ -490,27 +488,26 @@ class PlanDiff {
         for var side: usize = 0; side < 2; ++side {
             var *x = if (side == 0) => (&a->refs) else => &b->refs
             for var i: usize = 0; i < x->keys.size(); ++i {
-                for var r in x->vals[i] {
+                for r in x->vals[i] {
                     rev.add(r, x->keys[i])
                 }
             }
         }
 
-        var work = cxx::std::vector<string>()
+        var work: [string]
         for var side: usize = 0; side < 2; ++side {
             var *x = if (side == 0) => (&a->decl_i) else => &b->decl_i
             for var i: usize = 0; i < x->keys.size(); ++i {
                 var k = x->keys[i].copy()
                 if self.sig.contains(kairo::sref(k)) && !self.layout.contains(kairo::sref(k)) {
                     self.layout.insert(kairo::sref(k))
-                    work.push_back(k)
+                    work.push(k)
                 }
             }
         }
 
-        while !work.empty() {
-            var cur = work.back().copy()
-            work.pop_back()
+        while !work.is_empty() {
+            var cur = work.remove(work.size() - 1)
             var at = rev.at(cur)
             if at == usize::MAX {
                 continue
@@ -519,7 +516,7 @@ class PlanDiff {
             for var dep in rev.vals[at] {
                 if !self.layout.contains(kairo::sref(dep)) {
                     self.layout.insert(kairo::sref(dep))
-                    work.push_back(dep.copy())
+                    work.push(dep.copy())
                 }
             }
         }
@@ -581,7 +578,7 @@ class PlanDiff {
 
         for var side: usize = 0; side < 2; ++side {
             var *x = if (side == 0) => (a) else => b
-            for var m in x->modules {
+            for m in x->modules {
                 if a->macros_of(m) != b->macros_of(m) {
                     self.macros.insert(kairo::sref(m))
                 }
@@ -636,18 +633,18 @@ pub fn incr_plan_same_graph(a: *cxx::std::vector<PlanModule>,
 }
 
 /// The union of a module's surface in both versions.
-fn plan_surface(a: *PlanIndex, b: *PlanIndex, const m: string) -> cxx::std::vector<string> {
-    var out = cxx::std::vector<string>()
+fn plan_surface(a: *PlanIndex, b: *PlanIndex, const m: string) -> [string] {
+    var out: [string]
     var ia  = a->surf.at(m)
     if ia != usize::MAX {
-        out = copy_strings(a->surf.vals[ia])
+        out = a->surf.vals[ia].copy()
     }
 
     var ib = b->surf.at(m)
     if ib != usize::MAX {
-        for var s in b->surf.vals[ib] {
+        for s in b->surf.vals[ib] {
             var seen = false
-            for var h in out {
+            for h in out {
                 if h == s {
                     seen = true
                     break
@@ -655,7 +652,7 @@ fn plan_surface(a: *PlanIndex, b: *PlanIndex, const m: string) -> cxx::std::vect
             }
 
             if !seen {
-                out.push_back(s.copy())
+                out.push(s.copy())
             }
         }
     }
@@ -753,7 +750,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                     continue
                 }
 
-                for var s in ia.surf.vals[si] {
+                for s in ia.surf.vals[si] {
                     if d.file_changed.contains(
                         kairo::sref(k[1].copy() + "\t" + s),
                     ) {
@@ -799,14 +796,14 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
 
         // R4: a name appeared at or went from the file scope of a file in
         // the surface while another file of it (or this one) declares it.
-        if reason.is_empty() && !d.presence.keys.empty() {
+        if reason.is_empty() && !d.presence.keys.is_empty() {
             var surf = plan_surface(&ia, &ib, m)
             for var pi: usize = 0; pi < d.presence.keys.size() && reason.is_empty(); ++pi {
                 var n     = d.presence.keys[pi].copy()
                 var *mods = &d.presence.vals[pi]
                 var src   = ""
-                for var s in surf {
-                    for var pm in (*mods) {
+                for s in surf {
+                    for pm in (*mods) {
                         if pm == s && (src.is_empty() || s < src) {
                             src = s.copy()
                         }
@@ -818,9 +815,9 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                 }
 
                 var other = ""
-                for var s in surf {
+                for s in surf {
                     var in_src = false
-                    for var pm in (*mods) {
+                    for pm in (*mods) {
                         if pm == s {
                             in_src = true
                             break
@@ -849,7 +846,8 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
 
         // R7: the macros of a file in the surface changed.
         if reason.is_empty() {
-            for var s in plan_surface(&ia, &ib, m) {
+            var surf7 = plan_surface(&ia, &ib, m)
+            for s in surf7 {
                 if d.macros.contains(kairo::sref(s)) {
                     reason = "R7 macros of " + s
                     break
@@ -885,7 +883,7 @@ pub fn incr_plan(old:     *cxx::std::vector<PlanModule>,
                 continue
             }
 
-            for var s in ia.surf.vals[si] {
+            for s in ia.surf.vals[si] {
                 if d.body_scope.contains(kairo::sref(k[1].copy() + "\t" + s)) {
                     hit = true
                     break

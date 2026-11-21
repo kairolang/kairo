@@ -111,14 +111,14 @@ pub class ForeignRegistry {
     /// most of a retraction): valid until the table changes, which
     /// forget() does.
     pub fn entries(self,
-                   usrs:  unsafe *cxx::std::vector<llvm::StringRef>,
-                   decls: unsafe *cxx::std::vector<unsafe *Decl>) {
+                   usrs:  unsafe *[llvm::StringRef],
+                   decls: unsafe *[unsafe *Decl]) {
         var rlock = kairo::std::SharedLock(self._mu)
         usrs->reserve(self._by_usr.size() as usize)
         decls->reserve(self._by_usr.size() as usize)
         for var it = self._by_usr.begin(); it != self._by_usr.end(); ++it {
-            usrs->push_back(it->getKey())
-            decls->push_back(it->second)
+            usrs->push(it->getKey())
+            decls->push(it->second)
         }
     }
 
@@ -128,9 +128,9 @@ pub class ForeignRegistry {
     /// **Note:** `usrs` and `orphans` may be entries()'s views: each is read
     /// before its own key is erased, never after.
     pub fn forget(self,
-                  usrs:    unsafe *cxx::std::vector<llvm::StringRef>,
-                  orphans: unsafe *cxx::std::vector<llvm::StringRef>,
-                  shells:  unsafe *cxx::std::vector<unsafe *Decl>) {
+                  usrs:    unsafe *[llvm::StringRef],
+                  orphans: unsafe *[llvm::StringRef],
+                  shells:  unsafe *[unsafe *Decl]) {
         var lock = kairo::std::LockGuard(self._mu)
         // A stand-in whose Kairo declaration is being re-read stays
         // declared in the clang AST: the next declaration that asks for a

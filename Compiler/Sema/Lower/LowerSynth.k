@@ -376,6 +376,18 @@ pub class LowerSynth {
         return blk
     }
 
+    /// `{ stmts }`, over a Kairo vector.
+    fn block(self, at: SourceRange, const stmts: [unsafe *Stmt]) -> unsafe *CompoundStmt {
+        var unsafe *blk = CompoundStmt::create(self.sc->ctx, at)
+        var        lb   = ListBuilder<unsafe *Stmt>(self.sc->ctx)
+        for var i: usize = 0; i < stmts.size(); ++i {
+            lb.push(stmts[i])
+        }
+
+        lb.freeze_into(&blk->body)
+        return blk
+    }
+
     /// What a call of `f` yields, read from the decl: `!` for a function
     /// that does not return, `void` for one that declares no result.
     fn result_type(self, f: unsafe *FunctionDecl) -> unsafe *Type {

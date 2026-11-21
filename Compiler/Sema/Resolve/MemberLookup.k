@@ -1503,7 +1503,7 @@ pub class MemberLookup {
         )
 
         b.first(at)
-        var seen = cxx::std::vector<unsafe *Decl>()
+        var seen: [unsafe *Decl]
         for var i: usize = 0; i < entry->targets.size(); ++i {
             var t = entry->targets[i]
             if t.kind != OverlayTargetKind::Type {
@@ -1526,7 +1526,7 @@ pub class MemberLookup {
                 continue
             }
 
-            seen.push_back(t.decl)
+            seen.push(t.decl)
             var what = MemberLookup::kind_word(t.decl)
             b.note(
                 DiagCode(DiagID::R016N),

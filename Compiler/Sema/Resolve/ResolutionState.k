@@ -99,7 +99,7 @@ pub class ResolutionState {
     /// The active chain, innermost last. Depth is bounded by the caps below, not by
     /// the C++ stack: deeply chained aliases recurse hard, and a segfault is a
     /// worse answer than a diagnostic.
-    pub var stack: cxx::std::vector<ResolveFrame>
+    pub var stack: [ResolveFrame]
 
     /// The user's cap (--cmax-scope-depth) bounds the frames of user
     /// declarations; the library's cap bounds the whole stack. A user file
@@ -217,7 +217,7 @@ pub class ResolutionState {
         f.decl = d
         f.at   = at
         f.lib  = lib
-        self.stack.push_back(f)
+        self.stack.push(f)
         if !lib {
             ++self._user_frames
         }
@@ -240,7 +240,7 @@ pub class ResolutionState {
         }
 
         eval if defined!(DEBUG) {
-            if self.stack.empty() || self.stack.back().decl != d {
+            if self.stack.is_empty() || self.stack[self.stack.size() - 1].decl != d {
                 kairo::std::ice_fail(
                     r"ResolutionState: finish_decl without its begin_decl frame on top",
                 )
@@ -248,12 +248,12 @@ pub class ResolutionState {
         }
 
         self.settle_decl(d, ok)
-        if (!self.stack.empty()) && self.stack.back().decl == d {
-            if !self.stack.back().lib {
+        if (!self.stack.is_empty()) && self.stack[self.stack.size() - 1].decl == d {
+            if !self.stack[self.stack.size() - 1].lib {
                 --self._user_frames
             }
 
-            self.stack.pop_back()
+            self.stack.pop()
         }
     }
 

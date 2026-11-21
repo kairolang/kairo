@@ -277,7 +277,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
         var unsafe *f   = self._fn(n->resolved_op)
         var        k    = n->op_token.kind
-        var        args = cxx::std::vector<unsafe *Expr>()
+        var args: [unsafe *Expr]
 
         match n->op_rewrite {
             case OpRewrite::Not {
@@ -293,7 +293,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         // source order, which the call records for SequenceLowering (C++
         // evaluates the receiver first; Kairo evaluates x first).
         if k == TokenKind::KwIn {
-            args.push_back(n->lhs)
+            args.push(n->lhs)
             var unsafe *c = self._call(
                 n,
                 n->rhs,
@@ -319,7 +319,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             return self._derived_sum(n, f)
         }
 
-        args.push_back(n->rhs)
+        args.push(n->rhs)
         return self._call(
             n,
             n->lhs,
@@ -346,11 +346,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         }
 
         var unsafe *f   = self._fn(n->resolved_op)
-        var        args = cxx::std::vector<unsafe *Expr>()
+        var args: [unsafe *Expr]
         // C++ tells postfix from prefix by an `int` argument, `0` by
         // convention. Its type is i32: `int` on every target Kairo has.
         if OperatorFacts::is_postfix(f) {
-            args.push_back(
+            args.push(
                 self.synth.int_literal(n->range, 0, BuiltinKind::I32),
             )
         }
@@ -380,9 +380,9 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         // the index and the value, in the place of the whole assignment.
         var unsafe *st = setter_store_target(n)
         if st != &null {
-            var sargs = cxx::std::vector<unsafe *Expr>()
-            sargs.push_back(st->index)
-            sargs.push_back(n->rhs)
+            var sargs: [unsafe *Expr]
+            sargs.push(st->index)
+            sargs.push(n->rhs)
             return self._call_tokens(
                 unsafe (n as unsafe *Expr),
                 st->base,
@@ -404,8 +404,8 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         }
 
         var unsafe *f   = self._fn(n->resolved_op)
-        var        args = cxx::std::vector<unsafe *Expr>()
-        args.push_back(n->rhs)
+        var args: [unsafe *Expr]
+        args.push(n->rhs)
         // The type declared this compound operator: a call.
         if OperatorFacts::op_kind(f) == n->op_token.kind {
             return self._call(
@@ -449,8 +449,8 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         }
 
         // `op []` is two tokens; the receiver's own range anchors the step.
-        var args = cxx::std::vector<unsafe *Expr>()
-        args.push_back(n->index)
+        var args: [unsafe *Expr]
+        args.push(n->index)
         // `a[i..j]` on an array resolved to Slice's `op []` (MemberTyping):
         // the receiver is the array's view, not the array, and an array has
         // no members to call. EmitIR spells the cast as the Slice over it.
@@ -552,7 +552,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             )
         }
 
-        var args = cxx::std::vector<unsafe *Expr>()
+        var args: [unsafe *Expr]
         var unsafe *call = self._call_tokens(
             unsafe (n as unsafe *Expr),
             n->operand,
@@ -663,7 +663,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             // a left-leaning chain: EmitIR parenthesises each operator, so a
             // chain over a registry-sized enum (thousands of variants) nests
             // that many brackets and clang stops at -fbracket-depth=2048.
-            var terms = cxx::std::vector<unsafe *Expr>()
+            var terms: [unsafe *Expr]
             for var i: usize = 0; i < en->variants.size(); ++i {
                 var unsafe *ev  = en->variants[i]
                 var unsafe *lit = self.synth.int_literal(at, ev->value.mag, uk)
@@ -688,7 +688,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                     TokenKind::OpExclaimEqual,
                 )
 
-                terms.push_back(ne)
+                terms.push(ne)
             }
 
             // A FIFO pairing: each pass over the queue halves what is left, so
@@ -698,7 +698,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                 var unsafe *a = terms[head]
                 var unsafe *b = terms[head + 1]
                 head += 2
-                terms.push_back(
+                terms.push(
                     self.synth.bool_binary(at, a, b, TokenKind::OpAmpAmp),
                 )
             }
@@ -902,8 +902,8 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
     priv fn _derived_ne(self,
                         n: unsafe *BinaryOperatorExpr,
                         f: unsafe *FunctionDecl) -> unsafe *Expr {
-        var args = cxx::std::vector<unsafe *Expr>()
-        args.push_back(n->rhs)
+        var args: [unsafe *Expr]
+        args.push(n->rhs)
         var unsafe *eq = self._call(
             unsafe (n as unsafe *Expr),
             n->lhs,
@@ -934,8 +934,8 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
     priv fn _derived_cmp(self,
                          n: unsafe *BinaryOperatorExpr,
                          f: unsafe *FunctionDecl) -> unsafe *Expr {
-        var args = cxx::std::vector<unsafe *Expr>()
-        args.push_back(n->rhs)
+        var args: [unsafe *Expr]
+        args.push(n->rhs)
         var unsafe *cmp = self._call(
             unsafe (n as unsafe *Expr),
             n->lhs,
@@ -1008,8 +1008,8 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
 
         var unsafe *vd = self.synth.local(n->range, "sum", lt, n->lhs)
 
-        var args = cxx::std::vector<unsafe *Expr>()
-        args.push_back(n->rhs)
+        var args: [unsafe *Expr]
+        args.push(n->rhs)
         var unsafe *mut = self._call(
             n,
             self.synth.use_of(vd, n->range, Expr::ValueCategory::LValue),
@@ -1067,8 +1067,8 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
         )
 
         var eq_tok = self.synth.punct(n->op_token.range, TokenKind::OpEqual)
-        var args   = cxx::std::vector<unsafe *Expr>()
-        args.push_back(n->rhs)
+        var args: [unsafe *Expr]
+        args.push(n->rhs)
 
         if LowerSynth::pure(n->lhs) {
             var unsafe *sum = self._call(
@@ -1178,7 +1178,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                   _op:      Token,
                   f:        unsafe *FunctionDecl,
                   via_free: bool,
-                  args:     unsafe *cxx::std::vector<unsafe *Expr>,
+                  args:     unsafe *[unsafe *Expr],
                   inst:     unsafe *InstanceEntry) -> unsafe *Expr {
         var toks = self.list_builder<Token>()
         toks.push(_op)
@@ -1202,7 +1202,7 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                          op_toks:    FrozenList<Token>,
                          decl:       unsafe *Decl,
                          via_free:   bool,
-                         const args: cxx::std::vector<unsafe *Expr>,
+                         const args: [unsafe *Expr],
                          inst:       unsafe *InstanceEntry) -> unsafe *Expr {
         var callee: unsafe *Expr = &null
         var all                  = self.list_builder<unsafe *Expr>()

@@ -177,7 +177,7 @@ pub class TraceRow {
 /// The append-only row stream, plus the enable flag.
 pub class ResolutionTrace {
     pub var enabled: bool                       = false
-    pub var rows:    cxx::std::vector<TraceRow>
+    pub var rows:    [TraceRow]
     /// Frame depth as N sees it. Maintained here rather than passed in at
     /// every call so the pass cannot drift from the log.
     priv var _depth: usize = 0
@@ -206,7 +206,7 @@ pub class ResolutionTrace {
         r.owner      = owner
         r.at         = at
         r.enclosing  = enclosing
-        self.rows.push_back(r)
+        self.rows.push(r)
         self._depth += 1
     }
 
@@ -222,7 +222,7 @@ pub class ResolutionTrace {
         var r = TraceRow()
         r.kind  = TraceRowKind::ScopeClose
         r.depth = self._depth
-        self.rows.push_back(r)
+        self.rows.push(r)
     }
 
     fn declare(self,
@@ -245,7 +245,7 @@ pub class ResolutionTrace {
         r.shadowed          = shadowed
         r.shadowed_via      = shadowed_via
         r.shadowed_found_in = shadowed_in
-        self.rows.push_back(r)
+        self.rows.push(r)
     }
 
     fn use_site(self,
@@ -278,7 +278,7 @@ pub class ResolutionTrace {
         r.shadowed          = shadowed
         r.shadowed_via      = shadowed_via
         r.shadowed_found_in = shadowed_in
-        self.rows.push_back(r)
+        self.rows.push(r)
     }
 
     /// Record a chain step N is handing to T. Deliberately takes no decl and
@@ -302,7 +302,7 @@ pub class ResolutionTrace {
         r.member_kind = mk
         r.sep         = sep
         r.index       = index
-        self.rows.push_back(r)
+        self.rows.push(r)
     }
 
     fn member_result(self,
@@ -333,6 +333,6 @@ pub class ResolutionTrace {
     }
 
     fn empty(self) -> bool {
-        return self.rows.empty()
+        return self.rows.is_empty()
     }
 }

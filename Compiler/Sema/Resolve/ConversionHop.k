@@ -117,10 +117,10 @@ pub class ConversionHop {
             unsafe &ops,
         )
 
-        var mut_ops   = cxx::std::vector<unsafe *FunctionDecl>()
-        var mut_tys   = cxx::std::vector<unsafe *Type>()
-        var const_ops = cxx::std::vector<unsafe *FunctionDecl>()
-        var const_tys = cxx::std::vector<unsafe *Type>()
+        var mut_ops:   [unsafe *FunctionDecl]
+        var mut_tys:   [unsafe *Type]
+        var const_ops: [unsafe *FunctionDecl]
+        var const_tys: [unsafe *Type]
         for var i: usize = 0; i < ops.size(); ++i {
             var unsafe *f = dyn_cast<FunctionDecl>(ops[i])
             if f == &null || f->is_poisoned() || !OperatorFacts::is_implicit_conv(f) {
@@ -148,11 +148,11 @@ pub class ConversionHop {
                     continue
                 }
 
-                mut_ops.push_back(f)
-                mut_tys.push_back(to)
+                mut_ops.push(f)
+                mut_tys.push(to)
             } else {
-                const_ops.push_back(f)
-                const_tys.push_back(to)
+                const_ops.push(f)
+                const_tys.push(to)
             }
         }
 
@@ -170,9 +170,7 @@ pub class ConversionHop {
     }
 
     /// The first of `ops` is the answer; a second makes it an ambiguity.
-    priv fn _take(self,
-                  ops: *cxx::std::vector<unsafe *FunctionDecl>,
-                  tys: *cxx::std::vector<unsafe *Type>) {
+    priv fn _take(self, ops: *[unsafe *FunctionDecl], tys: *[unsafe *Type]) {
         self.conv   = (*ops)[0]
         self.target = (*tys)[0]
         if ops->size() > 1 {

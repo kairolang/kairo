@@ -285,7 +285,7 @@ pub struct CRow {
     var arm:     u32                                  = 0
     var guarded: bool                                 = false
     var key:     string ///< `arm.alt`, extended at each alternation it expands.
-    var binds:   cxx::std::vector<DBind>
+    var binds:   [DBind]
 }
 
 extend CRow {
@@ -295,7 +295,7 @@ extend CRow {
         r.arm     = self.arm
         r.guarded = self.guarded
         r.key     = self.key.copy()
-        r.binds   = self.binds
+        r.binds   = self.binds.copy()
         return r
     }
 }
@@ -309,14 +309,14 @@ pub struct FlatTest {
 /// A row of the backtracking automaton: its tests in order, then accept.
 pub struct FlatRow {
     var row:   CRow
-    var tests: cxx::std::vector<FlatTest>
+    var tests: [FlatTest]
 }
 
 extend FlatRow {
     fn copy(const self) -> FlatRow {
         var r = FlatRow{}
         r.row   = self.row.copy()
-        r.tests = self.tests
+        r.tests = self.tests.copy()
         return r
     }
 }
@@ -327,16 +327,16 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     priv var _ps: PatternSpace
 
     // One match at a time.
-    priv var _nodes:   cxx::std::vector<DNode>
-    priv var _edges:   cxx::std::vector<DEdge>
-    priv var _occs:    cxx::std::vector<DOcc>
-    priv var _binds:   cxx::std::vector<DBind>
-    priv var _keys:    cxx::std::vector<string>
+    priv var _nodes:   [DNode]
+    priv var _edges:   [DEdge]
+    priv var _occs:    [DOcc]
+    priv var _binds:   [DBind]
+    priv var _keys:    [string]
     priv var _key_ids: llvm::StringMap<u32> ///< _keys inverted: one probe per accept, not a scan.
     priv var _budget:  usize                     = 0
     priv var _over:    bool                      = false
     priv var _bad:     bool                      = false ///< a test with no rendering was reported.
-    priv var _flat:    cxx::std::vector<FlatRow> ///< the automaton's rows.
+    priv var _flat:    [FlatRow] ///< the automaton's rows.
     /// Where a matrix with no rows goes: -1 is a Fail node; inside the upper
     /// half of a split, the root of the lower half. Saved and restored.
     priv var _fallback: i32 = -1
@@ -423,8 +423,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         self._reset()
         self._budget = (16 as usize) * rows.size() + (64 as usize)
         var root_occ = self._root(root_ty)
-        var occs     = cxx::std::vector<u32>()
-        occs.push_back(root_occ)
+        var occs:    [u32]
+        occs.push(root_occ)
 
         var root      = self._build(unsafe &rows, unsafe &occs)
         var automaton = false
@@ -443,8 +443,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// One row per case-level alternative; `default` is one wildcard row.
-    priv fn _rows(self, cases: *FrozenList<MatchCase>, first: usize) -> cxx::std::vector<CRow> {
-        var rows = cxx::std::vector<CRow>()
+    priv fn _rows(self, cases: *FrozenList<MatchCase>, first: usize) -> [CRow] {
+        var rows: [CRow]
         for var i: usize = first; i < cases->size(); ++i {
             var unsafe *mc = cases->get(i)
             if mc->is_default || mc->patterns.size() == 0 {
@@ -453,7 +453,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 r.guarded = mc->guard != &null
                 r.key     = f"{i}.0"
                 r.cols.push_back(&null)
-                rows.push_back(r)
+                rows.push(r)
                 continue
             }
 
@@ -463,7 +463,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 r.guarded = mc->guard != &null
                 r.key     = f"{i}.{j}"
                 r.cols.push_back(mc->patterns[j])
-                rows.push_back(r)
+                rows.push(r)
             }
         }
 
@@ -471,13 +471,13 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     priv fn _reset(self) {
-        self._nodes = cxx::std::vector<DNode>()
-        self._edges = cxx::std::vector<DEdge>()
-        self._occs  = cxx::std::vector<DOcc>()
-        self._binds = cxx::std::vector<DBind>()
-        self._keys  = cxx::std::vector<string>()
+        self._nodes.clear()
+        self._edges.clear()
+        self._occs.clear()
+        self._binds.clear()
+        self._keys.clear()
         self._key_ids.clear()
-        self._flat     = cxx::std::vector<FlatRow>()
+        self._flat.clear()
         self._over     = false
         self._fallback = -1
     }
@@ -543,7 +543,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var o = DOcc{}
         o.kind  = OccKind::Root
         o.type_ = t
-        self._occs.push_back(o)
+        self._occs.push(o)
         return (self._occs.size() - 1) as u32
     }
 
@@ -570,7 +570,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         o.index  = index
         o.field  = field
         o.type_  = t
-        self._occs.push_back(o)
+        self._occs.push(o)
         return (self._occs.size() - 1) as u32
     }
 
@@ -588,8 +588,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// The sub-occurrences constructor `c` opens at `occ` in domain `d`.
-    priv fn _sub_occs(self, occ: u32, const c: Ctor, d: Domain) -> cxx::std::vector<u32> {
-        var out = cxx::std::vector<u32>()
+    priv fn _sub_occs(self, occ: u32, const c: Ctor, d: Domain) -> [u32] {
+        var out: [u32]
         match c.kind {
             case CtorKind::Record {
                 var fs = self._ps.instance_fields(d.rec)
@@ -611,7 +611,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                         ft = te[i]
                     }
 
-                    out.push_back(self._occ(occ, OccKind::Field, 0, fs[i], ft))
+                    out.push(self._occ(occ, OccKind::Field, 0, fs[i], ft))
                 }
             } case CtorKind::Variant {
                 var unsafe *v = adt_variant_at(d.en, c.index as usize)
@@ -629,9 +629,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                         )
                     }
 
-                    out.push_back(
-                        self._occ(occ, OccKind::Payload, c.index, f, ft),
-                    )
+                    out.push(self._occ(occ, OccKind::Payload, c.index, f, ft))
                 }
             } default {
                 0
@@ -654,7 +652,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// ## nodes
 
     priv fn _push(self, n: DNode) -> u32 {
-        self._nodes.push_back(n)
+        self._nodes.push(n)
         if self._nodes.size() > self._budget {
             self._over = true
         }
@@ -674,14 +672,14 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             return it->second
         }
 
-        self._keys.push_back(key.copy())
+        self._keys.push(key.copy())
         var id = ((self._keys.size() - 1) as u32)
         self._key_ids.try_emplace(kairo::sref(key), id)
         return id
     }
 
     /// Leaf or Guard for `r`, every column of which is a wildcard.
-    priv fn _accept(self, r: *CRow, const occs: cxx::std::vector<u32>, fail: i32) -> u32 {
+    priv fn _accept(self, r: *CRow, const occs: [u32], fail: i32) -> u32 {
         var n = DNode{}
         n.kind  = if (r->guarded) => (DKind::Guard) else => DKind::Leaf
         n.arm   = r->arm
@@ -689,7 +687,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         n.other = fail
         n.bind0 = (self._binds.size() as u32)
         for var i: usize = 0; i < r->binds.size(); ++i {
-            self._binds.push_back(r->binds[i])
+            self._binds.push(r->binds[i])
         }
 
         for var c: usize = 0; c < r->cols.size(); ++c {
@@ -698,7 +696,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 var b = DBind{}
                 b.pat = cast<BindingPattern>(p)
                 b.occ = (occs)[c]
-                self._binds.push_back(b)
+                self._binds.push(b)
             }
         }
 
@@ -708,9 +706,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
     /// ## Maranget
 
-    priv fn _build(self,
-                   rows: unsafe *cxx::std::vector<CRow>,
-                   occs: unsafe *cxx::std::vector<u32>) -> u32 {
+    priv fn _build(self, rows: unsafe *[CRow], occs: unsafe *[u32]) -> u32 {
         if self._over || self._bad {
             return self._fail()
         }
@@ -728,9 +724,9 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         if col < 0 {
             var fail: i32 = -1
             if r0->guarded {
-                var rest = cxx::std::vector<CRow>()
+                var rest: [CRow]
                 for var i: usize = 1; i < rows->size(); ++i {
-                    rest.push_back((*rows)[i].copy())
+                    rest.push((*rows)[i].copy())
                 }
 
                 fail = (self._build(unsafe &rest, occs) as i32)
@@ -740,7 +736,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         }
 
         // Column `col` to the front.
-        var m = cxx::std::vector<CRow>()
+        var m: [CRow]
         for var i: usize = 0; i < rows->size(); ++i {
             var r = (*rows)[i].copy()
             if col > 0 {
@@ -749,10 +745,10 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 r.cols[0]            = t
             }
 
-            m.push_back(r)
+            m.push(r)
         }
 
-        var o = *occs
+        var o = (*occs).copy()
         if col > 0 {
             var t = o[col as usize]
             o[col as usize] = o[0]
@@ -818,7 +814,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// The first row whose head is opaque, or -1.
-    priv fn _first_opaque(self, const rows: cxx::std::vector<CRow>) -> i32 {
+    priv fn _first_opaque(self, const rows: [CRow]) -> i32 {
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]
             if self._ps.is_wild(h) {
@@ -838,17 +834,14 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// lower half is a matrix over the same occurrences, so it re-tests
     /// whatever the upper half already did; sound, and only on the
     /// failure path.
-    priv fn _split(self,
-                   const rows: cxx::std::vector<CRow>,
-                   occs:       unsafe *cxx::std::vector<u32>,
-                   cut:        usize) -> u32 {
-        var top = cxx::std::vector<CRow>()
-        var low = cxx::std::vector<CRow>()
+    priv fn _split(self, const rows: [CRow], occs: unsafe *[u32], cut: usize) -> u32 {
+        var top: [CRow]
+        var low: [CRow]
         for var i: usize = 0; i < rows.size(); ++i {
             if i < cut {
-                top.push_back((rows)[i].copy())
+                top.push((rows)[i].copy())
             } else {
-                low.push_back((rows)[i].copy())
+                low.push((rows)[i].copy())
             }
         }
 
@@ -860,7 +853,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return upper
     }
 
-    priv fn _all_heads(self, const rows: cxx::std::vector<CRow>, k: CtorKind) -> bool {
+    priv fn _all_heads(self, const rows: [CRow], k: CtorKind) -> bool {
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]
             if self._ps.is_wild(h) {
@@ -876,7 +869,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// The column to branch on, or -1 when the first row is all wildcards.
-    priv fn _pick_column(self, rows: unsafe *cxx::std::vector<CRow>) -> i32 {
+    priv fn _pick_column(self, rows: unsafe *[CRow]) -> i32 {
         var *r0               = &(*rows)[0]
         var best:       i32   = -1
         var best_run:   usize = 0
@@ -908,7 +901,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// Distinct heads in column `c`, counted by spelling. A tiebreak only.
-    priv fn _distinct_heads(self, const rows: cxx::std::vector<CRow>, c: usize) -> usize {
+    priv fn _distinct_heads(self, const rows: [CRow], c: usize) -> usize {
         var seen: llvm::StringMap<u32>
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *p = (rows)[i].cols[c]
@@ -926,8 +919,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// Every row whose head is an alternation becomes one row per
     /// alternative, recursively; each choice extends the row's key, so one
     /// choice on two paths is one row id.
-    priv fn _expand(self, @inout rows: cxx::std::vector<CRow>, occ: u32) -> cxx::std::vector<CRow> {
-        var out = cxx::std::vector<CRow>()
+    priv fn _expand(self, @inout rows: [CRow], occ: u32) -> [CRow] {
+        var out: [CRow]
         for var i: usize = 0; i < rows.size(); ++i {
             self._expand_into(&(rows)[i], occ, unsafe &out)
         }
@@ -935,10 +928,10 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return out
     }
 
-    priv fn _expand_into(self, r: *CRow, occ: u32, out: unsafe *cxx::std::vector<CRow>) {
+    priv fn _expand_into(self, r: *CRow, occ: u32, out: unsafe *[CRow]) {
         var unsafe *h = r->cols[0]
         if h == &null || h->kind != PatternKind::AlternationPattern {
-            out->push_back(r->copy())
+            out->push(r->copy())
             return
         }
 
@@ -952,7 +945,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// PatternSpace::head_domain over CRow.
-    priv fn _head_domain(self, const rows: cxx::std::vector<CRow>) -> Domain {
+    priv fn _head_domain(self, const rows: [CRow]) -> Domain {
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]
             if self._ps.is_wild(h) {
@@ -969,11 +962,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
     /// Rows surviving `c` at the head occurrence, head replaced by the
     /// constructor's fields. A binder head is recorded before it is dropped.
-    priv fn _specialize(self,
-                        @inout rows: cxx::std::vector<CRow>,
-                        const occs:  cxx::std::vector<u32>,
-                        const c:     Ctor) -> cxx::std::vector<CRow> {
-        var out = cxx::std::vector<CRow>()
+    priv fn _specialize(self, @inout rows: [CRow], const occs: [u32], const c: Ctor) -> [CRow] {
+        var out: [CRow]
         for var i: usize = 0; i < rows.size(); ++i {
             var        *r = &(rows)[i]
             var unsafe *h = r->cols[0]
@@ -981,7 +971,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             nr.arm     = r->arm
             nr.guarded = r->guarded
             nr.key     = r->key.copy()
-            nr.binds   = r->binds
+            nr.binds   = r->binds.copy()
             if self._ps.is_wild(h) {
                 self._bind_head(&nr, h, (occs)[0])
                 for var k: u32 = 0; k < c.arity; ++k {
@@ -999,7 +989,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 nr.cols.push_back(r->cols[k])
             }
 
-            out.push_back(nr)
+            out.push(nr)
         }
 
         return out
@@ -1009,31 +999,29 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// heads and the wildcard rows, bucketed by the caller in one pass, so
     /// a switch over n heads is O(rows) and not O(rows * edges).
     priv fn _specialize_idx(self,
-                            const rows: cxx::std::vector<CRow>,
-                            occs:       unsafe *cxx::std::vector<u32>,
+                            const rows: [CRow],
+                            occs:       unsafe *[u32],
                             const c:    Ctor,
-                            const idx:  cxx::std::vector<u32>) -> cxx::std::vector<CRow> {
-        var sub = cxx::std::vector<CRow>()
+                            const idx:  [u32]) -> [CRow] {
+        var sub: [CRow]
         for var i: usize = 0; i < idx.size(); ++i {
-            sub.push_back((rows)[(idx)[i] as usize].copy())
+            sub.push((rows)[(idx)[i] as usize].copy())
         }
 
         return self._specialize(&sub, *occs, c)
     }
 
     /// `a` and `b`, both ascending, merged.
-    priv fn _merge_idx(self,
-                       @inout a: cxx::std::vector<u32>,
-                       const b:  cxx::std::vector<u32>) -> cxx::std::vector<u32> {
-        var out       = cxx::std::vector<u32>()
-        var i:  usize = 0
-        var j:  usize = 0
+    priv fn _merge_idx(self, @inout a: [u32], const b: [u32]) -> [u32] {
+        var out: [u32]
+        var i:   usize = 0
+        var j:   usize = 0
         while i < a.size() || j < b.size() {
             if j >= b.size() || i < a.size() && (a)[i] < (b)[j] {
-                out.push_back((a)[i])
+                out.push((a)[i])
                 i += 1
             } else {
-                out.push_back((b)[j])
+                out.push((b)[j])
                 j += 1
             }
         }
@@ -1042,10 +1030,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// Rows whose head is a wildcard, head dropped.
-    priv fn _defaults(self,
-                      @inout rows: cxx::std::vector<CRow>,
-                      const occs:  cxx::std::vector<u32>) -> cxx::std::vector<CRow> {
-        var out = cxx::std::vector<CRow>()
+    priv fn _defaults(self, @inout rows: [CRow], const occs: [u32]) -> [CRow] {
+        var out: [CRow]
         for var i: usize = 0; i < rows.size(); ++i {
             var        *r = &(rows)[i]
             var unsafe *h = r->cols[0]
@@ -1057,13 +1043,13 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             nr.arm     = r->arm
             nr.guarded = r->guarded
             nr.key     = r->key.copy()
-            nr.binds   = r->binds
+            nr.binds   = r->binds.copy()
             self._bind_head(&nr, h, (occs)[0])
             for var k: usize = 1; k < r->cols.size(); ++k {
                 nr.cols.push_back(r->cols[k])
             }
 
-            out.push_back(nr)
+            out.push(nr)
         }
 
         return out
@@ -1077,25 +1063,23 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var b = DBind{}
         b.pat = cast<BindingPattern>(h)
         b.occ = occ
-        r->binds.push_back(b)
+        r->binds.push(b)
     }
 
     /// `occs` with the head replaced by `sub`.
-    priv fn _with_sub(self,
-                      const occs: cxx::std::vector<u32>,
-                      const sub:  cxx::std::vector<u32>) -> cxx::std::vector<u32> {
-        var out = sub
+    priv fn _with_sub(self, const occs: [u32], const sub: [u32]) -> [u32] {
+        var out = sub.copy()
         for var k: usize = 1; k < occs.size(); ++k {
-            out.push_back((occs)[k])
+            out.push((occs)[k])
         }
 
         return out
     }
 
-    priv fn _rest(self, const occs: cxx::std::vector<u32>) -> cxx::std::vector<u32> {
-        var out = cxx::std::vector<u32>()
+    priv fn _rest(self, const occs: [u32]) -> [u32] {
+        var out: [u32]
         for var k: usize = 1; k < occs.size(); ++k {
-            out.push_back((occs)[k])
+            out.push((occs)[k])
         }
 
         return out
@@ -1103,8 +1087,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
     /// A one-constructor domain: no test, the column becomes its fields.
     priv fn _through(self,
-                     rows:    unsafe *cxx::std::vector<CRow>,
-                     occs:    unsafe *cxx::std::vector<u32>,
+                     rows:    unsafe *[CRow],
+                     occs:    unsafe *[u32],
                      const c: Ctor,
                      d:       Domain) -> u32 {
         var sub   = self._sub_occs((*occs)[0], c, d)
@@ -1114,11 +1098,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// Children first, then the edges in one run, then the node.
-    priv fn _switch_node(self,
-                         occ:        u32,
-                         const kids: cxx::std::vector<DEdge>,
-                         other:      i32,
-                         strings:    bool) -> u32 {
+    priv fn _switch_node(self, occ: u32, const kids: [DEdge], other: i32, strings: bool) -> u32 {
         var n = DNode{}
         n.kind    = DKind::Switch
         n.occ     = occ
@@ -1127,32 +1107,29 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         n.other   = other
         n.strings = strings
         for var i: usize = 0; i < kids.size(); ++i {
-            self._edges.push_back((kids)[i])
+            self._edges.push((kids)[i])
         }
 
         return self._push(n)
     }
 
-    priv fn _switch_enum(self,
-                         rows: unsafe *cxx::std::vector<CRow>,
-                         occs: unsafe *cxx::std::vector<u32>,
-                         d:    Domain) -> u32 {
+    priv fn _switch_enum(self, rows: unsafe *[CRow], occs: unsafe *[u32], d: Domain) -> u32 {
         var n = (d.nctors as usize) // a pack-expanded variant counts once per element.
         // Edges in first-appearance order; each edge's rows bucketed in the
         // same pass (wildcard rows join every edge at _specialize_idx).
-        var order   = cxx::std::vector<u32>()
-        var heads   = cxx::std::vector<unsafe *AstPattern>()
-        var buckets = cxx::std::vector<cxx::std::vector<u32>>()
-        var wilds   = cxx::std::vector<u32>()
-        var slot    = cxx::std::vector<i32>()
+        var order:   [u32]
+        var heads:   [unsafe *AstPattern]
+        var buckets: [[u32]]
+        var wilds:   [u32]
+        var slot:    [i32]
         for var k: usize = 0; k < n; ++k {
-            slot.push_back(-1)
+            slot.push(-1)
         }
 
         for var i: usize = 0; i < rows->size(); ++i {
             var unsafe *h = (*rows)[i].cols[0]
             if self._ps.is_wild(h) {
-                wilds.push_back(i as u32)
+                wilds.push(i as u32)
                 continue
             }
 
@@ -1175,18 +1152,18 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
             if at < 0 {
                 at = (order.size() as i32)
-                order.push_back(hc.index)
-                heads.push_back(h)
-                buckets.push_back(cxx::std::vector<u32>())
+                order.push(hc.index)
+                heads.push(h)
+                buckets.push([])
                 if (hc.index as usize) < n {
                     slot[hc.index as usize] = at
                 }
             }
 
-            buckets[at as usize].push_back(i as u32)
+            buckets[at as usize].push(i as u32)
         }
 
-        var kids = cxx::std::vector<DEdge>()
+        var kids: [DEdge]
         for var k: usize = 0; k < order.size(); ++k {
             var c = Ctor{}
             c.kind  = CtorKind::Variant
@@ -1201,7 +1178,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             e.index = order[k]
             e.pat   = heads[k]
             e.child = self._build(unsafe &srows, unsafe &socc)
-            kids.push_back(e)
+            kids.push(e)
         }
 
         // Complete over the declared variants: the default is where an
@@ -1219,16 +1196,13 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return self._switch_node((*occs)[0], kids, other, false)
     }
 
-    priv fn _switch_bool(self,
-                         rows: unsafe *cxx::std::vector<CRow>,
-                         occs: unsafe *cxx::std::vector<u32>,
-                         d:    Domain) -> u32 {
-        var have = cxx::std::vector<u8>()
-        have.push_back(0)
-        have.push_back(0)
-        var heads = cxx::std::vector<unsafe *AstPattern>()
-        heads.push_back(&null)
-        heads.push_back(&null)
+    priv fn _switch_bool(self, rows: unsafe *[CRow], occs: unsafe *[u32], d: Domain) -> u32 {
+        var have: [u8]
+        have.push(0)
+        have.push(0)
+        var heads: [unsafe *AstPattern]
+        heads.push(&null)
+        heads.push(&null)
         for var i: usize = 0; i < rows->size(); ++i {
             var unsafe *h = (*rows)[i].cols[0]
             if self._ps.is_wild(h) {
@@ -1246,7 +1220,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             }
         }
 
-        var kids = cxx::std::vector<DEdge>()
+        var kids: [DEdge]
         for var b: u64 = 0; b < (2 as u64); ++b {
             var v = (1 as u64) - b // `true` first: the dump reads in source order more often.
             if have[v as usize] == 0 {
@@ -1265,7 +1239,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             e.hi    = v
             e.pat   = heads[v as usize]
             e.child = self._build(unsafe &srows, unsafe &socc)
-            kids.push_back(e)
+            kids.push(e)
         }
 
         var other: i32 = -1
@@ -1278,10 +1252,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return self._switch_node((*occs)[0], kids, other, false)
     }
 
-    priv fn _switch_int(self,
-                        rows: unsafe *cxx::std::vector<CRow>,
-                        occs: unsafe *cxx::std::vector<u32>,
-                        d:    Domain) -> u32 {
+    priv fn _switch_int(self, rows: unsafe *[CRow], occs: unsafe *[u32], d: Domain) -> u32 {
         if self._all_points(*rows) {
             return self._switch_points(rows, occs, d)
         }
@@ -1289,9 +1260,9 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var segs = self._int_segments(*rows, d.max_key)
 
         // Which Int heads survive each segment; merge neighbours that agree.
-        var kids            = cxx::std::vector<DEdge>()
+        var kids:     [DEdge]
         var any_hole        = false
-        var prev_set        = cxx::std::vector<u32>()
+        var prev_set: [u32]
         var have_prev       = false
         var i:        usize = 0
         while i < segs.size() {
@@ -1314,7 +1285,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             e.lo   = segs[i].lo
             e.hi   = segs[i].hi
             e.pat  = (*rows)[set[0] as usize].cols[0]
-            kids.push_back(e)
+            kids.push(e)
             prev_set  = set
             have_prev = true
             i += 1
@@ -1341,7 +1312,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// Every Int head one key: a `case 1, 2, 3` table.
-    priv fn _all_points(self, const rows: cxx::std::vector<CRow>) -> bool {
+    priv fn _all_points(self, const rows: [CRow]) -> bool {
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]
             if self._ps.is_wild(h) {
@@ -1362,18 +1333,15 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// own heads, so the rows are bucketed by key in one pass instead of
     /// rescanned per segment. Same edges, merges and order as the general
     /// form: ascending keys, a gap a hole that breaks a merge run.
-    priv fn _switch_points(self,
-                           rows: unsafe *cxx::std::vector<CRow>,
-                           occs: unsafe *cxx::std::vector<u32>,
-                           d:    Domain) -> u32 {
-        var at: llvm::StringMap<u32>
-        var buckets = cxx::std::vector<cxx::std::vector<u32>>()
-        var bkey    = cxx::std::vector<u64>()
-        var wilds   = cxx::std::vector<u32>()
+    priv fn _switch_points(self, rows: unsafe *[CRow], occs: unsafe *[u32], d: Domain) -> u32 {
+        var at:      llvm::StringMap<u32>
+        var buckets: [[u32]]
+        var bkey                          = cxx::std::vector<u64>()
+        var wilds:   [u32]
         for var i: usize = 0; i < rows->size(); ++i {
             var unsafe *h = (*rows)[i].cols[0]
             if self._ps.is_wild(h) {
-                wilds.push_back(i as u32)
+                wilds.push(i as u32)
                 continue
             }
 
@@ -1385,22 +1353,22 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 b = it->second
             } else {
                 b = (buckets.size() as u32)
-                buckets.push_back(cxx::std::vector<u32>())
+                buckets.push([])
                 bkey.push_back(v)
                 at.try_emplace(kairo::sref(ks), b)
             }
 
-            buckets[b as usize].push_back(i as u32)
+            buckets[b as usize].push(i as u32)
         }
 
         var keys = bkey
         sort_unique_keys(unsafe &keys)
 
-        var kids          = cxx::std::vector<DEdge>()
-        var kidb          = cxx::std::vector<u32>() // the bucket each edge's rows are read from: its first key's.
+        var kids:     [DEdge]
+        var kidb:     [u32]           // the bucket each edge's rows are read from: its first key's.
         var any_hole      = false
         var have_prev     = false
-        var prev_set      = cxx::std::vector<u32>()
+        var prev_set: [u32]
         var next:     u64 = 0 // the least key not yet placed in a segment.
         for var k: usize = 0; k < keys.size(); ++k {
             var v = keys[k]
@@ -1410,7 +1378,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             }
 
             var b   = at.find(kairo::sref(f"{v}"))->second
-            var set = buckets[b as usize]
+            var set = buckets[b as usize].copy()
             if have_prev && self._same_rows(&*rows, set, prev_set) {
                 kids[kids.size() - 1].hi = v
             } else {
@@ -1419,8 +1387,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 e.lo   = v
                 e.hi   = v
                 e.pat  = (*rows)[set[0] as usize].cols[0]
-                kids.push_back(e)
-                kidb.push_back(b)
+                kids.push(e)
+                kidb.push(b)
                 prev_set  = set
                 have_prev = true
             }
@@ -1454,9 +1422,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// PatternSpace::int_segments over CRow, across the whole key space.
-    priv fn _int_segments(self,
-                          const rows: cxx::std::vector<CRow>,
-                          max_key:    u64) -> cxx::std::vector<Ctor> {
+    priv fn _int_segments(self, const rows: [CRow], max_key: u64) -> [Ctor] {
         var cuts = cxx::std::vector<u64>()
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]
@@ -1479,7 +1445,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         }
 
         sort_unique_keys(unsafe &cuts)
-        var out        = cxx::std::vector<Ctor>()
+        var out:   [Ctor]
         var start: u64 = 0
         for var i: usize = 0; i <= cuts.size(); ++i {
             var end = if (i < cuts.size()) => (cuts[i] - (1 as u64)) else => max_key
@@ -1487,7 +1453,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             c.kind = CtorKind::Int
             c.lo   = start
             c.hi   = end
-            out.push_back(c)
+            out.push(c)
             if i < cuts.size() {
                 start = cuts[i]
             }
@@ -1497,10 +1463,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// Rows whose Int head contains segment `s`, by index.
-    priv fn _covering_rows(self,
-                           const rows: cxx::std::vector<CRow>,
-                           const s:    Ctor) -> cxx::std::vector<u32> {
-        var out = cxx::std::vector<u32>()
+    priv fn _covering_rows(self, const rows: [CRow], const s: Ctor) -> [u32] {
+        var out: [u32]
         for var i: usize = 0; i < rows.size(); ++i {
             var unsafe *h = (rows)[i].cols[0]
             if self._ps.is_wild(h) {
@@ -1509,7 +1473,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
             var hc = self._ps.ctor_of(h)
             if hc.kind == CtorKind::Int && hc.lo <= s.lo && s.hi <= hc.hi {
-                out.push_back(i as u32)
+                out.push(i as u32)
             }
         }
 
@@ -1520,10 +1484,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// agree position by position on everything below the head: arm, guard,
     /// remaining columns, binders. `case 1, 2, 3` is three rows of one arm;
     /// this merges their segments into one `1...3` edge.
-    priv fn _same_rows(self,
-                       @inout rows: cxx::std::vector<CRow>,
-                       const a:     cxx::std::vector<u32>,
-                       const b:     cxx::std::vector<u32>) -> bool {
+    priv fn _same_rows(self, @inout rows: [CRow], const a: [u32], const b: [u32]) -> bool {
         if a.size() != b.size() {
             return false
         }
@@ -1565,7 +1526,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// A string column every head of which has known bytes. A head without
     /// them has no rendering (string `==` is a user operator, lowered before
     /// MatchLowering runs): SC116E.
-    priv fn _is_string_column(self, const rows: cxx::std::vector<CRow>, occ: u32) -> bool {
+    priv fn _is_string_column(self, const rows: [CRow], occ: u32) -> bool {
         var unsafe *t = self._occs[occ as usize].type_
         if t == &null || !self._tu.is_string(t) {
             return false
@@ -1591,19 +1552,17 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         return true
     }
 
-    priv fn _switch_string(self,
-                           rows: unsafe *cxx::std::vector<CRow>,
-                           occs: unsafe *cxx::std::vector<u32>) -> u32 {
+    priv fn _switch_string(self, rows: unsafe *[CRow], occs: unsafe *[u32]) -> u32 {
         // Keys in first-appearance order, each key's rows bucketed by its
         // decoded bytes in the same pass; wildcard rows join every key.
         var at: llvm::StringMap<u32>
-        var heads   = cxx::std::vector<unsafe *AstPattern>()
-        var buckets = cxx::std::vector<cxx::std::vector<u32>>()
-        var wilds   = cxx::std::vector<u32>()
+        var heads:   [unsafe *AstPattern]
+        var buckets: [[u32]]
+        var wilds:   [u32]
         for var i: usize = 0; i < rows->size(); ++i {
             var unsafe *h = (*rows)[i].cols[0]
             if self._ps.is_wild(h) {
-                wilds.push_back(i as u32)
+                wilds.push(i as u32)
                 continue
             }
 
@@ -1617,17 +1576,17 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 slot = it->second
             } else {
                 slot = (heads.size() as u32)
-                heads.push_back(h)
-                buckets.push_back(cxx::std::vector<u32>())
+                heads.push(h)
+                buckets.push([])
                 at.try_emplace(kairo::sref(ks), slot)
             }
 
-            buckets[slot as usize].push_back(i as u32)
+            buckets[slot as usize].push(i as u32)
         }
 
-        var kids = cxx::std::vector<DEdge>()
+        var kids: [DEdge]
         for var k: usize = 0; k < heads.size(); ++k {
-            var srows = cxx::std::vector<CRow>()
+            var srows: [CRow]
             var idx   = self._merge_idx(&buckets[k], wilds)
             for var ii: usize = 0; ii < idx.size(); ++ii {
                 var        *r = &(*rows)[idx[ii] as usize]
@@ -1636,13 +1595,13 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 nr.arm     = r->arm
                 nr.guarded = r->guarded
                 nr.key     = r->key.copy()
-                nr.binds   = r->binds
+                nr.binds   = r->binds.copy()
                 self._bind_head(&nr, h, (*occs)[0])
                 for var c: usize = 1; c < r->cols.size(); ++c {
                     nr.cols.push_back(r->cols[c])
                 }
 
-                srows.push_back(nr)
+                srows.push(nr)
             }
 
             var socc = self._rest(*occs)
@@ -1650,7 +1609,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             e.kind  = CtorKind::Opaque
             e.pat   = heads[k]
             e.child = self._build(unsafe &srows, unsafe &socc)
-            kids.push_back(e)
+            kids.push(e)
         }
 
         var drows = self._defaults(&*rows, *occs)
@@ -1662,9 +1621,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// ### opaque
 
     /// Binary test on the first non-wildcard head. See the file header.
-    priv fn _test(self,
-                  const rows: cxx::std::vector<CRow>,
-                  occs:       unsafe *cxx::std::vector<u32>) -> u32 {
+    priv fn _test(self, const rows: [CRow], occs: unsafe *[u32]) -> u32 {
         var h: unsafe *AstPattern = &null
         for var i: usize = 0; i < rows.size() && h == &null; ++i {
             if !self._ps.is_wild((rows)[i].cols[0]) {
@@ -1681,18 +1638,18 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         self._check_opaque(h)
         var hc = self._ps.ctor_of(h)
 
-        var yes = cxx::std::vector<CRow>()
-        var no  = cxx::std::vector<CRow>()
+        var yes: [CRow]
+        var no:  [CRow]
         for var i: usize = 0; i < rows.size(); ++i {
             var        r  = (rows)[i].copy()
             var unsafe *p = r.cols[0]
             var same = !self._ps.is_wild(p) && self._same_ctor(self._ps.ctor_of(p), hc)
             if same {
                 r.cols[0] = &null
-                yes.push_back(r)
+                yes.push(r)
             } else {
-                yes.push_back(r.copy())
-                no.push_back(r)
+                yes.push(r.copy())
+                no.push(r)
             }
         }
 
@@ -1712,7 +1669,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         n.edge0 = (self._edges.size() as u32)
         n.nedge = 1
         n.other = (f as i32)
-        self._edges.push_back(e)
+        self._edges.push(e)
         return self._push(n)
     }
 
@@ -1780,15 +1737,15 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
     /// Rows in order; row i's tests chain into its accept node, and every
     /// failure goes to row i+1's chain.
-    priv fn _automaton(self, const rows0: cxx::std::vector<CRow>, root: u32) -> u32 {
+    priv fn _automaton(self, const rows0: [CRow], root: u32) -> u32 {
         // Full expansion: an alternation anywhere is one row per choice.
         for var i: usize = 0; i < rows0.size(); ++i {
-            var flat  = cxx::std::vector<FlatRow>()
+            var flat: [FlatRow]
             var start = FlatRow{}
             start.row = (rows0)[i].copy()
             self._flatten((rows0)[i].cols[0], root, &start, &flat)
             for var k: usize = 0; k < flat.size(); ++k {
-                self._flat.push_back(flat[k].copy())
+                self._flat.push(flat[k].copy())
             }
         }
 
@@ -1797,7 +1754,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         while k > 0 {
             k = k - 1
             var *fr  = &self._flat[k]
-            var occs = cxx::std::vector<u32>()
+            var occs: [u32]
             var acc  = self._accept(&fr->row, occs, cont as i32)
             var node = acc
             var t    = fr->tests.size()
@@ -1811,38 +1768,32 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 n.edge0 = (self._edges.size() as u32)
                 n.nedge = 1
                 n.other = (cont as i32)
-                self._edges.push_back(ft.edge)
+                self._edges.push(ft.edge)
                 node = self._push(n)
             }
 
             cont = node
         }
 
-        self._flat = cxx::std::vector<FlatRow>()
+        self._flat.clear()
         return cont
     }
 
     /// Walk `p` at `occ`, appending its tests in pre-order (a variant's
     /// tag before its payload) and its binders; an alternation forks the
     /// row. Every fork lands in `out`.
-    priv fn _flatten(self,
-                     p:          unsafe *AstPattern,
-                     occ:        u32,
-                     acc:        *FlatRow,
-                     @inout out: cxx::std::vector<FlatRow>) {
-        var cur = cxx::std::vector<FlatRow>()
-        cur.push_back(acc->copy())
+    priv fn _flatten(self, p: unsafe *AstPattern, occ: u32, acc: *FlatRow, @inout out: [FlatRow]) {
+        var cur: [FlatRow]
+        cur.push(acc->copy())
         self._flatten_into(p, occ, unsafe &cur)
         for var i: usize = 0; i < cur.size(); ++i {
             cur[i].row.cols = cxx::std::vector<unsafe *AstPattern>() // all consumed: _accept reads binds only.
-            out.push_back(cxx::std::move(cur[i]))
         }
+
+        out.append(cur)
     }
 
-    priv fn _flatten_into(self,
-                          p:    unsafe *AstPattern,
-                          occ:  u32,
-                          rows: unsafe *cxx::std::vector<FlatRow>) {
+    priv fn _flatten_into(self, p: unsafe *AstPattern, occ: u32, rows: unsafe *[FlatRow]) {
         if p == &null {
             return
         }
@@ -1856,24 +1807,22 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                     var b = DBind{}
                     b.pat = cast<BindingPattern>(p)
                     b.occ = occ
-                    (*rows)[i].row.binds.push_back(b)
+                    (*rows)[i].row.binds.push(b)
                 }
 
                 return
             } case PatternKind::AlternationPattern {
                 var unsafe *a  = cast<AlternationPattern>(p)
-                var        out = cxx::std::vector<FlatRow>()
+                var        out: [FlatRow]
                 for var k: usize = 0; k < a->alternatives.size(); ++k {
-                    var fork = cxx::std::vector<FlatRow>()
+                    var fork: [FlatRow]
                     for var i: usize = 0; i < rows->size(); ++i {
-                        fork.push_back((*rows)[i].copy())
+                        fork.push((*rows)[i].copy())
                         fork[i].row.key += f"/{occ}:{k}"
                     }
 
                     self._flatten_into(a->alternatives[k], occ, unsafe &fork)
-                    for var i: usize = 0; i < fork.size(); ++i {
-                        out.push_back(cxx::std::move(fork[i]))
-                    }
+                    out.append(fork)
                 }
 
                 *rows = out
@@ -1918,7 +1867,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         ft.edge.hi    = c.hi
         ft.edge.pat   = p
         for var i: usize = 0; i < rows->size(); ++i {
-            (*rows)[i].tests.push_back(ft)
+            (*rows)[i].tests.push(ft)
         }
 
         if c.kind == CtorKind::Variant {

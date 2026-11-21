@@ -1079,8 +1079,8 @@ pub class <T: type> MemberTyping {
             return &null
         }
 
-        var args = cxx::std::vector<ArgInfo>()
-        args.push_back(self.dyn()->arg_info(n->index))
+        var args: [ArgInfo]
+        args.push(self.dyn()->arg_info(n->index))
         var r = self.dyn()->ovl.resolve(
             cands,
             &args,
@@ -1311,9 +1311,9 @@ pub class <T: type> MemberTyping {
                 && places.size() > 0
                 && isa<AnonInitializerExpr>(self.dyn()->tu.strip_parens(value))
             if setters.size() > 0 && value != &null && !recv_const && !targeted {
-                var sargs = cxx::std::vector<ArgInfo>()
-                sargs.push_back(self.dyn()->arg_info(n->index))
-                sargs.push_back(self.dyn()->arg_info(value))
+                var sargs: [ArgInfo]
+                sargs.push(self.dyn()->arg_info(n->index))
+                sargs.push(self.dyn()->arg_info(value))
                 var unsafe *so = unsafe (obj as unsafe *Type)
                 if places.size() == 0
                     || self.dyn()->ovl.any_viable(
@@ -1344,8 +1344,8 @@ pub class <T: type> MemberTyping {
         // read range form and no place one is the read it can be. A write
         // has no such fallback.
         if place && ctx != SUB_WRITE {
-            var probe = cxx::std::vector<ArgInfo>()
-            probe.push_back(self.dyn()->arg_info(n->index))
+            var probe: [ArgInfo]
+            probe.push(self.dyn()->arg_info(n->index))
             var unsafe *ro = unsafe (obj as unsafe *Type)
             if !self.dyn()->ovl.any_viable(
                 unsafe &places,
@@ -1401,7 +1401,7 @@ pub class <T: type> MemberTyping {
                                   recv:    *Type,
                                   obj:     *Type,
                                   setters: unsafe *cxx::std::vector<*Decl>,
-                                  args:    unsafe *cxx::std::vector<ArgInfo>) -> unsafe *Type {
+                                  args:    unsafe *[ArgInfo]) -> unsafe *Type {
         var r = self.dyn()->ovl.resolve(
             setters,
             args,

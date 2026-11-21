@@ -185,10 +185,10 @@ pub class ConstEvalStrings derives RecursiveASTVisitor<ConstEvalStrings> {
 /// or looks into (each COMPLETE first). The Sema side of EmitPlan's early
 /// items (EmitPlan::_early), read by EvalUsageChecking::_check_order.
 pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
-    pub var items: cxx::std::vector<unsafe *Decl>
-    pub var recs:  cxx::std::vector<unsafe *Decl>
+    pub var items: [unsafe *Decl]
+    pub var recs:  [unsafe *Decl]
     /// Parallel to recs: where the body needs it, for the note.
-    pub var  at:  cxx::std::vector<SourceRange>
+    pub var  at:  [SourceRange]
     priv var _tu: unsafe *TypeUtil              = &null
 
     fn EvalNeeds(self, tu: unsafe *TypeUtil) {
@@ -237,7 +237,7 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
             }
         }
 
-        self.items.push_back(d)
+        self.items.push(d)
     }
 
     /// Record `d` needed complete (its outermost record: a nested one is
@@ -274,8 +274,8 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
             }
         }
 
-        self.recs.push_back(d)
-        self.at.push_back(r)
+        self.recs.push(d)
+        self.at.push(r)
     }
 
     /// The records `t` holds by value: laid out wherever a value of it is.
@@ -494,12 +494,12 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     priv var tu: TypeUtil
 
     /// The function whose body is walked (innermost), or null.
-    priv var _fns: cxx::std::vector<unsafe *Declarations::FunctionDecl>
+    priv var _fns: [unsafe *Declarations::FunctionDecl]
     /// Bindings of the `eval for`s around the walk: constants in each copy.
-    priv var _ef_binds: cxx::std::vector<unsafe *Decl>
+    priv var _ef_binds: [unsafe *Decl]
     /// The iterables of those `eval for`s: the one place an eval generator
     /// may be called.
-    priv var _ef_iters: cxx::std::vector<unsafe *Expr>
+    priv var _ef_iters: [unsafe *Expr]
     /// `eval for` bodies around the walk (outside an eval fn).
     priv var _ef_depth: u32 = 0
     /// > 0 inside an eval CONTEXT (file header): an eval fn's body or an
@@ -528,7 +528,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
     fn traverse_function_decl(self,
                               n: unsafe *Declarations::FunctionDecl) -> unsafe *Declarations::FunctionDecl {
-        self._fns.push_back(n)
+        self._fns.push(n)
         var sd = self._ef_depth
         self._ef_depth = 0
         self._check_requires(n->requires_clause)
@@ -550,7 +550,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
 
         self._ef_depth = sd
-        self._fns.pop_back()
+        self._fns.pop()
         return r
     }
 
@@ -1478,14 +1478,14 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
         self._check_eval_for(n)
         if n->iterable != &null {
-            self._ef_iters.push_back(n->iterable)
+            self._ef_iters.push(n->iterable)
             n->iterable = self.dyn()->dispatch_expr(n->iterable)
-            self._ef_iters.pop_back()
+            self._ef_iters.pop()
         }
 
         var pushed = false
         if n->bindings.size() == 1 && n->bindings[0].decl != &null {
-            self._ef_binds.push_back(n->bindings[0].decl)
+            self._ef_binds.push(n->bindings[0].decl)
             pushed = true
         }
 
@@ -1493,7 +1493,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         n->body = self.dyn()->traverse_block(n->body)
         self._ef_depth -= 1
         if pushed {
-            self._ef_binds.pop_back()
+            self._ef_binds.pop()
         }
 
         return n
@@ -2108,8 +2108,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
     /// Every needs record computed, flattened, in the order computed; and
     /// the items whose rows are in it.
-    priv var _nd_done: cxx::std::vector<unsafe *Decl>
-    priv var _nd:      cxx::std::vector<EvalNeedRow>
+    priv var _nd_done: [unsafe *Decl]
+    priv var _nd:      [EvalNeedRow]
 
     priv fn _needs_of(self, item: unsafe *Decl) {
         for var i: usize = 0; i < self._nd_done.size(); ++i {
@@ -2118,7 +2118,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             }
         }
 
-        self._nd_done.push_back(item)
+        self._nd_done.push(item)
         var        n   = EvalNeeds(unsafe &self.tu)
         var unsafe *dc = item->semantic_dc
         if dc != &null && dc->is_type_scope() && dc->dc_kind != DeclContextKind::Extension {
@@ -2163,7 +2163,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             row.kind = EvalNeedKind::Item
             row.val  = n.items[i]
             row.at   = item->range
-            self._nd.push_back(row)
+            self._nd.push(row)
         }
 
         for var i: usize = 0; i < n.recs.size(); ++i {
@@ -2172,14 +2172,12 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             row.kind = EvalNeedKind::Record
             row.val  = n.recs[i]
             row.at   = n.at[i]
-            self._nd.push_back(row)
+            self._nd.push(row)
         }
     }
 
     /// `seeds` and every item they read, transitively, into `out`.
-    priv fn _closure(self,
-                     seeds: unsafe *cxx::std::vector<unsafe *Decl>,
-                     out:   unsafe *cxx::std::vector<unsafe *Decl>) {
+    priv fn _closure(self, seeds: unsafe *[unsafe *Decl], out: unsafe *[unsafe *Decl]) {
         for var i: usize = 0; i < seeds->size(); ++i {
             self._add_once(&*out, (*seeds)[i])
         }
@@ -2195,18 +2193,18 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         }
     }
 
-    priv fn _add_once(self, @inout v: cxx::std::vector<unsafe *Decl>, d: unsafe *Decl) {
+    priv fn _add_once(self, @inout v: [unsafe *Decl], d: unsafe *Decl) {
         for var i: usize = 0; i < v.size(); ++i {
             if (v)[i] == d {
                 return
             }
         }
 
-        v.push_back(d)
+        v.push(d)
     }
 
     /// The items computed values in `t` name (a declaration's type).
-    priv fn _type_items(self, t: unsafe *Type, out: unsafe *cxx::std::vector<unsafe *Decl>) {
+    priv fn _type_items(self, t: unsafe *Type, out: unsafe *[unsafe *Decl]) {
         var n = EvalNeeds(unsafe &self.tu)
         n.rec_type(t, SourceRange::invalid())
         if t != &null && t->canonical != &null {
@@ -2222,8 +2220,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     /// signatures (C++ reads all of them inside the class body).
     priv fn _member_types(self,
                           r:            unsafe *Decl,
-                          @inout out:   cxx::std::vector<unsafe *Type>,
-                          @inout spots: cxx::std::vector<SourceRange>) {
+                          @inout out:   [unsafe *Type],
+                          @inout spots: [SourceRange]) {
         var fields:  unsafe *FrozenList<unsafe *Declarations::FieldDecl>    = &null
         var methods: unsafe *FrozenList<unsafe *Declarations::FunctionDecl> = &null
         if isa<Declarations::ClassDecl>(r) {
@@ -2233,8 +2231,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             for var i: usize = 0; i < c->derives_list.size(); ++i {
                 var unsafe *e = c->derives_list.get(i)
                 if e != &null && e->base != &null {
-                    out.push_back(e->base)
-                    spots.push_back(e->base->range)
+                    out.push(e->base)
+                    spots.push(e->base->range)
                 }
             }
         } else if isa<Declarations::StructDecl>(r) {
@@ -2252,8 +2250,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                     continue
                 }
 
-                out.push_back(f->type_)
-                spots.push_back(f->type_->range)
+                out.push(f->type_)
+                spots.push(f->type_->range)
             }
         }
 
@@ -2270,13 +2268,13 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                         continue
                     }
 
-                    out.push_back(pd->type_)
-                    spots.push_back(pd->type_->range)
+                    out.push(pd->type_)
+                    spots.push(pd->type_->range)
                 }
 
                 if m->return_type != &null {
-                    out.push_back(m->return_type)
-                    spots.push_back(m->return_type->range)
+                    out.push(m->return_type)
+                    spots.push(m->return_type->range)
                 }
             }
         }
@@ -2284,11 +2282,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
     /// The records `r` needs complete before its definition: by-value
     /// fields and bases, and what the items its types name need.
-    priv fn _rec_edges(self, r: unsafe *Decl, out: unsafe *cxx::std::vector<unsafe *Decl>) {
-        var ts = cxx::std::vector<unsafe *Type>()
-        var ws = cxx::std::vector<SourceRange>()
+    priv fn _rec_edges(self, r: unsafe *Decl, out: unsafe *[unsafe *Decl]) {
+        var ts: [unsafe *Type]
+        var ws: [SourceRange]
         self._member_types(r, &ts, &ws)
-        var seeds = cxx::std::vector<unsafe *Decl>()
+        var seeds: [unsafe *Decl]
         for var i: usize = 0; i < ts.size(); ++i {
             self._type_items(ts[i], unsafe &seeds)
         }
@@ -2326,7 +2324,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             }
         }
 
-        var cl = cxx::std::vector<unsafe *Decl>()
+        var cl: [unsafe *Decl]
         self._closure(unsafe &seeds, unsafe &cl)
         for var k: usize = 0; k < cl.size(); ++k {
             for var i: usize = 0; i < self._nd.size(); ++i {
@@ -2341,7 +2339,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     priv fn _rec_reaches(self,
                          from: unsafe *Decl,
                          goal: unsafe *Decl,
-                         seen: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+                         seen: unsafe *[unsafe *Decl]) -> bool {
         if from == goal {
             return true
         }
@@ -2352,12 +2350,12 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             }
         }
 
-        seen->push_back(from)
+        seen->push(from)
         if seen->size() > 64 {
             return false
         }
 
-        var es = cxx::std::vector<unsafe *Decl>()
+        var es: [unsafe *Decl]
         self._rec_edges(from, unsafe &es)
         for var i: usize = 0; i < es.size(); ++i {
             if self._rec_reaches(es[i], goal, seen) {
@@ -2374,8 +2372,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             return
         }
 
-        var recs = cxx::std::vector<unsafe *Decl>()
-        var vars = cxx::std::vector<unsafe *Declarations::VariableDecl>()
+        var recs: [unsafe *Decl]
+        var vars: [unsafe *Declarations::VariableDecl]
         self._own_decls(tu, unsafe &recs, unsafe &vars)
         for var i: usize = 0; i < recs.size(); ++i {
             self._check_record(recs[i])
@@ -2388,8 +2386,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
     priv fn _own_decls(self,
                        dc:   unsafe *DeclContext,
-                       recs: unsafe *cxx::std::vector<unsafe *Decl>,
-                       vars: unsafe *cxx::std::vector<unsafe *Declarations::VariableDecl>) {
+                       recs: unsafe *[unsafe *Decl],
+                       vars: unsafe *[unsafe *Declarations::VariableDecl]) {
         if dc == &null {
             return
         }
@@ -2416,12 +2414,12 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                     if isa<Declarations::ClassDecl>(m)
                         || isa<Declarations::StructDecl>(m)
                         || isa<Declarations::UnionDecl>(m) {
-                        recs->push_back(m)
+                        recs->push(m)
                     }
 
                     var unsafe *gv = dyn_cast<Declarations::VariableDecl>(m)
                     if gv != &null && gv->is_eval() && gv->init != &null {
-                        vars->push_back(gv)
+                        vars->push(gv)
                     }
                 }
 
@@ -2431,7 +2429,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             if isa<Declarations::ClassDecl>(d)
                 || isa<Declarations::StructDecl>(d)
                 || isa<Declarations::UnionDecl>(d) {
-                recs->push_back(d)
+                recs->push(d)
                 var rdc: unsafe *DeclContext = &null
                 if isa<Declarations::ClassDecl>(d) {
                     rdc = (cast<Declarations::ClassDecl>(d))
@@ -2440,7 +2438,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 }
 
                 if rdc != &null {
-                    var nested = cxx::std::vector<unsafe *Declarations::VariableDecl>()
+                    var nested: [unsafe *Declarations::VariableDecl]
                     self._own_decls(rdc, recs, unsafe &nested)
                 }
 
@@ -2449,7 +2447,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
             var unsafe *v = dyn_cast<Declarations::VariableDecl>(d)
             if v != &null && v->is_eval() && v->init != &null {
-                vars->push_back(v)
+                vars->push(v)
             }
         }
     }
@@ -2464,11 +2462,11 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     /// need (EvalNeeds::rec_type): whether it closes a cycle depends on the
     /// arguments, which is C++'s to report per instance.
     priv fn _check_record(self, r: unsafe *Decl) {
-        var ts = cxx::std::vector<unsafe *Type>()
-        var ws = cxx::std::vector<SourceRange>()
+        var ts: [unsafe *Type]
+        var ws: [SourceRange]
         self._member_types(r, &ts, &ws)
         for var t: usize = 0; t < ts.size(); ++t {
-            var seeds = cxx::std::vector<unsafe *Decl>()
+            var seeds: [unsafe *Decl]
             self._type_items(ts[t], unsafe &seeds)
             if self._check_seeds(
                 r,
@@ -2483,14 +2481,14 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         // A record's value predicates are checked inside its definition
         // (InterfaceEmitter::_record_def's static_asserts), after the items
         // they name (EmitPlan::_decl_type_items): the same order problem.
-        var vps = cxx::std::vector<unsafe *Expr>()
+        var vps: [unsafe *Expr]
         EvalUsageChecking::_value_preds(decl_requires_clause(r), unsafe &vps)
         for var i: usize = 0; i < vps.size(); ++i {
             var n = EvalNeeds(unsafe &self.tu)
             n.dispatch_expr(vps[i])
-            var seeds = cxx::std::vector<unsafe *Decl>()
+            var seeds: [unsafe *Decl]
             for var k: usize = 0; k < n.items.size(); ++k {
-                seeds.push_back(n.items[k])
+                seeds.push(n.items[k])
             }
 
             if self._check_seeds(
@@ -2506,7 +2504,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
     /// The VALUE conjuncts of requires clause `e` (not `T impl I` / `T
     /// derives B`), as _check_requires splits them.
-    static fn _value_preds(e: unsafe *Expr, out: unsafe *cxx::std::vector<unsafe *Expr>) {
+    static fn _value_preds(e: unsafe *Expr, out: unsafe *[unsafe *Expr]) {
         if e == &null || e->is_poisoned() {
             return
         }
@@ -2523,21 +2521,21 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             return
         }
 
-        out->push_back(e)
+        out->push(e)
     }
 
     /// Whether items `seeds`, read at `at`, reach one that needs `r`
     /// complete (or a record that reaches `r`); reported when they do.
     priv fn _check_seeds(self,
                          r:          unsafe *Decl,
-                         seeds:      unsafe *cxx::std::vector<unsafe *Decl>,
+                         seeds:      unsafe *[unsafe *Decl],
                          at:         SourceRange,
                          const what: string) -> bool {
         if seeds->size() == 0 {
             return false
         }
 
-        var cl = cxx::std::vector<unsafe *Decl>()
+        var cl: [unsafe *Decl]
         self._closure(seeds, unsafe &cl)
         // The first item needing r, or a record that reaches r.
         for var k: usize = 0; k < cl.size(); ++k {
@@ -2549,8 +2547,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
                 var unsafe *need              = self._nd[i].val
                 var        via:  unsafe *Decl = &null
                 if need != r {
-                    var seen = cxx::std::vector<unsafe *Decl>()
-                    seen.push_back(r)
+                    var seen: [unsafe *Decl]
+                    seen.push(r)
                     if !self._rec_reaches_from(need, r, unsafe &seen) {
                         continue
                     }
@@ -2570,7 +2568,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     priv fn _rec_reaches_from(self,
                               from: unsafe *Decl,
                               goal: unsafe *Decl,
-                              seen: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
+                              seen: unsafe *[unsafe *Decl]) -> bool {
         for var i: usize = 0; i < seen->size(); ++i {
             if (*seen)[i] == from && from != goal {
                 return false
@@ -2581,8 +2579,8 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             return true
         }
 
-        seen->push_back(from)
-        var es = cxx::std::vector<unsafe *Decl>()
+        seen->push(from)
+        var es: [unsafe *Decl]
         self._rec_edges(from, unsafe &es)
         for var i: usize = 0; i < es.size(); ++i {
             if es[i] == goal {
@@ -2642,12 +2640,12 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
     priv fn _check_var(self, v: unsafe *Declarations::VariableDecl) {
         var n = EvalNeeds(unsafe &self.tu)
         n.dispatch_expr(v->init)
-        var seeds = cxx::std::vector<unsafe *Decl>()
+        var seeds: [unsafe *Decl]
         for var i: usize = 0; i < n.items.size(); ++i {
-            seeds.push_back(n.items[i])
+            seeds.push(n.items[i])
         }
 
-        var cl = cxx::std::vector<unsafe *Decl>()
+        var cl: [unsafe *Decl]
         self._closure(unsafe &seeds, unsafe &cl)
         var unsafe *me = unsafe (v as unsafe *Decl)
         var        hit = false
