@@ -25,8 +25,8 @@ pub struct InputArg {
 }
 
 pub class ParsedArgs {
-    pub var inputs: cxx::std::vector<InputArg> ///< positional inputs, in order
-    pub var ok:     bool                       = true ///< false if required fields missing / bounds violated
+    pub var inputs: [InputArg]        ///< positional inputs, in order
+    pub var ok:     bool       = true ///< false if required fields missing / bounds violated
 
     /// StringMap, not DenseMap: _cell and get_list hand out pointers into
     /// the values, and a StringMap entry is its own allocation that a rehash

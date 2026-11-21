@@ -264,7 +264,7 @@ pub class <T> Annotation {
     }
 
     /// Append all attribute entries to `out`. Preserves source order.
-    fn collect_attributes(self, @inout out: cxx::std::vector<unsafe *AnnotationEntry>) {
+    fn collect_attributes(self, @inout out: [unsafe *AnnotationEntry]) {
         if !self.has_attribute() {
             return
         }
@@ -272,7 +272,7 @@ pub class <T> Annotation {
         for var i: usize = 0; i < self.annotations.size(); ++i {
             var unsafe *entry = self.annotations.get(i)
             if entry->kind == AnnotationKind::Attribute {
-                out.push_back(entry)
+                out.push(entry)
             }
         }
     }

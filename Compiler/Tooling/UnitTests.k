@@ -46,18 +46,18 @@ import std::io
 /// Runs the selected tests and counts the failures. `only` empty selects
 /// every test.
 class UnitRunner {
-    var only:   cxx::std::vector<string>
-    var known:  cxx::std::vector<string>
-    var list:   bool                     = false
-    var failed: usize                    = 0
+    var only:   [string]
+    var known:  [string]
+    var list:   bool     = false
+    var failed: usize    = 0
 
-    fn UnitRunner(self, only: cxx::std::vector<string>, list: bool) {
+    fn UnitRunner(self, only: [string], list: bool) {
         self.only = only
         self.list = list
     }
 
     fn _selected(self, const name: string) -> bool {
-        if self.only.empty() {
+        if self.only.is_empty() {
             return true
         }
 
@@ -71,7 +71,7 @@ class UnitRunner {
     }
 
     fn run(self, const name: string, body: fn () -> i32) {
-        self.known.push_back(name.copy())
+        self.known.push(name.copy())
         if self.list {
             io::println(name)
             return
@@ -125,9 +125,9 @@ class UnitRunner {
 pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     kairo::Logger::init(kairo::Logger::Level::Warn)
 
-    var bench = false
-    var list  = false
-    var only  = cxx::std::vector<string>()
+    var bench          = false
+    var list           = false
+    var only: [string]
     for var i: i32 = 1; i < argc; ++i {
         var arg = string(
             unsafe ((argv[i] as unsafe *const u8) as *const u8),
@@ -139,7 +139,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         } else if arg == "--list" {
             list = true
         } else {
-            only.push_back(arg)
+            only.push(arg)
         }
     }
 

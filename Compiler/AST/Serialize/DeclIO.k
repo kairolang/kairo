@@ -583,6 +583,7 @@ fn io_variable_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::VariableDec
         ar->sema_false(n->place_ref, "VariableDecl::place_ref")
         ar->sema_false(n->auto_copy, "VariableDecl::auto_copy")
         ar->sema_false(n->header_scope, "VariableDecl::header_scope")
+        ar->sema_false(n->gen_iter, "VariableDecl::gen_iter")
         ar->sema_false(n->starts_empty, "VariableDecl::starts_empty")
         ar->sema_false(n->borrows, "VariableDecl::borrows")
         ar->sema_false(n->borrow_inst, "VariableDecl::borrow_inst")

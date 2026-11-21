@@ -58,6 +58,10 @@ import Codegen::Plan::EmitPlan::{
     PlanMode,
     plan_under_duck,
 }
+import Codegen::Plan::Visitors::{
+    generator_elem,
+    generator_push_form,
+}
 import Codegen::Spell::Spell::Speller
 import Location::SourceRange::SourceRange
 import Token::TokenKind::TokenKind
@@ -146,7 +150,71 @@ extend InterfaceEmitter {
 
         s += self._body_suffix(m)
         s += ";"
+        s += self._push_method_decl(m, owner)
         return s
+    }
+
+    /// The push form of generator method `m` (generator_push_form),
+    /// declared beside it in the class: the same name and parameters, then
+    /// the loop body, returning whether the sequence ran to its end.
+    /// Always inlined: it exists to become its caller's loop.
+    priv fn _push_method_decl(self,
+                              m:     unsafe *Declarations::FunctionDecl,
+                              owner: unsafe *Decl) -> string {
+        if !generator_push_form(m, self._cg->instances) {
+            return ""
+        }
+
+        var s = self._spell->template_head(m) + LowerTargets::attr_always_inline()
+        if !m->is_method() {
+            s += "static "
+        }
+
+        s += "inline bool " + self._spell->leaf(m) + "("
+        var ps = self._params(m, false, &null, owner, false)
+        if ps.size() > 0 {
+            ps += ", "
+        }
+
+        s += ps + self._push_sink(m, owner) + ")"
+        if m->is_method() && m->is_const() {
+            s += " const"
+        }
+
+        s += " noexcept" + self._spell->member_requires(m, owner) + ";"
+        return s
+    }
+
+    /// The push form's last parameter, `::__kairo_each<T> __kairo_f`.
+    prot fn _push_sink(self, f: unsafe *Declarations::FunctionDecl, scope: unsafe *Decl) -> string {
+        return "::" + LowerTargets::gen_each() + "<" + self._spell->_type(
+            generator_elem(f),
+            &null,
+            scope,
+        ) + "> " + LowerTargets::gen_sink()
+    }
+
+    /// The push form of free generator `f`, or of an extension's, declared
+    /// after `f`'s own declaration (_push_method_decl).
+    priv fn _push_free_decl(self,
+                            f:   unsafe *Declarations::FunctionDecl,
+                            ext: unsafe *Declarations::ExtensionDecl) -> string {
+        if !generator_push_form(f, self._cg->instances) {
+            return ""
+        }
+
+        var s = self._spell->template_head(f) + LowerTargets::attr_always_inline()
+        if ext != &null {
+            s += "static "
+        }
+
+        s += "inline bool " + self._fn_name(f) + "("
+        var ps = self._params(f, ext != &null, ext, &null, false)
+        if ps.size() > 0 {
+            ps += ", "
+        }
+
+        return s + ps + self._push_sink(f, &null) + ") noexcept;"
     }
 
     /// The `operator[]` forwarders C++ code reaches a split subscript's named
@@ -295,6 +363,7 @@ extend InterfaceEmitter {
         }
 
         s += ";"
+        s += self._push_free_decl(f, ext)
         return s
     }
 

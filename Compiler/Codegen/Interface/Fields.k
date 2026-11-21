@@ -417,22 +417,37 @@ extend InterfaceEmitter {
     }
 
     /// `::__kairo_fn<R(A...)>`, the C++ type of a Kairo `fn(A) -> R` value
-    /// (Speller, Compiler/Spec/Codegen.md#emitir Closures). One of:
+    /// (Speller, Compiler/Spec/Codegen.md#emitir Closures). Three words:
+    /// a function (`__f`), one word of state (`__o`), and the closure's
+    /// operations (`__t`, null for a plain function). One of:
     ///   - empty (a default-constructed `fn` local, constexpr);
-    ///   - a plain function pointer `__f`: a named function, or a closure
-    ///     that captures nothing (`+[](...){...}`);
-    ///   - a heap lambda `__o` with its three operations `__t`: a closure
-    ///     that captures, adopted by `own(new auto([...](...){...}))`. The
-    ///     lambda is built in its heap slot from the prvalue (no temporary,
-    ///     so each captured copy is made once and destroyed once).
+    ///   - a plain function in `__f`: a named function, or a closure that
+    ///     captures nothing (`+[](...){...}`);
+    ///   - a small closure, its captures held in `__o` itself:
+    ///     `small([...](...){...})`. EmitIR picks this form for a closure
+    ///     whose captures are scalars it never writes, so the lambda is not
+    ///     `mutable` and a call can read the captures from a copy. One that
+    ///     does not fit the word is copied to the heap, bit for bit;
+    ///   - a heap lambda, its address in `__o`, with its copy and destroy
+    ///     operations: any other closure that captures, adopted by
+    ///     `own(new auto([...](...){...}))`. The lambda is built in its
+    ///     heap slot from the prvalue (no temporary, so each captured copy
+    ///     is made once and destroyed once).
+    /// A closure's `__f` is the function that calls it: it takes the
+    /// arguments and then the state word BY VALUE, so a call is a test of
+    /// `__t` and one indirect call, and the `fn` value's own address never
+    /// leaves the caller: a value the optimizer can see whole (a local, an
+    /// array element) keeps its calls direct and inlinable. A scalar
+    /// argument is passed as itself, in a register; any other as the
+    /// reference the caller already holds, so no argument is copied or
+    /// moved an extra time on the way through.
     /// Copying copies the lambda (each copy keeps its own captured copies,
     /// as copying a C++ lambda does); a lambda with a move-only capture
-    /// cannot be copied, and copying one traps. Calling forwards each
-    /// argument as its parameter type. Converting to `R(*)(A...)` -- a C
-    /// callee's parameter, a C struct's field -- yields the function, and
-    /// traps on a capturing closure, which has none. No library header:
-    /// `new`/`delete` of a lambda need none, and `__builtin_trap` is
-    /// clang's.
+    /// cannot be copied, and copying one traps. Converting to `R(*)(A...)`
+    /// -- a C callee's parameter, a C struct's field -- yields the function,
+    /// and traps on a capturing closure, which has none. No library header:
+    /// `new`/`delete` of a lambda need none, and `__builtin_trap` and
+    /// `__builtin_memcpy` are clang's.
     prot fn _fn_value_helper(self, header: bool) {
         var at = self._tu_at()
         var fv = LowerTargets::fn_value()
@@ -467,18 +482,34 @@ extend InterfaceEmitter {
         // is noexcept), so the pointer type says so: a call through it is
         // a call, not an invoke with a terminate landing pad.
         t += " using __ptr = R (*)(A...)" + nx + ";"
-        // copy too: it builds a Kairo lambda, whose captures copy with
-        // Kairo (noexcept) constructors. A throwing pointer would put a
-        // terminate landing pad in every Kairo function that copies a `fn`
-        // value (set_oom_handler); noexcept moves the one `new` can need
-        // into __copy, out of line.
-        t += " struct __ops { R (*call)(void*, A&&...)" + nx + "; void* (*copy)(const void*)" + nx + "; void (*drop)(void*) noexcept; };"
-        t += " template <class F> static R __call(void* o, A&&... a)" + nx + " { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }"
+        // How the call path passes an argument: a scalar as itself, the rest
+        // by reference. `__is_scalar` needs no complete type, so a `fn`
+        // field naming its own record is laid out inside that record.
+        t += " template <class T> struct __arg { using t = T&&; };"
+        t += " template <class T> requires (__is_scalar(T)) struct __arg<T> { using t = T; };"
+        // What a closure's `__f` really is; held as a `__ptr` so the value
+        // is three plain pointers and a plain function is itself.
+        t += " using __inv = R (*)(typename __arg<A>::t..., void*)" + nx + ";"
+        // copy builds a Kairo lambda, whose captures copy with Kairo
+        // (noexcept) constructors. A throwing pointer would put a terminate
+        // landing pad in every Kairo function that copies a `fn` value
+        // (set_oom_handler); noexcept moves the one `new` can need into
+        // __copy, out of line. Both null: the state word is the closure,
+        // copied as its bits and never destroyed (__flat).
+        t += " struct __ops { void* (*copy)(const void*)" + nx + "; void (*drop)(void*) noexcept; };"
+        t += " template <class F> static R __call(typename __arg<A>::t... a, void* o)" + nx + " { return (*static_cast<F*>(o))(static_cast<A&&>(a)...); }"
         t += " template <class F> static void* __copy(const void* o)" + nx + " {"
         t += " if constexpr (requires (const F& f) { F(f); }) { return new F(*static_cast<const F*>(o)); }"
         t += " else { " + LowerTargets::clang_trap() + "(); } }"
         t += " template <class F> static void __drop(void* o) noexcept { delete static_cast<F*>(o); }"
-        t += " template <class F> static constexpr __ops __ops_of{&__call<F>, &__copy<F>, &__drop<F>};"
+        t += " template <class F> static constexpr __ops __ops_of{&__copy<F>, &__drop<F>};"
+        t += " static constexpr __ops __flat{nullptr, nullptr};"
+        // A small closure is called on the bytes the call was handed, as a
+        // const object: it writes none of its captures (EmitIR::
+        // _closure_small), and a lambda that did would not compile here.
+        t += " template <class F> static R __scall(typename __arg<A>::t... a, void* o)" + nx + " {"
+        t += " alignas(F) unsigned char b[sizeof(F)]; __builtin_memcpy(b, &o, sizeof(F));"
+        t += " return (*reinterpret_cast<const F*>(b))(static_cast<A&&>(a)...); }"
         // A C++ function that may throw, held in __o: __rcall is a
         // noexcept frame around a call C++ knows may throw, so clang gives
         // it the terminate landing pad. Held as the noexcept __ptr instead,
@@ -487,10 +518,7 @@ extend InterfaceEmitter {
         // catch past them.
         if nx.size() > 0 {
             t += " using __xptr = R (*)(A...);"
-            t += " static R __rcall(void* o, A&&... a) noexcept { return reinterpret_cast<__xptr>(o)(static_cast<A&&>(a)...); }"
-            t += " static void* __rcopy(const void* o) noexcept { return const_cast<void*>(o); }"
-            t += " static void __rdrop(void*) noexcept {}"
-            t += " static constexpr __ops __raw_ops{&__rcall, &__rcopy, &__rdrop};"
+            t += " static R __rcall(typename __arg<A>::t... a, void* o) noexcept { return reinterpret_cast<__xptr>(o)(static_cast<A&&>(a)...); }"
         }
 
         t += " __ptr __f = nullptr;"
@@ -512,28 +540,35 @@ extend InterfaceEmitter {
         // exceptions.mdx). A template, so the exact-match constructor above
         // wins for every Kairo function and their calls stay direct.
         if nx.size() > 0 {
-            t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __o(reinterpret_cast<void*>(f)), __t(&__raw_ops) {}"
+            t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __f(reinterpret_cast<__ptr>(&__rcall)), __o(reinterpret_cast<void*>(f)), __t(&__flat) {}"
         }
 
-        t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__o = o; r.__t = &__ops_of<F>; return r; }"
-        t += " " + fv + "(const " + fv + "& o)" + nx + " : __f(o.__f), __o(o.__o ? o.__t->copy(o.__o) : nullptr), __t(o.__t) {}"
-        t += " " + fv + "(" + fv + "&& o) noexcept : __f(o.__f), __o(o.__o), __t(o.__t) { o.__o = nullptr; }"
+        t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__f = reinterpret_cast<__ptr>(&__call<F>); r.__o = o; r.__t = &__ops_of<F>; return r; }"
+        // Held in place when it fits the word, else on the heap: its
+        // copies are bitwise either way, so which one is not observable.
+        t += " template <class F> static " + fv + " " + LowerTargets::fn_value_small() + "(const F& f) noexcept {"
+        t += " static_assert(__is_trivially_copyable(F) && __is_trivially_destructible(F));"
+        t += " if constexpr (sizeof(F) <= sizeof(void*) && alignof(F) <= alignof(void*)) { " + fv + " r; __builtin_memcpy(static_cast<void*>(&r.__o), &f, sizeof(F)); r.__f = reinterpret_cast<__ptr>(&__scall<F>); r.__t = &__flat; return r; }"
+        t += " else { return " + LowerTargets::fn_value_own() + "(new F(f)); } }"
+        t += " " + fv + "(const " + fv + "& o)" + nx + " : __f(o.__f), __o(o.__t && o.__t->copy ? o.__t->copy(o.__o) : o.__o), __t(o.__t) {}"
+        // A heap lambda moves out and leaves the source empty; anything
+        // else is its bits, and the source keeps them.
+        t += " " + fv + "(" + fv + "&& o) noexcept : __f(o.__f), __o(o.__o), __t(o.__t) { if (o.__t && o.__t->drop) { o.__f = nullptr; o.__o = nullptr; o.__t = nullptr; } }"
         t += " " + fv + "& operator=(" + fv + " o) noexcept {"
         t += " __ptr f = __f; void* p = __o; const __ops* q = __t;"
         t += " __f = o.__f; __o = o.__o; __t = o.__t; o.__f = f; o.__o = p; o.__t = q; return *this; }"
-        t += " ~" + fv + "() { if (__o) { __t->drop(__o); } }"
-        // Always inline: out of line it is a call to a wrapper that spills
-        // every argument (the heap lambda's path takes them as A&&) before
-        // the indirect call it exists to make. Inlined, the caller makes the
+        t += " ~" + fv + "() { if (__t && __t->drop) { __t->drop(__o); } }"
+        // Always inline: out of line it is a call to a wrapper before the
+        // indirect call it exists to make. Inlined, the caller makes the
         // indirect call itself, and a `-> !` call site's unreachable
         // (EmitIR::_call) follows it rather than the wrapper's call, so the
         // wrapper's own return path is gone too.
-        t += " " + LowerTargets::attr_always_inline() + "R operator()(A... a) const" + nx + " { if (__o) { return __t->call(__o, static_cast<A&&>(a)...); } return __f(static_cast<A&&>(a)...); }"
+        t += " " + LowerTargets::attr_always_inline() + "R operator()(A... a) const" + nx + " { if (__t) { return reinterpret_cast<__inv>(__f)(static_cast<typename __arg<A>::t>(a)..., __o); } return __f(static_cast<A&&>(a)...); }"
         // A held C++ function converts back to itself: whatever calls it
         // through the C pointer type is C++, not a noexcept Kairo frame.
-        var raw_back = (if (nx.size() > 0) => (" if (__t == &__raw_ops) { return reinterpret_cast<__ptr>(__o); }")
+        var raw_back = (if (nx.size() > 0) => (" if (__f == reinterpret_cast<__ptr>(&__rcall)) { return reinterpret_cast<__ptr>(__o); }")
                         else => "")
-        t += " operator __ptr() const noexcept { if (__o) {" + raw_back + " " + LowerTargets::clang_trap() + "(); } return __f; }"
+        t += " operator __ptr() const noexcept { if (!__t) { return __f; }" + raw_back + " " + LowerTargets::clang_trap() + "(); }"
         t += " };"
         self._cg->sink->spell(at, t)
         self._cg->sink->brk()

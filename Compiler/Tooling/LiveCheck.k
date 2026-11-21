@@ -98,9 +98,9 @@ struct LiveOverlay {
 
 /// LiveCheck::_snapshot's record of a group of files before a re-check.
 struct GroupSnapshot {
-    pub var headers: cxx::std::vector<unsafe *void>
-    pub var imports: cxx::std::vector<cxx::std::vector<u32>>
-    pub var mods:    cxx::std::vector<ModulePath>
+    pub var headers: [unsafe *void]
+    pub var imports: [[u32]]
+    pub var mods:    [ModulePath]
 }
 
 pub class LiveCheck {
@@ -181,7 +181,7 @@ pub class LiveCheck {
     priv var _edited: cxx::std::vector<u32> ///< two_tier: files edited since the queue was last empty
     /// The files the last refresh re-checked, by name (empty after a full
     /// check: every file was).
-    pub var rechecked: cxx::std::vector<string>
+    pub var rechecked: [string]
     /// A Tooling::SemaObserver for every file a step checks: all of them on
     /// a full check, the refresh set on a refresh. Installed in each new
     /// instance. A refresh that turns into a full check has called it for
@@ -190,7 +190,7 @@ pub class LiveCheck {
     pub var observer: unsafe *void = &null
 
     /// Overlays, one slot per path (LiveOverlay).
-    priv var _ov: cxx::std::vector<LiveOverlay>
+    priv var _ov: [LiveOverlay]
 
     /// ### Parameters
     /// - `words`: the compile command without its program name: the entry
@@ -328,9 +328,9 @@ pub class LiveCheck {
     }
 
     /// The files of an import edge list, as fids, sorted.
-    priv fn _imports_of(self, fid: u32) -> cxx::std::vector<u32> {
-        var        out  = cxx::std::vector<u32>()
-        var unsafe *ctx = self._ci->global_scope()->get_context(fid)
+    priv fn _imports_of(self, fid: u32) -> [u32] {
+        var        out: [u32]
+        var unsafe *ctx       = self._ci->global_scope()->get_context(fid)
         if ctx == &null || ctx->tu == &null {
             return out
         }
@@ -347,10 +347,10 @@ pub class LiveCheck {
                 continue
             }
 
-            out.push_back(e->target_fid)
+            out.push(e->target_fid)
         }
 
-        llvm::sort(out.begin(), out.end())
+        out.sort()
         return out
     }
 
@@ -362,7 +362,7 @@ pub class LiveCheck {
                   const path: string,
                   out_fid:    *u32,
                   set:        *cxx::std::vector<u32>,
-                  names:      *cxx::std::vector<string>) -> string {
+                  names:      *[string]) -> string {
         if !renders_through_basic(self._ci->invocation()->diag.error_format) {
             return "the pretty renderer coalesces across files"
         }
@@ -433,8 +433,11 @@ pub class LiveCheck {
         // (the preprocessor's, the parser's) has no owner to replace it by.
         var is_name = llvm::StringMap<u32>()
         for var f: u32 in *set {
-            names->push_back(self._ci->sm()->get_filename(f))
-            is_name.try_emplace(kairo::sref(names->back()), 1 as u32)
+            names->push(self._ci->sm()->get_filename(f))
+            is_name.try_emplace(
+                kairo::sref((*names)[names->size() - 1]),
+                1 as u32,
+            )
         }
 
         for var i: usize = 0; i < self._fd->diags.size(); ++i {
@@ -469,8 +472,8 @@ pub class LiveCheck {
 
     /// For each file id, the files with an import edge into it (any edge,
     /// as CompilerInstance::importers_of reads them).
-    priv fn _importer_table(self) -> cxx::std::vector<cxx::std::vector<u32>> {
-        var rev = cxx::std::vector<cxx::std::vector<u32>>()
+    priv fn _importer_table(self) -> [[u32]] {
+        var rev: [[u32]]
         for var other: u32 in self._ci->global_scope()->all_fids() {
             var unsafe *octx = self._ci->global_scope()->get_context(other)
             if octx == &null || octx->tu == &null {
@@ -484,10 +487,10 @@ pub class LiveCheck {
                 }
 
                 while rev.size() <= (e->target_fid as usize) {
-                    rev.push_back(cxx::std::vector<u32>())
+                    rev.push([])
                 }
 
-                rev[e->target_fid as usize].push_back(other)
+                rev[e->target_fid as usize].push(other)
             }
         }
 
@@ -497,15 +500,15 @@ pub class LiveCheck {
     /// Every file that imports `root`, however far, that `in_set` does
     /// not hold yet: appended to `set` and `added`, nearest first.
     priv fn _grow(self,
-                  rev:    unsafe *cxx::std::vector<cxx::std::vector<u32>>,
+                  rev:    unsafe *[[u32]],
                   root:   u32,
                   set:    *cxx::std::vector<u32>,
                   in_set: unsafe *llvm::DenseSet<u64>,
                   added:  unsafe *cxx::std::vector<u32>) {
-        var frontier = cxx::std::vector<u32>()
-        frontier.push_back(root)
-        while !frontier.empty() {
-            var next = cxx::std::vector<u32>()
+        var frontier: [u32]
+        frontier.push(root)
+        while !frontier.is_empty() {
+            var next: [u32]
             for var f: u32 in frontier {
                 if (f as usize) >= rev->size() {
                     continue
@@ -518,7 +521,7 @@ pub class LiveCheck {
 
                     set->push_back(imp)
                     added->push_back(imp)
-                    next.push_back(imp)
+                    next.push(imp)
                 }
             }
 
@@ -530,7 +533,7 @@ pub class LiveCheck {
     /// the engine (its duplicate filter, its counts, the poison scopes
     /// inside them): they go with the files' trees. Returns the size of
     /// the list afterwards.
-    priv fn _forget(self, const names: cxx::std::vector<string>) -> usize {
+    priv fn _forget(self, const names: [string]) -> usize {
         var is_name = llvm::StringMap<u32>()
         for var n in names {
             is_name.try_emplace(kairo::sref(n), 1 as u32)
@@ -575,9 +578,9 @@ pub class LiveCheck {
                 return "not a checked file of the graph"
             }
 
-            out->headers.push_back(self._action->header_set_of(f))
-            out->imports.push_back(self._imports_of(f))
-            out->mods.push_back(c->module_base)
+            out->headers.push(self._action->header_set_of(f))
+            out->imports.push(self._imports_of(f))
+            out->mods.push(c->module_base.copy())
         }
 
         return ""
@@ -596,7 +599,7 @@ pub class LiveCheck {
     /// file being re-read.
     priv fn _recheck(self,
                      const group: cxx::std::vector<u32>,
-                     const names: cxx::std::vector<string>,
+                     const names: [string],
                      before:      *const GroupSnapshot,
                      edited:      u32,
                      n0:          usize,
@@ -677,10 +680,10 @@ pub class LiveCheck {
     /// check, with the instance possibly left half-refreshed: the caller
     /// replaces it.
     priv fn _refresh(self, const path: string) -> string {
-        var fid:  u32 = u32::MAX
-        var set       = cxx::std::vector<u32>()
-        var names     = cxx::std::vector<string>()
-        var no        = self._plan(path, &fid, &set, &names)
+        var fid:   u32      = u32::MAX
+        var set             = cxx::std::vector<u32>()
+        var names: [string]
+        var no              = self._plan(path, &fid, &set, &names)
         if !no.is_empty() {
             return no
         }
@@ -919,21 +922,21 @@ pub class LiveCheck {
     /// The files `fid` imports, however far, that are queued; `fid`
     /// itself first.
     priv fn _closure(self, fid: u32) -> cxx::std::vector<u32> {
-        var out  = cxx::std::vector<u32>()
-        var seen = llvm::DenseSet<u64>()
-        var todo = cxx::std::vector<u32>()
-        todo.push_back(fid)
+        var out         = cxx::std::vector<u32>()
+        var seen        = llvm::DenseSet<u64>()
+        var todo: [u32]
+        todo.push(fid)
         seen.insert(fid as u64)
-        while !todo.empty() {
-            var f = todo.back()
-            todo.pop_back()
+        while !todo.is_empty() {
+            var f = todo.remove(todo.size() - 1)
             if f == fid || self._queued(f) {
                 out.push_back(f)
             }
 
-            for var t: u32 in self._imports_of(f) {
+            var imps = self._imports_of(f)
+            for var t: u32 in imps {
                 if seen.insert(t as u64).second {
-                    todo.push_back(t)
+                    todo.push(t)
                 }
             }
         }
@@ -962,9 +965,9 @@ pub class LiveCheck {
             return no
         }
 
-        var names = cxx::std::vector<string>()
+        var names: [string]
         for var f: u32 in group {
-            names.push_back(self._ci->sm()->get_filename(f))
+            names.push(self._ci->sm()->get_filename(f))
         }
 
         // KAIRO_LIVE_DEBUG: a step of more than one file is an import
@@ -1005,7 +1008,7 @@ pub class LiveCheck {
 
         self._q = rest
         for var n in names {
-            self.rechecked.push_back(n.copy())
+            self.rechecked.push(n.copy())
         }
 
         return ""
@@ -1013,12 +1016,12 @@ pub class LiveCheck {
 
     /// The first tier of an edit of `path`.
     priv fn _tier_begin(self, const path: string) -> string {
-        var fid:  u32 = u32::MAX
-        var set       = cxx::std::vector<u32>()
-        var names     = cxx::std::vector<string>()
-        var dbg       = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
-        var t0        = _live_us()
-        var no        = self._plan(path, &fid, &set, &names)
+        var fid:   u32      = u32::MAX
+        var set             = cxx::std::vector<u32>()
+        var names: [string]
+        var dbg             = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
+        var t0              = _live_us()
+        var no              = self._plan(path, &fid, &set, &names)
         if !no.is_empty() {
             return no
         }
@@ -1090,7 +1093,7 @@ pub class LiveCheck {
     /// this call re-checked, `pending` what is left; `mode` is
     /// "full" when a slice could not be re-checked in place and
     /// everything was (`why` says which reason).
-    pub fn drain(self, max_files: usize, const prefer: cxx::std::vector<string>) -> bool {
+    pub fn drain(self, max_files: usize, const prefer: [string]) -> bool {
         self.rechecked.clear()
         self.detail = ""
         if self._ci == &null || self._action == &null || self._q.empty() {
@@ -1278,7 +1281,7 @@ pub class LiveCheck {
         if k == usize::MAX {
             var slot = LiveOverlay()
             slot.path = path.copy()
-            self._ov.push_back(slot)
+            self._ov.push(slot)
             k = self._ov.size() - 1
         }
 
@@ -1315,14 +1318,14 @@ pub class LiveCheck {
 
     /// Every file of the checked graph, by name, the entry first (as
     /// Tooling::ParsedUnit::fids names them).
-    pub fn graph_files(self) -> cxx::std::vector<string> {
-        var out = cxx::std::vector<string>()
+    pub fn graph_files(self) -> [string] {
+        var out: [string]
         if self._ci == &null || self._action == &null {
             return out
         }
 
         for var f: u32 in self._action->fids() {
-            out.push_back(self._ci->sm()->get_filename(f))
+            out.push(self._ci->sm()->get_filename(f))
         }
 
         // The module.k files read for a library's name are inputs of the
@@ -1334,7 +1337,7 @@ pub class LiveCheck {
             }
 
             if !held {
-                out.push_back(f.copy())
+                out.push(f.copy())
             }
         }
 

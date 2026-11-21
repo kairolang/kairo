@@ -84,29 +84,29 @@ pub class Command {
     // collects the entire run of characters as one flag name, then splits for
     // a joined value.  This is how -Wall, -O2, -fsanitize, -march=... work.
 
-    static fn _build_long_flag_table() -> cxx::std::array<bool, 256> {
-        var t: cxx::std::array<bool, 256> = cxx::std::array<bool, 256>()
+    static fn _build_long_flag_table() -> [bool] {
+        var t: [bool] = [bool]::filled(256, false)
 
-        t['W' as u8] = true // -Wall  -Wextra  -Wno-...         (warnings)
-        t['O' as u8] = true // -O0  -O1  -O2  -O3  -Os  -Oz   (optimization)
-        t['f' as u8] = true // -funsafe  -fno-...  -fPIC  -fPIE  (feature toggles + codegen)
-        t['m' as u8] = true // -march  -mcpu  -mabi  -mtune    (machine/target)
-        t['X' as u8] = true // -Xcxx  -Xlinker  -Xassembler    (passthrough)
-        t['s' as u8] = true // -std=...                           (language standard, single-dash form)
-        t['D' as u8] = true // -DFOO  -DFOO=BAR                (macro defines)
-        t['A' as u8] = true // -Afoo                            (allow/silence diagnostic)
-        t['E' as u8] = true // -Efoo                            (promote diagnostic to error)
-        t['F' as u8] = true // -Ffoo                            (forbid diagnostic)
-        t['g' as u8] = true // -g  -g0  -gdwarf-4              (debug info, single-dash long form)
-        t['I' as u8] = true // -I./include  -I/usr/include      (include paths, inline value)
-        t['L' as u8] = true // -Lpath/to/lib                   (library search paths, inline value)
-        t['l' as u8] = true // -lssl  -lcrypto  -l static:foo  (link libraries, inline value)
-        t['Z' as u8] = true // -Zunstable-flag                  (unstable internal flags)
+        t[('W' as u8) as usize] = true // -Wall  -Wextra  -Wno-...         (warnings)
+        t[('O' as u8) as usize] = true // -O0  -O1  -O2  -O3  -Os  -Oz   (optimization)
+        t[('f' as u8) as usize] = true // -funsafe  -fno-...  -fPIC  -fPIE  (feature toggles + codegen)
+        t[('m' as u8) as usize] = true // -march  -mcpu  -mabi  -mtune    (machine/target)
+        t[('X' as u8) as usize] = true // -Xcxx  -Xlinker  -Xassembler    (passthrough)
+        t[('s' as u8) as usize] = true // -std=...                           (language standard, single-dash form)
+        t[('D' as u8) as usize] = true // -DFOO  -DFOO=BAR                (macro defines)
+        t[('A' as u8) as usize] = true // -Afoo                            (allow/silence diagnostic)
+        t[('E' as u8) as usize] = true // -Efoo                            (promote diagnostic to error)
+        t[('F' as u8) as usize] = true // -Ffoo                            (forbid diagnostic)
+        t[('g' as u8) as usize] = true // -g  -g0  -gdwarf-4              (debug info, single-dash long form)
+        t[('I' as u8) as usize] = true // -I./include  -I/usr/include      (include paths, inline value)
+        t[('L' as u8) as usize] = true // -Lpath/to/lib                   (library search paths, inline value)
+        t[('l' as u8) as usize] = true // -lssl  -lcrypto  -l static:foo  (link libraries, inline value)
+        t[('Z' as u8) as usize] = true // -Zunstable-flag                  (unstable internal flags)
 
         return t
     }
 
-    var IS_LONG_FLAG: cxx::std::array<bool, 256> = _build_long_flag_table()
+    var IS_LONG_FLAG: [bool] = _build_long_flag_table()
 
 
     enum GlobalState derives u8 {
@@ -116,8 +116,8 @@ pub class Command {
     }
 
 
-    priv var _args:  cxx::std::vector<string>  ///< copy of argv for parsing (owned by Command)
-    priv var _table: cxx::std::vector<FlagDef>
+    priv var _args:  [string]           ///< copy of argv for parsing (owned by Command)
+    priv var _table: [FlagDef]
     priv var _diag:  unsafe *DiagEngine
     /// The flag whose current value tags every positional input (the -x
     /// language). "" = no tagging. Positional order is lost once files are a
@@ -134,7 +134,7 @@ pub class Command {
         self._table.reserve(64) // typical CLI has ~20 flags, reserve a bit more
         self._args.reserve(argc as usize)
         for var i: i32 = 0; i < argc; ++i {
-            self._args.emplace_back(
+            self._args.push(
                 string::from_bytes_unchecked(
                     unsafe ((argv[i] as unsafe *const u8) as *const u8),
                     cxx::std::strlen(argv[i]),
@@ -151,7 +151,7 @@ pub class Command {
 
 
     fn define(self, const def: FlagDef) -> unsafe *Self {
-        self._table.push_back(def.copy())
+        self._table.push(def.copy())
         return unsafe &self
     }
 
@@ -472,8 +472,8 @@ pub class Command {
             return n
         }
 
-        var prev: cxx::std::vector<usize>
-        var cur:  cxx::std::vector<usize>
+        var prev: [usize]
+        var cur:  [usize]
         prev.resize(m + 1, 0 as usize)
         cur.resize(m + 1, 0 as usize)
 
@@ -509,9 +509,7 @@ pub class Command {
 
     /// every spelling a user could legally type, as it would appear on the
     /// command line (prefix included)
-    priv fn _spellings(self,
-                       @inout out_names: cxx::std::vector<string>,
-                       @inout out_disp:  cxx::std::vector<string>) {
+    priv fn _spellings(self, @inout out_names: [string], @inout out_disp: [string]) {
         for var i: usize = 0; i < self._table.size(); ++i {
             var *def = &self._table[i]
             if def->kind == FlagKind::PathList {
@@ -519,34 +517,34 @@ pub class Command {
             }
 
             if def->kind == FlagKind::Feature {
-                out_names.push_back(f"f{def->key}")
-                out_disp.push_back(f"-f{def->key}")
-                out_names.push_back(f"fno-{def->key}")
-                out_disp.push_back(f"-fno-{def->key}")
+                out_names.push(f"f{def->key}")
+                out_disp.push(f"-f{def->key}")
+                out_names.push(f"fno-{def->key}")
+                out_disp.push(f"-fno-{def->key}")
                 continue
             }
 
             // config flags are stored as key = "c:{name}" and typed as --c{name}
             if def->key.size() > 2 && def->key.starts_with("c:") {
                 var bare = def->key.subslice(2, def->key.size())
-                out_names.push_back(f"c{bare}")
-                out_disp.push_back(f"--c{bare}")
+                out_names.push(f"c{bare}")
+                out_disp.push(f"--c{bare}")
                 continue
             }
 
             if def->long_.size() > 0 {
-                out_names.push_back(def->long_.copy())
-                out_disp.push_back(f"--{def->long_}")
+                out_names.push(def->long_.copy())
+                out_disp.push(f"--{def->long_}")
             } else if def->key.size() > 0 {
-                out_names.push_back(def->key.copy())
-                out_disp.push_back(f"--{def->key}")
+                out_names.push(def->key.copy())
+                out_disp.push(f"--{def->key}")
             }
 
             // single-letter shorts are never useful suggestions - too many
             // of them sit one edit apart from each other
             if def->short_.size() > 1 {
-                out_names.push_back(def->short_.copy())
-                out_disp.push_back(f"-{def->short_}")
+                out_names.push(def->short_.copy())
+                out_disp.push(f"-{def->short_}")
             }
         }
     }
@@ -641,8 +639,8 @@ pub class Command {
             return ""
         }
 
-        var names: cxx::std::vector<string>
-        var disp:  cxx::std::vector<string>
+        var names: [string]
+        var disp:  [string]
         self._spellings(&names, &disp)
 
         var best:   usize = names.size()     // sentinel: nothing found
@@ -884,11 +882,11 @@ pub class Command {
 
                 // A restricted list: each comma-separated item must be a
                 // choice.
-                var items        = cxx::std::vector<string>()
-                var start: usize = 0
+                var items: [string]
+                var start: usize    = 0
                 for var i: usize = 0; i <= raw.size(); ++i {
                     if i == raw.size() || raw.data()[i] == (',' as u8) {
-                        items.push_back(raw.subslice(start, i - start))
+                        items.push(raw.subslice(start, i - start))
                         start = i + 1
                     }
                 }
@@ -994,11 +992,11 @@ pub class Command {
             input.lang = result->get_string(self._tag_key)
         }
 
-        result->inputs.push_back(input)
+        result->inputs.push(input)
         self._tag_dirty = false
     }
 
-    priv fn _parse_impl(self, @inout args: cxx::std::vector<string>) -> ParsedArgs {
+    priv fn _parse_impl(self, @inout args: [string]) -> ParsedArgs {
         var result = ParsedArgs()
         self._tag_dirty = false
         var gstate:  Self::GlobalState = Self::GlobalState::Normal
@@ -1134,7 +1132,7 @@ pub class Command {
                         pending = def
                         gstate  = Self::GlobalState::AwaitValue
                     }
-                } else if self.IS_LONG_FLAG[elem.data()[1]] { // '-Wall' / '-O2' / '-funsafe' / '-fno-unsafe'
+                } else if self.IS_LONG_FLAG[elem.data()[1] as usize] { // '-Wall' / '-O2' / '-funsafe' / '-fno-unsafe'
                     var j: usize = 1
                     while j < elen && elem.data()[j] != ('=' as u8) {
                         j += 1
@@ -1339,10 +1337,10 @@ pub class Command {
     /// name in front): the kairo words FlagTranslator::from_driver
     /// makes of a clang command line. Same parser, same checks.
     pub fn parse_words(self, @inout words: cxx::std::vector<string>) -> ParsedArgs {
-        var args: cxx::std::vector<string>
-        args.push_back("kairo")
+        var args: [string]
+        args.push("kairo")
         for *w in words {
-            args.push_back(w->copy())
+            args.push(w->copy())
         }
 
         var result = self._parse_impl(&args)
@@ -1352,8 +1350,8 @@ pub class Command {
 
     /// split a space-separated string and parse (convenience for tests)
     fn parse_string(self, const cmdline: string) -> ParsedArgs {
-        var args: cxx::std::vector<string>
-        args.push_back("prog") // argv[0] placeholder
+        var args: [string]
+        args.push("prog") // argv[0] placeholder
 
         var start: usize = 0
         for var i: usize = 0; i <= cmdline.size(); ++i {
@@ -1361,7 +1359,7 @@ pub class Command {
             var is_sep = !at_end && cmdline.data()[i] == (' ' as u8)
             if at_end || is_sep {
                 if i > start {
-                    args.push_back(cmdline.subslice(start, i - start))
+                    args.push(cmdline.subslice(start, i - start))
                 }
 
                 start = i + 1

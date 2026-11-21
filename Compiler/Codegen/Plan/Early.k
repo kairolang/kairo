@@ -547,6 +547,72 @@ extend EmitPlan {
         return self._bodies(self._mode == PlanMode::Header)
     }
 
+    /// The plan declares a generator: a function, a member of a record it
+    /// holds (nested records included) or an extension member. Wherever one
+    /// is declared its push form may be declared with it
+    /// (generator_push_form), which names `::__kairo_each`, so this is
+    /// when the preamble defines it.
+    fn declares_generator(self) -> bool {
+        for var i: usize = 0; i < self._set.size(); ++i {
+            var unsafe *d = self._set[i]
+            if d == &null {
+                continue
+            }
+
+            if self._is_type_decl(d) {
+                if self._record_has_generator(d) {
+                    return true
+                }
+
+                continue
+            }
+
+            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(d)
+            if f != &null && f->is_generator {
+                return true
+            }
+        }
+
+        for var i: usize = 0; i < self._scopes.size(); ++i {
+            var *sc = &self._scopes[i]
+            for var k: usize = 0; k < sc->members.size(); ++k {
+                var unsafe *m = sc->members[k]
+                if m != &null && m->is_generator {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    priv fn _record_has_generator(self, d: unsafe *Decl) -> bool {
+        var methods = DeclFacts::decl_methods(d)
+        for var i: usize = 0; i < methods.size(); ++i {
+            if methods[i] != &null && methods[i]->is_generator {
+                return true
+            }
+        }
+
+        var unsafe *dc = Speller::dc_of(d)
+        if dc == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd != &null
+                && (isa<Declarations::ClassDecl>(nd)
+                    || isa<Declarations::StructDecl>(nd)
+                    || isa<Declarations::UnionDecl>(nd))
+                && self._record_has_generator(nd) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// The foreign bodies, then the own ones: what an Include plan carries.
     fn include_bodies(self) -> cxx::std::vector<unsafe *Declarations::FunctionDecl> {
         var out = self._bodies(false)

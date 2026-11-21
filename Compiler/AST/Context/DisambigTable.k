@@ -233,30 +233,30 @@ pub class LookupResult {
         return false
     }
 
-    fn extensions(self) -> cxx::std::vector<unsafe *DisambigEntry> {
-        var result = cxx::std::vector<unsafe *DisambigEntry>()
+    fn extensions(self) -> [unsafe *DisambigEntry] {
+        var result: [unsafe *DisambigEntry]
         if self.entries == &null {
             return result
         }
 
         for var i: usize = 0; i < self.entries->size(); ++i {
             if (*self.entries)[i].extended {
-                result.push_back(unsafe &(*self.entries)[i])
+                result.push(unsafe &(*self.entries)[i])
             }
         }
 
         return result
     }
 
-    fn non_extensions(self) -> cxx::std::vector<unsafe *DisambigEntry> {
-        var result = cxx::std::vector<unsafe *DisambigEntry>()
+    fn non_extensions(self) -> [unsafe *DisambigEntry] {
+        var result: [unsafe *DisambigEntry]
         if self.entries == &null {
             return result
         }
 
         for var i: usize = 0; i < self.entries->size(); ++i {
             if !(*self.entries)[i].extended {
-                result.push_back(unsafe &(*self.entries)[i])
+                result.push(unsafe &(*self.entries)[i])
             }
         }
 
@@ -383,8 +383,8 @@ pub class DisambigTable {
         return self._lookup_in(unsafe &self._root, key)
     }
 
-    fn lookup_existing(self, segments: unsafe *cxx::std::vector<string>) -> LookupResult {
-        if segments->empty() {
+    fn lookup_existing(self, segments: unsafe *[string]) -> LookupResult {
+        if segments->is_empty() {
             return LookupResult::not_found()
         }
 
@@ -404,7 +404,7 @@ pub class DisambigTable {
             node = next
         }
 
-        var last = tbl->find_ident(segments->back())
+        var last = tbl->find_ident((*segments)[segments->size() - 1])
         if last == u32::MAX {
             return LookupResult::not_found()
         }
@@ -416,8 +416,8 @@ pub class DisambigTable {
     /// `segments` is the sequence of names from a parsed `ChainExpr`,
     /// e.g. ["foo", "bar", "Baz"] for foo::bar::Baz.
     /// Returns `LookupResult::not_found()` if any segment is missing.
-    fn lookup(self, segments: unsafe *cxx::std::vector<string>) -> LookupResult {
-        if segments->empty() {
+    fn lookup(self, segments: unsafe *[string]) -> LookupResult {
+        if segments->is_empty() {
             return LookupResult::not_found()
         }
 
@@ -432,7 +432,7 @@ pub class DisambigTable {
             node = next
         }
 
-        var last = self.intern(segments->back())
+        var last = self.intern((*segments)[segments->size() - 1])
         return self._lookup_in(node, last)
     }
 
@@ -452,8 +452,8 @@ pub class DisambigTable {
     }
 
     // DisambigTable::lookup_extensions - new
-    fn lookup_extensions(self, type_name: u32) -> cxx::std::vector<unsafe *DisambigEntry> {
-        var result = cxx::std::vector<unsafe *DisambigEntry>()
+    fn lookup_extensions(self, type_name: u32) -> [unsafe *DisambigEntry] {
+        var result: [unsafe *DisambigEntry]
         self._collect_extensions(unsafe &self._root, type_name, unsafe &result)
         return result
     }
@@ -469,7 +469,7 @@ pub class DisambigTable {
         return self._root.get_child(name)
     }
 
-    fn enter(self, segments: unsafe *cxx::std::vector<string>) -> unsafe *DisambigNode {
+    fn enter(self, segments: unsafe *[string]) -> unsafe *DisambigNode {
         var unsafe *node = unsafe &self._root
         for s in *segments {
             var k = self.intern(s)
@@ -519,13 +519,13 @@ pub class DisambigTable {
     priv fn _collect_extensions(self,
                                 node:      unsafe *DisambigNode,
                                 type_name: u32,
-                                result:    unsafe *cxx::std::vector<unsafe *DisambigEntry>) {
+                                result:    unsafe *[unsafe *DisambigEntry]) {
         for var unsafe *it = node->entries.begin(); it != node->entries.end(); ++it {
             for var i: usize = 0; i < it->second->size(); ++i {
                 var unsafe *entry = unsafe &(*it->second)[i]
                 if entry->extended {
                     if entry->extend_of_name == type_name {
-                        result->push_back(entry)
+                        result->push(entry)
                     }
                 }
             }

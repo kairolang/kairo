@@ -183,6 +183,7 @@ pub enum HelperBlock derives u32 {
     InstanceMove = 1 << 14, ///< LowerTargets::instance_move.
     IndexCheck   = 1 << 15, ///< _index_check_helpers.
     MayAlias     = 1 << 16, ///< LowerTargets::may_alias.
+    GenEach      = 1 << 17, ///< `::__kairo_each` / `::__kairo_at` (a generator's push form).
 }
 
 /// HelperBlock's variants are its FlagSet's bits (Support/FlagSet.k).
@@ -414,6 +415,56 @@ pub class InterfaceEmitter {
 
             self._cg->sink->unanchored(false)
             self.written.set(HelperBlock::Helpers)
+        }
+
+        // A generator's push form (Compiler/Spec/Codegen.md#push-form), only
+        // where the plan declares a generator, so no other TU's text
+        // changes: the body of the `for` that calls it, as a pointer to the
+        // body's lambda and the one function that calls it (`th<F>`). An
+        // aggregate of two words, built from constants where the loop is
+        // written (EmitIR::_push_for): once the push form is inlined the
+        // function is a constant, so each `yield` is a direct call of the
+        // body from the first pass of the optimizer on. A constructor
+        // would hide the constant behind a call until a later round. The
+        // rvalue overload takes a yielded temporary, which lives until the
+        // body returns. `__kairo_at` names the yielded value's address as
+        // the loop's generator local does.
+        if !self.written.has(HelperBlock::GenEach) && self._plan->declares_generator() {
+            self._cg->sink->unanchored(true)
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#ifndef " + LowerTargets::gen_each_guard(),
+                )
+            }
+
+            if header {
+                self._cg->sink->directive(
+                    self._tu_at(),
+                    "#define " + LowerTargets::gen_each_guard(),
+                )
+            }
+
+            var ge = LowerTargets::gen_each()
+            var ai = LowerTargets::attr_always_inline()
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T> struct " + ge + " { bool (*c)(void*, T&) noexcept; void* x; template <class F> static bool th(void* p, T& v) noexcept { return (*static_cast<F*>(p))(v); } " + ai + "bool operator()(T& v) const noexcept { return c(x, v); } " + ai + "bool operator()(T&& v) const noexcept { return c(x, v); } };",
+            )
+
+            self._cg->sink->brk()
+            self._cg->sink->spell(
+                self._tu_at(),
+                "template <class T> struct " + LowerTargets::gen_at() + " { T* p; " + ai + "T* current() const noexcept { return p; } };",
+            )
+
+            self._cg->sink->brk()
+            if header {
+                self._cg->sink->directive(self._tu_at(), "#endif")
+            }
+
+            self._cg->sink->unanchored(false)
+            self.written.set(HelperBlock::GenEach)
         }
 
         // A constructor that initializes a field in place (_ctor_slot_helpers).

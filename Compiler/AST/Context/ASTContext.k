@@ -110,10 +110,10 @@ pub class ASTContext {
         var run: fn(unsafe *void)
     }
 
-    priv var _cleanup_pp:    cxx::std::vector<Self::ArenaCleanup>
-    priv var _cleanup_index: cxx::std::vector<Self::ArenaCleanup>
-    priv var _cleanup_ast:   cxx::std::vector<Self::ArenaCleanup>
-    priv var _cleanup_sema:  cxx::std::vector<Self::ArenaCleanup>
+    priv var _cleanup_pp:    [Self::ArenaCleanup]
+    priv var _cleanup_index: [Self::ArenaCleanup]
+    priv var _cleanup_ast:   [Self::ArenaCleanup]
+    priv var _cleanup_sema:  [Self::ArenaCleanup]
 
 
     fn ASTContext(self,
@@ -179,13 +179,11 @@ pub class ASTContext {
     /// lvalue was. Every argument passed today is a pointer, enum or integer.
 
     /// Registers `p`'s destructor on `list` and returns `p`.
-    priv fn <T> _with_cleanup(self,
-                              @inout list: cxx::std::vector<Self::ArenaCleanup>,
-                              p:           unsafe *T) -> unsafe *T {
+    priv fn <T> _with_cleanup(self, @inout list: [Self::ArenaCleanup], p: unsafe *T) -> unsafe *T {
         var c: Self::ArenaCleanup
         c.obj = unsafe (p as unsafe *void)
         c.run = kairo::destroy_in_place<T>
-        list.push_back(c)
+        list.push(c)
         return p
     }
 
@@ -219,7 +217,7 @@ pub class ASTContext {
         return unsafe (mem as unsafe *T)
     }
 
-    priv fn _run_cleanups(self, @inout list: cxx::std::vector<Self::ArenaCleanup>) {
+    priv fn _run_cleanups(self, @inout list: [Self::ArenaCleanup]) {
         // reverse order: later allocations may reference earlier ones.
         var n = list.size()
         for var i: usize = 0; i < n; ++i {

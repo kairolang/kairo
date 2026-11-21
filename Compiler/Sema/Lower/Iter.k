@@ -1004,7 +1004,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
                 it      = self._local(pre, at, "gen", addr->type_, addr)
                 by_addr = true
             } else {
-                it = self._local(pre, at, "it", gen_ty, src)
+                it           = self._local(pre, at, "it", gen_ty, src)
+                it->gen_iter = true
             }
 
             self._header(it, src)
@@ -1058,7 +1059,8 @@ pub class IterLowering derives ASTWriter<IterLowering> {
             cast<CallExpr>(call)->recv_reads = opf != &null
                 && !opf->is_const()
                 && self._reads_through_const(n)
-            it = self._local(pre, at, "it", gen_ty, call)
+            it           = self._local(pre, at, "it", gen_ty, call)
+            it->gen_iter = true
             // An lvalue receiver is read in place, inside this call.
             self._header(it, recv)
         }

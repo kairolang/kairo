@@ -96,6 +96,7 @@ import Codegen::Emit::Exprs
 import Codegen::Emit::Locals
 import Codegen::Emit::Loops
 import Codegen::Emit::Names
+import Codegen::Emit::Push
 import Codegen::Spell::Spell::Speller
 import Location::SourceRange::SourceRange
 
@@ -309,10 +310,7 @@ extend EmitIR {
         }
 
         self._cg->sink->synth_at_start(n->range, clang::tok::l_brace)
-        for var i: usize = 0; i < n->body.size(); ++i {
-            self.emit(n->body[i])
-        }
-
+        self._stmts(n, 0)
         self._cg->sink->synth_at_end(n->range, clang::tok::r_brace)
     }
 
@@ -378,6 +376,26 @@ extend EmitIR {
             }
 
             self._cg->sink->synth_at_end(n->range, clang::tok::semi)
+            return
+        }
+
+        // Out of a push-form loop body (Emit/Push.k): the function's flag
+        // and value, then stop the generator.
+        if self._pf_depth > 0 {
+            self._push_return(n)
+            return
+        }
+
+        // A generator's push form: `return` ends the sequence.
+        if self._twin {
+            if n->value != &null {
+                self._ice(
+                    n->range,
+                    "EmitIR: generator 'return' with a value; X gate failure",
+                )
+            }
+
+            self._cg->sink->spell(n->range, "return true;")
             return
         }
 
@@ -534,12 +552,37 @@ extend EmitIR {
         // move-only one is MoveCheck's SC182E before this.
         var unsafe *elem = self._yield_elem(self._cur_fn)
         var unsafe *vt   = n->value->type_
-        if n->value->value_category == Expr::ValueCategory::LValue
+        var clv = n->value->value_category == Expr::ValueCategory::LValue
             && vt != &null
             && (canon_has_const(vt)
                 || place_has_const_root(n->value)
                 || self._const_place_call(n->value))
-            && (!self._needs_cast(n->value, elem, &null)) {
+            && (!self._needs_cast(n->value, elem, &null))
+
+        // In the generator's push form (Emit/Push.k) the value goes to the
+        // loop body through the form's sink, whose two overloads bind as
+        // yield_value's do; a false answer is the consumer leaving its loop.
+        if self._twin {
+            var sink = LowerTargets::gen_sink()
+            if clv {
+                var tv = LowerTargets::yield_value_tmp()
+                self._cg->sink->spell(n->range, "{ auto " + tv + " = (")
+                self._value(n->value, elem)
+                self._cg->sink->spell(
+                    n->range,
+                    "); if (!" + sink + "(" + tv + ")) " + self._push_stop() + " }",
+                )
+
+                return
+            }
+
+            self._cg->sink->spell(n->range, "if (!" + sink + "(")
+            self._value(n->value, elem)
+            self._cg->sink->spell(n->range, ")) " + self._push_stop())
+            return
+        }
+
+        if clv {
             var yv = LowerTargets::yield_value_tmp()
             self._cg->sink->spell(n->range, "{ auto " + yv + " = (")
             self._value(n->value, elem)

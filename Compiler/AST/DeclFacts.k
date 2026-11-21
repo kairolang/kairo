@@ -686,13 +686,13 @@ pub fn ffi_hide_tags(cands: unsafe *cxx::std::vector<unsafe *Decl>) -> bool {
     // against tags. A `cxx::std::` step has hundreds of candidates (libc++
     // reopens std per header) and no tag: the all-pairs scan was the top of
     // the serial Sema profile. Same keep set, same order.
-    var tags   = cxx::std::vector<usize>()
-    var is_tag = cxx::std::vector<u8>()
+    var tags:   [usize]
+    var is_tag: [u8]
     for var i: usize = 0; i < n; ++i {
         var t = decl_is_ffi_tag((*cands)[i])
-        is_tag.push_back(t as u8)
+        is_tag.push(t as u8)
         if t {
-            tags.push_back(i)
+            tags.push(i)
         }
     }
 
@@ -1510,7 +1510,7 @@ pub fn decl_dedup_pack_args(d:    unsafe *Decl,
         return
     }
 
-    var out = cxx::std::vector<unsafe *Type>()
+    var out: [unsafe *Type]
     for var i: usize = 0; i < args->size(); ++i {
         var unsafe *a  = (*args)[i]
         var        dup = false
@@ -1524,7 +1524,7 @@ pub fn decl_dedup_pack_args(d:    unsafe *Decl,
         }
 
         if !dup {
-            out.push_back(a)
+            out.push(a)
         }
     }
 

@@ -2248,6 +2248,54 @@ pub class LowerTargets {
         return "__kairo_array"
     }
 
+    /// # a generator's push form (writers: InterfaceEmitter, EmitIR)
+
+    /// `template <class T> struct __kairo_each`: the body of a `for` over a
+    /// generator, as the generator's push form takes it
+    /// (Compiler/Spec/Codegen.md#push-form): a pointer to the body's lambda
+    /// and the function that calls it with one yielded `T&`; true means go
+    /// on.
+    pub static fn gen_each() -> string {
+        return "__kairo_each"
+    }
+
+    /// The include guard around the two push-form helpers in a header.
+    pub static fn gen_each_guard() -> string {
+        return "__KAIRO_GEN_EACH"
+    }
+
+    /// `template <class T> struct __kairo_at`: the yielded value's address
+    /// under the name of the loop's hidden generator local, so the binders
+    /// IterLowering wrote (`*it.current()`) read it unchanged.
+    pub static fn gen_at() -> string {
+        return "__kairo_at"
+    }
+
+    /// The push form's last parameter.
+    pub static fn gen_sink() -> string {
+        return "__kairo_f"
+    }
+
+    /// One push-form loop's body lambda and its parameter, `k` counting the
+    /// loops of the function: a nested loop's may not shadow its outer one's.
+    pub static fn gen_body(k: u32) -> string {
+        return f"__kairo_pb{k}"
+    }
+
+    pub static fn gen_cur(k: u32) -> string {
+        return f"__kairo_pc{k}"
+    }
+
+    /// A `return` out of a push-form loop body: the flag and the value the
+    /// code after the loop checks.
+    pub static fn gen_ret_flag() -> string {
+        return "__kairo_pfr"
+    }
+
+    pub static fn gen_ret_val() -> string {
+        return "__kairo_pfv"
+    }
+
     /// # eval for / eval generators (writer: EmitIR; helpers: InterfaceEmitter)
 
     /// `template <class T, T... I> struct __kairo_iseq {}`: the index pack an
@@ -3455,17 +3503,30 @@ pub class LowerTargets {
     /// # fn values and closures (writers: InterfaceEmitter, Speller, EmitIR)
 
     /// `template <class S> class __kairo_fn`: a Kairo `fn(A) -> R` value,
-    /// specialized on `R(A...)`. It holds either a plain function pointer
-    /// or a heap-allocated lambda (a capturing closure), copies and frees
-    /// the lambda, and converts back to `R(*)(A...)` for a C callee
-    /// (Compiler/Spec/Codegen.md#emitir, Closures). `own` adopts a `new`ed lambda. The guard
-    /// is the header's.
+    /// specialized on `R(A...)`. It holds a plain function, a small
+    /// closure in place, or a heap-allocated lambda (any other capturing
+    /// closure), copies and frees the lambda, and converts back to
+    /// `R(*)(A...)` for a C callee (Compiler/Spec/Codegen.md#emitir,
+    /// Closures). `own` adopts a `new`ed lambda. The guard is the header's.
     pub static fn fn_value() -> string {
         return "__kairo_fn"
     }
 
     pub static fn fn_value_own() -> string {
         return "own"
+    }
+
+    /// `small` holds a closure in the value's own state word (a trivially
+    /// copyable lambda whose call is const).
+    pub static fn fn_value_small() -> string {
+        return "small"
+    }
+
+    /// The lambda of a small closure bound to a local that is never
+    /// rebound, under a name of its own: a call of the local is a call of
+    /// the lambda itself (EmitIR::_direct_closure).
+    pub static fn closure_direct(const local: string) -> string {
+        return "__kairo_cl_" + local
     }
 
     pub static fn fn_value_guard() -> string {

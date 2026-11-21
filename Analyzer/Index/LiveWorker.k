@@ -839,7 +839,8 @@ fn live_finish(st:         *LiveState,
 
     if full {
         st->deps.clear()
-        for *f in live->graph_files() {
+        var gf = live->graph_files()
+        for *f in gf {
             st->deps.push(f->copy())
         }
 
@@ -993,11 +994,11 @@ fn live_slice(st:   *LiveState,
               r:    *LiveReq,
               t:    *Transport,
               seq:  u64) {
-    var t0                               = live_us()
-    var prefer: cxx::std::vector<string>
+    var t0               = live_us()
+    var prefer: [string]
     if LIVE_PREFER_OPEN {
         for var k: usize = 0; k < r->open_paths.size(); ++k {
-            prefer.push_back(r->open_paths[k].copy())
+            prefer.push(r->open_paths[k].copy())
         }
     }
 

@@ -228,7 +228,15 @@ extend EmitIR {
                 self._cg->sink->spell(n->range, "(")
             }
 
-            self.emit(n->callee)
+            // A local bound to a small closure is called as the lambda
+            // it was made from (_direct_closure).
+            var dc = self._direct_callee(n->callee)
+            if dc.size() > 0 {
+                self._cg->sink->spell(n->callee->range, dc)
+            } else {
+                self.emit(n->callee)
+            }
+
             self._cg->sink->synth_at_end(n->callee->range, clang::tok::l_paren)
             self._fn_value_args(n, fv)
             self._cg->sink->synth_at_end(n->range, clang::tok::r_paren)
@@ -674,6 +682,12 @@ extend EmitIR {
     /// witness's member and not the requirement Sema bound.
     priv fn _agree(self, n: unsafe *CallExpr, f: unsafe *FunctionDecl) {
         if !self._cg->sink->agree_on || f == &null || n->witness_iface != &null {
+            return
+        }
+
+        // A push-form call (Emit/Push.k) resolves to the generator's push
+        // form, a function Sema never bound.
+        if n == self._push_site {
             return
         }
 
@@ -1237,6 +1251,19 @@ extend EmitIR {
             if alias.size() > 0 {
                 self._cg->sink->spell(a->range, ")")
             }
+        }
+
+        // A generator call written as its push form (Emit/Push.k): the loop
+        // body is the last argument.
+        if self._push_call == n {
+            var first: usize = if (skip_object) => (1) else => 0
+            self._cg->sink->spell(
+                n->range,
+                (if (n->args.size() > first) => (", ") else => "") + self._push_arg,
+            )
+
+            self._push_site = n
+            self._push_call = &null
         }
     }
 

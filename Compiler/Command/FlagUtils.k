@@ -176,7 +176,7 @@ pub class FlagDef {
     pub var max_f:      f64       = 0.0
     /// String only: the accepted values; empty accepts anything. A value
     /// outside the set is an error naming the set, not a silent default.
-    pub var choices: cxx::std::vector<string>
+    pub var choices: [string]
     /// Single-dash only: the value a bare `-X` means (clang's `-O` is `-O1`).
     /// Without it a bare valued flag takes the NEXT argument as its value,
     /// which for `-O main.k` would swallow the input file.
@@ -204,7 +204,7 @@ pub class FlagDef {
         d.max_i         = self.max_i
         d.min_f         = self.min_f
         d.max_f         = self.max_f
-        d.choices       = copy_strings(self.choices)
+        d.choices       = self.choices.copy()
         d.has_bare      = self.has_bare
         d.bare_         = self.bare_.copy()
         d.unimplemented = self.unimplemented
@@ -264,7 +264,7 @@ pub class FlagDef {
                     const long_:  string,
                     const help:   string,
                     const dfl:    string,
-                    choices:      cxx::std::vector<string>,
+                    choices:      [string],
                     const bare:   string) -> FlagDef {
         var d = FlagDef{}
         d.key      = key.copy()
@@ -385,7 +385,7 @@ pub class FlagDef {
                      const short_: string,
                      const long_:  string,
                      const help:   string,
-                     choices:      cxx::std::vector<string>) -> FlagDef {
+                     choices:      [string]) -> FlagDef {
         var d = FlagDef::list_(key, short_, long_, help)
         d.choices = choices
         return d

@@ -106,7 +106,7 @@ pub class OverlayEntry {
     /// one entity by two routes is not an ambiguity -- there is nothing for a
     /// reader to choose between.
     fn non_function_count(self) -> usize {
-        var seen = cxx::std::vector<unsafe *Decl>()
+        var seen: [unsafe *Decl]
         for var i: usize = 0; i < self.targets.size(); ++i {
             // A module handle names a SCOPE, not an entity: two files
             // reopening `module util` are one namespace, and the N headers of
@@ -135,7 +135,7 @@ pub class OverlayEntry {
             }
 
             if !dup {
-                seen.push_back(d)
+                seen.push(d)
             }
         }
 

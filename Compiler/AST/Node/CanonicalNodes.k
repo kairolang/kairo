@@ -617,10 +617,10 @@ pub class BuiltinInfo {
 ///      reached only through its lang alias.
 /// Builds BuiltinTable's rows, in BuiltinKind order. Called once, by
 /// builtin_info().
-pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
-    var rows: cxx::std::vector<BuiltinInfo>
+pub fn make_builtin_table() -> [BuiltinInfo] {
+    var rows: [BuiltinInfo]
     rows.reserve(TOTAL_BUILTINS_COUNT as usize)
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::Void,
             TokenKind::AtVoid,
@@ -632,7 +632,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::Never,
             TokenKind::OpExclaim,
@@ -644,7 +644,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::Bool,
             TokenKind::AtBool,
@@ -656,7 +656,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::I8,
             TokenKind::AtI8,
@@ -668,7 +668,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::I16,
             TokenKind::AtI16,
@@ -680,7 +680,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::I32,
             TokenKind::AtI32,
@@ -692,7 +692,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::I64,
             TokenKind::AtI64,
@@ -704,7 +704,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::I128,
             TokenKind::AtI128,
@@ -716,7 +716,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::I256,
             TokenKind::AtI256,
@@ -728,7 +728,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::I512,
             TokenKind::AtI512,
@@ -740,7 +740,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::U8,
             TokenKind::AtU8,
@@ -752,7 +752,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::U16,
             TokenKind::AtU16,
@@ -764,7 +764,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::U32,
             TokenKind::AtU32,
@@ -776,7 +776,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::U64,
             TokenKind::AtU64,
@@ -788,7 +788,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::U128,
             TokenKind::AtU128,
@@ -800,7 +800,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::U256,
             TokenKind::AtU256,
@@ -812,7 +812,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::U512,
             TokenKind::AtU512,
@@ -824,7 +824,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::USize,
             TokenKind::AtUsize,
@@ -836,7 +836,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::ISize,
             TokenKind::AtIsize,
@@ -848,7 +848,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::F8E4M3,
             TokenKind::AtF8E4M3,
@@ -868,7 +868,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::F8E5M2,
             TokenKind::AtF8E5M2,
@@ -888,7 +888,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::F16,
             TokenKind::AtF16,
@@ -908,7 +908,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::BF16,
             TokenKind::AtBf16,
@@ -928,7 +928,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::F32,
             TokenKind::AtF32,
@@ -948,7 +948,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::F64,
             TokenKind::AtF64,
@@ -968,7 +968,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::F80,
             TokenKind::AtF80,
@@ -988,7 +988,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::F128,
             TokenKind::AtF128,
@@ -1008,7 +1008,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::F256,
             TokenKind::AtF256,
@@ -1028,7 +1028,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::F512,
             TokenKind::AtF512,
@@ -1048,7 +1048,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::Byte,
             TokenKind::AtByte,
@@ -1060,7 +1060,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::Char,
             TokenKind::AtChar,
@@ -1072,7 +1072,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::CChar,
             TokenKind::TkUnknown,
@@ -1084,7 +1084,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::CWChar,
             TokenKind::TkUnknown,
@@ -1096,7 +1096,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::CChar16,
             TokenKind::TkUnknown,
@@ -1108,7 +1108,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
         ),
     )
 
-    rows.push_back(
+    rows.push(
         BuiltinInfo(
             BuiltinKind::CChar8,
             TokenKind::TkUnknown,
@@ -1148,7 +1148,7 @@ pub fn make_builtin_table() -> cxx::std::vector<BuiltinInfo> {
 ///         into it, and every reader must see that write. The vec is never
 ///         resized after it is built, so row pointers stay valid.
 pub fn builtin_info(b: BuiltinKind) -> *BuiltinInfo {
-    static BuiltinTable: cxx::std::vector<BuiltinInfo> = make_builtin_table()
+    static BuiltinTable: [BuiltinInfo] = make_builtin_table()
     return &BuiltinTable[(b as u8) as usize]
 }
 
@@ -1275,7 +1275,7 @@ pub fn is_c_character(b: BuiltinKind) -> bool {
 ///   most: two rows sharing FloatSem::IEEEHalf is the f16/bf16 conflation the
 ///   enum spends three paragraphs warning about, and it should break the
 ///   build rather than a test.
-pub fn verify_builtin_table(@inout rows: cxx::std::vector<BuiltinInfo>) -> bool {
+pub fn verify_builtin_table(@inout rows: [BuiltinInfo]) -> bool {
     if rows.size() != ((BuiltinKind::COUNT as u8) as usize) {
         return false
     }

@@ -61,6 +61,7 @@ import Codegen::Plan::EmitPlan::{
     PlanNeed,
     PlanTier,
 }
+import Codegen::Plan::Visitors::generator_push_form
 import Codegen::Spell::Spell::{
     Speller,
     VIS_PRIV,
@@ -1065,6 +1066,12 @@ extend InterfaceEmitter {
         for var i: usize = 0; i < ff.fns.size(); ++i {
             self._spell->rename_tparams = unsafe (ff.fns[i] as unsafe *Decl)
             var ft = self._friend_fn_text(ff.fns[i], (ff.far[i] != 0))
+            // A generator's push form is a second function written from the
+            // same body, so it reaches what the generator reaches.
+            if generator_push_form(ff.fns[i], self._cg->instances) {
+                ft += self._push_friend_text(ff.fns[i], (ff.far[i] != 0))
+            }
+
             self._spell->rename_tparams = &null
             self._cg->sink->spell(at, ft)
         }
@@ -1107,6 +1114,23 @@ extend InterfaceEmitter {
     /// the record's namespace, which file_friends made sure is its own;
     /// `qualified`, it names one declared ahead of the record
     /// (EmitPlan::friend_early).
+    /// The push form of generator `f` as a friend (_friend_fn_text).
+    priv fn _push_friend_text(self,
+                              f:         unsafe *Declarations::FunctionDecl,
+                              qualified: bool) -> string {
+        var s = self._spell->template_head(unsafe (f as unsafe *Decl)) + "friend bool "
+        s += if (qualified) => (self._spell->qual_name(
+                 unsafe (f as unsafe *Decl),
+             ))
+             else => self._fn_name(f)
+        var ps = self._params(f, false, &null)
+        if ps.size() > 0 {
+            ps += ", "
+        }
+
+        return s + "(" + ps + self._push_sink(f, &null) + ") noexcept;"
+    }
+
     priv fn _friend_fn_text(self,
                             f:         unsafe *Declarations::FunctionDecl,
                             qualified: bool) -> string {

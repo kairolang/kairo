@@ -1070,6 +1070,12 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     /// this one, instead of leaving it to end with the declaration. Never
     /// written by the user.
     pub var header_scope: bool = false
+    /// The hidden local that holds the generator a `for` drives, made by
+    /// the call in its initializer (IterLowering; not set when the loop
+    /// advances a generator the caller holds). EmitIR may write such a loop
+    /// with no generator object at all (Codegen/Emit/Push.k). Never written
+    /// by the user.
+    pub var gen_iter: bool = false
     /// Flagged union storage (`dtor_mode` Flagged) that starts with no
     /// object in it: a temporary of a `for` header that only one arm of an
     /// `if`, `&&` or `||` builds (SequenceLowering). The arm builds it in

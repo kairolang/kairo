@@ -208,7 +208,7 @@ pub class <T> ListRewriter {
 
     /// Discard the whole source list and install `items` in its place.
     /// Clears any previously recorded ops.
-    fn replace_all(self, const items: cxx::std::vector<T>) {
+    fn replace_all(self, const items: [T]) {
         // Scratch, copied by from_list (see ASTWriter::rebuild_stmt_list).
         var buf = ArenaList<T>()
         for var i: usize = 0; i < items.size(); i++ {

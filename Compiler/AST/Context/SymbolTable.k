@@ -207,7 +207,7 @@ pub class DeclName {
 /// job, nowhere else).
 pub class OverloadCell {
     pub var first: unsafe *Decl ///< first decl appended; non-null once the cell exists.
-    pub var rest:  cxx::std::vector<unsafe *Decl> ///< 2nd+ decls; empty in the common case.
+    pub var rest:  [unsafe *Decl] ///< 2nd+ decls; empty in the common case.
 
     pub fn OverloadCell(self) {
         self.first = &null
@@ -219,7 +219,7 @@ pub class OverloadCell {
             return
         }
 
-        self.rest.push_back(d)
+        self.rest.push(d)
     }
 
     pub fn size(self) -> usize {
@@ -243,11 +243,11 @@ pub class OverloadCell {
     }
 
     pub fn is_single(self) -> bool {
-        return self.first != &null && self.rest.empty()
+        return self.first != &null && self.rest.is_empty()
     }
 
     pub fn is_overloaded(self) -> bool {
-        return !self.rest.empty()
+        return !self.rest.is_empty()
     }
 }
 

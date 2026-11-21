@@ -129,193 +129,193 @@ eval DEFAULT_TEST_EXIT_CODE: i32 = 1 ///< --test-exit-code
 
 /// The values -O accepts after the `O`. `g` is clang's -Og, which it treats
 /// as -O1; CodeGenOptions::from_args does the mapping.
-pub fn _opt_level_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("0")
-    c.push_back("1")
-    c.push_back("2")
-    c.push_back("3")
-    c.push_back("s")
-    c.push_back("z")
-    c.push_back("g")
+pub fn _opt_level_choices() -> [string] {
+    var c: [string]
+    c.push("0")
+    c.push("1")
+    c.push("2")
+    c.push("3")
+    c.push("s")
+    c.push("z")
+    c.push("g")
     return c
 }
 
 /// c++17 is deliberately absent: Lib/builtin needs __builtin_coro_*, so every
 /// compile at that level dies in R020E. gnu++ spellings stay for libc++ headers
 /// that want the GNU extensions.
-pub fn _cxx_std_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("c++20")
-    c.push_back("c++23")
-    c.push_back("c++26")
-    c.push_back("gnu++20")
-    c.push_back("gnu++23")
-    c.push_back("gnu++26")
+pub fn _cxx_std_choices() -> [string] {
+    var c: [string]
+    c.push("c++20")
+    c.push("c++23")
+    c.push("c++26")
+    c.push("gnu++20")
+    c.push("gnu++23")
+    c.push("gnu++26")
     return c
 }
 
-pub fn _c_std_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("c89")
-    c.push_back("c99")
-    c.push_back("c11")
-    c.push_back("c17")
-    c.push_back("c23")
-    c.push_back("gnu89")
-    c.push_back("gnu99")
-    c.push_back("gnu11")
-    c.push_back("gnu17")
-    c.push_back("gnu23")
+pub fn _c_std_choices() -> [string] {
+    var c: [string]
+    c.push("c89")
+    c.push("c99")
+    c.push("c11")
+    c.push("c17")
+    c.push("c23")
+    c.push("gnu89")
+    c.push("gnu99")
+    c.push("gnu11")
+    c.push("gnu17")
+    c.push("gnu23")
     return c
 }
 
-pub fn _lto_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("off")
-    c.push_back("thin")
-    c.push_back("full")
+pub fn _lto_choices() -> [string] {
+    var c: [string]
+    c.push("off")
+    c.push("thin")
+    c.push("full")
     return c
 }
 
-pub fn _interface_pch_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("auto")
-    c.push_back("on")
-    c.push_back("off")
+pub fn _interface_pch_choices() -> [string] {
+    var c: [string]
+    c.push("auto")
+    c.push("on")
+    c.push("off")
     return c
 }
 
-pub fn _profile_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("debug")
-    c.push_back("release")
-    c.push_back("min-size")
+pub fn _profile_choices() -> [string] {
+    var c: [string]
+    c.push("debug")
+    c.push("release")
+    c.push("min-size")
     return c
 }
 
-pub fn _fp_model_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("precise")
-    c.push_back("strict")
-    c.push_back("fast")
+pub fn _fp_model_choices() -> [string] {
+    var c: [string]
+    c.push("precise")
+    c.push("strict")
+    c.push("fast")
     return c
 }
 
-pub fn _fp_contract_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("off")
-    c.push_back("on")
-    c.push_back("fast")
+pub fn _fp_contract_choices() -> [string] {
+    var c: [string]
+    c.push("off")
+    c.push("on")
+    c.push("fast")
     return c
 }
 
-pub fn _tls_model_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("global-dynamic")
-    c.push_back("local-dynamic")
-    c.push_back("initial-exec")
-    c.push_back("local-exec")
+pub fn _tls_model_choices() -> [string] {
+    var c: [string]
+    c.push("global-dynamic")
+    c.push("local-dynamic")
+    c.push("initial-exec")
+    c.push("local-exec")
     return c
 }
 
-pub fn _visibility_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("default")
-    c.push_back("hidden")
-    c.push_back("protected")
+pub fn _visibility_choices() -> [string] {
+    var c: [string]
+    c.push("default")
+    c.push("hidden")
+    c.push("protected")
     return c
 }
 
-pub fn _stack_protector_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("none")
-    c.push_back("basic")
-    c.push_back("strong")
-    c.push_back("all")
+pub fn _stack_protector_choices() -> [string] {
+    var c: [string]
+    c.push("none")
+    c.push("basic")
+    c.push("strong")
+    c.push("all")
     return c
 }
 
-pub fn _cf_protection_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("none")
-    c.push_back("branch")
-    c.push_back("return")
-    c.push_back("full")
+pub fn _cf_protection_choices() -> [string] {
+    var c: [string]
+    c.push("none")
+    c.push("branch")
+    c.push("return")
+    c.push("full")
     return c
 }
 
-pub fn _auto_var_init_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("uninitialized")
-    c.push_back("zero")
-    c.push_back("pattern")
+pub fn _auto_var_init_choices() -> [string] {
+    var c: [string]
+    c.push("uninitialized")
+    c.push("zero")
+    c.push("pattern")
     return c
 }
 
-pub fn _mcmodel_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("tiny")
-    c.push_back("small")
-    c.push_back("kernel")
-    c.push_back("medium")
-    c.push_back("large")
+pub fn _mcmodel_choices() -> [string] {
+    var c: [string]
+    c.push("tiny")
+    c.push("small")
+    c.push("kernel")
+    c.push("medium")
+    c.push("large")
     return c
 }
 
-pub fn _zero_call_used_regs_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("skip")
-    c.push_back("used-gpr-arg")
-    c.push_back("used-gpr")
-    c.push_back("used-arg")
-    c.push_back("used")
-    c.push_back("all-gpr-arg")
-    c.push_back("all-gpr")
-    c.push_back("all-arg")
-    c.push_back("all")
+pub fn _zero_call_used_regs_choices() -> [string] {
+    var c: [string]
+    c.push("skip")
+    c.push("used-gpr-arg")
+    c.push("used-gpr")
+    c.push("used-arg")
+    c.push("used")
+    c.push("all-gpr-arg")
+    c.push("all-gpr")
+    c.push("all-arg")
+    c.push("all")
     return c
 }
 
-pub fn _thread_model_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("posix")
-    c.push_back("single")
+pub fn _thread_model_choices() -> [string] {
+    var c: [string]
+    c.push("posix")
+    c.push("single")
     return c
 }
 
-pub fn _default_visibility_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("spec")
-    c.push_back("pub")
+pub fn _default_visibility_choices() -> [string] {
+    var c: [string]
+    c.push("spec")
+    c.push("pub")
     return c
 }
 
-pub fn _union_locals_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("finally")
-    c.push_back("all")
+pub fn _union_locals_choices() -> [string] {
+    var c: [string]
+    c.push("finally")
+    c.push("all")
     return c
 }
 
-pub fn _unwind_tables_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("none")
-    c.push_back("sync")
-    c.push_back("async")
+pub fn _unwind_tables_choices() -> [string] {
+    var c: [string]
+    c.push("none")
+    c.push("sync")
+    c.push("async")
     return c
 }
 
-pub fn _hardening_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("enum-tags")
+pub fn _hardening_choices() -> [string] {
+    var c: [string]
+    c.push("enum-tags")
     return c
 }
 
-pub fn _unmatched_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("trap")
-    c.push_back("unreachable")
+pub fn _unmatched_choices() -> [string] {
+    var c: [string]
+    c.push("trap")
+    c.push("unreachable")
     return c
 }
 
@@ -326,32 +326,32 @@ pub fn _unmatched_choices() -> cxx::std::vector<string> {
 pub fn _choice_flag(const key:  string,
                     const help: string,
                     const dfl:  string,
-                    choices:    cxx::std::vector<string>) -> FlagDef {
+                    choices:    [string]) -> FlagDef {
     var d = FlagDef::str_c(key, "", key, help, dfl, choices, "")
     d.has_bare = false
     return d
 }
 
-pub fn _edition_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("2025")
-    c.push_back("2026")
+pub fn _edition_choices() -> [string] {
+    var c: [string]
+    c.push("2025")
+    c.push("2026")
     return c
 }
 
-pub fn _borrow_check_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("warn")
-    c.push_back("error")
-    c.push_back("off")
+pub fn _borrow_check_choices() -> [string] {
+    var c: [string]
+    c.push("warn")
+    c.push("error")
+    c.push("off")
     return c
 }
 
-pub fn _amt_mode_choices() -> cxx::std::vector<string> {
-    var c: cxx::std::vector<string>
-    c.push_back("warn")
-    c.push_back("error")
-    c.push_back("silent")
+pub fn _amt_mode_choices() -> [string] {
+    var c: [string]
+    c.push("warn")
+    c.push("error")
+    c.push("silent")
     return c
 }
 

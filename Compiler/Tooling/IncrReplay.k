@@ -138,20 +138,20 @@ fn replay_unescape(const s: string) -> string {
 }
 
 /// The fields of `a:::b:::c`.
-fn replay_fields(const s: string) -> cxx::std::vector<string> {
-    var out          = cxx::std::vector<string>()
-    var start: usize = 0
+fn replay_fields(const s: string) -> [string] {
+    var out:   [string]
+    var start: usize    = 0
     while true {
         var at = find(s, ":::", start)
         if at == usize::MAX {
             break
         }
 
-        out.push_back(s.subslice(start, at - start))
+        out.push(s.subslice(start, at - start))
         start = at + 3
     }
 
-    out.push_back(s.subslice(start, s.size() - start))
+    out.push(s.subslice(start, s.size() - start))
     return out
 }
 
@@ -190,9 +190,9 @@ class ReplayObserver derives SemaObserver {
 /// The buffers of an overlay session (--incr-replay-overlay): the text of
 /// each file an edit has touched, which the disk does not have.
 class ReplayBuffers {
-    pub var on:    bool                     = false
-    pub var paths: cxx::std::vector<string>
-    pub var texts: cxx::std::vector<string>
+    pub var on:    bool     = false
+    pub var paths: [string]
+    pub var texts: [string]
 
     pub fn ReplayBuffers(self) = default
 
@@ -222,16 +222,14 @@ class ReplayBuffers {
             }
         }
 
-        self.paths.push_back(path.copy())
-        self.texts.push_back(text.copy())
+        self.paths.push(path.copy())
+        self.texts.push(text.copy())
         return true
     }
 }
 
 /// One edit command; "" when applied, else why not. `touched` gets the file.
-fn replay_apply(const line: string,
-                touched:    *cxx::std::vector<string>,
-                bufs:       *ReplayBuffers) -> string {
+fn replay_apply(const line: string, touched: *[string], bufs: *ReplayBuffers) -> string {
     var arg = ""
     var e   = replay_edit(replay_command(line, &arg))
     if e.name.is_empty() {
@@ -240,7 +238,7 @@ fn replay_apply(const line: string,
 
     if e.name == "remove" {
         LinkFS::remove(arg)
-        touched->push_back(arg)
+        touched->push(arg.copy())
         return ""
     }
 
@@ -275,7 +273,7 @@ fn replay_apply(const line: string,
             return "cannot write " + f[0]
         }
 
-        touched->push_back(f[0].copy())
+        touched->push(f[0].copy())
         return ""
     }
 
@@ -284,7 +282,7 @@ fn replay_apply(const line: string,
             return "cannot write " + f[0]
         }
 
-        touched->push_back(f[0].copy())
+        touched->push(f[0].copy())
         return ""
     }
 
@@ -298,7 +296,7 @@ fn replay_apply(const line: string,
         return "cannot write " + f[0]
     }
 
-    touched->push_back(f[0].copy())
+    touched->push(f[0].copy())
     return ""
 }
 
@@ -365,8 +363,8 @@ fn replay_aside(live: *LiveCheck, bufs: *ReplayBuffers, const edit: string, n: u
     }
 
     if pid == 0 {
-        var touched = cxx::std::vector<string>()
-        var why     = replay_apply(edit, &touched, bufs)
+        var touched: [string]
+        var why               = replay_apply(edit, &touched, bufs)
         if !why.is_empty() {
             io::eprintln(f"error [U001E]: --incr-replay aside: {why}")
             kairo::aside_exit(3)
@@ -381,7 +379,7 @@ fn replay_aside(live: *LiveCheck, bufs: *ReplayBuffers, const edit: string, n: u
 
         live->past_syntax = true
         live->aside       = true
-        replay_fg(live, bufs, touched.back(), n, "aside")
+        replay_fg(live, bufs, touched[touched.size() - 1], n, "aside")
         kairo::aside_exit(0)
     }
 
@@ -515,12 +513,12 @@ pub fn incr_replay_main(argc:         i32,
 
     // The script's lines, a step at a time: its edits, then one
     // replace_file per file they touched.
-    var name          = ""
-    var open_         = false
-    var touched       = cxx::std::vector<string>()
-    var at:     usize = 0
-    var pref          = cxx::std::vector<string>() ///< `prefer` lines of the open step
-    var asides: usize = 0                          ///< `aside` lines of the open step
+    var name              = ""
+    var open_             = false
+    var touched: [string]
+    var at:      usize    = 0
+    var pref:    [string]         ///< `prefer` lines of the open step
+    var asides:  usize    = 0     ///< `aside` lines of the open step
     while at <= text.size() {
         var e = at
         while e < text.size() && text.data()[e] != ('\n' as u8) {
@@ -574,7 +572,13 @@ pub fn incr_replay_main(argc:         i32,
                 }
 
                 if two {
-                    replay_fg(&live, &bufs, touched.back(), n + 1, "fg")
+                    replay_fg(
+                        &live,
+                        &bufs,
+                        touched[touched.size() - 1],
+                        n + 1,
+                        "fg",
+                    )
                 }
             }
 
@@ -585,12 +589,12 @@ pub fn incr_replay_main(argc:         i32,
             }
 
             // A step that touched nothing still re-checks.
-            var first = if (touched.empty()) => ("") else => Path(touched[0]).full_path()
+            var first = if (touched.is_empty()) => ("") else => Path(touched[0]).full_path()
             if two {
                 // Each edit had its first tier when it was read; what is
                 // still queued is re-checked now.
                 // A step of asides alone changed nothing that is kept.
-                if touched.empty() && asides == 0 {
+                if touched.is_empty() && asides == 0 {
                     live.replace_file(first)
                 }
 
@@ -615,7 +619,7 @@ pub fn incr_replay_main(argc:         i32,
                     live.replace_file(Path(touched[ti]).full_path())
                 }
 
-                if touched.empty() {
+                if touched.is_empty() {
                     live.replace_file(first)
                 }
             } else {
@@ -656,7 +660,7 @@ pub fn incr_replay_main(argc:         i32,
         // re-checked towards that file first (LiveCheck::drain's prefer: a
         // tool's open buffers), then in Sema's order.
         if cmd == "prefer" {
-            pref.push_back(Path(arg).full_path())
+            pref.push(Path(arg).full_path())
             continue
         }
 
@@ -683,7 +687,7 @@ pub fn incr_replay_main(argc:         i32,
         }
 
         if two {
-            replay_fg(&live, &bufs, touched.back(), n + 1, "fg")
+            replay_fg(&live, &bufs, touched[touched.size() - 1], n + 1, "fg")
         }
     }
 

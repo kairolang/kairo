@@ -167,6 +167,7 @@ import AST::Node::Declarations::{
     VariableDecl,
 }
 import AST::Node::Expressions::{
+    CallExpr,
     ClosureExpr,
     ParenExpr,
 }
@@ -269,6 +270,32 @@ pub class EmitIR {
     /// scope needs one).
     prot var _ns_init:  bool = false
     prot var _ef_loops: u32  = 0
+    /// The locals of the function being written that are bound to a small
+    /// closure and never rebound (EmitIR::_direct_closure), each with the
+    /// closure it was declared in (null: the function itself). A call of
+    /// one, written in that same closure, calls the lambda by its own name.
+    prot var _dc_decl: cxx::std::vector<unsafe *Decl>
+    prot var _dc_ctx:  cxx::std::vector<unsafe *ClosureExpr>
+    /// The closure _closure_expr writes as the bare lambda, with no `fn`
+    /// value around it (_direct_closure).
+    prot var _dc_bare: unsafe *ClosureExpr = &null
+    /// A generator's push form is being written (Emit/Push.k): a `yield`
+    /// calls the form's sink and a `return` ends the sequence.
+    prot var _twin: bool = false
+    /// Push-form loop bodies open around the current statement. Each is a
+    /// lambda and counts in _ef_depth too, so `break` and `continue` leave
+    /// it as they leave an `eval for` copy; a `return` (EmitIR::
+    /// _push_return) and the loops themselves tell the two apart by this.
+    prot var _pf_depth: u32 = 0
+    /// Push-form loops written in the function so far, for their names.
+    prot var _pf_seq: u32 = 0
+    /// The generator call being written as a push-form call: _args appends
+    /// `_push_arg`, the loop body, to its arguments and clears this.
+    prot var _push_call: unsafe *CallExpr = &null
+    prot var _push_arg:  string           = ""
+    /// That call, for _agree: clang resolves it to the push form, which is
+    /// not the function Sema bound.
+    prot var _push_site: unsafe *CallExpr = &null
     /// The type packs whose `for x in xs` bodies are open, innermost last,
     /// with each one's binding name: a pack element's witness Self
     /// (_witness_member).

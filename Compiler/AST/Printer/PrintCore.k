@@ -101,7 +101,7 @@ pub class Painter {
     pub var out: string = ""
 
     pub var _opts:  PrintOptions
-    pub var _stack: cxx::std::vector<u8> ///< per-ancestor: was that level a last child?
+    pub var _stack: [u8]         ///< per-ancestor: was that level a last child?
 
     fn Painter(self) = default
 
@@ -159,12 +159,12 @@ pub class Painter {
     /// Descend one level. Pair with `leave`. `is_last` is this node's own
     /// last-child status, which sets the continuation glyph for its children.
     fn enter(self, is_last: bool) {
-        self._stack.push_back(is_last as u8)
+        self._stack.push(is_last as u8)
     }
 
     fn leave(self) {
-        if !self._stack.empty() {
-            self._stack.pop_back()
+        if !self._stack.is_empty() {
+            self._stack.pop()
         }
     }
 

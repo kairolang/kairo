@@ -4139,7 +4139,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
     /// node's head on the way down, then each right operand and `leave` on
     /// the way back.
     fn _dx_binop(self, e: unsafe *Expressions::BinaryOperatorExpr, is_last: bool) {
-        var spine = cxx::std::vector<unsafe *Expressions::BinaryOperatorExpr>()
+        var        spine: [unsafe *Expressions::BinaryOperatorExpr]
         var unsafe *cur = e
         var        last = is_last
         while true {
@@ -4161,7 +4161,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
             self._instance(cur->op_instance)
             self.p.newline()
             self.p.enter(last)
-            spine.push_back(cur)
+            spine.push(cur)
             if cur->lhs != &null
                 && (!cur->lhs->is_error())
                 && isa<Expressions::BinaryOperatorExpr>(cur->lhs) {
@@ -5664,13 +5664,13 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
                              dc:      unsafe *DeclContext,
                              fields:  FrozenList<unsafe *Declarations::FieldDecl>,
                              methods: FrozenList<unsafe *Declarations::FunctionDecl>,
-                             out:     unsafe *cxx::std::vector<unsafe *Decl>) {
+                             out:     unsafe *[unsafe *Decl]) {
         for var i: usize = 0; i < fields.size(); ++i {
-            out->push_back(unsafe (fields[i] as unsafe *Decl))
+            out->push(unsafe (fields[i] as unsafe *Decl))
         }
 
         for var i: usize = 0; i < methods.size(); ++i {
-            out->push_back(unsafe (methods[i] as unsafe *Decl))
+            out->push(unsafe (methods[i] as unsafe *Decl))
         }
 
         // dc_decls: nested types + VisibilityGroupDecl wrappers. Take the
@@ -5685,7 +5685,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
                 continue
             }
 
-            out->push_back(d)
+            out->push(d)
         }
 
         self._sort_by_source(&*out)
@@ -5693,20 +5693,25 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
 
     /// By range.start, stable: members at one position (which only minted
     /// ones share) keep their order.
-    fn _sort_by_source(self, @inout xs: cxx::std::vector<unsafe *Decl>) {
-        cxx::std::stable_sort(
-            xs.begin(),
-            xs.end(),
-            fn (a: unsafe *Decl, b: unsafe *Decl) || -> bool = b->range.start > a->range.start,
+    fn _sort_by_source(self, @inout xs: [unsafe *Decl]) {
+        xs.sort_by(
+            fn (a: *const unsafe *Decl, b: *const unsafe *Decl) || -> Ordering {
+                if (*b)->range.start > (*a)->range.start {
+                    return Ordering::Less
+                }
+
+                if (*a)->range.start > (*b)->range.start {
+                    return Ordering::Greater
+                }
+
+                return Ordering::Equal
+            },
         )
     }
 
     /// Emit annotation rows for the aggregate, then its members in source
     /// order. `members` is the pre-collected, pre-sorted list.
-    fn _dump_members(self,
-                     decl:          unsafe *Decl,
-                     const members: cxx::std::vector<unsafe *Decl>,
-                     is_last:       bool) {
+    fn _dump_members(self, decl: unsafe *Decl, const members: [unsafe *Decl], is_last: bool) {
         var has_attrs = self._has_annotations(decl)
         var n         = members.size()
         if !has_attrs && n == 0 {
@@ -5734,7 +5739,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._dd_spec(sd->spec_kind, sd->spec_args) // specialization tag (#68)
         self._inherit_list("impl", sd->implements)
         self.p.newline()
-        var members = cxx::std::vector<unsafe *Decl>()
+        var members: [unsafe *Decl]
         self._collect_type_members(
             unsafe (sd as unsafe *DeclContext),
             sd->fields,
@@ -5759,7 +5764,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._inherit_list("derives", cd->derives_list)
         self._inherit_list("impl", cd->implements)
         self.p.newline()
-        var members = cxx::std::vector<unsafe *Decl>()
+        var members: [unsafe *Decl]
         self._collect_type_members(cd, cd->fields, cd->methods, unsafe &members)
         self._dump_members(cd, members, is_last)
     }
@@ -5773,7 +5778,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._derives_clause(id)
         self.p.newline()
         var empty_fields: FrozenList<unsafe *Declarations::FieldDecl>
-        var members = cxx::std::vector<unsafe *Decl>()
+        var members:      [unsafe *Decl]
         self._collect_type_members(
             unsafe (id as unsafe *DeclContext),
             empty_fields,
@@ -5794,7 +5799,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._inherit_list("impl", ed->implements)
         self.p.newline()
         var empty_fields: FrozenList<unsafe *Declarations::FieldDecl>
-        var members = cxx::std::vector<unsafe *Decl>()
+        var members:      [unsafe *Decl]
         self._collect_type_members(
             unsafe (ed as unsafe *DeclContext),
             empty_fields,
@@ -5814,7 +5819,7 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self._dd_spec(ud->spec_kind, ud->spec_args) // specialization tag (#68)
         self._inherit_list("impl", ud->implements)
         self.p.newline()
-        var members = cxx::std::vector<unsafe *Decl>()
+        var members: [unsafe *Decl]
         self._collect_type_members(
             unsafe (ud as unsafe *DeclContext),
             ud->fields,

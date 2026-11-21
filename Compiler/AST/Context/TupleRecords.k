@@ -96,12 +96,12 @@ pub class TupleRecords {
     priv var _arena_mu: kairo::std::Mutex
     /// Indexed by arity; null until that arity is first asked for. Sized
     /// TUPLE_MAX_ARITY + 1 so the index is the arity.
-    priv var _by_arity: cxx::std::vector<unsafe *Decl>
+    priv var _by_arity: [unsafe *Decl]
 
     fn TupleRecords(self) {
         self._arena.shared(unsafe &self._arena_mu)
         for var i: usize = 0; i <= TUPLE_MAX_ARITY; ++i {
-            self._by_arity.push_back(&null)
+            self._by_arity.push(&null)
         }
     }
 

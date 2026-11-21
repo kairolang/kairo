@@ -789,7 +789,7 @@ fn fail_json(const why: string) -> string {
 /// Requests queued behind the one being parsed are coalesced per file: only
 /// the newest buffer of a file is parsed, the older ones are answered
 /// `{ "id": n, "superseded": true }` at once. Exits at EOF.
-fn syntax_server_main(@inout base: cxx::std::vector<string>) -> i32 {
+fn syntax_server_main(@inout base: [string]) -> i32 {
     var t = Transport()
     while !t.closed {
         if !t.wait(1000) {
@@ -863,14 +863,14 @@ pub fn worker_main(@inout args: [string]) -> i32 {
     }
 
     if args[0] == WA_SYNTAX_SERVER {
-        var base: cxx::std::vector<string>
-        var i:    usize                    = 1
+        var base: [string]
+        var i:    usize    = 1
         if (i < args.size()) && (args[i] == WA_END) {
             i += 1
         }
 
         while i < args.size() {
-            base.push_back(args[i].copy())
+            base.push(args[i].copy())
             i += 1
         }
 

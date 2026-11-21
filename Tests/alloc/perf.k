@@ -83,8 +83,8 @@ fn main() -> i32 {
 // RUN: %FileCheck %s --check-prefix=EH < %t.asm
 // EH-LABEL: 9alloc_raw3oomEmm>:
 // EH-NOT: callq {{.*}}<
-// EH: callq *(%rcx)
-// EH-NEXT: callq *(%rcx)
+// EH: callq *%rax
+// EH-NEXT: callq *%rax
 // EH-NEXT: {{nop|int3}}
 // EH-NOT: _ZNK10__kairo_fn
 // EH-LABEL: 8k_createEv>:

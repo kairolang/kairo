@@ -81,6 +81,7 @@ import Codegen::Emit::EmitIR::{
 }
 import Codegen::Emit::Exprs
 import Codegen::Emit::Locals
+import Codegen::Emit::Push
 import Codegen::Emit::Stmts
 import Codegen::Spell::Spell::Speller
 import Diagnostic::Code::DiagCode
@@ -434,6 +435,7 @@ extend EmitIR {
         self._cg->sink->spell(at, head)
 
         self._body(n, ext)
+        self._push_twin_free(n, ext, at)
         self._close_ns(n->range, wrap)
     }
 
@@ -536,6 +538,17 @@ extend EmitIR {
 
         self._req_in_head = mreq.size() > 0
         self._body(m, &null)
+        if !is_ctor {
+            var tail = if (m->is_method() && m->is_const()) => (" const") else => ""
+            self._push_twin_method(
+                m,
+                owner,
+                at,
+                self._spell.owner_qual(owner),
+                tail + " noexcept" + mreq,
+            )
+        }
+
         self._req_in_head = false
         self._eval_field_def(m, owner, at)
         self._subscript_forwarder_def(m, owner, at)
@@ -1087,15 +1100,25 @@ extend EmitIR {
             from = b->body.size()
         }
 
-        for var i: usize = from; i < b->body.size(); ++i {
-            self.emit(b->body[i])
+        var saved_seq = self._pf_seq
+        var saved_dc  = self._dc_decl.size()
+        self._pf_seq = 0
+        self._stmts(b, from)
+        self._pf_seq = saved_seq
+        while self._dc_decl.size() > saved_dc {
+            self._dc_decl.pop_back()
+            self._dc_ctx.pop_back()
         }
 
         // A function is a coroutine only when its body holds a coroutine
         // keyword, and a generator with no `yield` (or only a bare `return`
         // the emitter already spelled `co_return`) may have none. X's
         // has_yield says which; EmitIR does not walk the body to find out.
-        if egen {
+        // A push form (Emit/Push.k) that reaches its end ran the whole
+        // sequence.
+        if self._twin {
+            self._cg->sink->spell(b->range, "return true;")
+        } else if egen {
             self._cg->sink->spell(
                 b->range,
                 "return " + LowerTargets::eval_yield_buf() + ";",

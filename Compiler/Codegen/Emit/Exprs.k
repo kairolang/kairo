@@ -40,12 +40,14 @@ import AST::LangItems::{
 import AST::Node::Base::{
     Decl,
     Expr,
+    Stmt,
     Type,
 }
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
     BuiltinType,
     RecordType,
+    builtin_info,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -56,6 +58,7 @@ import AST::Node::Casting::{
 import AST::Node::Declarations::{
     InterfaceDecl,
     ParamDecl,
+    StorageClass,
     VariableDecl,
 }
 import AST::Node::Expressions::{
@@ -114,6 +117,7 @@ import Codegen::Emit::Locals
 import Codegen::Emit::Names
 import Codegen::Emit::Operators
 import Codegen::Emit::Stmts
+import Codegen::Plan::Visitors::CaptureWrites
 import Codegen::Spell::Spell::Speller
 
 extend EmitIR {
@@ -472,12 +476,17 @@ extend EmitIR {
     /// A closure is a C++ lambda (Compiler/Spec/Codegen.md#emitir, Closures), wrapped in the
     /// `fn` value its type is:
     ///   captures nothing  `::__kairo_fn<R(A)>(+[](A a) -> R { ... })`
+    ///   small             `::__kairo_fn<R(A)>::small([c...](A a) -> R { ... })`
     ///   captures          `::__kairo_fn<R(A)>::own(new auto([c...](A a) mutable -> R { ... }))`
     /// The capture list is ClosureCaptures' decision (_capture_list). A
     /// capturing lambda is `mutable`: a by-copy capture is the closure's
     /// own variable, which its body may assign and which keeps its value
     /// from one call to the next. `new auto(prvalue)` builds the lambda in
     /// its heap slot directly, so no temporary lambda copies a capture.
+    /// A small closure (_closure_small) writes none of its captures, so it
+    /// is not `mutable`, and the `fn` value holds it in its own state word
+    /// when it fits: no allocation, and a call reads the capture from a
+    /// register.
     priv fn _closure_expr(self, n: unsafe *ClosureExpr) {
         if !n->caps_resolved {
             self._ice(
@@ -530,7 +539,8 @@ extend EmitIR {
         }
 
         head += ")"
-        if caps.size() > 0 {
+        var small = caps.size() > 0 && !fp->is_raw && self._closure_small(n)
+        if caps.size() > 0 && !small {
             head += " mutable"
         }
 
@@ -568,8 +578,17 @@ extend EmitIR {
             wrap = ""
         }
 
-        if caps.size() == 0 {
+        var bare = n == self._dc_bare
+        if bare {
+            self._dc_bare = &null
+            self._cg->sink->spell(n->range, head)
+        } else if caps.size() == 0 {
             self._cg->sink->spell(n->range, wrap + "(+" + head)
+        } else if small {
+            self._cg->sink->spell(
+                n->range,
+                wrap + "::" + LowerTargets::fn_value_small() + "(" + head,
+            )
         } else {
             self._cg->sink->spell(
                 n->range,
@@ -581,21 +600,171 @@ extend EmitIR {
         var        sd     = self._ef_depth
         var        sl     = self._ef_loops
         var        sn     = self._ns_init
+        var        sp     = self._pf_depth
         self._closure  = n
         self._ef_depth = 0     // a closure's statements are its own, not a copy's.
+        self._pf_depth = 0
         self._ef_loops = 0
         self._ns_init  = false // a closure in a global's initializer has a function body.
         self.emit_block(n->body_block)
         self._closure  = saved
         self._ef_depth = sd
+        self._pf_depth = sp
         self._ef_loops = sl
         self._ns_init  = sn
 
-        if caps.size() == 0 {
+        if bare {
+            return
+        }
+
+        if caps.size() == 0 || small {
             self._cg->sink->spell(n->range, ")")
         } else {
             self._cg->sink->spell(n->range, "))")
         }
+    }
+
+    /// `n` is a local bound to a small closure and never rebound: its
+    /// declaration is written as the lambda under a name of its own and the
+    /// `fn` value made from it,
+    ///
+    ///     auto __kairo_cl_f = [k](long x) noexcept -> long { ... };
+    ///     auto f = ::__kairo_fn<long(long)>::small(__kairo_cl_f)
+    ///
+    /// and a call of `f` in the same function calls `__kairo_cl_f`
+    /// (_direct_callee): a direct call from the first pass of the
+    /// optimizer on, which a call through the `fn` value becomes only
+    /// after the value is taken apart. A small closure changes none of its
+    /// captures (_closure_small), so the lambda and the copy the value
+    /// holds are the same closure for as long as `f` is not rebound, which
+    /// CaptureWrites::run_var checks over the body that can name it.
+    /// Returns false when `n` is not such a local; nothing is written then.
+    prot fn _direct_closure(self, n: unsafe *VariableDecl) -> bool {
+        if n->init == &null
+            || n->type_ == &null
+            || n->type_->canonical == &null
+            || self._in_for_init
+            || self._cur_fn == &null
+            || n->is_thread
+            || (n->storage != StorageClass::Var && n->storage != StorageClass::Const) {
+            return false
+        }
+
+        var unsafe *c = dyn_cast<ClosureExpr>(self._strip(n->init))
+        if c == &null || !c->caps_resolved || c->held.size() == 0 || c->type_ == &null {
+            return false
+        }
+
+        var unsafe *ft = canon_unqual(n->type_->canonical)
+        var unsafe *fp = dyn_cast<FunctionPointerType>(ft)
+        if fp == &null || fp->is_raw || canon_unqual(c->type_) != ft || !self._closure_small(c) {
+            return false
+        }
+
+        var unsafe *body = if (self._closure != &null) => (self._closure->body_block)
+                           else => self._cur_fn->body_block
+        var w = CaptureWrites()
+        w.run_var(unsafe (n as unsafe *Decl), unsafe (body as unsafe *Stmt))
+        if w.written {
+            return false
+        }
+
+        var nm = self._local_name(unsafe (n as unsafe *Decl))
+        var cl = LowerTargets::closure_direct(nm)
+        var wrap = "::" + LowerTargets::fn_value() + "<" + self._spell.fn_signature(
+            fp,
+        ) + ">"
+        self._cg->sink->spell(n->name.range, "auto " + cl + " = ")
+        self._dc_bare = c
+        self.emit(unsafe (c as unsafe *Expr))
+        self._cg->sink->spell(
+            n->name.range,
+            "; " + (if (n->storage == StorageClass::Const) => ("const ") else => "") + "auto ",
+        )
+
+        self._local_ref(unsafe (n as unsafe *Decl), n->name)
+        self._cg->sink->spell(
+            n->name.range,
+            " = " + wrap + "::" + LowerTargets::fn_value_small() + "(" + cl + ")",
+        )
+
+        self._dc_decl.push_back(unsafe (n as unsafe *Decl))
+        self._dc_ctx.push_back(self._closure)
+        return true
+    }
+
+    /// The name of the lambda a call through `callee` calls directly
+    /// (_direct_closure), or "": `callee` names such a local and the call
+    /// is written in the closure (or function body) that declared it. In a
+    /// nested closure the name is that closure's own copy of the value.
+    prot fn _direct_callee(self, callee: unsafe *Expr) -> string {
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(self._strip(callee))
+        if ni == &null || ni->resolved_decl == &null {
+            return ""
+        }
+
+        for var i: usize = 0; i < self._dc_decl.size(); ++i {
+            if self._dc_decl[i] == ni->resolved_decl && self._dc_ctx[i] == self._closure {
+                return LowerTargets::closure_direct(
+                    self._local_name(ni->resolved_decl),
+                )
+            }
+        }
+
+        return ""
+    }
+
+    /// Closure `n` is held in its `fn` value's own state word
+    /// (`__kairo_fn::small`): every capture is a pointer or a number -- the
+    /// receiver, a by-pointer capture, or a by-copy capture of a pointer,
+    /// an integer of at most 64 bits, a float, a `bool` or a `char` -- and
+    /// the body changes none of them (CaptureWrites). Such a lambda is
+    /// trivially copyable, so its copies are its bits, and it needs no
+    /// `mutable`. Anything else is built on the heap, where a by-copy
+    /// capture is constructed once and the body may assign it.
+    priv fn _closure_small(self, n: unsafe *ClosureExpr) -> bool {
+        for var i: usize = 0; i < n->held.size(); ++i {
+            var m = n->held[i].mode
+            if m == CaptureMode::Receiver || m == CaptureMode::Ptr || m == CaptureMode::ConstPtr {
+                continue
+            }
+
+            if m != CaptureMode::Copy {
+                return false
+            }
+
+            // The pointer an enclosing closure holds the binding by.
+            if n->held[i].via_ptr {
+                continue
+            }
+
+            var unsafe *pd = dyn_cast<ParamDecl>(n->held[i].decl)
+            if pd != &null && pd->is_pack {
+                return false
+            }
+
+            var unsafe *t = self._capture_type(n->held[i].decl)
+            if isa<PointerType>(t) {
+                continue
+            }
+
+            var unsafe *b = dyn_cast<BuiltinType>(t)
+            if b == &null {
+                return false
+            }
+
+            var num = builtin_info(b->builtin)->is_integer()
+                || builtin_info(b->builtin)->is_float()
+                || b->builtin == BuiltinKind::Bool
+                || b->builtin == BuiltinKind::Char
+            if !num || t->size_bits == 0 || t->size_bits > 64 {
+                return false
+            }
+        }
+
+        var w = CaptureWrites()
+        w.run(n)
+        return !w.written
     }
 
     /// The lambda's capture list, from ClosureCaptures' modes:

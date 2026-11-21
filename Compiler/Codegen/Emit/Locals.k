@@ -476,6 +476,10 @@ extend EmitIR {
             return
         }
 
+        if n->dtor_mode == LocalDtor::Scope && self._direct_closure(n) {
+            return
+        }
+
         // `@align(N)` on a local: GNU `aligned` leads the declaration.
         var la = AttrFacts::decl_align_attr(
             n,

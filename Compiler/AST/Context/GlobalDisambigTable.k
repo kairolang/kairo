@@ -334,12 +334,12 @@ pub class GlobalDisambigTable {
     /// before the abort is printed. No lock: the process aborts next, and
     /// the thread that ICE'd may be the one holding it.
     pub fn drain_sinks_for_ice(self, engine: unsafe *DiagEngine) {
-        var fids = cxx::std::vector<u64>()
+        var fids: [u64]
         for var it = self._by_fid.begin(); it != self._by_fid.end(); ++it {
-            fids.push_back(it->first)
+            fids.push(it->first)
         }
 
-        cxx::std::sort(fids.begin(), fids.end())
+        fids.sort()
         for var i: usize = 0; i < fids.size(); ++i {
             var it = self._by_fid.find(fids[i])
             if it == self._by_fid.end() {
@@ -381,7 +381,7 @@ pub class GlobalDisambigTable {
     ///   1. Ask ImportProcessor: what fid does `Foo::Bar` resolve to?
     ///   2. Call lookup_in(fid, "Baz")
     ///   OR pass all segments here and we walk them in the scope trie:
-    fn lookup_in(self, fid: u32, segments: unsafe *cxx::std::vector<string>) -> LookupResult {
+    fn lookup_in(self, fid: u32, segments: unsafe *[string]) -> LookupResult {
         var unsafe *scope = self.get_scope(fid)
         if scope == &null {
             return LookupResult::not_found()

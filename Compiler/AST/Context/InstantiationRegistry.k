@@ -507,13 +507,13 @@ pub class InstantiationRegistry {
     /// through _new_entry, which appends here, so nothing can mint around
     /// it. collect() reads this, never the hash table: anything that
     /// iterates the registry gets the same order on every run.
-    priv var _order: cxx::std::vector<unsafe *InstanceEntry>
+    priv var _order: [unsafe *InstanceEntry]
     /// The entries drop_entries took out and sweep_dead has not cleared
     /// yet: a live check's, between a retraction and the moment the
     /// replaced trees are freed.
-    priv var _dropped: cxx::std::vector<unsafe *InstanceEntry>
+    priv var _dropped: [unsafe *InstanceEntry]
     /// The rows sweep_dead took out of the tables and has not cleared yet.
-    priv var _dead_rows: cxx::std::vector<unsafe *ConformanceRow>
+    priv var _dead_rows: [unsafe *ConformanceRow]
     /// When set (FrontendAction::refresh), every mark_live of an entry
     /// that is already live is recorded here with the use that asked: in a
     /// fresh run the FIRST use in the one-thread order owns the entry's
@@ -821,7 +821,7 @@ pub class InstantiationRegistry {
         }
 
         var unsafe *ps  = it->second
-        var        hits = cxx::std::vector<unsafe *Decl>()
+        var        hits: [unsafe *Decl]
         for var i: usize = 0; i < ps->size(); ++i {
             var binds = cxx::std::vector<unsafe *Type>()
             if !self._matches((*ps)[i], *args, unsafe &binds) {
@@ -844,7 +844,7 @@ pub class InstantiationRegistry {
                 continue
             }
 
-            hits.push_back((*ps)[i])
+            hits.push((*ps)[i])
         }
 
         if hits.size() == 0 {
@@ -1873,11 +1873,11 @@ pub class InstantiationRegistry {
         // primary, leave the table with their trees.
         for var it = self._fn_specs.begin(); it != self._fn_specs.end(); ++it {
             var unsafe *v   = it->second
-            var        keep = cxx::std::vector<unsafe *Decl>()
+            var        keep: [unsafe *Decl]
             if !dead->has(unsafe ((it->first as usize) as unsafe *const void)) {
                 for var i: usize = 0; i < v->size(); ++i {
                     if !dead->has(unsafe ((*v)[i] as unsafe *const void)) {
-                        keep.push_back((*v)[i])
+                        keep.push((*v)[i])
                     }
                 }
             }
@@ -1897,12 +1897,12 @@ pub class InstantiationRegistry {
         }
 
         // Every row any list holds, once.
-        var all  = cxx::std::vector<unsafe *ConformanceRow>()
+        var all: [unsafe *ConformanceRow]
         var seen = llvm::DenseSet<u64>()
         for var it = self._rows.begin(); it != self._rows.end(); ++it {
             for var k: usize = 0; k < it->second.size(); ++k {
                 if seen.insert(it->second[k] as usize as u64).second {
-                    all.push_back(it->second[k])
+                    all.push(it->second[k])
                 }
             }
         }
@@ -1910,7 +1910,7 @@ pub class InstantiationRegistry {
         for var it = self._declared.begin(); it != self._declared.end(); ++it {
             for var k: usize = 0; k < it->second.size(); ++k {
                 if seen.insert(it->second[k] as usize as u64).second {
-                    all.push_back(it->second[k])
+                    all.push(it->second[k])
                 }
             }
         }
@@ -1918,7 +1918,7 @@ pub class InstantiationRegistry {
         for var i: usize = 0; i < self._order.size(); ++i {
             for var k: usize = 0; k < self._order[i]->rows.size(); ++k {
                 if seen.insert(self._order[i]->rows[k] as usize as u64).second {
-                    all.push_back(self._order[i]->rows[k])
+                    all.push(self._order[i]->rows[k])
                 }
             }
         }
@@ -1964,11 +1964,11 @@ pub class InstantiationRegistry {
         }
 
         // A declared list is keyed by the declaring declaration's address.
-        var keys = cxx::std::vector<u64>()
+        var keys: [u64]
         for var it = self._declared.begin(); it != self._declared.end(); ++it {
             if dead->has(unsafe ((it->first as usize) as unsafe *const void))
                 || shells.contains(it->first) {
-                keys.push_back(it->first)
+                keys.push(it->first)
             }
         }
 
@@ -1978,7 +1978,7 @@ pub class InstantiationRegistry {
 
         for var i: usize = 0; i < all.size(); ++i {
             if rows.contains(all[i] as usize as u64) {
-                self._dead_rows.push_back(all[i])
+                self._dead_rows.push(all[i])
             }
         }
 
@@ -2049,7 +2049,7 @@ pub class InstantiationRegistry {
         var lock = kairo::std::LockGuard(self._mu)
         var gone = llvm::DenseSet<u64>()
         for var i: usize = 0; i < dead->size(); ++i {
-            self._dropped.push_back((*dead)[i])
+            self._dropped.push((*dead)[i])
             gone.insert((*dead)[i] as usize as u64)
             // Only its own node: a function template's entries share the
             // template's declaration, which may map to a kept entry.
@@ -2061,14 +2061,14 @@ pub class InstantiationRegistry {
             }
         }
 
-        var kept = cxx::std::vector<unsafe *InstanceEntry>()
+        var kept: [unsafe *InstanceEntry]
         for var i: usize = 0; i < self._order.size(); ++i {
             var unsafe *e = self._order[i]
             if gone.contains(e as usize as u64) {
                 continue
             }
 
-            kept.push_back(e)
+            kept.push(e)
             if e->via != &null && gone.contains(e->via as usize as u64) {
                 e->via = &null
             }
@@ -2446,7 +2446,7 @@ pub class InstantiationRegistry {
                 self._order[i] = self._order[i + 1]
             }
 
-            self._order.pop_back()
+            self._order.pop()
         }
 
         e->ord_rank = kr
@@ -2468,7 +2468,7 @@ pub class InstantiationRegistry {
                 self._order[hi - 1]->ord_seq,
             ) {
             e->seq = (hi as u32)
-            self._order.push_back(e)
+            self._order.push(e)
             return
         }
 
@@ -2483,7 +2483,7 @@ pub class InstantiationRegistry {
         }
 
         e->seq = (lo as u32)
-        self._order.push_back(e)
+        self._order.push(e)
         for var i: usize = self._order.size() - 1; i > lo; --i {
             self._order[i] = self._order[i - 1]
         }
