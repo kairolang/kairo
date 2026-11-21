@@ -1,4 +1,3 @@
-// XFAIL: *
 // `t ?? d` with a move-only `T` and a nullable local on the left copies the
 // payload instead of moving it (CL001E, "call to implicitly-deleted copy
 // constructor"); with a call result on the left it moves. ownership.mdx

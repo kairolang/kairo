@@ -36,7 +36,11 @@
 ///         copy the value and copies at every other (MoveKind::Instance),
 ///         as the transfer of a MOVE value does in a body that is not
 ///         generic. A later read of that storage, and a transfer out of a
-///         const place, are judged per instance too.
+///         const place, are judged per instance too. So is a transfer of a
+///         pack element (`for a in args { one(a) }`), which copies at every
+///         instance: one that cannot copy the element reports SC182E. A
+///         value of a record over the pack (`o: Outcome<i32, E...>`) is no
+///         element and is pending like any other.
 ///
 ///     (c) Use after move. A moved local or parameter (`self` included), or
 ///         a part of one, is MOVED-FROM from that point. A part is a field
@@ -178,6 +182,7 @@ import AST::Node::Base::{
 import AST::Node::CanonicalNodes::{
     BuiltinKind,
     BuiltinType,
+    RecordType,
     canon_has_const,
     canon_unqual,
 }
@@ -223,6 +228,7 @@ import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
     FunctionPointerType,
+    GenericParamType,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
@@ -1200,8 +1206,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._settle_derived()
     }
 
-    /// Each derived `a + b` whose left operand waited on a later read
-    /// (_derived_operand): never read again, `a` moves into the result;
+    /// Each derived `a + b`, and each `x ?? y`, whose left operand waited on
+    /// a later read (_derived_operand, _coalesce_operand): never read
+    /// again, it moves into the result;
     /// read again on some path, or with its address taken, it is a copy
     /// its type cannot make (SC182E).
     priv fn _settle_derived(self) {
@@ -1225,7 +1232,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             var nm = self._spelled(x)
             var why = if (read != &null) => (f"'{nm}' is read again later, so it cannot be moved into the result")
                       else => f"The address of '{nm}' is taken in this function, so it cannot be moved into the result"
-            self._derived_copy_error(bo, why, read)
+            if bo->op_token.kind == TokenKind::OpQuestionQuestion {
+                self._coalesce_copy_error(bo, why, read)
+            } else {
+                self._derived_copy_error(bo, why, read)
+            }
         }
     }
 
@@ -3147,6 +3158,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                     self,
                     e,
                 )
+
+                if bo->op_token.kind == TokenKind::OpQuestionQuestion && bo->resolved_op == &null {
+                    self._coalesce_operand(bo)
+                    self._coalesce_fallback(bo)
+                }
 
                 if bo->resolved_op != &null {
                     self._derived_operand(bo)
@@ -5659,6 +5675,249 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._derived_sites.push_back(bo)
     }
 
+    /// `x ?? y` takes the value out of `x` when it is not null
+    /// (Compiler/Spec/Nullables.md#coalesce: `if x? => x else y`). A payload
+    /// the type can copy is copied, so `x` is only read. A payload that
+    /// cannot be copied moves out instead, by the rule of the derived `a + b`
+    /// (_derived_operand): a local or by-value parameter that nothing reads
+    /// again on any path, the next iteration of a loop included, moves into
+    /// the result (a PendingMove settled by _settle_derived), and
+    /// CopyMoveLowering's `x as T?&&` is the operand CoalesceLowering binds
+    /// and moves from. Any other place, or one read again, is SC182E.
+    priv fn _coalesce_operand(self, bo: unsafe *Expressions::BinaryOperatorExpr) {
+        if bo->lhs == &null || bo->lhs->is_poisoned() || bo->lhs->type_ == &null {
+            return
+        }
+
+        var unsafe *x = self._tu.strip_parens(bo->lhs)
+        if x == &null || x->value_category != Expr::ValueCategory::LValue {
+            return
+        }
+
+        var unsafe *inner = self._tu.nullable_inner(
+            self._tu.as_value(bo->lhs->type_),
+        )
+
+        if inner == &null || inner->is_dependent() {
+            return
+        }
+
+        var tf               = LifecycleFacts()
+        var rd: unsafe *Decl = &null
+        if self._uncopyable_facts(inner, unsafe &tf, unsafe &rd) == &null {
+            return
+        }
+
+        var unsafe *d = if (isa<NamedIdentExpr>(x)) => (cast<NamedIdentExpr>(x)->resolved_decl)
+                        else => &null
+        var nm = self._spelled(x)
+        if d != &null && self._names(bo->rhs, d) {
+            self._coalesce_copy_error(
+                bo,
+                f"The right operand reads '{nm}' too, so it cannot be moved into the result",
+                &null,
+            )
+
+            return
+        }
+
+        if self._const_place(x) || place_has_const_root(x) {
+            self._coalesce_copy_error(
+                bo,
+                f"'{nm}' is const, so it cannot be moved into the result",
+                &null,
+            )
+
+            return
+        }
+
+        if !self._returned_local(x) {
+            self._coalesce_copy_error(
+                bo,
+                f"'{nm}' is not a local variable or by-value parameter read for the last time here, so it cannot be moved into the result",
+                &null,
+            )
+
+            return
+        }
+
+        var pm = PendingMove()
+        pm.d          = d
+        pm.path       = ""
+        pm.site       = bo->lhs
+        pm.is_derived = true
+        self._st.add_pending(pm)
+        for var i: usize = 0; i < self._derived_sites.size(); ++i {
+            if self._derived_sites[i] == bo {
+                return
+            }
+        }
+
+        self._derived_sites.push_back(bo)
+    }
+
+    /// SC182E at the left operand of `x ?? y`, whose payload cannot be
+    /// copied and cannot move out: `why` says why it cannot move, `read`
+    /// (or null) is the read that follows it. The fix-it takes a copy
+    /// with `x?.copy()` where the payload copies itself.
+    priv fn _coalesce_copy_error(self,
+                                 bo:        unsafe *Expressions::BinaryOperatorExpr,
+                                 const why: string,
+                                 read:      unsafe *Expr) {
+        var unsafe *x = self._tu.strip_parens(bo->lhs)
+        var unsafe *inner = self._tu.nullable_inner(
+            self._tu.as_value(bo->lhs->type_),
+        )
+
+        var nm = self._spelled(x)
+        var b = self.sc->diag->report(
+            DiagID::SC182E,
+            bo->lhs->range.start,
+            f"cannot copy a value of type '{self._tu.str(inner)}': '??' takes the value out of '{nm}' when it is not null, and that value cannot be copied",
+        )
+
+        b.first(bo->lhs->range)
+        b.note(bo->lhs->range.start, why)
+        self._payload_copy_fix(&b, bo->lhs, inner)
+        self._payload_copy_notes(&b, bo->lhs, inner, read)
+        b.emit()
+        bo->poison()
+        self.n_errored += 1
+    }
+
+    /// The right operand of `x ?? y` is the value when `x` is null, as the
+    /// else arm of an `if` expression is (_if_arm): a local or by-value
+    /// parameter whose value (a `T?`'s payload, for a nullable `y`) cannot
+    /// be copied moves into the result, and is moved-from after the `??`
+    /// on the path that ran it. Any other such place is SC182E.
+    priv fn _coalesce_fallback(self, bo: unsafe *Expressions::BinaryOperatorExpr) {
+        var unsafe *y = bo->rhs
+        if y == &null || y->is_poisoned() || y->type_ == &null || bo->is_poisoned() {
+            return
+        }
+
+        var unsafe *x = self._tu.strip_parens(y)
+        if x == &null || x->value_category != Expr::ValueCategory::LValue {
+            return
+        }
+
+        var unsafe *t     = self._tu.as_value(y->type_)
+        var unsafe *inner = self._tu.nullable_inner(t)
+        var unsafe *pay   = if (inner != &null) => (inner) else => t
+        if pay == &null || pay->is_dependent() {
+            return
+        }
+
+        var tf               = LifecycleFacts()
+        var rd: unsafe *Decl = &null
+        if self._uncopyable_facts(pay, unsafe &tf, unsafe &rd) == &null {
+            return
+        }
+
+        var nm    = self._spelled(x)
+        var konst = self._const_place(x) || place_has_const_root(x)
+        if !konst && self._returned_local(x) {
+            self.sc->move_sites.insert(y as usize as u64)
+            self.n_moves += 1
+            self._mark(
+                y,
+                "into the value of '??'",
+                MoveKind::Transfer,
+                y->type_,
+            )
+
+            return
+        }
+
+        var why = if (konst) => (f"'{nm}' is const, so it cannot be moved into the result")
+                  else => f"'{nm}' is not a local variable or by-value parameter, so it cannot be moved into the result"
+        var b = self.sc->diag->report(
+            DiagID::SC182E,
+            y->range.start,
+            f"cannot copy a value of type '{self._tu.str(pay)}': '??' yields its right operand '{nm}' when the left one is null, and that value cannot be copied",
+        )
+
+        b.first(y->range)
+        b.note(y->range.start, why)
+        if inner != &null {
+            self._payload_copy_fix(&b, y, inner)
+        } else {
+            self._offer_copy(&b, y)
+        }
+
+        self._payload_copy_notes(&b, y, pay, &null)
+        b.emit()
+        bo->poison()
+        self.n_errored += 1
+    }
+
+    /// On `b`, the fix-it that copies the payload `inner` of the nullable
+    /// place `e` (`e?.copy()`, a `T?` again) when `inner` copies itself.
+    priv fn _payload_copy_fix(self, b: *DiagBuilder, e: unsafe *Expr, inner: unsafe *Type) {
+        if ConformanceChecking(self.sc).copy_method(inner) == &null {
+            return
+        }
+
+        var shown = self._spelled(self._tu.strip_parens(e))
+        var text = if (self._copy_bare(e)) => (shown + "?.copy()") else => "(" + shown + ")?.copy()"
+        b->note(
+            e->range.end,
+            f"'{self._tu.str(inner)}' has a 'copy' method: write '{text}' to copy the value",
+        )
+
+        if !self._copy_bare(e) {
+            b->child_fix(
+                SourceRange(e->range.start, e->range.start),
+                "(",
+                "copy it explicitly",
+            )
+
+            b->child_fix(
+                SourceRange(e->range.end, e->range.end),
+                ")?.copy()",
+                "copy it explicitly",
+            )
+
+            return
+        }
+
+        b->child_fix(
+            SourceRange(e->range.end, e->range.end),
+            "?.copy()",
+            "copy it explicitly",
+        )
+    }
+
+    /// On `b`, reported at `at`: why `t` cannot be copied, the read that
+    /// follows the copy (`read`, or null) and where `t` is declared.
+    priv fn _payload_copy_notes(self,
+                                b:    *DiagBuilder,
+                                at:   unsafe *Expr,
+                                t:    unsafe *Type,
+                                read: unsafe *Expr) {
+        var tf               = LifecycleFacts()
+        var rd: unsafe *Decl = &null
+        var unsafe *facts = self._uncopyable_facts(t, unsafe &tf, unsafe &rd)
+        if facts != &null && facts->why_not_copyable.size() > 0 {
+            b->note(
+                at->range.start,
+                f"'{self._tu.str(t)}' cannot be copied: {facts->why_not_copyable}",
+            )
+        }
+
+        if read != &null {
+            b->note(read->range.start, "read again here")->child_first(
+                read->range,
+            )
+        }
+
+        if rd != &null {
+            b->note(rd->range.start, type_declared_here())->child_first(
+                rd->range,
+            )
+        }
+    }
+
     /// SC182E at the left operand of the derived `bo`, which copies it:
     /// `why` says why it cannot move instead, `read` (or null) is the read
     /// that follows it.
@@ -6116,9 +6375,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return
         }
 
-        // An element of a pack (`for a in args`): EmitIR's per-element
-        // lambda has no `T` to spell a `T&&` with.
-        if c->contains_unexpanded_pack() || e->type_->contains_unexpanded_pack() {
+        // An element of a pack (`for a in args`) is copied at every
+        // instance: EmitIR's per-element lambda has no `T` to spell a `T&&`
+        // with. An instance that cannot copy the element is told so there
+        // (_instance_copy).
+        if self._names_pack_element(c) {
+            self._instance_copy(e)
             return
         }
 
@@ -6177,6 +6439,35 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._st.add_pending(pm)
         self._tentative.push_back(e)
         self._tentative_decl.push_back(d)
+    }
+
+    /// `t` names a type pack as one element (`T` of `for a in args`), as
+    /// opposed to a record over the pack (`Outcome<i32, E...>`), whose
+    /// pack argument is its expansion and is spelled whole.
+    priv fn _names_pack_element(self, t: unsafe *Type) -> bool {
+        var unsafe *c = canon_unqual(t)
+        if c == &null || !c->contains_unexpanded_pack() {
+            return false
+        }
+
+        var unsafe *r = dyn_cast<RecordType>(c)
+        if r == &null {
+            return true
+        }
+
+        for var i: usize = 0; i < r->args.size(); ++i {
+            var unsafe *a = canon_unqual(r->args[i])
+            var unsafe *g = dyn_cast<GenericParamType>(a)
+            if g != &null && g->is_pack {
+                continue
+            }
+
+            if self._names_pack_element(a) {
+                return true
+            }
+        }
+
+        return r->outer != &null && self._names_pack_element(r->outer)
     }
 
     /// _dependent_transfer out of storage the body does not own: as the

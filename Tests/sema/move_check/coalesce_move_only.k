@@ -1,7 +1,3 @@
-// XFAIL: *
-// Waiting on: move checking a `??` operand whose payload cannot be copied
-// as a transfer of that operand. Today the C++ copy reaches clang (an error
-// there, not here).
 // `x ?? y` takes the value out of `x` when it is not null. With a payload
 // that cannot be copied (string, a container), a local or by-value
 // parameter read for the last time moves into the result; read again, it

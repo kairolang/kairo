@@ -16,9 +16,7 @@ fn null_coalesce_right_operand_moves() -> i32 {
     return a.id + t.id //! SC052E
 }
 
-// XFAIL: *
 
-// XFAIL: *
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
 // CHECK: bug_coalesce_right_operand_move.k:16:{{[0-9]+}}: error [SC052E]:

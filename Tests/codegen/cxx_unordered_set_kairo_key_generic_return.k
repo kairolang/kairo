@@ -12,7 +12,7 @@ ffi "c++" import "vector"
 class Key impl Hash {
     pub var a: i32 = 0
     fn Key(self, a: i32) { self.a = a }
-    fn hash(const self) -> usize { return (self.a * 31) as usize }
+    fn hash(const self, @inout h: Hasher) { h.write_u64((self.a * 31) as u64) }
     fn op == (const self, const other: Key) -> bool { return self.a == other.a }
 }
 

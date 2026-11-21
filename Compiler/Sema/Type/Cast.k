@@ -938,6 +938,21 @@ pub class <T: type> CastTyping {
                             return &null
                         }
 
+                        // A generic constructor (string's `<S impl
+                        // ByteRange>`) takes a bounds-checked source only
+                        // when the source's bounds grant the constructor's;
+                        // otherwise nothing converts it, and 5e names the
+                        // bound that would.
+                        if cg != &null && !self.dyn()->check_forwarded_bounds(&null, r.decl, &r) {
+                            return self._no_conversion(
+                                n,
+                                src,
+                                target,
+                                cg,
+                                cbound.size() > 0,
+                            )
+                        }
+
                         // resolved_op stays NULL on this rung: a constructor
                         // has no op_token to spell. resolved_ctor carries the
                         // choice, and OperatorLowering turns the cast into the
@@ -955,11 +970,23 @@ pub class <T: type> CastTyping {
         }
 
         // 5e. nothing
+        return self._no_conversion(n, src, target, cg, cbound.size() > 0)
+    }
+
+    /// The error for a cast no rung converts: the bound that would grant
+    /// it when the source is a bounds-checked parameter `cg`, SC027E
+    /// otherwise. Always null.
+    priv fn _no_conversion(self,
+                           n:       unsafe *TypeCastExpr,
+                           src:     unsafe *Type,
+                           target:  unsafe *Type,
+                           cg:      unsafe *Decl,
+                           bounded: bool) -> unsafe *Type {
         if cg != &null {
             self.dyn()->needs_bound(
                 n,
                 cg,
-                cbound.size() > 0,
+                bounded,
                 f"'as {self.dyn()->tu.str(target)}' on '{self.dyn()->tu.head_spelling(src)}' needs a bound that declares 'op as' returning '{self.dyn()->tu.str(target)}'",
             )
 

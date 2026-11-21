@@ -67,6 +67,7 @@ import AST::DeclFacts::{
     decl_instantiated_from,
     decl_is_imported,
     decl_is_instance,
+    decl_requires_clause,
     param_type_pack_param,
 }
 import AST::LangItems::{
@@ -174,6 +175,7 @@ import Sema::Type::OverloadResolution::{
     has_opaque_ffi,
 }
 import Sema::Type::Substitution::Substitution
+import Sema::Type::TypeUtil::constraint_conjuncts
 import Support::FlagSet::FlagSet
 import Token::TokenKind::{
     TokenKind,
@@ -1353,6 +1355,35 @@ pub class <T: type> CallTyping {
         return true
     }
 
+    /// `f`'s `impl` bounds, read off its own clause (its representative's
+    /// when it has none). The bound table holds only this module's
+    /// declarations, so an imported callee's bounds (a library function's,
+    /// a library type's constructor's) are read from the clause itself.
+    priv fn _impl_bounds_of(self,
+                            f: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *ConstraintExpr> {
+        var out = cxx::std::vector<unsafe *ConstraintExpr>()
+        if f == &null {
+            return out
+        }
+
+        var unsafe *req = f->requires_clause
+        if req == &null {
+            req = decl_requires_clause(
+                NameLookup::representative(unsafe (f as unsafe *Decl)),
+            )
+        }
+
+        var cs = cxx::std::vector<unsafe *ConstraintExpr>()
+        constraint_conjuncts(req, unsafe &cs)
+        for var i: usize = 0; i < cs.size(); ++i {
+            if !cs[i]->is_derives() {
+                out.push_back(cs[i])
+            }
+        }
+
+        return out
+    }
+
     /// `f`'s `impl` bounds where the call binds one of its parameters to a
     /// bounds-checked parameter of the CALLER (`one(x)` with `x: T` inside
     /// `fn <T> fwd`), a forwarded pack's elements included (`print_all(
@@ -1361,26 +1392,20 @@ pub class <T: type> CallTyping {
     /// instance, `fwd` compiled whatever it was given, and a non-conforming
     /// argument failed in C++ or not at all. A concrete argument is
     /// ConformanceChecking's, at the instance; a `: type` caller is C++'s.
-    priv fn _check_forwarded_bounds(self, n: *CallExpr, f: unsafe *FunctionDecl, r: *OvlResult) {
+    /// False on the first bound the caller's parameter does not grant,
+    /// reported at `n` unless `n` is null (a conversion's constructor rung
+    /// reports the conversion's own bound error instead).
+    fn check_forwarded_bounds(self,
+                              n: unsafe *CallExpr,
+                              f: unsafe *FunctionDecl,
+                              r: *OvlResult) -> bool {
         if f == &null || f->generic_params.size() == 0 {
-            return
+            return true
         }
 
-        var sc = self.dyn()->sc
-        var it = sc->bounds.find((unsafe (f as unsafe *Decl)) as usize as u64)
-        if it == sc->bounds.end() {
-            it = sc->bounds.find(
-                NameLookup::representative(unsafe (f as unsafe *Decl)) as usize as u64,
-            )
-
-            if it == sc->bounds.end() {
-                return
-            }
-        }
-
-        var _set = &it->second
-        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
-            var k  = _set->impl_constraints[i]
+        var ks = self._impl_bounds_of(f)
+        for var i: usize = 0; i < ks.size(); ++i {
+            var k  = ks[i]
             var id = dyn_cast<NamedIdentExpr>(k->lhs)
             if id == &null || k->rhs == &null || k->rhs->canonical == &null {
                 continue
@@ -1393,7 +1418,7 @@ pub class <T: type> CallTyping {
 
             var xs = cxx::std::vector<unsafe *Type>()
             if gp->is_pack {
-                if !r->ded.pack_elems(f, gp->index, &xs) {
+                if !r->ded.pack_elems(f, gp->index, unsafe &xs) {
                     continue
                 }
             } else {
@@ -1430,10 +1455,15 @@ pub class <T: type> CallTyping {
                     continue
                 }
 
-                self._report_forwarded(n, f, k, cgp, x, iface)
-                return
+                if n != &null {
+                    self._report_forwarded(n, f, k, cgp, x, iface)
+                }
+
+                return false
             }
         }
+
+        return true
     }
 
     /// `create<T>(args)` (and `@create T(args)`, its sugar): alloc.k hands
@@ -1553,7 +1583,7 @@ pub class <T: type> CallTyping {
 
     /// `print_all(args...)`: a pack forwarded whole has no type of its own
     /// (ExprTyper leaves the expansion unknown), so the call resolves as
-    /// Dependent and _check_forwarded_bounds never sees it. With ONE
+    /// Dependent and check_forwarded_bounds never sees it. With ONE
     /// candidate, the expansion fills its type pack, and each `impl` bound
     /// of that pack must be one of the forwarded pack's own, as for a
     /// single `T`. Overloads are left to the instance: which one the
@@ -1622,21 +1652,9 @@ pub class <T: type> CallTyping {
             return
         }
 
-        var sc = self.dyn()->sc
-        var it = sc->bounds.find((unsafe (f as unsafe *Decl)) as usize as u64)
-        if it == sc->bounds.end() {
-            it = sc->bounds.find(
-                NameLookup::representative(unsafe (f as unsafe *Decl)) as usize as u64,
-            )
-
-            if it == sc->bounds.end() {
-                return
-            }
-        }
-
-        var _set = unsafe &it->second
-        for var i: usize = 0; i < _set->impl_constraints.size(); ++i {
-            var k   = _set->impl_constraints[i]
+        var ks = self._impl_bounds_of(f)
+        for var i: usize = 0; i < ks.size(); ++i {
+            var k   = ks[i]
             var kid = dyn_cast<NamedIdentExpr>(k->lhs)
             if kid == &null || k->rhs == &null || k->rhs->canonical == &null {
                 continue
@@ -1661,7 +1679,7 @@ pub class <T: type> CallTyping {
     /// its bounds: the interface itself (at any arguments: a dependent
     /// mismatch is the instance's), or one deriving it. A `derives` bound is
     /// taken on trust: whether the base conforms is not read here.
-    priv fn _param_meets(self, x: *Type, iface: *Type) -> bool {
+    priv fn _param_meets(self, x: unsafe *Type, iface: unsafe *Type) -> bool {
         if self.dyn()->tu.bound_bases(x).size() > 0 {
             return true
         }
@@ -1705,12 +1723,12 @@ pub class <T: type> CallTyping {
     /// R025E when it has bounds and none is `iface`: ExprTyper::needs_bound's
     /// split, for a call instead of an operator.
     priv fn _report_forwarded(self,
-                              n:     *CallExpr,
-                              f:     *FunctionDecl,
-                              k:     *ConstraintExpr,
-                              cgp:   *GenericParamDecl,
-                              xt:    *Type,
-                              iface: *Type) {
+                              n:     unsafe *CallExpr,
+                              f:     unsafe *FunctionDecl,
+                              k:     unsafe *ConstraintExpr,
+                              cgp:   unsafe *GenericParamDecl,
+                              xt:    unsafe *Type,
+                              iface: unsafe *Type) {
         var pname   = self.dyn()->tu.decl_name(cgp)
         var fname   = self.dyn()->tu.decl_name(f)
         var is      = self.dyn()->tu.str(iface)
@@ -2751,7 +2769,7 @@ pub class <T: type> CallTyping {
         self._warn_unmarked(&args, &r)
         self._warn_unchecked_assumption(n, r.decl)
         self._write_arg_map(n, r.decl, args, &r)
-        self._check_forwarded_bounds(n, r.decl, &r)
+        self.check_forwarded_bounds(n, r.decl, &r)
         if !self._check_created_ctor(n, r.decl, &r) {
             self.dyn()->poison_only(n)
             return &null
@@ -3275,6 +3293,14 @@ pub class <T: type> CallTyping {
         self.finish_call_args(r.decl, unsafe &args, &r)
         self._warn_unmarked(unsafe &args, &r)
         self._write_arg_map(n, r.decl, args, &r)
+        // A generic constructor's bounds bind the caller's parameters as a
+        // generic function's do: `Box(a)` with `a: T` needs T's bounds to
+        // grant them.
+        if !self.check_forwarded_bounds(n, r.decl, &r) {
+            self.dyn()->poison_only(n)
+            return &null
+        }
+
         n->ctor_decl = r.decl
         if dep {
             n->value_category = Expr::ValueCategory::RValue

@@ -3704,8 +3704,9 @@ pub class <T: type> OperatorTyping {
     /// Null when `x` is no element or field, when the object is `self`
     /// (the `const self` rule has its own wording), or when the const came
     /// from elsewhere (an `op []` returning `*const T` on a mutable
-    /// container, a call's result).
-    priv fn _const_root(self, x: unsafe *Expr, via_ptr: *bool) -> unsafe *Decl {
+    /// container, a call's result). MemberTyping names the binding of a
+    /// split subscript write (`c.items[0] = v`) with it.
+    fn const_root(self, x: unsafe *Expr, via_ptr: *bool) -> unsafe *Decl {
         *via_ptr = false
         var unsafe *cur = x
         while true {
@@ -3864,7 +3865,7 @@ pub class <T: type> OperatorTyping {
         var by_owner = false
         var by_ptr   = false
         if (!by_decl) && vd == &null && pd == &null {
-            var unsafe *od = self._const_root(x, &by_ptr)
+            var unsafe *od = self.const_root(x, &by_ptr)
             if od != &null {
                 vd       = dyn_cast<VariableDecl>(od)
                 pd       = dyn_cast<ParamDecl>(od)

@@ -229,9 +229,22 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,    AdtRole,      AssignForm,       ClassDecl,     EnumDecl,  FieldDecl,
-    FnBodyKind, FunctionDecl, ImplicitTransfer, InterfaceDecl, ParamDecl, StorageClass,
-    StructDecl, TransferKind, TypeAliasDecl,    UnionDecl,
+    AbiKind,
+    AdtRole,
+    AssignForm,
+    ClassDecl,
+    EnumDecl,
+    FieldDecl,
+    FnBodyKind,
+    FunctionDecl,
+    ImplicitTransfer,
+    InterfaceDecl,
+    ParamDecl,
+    StorageClass,
+    StructDecl,
+    TransferKind,
+    TypeAliasDecl,
+    UnionDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -244,6 +257,7 @@ import AST::Node::PrimaryExpressions::{
 import AST::Node::Types::{
     FixedArrayType,
     FunctionPointerType,
+    GenericParamType,
     NullableType,
     PointerType,
 }
@@ -1634,20 +1648,30 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                     continue
                 }
 
-                var pf = self.facts_of_type(self._through(fd->type_->canonical))
-                if pf.in_progress { // a cycle; TypeCycleCheck's.
+                var fname = self.sc->ctx->get_spelling(fd->name)
+                var vname = self.sc->ctx->get_spelling(v->name)
+                // A field naming the pack of a pack-expanded variant is one
+                // field per element at an instance, so each element is
+                // folded: the pack substitutes as no single type.
+                var pes = cxx::std::vector<unsafe *Type>()
+                if v->is_pack_expansion && self._pack_elems(fd, unsafe &pes) {
+                    for var k: usize = 0; k < pes.size(); ++k {
+                        var ef = self.facts_of_type(pes[k])
+                        self._absorb_payload(
+                            f,
+                            unsafe &ef,
+                            f"the payload field '{fname}: {self._tu.str(pes[k])}' of variant '{vname}'",
+                        )
+                    }
+
                     continue
                 }
 
-                f->own_dtor_work = lifecycle_or(
-                    f->own_dtor_work,
-                    lifecycle_not(pf.trivial_dtor),
-                )
-
-                self._absorb(
+                var pf = self.facts_of_type(self._through(fd->type_->canonical))
+                self._absorb_payload(
                     f,
                     unsafe &pf,
-                    f"the payload field '{self.sc->ctx->get_spelling(fd->name)}' of variant '{self.sc->ctx->get_spelling(v->name)}'",
+                    f"the payload field '{fname}' of variant '{vname}'",
                 )
             }
         }
@@ -1675,6 +1699,44 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         f->in_progress = false
+    }
+
+    /// One payload field's facts `pf` folded into its ADT's `f`.
+    priv fn _absorb_payload(self,
+                            f:          unsafe *LifecycleFacts,
+                            pf:         unsafe *LifecycleFacts,
+                            const what: string) {
+        if pf->in_progress { // a cycle; TypeCycleCheck's.
+            return
+        }
+
+        f->own_dtor_work = lifecycle_or(
+            f->own_dtor_work,
+            lifecycle_not(pf->trivial_dtor),
+        )
+
+        self._absorb(f, pf, what)
+    }
+
+    /// The elements, in `out`, of the type pack payload field `fd` names
+    /// bare (`error: E`) at the instance being computed; false outside an
+    /// instance or for any other field.
+    priv fn _pack_elems(self,
+                        fd:  unsafe *FieldDecl,
+                        out: unsafe *cxx::std::vector<unsafe *Type>) -> bool {
+        if self._sub == &null {
+            return false
+        }
+
+        var unsafe *g = dyn_cast<GenericParamType>(
+            canon_unqual(fd->type_->canonical),
+        )
+
+        if g == &null || !g->is_pack {
+            return false
+        }
+
+        return self._sub->pack_elems(g->owner, g->param_index, out)
     }
 
     /// The weakest category folded facts allow (COPY > MOVE > NON_TRANSFER),

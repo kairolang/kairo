@@ -69,6 +69,7 @@ import AST::Context::InstantiationRegistry::{
 import AST::Context::SymbolTable::DeclName
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
+    decl_cxx_spelling,
     decl_extension_of,
     decl_fields,
     decl_generic_params,
@@ -89,6 +90,7 @@ import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
     AllocNames,
     GlobalAllocFn,
+    LowerTargets,
     WellKnownType,
 }
 import AST::Mixin::Annotation::VisibilityKind
@@ -2379,6 +2381,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             var d = Deduction(self.sc, &null)
             self._bind_instance(&d, e, prim)
+            self._bind_pack(&d, e, prim)
             self._reuse_in(e, h, &d, prim)
             return
         }
@@ -2708,12 +2711,15 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             }
 
             var bad: unsafe *Type = &null
+            var elem              = self._is_pack_element(site, prim)
             if isa<PackExpansionExpr>(site) {
                 bad = self._reuse_pack_element(
                     e,
                     cast<PackExpansionExpr>(site),
                     prim,
                 )
+            } else if elem {
+                bad = self._uncopyable_pack_arg(e, prim)
             } else if site->type_ != &null {
                 var unsafe *t = d->substitute(canon_unqual(site->type_))
                 if t != &null && !t->is_dependent() && !t->is_instantiation_dependent() {
@@ -2742,10 +2748,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 var cn  = self.sc->ctx->get_spelling(site->range)
                 var cts = self.tu.str(bad)
                 var cin = self._inst_name(e)
+                var why = if (elem) => (f"'{cn}' is an element of a pack, which a transfer copies")
+                          else => (f"'{cn}' is const, so the transfer cannot move it")
+
                 var cb = self.sc->diag->report(
                     DiagID::SC182E,
                     e->use_at.start,
-                    f"cannot copy a value of type '{cts}' in '{cin}': '{cn}' is const, so the transfer cannot move it",
+                    f"cannot copy a value of type '{cts}' in '{cin}': {why}",
                 )
 
                 cb.first(e->use_at, f"'{cin}' is instantiated here")
@@ -2865,6 +2874,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
+        return self._uncopyable_pack_arg(e, prim)
+    }
+
+    /// The position in an instance's arguments of generic function
+    /// `prim`'s type pack (after an extension's own parameters), or
+    /// usize(-1) when it has none.
+    priv fn _pack_arg_start(self, prim: unsafe *Decl) -> usize {
         var gps = decl_generic_params(prim)
         var k   = usize::MAX
         for var i: usize = 0; i < gps.size(); ++i {
@@ -2874,12 +2890,65 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         if k == usize::MAX {
-            return &null
+            return k
         }
 
         var unsafe *xd = decl_extension_of(prim)
         if xd != &null {
             k += decl_generic_params(unsafe (xd as unsafe *Decl)).size()
+        }
+
+        return k
+    }
+
+    /// `prim`'s type pack bound in `d` to its elements at instance `e`, so
+    /// a type that expands it (`Outcome<i32, E...>`) substitutes.
+    /// _bind_instance binds the pack's parameter as one type, which is
+    /// left as it is: this adds the pack row beside it.
+    priv fn _bind_pack(self, d: *Deduction, e: unsafe *InstanceEntry, prim: unsafe *Decl) {
+        var k = self._pack_arg_start(prim)
+        if k == usize::MAX {
+            return
+        }
+
+        var        gps = decl_generic_params(prim)
+        var unsafe *pr = NameLookup::representative(prim)
+        for var i: usize = 0; i < gps.size(); ++i {
+            if gps[i] == &null || !gps[i]->is_pack {
+                continue
+            }
+
+            d->open_pack(pr, gps[i]->index)
+            for var j: usize = k; j < e->args.size(); ++j {
+                d->push_pack(pr, gps[i]->index, e->args[j])
+            }
+        }
+    }
+
+    /// `site` is an element of `prim`'s own type pack (a `for a in args`
+    /// binder over `...args: T`): its type is the pack, bare.
+    priv fn _is_pack_element(self, site: unsafe *Expr, prim: unsafe *Decl) -> bool {
+        if prim == &null || site->type_ == &null {
+            return false
+        }
+
+        var unsafe *g = dyn_cast<GenericParamType>(canon_unqual(site->type_))
+        return g != &null
+            && g->is_pack
+            && NameLookup::representative(g->owner) == NameLookup::representative(
+                prim,
+            )
+    }
+
+    /// The first element of generic function `prim`'s type pack that
+    /// cannot be copied at instance `e`, or null. Its elements are `e`'s
+    /// arguments from the pack's position on (instance args are flat).
+    priv fn _uncopyable_pack_arg(self,
+                                 e:    unsafe *InstanceEntry,
+                                 prim: unsafe *Decl) -> unsafe *Type {
+        var k = self._pack_arg_start(prim)
+        if k == usize::MAX {
+            return &null
         }
 
         for var j: usize = k; j < e->args.size(); ++j {
@@ -3031,9 +3100,68 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             if ok && !self._value_preds_ok(e, prim, at, chain) {
                 ok = false
             }
+
+            if !self._std_hash_ok(e, prim, at, chain) {
+                ok = false
+            }
         }
 
         return ok
+    }
+
+    /// `std::hash<K>` for a Kairo record K: the default hasher a C++ hash
+    /// container keyed by K names (`cxx::std::unordered_map<K, V>`). Its
+    /// only definition is the specialization emitted over K's Hash row
+    /// (EmitPlan::_std_hash); with no row the primary, which libc++
+    /// disables for a type C++ was never told about, is what clang
+    /// instantiates. So K conforms to Hash here, as a `K impl Hash` bound's
+    /// argument does; a K that does not is SC162E at the use. False then.
+    priv fn _std_hash_ok(self,
+                         e:     unsafe *InstanceEntry,
+                         prim:  unsafe *Decl,
+                         at:    SourceRange,
+                         chain: unsafe *InstanceEntry) -> bool {
+        if e->args.size() != 1 || isa<Declarations::FunctionDecl>(prim) || !decl_is_imported(prim) {
+            return true
+        }
+
+        if !LowerTargets::is_cxx_std_hash(decl_cxx_spelling(prim)) {
+            return true
+        }
+
+        var unsafe *k = e->args[0]
+        if k == &null || k->is_dependent() || k->is_instantiation_dependent() {
+            return true
+        }
+
+        var unsafe *x = self._canon(k)
+        if x == &null || !isa<RecordType>(x) {
+            return true
+        }
+
+        var unsafe *xd = cast<RecordType>(x)->decl
+        if xd == &null || decl_is_imported(NameLookup::representative(xd)) {
+            return true
+        }
+
+        var unsafe *hd = self.sc->well_known->get(WellKnownType::Hash)
+        if hd == &null {
+            return true
+        }
+
+        var empty = cxx::std::vector<unsafe *Type>()
+        var unsafe *iface = self.sc->types->record(
+            NameLookup::representative(hd),
+            unsafe &empty,
+        )
+
+        var unsafe *row = self.conforms(x, iface)
+        if row != &null && row->ok {
+            return true
+        }
+
+        self._report(at, &null, x, iface, row, chain)
+        return false
     }
 
     /// The rows of the `impl` bounds of the extension `prim` is a member

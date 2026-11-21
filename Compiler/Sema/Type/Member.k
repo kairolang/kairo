@@ -1534,7 +1534,10 @@ pub class <T: type> MemberTyping {
     /// A write through a split subscript of a const container: `op []=`
     /// takes `self`, and the read form is no fallback for a write.
     /// Named after the container when a const binding is what made it
-    /// const, with the `var` fix-it on a local.
+    /// const, with the `var` fix-it on a local. A container reached
+    /// through fields of a const binding (`c.items[0]`) or of what a
+    /// pointer to const points to (`pc->items[0]`) keeps the place in the
+    /// message, and the note points at that binding.
     priv fn _const_split_write(self, n: *SubscriptExpr) {
         if n->is_poisoned() {
             return
@@ -1559,8 +1562,25 @@ pub class <T: type> MemberTyping {
             at = pd->name.range
         }
 
+        var direct = nm.size() > 0
+        var by_ptr = false
+        if !direct {
+            var unsafe *od = self.dyn()->const_root(n, &by_ptr)
+            if od != &null {
+                vd = dyn_cast<VariableDecl>(od)
+                pd = dyn_cast<ParamDecl>(od)
+                if vd != &null {
+                    nm = self.dyn()->sc->ctx->get_spelling(vd->name)
+                    at = vd->name.range
+                } else if pd != &null {
+                    nm = self.dyn()->sc->ctx->get_spelling(pd->name)
+                    at = pd->name.range
+                }
+            }
+        }
+
         var msg = f"cannot write through {self._use_text(n)}: its container is const, and 'op []=' takes 'self'"
-        if nm.size() > 0 {
+        if direct {
             msg = f"cannot write an element of '{nm}': '{nm}' is const, and 'op []=' takes 'self'"
         }
 
@@ -1572,11 +1592,15 @@ pub class <T: type> MemberTyping {
 
         b.first(n->range)
         if at.is_valid() {
-            b.note(at.start, f"'{nm}' declared const here")->child_first(at)
+            var why = if (by_ptr) => ("declared as a pointer to const here")
+                      else => "declared const here"
+            b.note(at.start, f"'{nm}' {why}")->child_first(at)
         }
 
+        // The pointee's const has no keyword to edit.
         if vd != &null
             && nm.size() > 0
+            && (!by_ptr)
             && vd->storage == StorageClass::Const
             && vd->storage_kw.is_valid() {
             b.fix(
