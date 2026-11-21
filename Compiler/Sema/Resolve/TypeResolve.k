@@ -112,8 +112,16 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinInfo, BuiltinKind,       BuiltinType,  QUAL_CONST,   QUAL_VOLATILE, QualifiedType,
-    RecordType,  builtin_for_token, builtin_info, canon_unqual,
+    BuiltinInfo,
+    BuiltinKind,
+    BuiltinType,
+    QUAL_CONST,
+    QUAL_VOLATILE,
+    QualifiedType,
+    RecordType,
+    builtin_for_token,
+    builtin_info,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -123,7 +131,12 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    BinaryOperatorExpr, CallExpr, ClosureExpr, ConstraintExpr, ParenExpr, TypeCastExpr,
+    BinaryOperatorExpr,
+    CallExpr,
+    ClosureExpr,
+    ConstraintExpr,
+    ParenExpr,
+    TypeCastExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -139,11 +152,25 @@ import AST::Node::Statements::{
     RangedForStmt,
 }
 import AST::Node::Types::{
-    CXXLValueRefType,    CXXRValueRefType,      ChainType,   FixedArrayType,
-    FunctionPointerType, GenericParamType,      MapType,     NullableType,
-    OpaqueFFIType,       PackExpansionType,     PointerType, SelfType,
-    SetType,             SubstGenericParamType, TupleType,   TypeExpr,
-    ValueOp,             VariadicPackType,      VectorType,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    ChainType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    MapType,
+    NullableType,
+    OpaqueFFIType,
+    PackExpansionType,
+    PointerType,
+    SelfType,
+    SetType,
+    SubstGenericParamType,
+    TupleType,
+    TypeExpr,
+    ValueOp,
+    VariadicPackType,
+    VectorType,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
@@ -4866,9 +4893,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
         // Backstop for the case the alias budget cannot catch: the alias sits
         // so deep inside other resolution work that the shared stack fills up
         // first. Different cause, so a different flag to name.
-        if self.sc->rstate.at_depth_limit() {
+        if self.sc->rstate.at_depth_limit(td) {
             var nm2  = self.sc->ctx->get_spelling(td->name)
-            var scap = self.sc->rstate.max_depth()
+            var scap = self.sc->rstate.max_depth_for(td)
             self.sc->diag->report(
                 DiagID::R036E,
                 at.start,

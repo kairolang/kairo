@@ -144,13 +144,13 @@ import Codegen::CodegenContext::{
     CodegenContext,
     CodegenPhase,
 }
-import Codegen::Emit::InterfaceEmitter::InterfaceEmitter
-import Codegen::Emit::Spell::Speller
-import Codegen::EmitPlan::{
+import Codegen::Interface::InterfaceEmitter::InterfaceEmitter
+import Codegen::Plan::EmitPlan::{
     EmitPlan,
     PlanMode,
 }
 import Codegen::Sink::TextSink::TextSink
+import Codegen::Spell::Spell::Speller
 import Diagnostic::Code::DiagCode
 import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Diagnostic::Registry::DiagID
@@ -160,8 +160,18 @@ import Driver::CompilerNative
 import Driver::CompilerRecovery
 import Driver::ObjectCache::ObjectCache
 import Driver::Progress::{
-    PROGRESS_CODEGEN, PROGRESS_EMIT, PROGRESS_IRGEN,  PROGRESS_OPT, PROGRESS_PARSE, PROGRESS_SEMA,
-    progress_begin,   progress_end,  progress_finish, progress_on,  progress_reuse, progress_tick,
+    PROGRESS_CODEGEN,
+    PROGRESS_EMIT,
+    PROGRESS_IRGEN,
+    PROGRESS_OPT,
+    PROGRESS_PARSE,
+    PROGRESS_SEMA,
+    progress_begin,
+    progress_end,
+    progress_finish,
+    progress_on,
+    progress_reuse,
+    progress_tick,
 }
 import Driver::TUResult::TUResult
 import Driver::TUStage::TUStage
@@ -612,6 +622,7 @@ pub class FrontendAction {
         // unbound and whichever pass needs one diagnoses it at the use.
         if pp_res.builtin_fid != u32::MAX {
             self._global_scope->set_builtin_fid(pp_res.builtin_fid)
+            self._mark_builtin_tree(pp_res.builtin_fid)
         }
 
         // error_count/warn_count are snapshotted once in run()'s finally block,
@@ -652,6 +663,36 @@ pub class FrontendAction {
         }
 
         return true
+    }
+
+    /// Marks every file under the builtin root, the root included, before
+    /// anything is parsed: the parser exempts library files from the user's
+    /// --cmax-scope-depth (VisibilityFacts::is_library_tu), and Sema reads the
+    /// same marks. Not gated on --no-builtins: that flag suppresses the
+    /// implicit import, not the builtin root's own compilation, and an
+    /// unmarked builtin file resolves `[T;]` against an empty lang-item table.
+    priv fn _mark_builtin_tree(self, bfid: u32) {
+        self._global_scope->mark_builtin_fid(bfid)
+        var bsym = self._ci->pp()->get_symbol_table()->intern(
+            builtin_root_name(),
+        )
+
+        for var i: usize = 0; i < self._fids.size(); ++i {
+            var fid = self._fids[i]
+            if fid == bfid || self._ci->is_foreign_fid(fid) {
+                continue
+            }
+
+            var unsafe *pctx = self._global_scope->get_context(fid)
+            if pctx == &null {
+                continue
+            }
+
+            var *psegs = &pctx->module_base.segments
+            if psegs->size() > 0 && (*psegs)[0].name == bsym {
+                self._global_scope->mark_builtin_fid(fid)
+            }
+        }
     }
 
     priv fn _parse(self) -> bool {
@@ -1177,11 +1218,8 @@ pub class FrontendAction {
         // path by SPELLING path_segments, and a synthesized node has none to
         // spell; a wildcard fold reads resolved_fid and never looks at the path.
         //
-        // MARKING is not gated on --no-builtins, only injection is: that flag
-        // suppresses the implicit import, not the builtin root's own compilation.
-        // The builtin files are still parsed and type-resolved either way, and an
-        // unmarked one resolves `[T;]` against an empty lang-item table and
-        // reports the item missing from inside Lib/builtin itself.
+        // The builtin files were marked after the preprocess
+        // (_mark_builtin_tree); only injection is decided here.
         var bfid = self._global_scope->builtin_fid()
         if bfid != u32::MAX {
             var bsym = self._ci->pp()->get_symbol_table()->intern(
@@ -1189,7 +1227,6 @@ pub class FrontendAction {
             )
 
             var inject = !self._ci->invocation()->pp.no_builtins
-            self._global_scope->mark_builtin_fid(bfid) // the loop skips the root below.
             // Which library this is, off the root's own table: the parser
             // froze it, and no TU's Sema has started.
             self._global_scope->well_known()->set_two_word(
@@ -1229,7 +1266,6 @@ pub class FrontendAction {
                     if psegs->size() > 0 {
                         var phead = (*psegs)[0]
                         if phead.name == bsym {
-                            self._global_scope->mark_builtin_fid(fid)
                             continue
                         }
                     }

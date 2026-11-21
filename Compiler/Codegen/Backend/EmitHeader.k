@@ -28,13 +28,13 @@ import Codegen::CodegenContext::{
     CodegenPhase,
 }
 import Codegen::Emit::EmitIR::EmitIR
-import Codegen::Emit::InterfaceEmitter::InterfaceEmitter
-import Codegen::Emit::Spell::Speller
-import Codegen::EmitPlan::{
+import Codegen::Interface::InterfaceEmitter::InterfaceEmitter
+import Codegen::Plan::EmitPlan::{
     EmitPlan,
     PlanMode,
 }
 import Codegen::Sink::TextSink::TextSink
+import Codegen::Spell::Spell::Speller
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceRange::SourceRange
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable

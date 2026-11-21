@@ -12,18 +12,18 @@
 ///     per concern, reaching the fields as `prot` (Codegen/module.k makes
 ///     Codegen/ one module); a helper only its own part calls stays `priv`
 ///     there:
-///       EmitIRDecls.k      function, method and foreign template bodies
-///       EmitIRCtors.k      split constructors, mem-initializer lists
-///       EmitIRLocals.k     locals, namespace-scope variables, union storage
-///       EmitIRStmts.k      the statement dispatcher, return, yield, if, try
-///       EmitIRLoops.k      for, while, switch dispatch, eval for, pack for
-///       EmitIRExprs.k      the expression dispatcher, closures, small forms
-///       EmitIRConvert.k    a value converted to its target type, casts
-///       EmitIRNames.k      names and member chains
-///       EmitIRCalls.k      calls and their arguments
-///       EmitIRLiterals.k   literals and initializers
-///       EmitIROperators.k  unary, binary and assignment operators
-///       EmitIRForms.k      the checked arithmetic and binding forms
+///       Decls.k            function, method and foreign template bodies
+///       Ctors.k            split constructors, mem-initializer lists
+///       Locals.k           locals, namespace-scope variables, union storage
+///       Stmts.k            the statement dispatcher, return, yield, if, try
+///       Loops.k            for, while, switch dispatch, eval for, pack for
+///       Exprs.k            the expression dispatcher, closures, small forms
+///       Convert.k          a value converted to its target type, casts
+///       Names.k            names and member chains
+///       Calls.k            calls and their arguments
+///       Literals.k         literals and initializers
+///       Operators.k        unary, binary and assignment operators
+///       Forms.k            the checked arithmetic and binding forms
 ///
 ///   \par The core, and nothing else
 ///     This emitter knows the C++-shaped core: names, chains, calls,
@@ -154,8 +154,17 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, EnumDecl,   ExtensionDecl, FieldFold, FunctionDecl, GenericParamDecl,
-    ParamDecl, StructDecl, TypeAliasDecl, UnionDecl, VariableDecl,
+    ClassDecl,
+    EnumDecl,
+    ExtensionDecl,
+    FieldFold,
+    FunctionDecl,
+    GenericParamDecl,
+    ParamDecl,
+    StructDecl,
+    TypeAliasDecl,
+    UnionDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
     ClosureExpr,
@@ -178,14 +187,14 @@ import Codegen::CodegenContext::{
     CodegenPhase,
 }
 import Codegen::CodegenICE::codegen_ice
-import Codegen::Emit::EmitIRDecls
-import Codegen::Emit::EmitIRExprs
-import Codegen::Emit::EmitIRLocals
-import Codegen::Emit::EmitIRStmts
-import Codegen::Emit::Spell::Speller
-import Codegen::EmitPlan::EmitPlan
-import Codegen::PlanVisitors::EarlyNeeds
-import Codegen::PlanVisitors::HoistedLocals
+import Codegen::Emit::Decls
+import Codegen::Emit::Exprs
+import Codegen::Emit::Locals
+import Codegen::Emit::Stmts
+import Codegen::Plan::EmitPlan::EmitPlan
+import Codegen::Plan::Visitors::EarlyNeeds
+import Codegen::Plan::Visitors::HoistedLocals
+import Codegen::Spell::Spell::Speller
 import Config::Target::ObjectFormat
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange

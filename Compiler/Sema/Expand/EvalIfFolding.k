@@ -137,8 +137,16 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    AlignOfExpr, BinaryOperatorExpr, CallExpr,      ClosureExpr,       DefinedExpr, ParenExpr,
-    SizeOfExpr,  TypeTraitExpr,      TypeTraitKind, UnaryOperatorExpr,
+    AlignOfExpr,
+    BinaryOperatorExpr,
+    CallExpr,
+    ClosureExpr,
+    DefinedExpr,
+    ParenExpr,
+    SizeOfExpr,
+    TypeTraitExpr,
+    TypeTraitKind,
+    UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
@@ -171,7 +179,7 @@ import Sema::Check::ClassLifecycle::{
 }
 import Sema::Check::ConstEval::ConstEval
 import Sema::Expand::DeclaredQuery::DeclaredQuery
-import Sema::Lower::EnumLayoutLowering::EnumLayoutQuery
+import Sema::Lower::EnumLayout::EnumLayoutQuery
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext

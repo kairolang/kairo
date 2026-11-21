@@ -30,7 +30,7 @@ Compiler/
 │                   MacroHeaderGrammar)
 ├── Sema/           Compiler/Spec/Pipeline.md (pass spec), Compiler/Spec/Imports.md
 │   │               (import/overlay model); Sema.k schedules, SemaContext.k
-│   │               carries state, SemaDump.k is --print-sema; Sema/README
+│   │               carries state, SemaDump.k is --print-sema
 │   ├── Resolve/    name, member, type and import resolution, chain binding,
 │   │               redeclaration merge, access checks
 │   ├── Type/       expression typing, calls, casts, conversions, overloads,
@@ -51,14 +51,20 @@ Compiler/
 │   │               rules (Plan), taking re-checked files back out of the
 │   │               instantiation registry (Retract)
 │   └── Lower/      Kairo -> core-Kairo rewrites that feed Codegen
-├── Codegen/        Compiler/Spec/Codegen.md; checked tree -> tokens -> object:
-│   │               the emit plan and its read-only walks, the codegen
-│   │               context, ICE reports naming the program node; a large
-│   │               class (the plan, an emitter, the speller) spans files,
-│   │               one `extend` per concern, listed in its own file's header
-│   ├── Emit/       the emitters: bodies, declarations and interfaces,
-│   │               interface witnesses, C++ name spelling, builtin operators
-│   │               on a type C++ decides
+├── Codegen/        Compiler/Spec/Codegen.md; checked tree -> tokens -> object.
+│   │               What every part shares lives here: the codegen context
+│   │               (CodegenContext), ICE reports naming the program node
+│   │               (CodegenICE), the builtin-operator forms on a type C++
+│   │               decides (WrapForms). A large class (the plan, an
+│   │               emitter, the speller) spans files, one `extend` per
+│   │               concern, listed in its head file's header
+│   ├── Plan/       the emit plan (EmitPlan.k is the class) and the read-only
+│   │               tree walks it and the body emitter run (Visitors)
+│   ├── Spell/      the one C++ speller (Spell.k is the class): types,
+│   │               names, namespaces, constraints, record spellings
+│   ├── Interface/  declarations: InterfaceEmitter.k writes a plan as C++
+│   │               declarations; Witness.k the interface witnesses
+│   ├── Emit/       bodies: EmitIR.k is the class, one file per concern
 │   ├── Sink/       what the emitters write through: located clang tokens,
 │   │               text (--print-cxx, headers), the object cache's hash; the
 │   │               token stream printer
@@ -451,7 +457,7 @@ Per-Action pipeline (parallelism shown explicitly):
         |  ONE BARRIER, the Typed barrier: every TU of a  |   Sema/Check/EffectPropagation.k
         |  group reaches Typed, then the build-wide       |
         |  EffectTable solves the group's inferred panic  |
-        |  sets to one fixpoint; then each TU goes on to  |   Sema/Check/PanicEffectChecking.k
+        |  sets to one fixpoint; then each TU goes on to  |   Sema/Check/PanicEffect.k
         |  the late checks (panic effects, eval usage,    |
         |  feature gates).                                |
         |                                                 |
@@ -464,11 +470,11 @@ Per-Action pipeline (parallelism shown explicitly):
         |  Mono (Compiler/Spec/Generics.md): a generic    |   AST/Context/
         |  body is checked once against its bounds, never |   InstantiationRegistry.k
         |  per instance. T, X and the reach mint          |   Sema/Check/
-        |  instances into the build-wide registry's       |   ConformanceChecking.k
+        |  instances into the build-wide registry's       |   Check/Conformance.k
         |  worklist; M1 drains it, and EmitPlan homes     |
         |  each instance, named or reached through a      |
         |  body, as a clang specialization. Instance      |
-        |  facts come by substitution into the bounds: M2 |   Sema/Lower/PanicLowering.k
+        |  facts come by substitution into the bounds: M2 |   Sema/Lower/Panic.k
         |  forms each live instance's panic results and   |   (PanicInstances)
         |  sweeps ADT layout again; lifecycle and         |
         |  conformance rows are computed when an instance |
@@ -477,7 +483,7 @@ Per-Action pipeline (parallelism shown explicitly):
                                 v
         *=================================================*
         |  CODEGEN -- always fully parallel over TUs      |   Spec/Codegen.md
-        |  construct a clang::Token stream into a custom  |   Codegen/EmitPlan.k, Emit/*
+        |  construct a clang::Token stream into a custom  |   Codegen/Plan/EmitPlan.k, Emit/*
         |  inline buffer; SourceLocs point into .k.       |   Codegen/Sink/TokenSink.k
         |  Invoke Clang cleanly as a guest -> object.     |   Codegen/Backend/CodegenBackend.k
         |  Each TU loads the merged header PCH (and the   |
@@ -599,30 +605,30 @@ map, no proxy file.
               *-----------*-----------*
                           |  on  #include "foo.k"
                           v
-              *-------------------------------*
-              |  FileTokenizer hook fires     |   Lexer::LexPrebuiltToken
-              |  name ends with .k -> yield   |   CLK_PrebuiltTokenLexer
-              |  prebuilt Kairo token vector  |
-              *---------------*---------------*
+          *-------------------------------*
+          |  FileTokenizer hook fires     |   Lexer::LexPrebuiltToken
+          |  name ends with .k -> yield   |   CLK_PrebuiltTokenLexer
+          |  prebuilt Kairo token vector  |
+          *---------------*---------------*
                           |  calls into Kairo-core as a lib
                           v
-              *-------------------------------*
-              |  Kairo pipeline (as a lib)    |   same core as Pipeline 1:
-              |  foo.k went through Sema and  |   Driver/KairoIncludes.k
-              |  lowering before any C/C++    |   Interop/Clang/KairoInclude.k
-              |  input compiles; emit its     |   Codegen/Backend/IncludeEmitter.k
-              |  interface as clang::Tokens   |
-              |  located into foo.k           |
-              *---------------*---------------*
+          *-------------------------------*
+          |  Kairo pipeline (as a lib)    |   same core as Pipeline 1:
+          |  foo.k went through Sema and  |   Driver/KairoIncludes.k
+          |  lowering before any C/C++    |   Interop/Clang/KairoInclude.k
+          |  input compiles; emit its     |   Codegen/Backend/IncludeEmitter.k
+          |  interface as clang::Tokens   |
+          |  located into foo.k           |
+          *---------------*---------------*
                           |  tokens handed back to the hook
                           v
-              *--------------------------------*
-              |  Clang resumes                 |   include stack pops via
-              |  consumes the .k tokens as if  |   HandleEndOfFile
-              |  part of the TU, continues .cc |
-              *---------------*----------------*
-                              v
-               Clang Codegen -> object -> link
+          *--------------------------------*
+          |  Clang resumes                 |   include stack pops via
+          |  consumes the .k tokens as if  |   HandleEndOfFile
+          |  part of the TU, continues .cc |
+          *---------------*----------------*
+                          v
+            Clang Codegen -> object -> link
 
 Token-construction model is identical to Pipeline 1's CodeGen: tokens in
 memory, located into .k. The only difference is who asked for them, here

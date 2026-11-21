@@ -98,8 +98,14 @@ ffi "c++" import "vector"
 import AST::ASTSupport::FrozenList
 import AST::Context::InstantiationRegistry::InstantiationRegistry
 import AST::DeclFacts::{
-    decl_clang,       decl_generic_params, decl_instantiated_from, decl_is_imported,
-    decl_is_instance, decl_origin_set,     decl_pattern,           decl_type_owner,
+    decl_clang,
+    decl_generic_params,
+    decl_instantiated_from,
+    decl_is_imported,
+    decl_is_instance,
+    decl_origin_set,
+    decl_pattern,
+    decl_type_owner,
 }
 import AST::EnumNiche::{
     adt_declared_tag_kind,
@@ -111,7 +117,13 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,  BuiltinType, QUAL_CONST, QUAL_VOLATILE, QualifiedType, RecordType, builtin_info,
+    BuiltinKind,
+    BuiltinType,
+    QUAL_CONST,
+    QUAL_VOLATILE,
+    QualifiedType,
+    RecordType,
+    builtin_info,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -120,15 +132,30 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,    ClassDecl,    EnumDecl,  FieldDecl, FnBodyKind, FunctionDecl, GenericParamDecl,
-    StructDecl, TransferKind, UnionDecl,
+    AbiKind,
+    ClassDecl,
+    EnumDecl,
+    FieldDecl,
+    FnBodyKind,
+    FunctionDecl,
+    GenericParamDecl,
+    StructDecl,
+    TransferKind,
+    UnionDecl,
 }
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
-    NullableType,     OpaqueFFIType,    PointerType,    TypeExpr,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    NullableType,
+    OpaqueFFIType,
+    PointerType,
+    TypeExpr,
 }
 import Codegen::CodegenContext::CodegenContext
-import Codegen::Emit::Spell::Speller
+import Codegen::Spell::Spell::Speller
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Sema::Foreign::ForeignRegistry::ForeignRegistry
 import Sema::Foreign::TypeImport::TypeImport

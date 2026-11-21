@@ -93,8 +93,15 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,   BuiltinKind,  QUAL_CONST, QUAL_VOLATILE, RecordType, builtin_info, canon_has_const,
-    canon_quals, canon_unqual,
+    AssocType,
+    BuiltinKind,
+    QUAL_CONST,
+    QUAL_VOLATILE,
+    RecordType,
+    builtin_info,
+    canon_has_const,
+    canon_quals,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -102,7 +109,13 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, EnumDecl, FunctionDecl, ParamDecl, SpecKind, TransferKind, VariableDecl,
+    ClassDecl,
+    EnumDecl,
+    FunctionDecl,
+    ParamDecl,
+    SpecKind,
+    TransferKind,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -113,8 +126,15 @@ import AST::Node::Expressions::{
     UnaryOperatorExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
-    NullableType,     OpaqueFFIType,    PointerType,    TypeExpr,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    NullableType,
+    OpaqueFFIType,
+    PointerType,
+    TypeExpr,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
@@ -123,7 +143,7 @@ import Diagnostic::NoteText::declared_here
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
-import Sema::Check::ConformanceChecking::{
+import Sema::Check::Conformance::{
     ClauseFalse,
     ConformanceChecking,
 }

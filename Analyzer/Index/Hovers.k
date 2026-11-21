@@ -88,7 +88,7 @@ import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Resolution::ModulePath::path_separator
-import Sema::Lower::EnumLayoutLowering::EnumLayoutQuery
+import Sema::Lower::EnumLayout::EnumLayoutQuery
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
     SemaContext,

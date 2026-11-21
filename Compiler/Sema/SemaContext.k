@@ -68,7 +68,13 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtRole, EnumDecl, FunctionDecl, GenericParamDecl, ImportDecl, SpecKind, StructDecl,
+    AdtRole,
+    EnumDecl,
+    FunctionDecl,
+    GenericParamDecl,
+    ImportDecl,
+    SpecKind,
+    StructDecl,
 }
 import AST::Node::Expressions::ConstraintExpr
 import AST::VisibilityFacts::{
@@ -673,8 +679,12 @@ pub class SemaContext {
         }
 
         if ctx->ci != &null {
+            // A library TU's frames are all the library's.
+            var lib_cap = ctx->ci->frontend.library_scope_depth() as usize
             self.rstate.set_max_depth(
-                ctx->ci->frontend.max_scope_depth as usize,
+                if (self.in_library()) => (lib_cap)
+                else => (ctx->ci->frontend.max_scope_depth as usize),
+                lib_cap,
             )
         }
 

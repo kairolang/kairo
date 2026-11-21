@@ -62,7 +62,12 @@ ffi "c++" import "memory"
 import AST::Context::ASTContext::ASTContext
 import AST::Context::InstantiationRegistry::InstantiationRegistry
 import Codegen::Backend::CodegenAction::{
-    EmitKind,    KairoEmitAsm, KairoEmitLLVMBC, KairoEmitLLVMIR, KairoEmitObj, KairoInject,
+    EmitKind,
+    KairoEmitAsm,
+    KairoEmitLLVMBC,
+    KairoEmitLLVMIR,
+    KairoEmitObj,
+    KairoInject,
     TokenFiller,
 }
 import Codegen::Backend::IncludeEmitter::IncludedDecls
@@ -77,8 +82,8 @@ import Codegen::CodegenContext::{
 }
 // Backend/ is the ONLY directory that imports emitters (see header).
 import Codegen::Emit::EmitIR::EmitIR
-import Codegen::Emit::InterfaceEmitter::InterfaceEmitter
-import Codegen::EmitPlan::{
+import Codegen::Interface::InterfaceEmitter::InterfaceEmitter
+import Codegen::Plan::EmitPlan::{
     EmitPlan,
     PlanEntry,
     PlanLease,

@@ -1,0 +1,440 @@
+/// --- The Kairo Project ----------------------- Sema/Lower/FieldInit.k --- ///
+///
+/// A field's initializer becomes its C++ default member initializer:
+/// a constant spelled in the class, or a call of a member function
+/// whose body is the initializer.
+///
+///   \detail
+///       class A { var n: i32 = 5   var d: i32 = add(tick(1), tick(2)) }
+///     ->
+///       class A {
+///           var n: i32                                  init_fold: Int 5
+///           var d: i32                                  init_thunk: __kairo_init_d
+///           fn __kairo_init_d(self) -> i32 { return add(tick(1), tick(2)) }
+///       }
+///
+///     InterfaceEmitter writes `signed int n = 5;` and
+///     `signed int d = __kairo_init_d();`. C++ runs a default member
+///     initializer in exactly the constructors that do not initialize the
+///     field themselves: the implicit one, a declaration with no
+///     initializer, a user constructor that leaves the field alone, a
+///     designated struct literal that omits it. A defaulted copy or move does
+///     not run it. That is Kairo's default.
+///
+///   \par Constants
+///     An integer field whose initializer ConstEval folds, a bool field
+///     initialized with `true` or `false`, and a raw pointer field
+///     initialized with `&null` keep no code at all: the value is recorded on
+///     the field (FieldDecl::init_fold) and the emitter spells it. Nothing
+///     about it differs between TUs, it names no function, and it is the
+///     common case.
+///
+///   \par Everything else
+///     Becomes the body of a member function. Written into the class, the
+///     expression would break three things: a class definition is the same
+///     bytes in every TU and carries no user-written body (Compiler/Spec/Imports.md
+///     Pipeline.md invariant 25), while an initializer may call a function that tier 2
+///     declares only after every class, or one private to its own file; its
+///     identifiers index its own file's tables; and the passes after this
+///     one rewrite it into statement expressions, which clang rejects at
+///     class scope. As a member's body it goes out of line, after every
+///     declaration, by the path every method takes (a generic record's
+///     through visible_bodies).
+///
+///     A method, not a static: a field default keeps the type body's scope
+///     (Compiler/Spec/Pipeline.md, the explicit-qualifier rule), so it may name another
+///     member bare, and EmitIR's spelling of that member is read through
+///     `this`. C++ runs default member initializers in declaration order,
+///     so a member named this way is already built when it is read
+///     provided it is declared earlier; InitCheck rejects any other. `self`
+///     itself is not in scope in an initializer (R020E), so the body never
+///     names the minted one.
+///
+///     The expression MOVES: `init` is null afterwards, one node with one
+///     parent, so no later pass rewrites it twice, not even for a field in
+///     a visibility group, which a walk reaches through the group as well.
+///
+///   \par Statics
+///     A static field is lowered the same two ways, but what C++ does with
+///     the result differs: a static is no part of an object, so it has no
+///     default member initializer. InterfaceEmitter declares it in the class
+///     and defines it after the class, `inline T R::s = <init>;` -- a
+///     constant spelled as it is (and `constinit`), a thunk called. The thunk
+///     takes no `self` (there is no object to read through), which makes it
+///     a static member: the definition's initializer is in the class's
+///     scope, so it calls the thunk by leaf exactly as a default does.
+///
+///   \par Eval fields
+///     An eval field is static (FieldDecl::is_static), lowered as a static
+///     is: a constant is recorded, anything else becomes a static thunk,
+///     marked `eval` so it is C++ `consteval`. The definition is
+///     `inline constexpr T const R::k = <constant>;` after the class, or,
+///     for a thunk, the same with `= R::__kairo_init_k()` written by EmitIR
+///     after the thunk's body: a consteval function must be DEFINED where
+///     a constant expression calls it, and the class's out-of-line statics
+///     come before any body (Compiler/Spec/Eval.md#eval-bindings).
+///
+///   \par Arrays
+///     No C++ function returns an array, so an array field's list literal is
+///     lowered one ELEMENT at a time: each element becomes a thunk returning
+///     the element type, and the default is `= {__kairo_init0_a(), ...}`
+///     (FieldFold::Elems).
+///
+///         class A { var a: [Frame; 2] = [.Idle, .Busy] }
+///       ->
+///         var a: [Frame; 2]                init_elems: __kairo_init0_a, __kairo_init1_a
+///         fn __kairo_init0_a(self) -> Frame { return .Idle }
+///         fn __kairo_init1_a(self) -> Frame { return .Busy }
+///
+///     An array of arrays is lowered to its LEAVES, in row-major order (a
+///     thunk returns no array either): `[[1, 2], [3, 4]]` is four thunks,
+///     and InterfaceEmitter writes `= {{t0(), t1()}, {t2(), t3()}}` from the
+///     field's type. A static array field is lowered the same way, its
+///     thunks static, and the list is its out-of-line definition's
+///     initializer (Statics).
+///
+///   \par Not lowered
+///     An eval array field keeps `init` (TypeUtil::array_field_list): its
+///     definition is `constexpr`, written after ONE consteval thunk's body
+///     (EmitIR::_eval_field_def), and an element list would need it after
+///     the last of several. FeatureGateCheck rejects it (SC116E) before this
+///     pass runs. An initializer that copies an array (anything but a list
+///     literal, at any level) is SC083E in the typer. Reaching either here
+///     is a hole in those checks, and InterfaceEmitter ICEs on it.
+///
+///   Phase: LOWER, after ExprBodyDesugar and before every other pass that
+///   rewrites a body, so each of them meets the initializer as an ordinary
+///   `return`.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
+
+ffi "c++" import "vector"
+
+import AST::ASTSupport::FrozenList
+import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::LowerTargets
+import AST::Mixin::Annotation::VisibilityKind
+import AST::Node::Base::{
+    Decl,
+    Expr,
+    Stmt,
+    Type,
+}
+import AST::Node::CanonicalNodes::canon_unqual
+import AST::Node::Casting::{
+    cast,
+    isa,
+}
+import AST::Node::Declarations::{
+    ClassDecl,
+    FieldDecl,
+    FieldFold,
+    FnModifier,
+    FunctionDecl,
+    ParamDecl,
+    StructDecl,
+    UnionDecl,
+}
+import AST::Node::PrimaryExpressions::{
+    BooleanLiteralExpr,
+    NullLiteralExpr,
+}
+import AST::Node::Statements::{
+    CompoundStmt,
+    ReturnStmt,
+}
+import AST::Visitor::ASTWriter::{
+    ASTWriter,
+    ListRewriter,
+}
+import Sema::Check::ConstEval::ConstEval
+import Sema::Lower::LowerStep::LowerStep
+import Sema::Lower::LowerSynth::LowerSynth
+import Sema::SemaContext::{
+    SemaContext,
+    SemaPhase,
+}
+import Sema::Type::TypeUtil::TypeUtil
+pub class FieldInitLowering derives ASTWriter<FieldInitLowering> {
+    pub var  sc:    unsafe *SemaContext
+    priv var tu:    TypeUtil
+    priv var synth: LowerSynth
+    priv var ce:    ConstEval
+
+    // Never transferred: a pass is built where it runs. ASTWriter is
+    // copyable, which a non-transferable class may derive and a move-only
+    // one may not.
+    @copy fn FieldInitLowering(self, const other: Self) = delete
+    @move fn FieldInitLowering(self, other: Self) = delete
+
+    fn FieldInitLowering(self, sc: unsafe *SemaContext) {
+        self.sc    = sc
+        self.ctx   = sc->ctx
+        self.tu    = TypeUtil(sc)
+        self.synth = LowerSynth(sc)
+        self.ce    = ConstEval(sc)
+    }
+
+    fn run(self) {
+        self.sc->require_phase(SemaPhase::Checked)
+        self.sc->begin_lower(LowerStep::FieldInit)
+        if self.sc->tu == &null {
+            return
+        }
+
+        ASTWriter<FieldInitLowering>::run(self, self.sc->tu)
+    }
+
+    /// # the records that carry defaults
+
+    fn transform_class_decl(self, n: unsafe *ClassDecl) -> cxx::std::vector<unsafe *Decl> {
+        var out = ASTWriter<FieldInitLowering>::transform_class_decl(self, n)
+        self._lower_fields(n, n->fields, unsafe &n->methods)
+        return out
+    }
+
+    fn transform_struct_decl(self, n: unsafe *StructDecl) -> cxx::std::vector<unsafe *Decl> {
+        var out = ASTWriter<FieldInitLowering>::transform_struct_decl(self, n)
+        self._lower_fields(n, n->fields, unsafe &n->methods)
+        return out
+    }
+
+    fn transform_union_decl(self, n: unsafe *UnionDecl) -> cxx::std::vector<unsafe *Decl> {
+        var out = ASTWriter<FieldInitLowering>::transform_union_decl(self, n)
+        self._lower_fields(n, n->fields, unsafe &n->methods)
+        return out
+    }
+
+    /// Each initializer folded or turned into a thunk, the thunks appended
+    /// to `methods` in field order. A record reached a second time (a
+    /// nested one written inside a visibility group) finds every
+    /// initializer already consumed and changes nothing.
+    priv fn _lower_fields(self,
+                          owner:   unsafe *Decl,
+                          fields:  FrozenList<unsafe *FieldDecl>,
+                          methods: unsafe *FrozenList<unsafe *FunctionDecl>) {
+        if owner->is_poisoned() {
+            return
+        }
+
+        var rw = self.rewriter<unsafe *FunctionDecl>(methods)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
+            if f == &null || f->init == &null {
+                continue
+            }
+
+            if !f->is_poisoned()
+                && !f->init->is_poisoned()
+                && self.tu.array_field_list(f) != &null {
+                self._mint_elems(f, unsafe &rw)
+                continue
+            }
+
+            if self._kept(f) {
+                continue
+            }
+
+            if self._fold(f) {
+                continue
+            }
+
+            rw.append(self._mint(f))
+        }
+
+        rw.apply()
+    }
+
+    /// The initializers that stay on the field (file header, Not lowered),
+    /// and a poisoned one, which is not this pass's to judge.
+    priv fn _kept(self, f: unsafe *FieldDecl) -> bool {
+        if f->is_poisoned() || f->init->is_poisoned() || f->type_ == &null {
+            return true
+        }
+
+        var unsafe *c = canon_unqual(f->type_->canonical)
+        return c != &null && c->kind == TypeKind::FixedArrayType
+    }
+
+    /// A constant the emitter can spell (file header, Constants), recorded
+    /// on the field. An integer that does not fit the field's type is left
+    /// to the thunk, where C++ converts it as the typer allowed.
+    priv fn _fold(self, f: unsafe *FieldDecl) -> bool {
+        var unsafe *t = f->type_->canonical
+        var unsafe *e = f->init
+        if self.tu.is_integer(t) {
+            var c = self.ce.eval_int(e)
+            if !c.ok || c.overflow || !self.ce.fits(c, t) {
+                return false
+            }
+
+            f->init_fold = FieldFold::Int
+            f->init_neg  = c.neg
+            f->init_mag  = c.mag
+        } else if self.tu.is_bool(t) && isa<BooleanLiteralExpr>(e) {
+            f->init_fold = if (cast<BooleanLiteralExpr>(e)->value) => (FieldFold::True)
+                           else => FieldFold::False
+        } else if self.tu.is_unsafe_ptr(t)
+            && isa<NullLiteralExpr>(e)
+            && cast<NullLiteralExpr>(e)->is_ref {
+            f->init_fold = FieldFold::Null
+        } else {
+            return false
+        }
+
+        f->init = &null
+        return true
+    }
+
+    /// `fn __kairo_init_<f>(self) -> T { return <init> }`, a member of the
+    /// field's record, stamped on the field. No generic parameters of its
+    /// own: a generic record's are the template head its out-of-line
+    /// definition is written under. A static field's thunk has no `self`
+    /// (file header, Statics).
+    priv fn _mint(self, f: unsafe *FieldDecl) -> unsafe *FunctionDecl {
+        var unsafe *e = f->init
+        var unsafe *th = self._thunk(
+            f,
+            e,
+            LowerTargets::field_init_thunk(
+                self.tu.decl_name(unsafe (f as unsafe *Decl)),
+            ),
+            f->type_,
+        )
+
+        f->init       = &null            // moved: one node, one parent.
+        f->init_fold  = FieldFold::Thunk
+        f->init_thunk = th
+        return th
+    }
+
+    /// `fn <name>(self) -> <rt> { return <e> }` in `f`'s record: the thunk
+    /// of a field's whole initializer, or of one element of it.
+    priv fn _thunk(self,
+                   f:          unsafe *FieldDecl,
+                   e:          unsafe *Expr,
+                   const name: string,
+                   rt:         unsafe *Type) -> unsafe *FunctionDecl {
+        var at = e->range
+        var unsafe *th = FunctionDecl::create_synth(
+            self.ctx,
+            at,
+            self.synth.ident(at, name),
+            f->semantic_dc,
+        )
+
+        th->semantic_dc = f->semantic_dc
+        th->lexical_dc  = f->semantic_dc
+        th->visibility  = VisibilityKind::Public
+        th->is_implicit = true
+        th->return_type = rt
+        // An eval field's value is computed by C++ at compile time: its thunk
+        // is `consteval`, and EmitIR writes the field's `constexpr`
+        // definition right after the thunk's body (Compiler/Spec/Eval.md#eval-bindings).
+        if f->is_eval() {
+            th->modifiers = th->modifiers | FnModifier::IsEval
+        } // An eval class's default runs inside its eval (consteval)
+        // constructor, at compile time, and in any other constructor at run
+        // time: `constexpr`, which is both, and so inline (Compiler/Spec/Eval.md#eval-classes).
+        else if (!f->is_static()) && self._eval_class(f) {
+            th->modifiers = th->modifiers | FnModifier::IsConstexpr | FnModifier::IsInline
+        }
+
+        var ps = self.list_builder<unsafe *ParamDecl>()
+        if !f->is_static() {
+            ps.push(
+                ParamDecl::create_self(
+                    self.ctx,
+                    at,
+                    self.synth.ident(at, "self"),
+                ),
+            )
+        }
+
+        ps.freeze_into(&th->params)
+
+        var unsafe *ret  = ReturnStmt::create(self.ctx, at, e)
+        var unsafe *body = CompoundStmt::create(self.ctx, at)
+        var        b     = self.list_builder<unsafe *Stmt>()
+        b.push(ret)
+        b.freeze_into(&body->body)
+        th->body_block = body
+        return th
+    }
+
+    /// One thunk per LEAF element of an array field's list literal (file
+    /// header, Arrays), appended in row-major order and stamped on the
+    /// field: an array of arrays is flat here, and the emitter re-nests the
+    /// braces from the field's type.
+    priv fn _mint_elems(self,
+                        f:  unsafe *FieldDecl,
+                        rw: unsafe *ListRewriter<unsafe *FunctionDecl>) {
+        var unsafe *lit   = self.tu.array_field_list(f)
+        var        leaves = cxx::std::vector<unsafe *Expr>()
+        var unsafe *el = self.tu.array_field_leaves(
+            lit,
+            canon_unqual(f->type_->canonical),
+            unsafe &leaves,
+        )
+
+        var nm  = self.tu.decl_name(unsafe (f as unsafe *Decl))
+        var out = self.list_builder<unsafe *Decl>()
+        for var i: usize = 0; i < leaves.size(); ++i {
+            var unsafe *e = leaves[i]
+            var unsafe *th = self._thunk(
+                f,
+                e,
+                LowerTargets::field_init_elem_thunk(nm, i),
+                el,
+            )
+
+            rw->append(th)
+            out.push(th)
+        }
+
+        out.freeze_into(&f->init_elems)
+        f->init      = &null            // moved, as _mint's.
+        f->init_fold = FieldFold::Elems
+    }
+
+    /// The record `f` belongs to has an eval constructor (an eval class,
+    /// Compiler/Spec/Eval.md#eval-classes).
+    priv fn _eval_class(self, f: unsafe *FieldDecl) -> bool {
+        var unsafe *dc    = f->semantic_dc
+        var unsafe *owner = if (dc != &null) => (dc->owner_decl()) else => &null
+        if owner == &null {
+            return false
+        }
+
+        var ms: unsafe *FrozenList<unsafe *FunctionDecl> = &null
+        if isa<ClassDecl>(owner) {
+            ms = unsafe &cast<ClassDecl>(owner)->methods
+        } else if isa<StructDecl>(owner) {
+            ms = unsafe &cast<StructDecl>(owner)->methods
+        }
+
+        if ms == &null {
+            return false
+        }
+
+        var on = self.tu.decl_name(owner)
+        for var i: usize = 0; i < ms->size(); ++i {
+            var unsafe *m = (*ms)[i]
+            if m != &null
+                && m->is_eval()
+                && !m->is_operator
+                && self.tu.decl_name(unsafe (m as unsafe *Decl)) == on {
+                return true
+            }
+        }
+
+        return false
+    }
+}

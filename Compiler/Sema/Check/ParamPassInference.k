@@ -164,8 +164,20 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,       AdtRole,    ClassDecl, ExtensionDecl, FieldDecl,    FnBodyKind, FunctionDecl,
-    InterfaceDecl, ModuleDecl, ParamDecl, PurityLevel,   StorageClass, StructDecl, TransferKind,
+    AbiKind,
+    AdtRole,
+    ClassDecl,
+    ExtensionDecl,
+    FieldDecl,
+    FnBodyKind,
+    FunctionDecl,
+    InterfaceDecl,
+    ModuleDecl,
+    ParamDecl,
+    PurityLevel,
+    StorageClass,
+    StructDecl,
+    TransferKind,
     VariableDecl,
 }
 import AST::Node::Expressions

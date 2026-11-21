@@ -64,7 +64,7 @@ import Codegen::Backend::IncludeEmitter::{
     IncludedDecls,
 }
 import Codegen::Backend::SemaAgreeReport::AgreeFinding
-import Codegen::EmitPlan::EmitPlan
+import Codegen::Plan::EmitPlan::EmitPlan
 import Codegen::Sink::TokenSink::{
     AgreeSite,
     TokenSink,

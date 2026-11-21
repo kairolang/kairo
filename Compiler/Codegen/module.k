@@ -1,7 +1,8 @@
 /// --- The Kairo Project ----------------------------- Codegen/module.k --- ///
 ///
 ///   Marks Codegen/ as a module: checked tree to C++ tokens to object: the
-///   emit plan, IR/interface/witness emitters, sinks and the clang backend.
+///   emit plan, the speller, the interface and body emitters, sinks and the
+///   clang backend. Files at this level are shared by every directory below.
 ///   Every file under it (nested directories included) shares a `prot`;
 ///   what other modules use is marked `pub`. No `module` pin: a pin would
 ///   rename every file's module path and emitted namespace.

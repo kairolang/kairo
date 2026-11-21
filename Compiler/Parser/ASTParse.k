@@ -77,9 +77,23 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,    EnumDecl,      EvalBlockDecl, ExtensionDecl,      FFIBlockDecl,        FieldDecl,
-    FunctionDecl, InterfaceDecl, ModuleDecl,    ProcedureMacroDecl, StructDecl,          TestDecl,
-    TransferKind, TypeAliasDecl, UnionDecl,     VariableDecl,       VisibilityGroupDecl,
+    ClassDecl,
+    EnumDecl,
+    EvalBlockDecl,
+    ExtensionDecl,
+    FFIBlockDecl,
+    FieldDecl,
+    FunctionDecl,
+    InterfaceDecl,
+    ModuleDecl,
+    ProcedureMacroDecl,
+    StructDecl,
+    TestDecl,
+    TransferKind,
+    TypeAliasDecl,
+    UnionDecl,
+    VariableDecl,
+    VisibilityGroupDecl,
 }
 import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
@@ -98,6 +112,7 @@ import AST::Node::Statements::{
     ExpressionStmt,
 }
 import AST::ParamMode::ParamMode
+import AST::VisibilityFacts::is_library_tu
 import Diagnostic::BufferedDiagSink::BufferedDiagSink
 import Diagnostic::Code::{
     DiagCode,
@@ -451,7 +466,11 @@ pub class ASTParse
         self._current = if (self.span.size() > 0) => (self.span.get(0)) else => &null
         self._peek = if (self.span.size() > 1) => (self.span.get(1)) else => &null
 
-        self.max_depth        = ((ctx->ci->frontend.max_scope_depth) as u32)
+        // --cmax-scope-depth is the user's limit; builtin and std parse under
+        // the library's (FrontendOptions::library_scope_depth).
+        var lib = is_library_tu(self.tu)
+        self.max_depth = if (lib) => (ctx->ci->frontend.library_scope_depth() as u32)
+                         else => (ctx->ci->frontend.max_scope_depth as u32)
         self.max_expr_depth   = ((ctx->ci->frontend.max_expr_depth) as u32)
         self.error_count_base = self.diag->error_count()
     }

@@ -73,7 +73,7 @@ import Sema::SemaContext::{
     SemaContext,
     SemaPhase,
 }
-import Sema::Type::MemberTyping::{
+import Sema::Type::Member::{
     SUB_BIND,
     SUB_READ,
 }

@@ -111,7 +111,12 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,  QUAL_CONST, RecordType, builtin_for_token, canon_has_const, canon_quals,
+    BuiltinKind,
+    QUAL_CONST,
+    RecordType,
+    builtin_for_token,
+    canon_has_const,
+    canon_quals,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -121,13 +126,29 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    EnumDecl,         EnumVariantDecl, ExtensionDecl, FieldDecl, FnBodyKind,    FunctionDecl,
-    GenericParamDecl, InterfaceDecl,   ModuleDecl,    ParamDecl, TypeAliasDecl, VariableDecl,
+    EnumDecl,
+    EnumVariantDecl,
+    ExtensionDecl,
+    FieldDecl,
+    FnBodyKind,
+    FunctionDecl,
+    GenericParamDecl,
+    InterfaceDecl,
+    ModuleDecl,
+    ParamDecl,
+    TypeAliasDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
-    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
-    IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
+    BooleanLiteralExpr,
+    ChainExpr,
+    CharacterLiteralExpr,
+    FloatingLiteralExpr,
+    IntegerLiteralExpr,
+    NamedIdentExpr,
+    NullLiteralExpr,
+    StringLiteralExpr,
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types::{
@@ -163,19 +184,19 @@ import Sema::SemaContext::{
     SemaPhase,
 }
 import Sema::Type::ArgumentDeduction::Deduction
-import Sema::Type::CallTyping::CallTyping
-import Sema::Type::CastTyping::CastTyping
-import Sema::Type::ControlTyping::ControlTyping
+import Sema::Type::Call::CallTyping
+import Sema::Type::Cast::CastTyping
+import Sema::Type::Control::ControlTyping
 import Sema::Type::Conversion::{
     ConvClass,
     Conversion,
     ImplicitRank,
 }
-import Sema::Type::LiteralTyping::{
+import Sema::Type::Literal::{
     LiteralTyping,
     NullTarget,
 }
-import Sema::Type::MemberTyping::{
+import Sema::Type::Member::{
     ChainInfo,
     MemberTyping,
 }
@@ -186,10 +207,10 @@ import Sema::Type::NullnessFlow::{
     null_flow_is_global,
     null_flow_type_is_nullable,
 }
-import Sema::Type::OperatorTyping::OperatorTyping
+import Sema::Type::Operator::OperatorTyping
 import Sema::Type::OverloadResolution::OverloadResolution
-import Sema::Type::PatternTyping::PatternTyping
-import Sema::Type::StmtTyping::{
+import Sema::Type::Pattern::PatternTyping
+import Sema::Type::Stmt::{
     StmtTyping,
     TyperFrame,
 }

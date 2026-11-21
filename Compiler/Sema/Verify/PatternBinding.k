@@ -1,0 +1,257 @@
+/// --- The Kairo Project ----------------- Sema/Verify/PatternBinding.k --- ///
+///
+/// Verify binding structure inside patterns. Pure lexical check:
+/// Token.imm comparison, no names, no types.
+///
+///   \detail
+///     Checks owned here:
+///       1. ALTERNATIVE CONSISTENCY: every alternative of an alternation
+///          (`A | B` inside a pattern, or `case A, B` at case level) must
+///          bind the SAME set of names `Some(x) | None` is an error
+///          because the body's `x` is unbound when `None` matches.
+///       2. DUPLICATE BINDINGS: one name bound twice within a single
+///          alternative (`Pair(x, x)`) or destructuring (`var (a, a)`).
+///
+///     A dead alternative is not checked here: what an alternative covers
+///     depends on types, so it is PatternChecking's SC122E (and a dead arm
+///     its SC121E).
+///
+///     Nested alternations own their internals: when collecting an
+///     alternation's bound set from outside, the FIRST alternative stands
+///     for the whole (consistency inside it is enforced by its own visit),
+///     and its dup-check is skipped at the outer level to avoid double
+///     reporting.
+///
+///   Phase: VERIFY (pre-N)
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ----------------------------------------------------------------- ///
+
+ffi "c++" import "vector"
+
+import AST::ASTSupport::FrozenList
+import AST::Kind::PatternKind::PatternKind
+import AST::Node::Base::AstPattern
+import AST::Node::Casting::cast
+import AST::Node::Patterns::{
+    AlternationPattern,
+    BindingPattern,
+    ConstructorPattern,
+    SlicePattern,
+    TupleDestructurePattern,
+    UnresolvedConstructorPattern,
+}
+import AST::Node::Statements::{
+    DestructuringDeclStmt,
+    MatchCase,
+}
+import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
+import Diagnostic::Registry::DiagID
+import Sema::SemaContext::SemaContext
+import Token::Token::Token
+
+pub class PatternBindingCheck derives RecursiveASTVisitor<PatternBindingCheck> {
+    pub var sc: *SemaContext
+
+    fn PatternBindingCheck(self, sc: *SemaContext) {
+        self.sc = sc
+    }
+
+    fn run(self) {
+        self.run(self.sc->tu)
+    }
+
+    /// Collect every binding name token in `p`. For a nested alternation,
+    /// the first alternative stands for the whole (see header).
+    priv fn _collect(self, p: unsafe *AstPattern, out: unsafe *cxx::std::vector<Token>) {
+        if p == &null {
+            return
+        }
+
+        match p->kind {
+            case PatternKind::BindingPattern {
+                out->push_back(cast<BindingPattern>(p)->name)
+            } case PatternKind::TupleDestructurePattern {
+                self._collect_each(
+                    cast<TupleDestructurePattern>(p)->elements,
+                    out,
+                )
+            } case PatternKind::ConstructorPattern {
+                self._collect_each(
+                    cast<ConstructorPattern>(p)->subpatterns,
+                    out,
+                )
+            } case PatternKind::UnresolvedConstructorPattern {
+                self._collect_each(
+                    cast<UnresolvedConstructorPattern>(p)->subpatterns,
+                    out,
+                )
+            } case PatternKind::SlicePattern {
+                var unsafe *n = cast<SlicePattern>(p)
+                self._collect_each(n->prefix, out)
+                self._collect_each(n->suffix, out)
+
+                if n->rest_binding != &null {
+                    self._collect(n->rest_binding, out)
+                }
+            } case PatternKind::AlternationPattern {
+                var unsafe *n = cast<AlternationPattern>(p)
+                if n->alternatives.size() > 0 {
+                    self._collect(*n->alternatives.get(0), out)
+                }
+            } default { }
+        }
+    }
+
+    /// _collect over each pattern of `ps`, in order.
+    priv fn _collect_each(self,
+                          const ps: FrozenList<unsafe *AstPattern>,
+                          out:      unsafe *cxx::std::vector<Token>) {
+        for var i: usize = 0; i < ps.size(); i++ {
+            self._collect(*ps.get(i), out)
+        }
+    }
+
+    /// Report each name bound more than once in `v` (at the later token).
+    priv fn _dup_check(self, const v: cxx::std::vector<Token>) {
+        for var i: usize = 1; i < v.size(); i++ {
+            for var j: usize = 0; j < i; j++ {
+                if (v)[j].imm == (v)[i].imm {
+                    self.sc->diag->report(
+                        DiagID::SC010E,
+                        (v)[i].range.start,
+                        "duplicate binding name in pattern; a name may bind "
+                        "only once per alternative",
+                    ).first((v)[i].range)->emit()
+                    break
+                }
+            }
+        }
+    }
+
+    priv fn _sets_equal(self,
+                        const a: cxx::std::vector<Token>,
+                        const b: cxx::std::vector<Token>) -> bool {
+        // set semantics over imms; dup reporting is _dup_check's job.
+        for var i: usize = 0; i < a.size(); i++ {
+            var found: bool = false
+            for var j: usize = 0; j < b.size(); j++ {
+                if (a)[i].imm == (b)[j].imm {
+                    found = true
+                    break
+                }
+            }
+
+            if !found {
+                return false
+            }
+        }
+
+        for var i: usize = 0; i < b.size(); i++ {
+            var found: bool = false
+            for var j: usize = 0; j < a.size(); j++ {
+                if (b)[i].imm == (a)[j].imm {
+                    found = true
+                    break
+                }
+            }
+
+            if !found {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// The shared core: `alts` are sibling alternatives (an alternation's
+    /// list, or a case's pattern list same FrozenList shape, same rules).
+    priv fn _check_alternatives(self, const alts: FrozenList<unsafe *AstPattern>) {
+        var first_set = cxx::std::vector<Token>()
+
+        for var i: usize = 0; i < alts.size(); i++ {
+            var unsafe *p = *alts.get(i)
+            if p == &null {
+                continue
+            }
+
+            var names = cxx::std::vector<Token>()
+            self._collect(p, unsafe &names)
+
+            // nested alternation dup checks itself via its own visit.
+            if p->kind != PatternKind::AlternationPattern {
+                self._dup_check(names)
+            }
+
+            if i == 0 {
+                first_set = names
+            } else if !self._sets_equal(first_set, names) {
+                self.sc->diag->report(
+                    DiagID::SC011E,
+                    p->range.start,
+                    "alternative patterns must bind the same names; this "
+                    "alternative's bindings differ from the first",
+                ).first(p->range)->emit()
+            }
+        }
+    }
+
+    fn visit_alternation_pattern(self, n: *AlternationPattern) -> bool {
+        self._check_alternatives(n->alternatives)
+        return true
+    }
+
+    fn traverse_match_case(self, mc: *MatchCase) {
+        self._check_alternatives(mc->patterns)
+        for var i: usize = 0; i < mc->patterns.size(); i++ {
+            if self.stop {
+                break
+            }
+
+            self.dyn()->dispatch_pattern(*mc->patterns.get(i)) // discard
+        }
+
+        if self.stop {
+            return
+        }
+
+        if mc->guard != &null {
+            self.dyn()->dispatch_expr(mc->guard)
+        }
+
+        if mc->body != &null {
+            self.dyn()->dispatch_stmt(mc->body)
+        }
+
+        if mc->expression != &null {
+            self.dyn()->dispatch_expr(mc->expression)
+        }
+    }
+
+    /// Destructuring bindings are plain named slots, not patterns; the
+    /// only structural rule is no duplicate names.
+    fn visit_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> bool {
+        var names = cxx::std::vector<Token>()
+        for var i: usize = 0; i < n->bindings.size(); i++ {
+            var unsafe *b = n->bindings.get(i)
+            if b->is_discard {
+                continue
+            }
+
+            if b->name == &null {
+                continue
+            }
+
+            names.push_back(b->name->name)
+        }
+
+        self._dup_check(names)
+        return true
+    }
+}

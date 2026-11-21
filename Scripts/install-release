@@ -1,5 +1,5 @@
 #!/bin/sh
-set "x\" <# "
+set "x\" <# " "$@"
 # Kairo release installer: ONE file that runs under POSIX sh (Linux, macOS, FreeBSD, NetBSD)
 # and under PowerShell (Windows PowerShell 5.1, pwsh 7).
 #
@@ -7,6 +7,7 @@ set "x\" <# "
 #   Windows PowerShell:                              irm https://www.kairolang.org/install.ps1 | iex
 #
 # How the polyglot works: line 2 is a harmless `set` to sh (the <# is inside its double quotes),
+# (its trailing "$@" carries the real arguments past the placeholder, which `shift` drops),
 # but PowerShell reads "x\" as a complete string and then sees the <# block-comment opener, so
 # treats everything up to the matching close marker (the line that ends this block, below the
 # sh half) as a block comment. sh runs `main` and exits before it ever reaches the PowerShell
@@ -17,7 +18,7 @@ set "x\" <# "
 # Both halves download kairo-<ver>-<triple>.{tar.xz,zip} and SHA256SUMS, verify the archive
 # BEFORE unpacking, never need root, and install per user:
 #
-#   KAIRO_VERSION    version to install            (default: 0.2.4)
+#   KAIRO_VERSION    version to install            (default: 0.3.0)
 #   KAIRO_PREFIX     sh: install prefix            (default: $HOME/.local; tree in
 #                       $KAIRO_PREFIX/share/kairo/<ver>, tools linked into $KAIRO_PREFIX/bin)
 #                    PowerShell: install root      (default: %LOCALAPPDATA%\Kairo; tree in
@@ -28,6 +29,14 @@ set "x\" <# "
 #   KAIRO_TRIPLE     override the detected target (e.g. armv7-windows-gnu, or a musl build
 #                    on a glibc host)
 #   KAIRO_NO_SYSROOT=1  skip the sysroot step below
+#   KAIRO_ARCHIVE    install from this release archive (a local .tar.xz / .zip path, or an
+#                    http(s):// / file:// URL to one) instead of resolving and downloading
+#                    a version. Keep the released name: kairo-<version>-<triple>.{tar.xz,zip}.
+#                    sh also takes  --archive <path-or-url>, e.g.
+#                    curl -fsSL https://www.kairolang.org/install.sh | sh -s -- --archive <p>
+#                    PowerShell also takes  -Archive <path-or-url>  when run as a saved file.
+#   KAIRO_SHA256     expected sha256 of that archive (sh: --sha256 <hex>; PowerShell: -Sha256
+#                    <hex>). Without it the archive is installed unverified, with a notice.
 #
 # After installing, the vendor-SDK sysroot for the host is assembled when it can be done in
 # seconds: macOS (scripts/darwin-sysroot.sh, from the Command Line Tools' SDK) and Windows
@@ -38,7 +47,7 @@ set "x\" <# "
 # SDK or a failure prints the command to run later. Every other target's sysroot is built on
 # demand by ksys, the first time --target names it, and cached.
 
-VERSION_DEFAULT=0.2.4
+VERSION_DEFAULT=0.3.0
 BUILD_CMD='python3 build.py --release kairo kcc kld kfmt kals'
 
 say() { printf 'kairo-install: %s\n' "$*"; }
@@ -98,6 +107,107 @@ fetch() { # url dest
            elif have ftp; then ftp -o "$2" "$1"             # NetBSD base system
            else die "need curl, wget, fetch or ftp to download"; fi ;;
     esac
+}
+
+# Bytes of a file, 0 when it does not exist yet.
+file_bytes() { # path
+    if [ -f "$1" ]; then echo $(( $(wc -c 2>/dev/null < "$1") + 0 )); else echo 0; fi
+}
+
+fmt_mib() { awk -v n="$1" 'BEGIN { printf "%.1f", n / 1048576 }'; }
+
+# The size of what a download will deliver, from a HEAD request (the last response's
+# Content-Length, after redirects) or the local file; prints nothing when it cannot be learned.
+fetch_size() { # url
+    case "$1" in
+        file://*) wc -c 2>/dev/null < "${1#file://}" | tr -d ' ' ;;
+        *) if have curl; then curl -sIL "$1" 2>/dev/null
+           elif have wget; then wget -q --spider -S "$1" 2>&1
+           fi | awk '$1 ~ /^HTTP\// { n = 0 } tolower($1) == "content-length:" { n = $2 + 0 } END { if (n > 0) print n }' ;;
+    esac
+}
+
+# Starts the download in the background (a plain external command, so $DLPID can be killed).
+fetch_start() { # url dest
+    case "$1" in
+        file://*) cp "${1#file://}" "$2" & ;;
+        *) if have curl; then curl -fsSL "$1" -o "$2" &
+           elif have wget; then wget -q "$1" -O "$2" &
+           elif have fetch; then fetch -q -o "$2" "$1" &
+           elif have ftp; then ftp -o "$2" "$1" &
+           else die "need curl, wget, fetch or ftp to download"; fi ;;
+    esac
+    DLPID=$!
+}
+
+# One bar line: "NNN% [====>    ]" for $1 of $2 bytes with $3 bar cells.
+bar_line() {
+    awk -v c="$1" -v t="$2" -v w="$3" 'BEGIN {
+        p = int(c * 100 / t); if (p > 100) p = 100
+        f = int(c * w / t); if (f > w) f = w
+        h = (f < 1) ? 0 : f - 1
+        s = sprintf("%3d%% [", p)
+        for (i = 0; i < w; i++) s = s ((p >= 100 || i < h) ? "=" : ((i == h) ? ">" : " "))
+        print s "]"
+    }'
+}
+
+# fetch with progress: on a terminal a centred title, one redrawn "NNN% [=====>   ]" line and a
+# size line; otherwise (pipe, CI, log) just the final size, with no carriage returns.
+fetch_progress() { # url dest title
+    if [ ! -t 2 ]; then
+        fetch "$1" "$2" || return 1
+        say "Downloaded $(fmt_mib "$(file_bytes "$2")") MiB"
+        return 0
+    fi
+    fp_total=$(fetch_size "$1")
+    case "$fp_total" in ''|*[!0-9]*) fp_total= ;; esac
+    fp_cols=${COLUMNS:-}
+    case "$fp_cols" in ''|*[!0-9]*) fp_cols=$(stty size 2>/dev/null <&2 | awk '{ print $2 }') ;; esac
+    case "$fp_cols" in ''|*[!0-9]*) fp_cols=$(tput cols 2>/dev/null) ;; esac
+    case "$fp_cols" in ''|*[!0-9]*) fp_cols=80 ;; esac
+    [ "$fp_cols" -ge 20 ] || fp_cols=80
+    fp_bw=$(( fp_cols - 8 ))   # "NNN% [" + "]" and one spare column so the line never wraps
+    [ "$fp_bw" -le 200 ] || fp_bw=200
+    fp_sleep=0.2
+    sleep 0.2 2>/dev/null || fp_sleep=1
+    fp_pad=$(( (fp_cols - ${#3}) / 2 ))
+    [ "$fp_pad" -ge 0 ] || fp_pad=0
+    awk -v n="$fp_pad" -v t="$3" 'BEGIN { s = ""; for (i = 0; i < n; i++) s = s " "; print s t }' >&2
+    fetch_start "$1" "$2"
+    BARLINE=1
+    while kill -0 "$DLPID" 2>/dev/null; do
+        fp_cur=$(file_bytes "$2")
+        if [ -n "$fp_total" ]; then
+            printf '\r%s' "$(bar_line "$fp_cur" "$fp_total" "$fp_bw")" >&2
+        else
+            printf '\rDownloaded %s MiB' "$(fmt_mib "$fp_cur")" >&2
+        fi
+        sleep "$fp_sleep"
+    done
+    wait "$DLPID"; fp_rc=$?
+    DLPID=
+    fp_cur=$(file_bytes "$2")
+    if [ "$fp_rc" -ne 0 ]; then
+        printf '\n' >&2; BARLINE=0
+        return "$fp_rc"
+    fi
+    if [ -n "$fp_total" ]; then
+        # The final frame is always full, even when a server's length was off (compression).
+        printf '\r%s\n' "$(bar_line "$fp_cur" "$fp_cur" "$fp_bw")" >&2
+        printf 'Downloaded %s MiB of %s MiB\n' "$(fmt_mib "$fp_cur")" "$(fmt_mib "$fp_total")" >&2
+    else
+        printf '\rDownloaded %s MiB\n' "$(fmt_mib "$fp_cur")" >&2
+    fi
+    BARLINE=0
+    return 0
+}
+
+# Stops a running download and ends a half-drawn bar line before the temp files go.
+cleanup() {
+    if [ -n "${DLPID:-}" ]; then kill "$DLPID" 2>/dev/null || true; fi
+    if [ "${BARLINE:-0}" = 1 ]; then printf '\n' >&2; BARLINE=0; fi
+    rm -rf "$TMP" ${STAGE:+"$STAGE"}
 }
 
 # The release's checksum list: its SHA256SUMS asset, or, for a GitHub release published
@@ -174,41 +284,105 @@ setup_sysroot() {   # $1 = install dir
     return 0
 }
 
+usage() {
+    cat <<'EOF'
+Usage: install.sh [--archive <path-or-url>] [--sha256 <hex>]
+
+  --archive  install from this release archive (kairo-<version>-<triple>.tar.xz or .zip,
+             a local path or an http(s):// URL) instead of downloading the default release
+  --sha256   expected sha256 of the archive; without it the archive is not verified
+
+Environment: KAIRO_VERSION KAIRO_PREFIX KAIRO_BASE_URL KAIRO_TRIPLE KAIRO_NO_SYSROOT
+             KAIRO_ARCHIVE KAIRO_SHA256 (see the comments at the top of this file)
+EOF
+}
+
 main() {
+    ARCHIVE_SRC="${KAIRO_ARCHIVE:-}"
+    ARCHIVE_SHA="${KAIRO_SHA256:-}"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --archive) [ $# -ge 2 ] || die "--archive needs a path or URL"; ARCHIVE_SRC=$2; shift 2 ;;
+            --archive=*) ARCHIVE_SRC=${1#--archive=}; shift ;;
+            --sha256) [ $# -ge 2 ] || die "--sha256 needs a hex digest"; ARCHIVE_SHA=$2; shift 2 ;;
+            --sha256=*) ARCHIVE_SHA=${1#--sha256=}; shift ;;
+            -h|--help) usage; return 0 ;;
+            *) usage >&2; die "unknown option: $1" ;;
+        esac
+    done
+    [ -z "$ARCHIVE_SHA" ] || [ -n "$ARCHIVE_SRC" ] || die "--sha256 only applies with --archive"
+
     VERSION="${KAIRO_VERSION:-$VERSION_DEFAULT}"
     PREFIX="${KAIRO_PREFIX:-$HOME/.local}"
     BASE="${KAIRO_BASE_URL:-https://github.com/kairolang/kairo/releases/download/v$VERSION}"
 
     # An assignment from $(...) keeps the substitution's status, so a die inside detect_triple stops us.
-    TRIPLE="${KAIRO_TRIPLE:-}"
-    [ -n "$TRIPLE" ] || TRIPLE=$(detect_triple) || exit 1
-    case "$TRIPLE" in
-        *apple-macosx*|*windows*) EXT=zip ;;
-        *) EXT=tar.xz ;;
-    esac
-    NAME="kairo-$VERSION-$TRIPLE"
-    ARCHIVE="$NAME.$EXT"
+    if [ -n "$ARCHIVE_SRC" ]; then
+        # The archive's own name carries the version and target: kairo-<version>-<triple>.<ext>.
+        ARCHIVE=${ARCHIVE_SRC%%[?#]*}
+        ARCHIVE=${ARCHIVE##*/}
+        case "$ARCHIVE" in
+            *.tar.xz) EXT=tar.xz ;;
+            *.zip) EXT=zip ;;
+            *) die "unsupported archive '$ARCHIVE': expected kairo-<version>-<triple>.tar.xz or .zip" ;;
+        esac
+        NAME=${ARCHIVE%."$EXT"}
+        ver=$(printf '%s\n' "$NAME" | sed -n 's/^kairo-\([0-9][0-9.]*\)-..*$/\1/p')
+        [ -n "$ver" ] || die "cannot read the version and target from '$ARCHIVE': keep the released name kairo-<version>-<triple>.$EXT"
+        VERSION="${KAIRO_VERSION:-$ver}"
+        TRIPLE=${NAME#"kairo-$ver-"}
+    else
+        TRIPLE="${KAIRO_TRIPLE:-}"
+        [ -n "$TRIPLE" ] || TRIPLE=$(detect_triple) || exit 1
+        case "$TRIPLE" in
+            *apple-macosx*|*windows*) EXT=zip ;;
+            *) EXT=tar.xz ;;
+        esac
+        NAME="kairo-$VERSION-$TRIPLE"
+        ARCHIVE="$NAME.$EXT"
+    fi
 
     TMP=$(mktemp -d "${TMPDIR:-/tmp}/kairo-install.XXXXXX") || die "could not create a temp directory"
     STAGE=
-    trap 'rm -rf "$TMP" ${STAGE:+"$STAGE"}' EXIT INT TERM
+    trap cleanup EXIT
+    trap 'exit 130' INT TERM
 
     say "installing Kairo $VERSION for $TRIPLE"
-    fetch_sums "$TMP/SHA256SUMS" || die "could not get the checksums for this release ($BASE/SHA256SUMS)"
-    want=$(awk -v f="$ARCHIVE" '$2 == f { print $1 }' "$TMP/SHA256SUMS")
-    if [ -z "$want" ]; then
-        avail=$(sed -n -e "s/^[0-9a-fA-F]*  kairo-$VERSION-\\(.*\\)\\.tar\\.xz\$/\\1/p" \
-                       -e "s/^[0-9a-fA-F]*  kairo-$VERSION-\\(.*\\)\\.zip\$/\\1/p" "$TMP/SHA256SUMS" | tr '\n' ' ')
-        die "no archive for $TRIPLE in this release ($ARCHIVE is not listed in SHA256SUMS).
-  available: ${avail:-none}
-  to build it yourself:  $BUILD_CMD
-  (KAIRO_TRIPLE=<triple> overrides detection)"
+    ARCHIVE_PATH="$TMP/$ARCHIVE"
+    if [ -n "$ARCHIVE_SRC" ]; then
+        case "$ARCHIVE_SRC" in
+            http://*|https://*|file://*)
+                say "downloading $ARCHIVE_SRC"
+                fetch_progress "$ARCHIVE_SRC" "$ARCHIVE_PATH" "Downloading Kairo $VERSION" || die "could not download $ARCHIVE_SRC" ;;
+            *)
+                [ -f "$ARCHIVE_SRC" ] || die "archive not found: $ARCHIVE_SRC"
+                ARCHIVE_PATH=$ARCHIVE_SRC ;;
+        esac
+        got=$(sha256_of "$ARCHIVE_PATH")
+        if [ -n "$ARCHIVE_SHA" ]; then
+            want=$(printf '%s' "$ARCHIVE_SHA" | tr 'A-F' 'a-f')
+            [ "$got" = "$want" ] || die "checksum mismatch for $ARCHIVE (expected $want, got $got); nothing was installed"
+            say "checksum ok"
+        else
+            say "warning: no --sha256 given, so $ARCHIVE is installed unverified (sha256 $got)"
+        fi
+    else
+        fetch_sums "$TMP/SHA256SUMS" || die "could not get the checksums for this release ($BASE/SHA256SUMS)"
+        want=$(awk -v f="$ARCHIVE" '$2 == f { print $1 }' "$TMP/SHA256SUMS")
+        if [ -z "$want" ]; then
+            avail=$(sed -n -e "s/^[0-9a-fA-F]*  kairo-$VERSION-\\(.*\\)\\.tar\\.xz\$/\\1/p" \
+                           -e "s/^[0-9a-fA-F]*  kairo-$VERSION-\\(.*\\)\\.zip\$/\\1/p" "$TMP/SHA256SUMS" | tr '\n' ' ')
+            die "no archive for $TRIPLE in this release ($ARCHIVE is not listed in SHA256SUMS).
+      available: ${avail:-none}
+      to build it yourself:  $BUILD_CMD
+      (KAIRO_TRIPLE=<triple> overrides detection)"
+        fi
+        say "downloading $ARCHIVE"
+        fetch_progress "$BASE/$ARCHIVE" "$TMP/$ARCHIVE" "Downloading Kairo $VERSION" || die "could not download $BASE/$ARCHIVE"
+        got=$(sha256_of "$TMP/$ARCHIVE")
+        [ "$got" = "$want" ] || die "checksum mismatch for $ARCHIVE (expected $want, got $got); nothing was installed"
+        say "checksum ok"
     fi
-    say "downloading $ARCHIVE"
-    fetch "$BASE/$ARCHIVE" "$TMP/$ARCHIVE" || die "could not download $BASE/$ARCHIVE"
-    got=$(sha256_of "$TMP/$ARCHIVE")
-    [ "$got" = "$want" ] || die "checksum mismatch for $ARCHIVE (expected $want, got $got); nothing was installed"
-    say "checksum ok"
 
     DEST="$PREFIX/share/kairo/$VERSION"
     BIN="$PREFIX/bin"
@@ -219,12 +393,12 @@ main() {
     mkdir -p "$STAGE"
     if [ "$EXT" = zip ]; then
         have unzip || die "need unzip to unpack $ARCHIVE"
-        unzip -q "$TMP/$ARCHIVE" -d "$STAGE" || die "could not unpack $ARCHIVE"
+        unzip -q "$ARCHIVE_PATH" -d "$STAGE" || die "could not unpack $ARCHIVE"
         # Release binaries are not notarized; clear Gatekeeper's quarantine flag.
         if have xattr; then xattr -dr com.apple.quarantine "$STAGE" 2>/dev/null || true; fi
     else
         have xz || die "need xz to unpack $ARCHIVE"
-        tar -xJf "$TMP/$ARCHIVE" -C "$STAGE" || die "could not unpack $ARCHIVE"
+        tar -xJf "$ARCHIVE_PATH" -C "$STAGE" || die "could not unpack $ARCHIVE"
     fi
     [ -d "$STAGE/$NAME" ] || die "$ARCHIVE does not contain the expected top directory $NAME/"
     rm -rf "$DEST"
@@ -246,7 +420,8 @@ main() {
     say "cross-compiling: pass --target <triple>; the first use of a target builds its sysroot (about 10 to 30 s, then cached). See: ksys --help"
 }
 
-main
+shift   # drop the placeholder that line 2 put before the real arguments
+main "$@"
 exit $?
 # Never reached; this heredoc only hides the PowerShell half from sh -n / shellcheck (its
 # terminator is the lone # on the file's last line, a harmless PowerShell comment).
@@ -260,6 +435,64 @@ function Get-Remote([string]$Url, [string]$Dest) {
     # file:// is for testing a local dist/ directory; Invoke-WebRequest only does it on 5.1.
     if ($Url -like 'file://*') { Copy-Item -LiteralPath ([Uri]$Url).LocalPath -Destination $Dest -Force }
     else { Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $Dest }
+}
+
+# Get-Remote with a progress display: on a console a centred title, one redrawn
+# "NNN% [=====>   ]" line and a size line; when output is redirected just the final size.
+# Streamed through HttpClient so the same code runs on 5.1 and 7; $ProgressPreference is untouched.
+function Get-RemoteProgress([string]$Url, [string]$Dest, [string]$Title) {
+    if ($Url -like 'file://*') { Get-Remote $Url $Dest; return }
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $mib = { param($n) [string]::Format($inv, '{0:0.0}', $n / 1048576.0) }
+    $draw = -not [Console]::IsOutputRedirected
+    $width = 80
+    try { $width = [int]$Host.UI.RawUI.WindowSize.Width } catch { }
+    if ($width -lt 20) { $width = 80 }
+    $barw = [Math]::Min($width - 8, 200)   # "NNN% [" + "]" and one spare column so the line never wraps
+    $frame = {
+        param($cur, $tot)
+        $p = [Math]::Min(100, [int][Math]::Floor($cur * 100.0 / $tot))
+        $f = [Math]::Min($barw, [int][Math]::Floor($cur * [double]$barw / $tot))
+        $bar = if ($p -ge 100) { '=' * $barw } else { $h = [Math]::Max(0, $f - 1); ('=' * $h) + '>' + (' ' * ($barw - $h - 1)) }
+        [string]::Format($inv, '{0,3}% [{1}]', $p, $bar)
+    }
+    Add-Type -AssemblyName System.Net.Http
+    $client = New-Object System.Net.Http.HttpClient
+    $client.Timeout = [Threading.Timeout]::InfiniteTimeSpan
+    $resp = $null; $in = $null; $out = $null; $drawn = $false
+    try {
+        $resp = $client.GetAsync($Url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+        $null = $resp.EnsureSuccessStatusCode()
+        $total = $resp.Content.Headers.ContentLength   # $null when the server sends no length
+        $in = $resp.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $out = [IO.File]::Create($Dest)
+        if ($draw) { [Console]::Write((' ' * [Math]::Max(0, [int](($width - $Title.Length) / 2))) + $Title + "`n") }
+        $buf = New-Object byte[] 81920
+        $done = [long]0
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $last = -1000
+        while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+            $out.Write($buf, 0, $n)
+            $done += $n
+            if ($draw -and ($clock.ElapsedMilliseconds - $last) -ge 100) {
+                $last = $clock.ElapsedMilliseconds
+                $line = if ($total) { & $frame $done $total } else { "Downloaded $(& $mib $done) MiB" }
+                [Console]::Write("`r$line"); $drawn = $true
+            }
+        }
+        $out.Dispose(); $out = $null
+        if ($draw) {
+            if ($total) { [Console]::Write("`r" + (& $frame $done $done) + "`nDownloaded $(& $mib $done) MiB of $(& $mib $total) MiB`n") }
+            else { [Console]::Write("`rDownloaded $(& $mib $done) MiB`n") }
+            $drawn = $false
+        } else { Write-Host "kairo-install: Downloaded $(& $mib $done) MiB" }
+    } finally {
+        if ($drawn) { [Console]::Write("`n") }   # leave the cursor below a half-drawn line
+        if ($out) { $out.Dispose() }
+        if ($in) { $in.Dispose() }
+        if ($resp) { $resp.Dispose() }
+        $client.Dispose()
+    }
 }
 
 # The MSVC sysroot: our prebuilt half (the overlay) plus the installed VC tools and Windows
@@ -321,12 +554,25 @@ function Install-MsvcSysroot([string]$dest, [string]$triple) {
     else { Write-Host "kairo-install: warning: the MSVC sysroot step failed (the compiler itself is installed); rerun it with: $cmd" }
 }
 
+# `-Archive <path-or-url>` and `-Sha256 <hex>` on a saved script; `irm | iex` has no arguments
+# and uses KAIRO_ARCHIVE / KAIRO_SHA256 instead.
+$KairoArchiveArg = $null
+$KairoSha256Arg = $null
+for ($i = 0; $i -lt $args.Count; $i++) {
+    if ($args[$i] -ieq '-Archive' -and $i + 1 -lt $args.Count) { $KairoArchiveArg = [string]$args[++$i] }
+    elseif ($args[$i] -ieq '-Sha256' -and $i + 1 -lt $args.Count) { $KairoSha256Arg = [string]$args[++$i] }
+    else { [Console]::Error.WriteLine("kairo-install: error: unknown argument: $($args[$i]) (usage: -Archive <path-or-url> [-Sha256 <hex>])"); if ($PSCommandPath) { exit 1 } }
+}
+
 function Install-Kairo {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'   # the progress bar makes 5.1 downloads ~10x slower
     try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
 
-    $ver = if ($env:KAIRO_VERSION) { $env:KAIRO_VERSION } else { '0.2.4' }
+    $archiveSrc = if ($KairoArchiveArg) { $KairoArchiveArg } else { $env:KAIRO_ARCHIVE }
+    $archiveSha = if ($KairoSha256Arg) { $KairoSha256Arg } else { $env:KAIRO_SHA256 }
+    if ($archiveSha -and -not $archiveSrc) { throw '-Sha256 only applies with -Archive' }
+    $ver = if ($env:KAIRO_VERSION) { $env:KAIRO_VERSION } else { '0.3.0' }
     $buildCmd = 'python3 build.py --release kairo kcc kld kfmt kals'
     # $IsWindows only exists in pwsh 6+; Windows PowerShell 5.1 is Windows by definition.
     $onWindows = ($PSVersionTable.PSVersion.Major -lt 6) -or [bool]$IsWindows
@@ -345,64 +591,90 @@ function Install-Kairo {
             $self = $tmp
         }
         Write-Host 'kairo-install: not Windows; handing off to the sh installer'
-        try { & $sh.Source $self } finally { if ($tmp) { Remove-Item -Force -ErrorAction SilentlyContinue $tmp } }
+        $shArgs = @(); if ($archiveSrc) { $shArgs += @('--archive', $archiveSrc) }; if ($archiveSha) { $shArgs += @('--sha256', $archiveSha) }
+        try { & $sh.Source $self @shArgs } finally { if ($tmp) { Remove-Item -Force -ErrorAction SilentlyContinue $tmp } }
         if ($LASTEXITCODE -ne 0) { throw "the sh installer failed (exit $LASTEXITCODE)" }
         return
     }
 
-    $triple = $env:KAIRO_TRIPLE
-    if (-not $triple) {
-        $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
-        if (-not $arch) { try { $arch = [string][Runtime.InteropServices.RuntimeInformation]::OSArchitecture } catch { } }
-        switch -Regex ($arch) {
-            '^(AMD64|X64)$'   { $triple = 'x86_64-windows-gnu'; break }
-            '^ARM64$'         { $triple = 'aarch64-windows-gnu'; break }
-            '^(x86|X86)$'     { $triple = 'i686-windows-gnu'; break }
-            '^ARM$'           { $triple = 'armv7-windows-gnu'; break }
-            default           { throw "unsupported Windows architecture: '$arch' (set KAIRO_TRIPLE to override)" }
+    if ($archiveSrc) {
+        # The archive's own name carries the version and target: kairo-<version>-<triple>.zip.
+        $archive = ($archiveSrc -split '[?#]')[0] -replace '^.*[\\/]', ''
+        if ($archive -notlike '*.zip') { throw "unsupported archive '$archive': PowerShell unpacks kairo-<version>-<triple>.zip (use the sh installer for a .tar.xz)" }
+        if ($archive -notmatch '^kairo-(\d[\d.]*)-(.+)\.zip$') { throw "cannot read the version and target from '$archive': keep the released name kairo-<version>-<triple>.zip" }
+        if (-not $env:KAIRO_VERSION) { $ver = $Matches[1] }
+        $triple = $Matches[2]
+        $name = $archive.Substring(0, $archive.Length - 4)
+    } else {
+        $triple = $env:KAIRO_TRIPLE
+        if (-not $triple) {
+            $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+            if (-not $arch) { try { $arch = [string][Runtime.InteropServices.RuntimeInformation]::OSArchitecture } catch { } }
+            switch -Regex ($arch) {
+                '^(AMD64|X64)$'   { $triple = 'x86_64-windows-gnu'; break }
+                '^ARM64$'         { $triple = 'aarch64-windows-gnu'; break }
+                '^(x86|X86)$'     { $triple = 'i686-windows-gnu'; break }
+                '^ARM$'           { $triple = 'armv7-windows-gnu'; break }
+                default           { throw "unsupported Windows architecture: '$arch' (set KAIRO_TRIPLE to override)" }
+            }
         }
+        $ext = if ($triple -match 'windows|apple-macosx') { 'zip' } else { 'tar.xz' }
+        if ($ext -ne 'zip') { throw "$triple is a .tar.xz build, which PowerShell cannot unpack; use the sh installer for it" }
+        $name = "kairo-$ver-$triple"
+        $archive = "$name.$ext"
+        $base = if ($env:KAIRO_BASE_URL) { $env:KAIRO_BASE_URL.TrimEnd('/') } else { "https://github.com/kairolang/kairo/releases/download/v$ver" }
     }
-    $ext = if ($triple -match 'windows|apple-macosx') { 'zip' } else { 'tar.xz' }
-    if ($ext -ne 'zip') { throw "$triple is a .tar.xz build, which PowerShell cannot unpack; use the sh installer for it" }
-    $name = "kairo-$ver-$triple"
-    $archive = "$name.$ext"
-    $base = if ($env:KAIRO_BASE_URL) { $env:KAIRO_BASE_URL.TrimEnd('/') } else { "https://github.com/kairolang/kairo/releases/download/v$ver" }
 
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("kairo-install-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp | Out-Null
     $stage = $null
     try {
         Write-Host "kairo-install: installing Kairo $ver for $triple"
-        # SHA256SUMS, or, for a GitHub release published without one, the same lines from the release's asset digests.
-        $sums = Join-Path $tmp 'SHA256SUMS'
-        try { Get-Remote "$base/SHA256SUMS" $sums } catch {
-            $why = $_.Exception.Message
-            if ($base -notmatch '^https://github\.com/(.+)/releases/download/(.+)$') { throw "could not download $base/SHA256SUMS : $why" }
-            try {
-                $rel = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/$($Matches[1])/releases/tags/$($Matches[2])"
-                $lines = @($rel.assets | Where-Object { $_.digest -like 'sha256:*' } | ForEach-Object { $_.digest.Substring(7) + '  ' + $_.name })
-            } catch { throw "could not download $base/SHA256SUMS ($why) or the release's asset digests: $($_.Exception.Message)" }
-            if (-not $lines.Count) { throw "could not download $base/SHA256SUMS : $why" }
-            Set-Content -LiteralPath $sums -Value $lines -Encoding ASCII
-        }
-        $want = $null
-        $avail = @()
-        foreach ($line in (Get-Content -LiteralPath (Join-Path $tmp 'SHA256SUMS'))) {
-            if ($line -match '^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$') {
-                if ($Matches[2] -eq $archive) { $want = $Matches[1] }
-                if ($Matches[2] -match "^kairo-$([regex]::Escape($ver))-(.+)\.(tar\.xz|zip)$") { $avail += $Matches[1] }
-            }
-        }
-        if (-not $want) {
-            $list = if ($avail.Count) { $avail -join ' ' } else { 'none' }
-            throw "no archive for $triple in this release ($archive is not listed in SHA256SUMS).`n  available: $list`n  to build it yourself:  $buildCmd`n  (set KAIRO_TRIPLE=<triple> to override detection)"
-        }
-        Write-Host "kairo-install: downloading $archive"
         $zip = Join-Path $tmp $archive
-        try { Get-Remote "$base/$archive" $zip } catch { throw "could not download $base/$archive : $($_.Exception.Message)" }
-        $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash
-        if ($got -ne $want) { throw "checksum mismatch for $archive (expected $want, got $got); nothing was installed" }
-        Write-Host 'kairo-install: checksum ok'
+        if ($archiveSrc) {
+            if ($archiveSrc -match '^(https?|file)://') {
+                Write-Host "kairo-install: downloading $archiveSrc"
+                try { Get-RemoteProgress $archiveSrc $zip "Downloading Kairo $ver" } catch { throw "could not download $archiveSrc : $($_.Exception.Message)" }
+            } else {
+                if (-not (Test-Path -LiteralPath $archiveSrc -PathType Leaf)) { throw "archive not found: $archiveSrc" }
+                $zip = (Resolve-Path -LiteralPath $archiveSrc).ProviderPath
+            }
+            $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash
+            if ($archiveSha) {
+                if ($got -ne $archiveSha.Trim()) { throw "checksum mismatch for $archive (expected $($archiveSha.Trim().ToUpper()), got $got); nothing was installed" }
+                Write-Host 'kairo-install: checksum ok'
+            } else { Write-Host "kairo-install: warning: no -Sha256 given, so $archive is installed unverified (sha256 $got)" }
+        } else {
+            # SHA256SUMS, or, for a GitHub release published without one, the same lines from the release's asset digests.
+            $sums = Join-Path $tmp 'SHA256SUMS'
+            try { Get-Remote "$base/SHA256SUMS" $sums } catch {
+                $why = $_.Exception.Message
+                if ($base -notmatch '^https://github\.com/(.+)/releases/download/(.+)$') { throw "could not download $base/SHA256SUMS : $why" }
+                try {
+                    $rel = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/$($Matches[1])/releases/tags/$($Matches[2])"
+                    $lines = @($rel.assets | Where-Object { $_.digest -like 'sha256:*' } | ForEach-Object { $_.digest.Substring(7) + '  ' + $_.name })
+                } catch { throw "could not download $base/SHA256SUMS ($why) or the release's asset digests: $($_.Exception.Message)" }
+                if (-not $lines.Count) { throw "could not download $base/SHA256SUMS : $why" }
+                Set-Content -LiteralPath $sums -Value $lines -Encoding ASCII
+            }
+            $want = $null
+            $avail = @()
+            foreach ($line in (Get-Content -LiteralPath (Join-Path $tmp 'SHA256SUMS'))) {
+                if ($line -match '^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$') {
+                    if ($Matches[2] -eq $archive) { $want = $Matches[1] }
+                    if ($Matches[2] -match "^kairo-$([regex]::Escape($ver))-(.+)\.(tar\.xz|zip)$") { $avail += $Matches[1] }
+                }
+            }
+            if (-not $want) {
+                $list = if ($avail.Count) { $avail -join ' ' } else { 'none' }
+                throw "no archive for $triple in this release ($archive is not listed in SHA256SUMS).`n  available: $list`n  to build it yourself:  $buildCmd`n  (set KAIRO_TRIPLE=<triple> to override detection)"
+            }
+            Write-Host "kairo-install: downloading $archive"
+            try { Get-RemoteProgress "$base/$archive" $zip "Downloading Kairo $ver" } catch { throw "could not download $base/$archive : $($_.Exception.Message)" }
+            $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash
+            if ($got -ne $want) { throw "checksum mismatch for $archive (expected $want, got $got); nothing was installed" }
+            Write-Host 'kairo-install: checksum ok'
+        }
 
         $root = if ($env:KAIRO_PREFIX) { $env:KAIRO_PREFIX } elseif ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Kairo' } else { Join-Path $HOME 'AppData\Local\Kairo' }
         $dest = Join-Path $root $ver

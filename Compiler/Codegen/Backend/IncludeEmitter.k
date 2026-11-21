@@ -46,12 +46,11 @@ import Codegen::CodegenContext::{
     CodegenPhase,
 }
 import Codegen::Emit::EmitIR::EmitIR
-import Codegen::Emit::InterfaceEmitter::{
+import Codegen::Interface::InterfaceEmitter::{
     HelperBlock,
     InterfaceEmitter,
 }
-import Codegen::Emit::Spell::Speller
-import Codegen::EmitPlan::{
+import Codegen::Plan::EmitPlan::{
     EmitPlan,
     PlanEntry,
     PlanLease,
@@ -59,6 +58,7 @@ import Codegen::EmitPlan::{
     PlanTier,
 }
 import Codegen::Sink::TokenSink::TokenSink
+import Codegen::Spell::Spell::Speller
 import Interop::Clang::ClangLocMap::ClangLocMap
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceManager::FileID

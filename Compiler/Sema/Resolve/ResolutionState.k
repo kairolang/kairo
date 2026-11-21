@@ -56,10 +56,12 @@ ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::DeclFacts::tu_of
 import AST::Node::Base::{
     Decl,
     Type,
 }
+import AST::VisibilityFacts::is_library_tu
 import Location::SourceRange::SourceRange
 
 /// Where one node is in its own resolution.
@@ -83,7 +85,8 @@ pub enum ResolveState derives u8 {
 /// and a shrug.
 pub class ResolveFrame {
     pub var decl: unsafe *Decl = &null ///< the decl being resolved.
-    pub var at:   SourceRange          ///< where resolution was demanded FROM.
+    pub var at:   SourceRange ///< where resolution was demanded FROM.
+    pub var lib:  bool         = false ///< `decl` is builtin or std: not counted against the user's cap.
 
     fn ResolveFrame(self) { }
 }
@@ -93,12 +96,18 @@ pub class ResolutionState {
     priv var _decls: llvm::DenseMap<u64, u8> ///< by address: never a reserved key.
     priv var _types: llvm::DenseMap<u64, u8>
 
-    /// The active chain, innermost last. Depth is bounded by _max_depth, not by
+    /// The active chain, innermost last. Depth is bounded by the caps below, not by
     /// the C++ stack: deeply chained aliases recurse hard, and a segfault is a
     /// worse answer than a diagnostic.
     pub var stack: cxx::std::vector<ResolveFrame>
 
-    priv var _max_depth: usize = 256
+    /// The user's cap (--cmax-scope-depth) bounds the frames of user
+    /// declarations; the library's cap bounds the whole stack. A user file
+    /// demanding a deep chain inside builtin or std is not refused for the
+    /// library's depth, and the stack stays bounded either way.
+    priv var _max_depth:   usize = 256
+    priv var _lib_depth:   usize = 256
+    priv var _user_frames: usize = 0
 
     fn ResolutionState(self) {
         self._decls.reserve(64)
@@ -106,14 +115,43 @@ pub class ResolutionState {
         self.stack.reserve(16)
     }
 
-    fn set_max_depth(self, d: usize) {
-        if d > 0 {
-            self._max_depth = d
+    /// `user` caps the user's frames, `lib` the whole stack; a `lib` below
+    /// `user` is raised to it.
+    fn set_max_depth(self, user: usize, lib: usize) {
+        if user > 0 {
+            self._max_depth = user
         }
+
+        self._lib_depth = if (lib > self._max_depth) => (lib) else => self._max_depth
     }
 
-    fn max_depth(self) -> usize {
-        return self._max_depth
+    /// The cap that refuses `d`: the library's for a builtin or std
+    /// declaration, the user's otherwise.
+    fn max_depth_for(self, d: unsafe *Decl) -> usize {
+        return if (self._is_lib(d)) => (self._lib_depth) else => self._max_depth
+    }
+
+    /// Asked only while the two caps differ, so a build at the default
+    /// cap never walks a declaration's scope chain here.
+    priv fn _is_lib(self, d: unsafe *Decl) -> bool {
+        if d == &null || self._lib_depth == self._max_depth {
+            return false
+        }
+
+        var unsafe *dc = d->lexical_dc
+        if dc == &null {
+            dc = d->semantic_dc
+        }
+
+        return is_library_tu(tu_of(dc))
+    }
+
+    priv fn _refuses(self, lib: bool) -> bool {
+        if self.stack.size() >= self._lib_depth {
+            return true
+        }
+
+        return (!lib) && self._user_frames >= self._max_depth
     }
 
     /// # Decl state
@@ -169,7 +207,8 @@ pub class ResolutionState {
             return false
         }
 
-        if self.stack.size() >= self._max_depth {
+        var lib = self._is_lib(d)
+        if self._refuses(lib) {
             return false
         }
 
@@ -177,7 +216,12 @@ pub class ResolutionState {
         var f = ResolveFrame()
         f.decl = d
         f.at   = at
+        f.lib  = lib
         self.stack.push_back(f)
+        if !lib {
+            ++self._user_frames
+        }
+
         return true
     }
 
@@ -205,6 +249,10 @@ pub class ResolutionState {
 
         self.settle_decl(d, ok)
         if (!self.stack.empty()) && self.stack.back().decl == d {
+            if !self.stack.back().lib {
+                --self._user_frames
+            }
+
             self.stack.pop_back()
         }
     }
@@ -254,8 +302,9 @@ pub class ResolutionState {
         return self.stack.size()
     }
 
-    fn at_depth_limit(self) -> bool {
-        return self.stack.size() >= self._max_depth
+    /// begin_decl(d) would be refused for depth.
+    fn at_depth_limit(self, d: unsafe *Decl) -> bool {
+        return self._refuses(self._is_lib(d))
     }
 
     /// # Type-node state

@@ -44,7 +44,7 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import Diagnostic::DiagBuilder::DiagBuilder
-import Sema::Check::ConformanceChecking::ConformanceChecking
+import Sema::Check::Conformance::ConformanceChecking
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind

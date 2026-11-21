@@ -79,7 +79,7 @@ import AST::Node::Types::{
     PointerType,
 }
 import Codegen::CodegenContext::CodegenContext
-import Codegen::Emit::Spell::Speller
+import Codegen::Spell::Spell::Speller
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation

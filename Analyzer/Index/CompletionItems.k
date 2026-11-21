@@ -94,7 +94,7 @@ import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Protocol::CIK_CONSTANT
-import Sema::Check::ConformanceChecking::extension_bounds_fail
+import Sema::Check::Conformance::extension_bounds_fail
 import Sema::Resolve::AccessCheck::AccessCheck
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
@@ -485,7 +485,7 @@ extend IndexWalker {
 
     /// Whether the bounds of `extend` block `e` fail for a receiver of
     /// record type `inst`: the compiler's own test of an extension member's
-    /// candidacy (ConformanceChecking.k, extension_bounds_fail), asked of
+    /// candidacy (Check/Conformance.k, extension_bounds_fail), asked of
     /// the block's first member, since its bounds are every member's.
     fn ext_bounds_fail_(self, e: unsafe *Declarations::ExtensionDecl, inst: unsafe *Type) -> bool {
         if (inst == &null) || (!self.ext_bounded_(e)) {

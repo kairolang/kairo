@@ -289,6 +289,18 @@ pub class FrontendOptions {
 
     // helpers
 
+    /// The nesting cap for builtin and std code. --cmax-scope-depth limits
+    /// the user's code; the library is fixed code that must compile under
+    /// every cap the user passes, so a lower one does not reach it. The cap
+    /// stays a stack guard there: never below the default.
+    pub fn library_scope_depth(self) -> i32 {
+        if self.max_scope_depth > DEFAULT_MAX_SCOPE_DEPTH {
+            return self.max_scope_depth
+        }
+
+        return DEFAULT_MAX_SCOPE_DEPTH
+    }
+
     pub fn stops_at_preprocess(self) -> bool {
         return self.action == FrontendActionKind::Preprocess
     }
