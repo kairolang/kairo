@@ -94,6 +94,26 @@
 ///     its Kairo promise and its checks, and only the attribute is left
 ///     out.
 ///
+///   \par Speculation (settle)
+///     A proven function is also `speculatable` (FunctionDecl::speculatable)
+///     when a call of it may be evaluated on arguments the program never
+///     passed it, provided every pointer reachable from those arguments is
+///     valid: a block scan tests a predicate on elements past the one that
+///     ends the scan (Lib/std/iter.k). The promise and the proof allow that
+///     only for a body in which nothing stops the program or faults, which
+///     the purity rules leave open on purpose (a zero divisor). So the
+///     Prove walk also records what can: an integer `/` or `%` whose divisor
+///     is not a nonzero literal, an index the language does not check
+///     through an operator (a fixed array, a pointer), an `unsafe` block or
+///     expression, a call of anything but a speculatable function, an eval
+///     fn or an intrinsic that holds for every argument (not `assume`,
+///     `unreachable`, `assume_aligned`, nor a C/C++ function), and a read of
+///     a global or static that is not a number, a `bool` or a `char`. The
+///     last one keeps every pointer the function reads through within reach
+///     of its arguments: a pointer taken from a global may be one the
+///     program only follows after a test the other arguments would fail,
+///     and nothing says it is still valid.
+///
 ///   Phase: CHECK (after ExprTyper: reads resolved declarations and types;
 ///          before every lowering, so it sees only what the user wrote and
 ///          its diagnostics name the user's own constructs; the two calls a
@@ -135,6 +155,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
+    BuiltinKind,
     RecordType,
     canon_has_volatile,
 }
@@ -165,6 +186,7 @@ import AST::Node::Patterns::{
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
+    IntegerLiteralExpr,
     NamedIdentExpr,
     StringLiteralExpr,
 }
@@ -226,6 +248,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     priv var _unbounded: bool                                   = false
     priv var _bad_call:  bool                                   = false
     priv var _deps:      [unsafe *FunctionDecl]
+    /// The Prove walk met something that can stop the program or fault on
+    /// a value the program never passed: the function is not speculatable
+    /// (header, "Speculation").
+    priv var _traps: bool = false
     /// Inferred levels kept, and the inferred levels the termination proof
     /// took away, by the reason it failed first: a loop in the function's
     /// own body, or a call (a callee not proven, or a call cycle).
@@ -418,6 +444,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             fns.push(f)
             levels.push(lvl)
             self._mark(f, PurityProof::Pending)
+            self._speculate(f, false)
         }
 
         if fns.is_empty() {
@@ -429,6 +456,9 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         // range [dep_lo[i], dep_lo[i + 1]) of _deps.
         var why:    [u8]
         var dep_lo: [usize]
+        // Per function: its own body can stop the program (header,
+        // "Speculation").
+        var traps: [bool]
         self._deps.clear()
         self._walk = PurityWalk::Prove
         for var i: usize = 0; i < fns.size(); ++i {
@@ -439,7 +469,9 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             self._fail      = false
             self._unbounded = false
             self._bad_call  = false
+            self._traps     = f->is_unsafe()
             self._walk_body(f)
+            traps.push(self._traps)
             var w: u8 = 0
             if self._unbounded {
                 w = 1
@@ -465,15 +497,23 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 }
 
                 var all = true
+                // Every callee it waited on is decided by now: speculatable
+                // or not for good.
+                var spec = !traps[i]
                 for var k = dep_lo[i]; k < dep_lo[i + 1]; ++k {
                     if self._proof_of(self._deps[k]) != PurityProof::Proven {
                         all = false
                         break
                     }
+
+                    if !self._speculatable(self._deps[k]) {
+                        spec = false
+                    }
                 }
 
                 if all {
                     self._mark(f, PurityProof::Proven)
+                    self._speculate(f, spec)
                     changed = true
                 }
             }
@@ -533,6 +573,21 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         for var i: usize = 0; i < links.size(); ++i {
             links[i]->purity_proof = proof as u8
         }
+    }
+
+    /// Write the speculation verdict on every link of `f`'s chain, for the
+    /// same reason as _stamp.
+    priv fn _speculate(self, f: unsafe *FunctionDecl, yes: bool) {
+        var links = self._links(f)
+        for var i: usize = 0; i < links.size(); ++i {
+            links[i]->speculatable = yes
+        }
+    }
+
+    /// `f`'s speculation verdict, from whichever link carries it.
+    priv fn _speculatable(self, f: unsafe *FunctionDecl) -> bool {
+        var unsafe *c = f->canonical_decl()
+        return f->speculatable || c != &null && c->speculatable
     }
 
     /// Every link of `f`'s redeclaration chain, `f` included.
@@ -600,12 +655,24 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// caller unproven.
     priv fn _edge(self, f: unsafe *FunctionDecl) {
         var unsafe *c = f->canonical_decl()
-        if f->is_eval() || c != &null && c->is_eval() || self._is_intrinsic(f) {
+        if f->is_eval() || c != &null && c->is_eval() {
+            return
+        }
+
+        if self._is_intrinsic(f) {
+            if !self._assumes_nothing(f) {
+                self._traps = true
+            }
+
             return
         }
 
         var p = self._proof_of(f)
         if p == PurityProof::Proven {
+            if !self._speculatable(f) {
+                self._traps = true
+            }
+
             return
         }
 
@@ -615,10 +682,70 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         if self._level_of(f) == PurityLevel::None && self._foreign_purity(f) != 0 {
+            // A C/C++ function's promise says nothing of the arguments it
+            // may be handed (`strlen` of a pointer the program never passed).
+            self._traps = true
             return
         }
 
         self._bad_call = true
+    }
+
+    /// The intrinsics of _is_intrinsic that hold for every argument: the
+    /// hints and the bit operations. `assume`, `assume_aligned` and `unreachable`
+    /// are undefined when what they state is false, and `compare_mem` and
+    /// `prefetch` take addresses nothing vouches for.
+    priv fn _assumes_nothing(self, f: unsafe *FunctionDecl) -> bool {
+        var nm = self._tu.decl_name(unsafe (f as unsafe *Decl))
+        return nm == "__builtin_expect"
+            || nm == "__builtin_expect_prob"
+            || nm == "__builtin_unpredictable"
+            || nm == "__builtin_is_constant_evaluated"
+            || nm == "__builtin_target_info"
+            || nm == "__builtin_ctz"
+            || nm == "__builtin_clz"
+            || nm == "__builtin_popcount"
+            || nm == "__builtin_bswap"
+            || nm == "__builtin_rotl"
+            || nm == "__builtin_rotr"
+    }
+
+    /// The Prove walk reached a use of `v`. A global or static that may
+    /// hold a pointer (anything but a builtin scalar) hands the function a
+    /// pointer its arguments do not reach, so the function is not
+    /// speculatable (header, "Speculation").
+    priv fn _reads(self, v: unsafe *VariableDecl) {
+        if self._walk != PurityWalk::Prove || v == &null || !is_global_storage(v) {
+            return
+        }
+
+        if v->type_ == &null
+            || v->type_->canonical == &null
+            || self._tu.kind_of(v->type_->canonical) == BuiltinKind::COUNT {
+            self._traps = true
+        }
+    }
+
+    /// The Prove walk reached `a / b` or `a % b` (or the assigning form)
+    /// with no user operator: a zero divisor stops the program, so the
+    /// function is speculatable only when `b` is a literal other than zero
+    /// or the operands are floats.
+    priv fn _divides(self, lhs: unsafe *Expr, rhs: unsafe *Expr) {
+        var unsafe *t = self._expr_type(lhs)
+        if t != &null && self._tu.is_float(t) {
+            return
+        }
+
+        var unsafe *r = self._tu.strip_parens(rhs)
+        if r != &null && isa<IntegerLiteralExpr>(r) {
+            var unsafe *lit = cast<IntegerLiteralExpr>(r)
+            if lit->imm != &null
+                && (lit->imm->value_lo != 0 || lit->imm->value_hi != 0 || lit->imm->big != &null) {
+                return
+            }
+        }
+
+        self._traps = true
     }
 
     /// The walk reports nothing: a broken rule sets _fail instead.
@@ -937,6 +1064,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             }
         }
 
+        if self._walk == PurityWalk::Prove && n->kind == ExprKind::UnsafeExpr {
+            self._traps = true
+        }
+
         if (self._walk != PurityWalk::Infer) {
             return true
         }
@@ -969,6 +1100,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     fn visit_stmt(self, n: *Stmt) -> bool {
         if self._walk == PurityWalk::Prove && n != &null && self._unbounded_stmt(n) {
             self._unbounded = true
+        }
+
+        if self._walk == PurityWalk::Prove && n != &null && n->kind == StmtKind::UnsafeBlockStmt {
+            self._traps = true
         }
 
         if (self._walk != PurityWalk::Infer) || self._level == PurityLevel::None || n == &null {
@@ -1005,6 +1140,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             if self._level == PurityLevel::Const && is_global_storage(v) {
                 self._global(n->range, v, "read")
             }
+
+            self._reads(v)
 
             if v->type_ != &null && canon_has_volatile(v->type_->canonical) {
                 self._report(
@@ -1059,6 +1196,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                     self._global(st->range, v, "read")
                 }
             }
+
+            self._reads(dyn_cast<VariableDecl>(st->resolved_decl))
         }
 
         return true
@@ -1072,6 +1211,11 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         if n->resolved_op != &null {
             self._callee(n->range, n->resolved_op)
             return true
+        }
+
+        // An index into a fixed array or through a pointer is not checked.
+        if self._walk == PurityWalk::Prove {
+            self._traps = true
         }
 
         if self._level != PurityLevel::Const {
@@ -1119,6 +1263,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         if n->resolved_op != &null {
             self._callee(n->range, n->resolved_op)
+        } else if self._walk == PurityWalk::Prove
+            && (n->op_token.kind == TokenKind::OpSlash
+                || n->op_token.kind == TokenKind::OpPercent) {
+            self._divides(n->lhs, n->rhs)
         }
 
         return true
@@ -1131,6 +1279,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         if n->resolved_op != &null {
             self._callee(n->range, n->resolved_op)
+        } else if self._walk == PurityWalk::Prove
+            && (n->op_token.kind == TokenKind::OpSlashEqual
+                || n->op_token.kind == TokenKind::OpPercentEqual) {
+            self._divides(n->lhs, n->rhs)
         }
 
         if self._level == PurityLevel::Pure {

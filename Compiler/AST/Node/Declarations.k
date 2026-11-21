@@ -855,6 +855,15 @@ pub class FunctionDecl
     /// chain, in the defining TU's Sema; readers: Speller::fn_attrs and the
     /// callers' own proof.
     pub var purity_proof: u8 = 0
+    /// A call of the function may be evaluated where the program would not
+    /// have made it: it has a purity level, written or inferred, its
+    /// termination is proven, and nothing it runs can stop the program
+    /// (Compiler/Spec/SemanticChecks.md, "Speculatable functions"). A `fn`
+    /// value made from its name carries the fact (EmitIR::_fn_spec_value),
+    /// which `__builtin_fn_speculatable` reads. Writer:
+    /// FnPurityCheck::settle, on every link of the chain, in the defining
+    /// TU's Sema; readers: EmitIR and the callers' own verdict.
+    pub var speculatable: bool = false
     /// A function EnumLayoutLowering minted for an ADT's layout record, or
     /// None. It has no Kairo body and never a requires_clause: InterfaceEmitter
     /// writes its C++ from adt_role and adt_form, constraints included.
@@ -922,6 +931,7 @@ pub class FunctionDecl
         node->purity_at               = SourceRange::invalid()
         node->inferred_purity         = PurityLevel::None as u8
         node->purity_proof            = PurityProof::Unproven as u8
+        node->speculatable            = false
         return node
     }
 
@@ -966,6 +976,7 @@ pub class FunctionDecl
         node->purity_at               = SourceRange::invalid()
         node->inferred_purity         = PurityLevel::None as u8
         node->purity_proof            = PurityProof::Unproven as u8
+        node->speculatable            = false
         return node
     }
 
