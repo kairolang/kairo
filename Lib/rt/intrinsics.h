@@ -188,6 +188,30 @@ KAIRO_RT_INL void kairo_rt_prefetch(const unsigned char *p, int rw, int loc) KAI
 KAIRO_RT_INL constexpr bool kairo_rt_is_constant_evaluated() KAIRO_RT_NOEXCEPT { return __builtin_is_constant_evaluated(); }
 template <class T> KAIRO_RT_INL constexpr bool kairo_rt_constant_p(T v) KAIRO_RT_NOEXCEPT { return __builtin_constant_p(v); }
 
+/* --- fn values ----------------------------------------------------------- */
+
+/* Whether the `fn` value at `f` says its function is speculatable (the
+   compiler's `is_spec`). `__kairo_fn` is the compiler's own type of a `fn`
+   value, declared in every translation unit that holds Kairo code. Any other
+   type, and a `fn` value of a compiler that never says so, answers no, which
+   is always correct. */
+template <class S> class __kairo_fn;
+template <class F> struct kairo_rt_fn_mark {
+    KAIRO_RT_INL static constexpr bool read(const F *) KAIRO_RT_NOEXCEPT { return false; }
+};
+template <class S> struct kairo_rt_fn_mark<__kairo_fn<S>> {
+    KAIRO_RT_INL static constexpr bool read(const __kairo_fn<S> *f) KAIRO_RT_NOEXCEPT {
+        if constexpr (requires { static_cast<bool>(f->is_spec()); }) {
+            return f->is_spec();
+        } else {
+            return false;
+        }
+    }
+};
+template <class F> KAIRO_RT_INL constexpr bool kairo_rt_fn_speculatable(const F *f) KAIRO_RT_NOEXCEPT {
+    return kairo_rt_fn_mark<F>::read(f);
+}
+
 /* --- atomics: the order is an int, constant once inlined ----------------- */
 
 template <class T> KAIRO_RT_INL T kairo_rt_atomic_load(const T *p, int o) KAIRO_RT_NOEXCEPT { return __atomic_load_n(p, o); }

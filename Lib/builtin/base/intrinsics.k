@@ -30,8 +30,8 @@
 ///       - atomics: `atomic_load`, `store`, `exchange`, `cas`, the `fetch_*` operations, the
 ///         fences and `atomic_is_lock_free`, ordered by `MemoryOrder`;
 ///       - target: `__builtin_target_info()` and the `TargetInfo` it returns;
-///       - also: optimizer hooks (`expect`, `assume`, `unreachable`, `prefetch`, ...) and
-///         termination (`trap`, `abort`, `crash`, `signal`).
+///       - also: optimizer hooks (`expect`, `assume`, `unreachable`, `prefetch`,
+///         `fn_speculatable`, ...) and termination (`trap`, `abort`, `crash`, `signal`).
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -552,6 +552,23 @@ pub inline fn __builtin_is_constant_evaluated() -> bool {
 /// result proves nothing. Maps to `__builtin_constant_p`.
 pub fn <T> __builtin_constant_p(v: T) -> bool {
     return kairo_rt_constant_p(v)
+}
+
+/// Returns true when `*f` is a `fn` value that says its function is speculatable: a call of it
+/// may be evaluated on arguments the program never passed it, and nothing can tell, provided
+/// every pointer reachable from those arguments is valid. The compiler says so for a predicate
+/// it proved has no effect, always returns, cannot stop the program and reads through no
+/// pointer its arguments do not reach, in a value made from that function's name; the fact
+/// follows the value through every copy.
+///
+/// The read is a run-time one that folds to a constant where the optimizer sees the value made.
+/// A false result proves nothing: a closure, a function reached any other way and a function
+/// the compiler could not prove all answer false. `F` is the `fn` type; any other type answers
+/// false.
+pub inline fn <F> __builtin_fn_speculatable(f: *const F) -> bool {
+    unsafe {
+        return kairo_rt_fn_speculatable(f as unsafe *const F)
+    }
 }
 
 // --- termination -------------------------------------------------------------

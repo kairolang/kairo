@@ -1,0 +1,201 @@
+// `__builtin_fn_speculatable(const &f)`: whether the `fn` value says its
+// function may be evaluated on arguments the program never passed it. The
+// compiler says so, in a value made from the function's name, for a
+// predicate (a `bool` result) with a purity level (written or inferred), a
+// termination proof, and nothing in its body that can stop the program: no
+// integer `/` or `%` by anything but a nonzero literal, no index the
+// language does not check through an operator, no `unsafe`, no `assume`, no
+// call of a function that is not speculatable itself, and no read of a
+// global that is not a number (a pointer from a global is one the arguments
+// do not reach). The fact follows the value through copies and parameters;
+// a closure and a value made any other way say no.
+
+import std::io
+
+var total: i32 = 0
+var table: [i32; 4] = [1, 2, 3, 4]
+
+struct Limits {
+    var low: i32
+    var at: *const i32
+}
+
+var limits: Limits = Limits { low: 3, at: &total }
+
+fn clean(p: *const i32) -> bool = *p > 3
+fn written(x: i32) const -> bool { return x * 2 > 10 }
+@pure fn reads_global(p: *const i32) -> bool { return *p > total }
+fn calls_clean(p: *const i32) -> bool = clean(p) && *p < 100
+fn literal_divisor(p: *const i32) -> bool = *p % 2 == 0 && *p / 3 > 1
+fn float_divisor(p: *const f64) -> bool = 1.0 / *p > 0.5
+fn hinted(p: *const i32) -> bool = __builtin_expect(*p > 3, true)
+fn ranged(p: *const i32) -> bool {
+    var s = 0
+    for i in 0..4 { s += *p + i }
+    return s > 10
+}
+
+fn divides(p: *const i32) -> bool = 100 / *p > 3
+fn remainder(p: *const i32) -> bool = 100 % *p == 1
+fn divides_by_zero_literal(p: *const i32) -> bool = *p / 0 > 3
+fn divide_assigns(p: *const i32) -> bool {
+    var x = 100
+    x /= *p
+    return x > 3
+}
+fn indexes(p: *const i32) -> bool = table[(*p & 3) as usize] > 2
+fn unsafe_read(p: *const i32) -> bool {
+    unsafe {
+        var unsafe *q = p as unsafe *const i32
+        return *q > 3
+    }
+}
+fn writes(p: *const i32) -> bool {
+    total += 1
+    return *p > 3
+}
+fn loops(p: *const i32) -> bool {
+    var i = 0
+    while i != *p { i += 1 }
+    return i > 3
+}
+fn calls_divides(p: *const i32) -> bool = divides(p) || *p == 7
+fn doubled(x: i32) -> i32 = x * 2
+@pure fn follows_global(p: *const i32) -> bool { return *p > *limits.at }
+@pure fn reads_record_global(p: *const i32) -> bool { return *p > limits.low }
+fn assumes(p: *const i32) -> bool {
+    @assume(*p != 0)
+    return *p > 3
+}
+
+fn ask(f: fn(*const i32) -> bool) -> bool = __builtin_fn_speculatable(const &f)
+
+fn say(const name: string, yes: bool) {
+    io::println(f"{name}={if yes => 1 else => 0}")
+}
+
+fn main() -> i32 {
+    var f_clean: fn(*const i32) -> bool = clean
+    var f_written: fn(i32) -> bool = written
+    var f_reads_global: fn(*const i32) -> bool = reads_global
+    var f_calls_clean: fn(*const i32) -> bool = calls_clean
+    var f_literal_divisor: fn(*const i32) -> bool = literal_divisor
+    var f_float_divisor: fn(*const f64) -> bool = float_divisor
+    var f_hinted: fn(*const i32) -> bool = hinted
+    var f_ranged: fn(*const i32) -> bool = ranged
+    say("clean", __builtin_fn_speculatable(const &f_clean))
+    say("written", __builtin_fn_speculatable(const &f_written))
+    say("reads_global", __builtin_fn_speculatable(const &f_reads_global))
+    say("calls_clean", __builtin_fn_speculatable(const &f_calls_clean))
+    say("literal_divisor", __builtin_fn_speculatable(const &f_literal_divisor))
+    say("float_divisor", __builtin_fn_speculatable(const &f_float_divisor))
+    say("hinted", __builtin_fn_speculatable(const &f_hinted))
+    say("ranged", __builtin_fn_speculatable(const &f_ranged))
+
+    var f_divides: fn(*const i32) -> bool = divides
+    var f_remainder: fn(*const i32) -> bool = remainder
+    var f_zero: fn(*const i32) -> bool = divides_by_zero_literal
+    var f_divide_assigns: fn(*const i32) -> bool = divide_assigns
+    var f_indexes: fn(*const i32) -> bool = indexes
+    var f_unsafe_read: fn(*const i32) -> bool = unsafe_read
+    var f_writes: fn(*const i32) -> bool = writes
+    var f_loops: fn(*const i32) -> bool = loops
+    var f_calls_divides: fn(*const i32) -> bool = calls_divides
+    var f_assumes: fn(*const i32) -> bool = assumes
+    var f_doubled: fn(i32) -> i32 = doubled
+    var f_follows_global: fn(*const i32) -> bool = follows_global
+    var f_reads_record_global: fn(*const i32) -> bool = reads_record_global
+    say("divides", __builtin_fn_speculatable(const &f_divides))
+    say("remainder", __builtin_fn_speculatable(const &f_remainder))
+    say("divides_by_zero_literal", __builtin_fn_speculatable(const &f_zero))
+    say("divide_assigns", __builtin_fn_speculatable(const &f_divide_assigns))
+    say("indexes", __builtin_fn_speculatable(const &f_indexes))
+    say("unsafe_read", __builtin_fn_speculatable(const &f_unsafe_read))
+    say("writes", __builtin_fn_speculatable(const &f_writes))
+    say("loops", __builtin_fn_speculatable(const &f_loops))
+    say("calls_divides", __builtin_fn_speculatable(const &f_calls_divides))
+    say("assumes", __builtin_fn_speculatable(const &f_assumes))
+    say("doubled", __builtin_fn_speculatable(const &f_doubled))
+    say("follows_global", __builtin_fn_speculatable(const &f_follows_global))
+    say("reads_record_global", __builtin_fn_speculatable(const &f_reads_record_global))
+
+    // The fact is the value's: a copy keeps it, an assignment replaces it,
+    // and a parameter receives it.
+    var copy = f_clean
+    say("copy", __builtin_fn_speculatable(const &copy))
+    copy = f_divides
+    say("reassigned", __builtin_fn_speculatable(const &copy))
+    say("argument", ask(clean))
+    say("argument_divides", ask(divides))
+    say("argument_copy", ask(f_clean))
+
+    // A closure makes no promise, whatever its body.
+    var closure: fn(*const i32) -> bool = fn (p: *const i32) -> bool = *p > 3
+    var bound = 3
+    var capturing: fn(*const i32) -> bool = fn (p: *const i32) -> bool = *p > bound
+    say("closure", __builtin_fn_speculatable(const &closure))
+    say("capturing", __builtin_fn_speculatable(const &capturing))
+
+    // Every one of them is still the function it names.
+    var three = 3
+    var nine = 9
+    if f_clean(const &three) || !f_clean(const &nine) || !copy(const &nine) || !closure(const &nine) || !capturing(const &nine) {
+        return 1
+    }
+
+    if !f_written(6) || !f_reads_global(const &nine) || !f_indexes(const &three) || !f_unsafe_read(const &nine) {
+        return 2
+    }
+
+    return 0
+}
+
+// --- lit wiring ---
+// REQUIRES: clang
+// RUN: rm -rf %t.d
+// RUN: rm -f %t.exe %t.O2.exe %t.off.exe
+// RUN: %kairo %s -o %t.exe --cache-dir %t.d/o0
+// RUN: %t.exe | %FileCheck %s --check-prefixes=ALL,INFER
+// RUN: %kairo %s -O2 -o %t.O2.exe --cache-dir %t.d/o2
+// RUN: %t.O2.exe | %FileCheck %s --check-prefixes=ALL,INFER
+// ALL-DAG: written=1
+// ALL-DAG: reads_global=1
+// INFER-DAG: clean=1
+// INFER-DAG: calls_clean=1
+// INFER-DAG: literal_divisor=1
+// INFER-DAG: float_divisor=1
+// INFER-DAG: hinted=1
+// INFER-DAG: ranged=1
+// ALL-DAG: divides=0
+// ALL-DAG: remainder=0
+// ALL-DAG: divides_by_zero_literal=0
+// ALL-DAG: divide_assigns=0
+// ALL-DAG: indexes=0
+// ALL-DAG: unsafe_read=0
+// ALL-DAG: writes=0
+// ALL-DAG: loops=0
+// ALL-DAG: calls_divides=0
+// ALL-DAG: assumes=0
+// ALL-DAG: doubled=0
+// ALL-DAG: follows_global=0
+// ALL-DAG: reads_record_global=0
+// INFER-DAG: copy=1
+// ALL-DAG: reassigned=0
+// INFER-DAG: argument=1
+// ALL-DAG: argument_divides=0
+// INFER-DAG: argument_copy=1
+// ALL-DAG: closure=0
+// ALL-DAG: capturing=0
+
+// Without inference only a written promise has a level.
+// RUN: %kairo %s -fno-infer-purity -o %t.off.exe --cache-dir %t.d/off
+// RUN: %t.off.exe | %FileCheck %s --check-prefixes=ALL,OFF
+// OFF-DAG: clean=0
+// OFF-DAG: calls_clean=0
+// OFF-DAG: argument=0
+
+// The value says so where it is made from the name, and nowhere else.
+// RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX --implicit-check-not='divides, ::__kairo_spec' --implicit-check-not='doubled, ::__kairo_spec'
+// CXX-DAG: f_clean = ::__kairo_fn<bool(const signed int *)>( {{.*}}clean, ::__kairo_spec
+// CXX-DAG: ask( ::__kairo_fn<bool(const signed int *)>( {{.*}}clean, ::__kairo_spec
+// CXX-DAG: f_divides = static_cast< ::__kairo_fn<bool(const signed int *)>>( {{.*}}divides);
