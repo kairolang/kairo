@@ -128,19 +128,37 @@ static unsigned char *cache_take(size_t len) {
     return NULL;
 }
 
-unsigned char *kairo_rt_heap_large_alloc(size_t size, size_t align, int zeroed) {
+/* A fresh allocation maps only at or above this size; below it, with no
+ * cached mapping to reuse, it is mimalloc's, whose freed memory stays
+ * resident and so costs no page faults when it is reused. A mapped block
+ * the cache has no room for raises it past that block's length (glibc's
+ * mmap threshold rule, without glibc's cap: mimalloc reuses a block of any
+ * size), so a program that keeps freeing blocks of a size stops paying a
+ * fresh mapping's faults for each one. Growth by realloc maps at any large
+ * size, which is where mremap saves the copy. The page map tells every
+ * free which heap a block is in. */
+static size_t fresh_min = KAIRO_RT_HEAP_LARGE_MIN;
+
+/* A mapping for `size` bytes: a cached one cut to length (not for a zeroed
+ * block: a cached one holds old bytes), else a fresh one, which is zero.
+ * Out of mappings (vm.max_map_count) is not out of memory: mimalloc's arenas
+ * may still have room, and its page map tells the free. */
+static unsigned char *map_block(size_t size, size_t align, int zeroed, int fresh_ok) {
     size_t len = large_len(size);
     if (len == 0) { return NULL; }
-    /* A cached block holds old bytes; a fresh mapping is zero. */
     if (!zeroed) {
         unsigned char *c = cache_take(len);
         if (c != NULL) { return c; }
     }
-    void *p = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (p != MAP_FAILED) { return (unsigned char *)p; }
-    /* Out of mappings (vm.max_map_count) is not out of memory: mimalloc's
-     * arenas may still have room, and its page map tells the free. */
+    if (fresh_ok) {
+        void *p = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (p != MAP_FAILED) { return (unsigned char *)p; }
+    }
     return mi_side_alloc(size, align, zeroed);
+}
+
+unsigned char *kairo_rt_heap_large_alloc(size_t size, size_t align, int zeroed) {
+    return map_block(size, align, zeroed, size >= __atomic_load_n(&fresh_min, __ATOMIC_RELAXED));
 }
 
 void kairo_rt_heap_large_free(unsigned char *ptr, size_t size) {
@@ -149,7 +167,9 @@ void kairo_rt_heap_large_free(unsigned char *ptr, size_t size) {
         return;
     }
     size_t len = large_len(size);
-    if (!cache_put(ptr, len)) { munmap(ptr, len); }
+    if (cache_put(ptr, len)) { return; }
+    munmap(ptr, len);
+    if (len >= __atomic_load_n(&fresh_min, __ATOMIC_RELAXED)) { __atomic_store_n(&fresh_min, len + 1, __ATOMIC_RELAXED); }
 }
 
 #endif /* KAIRO_RT_HEAP_LARGE */
@@ -181,7 +201,7 @@ unsigned char *kairo_rt_heap_realloc(unsigned char *ptr, size_t old_size, size_t
     }
     if (old_mapped || new_large) {
         /* Across the threshold: the block changes path, so it moves. */
-        unsigned char *q = new_large ? kairo_rt_heap_large_alloc(new_size, align, 0) : mi_side_alloc(new_size, align, 0);
+        unsigned char *q = new_large ? map_block(new_size, align, 0, 1) : mi_side_alloc(new_size, align, 0);
         if (q == NULL) { return NULL; }
         memcpy(q, ptr, old_size < new_size ? old_size : new_size);
         if (old_mapped) {
