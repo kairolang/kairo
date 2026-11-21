@@ -925,6 +925,217 @@ priv class <T> SliceMutBackDrive {
 // for a class of another module.
 class <T> DriveBack<SliceIterMut<T>> derives SliceMutBackDrive<T> requires sizeof usize != 0 { }
 
+// --- block scans ------------------------------------------------------------
+//
+// A scan that ends at the first item a predicate decides (`find`,
+// `position`, `any`, `all`, `skip_while`, counting a `take_while`) is a loop
+// with an exit in it, which the optimizer does not vectorize. Over a slice
+// the same scan can test a block of elements with no exit inside the block:
+// a countable loop, which it does vectorize. A block is tested whole, so the
+// predicate also runs on elements past the one that ends the scan, and
+// again on the block that holds it. Nothing can tell when both of these
+// hold, and any other scan keeps the item loop alone, which calls the
+// predicate once per item up to the one that ends the scan:
+//
+//   - the compiler vouches for the predicate (`__builtin_fn_speculatable`:
+//     no effect, no trap, always returns, and it reads through no pointer
+//     its argument does not reach);
+//   - the elements are numbers, so what the argument reaches is the element
+//     and nothing behind it. An element that holds a pointer may hold one
+//     that is no longer valid past the element that ends the scan.
+//
+// `Blocks<I>` is chosen per chain type as `Drive<I>` is. The primary skips
+// nothing, so a chain with no specialization is the item loop alone.
+//
+// The predicate is only seen where the chain is inlined into the code that
+// names it. Anywhere else (an unoptimized build, a chain too large to
+// inline) a block would be 32 calls for nothing, so the skip runs only
+// where the optimizer has folded the predicate's verdict to a constant
+// (`scan_ahead`). The same test keeps the skip out of the size the optimizer
+// inlines by, which counts a branch on a `__builtin_constant_p` it cannot
+// decide yet as not taken: a consumer is inlined where it was without one.
+
+/// Elements a block scan tests at once. A scan that ends within its first
+/// block pays for that block's test on top of the item loop.
+priv eval SCAN_BLOCK: usize = 32
+/// Elements a block scan tests one at a time before its first block, so a
+/// scan that ends within them pays for no block. A slice with no room for
+/// them and one block is left to the item loop.
+priv eval SCAN_LEAD: usize = 8
+
+/// True when a scan over elements of `T` may test `f` a block at a time.
+priv inline fn <T, F> scan_ahead(f: *const F) -> bool {
+    eval if __builtin_is_integral<T>() || __builtin_is_floating_point<T>() {
+        var yes = __builtin_fn_speculatable(f)
+        return __builtin_constant_p(yes) && yes
+    } else {
+        return false
+    }
+}
+
+priv class <I impl Iterator> Blocks {
+    /// Drops leading items for which `f` gives the opposite of `want`, never
+    /// the first one for which it gives `want`. Returns how many it dropped.
+    static inline fn skip(it: *I, f: *const (fn(*const I::Item) -> bool), want: bool) -> usize {
+        return 0
+    }
+
+    /// The leading items a `count` may take from the chain unseen: none,
+    /// unless counting them is all the chain does with them.
+    static inline fn count(it: *I) -> usize {
+        return 0
+    }
+}
+
+/// `Blocks` from the back.
+priv class <I impl DoubleEnded> BlocksBack {
+    static inline fn skip(it: *I, f: *const (fn(*const I::Item) -> bool), want: bool) -> usize {
+        return 0
+    }
+}
+
+priv class <T> SliceBlocks {
+    static inline fn skip(it: *SliceIter<T>, f: *const (fn(*const (*const T)) -> bool), want: bool) -> usize {
+        if !scan_ahead<T, fn(*const (*const T)) -> bool>(f) {
+            return 0
+        }
+
+        unsafe {
+            var unsafe *lo = it->first_ptr()
+            var unsafe *hi = it->end_ptr()
+            var n = ((hi as usize) - (lo as usize)) / sizeof T
+            if n < SCAN_LEAD + SCAN_BLOCK {
+                return 0
+            }
+
+            var k: usize = 0
+            while k < SCAN_LEAD {
+                var q = (lo + k) as *const T
+                if (*f)(&q) == want {
+                    it->set_first(lo + k)
+                    return k
+                }
+
+                k += 1
+            }
+
+            var unsafe *p = lo + SCAN_LEAD
+            var blocks = (n - SCAN_LEAD) / SCAN_BLOCK
+            while blocks != 0 {
+                var hit = false
+                k = 0
+                while k < SCAN_BLOCK {
+                    var q = (p + k) as *const T
+                    hit |= (*f)(&q) == want
+                    k += 1
+                }
+
+                if hit {
+                    break
+                }
+
+                p = p + SCAN_BLOCK
+                blocks -= 1
+            }
+
+            it->set_first(p)
+            return ((p as usize) - (lo as usize)) / sizeof T
+        }
+    }
+
+    static inline fn count(it: *SliceIter<T>) -> usize {
+        return 0
+    }
+}
+
+// COMPILER-WORKAROUND(partial-forward-decl): as for `Drive<Chain<I, J>>`,
+// for a class of another module.
+class <T> Blocks<SliceIter<T>> derives SliceBlocks<T> requires sizeof usize != 0 { }
+
+priv class <T> SliceBackBlocks {
+    static inline fn skip(it: *SliceIter<T>, f: *const (fn(*const (*const T)) -> bool), want: bool) -> usize {
+        if !scan_ahead<T, fn(*const (*const T)) -> bool>(f) {
+            return 0
+        }
+
+        unsafe {
+            var unsafe *lo = it->first_ptr()
+            var unsafe *hi = it->end_ptr()
+            var n = ((hi as usize) - (lo as usize)) / sizeof T
+            if n < SCAN_LEAD + SCAN_BLOCK {
+                return 0
+            }
+
+            var k: usize = 1
+            while k <= SCAN_LEAD {
+                var q = (hi - k) as *const T
+                if (*f)(&q) == want {
+                    it->set_end(hi - (k - 1))
+                    return k - 1
+                }
+
+                k += 1
+            }
+
+            var unsafe *p = hi - SCAN_LEAD
+            var blocks = (n - SCAN_LEAD) / SCAN_BLOCK
+            while blocks != 0 {
+                var hit = false
+                k = 1
+                while k <= SCAN_BLOCK {
+                    var q = (p - k) as *const T
+                    hit |= (*f)(&q) == want
+                    k += 1
+                }
+
+                if hit {
+                    break
+                }
+
+                p = p - SCAN_BLOCK
+                blocks -= 1
+            }
+
+            it->set_end(p)
+            return ((hi as usize) - (p as usize)) / sizeof T
+        }
+    }
+}
+
+// COMPILER-WORKAROUND(partial-forward-decl): as for `Drive<Chain<I, J>>`,
+// for a class of another module.
+class <T> BlocksBack<SliceIter<T>> derives SliceBackBlocks<T> requires sizeof usize != 0 { }
+
+priv class <I impl DoubleEnded> RevBlocks {
+    static inline fn skip(it: *Rev<I>, f: *const (fn(*const I::Item) -> bool), want: bool) -> usize {
+        return BlocksBack<I>::skip(&it->it, f, want)
+    }
+
+    static inline fn count(it: *Rev<I>) -> usize {
+        return 0
+    }
+}
+
+class <I> Blocks<Rev<I>> derives RevBlocks<I> { }
+
+priv class <I impl Iterator> TakeWhileBlocks {
+    static inline fn skip(it: *TakeWhile<I>, f: *const (fn(*const I::Item) -> bool), want: bool) -> usize {
+        return 0
+    }
+
+    /// The items the predicate holds for are only counted, so the ones a
+    /// block scan drops are counted here.
+    static inline fn count(it: *TakeWhile<I>) -> usize {
+        if it->done {
+            return 0
+        }
+
+        return Blocks<I>::skip(&it->it, &it->f, false)
+    }
+}
+
+class <I> Blocks<TakeWhile<I>> derives TakeWhileBlocks<I> { }
+
 // --- adapters ---------------------------------------------------------------
 
 priv class <I impl Iterator> IterDrive {
@@ -1456,6 +1667,7 @@ priv class <I impl Iterator> SkipWhileDrive {
     /// test.
     static inline fn <S impl Sink<I::Item>> run(it: *SkipWhile<I>, s: *S) -> bool {
         if !it->done {
+            Blocks<I>::skip(&it->it, &it->f, false)
             var ws = SkipWhileSink<I::Item> { f: &it->f, first: null }
             if Drive<I>::run<SkipWhileSink<I::Item>>(&it->it, &ws) {
                 return true
@@ -1992,7 +2204,7 @@ extend <I impl Iterator> Iter<I> {
     /// Runs the whole chain: an adapter's callback may be observed, so the
     /// count is never read from a length.
     pub inline fn count(self) -> usize {
-        var s = CountSink<I::Item> { n: 0 }
+        var s = CountSink<I::Item> { n: Blocks<I>::count(&self.it) }
         Drive<I>::run<CountSink<I::Item>>(&self.it, &s)
         return s.n
     }
@@ -2011,13 +2223,14 @@ extend <I impl Iterator> Iter<I> {
     }
 
     pub inline fn find(self, f: fn(*const I::Item) -> bool) -> I::Item? {
+        Blocks<I>::skip(&self.it, &f, true)
         var s = FindSink<I::Item> { f: &f, out: null }
         Drive<I>::run<FindSink<I::Item>>(&self.it, &s)
         return move(s.out)
     }
 
     pub inline fn position(self, f: fn(*const I::Item) -> bool) -> usize? {
-        var s = TestSink<I::Item> { f: &f, i: 0, hit: false }
+        var s = TestSink<I::Item> { f: &f, i: Blocks<I>::skip(&self.it, &f, true), hit: false }
         Drive<I>::run<TestSink<I::Item>>(&self.it, &s)
         if s.hit {
             return s.i
@@ -2027,12 +2240,14 @@ extend <I impl Iterator> Iter<I> {
     }
 
     pub inline fn any(self, f: fn(*const I::Item) -> bool) -> bool {
+        Blocks<I>::skip(&self.it, &f, true)
         var s = TestSink<I::Item> { f: &f, i: 0, hit: false }
         Drive<I>::run<TestSink<I::Item>>(&self.it, &s)
         return s.hit
     }
 
     pub inline fn all(self, f: fn(*const I::Item) -> bool) -> bool {
+        Blocks<I>::skip(&self.it, &f, false)
         var s = AllSink<I::Item> { f: &f, ok: true }
         Drive<I>::run<AllSink<I::Item>>(&self.it, &s)
         return s.ok
