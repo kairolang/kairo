@@ -586,6 +586,10 @@ group = "member-lookup"
     check the spelling, or import the extension that declares the member. a private member is not
     reachable from outside its own type, and an out-of-line definition can only name members that
     the qualifying scope actually declares.
+
+    a fixed array `[T; N]` has the members of its slice view `[T;]`; a `const` array is viewed as
+    `[const T;]`, which declares no member that mutates. a member that changes the length, such as
+    `push`, is a vector's: an array has a fixed size, so declare a vector `[T]` to grow it.
     """
 
 [R026]

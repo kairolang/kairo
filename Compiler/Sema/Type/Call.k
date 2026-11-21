@@ -2104,9 +2104,13 @@ pub class <T: type> CallTyping {
                     // `Slice<T>` applies to the read form as it is, while a
                     // record's own members were looked up on the place
                     // form's record, which the read form may specialize.
+                    // Not for a member reached through a conversion or an
+                    // array's view (hop_type): its receiver is that result,
+                    // never the subscript's own type.
                     var unsafe *rb  = self.dyn()->tu.strip_parens(ce->base)
                     var unsafe *sel = last->resolved_decl
                     if ce->steps.size() == 1
+                        && last->hop_type == &null
                         && sel != &null
                         && sel->semantic_dc != &null
                         && sel->semantic_dc->dc_kind == DeclContextKind::Extension

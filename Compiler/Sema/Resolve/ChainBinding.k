@@ -100,8 +100,9 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Statements::ConditionalStmt
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType, ChainType, FunctionPointerType, GenericParamType, MapType,
-    NullableType,     PointerType,      SetType,   VectorType,
+    CXXLValueRefType, CXXRValueRefType, ChainType,    FixedArrayType, FunctionPointerType,
+    GenericParamType, MapType,          NullableType, PointerType,    SetType,
+    VectorType,
 }
 import AST::VisibilityFacts::{
     same_module,
@@ -1199,6 +1200,16 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return r
         }
 
+        // A fixed array's member is its slice view's, for the separators a
+        // conversion's is written for (_hop_separator): ImplicitConvLowering
+        // views the receiver of a `.` or of a pointer's `->` only.
+        if cands.empty() && self._viewable_array(ty) && self._hop_separator(a, st) {
+            var va = Anchor()
+            if self._bind_array_view(st, loc, at, a, ty, name, spelled, &va) {
+                return va
+            }
+        }
+
         if cands.empty() {
             // The type has no such member; one of its `@implicit op as`
             // results may (ConversionHop).
@@ -1215,14 +1226,18 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             }
 
             var tn = self._type_name_str(ty)
-            self._err_member_miss(
-                at,
-                f"no member named '{spelled}' in '{tn}'",
-                ty,
-                name,
-                spelled,
-                tn,
-            )
+            if self._fixed_size_miss(ty, name) {
+                self._err_fixed_size(at, ty, spelled, tn)
+            } else {
+                self._err_member_miss(
+                    at,
+                    f"no member named '{spelled}' in '{tn}'",
+                    ty,
+                    name,
+                    spelled,
+                    tn,
+                )
+            }
 
             st->name->poison()
             self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
@@ -1358,6 +1373,148 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             &null,
             hop->target,
         )
+    }
+
+    /// `ty` is a fixed array whose extent is a number: an array whose
+    /// members are its slice view's (_bind_array_view). Not C's incomplete
+    /// `[T;]` from a header, and not an extent C++ computes, which gives
+    /// the view no length.
+    priv fn _viewable_array(self, ty: unsafe *Type) -> bool {
+        var unsafe *u = dyn_cast<FixedArrayType>(canon_unqual(ty))
+        return u != &null && !u->is_incomplete && u->extent_param == &null && !u->is_dependent()
+    }
+
+    /// `st` names a member the fixed array `ty` does not declare: it is a
+    /// member of the array's slice view (Compiler/Spec/MemberLookup.md#fixed-arrays).
+    /// `a.m(args)` means `a[0..].m(args)`: the view is built over the
+    /// array's own storage, and a const array, or one reached through a
+    /// const path, is viewed as `[const T;]`, which declares no mutating
+    /// member. The step records the view in hop_type with no hop_conv, and
+    /// ImplicitConvLowering writes the view around the receiver. Which view
+    /// depends on the object's const, which only the typer's anchor
+    /// carries, so the declared-type walk leaves a member either view
+    /// declares to the typer, as _bind_hop leaves a conversion's. True with
+    /// the next anchor in `out` when either view declares the name; false
+    /// leaves the miss to the caller.
+    priv fn _bind_array_view(self,
+                             st:            unsafe *ChainExpr::Step,
+                             loc:           u32,
+                             at:            SourceRange,
+                             const a:       Anchor,
+                             ty:            unsafe *Type,
+                             name:          DeclName,
+                             const spelled: string,
+                             out:           *Anchor) -> bool {
+        var        tu    = TypeUtil(self.sc)
+        var unsafe *arr  = canon_unqual(ty)
+        var unsafe *open = tu.array_view(arr)
+        var unsafe *view = open
+        if self._object_const(a, st) {
+            view = tu.array_view(self.sc->types->qualified(arr, QUAL_CONST))
+        }
+
+        var cands = cxx::std::vector<unsafe *Decl>()
+        if view != &null {
+            self.ml.lookup(view, name, unsafe &cands)
+        }
+
+        // Declared by the mutable view only: the member mutates, and this
+        // array is const.
+        var mutates = false
+        if cands.empty() && open != &null && open != view {
+            var probe = cxx::std::vector<unsafe *Decl>()
+            mutates = self.ml.lookup(open, name, unsafe &probe)
+        }
+
+        // Neither view declares it: the caller's miss (a conversion's
+        // member, the fixed-size error, or none).
+        if cands.empty() && !mutates {
+            return false
+        }
+
+        if !self._from_typer {
+            self._record(loc, MemberOutcome::NeedsInference, &null, 0, a.decl)
+            self.n_inference += 1
+            out->kind = AnchorKind::NeedsInference
+            out->decl = a.decl
+            return true
+        }
+
+        if !cands.empty() {
+            st->hop_type = view
+            var owner: unsafe *Decl = &null
+            if isa<RecordType>(view) {
+                owner = cast<RecordType>(view)->decl
+            }
+
+            *out = self._commit(st, loc, unsafe &cands, owner, &null, view)
+            return true
+        }
+
+        var tn = self._type_name_str(ty)
+        var vs = tu.str(view)
+        self._err_member_miss(
+            at,
+            f"no member named '{spelled}' in a const '{tn}': it is viewed as '{vs}', which has none",
+            view,
+            name,
+            spelled,
+            vs,
+        )
+
+        st->name->poison()
+        self._record(loc, MemberOutcome::Errored, &null, 0, a.decl)
+        out->kind = AnchorKind::Errored
+        return true
+    }
+
+    /// R025E for `spelled`, a member `[T]` declares and the fixed array
+    /// `ty` (`tn`) does not: one that changes or reads the length's
+    /// storage, which an array has no room for.
+    priv fn _err_fixed_size(self,
+                            at:            SourceRange,
+                            ty:            unsafe *Type,
+                            const spelled: string,
+                            const tn:      string) {
+        self.sc->contained_errors += 1
+        self.n_errored += 1
+        var tu = TypeUtil(self.sc)
+        var vt = tu.str(
+            tu.vector_of(canon_unqual(tu.element_of(canon_unqual(ty)))),
+        )
+
+        var b = self.sc->diag->report(
+            DiagID::R025E,
+            at.start,
+            f"no member named '{spelled}' in '{tn}': an array has a fixed size",
+        )
+
+        b.first(at)
+        b.note(
+            f"'{spelled}' is a member of the vector '{vt}', whose length can change; declare a vector to grow or shrink it",
+        )
+
+        b.emit()
+    }
+
+    /// `name` is a member of `[T]`, the vector of the fixed array `ty`'s
+    /// element, and not of the array's slice view `[T;]`: one that changes
+    /// the length, which an array cannot.
+    priv fn _fixed_size_miss(self, ty: unsafe *Type, name: DeclName) -> bool {
+        if !self._viewable_array(ty) {
+            return false
+        }
+
+        var        tu    = TypeUtil(self.sc)
+        var unsafe *arr  = canon_unqual(ty)
+        var unsafe *vec  = tu.vector_of(canon_unqual(tu.element_of(arr)))
+        var unsafe *view = tu.array_view(arr)
+        var        probe = cxx::std::vector<unsafe *Decl>()
+        if vec == &null || view == &null || self.ml.lookup(view, name, unsafe &probe) {
+            return false
+        }
+
+        return self.ml.lookup(vec, name, unsafe &probe)
     }
 
     /// The record a `.`/`->`/`?.`/`?->` step actually reads from: `a`'s

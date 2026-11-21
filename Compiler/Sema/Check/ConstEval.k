@@ -14,9 +14,10 @@
 ///       integer literals; unary `-` `~` `+`; binary `+ - * | & ^ << >>`
 ///       (and `bitor` / `bitand` / `xor`) when they are builtin, not a user
 ///       `op`; parentheses; `as` to an integer type; a `const` / `eval`
-///       name whose initializer evaluates; and, inside a discriminant only,
-///       a variant of the same enum declared ABOVE the one being defined,
-///       whose value StmtTyping has already written.
+///       name whose initializer evaluates; `a.size()` on a fixed array
+///       `[T; N]`, which is N (array_extent_call); and, inside a
+///       discriminant only, a variant of the same enum declared ABOVE the
+///       one being defined, whose value StmtTyping has already written.
 ///
 ///     Arithmetic is exact, except a shift typed at an integer of at most
 ///     64 bits, which is the run-time shift (shift_in: the count modulo the
@@ -69,11 +70,13 @@ import AST::Node::Declarations::{
     FieldDecl,
     IntConst,
     ModuleDecl,
+    ParamDecl,
     VariableDecl,
 }
 import AST::Node::Expressions::{
     BinaryOperatorExpr,
     CallExpr,
+    SubscriptExpr,
     TypeCastExpr,
     UnaryOperatorExpr,
 }
@@ -83,13 +86,23 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Types::{
+    FixedArrayType,
     TypeExpr,
     ValueOp,
 }
+import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 import Token::TokenKind::TokenKind
+
+/// What ConstEval::array_extent_call found: a call whose value is a fixed
+/// array's extent.
+pub enum ArrayExtentCall derives u8 {
+    None = 0, ///< not such a call.
+    Size,     ///< `a.size()`: the extent.
+    IsEmpty,  ///< `a.is_empty()`: the extent is 0.
+}
 
 /// How ConstEval's last evaluation failed.
 pub enum EvalFailure derives u8 {
@@ -161,6 +174,225 @@ pub class ConstEval {
         var r = self._eval(e, 0)
         self._en = &null
         return r
+    }
+
+    /// `e` is `a.size()` or `a.is_empty()` on a fixed array `a: [T; N]`, the
+    /// slice view's member (Compiler/Spec/MemberLookup.md#fixed-arrays): its
+    /// value is N, or N == 0, whatever the elements hold, and `*extent` is
+    /// N. Only for a receiver whose reading runs nothing (_inert_place), so a
+    /// caller may drop the call and the receiver with it. Before typing (an
+    /// array length, which TypeResolve evaluates in phase T) the step is not
+    /// bound yet and the receiver's type is its declaration's; a member the
+    /// array type declares itself (an `extend [T; N]`) wins there as well.
+    fn array_extent_call(self, e0: unsafe *Expr, extent: *u64) -> ArrayExtentCall {
+        var unsafe *c = dyn_cast<CallExpr>(self.tu.strip_parens(e0))
+        if c == &null || c->args.size() != 0 || c->callee == &null {
+            return ArrayExtentCall::None
+        }
+
+        var unsafe *ch = dyn_cast<ChainExpr>(self.tu.strip_parens(c->callee))
+        if ch == &null || ch->base == &null || ch->steps.size() == 0 {
+            return ArrayExtentCall::None
+        }
+
+        var        k     = ch->steps.size() - 1
+        var unsafe *st   = ch->steps.get(k)
+        var        arrow = st->access_kind == ChainExpr::AccessKind::Arrow
+        if st->name == &null
+            || st->is_operator()
+            || st->is_tuple_index()
+            || !st->generic_args.is_empty()
+            || (st->access_kind != ChainExpr::AccessKind::Dot && !arrow) {
+            return ArrayExtentCall::None
+        }
+
+        var sp    = self.sc->ctx->get_spelling(st->name->name)
+        var which = ArrayExtentCall::None
+        if sp == "size" {
+            which = ArrayExtentCall::Size
+        } else if sp == "is_empty" {
+            which = ArrayExtentCall::IsEmpty
+        } else {
+            return ArrayExtentCall::None
+        }
+
+        if !self._inert_place(ch->base) {
+            return ArrayExtentCall::None
+        }
+
+        for var i: usize = 0; i < k; ++i {
+            if !self._field_step(ch->steps.get(i)) {
+                return ArrayExtentCall::None
+            }
+        }
+
+        var rt:   unsafe *Type = &null
+        var bound              = st->resolved_decl != &null || st->candidate_cell != &null
+        if bound {
+            // Through the view: no member of the array's own type.
+            if st->hop_type == &null || st->hop_conv != &null {
+                return ArrayExtentCall::None
+            }
+
+            rt = if (k == 0) => (ch->base->type_) else => ch->steps.get(k - 1)->resolved_type
+        } else {
+            // A field step binds after phase T.
+            if k > 0 {
+                return ArrayExtentCall::None
+            }
+
+            rt = self._declared_type(ch->base)
+        }
+
+        if arrow {
+            rt = self.tu.pointee(self.tu.as_value(rt))
+        }
+
+        var unsafe *arr = dyn_cast<FixedArrayType>(self.tu.as_value(rt))
+        if arr == &null || arr->is_incomplete || arr->extent_param != &null || arr->is_dependent() {
+            return ArrayExtentCall::None
+        }
+
+        if !bound && self._array_declares(unsafe (arr as unsafe *Type), st) {
+            return ArrayExtentCall::None
+        }
+
+        *extent = arr->size_bits as u64
+        return which
+    }
+
+    /// `e` names storage, and reading it runs nothing: a name, a field path
+    /// off one, `*p`, or a subscript of a fixed array by a constant. A
+    /// constant index is checked against the extent at compile time
+    /// (SC291E), so no run-time bounds check goes with the read.
+    priv fn _inert_place(self, e0: unsafe *Expr) -> bool {
+        var unsafe *e = self.tu.strip_parens(e0)
+        if e == &null {
+            return false
+        }
+
+        if isa<NamedIdentExpr>(e) {
+            return true
+        }
+
+        if isa<ChainExpr>(e) {
+            var unsafe *ch = cast<ChainExpr>(e)
+            if ch->base == &null {
+                return false
+            }
+
+            for var i: usize = 0; i < ch->steps.size(); ++i {
+                if !self._field_step(ch->steps.get(i)) {
+                    return false
+                }
+            }
+
+            return self._inert_place(ch->base)
+        }
+
+        if isa<SubscriptExpr>(e) {
+            var unsafe *s = cast<SubscriptExpr>(e)
+            if s->resolved_op != &null || s->index == &null {
+                return false
+            }
+
+            if self.tu.element_of(
+                self.tu.as_value(self._declared_type(s->base)),
+            ) == &null {
+                return false
+            }
+
+            if !ConstEval(self.sc).eval_int(s->index).ok {
+                return false
+            }
+
+            return self._inert_place(s->base)
+        }
+
+        if isa<UnaryOperatorExpr>(e) {
+            var unsafe *u = cast<UnaryOperatorExpr>(e)
+            if u->resolved_op != &null || !u->is_prefix() || u->op_token.kind != TokenKind::OpStar {
+                return false
+            }
+
+            return self._inert_place(u->operand)
+        }
+
+        return false
+    }
+
+    /// A step that reads a field (or a tuple element) of what is before it.
+    priv fn _field_step(self, st: unsafe *ChainExpr::Step) -> bool {
+        if st == &null || st->is_operator() || !st->generic_args.is_empty() {
+            return false
+        }
+
+        if st->access_kind != ChainExpr::AccessKind::Dot
+            && st->access_kind != ChainExpr::AccessKind::Arrow {
+            return false
+        }
+
+        return st->is_tuple_index()
+            || st->resolved_decl == &null
+            || isa<FieldDecl>(st->resolved_decl)
+    }
+
+    /// The type of `e`: the typer's, else, before typing, its declaration's
+    /// (a name, a subscript of one, `*p`). Null when neither says.
+    priv fn _declared_type(self, e0: unsafe *Expr) -> unsafe *Type {
+        var unsafe *e = self.tu.strip_parens(e0)
+        if e == &null {
+            return &null
+        }
+
+        if e->type_ != &null {
+            return e->type_
+        }
+
+        if isa<SubscriptExpr>(e) {
+            return self.tu.element_of(
+                self.tu.as_value(
+                    self._declared_type(cast<SubscriptExpr>(e)->base),
+                ),
+            )
+        }
+
+        if isa<UnaryOperatorExpr>(e) {
+            return self.tu.pointee(
+                self.tu.as_value(
+                    self._declared_type(cast<UnaryOperatorExpr>(e)->operand),
+                ),
+            )
+        }
+
+        if !isa<NamedIdentExpr>(e) {
+            return &null
+        }
+
+        var unsafe *d               = cast<NamedIdentExpr>(e)->resolved_decl
+        var        ty: unsafe *Type = &null
+        if d != &null && isa<VariableDecl>(d) {
+            ty = cast<VariableDecl>(d)->type_
+        } else if d != &null && isa<ParamDecl>(d) && !cast<ParamDecl>(d)->is_pack {
+            ty = cast<ParamDecl>(d)->type_
+        } else if d != &null && isa<FieldDecl>(d) {
+            ty = cast<FieldDecl>(d)->type_
+        }
+
+        return if (ty != &null) => (ty->canonical) else => &null
+    }
+
+    /// The array type `arr` (or an extension of it) declares the member
+    /// `st` names.
+    priv fn _array_declares(self, arr: unsafe *Type, st: unsafe *ChainExpr::Step) -> bool {
+        var imm = self.sc->ctx->get_ident_imm(st->name->name)
+        if imm == u32::MAX {
+            return false
+        }
+
+        var ml    = MemberLookup(self.sc)
+        var probe = cxx::std::vector<unsafe *Decl>()
+        return ml.lookup(arr, DeclName::ident(imm), unsafe &probe)
     }
 
     /// A canonical value node (Compiler/Spec/Eval.md#value-nodes, 3) for `vk` over `ops`:
@@ -702,6 +934,11 @@ pub class ConstEval {
         }
 
         if isa<CallExpr>(e) {
+            var extent: u64 = 0
+            if self.array_extent_call(e, &extent) == ArrayExtentCall::Size {
+                return self.make(false, extent)
+            }
+
             return self._fail(e, "a call is not evaluated at compile time")
         }
 

@@ -422,6 +422,11 @@ pub class SemaContext {
     /// (ChainExpr::Step::hop_conv). ImplicitConvLowering walks the TU for
     /// them only when there is one.
     pub var conversion_hops: u32 = 0
+    /// Fixed-array operands of an operator their slice view declares
+    /// (`a == b`, `v in a`), keyed by the operand expression, with the view
+    /// type (TypeUtil::array_view). ImplicitConvLowering writes the view
+    /// around each; counted in conversion_hops.
+    pub var array_view_operands: llvm::DenseMap<u64, unsafe *Type>
     /// The implicit_conv_targets entries that are an operator's left
     /// operand converted to the type that declares the operator. Such a
     /// conversion is written out even when it is a member's `op as`.

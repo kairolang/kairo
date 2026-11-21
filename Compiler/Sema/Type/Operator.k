@@ -903,6 +903,16 @@ pub class <T: type> OperatorTyping {
         // result of one of its `@implicit op as` conversions may
         // (ConversionHop), and the operator is then that type's, applied
         // to the converted operand.
+        // A fixed array declares no operator: its slice view's applies,
+        // to the view built over it (Compiler/Spec/MemberLookup.md#fixed-arrays).
+        var view: unsafe *Type = &null
+        if cands.size() == 0 && frees.size() == 0 && !copy_recv {
+            view = self._operand_array_view(n, k0, recv)
+            if view != &null && !self.dyn()->ml.lookup(view, name, unsafe &cands) {
+                view = &null
+            }
+        }
+
         var hop = ConversionHop()
         if cands.size() == 0 && frees.size() == 0 && !copy_recv {
             hop = self._operand_hop(n, k0, recv, name)
@@ -937,11 +947,12 @@ pub class <T: type> OperatorTyping {
             rcv = canon_unqual(rcv)
         }
 
-        // The operator of a conversion's result is used when it takes
-        // these operands, and is otherwise as absent as it was: the
-        // caller's fallbacks and its "no operator" error stay the type's.
-        if hop.conv != &null {
-            rcv = hop.target
+        // The operator of a conversion's result (or of an array's view) is
+        // used when it takes these operands, and is otherwise as absent as
+        // it was: the caller's fallbacks and its "no operator" error stay
+        // the type's.
+        if view != &null || hop.conv != &null {
+            rcv = if (view != &null) => (view) else => hop.target
             if !self.dyn()->ovl.any_viable(
                 &cands,
                 &margs,
@@ -989,6 +1000,12 @@ pub class <T: type> OperatorTyping {
 
         var rt = self.dyn()->call_result_type(r.decl, &r)
         self._record(n, r.decl, r.via_free, r.instance)
+        if view != &null {
+            // The view of the operand, for ImplicitConvLowering to write.
+            self.dyn()->sc->array_view_operands[recv as usize as u64] = view
+            self.dyn()->sc->conversion_hops += 1
+        }
+
         if hop.conv != &null {
             // The conversion of the operand, for ImplicitConvLowering to
             // write: C++ converts no operand to find a member operator.
@@ -1000,6 +1017,33 @@ pub class <T: type> OperatorTyping {
         }
 
         return rt
+    }
+
+    /// The slice view of `recv`, `[T;]` (`[const T;]` for a const array),
+    /// when `recv` is a fixed array and the receiver operand of the infix
+    /// operator `n`: its left operand, or the right one of `in`. Null for
+    /// any other operand or form.
+    priv fn _operand_array_view(self,
+                                n:    unsafe *Expr,
+                                k0:   TokenKind,
+                                recv: unsafe *Expr) -> unsafe *Type {
+        var unsafe *b = dyn_cast<BinaryOperatorExpr>(n)
+        if b == &null || recv == &null {
+            return &null
+        }
+
+        var which = if (k0 == TokenKind::KwIn) => (b->rhs) else => b->lhs
+        if which != recv {
+            return &null
+        }
+
+        var unsafe *rv  = self._receiver_of(recv)
+        var unsafe *arr = dyn_cast<FixedArrayType>(canon_unqual(rv))
+        if arr == &null || arr->is_incomplete || arr->extent_param != &null || arr->is_dependent() {
+            return &null
+        }
+
+        return self.dyn()->tu.array_view(rv)
     }
 
     /// The conversion of `recv`, the left operand of the infix operator

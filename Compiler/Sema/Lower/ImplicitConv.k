@@ -17,6 +17,13 @@
 ///     have been, and OperatorLowering and ExtensionLowering turn that into
 ///     the call, as they do for a written cast.
 ///
+///     A fixed array's member, and an operator, that its slice view
+///     declares (Compiler/Spec/MemberLookup.md#fixed-arrays) is reached the
+///     same way, through the view: the receiver becomes the
+///     ImplicitBoundaryCastExpr `var s: [T;] = a` converts with, a view over
+///     the array's own storage. `a.size()` and `a.is_empty()` on one are
+///     its extent, and are written as the constant.
+///
 ///   Phase: LOWER, first: the record is keyed by the expression node, and
 ///   every later lowering may replace nodes.
 ///
@@ -37,14 +44,19 @@ import AST::Node::Base::{
     Expr,
     Type,
 }
-import AST::Node::CanonicalNodes::canon_unqual
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    canon_unqual,
+}
 import AST::Node::Casting::{
     cast,
     dyn_cast,
 }
 import AST::Node::Declarations::FunctionDecl
 import AST::Node::Expressions::{
+    CallExpr,
     CastMode,
+    ImplicitBoundaryCastExpr,
     TypeCastExpr,
 }
 import AST::Node::PrimaryExpressions::ChainExpr
@@ -54,6 +66,10 @@ import AST::Visitor::ASTWriter::{
     ListBuilder,
 }
 import Location::SourceRange::SourceRange
+import Sema::Check::ConstEval::{
+    ArrayExtentCall,
+    ConstEval,
+}
 import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
@@ -105,7 +121,7 @@ pub class ImplicitConvLowering derives ASTWriter<ImplicitConvLowering> {
 
         var        k     = n->steps.size() - 1
         var unsafe *mark = n->steps.get(k)
-        if mark->hop_conv == &null || mark->hop_type == &null {
+        if mark->hop_type == &null {
             return out
         }
 
@@ -147,29 +163,33 @@ pub class ImplicitConvLowering derives ASTWriter<ImplicitConvLowering> {
             recv = self.synth.deref(recv->range, recv, pt->pointee)
         }
 
-        var unsafe *to = mark->hop_type
-        var unsafe *c = TypeCastExpr::create(
-            self.ctx,
-            recv->range,
-            recv,
-            to,
-            false,
-            CastMode::Default,
-        )
+        var unsafe *to              = mark->hop_type
+        var        c:  unsafe *Expr = &null
+        if mark->hop_conv == &null {
+            // A fixed array's member is its slice view's: the view over the
+            // array's own storage, as `var s: [T;] = a` builds it.
+            c = self._array_view(recv, to)
+        } else {
+            var unsafe *tc = TypeCastExpr::create(
+                self.ctx,
+                recv->range,
+                recv,
+                to,
+                false,
+                CastMode::Default,
+            )
 
-        c->type_          = to
-        c->value_category = Expr::ValueCategory::RValue
-        c->resolved_op    = cast<FunctionDecl>(mark->hop_conv)
+            tc->type_          = to
+            tc->value_category = Expr::ValueCategory::RValue
+            tc->resolved_op    = cast<FunctionDecl>(mark->hop_conv)
+            c                  = tc
+        }
 
         var step = *mark
         step.hop_conv    = &null
         step.hop_type    = &null
         step.access_kind = ChainExpr::AccessKind::Dot
-        var unsafe *rest = ChainExpr::create(
-            self.ctx,
-            n->range,
-            unsafe (c as unsafe *Expr),
-        )
+        var unsafe *rest = ChainExpr::create(self.ctx, n->range, c)
 
         var rsteps = ListBuilder<ChainExpr::Step>(self.ctx)
         rsteps.push(step)
@@ -178,6 +198,44 @@ pub class ImplicitConvLowering derives ASTWriter<ImplicitConvLowering> {
         var unsafe *re = unsafe (rest as unsafe *Expr)
         re->adopt_sema(n)
         return re
+    }
+
+    /// `a.size()` / `a.is_empty()` on a fixed array is its extent
+    /// (ConstEval::array_extent_call): written as the constant, so neither
+    /// the view nor the call is emitted, and an eval context that reads it
+    /// is a C++ constant expression.
+    pub fn transform_call_expr(self, n: unsafe *CallExpr) -> unsafe *Expr {
+        var extent: u64 = 0
+        var which = ConstEval(unsafe (self.sc as unsafe *SemaContext)).array_extent_call(
+            unsafe (n as unsafe *Expr),
+            &extent,
+        )
+
+        if which == ArrayExtentCall::Size {
+            return self.synth.int_literal(n->range, extent, BuiltinKind::USize)
+        }
+
+        if which == ArrayExtentCall::IsEmpty {
+            return self.synth.bool_literal(n->range, extent == (0 as u64))
+        }
+
+        return ASTWriter<ImplicitConvLowering>::transform_call_expr(self, n)
+    }
+
+    /// `[T; N]` `recv` viewed as the slice `view`, a value over its
+    /// storage (Conversion::array_views_as); EmitIR spells it.
+    priv fn _array_view(self, recv: unsafe *Expr, view: unsafe *Type) -> unsafe *Expr {
+        var unsafe *c = ImplicitBoundaryCastExpr::create(
+            self.ctx,
+            recv->range,
+            recv,
+            recv->type_,
+            view,
+        )
+
+        c->type_          = view
+        c->value_category = Expr::ValueCategory::RValue
+        return c
     }
 
     pub fn transform_expr(self, e: unsafe *Expr) -> unsafe *Expr {
@@ -191,7 +249,17 @@ pub class ImplicitConvLowering derives ASTWriter<ImplicitConvLowering> {
         }
 
         var key = e as usize as u64
-        var tt  = self.sc->implicit_conv_targets.find(key)
+        // An operator's fixed-array operand, viewed (OperatorTyping's
+        // resolve_user_op). Erased once written: a later walk over this
+        // node must not view it again.
+        var av = self.sc->array_view_operands.find(key)
+        if av != self.sc->array_view_operands.end() {
+            var unsafe *view = av->second
+            self.sc->array_view_operands.erase(key)
+            return self._array_view(out, view)
+        }
+
+        var tt = self.sc->implicit_conv_targets.find(key)
         if tt == self.sc->implicit_conv_targets.end() {
             return out
         }

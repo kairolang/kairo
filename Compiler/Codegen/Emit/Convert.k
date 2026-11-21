@@ -574,7 +574,10 @@ extend EmitIR {
     /// (Conversion::array_views_as), the only way an array meets a record.
     /// Spelled as the record's `(data, len)` construction over the array's
     /// own storage; `&(a)[0]` is the first element whichever way the array
-    /// was declared. True when it emitted.
+    /// was declared. A slice parameter of a generic callee (`[const T;]` of
+    /// an `extend <T> Slice<T>` member) is spelled through the call's
+    /// instance `subst` (_slice_in): C++ deduces no template argument
+    /// through the conversion. True when it emitted.
     prot fn _array_view(self,
                         e:     unsafe *Expr,
                         want:  unsafe *Type,
@@ -593,7 +596,7 @@ extend EmitIR {
             return false
         }
 
-        if have->is_dependent() || w->is_dependent() {
+        if have->is_dependent() || (w->is_dependent() && !self._slice_in(w, subst)) {
             return false
         }
 
@@ -601,6 +604,19 @@ extend EmitIR {
         self.emit(e)
         self._cg->sink->spell(e->range, ")[0], " + f"{have->size_bits}" + ")")
         return true
+    }
+
+    /// `w` is a Slice instance over a callee's parameters, spelled through
+    /// the call's instance `subst`.
+    priv fn _slice_in(self, w: unsafe *Type, subst: unsafe *InstanceEntry) -> bool {
+        var unsafe *rt = dyn_cast<RecordType>(w)
+        var        *gs = self._cg->tu->global_scope
+        if subst == &null || rt == &null || gs == &null {
+            return false
+        }
+
+        var unsafe *sd = gs->well_known()->get(WellKnownType::Slice)
+        return sd != &null && Speller::rep(decl_pattern(rt->decl)) == Speller::rep(sd)
     }
 
     /// `[T;]` or `[T]` where `[const T;]` is wanted: Sema's const view

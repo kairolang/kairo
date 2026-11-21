@@ -277,7 +277,10 @@ pub class ChainExpr derives Expr {
         /// and `hop_type` its result for this receiver, the type the member
         /// is called on. One writer: ChainBinding, for ExprTyper; null on
         /// every other step. ImplicitConvLowering writes the conversion
-        /// around the chain before this step and clears both.
+        /// around the chain before this step and clears both. A null
+        /// `hop_conv` with a `hop_type` is a fixed array's member found on
+        /// its slice view, `hop_type` (TypeUtil::array_view): the view is
+        /// written around the receiver instead of a conversion.
         pub var hop_conv: unsafe *Decl = &null
         pub var hop_type: unsafe *Type = &null
 

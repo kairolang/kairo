@@ -47,7 +47,7 @@
 ///     operators and casts over eval-able operands; an `eval` variable or
 ///     field; a generic value parameter; an enclosing `eval for`'s binding
 ///     (a constant in each copy); a call of an `eval fn` with eval-able
-///     arguments.
+///     arguments; `a.size()` / `a.is_empty()` on a fixed array, its extent.
 ///
 ///   Phase: CHECKS (after X: reads callee bindings and iter_kind)
 ///
@@ -133,6 +133,10 @@ import Diagnostic::NoteText::{
 }
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
+import Sema::Check::ConstEval::{
+    ArrayExtentCall,
+    ConstEval,
+}
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
 import Support::FlagSet::FlagSet
@@ -1684,6 +1688,26 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         b.emit()
     }
 
+    /// `a.size()` / `a.is_empty()` on a fixed array is its extent, a
+    /// constant whatever `a` holds (ConstEval::array_extent_call), and
+    /// lowering writes it as one: nothing in it is read at run time, so the
+    /// call and its receiver are no part of the eval context's check.
+    fn traverse_call_expr(self, n: *Expressions::CallExpr) -> *Expressions::CallExpr {
+        if self._ctx > 0 && self._extent_call(unsafe (n as unsafe *Expr)) {
+            return n
+        }
+
+        return RecursiveASTVisitor<EvalUsageChecking>::traverse_call_expr(
+            self,
+            n,
+        )
+    }
+
+    priv fn _extent_call(self, e: unsafe *Expr) -> bool {
+        var extent: u64 = 0
+        return ConstEval(self.sc).array_extent_call(e, &extent) != ArrayExtentCall::None
+    }
+
     /// # eval generators
 
     fn visit_call_expr(self, n: unsafe *Expressions::CallExpr) -> bool {
@@ -1970,6 +1994,10 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
             }
 
             return if (self._eval_decl(d)) => (&null) else => e
+        }
+
+        if isa<Expressions::CallExpr>(e) && self._extent_call(e) {
+            return &null
         }
 
         if isa<Expressions::CallExpr>(e) {

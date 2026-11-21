@@ -327,8 +327,9 @@ pub class AccessCheck derives RecursiveASTVisitor<AccessCheck> {
 
             // A member found through one `@implicit op as` (ConversionHop) is
             // reached through the conversion's result; the conversion itself
-            // is checked with the other implicit ones (visit_expr).
-            if st->hop_conv != &null {
+            // is checked with the other implicit ones (visit_expr). A fixed
+            // array's member is reached through its slice view.
+            if st->hop_type != &null {
                 through = st->hop_type
                 via     = &null
             }

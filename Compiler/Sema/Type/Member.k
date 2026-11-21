@@ -604,15 +604,19 @@ pub class <T: type> MemberTyping {
                 // receiver (ConversionHop) is called on the conversion's
                 // result, a temporary of that type. The conversion is a
                 // call the tree does not show until ImplicitConvLowering
-                // writes it: recorded for the checks that judge calls.
+                // writes it: recorded for the checks that judge calls. A
+                // fixed array's slice view (no hop_conv) is no call, and the
+                // view's element type already carries the array's const.
                 if st->hop_type != &null {
                     val     = st->hop_type
                     recv_q  = 0
                     obj_cat = Expr::ValueCategory::RValue
                     self.dyn()->sc->conversion_hops += 1
-                    self.dyn()->sc->implicit_convs[n as usize as u64] = cast<FunctionDecl>(
-                        st->hop_conv,
-                    )
+                    if st->hop_conv != &null {
+                        self.dyn()->sc->implicit_convs[n as usize as u64] = cast<FunctionDecl>(
+                            st->hop_conv,
+                        )
+                    }
                 }
             }
 
