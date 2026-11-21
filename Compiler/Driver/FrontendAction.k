@@ -1609,8 +1609,8 @@ pub class FrontendAction {
                 }
             }
 
-            // Then which headers include each other in a cycle (modules of
-            // the builtin directory may import each other): such a header is
+            // Then which headers include each other in a cycle (modules may
+            // import each other; the builtin library's do): such a header is
             // written as two files (EmitCXXHeader), and every header of the
             // cycle has to know the others.
             var hpaths = cxx::std::vector<string>()

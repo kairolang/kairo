@@ -98,6 +98,23 @@ pub class TextSink derives EmitSink {
     priv var _pl_rec:    [usize] ///< the record whose text claimed this physical line, else usize::MAX
     priv var _drop:      [bool] ///< a record of a definition the header leaves out (_mark_drops_)
 
+    /// The deferred tail of a header in an include cycle (begin_tail /
+    /// end_tail, EmitPlan::tail_unit_path): its text, in line mode, with
+    /// `#line` directives naming the tail's own file for what it invents.
+    /// Layout: the records from _tail_from to _tail_to, which finish_layout
+    /// places like the rest, so every choice about the header's own lines
+    /// is the one it makes without a tail, and then leaves out of `out`.
+    pub var  tail_out:   string = ""
+    priv var _tail_path: string = ""
+    priv var _tail_from: usize  = 0
+    priv var _tail_to:   usize  = 0
+    priv var _lay_skip:  bool   = false ///< _lay_ leaves the tail's records out
+    priv var _head_out:  string = ""
+    priv var _head_phys: usize  = 0
+    priv var _head_file: string = ""
+    priv var _head_line: usize  = 0
+    priv var _head_self: string = ""
+
     /// Out-of-line function definitions: left out because their
     /// declaration holds their line, or kept because C++ in the including
     /// file may need the body (constexpr, consteval, a deduced type, an
@@ -387,8 +404,18 @@ pub class TextSink derives EmitSink {
         }
 
         self._line_dir = false
-        var file = self._line_file.copy()
-        var line = self._line_no
+        self._emit_line_(self._line_file, self._line_no, self._line)
+        self._line      = ""
+        self._line_file = ""
+        self._line_no   = 0
+    }
+
+    /// Line mode: `text` as the next line of `out`, under a `#line` when
+    /// it does not follow the last one: Kairo line `line` of `file`, or,
+    /// with no file, the physical line it lands on in `self_path`.
+    priv fn _emit_line_(self, const at_file: string, at_line: usize, const text: string) {
+        var file = at_file.copy()
+        var line = at_line
         if file.is_empty() {
             file = self.self_path.copy()
             line = self._phys + 1
@@ -404,14 +431,59 @@ pub class TextSink derives EmitSink {
             self._phys += 1
         }
 
-        self.out += self._line
+        self.out += text
         self.out += "\n"
         self._phys += 1
-        self._map_file  = file.copy()
-        self._map_line  = line + 1
-        self._line      = ""
-        self._line_file = ""
-        self._line_no   = 0
+        self._map_file = file.copy()
+        self._map_line = line + 1
+    }
+
+    /// Starts a new file: `out` empties and line mode counts physical lines
+    /// from 1 under `path`, so the next line carries its own `#line`.
+    priv fn _restart_(self, const path: string) {
+        self.out       = ""
+        self.self_path = path.copy()
+        self._phys     = 0
+        self._map_file = ""
+        self._map_line = 0
+    }
+
+    /// Line mode, at a line start: what follows, up to end_tail, is the
+    /// tail written to `path` (tail_out), and what end_tail is followed by
+    /// continues the header.
+    pub fn begin_tail(self, const path: string) {
+        self._flush_pending()
+        self.brk()
+        self._tail_path = path.copy()
+        if self.layout {
+            self._tail_from = self._rec_text.size()
+            self._tail_to   = self._tail_from
+            return
+        }
+
+        self._head_out  = self.out.copy()
+        self._head_phys = self._phys
+        self._head_file = self._map_file.copy()
+        self._head_line = self._map_line
+        self._head_self = self.self_path.copy()
+        self._restart_(path)
+    }
+
+    pub fn end_tail(self) {
+        self._flush_pending()
+        self.brk()
+        if self.layout {
+            self._tail_to = self._rec_text.size()
+            return
+        }
+
+        self.tail_out  = self.out.copy()
+        self.out       = self._head_out.copy()
+        self._phys     = self._head_phys
+        self._map_file = self._head_file.copy()
+        self._map_line = self._head_line
+        self.self_path = self._head_self.copy()
+        self._head_out = ""
     }
 
     /// Lays the recorded lines out (layout mode) into `out` and returns the
@@ -477,6 +549,13 @@ pub class TextSink derives EmitSink {
             if (!home.is_empty()) && (self._rec_file[q] == home) && (c_kind[q] != 1) {
                 first = q
             }
+        }
+
+        // A tail is never part of the prelude, even when the header's own
+        // declarations are all forward ones.
+        var tail = self._tail_to > self._tail_from
+        if tail && (first > self._tail_from) {
+            first = self._tail_from
         }
 
         // The prelude ends outside every conditional it opens: a guard
@@ -555,6 +634,34 @@ pub class TextSink derives EmitSink {
             }
 
             self._lay_(first, include_line)
+        }
+
+        // The tail's records leave the header last, after every choice above
+        // was made with them in place: _lay_ is one pass in record order, so
+        // the header's lines are the ones the full placement gave them.
+        // Each one the header keeps goes to tail_out instead, as line mode
+        // writes it.
+        self.tail_out = ""
+        if tail {
+            self._lay_skip = true
+            self._lay_(first, include_line)
+            self._lay_skip = false
+            var keep_out  = self.out.copy()
+            var keep_self = self.self_path.copy()
+            self._restart_(self._tail_path)
+            for var q = self._tail_from; q < self._tail_to; ++q {
+                if (c_kind[q] != 1) && (!self._drop[q]) {
+                    self._emit_line_(
+                        self._rec_file[q],
+                        self._rec_line[q],
+                        self._rec_text[q],
+                    )
+                }
+            }
+
+            self.tail_out  = self.out.copy()
+            self.out       = keep_out.copy()
+            self.self_path = keep_self.copy()
         }
 
         // Last, once nothing else is placed or joined: text joined after a
@@ -685,6 +792,11 @@ pub class TextSink derives EmitSink {
         var inv_depth: usize = 0
         var r                = first
         while r < n {
+            if self._lay_skip && (r >= self._tail_from) && (r < self._tail_to) {
+                r = self._tail_to
+                continue
+            }
+
             var starts_at: usize = 0
             if r > 0 {
                 starts_at = self._rec_depth[r - 1]

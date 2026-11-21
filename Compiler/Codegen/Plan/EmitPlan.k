@@ -375,7 +375,7 @@ var _G_PHASE: GraphPhase = GraphPhase::Unset
 var _BORROWED: cxx::std::vector<unsafe *Decl> = cxx::std::vector<unsafe *Decl>()
 
 /// The headers of this `--emit-headers` run that sit in an include cycle
-/// (modules of the builtin directory may import each other), by header
+/// (modules that import each other, the builtin library's among them), by header
 /// path, each with the index of its cycle group (strongly connected
 /// component, from 1). Filled by note_header_cycles on the driver thread
 /// before any header is made, read-only after; cleared by clear_borrowed.

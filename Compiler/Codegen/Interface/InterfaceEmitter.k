@@ -226,11 +226,15 @@ pub class InterfaceEmitter {
     pub var ir: unsafe *EmitIR = &null
 
     /// Header mode: this header sits in an include cycle (EmitPlan::
-    /// header_cycle), so run() writes its declaration part only
-    /// (EmitCXXHeader writes the rest): it includes the declaration parts of
-    /// the cycle's other headers the declarations need, and leaves tier 3
-    /// to emit_extern_instantiations, which needs every template defined.
+    /// header_cycle), so run() writes its declarations only (EmitCXXHeader
+    /// writes the rest): it includes the headers the declarations need, and
+    /// leaves tier 3 to emit_extern_instantiations, which needs every
+    /// template defined. A header of its own cycle is included as its
+    /// declaration part (EmitPlan::decl_unit_path), or with `cycle_tail`
+    /// as itself, guarded by its EmitPlan::cycle_macro, the deferred-tail
+    /// shape kals' bridge modes write.
     pub var split_cycle: bool = false
+    pub var cycle_tail:  bool = false
     /// The instances a kcc include's plan named but does not instantiate
     /// (IncludeEmitter prunes tier 3): their type-id specializations are
     /// still the host's to see.
@@ -1170,27 +1174,45 @@ pub class InterfaceEmitter {
 
     /// `#pragma once`, then one `#include` per foreign module reached at
     /// Complete, or whose FUNCTION is declared (EmitPlan::header_includes).
-    /// Import cycles exist only among the builtin directory's modules; a
-    /// header in one (split_cycle) is its declaration part here, which
-    /// includes the declaration part of each other header of its cycle the
-    /// declarations need, and the whole header of every other module they
-    /// need. That part is acyclic, since a cycle among layouts is a Kairo
-    /// error.
+    /// A header in an include cycle (split_cycle) has its declarations
+    /// here, which include each other header of its cycle the declarations
+    /// need, and the whole header of every other module they need. With
+    /// cycle_tail it first defines its cycle_macro and, when no header of
+    /// its cycle is open, opens the cycle as its root (EmitPlan::
+    /// tail_unit_path).
     priv fn _header_prologue(self) {
         var at = self._tu_at()
         self._cg->sink->directive(at, "#pragma once")
-        self._abi_guard(at)
-        // The module's ffi headers first: its declarations and its inline
-        // bodies name what they declare, exactly as the module's own TU did.
-        for var i: usize = 0; i < self._ffi_lines.size(); ++i {
-            self._cg->sink->directive(at, self._ffi_lines[i])
-        }
-
         var group: u32 = 0
         if self.split_cycle {
             group = EmitPlan::header_cycle(
                 self._spell->header_path(self._cg->tu),
             )
+        }
+
+        if self.cycle_tail && group != 0 {
+            var own  = self._spell->header_path(self._cg->tu)
+            var open = EmitPlan::cycle_open_macro(group)
+            self._cg->sink->directive(
+                at,
+                "#define " + EmitPlan::cycle_macro(own),
+            )
+
+            self._cg->sink->directive(at, "#ifndef " + open)
+            self._cg->sink->directive(at, "#define " + open)
+            self._cg->sink->directive(
+                at,
+                "#define " + EmitPlan::cycle_root_macro(own),
+            )
+
+            self._cg->sink->directive(at, "#endif")
+        }
+
+        self._abi_guard(at)
+        // The module's ffi headers first: its declarations and its inline
+        // bodies name what they declare, exactly as the module's own TU did.
+        for var i: usize = 0; i < self._ffi_lines.size(); ++i {
+            self._cg->sink->directive(at, self._ffi_lines[i])
         }
 
         var incs = self._plan->header_includes(
@@ -1200,11 +1222,25 @@ pub class InterfaceEmitter {
         for var i: usize = 0; i < incs.size(); ++i {
             var p = incs[i].copy()
             if group != 0 && EmitPlan::header_cycle(p) == group {
+                if self.cycle_tail {
+                    self.include_cycle_header(p)
+                    continue
+                }
+
                 p = EmitPlan::decl_unit_path(p)
             }
 
             self._cg->sink->directive(at, "#include \"" + p + "\"")
         }
+    }
+
+    /// `#include "p"` for header `p` of this header's cycle, skipped while
+    /// `p` is being entered (EmitPlan::cycle_macro).
+    fn include_cycle_header(self, const p: string) {
+        var at = self._tu_at()
+        self._cg->sink->directive(at, "#ifndef " + EmitPlan::cycle_macro(p))
+        self._cg->sink->directive(at, "#include \"" + p + "\"")
+        self._cg->sink->directive(at, "#endif")
     }
 
     /// A header that defines a `@relocatable` record refuses a compiler

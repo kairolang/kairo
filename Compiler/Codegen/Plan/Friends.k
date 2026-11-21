@@ -83,6 +83,10 @@ import Codegen::Spell::Spell::{
     VIS_PROT,
     VIS_PUB,
 }
+import Support::Ascii::{
+    is_ident_char,
+    string_less,
+}
 
 extend EmitPlan {
     /// # Hidden decls another header names (_BORROWED)
@@ -166,6 +170,92 @@ extend EmitPlan {
         }
 
         return 0
+    }
+
+    /// # The deferred tail of a cycle header (kals' bridge modes)
+    ///
+    /// With `#line` directives a header in an include cycle stays one file
+    /// of declarations, `X.hh`, so its lines keep their Kairo mapping; what
+    /// needs every header of the cycle complete (tier 3 and the bodies) is
+    /// its tail, `X.tail.hh`. The first header of the cycle a C++ TU enters
+    /// is its root: after its own declarations it includes every other
+    /// header of the cycle, then every tail. A header entered while the
+    /// root is open writes its declarations only. Each header defines
+    /// cycle_macro on entry, ahead of its includes, and every include of a
+    /// header of its cycle is guarded by that macro: a layout header's
+    /// `_Pragma("once")` follows its prelude include, so a header re-entered
+    /// from its own prelude's includes would otherwise write its
+    /// declarations a second time.
+
+    /// The path of the tail of header `p` (`a/b.hh` -> `a/b.tail.hh`).
+    pub static fn tail_unit_path(const p: string) -> string {
+        if p.ends_with(".hh") {
+            return p.subslice(0, p.size() - 3) + ".tail.hh"
+        }
+
+        return p.copy() + ".tail.hh"
+    }
+
+    /// The headers of cycle group `g`, in path order: the same list for
+    /// every header of the group, whichever run wrote it.
+    pub static fn cycle_members(g: u32) -> cxx::std::vector<string> {
+        var out = cxx::std::vector<string>()
+        for var i: usize = 0; i < _HDR_CYCLE_PATH.size(); ++i {
+            if _HDR_CYCLE_SCC[i] != g {
+                continue
+            }
+
+            var at = out.size()
+            while at > 0 && string_less(_HDR_CYCLE_PATH[i], out[at - 1]) {
+                at -= 1
+            }
+
+            out.insert(out.cbegin() + (at as isize), _HDR_CYCLE_PATH[i].copy())
+        }
+
+        return out
+    }
+
+    /// Defined by header `p` on entry, before any include.
+    pub static fn cycle_macro(const p: string) -> string {
+        return "__KAIRO_HDR_" + EmitPlan::_macro_part(p)
+    }
+
+    /// Defined by header `p` when it is its cycle's root.
+    pub static fn cycle_root_macro(const p: string) -> string {
+        return "__KAIRO_HDR_ROOT_" + EmitPlan::_macro_part(p)
+    }
+
+    /// Defined by the first header of group `g` entered (named after the
+    /// group's first header in path order).
+    pub static fn cycle_open_macro(g: u32) -> string {
+        var members = EmitPlan::cycle_members(g)
+        if members.empty() {
+            return "__KAIRO_HDR_CYCLE"
+        }
+
+        return "__KAIRO_HDR_CYCLE_" + EmitPlan::_macro_part(members[0])
+    }
+
+    /// `p` as identifier characters: each other byte becomes `_xHH`, so two
+    /// paths give two names.
+    priv static fn _macro_part(const p: string) -> string {
+        var hex = "0123456789ABCDEF"
+        var out = ""
+        for var i: usize = 0; i < p.size(); ++i {
+            var c = p.data()[i]
+            if is_ident_char(c) && c != ('_' as u8) {
+                out.push(c)
+                continue
+            }
+
+            var b = ((c) as u32)
+            out += "_x"
+            out.push(hex.data()[(b >> 4) as usize])
+            out.push(hex.data()[(b & 15) as usize])
+        }
+
+        return out
     }
 
     /// Records which headers sit in an include cycle: `paths[i]` includes

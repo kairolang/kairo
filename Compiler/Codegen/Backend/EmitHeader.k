@@ -79,8 +79,11 @@ pub class EmitCXXHeader {
     pub var bodies_needed:  usize = 0
 
     /// After render() of a header in an include cycle: its declaration
-    /// part, written beside it as EmitPlan::decl_unit_path; "" otherwise.
+    /// part, written beside it as EmitPlan::decl_unit_path, or, with
+    /// line_directives, its tail, written as EmitPlan::tail_unit_path;
+    /// "" otherwise.
     pub var  decl_text:     string = ""
+    pub var  tail_text:     string = ""
     priv var _prelude_path: string = ""
 
     pub fn EmitCXXHeader(self,
@@ -96,6 +99,8 @@ pub class EmitCXXHeader {
     /// nothing can import or include by module path: Speller::is_entry_tu).
     pub fn render(self) -> string {
         var unsafe *tu = self._ctx->tu
+        self.decl_text = ""
+        self.tail_text = ""
         if tu == &null || Speller::is_entry_tu(tu) {
             return ""
         }
@@ -144,13 +149,36 @@ pub class EmitCXXHeader {
         // A header in an include cycle is two files (EmitPlan::header_cycle):
         // whichever header of the cycle a C++ TU includes first, every
         // header's bodies must follow the declarations of all it names, and
-        // one guarded file per module cannot order that. Not with #line
-        // directives: kals' bridge reads one file per module.
+        // one guarded file per module cannot order that. With #line
+        // directives the header keeps the declarations, whose lines kals'
+        // bridge maps to the .k file, and the rest is its deferred tail
+        // (EmitPlan::tail_unit_path); otherwise the declarations are the
+        // part apart (EmitPlan::decl_unit_path).
         var self_path = plan.own_header_path()
-        ie.split_cycle = !ts.line_mode && EmitPlan::header_cycle(self_path) != 0
-        self.decl_text = ""
+        var group     = EmitPlan::header_cycle(self_path)
+        ie.split_cycle = group != 0
+        ie.cycle_tail  = group != 0 && ts.line_mode
         ie.run()
-        if ie.split_cycle {
+        if ie.cycle_tail {
+            // The tail includes the whole header of every module the plan
+            // reaches and the tail of each one of the cycle, so the bodies
+            // below follow every body they may need (one already being
+            // included has written them), then tier 3.
+            var at = SourceRange()
+            ts.begin_tail(EmitPlan::tail_unit_path(self.header_name))
+            ts.directive(at, "#pragma once")
+            var incs = plan.header_includes(0 as u8)
+            for var i: usize = 0; i < incs.size(); ++i {
+                var p = incs[i].copy()
+                if EmitPlan::header_cycle(p) == group {
+                    p = EmitPlan::tail_unit_path(p)
+                }
+
+                ts.directive(at, "#include \"" + p + "\"")
+            }
+
+            ie.emit_extern_instantiations()
+        } else if ie.split_cycle {
             // The declaration part is what run() wrote; the header proper
             // includes it, then the whole header of every module the plan
             // reaches, so the bodies below see each one's declarations
@@ -183,6 +211,37 @@ pub class EmitCXXHeader {
             ts.brk() // the last line is still buffered
         }
 
+        if ie.cycle_tail {
+            // The root, after its own declarations: every other header of
+            // the cycle, then every tail.
+            ts.end_tail()
+            var at      = SourceRange()
+            var members = EmitPlan::cycle_members(group)
+            ts.directive(at, "#ifdef " + EmitPlan::cycle_root_macro(self_path))
+            for var i: usize = 0; i < members.size(); ++i {
+                if members[i] != self_path {
+                    ie.include_cycle_header(members[i])
+                }
+            }
+
+            ts.directive(
+                at,
+                "#include \"" + EmitPlan::tail_unit_path(self_path) + "\"",
+            )
+
+            for var i: usize = 0; i < members.size(); ++i {
+                if members[i] != self_path {
+                    ts.directive(
+                        at,
+                        "#include \"" + EmitPlan::tail_unit_path(members[i]) + "\"",
+                    )
+                }
+            }
+
+            ts.directive(at, "#endif")
+            ts.brk()
+        }
+
         if ts.layout {
             self.prelude = ts.finish_layout(
                 "#include \"" + self._prelude_path + "\"",
@@ -193,6 +252,10 @@ pub class EmitCXXHeader {
             self.docs_dropped   = ts.docs_dropped
             self.bodies_dropped = ts.bodies_dropped
             self.bodies_needed  = ts.bodies_needed
+        }
+
+        if ie.cycle_tail {
+            self.tail_text = ts.tail_out.copy()
         }
 
         return ts.out.copy()
@@ -256,29 +319,42 @@ pub class EmitCXXHeader {
         }
 
         if self.layout && self.line_directives {
-            var oldp: string = ""
-            if (!LinkFS::read(self._prelude_path, &oldp)) || (oldp != self.prelude) {
-                publish_bytes(self._prelude_path, self.prelude)
-            }
+            EmitCXXHeader::_publish(self._prelude_path, self.prelude, true)
         }
 
-        // The bridge's headers are watched by clangd: an unchanged one is
+        // The bridge's headers are watched by clangd: an unchanged file is
         // left alone, so an edit that does not touch the interface does not
-        // make clangd re-parse every file that includes it.
-        if self.line_directives {
-            var old: string = ""
-            if LinkFS::read(p, &old) && (old == text) {
-                return true
-            }
-        }
-
-        // Published whole: clangd and a C++ build may read the header while
-        // it is replaced, and must see the old text or the new, never a part.
+        // make clangd re-parse every file that includes it. Each file of a
+        // header in a cycle is compared on its own: either can change alone.
         Path::make_parent_dirs(p)
         if !self.decl_text.empty() && !publish_bytes(EmitPlan::decl_unit_path(p), self.decl_text) {
             return false
         }
 
-        return publish_bytes(p, text)
+        if !self.tail_text.empty()
+            && !EmitCXXHeader::_publish(
+                EmitPlan::tail_unit_path(p),
+                self.tail_text,
+                self.line_directives,
+            ) {
+            return false
+        }
+
+        return EmitCXXHeader::_publish(p, text, self.line_directives)
+    }
+
+    /// Writes `text` to `path` whole: clangd and a C++ build may read the
+    /// file while it is replaced, and must see the old text or the new,
+    /// never a part. `keep_same`: a file that already holds `text` is left
+    /// alone.
+    priv static fn _publish(const path: string, const text: string, keep_same: bool) -> bool {
+        if keep_same {
+            var old: string = ""
+            if LinkFS::read(path, &old) && (old == text) {
+                return true
+            }
+        }
+
+        return publish_bytes(path, text)
     }
 }
