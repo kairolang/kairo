@@ -8,5 +8,5 @@ int main() {
     words::Bag b;
     b.add(s);
     b.add(s);
-    return static_cast<int>(words::measure(s) + pm(s) + words::grow(s) + b.total + s.length());
+    return static_cast<int>(words::measure(s) + pm(s) + words::grow(s) + b.total + s.size());
 }
