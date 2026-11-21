@@ -70,9 +70,9 @@ static unsigned char *mi_side_realloc(unsigned char *ptr, size_t old_size, size_
  * hdr_len(align) bytes into it (at least 16, and a multiple of the
  * alignment, which the mapping's page start then gives), and the two words
  * just below the block hold that offset and the mapping's length. The
- * length is the mapping's own, which may be more than the block's size: a
- * block that takes a longer cached mapping keeps all of it, so growing into
- * it costs neither a system call nor a page fault. */
+ * length is the mapping's own, which may be up to twice what the block's
+ * size needs: a block that takes a longer cached mapping keeps all of it,
+ * so growing into it costs neither a system call nor a page fault. */
 #define KAIRO_RT_HEAP_HDR_MIN ((size_t)16)
 
 static size_t hdr_len(size_t align) { return align > KAIRO_RT_HEAP_HDR_MIN ? align : KAIRO_RT_HEAP_HDR_MIN; }
@@ -116,8 +116,12 @@ static int is_mapped(const unsigned char *ptr) { return !mi_is_in_heap_region(pt
 static unsigned char *large_cache[KAIRO_RT_HEAP_CACHE_SLOTS];
 static size_t         large_cache_len[KAIRO_RT_HEAP_CACHE_SLOTS];
 
+/* A block of KAIRO_RT_HEAP_CACHE_MAX bytes maps one page more for its
+ * header; the cache takes that mapping too. */
+static int cacheable(size_t len) { return len <= KAIRO_RT_HEAP_CACHE_MAX + KAIRO_RT_HEAP_LARGE_ALIGN; }
+
 static int cache_put(unsigned char *base, size_t len) {
-    if (len > KAIRO_RT_HEAP_CACHE_MAX) { return 0; }
+    if (!cacheable(len)) { return 0; }
     memcpy(base, &len, sizeof len);
     for (int i = 0; i < KAIRO_RT_HEAP_CACHE_SLOTS; ++i) {
         unsigned char *expected = NULL;
@@ -130,27 +134,37 @@ static int cache_put(unsigned char *base, size_t len) {
     return 0;
 }
 
-/* The shortest cached mapping of at least `len` bytes, whole, its length in
- * *have. Its pages stay resident, so neither the caller's first writes nor
- * a later growth within it fault. A block taken this way holds at most
- * KAIRO_RT_HEAP_CACHE_MAX bytes past its own length, a mapping a freed
- * block held before it. */
-static unsigned char *cache_take(size_t len, size_t *have) {
+/* The length of the shortest cached mapping of `len` to `max` bytes, or 0,
+ * and its slot; a hint, since another thread may take it first. */
+static size_t cache_shortest(size_t len, size_t max, int *slot) {
     int    best     = -1;
-    size_t best_len = SIZE_MAX;
+    size_t best_len = 0;
     for (int i = 0; i < KAIRO_RT_HEAP_CACHE_SLOTS; ++i) {
         if (__atomic_load_n(&large_cache[i], __ATOMIC_RELAXED) == NULL) { continue; }
         size_t hint = __atomic_load_n(&large_cache_len[i], __ATOMIC_RELAXED);
-        if (hint >= len && hint < best_len) {
+        if (hint >= len && hint <= max && (best < 0 || hint < best_len)) {
             best     = i;
             best_len = hint;
         }
     }
-    if (best < 0) { return NULL; }
-    unsigned char *base = __atomic_exchange_n(&large_cache[best], (unsigned char *)NULL, __ATOMIC_ACQUIRE);
+    *slot = best;
+    return best_len;
+}
+
+/* The shortest cached mapping of `len` to twice `len` bytes, whole, its
+ * length in *have. Its pages stay resident, so neither the caller's first
+ * writes nor a growth within it fault. A longer one stays cached for a
+ * block it fits: a mapped block never holds more than twice the length its
+ * size needs, so a short block kept alive cannot pin a long freed mapping,
+ * and cutting the mapping instead would fault its tail back in for the
+ * next block that needs it. */
+static unsigned char *cache_take(size_t len, size_t *have) {
+    int slot;
+    if (cache_shortest(len, len > SIZE_MAX / 2 ? SIZE_MAX : 2 * len, &slot) == 0) { return NULL; }
+    unsigned char *base = __atomic_exchange_n(&large_cache[slot], (unsigned char *)NULL, __ATOMIC_ACQUIRE);
     if (base == NULL) { return NULL; }
     memcpy(have, base, sizeof *have);
-    if (*have >= len) { return base; }
+    if (*have >= len && *have / 2 <= len) { return base; }
     if (!cache_put(base, *have)) { munmap(base, *have); }
     return NULL;
 }
@@ -164,7 +178,7 @@ static unsigned char *cache_take(size_t len, size_t *have) {
  * faults for each one.
  *
  * Two thresholds, because the cache serves only lengths up to
- * KAIRO_RT_HEAP_CACHE_MAX: fresh_min_cacheable gates a fresh allocation of
+ * KAIRO_RT_HEAP_CACHE_MAX (and a header page): fresh_min_cacheable gates a fresh allocation of
  * such a length and rises only when one of those finds the cache full;
  * fresh_min gates every other fresh allocation and every growth by realloc
  * out of mimalloc, and rises with every unmapped block. So a block too long
@@ -199,7 +213,7 @@ static unsigned char *map_block(size_t size, size_t align, int zeroed, int fresh
 }
 
 unsigned char *kairo_rt_heap_large_alloc(size_t size, size_t align, int zeroed) {
-    size_t *threshold = map_len(size, hdr_len(align)) <= KAIRO_RT_HEAP_CACHE_MAX ? &fresh_min_cacheable : &fresh_min;
+    size_t *threshold = cacheable(map_len(size, hdr_len(align))) ? &fresh_min_cacheable : &fresh_min;
     return map_block(size, align, zeroed, size >= __atomic_load_n(threshold, __ATOMIC_RELAXED));
 }
 
@@ -214,7 +228,7 @@ void kairo_rt_heap_large_free(unsigned char *ptr, size_t size) {
     if (cache_put(base, len)) { return; }
     munmap(base, len);
     raise_threshold(&fresh_min, len);
-    if (len <= KAIRO_RT_HEAP_CACHE_MAX) { raise_threshold(&fresh_min_cacheable, len); }
+    if (cacheable(len)) { raise_threshold(&fresh_min_cacheable, len); }
 }
 
 /* A mapped block resized from `old_size` to `new_size` (at least
@@ -260,10 +274,16 @@ unsigned char *kairo_rt_heap_realloc(unsigned char *ptr, size_t old_size, size_t
         /* mimalloc's block stays mimalloc's unless it grows past both its
          * usable size and the threshold: a shrink, a growth mi_expand
          * serves, and a growth below the threshold are mimalloc's realloc,
-         * in place where it can be. */
+         * in place where it can be. So is a growth that only a cached
+         * mapping more than twice its length could serve: cut to length,
+         * the mapping's resident tail would be lost to the block's next
+         * growths, which reach it whole once they need half of it. */
         if (new_size <= old_size || new_size < __atomic_load_n(&fresh_min, __ATOMIC_RELAXED)) {
             return mi_side_realloc(ptr, old_size, new_size, align);
         }
+        size_t need = map_len(new_size, hdr_len(align));
+        int    slot;
+        if (cache_shortest(need, SIZE_MAX, &slot) / 2 > need) { return mi_side_realloc(ptr, old_size, new_size, align); }
         if (mi_expand(ptr, new_size) != NULL) { return ptr; }
         unsigned char *q = map_block(new_size, align, 0, 1);
         if (q == NULL) { return NULL; }

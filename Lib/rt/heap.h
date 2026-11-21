@@ -13,22 +13,24 @@
  *   fresh allocation reuses a cached mapping, else maps at or above a
  *   threshold that rises the way glibc's mmap threshold does (rt/heap.c),
  *   else is mimalloc's. A mimalloc block that realloc grows past its usable
- *   size and that threshold moves to a mapping; any other realloc of it
- *   stays in mimalloc. A mapped block:
+ *   size and that threshold moves to a mapping, unless the only cached
+ *   mapping that fits is more than twice its length; any other realloc of
+ *   it stays in mimalloc. A mapped block holds at most twice the length its
+ *   size needs, and:
  *
  *     - grows and shrinks within its mapping's length with no system call;
  *       a shrink to half that length or less gives the tail back;
  *     - realloc past the mapping is mremap, which moves page table entries
  *       rather than bytes (no copy, at any size); resize past it extends
  *       the mapping where the address space after it is free;
- *     - once freed, a mapping of at most KAIRO_RT_HEAP_CACHE_MAX bytes waits
- *       in a process-wide cache of KAIRO_RT_HEAP_CACHE_SLOTS mappings; the
- *       next large allocation (not a zeroed one) takes the shortest that
- *       fits, whole and resident, so an allocate / free or a grow / free
- *       loop maps nothing and faults nothing after its first round. The
- *       cache holds at most KAIRO_RT_HEAP_CACHE_SLOTS *
- *       KAIRO_RT_HEAP_CACHE_MAX bytes, and a block taken from it holds at
- *       most KAIRO_RT_HEAP_CACHE_MAX bytes past its own length.
+ *     - once freed, a mapping for at most KAIRO_RT_HEAP_CACHE_MAX bytes
+ *       waits in a process-wide cache of KAIRO_RT_HEAP_CACHE_SLOTS mappings;
+ *       the next large allocation (not a zeroed one) takes the shortest that
+ *       fits and is at most twice its length, whole and resident, so an
+ *       allocate / free or a grow / free loop maps nothing and faults
+ *       nothing after its first round. The cache holds at most
+ *       KAIRO_RT_HEAP_CACHE_SLOTS mappings of KAIRO_RT_HEAP_CACHE_MAX bytes
+ *       and a header page each.
  *
  *   Nothing outside a mapped block records which heap holds it: every
  *   free, resize and realloc gets the size and alignment the block was last
