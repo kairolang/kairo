@@ -68,10 +68,17 @@ prot struct TextRange {
 // --- value to text -----------------------------------------------------------
 
 /// Writes the two digits of `v` (below 100) at `buf[at]` and `buf[at + 1]`.
+///
+/// The table is read through a raw pointer: `v` is a remainder of a division
+/// by 100 or a quotient the caller's range bounds, which the optimizer
+/// cannot see, so an indexed read would test the bound once per pair.
 inline fn put_pair(buf: unsafe *u8, at: usize, v: u32) {
     var i = (v as usize) * 2
-    buf[at]     = NUMTEXT_DIGIT_PAIRS[i]
-    buf[at + 1] = NUMTEXT_DIGIT_PAIRS[i + 1]
+    unsafe {
+        var unsafe *t = &NUMTEXT_DIGIT_PAIRS[0] as unsafe *const u8
+        buf[at]     = t[i]
+        buf[at + 1] = t[i + 1]
+    }
 }
 
 /// Writes `v` (below 100) so that its last digit is `buf[end - 1]`;
@@ -81,8 +88,12 @@ inline fn put_pair(buf: unsafe *u8, at: usize, v: u32) {
 inline fn put_lead2(buf: unsafe *u8, end: usize, v: u32) -> usize {
     var i     = (v as usize) * 2
     var start = end - 2 + (if v < 10 => 1usize else => 0usize)
-    buf[start]   = NUMTEXT_DIGIT_PAIRS[i]
-    buf[end - 1] = NUMTEXT_DIGIT_PAIRS[i + 1]
+    unsafe {
+        var unsafe *t = &NUMTEXT_DIGIT_PAIRS[0] as unsafe *const u8
+        buf[start]   = t[i]
+        buf[end - 1] = t[i + 1]
+    }
+
     return start
 }
 

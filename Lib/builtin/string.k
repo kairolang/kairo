@@ -13,6 +13,8 @@
 ///                                     appends them with no temporary, no count and no allocation
 ///                                     when `out` has room
 ///   s.push_ascii_(p, n)               the same append, spelled as one call
+///   s.push_block_(p, n)               the same append of at most string::BLOCK_ bytes
+///                                     from a buffer readable for that many
 ///   string::adopt_(bytes, cap, len, cps)
 ///                                     takes over a block laid out as a heap string's
 ///                                     (see `string::HEAP_HEADER_`)
@@ -103,6 +105,32 @@ priv inline fn copy_word_(dst: unsafe *u8, src: unsafe *const u8) -> usize {
     return w
 }
 
+/// Copies the 4 bytes at `src` to `dst`, any alignment, and returns them.
+///
+/// \safety Both must be valid for 4 bytes; the ranges may overlap fully or not at all.
+priv inline fn copy_u32_(dst: unsafe *u8, src: unsafe *const u8) -> usize {
+    var v: u32 = 0
+    unsafe {
+        __builtin_copy(&v as unsafe *u8, src, 4)
+        __builtin_copy(dst, &v as unsafe *const u8, 4)
+    }
+
+    return v as usize
+}
+
+/// Copies the 2 bytes at `src` to `dst`, any alignment, and returns them.
+///
+/// \safety Both must be valid for 2 bytes; the ranges may overlap fully or not at all.
+priv inline fn copy_u16_(dst: unsafe *u8, src: unsafe *const u8) -> usize {
+    var v: u16 = 0
+    unsafe {
+        __builtin_copy(&v as unsafe *u8, src, 2)
+        __builtin_copy(dst, &v as unsafe *const u8, 2)
+    }
+
+    return v as usize
+}
+
 /// Copies the `n <= 8 * W` bytes at `src` to `dst` with no loop over bytes
 /// and no call, and returns every byte ORed together (in some byte of the
 /// result): words from the front and words from the back, which overlap in
@@ -113,10 +141,22 @@ priv inline fn copy_short_(dst: unsafe *u8, src: unsafe *const u8, n: usize) -> 
     var acc: usize = 0
     unsafe {
         if n < W {
-            for var j: usize = 0; j < n; j++ {
-                var x = src[j]
-                dst[j] = x
-                acc |= x as usize
+            // Under a word: two halves that overlap, then two byte pairs,
+            // then the single byte.
+            eval if sizeof usize > 4 {
+                if n >= 4 {
+                    return copy_u32_(dst, src) | copy_u32_(dst + (n - 4), src + (n - 4))
+                }
+            }
+
+            if n >= 2 {
+                return copy_u16_(dst, src) | copy_u16_(dst + (n - 2), src + (n - 2))
+            }
+
+            if n != 0 {
+                var x = src[0]
+                dst[0] = x
+                acc    = x as usize
             }
         } else if n <= 2 * W {
             acc = copy_word_(dst, src) | copy_word_(
@@ -136,6 +176,37 @@ priv inline fn copy_short_(dst: unsafe *u8, src: unsafe *const u8, n: usize) -> 
     }
 
     return acc
+}
+
+/// Copies the `n <= 64` bytes at `src` to `dst` with no loop and no call:
+/// 16 bytes from the front and 16 from the back, which overlap in the
+/// middle, and the same again one step in when more than 32 remain; under
+/// 16 bytes, two halves that overlap. `copy_short_` is the form that also
+/// reports the bytes it copied.
+///
+/// \safety Both must be valid for `n` bytes and must not overlap.
+priv inline fn copy_small_(dst: unsafe *u8, src: unsafe *const u8, n: usize) {
+    unsafe {
+        if n >= 16 {
+            __builtin_copy(dst, src, 16)
+            __builtin_copy(dst + (n - 16), src + (n - 16), 16)
+            if n > 32 {
+                __builtin_copy(dst + 16, src + 16, 16)
+                __builtin_copy(dst + (n - 32), src + (n - 32), 16)
+            }
+        } else if n >= 8 {
+            __builtin_copy(dst, src, 8)
+            __builtin_copy(dst + (n - 8), src + (n - 8), 8)
+        } else if n >= 4 {
+            copy_u32_(dst, src)
+            copy_u32_(dst + (n - 4), src + (n - 4))
+        } else if n >= 2 {
+            copy_u16_(dst, src)
+            copy_u16_(dst + (n - 2), src + (n - 2))
+        } else if n != 0 {
+            dst[0] = src[0]
+        }
+    }
 }
 
 /// The word at `p`, any alignment.
@@ -943,16 +1014,16 @@ priv fn find_bytes_(h: unsafe *const u8, hn: usize, nd: unsafe *const u8, nn: us
             }
 
             while i + W <= span {
-                // Two words of starts per step while neither can hold a
-                // candidate. The test can pass with no candidate and never
-                // fails with one.
+                // Two words of starts per step while neither holds a
+                // candidate. A start is one where the first byte and the
+                // byte `back` further on both match, which is a zero byte
+                // of `x | y`: the test is exact, so the loop stops only at
+                // a word with a real candidate.
                 while i + 2 * W <= span {
-                    var x0 = load_word_(h + i) ^ bf
-                    var y0 = load_word_unaligned_(h + i + back) ^ bl
-                    var x1 = load_word_(h + i + W) ^ bf
-                    var y1 = load_word_unaligned_(h + i + W + back) ^ bl
-                    var f0 = (x0 - BYTE_ONES) & (y0 - BYTE_ONES) & ~(x0 | y0)
-                    var f1 = (x1 - BYTE_ONES) & (y1 - BYTE_ONES) & ~(x1 | y1)
+                    var z0 = (load_word_(h + i) ^ bf) | (load_word_unaligned_(h + i + back) ^ bl)
+                    var z1 = (load_word_(h + i + W) ^ bf) | (load_word_unaligned_(h + i + W + back) ^ bl)
+                    var f0 = (z0 - BYTE_ONES) & ~z0
+                    var f1 = (z1 - BYTE_ONES) & ~z1
                     if ((f0 | f1) & BYTE_HIGHS) != 0 {
                         break
                     }
@@ -964,10 +1035,9 @@ priv fn find_bytes_(h: unsafe *const u8, hn: usize, nd: unsafe *const u8, nn: us
                     break
                 }
 
-                var x = load_word_(h + i) ^ bf
-                var y = load_word_unaligned_(h + i + back) ^ bl
-                if ((x - BYTE_ONES) & (y - BYTE_ONES) & ~(x | y) & BYTE_HIGHS) != 0 {
-                    var m = zero_bytes_(x) & zero_bytes_(y)
+                var z = (load_word_(h + i) ^ bf) | (load_word_unaligned_(h + i + back) ^ bl)
+                if has_zero_(z) {
+                    var m = zero_bytes_(z)
                     while m != 0 {
                         var c = i + first_flag_(m)
                         if nn == 2 || __builtin_compare_mem(h + c + 1, nd + 1, nn - 2) == 0 {
@@ -1300,19 +1370,16 @@ priv inline fn compare_short_(a:  unsafe *const u8,
     return order_lengths_(an, bn)
 }
 
-/// Three-way comparison of two byte ranges whose common prefix is longer
-/// than two words, by the library's byte compare.
+/// Three-way comparison of two byte ranges whose common prefix, `n` bytes,
+/// is longer than five words, by the library's byte compare.
 ///
-/// \safety `a` must be valid for reads of `an` bytes and `b` of `bn`.
+/// \safety `a` must be valid for reads of `an` bytes and `b` of `bn`; `n` is
+/// the smaller of the two.
 @no_inline priv fn compare_long_(a:  unsafe *const u8,
                                  an: usize,
                                  b:  unsafe *const u8,
-                                 bn: usize) -> Ordering {
-    var n = an
-    if bn < n {
-        n = bn
-    }
-
+                                 bn: usize,
+                                 n:  usize) -> Ordering {
     var r: i32 = 0
     unsafe {
         r = __builtin_compare_mem(a, b, n)
@@ -1325,11 +1392,23 @@ priv inline fn compare_short_(a:  unsafe *const u8,
     return order_lengths_(an, bn)
 }
 
+/// How two words that differ order, each read from the bytes of a string.
+priv inline fn order_words_(x: usize, y: usize) -> Ordering {
+    return if first_byte_high_(x) < first_byte_high_(y) => Ordering::Less
+           else => Ordering::Greater
+}
+
 /// Three-way comparison of two strings' bytes, both at least a word long,
 /// whose first words are equal; `ma` and `mb` are the two `meta` words.
 /// Out of line, so that `op <=>` leaves one compare of two words in its
-/// caller. It calls nothing when the common prefix is at most two words,
-/// and so keeps no frame: the longer compare is reached by a tail call.
+/// caller.
+///
+/// A common prefix of up to five words is compared here, a word at a time,
+/// with no call, no loop and no frame: up to that length a load and a
+/// compare per word cost less than the call into the library's byte
+/// compare, however early the strings differ. The last word is read where
+/// the prefix ends, and overlaps the word before it unless the prefix is a
+/// whole number of words. A longer prefix leaves through a tail call.
 ///
 /// \safety `a` and `b` must be valid for reads of `ma >> LEN_SHIFT` and
 /// `mb >> LEN_SHIFT` bytes.
@@ -1344,22 +1423,44 @@ priv inline fn compare_short_(a:  unsafe *const u8,
         n = bn
     }
 
-    if n > 2 * W {
-        return compare_long_(a, an, b, bn)
-    }
-
-    // The last word of the common prefix. It overlaps the first word,
-    // whose bytes are equal, unless the prefix is two words long.
     var x: usize = 0
     var y: usize = 0
     unsafe {
+        if n > 2 * W {
+            if n > 5 * W {
+                return compare_long_(a, an, b, bn, n)
+            }
+
+            // The words between the first and the last, at most three.
+            x = load_word_unaligned_(a + W)
+            y = load_word_unaligned_(b + W)
+            if x != y {
+                return order_words_(x, y)
+            }
+
+            if n > 3 * W {
+                x = load_word_unaligned_(a + 2 * W)
+                y = load_word_unaligned_(b + 2 * W)
+                if x != y {
+                    return order_words_(x, y)
+                }
+
+                if n > 4 * W {
+                    x = load_word_unaligned_(a + 3 * W)
+                    y = load_word_unaligned_(b + 3 * W)
+                    if x != y {
+                        return order_words_(x, y)
+                    }
+                }
+            }
+        }
+
         x = load_word_unaligned_(a + (n - W))
         y = load_word_unaligned_(b + (n - W))
     }
 
     if x != y {
-        return if first_byte_high_(x) < first_byte_high_(y) => Ordering::Less
-               else => Ordering::Greater
+        return order_words_(x, y)
     }
 
     return order_lengths_(an, bn)
@@ -1628,6 +1729,34 @@ pub class string {
 
     /// Appends the `n` ASCII bytes at `p`: `push_str(ascii_view_(p, n))`.
     prot inline fn push_ascii_(self, p: *const u8, n: usize) {
+        self.push_str(string::ascii_view_(p, n))
+    }
+
+    /// The bytes `push_block_` copies whatever the text's length is.
+    prot eval BLOCK_: usize = 24
+
+    /// Appends the `n <= BLOCK_` ASCII bytes at `p`, which is valid for
+    /// reads of `BLOCK_` bytes: what a number's text in a stack buffer is.
+    /// With room for a whole block the copy has a constant size, two loads
+    /// and two stores in place of a call; the bytes past the text land in
+    /// spare capacity, behind the NUL.
+    prot inline fn push_block_(self, p: *const u8, n: usize) {
+        var m = self.meta
+        @likely
+        if (m & OWN_BIT) != 0 {
+            var len = m >> LEN_SHIFT
+            unsafe {
+                @likely
+                if len + string::BLOCK_ <= *self.hdr_cap() {
+                    var unsafe *q = self.raw_mut() + len
+                    __builtin_copy(q, p as unsafe *const u8, string::BLOCK_)
+                    q[n]      = 0
+                    self.meta = m + (n << LEN_SHIFT)
+                    return
+                }
+            }
+        }
+
         self.push_str(string::ascii_view_(p, n))
     }
 
@@ -1908,9 +2037,18 @@ pub class string {
     /// The words are taken by value: a view that exists only to be copied
     /// (`s[a..b].to_owned()`) is then never stored, and its destructor
     /// folds away. The bytes are a string's, so they are copied without a
-    /// UTF-8 check. The count is read after the allocation, so only the
-    /// two words are live across it.
+    /// UTF-8 check.
+    ///
+    /// The paths that call anything but the allocator (a view that has to
+    /// be counted, a copy longer than 64 bytes) leave through a call of
+    /// their own, so the two words and the length are all that is live
+    /// across the allocation and the common path saves three registers.
     priv static fn to_owned_(d: unsafe *const u8, m: usize) -> string {
+        @unlikely
+        if (m & (ASCII_BIT | NUL_BIT)) == 0 {
+            return string::to_owned_counted_(d, m)
+        }
+
         var        n  = m >> LEN_SHIFT
         var unsafe *b = alloc_raw(HDR + n + 1, W)
         @unlikely
@@ -1918,24 +2056,51 @@ pub class string {
             string::block_fail_(n)
         }
 
-        var conts = string::conts_of_(d, m)
+        // ASCII text keeps its length and ASCII bit as they are. Any other
+        // literal or heap string stores its count in front of its bytes.
+        var conts: usize = 0
+        var meta         = m | ST_HEAP
         unsafe {
+            if (m & ASCII_BIT) == 0 {
+                var stored = *((d as unsafe *const usize) - 1)
+                conts = (if (m & OWN_BIT) != 0 => stored else => n - stored)
+                meta  = (n << LEN_SHIFT) | (if conts == 0 => ASCII_BIT else => 0) | ST_HEAP
+            }
+
             *(b as unsafe *usize)       = n
             *((b as unsafe *usize) + 1) = conts
             b                           = b + HDR
-            if n <= 8 * W {
-                copy_short_(b, d, n)
-            } else {
-                __builtin_copy(b, d, n)
+            if n > 64 {
+                return string::fill_long_(b, d, n, meta)
             }
 
+            copy_small_(b, d, n)
             b[n] = 0
         }
 
-        return string::make_(
-            b,
-            (n << LEN_SHIFT) | (if conts == 0 => ASCII_BIT else => 0) | ST_HEAP,
-        )
+        return string::make_(b, meta)
+    }
+
+    /// `to_owned_` of a view that is not known to be ASCII: its continuation
+    /// bytes are counted on the way.
+    @no_inline
+    priv static fn to_owned_counted_(d: unsafe *const u8, m: usize) -> string {
+        var n     = m >> LEN_SHIFT
+        var conts = n - string::scan_(d, n)
+        return string::owned_(d, n, conts, n)
+    }
+
+    /// The tail of a copy longer than 64 bytes into the block at `b`: the
+    /// NUL, the bytes, and the string of `meta` over them. The NUL goes
+    /// first, so `meta` and the block are all that is live across the copy.
+    @no_inline
+    priv static fn fill_long_(b: unsafe *u8, d: unsafe *const u8, n: usize, meta: usize) -> string {
+        unsafe {
+            b[n] = 0
+            __builtin_copy(b, d, n)
+        }
+
+        return string::make_(b, meta)
     }
 
     /// No memory for a block of capacity `cap`.
@@ -1947,7 +2112,11 @@ pub class string {
     /// Frees the block. Heap only.
     priv inline fn free_block_(self) {
         unsafe {
-            free_raw(self.raw_mut() - HDR, HDR + *self.hdr_cap() + 1, W)
+            // A block holds its header and the NUL at least, so the size
+            // is never the zero that free_raw tests for.
+            var size = HDR + *self.hdr_cap() + 1
+            __builtin_assume(size != 0)
+            free_raw(self.raw_mut() - HDR, size, W)
         }
     }
 
@@ -2217,14 +2386,25 @@ pub class string {
                 return c
             }
 
-            @unlikely
-            if (x & 0xc0) == 0x80 {
-                string::index_fail_(b, self.meta >> LEN_SHIFT)
-            }
-
-            var (c, w) = decode_(self.raw() + b)
-            return c
+            // A tail call: a string indexed where it is ASCII keeps no
+            // frame for the boundary test and the decoder.
+            return string::index_wide_(self.raw() + b, b, self.meta >> LEN_SHIFT)
         }
+    }
+
+    /// `op []` at a byte of 0x80 or above, which is byte `b` of `len`: the
+    /// char that starts there, or the trap when it is a continuation byte.
+    @no_inline
+    priv static fn index_wide_(p: unsafe *const u8, b: usize, len: usize) -> char {
+        unsafe {
+            @unlikely
+            if (p[0] & 0xc0) == 0x80 {
+                string::index_fail_(b, len)
+            }
+        }
+
+        var (c, w) = decode_(p)
+        return c
     }
 
     pub inline fn op [] (const self, r: Range<usize>) -> string { // view; traps off a boundary
@@ -2704,9 +2884,7 @@ extend string {
                 return string()
             }
 
-            unsafe {
-                return string::owned_(self.raw(), n, *self.hdr_conts(), n)
-            }
+            return string::to_owned_(self.raw(), m)
         }
 
         return string::make_(self.raw(), m)
@@ -3501,10 +3679,15 @@ extend string {
             unsafe {
                 @likely
                 if nl <= *self.hdr_cap() {
+                    // The NUL and the length go first: nothing is live
+                    // after the copy, so where its length is not a
+                    // constant the copy is a tail call and this path saves
+                    // no register. The bytes of `s` end at or before the
+                    // old length, so neither store touches them.
                     var unsafe *q = self.raw_mut()
-                    __builtin_copy(q + len, s.raw(), n)
                     q[nl]     = 0
                     self.meta = m + (n << LEN_SHIFT)
+                    __builtin_copy(q + len, s.raw(), n)
                     return
                 }
             }

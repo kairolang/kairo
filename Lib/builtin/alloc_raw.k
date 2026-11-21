@@ -492,6 +492,12 @@ prot inline fn scope_pop(d: usize) {
     }
 }
 
+/// What every supported malloc guarantees: 8 on 32-bit, 16 on 64-bit.
+eval MAX_ALIGN: usize = 2 * sizeof usize
+
+/// mimalloc's small-object limit, 128 words (rt/alloc.h kairo_rt_small_max).
+eval SMALL_MAX: usize = 128 * sizeof usize
+
 // --- the current-allocator family -------------------------------------------
 
 /// Allocates `size` bytes from the allocator in effect: the innermost open `AllocatorScope`, else
@@ -505,14 +511,27 @@ prot inline fn scope_pop(d: usize) {
 ///   `align`.
 pub inline fn alloc_raw(size: usize, align: usize) -> unsafe *u8 {
     assert is_pow2(align) // alignment must be a power of two
-    if size == 0 {
-        return dangling(align)
-    }
-
     var unsafe *f = scope_top
     @likely
     if f == &null {
+        // One test turns away both a zero size and a large one, and tells
+        // System's inlined entry that the size is in its small range, so
+        // the small path is a compare and a call. The two calls are the
+        // same call to an allocator that does not tell sizes apart.
+        @likely
+        if size - 1 < SMALL_MAX {
+            return Global::alloc(size, align)
+        }
+
+        if size == 0 {
+            return dangling(align)
+        }
+
         return Global::alloc(size, align)
+    }
+
+    if size == 0 {
+        return dangling(align)
     }
 
     unsafe {
@@ -523,19 +542,29 @@ pub inline fn alloc_raw(size: usize, align: usize) -> unsafe *u8 {
 /// Gives a block back to whichever allocator it came from: the open scope whose range holds it,
 /// else `Global`.
 ///
-/// With no scope open this is one thread-local load, one test and a tail call to `Global::free`.
-/// A zero `size` is a no-op.
+/// With no scope open this is one thread-local load, one test of the size and a call into
+/// `Global::free`. A zero `size` is a no-op.
 ///
 /// \safety `ptr` must come from `alloc_raw` / `resize_raw` (or `dangling` for size 0), with the
 /// `size` and `align` it was last allocated with.
 pub inline fn free_raw(ptr: unsafe *u8, size: usize, align: usize) {
-    if size == 0 {
+    @likely
+    if scope_top == &null {
+        // As in alloc_raw: one test for "not zero and small".
+        @likely
+        if size - 1 < SMALL_MAX {
+            Global::free(ptr, size, align)
+            return
+        }
+
+        if size != 0 {
+            Global::free(ptr, size, align)
+        }
+
         return
     }
 
-    @likely
-    if scope_top == &null {
-        Global::free(ptr, size, align)
+    if size == 0 {
         return
     }
 
@@ -620,12 +649,6 @@ pub fn resize_raw(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usiz
 // C, C++ and Kairo share one heap; see rt/mimalloc.c for Windows and Apple.
 // Size and alignment are usually constants here, so the small-object paths
 // below fold to one direct call each.
-
-/// What every supported malloc guarantees: 8 on 32-bit, 16 on 64-bit.
-eval MAX_ALIGN: usize = 2 * sizeof usize
-
-/// mimalloc's small-object limit, 128 words (rt/alloc.h kairo_rt_small_max).
-eval SMALL_MAX: usize = 128 * sizeof usize
 
 /// The default global allocator: mimalloc (`rt/mimalloc.c`).
 ///

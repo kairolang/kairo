@@ -95,11 +95,7 @@ priv fn vec_alloc(cap: usize, elem_size: usize, elem_align: usize, zeroed: bool)
 priv inline fn vec_free(buf: unsafe *u8, cap: usize, elem_size: usize, elem_align: usize) {
     var h = vec_header(elem_align)
     unsafe {
-        kairo_global_free(
-            buf - h,
-            h + cap * elem_size,
-            vec_block_align(elem_align),
-        )
+        kairo_global_free(buf - h, h + cap * elem_size, vec_block_align(elem_align))
     }
 }
 
@@ -170,7 +166,8 @@ priv fn vec_realloc(buf:        unsafe *u8,
 /// element aligned above 64 with no block). Gives element 0 of a block holding
 /// at least `need` elements with the old ones in place; the capacity word in
 /// front of it is written. realloc carries the whole old block, so `len` is
-/// not needed.
+/// not needed; it is the last parameter, so that in `push` the length stays
+/// clear of the registers the call's leading arguments take.
 priv macro vec_grow_body!(buf, need, elem_size, elem_align) {
     var ob:  unsafe *u8 = &null
     var old: usize      = 0
@@ -199,19 +196,19 @@ priv macro vec_grow_body!(buf, need, elem_size, elem_align) {
 eval if defined!(__x86_64__) || defined!(__aarch64__) {
     @cold_path @preserve_most @no_inline
     priv fn grow_bytes(buf:        *u8?,
-                       len:        usize,
                        need:       usize,
                        elem_size:  usize,
-                       elem_align: usize) -> *u8 {
+                       elem_align: usize,
+                       len:        usize) -> *u8 {
         vec_grow_body!(buf, need, elem_size, elem_align)
     }
 } else {
     @cold_path @no_inline
     priv fn grow_bytes(buf:        *u8?,
-                       len:        usize,
                        need:       usize,
                        elem_size:  usize,
-                       elem_align: usize) -> *u8 {
+                       elem_align: usize,
+                       len:        usize) -> *u8 {
         vec_grow_body!(buf, need, elem_size, elem_align)
     }
 }
@@ -477,10 +474,10 @@ pub class <T> Vector {
             unsafe {
                 var *nb = grow_bytes(
                     self.base_() as unsafe *u8 as *u8?,
-                    self.len,
                     Vector<T>::min_need_(need),
                     sizeof T,
                     alignof T,
+                    self.len,
                 )
 
                 self.set_base_(nb as unsafe *u8 as unsafe *T)
@@ -739,7 +736,19 @@ extend <T> Vector<T> {
         var n = self.len
         @unlikely
         if n == self.cap_() {
+            // The full vector finishes the push on its own path. The two
+            // paths do not meet again, so the registers the grower's call
+            // displaces are saved on this one alone and the path with room
+            // keeps no frame. The grower takes and returns the vector's
+            // words, never its address: a loop that pushes keeps them in
+            // registers.
             self.grow_to_(n + 1)
+            unsafe {
+                __builtin_construct_at<T>((self.base_() + n) as unsafe *u8, v)
+            }
+
+            self.len = n + 1
+            return
         }
 
         unsafe {

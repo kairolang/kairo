@@ -14,7 +14,8 @@ import string::*
 /// u128 and i128 have no text conversions here.
 
 // One buffer size for every type the macros stamp: the longest text is an
-// f64's (F64_TEXT_MAX); a 64-bit integer needs 20, a char 4.
+// f64's (F64_TEXT_MAX); a 64-bit integer needs 20, a char 4. It is
+// `string::BLOCK_`, the length `push_block_` copies.
 priv eval TEXT_BUF: usize = 24
 
 // The macros stamp one body per type, so each type carries its own cores as
@@ -104,8 +105,10 @@ priv macro prim_hash!(T) {
 }
 
 // `append_to` formats into a stack buffer and appends it with one
-// `push_str` of a borrowed view: no temporary string, no allocation beyond
-// the destination's own growth. `from_str` reports through `err` and turns a
+// `push_block_` (ASCII text) or one `push_str` of a borrowed view: no
+// temporary string, no allocation beyond the destination's own growth. The
+// buffer is two TEXT_BUF long and the text lies in its first half, so a
+// read of TEXT_BUF bytes from the text's first byte stays inside it. `from_str` reports through `err` and turns a
 // failure into null at the boundary; the cores never read at or past
 // `s.size()`, so a view is a valid argument.
 priv macro prim_text!(T) {
@@ -122,12 +125,12 @@ priv macro prim_text!(T) {
 
     extend T impl Append {
         inline fn append_to(const self, @inout out: string) {
-            var buf: [u8; TEXT_BUF]
+            var buf: [u8; 2 * TEXT_BUF]
             unsafe {
                 var unsafe *b = &buf[0] as unsafe *u8
                 var        r  = T::text_of(self, b)
                 if T::ascii_text(self) {
-                    out.push_str(string::ascii_view_((b + r.start) as *const u8, r.len))
+                    out.push_block_((b + r.start) as *const u8, r.len)
                 } else {
                     out.push_str(string::view_of_((b + r.start) as *const u8, r.len))
                 }

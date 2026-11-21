@@ -34,6 +34,17 @@ pub class <T> YieldPromise {
         }
     }
 
+    /// What a generator returns when its frame cannot be allocated: it traps.
+    ///
+    /// Its presence is what matters. With it declared, clang allocates the
+    /// frame through the non-throwing `operator new` and tests the result,
+    /// where otherwise it calls the throwing one, which in a function that
+    /// cannot unwind needs a landing pad and pulls the C++ exception runtime
+    /// into every program that holds a generator.
+    pub static inline fn get_return_object_on_allocation_failure() -> Yield<T> {
+        __builtin_trap()
+    }
+
     /// Suspends at the start, so nothing runs until the first `resume()`.
     pub inline fn initial_suspend(self) -> Suspend {
         return Suspend {}

@@ -999,43 +999,51 @@ pub class FmtBuf {
         var i:    usize    = 72
         var base           = FmtBuf::base_(spec)
         var upper          = (FmtBuf::flags_(spec) & 8) != 0
-        if base == 0 {
-            // Two digits per division, from the pair table.
-            while mag >= 100 {
-                var q = mag / 100
-                var r = ((mag - q * 100) * 2) as usize
-                i -= 2
-                tmp[i]     = DIGIT_PAIRS[r]
-                tmp[i + 1] = DIGIT_PAIRS[r + 1]
-                mag        = q
-            }
+        unsafe {
+            // Raw cursors: the digits of a u64 in any of these bases fit
+            // the 72 bytes, and a remainder of a division by 100 indexes
+            // the pair table in range, neither of which the optimizer can
+            // see; indexed, every digit pair would carry four bounds tests.
+            var unsafe *t = &tmp[0] as unsafe *u8
+            var unsafe *d = &DIGIT_PAIRS[0] as unsafe *const u8
+            if base == 0 {
+                // Two digits per division, from the pair table.
+                while mag >= 100 {
+                    var q = mag / 100
+                    var r = ((mag - q * 100) * 2) as usize
+                    i -= 2
+                    t[i]     = d[r]
+                    t[i + 1] = d[r + 1]
+                    mag      = q
+                }
 
-            if mag >= 10 {
-                var r = (mag * 2) as usize
-                i -= 2
-                tmp[i]     = DIGIT_PAIRS[r]
-                tmp[i + 1] = DIGIT_PAIRS[r + 1]
+                if mag >= 10 {
+                    var r = (mag * 2) as usize
+                    i -= 2
+                    t[i]     = d[r]
+                    t[i + 1] = d[r + 1]
+                } else {
+                    i -= 1
+                    t[i] = (48 + mag) as u8
+                }
             } else {
-                i -= 1
-                tmp[i] = (48 + mag) as u8
-            }
-        } else {
-            var shift: u64 = 4
-            var mask:  u64 = 15
-            if base == 2 {
-                shift = 3
-                mask  = 7
-            } else if base == 3 {
-                shift = 1
-                mask  = 1
-            }
+                var shift: u64 = 4
+                var mask:  u64 = 15
+                if base == 2 {
+                    shift = 3
+                    mask  = 7
+                } else if base == 3 {
+                    shift = 1
+                    mask  = 1
+                }
 
-            loop {
-                i -= 1
-                tmp[i] = FmtBuf::digit_((mag & mask) as u8, upper)
-                mag    = mag >> shift
-                if mag == 0 {
-                    break
+                loop {
+                    i -= 1
+                    t[i] = FmtBuf::digit_((mag & mask) as u8, upper)
+                    mag  = mag >> shift
+                    if mag == 0 {
+                        break
+                    }
                 }
             }
         }

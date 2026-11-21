@@ -747,8 +747,19 @@ extend <T> Slice<T> {
         return slice_get<T>(self.cbase(), self.len, self.len - back)
     }
 
+    // An element of a slice that holds one is not at address zero. first
+    // and last say so, and a caller that unwraps the result tests the
+    // length and nothing more.
     pub fn first(const self) -> *const T? {
-        return slice_get<T>(self.cbase(), self.len, 0)
+        if self.len == 0 {
+            return null
+        }
+
+        unsafe {
+            var q = self.cbase()
+            __builtin_assume(q != &null)
+            return q as *const T
+        }
     }
 
     pub fn last(const self) -> *const T? {
@@ -756,7 +767,11 @@ extend <T> Slice<T> {
             return null
         }
 
-        return slice_get<T>(self.cbase(), self.len, self.len - 1)
+        unsafe {
+            var q = self.cbase() + (self.len - 1)
+            __builtin_assume(q != &null)
+            return q as *const T
+        }
     }
 
     pub fn split_at(const self, i: usize) -> ([const T;], [const T;]) {
@@ -1092,13 +1107,20 @@ priv eval SORT_INSERTION_MAX: usize = 20
 /// three such medians, each taken over an eighth of the range.
 priv eval SORT_PSEUDO_MEDIAN_MIN: usize = 64
 
-/// Elements classified per step by the block partition; an offset fits a
-/// byte.
+/// Elements classified per step by the block partition: one bit each in a
+/// `u64` mask.
 priv eval SORT_BLOCK: usize = 64
+
+/// The block length of the second tier, which takes over once fewer than
+/// two full blocks separate the ends of the range.
+priv eval SORT_BLOCK_SMALL: usize = 16
 
 /// The run stack of the stable sort holds runs of strictly increasing node
 /// power, and a power is at most the bit width of `u64` plus one.
 priv eval SORT_RUN_STACK: usize = 72
+
+/// The largest element moved as a value held in registers: eight words.
+priv eval SORT_REGISTER_BYTES: usize = 8 * sizeof usize
 
 // --- element movement -------------------------------------------------------
 
@@ -1124,10 +1146,31 @@ priv inline fn <T> sort_tmp(raw: unsafe *u8) -> unsafe *T {
     }
 }
 
-/// True when an insertion shifts one element at a time: for elements of two
-/// words or less that beats locating the slot and calling the block move.
+/// True when a merge picks its next element without branching on the
+/// comparison, which pays for elements of two words or less.
 priv eval fn <T> sort_shift_by_element() -> bool {
     return __builtin_is_trivially_relocatable<T>() && (sizeof T <= 2 * sizeof usize)
+}
+
+/// True when an insertion shifts one element at a time, which beats
+/// locating the slot and calling the block move: for elements of two words
+/// or less, and for trivially copyable ones of up to eight words, which
+/// move as one or two vector registers. While it shifts, the element being
+/// inserted is outside the range and one slot holds a copy of its
+/// neighbour, so the wider form is kept to elements with nothing to
+/// destroy.
+priv eval fn <T> sort_insert_by_shift() -> bool {
+    return __builtin_is_trivially_relocatable<T>()
+           && (sizeof T <= 2 * sizeof usize
+               || (__builtin_is_trivially_copyable<T>() && sizeof T <= SORT_REGISTER_BYTES))
+}
+
+/// True when the partition classifies whole blocks without branching on the
+/// data. The comparison of a trivially copyable element is a few
+/// instructions, so a mispredicted branch per element costs more than the
+/// flag the block form records for it.
+priv eval fn <T> sort_block_partition() -> bool {
+    return __builtin_is_trivially_copyable<T>()
 }
 
 /// True when the partition compares against a bitwise snapshot of the
@@ -1319,7 +1362,7 @@ priv fn <T, C impl SortLess<T>> sort_insertion(base: unsafe *T, sorted: usize, n
         while i < n {
             if c.lt(&base[i], &base[i - 1]) {
                 sort_reloc<T>(tmp, base + i)
-                eval if sort_shift_by_element<T>() {
+                eval if sort_insert_by_shift<T>() {
                     var j = i
                     loop {
                         sort_reloc<T>(base + j, base + j - 1)
@@ -1475,6 +1518,104 @@ priv fn <T, C impl SortLess<T>> sort_presorted(base: unsafe *T, n: usize, const 
     return true
 }
 
+/// Packs `n` flag bytes, each 0 or 1, into a mask: bit k is `fl[k]`. `n` is
+/// a multiple of 8, at most 64.
+priv inline fn sort_flag_mask(fl: unsafe *const u8, n: usize) -> u64 {
+    var m: u64 = 0
+    unsafe {
+        eval if defined!(__BIG_ENDIAN__) {
+            var k = n
+            while k > 0 {
+                k -= 1
+                m = (m << 1) | (fl[k] as u64)
+            }
+        } else {
+            // Eight flags at a time: the multiply sums byte b, shifted to
+            // bit 56 + b, into the top byte, and no partial sum carries.
+            var b = n
+            while b > 0 {
+                b -= 8
+                var w: u64 = 0
+                __builtin_copy(&w as unsafe *u8, fl + b, 8)
+                m = (m << 8) | ((w * 0x0102040810204080) >> 56)
+            }
+        }
+    }
+
+    return m
+}
+
+/// One tier of sort_partition's block partition, expanded there once per
+/// block length: it narrows the caller's `[i, j]` around the pivot at `pv`,
+/// which lies outside that range. Classifies `BLOCK` elements at each end
+/// without branching on the data, as a mask of the ones on the wrong side,
+/// then moves those across as one cycle: two relocations per pair where a
+/// swap takes three. A macro, so `BLOCK` is a constant in each expansion and
+/// each classification is a loop of known length with independent steps,
+/// which the backend unrolls or vectorizes.
+///
+/// Runs while more than `2 * BLOCK` elements separate the ends: the two
+/// blocks never overlap, and every access stays inside `[i, j]` whatever the
+/// comparator answers. A block left half done is still inside `[i, j]`, and
+/// the scan that follows takes the range as it stands.
+priv macro sort_block_tier!(BLOCK) {
+    // Bit k of `lm`: base[i + k] does not order before the pivot. Bit k of
+    // `rm`: base[j - k] does not order after it.
+    var lm: u64 = 0
+    var rm: u64 = 0
+    while j - i + 1 > 2 * BLOCK {
+        // One flag byte per element, then the bytes packed into the mask:
+        // the classification has no dependency from one element to the
+        // next.
+        if lm == 0 {
+            var k: usize = 0
+            while k < BLOCK {
+                fl[k] = (!c.lt(&base[i + k], &pv[0])) as u8
+                k += 1
+            }
+
+            lm = sort_flag_mask(fl, BLOCK)
+        }
+
+        if rm == 0 {
+            var k: usize = 0
+            while k < BLOCK {
+                fl[k] = (!c.lt(&pv[0], &base[j - k])) as u8
+                k += 1
+            }
+
+            rm = sort_flag_mask(fl, BLOCK)
+        }
+
+        if lm != 0 && rm != 0 {
+            var unsafe *a = base + i + __builtin_ctz(lm) as usize
+            var unsafe *b = base + j - __builtin_ctz(rm) as usize
+            sort_reloc<T>(tmp, a)
+            sort_reloc<T>(a, b)
+            lm &= lm - 1
+            rm &= rm - 1
+            while lm != 0 && rm != 0 {
+                a = base + i + __builtin_ctz(lm) as usize
+                sort_reloc<T>(b, a)
+                b = base + j - __builtin_ctz(rm) as usize
+                sort_reloc<T>(a, b)
+                lm &= lm - 1
+                rm &= rm - 1
+            }
+
+            sort_reloc<T>(b, tmp)
+        }
+
+        if lm == 0 {
+            i += BLOCK
+        }
+
+        if rm == 0 {
+            j -= BLOCK
+        }
+    }
+}
+
 /// Hoare partition of `[0, n)`, `n >= 3`. Returns the pivot's final index
 /// `p`: nothing in `[0, p)` orders after the pivot and nothing in
 /// `(p, n)` orders before it. Both sides exclude `p`, so each is shorter
@@ -1501,67 +1642,16 @@ priv fn <T, C impl SortLess<T>> sort_partition(base: unsafe *T, n: usize, const 
 
         var i: usize = 1
         var j        = n - 1
-        eval if sort_pivot_snapshot<T>() {
-            // Hoare partition by blocks: classify SORT_BLOCK elements at
-            // each end without branching on the data, recording the offsets
-            // of the ones on the wrong side, then swap those pairwise. The
-            // two blocks never overlap while more than 2 * SORT_BLOCK
-            // elements separate i and j, and an offset is below SORT_BLOCK,
-            // so every access stays inside [i, j].
-            var left_off:  [u8; SORT_BLOCK]
-            var right_off: [u8; SORT_BLOCK]
-            var left_n:    usize            = 0
-            var right_n:   usize            = 0
-            var left_at:   usize            = 0
-            var right_at:  usize            = 0
-            while j - i + 1 > 2 * SORT_BLOCK {
-                if left_n == 0 {
-                    left_at = 0
-                    var k: usize = 0
-                    while k < SORT_BLOCK {
-                        left_off[left_n] = k as u8
-                        left_n += (!c.lt(&base[i + k], &pv[0])) as usize
-                        k += 1
-                    }
-                }
-
-                if right_n == 0 {
-                    right_at = 0
-                    var k: usize = 0
-                    while k < SORT_BLOCK {
-                        right_off[right_n] = k as u8
-                        right_n += (!c.lt(&pv[0], &base[j - k])) as usize
-                        k += 1
-                    }
-                }
-
-                var pairs       = (if left_n < right_n => left_n else => right_n)
-                var k:    usize = 0
-                while k < pairs {
-                    sort_swap<T>(
-                        base + i + left_off[left_at + k] as usize,
-                        base + j - right_off[right_at + k] as usize,
-                        tmp,
-                    )
-
-                    k += 1
-                }
-
-                left_n -= pairs
-                right_n -= pairs
-                left_at += pairs
-                right_at += pairs
-                if left_n == 0 {
-                    i += SORT_BLOCK
-                }
-
-                if right_n == 0 {
-                    j -= SORT_BLOCK
-                }
+        eval if sort_block_partition<T>() {
+            var flags:  [u8; SORT_BLOCK]
+            var unsafe *fl = &flags[0] as unsafe *u8
+            {
+                sort_block_tier!(SORT_BLOCK)
             }
 
-            // A block left half done is still inside [i, j]; the scan below
-            // takes the range as it stands.
+            {
+                sort_block_tier!(SORT_BLOCK_SMALL)
+            }
         }
 
         loop {
@@ -2210,19 +2300,32 @@ priv fn <T, C impl SortLess<T>> sort_lower_bound(base:    unsafe *const T,
         return 0
     }
 
+    // The steps are powers of two. The first probe, at the largest one
+    // that fits, moves the start so that exactly that many elements
+    // remain; each later step is then a shift of the last one, and no
+    // probe needs a bounds test: `lo + step <= n` holds throughout.
+    //
+    // Before each probe every element in front of `lo` orders before `v`,
+    // and the answer is at most `lo + step`.
+    var step      = 1usize << sort_log2(n)
     var lo: usize = 0
-    var len       = n
     unsafe {
-        while len > 1 {
-            var half = len / 2
-            // The comparison is unpredictable by construction, and only the
-            // hint keeps this step a conditional move: x86 backends turn the
-            // select into a branch inside an innermost loop.
-            @unpredictable if c.lt(&base[lo + half - 1], v) {
-                lo += half
+        // The comparisons are unpredictable by construction, and only the
+        // hint keeps each step a conditional move: x86 backends turn the
+        // select into a branch inside an innermost loop.
+        @unpredictable if c.lt(&base[step - 1], v) {
+            lo = n - step
+        }
+
+        // The halving ends each step, so its own zero test closes the
+        // loop.
+        step = step / 2
+        while step != 0 {
+            @unpredictable if c.lt(&base[lo + step - 1], v) {
+                lo += step
             }
 
-            len -= half
+            step = step / 2
         }
 
         if c.lt(&base[lo], v) {
