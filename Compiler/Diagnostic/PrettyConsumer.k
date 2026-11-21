@@ -15,7 +15,6 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "Native/Shims.hh"
-ffi "c++" import "Native/Progress.hh"
 ffi "c++" import "algorithm" // stable_sort
 ffi "c++" import "vector"
 ffi "c++" import "cstdio"
@@ -36,6 +35,7 @@ import Diagnostic::Severity::{
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Native::Progress::ProgressMeter
 import Support::FileIO::Path::Path
 import Support::TermRenderer::TermRenderer
 import std::io
@@ -209,10 +209,10 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         cxx::std::fflush(kairo::std_out())
         var out = self.replay.copy() + self.render_all(color)
         // See BasicConsumer::finalize_to_stderr: clear the pinned line first.
-        kairo::ProgressMeter::hold()
+        ProgressMeter::hold()
         io::eprint("")
         io::eprint(f"{out}")
-        kairo::ProgressMeter::release()
+        ProgressMeter::release()
     }
 
     /// How many diagnostics are buffered.

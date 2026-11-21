@@ -155,8 +155,6 @@
 ///   window/logMessage
 ///     out: { type, message }
 
-ffi "c++" import "Native/GlobalRecycler.hh"
-ffi "c++" import "Native/Locale.hh" // init_process_locale
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "cstring"
@@ -167,6 +165,8 @@ ffi "c++" import "sstream"
 
 import Index::LiveWorker::index_server_main
 import Index::Worker::worker_main
+import Native::GlobalRecycler::GlobalRecycler
+import Native::Locale::init_process_locale
 import Server::Server::server_main
 import WorkerArgs::*
 import std::c_char
@@ -183,7 +183,7 @@ fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::Init
     llvm::InitializeAllAsmParsers()
     llvm::InitializeAllAsmPrinters()
 
-    kairo::init_process_locale()
+    init_process_locale()
 
     cxx::std::use_facet<cxx::std::num_put<c_char>>(cxx::std::locale())
     cxx::std::use_facet<cxx::std::num_get<c_char>>(cxx::std::locale())
@@ -246,7 +246,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         var unsafe *llvm_init = init_runtime(argc, argv)
         finally {
             kairo::Logger::shutdown()
-            kairo::GlobalRecycler::shutdown_allocator_runtime()
+            GlobalRecycler::shutdown_allocator_runtime()
             kairo::std::destroy(llvm_init)
         }
 

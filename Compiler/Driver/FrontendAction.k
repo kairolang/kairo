@@ -39,12 +39,9 @@ ffi "c++" import "clang/Basic/DiagnosticOptions.h"
 ffi "c++" import "clang/Basic/TargetInfo.h"
 ffi "c++" import "clang/Basic/TargetOptions.h"
 ffi "c++" import "clang/Frontend/FrontendActions.h"
-ffi "c++" import "Native/TimeReport.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Shims.hh"
-ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "Native/GlobalRecycler.hh"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 ffi "c++" import "string"
@@ -181,6 +178,21 @@ import Interop::Clang::HeaderSet::HeaderSet
 import Interop::Clang::HeaderSetCache::HeaderSetCache
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
+import Native::GlobalRecycler::GlobalRecycler
+import Native::ObjCache::objcache_hash128_bytes
+import Native::Shims::{
+    header_set_late_uses,
+    header_set_revivals,
+    purity_inferred_const,
+    purity_inferred_pure,
+    purity_unproven_call,
+    purity_unproven_loop,
+}
+import Native::Thread::{
+    sema_mint_counter,
+    sema_mint_rank,
+}
+import Native::TimeReport::TimeReport
 import Parser::ASTParse::ASTParse
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Resolution::ImportProbe::ImportResolver
@@ -445,10 +457,10 @@ pub class FrontendAction {
 
         self._dump_mem_stats()
         {
-            var late = kairo::header_set_late_uses().load()
+            var late = header_set_late_uses()->load()
             kairo::Logger::info(
                 kairo::Logger::Stage::Driver,
-                f"header sets revived after release_unused: {kairo::header_set_revivals().load()}",
+                f"header sets revived after release_unused: {header_set_revivals()->load()}",
             )
 
             if late > 0 {
@@ -734,11 +746,11 @@ pub class FrontendAction {
             var _ti = TimeRegion("Index")
 
             for var fid: u32 in fids {
-                var unsafe *captured_rec = kairo::TimeReport::current()
+                var unsafe *captured_rec = TimeReport::current()
                 self._ci->pool()->enqueue(
                     kairo::SmallFunction<64>(
                         fn () |fid, self, captured_rec| {
-                            var        _kt  = kairo::TimeReport::Worker(captured_rec)
+                            var        _kt  = TimeReport::Worker(captured_rec)
                             var unsafe *gs  = self._global_scope
                             var unsafe *ctx = gs->begin_index(fid)
                             if ctx != &null {
@@ -766,14 +778,14 @@ pub class FrontendAction {
             var _tp = TimeRegion("Full")
             var N   = parse_fids.size()
             progress_begin(PROGRESS_PARSE, N)
-            var unsafe *time_rec = kairo::TimeReport::current()
+            var unsafe *time_rec = TimeReport::current()
             var unsafe *time_sm  = self._ci->sm()
-            var unsafe *time_flush = kairo::TimeReport::region_under(
+            var unsafe *time_flush = TimeReport::region_under(
                 time_rec,
                 kairo::std::to_std_string(r"DiagFlush"),
             )
 
-            kairo::TimeReport::mark_idle(time_flush)
+            TimeReport::mark_idle(time_flush)
 
             // done[i] published (release) by the parse task for fids[i];
             // read (acquire) by the flusher. Outlives both: the flusher is
@@ -788,8 +800,8 @@ pub class FrontendAction {
             // flusher: drains contiguous done-prefix in fid order, single-threaded.
             var flusher = cxx::std::#thread(
                 fn () |time_rec, time_flush, N, done_data, fids_data, gs, engine| {
-                    var _kr           = kairo::TimeReport::ThreadRoot(time_rec)
-                    var _kf           = kairo::TimeReport::Scope(time_flush)
+                    var _kr           = TimeReport::ThreadRoot(time_rec)
+                    var _kf           = TimeReport::Scope(time_flush)
                     var cursor: usize = 0
                     while cursor < N {
                         if done_data[cursor].load(
@@ -818,7 +830,7 @@ pub class FrontendAction {
                 self._ci->pool()->enqueue(
                     kairo::SmallFunction<64>(
                         fn () |gs, fid, done_data, i, time_rec, time_sm| {
-                            var _kt     = kairo::TimeReport::Worker(time_rec)
+                            var _kt     = TimeReport::Worker(time_rec)
                             var publish = PublishOnExit(unsafe &done_data[i])
 
                             var unsafe *ctx = gs->get_context(fid)
@@ -834,7 +846,7 @@ pub class FrontendAction {
                                 ctx->tu = tu
                                 if time_sm != &null {
                                     _kt.units(
-                                        time_sm->get_file_size(fid),
+                                        time_sm->get_file_size(fid) as u64,
                                         "B".c_str(),
                                     )
                                 }
@@ -1117,10 +1129,7 @@ pub class FrontendAction {
             if !fe->stops_before_codegen() {
                 var gsets = self._graph_header_sets()
                 if gsets.size() > 0 {
-                    hc->prebuild_codegen_pch(
-                        gsets,
-                        kairo::TimeReport::current(),
-                    )
+                    hc->prebuild_codegen_pch(gsets, TimeReport::current())
                 }
             }
         }
@@ -3191,7 +3200,7 @@ pub class FrontendAction {
             )
         }
 
-        var unsafe *rec                = kairo::TimeReport::current()
+        var unsafe *rec                = TimeReport::current()
         var        next_barrier: usize = 0
         for var r: usize = 0; r < m; ++r {
             // Groups r.. whose imports are all finished, up to the next barrier.
@@ -3223,7 +3232,7 @@ pub class FrontendAction {
                 self._ci->pool()->enqueue(
                     kairo::SmallFunction<64>(
                         fn () |sh, rec| {
-                            var _kt = kairo::TimeReport::Worker(rec)
+                            var _kt = TimeReport::Worker(rec)
                             sh->run_front()
                         },
                     ),
@@ -4159,7 +4168,7 @@ pub class FrontendAction {
                 var buf? = self._ci->sm()->get_buffer(j->fid)
                 if buf != null && buf.is_valid() {
                     src = kairo::std::from_std_string<string>(
-                        kairo::objcache_hash128_bytes(buf.data(), buf.size()),
+                        objcache_hash128_bytes(buf.data(), buf.size()),
                     )
                 }
 
@@ -4383,7 +4392,7 @@ pub class FrontendAction {
                     self._ci->pool()->enqueue(
                         kairo::SmallFunction<64>(
                             fn () |qp, rec| {
-                                var _kt = kairo::TimeReport::Worker(rec)
+                                var _kt = TimeReport::Worker(rec)
                                 qp->work()
                             },
                         ),
@@ -5597,10 +5606,7 @@ pub class FrontendAction {
 
         var retained_blocks: usize = 0
         var retained_bytes:  usize = 0
-        kairo::GlobalRecycler::instance().stats(
-            &retained_blocks,
-            &retained_bytes,
-        )
+        GlobalRecycler::instance()->stats(&retained_blocks, &retained_bytes)
 
         io::eprintln(f"[stats] mem: TU contexts:        {tu_count}")
         io::eprintln(
@@ -5725,11 +5731,11 @@ pub class FrontendAction {
         }
 
         io::eprintln(
-            f"[stats] purity inferred: const {kairo::purity_inferred_const().load()}, pure {kairo::purity_inferred_pure().load()}",
+            f"[stats] purity inferred: const {purity_inferred_const()->load()}, pure {purity_inferred_pure()->load()}",
         )
 
         io::eprintln(
-            f"[stats] purity not proven to return: loop {kairo::purity_unproven_loop().load()}, call {kairo::purity_unproven_call().load()}",
+            f"[stats] purity not proven to return: loop {purity_unproven_loop()->load()}, call {purity_unproven_call()->load()}",
         )
     }
 }
@@ -5771,7 +5777,7 @@ fn group_rank(base: u64, g: u64) -> u64 {
 /// so requests key as it makes them even when an import cycle's typed
 /// checks run on a worker and their Conformance later on the driver.
 fn sema_sub(code: u64, member: usize) {
-    var unsafe *rp = kairo::sema_mint_rank()
+    var unsafe *rp = sema_mint_rank()
     if *rp == u64::MAX {
         return
     }
@@ -6025,13 +6031,13 @@ pub class SemaSlot {
 
     /// Mint as this group on the calling thread (InstantiationRegistry).
     fn enter(self) {
-        *kairo::sema_mint_rank()    = self.rank
-        *kairo::sema_mint_counter() = unsafe &self.counter
+        *sema_mint_rank()    = self.rank
+        *sema_mint_counter() = unsafe &self.counter
     }
 
     static fn leave() {
-        *kairo::sema_mint_rank()    = u64::MAX
-        *kairo::sema_mint_counter() = &null
+        *sema_mint_rank()    = u64::MAX
+        *sema_mint_counter() = &null
     }
 }
 

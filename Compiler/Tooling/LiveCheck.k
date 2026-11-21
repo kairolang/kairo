@@ -42,7 +42,6 @@ ffi "c++" import "cstdlib"
 ffi "c++" import "csignal"
 ffi "c++" import "chrono"
 ffi "c++" import "Native/Shims.hh"
-ffi "c++" import "Native/GlobalRecycler.hh"
 ffi "c++" import "llvm/ADT/STLExtras.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
@@ -58,6 +57,7 @@ import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerRecovery
 import Driver::FrontendAction::FrontendAction
 import Driver::TUStage::TUStage
+import Native::GlobalRecycler::GlobalRecycler
 import Resolution::ModulePath::ModulePath
 import Support::Ascii::copy_strings
 import Support::FileIO::Path::Path
@@ -882,7 +882,7 @@ pub class LiveCheck {
         var rss       = kairo::resident_kib() as u64
         var rb: usize = 0
         var rn: usize = 0
-        kairo::GlobalRecycler::instance().stats(&rn, &rb)
+        GlobalRecycler::instance()->stats(&rn, &rb)
         var d_use = ((now.in_use as i64) - (self._census.in_use as i64)) / 1024
         var d_rss = (rss as i64) - (self._rss_kib as i64)
         io::eprintln(
@@ -1447,7 +1447,7 @@ pub class LiveCheck {
         var dbg = cxx::std::getenv(r"KAIRO_LIVE_DEBUG") != &null
         if cxx::std::getenv(r"KAIRO_LIVE_POISON") != &null {
             // Before the first arena: see GlobalRecycler::scrub.
-            kairo::GlobalRecycler::scrub.store(true)
+            GlobalRecycler::scrub.store(true)
         }
 
         // Where a destroyed instance's memory is: handed back to the
@@ -1457,7 +1457,7 @@ pub class LiveCheck {
         if dbg {
             var rb: usize = 0
             var rn: usize = 0
-            kairo::GlobalRecycler::instance().stats(&rn, &rb)
+            GlobalRecycler::instance()->stats(&rn, &rb)
             io::eprintln(
                 f"[live] before the old instance goes: resident {kairo::resident_kib() / 1024} MB, heap in use {kairo::heap_in_use_kib() / 1024} MB, arena blocks recycled {rb / 1048576} MB",
             )
@@ -1467,7 +1467,7 @@ pub class LiveCheck {
         if dbg {
             var rb: usize = 0
             var rn: usize = 0
-            kairo::GlobalRecycler::instance().stats(&rn, &rb)
+            GlobalRecycler::instance()->stats(&rn, &rb)
             io::eprintln(
                 f"[live] after it went: resident {kairo::resident_kib() / 1024} MB, heap in use {kairo::heap_in_use_kib() / 1024} MB, arena blocks recycled {rb / 1048576} MB",
             )

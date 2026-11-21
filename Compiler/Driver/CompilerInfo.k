@@ -54,6 +54,7 @@ import Driver::InputKinds::{
 }
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::ClangJobs::ClangJobs
+import Native::Types::thread_model_cstr
 import Support::Ascii::copy_strings
 import Support::ExitCodes::{
     EXIT_FAILURE,
@@ -96,7 +97,7 @@ extend CompilerInstance {
         io::println(f"target triple:     {self._effective_triple()}")
         io::println(f"host triple:       {self.get_target_triple()}")
         io::println(
-            f"thread model:      {string(unsafe ((kairo::std::thread_model_cstr() as unsafe *const u8) as *const u8))}",
+            f"thread model:      {string(unsafe ((thread_model_cstr() as unsafe *const u8) as *const u8))}",
         )
 
         io::println(f"installed at:      {Path::parent_of(env::exe_path())}")

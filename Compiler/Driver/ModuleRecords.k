@@ -29,7 +29,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/StringSet.h"
-ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
@@ -37,10 +36,16 @@ ffi "c++" import "vector"
 import API::EnvNames::EnvNames
 import API::FS::*
 import Driver::CacheFormat::{
-    CACHE_SCHEMA,           INCR_SEMA_SCHEMA,        cache_dir_name,  fingerprint_prefix,
-    fingerprint_schema_key, fingerprint_version_key, incr_run_header,
+    CACHE_SCHEMA,
+    INCR_SEMA_SCHEMA,
+    cache_dir_name,
+    fingerprint_prefix,
+    fingerprint_schema_key,
+    fingerprint_version_key,
+    incr_run_header,
 }
 import Driver::ObjectCache::ObjectCache
+import Native::ObjCache::objcache_file_hash
 import Sema::Incremental::Plan::PlanModule
 import Support::Ascii::{
     find,
@@ -839,7 +844,7 @@ pub class ModuleRecords {
 
     priv static fn _hash_file(const p: string) -> string {
         var h = kairo::std::from_std_string<string>(
-            kairo::objcache_file_hash(kairo::sref(p)),
+            objcache_file_hash(kairo::sref(p)),
         )
 
         if h.is_empty() {

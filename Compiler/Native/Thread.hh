@@ -1,17 +1,23 @@
 /// --- The Kairo Project ---------------------------- Native/Thread.hh --- ///
 ///
 ///   Thread-pool plumbing Kairo cannot spell: native thread creation with an
-///   explicit stack size, a thread_local, and a cache-line-aligned queue cell.
+///   explicit stack size, and a cache-line-aligned queue cell. The
+///   per-thread slots are Native/Thread.k.
 ///
-///   WHY C++: pthread_create / CreateThread take a C callback, `thread_local`
-///   and `alignas` have no Kairo spelling, and the cell needs a hand-written
-///   move that relaxes through an atomic. ThreadPool and PartitionQueue
-///   call it.
+///   WHY C++:
+///     spawn_pool_workers     templated on the pool, which is a Kairo class
+///                            this header cannot name; a Kairo generic can
+///                            call `worker_loop` only on a type parameter
+///                            bounded by an interface, which ThreadPool does
+///                            not implement.
+///     execute_on_big_stack   catches what the call throws on the new
+///                            thread (std::exception_ptr) and rethrows it on
+///                            the caller's: Kairo does not catch C++
+///                            exceptions.
+///     SeqCell                `alignas(Align)` on a template parameter:
+///                            Kairo's `@align` takes an integer literal only.
 ///
-///   ODR: everything is a template or an inline function, and the one piece
-///   of state (the per-thread queue id) is a function-local thread_local, so
-///   there is one instance per thread program-wide however many TUs include
-///   this.
+///   ODR: everything is a template or an inline function.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -173,63 +179,6 @@ inline void execute_on_big_stack(Ci *ci, R *out, usize stack_bytes) {
     (void)stack_bytes;
 #endif
     *out = ci->execute();
-}
-
-/// The calling thread's cached queue index for ThreadPool::enqueue, or
-/// usize(-1) before its first enqueue. Shared by every pool on the thread.
-inline usize *thread_pool_local_qid() {
-    thread_local usize local_qid = static_cast<usize>(-1);
-    return &local_qid;
-}
-
-/// Where DiagEngine::emit puts what the calling thread reports, or null for
-/// the engine itself: a DiagEngineVBase (a BufferedDiagSink, opaque here)
-/// that a task of a parallel phase holds while it runs (DiagCapture), so
-/// the phase can hand its files' diagnostics to the engine in a fixed order
-/// instead of the order the tasks happen to finish in.
-inline void **diag_capture() {
-    thread_local void *sink = nullptr;
-    return &sink;
-}
-
-/// The dependency log of the translation unit whose Sema the calling thread
-/// is running, or null: no log (the flags that ask for one are off), or no
-/// Sema on this thread. AST/Context/DepLog.k owns the pointee; a symbol
-/// table has no way to know who is asking, so the asker is per-thread state
-/// that Sema's entry points set (DepLogScope) and the lookup chokepoints
-/// read. Off costs each lookup this one load and a null test.
-inline void **sema_dep_log() {
-    thread_local void *log = nullptr;
-    return &log;
-}
-
-/// The calling thread's place in the serial Sema order, for
-/// InstantiationRegistry: the rank of the import group whose Sema this
-/// thread is running (its place in the build's group order, narrowed to the
-/// schedule step, FrontendAction's sema_sub), or u64(-1) on a thread
-/// running none.
-inline u64 *sema_mint_rank() {
-    thread_local u64 rank = ~static_cast<u64>(0);
-    return &rank;
-}
-
-/// That group's request counter (null with no group): one counter per
-/// group, not per thread, because a group's typed checks run on a pool
-/// worker and the rest of its Sema on the driver thread, and its mints
-/// must number in the order a one-thread run would have made them.
-inline u64 **sema_mint_counter() {
-    thread_local u64 *counter = nullptr;
-    return &counter;
-}
-
-/// While ForeignInstantiate fills a shell on this thread: the list (a
-/// std::vector<InstanceEntry*>, opaque here) every registry request of the
-/// fill is appended to, so a TU earlier in import order that finds the
-/// shell already filled can re-request them and take their homes back.
-/// Null otherwise.
-inline void **sema_fill_record() {
-    thread_local void *record = nullptr;
-    return &record;
 }
 
 /// One slot of PartitionQueue's ring: a ticket counter and the stored value,

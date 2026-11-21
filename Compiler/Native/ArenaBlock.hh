@@ -1,250 +1,117 @@
+/// --- The Kairo Project ------------------------- Native/ArenaBlock.hh --- ///
+///
+///   The zeroing behind ArenaBlock::reset (Native/ArenaBlock.k): the
+///   allocated prefix of a block, cleared with AVX-512 streaming stores on
+///   x86 or NEON `stnp` on AArch64.
+///
+///   WHY C++: the x86 path is compiled for AVX-512 whatever the build's
+///   floor (`[[gnu::target("avx512f")]]`) and chosen at run time
+///   (`__builtin_cpu_supports`, or sysctlbyname on macOS), and the AArch64
+///   path is inline assembly. Kairo has no spelling for a per-function
+///   target attribute, inline assembly, or that builtin.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE
+///   SPDX-License-Identifier: Apache-2.0 WITH AdditionRef-Kairo-Runtime-exception
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
+
 #pragma once
 #include "Prelude.hh"
 
 #include "Types.hh"
-#include "GlobalRecycler.hh"
 #if defined(__APPLE__)
 #include <sys/sysctl.h>  // sysctlbyname: AVX-512 detection without compiler-rt
 #endif
 
 namespace kairo {
 
-/// ArenaBlock a single contiguous memory slab with bump allocation.
-///
-/// design:
-///   each block is a flat byte buffer with a bump pointer (offset).
-///   allocation is a single addition + bounds check no free lists,
-///   no headers, no fragmentation. alignment is handled by rounding
-///   the offset up before bumping.
-///
-/// lifecycle:
-///   blocks are allocated via globalrecycler (cache hit) or
-///   aligned_alloc (cache miss). on destruction, the backing buffer
-///   is returned to the recycler, not freed it will be reused by
-///   the next arenaallocator that requests a block of similar size.
-///   destroy() bypasses the recycler and calls free() directly;
-///   used only by arenaallocator::shutdown() for hard teardown.
-///
-/// reset:
-///   reset()      zeros memory up to high_water via simd (avx-512
-///                  on x86, neon stnp on arm), then resets offset.
-///                  only touches bytes that were actually allocated,
-///                  not the full capacity.
-///   reset_fast() o(1) metadata reset, no zeroing. use when the
-///                  caller will overwrite all memory before reading
-///                  (the common case in compiler pass reuse).
-///
-/// high-water tracking:
-///   high_water records the maximum offset ever reached. this lets
-///   reset() skip zeroing untouched tail memory. updated on the
-///   allocation hot path with a branch-predicted unlikely check
-///   once the block is warmed up, the branch never fires.
-///
-/// thread safety:
-///   none. a block is owned by exactly one arenaallocator on one
-///   thread. this is intentional adding atomics to the bump
-///   pointer would destroy the performance advantage of arena
-///   allocation. for cross-thread work, use one allocator per thread.
-///
-/// memory layout:
-///   [ptr ............................ ptr + capacity]
-///    ^--- offset (bump pointer)
-///    ^--- high_water (max offset ever seen)
-///
-/// complexity:
-///   try_alloc()  o(1), single branch + addition
-///   reset()      o(high_water), simd-accelerated
-///   reset_fast() o(1)
-///   destroy()    o(1)
-///
-struct alignas(64) ArenaBlock {
-    view<std::Byte> ptr;
-    size_t          offset{};
-    size_t          capacity;
-    size_t          high_water{};
-    obs<ArenaBlock> next{};
-
-    /// \note Members are initialized in DECLARATION order, so `ptr` runs first
-    ///       and alloc_block has already rewritten `cap` to the block's TRUE
-    ///       capacity by the time `capacity(cap)` runs. Do not reorder the
-    ///       member declarations, and do not "simplify" this back to recording
-    ///       the requested size   see alloc_block below.
-    explicit ArenaBlock(size_t cap) noexcept
-        : ptr(alloc_block(cap))
-        , capacity(cap) {
-        if constexpr (PRE_TOUCH) {
-            pre_touch();
-        }
-    }
-
-    ~ArenaBlock() noexcept {
-        if (ptr != nullptr) {
-            GlobalRecycler::instance().push(ptr, capacity);
-        }
-    }
-
-    ArenaBlock(const ArenaBlock &)            = delete;
-    ArenaBlock &operator=(const ArenaBlock &) = delete;
-    ArenaBlock(ArenaBlock &&)                 = delete;
-    ArenaBlock &operator=(ArenaBlock &&)      = delete;
-
-    void *try_alloc(size_t sz, size_t align) noexcept {
-        size_t aligned = align_up(offset, align);
-
-        if (aligned + sz > capacity) [[unlikely]] {
-            return nullptr;
-        }
-
-        void *p = ptr + aligned;
-        offset  = aligned + sz;
-
-        if (offset > high_water) [[unlikely]] {
-            high_water = offset;
-        }
-
-        return p;
-    }
-
-    void destroy() noexcept {
-        Logger::debug(Logger::Stage::Driver,
-                      libcxx::format("ArenaBlock::destroy: hard-free cap={}B",
-                                     capacity));
-        GlobalRecycler::free_raw(ptr);
-        ptr = nullptr;
-    }
-
 #if defined(_x86_64_simd)
-    [[gnu::target("avx512f")]]
-    void reset_avx512(size_t len) noexcept {
-        const __m512i zero = _mm512_setzero_si512();
-        size_t        i    = 0;
-        for (; i + 64 <= len; i += 64) {
-            _mm512_stream_si512(reinterpret_cast<__m512i *>(ptr + i), zero);
-        }
-        if (i < len) {
-            libcxx::memset(ptr + i, 0, len - i);
-        }
-        _mm_sfence();
+[[gnu::target("avx512f")]]
+inline void arena_reset_avx512(std::Byte *ptr, size_t len) noexcept {
+    const __m512i zero = _mm512_setzero_si512();
+    size_t        i    = 0;
+    for (; i + 64 <= len; i += 64) {
+        _mm512_stream_si512(reinterpret_cast<__m512i *>(ptr + i), zero);
     }
+    if (i < len) {
+        libcxx::memset(ptr + i, 0, len - i);
+    }
+    _mm_sfence();
+}
 #endif
 
 #if defined(_aarch64_simd)
-    void reset_neon(size_t len) noexcept {
-        size_t i = 0;
+inline void arena_reset_neon(std::Byte *ptr, size_t len) noexcept {
+    size_t i = 0;
 
 #if defined(__aarch64__)
-        // Non-temporal store pair via inline asm - stnp q0, q1, [addr]
-        // Zeroes 32 bytes per iteration without polluting the cache.
-        const uint8x16_t zero = vdupq_n_u8(0);
-        for (; i + 32 <= len; i += 32) {
-            __asm__ volatile("stnp %q1, %q2, [%0]"
-                             :
-                             : "r"(ptr + i), "w"(zero), "w"(zero)
-                             : "memory");
-        }
+    // Non-temporal store pair via inline asm - stnp q0, q1, [addr]
+    // Zeroes 32 bytes per iteration without polluting the cache.
+    const uint8x16_t zero = vdupq_n_u8(0);
+    for (; i + 32 <= len; i += 32) {
+        __asm__ volatile("stnp %q1, %q2, [%0]"
+                         :
+                         : "r"(ptr + i), "w"(zero), "w"(zero)
+                         : "memory");
+    }
 #else
-        // Fallback: temporal NEON stores (still vectorized, no stnp)
-        const uint8x16_t zero = vdupq_n_u8(0);
-        for (; i + 16 <= len; i += 16) {
-            vst1q_u8(ptr + i, zero);
-        }
-#endif
-
-        if (i < len) {
-            libcxx::memset(ptr + i, 0, len - i);
-        }
+    // Fallback: temporal NEON stores (still vectorized, no stnp)
+    const uint8x16_t zero = vdupq_n_u8(0);
+    for (; i + 16 <= len; i += 16) {
+        vst1q_u8(ptr + i, zero);
     }
 #endif
 
-    void reset() noexcept {
-        if (high_water == 0) {
-            offset = 0;
-            return;
-        }
+    if (i < len) {
+        libcxx::memset(ptr + i, 0, len - i);
+    }
+}
+#endif
 
-        size_t len = high_water;
-        offset     = 0;
-        high_water = 0;
-
+/// Zeroes [ptr, ptr + len): the bytes of a block up to its high-water mark.
+inline void arena_reset_zero(std::Byte *ptr, size_t len) noexcept {
 #if _simd_available()
-        if (len < 4096) {
-            libcxx::memset(ptr, 0, len);
-            return;
-        }
+    if (len < 4096) {
+        libcxx::memset(ptr, 0, len);
+        return;
+    }
 #if defined(_x86_64_simd)
-        // reset_avx512 is compiled for AVX-512 (gnu::target) whatever the build's
-        // floor, so it needs this CPU to have it: on a CPU without AVX-512 (most
-        // Intel desktop parts) an x86-64-v2 build would raise SIGILL on the first
-        // large arena reset. Checked once.
+    // arena_reset_avx512 is compiled for AVX-512 (gnu::target) whatever the build's
+    // floor, so it needs this CPU to have it: on a CPU without AVX-512 (most
+    // Intel desktop parts) an x86-64-v2 build would raise SIGILL on the first
+    // large arena reset. Checked once.
 #if defined(__AVX512F__)
-        reset_avx512(len);
+    arena_reset_avx512(ptr, len);
 #else
 #if defined(__APPLE__)
-        // __builtin_cpu_supports reads __cpu_model from compiler-rt, which the
-        // macOS link does not pull in (undefined symbol); ask the kernel instead.
-        static const bool has_avx512f = [] {
-            int v = 0;
-            size_t n = sizeof v;
-            return sysctlbyname("hw.optional.avx512f", &v, &n, nullptr, 0) == 0 && v != 0;
-        }();
+    // __builtin_cpu_supports reads __cpu_model from compiler-rt, which the
+    // macOS link does not pull in (undefined symbol); ask the kernel instead.
+    static const bool has_avx512f = [] {
+        int v = 0;
+        size_t n = sizeof v;
+        return sysctlbyname("hw.optional.avx512f", &v, &n, nullptr, 0) == 0 && v != 0;
+    }();
 #else
-        static const bool has_avx512f = __builtin_cpu_supports("avx512f");
+    static const bool has_avx512f = __builtin_cpu_supports("avx512f");
 #endif
-        if (has_avx512f) {
-            reset_avx512(len);
-        } else {
-            libcxx::memset(ptr, 0, len);
-        }
+    if (has_avx512f) {
+        arena_reset_avx512(ptr, len);
+    } else {
+        libcxx::memset(ptr, 0, len);
+    }
 #endif
 #elif defined(_aarch64_simd)
-        reset_neon(len);
+    arena_reset_neon(ptr, len);
 #else
-        libcxx::memset(ptr, 0, len);
+    libcxx::memset(ptr, 0, len);
 #endif
 #else
-        libcxx::memset(ptr, 0, len);
+    libcxx::memset(ptr, 0, len);
 #endif
-    }
-
-    void reset_fast() noexcept {
-        offset     = 0;
-        high_water = 0;
-    }
-
-  private:
-    /// \param cap IN/OUT. In: the requested size. Out: the capacity actually
-    ///        obtained, which is >= the request when the recycler satisfies it
-    ///        from a larger size class.
-    ///
-    /// The caller MUST adopt the out value. Recording the request instead means
-    /// the block is pushed back into a smaller bin on teardown, permanently
-    /// demoting it   large blocks drain away one pass at a time and every large
-    /// allocation mallocs fresh, which reads as an unbounded leak.
-    static std::Byte *alloc_block(size_t &cap) noexcept {
-        cap = align_up(cap, BLOCK_ALIGN);
-
-        size_t got = 0;
-        if (auto *blk = GlobalRecycler::instance().pop(cap, got)) {
-            cap = got;
-            return blk;
-        }
-
-        auto *blk = GlobalRecycler::alloc_raw(cap);
-        // try_alloc does not test `ptr`: a null block with a capacity would
-        // hand out small integers as pointers.
-        if (blk == nullptr) [[unlikely]] {
-            std::out_of_memory(cap);
-        }
-        return blk;
-    }
-
-    void pre_touch() const noexcept {
-        constexpr size_t PAGE = 4096;
-
-        for (size_t i = 0; i < capacity; i += PAGE) {
-            ptr[i] = std::Byte{0};
-        }
-    }
-};
+}
 
 }  // namespace kairo

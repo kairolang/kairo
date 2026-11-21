@@ -1,16 +1,18 @@
 /// --- The Kairo Project ---------------------------- Native/Int128.hh --- ///
 ///
 ///   64x64 -> 128 multiply-add primitives for literal accumulation
-///   (Lexer/Immediate.k, module Int128).
+///   (Lexer/ImmBig.k, module Int128).
 ///
-///   WHY C++: the fast paths are MSVC's _umul128 / _addcarry_u64 intrinsics
-///   and the GCC/Clang `unsigned __int128` type, neither of which has a
-///   Kairo spelling, so they live here and Immediate.k calls them. The
-///   portable 32-bit-limb fallback has no such need and stays in Kairo.
+///   WHY C++: this is the `_MSC_VER` path, MSVC's _umul128 / _addcarry_u64
+///   intrinsics. They are declared by <intrin.h>, which exists only on that
+///   target, and an ffi import is read whatever `eval if` it stands in, so
+///   the include stays behind this header's own guard. The
+///   `__SIZEOF_INT128__` path is Native/Int128.k (u128); the portable
+///   32-bit-limb fallback is ImmBig.k's own.
 ///
-///   Each function is defined only under the condition Immediate.k tests
-///   before calling it (`defined(_MSC_VER)`, else
-///   `defined(__SIZEOF_INT128__)`), with the in/out operands as pointers.
+///   Each function is defined only under the condition ImmBig.k tests
+///   before calling it (`defined(_MSC_VER)`), with the in/out operands as
+///   pointers.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -90,54 +92,6 @@ inline void mul_limb(u64 *limb, u64 factor, u64 *carry) {
 
     *limb  = prod_lo;
     *carry = prod_hi;
-}
-
-#elif defined(__SIZEOF_INT128__)
-
-inline bool mul_add_64(u64 *val, u64 factor, u64 addend, u64 *hi) {
-    unsigned __int128 prod = (unsigned __int128)*val * factor + addend;
-    u64 result_lo = (u64)prod;
-    u64 result_hi = (u64)(prod >> 64);
-
-    *val = result_lo;
-    *hi  = result_hi;
-    return result_hi != 0;
-}
-
-inline bool mul_add_128(u64 *lo, u64 *hi, u64 factor, u64 addend) {
-    // The overflow test has to cover BOTH steps. Testing only
-    // `val > max_safe` before the multiply misses the case where the
-    // product fits exactly and the addend is what pushes it over: at
-    // `val == max_safe` the product is the largest representable multiple of
-    // factor, so any non-zero addend wraps. That is the 2^128 boundary: the
-    // final digit of 2^128 in base 10 arrives with val == max_safe and
-    // addend == 6.
-    unsigned __int128 val        = ((unsigned __int128)*hi << 64) | *lo;
-    unsigned __int128 factor_128 = (unsigned __int128)factor;
-    unsigned __int128 all_ones   = ~(unsigned __int128)0;
-
-    // step 1: does the multiply alone overflow?
-    unsigned __int128 max_safe = all_ones / factor_128;
-    bool overflow = (val > max_safe);
-
-    // step 2: does adding the addend overflow? Checked against the headroom
-    // left after the multiply rather than by inspecting the sum, so it is a
-    // real test even when step 1 already wrapped.
-    unsigned __int128 prod = val * factor_128;
-    if (prod > all_ones - (unsigned __int128)addend) {
-        overflow = true;
-    }
-
-    prod += (unsigned __int128)addend;
-    *lo = (u64)prod;
-    *hi = (u64)(prod >> 64);
-    return overflow;
-}
-
-inline void mul_limb(u64 *limb, u64 factor, u64 *carry) {
-    unsigned __int128 prod = (unsigned __int128)*limb * factor + *carry;
-    *limb  = (u64)prod;
-    *carry = (u64)(prod >> 64);
 }
 
 #endif

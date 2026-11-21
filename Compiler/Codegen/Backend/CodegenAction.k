@@ -46,7 +46,6 @@ ffi "c++" import "clang/Lex/PreprocessorOptions.h"
 ffi "c++" import "llvm/Support/MemoryBuffer.h"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/ClangSemaAgree.hh"
-ffi "c++" import "Native/ClangTime.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "utility"
 
@@ -67,6 +66,10 @@ import Location::SourceLocation::SourceLocation
 import Location::SourceManager::FileID
 import Location::SourceRange::SourceRange
 import Memory::ArenaAllocator::ArenaAllocator
+import Native::ClangTime::{
+    ktime_clang_mark_fill_begin,
+    ktime_clang_mark_fill_end,
+}
 import Support::TimeReport::TimeRegion
 
 pub class TokenFiller {
@@ -255,8 +258,8 @@ pub class KairoInject {
     fn begin(self, @inout ci: clang::CompilerInstance) -> bool {
         // The fill's bounds, for --time-passes: what clang spends before it
         // is the TU's setup, what it spends after it up to ParseAST is the
-        // PCH load (Native/ClangTime.hh). No-ops with timing off.
-        kairo::ktime_clang_mark_fill_begin()
+        // PCH load (Native/ClangTime.k). No-ops with timing off.
+        ktime_clang_mark_fill_begin()
         var *pp  = &ci.getPreprocessor()
         var *csm = &ci.getSourceManager()
 
@@ -341,7 +344,7 @@ pub class KairoInject {
         self.sink->finish()
         self._agree_fill()
         self.sink->drain_into_pp()
-        kairo::ktime_clang_mark_fill_end()
+        ktime_clang_mark_fill_end()
         return true
     }
 

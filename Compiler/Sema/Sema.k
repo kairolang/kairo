@@ -30,13 +30,19 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "Native/Types.hh" // ice_fail
 ffi "c++" import "cstdlib"
-ffi "c++" import "Native/Shims.hh" // purity_inferred_*
 
 import AST::Context::ASTContext::ASTContext
 import AST::Context::DepLog::DepLogScope
 import AST::Context::GlobalDisambigTable::GlobalDisambigTable
 import Driver::TUStage::TUStage
+import Native::Shims::{
+    purity_inferred_const,
+    purity_inferred_pure,
+    purity_unproven_call,
+    purity_unproven_loop,
+}
 import Sema::Check::ArrayIndex::ArrayIndexCheck
 import Sema::Check::Attribute::AttributeCheck
 import Sema::Check::BaseInit::BaseInitCheck
@@ -1222,10 +1228,10 @@ pub class Sema {
             var _p = TimeRegion("PurityInference")
             var pi = FnPurityCheck(unsafe &self.sc)
             pi.settle(self.sc.opts.infer_purity)
-            kairo::purity_inferred_const().fetch_add(pi.n_const as u64)
-            kairo::purity_inferred_pure().fetch_add(pi.n_pure as u64)
-            kairo::purity_unproven_loop().fetch_add(pi.n_lost_loop as u64)
-            kairo::purity_unproven_call().fetch_add(pi.n_lost_call as u64)
+            purity_inferred_const()->fetch_add(pi.n_const as u64)
+            purity_inferred_pure()->fetch_add(pi.n_pure as u64)
+            purity_unproven_loop()->fetch_add(pi.n_lost_loop as u64)
+            purity_unproven_call()->fetch_add(pi.n_lost_call as u64)
         }
 
         // A by-value COPY record parameter the body never mutates is passed

@@ -28,8 +28,6 @@
 ///   sub-option structs, not here.
 ///
 
-ffi "c++" import "Native/Locale.hh" // init_process_locale
-ffi "c++" import "Native/TimeReport.hh" // strcmp/strncmp for _scan_timing_flags
 ffi "c++" import "llvm/Support/InitLLVM.h"
 ffi "c++" import "llvm/Support/Locale.h"
 ffi "c++" import "llvm/MC/TargetRegistry.h"
@@ -43,7 +41,6 @@ ffi "c++" import "llvm/Target/TargetOptions.h"
 ffi "c++" import "llvm/Support/CodeGen.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "Native/GlobalRecycler.hh"
 ffi "c++" import "Native/Thread.hh" // execute_on_big_stack
 ffi "c++" import "locale"
 ffi "c++" import "sstream"
@@ -56,6 +53,8 @@ import Driver::CompilerInfo
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Progress::progress_configure
 import Driver::Runtime::init_runtime
+import Native::GlobalRecycler::GlobalRecycler
+import Native::TimeReport::TimeReport
 import Support::ExitCodes::{
     EXIT_FAILURE,
     EXIT_OK,
@@ -140,7 +139,7 @@ pub fn _time_print_to(const path: string) -> bool {
     var        ok = false
     var unsafe *f = cxx::std::fopen(p.c_str(), r"wb")
     if f != &null {
-        kairo::TimeReport::print(f)
+        TimeReport::print(f)
         cxx::std::fclose(f)
         ok = true
     }
@@ -181,7 +180,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
         kairo::Logger::dump_to_file()
         kairo::Logger::shutdown()
-        kairo::GlobalRecycler::shutdown_allocator_runtime()
+        GlobalRecycler::shutdown_allocator_runtime()
         // llvm_shutdown, while every static it reaches is still alive (see
         // init_runtime). Last: nothing after this touches LLVM.
         kairo::std::destroy(llvm_init)

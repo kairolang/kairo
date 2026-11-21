@@ -33,7 +33,6 @@ ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "llvm/ADT/STLExtras.h"
-ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -54,9 +53,16 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_bases,            decl_fields,      decl_generic_params, decl_implements,
-    decl_in_generic_owner, decl_is_instance, decl_methods,        decl_pattern,
-    decl_requires_clause,  decl_spec_args,
+    decl_bases,
+    decl_fields,
+    decl_generic_params,
+    decl_implements,
+    decl_in_generic_owner,
+    decl_is_instance,
+    decl_methods,
+    decl_pattern,
+    decl_requires_clause,
+    decl_spec_args,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::Mixin::Annotation::VisibilityKind
@@ -86,6 +92,7 @@ import AST::VisibilityFacts::default_visibility_of
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
+import Native::ObjCache::objcache_hash128
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::{
@@ -152,9 +159,7 @@ fn incr_is_space(c: u8) -> bool {
 /// xxh3-128 as 32 hex digits: the hash the object cache and the AST
 /// serializer use.
 pub fn incr_hash(const s: string) -> string {
-    return kairo::std::from_std_string<string>(
-        kairo::objcache_hash128(kairo::sref(s)),
-    )
+    return kairo::std::from_std_string<string>(objcache_hash128(kairo::sref(s)))
 }
 
 /// The text of [a, b) in `ctx`'s sources, or "" when the bounds are not an

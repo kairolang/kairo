@@ -56,7 +56,6 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Thread.hh" // sema_mint_rank
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -75,6 +74,7 @@ import AST::Node::Expressions::VariantInitExpr
 import AST::Node::PrimaryExpressions::NullLiteralExpr
 import AST::Node::Types::NullableType
 import AST::Visitor::ASTWriter::ASTWriter
+import Native::Thread::sema_mint_rank
 import Sema::Lower::LowerStep::LowerStep
 import Sema::SemaContext::{
     SemaContext,
@@ -166,7 +166,7 @@ pub class NullableTypeLowering derives ASTWriter<NullableTypeLowering> {
         // later in import order may have interned one already, typing on
         // another thread (NullableType::seen_rank). Its own lowering
         // takes it.
-        var rank = *kairo::sema_mint_rank()
+        var rank = *sema_mint_rank()
         for var i: usize = 0; i < all.size(); ++i {
             var unsafe *n = all[i]
             if n->lowered != &null || n->inner == &null {

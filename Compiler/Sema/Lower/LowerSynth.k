@@ -25,7 +25,6 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/UTF8Decode.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -60,12 +59,30 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtRole, ClassDecl, EnumDecl, FieldDecl, FunctionDecl, StorageClass, StructDecl, VariableDecl,
+    AdtRole,
+    ClassDecl,
+    EnumDecl,
+    FieldDecl,
+    FunctionDecl,
+    StorageClass,
+    StructDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
-    BinaryOperatorExpr, CallExpr,             CastMode,   ImplicitBoundaryCastExpr, ListLiteralExpr,
-    ListStorage,        NamedInitializerExpr, ParenExpr,  StmtExpr,                 SubscriptExpr,
-    TypeCastExpr,       UnaryOperatorExpr,    UnsafeExpr, VariantInitExpr,
+    BinaryOperatorExpr,
+    CallExpr,
+    CastMode,
+    ImplicitBoundaryCastExpr,
+    ListLiteralExpr,
+    ListStorage,
+    NamedInitializerExpr,
+    ParenExpr,
+    StmtExpr,
+    SubscriptExpr,
+    TypeCastExpr,
+    UnaryOperatorExpr,
+    UnsafeExpr,
+    VariantInitExpr,
 }
 import AST::Node::PrimaryExpressions::{
     BooleanLiteralExpr,
@@ -91,6 +108,7 @@ import Lexer::Immediate::{
     string_chain_bytes,
 }
 import Location::SourceRange::SourceRange
+import Native::UTF8Decode::decode_utf8_lut
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
@@ -850,7 +868,7 @@ pub class LowerSynth {
             const base: kairo::std::ConstPtr<u8> = unsafe (bytes.data() as kairo::std::ConstPtr<u8>)
             var off: usize = 0
             while off < bytes.size() {
-                var d = kairo::decode_utf8_lut(base + off, bytes.size() - off)
+                var d = decode_utf8_lut(base + off, bytes.size() - off)
                 if !d.ok {
                     kairo::std::ice_fail(
                         "cp_count: invalid UTF-8 reached lowering; SourceManager validation bypassed",

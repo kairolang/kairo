@@ -110,7 +110,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "vector"
-ffi "c++" import "Native/ClangPurity.hh"
 
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
@@ -180,6 +179,10 @@ import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
+import Native::ClangPurity::{
+    clang_builtin_purity,
+    clang_decl_purity,
+}
 import Sema::Check::ClassLifecycle::{
     LifecycleTri,
     lifecycle_of,
@@ -1817,7 +1820,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// and a `sqrt` (errno) does not, exactly as under our -fmath-errno. A
     /// decl whose header set was released (clang_decl nulled) says 0.
     ///
-    /// Never kairo::clang_decl_purity directly: this check runs on a pool
+    /// Never clang_decl_purity directly: this check runs on a pool
     /// thread while another may be filling an instance in the same clang
     /// AST, and the redeclaration walk must hold the set's sema_lock()
     /// ForeignInstantiate::decl_purity takes it.
@@ -1829,7 +1832,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         }
 
         if p == 0 && f->ffi_builtin_id != 0 {
-            p = kairo::clang_builtin_purity(f->ffi_builtin_id)
+            p = clang_builtin_purity(f->ffi_builtin_id)
         }
 
         return p

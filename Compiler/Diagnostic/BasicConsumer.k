@@ -26,7 +26,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Shims.hh" // std_out / std_err
-ffi "c++" import "Native/Progress.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
@@ -39,6 +38,7 @@ import Diagnostic::Diagnostic::Diagnostic
 import Diagnostic::Severity::diag_severity_name
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
+import Native::Progress::ProgressMeter
 import Support::Escape::{
     CEscapeStyle,
     c_escape,
@@ -142,7 +142,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
         cxx::std::fflush(kairo::std_out())
         // The pinned progress line goes first and stays off until the last
         // diagnostic is out: diagnostic text never shares its row.
-        kairo::ProgressMeter::hold()
+        ProgressMeter::hold()
         // A run incremental Sema skipped replays the frontend's diagnostics
         // as the run that recorded them rendered them, ahead of whatever
         // this run reported itself (Driver/ModuleRecords.k).
@@ -154,7 +154,7 @@ pub class BasicDiagConsumer derives DiagConsumer {
             self.emit_diag(self._diags[i])
         }
 
-        kairo::ProgressMeter::release()
+        ProgressMeter::release()
     }
 
     fn finalize_to_stdout(self) {

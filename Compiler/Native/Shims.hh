@@ -13,6 +13,10 @@
 ///   It also includes the platform headers behind the POSIX calls Kairo
 ///   code names (mmap, open, isatty, ...), under the same guards.
 ///
+///   The parts of the shims that are ordinary code (the build-wide
+///   counters, the exact-bytes file write, the f8 literal encoder) are in
+///   Native/Shims.k.
+///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
@@ -39,6 +43,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <signal.h>
+#include <langinfo.h>
+#include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <time.h>
 #else
@@ -50,6 +56,7 @@
 #endif
 #include <algorithm>
 #include <atomic>
+#include <clocale>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -489,12 +496,28 @@ inline unsigned long long resident_kib() {
 // C macros have no name a Kairo file can use (an ffi import brings in
 // declarations, not the preprocessor), so the ones Kairo code needs are
 // spelled here as values and functions, under the same platform guards.
+/// setlocale's categories (Native/Locale.k).
+inline constexpr int lc_all   = LC_ALL;
+inline constexpr int lc_ctype = LC_CTYPE;
+
 #if !defined(_WIN32)
+/// nl_langinfo(CODESET): CODESET is a macro on musl, an enumerator spelled
+/// through a macro on glibc.
+inline const char *langinfo_codeset() noexcept { return ::nl_langinfo(CODESET); }
+
 inline constexpr int o_rdonly    = O_RDONLY;
 inline constexpr int prot_read   = PROT_READ;
 inline constexpr int map_private = MAP_PRIVATE;
 /// MAP_FAILED is `((void *)-1)`: a cast, so not a constant expression.
 inline void *map_failed() noexcept { return MAP_FAILED; }
+
+/// The width of the terminal on stderr into \p cols, when it says
+/// (ProgressMeter). TIOCGWINSZ is a macro, and ioctl's request parameter is
+/// `unsigned long` on glibc and `int` on musl.
+inline void stderr_term_cols(int *cols) noexcept {
+    struct winsize w;
+    if (::ioctl(2, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) { *cols = w.ws_col; }
+}
 #endif
 
 /// Prefetch for reading into every cache level (`_mm_prefetch(p,
@@ -535,41 +558,6 @@ inline const char *version_string() noexcept {
 inline const char *runtimes_revision_string() noexcept { return "unknown"; }
 #endif
 
-/// Uses of a header set's clang AST after it was released early
-/// (HeaderSet::_note_late). Expected 0; the driver reports a nonzero count.
-inline ::std::atomic<unsigned long long> &header_set_late_uses() noexcept {
-    static ::std::atomic<unsigned long long> n{0};
-    return n;
-}
-
-/// -finfer-purity's totals over the build (FnPurityCheck::settle, one add per
-/// TU, from the Sema pool); --print-stats reports them.
-inline ::std::atomic<unsigned long long> &purity_inferred_const() noexcept {
-    static ::std::atomic<unsigned long long> n{0};
-    return n;
-}
-inline ::std::atomic<unsigned long long> &purity_inferred_pure() noexcept {
-    static ::std::atomic<unsigned long long> n{0};
-    return n;
-}
-/// Inferred levels the termination proof took away (FnPurityCheck::settle):
-/// for a loop in the function's own body, and for a call (a callee not
-/// proven, or a call cycle).
-inline ::std::atomic<unsigned long long> &purity_unproven_loop() noexcept {
-    static ::std::atomic<unsigned long long> n{0};
-    return n;
-}
-inline ::std::atomic<unsigned long long> &purity_unproven_call() noexcept {
-    static ::std::atomic<unsigned long long> n{0};
-    return n;
-}
-
-/// Header sets re-parsed after HeaderSet::release_unused.
-inline ::std::atomic<unsigned long long> &header_set_revivals() noexcept {
-    static ::std::atomic<unsigned long long> n{0};
-    return n;
-}
-
 #if defined(__ARM_NEON)
 /// NEON loads and stores as functions: arm_neon.h defines vld1q_u8 / vst1q_u8 as
 /// macros (statement expressions over __builtin_neon_*), which ffi cannot call;
@@ -577,48 +565,6 @@ inline ::std::atomic<unsigned long long> &header_set_revivals() noexcept {
 inline uint8x16_t neon_ld_u8(const uint8_t *p) noexcept { return vld1q_u8(p); }
 inline void neon_st_u8(uint8_t *p, uint8x16_t v) noexcept { vst1q_u8(p, v); }
 #endif
-
-/// \p text written to \p path byte for byte: no newline translation on any
-/// host. llvm::sys::writeFileWithEncoding writes in text mode, so on Windows
-/// every '\n' becomes "\r\n" while LinkFS::read hands bytes back as they are;
-/// the Kairo library's manifest reads back paths ending in '\r'.
-inline bool write_file_exact(llvm::StringRef path, llvm::StringRef text) noexcept {
-    ::std::error_code ec;
-    llvm::raw_fd_ostream os(path, ec, llvm::sys::fs::OF_None);
-    if (ec) { return false; }
-    os << text;
-    os.close();
-    // The stream's destructor ends the process when the error flag is still
-    // set, so the flag is read and cleared here: a failed write is the
-    // caller's to report.
-    const bool failed = os.has_error();
-    os.clear_error();
-    return !failed;
-}
-
-/// The f8e4m3 (\p e5m2 false: OCP E4M3FN) or f8e5m2 encoding of a float
-/// literal's digits \p s[0..n) (decimal, or `0x` hex with its `p`
-/// exponent; no separators, no suffix), rounded ONCE to nearest even, as
-/// clang rounds a literal at its own type: EmitIR emits an f8 literal as
-/// its class's `from_bits(<this>)` since no C++ literal has the
-/// format and a double literal would round twice. E4M3FN has no infinity:
-/// an overflow saturates to +/-448, Kairo's rule (std/rt/Float8.k), where
-/// APFloat would give NaN. -1 when APFloat does not read the digits.
-inline int f8_literal_bits(const unsigned char *s, size_t n, bool e5m2) noexcept {
-    llvm::APFloat v(e5m2 ? llvm::APFloat::Float8E5M2() : llvm::APFloat::Float8E4M3FN());
-    auto st = v.convertFromString(llvm::StringRef(reinterpret_cast<const char *>(s), n),
-                                  llvm::RoundingMode::NearestTiesToEven);
-    if (!st) {
-        llvm::consumeError(st.takeError());
-        return -1;
-    }
-
-    if (!e5m2 && (*st & llvm::APFloat::opOverflow)) {
-        return v.isNegative() ? 0xFE : 0x7E;
-    }
-
-    return static_cast<int>(v.bitcastToAPInt().getZExtValue());
-}
 
 /// --- a copy of the process, to try something in and throw away -------------
 ///

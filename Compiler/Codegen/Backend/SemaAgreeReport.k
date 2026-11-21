@@ -26,7 +26,6 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -39,6 +38,7 @@ import Location::SourceManager::{
     SourceManager,
 }
 import Location::SourceRange::SourceRange
+import Native::ObjCache::objcache_hash128_bytes
 import Support::Ascii::{
     parse_decimal,
     split,
@@ -155,7 +155,7 @@ fn _file_hash(sm: unsafe *SourceManager, fid: FileID) -> string {
     }
 
     return kairo::std::from_std_string<string>(
-        kairo::objcache_hash128_bytes(buf.data(), buf.size()),
+        objcache_hash128_bytes(buf.data(), buf.size()),
     )
 }
 

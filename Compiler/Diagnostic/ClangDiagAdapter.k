@@ -9,7 +9,6 @@
 
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/ClangDiag.hh"
 ffi "c++" import "clang/Basic/Diagnostic.h"
 ffi "c++" import "clang/Basic/DiagnosticIDs.h"
 ffi "c++" import "clang/Basic/DiagnosticSema.h" // err_access*
@@ -33,6 +32,11 @@ import Location::SourceManager::{
     SourceManager,
 }
 import Location::SourceRange::SourceRange
+import Native::ClangDiag::{
+    clang_ctor_source,
+    clang_diag_mutable_copy,
+    clang_diag_names_namespace,
+}
 import Support::Ascii::{
     find,
     has_at,
@@ -65,7 +69,7 @@ pub class ClangDiagGroup {
     pub var fixes: cxx::std::vector<ClangFixEdit>
     pub var notes: cxx::std::vector<ClangNote>
     /// A record of the group that copies only from a non-const lvalue
-    /// (kairo::clang_diag_mutable_copy): its name, the record whose copy
+    /// (clang_diag_mutable_copy): its name, the record whose copy
     /// constructor forces that and the field leading to it ("" for its
     /// own), that constructor's source parameter, and where both are.
     pub var why_rec:      string      = ""
@@ -209,7 +213,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         if is_note
             && kloc.is_valid()
             && self._in_kairo_source(kloc)
-            && (kairo::clang_diag_names_namespace(info) || self._declared_elsewhere(kloc, msg)) {
+            && (clang_diag_names_namespace(info) || self._declared_elsewhere(kloc, msg)) {
             return
         }
 
@@ -1019,7 +1023,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
     /// Reads off one diagnostic of the open group whether it is about
     /// copying, and the first Kairo record among its arguments that copies
-    /// only from a non-const lvalue (kairo::clang_diag_mutable_copy).
+    /// only from a non-const lvalue (clang_diag_mutable_copy).
     priv fn _note_cause(self, const info: clang::Diagnostic, const msg: string) {
         if !self._g.on {
             return
@@ -1039,7 +1043,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             return
         }
 
-        var c = kairo::clang_diag_mutable_copy(info)
+        var c = clang_diag_mutable_copy(info)
         if c.ctor == &null || c.rec == &null {
             return
         }
@@ -1060,7 +1064,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             return
         }
 
-        var unsafe *src  = kairo::clang_ctor_source(c.ctor)
+        var unsafe *src  = clang_ctor_source(c.ctor)
         var        pname = "other"
         var        p_at  = SourceRange::invalid()
         if src != &null {

@@ -17,7 +17,6 @@
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
@@ -79,6 +78,7 @@ import Codegen::Emit::EmitIR::EmitIR
 import Codegen::Spell::Spell::Speller
 import Lexer::Immediate::Immediate
 import Location::SourceRange::SourceRange
+import Native::Shims::f8_literal_bits
 import Support::Escape::c_string_literal
 import Token::TokenKind::TokenKind
 
@@ -565,12 +565,12 @@ extend EmitIR {
 
     /// An f8e4m3 / f8e5m2 literal: its class's `from_bits(b)`, the
     /// encoding rounded once from the digits at compile time
-    /// (kairo::f8_literal_bits, APFloat). A double literal, which the class
+    /// (f8_literal_bits, APFloat). A double literal, which the class
     /// converts from, would round twice: to f64, then to the format.
     priv fn _f8_lit(self, at: SourceRange, ty: unsafe *Type, digits: *string, e5m2: bool) {
         var b: i32 = 0
         unsafe {
-            b = kairo::f8_literal_bits(
+            b = f8_literal_bits(
                 unsafe (digits->data() as unsafe *const u8),
                 digits->size(),
                 e5m2,

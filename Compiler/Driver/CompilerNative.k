@@ -18,7 +18,6 @@
 ffi "c++" import "llvm/Support/FileSystem.h"
 ffi "c++" import "llvm/ADT/StringExtras.h"
 ffi "c++" import "clang/Frontend/FrontendActions.h"
-ffi "c++" import "Native/TimeReport.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
@@ -54,6 +53,7 @@ import Interop::Clang::ClangBackend::{
 }
 import Interop::Clang::ClangJobs::ClangJobs
 import Location::SourceManager::SourceManager
+import Native::TimeReport::TimeReport
 import Support::Ascii::copy_strings
 import Support::Ascii::string_less
 import Support::FileIO::FileSystem::FileType
@@ -268,7 +268,7 @@ extend CompilerInstance {
         var unsafe *inv_p = self._rt_invs.data()
         var unsafe *log_p = self._rt_logs.data()
         var unsafe *ok_p  = self._rt_oks.data()
-        var unsafe *rec   = kairo::TimeReport::current()
+        var unsafe *rec   = TimeReport::current()
         for var i: usize = 0; i < n; ++i {
             if inv_p[i].get() == &null {
                 continue
@@ -277,7 +277,7 @@ extend CompilerInstance {
             self._pool->enqueue(
                 kairo::SmallFunction<64>(
                     fn () |be, inv_p, log_p, ok_p, i, rec| {
-                        var _kt = kairo::TimeReport::Worker(rec)
+                        var _kt = TimeReport::Worker(rec)
                         if be->run_native(inv_p[i], &log_p[i]) {
                             ok_p[i] = (1)
                         }

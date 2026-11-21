@@ -130,7 +130,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/Thread.hh" // sema_mint_rank
 ffi "c++" import "vector"
 ffi "c++" import "clang/AST/DeclCXX.h" // the layout twins' QualType (foreign mode)
 ffi "c++" import "clang/AST/Type.h"
@@ -236,6 +235,7 @@ import Codegen::Spell::Spell::{
 import Diagnostic::Registry::DiagID
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceRange::SourceRange
+import Native::Thread::sema_mint_rank
 import Sema::Check::ClassLifecycle::{
     LifecycleCategory,
     LifecycleTri,
@@ -2079,7 +2079,7 @@ pub class EnumLayoutQuery {
         // A one-thread run holds nothing past the group: same output. The
         // whole of this group's rank (high 32 bits; the low ones are the
         // schedule step, sema_sub): every member of it is on this thread.
-        var cap: u64 = *kairo::sema_mint_rank()
+        var cap: u64 = *sema_mint_rank()
         if cap != u64::MAX {
             cap = cap | 0xFFFFFFFF
         }

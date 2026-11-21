@@ -39,7 +39,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "clang/Basic/TokenKinds.h"
-ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -47,6 +46,7 @@ import Codegen::Sink::EmitSink::EmitSink
 import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Native::ObjCache::objcache_hash128
 import Support::FileIO::VirtualFileManager::VirtualFileManager
 import Token::Token::Token
 import Token::TokenCacheManager::TokenCacheManager
@@ -210,7 +210,7 @@ pub class HashSink derives EmitSink {
 
         var chunk = self._acc.copy() + self._buf
         self._acc = kairo::std::from_std_string<string>(
-            kairo::objcache_hash128(kairo::sref(chunk)),
+            objcache_hash128(kairo::sref(chunk)),
         )
 
         self._buf = ""

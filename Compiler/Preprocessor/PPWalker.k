@@ -15,7 +15,6 @@ ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/TimeReport.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 ffi "c++" import "string"
@@ -62,6 +61,7 @@ import Lexer::Lexer::Lexer
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Macro::Sentinel::MacroSentinel
+import Native::TimeReport::KTimeRecord
 import Parser::Shared::ImportGrammar::ImportSpec
 import Parser::Shared::StringOperand::{
     StringOperand,
@@ -286,8 +286,8 @@ pub class PPWalker {
     ///   a shared counter would put a contended cache line in the token loop,
     ///   which is the exact cost sampling exists to avoid.
 
-    priv var _t_detect: unsafe *kairo::KTimeRecord = &null
-    priv var _t_emit:   unsafe *kairo::KTimeRecord = &null
+    priv var _t_detect: unsafe *KTimeRecord = &null
+    priv var _t_emit:   unsafe *KTimeRecord = &null
     /// The builtin module's scope, searched after this file's own imports
     /// (PreProcessor::_walk_one sets it on every file outside the builtin
     /// root). Unset for the builtin files and with the prelude off.

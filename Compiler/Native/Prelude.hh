@@ -99,7 +99,7 @@ inline ::std::string_view bytes(const S &s) noexcept {
 /// The pair a status line on stderr registers so that other writers in this
 /// folder can keep their text off its row: stderr_hold() takes the line off
 /// the screen and keeps it off until stderr_release(). ProgressMeter
-/// (Progress.hh) registers its hold() / release(); with nothing registered
+/// (Native/Progress.k) registers its hold() / release(); with nothing registered
 /// both calls do nothing. Function pointers, so a header that writes to
 /// stderr needs no declaration of the meter.
 struct StderrGuard {

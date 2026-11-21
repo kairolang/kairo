@@ -12,7 +12,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/AddrRanges.hh"
-ffi "c++" import "Native/ArenaBlock.hh"
 ffi "c++" import "Native/Placement.hh" // construct_at
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "cstddef"
@@ -20,6 +19,8 @@ ffi "c++" import "cstring"
 ffi "c++" import "utility"
 ffi "c++" import "algorithm"
 ffi "c++" import "bit"
+
+import Native::ArenaBlock::ArenaBlock
 
 /// ArenaAllocator bump-pointer allocator backed by a linked chain of ArenaBlocks.
 ///
@@ -87,7 +88,7 @@ pub class ArenaAllocator {
     }
 
     pub var stats: Self::Stats
-    var     head:  unsafe *kairo::ArenaBlock
+    var     head:  unsafe *ArenaBlock
     /// u32, not usize: with grow they share the word _lock needs, so a
     /// shared arena costs no space in the millions of private ones (every
     /// ArenaList owns one). No block is 4 GiB.
@@ -146,7 +147,7 @@ pub class ArenaAllocator {
             self.destroy()
         }
 
-        self.head       = kairo::std::create<kairo::ArenaBlock>(blk_sz)
+        self.head       = kairo::std::create<ArenaBlock>(blk_sz)
         self.block_size = (blk_sz as u32)
         self.grow       = 0
     }
@@ -225,7 +226,7 @@ pub class ArenaAllocator {
         for var unsafe *b = self.head; b != &null; b = b->next {
             out->add(
                 unsafe (b as unsafe *const void),
-                sizeof(kairo::ArenaBlock),
+                sizeof(ArenaBlock),
                 label,
             )
         }
@@ -320,7 +321,7 @@ pub class ArenaAllocator {
         }
 
         var        req  = cxx::std::max(step, cxx::std::bit_ceil(sz))
-        var unsafe *blk = kairo::std::create<kairo::ArenaBlock>(req)
+        var unsafe *blk = kairo::std::create<ArenaBlock>(req)
 
         // prepend new block becomes head, old chain reachable via next
         blk->next = self.head

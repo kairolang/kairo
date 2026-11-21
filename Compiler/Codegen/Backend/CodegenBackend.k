@@ -52,10 +52,8 @@ ffi "c++" import "clang/Lex/PreprocessorOptions.h"
 ffi "c++" import "llvm/Support/MemoryBuffer.h"
 ffi "c++" import "llvm/Support/VirtualFileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
-ffi "c++" import "Native/ClangTime.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "Native/Progress.hh"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 
@@ -106,6 +104,12 @@ import Interop::Clang::CodegenPCH::CodegenPCH
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceManager::FileID
 import Memory::ArenaAllocator::ArenaAllocator
+import Native::ClangTime::{
+    KClangTimeCapture,
+    ktime_clang_begin,
+    ktime_clang_end,
+}
+import Native::Progress::ProgressMeter
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Support::TimeReport::{
     TimeRegion,
@@ -529,7 +533,7 @@ pub class CodegenBackend derives TokenFiller {
         var ok              = false
         var t_teardown: u64 = 0
         time_bill_since("TUSetup", t_setup)
-        var clang_time = kairo::ktime_clang_begin()
+        var clang_time = ktime_clang_begin()
         match kind {
             case EmitKind::Asm {
                 var act = KairoEmitAsm()
@@ -563,10 +567,10 @@ pub class CodegenBackend derives TokenFiller {
                      ci:         unsafe *clang::CompilerInstance,
                      @inout act: clang::FrontendAction,
                      inj:        *KairoInject,
-                     clang_time: *kairo::KClangTimeCapture) -> bool {
+                     clang_time: *KClangTimeCapture) -> bool {
         self._wire(inj)
         var ok = ci->ExecuteAction(&act)
-        kairo::ktime_clang_end(*clang_time)
+        ktime_clang_end(*clang_time)
         self._agree_report(inj)
         return ok
     }
@@ -923,7 +927,7 @@ pub class CodegenQueue {
             var unsafe *job = self._jobs[self._order[(i)]]
             job->run(self.run)
             // Phase 2 is codegen (ProgressMeter::Phase); Codegen cannot import Driver/.
-            kairo::ProgressMeter::tick(2, job->path.c_str())
+            ProgressMeter::tick(2, job->path.c_str())
         }
     }
 }

@@ -12,11 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/SmallVector.h"
-ffi "c++" import "Native/CharTable.hh"
 ffi "c++" import "Native/Shims.hh" // volatile_i64
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/TimeReport.hh"
-ffi "c++" import "Native/UTF8Decode.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "stack"
 ffi "c++" import "array"
@@ -39,6 +36,15 @@ import Location::SourceLocation::SourceLocation
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Memory::MemoryBuffer::MemoryBuffer
+import Native::CharTable::{
+    CharClass,
+    classify_ascii,
+    is_operator_char,
+    name_char_kind,
+    normalize_char32,
+}
+import Native::TimeReport::KTimeRecord
+import Native::UTF8Decode::DecodeResult
 import Support::Ascii::is_illegal_ascii
 import Support::Assert::Assert
 import Support::EvalHash::{
@@ -183,8 +189,8 @@ pub class Lexer {
     ///   and therefore per-file and per-thread   a shared one would put a
     ///   contended cache line in the token loop.
 
-    var _t_lex:      unsafe *kairo::KTimeRecord = &null
-    var _lex_sample: u32                        = 0
+    var _t_lex:      unsafe *KTimeRecord = &null
+    var _lex_sample: u32                 = 0
 
     const PFX_FORMAT: u8 = 1 << 0
     const PFX_RAW:    u8 = 1 << 1
@@ -352,17 +358,17 @@ pub class Lexer {
     /// next token
     priv inline fn get_token(self,
                              const start:  SourceLocation,
-                             const decode: kairo::DecodeResult) -> Token {
-        const cls: kairo::CharClass = self.classify(decode.chr)
+                             const decode: DecodeResult) -> Token {
+        const cls: CharClass = self.classify(decode.chr)
 
         match cls {
-            case kairo::CharClass::Identifier {
+            case CharClass::Identifier {
                 // identifier or keyword
                 return self.lex_name(start)
-            } case kairo::CharClass::Number {
+            } case CharClass::Number {
                 // integer or float literal
                 return self.lex_number(start)
-            } case kairo::CharClass::Operator {
+            } case CharClass::Operator {
                 // this is either an operator or punctuation; `\` outside a
                 // literal is neither
                 if decode.chr == '\\' {
@@ -370,17 +376,17 @@ pub class Lexer {
                 }
 
                 return self.lex_symbol(start)
-            } case kairo::CharClass::String {
+            } case CharClass::String {
                 // string or char literal
                 return self.lex_text(start)
-            } case kairo::CharClass::Unassigned, kairo::CharClass::Illegal {
+            } case CharClass::Unassigned, CharClass::Illegal {
                 // illegal character
                 return self.lex_illegal(start, decode)
-            } case kairo::CharClass::NewLine, kairo::CharClass::Whitespace {
+            } case CharClass::NewLine, CharClass::Whitespace {
                 // whitespace or newline
                 return self.lex_whitespace(
                     start,
-                    kairo::normalize_char32(decode.chr),
+                    normalize_char32(decode.chr),
                     (decode.len as usize),
                     cls
                 )
@@ -399,7 +405,7 @@ pub class Lexer {
     /// tokenize the same bytes for different reasons and have to show
     /// up as separate rows, or the fact that the work happens twice
     /// is invisible.
-    pub fn bind_time_region(self, rec: unsafe *kairo::KTimeRecord) {
+    pub fn bind_time_region(self, rec: unsafe *KTimeRecord) {
         self._t_lex = rec
     }
 
@@ -713,20 +719,20 @@ pub class Lexer {
     /// - `avail`: bytes readable at `p`. Zero is EOF and yields len 0, which
     ///   is what every scan loop breaks on.
     inline static fn decode_at(const p:     kairo::std::ConstPtr<u8>,
-                               const avail: usize) -> kairo::DecodeResult {
+                               const avail: usize) -> DecodeResult {
         if avail == 0 {
-            return kairo::DecodeResult { chr: '\x00', len: 0, ok: false }
+            return DecodeResult { chr: '\x00', len: 0, ok: false }
         }
 
         if p[0] < 0x80 {
-            return kairo::DecodeResult { chr: p[0], len: 1, ok: true }
+            return DecodeResult { chr: p[0], len: 1, ok: true }
         }
 
         return UTF8View::decode_utf8(p, avail)
     }
 
     /// 1 would be the immediate next char
-    priv inline fn peek_char32(self, offset: isize = 0) -> kairo::DecodeResult {
+    priv inline fn peek_char32(self, offset: isize = 0) -> DecodeResult {
         var data: kairo::std::ConstPtr<u8> = self.current_data()
         var size: usize                    = self.remaining_bytes()
 
@@ -741,7 +747,7 @@ pub class Lexer {
             // byte of a file (scan_text_body's triple-quote probe) does exactly
             // that.
             if fwd >= size {
-                return kairo::DecodeResult { chr: '\x00', len: 0, ok: false }
+                return DecodeResult { chr: '\x00', len: 0, ok: false }
             }
 
             data += fwd
@@ -749,16 +755,16 @@ pub class Lexer {
         }
 
         if size == 0 {
-            return kairo::DecodeResult { chr: '\x00', len: 0, ok: false }
+            return DecodeResult { chr: '\x00', len: 0, ok: false }
         }
 
         return Lexer::decode_at(data, size)
     }
 
     priv inline fn <eval N: usize> peek_char32(self,
-                                               const max_unicode_len: u8 = 4) -> cxx::std::array<kairo::DecodeResult, N> {
-        var res = cxx::std::array<kairo::DecodeResult, N>()
-        res.fill(kairo::DecodeResult { chr: '\x00', len: 0, ok: false })
+                                               const max_unicode_len: u8 = 4) -> cxx::std::array<DecodeResult, N> {
+        var res = cxx::std::array<DecodeResult, N>()
+        res.fill(DecodeResult { chr: '\x00', len: 0, ok: false })
 
         var data:   kairo::std::ConstPtr<u8> = self.current_data()
         var remain: usize                    = self.remaining_bytes()
@@ -813,7 +819,7 @@ pub class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = kairo::DecodeResult { chr: ptr[j] as char, len: 1, ok: true }
+                        res[out_i] = DecodeResult { chr: ptr[j] as char, len: 1, ok: true }
                         ++out_i
                     }
 
@@ -829,7 +835,7 @@ pub class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = kairo::DecodeResult { chr: ptr[j] as char, len: 1, ok: true }
+                        res[out_i] = DecodeResult { chr: ptr[j] as char, len: 1, ok: true }
                         ++out_i
                     }
 
@@ -860,7 +866,7 @@ pub class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = kairo::DecodeResult { chr: ptr[j] as char, len: 1, ok: true }
+                        res[out_i] = DecodeResult { chr: ptr[j] as char, len: 1, ok: true }
                         ++out_i
                     }
 
@@ -875,7 +881,7 @@ pub class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = kairo::DecodeResult { chr: ptr[j] as char, len: 1, ok: true }
+                        res[out_i] = DecodeResult { chr: ptr[j] as char, len: 1, ok: true }
                         ++out_i
                     }
 
@@ -905,7 +911,7 @@ pub class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = kairo::DecodeResult { chr: ptr[j], len: 1, ok: true }
+                        res[out_i] = DecodeResult { chr: ptr[j], len: 1, ok: true }
                         ++out_i
                     }
 
@@ -920,7 +926,7 @@ pub class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = kairo::DecodeResult { chr: ptr[j], len: 1, ok: true }
+                        res[out_i] = DecodeResult { chr: ptr[j], len: 1, ok: true }
                         ++out_i
                     }
 
@@ -961,7 +967,7 @@ pub class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = kairo::DecodeResult { chr: ptr[j], len: 1, ok: true }
+                        res[out_i] = DecodeResult { chr: ptr[j], len: 1, ok: true }
                         ++out_i
                     }
 
@@ -977,7 +983,7 @@ pub class Lexer {
                     }
 
                     for var j: usize = 0; j < limit; ++j {
-                        res[out_i] = kairo::DecodeResult { chr: ptr[j], len: 1, ok: true }
+                        res[out_i] = DecodeResult { chr: ptr[j], len: 1, ok: true }
                         ++out_i
                     }
 
@@ -1057,9 +1063,9 @@ pub class Lexer {
     /// classified by its Unicode properties, from the tables in the
     /// compiler and not from the host's C library, so every build of the
     /// compiler reads a source file the same way.
-    static fn classify(chr: char) -> kairo::CharClass {
+    static fn classify(chr: char) -> CharClass {
         if (chr as u32) < 128 {
-            return kairo::classify_ascii(chr)
+            return classify_ascii(chr)
         }
 
         return Lexer::classify_unicode(chr as u32)
@@ -1067,16 +1073,16 @@ pub class Lexer {
 
     /// White_Space separates tokens and XID_Start starts a name (UAX #31);
     /// no other non-ASCII character starts a token.
-    static fn classify_unicode(c: u32) -> kairo::CharClass {
+    static fn classify_unicode(c: u32) -> CharClass {
         if Lexer::in_ranges(UnicodeTables::XID_START, XID_START_LEN, c) {
-            return kairo::CharClass::Identifier
+            return CharClass::Identifier
         }
 
         if Lexer::in_ranges(UnicodeTables::WHITE_SPACE, WHITE_SPACE_LEN, c) {
-            return kairo::CharClass::Whitespace
+            return CharClass::Whitespace
         }
 
-        return kairo::CharClass::Illegal
+        return CharClass::Illegal
     }
 
     /// `c` lies in one of the ranges of `t`, a UnicodeTables
@@ -1374,7 +1380,7 @@ pub class Lexer {
             }
 
             var d = Lexer::decode_at(p, (end - p) as usize)
-            var c = kairo::normalize_char32(d.chr)
+            var c = normalize_char32(d.chr)
 
             if ctx.has_exponent {
                 if ctx.allows_sign_next && (c == '+' || c == '-') {
@@ -1426,7 +1432,7 @@ pub class Lexer {
                 // directly above.
                 if q >= end
                     || !Lexer::is_base_digit(
-                        kairo::normalize_char32(
+                        normalize_char32(
                             if q[0] < 0x80 => (q[0] as char) else => (0xFFFFFFFF as char),
                         ),
                         ctx.base,
@@ -1597,14 +1603,12 @@ pub class Lexer {
     }
 
     priv inline fn lex_symbol(self, start: SourceLocation) -> Token {
-        const CHARS: cxx::std::array<kairo::DecodeResult, 4> = self.peek_char32<4>(
-            1,
-        )
+        const CHARS: cxx::std::array<DecodeResult, 4> = self.peek_char32<4>(1)
 
-        const C1: kairo::DecodeResult = CHARS[0]
-        const C2: kairo::DecodeResult = CHARS[1]
-        const C3: kairo::DecodeResult = CHARS[2]
-        const C4: kairo::DecodeResult = CHARS[3]
+        const C1: DecodeResult = CHARS[0]
+        const C2: DecodeResult = CHARS[1]
+        const C3: DecodeResult = CHARS[2]
+        const C4: DecodeResult = CHARS[3]
 
         if !self.is_valid_symbol(C1) {
             self.advance_cursor((C1.len as usize))
@@ -2192,9 +2196,7 @@ pub class Lexer {
     /// ### Returns
     /// false once the closing delimiter has been consumed and the
     /// literal is complete; true to keep scanning.
-    priv inline fn scan_text_special(self,
-                                     @inout ctx: Self::TextCtx,
-                                     d:          kairo::DecodeResult) -> bool {
+    priv inline fn scan_text_special(self, @inout ctx: Self::TextCtx, d: DecodeResult) -> bool {
         if ctx.in_format_depth > 0 {
             self.scan_format_expr(&ctx, d)
             return true
@@ -2312,7 +2314,7 @@ pub class Lexer {
     /// outside any bracket, so `{f(a: 1)}`, `{m["k"]}`, `{Foo::bar}`
     /// and `{a == b}` stay whole expressions. The spec bytes are never
     /// lexed: `>4`, `#x`, `?` and `08.3` are not tokens.
-    priv inline fn scan_format_expr(self, @inout ctx: Self::TextCtx, d: kairo::DecodeResult) {
+    priv inline fn scan_format_expr(self, @inout ctx: Self::TextCtx, d: DecodeResult) {
         var top = ctx.in_format_depth == 1
             && ctx.in_bracket_depth == 0
             && ctx.fstring_specs.back().spec_start == 0
@@ -2569,7 +2571,7 @@ pub class Lexer {
     /// UTF-8 (reported as S072E, decoded as one byte) take the name
     /// path unreported: lex_name makes the first an unknown token
     /// (lex_illegal_ascii) and the second part of a name.
-    priv fn lex_illegal(self, start: SourceLocation, decode: kairo::DecodeResult) -> Token {
+    priv fn lex_illegal(self, start: SourceLocation, decode: DecodeResult) -> Token {
         if decode.len > 1
             && Lexer::in_ranges(
                 UnicodeTables::XID_CONTINUE,
@@ -2702,7 +2704,7 @@ pub class Lexer {
                                   start:       SourceLocation,
                                   first_char:  char,
                                   first_len:   usize,
-                                  first_class: kairo::CharClass) -> Token {
+                                  first_class: CharClass) -> Token {
         /// we consume all whitespace and newlines here
         /// we can batch spaces and newlines into a single new line
         /// we also batch just spaces into a single space token
@@ -2714,9 +2716,9 @@ pub class Lexer {
         var nl_count: usize = 0
 
         match first_class {
-            case kairo::CharClass::Whitespace {
+            case CharClass::Whitespace {
                 token.set_kind(TokenKind::TkWhitespace)
-            } case kairo::CharClass::NewLine {
+            } case CharClass::NewLine {
                 token.set_kind(TokenKind::TkNewLine)
                 ++nl_count
             } default {
@@ -2734,14 +2736,14 @@ pub class Lexer {
 
         while p < end {
             var current_char      = Lexer::decode_at(p, (end - p) as usize)
-            var c:           char = kairo::normalize_char32(current_char.chr)
+            var c:           char = normalize_char32(current_char.chr)
 
             match self.classify(c) {
-                case kairo::CharClass::Whitespace {
+                case CharClass::Whitespace {
                     if token != TokenKind::TkNewLine {
                         token.set_kind(TokenKind::TkWhitespace)
                     }
-                } case kairo::CharClass::NewLine {
+                } case CharClass::NewLine {
                     token.set_kind(TokenKind::TkNewLine)
                     ++nl_count
                 } default {
@@ -2763,8 +2765,8 @@ pub class Lexer {
     }
 
     /// table lookup (ASCII_LEX_FLAGS): one load and a mask.
-    inline static fn is_valid_symbol(c: kairo::DecodeResult) -> bool {
-        return kairo::is_operator_char(c.chr, c.len)
+    inline static fn is_valid_symbol(c: DecodeResult) -> bool {
+        return is_operator_char(c.chr, c.len)
     }
 
     /// classifies a character for identifier/keyword scanning.
@@ -2780,9 +2782,9 @@ pub class Lexer {
     ///          not UTF-8 (name_char_kind keeps that one in the name). A
     ///          longer character is a name character when it is
     ///          XID_Continue.
-    inline static fn is_valid_name(c: kairo::DecodeResult) -> u8 {
+    inline static fn is_valid_name(c: DecodeResult) -> u8 {
         if c.len <= 1 {
-            return kairo::name_char_kind(c.chr, c.len)
+            return name_char_kind(c.chr, c.len)
         }
 
         if Lexer::in_ranges(

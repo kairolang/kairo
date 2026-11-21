@@ -530,16 +530,6 @@ sleep_while(F &&condition)  // NOLINT(cppcoreguidelines-missing-std-forward)
     }
 }
 
-inline const char *thread_model_cstr() noexcept {
-#if defined(_WIN32)
-    return "win32";
-#elif defined(__wasm32__) || defined(__wasm64__)
-    return "single";
-#else
-    return "posix";
-#endif
-}
-
 /// The allocator has no memory for \p bytes. There is no carrying on, and it
 /// is not a compiler bug to report: one line on stderr, then abort. For the
 /// allocations in this folder whose result is used unchecked on a hot path.

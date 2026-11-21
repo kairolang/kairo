@@ -17,7 +17,6 @@ ffi "c++" import "llvm/Support/Path.h"
 ffi "c++" import "llvm/ADT/SmallString.h"
 ffi "c++" import "llvm/ADT/STLExtras.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/TimeReport.hh"
 ffi "c++" import "vector"
 
 import Diagnostic::Engine::DiagEngine
@@ -30,6 +29,10 @@ import Interop::Clang::HeaderSet::{
 }
 import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
+import Native::TimeReport::{
+    KTimeRecord,
+    TimeReport,
+}
 import Support::Ascii::copy_strings
 import Threading::ThreadPool::ThreadPool
 
@@ -122,11 +125,11 @@ pub class HeaderSetCache {
     /// Not priv: start_shared's pool task calls it through a captured pointer.
     fn _enqueue_build(self, set: unsafe *HeaderSet) {
         var unsafe *be  = self._be
-        var unsafe *rec = kairo::TimeReport::region(r"HeaderSets")
+        var unsafe *rec = TimeReport::region("HeaderSets".c_str())
         self._pool->enqueue(
             kairo::SmallFunction<64>(
                 fn () |set, be, rec| {
-                    var _kt = kairo::TimeReport::Worker(rec)
+                    var _kt = TimeReport::Worker(rec)
                     set->build(be)
                 },
             ),
@@ -252,11 +255,11 @@ pub class HeaderSetCache {
 
         var unsafe *be  = self._be
         var        *me  = &self
-        var unsafe *rec = kairo::TimeReport::region(r"HeaderSets")
+        var unsafe *rec = TimeReport::region("HeaderSets".c_str())
         self._pool->enqueue(
             kairo::SmallFunction<64>(
                 fn () |u, job, be, me, rec| {
-                    var _kt = kairo::TimeReport::Worker(rec)
+                    var _kt = TimeReport::Worker(rec)
                     u->build(be)
                     if u->ok {
                         for var v: unsafe *HeaderSet in *job {
@@ -362,7 +365,7 @@ pub class HeaderSetCache {
     /// before its own codegen_pch() call, which then hits.
     pub fn prebuild_codegen_pch(self,
                                 sets: cxx::std::vector<unsafe *HeaderSet>,
-                                rec:  unsafe *kairo::KTimeRecord) {
+                                rec:  unsafe *KTimeRecord) {
         var unsafe *job = kairo::std::create<cxx::std::vector<unsafe *HeaderSet>>(
             sets,
         )
@@ -371,7 +374,7 @@ pub class HeaderSetCache {
         self._pool->enqueue(
             kairo::SmallFunction<64>(
                 fn () |me, job, rec| {
-                    var _kt = kairo::TimeReport::Worker(rec)
+                    var _kt = TimeReport::Worker(rec)
                     me->codegen_pch(&*job)
                     kairo::std::destroy(job)
                 },

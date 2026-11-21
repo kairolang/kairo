@@ -63,7 +63,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "atomic"
-ffi "c++" import "Native/Thread.hh" // sema_mint_rank
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/AddrRanges.hh"
@@ -85,21 +84,40 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,  BoundsState,  BuiltinKind,  BuiltinType, QUAL_CONST, QUAL_VOLATILE, QualifiedType,
-    RecordType, builtin_info, canon_unqual,
+    AssocType,
+    BoundsState,
+    BuiltinKind,
+    BuiltinType,
+    QUAL_CONST,
+    QUAL_VOLATILE,
+    QualifiedType,
+    RecordType,
+    builtin_info,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
     isa,
 }
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
-    MapType,          NullableType,     OpaqueFFIType,  PointerType,         SetType,
-    TypeExpr,         ValueOp,          VectorType,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    MapType,
+    NullableType,
+    OpaqueFFIType,
+    PointerType,
+    SetType,
+    TypeExpr,
+    ValueOp,
+    VectorType,
 }
 import AST::ParamMode::ParamMode
 import Location::SourceRange::SourceRange
 import Memory::ArenaAllocator::ArenaAllocator
+import Native::Thread::sema_mint_rank
 import Support::EvalHash::{
     GOLDEN_RATIO_MIX,
     SPLITMIX64_MUL1,
@@ -1408,7 +1426,7 @@ pub class CanonicalTypeStore {
     /// NullableType::seen_rank: the calling thread's group, or 0 outside
     /// any group's Sema. Under the write lock.
     priv static fn _seen(n: unsafe *NullableType) {
-        var r = *kairo::sema_mint_rank()
+        var r = *sema_mint_rank()
         if r == u64::MAX {
             r = 0
         }

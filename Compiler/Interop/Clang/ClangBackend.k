@@ -72,7 +72,6 @@ ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "llvm/Support/VirtualFileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "llvm/TargetParser/Triple.h"
-ffi "c++" import "Native/SharedVFS.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
@@ -91,6 +90,10 @@ import Interop::Clang::ClangInstance::{
 }
 import Interop::Clang::ClangLocMap::ClangLocMap
 import Location::SourceManager::SourceManager
+import Native::SharedVFS::{
+    shared_layer_sync_cwd,
+    shared_layer_view,
+}
 import Support::Ascii::copy_strings
 import std::c_char
 
@@ -225,7 +228,7 @@ pub enum MountState derives u8 {
 ///          and hand out views of the buffers. Its one write a TU reaches is
 ///          setCurrentWorkingDirectory, which OverlayFileSystem::pushOverlay
 ///          makes on every layer pushed: a TU therefore pushes a proxy that
-///          drops it (Native/SharedVFS.hh), and freeze() sets the layer's
+///          drops it (Native/SharedVFS.k), and freeze() sets the layer's
 ///          working directory once, to what pushOverlay would have copied.
 pub class CodegenMounts {
     pub var pch_paths:  cxx::std::vector<string>
@@ -278,10 +281,7 @@ pub class CodegenMounts {
         }
 
         self._shared = self.layer()
-        kairo::shared_layer_sync_cwd(
-            self._shared,
-            llvm::vfs::getRealFileSystem(),
-        )
+        shared_layer_sync_cwd(self._shared, llvm::vfs::getRealFileSystem())
 
         self._state = MountState::Frozen
     }
@@ -683,7 +683,7 @@ pub class ClangBackend {
     /// Any thread. The overlay is the TU's own; the layer is the one
     /// `m` shares once frozen (CodegenMounts::freeze), pushed
     /// through a proxy that keeps pushOverlay's working-directory
-    /// write off it (Native/SharedVFS.hh), else a fresh one for this
+    /// write off it (Native/SharedVFS.k), else a fresh one for this
     /// call.
     pub fn codegen_vfs(self, m: *CodegenMounts) -> llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> {
         var overlay = llvm::makeIntrusiveRefCnt<llvm::vfs::OverlayFileSystem>(
@@ -697,7 +697,7 @@ pub class ClangBackend {
         }
 
         if m->state() == MountState::Frozen {
-            overlay->pushOverlay(kairo::shared_layer_view(m->shared_layer()))
+            overlay->pushOverlay(shared_layer_view(m->shared_layer()))
         } else {
             var mem = m->layer()
             overlay->pushOverlay(

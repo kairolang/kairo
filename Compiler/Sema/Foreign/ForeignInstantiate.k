@@ -71,10 +71,7 @@ ffi "c++" import "llvm/ADT/SmallString.h"
 ffi "c++" import "llvm/ADT/SmallVector.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "Native/ClangPurity.hh" // decl_purity
-ffi "c++" import "Native/ClangMoveWalk.hh" // cxx_moves_out
 ffi "c++" import "clang/Lex/Lexer.h"
-ffi "c++" import "Native/Thread.hh" // sema_mint_rank
 ffi "c++" import "atomic"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
@@ -84,8 +81,14 @@ import AST::Context::InstantiationRegistry::{
     InstantiationRegistry,
 }
 import AST::DeclFacts::{
-    decl_clang,             decl_cxx_spelling, decl_fill_failed, decl_foreign_fill,
-    decl_instantiated_from, decl_origin_fid,   decl_origin_set,  decl_publish_fill,
+    decl_clang,
+    decl_cxx_spelling,
+    decl_fill_failed,
+    decl_foreign_fill,
+    decl_instantiated_from,
+    decl_origin_fid,
+    decl_origin_set,
+    decl_publish_fill,
     decl_set_imported,
 }
 import AST::Mixin::TemplateParams::ForeignFill
@@ -104,6 +107,13 @@ import Diagnostic::ClangDiagAdapter::ClangDiagAdapter
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceRange::SourceRange
+import Native::ClangMoveWalk::{
+    CxxLibRoots,
+    CxxMoveCache,
+    CxxMoveWalk,
+}
+import Native::ClangPurity::clang_decl_purity
+import Native::Thread::sema_mint_rank
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Sema::Foreign::DeclImport::{
     DeclImport,
@@ -133,19 +143,19 @@ struct UnspelledRec {
 
 /// What a C++ function's body does to the object one of its `T&` / `T*`
 /// parameters (or its implicit object) refers to: cxx_moves_out's answer
-/// (Native/ClangMoveWalk.hh).
+/// (Native/ClangMoveWalk.k).
 pub enum CxxMoveKind derives u8 {
     None,    ///< the body reads or changes it, and moves nothing out of it.
     Moves,   ///< some path binds it to a `T&&`.
     Unknown, ///< nothing moves it in what could be read, and something could not be.
     /// Nothing moves it in what could be read, and what could not be is
     /// functions of the toolchain's own library with no visible body
-    /// (kairo::CxxLibRoots): taken not to move it, on a listed assumption.
+    /// (CxxLibRoots): taken not to move it, on a listed assumption.
     Assumed,
 }
 
 /// Why a CxxMoveVerdict is Unknown, as its `why` byte. NoBody to
-/// NoInstantiation are Native/ClangMoveWalk.hh's CxxMoveAnswer::why values;
+/// NoInstantiation are Native/ClangMoveWalk.k's CxxMoveAnswer::why values;
 /// NoInstance is cxx_moves_out's own.
 pub enum CxxMoveUnknownWhy derives u8 {
     NoBody          = 1, ///< no visible body.
@@ -198,10 +208,10 @@ pub class ForeignInstantiate {
     priv var _mu: kairo::std::RecursiveMutex ///< ONE lock for all fills; see the file header.
     /// cxx_moves_out's answers per (clang function, parameter); guarded by
     /// `_mu`. Every set it holds decls of is pinned for the build.
-    priv var _moves: kairo::CxxMoveCache
+    priv var _moves: CxxMoveCache
     /// The toolchain's library roots, filled from the first set asked
     /// about (every set shares the build's backend); guarded by `_mu`.
-    priv var _lib:       kairo::CxxLibRoots
+    priv var _lib:       CxxLibRoots
     priv var _active:    cxx::std::vector<unsafe *Decl> ///< shells mid-fill, outermost first; guarded by `_mu`.
     priv var _hindex:    *HeaderIndex
     priv var _reg:       unsafe *ForeignRegistry
@@ -348,7 +358,7 @@ pub class ForeignInstantiate {
     /// caller filled it first, as a one-thread run does. Cheap when
     /// it does nothing: no Sema rank on this thread, or no earlier demand.
     priv fn _rerequest(self, shell: unsafe *Decl, fid: i64, alt: unsafe *HeaderSet) {
-        if *kairo::sema_mint_rank() == u64::MAX {
+        if *sema_mint_rank() == u64::MAX {
             return
         }
 
@@ -1217,7 +1227,7 @@ pub class ForeignInstantiate {
     }
 
     /// What clang says of the imported function `f`'s side effects (see
-    /// Native/ClangPurity.hh): 0 none, 1 const, 2 pure.
+    /// Native/ClangPurity.k): 0 none, 1 const, 2 pure.
     ///
     /// Invariant: Sema threads never read clang's AST outside the owning
     /// set's sema_lock(). The answer walks the redeclaration chain, and a
@@ -1235,21 +1245,21 @@ pub class ForeignInstantiate {
 
         var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
         if hs == &null {
-            return kairo::clang_decl_purity(cd)
+            return clang_decl_purity(cd)
         }
 
         // Not alive(): that may revive a released set, a rebuild this read
         // must never trigger. A released set nulls its decls' clang_decl,
         // so a non-null one is live; the mutex itself always is.
         var slock = kairo::std::LockGuard(*hs->sema_lock())
-        return kairo::clang_decl_purity(cd)
+        return clang_decl_purity(cd)
     }
 
     /// Does the C++ function `f` move out of what its parameter `idx` (the
     /// clang index, -1 for the implicit object) refers to? `spec`, when not
     /// null, is the clang specialization the call selected (CallExpr::
     /// cxx_spec) and `spec_set` its HeaderSet; else `f`'s own clang decl is
-    /// read. The walk is Native/ClangMoveWalk.hh's; it instantiates bodies,
+    /// read. The walk is Native/ClangMoveWalk.k's; it instantiates bodies,
     /// so it runs under `_mu` and then the set's sema_lock(), the fill order,
     /// with the set's diagnostics quiet.
     fn cxx_moves_out(self,
@@ -1296,9 +1306,9 @@ pub class ForeignInstantiate {
             self._lib.ready = true
         }
 
-        var walk = kairo::CxxMoveWalk(
-            &*csema,
-            &self._moves,
+        var walk = CxxMoveWalk(
+            csema,
+            unsafe &self._moves,
             CXX_MOVE_DEPTH,
             unsafe &self._lib,
         )

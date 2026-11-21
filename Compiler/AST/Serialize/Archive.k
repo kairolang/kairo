@@ -37,7 +37,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "cstring"
-ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Placement.hh"
 ffi "c++" import "Native/Types.hh"
 
@@ -67,9 +66,22 @@ import AST::Serialize::ByteBuffer::{
     ByteWriter,
 }
 import AST::Serialize::Format::{
-    CAT_DECL,   CAT_EXPR,     CAT_PATTERN, CAT_STMT,     CAT_TYPE,  PAY_CHAR,    PAY_EXPANSION,
-    PAY_FLOAT,  PAY_INT,      PAY_STRING,  TOK_EXPANDED, TOK_IDENT, TOK_LITERAL, TOK_NONE,
-    TOK_NUMBER, TOK_SENTINEL,
+    CAT_DECL,
+    CAT_EXPR,
+    CAT_PATTERN,
+    CAT_STMT,
+    CAT_TYPE,
+    PAY_CHAR,
+    PAY_EXPANSION,
+    PAY_FLOAT,
+    PAY_INT,
+    PAY_STRING,
+    TOK_EXPANDED,
+    TOK_IDENT,
+    TOK_LITERAL,
+    TOK_NONE,
+    TOK_NUMBER,
+    TOK_SENTINEL,
 }
 import AST::Serialize::StringTable::StringTable
 import Lexer::ImmBig::{
@@ -85,6 +97,7 @@ import Location::SourceManager::SourceManager
 import Location::SourceRange::SourceRange
 import Macro::Sentinel::MacroSentinel
 import Memory::ArenaList::ArenaList
+import Native::ObjCache::objcache_hash128_bytes
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Support::FileIO::Path::Path
 import Token::Token::Token
@@ -563,7 +576,7 @@ pub class ASTArchive {
         var buf? = self.sm->get_buffer(f)
         if buf != null && buf.is_valid() {
             return kairo::std::from_std_string<string>(
-                kairo::objcache_hash128_bytes(buf.data(), buf.size()),
+                objcache_hash128_bytes(buf.data(), buf.size()),
             )
         }
 

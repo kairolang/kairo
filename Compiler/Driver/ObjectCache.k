@@ -52,7 +52,6 @@ ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "llvm/ADT/StringSet.h"
 ffi "c++" import "llvm/TargetParser/Triple.h"
-ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/Types.hh"
@@ -70,6 +69,12 @@ import Driver::CacheFormat::{
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::HeaderSet::HeaderSet
 import Interop::Clang::HeaderSetCache::HeaderSetCache
+import Native::ObjCache::{
+    objcache_clang_version,
+    objcache_file_hash,
+    objcache_hash128,
+    objcache_record,
+}
 import Support::Ascii::find
 import Support::Escape::{
     CEscapeStyle,
@@ -231,7 +236,7 @@ pub class ObjectCache {
     /// xxh3-128 of `s`, 32 hex digits.
     pub static fn hash(const s: string) -> string {
         return kairo::std::from_std_string<string>(
-            kairo::objcache_hash128(kairo::sref(s)),
+            objcache_hash128(kairo::sref(s)),
         )
     }
 
@@ -375,7 +380,7 @@ pub class ObjectCache {
                                else => LinkFS::filename(
                                    *p,
                                )) + " " + kairo::std::from_std_string<string>(
-                kairo::objcache_file_hash(kairo::sref(*p)),
+                objcache_file_hash(kairo::sref(*p)),
             ) + "\n"
         }
 
@@ -493,7 +498,7 @@ pub class ObjectCache {
     priv fn _content_of(self, i: usize) -> string {
         if self._hdr_hash[i].is_empty() {
             self._hdr_hash[i] = kairo::std::from_std_string<string>(
-                kairo::objcache_file_hash(kairo::sref(self._hdr_path[i])),
+                objcache_file_hash(kairo::sref(self._hdr_path[i])),
             )
         }
 
@@ -794,7 +799,7 @@ pub class ObjectCache {
         }
 
         var r = kairo::std::from_std_string<string>(
-            kairo::objcache_record(kairo::sref(path)),
+            objcache_record(kairo::sref(path)),
         )
 
         if !r.starts_with(cache_record_magic() + "\n") {
@@ -908,12 +913,12 @@ pub class ObjectCache {
         if dev {
             var exe = env::exe_path()
             out += "f.build " + kairo::std::from_std_string<string>(
-                kairo::objcache_file_hash(kairo::sref(exe)),
+                objcache_file_hash(kairo::sref(exe)),
             ) + "\n"
         }
 
         out += "f.clang " + ObjectCache::_clean(
-            kairo::std::from_std_string<string>(kairo::objcache_clang_version()),
+            kairo::std::from_std_string<string>(objcache_clang_version()),
         ) + "\n"
         out += "f.triple " + ObjectCache::_clean(be->triple()) + "\n"
 

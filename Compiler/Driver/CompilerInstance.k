@@ -130,18 +130,14 @@ ffi "c++" import "llvm/Support/CodeGen.h"
 ffi "c++" import "llvm/ADT/APFloat.h"
 ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h"
 ffi "c++" import "clang/Basic/Diagnostic.h"
-ffi "c++" import "Native/Thread.hh" // diag_capture
 ffi "c++" import "clang/Basic/DiagnosticIDs.h"
 ffi "c++" import "clang/Basic/DiagnosticOptions.h"
 ffi "c++" import "clang/Basic/TargetInfo.h"
 ffi "c++" import "clang/Basic/TargetOptions.h"
 ffi "c++" import "clang/Frontend/FrontendActions.h"
-ffi "c++" import "Native/TimeReport.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Shims.hh"
-ffi "c++" import "Native/ObjCache.hh"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "Native/GlobalRecycler.hh"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 ffi "c++" import "string"
@@ -210,6 +206,9 @@ import Interop::Clang::HeaderSet::{
 }
 import Interop::Clang::HeaderSetCache::HeaderSetCache
 import Location::SourceManager::SourceManager
+import Native::ObjCache::objcache_hash128_bytes
+import Native::Thread::diag_capture
+import Native::TimeReport::TimeReport
 import Preprocessor::Preprocessor::PreProcessor
 import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
@@ -865,9 +864,9 @@ pub class CompilerInstance {
         // and its sinks are BufferedDiagSinks), so it goes to the engine
         // here, capture off first or emit would put it straight back. The
         // other tasks of that wave die with their sinks undrained.
-        var unsafe *cap = *kairo::diag_capture()
+        var unsafe *cap = *diag_capture()
         if cap != &null {
-            *kairo::diag_capture() = &null
+            *diag_capture() = &null
             (unsafe (cap as unsafe *BufferedDiagSink))->drain_into(
                 unsafe (self_->_diag as unsafe *DiagEngine),
                 unsafe (self_->_sm as unsafe *SourceManager),
@@ -1119,11 +1118,11 @@ pub class CompilerInstance {
         self._backend = kairo::std::create<ClangBackend>(self._sm, bcfg)
 
         var unsafe *be  = self._backend
-        var unsafe *rec = kairo::TimeReport::region(r"ClangStartup")
+        var unsafe *rec = TimeReport::region("ClangStartup".c_str())
         self._pool->enqueue(
             kairo::SmallFunction<64>(
                 fn () |be, rec| {
-                    var _kt = kairo::TimeReport::Worker(rec)
+                    var _kt = TimeReport::Worker(rec)
                     be->startup()
                 },
             ),
@@ -1594,7 +1593,7 @@ pub class CompilerInstance {
             var buf? = self._sm->get_buffer(fid as u32)
             if buf != null && buf.is_valid() {
                 h = kairo::std::from_std_string<string>(
-                    kairo::objcache_hash128_bytes(buf.data(), buf.size()),
+                    objcache_hash128_bytes(buf.data(), buf.size()),
                 )
             }
 

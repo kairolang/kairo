@@ -156,21 +156,21 @@ Compiler/
 ├── Spec/           the compiler specification: pipeline, per-pass contracts,
 │                   build system, self-hosting, incremental compilation
 │                   (index: Compiler/Spec/README.md)
-└── Native/         C++ interop headers (.hh) pooled, path-coupled: the base
-                    layer (KPrelude, Types, SmallFunction, KShims, TokenArray),
-                    arenas (ArenaBlock, GlobalRecycler, KPlacement,
-                    AddrRanges), text and numbers (CharTable, UTF8Decode,
-                    KInt128, KLocale), threading, timing and progress
-                    (KThread, KTimeReport, KTimeClang, KProgress), the log
-                    (KLog), files (KFileSystem, KSharedVFS: a codegen TU's
-                    view of the fan-out's shared in-memory file layer), the
-                    object cache's hashing (KObjCache), Win32 calls
-                    (Win32.hh/.cpp), Cc1As.hh (clang's -cc1as entry point),
-                    ClangDiag.hh (questions about a clang::Diagnostic's
-                    arguments), ClangPurity.hh (clang's const / pure marks
-                    for FnPurityCheck), ClangMoveWalk.hh (whether a C++
-                    function's body moves out of a reference parameter, for
-                    MoveCheck)
+└── Native/         the base layer under the compiler, a module (module.k).
+                    Kairo: character tables and UTF-8 decoding (CharTable,
+                    UTF8Decode), arenas (ArenaBlock, GlobalRecycler), Int128,
+                    Locale, Thread, timing and progress (TimeReport,
+                    ClangTime, Progress), the object cache's hashing
+                    (ObjCache), SharedVFS (a codegen TU's view of the
+                    fan-out's shared in-memory file layer), ClangDiag,
+                    ClangPurity, ClangMoveWalk (whether a C++ function's body
+                    moves out of a reference parameter, for MoveCheck), and
+                    the plain parts of Shims and Types. C++ (.hh), for what
+                    Kairo cannot spell: Prelude, Types, SmallFunction, Shims,
+                    TokenArray, Placement, AddrRanges, Log, the rest of
+                    Thread, ArenaBlock and Int128, FileSystem, Cc1As.hh
+                    (clang's -cc1as entry point), ClangSemaAgree, and the
+                    Win32 calls (Win32.hh/.cpp)
 
 The toolchain's other tools are outside Compiler/, built from the same tree
 by build.py:
@@ -261,7 +261,7 @@ Moves: MoveCheck records each transfer it counts (SemaContext::move_sites),
 and CopyMoveLowering casts exactly those to `T&&`, so what C++ moves is what
 the checker counted. A MOVE value passed to a C++ function by `T&` / `T*`
 is moved-from when the function's body moves out of it
-(Native/ClangMoveWalk.hh, through Sema/Foreign/ForeignInstantiate.k) and,
+(Native/ClangMoveWalk.k, through Sema/Foreign/ForeignInstantiate.k) and,
 when no body can be inspected, under -fstrict-cxx-moves (on by default;
 -fno-strict-cxx-moves borrows every such call).
 

@@ -24,7 +24,6 @@
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/TimeReport.hh"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
 ffi "c++" import "map"

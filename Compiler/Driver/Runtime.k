@@ -14,7 +14,6 @@
 
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "Native/Locale.hh" // init_process_locale
 ffi "c++" import "llvm/Support/InitLLVM.h"
 ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
@@ -22,6 +21,7 @@ ffi "c++" import "locale"
 ffi "c++" import "sstream"
 
 import API::FS::LinkFS
+import Native::Locale::init_process_locale
 import std::c_char
 
 /// ### Returns
@@ -47,9 +47,9 @@ pub fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::
     )
 
     // Locale from the environment, LC_CTYPE forced to UTF-8 if that did not
-    // give one (Native/Locale.hh says why), eagerly on the main thread
+    // give one (Native/Locale.k says why), eagerly on the main thread
     // before any worker starts.
-    kairo::init_process_locale()
+    init_process_locale()
 
     cxx::std::use_facet<cxx::std::num_put<c_char>>(cxx::std::locale())
     cxx::std::use_facet<cxx::std::num_get<c_char>>(cxx::std::locale())

@@ -13,7 +13,7 @@
 
 ffi "c++" import "Native/SmallFunction.hh"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/Thread.hh" // spawn_pool_workers, thread_pool_local_qid
+ffi "c++" import "Native/Thread.hh" // spawn_pool_workers
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "thread"
 ffi "c++" import "vector"
@@ -23,6 +23,7 @@ ffi "c++" import "utility"
 ffi "c++" import "chrono"
 ffi "c++" import "atomic"
 
+import Native::Thread::thread_pool_local_qid
 import Support::EvalHash::{
     FNV1A64_OFFSET,
     FNV1A64_PRIME,
@@ -230,8 +231,8 @@ pub class ThreadPool {
         self._groups[group].fetch_add(1, kairo::std::MemoryOrder::relaxed)
 
         // This thread's queue, picked once from its id and cached in a
-        // thread_local (Native/Thread.hh) shared by every pool.
-        var local_qid: unsafe *usize = kairo::thread_pool_local_qid()
+        // thread variable (Native/Thread.k) shared by every pool.
+        var local_qid: unsafe *usize = thread_pool_local_qid()
         if *local_qid == usize::MAX {
             var tid = cxx::std::this_thread::get_id()
             *local_qid = ((Self::fnv1a64_bytes(tid) % (self._count as u64)) as usize)

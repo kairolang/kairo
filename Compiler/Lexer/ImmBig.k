@@ -12,8 +12,10 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "llvm/ADT/SmallVector.h"
-ffi "c++" import "Native/Int128.hh" // kairo::wide: 64x64 -> 128 multiply-add
+ffi "c++" import "Native/Int128.hh" // kairo::wide: the _MSC_VER multiply-add
 ffi "c++" import "bit"
+
+import Native::Int128::wide
 
 /// portable 128-bit arithmetic operations
 ///
@@ -33,17 +35,12 @@ pub module Int128 {
                                     factor:     u64,
                                     addend:     u64,
                                     @inout hi:  u64) -> bool {
-        // The wide paths are intrinsics / unsigned __int128, which have no
-        // Kairo spelling: Native/Int128.hh, defined under the same tests.
+        // The wide paths: the intrinsics (Native/Int128.hh) and u128
+        // (Native/Int128.k), defined under the same tests.
         eval if defined!(_MSC_VER) {
             return kairo::wide::mul_add_64(&val, factor, addend, &hi)
         } else if defined!(__SIZEOF_INT128__) {
-            return kairo::wide::mul_add_64(
-                unsafe &val,
-                factor,
-                addend,
-                unsafe &hi,
-            )
+            return wide::mul_add_64(unsafe &val, factor, addend, unsafe &hi)
         } else {
             // manual 32-bit multiplication fallback
             var a0: u64 = val & U32_MAX
@@ -100,16 +97,11 @@ pub module Int128 {
                                      factor:    u64,
                                      addend:    u64) -> bool {
         // The wide paths, and the overflow reasoning for each, are in
-        // Native/Int128.hh (intrinsics / unsigned __int128).
+        // Native/Int128.hh (intrinsics) and Native/Int128.k (u128).
         eval if defined!(_MSC_VER) {
             return kairo::wide::mul_add_128(&lo, &hi, factor, addend)
         } else if defined!(__SIZEOF_INT128__) {
-            return kairo::wide::mul_add_128(
-                unsafe &lo,
-                unsafe &hi,
-                factor,
-                addend,
-            )
+            return wide::mul_add_128(unsafe &lo, unsafe &hi, factor, addend)
         } else {
             // manual fallback: split into 32-bit chunks
             // 128-bit value as (a3:a2:a1:a0) where each is 32-bit
@@ -182,7 +174,7 @@ pub module Int128 {
         eval if defined!(_MSC_VER) {
             kairo::wide::mul_limb(&limb, factor, &carry)
         } else if defined!(__SIZEOF_INT128__) {
-            kairo::wide::mul_limb(unsafe &limb, factor, unsafe &carry)
+            wide::mul_limb(unsafe &limb, factor, unsafe &carry)
         } else {
             // manual multiplication
             var a0: u64 = limb & U32_MAX

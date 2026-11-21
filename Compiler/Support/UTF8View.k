@@ -11,9 +11,12 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/UTF8Decode.hh"
 
 import Memory::MMapRegion::MMapRegion
+import Native::UTF8Decode::{
+    DecodeResult,
+    decode_utf8_lut,
+}
 
 /// forward iterator for utf-8 decoding with ascii fast-path.
 ///
@@ -23,7 +26,7 @@ import Memory::MMapRegion::MMapRegion
 /// from files via `MMapRegion`.
 ///
 /// the iterator decodes one code point per iteration using `decode_utf8_lut()`
-/// (from `UTF8Decode.hh`), which applies strict utf-8 validation. invalid
+/// (from Native/UTF8Decode.k), which applies strict utf-8 validation. invalid
 /// or overlong sequences are replaced with `'?'` (0x3F). for efficiency, ascii
 /// bytes are processed in a single fast-path pass.
 ///
@@ -78,8 +81,8 @@ pub class UTF8View {
     ///
     /// **Note:**
     /// invalid sequences return `{0xFFFD, 0}` to indicate replacement.
-    pub static fn decode_utf8(ptr: unsafe *const u8, remaining: usize) -> kairo::DecodeResult {
-        return kairo::decode_utf8_lut(ptr, remaining)
+    pub static fn decode_utf8(ptr: unsafe *const u8, remaining: usize) -> DecodeResult {
+        return decode_utf8_lut(ptr, remaining)
     }
 
     /// iterator interface for utf-8 decoding.

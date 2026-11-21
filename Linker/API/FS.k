@@ -22,13 +22,13 @@ ffi "c++" import "llvm/Support/Path.h"
 ffi "c++" import "llvm/Support/Process.h"
 ffi "c++" import "llvm/Support/Program.h"
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/Shims.hh" // write_file_exact
 ffi "c++" import "Native/Win32.hh" // move_path (Windows directory renames)
 ffi "c++" import "cstdlib"
 ffi "c++" import "vector"
 ffi "c++" import "system_error"
 ffi "c++" import "utility"
 
+import Native::Shims::write_file_exact
 import std::c_char
 import std::env
 
@@ -171,9 +171,9 @@ pub class LinkFS {
     }
 
     pub static fn write(const path: string, const text: string) -> bool {
-        // Exact bytes (Shims.hh write_file_exact): writeFileWithEncoding's text
+        // Exact bytes (Native/Shims.k write_file_exact): writeFileWithEncoding's text
         // mode turned '\n' into "\r\n" on Windows, and read() returns bytes.
-        return kairo::write_file_exact(kairo::sref(path), kairo::sref(text))
+        return write_file_exact(kairo::sref(path), kairo::sref(text))
     }
 
     /// Creates an empty temp file and returns its path; "" on failure.

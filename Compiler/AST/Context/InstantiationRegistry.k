@@ -73,7 +73,6 @@ ffi "c++" import "Native/AddrRanges.hh"
 ffi "c++" import "llvm/Support/Allocator.h"
 ffi "c++" import "Native/Placement.hh" // construct_at
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/Thread.hh" // sema_mint_rank / sema_mint_counter / sema_fill_record
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 ffi "c++" import "cstring"
@@ -86,8 +85,14 @@ import AST::Context::CanonicalTypes::{
 import AST::Context::DeclContext::DeclContextKind
 import AST::Context::DepLog::dep_log_current
 import AST::DeclFacts::{
-    PackSetOrder, decl_dedup_pack_args, decl_generic_params, decl_is_imported, decl_pack_set_at,
-    decl_pattern, decl_requires_clause, decl_spec_args,
+    PackSetOrder,
+    decl_dedup_pack_args,
+    decl_generic_params,
+    decl_is_imported,
+    decl_pack_set_at,
+    decl_pattern,
+    decl_requires_clause,
+    decl_spec_args,
 }
 import AST::Kind::DeclKind::DeclKind
 import AST::Kind::TypeKind::TypeKind
@@ -107,8 +112,16 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,     EnumDecl, EnumVariantDecl, FieldDecl, FunctionDecl, GenericParamDecl,
-    InterfaceDecl, SpecKind, StructDecl,      UnionDecl,
+    ClassDecl,
+    EnumDecl,
+    EnumVariantDecl,
+    FieldDecl,
+    FunctionDecl,
+    GenericParamDecl,
+    InterfaceDecl,
+    SpecKind,
+    StructDecl,
+    UnionDecl,
 }
 import AST::Node::Expressions::{
     AlignOfExpr,
@@ -130,6 +143,11 @@ import AST::Node::Types::{
 }
 import Location::SourceRange::SourceRange
 import Memory::ArenaAllocator::ArenaAllocator
+import Native::Thread::{
+    sema_fill_record,
+    sema_mint_counter,
+    sema_mint_rank,
+}
 import Token::TokenKind::TokenKind
 
 /// `(conformer, interface)` and, for each of the interface's OWN
@@ -2392,8 +2410,8 @@ pub class InstantiationRegistry {
 
     /// The key of a request from the calling thread. Under the lock.
     priv fn _mint_key(self, kr: unsafe *u64, ks: unsafe *u64) {
-        var        r  = *kairo::sema_mint_rank()
-        var unsafe *c = *kairo::sema_mint_counter()
+        var        r  = *sema_mint_rank()
+        var unsafe *c = *sema_mint_counter()
         if r == u64::MAX || c == &null {
             self._floor_seq += 1
             *kr = self._floor_rank
@@ -2508,7 +2526,7 @@ pub class InstantiationRegistry {
     /// A request made while this thread fills a foreign shell joins that
     /// fill's list (InstanceEntry::fill_reqs). Under the lock.
     priv fn _record(self, e: unsafe *InstanceEntry, fid: u32) {
-        var unsafe *rec = *kairo::sema_fill_record()
+        var unsafe *rec = *sema_fill_record()
         if rec == &null {
             return
         }
@@ -2562,14 +2580,14 @@ pub class InstantiationRegistry {
     /// The calling thread is about to fill `shell`'s entry `e`: start
     /// recording its requests. Returns what end_fill restores.
     pub fn begin_fill(self, e: unsafe *InstanceEntry, fid: i64, alt: unsafe *void) -> unsafe *void {
-        var unsafe **slot = kairo::sema_fill_record()
+        var unsafe **slot = sema_fill_record()
         var unsafe *prev  = *slot
         if e == &null {
             return prev
         }
 
         var lock = kairo::std::LockGuard(self._mu)
-        e->fill_rank     = *kairo::sema_mint_rank()
+        e->fill_rank     = *sema_mint_rank()
         e->fill_fid      = fid
         e->fill_alt      = alt
         e->fill_used_alt = false
@@ -2582,7 +2600,7 @@ pub class InstantiationRegistry {
     /// A nested fill's requests are the outer fill's too: a re-request of
     /// the outer one must make them all, as the outer fill did.
     pub fn end_fill(self, e: unsafe *InstanceEntry, prev: unsafe *void) {
-        *kairo::sema_fill_record() = prev
+        *sema_fill_record() = prev
         if e == &null || prev == &null {
             return
         }
@@ -2604,7 +2622,7 @@ pub class InstantiationRegistry {
             return
         }
 
-        var r = *kairo::sema_mint_rank()
+        var r = *sema_mint_rank()
         if r == u64::MAX || r >= e->fill_rank {
             return
         }

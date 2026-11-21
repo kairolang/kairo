@@ -28,9 +28,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/GlobalRecycler.hh"
 ffi "c++" import "utility"
-ffi "c++" import "Native/Locale.hh" // init_process_locale
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "cstdlib"
@@ -56,6 +54,8 @@ import Driver::CompilerGraph
 import Driver::CompilerInstance::*
 import Driver::TUStage::*
 import Format::*
+import Native::GlobalRecycler::GlobalRecycler
+import Native::Locale::init_process_locale
 import Options::*
 import Renderer::*
 import Resolution::ModulePath::*
@@ -727,7 +727,7 @@ fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::Init
         "PLEASE submit a bug report to https://github.com/kairolang/kairo/issues and include the crash backtrace.\n",
     )
 
-    kairo::init_process_locale()
+    init_process_locale()
 
     cxx::std::use_facet<cxx::std::num_put<c_char>>(cxx::std::locale())
     cxx::std::use_facet<cxx::std::num_get<c_char>>(cxx::std::locale())
@@ -776,7 +776,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     finally {
         kairo::Logger::shutdown()
-        kairo::GlobalRecycler::shutdown_allocator_runtime()
+        GlobalRecycler::shutdown_allocator_runtime()
         kairo::std::destroy(llvm_init)
     }
 

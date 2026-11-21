@@ -40,13 +40,11 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Native/Locale.hh" // init_process_locale
 ffi "c++" import "llvm/Support/InitLLVM.h"
 ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "Native/GlobalRecycler.hh"
 ffi "c++" import "locale"
 ffi "c++" import "sstream"
 ffi "c++" import "vector"
@@ -57,6 +55,7 @@ import Command::FlagTranslator::FlagTranslator
 import Driver::CompilerInfo
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Runtime::init_runtime
+import Native::GlobalRecycler::GlobalRecycler
 import Support::ExitCodes::{
     EXIT_FAILURE,
     EXIT_OK,
@@ -312,7 +311,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
         kairo::Logger::dump_to_file()
         kairo::Logger::shutdown()
-        kairo::GlobalRecycler::shutdown_allocator_runtime()
+        GlobalRecycler::shutdown_allocator_runtime()
         kairo::std::destroy(llvm_init)
     }
 

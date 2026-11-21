@@ -12,7 +12,6 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/Types.hh"
-ffi "c++" import "Native/UTF8Decode.hh"
 ffi "c++" import "llvm/Support/FormatVariadic.h"
 ffi "c++" import "Native/Log.hh"
 ffi "c++" import "vector"
@@ -26,6 +25,11 @@ import Location::SourceLineTable::SourceLineTable
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
 import Memory::MemoryBuffer::MemoryBuffer
+import Native::UTF8Decode::{
+    decode_utf8_lut,
+    find_nul,
+    skip_ascii_simd,
+}
 import Support::Assert::Assert
 import Support::FileIO::Path::Path
 import Support::FileIO::VirtualFileManager::VirtualFileManager
@@ -641,12 +645,12 @@ pub class SourceManager {
         self._report_nul_bytes(fid, base, end)
 
         while p < end {
-            p = kairo::skip_ascii_simd(p, end)
+            p = skip_ascii_simd(p, end)
             if p >= end {
                 break
             }
 
-            var d = kairo::decode_utf8_lut(p, (end - p) as usize)
+            var d = decode_utf8_lut(p, (end - p) as usize)
             if d.ok {
                 p += d.len
                 continue
@@ -654,7 +658,7 @@ pub class SourceManager {
 
             var unsafe *run = p
             while p < end {
-                var r = kairo::decode_utf8_lut(p, (end - p) as usize)
+                var r = decode_utf8_lut(p, (end - p) as usize)
                 if r.ok {
                     break
                 }
@@ -693,7 +697,7 @@ pub class SourceManager {
                               fid:  FileID,
                               base: kairo::std::ConstPtr<u8>,
                               end:  kairo::std::ConstPtr<u8>) {
-        var unsafe *p = kairo::find_nul(base, end)
+        var unsafe *p = find_nul(base, end)
         while p < end {
             var unsafe *run = p
             while p < end && *p == 0 {
@@ -715,7 +719,7 @@ pub class SourceManager {
             b.first(range)
             b.emit()
 
-            p = kairo::find_nul(p, end)
+            p = find_nul(p, end)
         }
     }
 

@@ -12,7 +12,7 @@
 ///   every tree is still alive. The addresses never reach the output.
 ///
 ///   One log per TU, written only by the thread running that TU's Sema: the
-///   current log is per-thread (Native/Thread.hh sema_dep_log), set by
+///   current log is per-thread (Native/Thread.k sema_dep_log), set by
 ///   DepLogScope at Sema's entry points. A TU's front runs on a worker and
 ///   its late part on the driver, never both at once, so no lock.
 ///
@@ -33,10 +33,10 @@
 
 ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
-ffi "c++" import "Native/Thread.hh" // sema_dep_log
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import Native::Thread::sema_dep_log
 import Support::EvalHash::{
     GOLDEN_RATIO_MIX,
     SPLITMIX64_MUL1,
@@ -154,7 +154,7 @@ pub class DepLog {
 
 /// The log of the TU whose Sema this thread is running, or null.
 pub inline fn dep_log_current() -> unsafe *DepLog {
-    return unsafe ((*kairo::sema_dep_log()) as unsafe *DepLog)
+    return unsafe ((*sema_dep_log()) as unsafe *DepLog)
 }
 
 /// Makes `log` the thread's current log for the scope, and puts the
@@ -167,13 +167,13 @@ pub class DepLogScope {
     priv var _prev: unsafe *void = &null
 
     pub fn DepLogScope(self, log: unsafe *DepLog) {
-        var unsafe **slot = kairo::sema_dep_log()
+        var unsafe **slot = sema_dep_log()
         self._prev = *slot
         *slot      = unsafe (log as unsafe *void)
     }
 
     pub fn op finally(self) {
-        var unsafe **slot = kairo::sema_dep_log()
+        var unsafe **slot = sema_dep_log()
         *slot = self._prev
     }
 }

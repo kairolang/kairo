@@ -50,7 +50,6 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/StringSet.h"
-ffi "c++" import "Native/Thread.hh" // diag_capture
 
 import Diagnostic::Category::{
     DiagCategory,
@@ -66,6 +65,7 @@ import Diagnostic::Registry::DiagID
 import Diagnostic::Severity::DiagSeverity
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
+import Native::Thread::diag_capture
 import Support::Ascii::{
     is_digit,
     parse_decimal,
@@ -468,7 +468,7 @@ pub class DiagEngine derives DiagEngineVBase {
         // sinks into this engine in its fixed file order, which is where
         // every policy, dedup and limit below then applies. Before the lock:
         // the sink is the calling thread's alone.
-        var unsafe *cap = *kairo::diag_capture()
+        var unsafe *cap = *diag_capture()
         if cap != &null {
             (unsafe (cap as unsafe *DiagEngineVBase))->emit(diag)
             return
@@ -1005,13 +1005,13 @@ pub class DiagCapture {
     priv var _prev: unsafe *void = &null
 
     pub fn DiagCapture(self, sink: unsafe *DiagEngineVBase) {
-        self._prev             = *kairo::diag_capture()
-        *kairo::diag_capture() = unsafe (sink as unsafe *void)
+        self._prev      = *diag_capture()
+        *diag_capture() = unsafe (sink as unsafe *void)
     }
 
     @copy fn DiagCapture(self, const other: Self) = delete
 
     fn op finally (self) {
-        *kairo::diag_capture() = self._prev
+        *diag_capture() = self._prev
     }
 }
