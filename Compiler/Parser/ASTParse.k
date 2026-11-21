@@ -2417,6 +2417,13 @@ pub class ASTParse
             return Token(SourceRange::invalid(), TokenKind::TkEof, 0)
         }
 
+        // A token no expansion wrapped is its own identity. Every check()
+        // comes through here, so the chain walk and its table lookup are
+        // kept for the wrapped ones.
+        if (tok->kind as u32) != (TokenKind::TkMacroExpand as u32) {
+            return *tok
+        }
+
         // The cap is a malformed-chain backstop, NOT --cmax-macro-depth: that
         // flag belongs to the preprocessor (it reports R008E itself). Reusing
         // it here made a low value truncate every tail-position chain the

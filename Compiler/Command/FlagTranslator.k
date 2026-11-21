@@ -1052,6 +1052,21 @@ pub class FlagTranslator {
                 _fx_xclang(&o, "-target-cpu")
                 _fx_xclang(&o, tgt.mcpu)
             }
+
+            // A CPU is tuned for as well as targeted, as clang's own
+            // -march= (x86) and -mcpu= do: the driver's default line carries
+            // `-tune-cpu generic`, which would otherwise stay in force over
+            // the named CPU's features (no unrolling to its micro-op
+            // buffer, no vector width of its own). --mtune still decides
+            // when it is given (codegen()).
+            if tgt.mtune.is_empty() {
+                if cc1 {
+                    _fx_push2(&o, "-tune-cpu", tgt.mcpu)
+                } else {
+                    _fx_xclang(&o, "-tune-cpu")
+                    _fx_xclang(&o, tgt.mcpu)
+                }
+            }
         }
 
         if tgt.pic_level > 0 {

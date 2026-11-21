@@ -290,11 +290,15 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 }
 
                 a.kind = AnchorKind::Module
-                // Each candidate's whole ring, deduped (module_scopes skips a
-                // scope already pushed): two reopenings of one ring would
-                // otherwise contribute it twice.
+                // Each candidate's whole ring, once: two reopenings of one
+                // ring would otherwise contribute it twice.
+                var have = llvm::DenseSet<u64>()
                 for var i: usize = 0; i < cell->size(); ++i {
-                    NameLookup::module_scopes(cell->get(i), &a.scopes)
+                    NameLookup::module_scopes_once(
+                        cell->get(i),
+                        &have,
+                        &a.scopes,
+                    )
                 }
 
                 return a
@@ -1853,8 +1857,13 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
                 var ma = Anchor()
                 ma.kind = AnchorKind::Module
                 ma.decl = md
+                var have = llvm::DenseSet<u64>()
                 for var i: usize = 0; i < n; ++i {
-                    NameLookup::module_scopes((*cands)[i], &ma.scopes)
+                    NameLookup::module_scopes_once(
+                        (*cands)[i],
+                        &have,
+                        &ma.scopes,
+                    )
                 }
 
                 return ma

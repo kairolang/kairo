@@ -46,6 +46,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+ffi "c++" import "llvm/ADT/DenseSet.h"
 ffi "c++" import "vector"
 
 import AST::Context::DeclContext::DeclContext
@@ -268,9 +269,12 @@ pub class DeclaredQuery {
         var now = cur->copy()
         for var i = at; i < segs.size(); ++i {
             var scopes = cxx::std::vector<unsafe *DeclContext>()
+            // A step that names `std` holds every header's block of it:
+            // one set for the whole step, so each ring is walked once.
+            var have = llvm::DenseSet<u64>()
             for var k: usize = 0; k < now.size(); ++k {
                 if isa<Declarations::ModuleDecl>(now[k]) {
-                    NameLookup::module_scopes(now[k], &scopes)
+                    NameLookup::module_scopes_once(now[k], &have, &scopes)
                     continue
                 }
 
@@ -279,15 +283,7 @@ pub class DeclaredQuery {
                     continue
                 }
 
-                var seen = false
-                for var j: usize = 0; j < scopes.size(); ++j {
-                    if scopes[j] == sdc {
-                        seen = true
-                        break
-                    }
-                }
-
-                if !seen {
+                if have.insert(sdc as usize as u64).second {
                     scopes.push_back(sdc)
                 }
             }

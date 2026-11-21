@@ -474,6 +474,48 @@ pub class NameLookup {
         }
     }
 
+    /// module_scopes for a caller that expands several candidates into one
+    /// `out`, with the dedupe set kept across the calls. `have` holds the
+    /// scopes in `out`, and a module's scope is in `out` only together with
+    /// the rest of its ring: both hold when module scopes reach `out` only
+    /// through here, so a candidate whose ring head is in `have` appends
+    /// nothing and is skipped unwalked.
+    ///
+    /// A namespace every header reopens puts each of its blocks in one
+    /// cell. module_scopes rebuilds its set from `out` on every call, which
+    /// for such a cell is (blocks * scopes) probes per expansion; this is
+    /// one probe per candidate and one per scope. Same scopes, same order.
+    static fn module_scopes_once(d:           unsafe *Decl,
+                                 @inout have: llvm::DenseSet<u64>,
+                                 @inout out:  cxx::std::vector<unsafe *DeclContext>) {
+        if d == &null {
+            return
+        }
+
+        if !isa<ModuleDecl>(d) {
+            return
+        }
+
+        var head                     = cast<ModuleDecl>(d)->first_decl()
+        var hdc: unsafe *DeclContext = head
+        if have.contains(hdc as usize as u64) {
+            return
+        }
+
+        var cur = head
+        while true {
+            var dc: unsafe *DeclContext = cur
+            if have.insert(dc as usize as u64).second {
+                out.push_back(dc)
+            }
+
+            cur = cur->next_in_chain()
+            if cur == head {
+                break
+            }
+        }
+    }
+
     /// Every link of `d`'s redeclaration ring, in insertion order, into
     /// `out`. One element (just `d`) for a non-redeclarable kind or an
     /// unlinked decl.

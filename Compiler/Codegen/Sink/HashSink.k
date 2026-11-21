@@ -39,6 +39,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "clang/Basic/TokenKinds.h"
+ffi "c++" import "cstring"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
@@ -67,6 +68,8 @@ pub class HashSink derives EmitSink {
     /// seen file's line starts.
     priv var _fid_ix: cxx::std::vector<i64>
     priv var _starts: cxx::std::vector<cxx::std::vector<u32>>
+    /// Per seen file (as _starts): the line its last located token was on.
+    priv var _last: cxx::std::vector<u32>
     /// Per fid: 1 once a token anchored in that file went into the stream
     /// (files()). Which modules (and headers) the stream draws on decides
     /// which header files the TU's key holds (ObjectCache::tu_headers).
@@ -193,7 +196,7 @@ pub class HashSink derives EmitSink {
             }
 
             if self._locs {
-                self._buf += self._where(res)
+                self._put_where(res)
             }
         }
 
@@ -216,12 +219,17 @@ pub class HashSink derives EmitSink {
         self._buf = ""
     }
 
-    /// ` @<file>:<line>:<col>`; a file is named once, when first seen, and
-    /// by its index in first-seen order after that, which the stream
-    /// already orders.
-    priv fn _where(self, res: VirtualFileManager::SegmentResolve) -> string {
+    /// Appends ` @<file>:<line>:<col>` to _buf; a file is named once, when
+    /// first seen, and by its index in first-seen order after that, which
+    /// the stream already orders.
+    ///
+    /// Written into _buf digit by digit: this runs once per anchored token
+    /// of every TU's stream, and a formatted temporary per token was a
+    /// tenth of the fill.
+    priv fn _put_where(self, res: VirtualFileManager::SegmentResolve) {
         if res.fid == usize::MAX {
-            return " @-"
+            self._buf += " @-"
+            return
         }
 
         var fid   = res.fid
@@ -233,26 +241,49 @@ pub class HashSink derives EmitSink {
         if self._fid_ix[fid] < 0 {
             self._fid_ix[fid] = (self._starts.size() as i64)
             self._starts.push_back(self._line_starts(fid as u32))
+            self._last.push_back(0 as u32)
             named = "=" + self._sm->get_filename(fid as u32)
         }
 
         var ix  = (self._fid_ix[fid] as usize)
         var *st = &self._starts[ix]
-        // The last line start at or before the offset.
-        var off       = (res.offset as u32)
-        var lo: usize = 0
-        var hi: usize = st->size()
-        while lo + 1 < hi {
-            var mid = (lo + hi) / 2
-            if (*st)[mid] <= off {
-                lo = mid
-            } else {
-                hi = mid
+        var off = (res.offset as u32)
+        // The last line start at or before the offset. A file's tokens
+        // mostly come in source order, so the line the previous one was on
+        // is tried before the search.
+        var lo = (self._last[ix] as usize)
+        if (*st)[lo] > off || (lo + 1 < st->size() && (*st)[lo + 1] <= off) {
+            lo = 0
+            var hi: usize = st->size()
+            while lo + 1 < hi {
+                var mid = (lo + hi) / 2
+                if (*st)[mid] <= off {
+                    lo = mid
+                } else {
+                    hi = mid
+                }
             }
+
+            self._last[ix] = (lo as u32)
         }
 
         var col = off - (*st)[lo]
-        return f" @{ix}{named}:{lo + 1}:{col + 1}"
+        self._buf += " @"
+        self._put_dec(ix)
+        self._buf += named
+        self._buf.push(':' as u8)
+        self._put_dec(lo + 1)
+        self._buf.push(':' as u8)
+        self._put_dec((col as usize) + 1)
+    }
+
+    /// `v` in decimal onto _buf.
+    priv fn _put_dec(self, v: usize) {
+        if v >= 10 {
+            self._put_dec(v / 10)
+        }
+
+        self._buf.push(('0' as u8) + ((v % 10) as u8))
     }
 
     priv fn _line_starts(self, fid: u32) -> cxx::std::vector<u32> {
@@ -263,12 +294,19 @@ pub class HashSink derives EmitSink {
             return out
         }
 
-        var unsafe *p = (buf.data() as unsafe *const u8)
-        var        n  = buf.size()
-        for var i: usize = 0; i < n; ++i {
-            if p[i] == ('\n' as u8) {
-                out.push_back((i + 1) as u32)
+        // memchr, not a byte loop: every sink scans each file its stream
+        // draws on, and a TU's stream draws on hundreds.
+        var unsafe *p   = (buf.data() as unsafe *const u8)
+        var unsafe *end = p + buf.size()
+        var unsafe *cur = p
+        while cur < end {
+            const hit = cxx::std::memchr(cur, '\n' as i32, (end - cur) as usize)
+            if hit == &null {
+                break
             }
+
+            cur = unsafe (hit as unsafe *const u8) + 1
+            out.push_back((cur - p) as u32)
         }
 
         return out

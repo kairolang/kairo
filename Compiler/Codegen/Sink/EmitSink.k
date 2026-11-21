@@ -311,7 +311,7 @@ pub class EmitSink {
             // An emitter's own unanchored span is left alone: ending it here
             // would anchor the rest of it.
             if !attr_open && !self.is_unanchored() {
-                var gnu = is_ident_start(c) && self._attr_word_at(text.copy(), i)
+                var gnu = is_ident_start(c) && self._attr_word_at(text, i)
                 var square = c == ('[' as u8) && i + 1 < n && text.data()[i + 1] == ('[' as u8)
                 if gnu || square {
                     self.unanchored(true)
@@ -580,7 +580,18 @@ pub class EmitSink {
 
     /// `__attribute__` / `__attribute` starts at `i` of `text`, as a
     /// whole word.
-    priv fn _attr_word_at(self, text: string, i: usize) -> bool {
+    ///
+    /// spell() asks this at every word it reads, so `text` is borrowed and
+    /// a word that cannot be one (too short, or not `__a...`) is answered
+    /// before the word is cut out.
+    priv fn _attr_word_at(self, const text: string, i: usize) -> bool {
+        if i + 11 > text.size()
+            || text.data()[i] != ('_' as u8)
+            || text.data()[i + 1] != ('_' as u8)
+            || text.data()[i + 2] != ('a' as u8) {
+            return false
+        }
+
         var j = i
         while j < text.size() && is_ident_char(text.data()[j]) {
             j += 1
