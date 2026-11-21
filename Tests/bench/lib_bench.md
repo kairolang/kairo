@@ -22,20 +22,33 @@ leaves that figure empty and the report says so.
 
 ## Columns
 
-| Column | Program | Built with |
-|---|---|---|
-| Kairo | `kairo/<group>.k` | `kairo -O3 --mcpu <cpu>` |
-| Kairo before (optional) | the same | a second kairo, `--kairo-before <bin/kairo>` |
-| clang | `cpp/<group>.cpp` | the toolchain's clang++ and libc++, glibc malloc (as run.py) |
-| kcc | `cpp/<group>.cpp` | kcc: the C++ compiled alone at `-std=c++20 -c`, then linked with `cpp/kcc_anchor.k`; the same libc++ on the Kairo runtime's mimalloc |
-| gcc | `cpp/<group>.cpp` | `g++ -std=c++20 -O3 -march=<cpu>`, libstdc++ |
-| Rust | `rust/<group>.rs` | `rustc -C opt-level=3 -C target-cpu=<cpu> -C codegen-units=1` |
-| Zig | `zig/<group>.zig` | `zig build-exe -O ReleaseFast -mcpu=<cpu> -lc` |
-| Go | `go/bench.go <group>.go` | `go build`, `GOAMD64` = the level of the target |
-| D (gdc) | `d/bench.d <group>.d` | `gdc -O3 -frelease -fno-weak-templates -march=<cpu>` |
-| LDC | `d/bench.d <group>.d` | `ldc2 -O3 -release -mcpu=<cpu>` |
-| Nim | `nim/<group>.nim` | `nim c -d:danger --passC:-march=<cpu>` |
-| Swift | `swift/bench.swift <group>.swift` | `swiftc -O -parse-as-library -target-cpu <cpu>` |
+| Column | Program | Built with | Bounds checks |
+|---|---|---|---|
+| Kairo | `kairo/<group>.k` | `kairo -O3 --mcpu <cpu>` | kept |
+| Kairo before (optional) | the same | a second kairo, `--kairo-before <bin/kairo>` | as that compiler's library does |
+| clang | `cpp/<group>.cpp` | the toolchain's clang++ and libc++, glibc malloc (as run.py) | removed (libc++ hardening mode none) |
+| kcc | `cpp/<group>.cpp` | kcc: the C++ compiled alone at `-std=c++20 -c`, then linked with `cpp/kcc_anchor.k`; the same libc++ on the Kairo runtime's mimalloc | removed (the same libc++) |
+| gcc | `cpp/<group>.cpp` | `g++ -std=c++20 -O3 -march=<cpu>`, libstdc++ | removed (no `_GLIBCXX_ASSERTIONS`) |
+| Rust | `rust/<group>.rs` | `rustc -C opt-level=3 -C target-cpu=<cpu> -C codegen-units=1` | kept |
+| Zig | `zig/<group>.zig` | `zig build-exe -O ReleaseFast -mcpu=<cpu> -lc` | removed (ReleaseFast) |
+| Go | `go/bench.go <group>.go` | `go build`, `GOAMD64` = the level of the target | kept |
+| D (gdc) | `d/bench.d <group>.d` | `gdc -O3 -frelease -fno-weak-templates -march=<cpu>` | removed (`-frelease`, outside `@safe` code) |
+| LDC | `d/bench.d <group>.d` | `ldc2 -O3 -release -mcpu=<cpu>` | removed (`-release`, outside `@safe` code) |
+| Nim | `nim/<group>.nim` | `nim c -d:danger --passC:-march=<cpu>` | removed (`-d:danger`) |
+| Swift | `swift/bench.swift <group>.swift` | `swiftc -O -parse-as-library -target-cpu <cpu>` | kept (`-O`) |
+
+Each column is built at its language's usual release setting, and those
+settings differ in safety: Kairo, Rust, Go and Swift keep index bounds
+checks; the C++ columns, Zig ReleaseFast, D's `-release` (outside `@safe`
+code; only the map keys' hash and equality and the input generator are
+`@safe`) and Nim `-d:danger` remove them. A
+figure from an unchecked column is not a like-for-like comparison with a
+checked one, so the report lists this per column and marks an unchecked
+best-other pick with `*`.
+The column says what the build setting does to indexing in the program's
+own code; a library operation may use unchecked access inside (Swift's
+`fill` row writes through `withUnsafeMutableBufferPointer`, as its library
+does).
 
 `<cpu>` is one name for every column: by default what clang resolves
 `-march=native` to; `--cpu-name x86-64` builds for the baseline. Go takes a
@@ -73,9 +86,17 @@ report ends with the exact build command of each column.
   `--no-cache-counters` drops the second pass.
 - **A quiet machine.** The 1-minute load average (`/proc/loadavg`) must be
   below `--max-load` (default: cores / 8) at the start, or the script stops.
-  `--force` measures anyway. The load is read before every process; each
-  result carries the highest load seen during it, and a cell measured above
-  the threshold is marked BUSY. Instruction counts survive load; ns/op,
+  Before each cell, and so also after the builds (whose own load keeps the
+  1-minute average high for a minute or two), the script waits until the
+  load is below the threshold and the pinned CPU and its SMT siblings were
+  at most `--max-cpu-busy` (default 10%) busy over one second, read from
+  `/proc/stat`: the load average lags and covers the whole machine, the
+  per-CPU share sees a job on the measured core. It gives up after
+  `--settle` seconds (default 900) and exits nonzero, after writing the
+  report for the cells already measured. `--force` measures
+  without waiting. The load is read before every process; each result
+  carries the highest load seen during it, and a cell measured above
+  either threshold is marked BUSY. Instruction counts survive load; ns/op,
   cycles and cache misses do not.
 - **Checksums agree.** Every process prints its checksum; all columns of a
   cell must print the same one, and each program the same one in every
@@ -83,6 +104,10 @@ report ends with the exact build command of each column.
   (`kairo_checksum = false` in ops.toml) leaves the Kairo columns out of
   the comparison. A disagreement is marked in the report and the script
   exits nonzero.
+- **Failures are failures.** A process that exits nonzero ends its
+  column for that cell. The column keeps the runs before the failure in
+  its cell table, the summary row says "failed after n of N runs", and the
+  script exits nonzero at the end.
 
 ## The report
 
@@ -96,6 +121,9 @@ of every process, its load, and the derived figures) and `report.md`:
   share of its figure. A counter within 0.5% is tied (two figures both
   below 0.01 per operation also tie); ns/op is tied when the min..max
   ranges of the two columns' runs overlap.
+  A column whose checksum disagrees with the majority, that printed two
+  checksums, or that failed partway is never the best other column: it is
+  shown in the cell's table and named in the summary row.
 - one table per cell: every column against every figure, with the ns
   spread, the number of runs and the load.
 

@@ -54,6 +54,26 @@ COLUMNS = {
     "swift": ("Swift", "swift"),
 }
 KAIRO_COLUMNS = ("kairo", "kairo_before")
+# Whether each column's build keeps index bounds checks. The columns are built
+# at each language's usual release setting, and those differ: a figure from an
+# unchecked column is not a like-for-like comparison with a checked one, so
+# the report shows this beside every best-other pick.
+SAFETY = {
+    "kairo_before": (True, "as that compiler's library does"),
+    "kairo": (True, "every index of a slice, vector and string is checked"),
+    "clang": (False, "operator[]; libc++ hardening mode none"),
+    "kcc": (False, "operator[]; libc++ hardening mode none"),
+    "gcc": (False, "operator[]; libstdc++ without _GLIBCXX_ASSERTIONS"),
+    "rust": (True, "indexing is checked"),
+    "zig": (False, "ReleaseFast removes safety checks"),
+    "go": (True, "indexing is checked"),
+    "gdc": (False, "-frelease removes bounds checks outside @safe code; only the map keys' hash and "
+                   "equality and the input generator are @safe"),
+    "ldc": (False, "-release removes bounds checks outside @safe code; only the map keys' hash and "
+                   "equality and the input generator are @safe"),
+    "nim": (False, "-d:danger removes every runtime check"),
+    "swift": (True, "-O keeps the checks (-Ounchecked would remove them)"),
+}
 GROUPS = ["string", "slice", "vector", "map", "hash", "num", "iter", "alloc"]
 
 # Counter passes. A pass is one `perf stat` call; four events fit the
@@ -99,6 +119,80 @@ def load1():
         return float(Path("/proc/loadavg").read_text().split()[0])
     except (OSError, ValueError, IndexError):
         return float("nan")
+
+
+def cpu_siblings(cpu):
+    """`cpu` and its SMT siblings."""
+    try:
+        text = Path(f"/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list").read_text().strip()
+    except OSError:
+        return [cpu]
+    out = []
+    for part in text.split(","):
+        a, _, b = part.partition("-")
+        out += range(int(a), int(b or a) + 1)
+    return out or [cpu]
+
+
+def cpu_times():
+    t = {}
+    for line in Path("/proc/stat").read_text().splitlines():
+        f = line.split()
+        if f[0].startswith("cpu") and f[0] != "cpu":
+            v = [int(x) for x in f[1:]]
+            t[int(f[0][3:])] = (sum(v), v[3] + v[4])  # total, idle + iowait
+    return t
+
+
+def cpus_busy(cpus, secs=1.0):
+    """The busiest share of time among `cpus` over `secs`. The 1-minute load
+    average lags and covers the whole machine; this sees the pinned core and
+    its SMT sibling, which share the counters' and the timer's pipeline."""
+    try:
+        a = cpu_times()
+        time.sleep(secs)
+        b = cpu_times()
+    except (OSError, ValueError):
+        return float("nan")
+    busy = []
+    for c in cpus:
+        if c in a and c in b and b[c][0] > a[c][0]:
+            total, idle = b[c][0] - a[c][0], b[c][1] - a[c][1]
+            busy.append(1.0 - idle / total)
+    return max(busy) if busy else float("nan")
+
+
+def quiet(args):
+    """(quiet, load, cpu busy share) of the machine right now."""
+    load = load1()
+    busy = cpus_busy(args.cpus)
+    ok = not (load > args.max_load) and not (busy > args.max_cpu_busy)
+    return ok, load, busy
+
+
+class NotQuiet(Exception):
+    pass
+
+
+def wait_quiet(args, what):
+    """Wait until the machine is quiet before `what`, at most --settle seconds.
+    A build or another job leaves the 1-minute load high for a minute or two
+    after it ends, so the cells after the builds would otherwise start busy.
+    With --force nothing waits; the cell is marked instead."""
+    ok, load, busy = quiet(args)
+    if ok or args.force:
+        return load, busy
+    log(f"waiting for a quiet machine before {what} (load {load:.1f}, CPU {args.cpu} busy {busy:.0%})")
+    t0 = time.time()
+    while time.time() - t0 < args.settle:
+        time.sleep(10)
+        ok, load, busy = quiet(args)
+        if ok:
+            log(f"  quiet after {time.time() - t0:.0f} s")
+            return load, busy
+    raise NotQuiet(f"lib_bench.py: the machine did not become quiet within {args.settle} s before {what} "
+             f"(load {load:.1f}, above {args.max_load:.1f}, or CPUs {args.cpus} busy {busy:.0%}, above "
+             f"{args.max_cpu_busy:.0%}); pass --force to measure anyway")
 
 
 # --- events ----------------------------------------------------------------------
@@ -409,6 +503,8 @@ def measure_cell(cell, cols, exes, args, passes):
                 for name, events in passes:
                     pa = run_proc(exes[(g, c)], row, size, args.cpu, reps=k, events=events)
                     pb = run_proc(exes[(g, c)], row, size, args.cpu, reps=2 * k, events=events)
+                    if pa is None or pb is None:
+                        raise RuntimeError(f"{exes[(g, c)].name} {row} {size}: no result line in a counted process")
                     a[name], b[name] = pa["counters"], pb["counters"]
                     raw[f"{name}_k"], raw[f"{name}_2k"] = pa, pb
                 metrics = derive(k, t["ops"], a, b, passes)
@@ -421,6 +517,7 @@ def measure_cell(cell, cols, exes, args, passes):
                 st["check"], st["ops_per_rep"] = t["check"], t["ops"]
             except RuntimeError as e:
                 st["skip"] = "failed"
+                st["failed_after"] = len(st["runs"])
                 st["error"] = str(e)
                 log(f"  {c}: {str(e).splitlines()[0]}")
     for c, st in res.items():
@@ -517,6 +614,10 @@ def fmt(x):
     return f"{x:.3f}"
 
 
+def plural(n, word):
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
 def spread(s):
     """Spread of a metric as a share of its median."""
     if not s or not s["median"]:
@@ -541,16 +642,27 @@ def compare(metric, k, best):
     return ("ahead" if km < bm else "behind"), margin
 
 
-def best_other(res, metric, heads):
+def eligible(r, c):
+    """Whether column `c` of cell `r` may set the best other figure: a column
+    that computed a different checksum, printed two checksums, or failed
+    partway (its summary covers only the runs before the failure) is shown in
+    the cell's table but sets no margin."""
+    st = r["columns"][c]
+    return (c not in KAIRO_COLUMNS and c not in r.get("checksum_dissent", [])
+            and st.get("self_consistent", True) and st.get("skip") != "failed")
+
+
+def best_other(r, metric, heads):
+    res = r["columns"]
     have = [(c, st["summary"][metric]) for c, st in res.items()
-            if c not in KAIRO_COLUMNS and metric in st.get("summary", {})]
+            if eligible(r, c) and metric in st.get("summary", {})]
     if not have:
         return None, None
     lower = METRICS[metric][1]
     pick = min if lower else max
     v = pick(s["median"] for _, s in have)
     who = [c for c, s in have if s["median"] == v]
-    return dict(have)[who[0]], " / ".join(heads[c] for c in who)
+    return dict(have)[who[0]], " / ".join(heads[c] + ("" if SAFETY[c][0] else "*") for c in who)
 
 
 def write_report(path, meta, results):
@@ -567,7 +679,7 @@ def write_report(path, meta, results):
     busy = [r for r in results if r.get("busy")]
     if meta["forced"] or busy:
         o.append(f"> **Measured on a busy machine.** The 1-minute load average went above the threshold "
-                 f"({meta['max_load']}) on {len(busy)} of {len(results)} cells (marked BUSY). Instruction "
+                 f"({meta['max_load']}), or the pinned core was busy, on {len(busy)} of {len(results)} cells (marked BUSY). Instruction "
                  "counts hold up under load; ns/op, cycles and the cache misses do not. Keep numbers from "
                  "a run without --force.\n")
     o.append("## Run\n")
@@ -582,9 +694,18 @@ def write_report(path, meta, results):
              f"(at least {meta['min_ms']} ms of repetitions) and, per counter pass, processes of K and 2K "
              f"repetitions ({meta['k_policy']}) |")
     o.append(f"| Counters | {meta['counters']} |")
-    for c in cols:
-        o.append(f"| {heads[c]} | {meta['versions'].get(c, '?')} |")
+    if "cpu_busy_threshold" in meta:
+        o.append(f"| Pinned core | CPUs {meta['quiet_cpus']} (the pinned CPU and its SMT siblings) at most "
+                 f"{meta['cpu_busy_threshold']:.0%} busy over 1 s before each cell; the cell tables show the share |")
     o.append("")
+    o.append("| Column | Version | Bounds checks |\n|---|---|---|")
+    for c in cols:
+        checked, why = SAFETY[c]
+        o.append(f"| {heads[c]} | {meta['versions'].get(c, '?')} | {'kept' if checked else '**removed**'}: {why} |")
+    o.append("")
+    o.append("Every column is built at its language's usual release setting (the build commands are at the end), "
+             "and those settings differ in safety: the columns marked * in a Best other cell run without "
+             "bounds checks, where Kairo keeps them.\n")
     o.append("Each figure is the median of the runs. ns/op is the protocol's own timer: the fastest "
              "repetition of the timed process divided by its operations, and it covers the timed region "
              "only. The counters are user-mode `perf stat` counts of whole processes, K and 2K repetitions "
@@ -609,12 +730,19 @@ def write_report(path, meta, results):
         return r["columns"].get(c, {}).get("summary", {}).get(metric)
 
     def line_for(r, metrics):
-        cells = [f"{r['label']} (`{r['id']}`)" + ("" if r["checksums_agree"] else " (!)"), f"{r['size']:,}"]
+        notes = [f"{heads[c]} failed after {st.get('failed_after', len(st.get('runs', [])))} of {plural(meta['runs'], 'run')}"
+                 for c, st in r["columns"].items() if st.get("skip") == "failed"]
+        left = [heads[c] for c in r["columns"] if c not in KAIRO_COLUMNS and r["columns"][c].get("summary")
+                and not eligible(r, c) and r["columns"][c].get("skip") != "failed"]
+        if left:
+            notes.append(", ".join(left) + ": checksum wrong, left out of Best other")
+        cells = [f"{r['label']} (`{r['id']}`)" + ("" if r["checksums_agree"] else " (!)")
+                 + (" (" + "; ".join(notes) + ")" if notes else ""), f"{r['size']:,}"]
         for metric in metrics:
             if "kairo_before" in cols:
                 cells.append(fmt((k_summary(r, "kairo_before", metric) or {}).get("median")))
             k = k_summary(r, "kairo", metric)
-            best, who = best_other(r["columns"], metric, heads)
+            best, who = best_other(r, metric, heads)
             cells.append(fmt(k["median"]) if k else "–")
             cells.append(f"{fmt(best['median'])} {who}" if best else "–")
             if k and best:
@@ -649,8 +777,10 @@ def write_report(path, meta, results):
                    else f"checksums disagree: {', '.join(heads[c] for c in r['checksum_dissent'])} differ from {r['checksum']}")
         o.append(f"### {r['id']} {r['size']:,}\n")
         what = f"{r['label']}; one operation is {r['op']}" if r.get("op") else r["label"]
+        core = (f"; CPUs {meta.get('quiet_cpus')} {r['cpu_busy']:.0%} busy before the cell"
+                if r.get("cpu_busy") is not None and not math.isnan(r["cpu_busy"]) else "")
         o.append(f"{what}. {verdict.capitalize()}. Load {r['load_min']:.1f} "
-                 f"to {r['load_max']:.1f}" + (" (BUSY)" if r.get("busy") else "") + ".\n")
+                 f"to {r['load_max']:.1f}{core}" + (" (BUSY)" if r.get("busy") else "") + ".\n")
         hdr = ["Column", "ns/op", "ns spread", "instructions/op", "cycles/op", "IPC", "branch misses/op",
                "L1d misses/op", "LLC misses/op", "runs", "load"]
         o.append("| " + " | ".join(hdr) + " |")
@@ -662,6 +792,12 @@ def write_report(path, meta, results):
             if not st.get("summary"):
                 o.append(f"| {heads[c]} | {st.get('skip', 'no result')} |" + " |" * (len(hdr) - 2))
                 continue
+            if not eligible(r, c) and c not in KAIRO_COLUMNS:
+                why = (f"failed after {plural(st.get('failed_after', 0), 'run')}" if st.get("skip") == "failed"
+                       else "checksum wrong")
+                flag_note = f" ({why}; not a Best other)"
+            else:
+                flag_note = ""
             s = st["summary"]
             sp = spread(s.get("ns"))
             vals = [fmt(s["ns"]["median"]) if "ns" in s else "–", f"{sp:.1%}" if sp is not None else "–"]
@@ -670,7 +806,7 @@ def write_report(path, meta, results):
                 vals.append(fmt(v))
             vals += [str(len(st["runs"])), f"{st['load_max']:.1f}"]
             flag = " (scaled: " + ", ".join(st["scaled"]) + ")" if st.get("scaled") else ""
-            o.append(f"| {heads[c]}{flag} | " + " | ".join(vals) + " |")
+            o.append(f"| {heads[c]}{flag}{flag_note} | " + " | ".join(vals) + " |")
         o.append("")
 
     o.append("## Build commands\n")
@@ -700,7 +836,12 @@ def main():
     ap.add_argument("--no-cache-counters", action="store_true", help="count instructions, cycles and branches only")
     ap.add_argument("--max-load", type=float, help="highest 1-minute load average to measure under "
                     "(default: cores / 8)")
-    ap.add_argument("--force", action="store_true", help="measure above --max-load; such cells are marked BUSY")
+    ap.add_argument("--force", action="store_true", help="measure above --max-load or --max-cpu-busy without "
+                    "waiting; such cells are marked BUSY")
+    ap.add_argument("--max-cpu-busy", type=float, default=0.10, help="highest busy share of the pinned CPU and "
+                    "its SMT siblings over 1 s before a cell (default 0.10)")
+    ap.add_argument("--settle", type=int, default=900, help="seconds to wait for a quiet machine after the builds "
+                    "and before each cell before giving up (default 900)")
     ap.add_argument("--cpu", type=int, help="CPU to pin to (default: the last one this process may use)")
     ap.add_argument("--jobs", type=int, default=4, help="builds at a time (default 4)")
     ap.add_argument("--out", default=str(HERE / "out" / "lib"), help="output directory")
@@ -736,6 +877,7 @@ def main():
         args.cpu = max(os.sched_getaffinity(0))
     if args.max_load is None:
         args.max_load = os.cpu_count() / 8
+    args.cpus = cpu_siblings(args.cpu)
     load = load1()
     if load > args.max_load and not args.force:
         sys.exit(f"lib_bench.py: the 1-minute load average is {load:.1f}, above {args.max_load:.1f}; "
@@ -788,6 +930,8 @@ def main():
         "llc_event": (" + ".join(llc_events) + (" (loads that missed every cache level)"
                                                if llc and llc.startswith("ls_dmnd") else "")) if llc else "not counted",
         "max_load": args.max_load,
+        "cpu_busy_threshold": args.max_cpu_busy,
+        "quiet_cpus": ",".join(map(str, args.cpus)),
         "load_start": load,
         "forced": args.force and load > args.max_load,
         "notes": notes,
@@ -799,14 +943,21 @@ def main():
     results = []
     for i, cell in enumerate(cells):
         t1 = time.time()
-        log(f"[{i + 1}/{len(cells)}] {cell['id']} {cell['size']} (load {load1():.1f})")
+        try:
+            cload, cbusy = wait_quiet(args, f"{cell['id']} {cell['size']}")
+        except NotQuiet as e:
+            # The cells measured so far are kept: results.json and report.md
+            # cover them.
+            write_report(out / "report.md", meta, results)
+            sys.exit(str(e))
+        log(f"[{i + 1}/{len(cells)}] {cell['id']} {cell['size']} (load {cload:.1f}, CPUs {args.cpus} busy {cbusy:.0%})")
         res = measure_cell(cell, columns, exes, args, passes)
         agree, major, dissent = checksum_verdict(cell, res)
         loads = [r["load_max"] for st in res.values() for r in st.get("runs", [])]
         r = dict(cell, columns=res, checksums_agree=agree, checksum=major, checksum_dissent=dissent,
                  load_min=min(loads) if loads else load1(), load_max=max(loads) if loads else load1(),
-                 seconds=round(time.time() - t1, 1))
-        r["busy"] = r["load_max"] > args.max_load
+                 seconds=round(time.time() - t1, 1), cpu_busy=cbusy)
+        r["busy"] = r["load_max"] > args.max_load or cbusy > args.max_cpu_busy
         if not agree:
             log(f"  CHECKSUM MISMATCH: {', '.join(dissent)} differ from {major}")
         results.append(r)
@@ -815,8 +966,14 @@ def main():
     log(f"wrote {out / 'report.md'} and {out / 'results.json'}")
     for n in notes:
         log(f"note: {n}")
+    failed = [f"{r['id']} {r['size']} {COLUMNS[c][0]}" for r in results for c, st in r["columns"].items()
+              if st.get("skip") == "failed"]
+    if failed:
+        log("failed: " + "; ".join(failed))
     if any(not r["checksums_agree"] for r in results):
         sys.exit("lib_bench.py: some cells' checksums disagree between columns (see the report)")
+    if failed:
+        sys.exit("lib_bench.py: some columns failed to run on some cells (see the report)")
 
 
 if __name__ == "__main__":
