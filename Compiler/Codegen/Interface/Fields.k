@@ -422,7 +422,11 @@ extend InterfaceEmitter {
     /// operations (`__t`, null for a plain function). One of:
     ///   - empty (a default-constructed `fn` local, constexpr);
     ///   - a plain function in `__f`: a named function, or a closure that
-    ///     captures nothing (`+[](...){...}`);
+    ///     captures nothing (`+[](...){...}`). Its state word is unused, so
+    ///     it carries one fact: non-null when the function is speculatable
+    ///     (the `__kairo_spec` constructor, EmitIR::_fn_spec_value), which
+    ///     `is_spec()` reads. The fact travels with every copy of the
+    ///     value, and a value made any other way says no;
     ///   - a small closure, its captures held in `__o` itself:
     ///     `small([...](...){...})`. EmitIR picks this form for a closure
     ///     whose captures are scalars it never writes, so the lambda is not
@@ -466,6 +470,12 @@ extend InterfaceEmitter {
         }
 
         self._cg->sink->spell(at, "template <class S> class " + fv + ";")
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "struct " + LowerTargets::fn_value_spec() + " {};",
+        )
+
         self._cg->sink->brk()
         // A raw `unsafe fn`: the plain function pointer, as one name.
         self._cg->sink->spell(
@@ -543,6 +553,10 @@ extend InterfaceEmitter {
             t += " template <class = void> " + fv + "(R (*f)(A...)) noexcept : __f(reinterpret_cast<__ptr>(&__rcall)), __o(reinterpret_cast<void*>(f)), __t(&__flat) {}"
         }
 
+        // constexpr, as the constructor above: the mark is the address of a
+        // static, so a namespace-scope `fn` value stays constant-initialized.
+        t += " constexpr " + fv + "(__ptr f, " + LowerTargets::fn_value_spec() + ") noexcept : __f(f), __o(const_cast<void*>(static_cast<const void*>(&__flat))) {}"
+        t += " constexpr bool " + LowerTargets::fn_value_is_spec() + "() const noexcept { return !__t && __o; }"
         t += " template <class F> static " + fv + " " + LowerTargets::fn_value_own() + "(F* o) noexcept { " + fv + " r; r.__f = reinterpret_cast<__ptr>(&__call<F>); r.__o = o; r.__t = &__ops_of<F>; return r; }"
         // Held in place when it fits the word, else on the heap: its
         // copies are bitwise either way, so which one is not observable.

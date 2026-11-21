@@ -99,6 +99,10 @@ extend EmitIR {
             return
         }
 
+        if self._fn_spec_value(e, want) {
+            return
+        }
+
         if self._needs_cast(e, want, subst) {
             if self._nullable_convert(e, want, subst) {
                 return
@@ -432,6 +436,118 @@ extend EmitIR {
         )
 
         return true
+    }
+
+    /// A speculatable function (FunctionDecl::speculatable) NAMED as a `fn`
+    /// value: the value says so, for `__builtin_fn_speculatable` to read
+    /// back wherever the value is copied to:
+    ///
+    ///   ::__kairo_fn<R(A)>(::ns::f, ::__kairo_spec{})
+    ///
+    /// Only a predicate (a `bool` result): that is what a scan evaluates
+    /// ahead of the element that ends it. And only where a `fn` value of
+    /// the function's own shape is wanted (a nullable one is looked
+    /// through, and a parameter type that depends on its callee's generic
+    /// parameters is that type once instantiated, or the plain name would
+    /// not convert either). Every other route to a `fn` value keeps its
+    /// spelling and makes a value that says no, which is always a correct
+    /// answer. True when it emitted.
+    priv fn _fn_spec_value(self, e: unsafe *Expr, want: unsafe *Type) -> bool {
+        if e == &null || want == &null || e->type_ == &null || want->canonical == &null {
+            return false
+        }
+
+        var unsafe *d = self._fn_ref_decl(e)
+        if d == &null {
+            return false
+        }
+
+        var unsafe *c = d->canonical_decl()
+        if !(d->speculatable || c != &null && c->speculatable) {
+            return false
+        }
+
+        if e->type_->is_dependent() || e->type_->is_instantiation_dependent() {
+            return false
+        }
+
+        // The name's own type is the raw function's; the value wanted holds it.
+        var unsafe *h = dyn_cast<FunctionPointerType>(canon_unqual(e->type_))
+        if h == &null || h->panic_result != &null || h->call_conv != 0 || h->is_unprototyped {
+            return false
+        }
+
+        var unsafe *rb = self._builtin_of(h->return_type)
+        if rb == &null || rb->builtin != BuiltinKind::Bool {
+            return false
+        }
+
+        var unsafe *wc = canon_unqual(want->canonical)
+        var unsafe *wt = self._nullable_inner(wc)
+        if wt != &null {
+            wc = wt
+        }
+
+        var unsafe *w = dyn_cast<FunctionPointerType>(wc)
+        if w == &null || w->is_raw {
+            return false
+        }
+
+        var open = wc->is_dependent() || wc->is_instantiation_dependent()
+        if !open && !self._fn_same_shape(h, w) {
+            return false
+        }
+
+        self._cg->sink->spell(
+            e->range,
+            "::" + LowerTargets::fn_value() + "<" + self._spell.fn_signature(
+                if (open) => (h) else => w,
+            ) + ">(",
+        )
+
+        self.emit(e)
+        self._cg->sink->spell(
+            e->range,
+            ", ::" + LowerTargets::fn_value_spec() + "{})",
+        )
+
+        return true
+    }
+
+    /// `h` and `w` take the same parameters the same way and return the
+    /// same type, with no panic set: they differ at most in being raw.
+    priv fn _fn_same_shape(self,
+                           h: unsafe *FunctionPointerType,
+                           w: unsafe *FunctionPointerType) -> bool {
+        if h->params.size() != w->params.size()
+            || h->modes.size() != w->modes.size()
+            || w->panic_result != &null
+            || w->call_conv != h->call_conv
+            || h->canon_panics != w->canon_panics {
+            return false
+        }
+
+        for var i: usize = 0; i < h->params.size(); ++i {
+            if h->params[i] == &null || w->params[i] == &null {
+                return false
+            }
+
+            if h->params[i]->canonical != w->params[i]->canonical {
+                return false
+            }
+        }
+
+        for var i: usize = 0; i < h->modes.size(); ++i {
+            if h->modes[i] != w->modes[i] {
+                return false
+            }
+        }
+
+        if h->return_type == &null || w->return_type == &null {
+            return h->return_type == w->return_type
+        }
+
+        return h->return_type->canonical == w->return_type->canonical
     }
 
     /// The non-generic free function or static member `e` names as a

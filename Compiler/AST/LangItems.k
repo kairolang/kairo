@@ -3522,6 +3522,19 @@ pub class LowerTargets {
         return "small"
     }
 
+    /// `struct __kairo_spec {};`: the second argument of the `fn` value
+    /// constructor that holds a speculatable function
+    /// (FunctionDecl::speculatable) and says so in the value. `is_spec`
+    /// reads that back, which is what `__builtin_fn_speculatable` asks
+    /// (Lib/rt/intrinsics.h).
+    pub static fn fn_value_spec() -> string {
+        return "__kairo_spec"
+    }
+
+    pub static fn fn_value_is_spec() -> string {
+        return "is_spec"
+    }
+
     /// The lambda of a small closure bound to a local that is never
     /// rebound, under a name of its own: a call of the local is a call of
     /// the lambda itself (EmitIR::_direct_closure).
