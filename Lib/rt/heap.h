@@ -7,28 +7,32 @@
  *
  *   Large blocks. Where KAIRO_RT_HEAP_LARGE is 1 (Linux), a block of at
  *   least KAIRO_RT_HEAP_LARGE_MIN bytes at no more than
- *   KAIRO_RT_HEAP_LARGE_ALIGN alignment may be its own anonymous mapping
- *   of its size rounded up to KAIRO_RT_HEAP_LARGE_ALIGN, outside mimalloc.
- *   A fresh allocation reuses a cached mapping, else maps at or above a
+ *   KAIRO_RT_HEAP_LARGE_ALIGN alignment may sit in an anonymous mapping of
+ *   its own, outside mimalloc, behind a header of 16 bytes (or of its
+ *   alignment, when that is more) that records the mapping's length. A
+ *   fresh allocation reuses a cached mapping, else maps at or above a
  *   threshold that rises the way glibc's mmap threshold does (rt/heap.c),
  *   else is mimalloc's. A mimalloc block that realloc grows past its usable
  *   size and that threshold moves to a mapping; any other realloc of it
- *   stays in mimalloc. A mapping:
+ *   stays in mimalloc. A mapped block:
  *
- *     - realloc between two large sizes is mremap, which moves page table
- *       entries rather than bytes (no copy, at any size);
- *     - resize between two large sizes grows the mapping where the address
- *       space after it is free, and always shrinks it;
- *     - a freed mapping of at most KAIRO_RT_HEAP_CACHE_MAX bytes waits in a
- *       process-wide cache of KAIRO_RT_HEAP_CACHE_SLOTS mappings; the next
- *       large allocation (not a zeroed one) takes the shortest that fits,
- *       cut to its length, so an allocate / free loop maps nothing and
- *       faults nothing after its first round. The cache holds at most
- *       KAIRO_RT_HEAP_CACHE_SLOTS * KAIRO_RT_HEAP_CACHE_MAX bytes, and a
- *       block in use never holds more than its own mapped length.
+ *     - grows and shrinks within its mapping's length with no system call;
+ *       a shrink to half that length or less gives the tail back;
+ *     - realloc past the mapping is mremap, which moves page table entries
+ *       rather than bytes (no copy, at any size); resize past it extends
+ *       the mapping where the address space after it is free;
+ *     - once freed, a mapping of at most KAIRO_RT_HEAP_CACHE_MAX bytes waits
+ *       in a process-wide cache of KAIRO_RT_HEAP_CACHE_SLOTS mappings; the
+ *       next large allocation (not a zeroed one) takes the shortest that
+ *       fits, whole and resident, so an allocate / free or a grow / free
+ *       loop maps nothing and faults nothing after its first round. The
+ *       cache holds at most KAIRO_RT_HEAP_CACHE_SLOTS *
+ *       KAIRO_RT_HEAP_CACHE_MAX bytes, and a block taken from it holds at
+ *       most KAIRO_RT_HEAP_CACHE_MAX bytes past its own length.
  *
- *   No header records the path: every free, resize and realloc gets the
- *   size and alignment the block was last made with (alloc.k's contract).
+ *   Nothing outside a mapped block records which heap holds it: every
+ *   free, resize and realloc gets the size and alignment the block was last
+ *   made with (alloc.k's contract), and mimalloc's page map decides.
  *   A block smaller than KAIRO_RT_HEAP_LARGE_MIN is always mimalloc's: a
  *   mapped block never shrinks below it in place (resize refuses, realloc
  *   moves it). A block of at least that size is mapped unless mimalloc's

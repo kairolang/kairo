@@ -27,11 +27,12 @@ fn main() -> i32 {
     //    shrink above the threshold is in place, and one below it is
     //    refused, since the block would then be freed as mimalloc's
     var unsafe *p = alloc_raw(200000, 8)
-    check((p as usize) % 4096 == 0, "a large block starts a page")
+    check((p as usize) % 16 == 0, "a large block is 16-byte aligned")
     fill(p, 200000, 0x42u8)
-    check(Global::resize(p, 200000, 200704, 8), "grow within the mapped length")
-    fill(p, 200704, 0x42u8)
-    check(Global::resize(p, 200704, 150000, 8), "shrink above the threshold")
+    // 49 pages hold 200704 bytes, 16 of them the header.
+    check(Global::resize(p, 200000, 200688, 8), "grow within the mapped length")
+    fill(p, 200688, 0x42u8)
+    check(Global::resize(p, 200688, 150000, 8), "shrink above the threshold")
     check(!Global::resize(p, 150000, 100000, 8), "no in-place shrink below the threshold")
     check(!System::resize(p, 150000, 100000, 8), "System: no in-place shrink below the threshold")
     check(all(p, 150000, 0x42u8), "in-place resize keeps the bytes")

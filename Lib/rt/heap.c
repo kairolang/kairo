@@ -66,34 +66,63 @@ static unsigned char *mi_side_realloc(unsigned char *ptr, size_t old_size, size_
 
 #if KAIRO_RT_HEAP_LARGE
 
-/* A mapping's length is the size rounded up to KAIRO_RT_HEAP_LARGE_ALIGN.
- * The kernel rounds every length up to its own page the same way, so a
- * size maps to one length on every page size. 0 when the rounding wraps. */
-static size_t large_len(size_t size) {
-    if (size > SIZE_MAX - (KAIRO_RT_HEAP_LARGE_ALIGN - 1)) { return 0; }
-    return (size + (KAIRO_RT_HEAP_LARGE_ALIGN - 1)) & ~(KAIRO_RT_HEAP_LARGE_ALIGN - 1);
+/* A mapped block's layout: the mapping starts on a page, the block starts
+ * hdr_len(align) bytes into it (at least 16, and a multiple of the
+ * alignment, which the mapping's page start then gives), and the two words
+ * just below the block hold that offset and the mapping's length. The
+ * length is the mapping's own, which may be more than the block's size: a
+ * block that takes a longer cached mapping keeps all of it, so growing into
+ * it costs neither a system call nor a page fault. */
+#define KAIRO_RT_HEAP_HDR_MIN ((size_t)16)
+
+static size_t hdr_len(size_t align) { return align > KAIRO_RT_HEAP_HDR_MIN ? align : KAIRO_RT_HEAP_HDR_MIN; }
+
+/* The mapping length a block of `size` bytes behind a `hdr`-byte header
+ * needs: rounded up to KAIRO_RT_HEAP_LARGE_ALIGN, as the kernel rounds every
+ * length up to its own page, so a size maps to one length on every page
+ * size. 0 when the sum wraps. */
+static size_t map_len(size_t size, size_t hdr) {
+    if (size > SIZE_MAX - hdr - (KAIRO_RT_HEAP_LARGE_ALIGN - 1)) { return 0; }
+    return (size + hdr + (KAIRO_RT_HEAP_LARGE_ALIGN - 1)) & ~(KAIRO_RT_HEAP_LARGE_ALIGN - 1);
+}
+
+static unsigned char *hdr_set(unsigned char *base, size_t hdr, size_t len) {
+    unsigned char *ptr = base + hdr;
+    memcpy(ptr - 16, &hdr, sizeof hdr);
+    memcpy(ptr - 8, &len, sizeof len);
+    return ptr;
+}
+static size_t hdr_of(const unsigned char *ptr) {
+    size_t hdr;
+    memcpy(&hdr, ptr - 16, sizeof hdr);
+    return hdr;
+}
+static size_t len_of(const unsigned char *ptr) {
+    size_t len;
+    memcpy(&len, ptr - 8, sizeof len);
+    return len;
 }
 
 /* A large-sized block is a mapping of ours unless mimalloc's page map holds
- * it (grown there in place, a fallback when mmap failed, or a C-heap block). */
+ * it (kept there by realloc, a fallback when mmap failed, or a C-heap block). */
 static int is_mapped(const unsigned char *ptr) { return !mi_is_in_heap_region(ptr); }
 
 /* The cache: freed mappings, each with its length in its first word (the
- * block is free, so the word is ours), and that length again in
+ * mapping is free, so the word is ours), and that length again in
  * large_cache_len as a hint for choosing a slot. A slot is taken by
- * exchanging it with null, so a block is never read after another thread
- * may have claimed it; the length read from the block itself decides. A
- * block goes back by a compare-and-swap from null. */
+ * exchanging it with null, so a mapping is never read after another thread
+ * may have claimed it; the length read from the mapping itself decides. A
+ * mapping goes back by a compare-and-swap from null. */
 static unsigned char *large_cache[KAIRO_RT_HEAP_CACHE_SLOTS];
 static size_t         large_cache_len[KAIRO_RT_HEAP_CACHE_SLOTS];
 
-static int cache_put(unsigned char *p, size_t len) {
+static int cache_put(unsigned char *base, size_t len) {
     if (len > KAIRO_RT_HEAP_CACHE_MAX) { return 0; }
-    memcpy(p, &len, sizeof len);
+    memcpy(base, &len, sizeof len);
     for (int i = 0; i < KAIRO_RT_HEAP_CACHE_SLOTS; ++i) {
         unsigned char *expected = NULL;
         if (__atomic_load_n(&large_cache[i], __ATOMIC_RELAXED) == NULL
-            && __atomic_compare_exchange_n(&large_cache[i], &expected, p, 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+            && __atomic_compare_exchange_n(&large_cache[i], &expected, base, 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
             __atomic_store_n(&large_cache_len[i], len, __ATOMIC_RELAXED);
             return 1;
         }
@@ -101,12 +130,12 @@ static int cache_put(unsigned char *p, size_t len) {
     return 0;
 }
 
-/* The shortest cached mapping of at least `len` bytes, cut to `len`: the
- * head keeps its resident pages, so the caller's first writes fault
- * nothing, and the tail goes back to the system, so a short block never
- * holds a long mapping (the cache's bound stays the bound) and the address
- * range after it is free for an in-place grow. */
-static unsigned char *cache_take(size_t len) {
+/* The shortest cached mapping of at least `len` bytes, whole, its length in
+ * *have. Its pages stay resident, so neither the caller's first writes nor
+ * a later growth within it fault. A block taken this way holds at most
+ * KAIRO_RT_HEAP_CACHE_MAX bytes past its own length, a mapping a freed
+ * block held before it. */
+static unsigned char *cache_take(size_t len, size_t *have) {
     int    best     = -1;
     size_t best_len = SIZE_MAX;
     for (int i = 0; i < KAIRO_RT_HEAP_CACHE_SLOTS; ++i) {
@@ -118,13 +147,11 @@ static unsigned char *cache_take(size_t len) {
         }
     }
     if (best < 0) { return NULL; }
-    unsigned char *p = __atomic_exchange_n(&large_cache[best], (unsigned char *)NULL, __ATOMIC_ACQUIRE);
-    if (p == NULL) { return NULL; }
-    size_t have;
-    memcpy(&have, p, sizeof have);
-    if (have == len) { return p; }
-    if (have > len && mremap(p, have, len, 0) != MAP_FAILED) { return p; }
-    if (!cache_put(p, have)) { munmap(p, have); }
+    unsigned char *base = __atomic_exchange_n(&large_cache[best], (unsigned char *)NULL, __ATOMIC_ACQUIRE);
+    if (base == NULL) { return NULL; }
+    memcpy(have, base, sizeof *have);
+    if (*have >= len) { return base; }
+    if (!cache_put(base, *have)) { munmap(base, *have); }
     return NULL;
 }
 
@@ -152,39 +179,56 @@ static void raise_threshold(size_t *threshold, size_t len) {
     if (len >= __atomic_load_n(threshold, __ATOMIC_RELAXED)) { __atomic_store_n(threshold, len + 1, __ATOMIC_RELAXED); }
 }
 
-/* A mapping for `size` bytes: a cached one cut to length (not for a zeroed
+/* A mapped block for `size` bytes: a cached mapping (not for a zeroed
  * block: a cached one holds old bytes), else a fresh one, which is zero.
  * Out of mappings (vm.max_map_count) is not out of memory: mimalloc's arenas
  * may still have room, and its page map tells the free. */
 static unsigned char *map_block(size_t size, size_t align, int zeroed, int fresh_ok) {
-    size_t len = large_len(size);
+    size_t hdr = hdr_len(align), len = map_len(size, hdr);
     if (len == 0) { return NULL; }
     if (!zeroed) {
-        unsigned char *c = cache_take(len);
-        if (c != NULL) { return c; }
+        size_t         have;
+        unsigned char *c = cache_take(len, &have);
+        if (c != NULL) { return hdr_set(c, hdr, have); }
     }
     if (fresh_ok) {
         void *p = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (p != MAP_FAILED) { return (unsigned char *)p; }
+        if (p != MAP_FAILED) { return hdr_set((unsigned char *)p, hdr, len); }
     }
     return mi_side_alloc(size, align, zeroed);
 }
 
 unsigned char *kairo_rt_heap_large_alloc(size_t size, size_t align, int zeroed) {
-    size_t *threshold = large_len(size) <= KAIRO_RT_HEAP_CACHE_MAX ? &fresh_min_cacheable : &fresh_min;
+    size_t *threshold = map_len(size, hdr_len(align)) <= KAIRO_RT_HEAP_CACHE_MAX ? &fresh_min_cacheable : &fresh_min;
     return map_block(size, align, zeroed, size >= __atomic_load_n(threshold, __ATOMIC_RELAXED));
 }
 
 void kairo_rt_heap_large_free(unsigned char *ptr, size_t size) {
+    (void)size;
     if (!is_mapped(ptr)) {
         mi_free(ptr);
         return;
     }
-    size_t len = large_len(size);
-    if (cache_put(ptr, len)) { return; }
-    munmap(ptr, len);
+    size_t         len  = len_of(ptr);
+    unsigned char *base = ptr - hdr_of(ptr);
+    if (cache_put(base, len)) { return; }
+    munmap(base, len);
     raise_threshold(&fresh_min, len);
     if (len <= KAIRO_RT_HEAP_CACHE_MAX) { raise_threshold(&fresh_min_cacheable, len); }
+}
+
+/* A mapped block resized from `old_size` to `new_size` (at least
+ * KAIRO_RT_HEAP_LARGE_MIN) without moving: within its mapping's length
+ * nothing changes, except that a shrink to half that length or less gives
+ * the tail back; a growth past it extends the mapping where the address
+ * space after it is free. */
+static _Bool mapped_resize(unsigned char *ptr, size_t old_size, size_t new_size) {
+    size_t hdr = hdr_of(ptr), len = len_of(ptr), need = map_len(new_size, hdr);
+    if (need == 0) { return 0; }
+    if (need <= len && (new_size >= old_size || need > len / 2)) { return 1; }
+    if (mremap(ptr - hdr, len, need, 0) == MAP_FAILED) { return need < len; }
+    hdr_set(ptr - hdr, hdr, need);
+    return 1;
 }
 
 #endif /* KAIRO_RT_HEAP_LARGE */
@@ -194,10 +238,7 @@ _Bool kairo_rt_heap_resize(unsigned char *ptr, size_t old_size, size_t new_size,
     if (KAIRO_RT_HEAP_IS_LARGE(old_size, align) && is_mapped(ptr)) {
         /* A mapped block below the threshold would get mimalloc's free. */
         if (new_size < KAIRO_RT_HEAP_LARGE_MIN) { return 0; }
-        size_t old_len = large_len(old_size), new_len = large_len(new_size);
-        if (new_len == old_len) { return 1; }
-        if (new_len == 0) { return 0; }
-        return mremap(ptr, old_len, new_len, 0) != MAP_FAILED;
+        return mapped_resize(ptr, old_size, new_size);
     }
 #endif
     return mi_side_resize(ptr, old_size, new_size, align);
@@ -208,11 +249,12 @@ unsigned char *kairo_rt_heap_realloc(unsigned char *ptr, size_t old_size, size_t
     int old_mapped = KAIRO_RT_HEAP_IS_LARGE(old_size, align) && is_mapped(ptr);
     int new_large  = KAIRO_RT_HEAP_IS_LARGE(new_size, align);
     if (old_mapped && new_large) {
-        size_t old_len = large_len(old_size), new_len = large_len(new_size);
-        if (new_len == old_len) { return ptr; }
-        if (new_len == 0) { return NULL; }
-        void *q = mremap(ptr, old_len, new_len, MREMAP_MAYMOVE);
-        return q == MAP_FAILED ? NULL : (unsigned char *)q;
+        if (mapped_resize(ptr, old_size, new_size)) { return ptr; }
+        /* mremap moves page table entries rather than bytes: no copy. */
+        size_t hdr = hdr_of(ptr), len = len_of(ptr), need = map_len(new_size, hdr);
+        if (need == 0) { return NULL; }
+        void *q = mremap(ptr - hdr, len, need, MREMAP_MAYMOVE);
+        return q == MAP_FAILED ? NULL : hdr_set((unsigned char *)q, hdr, need);
     }
     if (!old_mapped && new_large) {
         /* mimalloc's block stays mimalloc's unless it grows past both its
