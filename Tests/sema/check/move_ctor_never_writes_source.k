@@ -1,11 +1,11 @@
 // A move constructor with a body that only reads `other`, in a class with a
-// destructor, leaves both objects owning the resource. Resetting the source
-// (or handing it to a call) is accepted.
+// destructor and a pointer field, leaves both objects holding the address.
+// Resetting the source (or handing it to a call) is accepted.
 
 class Reads {
-    var p: i32
+    var p: unsafe *i32
 
-    fn Reads(self, v: i32) { self.p = v }
+    fn Reads(self, v: unsafe *i32) { self.p = v }
     @move fn Reads(self, other: Self) { self.p = other.p }
     fn op finally(self) { }
 }

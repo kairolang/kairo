@@ -4,5 +4,5 @@
 int main() {
     auto s = lib::name();
     auto p = lib::mk();
-    return (int)std::strlen((const char*)s.c_str()) + p.x;
+    return (int)s.size() + p.x;
 }

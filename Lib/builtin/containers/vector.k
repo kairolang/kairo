@@ -525,6 +525,11 @@ pub class <T> Vector {
                         sizeof T,
                     )
                 }
+            } else if __builtin_is_constructible<T, const T>() {
+                // One copy per slot, as in copy_run_.
+                for var i: usize = 0; i < n; ++i {
+                    __builtin_construct_at<T>((dst + i) as unsafe *u8, v)
+                }
             } else {
                 for var i: usize = 0; i < n; ++i {
                     __builtin_construct_at<T>((dst + i) as unsafe *u8, copy(v))
@@ -626,6 +631,16 @@ pub class <T> Vector {
                     src as unsafe *const u8,
                     n * sizeof T,
                 )
+            }
+        } else if __builtin_is_constructible<T, const T>() {
+            // A copy-constructible element is constructed in its slot from
+            // the source: one copy. Through copy() it would be copied into
+            // a temporary and again into the slot, since such a type has
+            // no move to take the temporary with.
+            unsafe {
+                for var i: usize = 0; i < n; ++i {
+                    __builtin_construct_at<T>((dst + i) as unsafe *u8, *(src + i))
+                }
             }
         } else {
             unsafe {

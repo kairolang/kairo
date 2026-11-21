@@ -6,6 +6,9 @@
 // its own. The home header (counter.hh, alloc_raw.hh) declares such a
 // decl, as it declares a hidden helper its own inline body names, with the
 // linkage the module's object gives it; no other header changes.
+// The builtin root does not re-export base::alloc, so it is imported here
+// for --emit-headers to write builtin/base/alloc.hh.
+import builtin::base::alloc::*
 import lib::scope::Scope
 
 fn main() -> i32 {

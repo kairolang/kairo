@@ -2395,14 +2395,18 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         // 3b. A move constructor with a body that only reads `other`, in a
-        //     class with a destructor: source and target both own the
-        //     resource, and the destructor runs on both.
+        //     class with a destructor and an address to release: source
+        //     and target both hold the address, and the destructor runs on
+        //     both. Fields of trivially destroyed non-pointer types hold
+        //     nothing to release twice, and a field whose type has a
+        //     destructor releases what it holds itself.
         if move_ctor != &null
             && dtor != &null
             && dtor->body_kind != FnBodyKind::Default
             && dtor->body_kind != FnBodyKind::Delete
             && move_ctor->body_kind == FnBodyKind::Block
-            && move_ctor->body_block != &null {
+            && move_ctor->body_block != &null
+            && self._holds_address(unsafe (n as unsafe *Decl), 0) {
             var src: unsafe *ParamDecl = &null
             for var i: usize = 0; i < move_ctor->params.size(); ++i {
                 var unsafe *q = move_ctor->params[i]
@@ -3059,6 +3063,95 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         return &null
+    }
+
+    /// Whether a value of `d` holds an address its destructor could
+    /// release: a pointer field, directly or inside a by-value part whose
+    /// type has no destructor of its own (a fixed array, a nullable, a
+    /// tuple, a trivially destroyed record), or a base that holds one. A
+    /// part whose type has a destructor releases what it holds itself, and
+    /// a part whose type depends on a generic parameter is not counted.
+    /// `depth` bounds the walk on an ill-formed by-value cycle.
+    priv fn _holds_address(self, d: unsafe *Decl, depth: u32) -> bool {
+        if d == &null || depth > 16 {
+            return false
+        }
+
+        var fields = self._fields(d)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *fd = fields[i]
+            if fd == &null || fd->is_static() {
+                continue
+            }
+
+            if fd->type_ != &null && self._type_holds_address(fd->type_->canonical, depth) {
+                return true
+            }
+        }
+
+        if isa<ClassDecl>(d) {
+            var unsafe *c = cast<ClassDecl>(d)
+            for var i: usize = 0; i < c->derives_list.size(); ++i {
+                var unsafe *bd = self._base_decl(c->derives_list.get(i)->base)
+                if bd != &null && self._holds_address(bd, depth + 1) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    /// _holds_address for one by-value part of type `t_in`.
+    priv fn _type_holds_address(self, t_in: unsafe *Type, depth: u32) -> bool {
+        if t_in == &null || depth > 16 {
+            return false
+        }
+
+        var unsafe *t = canon_unqual(self._through(t_in))
+        if t == &null || t->is_dependent() || t->is_instantiation_dependent() {
+            return false
+        }
+
+        if isa<PointerType>(t) {
+            return true
+        }
+
+        if isa<FixedArrayType>(t) {
+            return self._type_holds_address(
+                cast<FixedArrayType>(t)->element,
+                depth + 1,
+            )
+        }
+
+        if isa<NullableType>(t) {
+            return self._type_holds_address(
+                cast<NullableType>(t)->inner,
+                depth + 1,
+            )
+        }
+
+        if self._tu.is_tuple(t) {
+            var elems = self._tu.tuple_elems(t)
+            for var i: usize = 0; i < elems.size(); ++i {
+                if self._type_holds_address(elems[i], depth + 1) {
+                    return true
+                }
+            }
+
+            return false
+        }
+
+        if isa<RecordType>(t) {
+            var unsafe *rd = cast<RecordType>(t)->decl
+            if rd == &null || self.facts_of(rd)->trivial_dtor != LifecycleTri::Yes {
+                return false
+            }
+
+            return self._holds_address(rd, depth + 1)
+        }
+
+        return false
     }
 
     /// A by-value field or a base whose type depends on a generic
