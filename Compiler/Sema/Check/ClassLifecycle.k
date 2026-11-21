@@ -1091,6 +1091,48 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
     }
 
+    /// Whether destroying a value of `t` runs no destructor, for the
+    /// destructive fold (file header, destructive). A `T?` that is no
+    /// pointer, an array and a tuple hold their payloads by value and
+    /// destroy them, so each answers as its payload does; facts_of_type
+    /// reads a nullable as trivial whatever it holds, and a part's
+    /// moved-from payload would go undestroyed.
+    priv fn _destroyed_trivially(self, t_in: unsafe *Type) -> LifecycleTri {
+        if t_in == &null {
+            return LifecycleTri::Unknown
+        }
+
+        var unsafe *t = canon_unqual(t_in)
+        if isa<FixedArrayType>(t) {
+            return self._destroyed_trivially(cast<FixedArrayType>(t)->element)
+        }
+
+        if isa<NullableType>(t) {
+            var unsafe *inner = cast<NullableType>(t)->inner
+            if inner == &null || isa<PointerType>(canon_unqual(inner)) {
+                return LifecycleTri::Yes
+            }
+
+            if t->is_dependent() || t->is_instantiation_dependent() {
+                return LifecycleTri::Unknown
+            }
+
+            return self._destroyed_trivially(inner)
+        }
+
+        if self._tu.is_tuple(t) {
+            var out   = LifecycleTri::Yes
+            var elems = self._tu.tuple_elems(t)
+            for var i: usize = 0; i < elems.size(); ++i {
+                out = lifecycle_and(out, self._destroyed_trivially(elems[i]))
+            }
+
+            return out
+        }
+
+        return self.facts_of_type(t).trivial_dtor
+    }
+
     /// The facts of a by-value type that depends on a generic parameter: all
     /// of them are the instance's to decide.
     priv fn _unknown_facts(self) -> LifecycleFacts {
@@ -1544,7 +1586,12 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
             parts_destructive = lifecycle_and(
                 parts_destructive,
-                lifecycle_or(ff.trivial_dtor, ff.destructive),
+                lifecycle_or(
+                    self._destroyed_trivially(
+                        self._through(fd->type_->canonical),
+                    ),
+                    ff.destructive,
+                ),
             )
 
             self._absorb(

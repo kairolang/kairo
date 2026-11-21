@@ -3325,14 +3325,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                         self.dispatch_expr(bo->lhs)
                     }
 
+                    // The fallback is moved into the result on its own
+                    // path too.
                     var before = self._st.copy()
                     if bo->rhs != &null {
                         self.dispatch_expr(bo->rhs)
                     }
 
+                    self._coalesce_fallback(bo)
                     self._st = move_join(before, self._st)
                     self._coalesce_operand(bo)
-                    self._coalesce_fallback(bo)
                     return e
                 }
 

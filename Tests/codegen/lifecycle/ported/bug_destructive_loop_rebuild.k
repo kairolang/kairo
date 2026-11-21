@@ -49,7 +49,6 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// XFAIL: *
 // REQUIRES: clang
 // RUN: rm -rf %t.d %t.o2.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d

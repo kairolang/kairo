@@ -48,6 +48,22 @@ class <T> Box {
     fn Box(self, x: T) { self.v = x }
 }
 
+// A nullable holds its value by value and destroys it: a moved-from `K?`
+// still holds a whole K. No, and no for a generic one over `T?` either.
+class HoldOpt {
+    var k: K? = null
+    fn HoldOpt(self) { }
+    @move fn HoldOpt(self, other: Self) = default
+    fn op finally(self) { n += 1 }
+}
+
+class <T> Maybe {
+    var v: T? = null
+    fn Maybe(self) { }
+    @move fn Maybe(self, other: Self) = default
+    fn op finally(self) { n += 1 }
+}
+
 enum Color { Red, Green }
 
 fn main() -> i32 {
@@ -58,6 +74,9 @@ fn main() -> i32 {
     var h = HoldCxx()
     var t = (D(4), 5)
     var e = Color::Green
+    var q = HoldOpt()
+    var m = Maybe<D>()
+    var mk = Maybe<K>()
     println(f"{a.v.id} {b.v} {c.v.id} {t.1}")
     return 0
 }
@@ -72,10 +91,12 @@ fn main() -> i32 {
 // CXX-DAG: static_assert({{ ?}}::__kairo_dm<{{ ?}}::dm_trait::Box<{{ ?}}::dm_trait::D{{ ?}}>{{ ?}}>{{ ?}}=={{ ?}}true,
 // CXX-DAG: static_assert({{ ?}}::__kairo_dm<{{ ?}}::dm_trait::Box<signed int{{ ?}}>{{ ?}}>{{ ?}}=={{ ?}}false,
 // CXX-DAG: static_assert({{ ?}}::__kairo_dm<{{ ?}}::dm_trait::Box<{{ ?}}::dm_trait::K{{ ?}}>{{ ?}}>{{ ?}}=={{ ?}}false,
+// CXX-DAG: static_assert({{ ?}}::__kairo_dm<{{ ?}}::dm_trait::Maybe<{{ ?}}::dm_trait::D{{ ?}}>{{ ?}}>{{ ?}}=={{ ?}}false,
+// CXX-DAG: static_assert({{ ?}}::__kairo_dm<{{ ?}}::dm_trait::Maybe<{{ ?}}::dm_trait::K{{ ?}}>{{ ?}}>{{ ?}}=={{ ?}}false,
 
 // No specialization for a COPY class, a class holding a C++ type with a
-// destructor, an enum or a tuple; no member in a class that has an answer
-// of its own.
+// destructor or a nullable, an enum or a tuple; no member in a class that
+// has an answer of its own.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=NOT
 // NOT-LABEL: CODEGEN C++: {{.*}}dm_trait.k
 // NOT: class D {
@@ -83,6 +104,7 @@ fn main() -> i32 {
 // NOT: };
 // NOT-NOT: __kairo_dm<{{ ?}}::dm_trait::K{{ ?}}>{{ ?}}=
 // NOT-NOT: __kairo_dm<{{ ?}}::dm_trait::HoldCxx{{ ?}}>
+// NOT-NOT: __kairo_dm<{{ ?}}::dm_trait::HoldOpt{{ ?}}>
 // NOT-NOT: __kairo_dm<{{ ?}}::dm_trait::Color
 // NOT-NOT: __kairo_dm<{{ ?}}::builtin::Tuple
 
