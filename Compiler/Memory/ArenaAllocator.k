@@ -52,7 +52,7 @@ import Native::ArenaBlock::ArenaBlock
 ///                  overwrite all slots before reading (the common case).
 ///
 /// Lifetime:
-///   destroy() walks the chain and calls std::destroy on each block,
+///   destroy() walks the chain and calls @destroy on each block,
 ///   which returns the backing buffer to GlobalRecycler. After destroy(),
 ///   the allocator is dead no further allocations permitted.
 ///   shutdown() is the hard-teardown path: calls block->destroy() (raw
@@ -147,7 +147,7 @@ pub class ArenaAllocator {
             self.destroy()
         }
 
-        self.head       = kairo::std::create<ArenaBlock>(blk_sz)
+        self.head       = unsafe (@create ArenaBlock(blk_sz) as unsafe *ArenaBlock)
         self.block_size = (blk_sz as u32)
         self.grow       = 0
     }
@@ -278,7 +278,10 @@ pub class ArenaAllocator {
         var unsafe *b = self.head
         while b != &null {
             var unsafe *next = b->next
-            kairo::std::destroy(b)
+            if b != &null {
+                @destroy unsafe (b as *ArenaBlock)
+            }
+
             b = next
         }
 
@@ -290,7 +293,10 @@ pub class ArenaAllocator {
         while b != &null {
             var unsafe *next = b->next
             b->destroy() // free the data buffer directly, sets ptr=null
-            kairo::std::destroy(b) // ~ArenaBlock() sees ptr==null, skips recycler; uses aligned delete for the struct
+            if b != &null { // ~ArenaBlock() sees ptr==null, skips recycler; uses aligned delete for the struct
+                @destroy unsafe (b as *ArenaBlock)
+            }
+
             b = next
         }
 
@@ -321,7 +327,7 @@ pub class ArenaAllocator {
         }
 
         var        req  = cxx::std::max(step, cxx::std::bit_ceil(sz))
-        var unsafe *blk = kairo::std::create<ArenaBlock>(req)
+        var unsafe *blk = unsafe (@create ArenaBlock(req) as unsafe *ArenaBlock)
 
         // prepend new block becomes head, old chain reachable via next
         blk->next = self.head

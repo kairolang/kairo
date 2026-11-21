@@ -169,7 +169,7 @@ pub class VirtualFileManager {
             // Owned since the parent moved into the segment; null for virtual
             // segments, where the bytes belong to the caller.
             if self.parent != &null {
-                kairo::std::destroy(self.parent)
+                @destroy unsafe (self.parent as *MappedFileBuffer)
                 self.parent = &null
             }
         }
@@ -283,7 +283,7 @@ pub class VirtualFileManager {
         // Each segment frees its own mapping; there is no side list.
         for var seg: unsafe *Segment in self._segments {
             if seg != &null {
-                kairo::std::destroy(seg)
+                @destroy unsafe (seg as *Segment)
             }
         }
 
@@ -340,12 +340,12 @@ pub class VirtualFileManager {
 
             var ofid = self._next_fid
             self._next_fid += 1
-            var unsafe *oseg = kairo::std::create<Self::Segment>(
+            var unsafe *oseg = unsafe (@create Self::Segment(
                 ofid,
                 abs,
                 0,
                 osize,
-            )
+            ) as unsafe *Self::Segment)
 
             oseg->reserved = ores
             self._align_global_offset()
@@ -364,12 +364,12 @@ pub class VirtualFileManager {
             return ofid
         }
 
-        var unsafe *parent = kairo::std::create<MappedFileBuffer>()
+        var unsafe *parent = unsafe (@create MappedFileBuffer() as unsafe *MappedFileBuffer)
 
         parent->load(unsafe &abs_full)
 
         if !parent->is_valid() {
-            kairo::std::destroy(parent)
+            @destroy unsafe (parent as *MappedFileBuffer)
             kairo::Logger::error(
                 kairo::Logger::Stage::Driver,
                 f"VirtualFileManager::register_file: failed to map {abs_full}",
@@ -385,7 +385,7 @@ pub class VirtualFileManager {
         // projected end of this file in the global space, after alignment
         var aligned = self._global_offset + 0xFFF & ~(0xFFF as usize)
         if total > (U32_MAX as usize) || aligned + reserved + 1 > (U32_MAX as usize) {
-            kairo::std::destroy(parent)
+            @destroy unsafe (parent as *MappedFileBuffer)
             self._diag->report(
                 DiagID::I102F,
                 f"cannot load '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit",
@@ -396,12 +396,12 @@ pub class VirtualFileManager {
         var seg_fid = self._next_fid
         self._next_fid += 1
 
-        var unsafe *seg = kairo::std::create<Self::Segment>(
+        var unsafe *seg = unsafe (@create Self::Segment(
             seg_fid,
             abs,
             0,
             total,
-        )
+        ) as unsafe *Self::Segment)
 
         seg->parent   = parent   // segment owns its mapping from here
         seg->reserved = reserved
@@ -504,12 +504,12 @@ pub class VirtualFileManager {
 
         var seg_fid = self._next_fid
         self._next_fid += 1
-        var unsafe *seg = kairo::std::create<Self::Segment>(
+        var unsafe *seg = unsafe (@create Self::Segment(
             seg_fid,
             Path(fake_path.full_path()),
             0,
             size,
-        )
+        ) as unsafe *Self::Segment)
 
         self._align_global_offset()
         seg->global_base = self._global_offset
@@ -770,7 +770,7 @@ pub class VirtualFileManager {
 
         for var seg: unsafe *Segment in self._segments {
             if seg != &null {
-                kairo::std::destroy(seg)
+                @destroy unsafe (seg as *Segment)
             }
         }
 
@@ -861,10 +861,10 @@ pub class VirtualFileManager {
         // Load the replacement BEFORE dropping the old mapping: on a failed
         // re-read (file deleted mid-edit, transient I/O error) the segment
         // keeps working with stale-but-valid bytes.
-        var unsafe *fresh = kairo::std::create<MappedFileBuffer>()
+        var unsafe *fresh = unsafe (@create MappedFileBuffer() as unsafe *MappedFileBuffer)
         fresh->load(unsafe &abs_full)
         if !fresh->is_valid() {
-            kairo::std::destroy(fresh)
+            @destroy unsafe (fresh as *MappedFileBuffer)
             kairo::Logger::warn(
                 kairo::Logger::Stage::Driver,
                 f"VirtualFileManager::invalidate: re-map failed for {abs_full}; keeping previous contents",
@@ -876,7 +876,10 @@ pub class VirtualFileManager {
         var total = fresh->bytes().size()
 
         if total <= seg->reserved {
-            kairo::std::destroy(seg->parent)
+            if seg->parent != &null {
+                @destroy unsafe (seg->parent as *MappedFileBuffer)
+            }
+
             seg->parent = fresh
             seg->size   = total
             seg->attach(fresh, 0, total)
@@ -893,7 +896,7 @@ pub class VirtualFileManager {
         var reserved = self._reserve_for(total)
         var aligned  = self._global_offset + 0xFFF & ~(0xFFF as usize)
         if total > (U32_MAX as usize) || aligned + reserved + 1 > (U32_MAX as usize) {
-            kairo::std::destroy(fresh)
+            @destroy unsafe (fresh as *MappedFileBuffer)
             self._diag->report(
                 DiagID::I102F,
                 f"cannot re-map '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit",
@@ -908,7 +911,10 @@ pub class VirtualFileManager {
         self._global_offset += reserved
         seg->reserved = reserved
 
-        kairo::std::destroy(seg->parent)
+        if seg->parent != &null {
+            @destroy unsafe (seg->parent as *MappedFileBuffer)
+        }
+
         seg->parent = fresh
         seg->size   = total
         seg->attach(fresh, 0, total)
@@ -982,7 +988,7 @@ pub class VirtualFileManager {
         }
 
         if seg->parent != &null {
-            kairo::std::destroy(seg->parent)
+            @destroy unsafe (seg->parent as *MappedFileBuffer)
             seg->parent = &null
         }
 
@@ -1032,7 +1038,10 @@ pub class VirtualFileManager {
         self._unmap_pages(seg->global_base, seg->reserved)
         self._by_path.erase(kairo::sref(seg->path.full_path()))
 
-        kairo::std::destroy(seg)
+        if seg != &null {
+            @destroy unsafe (seg as *Segment)
+        }
+
         self._segments[fid] = &null // retired, never reissued
         return true
     }

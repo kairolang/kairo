@@ -103,16 +103,16 @@ pub class SysPlan {
     pub var quirks:     [SysQuirk]
     pub var probe:      [string]   ///< probe facts that hold: int128
     pub var rows:       [string]   ///< the probe table, `label: value`
-    pub var tools:      string                     ///< dir kcc/kld/llvm-ar were found in
+    pub var tools:      string     ///< dir kcc/kld/llvm-ar were found in
     pub var os:         string
     pub var env_:       string
     pub var inputs:     [string]   ///< input dirs, relative to the share tree
     pub var in_paths:   [string]   ///< the same, absolute
     pub var in_sha:     [string]
     pub var extra:      [string]   ///< provider key_extra
-    pub var floor:      string                     ///< glibc floor (the runtimes stage's libc)
+    pub var floor:      string     ///< glibc floor (the runtimes stage's libc)
     pub var stage_keys: [string]   ///< parallel to sys_stages()
-    pub var key:        string                     ///< the sysroot's key
+    pub var key:        string     ///< the sysroot's key
     pub var key_json:   string
 
     pub fn row(self, const label: string, const value: string) {
@@ -490,8 +490,8 @@ pub class SysGen {
         // The driver takes a bundled <prefix>/sysroot/<name> over --sysroot:
         // prove this toolchain builds against `root` before believing a
         // single result.
-        var real_root = LinkFS::real(root.copy())
-        var probe: [string]
+        var real_root          = LinkFS::real(root.copy())
+        var probe:    [string]
         probe.push(kcc.copy())
         KccArgv::push_target(&probe, m.triple, root)
         probe.push("-###")
@@ -516,7 +516,7 @@ pub class SysGen {
         // driver does not read them yet, and wasm's
         // -fwasm-exceptions is what makes a C++ catch work there.
         var extra: [string]
-        var mtext = ""
+        var mtext           = ""
         LinkFS::read(mpath, &mtext)
         var mtoml = TomlLite(mtext)
         var mkey  = ""
@@ -527,10 +527,10 @@ pub class SysGen {
             }
         }
 
-        var mode   = recipe->str("validate", "run")
+        var mode             = recipe->str("validate", "run")
         var runner: [string]
-        var skip   = SysGen::_runner(t, mode, work, &runner)
-        var ext    = ""
+        var skip             = SysGen::_runner(t, mode, work, &runner)
+        var ext              = ""
         if t->family == "windows-gnu" || t->family == "windows-msvc" {
             ext = ".exe"
         } else if t->family == "wasi" {
@@ -898,7 +898,7 @@ pub class SysGen {
             p.quirks = qs.matching(&p.target, p.os, p.env_, &p.probe)
         }
 
-        var qids: [string]
+        var qids:     [string]
         var rewrites: [string]
         for *q in p.quirks {
             qids.push(q->id.copy())
@@ -932,7 +932,9 @@ pub class SysGen {
         }
 
         finally {
-            kairo::std::destroy(prov)
+            if prov != &null {
+                @destroy unsafe (prov as *SysrootProvider)
+            }
         }
 
         if !prov->supports(&p.target, &p.recipe, &out) {
@@ -1001,7 +1003,7 @@ pub class SysGen {
         // target in its domain; when the registry lists it the tables are
         // not needed (and taken only when listed too). Without it the
         // tables are required as before.
-        var c        = self.cache()
+        var c = self.cache()
         var has_tmpl = !p.share.registered("runtimes-template").is_empty()
         var rtin: [string]
         rtin.push("runtimes")
@@ -1111,7 +1113,9 @@ pub class SysGen {
                         @inout out: SysOutcome) -> bool {
         var prov = ProviderSet::make(p->target.provider, self.input)
         finally {
-            kairo::std::destroy(prov)
+            if prov != &null {
+                @destroy unsafe (prov as *SysrootProvider)
+            }
         }
 
         var ctx = StageCtx()
@@ -1268,8 +1272,8 @@ pub class SysGen {
     /// recipe's [layout]; LICENSES/ per input (section 15); the
     /// __config_site and assert_file_contains checks.
     priv static fn _stage_assemble(ctx: *StageCtx, p: *SysPlan, @inout out: SysOutcome) -> bool {
-        var root  = ctx->stage.copy() + "/out"
-        var none: [string]
+        var root            = ctx->stage.copy() + "/out"
+        var none:  [string]
         var parts: [string]
         parts.push("libc-headers")
         parts.push("libc-libs")
@@ -1420,11 +1424,11 @@ pub class SysGen {
     /// The root is a hard-link copy, removed after: the stage keeps only
     /// its logs.
     priv static fn _stage_validate(ctx: *StageCtx, @inout out: SysOutcome) -> bool {
-        var rep  = ""
-        var root = ctx->stage.copy() + "/root"
+        var rep            = ""
+        var root           = ctx->stage.copy() + "/root"
         var none: [string]
-        var asm_ = ctx->product("assemble")
-        var tom  = ctx->product("toml") + "/" + SysrootManifest::file_name()
+        var asm_           = ctx->product("assemble")
+        var tom = ctx->product("toml") + "/" + SysrootManifest::file_name()
         if !SysRun::link_tree(asm_, root, &none)
             || !SysRun::put_file(
                 tom,
@@ -1460,7 +1464,7 @@ pub class SysGen {
                             @inout out: SysOutcome) -> bool {
         var fin = if (dest.is_empty()) => (c->sysroot_dir(p->key))
                   else => LinkText::strip_slash(dest.copy())
-        var tmp  = fin.copy() + ".tmp"
+        var tmp            = fin.copy() + ".tmp"
         var none: [string]
         LinkFS::remove_tree(tmp)
         var tom = ctx->product("toml") + "/" + SysrootManifest::file_name()
@@ -1477,8 +1481,8 @@ pub class SysGen {
         var f: [SysJsonField]
         SysUtil::field(&f, "key", SysUtil::json_str(p->key))
         SysUtil::field(&f, "key_object", p->key_json)
-        var stages = sys_stages()
-        var sk: [string]
+        var stages          = sys_stages()
+        var sk:    [string]
         for var i: usize = 0; i < stages.size(); ++i {
             sk.push(stages[i].copy() + "=" + p->stage_keys[i])
         }
@@ -1553,7 +1557,7 @@ pub class SysGen {
     /// validate/expect.toml [exit] as `file=code` lines.
     priv static fn _expectations(const path: string) -> [string] {
         var out: [string]
-        var text = ""
+        var text          = ""
         if !LinkFS::read(path, &text) {
             return out
         }
@@ -1639,8 +1643,8 @@ pub class SysGen {
     /// Every --sysroot=<dir> in a driver's -### output.
     priv static fn _sysroots_in(const text: string) -> [string] {
         var out: [string]
-        var pat = "--sysroot="
-        var i   = LinkText::find(text.copy(), pat.copy(), 0)
+        var pat           = "--sysroot="
+        var i             = LinkText::find(text.copy(), pat.copy(), 0)
         while i < text.size() {
             var b = i + pat.size()
             var e = b
@@ -1936,7 +1940,7 @@ pub class SysGen {
     /// Libraries the binaries load are not in it yet (the spec's ldd step).
     priv static fn _compiler_build_id(c: *SysCache, const tools_dir: string) -> string {
         var bins: [string]
-        var bin  = LinkFS::parent(env::exe_path())
+        var bin            = LinkFS::parent(env::exe_path())
         bins.push(LinkText::join(bin.copy(), "kairo"))
         bins.push(LinkText::join(tools_dir.copy(), "kcc"))
         bins.push(LinkText::join(tools_dir.copy(), "kld"))

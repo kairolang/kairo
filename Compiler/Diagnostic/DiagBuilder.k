@@ -60,11 +60,11 @@ pub class DiagBuilder {
 
         self._emitted = false
         if loc == SourceLocation::invalid() {
-            self._diag = kairo::std::create<Diagnostic>(code, msg.copy())
+            self._diag = unsafe (@create Diagnostic(code, msg.copy()) as unsafe *Diagnostic)
             return
         }
 
-        self._diag = kairo::std::create<Diagnostic>(code, loc, msg.copy())
+        self._diag = unsafe (@create Diagnostic(code, loc, msg.copy()) as unsafe *Diagnostic)
     }
 
     fn DiagBuilder(self, engine: *DiagEngineVBase, code: DiagCode, msg: string) {
@@ -75,7 +75,7 @@ pub class DiagBuilder {
             return
         }
 
-        self._diag    = kairo::std::create<Diagnostic>(code, msg.copy())
+        self._diag    = unsafe (@create Diagnostic(code, msg.copy()) as unsafe *Diagnostic)
         self._emitted = false
     }
 
@@ -270,14 +270,14 @@ pub class DiagBuilder {
 
         if loc == SourceLocation::invalid() {
             self._diag->children.push_back(
-                kairo::std::create<Diagnostic>(code, msg.copy()),
+                unsafe (@create Diagnostic(code.copy(), msg.copy()) as unsafe *Diagnostic),
             )
 
             return unsafe &self
         }
 
         self._diag->children.push_back(
-            kairo::std::create<Diagnostic>(code, loc, msg.copy()),
+            unsafe (@create Diagnostic(code.copy(), loc, msg.copy()) as unsafe *Diagnostic),
         )
 
         return unsafe &self

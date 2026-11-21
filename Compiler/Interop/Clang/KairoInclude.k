@@ -128,8 +128,8 @@ pub class KairoIncludeHook {
     /// header that includes a .k is a Kairo error the set reports itself
     /// (R070): clang must not read the Kairo text as C++, and an error in
     /// clang's own engine would fail the set and lose the rest of the header.
-    pub var  refuse:   bool                                                     = false
-    priv var _ci:      unsafe *clang::CompilerInstance                          = &null
+    pub var  refuse:   bool                                     = false
+    priv var _ci:      unsafe *clang::CompilerInstance          = &null
     priv var _streams: [unsafe *cxx::std::vector<clang::Token>]         ///< owned
     /// Streams made on a file's first entry and held for its second, from
     /// the header buffer (_enter_headers); by FileEntry UID, parallel. A
@@ -180,7 +180,7 @@ pub class KairoIncludeHook {
                 *fe,
             )
 
-            var unsafe *skip = kairo::std::create<cxx::std::vector<clang::Token>>()
+            var unsafe *skip = @cxx::new cxx::std::vector<clang::Token>()
             self._streams.push(skip)
             self._sentinel(skip, fid)
             return cxx::std::optional<llvm::ArrayRef<clang::Token>>(
@@ -211,7 +211,7 @@ pub class KairoIncludeHook {
             )
         }
 
-        var unsafe *toks = kairo::std::create<cxx::std::vector<clang::Token>>()
+        var unsafe *toks = @cxx::new cxx::std::vector<clang::Token>()
         self._streams.push(toks)
 
         var why = ""
@@ -249,7 +249,7 @@ pub class KairoIncludeHook {
                         ))
                         else => path
             self._enter_headers(fid, again, self.source->include_lines)
-            var unsafe *stand_in = kairo::std::create<cxx::std::vector<clang::Token>>()
+            var unsafe *stand_in = @cxx::new cxx::std::vector<clang::Token>()
             self._streams.push(stand_in)
             self._sentinel(stand_in, fid)
             return cxx::std::optional<llvm::ArrayRef<clang::Token>>(
@@ -418,7 +418,7 @@ pub class KairoIncludeHook {
 
     fn op finally (self) {
         for var i: usize = 0; i < self._streams.size(); ++i {
-            kairo::std::destroy(self._streams[i])
+            @cxx::delete self._streams[i]
         }
 
         self._streams.clear()

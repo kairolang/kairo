@@ -117,7 +117,7 @@ pub class GlobalDisambigTable {
     fn op finally (self) {
         for var it = self._by_fid.begin(); it != self._by_fid.end(); ++it {
             if it->second.ctx != &null {
-                kairo::std::destroy(it->second.ctx)
+                @destroy unsafe (it->second.ctx as *ASTContext)
             }
         }
 
@@ -127,7 +127,7 @@ pub class GlobalDisambigTable {
             )
 
             if page != &null {
-                kairo::std::destroy(page)
+                @destroy unsafe (page as *DirPage)
             }
         }
     }
@@ -142,7 +142,7 @@ pub class GlobalDisambigTable {
 
         var unsafe *page = self._dir[pi].load(kairo::std::MemoryOrder::relaxed)
         if page == &null {
-            page = kairo::std::create<Self::DirPage>()
+            page = unsafe (@create Self::DirPage() as unsafe *Self::DirPage)
             self._dir[pi].store(page, kairo::std::MemoryOrder::release)
         }
 
@@ -189,21 +189,21 @@ pub class GlobalDisambigTable {
             return known
         }
 
-        var unsafe *ctx = kairo::std::create<ASTContext>(
+        var unsafe *ctx = unsafe (@create ASTContext(
             fid,
-            sm,
+            unsafe (sm as unsafe *SourceManager),
             tcm,
-            diag,
-            resolver,
+            unsafe (diag as unsafe *DiagEngine),
+            unsafe &*resolver,
             ci,
-        )
+        ) as unsafe *ASTContext)
 
         ctx->module_base = mod_path
 
         var lock = kairo::std::LockGuard(self._mu)
         var it2  = self._by_fid.find(fid as u64)
         if it2 != self._by_fid.end() { // lost the race
-            kairo::std::destroy(ctx)
+            @destroy unsafe (ctx as *ASTContext)
             return it2->second.ctx
         }
 
@@ -244,7 +244,10 @@ pub class GlobalDisambigTable {
             // Unpublish before the destroy: a lock-free reader that loads
             // after this sees null, never the freed ctx.
             self._publish(fid, &null, &null)
-            kairo::std::destroy(it->second.ctx)
+            if it->second.ctx != &null {
+                @destroy unsafe (it->second.ctx as *ASTContext)
+            }
+
             self._by_fid.erase(it)
         } else if (from as u8) <= (TUStage::Parsing as u8) {
             // hoisted lived in the context's index_alloc and release_from

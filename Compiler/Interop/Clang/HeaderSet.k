@@ -1080,12 +1080,12 @@ pub class HeaderSet {
 
         inv->getPreprocessorOpts().Includes.clear() // the buffer IS the includes.
 
-        self._printer = kairo::std::create<clang::TextDiagnosticPrinter>(
-            llvm::errs(),
-            self._diag_opts,
+        self._printer = @cxx::new clang::TextDiagnosticPrinter(
+            &llvm::errs(),
+            &self._diag_opts,
         )
 
-        self._ci = kairo::std::create<clang::CompilerInstance>(inv)
+        self._ci = @cxx::new clang::CompilerInstance(inv)
         if !setup_diagnostics(self._ci, be->vfs(), self._printer, false) {
             return false
         }
@@ -1155,7 +1155,9 @@ pub class HeaderSet {
         }
 
         self._ci->getDiagnostics().setClient(prev, false)
-        kairo::std::destroy(a)
+        if a != &null {
+            kairo::std::destroy(a)
+        }
     }
 
     /// build()'s buffered diagnostics into the driver's engine. Driver
@@ -1407,12 +1409,12 @@ pub class HeaderSet {
         }
 
         if self._ci != &null {
-            kairo::std::destroy(self._ci)
+            @cxx::delete self._ci
             self._ci = &null
         }
 
         if self._printer != &null {
-            kairo::std::destroy(self._printer)
+            @cxx::delete self._printer
             self._printer = &null
         }
     }

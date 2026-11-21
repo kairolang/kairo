@@ -156,14 +156,14 @@ pub struct ImportInfo {
 
 /// Lexes `fid` on its own, comments and newlines included.
 pub fn lex_file(ci: unsafe *CompilerInstance, fid: u32, out: unsafe *[RawTok]) -> bool {
-    var unsafe *imm = kairo::std::create<ImmediateTable>()
+    var unsafe *imm = unsafe (@create ImmediateTable() as unsafe *ImmediateTable)
     imm->initialize(ci->sm())
     // No thread pool: a whole-file lex of one file needs none (the pool only
     // serves sub-lexers of nested inputs, which kfmt never opens).
-    var unsafe *lx = kairo::std::create<Lexer>(ci->sm(), &null, ci->diag(), imm)
+    var unsafe *lx = unsafe (@create Lexer(ci->sm(), &null, ci->diag(), imm) as unsafe *Lexer)
     finally {
-        kairo::std::destroy(lx)
-        kairo::std::destroy(imm)
+        @destroy unsafe (lx as *Lexer)
+        @destroy unsafe (imm as *ImmediateTable)
     }
 
     if !lx->open(fid) {

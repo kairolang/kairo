@@ -94,7 +94,7 @@ pub class DriverIncludeSource derives KairoIncludeSource {
     /// KairoInject::agree_start.
     pub fn agree_start(self, repair: bool, count_unrecorded: bool) {
         if self.agree == &null {
-            self.agree = kairo::std::create<kairo::SemaAgreeTable>()
+            self.agree = @cxx::new kairo::SemaAgreeTable()
         }
 
         self.agree->repair           = repair
@@ -134,7 +134,7 @@ pub class DriverIncludeSource derives KairoIncludeSource {
         // set is final by now (every Kairo TU ran before any C/C++ input).
         if self._bound != ci {
             if self._locmap == &null {
-                self._locmap = kairo::std::create<ClangLocMap>(self._ksm)
+                self._locmap = unsafe (@create ClangLocMap(unsafe (self._ksm as unsafe *SourceManager)) as unsafe *ClangLocMap)
             }
 
             if !self._locmap->rebind(ci) {
@@ -218,7 +218,9 @@ pub class DriverIncludeSource derives KairoIncludeSource {
         }
 
         for var i: usize = 0; i < self._sinks.size(); ++i {
-            kairo::std::destroy(self._sinks[i])
+            if self._sinks[i] != &null {
+                @destroy unsafe (self._sinks[i] as *TokenSink)
+            }
         }
 
         self._sinks.clear()
@@ -232,12 +234,12 @@ pub class DriverIncludeSource derives KairoIncludeSource {
     fn op finally (self) {
         self.end_tu()
         if self.agree != &null {
-            kairo::std::destroy(self.agree)
+            @cxx::delete self.agree
             self.agree = &null
         }
 
         if self._locmap != &null {
-            kairo::std::destroy(self._locmap)
+            @destroy unsafe (self._locmap as *ClangLocMap)
             self._locmap = &null
         }
     }

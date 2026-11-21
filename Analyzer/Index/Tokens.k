@@ -334,15 +334,15 @@ pub fn encode_tokens(all: *const [SemTok], f: *const FileText, w: *JsonWriter) {
 /// and an f-string is one string.
 pub fn lexical_tokens(sm: unsafe *SourceManager, fid: u32, f: *const FileText, w: *JsonWriter) {
     var        all:  [SemTok]
-    var unsafe *diag          = kairo::std::create<DiagEngine>()
-    var unsafe *imm           = kairo::std::create<ImmediateTable>()
+    var unsafe *diag          = unsafe (@create DiagEngine() as unsafe *DiagEngine)
+    var unsafe *imm           = unsafe (@create ImmediateTable() as unsafe *ImmediateTable)
     imm->initialize(sm)
-    var unsafe *lx = kairo::std::create<Lexer>(sm, &null, diag, imm)
+    var unsafe *lx = unsafe (@create Lexer(sm, &null, diag, imm) as unsafe *Lexer)
     finally {
-        kairo::std::destroy(lx)
-        kairo::std::destroy(imm)
+        @destroy unsafe (lx as *Lexer)
+        @destroy unsafe (imm as *ImmediateTable)
         diag->clear_retained()
-        kairo::std::destroy(diag)
+        @destroy unsafe (diag as *DiagEngine)
     }
 
     if lx->open(fid) {
@@ -469,15 +469,15 @@ extend IndexWalker {
 
         // A throwaway engine: this lex repeats the one the compiler already
         // ran, and its diagnostics were reported then.
-        var unsafe *diag = kairo::std::create<DiagEngine>()
-        var unsafe *imm  = kairo::std::create<ImmediateTable>()
+        var unsafe *diag = unsafe (@create DiagEngine() as unsafe *DiagEngine)
+        var unsafe *imm  = unsafe (@create ImmediateTable() as unsafe *ImmediateTable)
         imm->initialize(self.sm)
-        var unsafe *lx = kairo::std::create<Lexer>(self.sm, &null, diag, imm)
+        var unsafe *lx = unsafe (@create Lexer(self.sm, &null, diag, imm) as unsafe *Lexer)
         finally {
-            kairo::std::destroy(lx)
-            kairo::std::destroy(imm)
+            @destroy unsafe (lx as *Lexer)
+            @destroy unsafe (imm as *ImmediateTable)
             diag->clear_retained()
-            kairo::std::destroy(diag)
+            @destroy unsafe (diag as *DiagEngine)
         }
 
         if !lx->open(self.fid) {

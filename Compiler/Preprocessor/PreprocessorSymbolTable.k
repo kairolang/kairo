@@ -26,7 +26,7 @@ pub class PreprocessorSymbolTable {
     /// moved the string out from under a reader mid-copy (the fuzzer's
     /// bad_alloc in _walk_one: a garbage length read from a freed slot).
     var symbols: [unsafe *string]
-    var _mu:     kairo::std::SharedMutex          ///< mutex for synchronizing access
+    var _mu:     kairo::std::SharedMutex ///< mutex for synchronizing access
 
     pub fn intern(self, name: string) -> SymbolID {
         {
@@ -46,7 +46,10 @@ pub class PreprocessorSymbolTable {
         }
 
         var id: SymbolID = (self.symbols.size() as u32)
-        self.symbols.push(kairo::std::create<string>(name.copy()))
+        self.symbols.push(
+            unsafe (@create string(name.copy()) as unsafe *string),
+        )
+
         self.table.try_emplace(kairo::sref(name), id)
 
         return id
@@ -90,7 +93,9 @@ pub class PreprocessorSymbolTable {
     fn clear(self) {
         self.table.clear()
         for var i: usize = 0; i < self.symbols.size(); ++i {
-            kairo::std::destroy(self.symbols[i])
+            if self.symbols[i] != &null {
+                @destroy unsafe (self.symbols[i] as *string)
+            }
         }
 
         self.symbols.clear()

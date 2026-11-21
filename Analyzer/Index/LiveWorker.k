@@ -81,9 +81,24 @@ import API::FS::LinkFS
 import Diagnostic::FileDiagnostics::FileDiagConsumer
 import Driver::CompilerNative::*
 import Index::Snapshot::{
-    SK_CXX_FLAGS, SK_C_FLAGS, SK_DEPS,   SK_DIAGNOSTICS, SK_FILES,      SK_OK,     SK_PARTIAL,
-    SK_PATH,      SK_RUN_US,  SK_TABLES, SK_TABLES_ALL,  SK_TABLES_SEQ, SK_TIMING, SK_UNCHECKED,
-    SK_UNIT_FIDS, SK_WALK_US, SK_WIDE,   SK_WRITE_US,
+    SK_CXX_FLAGS,
+    SK_C_FLAGS,
+    SK_DEPS,
+    SK_DIAGNOSTICS,
+    SK_FILES,
+    SK_OK,
+    SK_PARTIAL,
+    SK_PATH,
+    SK_RUN_US,
+    SK_TABLES,
+    SK_TABLES_ALL,
+    SK_TABLES_SEQ,
+    SK_TIMING,
+    SK_UNCHECKED,
+    SK_UNIT_FIDS,
+    SK_WALK_US,
+    SK_WIDE,
+    SK_WRITE_US,
 }
 import Index::Worker::{
     DiagCollector,
@@ -225,9 +240,9 @@ fn live_render(st: *LiveState, live: *LiveCheck, all: bool, owners: *const [stri
 
     // A collector per step: it caches each file's text for its line map,
     // and a text may have changed since the last step.
-    var unsafe *col = kairo::std::create<DiagCollector>(live->ci()->sm())
+    var unsafe *col = unsafe (@create DiagCollector(live->ci()->sm()) as unsafe *DiagCollector)
     finally {
-        kairo::std::destroy(col)
+        @destroy unsafe (col as *DiagCollector)
     }
 
     for var i: usize = 0; i < fd->diags.size(); ++i {
@@ -778,7 +793,7 @@ fn live_aside_copy(st: *LiveState, live: *LiveCheck, obs: unsafe *IndexObserver,
     var        diags: string = ""
     var unsafe *fd           = live->file_diags()
     if (fd != &null) && (live->ci() != &null) {
-        var unsafe *col = kairo::std::create<DiagCollector>(live->ci()->sm())
+        var unsafe *col = unsafe (@create DiagCollector(live->ci()->sm()) as unsafe *DiagCollector)
         for var i: usize = 0; i < fd->diags.size(); ++i {
             var owner: string = fd->owners[i].copy()
             if owner.is_empty() && fd->diags[i]->has_loc {
@@ -1077,9 +1092,9 @@ pub fn index_server_main(@inout args: [string]) -> i32 {
     // After the entry's own arguments, so it wins over a limit they set.
     words.push_back(CF_NO_ERROR_LIMIT.copy())
 
-    var unsafe *obs = kairo::std::create<IndexObserver>()
+    var unsafe *obs = unsafe (@create IndexObserver() as unsafe *IndexObserver)
     finally {
-        kairo::std::destroy(obs)
+        @destroy unsafe (obs as *IndexObserver)
     }
 
     obs->keep = true

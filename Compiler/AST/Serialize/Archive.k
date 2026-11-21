@@ -1102,7 +1102,7 @@ pub class ASTArchive {
         self.flag(&has_big)
         if has_big {
             if self.reading() {
-                d->big = kairo::std::create<ImmBigInt>(0 as usize)
+                d->big = unsafe (@create ImmBigInt(0 as usize) as unsafe *ImmBigInt)
             }
 
             self._io_big_int(d->big)
@@ -1157,7 +1157,7 @@ pub class ASTArchive {
         self.flag(&has_big)
         if has_big {
             if self.reading() {
-                d->big_float = kairo::std::create<ImmBigFloat>()
+                d->big_float = unsafe (@create ImmBigFloat() as unsafe *ImmBigFloat)
             }
 
             self._io_big_int(unsafe &d->big_float->mantissa)
@@ -1183,7 +1183,7 @@ pub class ASTArchive {
                 buf = exprs[i].0
                 rng = exprs[i].1
             } else {
-                buf = kairo::std::create<TokenBuffer<16>>()
+                buf = unsafe (@create TokenBuffer<16>() as unsafe *TokenBuffer<16>)
             }
 
             self.range(&rng)

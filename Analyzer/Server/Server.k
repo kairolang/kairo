@@ -96,9 +96,9 @@ import Workspace::CompileCommandsLoader::{
 import std::io
 
 pub fn server_main(const self_path: string) -> i32 {
-    var unsafe *s = kairo::std::create<Server>()
+    var unsafe *s = unsafe (@create Server() as unsafe *Server)
     finally {
-        kairo::std::destroy(s)
+        @destroy unsafe (s as *Server)
     }
 
     s->exe = self_path.copy()

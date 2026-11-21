@@ -516,7 +516,7 @@ pub class Lexer {
     }
 
     fn drain(self) -> unsafe *TokenBuffer<512> {
-        var unsafe *buf       = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *buf       = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        tok: Token
         while self.next(&tok) {
             buf->append(tok)
@@ -550,7 +550,7 @@ pub class Lexer {
         sub._size        = (end as usize)
         sub._state       = Self::StreamState::Streaming
 
-        var tokens       = kairo::std::create<TokenBuffer<N>>()
+        var tokens       = unsafe (@create TokenBuffer<N>() as unsafe *TokenBuffer<N>)
         var tok:   Token
 
         while sub.next(&tok) {
@@ -3051,15 +3051,15 @@ pub fn Test(bench: bool = false) -> i32 {
     // The test lambdas below capture by copy (stage1 semantics), and a
     // DiagEngine is not copyable: they share the engine through this pointer.
     var unsafe *test_diag_p = unsafe &test_diag
-    var unsafe *pool        = kairo::std::create<ThreadPool>(4)
-    var unsafe *vfm = kairo::std::create<VirtualFileManager>(test_diag_p)
+    var unsafe *pool        = unsafe (@create ThreadPool(4) as unsafe *ThreadPool)
+    var unsafe *vfm = unsafe (@create VirtualFileManager(unsafe (test_diag_p as *DiagEngine)) as unsafe *VirtualFileManager)
     // the engine is shared across every test case and error-case tests run at
     // ~1000 iterations each; past _error_limit errors go to suppressed_count
     // instead of error_count, which would zero the per-lex deltas the tests
     // assert on. effectively unlimited for the suite.
     test_diag.set_error_limit(u32::MAX)
-    var unsafe *sm   = kairo::std::create<SourceManager>(pool, vfm, test_diag_p)
-    var        suite = Assert("Lexer Tests")
+    var unsafe *sm = unsafe (@create SourceManager(pool, vfm, test_diag_p) as unsafe *SourceManager)
+    var suite = Assert("Lexer Tests")
 
     // HELPER: Create a lexer from string content
     static data:     string
@@ -3067,13 +3067,13 @@ pub fn Test(bench: bool = false) -> i32 {
 
     finally {
         if test_imm != &null {
-            kairo::std::destroy(test_imm)
+            @destroy unsafe (test_imm as *ImmediateTable)
             test_imm = &null
         }
 
-        kairo::std::destroy(sm)
-        kairo::std::destroy(vfm)
-        kairo::std::destroy(pool)
+        @destroy unsafe (sm as *SourceManager)
+        @destroy unsafe (vfm as *VirtualFileManager)
+        @destroy unsafe (pool as *ThreadPool)
     }
 
     var create_lexer_from_string_with_diag = fn (content: string, lsm: unsafe *SourceManager, lpool: unsafe *ThreadPool, diag: unsafe *DiagEngine) -> (unsafe *Lexer, u32) {
@@ -3090,18 +3090,18 @@ pub fn Test(bench: bool = false) -> i32 {
         // one itself. rebuilt per call so interner state does not bleed between
         // tests   several assert on first-intern behavior.
         if test_imm != &null {
-            kairo::std::destroy(test_imm)
+            @destroy unsafe (test_imm as *ImmediateTable)
         }
 
-        test_imm = kairo::std::create<ImmediateTable>()
+        test_imm = unsafe (@create ImmediateTable() as unsafe *ImmediateTable)
         test_imm->initialize(lsm)
 
-        var unsafe *lexer = kairo::std::create<Lexer>(
+        var unsafe *lexer = unsafe (@create Lexer(
             lsm,
             lpool,
             diag,
             test_imm,
-        )
+        ) as unsafe *Lexer)
 
         return (lexer, fid)
     }
@@ -3123,18 +3123,18 @@ pub fn Test(bench: bool = false) -> i32 {
         var        fid  = lsm->load_virtual(path, ptr, data.size())
 
         if test_imm != &null {
-            kairo::std::destroy(test_imm)
+            @destroy unsafe (test_imm as *ImmediateTable)
         }
 
-        test_imm = kairo::std::create<ImmediateTable>()
+        test_imm = unsafe (@create ImmediateTable() as unsafe *ImmediateTable)
         test_imm->initialize(lsm)
 
-        var unsafe *lexer = kairo::std::create<Lexer>(
+        var unsafe *lexer = unsafe (@create Lexer(
             lsm,
             lpool,
             diag,
             test_imm,
-        )
+        ) as unsafe *Lexer)
 
         return (lexer, fid)
     }
@@ -3181,7 +3181,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3217,7 +3217,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3262,7 +3262,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3315,7 +3315,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3375,7 +3375,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3421,7 +3421,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3484,7 +3484,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3548,7 +3548,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3608,7 +3608,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3661,7 +3661,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3718,7 +3718,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3771,7 +3771,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3841,7 +3841,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3909,7 +3909,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -3973,7 +3973,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4037,7 +4037,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4106,7 +4106,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4187,7 +4187,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4246,7 +4246,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4305,7 +4305,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4363,7 +4363,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4449,7 +4449,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4508,7 +4508,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4586,7 +4586,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4653,7 +4653,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4722,7 +4722,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4799,7 +4799,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4861,7 +4861,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4939,7 +4939,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -4995,7 +4995,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5068,7 +5068,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5131,7 +5131,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5237,7 +5237,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5308,7 +5308,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5348,7 +5348,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5388,7 +5388,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5428,7 +5428,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5468,7 +5468,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5508,7 +5508,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5548,7 +5548,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5600,7 +5600,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5648,7 +5648,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5688,7 +5688,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5740,7 +5740,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5780,7 +5780,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5834,7 +5834,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5876,7 +5876,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5920,7 +5920,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -5987,7 +5987,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6054,7 +6054,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6121,7 +6121,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6345,7 +6345,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6387,7 +6387,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6439,7 +6439,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6495,7 +6495,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6555,7 +6555,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6603,7 +6603,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6643,7 +6643,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6683,7 +6683,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6747,7 +6747,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6803,7 +6803,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6843,7 +6843,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6894,7 +6894,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -6966,7 +6966,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             lexer->lex(fid)
@@ -7002,7 +7002,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -7054,7 +7054,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             lexer->lex(fid)
@@ -7086,7 +7086,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             lexer->lex(fid)
@@ -7119,7 +7119,7 @@ pub fn Test(bench: bool = false) -> i32 {
             var        fid    = res.1
 
             finally {
-                kairo::std::destroy(lexer)
+                @destroy unsafe (lexer as *Lexer)
             }
 
             if !lexer->lex(fid) {
@@ -7278,7 +7278,9 @@ pub fn Test(bench: bool = false) -> i32 {
             }
         }
 
-        kairo::std::destroy(hot_lexer)
+        if hot_lexer != &null {
+            @destroy unsafe (hot_lexer as *Lexer)
+        }
     }
 
     return if mismatch => (1) else => 0

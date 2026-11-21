@@ -150,7 +150,7 @@ pub class InterfacePCH {
     fn op finally(self) {
         self._free_sinks()
         if self.agree != &null {
-            kairo::std::destroy(self.agree)
+            @cxx::delete self.agree
             self.agree = &null
         }
     }
@@ -159,7 +159,7 @@ pub class InterfacePCH {
     /// build(). `repair` and `count_unrecorded` as KairoInject::agree_start.
     pub fn agree_start(self, repair: bool, count_unrecorded: bool) {
         if self.agree == &null {
-            self.agree = kairo::std::create<kairo::SemaAgreeTable>()
+            self.agree = @cxx::new kairo::SemaAgreeTable()
         }
 
         self.agree->repair           = repair
@@ -168,7 +168,9 @@ pub class InterfacePCH {
 
     priv fn _free_sinks(self) {
         for var i: usize = 0; i < self._keep.size(); ++i {
-            kairo::std::destroy(self._keep[i])
+            if self._keep[i] != &null {
+                @destroy unsafe (self._keep[i] as *TokenSink)
+            }
         }
 
         self._keep.clear()
@@ -240,8 +242,8 @@ pub class InterfacePCH {
         // template bodies, performed here once (CodegenPCH::build says why).
         inv->getLangOpts().PCHInstantiateTemplates = 1
 
-        var unsafe *ci = kairo::std::create<clang::CompilerInstance>(inv)
-        self._locmap = kairo::std::create<ClangLocMap>(be->ksm())
+        var unsafe *ci = @cxx::new clang::CompilerInstance(inv)
+        self._locmap = unsafe (@create ClangLocMap(be->ksm()) as unsafe *ClangLocMap)
         var unsafe *a = kairo::std::create<ClangDiagAdapter>()
         a->sink   = unsafe &self.diag
         a->ksm    = be->ksm()
@@ -273,11 +275,17 @@ pub class InterfacePCH {
             }
         }
 
-        kairo::std::destroy(ci)
+        @cxx::delete ci
         a->EndSourceFile()
         a->finish()
-        kairo::std::destroy(a)
-        kairo::std::destroy(self._locmap)
+        if a != &null {
+            kairo::std::destroy(a)
+        }
+
+        if self._locmap != &null {
+            @destroy unsafe (self._locmap as *ClangLocMap)
+        }
+
         self._locmap = &null
         self._free_sinks()
         self.ok = ok

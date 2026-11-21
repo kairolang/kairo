@@ -72,7 +72,7 @@ pub class DirEntry {
     fn op finally (self) {
         for *entry in self.children {
             if entry->second != &null {
-                kairo::std::destroy(entry->second)
+                @destroy unsafe (entry->second as *DirEntry)
             }
         }
 
@@ -103,7 +103,7 @@ pub class DirEntry {
             return &null
         }
 
-        var unsafe *child = kairo::std::create<DirEntry>(name.copy(), true)
+        var unsafe *child = unsafe (@create DirEntry(name.copy(), true) as unsafe *DirEntry)
         child->fs_path                   = child_path
         child->ext_cfg                   = self.ext_cfg
         self.children[kairo::sref(name)] = child
@@ -140,12 +140,12 @@ pub class DirEntry {
         }
 
         var category = self.ext_cfg->categorize(ext)
-        var unsafe *child = kairo::std::create<DirEntry>(
+        var unsafe *child = unsafe (@create DirEntry(
             stem,
             full_path,
             ext,
             category,
-        )
+        ) as unsafe *DirEntry)
 
         child->ext_cfg                  = self.ext_cfg
         self.children[kairo::sref(key)] = child
@@ -193,10 +193,10 @@ pub class DirEntry {
 
             if etype == FileType::directory_file {
                 if self.children.find(kairo::sref(name_raw)) == self.children.end() {
-                    var unsafe *c = kairo::std::create<DirEntry>(
+                    var unsafe *c = unsafe (@create DirEntry(
                         name_raw.copy(),
                         true,
-                    )
+                    ) as unsafe *DirEntry)
 
                     c->fs_path = Path::from_known(full_raw, etype)
                     c->ext_cfg                           = self.ext_cfg
@@ -230,12 +230,12 @@ pub class DirEntry {
                     }
 
                     if self.children.find(kairo::sref(key)) == self.children.end() {
-                        var unsafe *c = kairo::std::create<DirEntry>(
+                        var unsafe *c = unsafe (@create DirEntry(
                             stem,
                             full,
                             ext,
                             cat,
-                        )
+                        ) as unsafe *DirEntry)
 
                         c->ext_cfg                      = self.ext_cfg
                         self.children[kairo::sref(key)] = c

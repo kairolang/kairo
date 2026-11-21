@@ -110,7 +110,9 @@ pub class HeaderIndex {
 
     fn op finally (self) {
         for var it = self._targets.begin(); it != self._targets.end(); ++it {
-            kairo::std::destroy(it->second)
+            if it->second != &null {
+                @destroy unsafe (it->second as *HeaderTarget)
+            }
         }
 
         self._targets.clear()
@@ -338,7 +340,7 @@ pub class HeaderIndex {
             ctx->tu        = tu
         }
 
-        var unsafe *t = kairo::std::create<HeaderTarget>()
+        var unsafe *t = unsafe (@create HeaderTarget() as unsafe *HeaderTarget)
         t->fid    = fid
         t->ctx    = ctx
         t->tu     = tu
@@ -495,9 +497,7 @@ pub class HeaderIndex {
                                 continue
                             }
 
-                            out.push(
-                                (unsafe (parts[i] as unsafe *void), ks),
-                            )
+                            out.push((unsafe (parts[i] as unsafe *void), ks))
 
                             self.walk_declare(parts[i], di, &out)
                         }

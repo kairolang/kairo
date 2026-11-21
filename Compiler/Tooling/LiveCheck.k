@@ -58,6 +58,7 @@ import Driver::CompilerRecovery
 import Driver::FrontendAction::FrontendAction
 import Driver::TUStage::TUStage
 import Native::GlobalRecycler::GlobalRecycler
+import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Support::Ascii::copy_strings
 import Support::FileIO::Path::Path
@@ -206,11 +207,11 @@ pub class LiveCheck {
         self._drop()
         for var i: usize = 0; i < self._ov.size(); ++i {
             if self._ov[i].cur != &null {
-                kairo::std::destroy(self._ov[i].cur)
+                @destroy unsafe (self._ov[i].cur as *string)
             }
 
             if self._ov[i].next != &null {
-                kairo::std::destroy(self._ov[i].next)
+                @destroy unsafe (self._ov[i].next as *string)
             }
         }
     }
@@ -1220,7 +1221,7 @@ pub class LiveCheck {
                     return false
                 }
 
-                next      = kairo::std::create<string>(text.copy())
+                next      = unsafe (@create string(text.copy()) as unsafe *string)
                 from_disk = true
             } else {
                 return self._ci->detach_for_refresh(fid, &null, 0, false, false)
@@ -1241,7 +1242,9 @@ pub class LiveCheck {
 
         if !ok {
             if from_disk {
-                kairo::std::destroy(next)
+                if next != &null {
+                    @destroy unsafe (next as *string)
+                }
             }
 
             return false
@@ -1249,7 +1252,7 @@ pub class LiveCheck {
 
         // Only now: the instance viewed the old text until the swap.
         if self._ov[k].cur != &null {
-            kairo::std::destroy(self._ov[k].cur)
+            @destroy unsafe (self._ov[k].cur as *string)
         }
 
         self._ov[k].cur  = next
@@ -1286,10 +1289,10 @@ pub class LiveCheck {
         }
 
         if self._ov[k].next != &null {
-            kairo::std::destroy(self._ov[k].next)
+            @destroy unsafe (self._ov[k].next as *string)
         }
 
-        self._ov[k].next = kairo::std::create<string>(text.copy())
+        self._ov[k].next = unsafe (@create string(text.copy()) as unsafe *string)
         self._ov[k].gone = false
     }
 
@@ -1302,7 +1305,7 @@ pub class LiveCheck {
         }
 
         if self._ov[k].next != &null {
-            kairo::std::destroy(self._ov[k].next)
+            @destroy unsafe (self._ov[k].next as *string)
             self._ov[k].next = &null
         }
 
@@ -1420,7 +1423,7 @@ pub class LiveCheck {
         }
 
         if self._action != &null {
-            kairo::std::destroy(self._action)
+            @destroy unsafe (self._action as *FrontendAction)
             self._action = &null
         }
 
@@ -1438,10 +1441,13 @@ pub class LiveCheck {
         // into this full check): nothing of the instance outlives it.
         self._ci->release_retired(false)
         self._ci->diag()->clear_retained()
-        kairo::std::destroy(self._ci)
+        if self._ci != &null {
+            @destroy unsafe (self._ci as *CompilerInstance)
+        }
+
         self._ci = &null
         if self._fd != &null {
-            kairo::std::destroy(self._fd)
+            @destroy unsafe (self._fd as *FileDiagConsumer)
             self._fd = &null
         }
     }
@@ -1488,7 +1494,7 @@ pub class LiveCheck {
         self.warnings = 0
         self.files    = 0
         var words = copy_strings(self._words)
-        self._ci = kairo::std::create<CompilerInstance>(words)
+        self._ci = unsafe (@create CompilerInstance(words) as unsafe *CompilerInstance)
         if !self._ci->args_ok() {
             return false
         }
@@ -1502,7 +1508,7 @@ pub class LiveCheck {
         for var i: usize = 0; i < self._ov.size(); ++i {
             if self._ov[i].next != &null || self._ov[i].gone || self._ov[i].disk {
                 if self._ov[i].cur != &null {
-                    kairo::std::destroy(self._ov[i].cur)
+                    @destroy unsafe (self._ov[i].cur as *string)
                 }
 
                 self._ov[i].cur  = self._ov[i].next
@@ -1532,7 +1538,7 @@ pub class LiveCheck {
         // What the instance reported while it was set up (a note about the
         // toolchain) is before the per-file list and is printed before it.
         self._pre = self._ci->incr_diag_count()
-        self._fd  = kairo::std::create<FileDiagConsumer>()
+        self._fd  = unsafe (@create FileDiagConsumer() as unsafe *FileDiagConsumer)
         self._ci->diag()->add_consumer(self._fd)
         self._ci->invocation()->frontend.file_diags = unsafe (self._fd as unsafe *void)
         if !self.dump_interface.is_empty() {
@@ -1550,13 +1556,13 @@ pub class LiveCheck {
         _apply_stop_at(self._ci, TUStage::Sema)
         var mp = entry_module_path(self._ci, Path(inputs[0]), self.as_module)
 
-        self._action = kairo::std::create<FrontendAction>(
+        self._action = unsafe (@create FrontendAction(
             Path(inputs[0]),
             mp,
-            self._ci->global_scope(),
-            self._ci->imp(),
+            unsafe &*self._ci->global_scope(),
+            unsafe (self._ci->imp() as *ImportResolver),
             self._ci,
-        )
+        ) as unsafe *FrontendAction)
 
         self._action->run()
         self.errors   = self._ci->diag()->error_count()

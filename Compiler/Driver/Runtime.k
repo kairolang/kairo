@@ -35,7 +35,7 @@ import std::c_char
 /// crash at exit, on the runs that linked.
 pub fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::InitLLVM {
     LinkFS::use_sibling_symbolizer()
-    var unsafe *init_llvm = kairo::std::create<llvm::InitLLVM>(argc, argv)
+    var unsafe *init_llvm = @cxx::new llvm::InitLLVM(&argc, &argv)
     llvm::InitializeAllTargetInfos()
     llvm::InitializeAllTargets()
     llvm::InitializeAllTargetMCs()

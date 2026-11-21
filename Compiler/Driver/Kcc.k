@@ -312,7 +312,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         kairo::Logger::dump_to_file()
         kairo::Logger::shutdown()
         GlobalRecycler::shutdown_allocator_runtime()
-        kairo::std::destroy(llvm_init)
+        @cxx::delete llvm_init
     }
 
     var words = cxx::std::vector<string>()
@@ -322,9 +322,9 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         return EXIT_FAILURE
     }
 
-    var unsafe *ci = kairo::std::create<CompilerInstance>(words)
+    var unsafe *ci = unsafe (@create CompilerInstance(words) as unsafe *CompilerInstance)
     finally {
-        kairo::std::destroy(ci)
+        @destroy unsafe (ci as *CompilerInstance)
     }
 
     if ci->wants_help() {

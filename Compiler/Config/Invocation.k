@@ -232,9 +232,9 @@ pub class CompilerInvocation {
             return inv
         }
 
-        var unsafe *cmd = kairo::std::create<Command>(argc, argv, diag)
+        var unsafe *cmd = unsafe (@create Command(argc, argv, diag) as unsafe *Command)
         finally {
-            kairo::std::destroy(cmd)
+            @destroy unsafe (cmd as *Command)
         }
 
         register_kairo_flags(cmd)

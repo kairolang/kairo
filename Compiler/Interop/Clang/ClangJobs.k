@@ -311,7 +311,7 @@ pub class ClangJobs {
     /// is the one removed; the others are -c-isystem / -cxx-isystem pairs,
     /// which nothing else in a Kairo line spells.
     priv static fn _env_drops(cmd: unsafe *clang::driver::Command, strip: bool) -> [u8] {
-        var n    = cmd->getArguments().size()
+        var n          = cmd->getArguments().size()
         var drop: [u8]
         for var k: usize = 0; k < n; ++k {
             drop.push(0)
@@ -404,12 +404,14 @@ pub class ClangJobs {
         a->sink = unsafe &self.diags
         a->ksm  = self._be->ksm()
         a->kfid = (u32::MAX)
-        var unsafe *ci = kairo::std::create<clang::CompilerInstance>(inv)
+        var unsafe *ci = @cxx::new clang::CompilerInstance(inv)
         // The instance first: its engine borrows the adapter to the end.
         finally {
-            kairo::std::destroy(ci)
+            @cxx::delete ci
             a->finish()
-            kairo::std::destroy(a)
+            if a != &null {
+                kairo::std::destroy(a)
+            }
         }
 
         ci->setVirtualFileSystem(self._be->vfs())

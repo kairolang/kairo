@@ -50,7 +50,7 @@ pub class HeaderSetCache {
     /// One clang parse for the build's header lists, not one per list.
     /// request() only records a list (a view); start_shared() parses their
     /// union. -fno-shared-header-set keeps one parse per list.
-    priv var _shared_mode: bool                                = true
+    priv var _shared_mode: bool                = true
     priv var _pending:     [unsafe *HeaderSet]
 
     fn HeaderSetCache(self, be: unsafe *ClangBackend, pool: *ThreadPool, shared: bool) {
@@ -61,12 +61,16 @@ pub class HeaderSetCache {
 
     fn op finally (self) {
         for var it = self._sets.begin(); it != self._sets.end(); ++it {
-            kairo::std::destroy(it->second)
+            if it->second != &null {
+                @destroy unsafe (it->second as *HeaderSet)
+            }
         }
 
         self._sets.clear()
         for var it = self._codegen.begin(); it != self._codegen.end(); ++it {
-            kairo::std::destroy(it->second)
+            if it->second != &null {
+                @destroy unsafe (it->second as *CodegenPCH)
+            }
         }
 
         self._codegen.clear()
@@ -104,7 +108,7 @@ pub class HeaderSetCache {
             return it->second
         }
 
-        var unsafe *hs = kairo::std::create<HeaderSet>()
+        var unsafe *hs = unsafe (@create HeaderSet() as unsafe *HeaderSet)
         hs->key         = key.copy()
         hs->headers     = copy_strings(headers)
         hs->c_linkage   = c_linkage
@@ -237,7 +241,7 @@ pub class HeaderSetCache {
             return
         }
 
-        var unsafe *u = kairo::std::create<HeaderSet>()
+        var unsafe *u = unsafe (@create HeaderSet() as unsafe *HeaderSet)
         u->key         = "<shared>\n" + HeaderSetCache::key_of(u_headers, u_c)
         u->headers     = u_headers
         u->c_linkage   = u_c
@@ -249,7 +253,7 @@ pub class HeaderSetCache {
             self._sets.try_emplace(kairo::sref(u->key), u)
         }
 
-        var unsafe *job = kairo::std::create<[unsafe *HeaderSet]>(views.copy())
+        var unsafe *job = unsafe (@create<[unsafe *HeaderSet]>(views.copy()) as unsafe *[unsafe *HeaderSet])
 
         var unsafe *be  = self._be
         var        *me  = &self
@@ -271,7 +275,9 @@ pub class HeaderSetCache {
                         }
                     }
 
-                    kairo::std::destroy(job)
+                    if job != &null {
+                        @destroy unsafe (job as *[unsafe *HeaderSet])
+                    }
                 },
             ),
             HEADER_BUILD_GROUP,
@@ -343,7 +349,7 @@ pub class HeaderSetCache {
                 return it->second
             }
 
-            p       = kairo::std::create<CodegenPCH>()
+            p       = unsafe (@create CodegenPCH() as unsafe *CodegenPCH)
             p->path = f"{HeaderSet::vfs_root()}/pch/codegen-{self._codegen.size()}.pch"
             self._codegen.try_emplace(kairo::sref(key), p)
         }
@@ -364,7 +370,7 @@ pub class HeaderSetCache {
     pub fn prebuild_codegen_pch(self,
                                 sets: cxx::std::vector<unsafe *HeaderSet>,
                                 rec:  unsafe *KTimeRecord) {
-        var unsafe *job = kairo::std::create<cxx::std::vector<unsafe *HeaderSet>>(
+        var unsafe *job = @cxx::new cxx::std::vector<unsafe *HeaderSet>(
             sets,
         )
 
@@ -374,7 +380,7 @@ pub class HeaderSetCache {
                 fn () |me, job, rec| {
                     var _kt = TimeReport::Worker(rec)
                     me->codegen_pch(&*job)
-                    kairo::std::destroy(job)
+                    @cxx::delete job
                 },
             ),
             CODEGEN_PCH_GROUP,

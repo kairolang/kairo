@@ -414,13 +414,13 @@ extend CompilerInstance {
     priv fn _native_jobs(self) -> unsafe *ClangJobs {
         if self._jobs == &null {
             var exe = Path::join_str(Path::parent_of(env::exe_path()), "clang")
-            self._jobs = kairo::std::create<ClangJobs>(self._backend, exe)
-            self._kincludes = kairo::std::create<DriverIncludeSource>(
+            self._jobs = unsafe (@create ClangJobs(self._backend, exe) as unsafe *ClangJobs)
+            self._kincludes = unsafe (@create DriverIncludeSource(
                 self._sm,
                 self._g_scope,
                 if (self._pp != &null) => (self._pp->get_symbol_table()) else => &null,
                 !self.invocation()->frontend.stops_at_parse() || self.kairo_feeds_includes(),
-            )
+            ) as unsafe *DriverIncludeSource)
 
             var *cgo = &self.invocation()->codegen
             if cgo->sema_agreement != 0 {

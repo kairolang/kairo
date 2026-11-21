@@ -1113,15 +1113,15 @@ pub class SourceManager {
 
 // TODO(replace with kairo test blocks)
 pub fn Test() -> i32 {
-    var unsafe *pool = kairo::std::create<ThreadPool>(4)
+    var unsafe *pool = unsafe (@create ThreadPool(4) as unsafe *ThreadPool)
     var        diag  = DiagEngine()
-    var unsafe *vfm  = kairo::std::create<VirtualFileManager>(&diag)
-    var unsafe *sm   = kairo::std::create<SourceManager>(pool, vfm, &diag)
+    var unsafe *vfm  = unsafe (@create VirtualFileManager(&diag) as unsafe *VirtualFileManager)
+    var unsafe *sm = unsafe (@create SourceManager(pool, vfm, unsafe (&diag as unsafe *DiagEngine)) as unsafe *SourceManager)
 
     finally {
-        kairo::std::destroy(sm)
-        kairo::std::destroy(vfm)
-        kairo::std::destroy(pool)
+        @destroy unsafe (sm as *SourceManager)
+        @destroy unsafe (vfm as *VirtualFileManager)
+        @destroy unsafe (pool as *ThreadPool)
     }
 
     var suite = Assert("SourceManager Multi-File Tests")

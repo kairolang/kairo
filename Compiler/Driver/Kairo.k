@@ -168,7 +168,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
         {
             var _t_inst = TimeRegion("Instance")
-            ci = kairo::std::create<CompilerInstance>(argc, argv)
+            ci = unsafe (@create CompilerInstance(argc, argv) as unsafe *CompilerInstance)
         }
     }
 
@@ -183,11 +183,13 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         GlobalRecycler::shutdown_allocator_runtime()
         // llvm_shutdown, while every static it reaches is still alive (see
         // init_runtime). Last: nothing after this touches LLVM.
-        kairo::std::destroy(llvm_init)
+        @cxx::delete llvm_init
     }
 
     finally {
-        kairo::std::destroy(ci)
+        if ci != &null {
+            @destroy unsafe (ci as *CompilerInstance)
+        }
     }
 
     /// # Identity: help / version / explain

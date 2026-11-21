@@ -1,7 +1,7 @@
 /// --- The Kairo Project -------------- Sema/Check/ParamPassInference.k --- ///
 ///
-/// A by-value parameter its function never mutates is passed as
-/// `const T&`, and warned to say `const`.
+/// A by-value parameter its function never mutates is warned to say
+/// `const`, and passed as `const T&` when the function stays in its TU.
 ///
 ///   \detail
 ///     `fn f(s: string)` was `f(::builtin::string::string s)`: every call
@@ -13,13 +13,23 @@
 ///         fn f(s: string) -> usize { return s.length() }
 ///              ^ parameter 's' is never mutated; declare it 'const'
 ///
-///     The decision is a function of the function's OWN declaration and
-///     body, nothing else: every TU that spells the signature (the
-///     definition, an importer's preamble, a header, `#include "foo.k"` in
-///     another run) reads the same `ParamDecl::inferred_const`, so the
-///     declaration and the definition cannot disagree. Who takes the
-///     function's address does not enter into it; a `fn` value of such a
-///     function goes through an adapter instead (EmitIR::_fn_ref_adapter).
+///     Only a function that stays in its TU is inferred: one `priv`, by
+///     itself or by an enclosing scope, written or by default, or local to
+///     another function (VisibilityFacts::fn_crosses_tu). Anything else is
+///     declared by other TUs from its written signature alone: a header, a
+///     declaration-only redeclaration (`pub fn f(s: string);`) whose
+///     definition is another file's, an import compiled in another run.
+///     None of those has the body, so an inferred `const T&` would be a
+///     signature they do not spell and the link would fail; and an exported
+///     ABI must not change when a body is edited. Such a parameter keeps
+///     its value and still gets the warning, since writing `const` is how
+///     it is passed by reference.
+///
+///     Within its TU the decision is a function of the function's OWN
+///     declaration and body, nothing else: every spelling of the signature
+///     reads the same `ParamDecl::inferred_const`. Who takes the function's
+///     address does not enter into it; a `fn` value of such a function goes
+///     through an adapter instead (EmitIR::_fn_ref_adapter).
 ///
 ///   \par Which parameters
 ///     Mode by value (not `@inout` / `@move`), not `self`, not already
@@ -93,9 +103,10 @@
 ///     `const` does not already have.
 ///
 ///   \par Library code
-///     Inferred in builtin and std like anywhere (the copy costs the same
-///     there), but the warning is the user's: a library file is not one
-///     the user can edit (SemaContext::in_library).
+///     The same rule in builtin and std, whose unmarked declarations are
+///     public, so only their `priv` functions are inferred; the warning is
+///     the user's: a library file is not one the user can edit
+///     (SemaContext::in_library).
 ///
 ///   The warning is SC224W, on by default.
 ///
@@ -198,6 +209,7 @@ import AST::Node::Types::{
     PointerType,
 }
 import AST::ParamMode::ParamMode
+import AST::VisibilityFacts::fn_crosses_tu
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Config::ResourceLayout::ResourceLayout
 import Diagnostic::Registry::DiagID
@@ -261,9 +273,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     priv var _approved: llvm::DenseSet<u64>
     /// Return types of the functions being walked, innermost last.
     priv var _ret:       [unsafe *Type]
-    priv var _closures:  usize                          = 0
-    priv var _library:   bool                           = false
-    pub var  n_inferred: usize                          = 0
+    priv var _closures:  usize          = 0
+    priv var _library:   bool           = false
+    pub var  n_inferred: usize          = 0
 
     /// -Wconst-self, in a TU that is not library code.
     priv var _lint: bool = false
@@ -278,8 +290,8 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     /// _e_to[i] (a first declaration) does.
     priv var _e_from:       [usize]
     priv var _e_to:         [unsafe *FunctionDecl]
-    pub var  n_const_self:  usize                                  = 0
-    pub var  n_const_inout: usize                                  = 0
+    pub var  n_const_self:  usize                  = 0
+    pub var  n_const_inout: usize                  = 0
     /// -Wconst-self's pointee half: the candidates of the functions being
     /// walked (innermost last), their index plus one by declaration, and
     /// for each reference a parent use claimed, the levels that use leaves
@@ -289,7 +301,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
     priv var _pl_index:  llvm::DenseMap<u64, u64>
     priv var _pl_claims: llvm::DenseMap<u64, u32>
     priv var _pl_fns:    [u8]
-    pub var  n_pointee:  usize                         = 0
+    pub var  n_pointee:  usize                    = 0
 
     fn ParamPassInference(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -327,7 +339,9 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
         var first    = self._cand.size()
         var pl_first = self._pl.size()
         var eligible = self._eligible_fn(n)
-        var pl_on    = false
+        // Only a function that stays in its TU may change how it is called.
+        var stamp = eligible && !fn_crosses_tu(n)
+        var pl_on = false
         if eligible {
             for var i: usize = 0; i < n->params.size(); ++i {
                 var unsafe *p = n->params[i]
@@ -384,7 +398,7 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
                     self._s_ok[slot] = 0
                 }
             } else if unmutated {
-                self._infer(n, p)
+                self._infer(n, p, stamp)
             }
 
             self._index.erase(p as usize as u64)
@@ -418,18 +432,18 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
 
     /// Stamp `p`, and the same parameter of every other link of `f`'s
     /// redeclaration chain (an out-of-line definition's declaration spells
-    /// the signature in the class), then warn.
-    priv fn _infer(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl) {
-        var        idx          = (p->index as usize)
-        var unsafe *head        = f->first_decl()
-        var unsafe *cur         = head
-        var        guard: usize = 0
+    /// the signature in the class), when `stamp`; then warn either way.
+    priv fn _infer(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl, stamp: bool) {
+        var        idx                        = (p->index as usize)
+        var unsafe *head                      = f->first_decl()
+        var unsafe *cur                       = head
+        var        guard: usize               = 0
         var        links: [unsafe *ParamDecl]
         while cur != &null && guard < 64 {
             if idx < cur->params.size() {
                 var unsafe *q = cur->params[idx]
                 if q != &null {
-                    q->inferred_const = true
+                    q->inferred_const = stamp
                     // A link that already spells `const` needs no edit.
                     if q != p && (!q->is_const) {
                         links.push(q)
@@ -444,8 +458,11 @@ pub class ParamPassInference derives RecursiveASTVisitor<ParamPassInference> {
             }
         }
 
-        p->inferred_const = true
-        self.n_inferred += 1
+        p->inferred_const = stamp
+        if stamp {
+            self.n_inferred += 1
+        }
+
         if self._library {
             return
         }

@@ -26,27 +26,27 @@ pub class ProviderSet {
     /// unknown id. `input` is --input, which only the user provider reads.
     pub static fn make(const id: string, const input: string) -> unsafe *SysrootProvider {
         if id == "musl" {
-            return unsafe (kairo::std::create<MuslProvider>() as unsafe *SysrootProvider)
+            return unsafe (@create MuslProvider() as unsafe *SysrootProvider)
         }
 
         if id == "glibc" {
-            return unsafe (kairo::std::create<GlibcProvider>() as unsafe *SysrootProvider)
+            return unsafe (@create GlibcProvider() as unsafe *SysrootProvider)
         }
 
         if id == "mingw" {
-            return unsafe (kairo::std::create<MingwProvider>() as unsafe *SysrootProvider)
+            return unsafe (@create MingwProvider() as unsafe *SysrootProvider)
         }
 
         if id == "wasi" {
-            return unsafe (kairo::std::create<WasiProvider>() as unsafe *SysrootProvider)
+            return unsafe (@create WasiProvider() as unsafe *SysrootProvider)
         }
 
         if id == "bundle" {
-            return unsafe (kairo::std::create<BundleProvider>() as unsafe *SysrootProvider)
+            return unsafe (@create BundleProvider() as unsafe *SysrootProvider)
         }
 
         if id == "user" {
-            return unsafe (kairo::std::create<UserProvider>(input) as unsafe *SysrootProvider)
+            return unsafe (@create UserProvider(input.copy()) as unsafe *SysrootProvider)
         }
 
         return &null

@@ -113,12 +113,12 @@ fn parse_fid(ci: unsafe *CompilerInstance, fid: u32) -> Parsed {
     var u = Parsed{}
     u.fid = fid
 
-    var unsafe *collector = kairo::std::create<ToolDiagConsumer>(ci->sm())
+    var unsafe *collector = unsafe (@create ToolDiagConsumer(ci->sm()) as unsafe *ToolDiagConsumer)
     var        saved      = ci->diag()->take_consumers()
     ci->diag()->add_consumer(collector)
     finally {
         ci->diag()->restore_consumers(saved)
-        kairo::std::destroy(collector)
+        @destroy unsafe (collector as *ToolDiagConsumer)
     }
 
     if ci->pp()->preprocess_one(fid, ModulePath()) {
@@ -714,7 +714,7 @@ fn format_one_file(ci:          unsafe *CompilerInstance,
 /// Kairo.k's init_runtime: see there for why the guard is returned
 /// rather than kept in a static.
 fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::InitLLVM {
-    var unsafe *init_llvm = kairo::std::create<llvm::InitLLVM>(argc, argv)
+    var unsafe *init_llvm = @cxx::new llvm::InitLLVM(&argc, &argv)
     llvm::InitializeAllTargetInfos()
     llvm::InitializeAllTargets()
     llvm::InitializeAllTargetMCs()
@@ -775,7 +775,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     finally {
         kairo::Logger::shutdown()
         GlobalRecycler::shutdown_allocator_runtime()
-        kairo::std::destroy(llvm_init)
+        @cxx::delete llvm_init
     }
 
     // kfmt's own flags come out of argv before the rest reaches kairo's parser
@@ -900,9 +900,9 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     }
 
     // One instance for the whole walk.
-    var unsafe *ci = kairo::std::create<CompilerInstance>(n, argv)
+    var unsafe *ci = unsafe (@create CompilerInstance(n, argv) as unsafe *CompilerInstance)
     finally {
-        kairo::std::destroy(ci)
+        @destroy unsafe (ci as *CompilerInstance)
     }
 
     if !ci->args_ok() {

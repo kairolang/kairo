@@ -1971,7 +1971,7 @@ extend CompilerInstance {
         var diags = clang::DiagnosticsEngine(
             clang::DiagnosticIDs::create(),
             &dopts,
-            kairo::std::create<clang::IgnoringDiagConsumer>(),
+            @cxx::new clang::IgnoringDiagConsumer(),
             true,
         )
 

@@ -504,12 +504,12 @@ pub class CodegenBackend derives TokenFiller {
 
         // Destroyed explicitly below, not in a `finally`, so its teardown is
         // timed; always before the adapter: the engine borrows it.
-        var unsafe *ci = kairo::std::create<clang::CompilerInstance>(inv)
+        var unsafe *ci = @cxx::new clang::CompilerInstance(inv)
         // createDiagnostics' member form applies the invocation's -W policy
         // itself (ProcessWarningOptions), with fresh counters: pass/fail is
         // per run.
         if !setup_diagnostics(ci, self._vfs, self._adapter, false) {
-            kairo::std::destroy(ci)
+            @cxx::delete ci
             return false
         }
 
@@ -555,7 +555,7 @@ pub class CodegenBackend derives TokenFiller {
         }
 
         ok = ok && ci->getDiagnostics().getNumErrors() == 0
-        kairo::std::destroy(ci)
+        @cxx::delete ci
         time_bill_since("TUTeardown", t_teardown)
         return ok
     }
@@ -730,7 +730,7 @@ pub class CodegenJob {
         // Per TU, as the CompilerInstance is: a ClangLocMap binds the one
         // SourceManager its rebind() saw, and the adapter asks it per
         // diagnostic.
-        var unsafe *locmap = kairo::std::create<ClangLocMap>(be->ksm())
+        var unsafe *locmap = unsafe (@create ClangLocMap(be->ksm()) as unsafe *ClangLocMap)
         var unsafe *a      = kairo::std::create<ClangDiagAdapter>()
         a->sink     = unsafe &self.sink
         a->ksm      = be->ksm()
@@ -799,17 +799,22 @@ pub class CodegenJob {
             self.iface_used = false
         }
 
-        kairo::std::destroy(a)
-        kairo::std::destroy(locmap)
+        if a != &null {
+            kairo::std::destroy(a)
+        }
+
+        if locmap != &null {
+            @destroy unsafe (locmap as *ClangLocMap)
+        }
     }
 
     fn op finally(self) {
         if self.plan != &null {
-            kairo::std::destroy(self.plan)
+            @destroy unsafe (self.plan as *EmitPlan)
         }
 
         if self.pcg != &null {
-            kairo::std::destroy(self.pcg)
+            @destroy unsafe (self.pcg as *CodegenContext)
         }
     }
 
@@ -846,14 +851,14 @@ pub class CodegenJob {
     /// Any thread: plans read what Sema finished and prepare_shared filled,
     /// as the fan-out's do.
     pub fn make_plan(self, r: *CodegenRun) {
-        self.pcg = kairo::std::create<CodegenContext>(
+        self.pcg = unsafe (@create CodegenContext(
             self.ctx,
             &null,
             r->psym,
             r->instances,
-        )
+        ) as unsafe *CodegenContext)
 
-        self.plan = kairo::std::create<EmitPlan>(self.pcg, PlanMode::Preamble)
+        self.plan = unsafe (@create EmitPlan(self.pcg, PlanMode::Preamble) as unsafe *EmitPlan)
         self.plan->require_shared()
         self.plan->run()
         self.pcg->advance_phase(CodegenPhase::Planned)

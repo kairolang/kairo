@@ -489,9 +489,9 @@ pub fn incr_replay_main(argc:         i32,
     }
 
     var        live   = LiveCheck(words)
-    var unsafe *watch = kairo::std::create<ReplayObserver>()
+    var unsafe *watch = unsafe (@create ReplayObserver() as unsafe *ReplayObserver)
     finally {
-        kairo::std::destroy(watch)
+        @destroy unsafe (watch as *ReplayObserver)
     }
 
     if observe {

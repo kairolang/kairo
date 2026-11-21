@@ -574,7 +574,9 @@ extend CompilerInstance {
             if quarantine {
                 c->quarantine()
             } else {
-                kairo::std::destroy(c)
+                if c != &null {
+                    @destroy unsafe (c as *ASTContext)
+                }
             }
         }
 

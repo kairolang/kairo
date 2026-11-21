@@ -90,7 +90,7 @@ pub class BuiltinsSet {
     /// this instance's engine borrows it.
     fn release(self) {
         if self._ci != &null {
-            kairo::std::destroy(self._ci)
+            @cxx::delete self._ci
             self._ci = &null
         }
 
@@ -118,7 +118,7 @@ pub class BuiltinsSet {
         var copy = cxx::std::make_shared<clang::CompilerInvocation>(*inv)
         copy->getPreprocessorOpts().Includes.clear() // no main file is ever entered.
 
-        self._ci = kairo::std::create<clang::CompilerInstance>(copy)
+        self._ci = @cxx::new clang::CompilerInstance(copy)
         if !setup_diagnostics(self._ci, vfs, printer, false) || !setup_target(self._ci) {
             self.release()
             return false

@@ -391,7 +391,7 @@ pub class ClangBackend {
 
         self._ksm    = ksm
         self._cfg    = copy_backend_config(cfg)
-        self._locmap = kairo::std::create<ClangLocMap>(ksm)
+        self._locmap = unsafe (@create ClangLocMap(ksm) as unsafe *ClangLocMap)
     }
 
     fn op finally (self) {
@@ -401,19 +401,19 @@ pub class ClangBackend {
         // CI's engine borrows _printer (ShouldOwnClient=false everywhere):
         // release the CI and the arg-parse engine BEFORE the printer dies.
         if self._ci != &null {
-            kairo::std::destroy(self._ci)
+            @cxx::delete self._ci
             self._ci = &null
         }
 
         self._diags0 = llvm::IntrusiveRefCntPtr<clang::DiagnosticsEngine>()
 
         if self._printer != &null {
-            kairo::std::destroy(self._printer)
+            @cxx::delete self._printer
             self._printer = &null
         }
 
         if self._locmap != &null {
-            kairo::std::destroy(self._locmap)
+            @destroy unsafe (self._locmap as *ClangLocMap)
             self._locmap = &null
         }
     }
@@ -647,7 +647,7 @@ pub class ClangBackend {
                 &inv.get()->getDiagnosticOpts(),
             )
 
-            var unsafe *ci = kairo::std::create<clang::CompilerInstance>(inv)
+            var unsafe *ci = @cxx::new clang::CompilerInstance(inv)
             ci->setVirtualFileSystem(self._vfs)
             ci->createDiagnostics(unsafe &printer, false)
             if ci->hasDiagnostics() {
@@ -665,7 +665,7 @@ pub class ClangBackend {
             }
 
             // The engine borrows the printer: the instance goes first.
-            kairo::std::destroy(ci)
+            @cxx::delete ci
             os.flush()
         }
 
@@ -997,8 +997,8 @@ pub class ClangBackend {
     /// gets one entry per root: ROOT_CXX_LIB, ROOT_BUILTINS or ROOT_C_LIB.
     priv fn _system_roots(self, is_c: bool, @inout kinds: [u8]) -> [string] {
         var o: [string]
-        var sr = self._cfg.sysroot.copy()
-        var rd = self._cfg.resource_dir.copy()
+        var sr          = self._cfg.sysroot.copy()
+        var rd          = self._cfg.resource_dir.copy()
         kinds.clear()
         var declared = !self._cfg.include_dirs.empty() || !self._cfg.cxx_include_dirs.empty()
         if !is_c {
@@ -1045,7 +1045,7 @@ pub class ClangBackend {
     pub fn library_roots(self, cxx_lib: bool) -> cxx::std::vector<string> {
         var kinds: [u8]
         var all         = self._system_roots(false, &kinds)
-        var o     = cxx::std::vector<string>()
+        var o           = cxx::std::vector<string>()
         for var i: usize = 0; i < all.size(); ++i {
             var k = kinds[i]
             if cxx_lib && k == ROOT_CXX_LIB {
@@ -1255,9 +1255,9 @@ pub class ClangBackend {
         )
 
         self._vfs = llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(overlay)
-        self._printer = kairo::std::create<clang::TextDiagnosticPrinter>(
-            llvm::errs(),
-            self._diag_opts,
+        self._printer = @cxx::new clang::TextDiagnosticPrinter(
+            &llvm::errs(),
+            &self._diag_opts,
         )
 
         // Standalone engine for cc1 arg parsing; the CI builds its own below.
@@ -1307,7 +1307,7 @@ pub class ClangBackend {
             )
         }
 
-        self._ci = kairo::std::create<clang::CompilerInstance>(self._cinv)
+        self._ci = @cxx::new clang::CompilerInstance(self._cinv)
         if !setup_diagnostics(self._ci, self._vfs, self._printer, false) {
             self._failed = true
             return

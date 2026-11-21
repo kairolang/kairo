@@ -83,7 +83,7 @@ pub class TokenCacheManager {
             )
 
             if page != &null {
-                kairo::std::destroy(page)
+                @destroy unsafe (page as *ImmPage)
             }
         }
     }
@@ -104,7 +104,7 @@ pub class TokenCacheManager {
                 return
             }
 
-            page = kairo::std::create<ImmPage>()
+            page = unsafe (@create ImmPage() as unsafe *ImmPage)
             self._imm_dir[pi].store(page, kairo::std::MemoryOrder::release)
         }
 
@@ -129,14 +129,14 @@ pub class TokenCacheManager {
     /// opens the real stream on this fid and asserts NotLexed.
     pub fn open_scan_stream(self, fid: u32) -> Self::ScanStream {
         var        s    = Self::ScanStream()
-        var unsafe *imm = kairo::std::create<ImmediateTable>()
+        var unsafe *imm = unsafe (@create ImmediateTable() as unsafe *ImmediateTable)
         imm->initialize(self._sm)
-        var unsafe *lexer = kairo::std::create<Lexer>(
+        var unsafe *lexer = unsafe (@create Lexer(
             self._sm,
-            self._pool,
-            self._diag,
+            unsafe (self._pool as unsafe *ThreadPool),
+            unsafe (self._diag as unsafe *DiagEngine),
             imm,
-        )
+        ) as unsafe *Lexer)
 
         // Bound explicitly, under the caller's region (DepScan), so this scan
         // lex does not merge with the walk's lex into a single row. They are
@@ -147,8 +147,8 @@ pub class TokenCacheManager {
         }
 
         if !lexer->open(fid) {
-            kairo::std::destroy(lexer)
-            kairo::std::destroy(imm)
+            @destroy unsafe (lexer as *Lexer)
+            @destroy unsafe (imm as *ImmediateTable)
             return s // lexer == &null signals failure
         }
 
@@ -160,12 +160,12 @@ pub class TokenCacheManager {
     pub fn close_scan_stream(self, s: *Self::ScanStream) {
         if s->lexer != &null {
             s->lexer->close()
-            kairo::std::destroy(s->lexer)
+            @destroy unsafe (s->lexer as *Lexer)
             s->lexer = &null
         }
 
         if s->imm != &null {
-            kairo::std::destroy(s->imm)
+            @destroy unsafe (s->imm as *ImmediateTable)
             s->imm = &null
         }
     }
@@ -187,19 +187,19 @@ pub class TokenCacheManager {
             kairo::std::ice_fail("open_stream: fid already open or closed")
         }
 
-        var unsafe *imm = kairo::std::create<ImmediateTable>()
+        var unsafe *imm = unsafe (@create ImmediateTable() as unsafe *ImmediateTable)
         imm->initialize(self._sm)
 
-        var unsafe *lexer = kairo::std::create<Lexer>(
+        var unsafe *lexer = unsafe (@create Lexer(
             self._sm,
-            self._pool,
-            self._diag,
+            unsafe (self._pool as unsafe *ThreadPool),
+            unsafe (self._diag as unsafe *DiagEngine),
             imm,
-        )
+        ) as unsafe *Lexer)
 
         if !lexer->open(fid) {
-            kairo::std::destroy(lexer)
-            kairo::std::destroy(imm)
+            @destroy unsafe (lexer as *Lexer)
+            @destroy unsafe (imm as *ImmediateTable)
             self._slots[fid as usize].state = Self::SlotState::Failed
             kairo::Logger::error(
                 kairo::Logger::Stage::Lexer,
@@ -230,7 +230,10 @@ pub class TokenCacheManager {
         }
 
         self._slots[fid as usize].lexer->close()
-        kairo::std::destroy(self._slots[fid as usize].lexer)
+        if self._slots[fid as usize].lexer != &null {
+            @destroy unsafe (self._slots[fid as usize].lexer as *Lexer)
+        }
+
         self._slots[fid as usize].lexer = &null
 
         self._slots[fid as usize].tokens = tokens
@@ -240,7 +243,7 @@ pub class TokenCacheManager {
     fn abort_stream(self, fid: u32) {
         var wlock = kairo::std::UniqueLock(self._lex_mu)
         if self._slots[fid as usize].lexer != &null {
-            kairo::std::destroy(self._slots[fid as usize].lexer)
+            @destroy unsafe (self._slots[fid as usize].lexer as *Lexer)
             self._slots[fid as usize].lexer = &null
         }
 
@@ -301,7 +304,7 @@ pub class TokenCacheManager {
             return
         }
 
-        var unsafe *imm = kairo::std::create<ImmediateTable>()
+        var unsafe *imm = unsafe (@create ImmediateTable() as unsafe *ImmediateTable)
         imm->initialize(self._sm)
         self._slots[fid as usize].imm = imm
         self._publish_imm(fid, imm)
@@ -320,17 +323,17 @@ pub class TokenCacheManager {
 
         for *slot in self._slots {
             if slot->lexer != &null {
-                kairo::std::destroy(slot->lexer)
+                @destroy unsafe (slot->lexer as *Lexer)
                 slot->lexer = &null
             }
 
             if slot->tokens != &null {
-                kairo::std::destroy(slot->tokens)
+                @destroy unsafe (slot->tokens as *TokenBuffer<512>)
                 slot->tokens = &null
             }
 
             if slot->imm != &null {
-                kairo::std::destroy(slot->imm)
+                @destroy unsafe (slot->imm as *ImmediateTable)
                 slot->imm = &null
             }
         }
@@ -380,18 +383,18 @@ pub class TokenCacheManager {
             || slot->imm != &null
 
         if slot->lexer != &null {
-            kairo::std::destroy(slot->lexer)
+            @destroy unsafe (slot->lexer as *Lexer)
             slot->lexer = &null
         }
 
         if slot->tokens != &null {
-            kairo::std::destroy(slot->tokens)
+            @destroy unsafe (slot->tokens as *TokenBuffer<512>)
             slot->tokens = &null
         }
 
         if slot->imm != &null {
             self._publish_imm(fid, &null)
-            kairo::std::destroy(slot->imm)
+            @destroy unsafe (slot->imm as *ImmediateTable)
             slot->imm = &null
         }
 

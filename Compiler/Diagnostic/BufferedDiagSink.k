@@ -147,7 +147,10 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         for var i: usize = 0; i < self._diags.size(); ++i {
             var unsafe *d = self._diags[i]
             if self._quieted_by(d, key, scope) {
-                kairo::std::destroy(d)
+                if d != &null {
+                    @destroy unsafe (d as *Diagnostic)
+                }
+
                 if self._warn_count > 0 {
                     self._warn_count -= 1
                 }
@@ -196,12 +199,18 @@ pub class BufferedDiagSink derives DiagEngineVBase {
 
     fn emit(self, diag: unsafe *Diagnostic) {
         if self._suppress_depth > 0 {
-            kairo::std::destroy(diag)
+            if diag != &null {
+                @destroy unsafe (diag as *Diagnostic)
+            }
+
             return
         }
 
         if self._quieted(diag) {
-            kairo::std::destroy(diag)
+            if diag != &null {
+                @destroy unsafe (diag as *Diagnostic)
+            }
+
             return
         }
 
@@ -236,7 +245,9 @@ pub class BufferedDiagSink derives DiagEngineVBase {
     /// another parse reports instead: HeaderSetCache::start_shared).
     pub fn discard(self) {
         for var i: usize = 0; i < self._diags.size(); ++i {
-            kairo::std::destroy(self._diags[i])
+            if self._diags[i] != &null {
+                @destroy unsafe (self._diags[i] as *Diagnostic)
+            }
         }
 
         self._diags.clear()
@@ -253,7 +264,9 @@ pub class BufferedDiagSink derives DiagEngineVBase {
         }
 
         for var i: usize = n; i < self._diags.size(); ++i {
-            kairo::std::destroy(self._diags[i])
+            if self._diags[i] != &null {
+                @destroy unsafe (self._diags[i] as *Diagnostic)
+            }
         }
 
         while self._diags.size() > n {

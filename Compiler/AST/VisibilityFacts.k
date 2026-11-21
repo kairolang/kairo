@@ -277,6 +277,74 @@ pub fn default_visibility_of(d:    unsafe *Decl,
     return td
 }
 
+/// `f` is visible to C or C++ outside its own TU: an `ffi` declaration, or
+/// a function no enclosing scope makes private, written or by default.
+/// `internal` still reaches the module's header (another file of the
+/// module includes it), so only `priv`, or a function local to another,
+/// keeps it in its TU. Anything that crosses is declared by other TUs from
+/// its written signature alone (a header, a declaration-only redeclaration,
+/// another run's import), so a fact inferred from its body must not change
+/// how it is called.
+pub fn fn_crosses_tu(f: unsafe *Declarations::FunctionDecl) -> bool {
+    if f == &null {
+        return false
+    }
+
+    if f->has_ffi_linkage() {
+        return true
+    }
+
+    // A requirement is no C++ function: its witness thunk is, inside the
+    // witness the conformance emits, and the conformer answers for itself.
+    var unsafe *fdc = f->semantic_dc
+    if fdc != &null && fdc->dc_kind == DeclContextKind::Interface {
+        return false
+    }
+
+    var unsafe *d = unsafe (f as unsafe *Decl)
+    while d != &null {
+        var v = d->visibility
+        if v == VisibilityKind::None {
+            // A redeclaration chain says it once (AccessCheck::_effective).
+            var unsafe *fd = dyn_cast<Declarations::FunctionDecl>(d)
+            if fd != &null && fd->canonical_decl() != &null {
+                v = fd->canonical_decl()->visibility
+            }
+
+            if v == VisibilityKind::None && fd != &null && fd->first_decl() != &null {
+                v = fd->first_decl()->visibility
+            }
+        }
+
+        // Unmarked is the documented default, not `pub`: `priv` outside a
+        // module, `prot` in one.
+        if v == VisibilityKind::None {
+            v = default_visibility_of(d)
+        }
+
+        if v == VisibilityKind::Private {
+            return false
+        }
+
+        var unsafe *dc = d->semantic_dc
+        if dc == &null {
+            return true
+        }
+
+        if dc->is_function() {
+            return false
+        }
+
+        if dc->is_translation_unit() {
+            return true
+        }
+
+        d = dc->owner_decl()
+    }
+
+    return true
+}
+
 /// `d` is an operator (`op +`, `op ==`, `op panic`, ...). What C++ sees of
 /// an unmarked one stays public whatever its default: C++ reaches them
 /// through probes (a `requires`, the panic helpers' `op panic` test), which

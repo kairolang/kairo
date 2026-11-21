@@ -54,6 +54,7 @@ import Driver::CompilerGraph
 import Driver::CompilerInstance::CompilerInstance
 import Driver::FrontendAction::FrontendAction
 import Driver::TUStage::TUStage
+import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Support::FileIO::Path::Path
 import Tooling::ToolDiagnostics::{
@@ -293,7 +294,10 @@ pub class OwnedUnit {
 
         release_all(self._ci, TUStage::Lexing)
         self._ci->diag()->clear_retained()
-        kairo::std::destroy(self._ci)
+        if self._ci != &null {
+            @destroy unsafe (self._ci as *CompilerInstance)
+        }
+
         self._ci = &null
     }
 }
@@ -392,9 +396,9 @@ pub fn parse_file(ci:         unsafe *CompilerInstance,
     // Swap the engine's consumers for a collector so nothing prints. Restored
     // unconditionally   a tool that leaves the driver's consumers detached
     // would silence the rest of the process.
-    var unsafe *collector = kairo::std::create<ToolDiagConsumer>(ci->sm())
+    var unsafe *collector = unsafe (@create ToolDiagConsumer(ci->sm()) as unsafe *ToolDiagConsumer)
     finally {
-        kairo::std::destroy(collector)
+        @destroy unsafe (collector as *ToolDiagConsumer)
     }
 
     var saved = cxx::std::vector<unsafe *DiagConsumer>()
@@ -411,16 +415,16 @@ pub fn parse_file(ci:         unsafe *CompilerInstance,
 
     var mp = entry_module_path(ci, path, opts.as_module)
 
-    var unsafe *action = kairo::std::create<FrontendAction>(
+    var unsafe *action = unsafe (@create FrontendAction(
         path.copy(),
         mp,
-        ci->global_scope(),
-        ci->imp(),
+        unsafe &*ci->global_scope(),
+        unsafe (ci->imp() as *ImportResolver),
         ci,
-    )
+    ) as unsafe *FrontendAction)
 
     finally {
-        kairo::std::destroy(action)
+        @destroy unsafe (action as *FrontendAction)
     }
 
     action->run()
@@ -565,10 +569,10 @@ pub fn parse_string(ci:          unsafe *CompilerInstance,
 /// - `stop_at`: last stage to run. Parsing for syntax tools, Sema if you
 ///   need types resolved.
 pub fn parse_once(const path: Path, inv: *CompilerInvocation, stop_at: TUStage) -> OwnedUnit {
-    var unsafe *ci = kairo::std::create<CompilerInstance>(inv)
+    var unsafe *ci = unsafe (@create CompilerInstance(unsafe (inv as unsafe *CompilerInvocation)) as unsafe *CompilerInstance)
 
     if !ci->args_ok() {
-        kairo::std::destroy(ci)
+        @destroy unsafe (ci as *CompilerInstance)
         return OwnedUnit::failure(TUStage::Failed)
     }
 
@@ -601,8 +605,8 @@ pub fn parse_once(const path: Path,
                   argc:       i32,
                   argv:       unsafe *(unsafe *c_char),
                   stop_at:    TUStage) -> OwnedUnit {
-    var unsafe *diag = kairo::std::create<DiagEngine>()
-    var unsafe *sink = kairo::std::create<ToolDiagConsumer>(&null) // no SM yet; flag errors carry no loc
+    var unsafe *diag = unsafe (@create DiagEngine() as unsafe *DiagEngine)
+    var unsafe *sink = unsafe (@create ToolDiagConsumer(&null) as unsafe *ToolDiagConsumer) // no SM yet; flag errors carry no loc
     diag->add_consumer(sink)
 
     var inv      = CompilerInvocation::from_args(argc, argv, diag)
@@ -610,8 +614,8 @@ pub fn parse_once(const path: Path,
 
     diag->remove_consumer(sink)
     diag->clear_retained()
-    kairo::std::destroy(sink)
-    kairo::std::destroy(diag)
+    @destroy unsafe (sink as *ToolDiagConsumer)
+    @destroy unsafe (diag as *DiagEngine)
 
     if !inv.ok {
         var bad = OwnedUnit::failure(TUStage::Failed)
@@ -696,9 +700,9 @@ pub fn reparse(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> Pa
     var err0 = ci->diag()->error_count()
     var wrn0 = ci->diag()->warn_count()
 
-    var unsafe *collector = kairo::std::create<ToolDiagConsumer>(ci->sm())
+    var unsafe *collector = unsafe (@create ToolDiagConsumer(ci->sm()) as unsafe *ToolDiagConsumer)
     finally {
-        kairo::std::destroy(collector)
+        @destroy unsafe (collector as *ToolDiagConsumer)
     }
 
     var saved = cxx::std::vector<unsafe *DiagConsumer>()

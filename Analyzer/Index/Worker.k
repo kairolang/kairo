@@ -206,10 +206,10 @@ pub class IndexObserver derives SemaObserver {
             // declarations are what the indexed files name and complete.
             if (!sc->ctx->syntax_skipped) && (!sc->tu->is_foreign) {
                 var        tw0 = worker_us()
-                var unsafe *tw = kairo::std::create<IndexWalker>(sc)
+                var unsafe *tw = unsafe (@create IndexWalker(sc) as unsafe *IndexWalker)
                 tw->run_table(fid)
                 var table: string = tw->table.copy()
-                kairo::std::destroy(tw)
+                @destroy unsafe (tw as *IndexWalker)
                 var lock = kairo::std::LockGuard(self.mu_)
                 self.walk_us += worker_us() - tw0
                 self.keep_table_(path, table)
@@ -235,7 +235,7 @@ pub class IndexObserver derives SemaObserver {
         }
 
         var        t0      = worker_us()
-        var unsafe *walker = kairo::std::create<IndexWalker>(sc)
+        var unsafe *walker = unsafe (@create IndexWalker(sc) as unsafe *IndexWalker)
         walker->facts = unsafe &self.facts
         walker->run(fid)
         walker->named_ = named
@@ -320,7 +320,10 @@ pub class IndexObserver derives SemaObserver {
         var named         = walker->named_
         var wpath         = walker->path_.copy()
         var table: string = walker->table.copy()
-        kairo::std::destroy(walker)
+        if walker != &null {
+            @destroy unsafe (walker as *IndexWalker)
+        }
+
         var t2 = worker_us()
 
         var lock = kairo::std::LockGuard(self.mu_)
@@ -695,14 +698,14 @@ fn syntax_answer(const file:   string,
                  real:         *const [string],
                  texts:        *const [string],
                  @inout words: cxx::std::vector<string>) -> string {
-    var unsafe *ci = kairo::std::create<CompilerInstance>(words)
+    var unsafe *ci = unsafe (@create CompilerInstance(words) as unsafe *CompilerInstance)
     finally {
-        kairo::std::destroy(ci)
+        @destroy unsafe (ci as *CompilerInstance)
     }
 
-    var unsafe *collector = kairo::std::create<DiagCollector>(ci->sm())
+    var unsafe *collector = unsafe (@create DiagCollector(ci->sm()) as unsafe *DiagCollector)
     finally {
-        kairo::std::destroy(collector)
+        @destroy unsafe (collector as *DiagCollector)
     }
 
     collector->syntax_only = true
@@ -981,16 +984,16 @@ pub fn worker_main(@inout args: [string]) -> i32 {
         }
     }
 
-    var unsafe *ci = kairo::std::create<CompilerInstance>(words)
+    var unsafe *ci = unsafe (@create CompilerInstance(words) as unsafe *CompilerInstance)
     finally {
-        kairo::std::destroy(ci)
+        @destroy unsafe (ci as *CompilerInstance)
     }
 
-    var unsafe *collector = kairo::std::create<DiagCollector>(ci->sm())
-    var unsafe *observer  = kairo::std::create<IndexObserver>()
+    var unsafe *collector = unsafe (@create DiagCollector(ci->sm()) as unsafe *DiagCollector)
+    var unsafe *observer  = unsafe (@create IndexObserver() as unsafe *IndexObserver)
     finally {
-        kairo::std::destroy(observer)
-        kairo::std::destroy(collector)
+        @destroy unsafe (observer as *IndexObserver)
+        @destroy unsafe (collector as *DiagCollector)
     }
 
     if !ci->args_ok() {

@@ -306,10 +306,10 @@ extend CompilerInstance {
         // microcontroller") are a compile's to say, not this query's.
         var cfg = self._backend_config()
         cfg.driver_words.push_back("-w")
-        var unsafe *be = kairo::std::create<ClangBackend>(self._sm, cfg)
+        var unsafe *be = unsafe (@create ClangBackend(unsafe &*self._sm, cfg) as unsafe *ClangBackend)
 
         finally {
-            kairo::std::destroy(be)
+            @destroy unsafe (be as *ClangBackend)
         }
 
         // The last one: --mcpu is placed after the driver's default, and
@@ -675,9 +675,9 @@ extend CompilerInstance {
 
         io::println(f"{cline}")
 
-        var unsafe *cmd = kairo::std::create<Command>(0, &null, self._diag)
+        var unsafe *cmd = unsafe (@create Command(0, &null, unsafe &*self._diag) as unsafe *Command)
         finally {
-            kairo::std::destroy(cmd)
+            @destroy unsafe (cmd as *Command)
         }
 
         register_kairo_flags(cmd)
@@ -703,13 +703,13 @@ extend CompilerInstance {
     /// files" error the parser queued is left undrained on purpose:
     /// a probe's stdout is its whole interface).
     fn print_clang_query(self) -> i32 {
-        var unsafe *be = kairo::std::create<ClangBackend>(
-            self._sm,
+        var unsafe *be = unsafe (@create ClangBackend(
+            unsafe &*self._sm,
             self._backend_config(),
-        )
+        ) as unsafe *ClangBackend)
 
         finally {
-            kairo::std::destroy(be)
+            @destroy unsafe (be as *ClangBackend)
         }
 
         var w = cxx::std::vector<string>()
@@ -746,13 +746,13 @@ extend CompilerInstance {
             return EXIT_FAILURE
         }
 
-        var unsafe *be = kairo::std::create<ClangBackend>(
-            self._sm,
+        var unsafe *be = unsafe (@create ClangBackend(
+            unsafe &*self._sm,
             self._backend_config(),
-        )
+        ) as unsafe *ClangBackend)
 
         finally {
-            kairo::std::destroy(be)
+            @destroy unsafe (be as *ClangBackend)
         }
 
         var line = "clang -cc1"

@@ -176,7 +176,7 @@ import std::io
 /// The same process setup `kairo` and `kfmt` do: the worker IS the compiler,
 /// and clang needs its targets registered before the first header is read.
 fn init_runtime(argc: i32, argv: unsafe *(unsafe *c_char)) -> unsafe *llvm::InitLLVM {
-    var unsafe *init_llvm = kairo::std::create<llvm::InitLLVM>(argc, argv)
+    var unsafe *init_llvm = @cxx::new llvm::InitLLVM(&argc, &argv)
     llvm::InitializeAllTargetInfos()
     llvm::InitializeAllTargets()
     llvm::InitializeAllTargetMCs()
@@ -247,7 +247,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         finally {
             kairo::Logger::shutdown()
             GlobalRecycler::shutdown_allocator_runtime()
-            kairo::std::destroy(llvm_init)
+            @cxx::delete llvm_init
         }
 
         var rest: [string]

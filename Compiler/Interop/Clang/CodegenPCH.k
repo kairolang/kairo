@@ -140,9 +140,9 @@ pub class CodegenPCH {
         // need not match it for the PCH to load.
         inv->getLangOpts().PCHInstantiateTemplates = 1
 
-        var unsafe *ci = kairo::std::create<clang::CompilerInstance>(inv)
+        var unsafe *ci = @cxx::new clang::CompilerInstance(inv)
         var        ok  = self._parse(ci, be, fe->Inputs[0])
-        kairo::std::destroy(ci)
+        @cxx::delete ci
         self.ok = ok
         kairo::Logger::info(
             kairo::Logger::Stage::Driver,
@@ -175,7 +175,7 @@ pub class CodegenPCH {
         if !setup_diagnostics(
             ci,
             be->vfs(),
-            kairo::std::create<clang::IgnoringDiagConsumer>(),
+            @cxx::new clang::IgnoringDiagConsumer(),
             true,
         ) {
             return false

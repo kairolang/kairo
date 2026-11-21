@@ -157,8 +157,18 @@ import Driver::CompilerNative
 import Driver::CompilerRecovery
 import Driver::ObjectCache::ObjectCache
 import Driver::Progress::{
-    PROGRESS_CODEGEN, PROGRESS_EMIT, PROGRESS_IRGEN,  PROGRESS_OPT, PROGRESS_PARSE, PROGRESS_SEMA,
-    progress_begin,   progress_end,  progress_finish, progress_on,  progress_reuse, progress_tick,
+    PROGRESS_CODEGEN,
+    PROGRESS_EMIT,
+    PROGRESS_IRGEN,
+    PROGRESS_OPT,
+    PROGRESS_PARSE,
+    PROGRESS_SEMA,
+    progress_begin,
+    progress_end,
+    progress_finish,
+    progress_on,
+    progress_reuse,
+    progress_tick,
 }
 import Driver::TUResult::TUResult
 import Driver::TUStage::TUStage
@@ -2720,7 +2730,9 @@ pub class FrontendAction {
         var sems = self._sema_make(*fids)
         self._sema_finish(sems, effects, print_sema, print_lowered, sema_opts)
         for var i: usize = 0; i < sems.size(); ++i {
-            kairo::std::destroy(sems[i])
+            if sems[i] != &null {
+                @destroy unsafe (sems[i] as *Sema)
+            }
         }
     }
 
@@ -2747,7 +2759,7 @@ pub class FrontendAction {
                 continue
             }
 
-            var unsafe *sem = kairo::std::create<Sema>(ctx, self._global_scope)
+            var unsafe *sem = unsafe (@create Sema(ctx, self._global_scope) as unsafe *Sema)
             sem->sc.foreign  = self._ci->foreign_instantiate() // before any pass captures &sem->sc.
             sem->sc.builtins = self._ci->builtins()
             // The file this action was asked to compile is a root, and may be a
@@ -3146,7 +3158,7 @@ pub class FrontendAction {
         var maxdep:  [usize]            ///< 1 + the last group it imports; 0 for none.
         var barrier: [u8]
         for var g: usize = 0; g < m; ++g {
-            var unsafe *slot = kairo::std::create<SemaSlot>()
+            var unsafe *slot = unsafe (@create SemaSlot() as unsafe *SemaSlot)
             slot->rank = group_rank(rank_base, g as u64)
             for var k: usize = (groups->starts[g]); k < (groups->starts[g + 1]); ++k {
                 slot->members.push_back(groups->fids[k])
@@ -3294,7 +3306,9 @@ pub class FrontendAction {
             }
 
             for var i: usize = 0; i < slot->sems.size(); ++i {
-                kairo::std::destroy(slot->sems[i])
+                if slot->sems[i] != &null {
+                    @destroy unsafe (slot->sems[i] as *Sema)
+                }
             }
 
             slot->sems.clear()
@@ -3305,7 +3319,9 @@ pub class FrontendAction {
 
         self._ci->pool()->wait_group(SEMA_GROUP)
         for var g: usize = 0; g < m; ++g {
-            kairo::std::destroy(slots[g])
+            if slots[g] != &null {
+                @destroy unsafe (slots[g] as *SemaSlot)
+            }
         }
     }
 
@@ -3635,7 +3651,9 @@ pub class FrontendAction {
             var unsafe *ctx = self._global_scope->get_context(fid)
             if ctx == &null {
                 for var j: unsafe *CodegenJob in jobs {
-                    kairo::std::destroy(j)
+                    if j != &null {
+                        @destroy unsafe (j as *CodegenJob)
+                    }
                 }
 
                 return self._fatal(
@@ -3703,7 +3721,7 @@ pub class FrontendAction {
                 }
             }
 
-            var unsafe *job = kairo::std::create<CodegenJob>()
+            var unsafe *job = unsafe (@create CodegenJob() as unsafe *CodegenJob)
             job->fid   = fid
             job->ctx   = ctx
             job->ksize = ksize
@@ -3913,8 +3931,14 @@ pub class FrontendAction {
 
             EmitPlan::assign_homes(plans, jkeys)
             for var j: unsafe *CodegenJob in jobs {
-                kairo::std::destroy(j->plan)
-                kairo::std::destroy(j->pcg)
+                if j->plan != &null {
+                    @destroy unsafe (j->plan as *EmitPlan)
+                }
+
+                if j->pcg != &null {
+                    @destroy unsafe (j->pcg as *CodegenContext)
+                }
+
                 j->plan = &null
                 j->pcg  = &null
             }
@@ -4218,7 +4242,9 @@ pub class FrontendAction {
         var ifaces: [unsafe *InterfacePCH]
         finally {
             for var p: unsafe *InterfacePCH in ifaces {
-                kairo::std::destroy(p)
+                if p != &null {
+                    @destroy unsafe (p as *InterfacePCH)
+                }
             }
         }
 
@@ -4261,7 +4287,7 @@ pub class FrontendAction {
                 self._ci->pool()->wait_group(CODEGEN_GROUP)
             }
 
-            var unsafe *iface = kairo::std::create<InterfacePCH>()
+            var unsafe *iface = unsafe (@create InterfacePCH() as unsafe *InterfacePCH)
             ifaces.push(iface)
             iface->path = HeaderSet::vfs_root() + f"/pch/interface-{flavour}.pch"
             for var j: unsafe *CodegenJob in mine {
@@ -4513,7 +4539,9 @@ pub class FrontendAction {
         }
 
         for var j: unsafe *CodegenJob in jobs {
-            kairo::std::destroy(j)
+            if j != &null {
+                @destroy unsafe (j as *CodegenJob)
+            }
         }
 
         if caching {

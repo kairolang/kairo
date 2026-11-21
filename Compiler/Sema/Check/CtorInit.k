@@ -342,7 +342,7 @@ pub class CtorFieldWriteFind derives RecursiveASTVisitor<CtorFieldWriteFind> {
 /// constructor's own `self` (`self_decl`): a local class's methods have
 /// another one. `own` is the record's own fields.
 pub class CtorInheritedFind derives RecursiveASTVisitor<CtorInheritedFind> {
-    pub var self_decl: unsafe *Decl                        = &null
+    pub var self_decl: unsafe *Decl                  = &null
     pub var own:       FrozenList<unsafe *FieldDecl>
     pub var fields:    [unsafe *FieldDecl]
 
@@ -612,10 +612,10 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
     /// The record's own fields, then the fields of its bases the body
     /// names through `self` (_with_inherited); _own counts the first part.
     priv var _fields:   FrozenList<unsafe *FieldDecl>
-    priv var _own:      usize                               = 0
+    priv var _own:      usize                         = 0
     priv var _st:       CtorFlow
-    priv var _loops:    u32                                 = 0
-    priv var _failed:   bool                                = false
+    priv var _loops:    u32                           = 0
+    priv var _failed:   bool                          = false
     priv var _frontier: SourceRange
     priv var _written:  [unsafe *FieldDecl]                   ///< every field S_pre writes.
     priv var _first_at: [SourceRange]                         ///< parallel: its first write.
@@ -869,7 +869,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
 
         // The trial reports into a sink of its own, which is dropped.
         var        approved = self._approved.size()
-        var unsafe *sink    = kairo::std::create<BufferedDiagSink>()
+        var unsafe *sink    = unsafe (@create BufferedDiagSink() as unsafe *BufferedDiagSink)
         var unsafe *real    = self.sc->diag
         self.sc->diag = sink
         var split = self._split_ctor(owner, fields, f, index)
@@ -877,7 +877,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
 
         var clean = split && !self._failed && sink->size() == 0
         sink->discard()
-        kairo::std::destroy(sink)
+        @destroy unsafe (sink as *BufferedDiagSink)
         self._dependent.clear()
         if !clean {
             self._approved.truncate(approved)
@@ -2004,7 +2004,7 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
                     fields: FrozenList<unsafe *FieldDecl>,
                     stmts:  FrozenList<unsafe *Stmt>) -> [usize] {
         var out: [usize]
-        var any = false
+        var any          = false
         for var i: usize = 0; i < fields.size(); ++i {
             out.push(usize::MAX)
             if self._settles(fields[i]) {

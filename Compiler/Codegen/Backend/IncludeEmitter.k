@@ -373,7 +373,7 @@ pub class IncludeEmitter {
             return false
         }
 
-        var unsafe *sink = kairo::std::create<TokenSink>(
+        var unsafe *sink = unsafe (@create TokenSink(
             pp,
             csm,
             locmap,
@@ -381,7 +381,7 @@ pub class IncludeEmitter {
             kfid,
             ksize,
             unsafe &ctx->codegen_alloc,
-        )
+        ) as unsafe *TokenSink)
 
         keep->push_back(sink)
         sink->agree_on = self.agree

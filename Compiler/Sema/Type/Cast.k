@@ -20,7 +20,9 @@
 ///       4. target is `*X?`, same relation    checked downcast, null on miss
 ///       5. static ladder: lattice I/W (lint) / E / U / X -> plain enum <->
 ///          exact underlying -> `op as` on the source -> one-param ctor on
-///          the target -> error.  `op as` beats ctor.
+///          the target -> error.  `op as` beats ctor. A slice to a vector
+///          is refused before the ctor rung (SC027E, fix-it
+///          `[T]::from_slice(s)`): the copy is a call, not a cast.
 ///
 ///     Integer -> Kairo enum needs EXACTLY the enum's underlying type (the
 ///     `derives` type, `u32` when defaulted); anything else is SC127E with a
@@ -859,6 +861,14 @@ pub class <T: type> CastTyping {
             }
         }
 
+        // 5c'. `[T;] as [U]` is no cast: it allocates and copies, which
+        //      Kairo spells `[U]::from_slice(s)` (casting.mdx). Vector's
+        //      range constructor would otherwise take it on the next rung.
+        var unsafe *vec_target = self.dyn()->tu.strip_nullable(target)
+        if self.dyn()->tu.is_slice(src) && self.dyn()->tu.is_vector_like(vec_target) {
+            return self._slice_to_vector(n, src, vec_target)
+        }
+
         // 5d. a converting constructor on the target
         var td2 = self.dyn()->tu.record_decl(
             self.dyn()->tu.strip_nullable(target),
@@ -971,6 +981,59 @@ pub class <T: type> CastTyping {
 
         // 5e. nothing
         return self._no_conversion(n, src, target, cg, cbound.size() > 0)
+    }
+
+    /// `s as [T]` (or `[T]?`) from a slice: SC027E. `target` is the vector,
+    /// nullable stripped. The fix-it to `[T]::from_slice(s)` is offered only
+    /// when the elements agree, since that call copies a `[const T;]`; it
+    /// spells the target as written unless the written type is the nullable.
+    /// Always null.
+    priv fn _slice_to_vector(self,
+                             n:      unsafe *TypeCastExpr,
+                             src:    unsafe *Type,
+                             target: unsafe *Type) -> unsafe *Type {
+        var vec = self.dyn()->tu.str(target)
+        if n->target != &null
+            && n->target->range.is_valid()
+            && canon_unqual(n->target->canonical) == canon_unqual(target) {
+            vec = self.dyn()->sc->ctx->get_spelling(n->target->range)
+        }
+
+        var unsafe *se = self.dyn()->tu.container_elem(src)
+        var unsafe *te = self.dyn()->tu.container_elem(target)
+        var same = se != &null && te != &null && canon_unqual(se) == canon_unqual(te)
+        if !same {
+            var b = self.dyn()->sc->diag->report(
+                DiagID::SC027E,
+                n->range.start,
+                f"a slice does not cast to a vector, and '{self.dyn()->tu.str(src)}' does not hold the elements of '{vec}'",
+            )
+
+            b.first(n->range)
+            b.emit()
+            n->poison()
+            return &null
+        }
+
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC027E,
+            n->range.start,
+            f"a slice does not cast to a vector; copy it with '{vec}::from_slice'",
+        )
+
+        b.first(n->range)
+        if n->operand != &null && n->operand->range.is_valid() {
+            var text = self.dyn()->sc->ctx->get_spelling(n->operand->range)
+            b.fix(
+                n->range,
+                f"{vec}::from_slice({text})",
+                f"copy the '{self.dyn()->tu.str(src)}' into a new '{vec}'",
+            )
+        }
+
+        b.emit()
+        n->poison()
+        return &null
     }
 
     /// The error for a cast no rung converts: the bound that would grant

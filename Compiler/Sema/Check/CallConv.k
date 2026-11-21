@@ -40,13 +40,11 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::Context::DeclContext::DeclContextKind
 import AST::DeclFacts::decl_is_imported
 import AST::LangItems::{
     LangAttrs,
     entry_point_name,
 }
-import AST::Mixin::Annotation::VisibilityKind
 import AST::Node::Base::{
     Decl,
     Type,
@@ -65,7 +63,7 @@ import AST::Node::Expressions::{
     ClosureExpr,
 }
 import AST::OperatorFacts::OperatorFacts
-import AST::VisibilityFacts::default_visibility_of
+import AST::VisibilityFacts::fn_crosses_tu
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
@@ -163,7 +161,7 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
             return true
         }
 
-        if self._crosses_boundary(n) {
+        if fn_crosses_tu(n) {
             var b = self.sc->diag->report(
                 DiagID::SC136E,
                 at.start,
@@ -429,70 +427,6 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
         }
 
         return ci->target.triple.copy()
-    }
-
-    /// `f` is visible to C or C++: an `ffi` declaration, or a function no
-    /// enclosing scope makes private, written or by default. `internal`
-    /// still reaches the module's header (another file of the module
-    /// includes it), so only `priv`, or a function local to another, keeps
-    /// it in its TU.
-    priv fn _crosses_boundary(self, f: unsafe *FunctionDecl) -> bool {
-        if f->has_ffi_linkage() {
-            return true
-        }
-
-        // A requirement is no C++ function: its witness thunk is, inside the
-        // witness the conformance emits, and the conformer is checked here
-        // in its own right.
-        var unsafe *fdc = f->semantic_dc
-        if fdc != &null && fdc->dc_kind == DeclContextKind::Interface {
-            return false
-        }
-
-        var unsafe *d = unsafe (f as unsafe *Decl)
-        while d != &null {
-            var v = d->visibility
-            if v == VisibilityKind::None {
-                // A redeclaration chain says it once (AccessCheck::_effective).
-                var unsafe *fd = dyn_cast<FunctionDecl>(d)
-                if fd != &null && fd->canonical_decl() != &null {
-                    v = fd->canonical_decl()->visibility
-                }
-
-                if v == VisibilityKind::None && fd != &null && fd->first_decl() != &null {
-                    v = fd->first_decl()->visibility
-                }
-            }
-
-            // Unmarked is the documented default, not `pub`: `priv`
-            // outside a module, `prot` in one. Reading only the written word
-            // made every unmarked function in a module-less file "public"
-            // and rejected a calling convention that never reaches C++.
-            if v == VisibilityKind::None {
-                v = default_visibility_of(d)
-            }
-
-            if v == VisibilityKind::Private {
-                return false
-            }
-
-            var unsafe *dc = d->semantic_dc
-            if dc == &null {
-                return true
-            }
-
-            if dc->is_function() {
-                return false
-            }
-
-            if dc->is_translation_unit() {
-                return true
-            }
-
-            d = dc->owner_decl()
-        }
-
-        return true
     }
 
     /// # spelling

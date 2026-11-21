@@ -303,7 +303,9 @@ pub class DiagEngine derives DiagEngineVBase {
     /// Destroys all owned `Diagnostic` objects.
     fn op finally (self) {
         for var i: usize = 0; i < self._all_diags.size(); ++i {
-            kairo::std::destroy(self._all_diags[i])
+            if self._all_diags[i] != &null {
+                @destroy unsafe (self._all_diags[i] as *Diagnostic)
+            }
         }
     }
 
@@ -479,7 +481,10 @@ pub class DiagEngine derives DiagEngineVBase {
         var lock = kairo::std::LockGuard(self._mu)
 
         if self._suppress_depth > 0 {
-            kairo::std::destroy(diag)
+            if diag != &null {
+                @destroy unsafe (diag as *Diagnostic)
+            }
+
             return
         }
 
@@ -490,7 +495,10 @@ pub class DiagEngine derives DiagEngineVBase {
         if diag->has_loc {
             var key: string = f"{diag->code.hash()}:{diag->loc.raw()}:{diag->message}"
             if !self._delivered.insert(kairo::sref(key)).second {
-                kairo::std::destroy(diag)
+                if diag != &null {
+                    @destroy unsafe (diag as *Diagnostic)
+                }
+
                 return
             }
         }
@@ -502,7 +510,10 @@ pub class DiagEngine derives DiagEngineVBase {
             if sev == DiagSeverity::Error || sev == DiagSeverity::Warning {
                 if self.is_poisoned(cat, diag->loc) {
                     self._suppressed_count += 1
-                    kairo::std::destroy(diag) // suppressed: never reaches a consumer
+                    if diag != &null { // suppressed: never reaches a consumer
+                        @destroy unsafe (diag as *Diagnostic)
+                    }
+
                     return
                 }
             }
@@ -549,7 +560,10 @@ pub class DiagEngine derives DiagEngineVBase {
                     // let a broken program compile and exit 0.
                     if sev != DiagSeverity::Error && sev != DiagSeverity::Fatal {
                         self._suppressed_count += 1
-                        kairo::std::destroy(diag) // suppressed: never reaches a consumer
+                        if diag != &null { // suppressed: never reaches a consumer
+                            @destroy unsafe (diag as *Diagnostic)
+                        }
+
                         return
                     }
                 } case DiagAction::Warn {
@@ -566,7 +580,10 @@ pub class DiagEngine derives DiagEngineVBase {
             }
         } else if self._suppress_all_warnings && sev == DiagSeverity::Warning {
             self._suppressed_count += 1
-            kairo::std::destroy(diag) // suppressed: never reaches a consumer
+            if diag != &null { // suppressed: never reaches a consumer
+                @destroy unsafe (diag as *Diagnostic)
+            }
+
             return
         } else if sev == DiagSeverity::Warning && self._warnings_as_errors {
             diag->code = self._override_severity(
@@ -584,7 +601,10 @@ pub class DiagEngine derives DiagEngineVBase {
                 || sev == DiagSeverity::Note
                 || sev == DiagSeverity::Remark {
                 self._suppressed_count += 1
-                kairo::std::destroy(diag)
+                if diag != &null {
+                    @destroy unsafe (diag as *Diagnostic)
+                }
+
                 return
             }
         }
@@ -593,10 +613,10 @@ pub class DiagEngine derives DiagEngineVBase {
             if self._warn_count >= self._warning_limit {
                 if self._warn_limit_state == LimitState::Open {
                     self._warn_limit_state = LimitState::Reached
-                    var unsafe *wlimit_diag = kairo::std::create<Diagnostic>(
+                    var unsafe *wlimit_diag = unsafe (@create Diagnostic(
                         DiagCode(DiagID::U024W),
                         f"too many warnings emitted, further warnings will be suppressed",
-                    )
+                    ) as unsafe *Diagnostic)
 
                     self._all_diags.push(wlimit_diag)
                     for var i: usize = 0; i < self._consumers.size(); ++i {
@@ -605,7 +625,10 @@ pub class DiagEngine derives DiagEngineVBase {
                 }
 
                 self._suppressed_count += 1
-                kairo::std::destroy(diag) // over the warning limit: nobody sees it
+                if diag != &null { // over the warning limit: nobody sees it
+                    @destroy unsafe (diag as *Diagnostic)
+                }
+
                 return
             }
         }
@@ -624,10 +647,10 @@ pub class DiagEngine derives DiagEngineVBase {
             if self._error_limit != 0 && self._errors_delivered >= self._error_limit {
                 if self._error_limit_state == LimitState::Open {
                     self._error_limit_state = LimitState::Reached
-                    var unsafe *limit_diag = kairo::std::create<Diagnostic>(
+                    var unsafe *limit_diag = unsafe (@create Diagnostic(
                         DiagCode(DiagID::I957E),
                         f"too many errors emitted, further errors will be suppressed",
-                    )
+                    ) as unsafe *Diagnostic)
 
                     self._all_diags.push(limit_diag)
                     for var i: usize = 0; i < self._consumers.size(); ++i {
@@ -636,7 +659,10 @@ pub class DiagEngine derives DiagEngineVBase {
                 }
 
                 self._suppressed_count += 1
-                kairo::std::destroy(diag) // over the error limit: counted, nobody sees it
+                if diag != &null { // over the error limit: counted, nobody sees it
+                    @destroy unsafe (diag as *Diagnostic)
+                }
+
                 return
             }
 
@@ -663,7 +689,10 @@ pub class DiagEngine derives DiagEngineVBase {
         // consumer (and the tooling collector) sees the same capped diagnostic.
         if self._note_limit != 0 {
             while diag->children.size() > (self._note_limit as usize) {
-                kairo::std::destroy(diag->children[diag->children.size() - 1])
+                if diag->children[diag->children.size() - 1] != &null {
+                    @destroy unsafe (diag->children[diag->children.size() - 1] as *Diagnostic)
+                }
+
                 diag->children.pop_back()
             }
         }
@@ -889,7 +918,9 @@ pub class DiagEngine derives DiagEngineVBase {
         var lock = kairo::std::LockGuard(self._mu)
 
         for var i: usize = 0; i < self._all_diags.size(); ++i {
-            kairo::std::destroy(self._all_diags[i])
+            if self._all_diags[i] != &null {
+                @destroy unsafe (self._all_diags[i] as *Diagnostic)
+            }
         }
 
         self._all_diags.clear()

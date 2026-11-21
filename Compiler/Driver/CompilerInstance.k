@@ -371,7 +371,7 @@ pub class CompilerInstance {
         // Kept for print_help() alone   it needs the flag table and argv[0] for
         // the USAGE line. It is never parsed; from_args below owns that, and
         // parsing here as well would double-report every flag error.
-        self._cmd = kairo::std::create<Command>(argc, argv, self._diag)
+        self._cmd = unsafe (@create Command(argc, argv, unsafe (self._diag as unsafe *DiagEngine)) as unsafe *Command)
         register_kairo_flags(self._cmd)
         for var i: i32 = 0; i < argc; ++i {
             self.incr_words.push(
@@ -398,7 +398,7 @@ pub class CompilerInstance {
     /// flush_errors() behave as they do for `kairo`.
     fn CompilerInstance(self, words: cxx::std::vector<string>) {
         self._boot_diagnostics()
-        self._cmd = kairo::std::create<Command>(0, &null, self._diag)
+        self._cmd = unsafe (@create Command(0, &null, unsafe (self._diag as unsafe *DiagEngine)) as unsafe *Command)
         register_kairo_flags(self._cmd)
         // A leading placeholder: setup() skips word 0, argv's program name.
         self.incr_words.push("kcc")
@@ -457,12 +457,13 @@ pub class CompilerInstance {
     /// Engine, file manager and the two consumers   everything needed before
     /// an invocation exists, because building one may report flag errors.
     priv fn _boot_diagnostics(self) {
-        self._diag = unsafe (kairo::std::create<DiagEngine>() as *DiagEngine)
-        self._vfm = unsafe (kairo::std::create<VirtualFileManager>(
+        self._diag = @create DiagEngine()
+        self._vfm = @create VirtualFileManager(
             self._diag,
-        ) as *VirtualFileManager)
-        self._pretty = unsafe (kairo::std::create<PrettyDiagConsumer>() as *PrettyDiagConsumer)
-        self._basic = unsafe (kairo::std::create<BasicDiagConsumer>() as *BasicDiagConsumer)
+        )
+
+        self._pretty = @create PrettyDiagConsumer()
+        self._basic  = @create BasicDiagConsumer()
         self._diag->add_consumer( // pretty is the default consumer
             unsafe (self._pretty as unsafe *PrettyDiagConsumer),
         )
@@ -494,23 +495,25 @@ pub class CompilerInstance {
             want_threads = cap_threads
         }
 
-        self._pool = unsafe (kairo::std::create<ThreadPool>(
+        self._pool = @create ThreadPool(
             want_threads as usize,
-        ) as *ThreadPool)
+        )
 
         time_set_pool_size(self._pool->get_thread_count() as i32)
 
-        self._sm = unsafe (kairo::std::create<SourceManager>(
+        self._sm = @create SourceManager(
+            unsafe (self._pool as unsafe *ThreadPool),
+            unsafe (self._vfm as unsafe *VirtualFileManager),
+            unsafe &*self._diag,
+        )
+
+        self._tcm = @create TokenCacheManager(
+            unsafe (self._sm as unsafe *SourceManager),
             self._pool,
-            self._vfm,
             self._diag,
-        ) as *SourceManager)
-        self._tcm = unsafe (kairo::std::create<TokenCacheManager>(
-            self._sm,
-            self._pool,
-            self._diag,
-        ) as *TokenCacheManager)
-        self._g_scope = unsafe (kairo::std::create<GlobalDisambigTable>() as *GlobalDisambigTable)
+        )
+
+        self._g_scope = @create GlobalDisambigTable()
         self._basic->attach_source_manager(
             unsafe (self._sm as unsafe *SourceManager),
         )
@@ -529,12 +532,12 @@ pub class CompilerInstance {
     fn op finally (self) {
         // The driver bridge borrows the backend: it goes first.
         if self._jobs != &null {
-            kairo::std::destroy(self._jobs)
+            @destroy unsafe (self._jobs as *ClangJobs)
             self._jobs = &null
         }
 
         if self._kincludes != &null {
-            kairo::std::destroy(self._kincludes)
+            @destroy unsafe (self._kincludes as *DriverIncludeSource)
             self._kincludes = &null
         }
 
@@ -553,18 +556,18 @@ pub class CompilerInstance {
                 )
             }
 
-            kairo::std::destroy(self._headers)
+            @destroy unsafe (self._headers as *HeaderSetCache)
             self._headers = &null
         }
 
         // Borrows _hindex's target, _freg and the backend's oracle: first out.
         if self._builtins != &null {
-            kairo::std::destroy(self._builtins)
+            @destroy unsafe (self._builtins as *BuiltinImport)
             self._builtins = &null
         }
 
         if self._finst != &null {
-            kairo::std::destroy(self._finst)
+            @destroy unsafe (self._finst as *ForeignInstantiate)
             self._finst = &null
         } // borrows _hindex.
 
@@ -579,12 +582,12 @@ pub class CompilerInstance {
         }
 
         if self._hindex != &null {
-            kairo::std::destroy(self._hindex)
+            @destroy unsafe (self._hindex as *HeaderIndex)
             self._hindex = &null
         }
 
         if self._freg != &null {
-            kairo::std::destroy(self._freg)
+            @destroy unsafe (self._freg as *ForeignRegistry)
             self._freg = &null
         }
 
@@ -593,32 +596,30 @@ pub class CompilerInstance {
         // drained before teardown.
         if self._backend != &null {
             self._pool->wait_group(CLANG_STARTUP_GROUP)
-            kairo::std::destroy(self._backend)
+            @destroy unsafe (self._backend as *ClangBackend)
             self._backend = &null
         }
 
         if self._cmd != &null {
-            kairo::std::destroy(self._cmd)
+            @destroy unsafe (self._cmd as *Command)
             self._cmd = &null
         }
 
         if self._pp != &null {
-            kairo::std::destroy(self._pp)
+            @destroy unsafe (self._pp as *PreProcessor)
             self._pp = &null
         }
 
         if self._g_scope != &null {
-            kairo::std::destroy(
-                unsafe (self._g_scope as unsafe *GlobalDisambigTable),
-            )
+            @destroy self._g_scope
         }
 
         if self._tcm != &null {
-            kairo::std::destroy(unsafe (self._tcm as unsafe *TokenCacheManager))
+            @destroy self._tcm
         }
 
         if self._imp != &null {
-            kairo::std::destroy(self._imp)
+            @destroy unsafe (self._imp as *ImportResolver)
             self._imp = &null
         }
 
@@ -627,9 +628,7 @@ pub class CompilerInstance {
                 unsafe (self._pretty as unsafe *PrettyDiagConsumer),
             )
 
-            kairo::std::destroy(
-                unsafe (self._pretty as unsafe *PrettyDiagConsumer),
-            )
+            @destroy self._pretty
         }
 
         if self._basic != &null {
@@ -637,27 +636,23 @@ pub class CompilerInstance {
                 unsafe (self._basic as unsafe *BasicDiagConsumer),
             )
 
-            kairo::std::destroy(
-                unsafe (self._basic as unsafe *BasicDiagConsumer),
-            )
+            @destroy self._basic
         }
 
         if self._sm != &null {
-            kairo::std::destroy(unsafe (self._sm as unsafe *SourceManager))
+            @destroy self._sm
         }
 
         if self._diag != &null {
-            kairo::std::destroy(unsafe (self._diag as unsafe *DiagEngine))
+            @destroy self._diag
         }
 
         if self._vfm != &null {
-            kairo::std::destroy(
-                unsafe (self._vfm as unsafe *VirtualFileManager),
-            )
+            @destroy self._vfm
         }
 
         if self._pool != &null {
-            kairo::std::destroy(unsafe (self._pool as unsafe *ThreadPool))
+            @destroy self._pool
         }
     }
 
@@ -1113,7 +1108,7 @@ pub class CompilerInstance {
         // invocation.
         var bcfg = self._backend_config()
 
-        self._backend = kairo::std::create<ClangBackend>(self._sm, bcfg)
+        self._backend = unsafe (@create ClangBackend(unsafe (self._sm as unsafe *SourceManager), bcfg) as unsafe *ClangBackend)
 
         var unsafe *be  = self._backend
         var unsafe *rec = TimeReport::region("ClangStartup".c_str())
@@ -1130,45 +1125,45 @@ pub class CompilerInstance {
         // C++ header import. Parse on the pool (HeaderSetCache), index on the
         // driver (HeaderIndex writes the SM, the TCM and the global table),
         // one USR -> decl identity for the build (ForeignRegistry).
-        self._headers = kairo::std::create<HeaderSetCache>(
+        self._headers = unsafe (@create HeaderSetCache(
             self._backend,
             self._pool,
             self.invocation()->frontend.shared_header_set,
-        )
+        ) as unsafe *HeaderSetCache)
 
-        self._freg = kairo::std::create<ForeignRegistry>()
+        self._freg = unsafe (@create ForeignRegistry() as unsafe *ForeignRegistry)
         // `T?` crosses into and out of a header as `::builtin::Null<T>`
         // (TypeExport / TypeImport): both ask the registry for the lang item.
         self._freg->well_known = self._g_scope->well_known()
-        self._hindex = kairo::std::create<HeaderIndex>(
+        self._hindex = unsafe (@create HeaderIndex(
             self._sm,
-            self._tcm,
+            unsafe (self._tcm as unsafe *TokenCacheManager),
             self._diag,
-            self._imp,
-            self.invocation(),
+            unsafe (self._imp as *ImportResolver),
+            unsafe &*self.invocation(),
             self._g_scope,
             self._freg,
-        )
+        ) as unsafe *HeaderIndex)
 
-        self._finst = kairo::std::create<ForeignInstantiate>(
-            self._hindex,
+        self._finst = unsafe (@create ForeignInstantiate(
+            unsafe (self._hindex as *HeaderIndex),
             self._freg,
             self._g_scope->instances(),
-        )
+        ) as unsafe *ForeignInstantiate)
 
-        self._builtins = kairo::std::create<BuiltinImport>() // init()ed on the driver, after header indexing.
+        self._builtins = unsafe (@create BuiltinImport() as unsafe *BuiltinImport) // init()ed on the driver, after header indexing.
 
-        self._pp = kairo::std::create<PreProcessor>(
+        self._pp = unsafe (@create PreProcessor(
             self._sm,
-            self._tcm,
-            self._imp,
+            unsafe (self._tcm as unsafe *TokenCacheManager),
+            unsafe (self._imp as *ImportResolver),
             self._pool,
             self._diag,
             self._g_scope,
-            self.invocation(),
+            unsafe &*self.invocation(),
             self.invocation()->pp.copy(),
             self._headers,
-        )
+        ) as unsafe *PreProcessor)
 
         self._finst->psym = self._pp->get_symbol_table()
         // Panic<i32, B, A> IS Panic<i32, A, B> wherever a type is formed
@@ -1713,16 +1708,16 @@ pub class CompilerInstance {
                 continue
             }
 
-            var unsafe *action = kairo::std::create<FrontendAction>(
+            var unsafe *action = unsafe (@create FrontendAction(
                 Path(path_str),
                 self._input_module_path(path_str),
-                self._g_scope,
-                self._imp,
-                &self,
-            )
+                unsafe (self._g_scope as unsafe *GlobalDisambigTable),
+                unsafe (self._imp as *ImportResolver),
+                unsafe &self,
+            ) as unsafe *FrontendAction)
 
             finally {
-                kairo::std::destroy(action)
+                @destroy unsafe (action as *FrontendAction)
             }
 
             action->discovered      = k->discovered

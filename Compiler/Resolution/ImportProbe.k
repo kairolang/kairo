@@ -352,7 +352,7 @@ pub class ImportResolver {
                 cwd_path = unwrap!(self._cwd).copy()
             }
 
-            var unsafe *resolver = kairo::std::create<ImportResolver>()
+            var unsafe *resolver = unsafe (@create ImportResolver() as unsafe *ImportResolver)
             resolver->_sm = self._sm
             resolver->build_index(cwd_path, self._includes)
             return resolver
@@ -361,7 +361,7 @@ pub class ImportResolver {
 
     /// direct constructor; prefer using `Builder` instead
     fn ImportResolver(self) {
-        self._ext_cfg = kairo::std::create<FileExtensions>()
+        self._ext_cfg = unsafe (@create FileExtensions() as unsafe *FileExtensions)
     }
 
     /// registers the search roots
@@ -379,11 +379,11 @@ pub class ImportResolver {
         // stamps each root's fs_path and ext_cfg so it can probe lazily on first
         // access; there is no eager directory walk here anymore.
         if cwd.exists() && cwd.is_directory() {
-            var unsafe *root = kairo::std::create<SearchRoot>(
+            var unsafe *root = unsafe (@create SearchRoot(
                 cwd,
                 0,
                 self._ext_cfg,
-            )
+            ) as unsafe *SearchRoot)
 
             self._roots.push(root)
         }
@@ -550,13 +550,13 @@ pub class ImportResolver {
                       const sp: cxx::std::vector<string>,
                       pinned:   bool) -> unsafe *SearchRoot {
         self._check_root_name(p, nm, sp, pinned, &null)
-        var unsafe *root = kairo::std::create<SearchRoot>(
-            p,
+        var unsafe *root = unsafe (@create SearchRoot(
+            p.copy(),
             priority,
             self._ext_cfg,
-            nm,
-            sp,
-        )
+            copy_strings(nm),
+            copy_strings(sp),
+        ) as unsafe *SearchRoot)
 
         self._roots.push(root)
         return root
@@ -641,7 +641,7 @@ pub class ImportResolver {
     fn op finally (self) {
         for root in self._roots {
             if root != &null {
-                kairo::std::destroy(root)
+                @destroy unsafe (root as *SearchRoot)
             }
         }
 
@@ -649,7 +649,7 @@ pub class ImportResolver {
 
         for var it = self._sibling_roots.begin(); it != self._sibling_roots.end(); ++it {
             if it->second != &null {
-                kairo::std::destroy(it->second)
+                @destroy unsafe (it->second as *SearchRoot)
             }
         }
 
@@ -657,14 +657,14 @@ pub class ImportResolver {
 
         for var it = self._pinned_roots.begin(); it != self._pinned_roots.end(); ++it {
             if it->second != &null {
-                kairo::std::destroy(it->second)
+                @destroy unsafe (it->second as *SearchRoot)
             }
         }
 
         self._pinned_roots.clear()
 
         if self._ext_cfg != &null {
-            kairo::std::destroy(self._ext_cfg)
+            @destroy unsafe (self._ext_cfg as *FileExtensions)
         }
     }
 
@@ -1278,13 +1278,13 @@ pub class ImportResolver {
             return self._pinned_roots[kairo::sref(lib.dir)]
         }
 
-        var unsafe *r = kairo::std::create<SearchRoot>(
+        var unsafe *r = unsafe (@create SearchRoot(
             Path::from_known(lib.dir, FileType::directory_file),
             u32::MAX,
             self._ext_cfg,
             copy_strings(lib.name),
             copy_strings(lib.name),
-        )
+        ) as unsafe *SearchRoot)
 
         r->discovered                            = true
         self._pinned_roots[kairo::sref(lib.dir)] = r
@@ -1538,11 +1538,11 @@ pub class ImportResolver {
 
         // priority u32(-1): never competes with a real root, and is only ever
         // reached through resolve_module_rel.
-        var unsafe *r = kairo::std::create<SearchRoot>(
-            dir,
+        var unsafe *r = unsafe (@create SearchRoot(
+            dir.copy(),
             u32::MAX,
             self._ext_cfg,
-        )
+        ) as unsafe *SearchRoot)
 
         self._sibling_roots[kairo::sref(key)] = r
         return r

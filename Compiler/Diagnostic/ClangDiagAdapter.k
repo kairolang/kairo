@@ -785,7 +785,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     priv fn _emit_held(self) {
         if self._held != &null {
             self._held->emit()
-            kairo::std::destroy(self._held)
+            @destroy unsafe (self._held as *DiagBuilder)
             self._held    = &null
             self._held_at = SourceRange::invalid()
         }
@@ -795,12 +795,12 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
     /// order. A Kairo record it fails to copy adds the Kairo reason and
     /// the `const` fix (_explain_copy).
     priv fn _replay(self) {
-        var unsafe *b = kairo::std::create<DiagBuilder>(
-            self.sink,
+        var unsafe *b = unsafe (@create DiagBuilder(
+            unsafe (self.sink as *BufferedDiagSink),
             self._g.code.copy(),
             self._g.at.start,
             self._g.msg.copy(),
-        )
+        ) as unsafe *DiagBuilder)
 
         b->first(self._g.at)
         for var i: usize = 0; i < self._g.hl.size(); ++i {
@@ -832,7 +832,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         }
 
         b->emit()
-        kairo::std::destroy(b)
+        @destroy unsafe (b as *DiagBuilder)
     }
 
     priv fn _note_into(self, b: unsafe *DiagBuilder, i: usize) {
@@ -921,12 +921,12 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             text = f"'{self._g.why_rec}' cannot be copied here: instantiating {what} copies it from a const object or a temporary, and {self._copy_cause()}"
         }
 
-        var unsafe *b = kairo::std::create<DiagBuilder>(
-            self.sink,
+        var unsafe *b = unsafe (@create DiagBuilder(
+            unsafe (self.sink as *BufferedDiagSink),
             code,
             at.start,
             text,
-        )
+        ) as unsafe *DiagBuilder)
 
         b->first(at)
         if explained {

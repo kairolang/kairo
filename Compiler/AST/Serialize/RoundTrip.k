@@ -256,14 +256,14 @@ pub class ASTRoundTrip {
     /// A second context for the same file: same source, tokens, immediate
     /// table and index, no tree.
     priv static fn _fresh_context(octx: unsafe *ASTContext) -> unsafe *ASTContext {
-        var unsafe *c = kairo::std::create<ASTContext>(
+        var unsafe *c = unsafe (@create ASTContext(
             octx->fid,
             octx->sm,
             octx->tcm,
             octx->diags,
             octx->resolver,
             octx->ci,
-        )
+        ) as unsafe *ASTContext)
 
         c->source_path     = octx->source_path.copy()
         c->module_base     = octx->module_base
@@ -275,7 +275,9 @@ pub class ASTRoundTrip {
     priv static fn _drop_context(c: unsafe *ASTContext) {
         // The index is the original context's; this one only borrowed it.
         c->hoisted = &null
-        kairo::std::destroy(c)
+        if c != &null {
+            @destroy unsafe (c as *ASTContext)
+        }
     }
 
     /// True when a reader given `bytes` builds no tree.

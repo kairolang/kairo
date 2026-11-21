@@ -40,6 +40,7 @@ import Driver::ObjectCache::{
     cache_evict_to_cap,
 }
 import Location::SourceManager::FileID
+import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
 import Support::Ascii::find
 import Support::FileIO::AtomicFile::{
@@ -514,16 +515,16 @@ extend CompilerInstance {
         }
 
         var entry = Path(tmp.copy() + "/kairo-lib.k") // after the write: a Path stats on construction
-        var unsafe *action = kairo::std::create<FrontendAction>(
+        var unsafe *action = unsafe (@create FrontendAction(
             entry,
             ModulePath(),
-            self._g_scope,
-            self._imp,
-            &self,
-        )
+            unsafe &*self._g_scope,
+            unsafe (self._imp as *ImportResolver),
+            unsafe &self,
+        ) as unsafe *FrontendAction)
 
         finally {
-            kairo::std::destroy(action)
+            @destroy unsafe (action as *FrontendAction)
         }
 
         action->run()

@@ -301,15 +301,15 @@ pub class KairoInject {
 
         // The sink translates every location through the map, not a per-file
         // delta: preamble tokens borrow spans from OTHER registered fids.
-        self.sink = kairo::std::create<TokenSink>(
-            pp,
-            csm,
+        self.sink = unsafe (@create TokenSink(
+            unsafe &*pp,
+            unsafe &*csm,
             self.locmap,
             live_cfid,
             self.kfid,
             self.ksize,
-            self.arena,
-        )
+            unsafe &*self.arena,
+        ) as unsafe *TokenSink)
 
         self.sink->agree_on = self.agree != &null
         // fill() runs on whichever worker runs this TU, beside other TUs'
@@ -363,7 +363,7 @@ pub class KairoInject {
         self.agree_says = sema_agree_reports(want, quiet)
 
         if self.agree == &null {
-            self.agree = kairo::std::create<kairo::SemaAgreeTable>()
+            self.agree = @cxx::new kairo::SemaAgreeTable()
         }
 
         self.agree->repair           = repair
@@ -439,12 +439,12 @@ pub class KairoInject {
 
     fn op finally (self) {
         if self.sink != &null {
-            kairo::std::destroy(self.sink)
+            @destroy unsafe (self.sink as *TokenSink)
             self.sink = &null
         }
 
         if self.agree != &null {
-            kairo::std::destroy(self.agree)
+            @cxx::delete self.agree
             self.agree = &null
         }
     }

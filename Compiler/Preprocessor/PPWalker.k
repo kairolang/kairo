@@ -127,13 +127,13 @@ pub enum WalkPhase derives u8 {
 /// the buffers keep the wrapped token so diagnostics still read its origin.
 class ArgSplitter {
     var args:    [unsafe *TokenBuffer<512>]
-    var current: unsafe *TokenBuffer<512>                   = &null
-    var paren:   i32                                        = 0
-    var square:  i32                                        = 0
-    var brace:   i32                                        = 0
+    var current: unsafe *TokenBuffer<512>   = &null
+    var paren:   i32                        = 0
+    var square:  i32                        = 0
+    var brace:   i32                        = 0
 
     fn ArgSplitter(self) {
-        self.current = kairo::std::create<TokenBuffer<512>>()
+        self.current = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
     }
 
     fn feed(self, tok: Token) {
@@ -159,7 +159,7 @@ class ArgSplitter {
             && self.square == 0
             && self.brace == 0 {
             self.args.push(self.current)
-            self.current = kairo::std::create<TokenBuffer<512>>()
+            self.current = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
             return
         }
 
@@ -223,8 +223,8 @@ pub class PPWalker {
     priv var _inv:              *CompilerInvocation?
     priv var _sink:             unsafe *TokenBuffer<512>
     priv var _unique_tag_cache: llvm::StringMap<u32> ///< probed only, never iterated
-    priv var _fid:              u32                                        = u32::MAX //< invalid sentinel
-    priv var _expansion_count:  i32                                        = 0
+    priv var _fid:              u32                             = u32::MAX //< invalid sentinel
+    priv var _expansion_count:  i32                             = 0
     /// Outermost-invocation sites whose chain already hit --cmax-macro-depth.
     /// Every deeper hop of a runaway chain trips the same limit; one R008E per
     /// chain says it, the rest are noise that buries the real error.
@@ -251,8 +251,8 @@ pub class PPWalker {
     /// of the enclosing scope and is no scope for a macro for the same
     /// reason) or BRACE_BLOCK.
     priv var _braces:      [u8]
-    priv var _branch_next: bool                 = false ///< the next `{` opens an `eval if` branch.
-    priv var _group_next:  bool                 = false ///< the next `{` opens an `ffi` or `eval` block.
+    priv var _branch_next: bool = false ///< the next `{` opens an `eval if` branch.
+    priv var _group_next:  bool = false ///< the next `{` opens an `ffi` or `eval` block.
     /// The next branch's BRANCH_* and its chain's CHAIN_* bits, read when
     /// its `{` is met (_branch_next).
     priv var _next_branch: u8 = BRANCH_LIVE
@@ -260,8 +260,8 @@ pub class PPWalker {
     /// One entry per BRACE_BRANCH in _braces, innermost last: the branch's
     /// BRANCH_* in the low two bits, its chain's CHAIN_* bits above them.
     priv var _branches:    [u8]
-    priv var _open_depth:  i32                                  = 0 ///< BRANCH_OPEN branches the walk is inside.
-    priv var _skip_dead:   bool                                 = false ///< the `{` just emitted opened a BRANCH_DEAD branch.
+    priv var _open_depth:  i32                  = 0 ///< BRANCH_OPEN branches the walk is inside.
+    priv var _skip_dead:   bool                 = false ///< the `{` just emitted opened a BRANCH_DEAD branch.
     priv var _block_owned: [unsafe *MacroEntry] ///< every block macro of the walk; freed with it.
 
     /// ffi headers this file imports, spelled as HeaderSet::unquote does,
@@ -344,32 +344,32 @@ pub class PPWalker {
         self._diag    = diag
         self._opts    = opts.copy()
         self._imm     = lexer->get_imm_tbl()
-        self._out     = kairo::std::create<TokenBuffer<512>>()
-        self._src = kairo::std::create<TokenSource>(
+        self._out     = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
+        self._src = unsafe (@create TokenSource(
             lexer,
             opts.max_token_count,
             diag,
-        )
+        ) as unsafe *TokenSource)
 
         self._src->set_preserve_comments(opts.preserve_comments)
         self._src->set_file_name(sm->get_filename(fid))
-        self._imports = kairo::std::create<FileImportIndex>(
-            sym,
-            sm,
+        self._imports = unsafe (@create FileImportIndex(
+            unsafe (sym as *PreprocessorSymbolTable),
+            unsafe (sm as *SourceManager),
             tcm,
-            resolver,
-            macros,
-            diag,
+            unsafe (resolver as *ImportResolver),
+            unsafe (macros as *MacroTable),
+            unsafe (diag as *DiagEngine),
             fid,
-        )
+        ) as unsafe *FileImportIndex)
 
-        self._tracker = kairo::std::create<ScopeTracker>(
-            sym,
-            sm,
-            self._imm,
+        self._tracker = unsafe (@create ScopeTracker(
+            unsafe (sym as *PreprocessorSymbolTable),
+            unsafe (sm as *SourceManager),
+            unsafe (self._imm as *ImmediateTable),
             tcm,
             module_base,
-        )
+        ) as unsafe *ScopeTracker)
 
         self._sink = self._out
     }
@@ -419,32 +419,36 @@ pub class PPWalker {
 
     fn op finally (self) {
         if self._out != &null {
-            kairo::std::destroy(self._out)
+            @destroy unsafe (self._out as *TokenBuffer<512>)
             self._out = &null
         }
 
         for b in self._splices {
-            kairo::std::destroy(b)
+            if b != &null {
+                @destroy unsafe (b as *TokenBuffer<512>)
+            }
         }
 
         for e in self._block_owned {
-            kairo::std::destroy(e)
+            if e != &null {
+                @destroy unsafe (e as *MacroEntry)
+            }
         }
 
         self._splices.clear()
 
         if self._src != &null {
-            kairo::std::destroy(self._src)
+            @destroy unsafe (self._src as *TokenSource)
             self._src = &null
         }
 
         if self._imports != &null {
-            kairo::std::destroy(self._imports)
+            @destroy unsafe (self._imports as *FileImportIndex)
             self._imports = &null
         }
 
         if self._tracker != &null {
-            kairo::std::destroy(self._tracker)
+            @destroy unsafe (self._tracker as *ScopeTracker)
             self._tracker = &null
         }
     }
@@ -761,7 +765,7 @@ pub class PPWalker {
             }
 
             var chain:   [InvokeHop]
-            var next_tok = self._src->next_with_origin(&chain)
+            var next_tok             = self._src->next_with_origin(&chain)
             self._emit(next_tok, unsafe &chain)
         }
 
@@ -915,7 +919,7 @@ pub class PPWalker {
 
     priv fn _emit_next(self) {
         var chain: [InvokeHop]
-        var t     = self._src->next_with_origin(&chain)
+        var t                  = self._src->next_with_origin(&chain)
         self._emit(t, unsafe &chain)
     }
 
@@ -1050,9 +1054,9 @@ pub class PPWalker {
     /// afterwards, so Sema folds the same condition to the same value.
     priv fn _cond_value(self, at: usize) -> u8 {
         var toks: [Token]
-        var paren = 0
-        var n     = at
-        var asks  = false
+        var paren         = 0
+        var n             = at
+        var asks          = false
         while true {
             if self._src->peek_leaves_frame(n) || toks.size() > 256 {
                 return if (asks) => (COND_OPEN) else => COND_SEMA
@@ -1794,9 +1798,9 @@ pub class PPWalker {
 
         var lbrace = self._src->next().range // `{`
 
-        var unsafe *storage         = kairo::std::create<TokenBuffer<512>>()
-        var        depth:       i32 = 1
-        var        seen_content     = false
+        var unsafe *storage = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
+        var depth:       i32 = 1
+        var seen_content     = false
 
         while !self._src->at_eof() {
             var t = self._src->next()
@@ -1833,7 +1837,7 @@ pub class PPWalker {
                 lbrace.start,
                 "unmatched '{' in macro body",
             ).first(lbrace)->emit()
-            kairo::std::destroy(storage)
+            @destroy unsafe (storage as *TokenBuffer<512>)
             return
         }
 
@@ -1849,12 +1853,12 @@ pub class PPWalker {
         }
 
         if lead > 0 {
-            var unsafe *trimmed = kairo::std::create<TokenBuffer<512>>()
+            var unsafe *trimmed = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
             for var i: usize = lead; i < storage->size(); ++i {
                 trimmed->append(*storage->get(i))
             }
 
-            kairo::std::destroy(storage)
+            @destroy unsafe (storage as *TokenBuffer<512>)
             storage = trimmed
         }
 
@@ -1909,7 +1913,7 @@ pub class PPWalker {
         decl->set_visibility(vis, kw.range | lbrace)
         self._tu->macros.push(decl)
 
-        var unsafe *entry = kairo::std::create<MacroEntry>()
+        var unsafe *entry = unsafe (@create MacroEntry() as unsafe *MacroEntry)
         entry->decl     = decl
         entry->storage  = storage
         entry->body_len = body_len
@@ -1972,12 +1976,12 @@ pub class PPWalker {
         ///  (see TokenSource::current_chain)
         var arg_toks:     [Token] ///< raw tokens between ( ), balanced
         var name:         Token
-        var name_sym:     SymbolID                = 0
-        var range:        SourceRange             = SourceRange::invalid()
-        var origin_site:  SourceRange             = SourceRange::invalid() ///< outermost invoke loc at detection
-        var is_qualified: bool                    = false
-        var found:        bool                    = false
-        var has_args:     bool                    = false
+        var name_sym:     SymbolID    = 0
+        var range:        SourceRange = SourceRange::invalid()
+        var origin_site:  SourceRange = SourceRange::invalid() ///< outermost invoke loc at detection
+        var is_qualified: bool        = false
+        var found:        bool        = false
+        var has_args:     bool        = false
     }
 
     priv fn _detect_invocation(self) -> Self::InvocationInfo {
@@ -2410,7 +2414,7 @@ pub class PPWalker {
                            parent_chain: unsafe *[InvokeHop]) -> unsafe *(TokenBuffer<512>) {
         // The sink is redirected for this expansion only: restored on every
         // way out, so a nested expansion hands its caller's sink back intact.
-        var unsafe *out   = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out   = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var unsafe *saved = self._sink
         self._sink = out
         finally {
@@ -2438,7 +2442,7 @@ pub class PPWalker {
             }
 
             var chain:   [InvokeHop]
-            var next_tok = self._src->next_with_origin(&chain)
+            var next_tok             = self._src->next_with_origin(&chain)
             self._emit(next_tok, unsafe &chain)
         }
 
@@ -2463,7 +2467,10 @@ pub class PPWalker {
                     unsafe &inv->parent_chain,
                 )
 
-                kairo::std::destroy(args[k])
+                if args[k] != &null {
+                    @destroy unsafe (args[k] as *TokenBuffer<512>)
+                }
+
                 args[k] = ex
             }
         }
@@ -2520,7 +2527,7 @@ pub class PPWalker {
             if k < args.size() {
                 bindings[name_sym as u64] = args[k]
             } else if p->has_default {
-                var unsafe *dflt = kairo::std::create<TokenBuffer<512>>()
+                var unsafe *dflt = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
                 for var d: usize = ((p->default_off) as usize); d < ((p->default_off) as usize) + (p->default_len as usize); ++d {
                     dflt->append(*e->storage->get(d))
                 }
@@ -2530,7 +2537,7 @@ pub class PPWalker {
             }
         }
 
-        var variadic_name: SymbolID = 0
+        var variadic_name:     SymbolID                     = 0
         var variadic_bindings: [unsafe *(TokenBuffer<512>)]
         if has_variadic {
             var unsafe *vp = params->get(variadic_idx)
@@ -2581,7 +2588,7 @@ pub class PPWalker {
         invoke_loc:              SourceRange,
         anchor:                  SourceRange,
     ) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *output       = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *output       = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        i:      usize = 0
         while i < ((e->body_len) as usize) {
             var unsafe *tok = e->storage->get(i)
@@ -2902,17 +2909,17 @@ pub class PPWalker {
             return tok
         }
 
-        var same_tbl = tbl == self._imm
+        var same_tbl                                 = tbl == self._imm
         var segs:    [unsafe *Immediate::StringData]
         var copies:  [u32]
-        var idx      = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
+        var idx = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
         for var s: usize = 0; s < segs.size(); ++s {
             var unsafe *sd = segs[s]
             var unsafe *nd = self._imm->get<Immediate::StringData>(copies[s])
             for var h: usize = 0; h < sd->exprs.size(); ++h {
                 var unsafe *src = sd->exprs[h].0
                 var        rng  = sd->exprs[h].1
-                var unsafe *nb  = kairo::std::create<TokenBuffer<16>>()
+                var unsafe *nb  = unsafe (@create TokenBuffer<16>() as unsafe *TokenBuffer<16>)
                 if src != &null {
                     for var k: usize = 0; k < src->size(); ++k {
                         var unsafe *ht = src->get(k)
@@ -3022,7 +3029,7 @@ pub class PPWalker {
         }
 
         var empty: [InvokeHop]
-        var unsafe *pc    = if (chain != &null) => (chain) else => unsafe &empty
+        var unsafe *pc = if (chain != &null) => (chain) else => unsafe &empty
         var segs:   [unsafe *Immediate::StringData]
         var copies: [u32]
         var idx = self._fstring_chain(d, tbl, unsafe &segs, unsafe &copies)
@@ -3031,11 +3038,11 @@ pub class PPWalker {
             for var h: usize = 0; h < sd->exprs.size(); ++h {
                 var unsafe *src = sd->exprs[h].0
                 var        rng  = sd->exprs[h].1
-                var unsafe *nb  = kairo::std::create<TokenBuffer<16>>()
+                var unsafe *nb  = unsafe (@create TokenBuffer<16>() as unsafe *TokenBuffer<16>)
                 if src != &null {
                     // An EOF in the run would end _expand_buffer's walk with its
                     // frame still pushed; the hole's parse needs none.
-                    var unsafe *run = kairo::std::create<TokenBuffer<512>>()
+                    var unsafe *run = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
                     for var k: usize = 0; k < src->size(); ++k {
                         if src->get(k)->kind != TokenKind::TkEof {
                             run->append(*src->get(k))
@@ -3048,7 +3055,9 @@ pub class PPWalker {
                     }
 
                     self._splices.push(run) // owned for the run, as a splice frame's tokens.
-                    kairo::std::destroy(ex)
+                    if ex != &null {
+                        @destroy unsafe (ex as *TokenBuffer<512>)
+                    }
                 }
 
                 // re-read: the walk above may have grown this table.
@@ -3343,7 +3352,7 @@ pub class PPWalker {
         }
 
         // 1. gather the raw argument token run
-        var unsafe *run = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *run = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         for var i: usize = 0; i < invoke->arg_toks.size(); ++i {
             run->append(invoke->arg_toks[i])
         }
@@ -3355,14 +3364,17 @@ pub class PPWalker {
                 unsafe &invoke->parent_chain,
             )
 
-            kairo::std::destroy(run)
+            @destroy unsafe (run as *TokenBuffer<512>)
             run = ex
         }
 
         // an expansion may legitimately produce zero tokens (e.g. butlast!(x));
         // that is zero arguments, not one empty argument
         if run->size() == 0 {
-            kairo::std::destroy(run)
+            if run != &null {
+                @destroy unsafe (run as *TokenBuffer<512>)
+            }
+
             return args
         }
 
@@ -3376,7 +3388,10 @@ pub class PPWalker {
             split.feed_as(t, self._unwrapped_kind(t))
         }
 
-        kairo::std::destroy(run)
+        if run != &null {
+            @destroy unsafe (run as *TokenBuffer<512>)
+        }
+
         return split.finish()
     }
 
@@ -3429,7 +3444,7 @@ pub class PPWalker {
 
     priv fn _builtin_file(self,
                           invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
 
         var loc      = self._sm->get_full_loc(invoke->name.range.start)
         var filename = self._sm->get_filename((loc.file_id as u32))
@@ -3448,7 +3463,7 @@ pub class PPWalker {
 
     priv fn _builtin_line(self,
                           invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        loc  = self._sm->get_full_loc(invoke->name.range.start)
 
         out->append(self.make_int_token(loc.line as u64, invoke->name.range))
@@ -3458,7 +3473,7 @@ pub class PPWalker {
 
     priv fn _builtin_column(self,
                             invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        loc  = self._sm->get_full_loc(invoke->name.range.start)
 
         out->append(self.make_int_token(loc.column as u64, invoke->name.range))
@@ -3468,7 +3483,7 @@ pub class PPWalker {
 
     priv fn _builtin_module_path(self,
                                  invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out  = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out  = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        *path = self._tracker->current_scope()
 
         for var i: usize = 0; i < path->segments.size(); ++i {
@@ -3491,7 +3506,7 @@ pub class PPWalker {
 
     priv fn _builtin_count(self,
                            invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
 
         if !invoke->has_args {
             self._builtin_report(
@@ -3512,7 +3527,7 @@ pub class PPWalker {
 
     priv fn _builtin_first(self,
                            invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        args = self._parse_expanded_builtin_arguments(invoke)
 
         if args.size() == 0 {
@@ -3531,7 +3546,7 @@ pub class PPWalker {
 
     priv fn _builtin_last(self,
                           invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        args = self._parse_expanded_builtin_arguments(invoke)
 
         if args.size() == 0 {
@@ -3550,7 +3565,7 @@ pub class PPWalker {
 
     priv fn _builtin_rest(self,
                           invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        args = self._parse_expanded_builtin_arguments(invoke)
 
         for var k: usize = 1; k < args.size(); ++k {
@@ -3566,7 +3581,7 @@ pub class PPWalker {
 
     priv fn _builtin_butlast(self,
                              invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        args = self._parse_expanded_builtin_arguments(invoke)
 
         if args.size() == 0 {
@@ -3591,7 +3606,7 @@ pub class PPWalker {
     /// need owned imm payloads, which StringData/IntData do not have.
     priv fn _builtin_paste(self,
                            invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        args = self._parse_expanded_builtin_arguments(invoke)
 
         if args.size() == 0 {
@@ -3660,7 +3675,7 @@ pub class PPWalker {
     ///    spaces. `body` stays invalid.
     priv fn _builtin_stringify(self,
                                invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
 
         if !invoke->has_args || invoke->arg_toks.size() == 0 {
             self._builtin_report(
@@ -3752,7 +3767,7 @@ pub class PPWalker {
 
     priv fn _builtin_unstringify(self,
                                  invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        args = self._parse_expanded_builtin_arguments(invoke)
 
         if args.size() != 1 || args[0]->size() != 1 {
@@ -3849,7 +3864,9 @@ pub class PPWalker {
         }
 
         finally {
-            kairo::std::destroy(lexed)
+            if lexed != &null {
+                @destroy unsafe (lexed as *TokenBuffer<512>)
+            }
         }
 
         for var i: usize = 0; i < lexed->size(); ++i {
@@ -3878,7 +3895,7 @@ pub class PPWalker {
 
     priv fn _builtin_defined(self,
                              invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out       = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out       = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        found: u64 = 0
         var        args       = self._parse_builtin_arguments(invoke)
 
@@ -3949,7 +3966,7 @@ pub class PPWalker {
                               invoke:   unsafe *Self::InvocationInfo,
                               kind:     TokenKind,
                               sentinel: MacroSentinel) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
 
         var tok = Token()
         tok.kind  = kind
@@ -3967,7 +3984,7 @@ pub class PPWalker {
     /// can be duplicated and expanded more than once.
     priv fn _builtin_unique_id(self,
                                invoke: unsafe *Self::InvocationInfo) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out         = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out         = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        range        = invoke->name.range
         var        tag:  string = ""
 
@@ -4039,7 +4056,7 @@ pub class PPWalker {
     priv fn _builtin_diag(self,
                           invoke: unsafe *Self::InvocationInfo,
                           level:  DiagSeverity) -> unsafe *(TokenBuffer<512>) {
-        var unsafe *out = kairo::std::create<TokenBuffer<512>>()
+        var unsafe *out = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
         var        args = self._parse_builtin_arguments(invoke)
 
         if args.size() == 0 {

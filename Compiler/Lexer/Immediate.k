@@ -288,7 +288,7 @@ pub module Immediate {
             self.value_hi = 0
 
             if self.big != &null {
-                kairo::std::destroy(self.big)
+                @destroy unsafe (self.big as *ImmBigInt)
                 self.big = &null
             }
 
@@ -374,7 +374,7 @@ pub module Immediate {
                     // phase 3: use ImmBigInt
                     self.set_flag(IntFlags::IsBig)
 
-                    self.big = kairo::std::create<ImmBigInt>(256)
+                    self.big = unsafe (@create ImmBigInt(256) as unsafe *ImmBigInt)
                     idx      = 0
 
                     while idx < body_len {
@@ -493,7 +493,7 @@ pub module Immediate {
 
         fn op finally (self) {
             if self.big != &null {
-                kairo::std::destroy(self.big)
+                @destroy unsafe (self.big as *ImmBigInt)
                 self.big = &null
             }
         }
@@ -554,7 +554,7 @@ pub module Immediate {
             self.value_ieee = 0.0
 
             if self.big_float != &null {
-                kairo::std::destroy(self.big_float)
+                @destroy unsafe (self.big_float as *ImmBigFloat)
                 self.big_float = &null
             }
 
@@ -729,7 +729,7 @@ pub module Immediate {
 
             if needs_big {
                 self.set_flag(FloatFlags::UseBigFloat)
-                self.big_float           = kairo::std::create<ImmBigFloat>()
+                self.big_float           = unsafe (@create ImmBigFloat() as unsafe *ImmBigFloat)
                 self.big_float->is_hex   = is_hex
                 self.big_float->exponent = exp_value
 
@@ -974,7 +974,7 @@ pub module Immediate {
 
         fn op finally (self) {
             if self.big_float != &null {
-                kairo::std::destroy(self.big_float)
+                @destroy unsafe (self.big_float as *ImmBigFloat)
                 self.big_float = &null
             }
         }
@@ -1032,7 +1032,9 @@ pub module Immediate {
 
         fn op finally (self) {
             for var i: usize = 0; i < self.exprs.size(); ++i {
-                kairo::std::destroy(self.exprs[i].0)
+                if self.exprs[i].0 != &null {
+                    @destroy unsafe (self.exprs[i].0 as *TokenBuffer<16>)
+                }
             }
         }
     }
@@ -1342,31 +1344,31 @@ pub class ImmediateTable {
 
     pub fn initialize(self, sm: unsafe *SourceManager) {
         self.source_manager = sm
-        self.int_literals = kairo::std::create<ArenaList<Immediate::IntData>>(
+        self.int_literals = unsafe (@create ArenaList<Immediate::IntData>(
             256,
-        )
+        ) as unsafe *ArenaList<Immediate::IntData>)
 
-        self.float_literals = kairo::std::create<ArenaList<Immediate::FloatData>>(
+        self.float_literals = unsafe (@create ArenaList<Immediate::FloatData>(
             64,
-        )
+        ) as unsafe *ArenaList<Immediate::FloatData>)
 
-        self.char_literals = kairo::std::create<ArenaList<Immediate::CharData>>(
+        self.char_literals = unsafe (@create ArenaList<Immediate::CharData>(
             64,
-        )
+        ) as unsafe *ArenaList<Immediate::CharData>)
 
-        self.string_literals = kairo::std::create<ArenaList<Immediate::StringData>>(
+        self.string_literals = unsafe (@create ArenaList<Immediate::StringData>(
             64,
-        )
+        ) as unsafe *ArenaList<Immediate::StringData>)
 
-        self.macro_expansions = kairo::std::create<ArenaList<Immediate::MacroExpansionInfo>>(
+        self.macro_expansions = unsafe (@create ArenaList<Immediate::MacroExpansionInfo>(
             256,
-        )
+        ) as unsafe *ArenaList<Immediate::MacroExpansionInfo>)
 
-        self.ident_descs = kairo::std::create<ArenaList<Immediate::IdentData>>(
+        self.ident_descs = unsafe (@create ArenaList<Immediate::IdentData>(
             512,
-        )
+        ) as unsafe *ArenaList<Immediate::IdentData>)
 
-        self.synth_names = kairo::std::create<ArenaList<string>>(64)
+        self.synth_names = unsafe (@create ArenaList<string>(64) as unsafe *ArenaList<string>)
         kairo::Logger::debug(
             kairo::Logger::Stage::Lexer,
             "ImmediateTable::initialize: initialized with source manager at {sm}",
@@ -1687,7 +1689,7 @@ pub class ImmediateTable {
             // Released before intern_ident, which takes it again.
             var wlock = kairo::std::LockGuard(self._ident_mu)
             if self.synth_names == &null {
-                self.synth_names = kairo::std::create<ArenaList<string>>(64)
+                self.synth_names = unsafe (@create ArenaList<string>(64) as unsafe *ArenaList<string>)
             }
 
             stored = self.synth_names->push(s.copy())
@@ -1714,7 +1716,7 @@ pub class ImmediateTable {
     pub fn intern_string_copy(self, const s: string) -> u32 {
         var wlock = kairo::std::LockGuard(self._ident_mu)
         if self.synth_names == &null {
-            self.synth_names = kairo::std::create<ArenaList<string>>(64)
+            self.synth_names = unsafe (@create ArenaList<string>(64) as unsafe *ArenaList<string>)
         }
 
         var        idx   = self.create<Immediate::StringData>()
@@ -1734,7 +1736,7 @@ pub class ImmediateTable {
     pub fn intern_bytes_copy(self, data: kairo::std::ConstPtr<u8>, len: usize) -> u32 {
         var wlock = kairo::std::LockGuard(self._ident_mu)
         if self.synth_bytes == &null {
-            self.synth_bytes = kairo::std::create<ArenaList<[u8]>>(64)
+            self.synth_bytes = unsafe (@create ArenaList<[u8]>(64) as unsafe *ArenaList<[u8]>)
         }
 
         var        idx   = self.create<Immediate::StringData>()
@@ -1846,37 +1848,37 @@ pub class ImmediateTable {
 
     fn destroy(self) {
         if self.int_literals != &null {
-            kairo::std::destroy(self.int_literals)
+            @destroy unsafe (self.int_literals as *ArenaList<Immediate::IntData>)
             self.int_literals = &null
         }
 
         if self.float_literals != &null {
-            kairo::std::destroy(self.float_literals)
+            @destroy unsafe (self.float_literals as *ArenaList<Immediate::FloatData>)
             self.float_literals = &null
         }
 
         if self.macro_expansions != &null {
-            kairo::std::destroy(self.macro_expansions)
+            @destroy unsafe (self.macro_expansions as *ArenaList<Immediate::MacroExpansionInfo>)
             self.macro_expansions = &null
         }
 
         if self.string_literals != &null {
-            kairo::std::destroy(self.string_literals)
+            @destroy unsafe (self.string_literals as *ArenaList<Immediate::StringData>)
             self.string_literals = &null
         }
 
         if self.char_literals != &null {
-            kairo::std::destroy(self.char_literals)
+            @destroy unsafe (self.char_literals as *ArenaList<Immediate::CharData>)
             self.char_literals = &null
         }
 
         if self.ident_descs != &null {
-            kairo::std::destroy(self.ident_descs)
+            @destroy unsafe (self.ident_descs as *ArenaList<Immediate::IdentData>)
             self.ident_descs = &null
         }
 
         if self.synth_names != &null {
-            kairo::std::destroy(self.synth_names)
+            @destroy unsafe (self.synth_names as *ArenaList<string>)
             self.synth_names = &null
         }
 

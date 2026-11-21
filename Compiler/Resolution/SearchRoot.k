@@ -81,7 +81,7 @@ pub class SearchRoot {
                         else => copy_strings(name)
 
         self.ext_cfg = ext_cfg
-        self.root    = kairo::std::create<DirEntry>(path.filename(), true)
+        self.root    = unsafe (@create DirEntry(path.filename(), true) as unsafe *DirEntry)
         self.root->set_fs_path(path)
         self.root->ext_cfg = ext_cfg
     }
@@ -102,7 +102,7 @@ pub class SearchRoot {
 
     fn op finally (self) {
         if self.root != &null {
-            kairo::std::destroy(self.root)
+            @destroy unsafe (self.root as *DirEntry)
         }
     }
 }

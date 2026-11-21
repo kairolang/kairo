@@ -4069,7 +4069,7 @@ pub fn Test() -> i32 {
 
     // isolated fixture for tests that expect errors
     fn fresh() -> (unsafe *DiagEngine, Command) {
-        var unsafe *d = kairo::std::create<DiagEngine>()
+        var unsafe *d = unsafe (@create DiagEngine() as unsafe *DiagEngine)
         var        c  = Command(d)
         register_test_flags(&c)
         return (d, cxx::std::move(c))
@@ -4220,16 +4220,16 @@ pub fn Test() -> i32 {
             var        c    = pair.1
             var        r    = c.parse_string("-O9 main.k")
             if !d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected bounds error for -O9"
             }
 
             if r.ok {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected ok=false"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,
@@ -4276,16 +4276,16 @@ pub fn Test() -> i32 {
             var        c    = pair.1
             var        r    = c.parse_string("-Ofast main.k")
             if !d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected error for -Ofast"
             }
 
             if r.ok {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected ok=false"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,
@@ -4314,11 +4314,11 @@ pub fn Test() -> i32 {
             var        c    = pair.1
             c.parse_string("--opt=fast main.k")
             if !d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected parse error for --opt=fast"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,
@@ -4350,11 +4350,11 @@ pub fn Test() -> i32 {
             var        c    = pair.1
             c.parse_string("--threshold=1.5 main.k")
             if !d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected bounds error for threshold=1.5"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,
@@ -4675,16 +4675,16 @@ pub fn Test() -> i32 {
             var        c    = pair.1
             var        r    = c.parse_string("--totally-unknown main.k")
             if !d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected U002E"
             }
 
             if r.ok {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected ok=false"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,
@@ -4699,11 +4699,11 @@ pub fn Test() -> i32 {
             var        c    = pair.1
             c.parse_string("/-g")
             if !d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected U003E"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,
@@ -4718,16 +4718,16 @@ pub fn Test() -> i32 {
             var        c    = pair.1
             var        r    = c.parse_string("main.k")
             if !d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected required-field error"
             }
 
             if r.ok {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected ok=false"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,
@@ -4742,16 +4742,16 @@ pub fn Test() -> i32 {
             var        c    = pair.1
             var        r    = c.parse_string("-g --output=app")
             if !d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected required-file error"
             }
 
             if r.ok {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected ok=false"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,
@@ -4767,11 +4767,11 @@ pub fn Test() -> i32 {
             // suppress the required-field errors by providing required flags
             c.parse_string("-g -O2 --verbose --output=app main.k")
             if d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return f"unexpected {d->error_count()} error(s) for valid input"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,
@@ -4943,11 +4943,11 @@ pub fn Test() -> i32 {
             var        c    = pair.1
             c.parse_string("--cmax-recursion-depth=99999 main.k")
             if !d->has_errors() {
-                kairo::std::destroy(d)
+                @destroy unsafe (d as *DiagEngine)
                 return "expected bounds error"
             }
 
-            kairo::std::destroy(d)
+            @destroy unsafe (d as *DiagEngine)
             return "pass"
         },
         1000,

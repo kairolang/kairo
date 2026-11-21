@@ -115,7 +115,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     // must be registered, as in kairo.
     var unsafe *llvm_init = init_runtime(argc, argv)
     finally {
-        kairo::std::destroy(llvm_init)
+        @cxx::delete llvm_init
     }
 
     var args: [string]
@@ -128,9 +128,9 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         )
     }
 
-    var gen     = SysGen()
-    var out_dir = ""
-    var words: [string]
+    var gen              = SysGen()
+    var out_dir          = ""
+    var words:  [string]
     for var i: usize = 0; i < args.size(); ++i {
         var a = args[i].copy()
         var v = ""

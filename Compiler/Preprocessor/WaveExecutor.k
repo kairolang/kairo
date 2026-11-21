@@ -76,9 +76,9 @@ pub class WaveExecutor {
             var sinks: [unsafe *BufferedDiagSink]
             for fid in ready {
                 var mod_path = graph->mod_paths[fid].copy()
-                var sink:    unsafe *BufferedDiagSink = &null
+                var sink: unsafe *BufferedDiagSink = &null
                 if diag != &null {
-                    sink = kairo::std::create<BufferedDiagSink>()
+                    sink = unsafe (@create BufferedDiagSink() as unsafe *BufferedDiagSink)
                     sinks.push(sink)
                 }
 
@@ -105,7 +105,9 @@ pub class WaveExecutor {
             self._pool->wait_group(1)
             for var i: usize = 0; i < sinks.size(); ++i {
                 sinks[i]->drain_into(diag, sm)
-                kairo::std::destroy(sinks[i])
+                if sinks[i] != &null {
+                    @destroy unsafe (sinks[i] as *BufferedDiagSink)
+                }
             }
 
             // compute next wave

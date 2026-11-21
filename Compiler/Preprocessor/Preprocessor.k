@@ -161,7 +161,7 @@ pub class PreProcessor {
     ///  up front so it never
     ///  reallocates after that.
     priv var _late_define_value: string         ///< define_late's one value
-    priv var _late_define_used:  bool             = false
+    priv var _late_define_used:  bool   = false
 
     fn PreProcessor(self,
                     sm:         *SourceManager,
@@ -173,9 +173,9 @@ pub class PreProcessor {
                     inv:        unsafe *CompilerInvocation,
                     const opts: PreprocessorOptions = PreprocessorOptions(),
                     headers:    unsafe *HeaderSetCache = &null) {
-        self._headers  = headers
-        self._sym      = kairo::std::create<PreprocessorSymbolTable>()
-        self._macros   = kairo::std::create<MacroTable>()
+        self._headers = headers
+        self._sym = unsafe (@create PreprocessorSymbolTable() as unsafe *PreprocessorSymbolTable)
+        self._macros   = unsafe (@create MacroTable() as unsafe *MacroTable)
         self._sm       = sm
         self._tcm      = tcm
         self._resolver = resolver
@@ -273,9 +273,9 @@ pub class PreProcessor {
 
             var unsafe *imm = lexer->get_imm_tbl()
 
-            var unsafe *tcm_tokens    = kairo::std::create<TokenBuffer<512>>()
-            var unsafe *macro_storage = kairo::std::create<TokenBuffer<512>>()
-            var        src            = TokenSource(lexer)
+            var unsafe *tcm_tokens = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
+            var unsafe *macro_storage = unsafe (@create TokenBuffer<512>() as unsafe *TokenBuffer<512>)
+            var src = TokenSource(lexer)
             while !src.at_eof() {
                 var t = src.next()
                 if t.kind == TokenKind::TkEof {
@@ -323,7 +323,7 @@ pub class PreProcessor {
 
             decl->accepts_params = false
 
-            var unsafe *entry = kairo::std::create<MacroEntry>()
+            var unsafe *entry = unsafe (@create MacroEntry() as unsafe *MacroEntry)
             entry->decl       = decl
             entry->storage    = macro_storage
             entry->body_len   = (macro_storage->size() as u32)
@@ -337,8 +337,13 @@ pub class PreProcessor {
     }
 
     fn op finally (self) {
-        kairo::std::destroy(self._macros)
-        kairo::std::destroy(self._sym)
+        if self._macros != &null {
+            @destroy unsafe (self._macros as *MacroTable)
+        }
+
+        if self._sym != &null {
+            @destroy unsafe (self._sym as *PreprocessorSymbolTable)
+        }
     }
 
     pub fn get_macro_table(self) -> unsafe *MacroTable {
@@ -484,9 +489,9 @@ pub class PreProcessor {
         // every file in the wave serializes through. If this is anything but
         // noise, the wave is queueing on that one mutex and widening the pool
         // will not help. NOT lex time   see Lexer::next, which bills "Lex".
-        var lexer:  unsafe *Lexer                   = &null
+        var lexer:  unsafe *Lexer   = &null
         var replay: unsafe *[Token] = &null
-        var pit = self._prelexed.find(fid as u64)
+        var pit                     = self._prelexed.find(fid as u64)
         if pit != self._prelexed.end() {
             // Opened, lexed and its macros registered by _prelex_cycles.
             lexer  = pit->second.lexer
@@ -543,24 +548,24 @@ pub class PreProcessor {
             ctx->tu = tu
         }
 
-        var unsafe *walker = kairo::std::create<PPWalker>(
+        var unsafe *walker = unsafe (@create PPWalker(
             fid,
             lexer,
             ctx,
             tu,
             self._macros,
-            self._resolver,
+            unsafe (self._resolver as unsafe *ImportResolver),
             self._sym,
-            self._sm,
+            unsafe (self._sm as unsafe *SourceManager),
             self._tcm,
-            self._diag,
+            unsafe &*self._diag,
             self._opts.copy(),
             mod_path,
             self._headers,
-        )
+        ) as unsafe *PPWalker)
 
         finally {
-            kairo::std::destroy(walker)
+            @destroy unsafe (walker as *PPWalker)
         }
 
         if self._prelude_fid != u32::MAX && !self._prelude_files.contains(fid as u64) {
@@ -602,7 +607,7 @@ pub class PreProcessor {
             return
         }
 
-        var bsym  = self._sym->intern(builtin_root_name())
+        var bsym         = self._sym->intern(builtin_root_name())
         var takes: [u32]
         for f in users {
             var mp = graph->mod_paths.get(f)
@@ -673,7 +678,7 @@ pub class PreProcessor {
                     continue
                 }
 
-                var unsafe *toks = kairo::std::create<[Token]>()
+                var unsafe *toks = unsafe (@create<[Token]>() as unsafe *[Token])
                 var        t     = Token()
                 while lexer->next(&t) {
                     toks->push(t)
@@ -702,25 +707,25 @@ pub class PreProcessor {
                     ctx->tu = tu
                 }
 
-                var unsafe *walker = kairo::std::create<PPWalker>(
+                var unsafe *walker = unsafe (@create PPWalker(
                     fid,
                     lexer,
                     ctx,
                     tu,
                     self._macros,
-                    self._resolver,
+                    unsafe (self._resolver as unsafe *ImportResolver),
                     self._sym,
-                    self._sm,
+                    unsafe (self._sm as unsafe *SourceManager),
                     self._tcm,
-                    self._diag,
+                    unsafe &*self._diag,
                     self._opts.copy(),
                     mp,
                     self._headers,
-                )
+                ) as unsafe *PPWalker)
 
                 walker->set_replay(toks)
                 walker->collect_macros()
-                kairo::std::destroy(walker)
+                @destroy unsafe (walker as *PPWalker)
                 var pf = PrelexedFile{}
                 pf.lexer                   = lexer
                 pf.tokens                  = toks
@@ -1118,7 +1123,9 @@ pub class PreProcessor {
         // The replayed tokens were copied into each walk's output; the lexers
         // went with their streams (close_stream).
         for var it = self._prelexed.begin(); it != self._prelexed.end(); ++it {
-            kairo::std::destroy(it->second.tokens)
+            if it->second.tokens != &null {
+                @destroy unsafe (it->second.tokens as *[Token])
+            }
         }
 
         self._prelexed.clear()

@@ -65,7 +65,7 @@ pub class MacroEntry {
 
     fn op finally (self) {
         if self.storage != &null {
-            kairo::std::destroy(self.storage)
+            @destroy unsafe (self.storage as *TokenBuffer<512>)
             self.storage = &null
         }
     }
@@ -88,7 +88,10 @@ pub class MacroTable {
         var scope_it = self._global.find(entry->scope)
         if scope_it != self._global.end() {
             if !scope_it->second.try_emplace(entry->name_sym as u64, entry).second {
-                kairo::std::destroy(entry)
+                if entry != &null {
+                    @destroy unsafe (entry as *MacroEntry)
+                }
+
                 return false
             }
         } else {
@@ -255,7 +258,10 @@ pub class MacroTable {
                 }
             }
 
-            kairo::std::destroy(e)
+            if e != &null {
+                @destroy unsafe (e as *MacroEntry)
+            }
+
             n += 1
         }
 
@@ -267,7 +273,9 @@ pub class MacroTable {
         var wlock = kairo::std::UniqueLock(self._mu)
         for *fid_entry in self._by_fid {
             for e in fid_entry->second {
-                kairo::std::destroy(e)
+                if e != &null {
+                    @destroy unsafe (e as *MacroEntry)
+                }
             }
         }
 

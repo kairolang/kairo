@@ -138,7 +138,9 @@ pub class Diagnostic {
     /// Recursively destroys all owned child diagnostics.
     fn op finally (self) {
         for var i: usize = 0; i < self.children.size(); ++i {
-            kairo::std::destroy(self.children[i])
+            if self.children[i] != &null {
+                @destroy unsafe (self.children[i] as *Diagnostic)
+            }
         }
     }
 }
