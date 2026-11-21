@@ -2,7 +2,7 @@
 // generator is a const place: Sema binds the vector's `self` form of
 // `op []`, but on a const receiver C++ calls the `const` overload, so the
 // element is copied to a frame local, which a move-only type cannot be:
-// SC182E. From a `self` generator it cannot be moved from either: SC182E.
+// SC182E. A `self` generator reads it through the same const subscript.
 
 class Tok {
     pub var id: i32 = 0
@@ -24,4 +24,4 @@ fn main() -> i32 { return 0 }
 // CHECK: yield_const_element_move_only.k:16:50: error [SC182E]: cannot copy a value of type 'Tok': it declares a move constructor and no copy constructor
 // CHECK: yield_const_element_move_only.k:16:50: note [I900N]: 'self.vec[0]' is const, and a generator yields a const value by copying it
 // CHECK: yield_const_element_move_only.k:17:43: error [SC182E]: cannot copy a value of type 'Tok': it declares a move constructor and no copy constructor
-// CHECK: yield_const_element_move_only.k:17:43: note [I900N]: a generator gives up the value it yields, and 'self.vec[0]' is not a local or a by-value parameter it can move from
+// CHECK: yield_const_element_move_only.k:17:43: note [I900N]: 'self.vec[0]' is const, and a generator yields a const value by copying it

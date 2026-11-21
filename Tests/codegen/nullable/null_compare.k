@@ -70,10 +70,10 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX:      "a == null"{{.*}}, a.is_null());
-// CXX:      "null != a"{{.*}},(!a.is_null()));
-// CXX:      "p == &null"{{.*}}, p.is_null());
-// CXX:      "5 == 6"{{.*}},(five == six));
+// CXX:      say({{.*}}.b, 9, 9), a.is_null());
+// CXX:      say({{.*}}.b, 9, 9),(!a.is_null()));
+// CXX:      say({{.*}}.b, 10, 10), p.is_null());
+// CXX:      say({{.*}}.b, 6, 6),(five == six));
 // CXX:      while((!c.is_null()))
 
 // REQUIRES: clang

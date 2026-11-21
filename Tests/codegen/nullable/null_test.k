@@ -84,10 +84,10 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      template<class T> inline bool present( ::builtin::Null<T> t) noexcept {
 // CXX-NEXT:     return(!t.is_null());
-// CXX:      "!b?"{{.*}}, b.is_null());
-// CXX:      "!(a?)"{{.*}}, a.is_null());
+// CXX:      say({{.*}}.b, 3, 3), b.is_null());
+// CXX:      say({{.*}}.b, 5, 5), a.is_null());
 // CXX:      bool v =(!a.is_null());
-// CXX:      "p? && !q?"{{.*}},((!p.is_null()) && q.is_null()));
+// CXX:      say({{.*}}.b, 9, 9),((!p.is_null()) && q.is_null()));
 // CXX-NOT:  !!
 // CXX:      while((!c.is_null()))
 

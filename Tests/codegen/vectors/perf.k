@@ -1,15 +1,15 @@
 // The `[T]` hot paths, linked -O2 for x86_64-linux-musl and read back from
 // the object code, as Tests/alloc/perf.k reads the allocator's: `[]` is a
-// bounds compare and a load (the trap is out of line), size / empty / back
-// are loads, push_back with spare capacity makes no call (growth is a cold
-// out-of-line call), pop_back and clear of an i32 vector have no loop, and
+// bounds compare and a load (the trap is out of line), size / empty / last
+// are loads, push with spare capacity makes no call (growth is a cold
+// out-of-line call), pop and clear of an i32 vector have no loop, and
 // `for x in v` is a pointer loop with no coroutine frame left.
 
 @no_inline fn k_index(const v: [i32], i: usize) -> i32 { return v[i] }
 @no_inline fn k_size(const v: [i32]) -> usize { return v.size() }
 @no_inline fn k_empty(const v: [i32]) -> bool { return v.is_empty() }
-@no_inline fn k_back(const v: [i32]) -> i32 { return *v.back() }
-@no_inline fn k_push(@inout v: [i32], x: i32) { v.push_back(x) }
+@no_inline fn k_back(const v: [i32]) -> i32 { return *unwrap!(v.last()) }
+@no_inline fn k_push(@inout v: [i32], x: i32) { v.push(x) }
 @no_inline fn k_pop(@inout v: [i32]) { v.pop() }
 @no_inline fn k_clear(@inout v: [i32]) { v.clear() }
 @no_inline fn k_sum(const v: [i32]) -> i32 {
@@ -59,7 +59,7 @@ fn main() -> i32 {
 // CHECK-NEXT: sete %al
 // CHECK-NEXT: retq
 
-// back: the empty test, then the load.
+// last: the empty test, then the load.
 // CHECK-LABEL: 6k_backE{{.*}}>:
 // CHECK-NEXT: movq 0x8(%rdi), %rax
 // CHECK-NEXT: testq %rax, %rax
@@ -68,7 +68,7 @@ fn main() -> i32 {
 // CHECK-NEXT: movl -0x4(%rcx,%rax,4), %eax
 // CHECK-NEXT: retq
 
-// push_back with spare capacity: no frame, no call; a full vector is a
+// push with spare capacity: no frame, no call; a full vector is a
 // conditional tail jump to the out-of-line push_grow.
 // CHECK-LABEL: 6k_pushE{{.*}}>:
 // CHECK-NEXT: movq 0x8(%rdi), %rax
@@ -80,7 +80,7 @@ fn main() -> i32 {
 // CHECK-NEXT: movq %rax, 0x8(%rdi)
 // CHECK-NEXT: retq
 
-// pop_back and clear of a trivially destructible element: no loop.
+// pop and clear of a trivially destructible element: no loop.
 // CHECK-LABEL: 5k_popE{{.*}}>:
 // CHECK-NEXT: movq 0x8(%rdi), %rax
 // CHECK-NEXT: testq %rax, %rax

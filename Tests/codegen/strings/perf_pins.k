@@ -3,21 +3,21 @@
 // can be read on its own.
 
 @no_inline fn k_lit() -> string { return "hello" }
-@no_inline fn k_copy(const s: string) -> string { return s }
+@no_inline fn k_copy(const s: string) -> string { return s.copy() }
 @no_inline fn k_size(const s: string) -> usize { return s.size() }
 @no_inline fn k_empty(const s: string) -> bool { return s.is_empty() }
-@no_inline fn k_index(const s: string, i: usize) -> u8 { return s[i] }
-@no_inline fn k_push(s: *string, c: u8) { s->push_back(c) }
+@no_inline fn k_index(const s: string, i: usize) -> char { return s[i] }
+@no_inline fn k_push(s: *string, c: char) { s->push(c) }
 @no_inline fn k_append(s: *string, const t: string) { (*s) += t }
 @no_inline fn k_eq(const a: string, const b: string) -> bool { return a == b }
 @no_inline fn k_lt(const a: string, const b: string) -> bool { return a < b }
-@no_inline fn k_drop(s: *string) { var t = (*s) }
+@no_inline fn k_drop(s: *string) { var t = (*s).copy() }
 
 fn main() -> i32 {
     var a = k_lit()
     var b = k_copy(a)
     var s = string()
-    for var i: usize = 0; i < 100; ++i { k_push(&s, 97); k_append(&s, b) }
+    for var i: usize = 0; i < 100; ++i { k_push(&s, 'a'); k_append(&s, b) }
     k_drop(&s)
     var r: usize = 0
     if k_eq(a, b) { r += 1 }

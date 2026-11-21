@@ -13,6 +13,9 @@
 ///       @create<T>(args)      create<T>(args)     (the parser built it)
 ///       @create T(args)       create<T>(args)     T a name, a `::` path or
 ///                                                 a generic application
+///       @create T{ f: v }     create<T>(T{ f: v }) the same T; the object
+///                                                 is moved (or copied) from
+///                                                 the initializer
 ///       @destroy<T>(p)        destroy<T>(p)       (the parser built it)
 ///       @destroy p            destroy(p)
 ///       @destroy(p)           destroy(p)
@@ -31,9 +34,11 @@
 ///     ordinary lookup, as before. A class cannot have its own allocator
 ///     (SC149E), so nothing reroutes the call.
 ///
-///     What is left alone: `@create Point{ x: 1 }` (an initializer, not a
-///     call) and every other expression attribute. FeatureGateCheck
-///     reports those (SC116E) as before.
+///     What is left alone: a `@create` / `@destroy` of any other shape
+///     (`@create x`, `@create Config(1).port`, `@create .V { }`,
+///     `@create(a) T()`, `@destroy(a) p`), which FeatureGateCheck reports as
+///     a misuse (SC364E), and every other expression attribute, which it
+///     reports as not yet supported (SC116E).
 ///
 ///   Phase: EXPAND (before N: the minted callee and type argument resolve
 ///          as written ones do)
@@ -51,7 +56,10 @@ import AST::LangItems::{
     LangAttrs,
     WellKnownType,
 }
-import AST::Node::Base::Expr
+import AST::Node::Base::{
+    Expr,
+    Type,
+}
 import AST::Node::Casting::{
     cast,
     dyn_cast,
@@ -60,6 +68,7 @@ import AST::Node::Casting::{
 import AST::Node::Expressions::{
     AttributedExpr,
     CallExpr,
+    NamedInitializerExpr,
 }
 import AST::Node::PrimaryExpressions::NamedIdentExpr
 import AST::Node::Types::ChainType
@@ -132,6 +141,27 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
             return dc
         }
 
+        // `@create T{ f: v }`: the initializer's head is T, and the
+        // initializer itself is the one argument. A head-less initializer
+        // (`.V { }`) names no type to allocate.
+        if isa<NamedInitializerExpr>(opd) {
+            var unsafe *ini = cast<NamedInitializerExpr>(opd)
+            if ini->is_dotted || ini->type_expr == &null {
+                return out
+            }
+
+            var unsafe *ity = expr_as_type(self.sc->ctx, ini->type_expr)
+            if ity == &null {
+                return out
+            }
+
+            var unsafe *ic   = self._create_of(n, ity)
+            var unsafe **one = self.sc->ctx->alloc_array<unsafe *Expr>(1)
+            one[0] = opd
+            ic->args.from_raw(one, 1)
+            return ic
+        }
+
         // `@create T(args)`: T, the callee, becomes the type argument.
         if !isa<CallExpr>(opd) {
             return out
@@ -143,6 +173,14 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
             return out
         }
 
+        var unsafe *cc = self._create_of(n, ty)
+        cc->args = call->args
+        return cc
+    }
+
+    /// `create<ty>()` at the attribute, its callee bound to the lang item;
+    /// the caller fills the arguments.
+    priv fn _create_of(self, n: unsafe *AttributedExpr, ty: unsafe *Type) -> unsafe *CallExpr {
         var unsafe *ga = self.sc->ctx->alloc_array<ChainType::GenericArg>(1)
         ga[0].name       = &null
         ga[0].name_range = SourceRange::invalid()
@@ -155,9 +193,7 @@ pub class AllocSugarDesugar derives ASTWriter<AllocSugarDesugar> {
 
         callee->generic_args.from_raw(ga, 1)
         self._bind_callee(callee, true)
-        var unsafe *cc = CallExpr::create(self.sc->ctx, n->range, callee)
-        cc->args = call->args
-        return cc
+        return CallExpr::create(self.sc->ctx, n->range, callee)
     }
 
     /// Bind the minted (or parser-built) callee to alloc.k's create /

@@ -80,8 +80,8 @@ fn sites(a: Box, h: Holder) -> i32 {
     b = a
     // CHECK: [[@LINE-1]]:9: warning [SC354W]: implicit copy of a 'Box'
     var v: [Box] = [a]
-    // CHECK: [[@LINE-1]]:20: warning [SC354W]: implicit copy of a 'Box'
-    // CHECK: note [I900N]: the vector copies each element out of the literal
+    // CHECK: [[@LINE-1]]:21: warning [SC354W]: implicit copy of a 'Box'
+    // CHECK: note [I900N]: the transfer into the vector literal copies 'a'
     var h2 = h
     // CHECK: [[@LINE-1]]:14: warning [SC354W]: implicit copy of a 'Holder'
     // CHECK: note [I900N]: a copy of a 'Holder' copies its field 'b'
@@ -95,9 +95,7 @@ fn sites(a: Box, h: Holder) -> i32 {
     var o2? = o
     // CHECK: [[@LINE-1]]:15: warning [SC354W]: implicit copy of a 'Box?'
     // CHECK: note [I900N]: a copy of a 'Box?' copies its value
-    var v2 = v
-    // CHECK: [[@LINE-1]]:14: warning [SC354W]: implicit copy of a '[Box]'
-    // CHECK: note [I900N]: a copy of a '[Box]' copies its element type 'Box'
+    var v2 = v.copy()               // a vector moves; only an explicit copy duplicates it
     var sum = 0
     for x in v {
         // CHECK: [[@LINE-1]]:9: warning [SC354W]: implicit copy of a 'Box'
@@ -131,6 +129,6 @@ fn named(a: Box) -> i32 {
 
 // CHECK: [[@LINE-4]]:13: warning [SC146W]: 'Box' is deprecated: copy with .copy()
 
-// Fifteen implicit copies above, and none in `quiet` or `named`.
-// COUNT-COUNT-15: warning [SC354W]
+// Fourteen implicit copies above, and none in `quiet` or `named`.
+// COUNT-COUNT-14: warning [SC354W]
 // COUNT-NOT: warning [SC354W]

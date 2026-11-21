@@ -3335,11 +3335,11 @@ group = "global-allocator"
     explain = """
     # type cannot be the global allocator
 
-    the global allocator must be a class or struct with the static allocator functions the runtime calls; the type named is not one, or lacks one of the functions.
+    the global allocator must be a class or struct with the static allocator functions the runtime calls; the type named is not one, lacks one of the functions, or declares one `priv` or `prot` (the runtime calls them from outside the class).
 
     ## how to fix
 
-    name a class or struct that has every static allocator function.
+    name a class or struct that has every static allocator function, each public.
     """
 
     [SC141.N]
@@ -7223,3 +7223,34 @@ group = "type-check"
 
     keep the offset from `0` to `N`, or index the array instead.
     """
+
+[SC364]
+brief = "'@create' or '@destroy' written with an operand it cannot take"
+group = "allocation"
+
+    [SC364.E]
+    explain = """
+    # '@create' or '@destroy' written with an operand it cannot take
+
+    `@create` allocates one object through the allocator in effect and constructs it; its operand
+    is the construction, a call of the type or an initializer. `@destroy` takes one pointer. Both
+    apply to the one unary expression after them, member accesses included, so a member of the new
+    object is reached through parentheses.
+
+    ```kairo
+    var *c = @create Config(8080)           // fine
+    var *p = @create Point { x: 1, y: 2 }   // fine
+    var *g = @create<Box<i32>>(1)           // fine: the generic form
+    var port = @create Config(8080).port    // error: allocates 'Config(8080).port'
+    var *n = @create 3                      // error: not a construction
+    @destroy(a) b                           // error: one pointer
+    ```
+
+    ## how to fix
+
+    write `@create T(args)`, `@create T { field: value }` or `@create<T>(args)`; reach a member as
+    `(@create T(args))->member` (the fix-it); free one pointer per `@destroy p`.
+    """
+
+    [SC364.N]
+    explain = "Points at the operand, or the part of it that makes the form wrong."

@@ -16,7 +16,7 @@ fn status(code: i32) -> i32 = match code {
     default        => 0
 }
 
-fn word(s: string) -> i32 = match s {
+fn word(const s: string) -> i32 = match s {
     case "a"   => 1
     case "abc" => 2
     case "xyz" => 3

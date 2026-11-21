@@ -26,21 +26,21 @@ class Counting {
 
 @no_inline fn literal_copies() -> i32 {
     var a = "literal"
-    var b = a
-    var c = b
+    var b = a.copy()
+    var c = b.copy()
     var d: string = string()
-    d = c
+    d = c.copy()
     if (d != "literal") || (b.capacity() != 0) { return 1 }
     return 0
 }
 
 @no_inline fn mutate_copy() -> i32 {
     var a = "literal"
-    var b = a
+    var b = a.copy()
     b.push('!')
     if (a != "literal") || (b != "literal!") || (a.capacity() != 0) { return 1 }
-    var c = b                       // deep: one exact block
-    c.push_back(63)
+    var c = b.copy()                // deep: one exact block
+    c.push('?')
     if (b != "literal!") || (c != "literal!?") { return 2 }
     return 0
 }
@@ -48,7 +48,7 @@ class Counting {
 @no_inline fn fstrings() -> i32 {
     var n = 12345
     var f = f"value={n}"            // FmtBuf's block becomes the string's
-    var g = f                       // a deep copy of it
+    var g = f.copy()                // a deep copy of it
     g += "!"
     if (f != "value=12345") || (g != "value=12345!") { return 1 }
     return 0
@@ -82,7 +82,7 @@ fn main() -> i32 {
     {
         var big = string()
         big.reserve(5000)
-        for var i: usize = 0; i < 2000000; ++i { big.push_back(120) }
+        for var i: usize = 0; i < 2000000; ++i { big.push('x') }
         if (big.size() != 2000000) || (big.codepoints() != 2000000) { return 11 }
     }
     if live != 0 { return 12 }

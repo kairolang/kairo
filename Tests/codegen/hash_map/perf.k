@@ -16,14 +16,14 @@
 import builtin::base::alloc::*
 
 @no_inline fn k_contains(const m: {u64: u64}, k: u64) -> bool { return m.contains(k) }
-@no_inline fn k_index(m: {u64: u64}, k: u64) -> u64 { return m[k] }
-@no_inline fn k_insert(m: {u64: u64}, k: u64) -> bool { return m.insert(k, k) }
-@no_inline fn k_iter(m: {u64: u64}) -> u64 {
+@no_inline fn k_index(const m: {u64: u64}, k: u64) -> u64 { return m[k] }
+@no_inline fn k_insert(@inout m: {u64: u64}, k: u64) -> bool { return not m.insert(k, k)? }
+@no_inline fn k_iter(const m: {u64: u64}) -> u64 {
     var t: u64 = 0
     for (k, v) in m { t += v }
     return t
 }
-@no_inline fn k_entries(m: {u64: u64}) -> u64 {
+@no_inline fn k_entries(const m: {u64: u64}) -> u64 {
     var t: u64 = 0
     for *e in m.entries() { t += e->value }
     return t
@@ -40,7 +40,7 @@ fn main() -> i32 {
     var r: u64 = 0
     if k_contains(m, 5) { r += 1 }
     r += k_index(m, 7)
-    if k_insert(m, 1000) { r += 1 }
+    if k_insert(&m, 1000) { r += 1 }
     r += k_iter(m) + k_entries(m)
     if k_set_contains(s, 2u32) { r += 1 }
     if k_str_contains(sm, "a") { r += 1 }

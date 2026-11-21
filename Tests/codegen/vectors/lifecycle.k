@@ -80,12 +80,12 @@ fn cp_vectors() -> i32 {
         if copied != 8 { return 2 }
         b[0].v = 100
         if a[0].v != 0 { return 3 }
-        a.pop_back()                                    // one drop
+        a.pop()                                         // one drop
         if dropped != 1 { return 4 }
-        unsafe { a.erase(a.begin() + 1, a.begin() + 3) }
+        a.drain(1..3)
         if (a.size() != 5) || (a[1].v != 3) { return 5 }
         a.clear()
-        b.resize(3)
+        b.truncate(3)
     }
     // every Cp that came into being was destroyed once
     if made + copied != dropped { return 6 }
@@ -98,16 +98,16 @@ fn mv_vectors() -> i32 {
         var i: i32 = 0
         while i < 100 {
             var m = Mv(i)
-            a.push_back(m)                            // moved in: m is empty
+            a.push(m)                                 // moved in: m is empty
             i += 1
         }
-        a.emplace_back(100)
-        a.insert(a.begin(), Mv(-1))
-        unsafe { a.erase(a.begin() + 50) }
+        a.push(Mv(100))
+        a.insert(0, Mv(-1))
+        a.remove(50)
         if (a.size() != 101) || (a[0].v != -1) || (a[50].v != 50) || (a[100].v != 100) { return 1 }
         for *m in a { if !m->live { return 2 } }
-        a.pop_back()
-        unsafe { a.erase(a.begin() + 10, a.end()) }
+        a.pop()
+        a.truncate(10)
     }
     // 102 Mvs were made; each live one was destroyed exactly once, however
     // many times growth, insert and erase moved it
@@ -120,18 +120,18 @@ fn mv_vectors() -> i32 {
 fn strings() -> i32 {
     var s: [string] = ["a", "bc"]
     var t = "def"
-    s.push_back(t)
-    s.push_back("gh")
-    var u = s
+    s.push(t)
+    s.push("gh")
+    var u = s.copy()
     u[0] = "zz"
-    if s[0].length() != 1 { return 1 }
-    if u[0].length() != 2 { return 2 }
+    if s[0].size() != 1 { return 1 }
+    if u[0].size() != 2 { return 2 }
     var total: usize = 0
-    for x in s { total += x.length() }
+    for x in s { total += x.size() }
     if total != 1 + 2 + 3 + 2 { return 3 }
-    s.insert(s.begin(), "x")
-    unsafe { s.erase(s.begin() + 2) }
-    if (s.size() != 4) || (s[1].length() != 1) || (s[2].length() != 3) { return 4 }
+    s.insert(0, "x")
+    s.remove(2)
+    if (s.size() != 4) || (s[1].size() != 1) || (s[2].size() != 3) { return 4 }
     return 0
 }
 
@@ -141,16 +141,16 @@ fn nested() -> i32 {
     while r < 50 {
         var row: [i32]
         var c: i32 = 0
-        while c <= r { row.push_back(c); c += 1 }
-        g.push_back(row)
+        while c <= r { row.push(c); c += 1 }
+        g.push(row)
         r += 1
     }
-    var h = g                                         // deep: rows are copied too
+    var h = g.copy()                                  // deep: rows are copied too
     h[49][49] = -1
     if g[49][49] != 49 { return 1 }
-    g[0].push_back(7)
+    g[0].push(7)
     if (g[0].size() != 2) || (h[0].size() != 1) { return 2 }
-    unsafe { g.erase(g.begin() + 10, g.begin() + 40) }
+    g.drain(10..40)
     if (g.size() != 20) || (g[10].size() != 41) { return 3 }
     var cells: usize = 0
     for *row in g { cells += row->size() }
@@ -161,12 +161,12 @@ fn nested() -> i32 {
 fn big() -> i32 {
     var v: [u64]
     var i: u64 = 0
-    while i < 100000 { v.push_back(i * 3); i += 1 }
+    while i < 100000 { v.push(i * 3); i += 1 }
     if (v.size() != 100000) || (v[99999] != 299997) { return 1 }
     var t: u64 = 0
     for x in v { t += x }
     if t != 3 * (99999 * 100000 / 2) { return 2 }
-    var w = v
+    var w = v.copy()
     if w[12345] != 37035 { return 3 }
     return 0
 }

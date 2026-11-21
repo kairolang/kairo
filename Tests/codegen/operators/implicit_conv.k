@@ -9,7 +9,7 @@ struct Meters {
 
 fn twice(x: i32) -> i32 { return x * 2 }
 
-fn sum(const xs: [i32;]) -> i32 {
+fn sum(const xs: [const i32;]) -> i32 {
     var s: i32 = 0
     for x in xs { s += x }
     return s

@@ -60,7 +60,7 @@ fn generic(r: LookupResult<string, i32>) -> i32 {
             var n: i32 = value
             return n
         }
-        case .NotFound(var key) { takes_string(key) }
+        case .NotFound(var key) { takes_string(key.copy()) }
     }
     return 0
 }

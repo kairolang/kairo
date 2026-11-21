@@ -43,9 +43,10 @@
 ///       - an attribute applied to an expression (`@align(16) x`,
 ///         AttributedExpr): it parses, but no attribute has an expression
 ///         meaning yet. X leaves the node and its operand untyped. The
-///         exception is `@create` / `@destroy` in their call shapes, which
-///         AllocSugarDesugar rewrote to alloc.k calls before N; one left
-///         here (`@create Point{ x: 1 }`) is gated like any other.
+///         exception is `@create` / `@destroy`, which AllocSugarDesugar
+///         rewrote to alloc.k calls before N; one left here has a shape
+///         with no meaning (`@create x`, `@create T(args).m`), and is
+///         reported as that misuse (SC364E), not as a feature to come.
 ///       - an `eval for` directly in a module or class body
 ///         (EvalBlockDecl::stmt): it parses, but nothing unrolls it there.
 ///         (An `eval if` there is folded away by EvalIfFolding.)
@@ -96,6 +97,7 @@ import AST::DeclFacts::{
     decl_name_tok,
 }
 import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::LangAttrs
 import AST::Node::Base::{
     Decl,
     Type,
@@ -125,9 +127,11 @@ import AST::Node::Declarations::{
 }
 import AST::Node::Expressions::{
     AlignOfExpr,
+    AnonInitializerExpr,
     AttributedExpr,
     CallExpr,
     ClosureExpr,
+    NamedInitializerExpr,
     SizeOfExpr,
     SpawnExpr,
     ThreadExpr,
@@ -399,6 +403,13 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
 
     fn visit_attributed_expr(self, n: *AttributedExpr) -> bool {
         var nm = self.sc->ctx->get_spelling(n->name)
+        // AllocSugarDesugar rewrote every `@create` / `@destroy` of a shape
+        // it has a call for, so one still here is written wrong.
+        if nm == LangAttrs::create() || nm == LangAttrs::destroy() {
+            self._alloc_misuse(n, nm == LangAttrs::create())
+            return true
+        }
+
         // A calling convention on a closure is an error of its own, with
         // its reason (CallConvCheck), not a feature still to come.
         if n->operand != &null && isa<ClosureExpr>(n->operand) && call_conv_of_attr(nm) != 0 {
@@ -877,6 +888,106 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
             n->name.range.start,
             "give a variant a payload to make it an ADT enum, or remove the generic parameters",
         )->child_first(n->name.range)
+        b.emit()
+    }
+
+    /// SC364E: a `@create` / `@destroy` whose shape has no meaning. The
+    /// attribute applies to one unary expression, postfix chain included,
+    /// so `@create T(args).m` allocates `T(args).m`; that one gets the
+    /// parenthesized spelling as its fix-it.
+    priv fn _alloc_misuse(self, n: *AttributedExpr, is_create: bool) {
+        var at = SourceRange::from_bounds(n->range.start, 1 as u32) | n->name.range
+        var q = LangAttrs::quoted(
+            if (is_create) => (LangAttrs::create()) else => LangAttrs::destroy(),
+        )
+
+        var unsafe *opd = n->operand
+        if !is_create {
+            var b = self.sc->diag->report(
+                DiagID::SC364E,
+                at.start,
+                q.copy() + " takes one pointer: '@destroy p' or '@destroy(p)'",
+            )
+
+            b.first(at)
+            b.emit()
+            return
+        }
+
+        if n->has_args {
+            var b = self.sc->diag->report(
+                DiagID::SC364E,
+                at.start,
+                q.copy() + " takes no attribute arguments: the type and its constructor arguments follow it, '@create T(args)' or '@create<T>(args)'",
+            )
+
+            b.first(at)
+            b.emit()
+            return
+        }
+
+        var unsafe *ch = if (opd != &null && isa<ChainExpr>(opd)) => (cast<ChainExpr>(
+                             opd,
+                         ))
+                         else => &null
+        if ch != &null
+            && ch->base != &null
+            && (isa<CallExpr>(ch->base) || isa<NamedInitializerExpr>(ch->base))
+            && ch->steps.size() > 0 {
+            var unsafe *st = ch->steps.get(0)
+            var        dot = st->access_kind == ChainExpr::AccessKind::Dot
+            if dot || st->access_kind == ChainExpr::AccessKind::Arrow {
+                var b = self.sc->diag->report(
+                    DiagID::SC364E,
+                    at.start,
+                    q.copy() + " applies to the whole member access after it; a member of the object it creates is reached through parentheses: '(@create T(args))->member'",
+                )
+
+                b.first(at)
+                b.note(
+                    DiagCode(DiagID::SC364N),
+                    st->range.start,
+                    "this member access is part of the operand",
+                )->child_first(st->range)
+                b.insert(n->range.start, "(", "parenthesize the allocation")
+                b.insert(
+                    ch->base->range.end,
+                    ")",
+                    "parenthesize the allocation",
+                )
+
+                if dot {
+                    b.fix(
+                        SourceRange::from_bounds(st->range.start, 1 as u32),
+                        "->",
+                        "the result is a pointer: reach its member with '->'",
+                    )
+                }
+
+                b.emit()
+                return
+            }
+        }
+
+        var headless = opd != &null
+            && (isa<AnonInitializerExpr>(opd)
+                || (isa<NamedInitializerExpr>(opd)
+                    && cast<NamedInitializerExpr>(opd)->type_expr == &null))
+        var msg = q.copy() + " allocates and constructs one object: its operand is a construction, 'T(args)' or 'T { field: value }'"
+        if headless {
+            msg = q.copy() + " needs the type it allocates: write '@create T { field: value }'"
+        }
+
+        var b = self.sc->diag->report(DiagID::SC364E, at.start, msg)
+        b.first(at)
+        if opd != &null {
+            b.note(
+                DiagCode(DiagID::SC364N),
+                opd->range.start,
+                "this is the operand",
+            )->child_first(opd->range)
+        }
+
         b.emit()
     }
 

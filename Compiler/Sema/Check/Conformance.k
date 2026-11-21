@@ -442,16 +442,52 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 unsafe &cands,
             )
 
-            var found = false
+            // A private or protected one is not callable from the
+            // forwarders, which are free functions outside the class.
+            var found                                      = false
+            var hidden: unsafe *Declarations::FunctionDecl = &null
             for var j: usize = 0; j < cands.size(); ++j {
                 var unsafe *f = dyn_cast<Declarations::FunctionDecl>(cands[j])
-                if f != &null && !f->is_method() {
-                    found = true
-                    break
+                if f == &null || f->is_method() {
+                    continue
                 }
+
+                if f->is_private() || f->is_protected() {
+                    if hidden == &null {
+                        hidden = f
+                    }
+
+                    continue
+                }
+
+                found = true
+                break
             }
 
             if found {
+                continue
+            }
+
+            if hidden != &null {
+                var hat = decl_name_tok(hidden).range
+                var hb = self.sc->diag->report(
+                    DiagID::SC141E,
+                    at.start,
+                    f"'{self.tu.str(c)}' cannot be the global allocator: its static function '{names[i]}' is not public, and the runtime calls it from outside the class",
+                )
+
+                hb.first(ta->aliased->range)
+                hb.note(
+                    DiagCode(DiagID::SC141N),
+                    hat.start,
+                    f"'{names[i]}' is declared here",
+                )->child_first(hat)
+                var written = hidden->visibility_range()
+                if written.is_valid() {
+                    hb.fix(written, "pub", f"make '{names[i]}' public")
+                }
+
+                hb.emit()
                 continue
             }
 

@@ -49,7 +49,7 @@ pub fn marked(b: unsafe *const u64, n: usize, v: u64) -> usize {
 
 fn main() -> i32 {
     var xs: [u64] = [1, 3, 5, 7, 9, 11, 13, 15]
-    var unsafe *p = unsafe (xs.data() as unsafe *const u64)
+    var unsafe *p = unsafe (unwrap!(xs.data()) as unsafe *const u64)
     var a = plain(p, xs.size(), 9)
     var b = hinted(p, xs.size(), 9)
     var c = marked(p, xs.size(), 9)

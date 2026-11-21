@@ -19,10 +19,19 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR: CODEGEN C++: {{.*}}strings/literal.k
-// IR: reinterpret_cast<const unsigned char *>("Hello, Kairo! \360\237\223\243"), 18, 15
-// IR: reinterpret_cast<const unsigned char *>("ab"), 2, 2
-// IR: reinterpret_cast<const unsigned char *>("'\012\360\237\223\243"), 6, 3
-// IR: reinterpret_cast<const unsigned char *>("\\n"), 2, 2
+// The literals are emitted as one static record each: codepoint count, then the bytes and a NUL.
+// IR: __kairo_slit_t<19> __kairo_slit_18_{{[0-9a-f]+}} = {
+// IR-NEXT: 15, {
+// IR-NEXT: 72, 101, 108, 108, 111, 44, 32, 75, 97, 105, 114, 111, 33, 32, 240, 159, 147, 163, 0
+// IR: __kairo_slit_t<3> __kairo_slit_2_{{[0-9a-f]+}} = {
+// IR-NEXT: 2, {
+// IR-NEXT: 97, 98, 0
+// IR: __kairo_slit_t<7> __kairo_slit_6_{{[0-9a-f]+}} = {
+// IR-NEXT: 3, {
+// IR-NEXT: 39, 10, 240, 159, 147, 163, 0
+// IR: __kairo_slit_t<3> __kairo_slit_2_{{[0-9a-f]+}} = {
+// IR-NEXT: 2, {
+// IR-NEXT: 92, 110, 0
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d

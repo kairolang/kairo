@@ -156,7 +156,7 @@ fn main() -> i32 {
 // CXX-NOT: cleanup
 // CXX: __k_s_r.__end();
 // CXX-NOT: cleanup
-// CXX: "both arms"
+// CXX: println({{.*}}.b, 9, 9)
 // CXX-LABEL: ::{{.*}}::Res returned() noexcept {
 // CXX: return static_cast<decltype(__k_s_r.s.v) &&>(__k_s_r.s.v);
 
