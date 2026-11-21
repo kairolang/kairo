@@ -52,6 +52,7 @@ import AST::Node::Types::{
     TypeExpr,
 }
 import Codegen::Interface::InterfaceEmitter::InterfaceEmitter
+import Codegen::Interface::Records
 import Codegen::Plan::EmitPlan::{
     ExtScope,
     PlanEntry,
@@ -727,6 +728,7 @@ extend InterfaceEmitter {
         for var i: usize = 0; i < ie->args.size(); ++i {
             var unsafe *v = dyn_cast<TypeExpr>(ie->args[i])
             if v != &null && v->is_value && !v->is_exact() {
+                self._dm_instance_assert(d, ie)
                 return
             }
         }
@@ -740,6 +742,7 @@ extend InterfaceEmitter {
         // member by member as used. No `extern template` either: it would
         // suppress that.
         if !isa<Declarations::FunctionDecl>(d) && plan_under_duck(d) {
+            self._dm_instance_assert(d, ie)
             return
         }
 
@@ -841,6 +844,7 @@ extend InterfaceEmitter {
         self._cg->sink->brk()
         self._instance_layout_asserts(d, ie)
         self._instance_spec_assert(d, ie, e->is_home)
+        self._dm_instance_assert(d, ie)
         var mas = self._spell->mixin_bound_asserts(d, ie)
         for var i: usize = 0; i < mas.size(); ++i {
             self._cg->sink->spell(self._at(d), mas[i])
@@ -934,6 +938,32 @@ extend InterfaceEmitter {
         self._cg->sink->spell(
             self._at(d),
             "static_assert(" + x + "::" + LowerTargets::spec_tag() + " == " + f"{want}" + "u, \"C++ selected another specialization than Kairo\");",
+        )
+
+        self._cg->sink->brk()
+    }
+
+    /// Where an instance of a class whose trait answer C++ computes
+    /// (_dm_member_value) is named: Sema's answer for that instance
+    /// (ClassDecl::destructive on its node), pinned, so a trait that
+    /// disagrees with Sema is a compile error here, never a skipped
+    /// destructor. A body with a fixed answer needs none.
+    priv fn _dm_instance_assert(self, d: unsafe *Decl, ie: unsafe *InstanceEntry) {
+        if ie == &null || ie->is_explicit || !isa<Declarations::ClassDecl>(d) {
+            return
+        }
+
+        var unsafe *body = if (ie->pattern != &null) => (ie->pattern) else => d
+        if self._dm_member_value(body).size() == 0 {
+            return
+        }
+
+        var want = if (self._dm_fact(ie->decl) == Declarations::DestructiveFact::Yes) => ("true")
+                   else => "false"
+        var x = self._spell->qual_name(d) + self._spell->args_str(ie->args)
+        self._cg->sink->spell(
+            self._at(d),
+            "static_assert(::" + LowerTargets::dm_trait() + "<" + x + "> == " + want + ", \"C++ and Kairo disagree on whether a moved-from object needs its destructor\");",
         )
 
         self._cg->sink->brk()

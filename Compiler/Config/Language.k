@@ -74,6 +74,10 @@ pub class LangOptions {
     /// as `const` parameters are inferred unasked: the
     /// rules are the written promise's, so what they admit is sound.
     pub var infer_purity: i32 = -1
+    /// -fdestructive-moves (hidden): a real transfer out of a local of a
+    /// destructive type skips the moved-from object's destructor
+    /// (Sema/Check/LocalDisposition.k). On unless 0 (-fno-destructive-moves).
+    pub var destructive_moves: i32 = -1
     /// -fstrict-cxx-moves: MoveCheck takes a C++ call it cannot inspect at
     /// its worst, as it takes a Kairo function with no body (Compiler/Spec/
     /// Ownership.md, "C++ bodies"). On unless 0 (-fno-strict-cxx-moves).
@@ -118,7 +122,6 @@ pub class LangOptions {
     pub var test_panic_type:    bool = false ///< --test-panic-type: source may name Panic<...>.
     pub var test_panic_id_bits: i32  = 32 ///< --test-panic-id-bits: type ids masked to this many bits.
     pub var test_fold_lie:      bool = false ///< --test-fold-lie: the late eval-if fold reads every triviality fact inverted (Compiler/Spec/Eval.md#deferred-conditions).
-    pub var test_disarm_moved:  bool = false ///< --test-disarm-moved-locals: Sema/Check/TestDisarm.k.
 
     /// # sema / type system limits (from --c* config flags)
 
@@ -182,7 +185,6 @@ pub class LangOptions {
         o.test_panic_type    = args.get_bool("test-panic-type")
         o.test_panic_id_bits = args.get_i32("test-panic-id-bits")
         o.test_fold_lie      = args.get_bool("test-fold-lie")
-        o.test_disarm_moved  = args.get_bool("test-disarm-moved-locals")
 
         /// ## feature toggles
         o.implicit_conv     = args.get_feature("implicit-conv")
@@ -193,6 +195,7 @@ pub class LangOptions {
         o.unwind            = args.get_feature("unwind")
         o.infer_purity      = args.get_feature("infer-purity")
         o.strict_cxx_moves  = args.get_feature("strict-cxx-moves")
+        o.destructive_moves = args.get_feature("destructive-moves")
         o.duck_generics     = args.get_feature("duck-generics")
         o.default_vis_pub   = args.get_string("default-visibility") == "pub"
         o.union_locals_all  = args.get_string("union-locals") == "all"

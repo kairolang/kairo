@@ -90,6 +90,7 @@ import AST::Node::Statements::{
 import AST::Node::Types::PointerType
 import Codegen::Emit::Calls
 import Codegen::Emit::Convert
+import Codegen::Emit::Ctors
 import Codegen::Emit::Decls
 import Codegen::Emit::EmitIR::EmitIR
 import Codegen::Emit::Exprs
@@ -424,7 +425,7 @@ extend EmitIR {
                     vrt = self._cur_fn->panic_result
                 }
 
-                self._value(n->value, vrt)
+                self._slot_value(n->value, vrt, n->range)
                 self._cg->sink->spell(n->range, ");")
             }
 

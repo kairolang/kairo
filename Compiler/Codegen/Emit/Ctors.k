@@ -45,6 +45,7 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations::{
     ClassDecl,
+    DestructiveFact,
     FieldDecl,
     FunctionDecl,
     VariableDecl,
@@ -61,6 +62,7 @@ import Codegen::Emit::Decls
 import Codegen::Emit::EmitIR::EmitIR
 import Codegen::Emit::Exprs
 import Codegen::Emit::Stmts
+import Codegen::Plan::EmitPlan::plan_dm_type_fact
 import Codegen::Spell::Spell::Speller
 import Location::SourceRange::SourceRange
 
@@ -351,6 +353,33 @@ extend EmitIR {
         return f != &null && self._ci_owner != &null && self._inherited_field(f)
     }
 
+    /// `e`, converted to `t`, as the argument of a `__kairo_slot<t>`'s
+    /// `init` / `put`, which take it by reference. A prvalue of a type whose
+    /// moved-from object may need no destructor (Yes, or a generic one's
+    /// Unknown) is built in a `::__kairo_dmt<t>`, whose destructor runs only
+    /// where `::__kairo_dm<t>` is false: a C++ temporary would be destroyed
+    /// after the slot moved from it. The slot and the temporary ask the one
+    /// trait for the one `t`, so `t` must be the slot's own type. Any other
+    /// argument is passed as it is.
+    prot fn _slot_value(self, e: unsafe *Expr, t: unsafe *Type, at: SourceRange) {
+        if e == &null
+            || e->value_category != Expr::ValueCategory::RValue
+            || self._array_extent(t) != usize::MAX
+            || plan_dm_type_fact(t) == DestructiveFact::No {
+            self._value(e, t)
+            return
+        }
+
+        var ts = self._spell._type(t)
+        self._cg->sink->spell(
+            at,
+            "static_cast<" + ts + "&&>(::" + LowerTargets::dm_temp() + "<" + ts + ">{{{",
+        )
+
+        self._value(e, t)
+        self._cg->sink->spell(at, "}}}.s.b.v)")
+    }
+
     /// `var n = e` in S_pre, for a local S_post reads: its slot, built.
     /// `var n: T` alone is `T{}`, the default every local gets (_var_init).
     prot fn _slot_local_init(self, v: unsafe *VariableDecl) {
@@ -368,7 +397,7 @@ extend EmitIR {
                 self._spell._type(v->type_) + "{}",
             )
         } else {
-            self._value(v->init, v->type_)
+            self._slot_value(v->init, v->type_, v->name.range)
         }
 
         self._cg->sink->spell(v->name.range, ")")

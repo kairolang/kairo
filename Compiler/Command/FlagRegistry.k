@@ -1422,6 +1422,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "a MOVE value passed by `T&` / `T*` to a C++ function whose body cannot be inspected is moved-from after the call, instead of borrowed on an unchecked assumption; a call into the toolchain's own standard library borrows either way, on a listed assumption (on; -fno-strict-cxx-moves borrows every such call)",
     )
 
+    // A kill switch, to bisect a miscompile to the provider: hidden from
+    // --help (below).
+    cmd->define<FlagKind::Feature>(
+        "destructive-moves",
+        "a local of a Kairo MOVE class that a move empties is not destroyed again at the end of its scope (on; -fno-destructive-moves destroys every moved-from local, as C++ does)",
+    )
+
+    cmd->mark_hidden("destructive-moves")
     cmd->define<FlagKind::Feature>(
         "infer-purity",
         "infer `fn f() const` / `@pure` for functions that keep the promise without saying so, and emit __attribute__((const)) / __attribute__((pure)) for them (on; -fno-infer-purity turns it off)",
@@ -2717,14 +2725,14 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         32i32,
     )
 
-    // A test harness for the plumbing that lets a provider skip a moved-from
-    // local's destructor (Sema/Check/TestDisarm.k); not the feature, which
-    // needs an analysis that proves the move. Hidden from --help.
+    // Accepted and ignored: a moved-from local is not destroyed again by
+    // default (-fdestructive-moves). Kept so a command line that names it
+    // still parses. Hidden from --help.
     cmd->define<FlagKind::Bool>(
         "test-disarm-moved-locals",
         "",
         "test-disarm-moved-locals",
-        "compiler tests only: a local moved once, in straight-line code, is not destroyed again",
+        "compiler tests only: no effect (moved-from locals are not destroyed again by default)",
         false,
     )
 

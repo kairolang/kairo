@@ -3601,6 +3601,29 @@ pub class LowerTargets {
         return "init_at"
     }
 
+    /// The destructive-move trait (InterfaceEmitter::_dm_trait_helper):
+    /// `::__kairo_dm<T>` is true only for a class whose moved-from object
+    /// Sema says need not be destroyed (ClassDecl::destructive), false for
+    /// every other type. Its header guard; the static member a generic
+    /// class whose answer depends on its arguments computes it in; the
+    /// temporary that hands a prvalue to a slot's `T&&` without destroying
+    /// it after the move (`::__kairo_dmt<T>{{{e}}}.s.b.v`).
+    pub static fn dm_trait() -> string {
+        return "__kairo_dm"
+    }
+
+    pub static fn dm_trait_guard() -> string {
+        return "__KAIRO_DM_TRAIT"
+    }
+
+    pub static fn dm_trait_member() -> string {
+        return "__kairo_dm_"
+    }
+
+    pub static fn dm_temp() -> string {
+        return "__kairo_dmt"
+    }
+
     /// The compiler builtin that makes an index pack (`__make_integer_seq<
     /// Q, usize, N>` is `Q<usize, 0, ..., N-1>`): an array slot builds its
     /// elements from one with no <utility>.

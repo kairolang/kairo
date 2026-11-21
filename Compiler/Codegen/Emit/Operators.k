@@ -794,12 +794,16 @@ extend EmitIR {
 
                 // A base's field is declared in the base's terms (a generic
                 // base's `T`); the target's own type is the one to convert to.
+                // Its slot is spelled `decltype(Q::f)`, so its value goes as
+                // it is (_slot_value spells the slot's type).
                 var unsafe *vt = f->type_
                 if n->lhs->type_ != &null && self._inherited_field(f) {
                     vt = n->lhs->type_
+                    self._value(n->rhs, vt)
+                } else {
+                    self._slot_value(n->rhs, vt, n->range)
                 }
 
-                self._value(n->rhs, vt)
                 self._cg->sink->spell(n->range, ")")
                 return
             }

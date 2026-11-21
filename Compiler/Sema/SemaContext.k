@@ -227,10 +227,10 @@ pub class SemaOptions {
     /// triviality fact inverted, as a LifecycleFacts bug would, so a test can
     /// show the codegen pin failing the build. No other pass sees it.
     pub var test_fold_lie: bool = false
-    /// Compiler test hook (Sema/Check/TestDisarm.k): a test provider
-    /// disarms the destructor of a local moved once in straight-line code,
-    /// so the disarm plumbing runs without the analysis it is for.
-    pub var test_disarm_moved: bool = false
+    /// -fdestructive-moves (on; -fno-destructive-moves turns it off): a
+    /// real transfer out of a local of a destructive type skips the
+    /// moved-from object's destructor (Sema/Check/LocalDisposition.k).
+    pub var destructive_moves: bool = true
     /// The build produces a library (--shared): the `pub` inferred-panic-set
     /// lint is on (Compiler/Spec/Panic.md#declared-sets). Off for an executable.
     pub var library_build: bool = false
@@ -287,7 +287,7 @@ pub class SemaOptions {
         self.test_panic_type       = ci->lang.test_panic_type
         self.test_panic_id_bits    = ci->lang.test_panic_id_bits
         self.test_fold_lie         = ci->lang.test_fold_lie
-        self.test_disarm_moved     = ci->lang.test_disarm_moved
+        self.destructive_moves     = ci->lang.destructive_moves != 0
         self.library_build         = ci->linker.shared
     }
 
@@ -477,10 +477,12 @@ pub class SemaContext {
     /// each so (TypeCastExpr::instance_move), and the instance check judges
     /// a read after one. Disjoint from move_sites.
     pub var instance_move_sites: llvm::DenseSet<u64>
-    /// Of move_sites, those MoveCheck marked as a real transfer of a whole
-    /// local (MoveKind::Transfer): site -> the VariableDecl, both as u64.
-    /// One writer, MoveCheck (record_real_transfer); read by a provider
-    /// through is_real_transfer (Sema/Check/LocalDisposition.k).
+    /// The real transfers of a whole local MoveCheck met (MoveKind::Transfer,
+    /// and a `return x` of the same type, which C++ moves on its own):
+    /// site -> the VariableDecl, both as u64. One writer, MoveCheck
+    /// (record_real_transfer), which clears it at the start of each run;
+    /// read by a provider through is_real_transfer
+    /// (Sema/Check/LocalDisposition.k).
     pub var real_moves: llvm::DenseMap<u64, u64>
     /// Of real_moves, those a provider disarmed (disarm_local_at): the
     /// moved-from local is not destroyed. CopyMoveLowering moves each onto

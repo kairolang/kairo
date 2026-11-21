@@ -318,7 +318,12 @@ extend InterfaceEmitter {
     /// slot record is a temporary the public constructor passes by
     /// reference. `init` is a first assignment (a const field, a local);
     /// `put` may be a later one (a `var` field written twice), so only it
-    /// asks T for `operator=`.
+    /// asks T for `operator=`. Both take a reference and build the value
+    /// with one move or copy (`const T&` for an lvalue of a copyable type;
+    /// a class template's member is instantiated only where called).
+    /// `take()` hands the value to the field's initializer; for a T whose
+    /// moved-from object need not be destroyed (`::__kairo_dm<T>`) it also
+    /// leaves the slot unset, so the slot's destructor skips the husk.
     /// An eval constructor's slots live inside one constant evaluation,
     /// where C++23 allows no placement new (C++26 does) but does allow a
     /// transient `new`/`delete`: there (`if consteval`) the value is a heap
@@ -358,18 +363,34 @@ extend InterfaceEmitter {
         // The members EmitIR calls, one spelling each (LowerTargets).
         var st = LowerTargets::ctor_slot_set()
         var si = LowerTargets::ctor_slot_init()
+        var dm = LowerTargets::dm_trait()
         t += " bool " + st + " = false;"
         t += " constexpr " + sl + "() noexcept {}"
         t += " " + sl + "(const " + sl + "&) = delete;"
         t += " " + sl + "& operator=(const " + sl + "&) = delete;"
         t += " constexpr ~" + sl + "() { if consteval { delete __p; } else { if (" + st + ") { b.~__b(); } } }"
         t += " constexpr T& __v() noexcept { if consteval { return __p->v; } else { return b.v; } }"
-        t += " constexpr void " + si + "(T u) { if consteval { __p = new __h{static_cast<T&&>(u)}; } else { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; } " + st + " = true; }"
-        t += " constexpr void " + LowerTargets::ctor_slot_put() + "(T u) { if (" + st + ") { __v() = static_cast<T&&>(u); } else { " + si + "(static_cast<T&&>(u)); } }"
+        var sp = LowerTargets::ctor_slot_put()
+        t += " constexpr void " + si + "(T&& u) { if consteval { __p = new __h{static_cast<T&&>(u)}; } else { new (static_cast<void*>(&b)) __b{static_cast<T&&>(u)}; } " + st + " = true; }"
+        t += " constexpr void " + si + "(const T& u) { if consteval { __p = new __h{u}; } else { new (static_cast<void*>(&b)) __b{u}; } " + st + " = true; }"
+        t += " constexpr void " + sp + "(T&& u) { if (" + st + ") { __v() = static_cast<T&&>(u); } else { " + si + "(static_cast<T&&>(u)); } }"
+        t += " constexpr void " + sp + "(const T& u) { if (" + st + ") { __v() = u; } else { " + si + "(u); } }"
         t += " constexpr T& " + LowerTargets::ctor_slot_get() + "() noexcept { return __v(); }"
-        t += " constexpr T&& " + LowerTargets::ctor_slot_take() + "() noexcept { return static_cast<T&&>(__v()); }"
+        t += " constexpr T&& " + LowerTargets::ctor_slot_take() + "() noexcept { if (::" + dm + "<T>) { " + st + " = false; } return static_cast<T&&>(__v()); }"
         t += " };"
         self._cg->sink->spell(at, t)
+        self._cg->sink->brk()
+        // A prvalue handed to `init` / `put` (EmitIR::_slot_value): built in
+        // place, as `T u = e` would be, in storage whose destructor runs
+        // only for a type whose moved-from object must be destroyed. A
+        // named union, since an aggregate's anonymous union with a
+        // non-trivial member has a deleted destructor; constexpr
+        // throughout, as an eval constructor's slots are.
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + LowerTargets::dm_temp() + " { struct __b { T v; }; union __u { __b b; constexpr ~__u() {} } s; constexpr ~" + LowerTargets::dm_temp() + "() { if (!::" + dm + "<T>) { s.b.~__b(); } } };",
+        )
+
         self._cg->sink->brk()
         // An array field's slot. `init(T u)` would take a decayed pointer and
         // an array has no `=`, so this one builds its elements from the

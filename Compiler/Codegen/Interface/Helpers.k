@@ -240,6 +240,41 @@ extend InterfaceEmitter {
         }
     }
 
+    /// `::__kairo_dm<T>`: true only for a type whose moved-from object need
+    /// not be destroyed. False here, for every type; each class Sema calls
+    /// destructive (ClassDecl::destructive) specializes it beside its
+    /// definition (_dm_specs). A template body or a helper that skips a
+    /// moved-from object's destructor asks it, never its own predicate.
+    prot fn _dm_trait_helper(self, header: bool) {
+        if self.written.has(HelperBlock::DmTrait) {
+            return
+        }
+
+        self.written.set(HelperBlock::DmTrait)
+        var at = self._tu_at()
+        if header {
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::dm_trait_guard(),
+            )
+
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::dm_trait_guard(),
+            )
+        }
+
+        self._cg->sink->spell(
+            at,
+            "template <class T> inline constexpr bool " + LowerTargets::dm_trait() + " = false;",
+        )
+
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
+    }
+
     /// Union storage for a local whose destructor is not C++'s to run
     /// (Compiler/Spec/Lowering.md#union-storage-locals). `__kairo_ul<T>` has
     /// no constructor, so it is an aggregate and `__kairo_ul<T> s{e}`

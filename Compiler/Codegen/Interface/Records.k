@@ -60,6 +60,7 @@ import Codegen::Plan::EmitPlan::{
     PlanMode,
     PlanNeed,
     PlanTier,
+    plan_dm_fact,
 }
 import Codegen::Plan::Visitors::generator_push_form
 import Codegen::Spell::Spell::{
@@ -591,6 +592,7 @@ extend InterfaceEmitter {
             self._layout_virtual(d, at)
         }
 
+        cur_access = self._dm_member(d, cur_access, at)
         self._friends(d)
 
         self._cg->sink->spell(at, "};")
@@ -1247,5 +1249,265 @@ extend InterfaceEmitter {
                 ", \"requires clause of '" + self._spell->leaf(d) + "' not satisfied\");",
             )
         }
+    }
+
+    /// # The destructive-move trait
+
+    /// Sema's `destructive` answer for a record body (plan_dm_fact).
+    prot fn _dm_fact(self, d: unsafe *Decl) -> Declarations::DestructiveFact {
+        return plan_dm_fact(d)
+    }
+
+    /// `d` is a class template's body (its primary or a partial
+    /// specialization) that the trait can name: a variable template's
+    /// specialization is written at global scope, and a class nested in a
+    /// generic or specialized record is a member of a template, which no
+    /// specialization's pattern can deduce. Those keep the primary's false.
+    priv fn _dm_nameable(self, d: unsafe *Decl) -> bool {
+        if !isa<Declarations::ClassDecl>(d) || DeclFacts::decl_is_imported(d) {
+            return false
+        }
+
+        if Speller::in_function_scope(d) {
+            return false
+        }
+
+        var unsafe *dc = d->semantic_dc
+        while dc != &null && dc->is_type_scope() {
+            var unsafe *o = dc->dc_owner
+            if o == &null
+                || DeclFacts::decl_generic_params(o).size() > 0
+                || Speller::is_record_spec(o) {
+                return false
+            }
+
+            dc = dc->dc_parent
+        }
+
+        return true
+    }
+
+    /// The family selects its body by a `requires` clause (_spec_tag), which
+    /// a specialization of the trait cannot mirror: every body of it then
+    /// answers through its own member, and the primary's specialization
+    /// calls the member of whichever body C++ selected.
+    priv fn _dm_by_member(self, d: unsafe *Decl) -> bool {
+        return DeclFacts::decl_generic_params(d).size() > 0 && self._spec_tag(d) >= 0
+    }
+
+    /// The body's answer as its member computes it, or "" when the member
+    /// is not written: a generic body whose answer is the instance's
+    /// (Unknown) or whose family answers by member. For Unknown, the
+    /// conjunction ClassLifecycle computes per instance (its file header,
+    /// destructive), over C++'s view of the same parts: MOVE, a non-trivial
+    /// destructor, not polymorphic, destructible, and every base and
+    /// by-value field trivially destroyed or destructive itself.
+    prot fn _dm_member_value(self, d: unsafe *Decl) -> string {
+        if !self._dm_nameable(d) || DeclFacts::decl_generic_params(d).size() == 0 {
+            return ""
+        }
+
+        var fact = self._dm_fact(d)
+        if fact != Declarations::DestructiveFact::Unknown && !self._dm_by_member(d) {
+            return ""
+        }
+
+        if fact == Declarations::DestructiveFact::Yes {
+            return "true"
+        }
+
+        if fact != Declarations::DestructiveFact::Unknown {
+            return "false"
+        }
+
+        var dm = "::" + LowerTargets::dm_trait()
+        var r  = self._spell->leaf(d)
+        var s = "!__is_constructible(" + r + ", const " + r + "&) && __is_constructible(" + r + ", " + r + "&&) && !__is_trivially_destructible(" + r + ") && !__is_polymorphic(" + r + ") && __is_destructible(" + r + ")"
+        var unsafe *n = cast<Declarations::ClassDecl>(d)
+        for var i: usize = 0; i < n->derives_list.size(); ++i {
+            var unsafe *e = n->derives_list.get(i)
+            if e == &null {
+                continue
+            }
+
+            var b = self._spell->_type(e->base)
+            s += " && (__is_trivially_destructible(" + b + ") || " + dm + "<__remove_cv(" + b + ")>)"
+        }
+
+        var fields = DeclFacts::decl_fields(d)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
+            if f == &null || f->is_static() {
+                continue
+            }
+
+            // Its type has no name to ask; the answer stays false.
+            if f->is_anonymous_union {
+                return "false"
+            }
+
+            var ft = "decltype(" + self._spell->leaf(unsafe (f as unsafe *Decl)) + ")"
+            s += " && (__is_trivially_destructible(" + ft + ") || " + dm + "<__remove_cv(" + ft + ")>)"
+        }
+
+        return s
+    }
+
+    /// The member _dm_member_value describes, last in the class: public,
+    /// since the trait's specialization outside the class calls it. A
+    /// static member function, because a static data member's initializer
+    /// is not a complete-class context and a field's type cannot always be
+    /// spelled outside the class.
+    prot fn _dm_member(self, d: unsafe *Decl, cur_access: u8, at: SourceRange) -> u8 {
+        var v = self._dm_member_value(d)
+        if v.size() == 0 {
+            return cur_access
+        }
+
+        var acc = self._access(cur_access, VIS_PUB(), false, at)
+        self._cg->sink->spell(
+            at,
+            "static constexpr bool " + LowerTargets::dm_trait_member() + "() noexcept { return " + v + "; }",
+        )
+
+        return acc
+    }
+
+    /// `<T, Ts...>` for a primary, `<T*>` for a partial specialization: the
+    /// arguments the trait's specialization names the body at.
+    priv fn _dm_args(self, d: unsafe *Decl) -> string {
+        if Speller::is_record_spec(d) {
+            return self._spell->spec_suffix(d)
+        }
+
+        var gps = Speller::template_params(d)
+        var s   = "<"
+        for var i: usize = 0; i < gps.size(); ++i {
+            if i > 0 {
+                s += ", "
+            }
+
+            s += self._spell->tparam_name(gps[i], d)
+            if gps[i]->is_pack {
+                s += "..."
+            }
+        }
+
+        return s + ">"
+    }
+
+    /// The trait's specializations for `d` and the records nested in it,
+    /// at global scope after its definition (before any use, which needs
+    /// the complete type). True for a class Sema calls destructive; the
+    /// member's answer for a body that has one; false for a partial or
+    /// explicit specialization that is not, so a specialization of its
+    /// primary does not answer for it.
+    prot fn _dm_specs(self, d: unsafe *Decl) {
+        var unsafe *dc = Speller::dc_of(d)
+        if dc != &null {
+            for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+                var unsafe *nd = *dc->dc_decls.get(i)
+                if nd == &null || !isa<Declarations::ClassDecl>(nd) || Speller::rep(nd) != nd {
+                    continue
+                }
+
+                self._dm_specs(nd)
+            }
+        }
+
+        if !self._dm_nameable(d) {
+            return
+        }
+
+        var dm   = LowerTargets::dm_trait()
+        var fact = self._dm_fact(d)
+        var gen  = DeclFacts::decl_generic_params(d).size() > 0
+        var spec = Speller::is_record_spec(d)
+        var x    = self._spell->qual_name(d) + self._spell->spec_suffix(d)
+        var v    = ""
+        if gen {
+            x = self._spell->qual_name(d) + self._dm_args(d)
+        }
+
+        if !gen {
+            // A class, or an explicit specialization, which outranks any
+            // partial specialization of the trait for its primary.
+
+            if fact == Declarations::DestructiveFact::Yes {
+                v = "true"
+            } else if spec {
+                v = "false"
+            }
+        } else if self._dm_by_member(d) {
+            if spec {
+                return
+            }
+
+            v = x.copy() + "::" + LowerTargets::dm_trait_member() + "()"
+        } else if self._dm_member_value(d).size() > 0 {
+            v = x.copy() + "::" + LowerTargets::dm_trait_member() + "()"
+        } else if fact == Declarations::DestructiveFact::Yes {
+            v = "true"
+        } else if spec {
+            v = "false"
+        }
+
+        if v.size() == 0 {
+            return
+        }
+
+        var head = if (gen) => (self._spell->record_head(d)) else => "template <> "
+        self._cg->sink->spell(
+            self._at(d),
+            head + "inline constexpr bool " + dm + "<" + x + "> = " + v + ";",
+        )
+
+        self._cg->sink->brk()
+    }
+
+    /// A record family's trait needs the preamble's primary in this stream:
+    /// one of the records the plan defines has a specialization.
+    prot fn _needs_dm_trait(self) -> bool {
+        for var i: usize = 0; i < self._plan->entries.size(); ++i {
+            var *e = &self._plan->entries[i]
+            if e->tier != PlanTier::Definitions
+                || e->scope != &null
+                || e->witness != &null
+                || e->eval_item != &null {
+                continue
+            }
+
+            if self._dm_any(e->decl) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    priv fn _dm_any(self, d: unsafe *Decl) -> bool {
+        if d == &null || !isa<Declarations::ClassDecl>(d) {
+            return false
+        }
+
+        if self._dm_fact(d) != Declarations::DestructiveFact::No
+            || Speller::is_record_spec(d)
+            || self._dm_by_member(d) {
+            return true
+        }
+
+        var unsafe *dc = Speller::dc_of(d)
+        if dc == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd != &null && Speller::rep(nd) == nd && self._dm_any(nd) {
+                return true
+            }
+        }
+
+        return false
     }
 }

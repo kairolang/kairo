@@ -1499,3 +1499,46 @@ pub fn plan_under_duck(d_in: unsafe *Decl) -> bool {
 
     return false
 }
+
+/// Sema's `destructive` answer for record `d` (ClassDecl::destructive), the
+/// one the emitter reads: No for anything that is not a Kairo class and for
+/// a class whose facts were never computed.
+pub fn plan_dm_fact(d: unsafe *Decl) -> Declarations::DestructiveFact {
+    var unsafe *r = Speller::rep(d)
+    var unsafe *c = dyn_cast<Declarations::ClassDecl>(r)
+    if c == &null || DeclFacts::decl_is_imported(r) {
+        return Declarations::DestructiveFact::No
+    }
+
+    if c->destructive == Declarations::DestructiveFact::Unset {
+        return Declarations::DestructiveFact::No
+    }
+
+    return c->destructive
+}
+
+/// plan_dm_fact for a type: Unknown for a type that depends on a generic
+/// parameter and for an instance of a generic record (its answer is the
+/// trait's, `::__kairo_dm<T>`), No for every type that is not a record.
+pub fn plan_dm_type_fact(t: unsafe *Type) -> Declarations::DestructiveFact {
+    if t == &null || t->canonical == &null {
+        return Declarations::DestructiveFact::No
+    }
+
+    var unsafe *c = canon_unqual(t->canonical)
+    if c->is_dependent() || c->is_instantiation_dependent() {
+        return Declarations::DestructiveFact::Unknown
+    }
+
+    var unsafe *rt = dyn_cast<RecordType>(c)
+    if rt == &null || rt->decl == &null {
+        return Declarations::DestructiveFact::No
+    }
+
+    var f = plan_dm_fact(rt->decl)
+    if f != Declarations::DestructiveFact::No && (rt->args.size() > 0 || rt->outer != &null) {
+        return Declarations::DestructiveFact::Unknown
+    }
+
+    return f
+}

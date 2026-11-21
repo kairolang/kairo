@@ -330,6 +330,18 @@ pub enum ImplicitTransfer derives u8 {
     Open, ///< the category is the instance's: the copy pair for an instance whose dependent parts all copy, the move pair for any other, each `= default` under a C++ constraint.
 }
 
+/// Whether a moved-from object of a class need not be destroyed
+/// (ClassLifecycle's `destructive` fact, ClassDecl::destructive), as the
+/// emitter reads it: the C++ trait `::__kairo_dm<T>` and the constructor
+/// slots ask the same answer. Unset is a class whose facts Sema never
+/// computed; every reader treats it as No.
+pub enum DestructiveFact derives u8 {
+    Unset = 0, ///< not computed.
+    No,        ///< its moved-from object is destroyed (C++'s rule).
+    Yes,       ///< a move takes everything it owns.
+    Unknown,   ///< a generic pattern: each instance has its own answer.
+}
+
 /// -finfer-purity's verdict and the promise a body is held to. The values
 /// are the encoding of FunctionDecl::inferred_purity.
 pub enum PurityLevel derives u8 {
@@ -1499,6 +1511,9 @@ pub class ClassDecl
     /// The transfers declared beside a destructor when no transfer
     /// constructor is written. One writer: ClassLifecycle.
     pub var implicit_transfer: ImplicitTransfer = ImplicitTransfer::None
+    /// The class's `destructive` lifecycle fact, for a pattern, an
+    /// instance's node or a plain class alike. One writer: ClassLifecycle.
+    pub var destructive: DestructiveFact = DestructiveFact::Unset
     /// An imported C++ class: every name a `using Base::name;` in its
     /// definition brings in. C++ lookup stops at a class that declares a
     /// name unless such a declaration merges the base's in; MemberLookup
@@ -1519,6 +1534,7 @@ pub class ClassDecl
         node->assign_from       = &null
         node->assign_form       = AssignForm::Implicit
         node->implicit_transfer = ImplicitTransfer::None
+        node->destructive       = DestructiveFact::Unset
         return node
     }
 
@@ -1533,6 +1549,7 @@ pub class ClassDecl
         node->assign_from       = &null
         node->assign_form       = AssignForm::Implicit
         node->implicit_transfer = ImplicitTransfer::None
+        node->destructive       = DestructiveFact::Unset
         return node
     }
 

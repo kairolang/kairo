@@ -689,6 +689,11 @@ fn io_class_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::ClassDecl) {
             "ClassDecl::implicit_transfer",
         )
 
+        ar->sema_is(
+            n->destructive == Declarations::DestructiveFact::Unset,
+            "ClassDecl::destructive",
+        )
+
         ar->sema_zero(n->ffi_usings.size() as u64, "ClassDecl::ffi_usings")
     }
 }

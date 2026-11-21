@@ -184,6 +184,7 @@ pub enum HelperBlock derives u32 {
     IndexCheck   = 1 << 15, ///< _index_check_helpers.
     MayAlias     = 1 << 16, ///< LowerTargets::may_alias.
     GenEach      = 1 << 17, ///< `::__kairo_each` / `::__kairo_at` (a generator's push form).
+    DmTrait      = 1 << 18, ///< _dm_trait_helper (`::__kairo_dm`).
 }
 
 /// HelperBlock's variants are its FlagSet's bits (Support/FlagSet.k).
@@ -471,11 +472,21 @@ pub class InterfaceEmitter {
             self.written.set(HelperBlock::GenEach)
         }
 
+        // The destructive-move trait: before the slots, which ask it, and
+        // before any record definition specializes it. Only where one does
+        // or a slot is planned, so no other TU's text changes.
+        var slots = !self.written.has(HelperBlock::CtorSlots) && self._needs_ctor_slots()
+        if !self.written.has(HelperBlock::DmTrait) && (slots || self._needs_dm_trait()) {
+            self._cg->sink->unanchored(true)
+            self._dm_trait_helper(header)
+            self._cg->sink->unanchored(false)
+        }
+
         // A constructor that initializes a field in place (_ctor_slot_helpers).
         // Only when one is planned, so no other TU's text changes; guarded
         // apart from the helpers above, which an earlier header may have
         // defined without these.
-        if !self.written.has(HelperBlock::CtorSlots) && self._needs_ctor_slots() {
+        if slots {
             self._cg->sink->unanchored(true)
             self._ctor_slot_helpers(header)
             self._cg->sink->unanchored(false)
@@ -1081,6 +1092,10 @@ pub class InterfaceEmitter {
             if guard {
                 self._cg->sink->directive(self._tu_at(), "#endif")
             }
+
+            // The destructive-move trait's specializations: at global scope,
+            // right after the definition every use of them needs.
+            self._dm_specs(e->decl)
 
             // A plain enum's niche: the trait's explicit specialization, at
             // global scope, right after the definition every use of it needs.

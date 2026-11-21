@@ -56,6 +56,22 @@
 ///                  polymorphic, or has every transfer deleted; that is an
 ///                  error here (_check_relocatable), asked again of each
 ///                  instance of a generic record (instance_failures).
+///       destructive  a move of a value takes everything it owns, so the
+///                  moved-from object need not be destroyed: skipping its
+///                  destructor leaks nothing. Yes only for a Kairo class
+///                  that is MOVE (a COPY class has no C++ move constructor,
+///                  so its move is a copy and the source stays a whole
+///                  object), has a non-trivial destructor (otherwise there
+///                  is nothing to skip), is not polymorphic, can be
+///                  destroyed, and whose every base and by-value field is
+///                  trivially destroyed or destructive itself. So a class
+///                  holding a C++ type with a destructor is not, nor one
+///                  whose defaulted move copies a COPY field, whatever its
+///                  transfer constructor's body does. An imported record, a
+///                  struct, a union, an enum, a tuple, a `T?`, an array and
+///                  a `fn` value are No: C++ destroys their moved-from
+///                  objects. Skipping the destructor of a moved-from object
+///                  of any other type would leak what the move left behind.
 ///
 ///     An ENUM is the same question with no members to declare. A plain enum
 ///     is an integer: COPY, trivially everything, destructible. An ADT is a
@@ -233,6 +249,7 @@ import AST::Node::Declarations::{
     AdtRole,
     AssignForm,
     ClassDecl,
+    DestructiveFact,
     EnumDecl,
     FieldDecl,
     FnBodyKind,
@@ -291,6 +308,19 @@ pub enum LifecycleTri derives u8 {
     No = 0,
     Yes,
     Unknown, ///< a dependent field, payload or base decides it.
+}
+
+/// A LifecycleTri as ClassDecl::destructive carries it.
+pub fn destructive_fact(t: LifecycleTri) -> DestructiveFact {
+    if t == LifecycleTri::Yes {
+        return DestructiveFact::Yes
+    }
+
+    if t == LifecycleTri::Unknown {
+        return DestructiveFact::Unknown
+    }
+
+    return DestructiveFact::No
 }
 
 pub fn lifecycle_tri(b: bool) -> LifecycleTri {
@@ -354,6 +384,10 @@ pub class LifecycleFacts {
     /// reason is a clause about the type: "it has a destructor".
     pub var relocatable:         LifecycleTri = LifecycleTri::Yes
     pub var why_not_relocatable: string       = ""
+    /// A moved-from object of the type need not be destroyed (file header).
+    /// No unless a record's own computation proves it: every other type's
+    /// moved-from object is destroyed.
+    pub var destructive: LifecycleTri = LifecycleTri::No
     /// Doc: Lifecycle Categories. DEFAULT (no transfer ctor written) is
     /// reported as the weakest its bases and fields allow, which is Copy
     /// whenever they all copy; the implicit-copy warning tells DEFAULT
@@ -403,6 +437,7 @@ pub class LifecycleFacts {
         o.why_not_copyable    = self.why_not_copyable.copy()
         o.relocatable         = self.relocatable
         o.why_not_relocatable = self.why_not_relocatable.copy()
+        o.destructive         = self.destructive
         o.category            = self.category
         o.user_transfer       = self.user_transfer
         o.own_dtor_work       = self.own_dtor_work
@@ -638,6 +673,13 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         self._sub = saved
+        // The emitter's copy of the answer (ClassDecl::destructive): Codegen
+        // reads no Sema state, and its trait and slots must agree with
+        // every provider here.
+        if isa<ClassDecl>(d) {
+            cast<ClassDecl>(d)->destructive = destructive_fact(f->destructive)
+        }
+
         return f
     }
 
@@ -1063,6 +1105,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         out.polymorphic        = LifecycleTri::Unknown
         out.assignable         = LifecycleTri::Unknown
         out.relocatable        = LifecycleTri::Unknown
+        out.destructive        = LifecycleTri::Unknown
         out.category           = LifecycleCategory::Unknown
         return out
     }
@@ -1233,6 +1276,9 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         var dtor_virtual                         = false
         var polymorphic                          = false
         var own_deprecated: unsafe *FunctionDecl = &null
+        // Every base and by-value field is trivially destroyed or
+        // destructive (file header, destructive).
+        var parts_destructive = LifecycleTri::Yes
 
         var methods = self._methods(d)
         for var i: usize = 0; i < methods.size(); ++i {
@@ -1436,6 +1482,10 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
 
                         self._absorb(f, unsafe &uf, "its base")
                         self._absorb_assign(f, unsafe &uf, "its base")
+                        parts_destructive = lifecycle_and(
+                            parts_destructive,
+                            LifecycleTri::Unknown,
+                        )
                     }
 
                     continue
@@ -1456,6 +1506,11 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
                 )
 
                 f->polymorphic = lifecycle_or(f->polymorphic, bf->polymorphic)
+                parts_destructive = lifecycle_and(
+                    parts_destructive,
+                    lifecycle_or(bf->trivial_dtor, bf->destructive),
+                )
+
                 self._absorb(f, bf, f"its base '{self._tu.decl_name(bd)}'")
                 self._absorb_assign(
                     f,
@@ -1485,6 +1540,11 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             f->own_dtor_work = lifecycle_or(
                 f->own_dtor_work,
                 lifecycle_not(ff.trivial_dtor),
+            )
+
+            parts_destructive = lifecycle_and(
+                parts_destructive,
+                lifecycle_or(ff.trivial_dtor, ff.destructive),
             )
 
             self._absorb(
@@ -1619,6 +1679,18 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
             if !lay->trivial_for_calls {
                 f->why_not_relocatable = "it is a C++ type with a non-trivial copy constructor, move constructor or destructor"
             }
+        }
+
+        // Read off the settled facts, so a pinned transfer, an instance's
+        // substituted fields and a dependent part all answer as they do
+        // for every other reader.
+        f->destructive = LifecycleTri::No
+        if isa<ClassDecl>(d) && !decl_is_imported(d) {
+            var own = lifecycle_and(lifecycle_not(f->copyable), f->movable)
+            own            = lifecycle_and(own, lifecycle_not(f->trivial_dtor))
+            own            = lifecycle_and(own, lifecycle_not(f->polymorphic))
+            own            = lifecycle_and(own, f->destructible)
+            f->destructive = lifecycle_and(own, parts_destructive)
         }
 
         f->in_progress = false
@@ -1792,6 +1864,7 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         self._check_lifecycle_rules(n)
         self._check_relocatable(unsafe (n as unsafe *Decl))
         self._derive_assign(n)
+        self.facts_of(unsafe (n as unsafe *Decl)) // publishes ClassDecl::destructive.
         if n->derives_list.size() == 0 {
             return true
         }
