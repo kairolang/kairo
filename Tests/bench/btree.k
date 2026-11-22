@@ -22,8 +22,8 @@ class Node {
 }
 
 fn bottom_up(depth: i32) -> *Node {
-    if depth > 0 { return @create<Node>(bottom_up(depth - 1), bottom_up(depth - 1)) }
-    return @create<Node>()
+    if depth > 0 { return @create Node(bottom_up(depth - 1), bottom_up(depth - 1)) }
+    return @create Node()
 }
 
 fn main() -> i32 {

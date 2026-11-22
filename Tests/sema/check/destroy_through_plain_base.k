@@ -40,7 +40,7 @@ fn bad(p: *Plain) {
 }
 
 fn bad_generic_form(p: *Plain) {
-    @destroy<Plain>(p)
+    @destroy(p)
 }
 
 fn ok_virtual(p: *Virt) {

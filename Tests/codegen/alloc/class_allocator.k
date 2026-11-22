@@ -34,7 +34,7 @@ class Plain {
 
 fn main() -> i32 {
     var *p = create<Pooled>(1i64, 2i64)
-    var *q = @create<Pooled>(3i64, 4i64)
+    var *q = @create Pooled(3i64, 4i64)
     var *r = @create Pooled(5i64, 6i64)
     var *s? = try_create<Pooled>(7i64, 8i64)
     var *k = create<Plain>(9i64)
@@ -42,7 +42,7 @@ fn main() -> i32 {
     if bytes != 4 * sizeof Pooled { return 2 }
     var sum = p->a + q->b + r->a + k->x
     destroy<Pooled>(p)
-    @destroy<Pooled>(q)
+    @destroy(q)
     destroy<Pooled>(r)
     if s? { destroy<Pooled>(s) }
     destroy(k)

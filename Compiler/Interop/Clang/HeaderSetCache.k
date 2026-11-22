@@ -253,7 +253,8 @@ pub class HeaderSetCache {
             self._sets.try_emplace(kairo::sref(u->key), u)
         }
 
-        var unsafe *job = unsafe (@create<[unsafe *HeaderSet]>(views.copy()) as unsafe *[unsafe *HeaderSet])
+        type ViewVec = [unsafe *HeaderSet]
+        var unsafe *job = unsafe (@create ViewVec(views.copy()) as unsafe *[unsafe *HeaderSet])
 
         var unsafe *be  = self._be
         var        *me  = &self

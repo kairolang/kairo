@@ -1040,9 +1040,9 @@ pub class <T: type> ExprParse {
         var head = at_range | name_tok.range
 
         // `@create` / `@destroy` are sugar for alloc.k's create / destroy
-        // (AllocSugarDesugar rewrites them before N). The generic form,
-        // `@create<T>(args)` / `@destroy<T>(p)`, already names the library
-        // call, so it parses AS that call: the operand is `create<T>(args)`,
+        // (AllocSugarDesugar rewrites them before N). A generic form,
+        // `@create<T>(args)` / `@destroy<T>(p)`, is an error (the attribute
+        // takes no generic arguments) and parses AS the library call: the operand is `create<T>(args)`,
         // its callee spelled with the attribute's own token. Without this the
         // `<` would be read as the operand and fail as "expected an
         // expression".
@@ -1059,9 +1059,46 @@ pub class <T: type> ExprParse {
                 name_tok,
             )
 
+            var lt_range = self.dyn()->current_ptr()->range
             var gargs: kairo::std::StackBuf<ChainType::GenericArg, 4>
             self.dyn()->_parse_generic_args(&gargs)
             self.dyn()->forgive_close()
+
+            // An attribute takes no generic arguments. The operand still
+            // parses as the library call, so later passes see no cascade.
+            var spec_range = lt_range | self.dyn()->prev().range
+            var ty_text    = ""
+            var has_ty     = false
+            if gargs.size() > 0 && gargs[0].ty != &null && gargs[gargs.size() - 1].ty != &null {
+                ty_text = self.dyn()->ctx->get_spelling(
+                    gargs[0].ty->range | gargs[gargs.size() - 1].ty->range,
+                )
+
+                has_ty = true
+            }
+
+            var is_create = attr_nm == LangAttrs::create()
+            var gb = self.dyn()->diag->report(
+                DiagID::S001E,
+                lt_range.start,
+                f"'@{attr_nm}' takes no generic arguments",
+            )
+
+            gb.first(spec_range)
+            if is_create && has_ty {
+                gb.fix(
+                    spec_range,
+                    f" {ty_text}",
+                    f"write '@create {ty_text}(args)'",
+                )
+            } else if !is_create {
+                gb.remove(
+                    spec_range,
+                    "'@destroy' infers the type from its pointer: write '@destroy(p)'",
+                )
+            }
+
+            gb.emit()
 
             callee->generic_args.from_buf(
                 gargs.data(),

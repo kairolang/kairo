@@ -7240,7 +7240,7 @@ group = "allocation"
     ```kairo
     var *c = @create Config(8080)           // fine
     var *p = @create Point { x: 1, y: 2 }   // fine
-    var *g = @create<Box<i32>>(1)           // fine: the generic form
+    var *g = @create Box<i32>(1)             // fine
     var port = @create Config(8080).port    // error: allocates 'Config(8080).port'
     var *n = @create 3                      // error: not a construction
     @destroy(a) b                           // error: one pointer
@@ -7248,7 +7248,7 @@ group = "allocation"
 
     ## how to fix
 
-    write `@create T(args)`, `@create T { field: value }` or `@create<T>(args)`; reach a member as
+    write `@create T(args)`, `@create T { field: value }` (an attribute takes no generic arguments); reach a member as
     `(@create T(args))->member` (the fix-it); free one pointer per `@destroy p`.
     """
 

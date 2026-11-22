@@ -32,7 +32,7 @@ fn find(head: *Node?, want: i64) -> *Node? {
 fn main() -> i32 {
     var n: i64 = bench_n()
     var head: *Node? = null
-    for var i: i64 = 0; i < n; i += 1 { head = @create<Node>((i * 2654435761) % 1000003, head) }
+    for var i: i64 = 0; i < n; i += 1 { head = @create Node((i * 2654435761) % 1000003, head) }
     var total: i64 = 0
     var hits: i64 = 0
     for var r: i64 = 0; r < 50; r += 1 {

@@ -21,8 +21,7 @@ fn main() -> i32 {
 // DIAG-NOT: error
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: __kairo_iter()
-// CXX: .resume()
+// CXX: __kairo_iter( ::__kairo_each<signed int> {
 // CXX: .current()
 
 // REQUIRES: clang, llvm-objdump

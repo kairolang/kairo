@@ -14,9 +14,9 @@ fn value(e: *Expr) -> i64 = match *e {
 }
 
 fn main() -> i32 {
-    var *a = @create<Expr>(Expr::Num { v: 2 })
-    var *b = @create<Expr>(Expr::Num { v: 3 })
-    var *s = @create<Expr>(Expr::Add { l: a, r: b })
+    var *a = @create Expr(Expr::Num { v: 2 })
+    var *b = @create Expr(Expr::Num { v: 3 })
+    var *s = @create Expr(Expr::Add { l: a, r: b })
     return value(s) as i32
 }
 

@@ -47,9 +47,6 @@
 ///     leaves through the flag as a `return` does.
 ///
 ///   \par When the loop keeps the coroutine  (_push_ok)
-///     - the loop advances a generator the caller holds: IterLowering
-///       marks only a loop whose generator a call in its header makes
-///       (VariableDecl::gen_iter);
 ///     - the callee is not a generator with a push form, or its body is
 ///       not written in every TU that writes this one (_push_visible);
 ///     - the function can unwind, or is `async` or `eval`;
@@ -58,10 +55,7 @@
 ///       `await`, an `eval for`, a pack `for` or a C++ `try`;
 ///     - the body returns a value that is not a number or a pointer (the
 ///       value would be moved one more time on its way out), or returns
-///       from a closure;
-///     - the header has temporaries bound to locals of the loop's block
-///       (a prvalue receiver, an argument to a `const` parameter): the
-///       generator local follows them there.
+///       from a closure.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -142,7 +136,6 @@ extend EmitIR {
     prot fn _stmts(self, b: unsafe *CompoundStmt, from: usize) {
         var pend:    unsafe *Stmt         = &null
         var pend_it: unsafe *VariableDecl = &null
-        var temps                         = false
         for var i: usize = from; i < b->body.size(); ++i {
             var unsafe *s = b->body[i]
             if pend != &null && s == pend {
@@ -151,11 +144,7 @@ extend EmitIR {
                 continue
             }
 
-            if self._header_temp(s) {
-                temps = true
-            }
-
-            if pend == &null && !temps {
+            if pend == &null {
                 var unsafe *vd = self._gen_iter_of(s)
                 if vd != &null {
                     var unsafe *w = self._push_loop_of(b, i, vd)
@@ -169,21 +158,6 @@ extend EmitIR {
 
             self.emit(s)
         }
-    }
-
-    /// `s` declares a temporary of a `for` header that SequenceLowering
-    /// bound to a local of the loop's block (VariableDecl::header_scope),
-    /// ahead of the generator local. A loop with one keeps the coroutine:
-    /// the generator local is then declared right after its temporaries,
-    /// in evaluation order.
-    priv fn _header_temp(self, s: unsafe *Stmt) -> bool {
-        var unsafe *ds = dyn_cast<DeclStmt>(s)
-        if ds == &null || ds->decl == &null {
-            return false
-        }
-
-        var unsafe *vd = dyn_cast<VariableDecl>(ds->decl)
-        return vd != &null && vd->header_scope && !vd->gen_iter
     }
 
     /// The generator local `s` declares (VariableDecl::gen_iter), or null.

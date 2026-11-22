@@ -35,9 +35,9 @@ fn main() -> i32 {
     for var i: usize = 0; i < 1024; i += 1 {
         var k = i as i64
         var m = (k * 7919) % 3
-        if m == 0 { shapes[i] = @create<Rect>(k % 13 + 1, k % 7 + 1) }
-        else if m == 1 { shapes[i] = @create<Square>(k % 11 + 1) }
-        else { shapes[i] = @create<Tri>(k % 17 + 2, k % 5 + 2) }
+        if m == 0 { shapes[i] = @create Rect(k % 13 + 1, k % 7 + 1) }
+        else if m == 1 { shapes[i] = @create Square(k % 11 + 1) }
+        else { shapes[i] = @create Tri(k % 17 + 2, k % 5 + 2) }
     }
     var total: i64 = 0
     for var p: i64 = 0; p < passes; p += 1 {

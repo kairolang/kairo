@@ -1095,7 +1095,7 @@ pub class LangAttrs {
         return "assume"
     }
 
-    /// `@create<T>(args)` / `@create T(args)` and `@destroy(p)` / `@destroy
+    /// `@create T(args)` / `@create T { f: v }` and `@destroy(p)` / `@destroy
     /// p`: sugar for a call of Lib/builtin/base/alloc.k's `create<T>(args)`
     /// / `destroy(p)`, spelled with the attribute's own word
     /// (AllocSugarDesugar). The attribute and the function share it.

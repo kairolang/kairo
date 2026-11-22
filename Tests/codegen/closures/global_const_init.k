@@ -21,8 +21,8 @@ fn main() -> i32 {
 // RUN: rm -rf %t.ir
 // RUN: %kairo %s --emit=llvm-ir -O0 --cache-dir %t.ir
 // RUN: %FileCheck %s --check-prefix=IR < %t.ir/global_const_init.ll
-// IR-DAG: @{{.*}}7handlerE = global %class.__kairo_fn { ptr @{{.*}}5twiceEi, ptr null, ptr null }
-// IR-DAG: @{{.*}}4bumpE = global %class.__kairo_fn { ptr @{{.*}}, ptr null, ptr null }
+// IR-DAG: @{{.*}}7handlerE = global %class.__kairo_fn { ptr @{{.*}}__pcall{{.*}}, ptr null, %"struct.__kairo_fn<int (int)>::__st" { %union.anon { ptr @{{.*}}5twiceEi } } }
+// IR-DAG: @{{.*}}4bumpE = global %class.__kairo_fn { ptr @{{.*}}__pcall{{.*}}, ptr null, %"struct.__kairo_fn<int (int)>::__st" { %union.anon { ptr @{{.*}} } } }
 // No constructor of the value runs on either at startup.
 // RUN: not grep -E 'call .*__kairo_fn.*C[12]E.*(7handlerE|4bumpE)' %t.ir/global_const_init.ll
 

@@ -44,13 +44,13 @@ class Holder {
 
 fn main() -> i32 {
     var *b = @create Box<i32>(3)
-    var *g = @create<Box<i32>>(4)
+    var *g = @create Box<i32>(4)
     var *z = @create Buf<i32, 512>()
     var o = Outer()
     var r = b->v + g->v + (z->n as i32) + o.make()
     @destroy b
     @destroy(g)
-    @destroy<Buf<i32, 512>>(z)
+    @destroy(z)
     var *h = @create Holder(@create Node())
     r += h->n->v
     @destroy h->n

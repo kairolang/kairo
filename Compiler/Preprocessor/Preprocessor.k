@@ -678,7 +678,8 @@ pub class PreProcessor {
                     continue
                 }
 
-                var unsafe *toks = unsafe (@create<[Token]>() as unsafe *[Token])
+                type TokenVec = [Token]
+                var unsafe *toks = unsafe (@create TokenVec() as unsafe *[Token])
                 var        t     = Token()
                 while lexer->next(&t) {
                     toks->push(t)

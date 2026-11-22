@@ -110,47 +110,22 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    EnumDecl,
-    EvalBlockDecl,
-    ExtensionDecl,
-    FFIBlockDecl,
-    FieldDecl,
-    FunctionDecl,
-    GenericParamDecl,
-    InterfaceDecl,
-    ParamDecl,
-    StructDecl,
-    TestDecl,
-    UnionDecl,
-    VariableDecl,
+    ClassDecl,    EnumDecl,         EvalBlockDecl, ExtensionDecl, FFIBlockDecl, FieldDecl,
+    FunctionDecl, GenericParamDecl, InterfaceDecl, ParamDecl,     StructDecl,   TestDecl,
+    UnionDecl,    VariableDecl,
 }
 import AST::Node::Expressions::{
-    AlignOfExpr,
-    AnonInitializerExpr,
-    AttributedExpr,
-    CallExpr,
-    ClosureExpr,
-    NamedInitializerExpr,
-    SizeOfExpr,
-    SpawnExpr,
-    ThreadExpr,
+    AlignOfExpr, AnonInitializerExpr, AttributedExpr, CallExpr, ClosureExpr, NamedInitializerExpr,
+    SizeOfExpr,  SpawnExpr,           ThreadExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
 }
 import AST::Node::Statements::{
-    ConditionalStmt,
-    ContextBindingStmt,
-    DeclStmt,
-    DestructureKind,
-    DestructuringDeclStmt,
-    EvalBlockStmt,
-    IterKind,
-    JumpIntrinsicStmt,
-    LabelIntrinsicStmt,
-    RangedForStmt,
+    ConditionalStmt,       ContextBindingStmt, DeclStmt, DestructureKind,
+    DestructuringDeclStmt, EvalBlockStmt,      IterKind, JumpIntrinsicStmt,
+    LabelIntrinsicStmt,    RangedForStmt,
 }
 import AST::Node::Types::{
     ChainType,
@@ -918,7 +893,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
             var b = self.sc->diag->report(
                 DiagID::SC364E,
                 at.start,
-                q.copy() + " takes no attribute arguments: the type and its constructor arguments follow it, '@create T(args)' or '@create<T>(args)'",
+                q.copy() + " takes no attribute arguments: the type and its constructor arguments follow it, '@create T(args)' or '@create T { field: value }'",
             )
 
             b.first(at)

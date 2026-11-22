@@ -10,7 +10,8 @@
 ///     voice, and nothing else (allocators.mdx). So the rewrite is purely
 ///     syntactic and every later pass sees an ordinary call:
 ///
-///       @create<T>(args)      create<T>(args)     (the parser built it)
+///       @create<T>(args)      create<T>(args)     (S001E at the parser;
+///                                                 parsed as this call)
 ///       @create T(args)       create<T>(args)     T a name, a `::` path or
 ///                                                 a generic application
 ///       @create T{ f: v }     create<T>(T{ f: v }) the same T; the object

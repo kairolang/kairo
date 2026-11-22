@@ -1,5 +1,5 @@
 // `@create` / `@destroy` are sugar for alloc.k's create / destroy, in
-// both spellings: the generic call (`@create<T>(args)`, `@destroy<T>(p)`)
+// both spellings: the generic call (`@create T(args)`, `@destroy(p)`)
 // and the docs' attribute form (`@create T(args)`, `@destroy p`,
 // `@destroy(p)`). Each pair below must construct, read back and free, and
 // the destructor must run exactly once per object.
@@ -17,14 +17,14 @@ class P2 {
 }
 
 fn main() -> i32 {
-    var *p = @create<P2>(1i64, 2i64)
+    var *p = @create P2(1i64, 2i64)
     var *q = @create P2(3i64, 4i64)
     var *n = @create i32(5)
     var sum = p->a + p->b + q->a + q->b + (*n) as i64
     @destroy(p)
     @destroy q
-    @destroy<i32>(n)
-    var *r = @create<P2>(10i64, 20i64)
+    @destroy(n)
+    var *r = @create P2(10i64, 20i64)
     var t = r->b
     destroy(r)
     // 1 + 2 + 3 + 4 + 5 = 15, and three P2 destructors ran.

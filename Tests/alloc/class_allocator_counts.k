@@ -50,13 +50,13 @@ fn main() -> i32 {
     var n0 = news
     var d0 = deletes
     var l0 = live
-    var *x = @create<Counted>(1i64, 2i64)
+    var *x = @create Counted(1i64, 2i64)
     var *y = @create Counted(3i64, 4i64)
     if news - n0 != 2 { return 1 }
     if live - l0 != 2 * sizeof Counted { return 2 }
     if deletes != d0 { return 3 }
     var sum = x->a + x->b + y->a + y->b
-    @destroy<Counted>(x)
+    @destroy(x)
     if deletes - d0 != 1 { return 4 }
     @destroy y
     if (deletes - d0 != 2) || (live != l0) { return 5 }

@@ -25,8 +25,8 @@ class Square derives Rect {
 }
 
 fn main() -> i32 {
-    var s: *Shape = @create<Rect>(2, 3)
-    var q: *Shape = @create<Square>(2)
+    var s: *Shape = @create Rect(2, 3)
+    var q: *Shape = @create Square(2)
     var a = s->area() + q->area()
     @destroy(s)
     @destroy(q)

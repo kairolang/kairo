@@ -17,7 +17,7 @@ class Rect derives Shape {
 }
 
 fn main() -> i32 {
-    var s: *Shape = @create<Rect>(2, 3)
+    var s: *Shape = @create Rect(2, 3)
     var a = s->area()
     @destroy(s)
     return a as i32   // exit 6

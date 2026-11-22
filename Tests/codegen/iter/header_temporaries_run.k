@@ -321,15 +321,15 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: signed int receiver() noexcept {
 // CXX:       Tok __kairo_ord[[R:[0-9]+]] ={{ ?}}::header_temporaries_run::make(10);
-// CXX-NEXT:  Yield<signed int> __kairo_it{{[0-9]+}} = __kairo_ord[[R]].count();
+// CXX:       __kairo_ord[[R]].count( ::__kairo_each<signed int> {
 // CXX-LABEL: signed int ext_receiver() noexcept {
 // CXX:       Tok __kairo_ord[[E:[0-9]+]] ={{ ?}}::header_temporaries_run::make(20);
-// CXX-NEXT:  Yield<signed int> __kairo_it{{[0-9]+}} ={{.*}}ext_count((& __kairo_ord[[E]]));
+// CXX:       ext_count((& __kairo_ord[[E]]), ::__kairo_each<signed int> {
 // CXX-LABEL: signed int arguments() noexcept {
 // CXX:       Tok __kairo_ord[[W:[0-9]+]] ={{ ?}}::header_temporaries_run::wrap({{ ?}}::header_temporaries_run::make(0));
 // CXX-NEXT:  Tok * __kairo_ord[[V:[0-9]+]] = __kairo_ord[[W]].view();
 // CXX-NEXT:  Tok __kairo_ord[[L:[0-9]+]] ={{ ?}}::header_temporaries_run::make(4);
-// CXX-NEXT:  Yield<signed int> __kairo_it{{[0-9]+}} = a.span(__kairo_ord[[V]], static_cast<{{ ?}}::header_temporaries_run::Tok &&>(__kairo_ord[[L]]));
+// CXX:       a.span(__kairo_ord[[V]], static_cast<{{ ?}}::header_temporaries_run::Tok &&>(__kairo_ord[[L]]), ::__kairo_each<signed int> {
 // CXX-LABEL: signed int range_bounds() noexcept {
 // CXX:       Tok __kairo_ord[[B:[0-9]+]] ={{ ?}}::header_temporaries_run::make(1);
 // CXX-NEXT:  signed int __kairo_lo{{[0-9]+}} = __kairo_ord[[B]].id;

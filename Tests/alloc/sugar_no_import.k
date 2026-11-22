@@ -17,13 +17,13 @@ class P {
 fn create(x: i64) -> i64 { return x }
 
 fn main() -> i32 {
-    var *p = @create<P>(5i64)
+    var *p = @create P(5i64)
     var *q = @create P(6i64)
     var *n = @create i32(7)
     var sum = p->a + q->a + (*n) as i64 + create(1i64)
     @destroy p
     @destroy(q)
-    @destroy<i32>(n)
+    @destroy(n)
     // 5 + 6 + 7 + 1, and two P destructors ran.
     if sum != 19 { return 1 }
     return dropped + 40
