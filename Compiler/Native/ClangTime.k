@@ -478,11 +478,11 @@ pub fn ktime_clang_end(const c: KClangTimeCapture) {
         }
     }
 
-    var fe:       cxx::std::vector<Span>
-    var fns:      cxx::std::vector<Span>
-    var opt:      cxx::std::vector<Span>
-    var mc:       cxx::std::vector<Span>
-    var rd:       cxx::std::vector<Span>
+    var fe        = cxx::std::vector<Span>()
+    var fns       = cxx::std::vector<Span>()
+    var opt       = cxx::std::vector<Span>()
+    var mc        = cxx::std::vector<Span>()
+    var rd        = cxx::std::vector<Span>()
     var last_end: u64                    = 0 // us: end of the last span clang kept
     var tot_opt:  u64                    = 0 // us: "Total <name>", every scope of the name
     var tot_mc:   u64                    = 0
