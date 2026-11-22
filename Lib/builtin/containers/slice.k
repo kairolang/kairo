@@ -259,18 +259,6 @@ pub class <T> SliceIter {
         return self.hi
     }
 
-    /// Leaves the elements from `p` on, or up to `p`.
-    ///
-    /// Unchecked: the caller vouches that `p` is the address of an element
-    /// left, or the address past the last one.
-    pub inline fn set_first(self, p: unsafe *const T) {
-        self.lo = p
-    }
-
-    pub inline fn set_end(self, p: unsafe *const T) {
-        self.hi = p
-    }
-
     /// `for p in s.iter()` gives a pointer to each element left, front to
     /// back.
     ///

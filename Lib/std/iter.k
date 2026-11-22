@@ -1003,7 +1003,7 @@ priv class <T> SliceBlocks {
         unsafe {
             var unsafe *lo = it->first_ptr()
             var unsafe *hi = it->end_ptr()
-            var n = ((hi as usize) - (lo as usize)) / sizeof T
+            var n = (hi - lo) as usize
             if n < SCAN_LEAD + SCAN_BLOCK {
                 return 0
             }
@@ -1012,7 +1012,7 @@ priv class <T> SliceBlocks {
             while k < SCAN_LEAD {
                 var q = (lo + k) as *const T
                 if (*f)(&q) == want {
-                    it->set_first(lo + k)
+                    *it = SliceIter<T>(lo + k, (hi - (lo + k)) as usize)
                     return k
                 }
 
@@ -1038,8 +1038,8 @@ priv class <T> SliceBlocks {
                 blocks -= 1
             }
 
-            it->set_first(p)
-            return ((p as usize) - (lo as usize)) / sizeof T
+            *it = SliceIter<T>(p, (hi - p) as usize)
+            return (p - lo) as usize
         }
     }
 
@@ -1061,7 +1061,7 @@ priv class <T> SliceBackBlocks {
         unsafe {
             var unsafe *lo = it->first_ptr()
             var unsafe *hi = it->end_ptr()
-            var n = ((hi as usize) - (lo as usize)) / sizeof T
+            var n = (hi - lo) as usize
             if n < SCAN_LEAD + SCAN_BLOCK {
                 return 0
             }
@@ -1070,7 +1070,7 @@ priv class <T> SliceBackBlocks {
             while k <= SCAN_LEAD {
                 var q = (hi - k) as *const T
                 if (*f)(&q) == want {
-                    it->set_end(hi - (k - 1))
+                    *it = SliceIter<T>(lo, n - (k - 1))
                     return k - 1
                 }
 
@@ -1096,8 +1096,9 @@ priv class <T> SliceBackBlocks {
                 blocks -= 1
             }
 
-            it->set_end(p)
-            return ((hi as usize) - (p as usize)) / sizeof T
+            var done = (hi - p) as usize
+            *it = SliceIter<T>(lo, n - done)
+            return done
         }
     }
 }
