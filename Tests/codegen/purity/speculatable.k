@@ -2,7 +2,7 @@
 // function may be evaluated on arguments the program never passed it. The
 // compiler says so, in a value made from the function's name, for a
 // predicate (a `bool` result) with a purity level (written or inferred), a
-// termination proof, and a body that does neither of two things. It does not
+// termination proof, and a body that does none of three things. It does not
 // stop the program: no integer `/` or `%` by anything but a nonzero literal,
 // no index the language does not check through an operator, no `unsafe`, no
 // `assume`, no call of a function that is not speculatable itself. It reads
@@ -11,8 +11,9 @@
 // nothing but a number is assigned, and no global but a number is read; so a
 // stepped pointer (`*(*p + 1)`, which safe code may write unchecked), a
 // pointer held in a local and a pointer a callee returns are never read
-// through. The fact follows the value through copies and parameters; a
-// closure and a value made any other way say no.
+// through. And it does not loop, so the work of a call is bounded by the
+// program's text. The fact follows the value through copies and parameters;
+// a closure and a value made any other way say no.
 
 import std::io
 
@@ -136,6 +137,19 @@ fn passes_number_address(p: *const i32) -> bool {
     return clean(const &x)
 }
 
+// A loop a value bounds: the call returns, after as long as the value says.
+fn value_loop(p: *const i64) -> bool {
+    var s: i64 = 0
+    for i in 0..*p { s += i }
+    return s > 10
+}
+fn sum_to(x: i64) -> i64 {
+    var s: i64 = 0
+    for i in 0..x { s += i }
+    return s
+}
+fn calls_value_loop(p: *const i64) -> bool = *p == 7 || sum_to(*p) > 3
+
 // `-1` is not a literal: the divisor is an expression.
 fn minus_one_divisor(p: *const i32) -> bool = *p / -1 > 3
 
@@ -224,7 +238,11 @@ fn main() -> i32 {
     say("passes_argument", __builtin_fn_speculatable(const &f_passes_argument))
     say("passes_number_address", __builtin_fn_speculatable(const &f_passes_number_address))
 
+    var f_value_loop: fn(*const i64) -> bool = value_loop
+    var f_calls_value_loop: fn(*const i64) -> bool = calls_value_loop
     var f_minus_one_divisor: fn(*const i32) -> bool = minus_one_divisor
+    say("value_loop", __builtin_fn_speculatable(const &f_value_loop))
+    say("calls_value_loop", __builtin_fn_speculatable(const &f_calls_value_loop))
     say("minus_one_divisor", __builtin_fn_speculatable(const &f_minus_one_divisor))
 
     // The fact is the value's: a copy keeps it, an assignment replaces it,
@@ -273,12 +291,12 @@ fn main() -> i32 {
 // INFER-DAG: literal_divisor=1
 // INFER-DAG: float_divisor=1
 // INFER-DAG: hinted=1
-// INFER-DAG: ranged=1
 // INFER-DAG: reads_twice=1
 // INFER-DAG: reads_field=1
 // INFER-DAG: follows_field=1
 // INFER-DAG: passes_argument=1
 // INFER-DAG: passes_number_address=1
+// ALL-DAG: ranged=0
 // ALL-DAG: reads_next=0
 // ALL-DAG: reads_previous=0
 // ALL-DAG: steps_copy=0
@@ -290,6 +308,8 @@ fn main() -> i32 {
 // ALL-DAG: reads_copy=0
 // ALL-DAG: reads_unset=0
 // ALL-DAG: reads_unset_field=0
+// ALL-DAG: value_loop=0
+// ALL-DAG: calls_value_loop=0
 // ALL-DAG: minus_one_divisor=0
 // ALL-DAG: divides=0
 // ALL-DAG: remainder=0

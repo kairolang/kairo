@@ -100,7 +100,7 @@
 ///     passed it, provided every pointer reachable from those arguments is
 ///     valid: a block scan tests a predicate on elements past the one that
 ///     ends the scan (Lib/std/iter.k). The promise and the proof leave open
-///     two things such a call must not do, so the Prove walk records each:
+///     three things such a call must not do, so the Prove walk records each:
 ///
 ///       stop the program   an integer `/` or `%` whose divisor is not a
 ///                          nonzero literal, an index the language does not
@@ -123,6 +123,12 @@
 ///                          pointer (unset, or stepped past the argument)
 ///                          and a pointer a callee returns are never read
 ///                          through.
+///       run for long       no loop. With the proof's "no call cycle" the
+///                          work of one call is bounded by the program's
+///                          text, whatever its arguments hold. A loop
+///                          bounded by a value proves that the call returns
+///                          and nothing about its cost, which a scan would
+///                          pay for elements the program never tests.
 ///
 ///   Phase: CHECK (after ExprTyper: reads resolved declarations and types;
 ///          before every lowering, so it sees only what the user wrote and
@@ -249,8 +255,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     priv var _bad_call:  bool                                   = false
     priv var _deps:      [unsafe *FunctionDecl]
     /// The Prove walk met something a call on values the program never
-    /// passed must not do: stop the program, or read through a pointer the
-    /// arguments do not reach. The function is not speculatable
+    /// passed must not do: stop the program, read through a pointer the
+    /// arguments do not reach, or loop. The function is not speculatable
     /// (header, "Speculation").
     priv var _traps: bool = false
     /// Inferred levels kept, and the inferred levels the termination proof
@@ -1249,7 +1255,13 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             self._unbounded = true
         }
 
-        if self._walk == PurityWalk::Prove && n != &null && n->kind == StmtKind::UnsafeBlockStmt {
+        // A loop the proof takes for bounded still runs as long as a value
+        // says (header, "Speculation").
+        if self._walk == PurityWalk::Prove
+            && n != &null
+            && (n->kind == StmtKind::UnsafeBlockStmt
+                || n->kind == StmtKind::WhileLoopStmt
+                || self._unbounded_stmt(n)) {
             self._traps = true
         }
 
