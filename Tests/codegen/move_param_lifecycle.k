@@ -62,5 +62,4 @@ fn main() -> i32 {
 // OUT: [consume] #7
 // OUT: [main] score = 70
 // DTOR-DAG: [dtor] live #7
-// DTOR-DAG: [dtor] shell
 // DTOR-NOT: [dtor]

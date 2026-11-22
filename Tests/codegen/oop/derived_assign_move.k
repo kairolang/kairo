@@ -41,5 +41,4 @@ fn main() -> i32 {
 // OUT-NEXT: del 1
 // OUT-NEXT: move
 // OUT-NEXT: a=102
-// OUT-NEXT: del -1
 // OUT-NEXT: del 102

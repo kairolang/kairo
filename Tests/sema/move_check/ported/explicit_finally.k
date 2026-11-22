@@ -116,7 +116,7 @@ fn finally_on_global() {
 fn finally_on_moved_from() -> i32 {
     var r = Res(1)
     var s = r
-    r.finally()
+    r.finally() //! SC052E
     return s.id
 }
 
@@ -132,3 +132,4 @@ fn finally_on_moved_from() -> i32 {
 // CHECK: explicit_finally.k:104:{{[0-9]+}}: error [SC304E]:
 // CHECK: explicit_finally.k:109:{{[0-9]+}}: error [SC305E]:
 // CHECK: explicit_finally.k:113:{{[0-9]+}}: error [SC305E]:
+// CHECK: explicit_finally.k:119:{{[0-9]+}}: error [SC052E]:

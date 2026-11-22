@@ -1,11 +1,8 @@
-// The plumbing that lets a provider skip a moved-from local's destructor
-// (sema/check/LocalDisposition.k, disarm_local_at), driven by its TEST
-// provider: --test-disarm-moved-locals is a compiler test hook, not a
-// language feature (sema/check/TestDisarm.k). Under it a local moved once,
-// by a real transfer, in straight-line code at the top level of its block,
-// is not destroyed again; the object it moved into is destroyed once.
-// Without the switch every move is as it is today: the moved-from object
-// (id 0 here) is destroyed when its scope ends.
+// A local moved by a real transfer is not destroyed again
+// (sema/check/LocalDisposition.k, disarm_local_at): the object it moved
+// into is destroyed once. --test-disarm-moved-locals is accepted and has no
+// effect. Under -fno-destructive-moves every move is as C++ makes it: the
+// moved-from object (id 0 here) is destroyed when its scope ends.
 import std::io::println
 
 class Res {
@@ -22,7 +19,7 @@ fn take(r: Res) { println(f"took {r.id}") }
 
 fn borrow(@move r: Res) { println(f"borrowed {r.id}") }
 
-// Disarmed under the switch: into a variable, into a by-value parameter.
+// Disarmed: into a variable, into a by-value parameter.
 fn into_var() {
     var a = Res(1)
     var b = a
@@ -44,8 +41,9 @@ fn into_param() {
 }
 
 // Never disarmed: a `@move` parameter is a reference to the caller's
-// object, not a transfer of it; a move under a branch; a local assigned
-// again after the move.
+// object, not a transfer of it. Flagged: a move under a branch, and a
+// local assigned again after the move, which builds the new value in
+// place.
 fn not_real() {
     var a = Res(4)
     borrow(a)
@@ -82,7 +80,7 @@ fn main() -> i32 {
 // DIAG-NOT: {{error|warning}}
 
 // The disarmed moves: elided storage and a plain cast, or flagged storage
-// whose cast clears `live`; the rest keep plain locals.
+// whose cast clears `live`; the `@move` argument keeps a plain local.
 // RUN: { %kairo %s --print-ir --test-disarm-moved-locals 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX-LABEL: void into_var() noexcept {
 // CXX: ::__kairo_ul< ::{{.*}}::Res> __k_s_a {
@@ -95,9 +93,12 @@ fn main() -> i32 {
 // CXX-LABEL: void not_real() noexcept {
 // CXX: ::{{.*}}::Res a = ::{{.*}}::Res(4);
 // CXX-LABEL: void in_branch(bool c) noexcept {
-// CXX: ::{{.*}}::Res a = ::{{.*}}::Res(5);
+// CXX: ::__kairo_ulf< ::{{.*}}::Res> __k_s_a {
+// CXX: b =(__k_s_a.live = false, static_cast< ::{{.*}}::Res &&>(__k_s_a.s.v));
 // CXX-LABEL: void reassigned() noexcept {
-// CXX: ::{{.*}}::Res a = ::{{.*}}::Res(6);
+// CXX: ::__kairo_ulf< ::{{.*}}::Res> __k_s_a {
+// CXX: b =(__k_s_a.live = false, static_cast< ::{{.*}}::Res &&>(__k_s_a.s.v));
+// CXX: ( ::new(static_cast<void *>(& __k_s_a.s.v), ::__kairo_ulp {
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d %t.e
@@ -115,15 +116,12 @@ fn main() -> i32 {
 // ON-NEXT: ~Res 4
 // ON-NEXT: ~Res 5
 // ON-NEXT: in_branch
-// ON-NEXT: ~Res 0
-// ON-NEXT: ~Res 0
-// ON-NEXT: ~Res 0
 // ON-NEXT: reassigned
 // ON-NEXT: ~Res 6
 // ON-NEXT: ~Res 60
 // ON-EMPTY:
 
-// RUN: %kairo %s -o %t.off --cache-dir %t.e
+// RUN: %kairo %s -fno-destructive-moves -o %t.off --cache-dir %t.e
 // RUN: %t.off | %FileCheck %s --check-prefix=OFF --match-full-lines
 // OFF:      into_var
 // OFF-NEXT: ~Res 1

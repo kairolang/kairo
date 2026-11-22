@@ -191,7 +191,9 @@ pub eval TAG_LIVE: u64 = 0x11FE11FE11FE11FEu64
 pub eval TAG_MOVED: u64 = 0x30FED30FED30FED3u64
 pub eval TAG_DEAD: u64 = 0xDEADDEADDEADDEADu64
 
-/// Objects of `Mo` that exist (constructed and not yet destroyed).
+/// Values of `Mo` that exist (constructed and not yet destroyed). A move
+/// hands the value to a new object and makes none; a moved-from object
+/// holds no value, whether or not it is destroyed.
 pub static MO_OBJECTS: i64 = 0
 
 /// Move-only and not relocatable: every relocation runs the move constructor
@@ -217,7 +219,6 @@ pub class Mo impl Elem, Ord {
         self.seq  = other.seq
         self.tag  = TAG_LIVE
         other.tag = TAG_MOVED
-        MO_OBJECTS += 1
     }
 
     pub fn op finally(self) {
@@ -225,8 +226,11 @@ pub class Mo impl Elem, Ord {
             fail("Mo: double destroy", self.k, self.tag)
         }
 
+        if self.tag == TAG_LIVE {
+            MO_OBJECTS -= 1
+        }
+
         self.tag = TAG_DEAD
-        MO_OBJECTS -= 1
     }
 
     pub static fn make(k: u64, id: u64) -> Mo {

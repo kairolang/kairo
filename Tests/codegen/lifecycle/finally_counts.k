@@ -82,12 +82,11 @@ fn per_iteration() {
     println("after per_iteration")
 }
 
-// A move out of a local is unchanged: the moved-from object is still
-// destroyed when the scope ends, and `finally()` on it ends it early.
+// A move out of a local ends it too: the moved-from object is not
+// destroyed, and `finally()` on it afterwards is SC052E.
 fn moved_from() {
     var r = Res(8)
     var q = r
-    r.finally()
     println("moved_from")
 }
 
@@ -126,7 +125,7 @@ fn main() -> i32 {
         println("got returned")
     }
     println(f"dtors {dtors}")
-    if dtors != 16 {
+    if dtors != 14 {
         return 1
     }
     return 0
@@ -158,7 +157,7 @@ fn main() -> i32 {
 // CXX-NOT: cleanup
 // CXX: println({{.*}}.b, 9, 9)
 // CXX-LABEL: ::{{.*}}::Res returned() noexcept {
-// CXX: return static_cast<decltype(__k_s_r.s.v) &&>(__k_s_r.s.v);
+// CXX: return static_cast< ::{{.*}}::Res &&>(__k_s_r.v);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
@@ -187,11 +186,9 @@ fn main() -> i32 {
 // OUT-NEXT: ~Res 70
 // OUT-NEXT: ~Res 71
 // OUT-NEXT: after per_iteration
-// OUT-NEXT: ~Res 0
 // OUT-NEXT: moved_from
 // OUT-NEXT: ~Res 8
-// OUT-NEXT: ~Res 0
 // OUT-NEXT: got returned
 // OUT-NEXT: ~Res 9
-// OUT-NEXT: dtors 16
+// OUT-NEXT: dtors 14
 // OUT-EMPTY:

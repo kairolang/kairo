@@ -48,7 +48,7 @@ fn main() -> i32 {
 
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}move_assign_named.k
-// IR:      (x = static_cast<{{ ?}}::move_assign_named::M &&>(y));
+// IR:      (x = static_cast<{{ ?}}::move_assign_named::M &&>(__k_s_y.v));
 // IR:      (x = static_cast<{{ ?}}::move_assign_named::M &&>(x));
 
 // REQUIRES: clang

@@ -85,7 +85,8 @@ fn as_value() {
     var f = r.finally
 }
 
-// Accepted: the operator spelling, and an object a move left behind.
+// Accepted: the operator spelling. A moved-from local holds no object, so
+// finally() on it is the use-after-move error.
 fn ok() {
     var r = Res(12)
     r.op finally()
@@ -116,3 +117,4 @@ fn main() -> i32 { return 0 }
 // CHECK: finally_errors.k:74:9: error [SC116E]: finally() on 'r': it is a C-style for's variable, which is not supported yet
 // CHECK: finally_errors.k:80:5: error [SC001E]: 'finally()' takes no arguments
 // CHECK: finally_errors.k:85:13: error [SC001E]: the destructor is called as 'x.finally()'; it is not a value
+// CHECK: finally_errors.k:95:5: error [SC052E]: 's' is used after being moved

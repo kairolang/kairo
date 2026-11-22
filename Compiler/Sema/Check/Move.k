@@ -1582,12 +1582,18 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var saved_pany  = move(self._out_pany)
         var saved_exits = self._exits
         var saved_bp    = self._body_panics
+        var saved_cbr   = self._body_refusal.copy()
         self._body_panics = ((n->modifiers as u16) & (FnModifier::IsPanic as u16)) != 0
-        self._fn          = &null
-        self._caps        = []
-        self._out         = []
-        self._out_hits    = []
-        self._out_when    = []
+        // As _fn_refusal: no exit is walked at an `await`.
+        if ((n->modifiers as u16) & (FnModifier::IsAsync as u16)) != 0 {
+            self._body_refusal = "it is a local of an 'async' closure"
+        }
+
+        self._fn       = &null
+        self._caps     = []
+        self._out      = []
+        self._out_hits = []
+        self._out_when = []
         self._out_pty.clear()
         self._out_pany = []
         self._exits    = 0
@@ -1621,15 +1627,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._returning = &null
         self._settle_locals(&null)
         var left = move(self._out)
-        self._fn          = saved_fn
-        self._caps        = saved_caps
-        self._out         = saved_out
-        self._out_hits    = saved_hits
-        self._out_when    = saved_when
-        self._out_pty     = saved_pty
-        self._out_pany    = saved_pany
-        self._exits       = saved_exits
-        self._body_panics = saved_bp
+        self._fn           = saved_fn
+        self._caps         = saved_caps
+        self._out          = saved_out
+        self._out_hits     = saved_hits
+        self._out_when     = saved_when
+        self._out_pty      = saved_pty
+        self._out_pany     = saved_pany
+        self._exits        = saved_exits
+        self._body_panics  = saved_bp
+        self._body_refusal = saved_cbr
         self._leave_body(saved)
         // The closure may run at any time from here on, and its body leaves
         // these moved-from: the captured storage is moved-from once the
@@ -2828,6 +2835,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
         if decl_is_ctor(n, self.sc->ctx) {
             return "it is a local of a constructor"
+        }
+
+        // The walk has no exit at an `await`: a frame destroyed while
+        // suspended there would hold a local this walk calls moved.
+        if n->is_async() {
+            return "it is a local of an 'async' function"
         }
 
         return ""

@@ -844,7 +844,6 @@ extend InterfaceEmitter {
         self._cg->sink->brk()
         self._instance_layout_asserts(d, ie)
         self._instance_spec_assert(d, ie, e->is_home)
-        self._dm_instance_assert(d, ie)
         var mas = self._spell->mixin_bound_asserts(d, ie)
         for var i: usize = 0; i < mas.size(); ++i {
             self._cg->sink->spell(self._at(d), mas[i])
@@ -858,6 +857,9 @@ extend InterfaceEmitter {
                 self._cg->sink->brk()
             }
         }
+
+        // Last: the bound asserts follow the instance's own line.
+        self._dm_instance_assert(d, ie)
     }
 
     /// The tag of record `d`'s body when its template has a partial
