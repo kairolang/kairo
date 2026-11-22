@@ -65,12 +65,12 @@ fn bound(const m: Mv, const o: Odd, const c: Cell<Mv>) {
     // CHECK: [[@LINE-1]]:13: error [SC162E]: 'Mv' does not conform to 'Copyable'
 }
 
-// A vector's copy constructor needs its element's: `[Mv]` has none.
+// A vector's `copy` needs its element's: `[Mv]` has none.
 fn elements(const v: [Mv]) {
     var w = dup(v)
     // CHECK: [[@LINE-1]]:13: error [SC162E]: '[Mv]' does not conform to 'Copyable': no member 'copy' with the requirement's signature
     // CHECK: note [I900N]: '[Mv]' is not a COPY type
-    // CHECK: note [I900N]: '[Mv]' declares a copy constructor, but its requirements do not hold here: 'Mv' cannot be copied
+    // CHECK: note [I900N]: '[Mv]' has 'copy' only where 'Mv impl Copyable': 'Mv' does not conform to 'Copyable'
 }
 
 // `copy` is called: with no method behind it there is nothing to name.

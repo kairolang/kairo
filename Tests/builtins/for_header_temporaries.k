@@ -39,4 +39,5 @@ fn main() -> i32 {
 // CHECK-NEXT:  __kairo_it{{[0-9]+}} ={{.*}}lines((& __kairo_ord[[R]]));
 // CHECK-LABEL: count_pieces() noexcept {
 // CHECK:       char32_t __kairo_ord[[P:[0-9]+]] = U';';
-// CHECK-NEXT:  __kairo_it{{[0-9]+}} ={{.*}}split<char32_t>((& src), __kairo_ord[[P]],
+// CHECK-NEXT:  auto __kairo_pb{{[0-9]+}} =
+// CHECK:       split<char32_t>((& src), __kairo_ord[[P]],
