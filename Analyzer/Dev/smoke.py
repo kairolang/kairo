@@ -1884,7 +1884,7 @@ fn main() -> i32 {
 BASES_TRUTH = {"D1": (16, 8), "DE": (4, 4), "DEE": (3, 1), "V": (16, 8), "DV": (24, 8), "M2": (32, 8),
                "MV": (16, 8), "OV": (16, 8), "DG": (16, 8), "Abs": (16, 8), "Conc": (16, 8), "ImP": (4, 4),
                "PD": (16, 8), "DPB": (10, 1), "AD": (16, 16), "VD": (40, 8), "N1": (24, 8), "EA": (24, 8),
-               "PS": (24, 8), "HU": (8, 8), "DSB": (40, 8), "DFin": (16, 8), "DVF": (16, 8),
+               "PS": (24, 8), "HU": (8, 8), "DSB": (24, 8), "DFin": (16, 8), "DVF": (16, 8),
                "DHT": (24, 8), "DHNI": (16, 8), "DHNU": (24, 8), "PT": (24, 8), "PU": (16, 8),
                "DAB": (16, 16)}
 
@@ -2089,7 +2089,7 @@ fn main() -> i32 {
 '''
 
 LAYOUT_ERR_TRUTH = {"Op": (8, 4), "Big": (8, 8), "UA": (8, 8), "HasAdt": (12, 4), "HasNull": (12, 4),
-                    "HasInst": (48, 8), "HasMix": (64, 8), "Nest": (16, 4), "HasNest": (16, 4)}
+                    "HasInst": (32, 8), "HasMix": (48, 8), "Nest": (16, 4), "HasNest": (16, 4)}
 
 
 def hover_layout_errors(exe, root):
@@ -4991,7 +4991,7 @@ def library_files(exe, base):
         shutil.copytree(os.path.join(ROOT, "Lib", lib), os.path.join(root, "Lib", lib), symlinks=True)
     c = Client(exe, root)
     c.start()
-    for rel, needle in (("Lib/builtin/string.k", "cmp_(self.buf, other.buf, n)"),
+    for rel, needle in (("Lib/builtin/string.k", "validate_(b, n)"),
                         ("Lib/std/io.k", "write_line_(1, s)")):
         text = c.open(rel)
         c.settle()
