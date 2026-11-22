@@ -110,6 +110,10 @@ fn reads_copy(p: *const (*const i32)) -> bool {
     var q = *p
     return *q > 3
 }
+fn reads_copy_field(c: *const (*const Cell)) -> bool {
+    var q = *c
+    return q->v > 3
+}
 fn reads_unset(p: *const (*const i32)) -> bool {
     var q: *const i32
     if **p > 100 {
@@ -125,6 +129,29 @@ fn reads_unset_field(p: *const (*const i32)) -> bool {
     }
 
     return false
+}
+
+// A parameter is a path only while it holds what it was passed.
+fn steps_parameter(p: *const (*const i32)) -> bool {
+    p += 1
+    return **p > 3
+}
+fn rebinds_parameter(p: *const i32) -> bool {
+    p = p + 1
+    return *p > 3
+}
+fn steps_field(c: Cell) -> bool {
+    c.at += 1
+    return *c.at > 3
+}
+
+// A number is assigned and stepped freely.
+fn assigns_number(p: *const (*const i32)) -> bool {
+    var s = 0
+    s += **p
+    s = s * 2
+    ++s
+    return s > 10
 }
 
 // A path from the argument, and the address of a number.
@@ -213,6 +240,11 @@ fn main() -> i32 {
     var f_reads_stepped: fn(*const (*const i32)) -> bool = reads_stepped
     var f_passes_stepped: fn(*const (*const i32)) -> bool = passes_stepped
     var f_reads_copy: fn(*const (*const i32)) -> bool = reads_copy
+    var f_reads_copy_field: fn(*const (*const Cell)) -> bool = reads_copy_field
+    var f_steps_parameter: fn(*const (*const i32)) -> bool = steps_parameter
+    var f_rebinds_parameter: fn(*const i32) -> bool = rebinds_parameter
+    var f_steps_field: fn(Cell) -> bool = steps_field
+    var f_assigns_number: fn(*const (*const i32)) -> bool = assigns_number
     var f_reads_unset: fn(*const (*const i32)) -> bool = reads_unset
     var f_reads_unset_field: fn(*const (*const i32)) -> bool = reads_unset_field
     say("reads_next", __builtin_fn_speculatable(const &f_reads_next))
@@ -224,6 +256,11 @@ fn main() -> i32 {
     say("reads_stepped", __builtin_fn_speculatable(const &f_reads_stepped))
     say("passes_stepped", __builtin_fn_speculatable(const &f_passes_stepped))
     say("reads_copy", __builtin_fn_speculatable(const &f_reads_copy))
+    say("reads_copy_field", __builtin_fn_speculatable(const &f_reads_copy_field))
+    say("steps_parameter", __builtin_fn_speculatable(const &f_steps_parameter))
+    say("rebinds_parameter", __builtin_fn_speculatable(const &f_rebinds_parameter))
+    say("steps_field", __builtin_fn_speculatable(const &f_steps_field))
+    say("assigns_number", __builtin_fn_speculatable(const &f_assigns_number))
     say("reads_unset", __builtin_fn_speculatable(const &f_reads_unset))
     say("reads_unset_field", __builtin_fn_speculatable(const &f_reads_unset_field))
 
@@ -306,6 +343,11 @@ fn main() -> i32 {
 // ALL-DAG: reads_stepped=0
 // ALL-DAG: passes_stepped=0
 // ALL-DAG: reads_copy=0
+// ALL-DAG: reads_copy_field=0
+// ALL-DAG: steps_parameter=0
+// ALL-DAG: rebinds_parameter=0
+// ALL-DAG: steps_field=0
+// INFER-DAG: assigns_number=1
 // ALL-DAG: reads_unset=0
 // ALL-DAG: reads_unset_field=0
 // ALL-DAG: value_loop=0
