@@ -580,7 +580,7 @@ pub class WhereGuardCheck derives RecursiveASTVisitor<WhereGuardCheck> {
             var d = self.sc->diag->report(
                 DiagID::SC228E,
                 b->range.start,
-                f"every overload in the 'where' dispatch of '{name}' must have the same " + what + "; C++ sees them as one function",
+                f"every overload in the 'where' dispatch of '{name}' must have the same " + what + "; they compile to one function",
             )
 
             d.first(b->range)

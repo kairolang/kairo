@@ -126,9 +126,9 @@ fn use_closure() -> i32 {                          // [parse]
 // CHECK:     :53:32: error [SC228E]: a guarded overload of 'nobody' needs a body; the guard chooses which body runs
 // CHECK:     :58:13: error [SC228E]: 'where' is not allowed on an interface method; interfaces are zero-cost, so a requirement cannot dispatch at run time. Use 'requires' for a compile-time constraint
 // CHECK-NEXT: :56:1: note [SC228N]: the interface is declared here
-// CHECK:     :64:1: error [SC228E]: every overload in the 'where' dispatch of 'rt' must have the same return type; C++ sees them as one function
+// CHECK:     :64:1: error [SC228E]: every overload in the 'where' dispatch of 'rt' must have the same return type; they compile to one function
 // CHECK-NEXT: :63:1: note [SC228N]: the first overload of the dispatch is here
-// CHECK:     :69:5: error [SC228E]: every overload in the 'where' dispatch of 'c1' must have the same 'const self'; C++ sees them as one function
+// CHECK:     :69:5: error [SC228E]: every overload in the 'where' dispatch of 'c1' must have the same 'const self'; they compile to one function
 // CHECK-NEXT: :68:5: note [SC228N]: the first overload of the dispatch is here
 // CHECK:     :71:5: error [SC116E]: 'where' dispatch on a 'virtual' or 'override' method is not yet supported
 // CHECK:     :72:5: error [SC116E]: 'where' dispatch on a 'virtual' or 'override' method is not yet supported

@@ -109,7 +109,7 @@ group = "cxx-interop"
 
     ## how to fix
 
-    rename the declaration. if the name must survive into the generated C++ for an external ABI,
+    rename the declaration. if the name must reach C++ code as it is, for an external ABI,
     give it an explicit external name instead of spelling it as the identifier.
     """
 
@@ -121,12 +121,13 @@ group = "cxx-interop"
     explain = """
     # reserved name
 
-    Kairo emits names into C++ unchanged, so a Kairo name must also be a name C++ lets you declare.
+    Kairo names reach C++ unchanged (in `--emit-headers` headers and through `#include "file.k"`),
+    so a Kairo name must also be a name C++ lets you declare.
     C++ reserves whole classes of identifiers to the implementation: names containing a double
     underscore and names beginning with an underscore followed by a capital letter are reserved at
     every scope; a name beginning with an underscore followed by anything else is reserved only at
     global scope. Declaring a reserved name is undefined behavior, and it may silently collide with a
-    standard-library or compiler-internal name in the emitted C++.
+    standard-library or compiler-internal name in the C++ code that sees it.
 
     Kairo applies one rule everywhere on purpose: a leading underscore is refused at EVERY scope,
     including class fields, parameters and locals, where C++ itself would accept `_count`. A rule
@@ -4786,7 +4787,7 @@ group = "where-guards"
     explain = """
     # where-guard dispatch rule
 
-    a set of overloads guarded by 'where' needs a fallback, is not allowed on interface methods or unsafe overloads, needs bodies, and agrees on the signature C++ sees.
+    a set of overloads guarded by 'where' needs a fallback, is not allowed on interface methods or unsafe overloads, needs bodies, and agrees on one signature, since the set compiles to one function.
 
     ## how to fix
 
@@ -5702,8 +5703,8 @@ group = "lint"
     that returns a pointer to one of its class's type parameters (the dyn
     method); a call through it of the hook's name with the same number of
     arguments, in the class or any base; and a base method of that name and
-    arity, none of which takes this method's parameter types (as C++ sees
-    them: `*T` and `unsafe *T` are both `T*`, and do replace the hook;
+    arity, none of which takes this method's parameter types (compared
+    after lowering: `*T` and `unsafe *T` are one pointer type, and do replace the hook;
     `*T?` is not), modes and `self` constness. A base parameter that
     depends on a type parameter is not compared.
 
@@ -6997,7 +6998,7 @@ group = "lifecycle"
     `@relocatable` says a value of the record may be moved by copying its
     bytes and abandoning the source, so the record is passed and returned
     like a plain struct of the same layout. That holds only when it holds
-    for every part of the record. The C++ compiler drops the attribute from
+    for every part of the record. Code generation drops the attribute from
     a record with a part it cannot pass that way, and the record would go
     through memory again without a word, so Kairo makes it an error.
 

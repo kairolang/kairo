@@ -257,7 +257,7 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
             && self._in_kairo_source(kloc)
             && self._is_access_error(info) {
             code = DiagCode(DiagID::I003E)
-            msg = "the emitted C++ refuses an access Kairo accepted (AccessCheck and the record's C++ access levels or friends disagree; a compiler bug): " + msg
+            msg = "code generation refuses an access Kairo accepted (the access check and the compiled record's access levels or friends disagree; a compiler bug): " + msg
         }
 
         if kloc.is_valid() {

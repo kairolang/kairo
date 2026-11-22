@@ -39,8 +39,8 @@ group = "modules"
     two module files in one directory have names that differ only in case (`Foo.k` and `foo.k`).
     these are two distinct files on a case-sensitive filesystem (typically Linux) and ONE file on a
     case-insensitive one (the default on macOS and Windows), so the source tree does not mean the
-    same thing on every platform - and a module identity, which is what determines the emitted C++
-    namespace path, would differ between builds of the same code.
+    same thing on every platform - and a module identity, which determines the symbol names of
+    its declarations, would differ between builds of the same code.
 
     ## how to fix
 
