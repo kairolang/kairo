@@ -28,8 +28,8 @@ import AST::ASTSupport::FrozenList
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::OverloadCell
 import AST::DeclFacts::{
-    decl_ffi_tag_keyword, decl_is_imported,   decl_pattern,          fn_keeps_value_params,
-    param_is_plain_value, param_is_type_pack, param_type_pack_param,
+    decl_ffi_tag_keyword,  decl_is_imported,     decl_pattern,       fn_body_in_dependents,
+    fn_keeps_value_params, param_is_plain_value, param_is_type_pack, param_type_pack_param,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::LowerTargets
@@ -1605,9 +1605,10 @@ extend EmitIR {
     /// A call of `f` runs the body whose walk decided `p`'s owner, and that
     /// body ends the object `p` names (ParamOwner): `p` is declared `T&&`
     /// (Speller::value_param_passed_rref), the call is not dispatched
-    /// through a vtable or an interface's witness, and the link of `f`
-    /// that has the body says so. False for every callee whose body is not
-    /// Kairo's to read, which leaves the object to the caller.
+    /// through a vtable or an interface's witness, the link of `f` that
+    /// has the body says so, and that body is compiled with this call.
+    /// False for every other callee, which leaves the object to the
+    /// caller.
     priv fn _param_ends(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl) -> bool {
         if f == &null || p == &null || !Speller::value_param_passed_rref(f, p) {
             return false
@@ -1636,6 +1637,22 @@ extend EmitIR {
         if body == &null
             || body->body_kind != FnBodyKind::Block && body->body_kind != FnBodyKind::Expr {
             return false
+        }
+
+        // The answer is the callee's body's, so it is read only where that
+        // body is compiled with this call: a body every object that uses
+        // it compiles (a generic or `inline` function), or one this very
+        // object compiles, called from a body no other object compiles.
+        // Anywhere else the callee's file can change its body without this
+        // object being compiled again.
+        if !fn_body_in_dependents(body) {
+            if self._cur_fn != &null && fn_body_in_dependents(self._cur_fn) {
+                return false
+            }
+
+            if Speller::fid_of(unsafe (body as unsafe *Decl)) != self._owning_fid() {
+                return false
+            }
         }
 
         var at = usize::MAX

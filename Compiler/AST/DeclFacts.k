@@ -2020,6 +2020,48 @@ pub fn value_param_rule(f: unsafe *Declarations::FunctionDecl,
     return 1
 }
 
+/// `f`'s body is compiled into every object that uses it: a generic
+/// function, a member of a generic record or extension, a function local
+/// to one of those, or an `inline` function. Every other body is compiled
+/// once, into the object of the file that defines it.
+pub fn fn_body_in_dependents(f: unsafe *Declarations::FunctionDecl) -> bool {
+    if f == &null {
+        return false
+    }
+
+    if f->is_inline() || f->generic_params.size() > 0 {
+        return true
+    }
+
+    var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
+    if ext != &null && decl_generic_params(unsafe (ext as unsafe *Decl)).size() > 0 {
+        return true
+    }
+
+    var unsafe *dc        = f->semantic_dc
+    var        depth: u32 = 0
+    while dc != &null && depth < 64 {
+        var unsafe *o = dc->owner_decl()
+        if o == &null {
+            break
+        }
+
+        if decl_generic_params(o).size() > 0 {
+            return true
+        }
+
+        var unsafe *of = dyn_cast<Declarations::FunctionDecl>(o)
+        if of != &null && of->is_inline() {
+            return true
+        }
+
+        dc = o->semantic_dc
+        depth += 1
+    }
+
+    return false
+}
+
 /// `p` is passed by value with nothing that already makes it a reference:
 /// mode by value, not `self`, not `const` (a `const T&`, written or
 /// inferred), not a pack.
