@@ -111,15 +111,8 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    AlignOfExpr,
-    BinaryOperatorExpr,
-    CallExpr,
-    ClosureExpr,
-    ConstraintExpr,
-    SizeOfExpr,
-    SubscriptExpr,
-    TypeCastExpr,
-    TypeTraitExpr,
+    AlignOfExpr,   BinaryOperatorExpr, CallExpr,      ClosureExpr, ConstraintExpr, SizeOfExpr,
+    SubscriptExpr, TypeCastExpr,       TypeTraitExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -459,6 +452,14 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
     /// instance_move): the preamble must define LowerTargets::instance_move.
     /// Only then, so other TUs keep their text.
     pub var needs_instance_move: bool = false
+    /// A by-value parameter's helpers may be named (LowerTargets::
+    /// value_param and the rest): a signature or a call of the walk has a
+    /// by-value parameter that is not by value in C++
+    /// (Speller::value_param_form), an argument that may hand its storage
+    /// over, or a type a generic parameter decides, which any signature
+    /// may pass as `::__kairo_param<T>`. Only then, so other TUs keep
+    /// their text.
+    pub var needs_value_param: bool = false
     /// A body indexes a fixed array with a run-time bounds check
     /// (checked_array_index): the preamble must define LowerTargets::
     /// index_check. Only then, so other TUs keep their text.
@@ -865,6 +866,18 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             self.needs_instance_move = true
         }
 
+        if e->kind == ExprKind::TypeCastExpr && cast<TypeCastExpr>(e)->hand != &null {
+            self.needs_value_param = true
+        }
+
+        if !self.needs_value_param
+            && e->type_ != &null
+            && e->type_->canonical != &null
+            && (e->type_->canonical->is_dependent()
+                || e->type_->canonical->is_instantiation_dependent()) {
+            self.needs_value_param = true
+        }
+
         if e->kind == ExprKind::SubscriptExpr
             && checked_array_index(cast<SubscriptExpr>(e)) != &null {
             self.needs_index_check = true
@@ -1020,6 +1033,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return true
         }
 
+        if c->is_dependent() || c->is_instantiation_dependent() {
+            self.needs_value_param = true
+        }
+
         if c->kind != TypeKind::RecordType {
             return true
         }
@@ -1085,6 +1102,10 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
             return true
         }
 
+        if !self.needs_value_param && DeclFacts::decl_generic_params(d).size() > 0 {
+            self.needs_value_param = true
+        }
+
         match d->kind {
             case DeclKind::VariableDecl {
                 if cast<Declarations::VariableDecl>(d)->raw_slot {
@@ -1112,6 +1133,12 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                 )
             } case DeclKind::ParamDecl {
                 var unsafe *p = cast<Declarations::ParamDecl>(d)
+                if !self.needs_value_param
+                    && p->type_ != &null
+                    && Speller::value_param_form(p->type_) != 0 {
+                    self.needs_value_param = true
+                }
+
                 self._admit_type(
                     (if (p->is_pack && p->pack_type != &null) => (p->pack_type) else => p->type_),
                     PlanNeed::Complete,

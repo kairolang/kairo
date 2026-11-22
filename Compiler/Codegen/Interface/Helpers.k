@@ -326,9 +326,30 @@ extend InterfaceEmitter {
         var vp = LowerTargets::value_param()
         var ps = LowerTargets::value_pass()
         var pc = LowerTargets::value_param_guard()
+        // A header is read at its host's language level: a destructor is
+        // `constexpr` from C++20 on, and `::__kairo_fn_of`, which only
+        // Kairo's own bodies name, needs a requires-expression.
+        var cx = "constexpr "
+        if header {
+            cx = LowerTargets::constexpr_dtor() + " "
+            self._cg->sink->directive(at, "#if __cplusplus >= 202002L")
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::constexpr_dtor() + " constexpr",
+            )
+
+            self._cg->sink->directive(at, "#else")
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::constexpr_dtor(),
+            )
+
+            self._cg->sink->directive(at, "#endif")
+        }
+
         self._cg->sink->spell(
             at,
-            "template <class T> union " + ps + "_dm { T v; char none; constexpr ~" + ps + "_dm() {} constexpr operator T&&() && noexcept { return static_cast<T&&>(v); } };",
+            "template <class T> union " + ps + "_dm { T v; char none; " + cx + "~" + ps + "_dm() {} constexpr operator T&&() && noexcept { return static_cast<T&&>(v); } };",
         )
 
         self._cg->sink->brk()
@@ -358,11 +379,15 @@ extend InterfaceEmitter {
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "template <class T> struct " + pc + " { T* p; bool live; constexpr ~" + pc + "() { if (live) { T __d(static_cast<T&&>(*p)); } } };",
+            "template <class T> struct " + pc + " { T* p; bool live; " + cx + "~" + pc + "() { if (live) { T __d(static_cast<T&&>(*p)); } } };",
         )
 
         self._cg->sink->brk()
         var fo = LowerTargets::fn_value_of()
+        if header {
+            self._cg->sink->directive(at, "#if __cplusplus >= 202002L")
+        }
+
         self._cg->sink->spell(
             at,
             "template <auto F, class S> struct " + fo + ";",
@@ -382,6 +407,7 @@ extend InterfaceEmitter {
 
         self._cg->sink->brk()
         if header {
+            self._cg->sink->directive(at, "#endif")
             self._cg->sink->directive(at, "#endif")
         }
     }

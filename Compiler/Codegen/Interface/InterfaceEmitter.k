@@ -494,16 +494,19 @@ pub class InterfaceEmitter {
         }
 
         // The destructive-move trait: before the slots, which ask it, and
-        // before any record definition specializes it; and the by-value
-        // parameter's helpers, which any generic signature may name.
+        // before any record definition specializes it. Only where one does,
+        // a slot is planned, or a by-value parameter's helpers are (they
+        // ask it too: EmitPlan::needs_value_param), so no other TU's text
+        // changes.
         var slots = !self.written.has(HelperBlock::CtorSlots) && self._needs_ctor_slots()
-        if !self.written.has(HelperBlock::DmTrait) {
+        var vparam = self._plan->needs_value_param
+        if !self.written.has(HelperBlock::DmTrait) && (slots || vparam || self._needs_dm_trait()) {
             self._cg->sink->unanchored(true)
             self._dm_trait_helper(header)
             self._cg->sink->unanchored(false)
         }
 
-        if !self.written.has(HelperBlock::ValueParam) {
+        if !self.written.has(HelperBlock::ValueParam) && vparam {
             self._cg->sink->unanchored(true)
             self._value_param_helpers(header)
             self._cg->sink->unanchored(false)

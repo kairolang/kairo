@@ -4018,6 +4018,12 @@ pub class LowerTargets {
         return "__KAIRO_VALUE_PARAM"
     }
 
+    /// `constexpr` where a destructor may be one (C++20), nothing before
+    /// it: an emitted header is read at its host's language level.
+    pub static fn constexpr_dtor() -> string {
+        return "__KAIRO_CONSTEXPR_DTOR"
+    }
+
     pub static fn value_param_guard_var(const nm: string) -> string {
         return "__k_g_" + nm
     }
