@@ -513,15 +513,15 @@ pub fn ktime_clang_end(const c: KClangTimeCapture) {
             }
 
             if name == kairo::sref("Frontend") {
-                fe.push_back(s)
+                fe->push_back(s)
             } else if name == kairo::sref("CodeGen Function") {
-                fns.push_back(s)
+                fns->push_back(s)
             } else if name == kairo::sref("Optimizer") {
-                opt.push_back(s)
+                opt->push_back(s)
             } else if name == kairo::sref("CodeGenPasses") {
-                mc.push_back(s)
+                mc->push_back(s)
             } else if name == kairo::sref("ReadAST") {
-                rd.push_back(s)
+                rd->push_back(s)
             }
         },
     )
