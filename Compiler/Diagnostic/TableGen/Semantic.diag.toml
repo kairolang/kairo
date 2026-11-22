@@ -7278,7 +7278,8 @@ group = "allocation"
     @alloc_zeroed(size: n, align: a)
     @free(size: n, align: a) p
     @resize(size: old, new_size: n, align: a) p
-    @try_resize(size: old, new_size: n, align: a) p
+    @resize_in_place(size: old, new_size: n, align: a) p
+    @try_resize_in_place(size: old, new_size: n, align: a) p
     ```
 
     `size:` and `align:` describe the block as it is now; `new_size:` is the size asked for. `in:`

@@ -1,7 +1,7 @@
 // Every operation of HashMap<K, V> on keys that collide: a key type whose
 // hash takes sixteen values, one whose hash is a constant, and an ordinary
 // one for contrast, run on thousands of keys through insert, replace,
-// try_insert, the setter and the place form, both removals, pop, retain,
+// insert_new, the setter and the place form, both removals, pop, retain,
 // merge, copy, reserve, shrink_to_fit and clear, with lookups checked after
 // each phase. A counted key and value class checks that no object leaks or
 // is destroyed twice.
@@ -134,15 +134,15 @@ fn run_all(n: u64, label: string) {
     }
     ck(bad == 0 && i == n, f"{label}: insertion order")
 
-    // Replace, try_insert, setter, place form.
+    // Replace, insert_new, setter, place form.
     for var j: u64 = 0; j < n; j += 7 {
         var old? = m.insert(key(j), j + 1000000)
         if !old? || old != j { bad += 1 }
         m.insert(key(j), j)
     }
     ck(bad == 0 && m.size() == n as usize, f"{label}: replace keeps one entry per key")
-    var t? = m.try_insert(key(3), 99)
-    ck(t? && t == 99 && m[key(3)] == 3, f"{label}: try_insert on a present key")
+    var t? = m.insert_new(key(3), 99)
+    ck(t? && t == 99 && m[key(3)] == 3, f"{label}: insert_new on a present key")
     m[key(5)] = 555
     ck(m[key(5)] == 555 && m.size() == n as usize, f"{label}: setter replaces")
     m[key(5)] = 5

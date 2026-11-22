@@ -16,10 +16,10 @@
 
 import std::io
 
-// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+// The reason `t.try_parse<T>()` raises: kind None at 0 when it accepts `t`.
 fn <T impl FromStr> reason_of(const t: string) -> ParseError {
     try {
-        var v = t.parse<T>()
+        var v = t.try_parse<T>()
         return ParseError { at: 0, kind: ParseErrorKind::None }
     } catch e: ParseError {
         return e
@@ -283,7 +283,7 @@ fn round_trip() {
 
 fn kind_of(const s: string) -> ParseErrorKind {
     try {
-        var r = s.parse<f64>()
+        var r = s.try_parse<f64>()
         return ParseErrorKind::None
     } catch e: ParseError {
         return e.kind
@@ -292,7 +292,7 @@ fn kind_of(const s: string) -> ParseErrorKind {
 
 fn at_of(const s: string) -> u32 {
     try {
-        var r = s.parse<f64>()
+        var r = s.try_parse<f64>()
         return 9999
     } catch e: ParseError {
         return e.at
@@ -300,26 +300,26 @@ fn at_of(const s: string) -> u32 {
 }
 
 fn parse_method() panic(ParseError) {
-    var a = "2.5".parse<f64>()
+    var a = "2.5".try_parse<f64>()
     NO += 1
     if a.to_bits() != 0x4004000000000000 {
         fail("parse<f64> of 2.5")
     }
 
-    var b = "-0.1".parse<f32>()
+    var b = "-0.1".try_parse<f32>()
     NO += 1
     if b.to_bits() != 0xBDCCCCCD {
         fail("parse<f32> of -0.1")
     }
 
-    var c = "inf".parse<f64>()
+    var c = "inf".try_parse<f64>()
     NO += 1
     if c.to_bits() != 0x7FF0000000000000 {
         fail("parse<f64> of inf")
     }
 
     var view = "1e3 trailing"[0..3]
-    var d    = view.parse<f64>()
+    var d    = view.try_parse<f64>()
     NO += 1
     if d.to_bits() != 0x408F400000000000 {
         fail("parse<f64> of a view that has bytes after it")

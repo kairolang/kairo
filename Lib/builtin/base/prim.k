@@ -109,12 +109,12 @@ priv macro prim_hash!(T) {
 // temporary string, no allocation beyond the destination's own growth. The
 // buffer is two TEXT_BUF long and the text lies in its first half, so a
 // read of TEXT_BUF bytes from the text's first byte stays inside it.
-// `from_str` and `from_str_reason` run the same core, `parse_into`, so they
-// accept the same texts. A core writes `err` only on failure, so each caller
-// hands it a cleared one: `from_str` a local, whose initializer is the only
-// store on the success path, and `from_str_reason` the caller's, cleared
-// first. The cores never read at or past `s.size()`, so a view is a valid
-// argument.
+// `from_str`, `from_str_reason` and `try_from_str` run the same core,
+// `parse_into`, so they accept the same texts. A core writes `err` only on
+// failure, so each caller hands it a cleared one: `from_str` and
+// `try_from_str` a local, whose initializer is the only store on the success
+// path, and `from_str_reason` the caller's, cleared first. The cores never
+// read at or past `s.size()`, so a view is a valid argument.
 priv macro prim_text!(T) {
     extend T impl ToString {
         inline fn op as (const self) -> string {
@@ -160,6 +160,21 @@ priv macro prim_text!(T) {
 
             if err.kind != ParseErrorKind::None {
                 return null
+            }
+
+            return v
+        }
+    }
+
+    extend T {
+        /// The value `s` spells; raises a `ParseError` saying why and at
+        /// which byte when it spells none.
+        pub static inline fn try_from_str(const s: string) panic(ParseError) -> T {
+            var err = ParseError { at: 0, kind: ParseErrorKind::None }
+            var v   = T::parse_into(unsafe (s.data() as unsafe *const u8), s.size(), &err)
+
+            if err.kind != ParseErrorKind::None {
+                panic err
             }
 
             return v

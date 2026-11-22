@@ -2,8 +2,9 @@
 ///
 /// The allocation attributes in expression position (`@create`,
 /// `@try_create`, `@destroy`, `@alloc`, `@alloc_zeroed`, `@free`,
-/// `@resize`, `@try_resize`), each rewritten to the alloc.k call
-/// its overload stands for, before anything resolves a name.
+/// `@resize`, `@resize_in_place`, `@try_resize_in_place`), each rewritten
+/// to the alloc.k call its overload stands for, before anything resolves a
+/// name.
 ///
 ///   \detail
 ///     AllocAttrTable holds the overloads, one row each, and picks the row a

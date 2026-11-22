@@ -19,7 +19,7 @@ fn bad(p: *Box, q: unsafe *u8) {
     var unsafe *n = @alloc_zeroed<u8>(size: 8, align: 8)
     @free<Box>(size: 8, align: 8) q
     var unsafe *o = @resize<u8>(size: 8, new_size: 16, align: 8) q
-    var r = @try_resize<u8>(size: 8, new_size: 16, align: 8) q
+    var r = @resize_in_place<u8>(size: 8, new_size: 16, align: 8) q
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -41,5 +41,5 @@ fn bad(p: *Box, q: unsafe *u8) {
 // DIAG-NEXT: fix-it:"{{.*}}attr_generic_args_error.k":{20:10-20:15}:""
 // DIAG: attr_generic_args_error.k:21:28: error [S001E]: '@resize' takes no generic arguments
 // DIAG-NEXT: fix-it:"{{.*}}attr_generic_args_error.k":{21:28-21:32}:""
-// DIAG: attr_generic_args_error.k:22:24: error [S001E]: '@try_resize' takes no generic arguments
+// DIAG: attr_generic_args_error.k:22:24: error [S001E]: '@resize_in_place' takes no generic arguments
 // DIAG-NEXT: fix-it:"{{.*}}attr_generic_args_error.k":{22:24-22:28}:""

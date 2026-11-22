@@ -272,17 +272,31 @@ pub inline fn <A impl FullAllocator> resize_bytes(ptr:      unsafe *u8,
     return A::realloc(ptr, old_size, new_size, align)
 }
 
-/// Grows only without moving. For containers holding objects that are not
-/// trivially relocatable.
-pub inline fn <A impl FullAllocator> try_resize_in_place(ptr:      unsafe *u8,
-                                                         old_size: usize,
-                                                         new_size: usize,
-                                                         align:    usize) -> bool {
+/// Grows or shrinks a block of `A` only without moving it; false, with the
+/// block untouched, when `A` cannot or either size is zero. For containers
+/// holding objects that are not trivially relocatable.
+/// `@resize_in_place(size: o, new_size: n, align: a, in: A) p`.
+pub inline fn <A impl FullAllocator> resize_in_place(ptr:      unsafe *u8,
+                                                     old_size: usize,
+                                                     new_size: usize,
+                                                     align:    usize) -> bool {
     if old_size == 0 || new_size == 0 {
         return false
     }
 
     return A::resize(ptr, old_size, new_size, align)
+}
+
+/// `resize_in_place<A>`, raising an `AllocError` (`new_size`, `align`) where
+/// that returns false; the block is untouched then.
+/// `@try_resize_in_place(size: o, new_size: n, align: a, in: A) p`.
+pub inline fn <A impl FullAllocator> try_resize_in_place(ptr:      unsafe *u8,
+                                                         old_size: usize,
+                                                         new_size: usize,
+                                                         align:    usize) panic(AllocError) {
+    if !resize_in_place<A>(ptr, old_size, new_size, align) {
+        panic AllocError::of(new_size, align)
+    }
 }
 
 /// Storage for one T, or null.
@@ -335,11 +349,12 @@ pub inline fn <T, A impl Allocator, ...Args> create_in(...args: Args) -> *T {
     return Uninitialized<T>(p).construct(args...)
 }
 
-/// T(args...) from A, or null instead of the OOM hook.
-pub inline fn <T, A impl Allocator, ...Args> try_create_in(...args: Args) -> *T? {
+/// T(args...) from A; raises an `AllocError` instead of running the OOM
+/// hook, with nothing constructed.
+pub inline fn <T, A impl Allocator, ...Args> try_create_in(...args: Args) panic(AllocError) -> *T {
     var unsafe *p = alloc_bytes<A>(sizeof T, alignof T)
     if p == &null {
-        return null
+        panic AllocError::of(sizeof T, alignof T)
     }
 
     return Uninitialized<T>(p).construct(args...)
@@ -366,11 +381,12 @@ pub inline fn <T, ...Args> create(...args: Args) -> *T {
     return Uninitialized<T>(p).construct(args...)
 }
 
-/// A T from the allocator in effect, or null.
-pub inline fn <T, ...Args> try_create(...args: Args) -> *T? {
+/// A T from the allocator in effect; raises an `AllocError` instead of
+/// running the OOM hook, with nothing constructed.
+pub inline fn <T, ...Args> try_create(...args: Args) panic(AllocError) -> *T {
     var unsafe *p = alloc_raw(sizeof T, alignof T)
     if p == &null {
-        return null
+        panic AllocError::of(sizeof T, alignof T)
     }
 
     return Uninitialized<T>(p).construct(args...)
@@ -499,7 +515,7 @@ pub inline fn alloc_raw_zeroed(size: usize, align: usize) -> unsafe *u8 {
 
 /// Resizes a block in place with the allocator it came from; false, with the block untouched,
 /// when that allocator cannot, or when either size is zero.
-/// `@try_resize(size: o, new_size: n, align: a) p`.
+/// `@resize_in_place(size: o, new_size: n, align: a) p`.
 ///
 /// \safety `ptr` must come from `alloc_raw` / `resize_raw` with `old_size` and `align`.
 pub inline fn resize_raw_in_place(ptr:      unsafe *u8,
@@ -510,7 +526,21 @@ pub inline fn resize_raw_in_place(ptr:      unsafe *u8,
         return false
     }
 
-    return try_resize_raw(ptr, old_size, new_size, align)
+    return resize_in_place_raw(ptr, old_size, new_size, align)
+}
+
+/// `resize_raw_in_place`, raising an `AllocError` (`new_size`, `align`)
+/// where that returns false; the block is untouched then.
+/// `@try_resize_in_place(size: o, new_size: n, align: a) p`.
+///
+/// \safety `ptr` must come from `alloc_raw` / `resize_raw` with `old_size` and `align`.
+pub inline fn try_resize_raw_in_place(ptr:      unsafe *u8,
+                                      old_size: usize,
+                                      new_size: usize,
+                                      align:    usize) panic(AllocError) {
+    if !resize_raw_in_place(ptr, old_size, new_size, align) {
+        panic AllocError::of(new_size, align)
+    }
 }
 
 // --- scoped allocation: the guard -------------------------------------------

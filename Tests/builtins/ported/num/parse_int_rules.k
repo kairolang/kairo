@@ -20,10 +20,10 @@
 
 import std::io
 
-// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+// The reason `t.try_parse<T>()` raises: kind None at 0 when it accepts `t`.
 fn <T impl FromStr> reason_of(const t: string) -> ParseError {
     try {
-        var v = t.parse<T>()
+        var v = t.try_parse<T>()
         return ParseError { at: 0, kind: ParseErrorKind::None }
     } catch e: ParseError {
         return e
@@ -612,7 +612,7 @@ fn rust_invalid_inputs() {
 
 fn kind_of(const s: string) -> ParseErrorKind {
     try {
-        var r = s.parse<i32>()
+        var r = s.try_parse<i32>()
         return ParseErrorKind::None
     } catch e: ParseError {
         return e.kind
@@ -621,7 +621,7 @@ fn kind_of(const s: string) -> ParseErrorKind {
 
 fn at_of(const s: string) -> u32 {
     try {
-        var r = s.parse<u8>()
+        var r = s.try_parse<u8>()
         return 9999
     } catch e: ParseError {
         return e.at
@@ -629,12 +629,12 @@ fn at_of(const s: string) -> u32 {
 }
 
 fn parse_method() panic(ParseError) {
-    var a = "42".parse<i32>()
-    var b = "-17".parse<i64>()
-    var c = "255".parse<u8>()
-    var d = "18446744073709551615".parse<u64>()
-    var e = "+0".parse<isize>()
-    var f = "-9223372036854775808".parse<isize>()
+    var a = "42".try_parse<i32>()
+    var b = "-17".try_parse<i64>()
+    var c = "255".try_parse<u8>()
+    var d = "18446744073709551615".try_parse<u64>()
+    var e = "+0".try_parse<isize>()
+    var f = "-9223372036854775808".try_parse<isize>()
     NO += 1
     if a != 42 || b != -17 || c != 255 || d != 18446744073709551615 || e != 0 || f != -9223372036854775807 - 1 {
         fail("parse<T> of in-range values")

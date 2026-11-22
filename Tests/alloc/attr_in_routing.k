@@ -80,7 +80,7 @@ fn inside(from_global: *Box, raw_global: unsafe *u8) {
     // Typed objects.
     var *a = @create Box(1)
     check(in_arena_obj(a) && bump_alloc == 1, "create is served by the scope")
-    var *b? = @try_create Box(2)
+    var b: *Box? = try @try_create Box(2) catch e: AllocError => null
     check(b? && bump_alloc == 2, "try_create is served by the scope")
     if b? { check(in_arena_obj(b), "try_create block is in the arena") }
     var *c = @create(in: B) Box(3)
@@ -119,8 +119,8 @@ fn inside(from_global: *Box, raw_global: unsafe *u8) {
     p = @resize(size: 32, new_size: 128, align: 8) p
     check(in_arena(p) && bump_realloc == 1, "resize moves within the scope")
     unsafe { check(*p == 7 && *(p + 31) == 7, "resize keeps the contents") }
-    check(!(@try_resize(size: 128, new_size: 256, align: 8) p), "try_resize routes to the scope's resize")
-    check(bump_resize == 2, "try_resize reached Bump::resize")
+    check(!(@resize_in_place(size: 128, new_size: 256, align: 8) p), "resize_in_place routes to the scope's resize")
+    check(bump_resize == 2, "resize_in_place reached Bump::resize")
     @free(size: 128, align: 8) p
     @free(size: 32, align: 8) z
     var unsafe *q = @alloc(size: 16, align: 8, in: B)

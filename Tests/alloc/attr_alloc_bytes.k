@@ -1,5 +1,5 @@
 // The byte forms: `@alloc(size:, align:)`, `@alloc_zeroed`, `@free(size:,
-// align:)`, `@resize` and `@try_resize`, with and without `in: A`, with the
+// align:)`, `@resize` and `@resize_in_place`, with and without `in: A`, with the
 // keywords in several orders and over-aligned requests. A zero size returns a
 // non-null dangling pointer without calling the allocator, and its free is a
 // no-op.
@@ -130,25 +130,25 @@ fn main() -> i32 {
     check(a_resize == 2 && a_realloc == 1 && filled(n, 8), "resize in: A shrinks in place")
     @free(size: 8, align: 64, in: A) n
 
-    // `@try_resize`: true only when the allocator resizes in place; the block
+    // `@resize_in_place`: true only when the allocator resizes in place; the block
     // stays where it is.
     var unsafe *t = @alloc(size: 64, align: 8)
     fill(t, 64)
     var t0 = t as usize
-    var grew = @try_resize(size: 64, new_size: 128, align: 8) t
-    check(!grew && t as usize == t0 && filled(t, 64) && g_resize == 3 && g_realloc == 1, "try_resize refuses growth, block untouched")
-    var shrank = @try_resize(new_size: 32, size: 64, align: 8) t
-    check(shrank && filled(t, 32), "try_resize shrinks in place")
+    var grew = @resize_in_place(size: 64, new_size: 128, align: 8) t
+    check(!grew && t as usize == t0 && filled(t, 64) && g_resize == 3 && g_realloc == 1, "resize_in_place refuses growth, block untouched")
+    var shrank = @resize_in_place(new_size: 32, size: 64, align: 8) t
+    check(shrank && filled(t, 32), "resize_in_place shrinks in place")
     @free(size: 32, align: 8) t
 
     var unsafe *u = @alloc(size: 64, align: 16, in: A)
     fill(u, 64)
-    check(!(@try_resize(size: 64, new_size: 65, align: 16, in: A) u), "try_resize in: A refuses growth")
-    check(@try_resize(size: 64, new_size: 10, align: 16, in: A) u, "try_resize in: A shrinks")
-    check(a_resize == 4 && a_realloc == 1 && filled(u, 10), "try_resize in: A reached A::resize only")
+    check(!(@resize_in_place(size: 64, new_size: 65, align: 16, in: A) u), "resize_in_place in: A refuses growth")
+    check(@resize_in_place(size: 64, new_size: 10, align: 16, in: A) u, "resize_in_place in: A shrinks")
+    check(a_resize == 4 && a_realloc == 1 && filled(u, 10), "resize_in_place in: A reached A::resize only")
     // A zero size on either side is not an in-place resize and does not call `resize`.
-    check(!(@try_resize(size: 0, new_size: 8, align: 16, in: A) u), "try_resize from size 0")
-    check(!(@try_resize(size: 8, new_size: 0, align: 16, in: A) u), "try_resize to size 0")
+    check(!(@resize_in_place(size: 0, new_size: 8, align: 16, in: A) u), "resize_in_place from size 0")
+    check(!(@resize_in_place(size: 8, new_size: 0, align: 16, in: A) u), "resize_in_place to size 0")
     check(a_resize == 4, "zero sizes never reach A::resize")
     @free(size: 64, align: 16, in: A) u
 

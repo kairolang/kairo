@@ -1,13 +1,13 @@
 // The write members of HashMap<K, V> that add or replace: insert (which
-// returns the replaced value), try_insert (the entry API's vacant case),
+// returns the replaced value), insert_new (the entry API's vacant case),
 // the setter `m[k] = v`, the place form `m[k] += 1` that inserts a default,
 // get_or_insert, get_or_insert_with, get_or_default, merge and extend_from.
 // A replaced entry keeps its place and the key already stored; a new entry
 // goes last.
 //
 // differs from C++: `insert` returns the old value (`V?`), not a pair of an
-// iterator and a flag; `try_emplace` is `try_insert`, which hands the value
-// back when the key exists (hash_map.k, the doc comment on try_insert).
+// iterator and a flag; `try_emplace` is `insert_new`, which hands the value
+// back when the key exists (hash_map.k, the doc comment on insert_new).
 //
 // Cases from libc++ test/std/containers/unord/unord.map/unord.map.modifiers/
 // Cases from libc++ test/std/containers/unord/unord.map/unord.map.elem/
@@ -121,19 +121,19 @@ fn test_insert_many_order() {
     ck(m.entries()[0].key == 0 && m.entries()[0].value == 1, "insert: overwrite keeps order")
 }
 
-fn test_try_insert() {
+fn test_insert_new() {
     var m: {u64: u64}
-    var r? = m.try_insert(1, 10)
-    ck(!r? && m[1] == 10, "try_insert: vacant key inserts and returns null")
-    r = m.try_insert(1, 99)
-    ck(r? && r == 99 && m[1] == 10 && m.size() == 1, "try_insert: occupied key hands the value back")
-    r = m.try_insert(2, 20)
-    ck(!r? && m.size() == 2 && m.entries()[1].key == 2, "try_insert: appends")
+    var r? = m.insert_new(1, 10)
+    ck(!r? && m[1] == 10, "insert_new: vacant key inserts and returns null")
+    r = m.insert_new(1, 99)
+    ck(r? && r == 99 && m[1] == 10 && m.size() == 1, "insert_new: occupied key hands the value back")
+    r = m.insert_new(2, 20)
+    ck(!r? && m.size() == 2 && m.entries()[1].key == 2, "insert_new: appends")
     var s: {string: string}
-    var back? = s.try_insert("a".copy(), "x".copy())
-    ck(!back?, "try_insert strings: vacant")
-    back = s.try_insert("a".copy(), "y".copy())
-    ck(back? && back == "y" && s["a"] == "x", "try_insert strings: occupied returns the new value")
+    var back? = s.insert_new("a".copy(), "x".copy())
+    ck(!back?, "insert_new strings: vacant")
+    back = s.insert_new("a".copy(), "y".copy())
+    ck(back? && back == "y" && s["a"] == "x", "insert_new strings: occupied returns the new value")
 }
 
 fn test_setter() {
@@ -264,8 +264,8 @@ fn test_counted() {
         ck(old? && old.v == 5 && live == 101, "counted: insert hands the replaced object out")
         old = null
         ck(live == 100 && m[5].v == 500, "counted: dropping the returned value destroys it")
-        var back? = m.try_insert(6, Obj(600))
-        ck(back? && back.v == 600 && live == 101 && m[6].v == 6, "counted: try_insert returns the new object")
+        var back? = m.insert_new(6, Obj(600))
+        ck(back? && back.v == 600 && live == 101 && m[6].v == 6, "counted: insert_new returns the new object")
         back = null
         ck(live == 100, "counted: after dropping it")
         m[7] = Obj(700)
@@ -280,7 +280,7 @@ fn main() -> i32 {
     test_insert_returns_old_value()
     test_insert_zero_values()
     test_insert_many_order()
-    test_try_insert()
+    test_insert_new()
     test_setter()
     test_place_form()
     test_get_or_insert()

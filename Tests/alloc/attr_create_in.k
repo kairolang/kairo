@@ -88,9 +88,9 @@ fn main() -> i32 {
     check(a_freed == 2 && b_freed == 2 && g_freed == 1 && dtors == 3, "every block returned to its own allocator")
 
     // `@try_create`.
-    var *t? = @try_create Box(8)
-    var *u? = @try_create(in: A) Box(9)
-    var *w? = @try_create(in: B) Point { x: 1, y: 2 }
+    var t: *Box? = try @try_create Box(8) catch e: AllocError => null
+    var u: *Box? = try @try_create(in: A) Box(9) catch e: AllocError => null
+    var w: *Point? = try @try_create(in: B) Point { x: 1, y: 2 } catch e: AllocError => null
     check(g_served == 2 && a_served == 3 && b_served == 3, "try_create routing")
     check(t? && u? && w?, "try_create succeeded")
     if t? { check(t->v == 8, "try_create value"); @destroy t }

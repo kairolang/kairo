@@ -15,7 +15,7 @@ class Arena {
     pub static fn free(ptr: unsafe *u8, size: usize, align: usize) { }
 }
 
-fn bad(p: *Box, k: i32) {
+fn bad(p: *Box, k: i32) panic(AllocError) {
     var e? = @alloc Box(1)
     var f? = @try_create 3
     var g? = @try_create k

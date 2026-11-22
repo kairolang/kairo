@@ -666,8 +666,10 @@ fn hexdig_(c: u8) -> i32 {
 /// decimal digits with an optional point and `e` exponent, or `0x` hex
 /// digits with an optional point and `p` exponent, or `inf`, `infinity`,
 /// `nan` (any case). `_` between digits is skipped. Correctly rounded.
-/// Returns false (out untouched) when the text is not a float.
-pub fn sf_parse(f: SfFmt, out: *SfW, p: *const u8, n: usize) -> bool {
+/// Returns false (out untouched) when the text is not a float, with `*stop`
+/// the offset of the byte the parse stopped at (`n` when the text ends
+/// early).
+pub fn sf_parse(f: SfFmt, out: *SfW, p: *const u8, n: usize, stop: *usize) -> bool {
     var i:  usize = 0
     var neg       = false
     if i < n && (p[i] == 43 || p[i] == 45) {
@@ -676,6 +678,7 @@ pub fn sf_parse(f: SfFmt, out: *SfW, p: *const u8, n: usize) -> bool {
     }
 
     if i >= n {
+        *stop = i
         return false
     }
 
@@ -710,6 +713,7 @@ pub fn sf_parse(f: SfFmt, out: *SfW, p: *const u8, n: usize) -> bool {
 
             if c == 46 {
                 if point {
+                    *stop = i
                     return false
                 }
 
@@ -748,22 +752,26 @@ pub fn sf_parse(f: SfFmt, out: *SfW, p: *const u8, n: usize) -> bool {
         }
 
         if !any {
+            *stop = i
             return false
         }
 
         var ex: i32 = 0
         if i < n {
             if lower_(p[i]) != 112 {
+                *stop = i
                 return false
             }
 
             i += 1
             if !exp_(p, n, &i, &ex) {
+                *stop = i
                 return false
             }
         }
 
         if i != n {
+            *stop = i
             return false
         }
 
@@ -792,6 +800,7 @@ pub fn sf_parse(f: SfFmt, out: *SfW, p: *const u8, n: usize) -> bool {
 
         if c == 46 {
             if point {
+                *stop = i
                 return false
             }
 
@@ -830,22 +839,26 @@ pub fn sf_parse(f: SfFmt, out: *SfW, p: *const u8, n: usize) -> bool {
     }
 
     if !any {
+        *stop = i
         return false
     }
 
     var ex: i32 = 0
     if i < n {
         if lower_(p[i]) != 101 {
+            *stop = i
             return false
         }
 
         i += 1
         if !exp_(p, n, &i, &ex) {
+            *stop = i
             return false
         }
     }
 
     if i != n {
+        *stop = i
         return false
     }
 
@@ -1521,9 +1534,9 @@ pub fn sf_format(f:     SfFmt,
 }
 
 /// Parses p[0..n) (see sf_parse) into *out as an encoding of f.
-pub fn sf_parse_bits(f: SfFmt, p: *const u8, n: usize, out: *u512) -> bool {
+pub fn sf_parse_bits(f: SfFmt, p: *const u8, n: usize, out: *u512, stop: *usize) -> bool {
     var r: SfW
-    if !sf_parse(f, &r, p, n) {
+    if !sf_parse(f, &r, p, n, stop) {
         return false
     }
 

@@ -68,7 +68,7 @@ fn cstr(@inout s: string) -> unsafe *const __builtin_c_char {
 }
 
 fn parse_small(const s: string) panic(ParseError) -> Small {
-    return s.parse<Small>()
+    return s.try_parse<Small>()
 }
 
 fn main() -> i32 {

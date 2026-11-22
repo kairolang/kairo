@@ -13,12 +13,12 @@ fn main() -> i32 {
     m[8] += 8                                       // a place: default, then +=
     if (m[7] != 70) || (m[8] != 8) { return 4 }
 
-    // try_insert: null for a new key; a present key keeps its value and the
+    // insert_new: null for a new key; a present key keeps its value and the
     // new one comes back
-    if m.try_insert(9, 90)? { return 5 }
-    if !m.try_insert(9, 99)? { return 6 }
+    if m.insert_new(9, 90)? { return 5 }
+    if !m.insert_new(9, 99)? { return 6 }
     if m[9] != 90 { return 7 }
-    if m.try_insert(10, 100)? || !m.try_insert(10, 1)? { return 8 }
+    if m.insert_new(10, 100)? || !m.insert_new(10, 1)? { return 8 }
 
     // get, get_mut
     if m.get(11)? { return 9 }

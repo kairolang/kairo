@@ -235,7 +235,7 @@ fn number_to_text() {
 
 fn parse_kind(const s: string) -> ParseErrorKind {
     try {
-        var r = s.parse<i32>()
+        var r = s.try_parse<i32>()
         return ParseErrorKind::None
     } catch e: ParseError {
         return e.kind
@@ -244,7 +244,7 @@ fn parse_kind(const s: string) -> ParseErrorKind {
 
 fn parse_at(const s: string) -> u32 {
     try {
-        var r = s.parse<i32>()
+        var r = s.try_parse<i32>()
         return 9999
     } catch e: ParseError {
         return e.at
@@ -252,31 +252,31 @@ fn parse_at(const s: string) -> u32 {
 }
 
 fn text_to_number() panic(ParseError) {
-    var a = "42".parse<i32>()
+    var a = "42".try_parse<i32>()
     ck(a == 42, 70, "parse 42")
-    var b = "-17".parse<i32>()
+    var b = "-17".try_parse<i32>()
     ck(b == -17, 71, "parse negative")
-    var c = "+5".parse<i32>()
+    var c = "+5".try_parse<i32>()
     ck(c == 5, 72, "parse with a plus sign")
-    var d = "2147483647".parse<i32>()
+    var d = "2147483647".try_parse<i32>()
     ck(d == 2147483647, 73, "i32 max")
-    var e = "-2147483648".parse<i32>()
+    var e = "-2147483648".try_parse<i32>()
     ck(e == -2147483648, 74, "i32 min")
-    var f = "255".parse<u8>()
+    var f = "255".try_parse<u8>()
     ck(f == 255, 75, "u8 max")
-    var g = "18446744073709551615".parse<u64>()
+    var g = "18446744073709551615".try_parse<u64>()
     ck(g == 18446744073709551615, 76, "u64 max")
-    var h = "007".parse<u32>()
+    var h = "007".try_parse<u32>()
     ck(h == 7, 77, "leading zeros")
-    var i = "0".parse<i64>()
+    var i = "0".try_parse<i64>()
     ck(i == 0, 78, "zero")
     var view = "x 123 y"[2..5]
-    var j = view.parse<i32>()
+    var j = view.try_parse<i32>()
     ck(j == 123, 79, "parse a view that has no terminator")
-    var k = "-0".parse<i32>()
+    var k = "-0".try_parse<i32>()
     ck(k == 0, 80, "negative zero")
     var heap = "99".to_owned()
-    var l = heap.parse<u16>()
+    var l = heap.try_parse<u16>()
     ck(l == 99, 81, "parse a heap string")
 }
 
@@ -297,13 +297,13 @@ fn text_to_number_errors() panic(ParseError) {
     ck(parse_kind("1é") == ParseErrorKind::Trailing && parse_at("1é") == 1, 103, "a wide char after digits")
     ck(parse_kind("1_000") == ParseErrorKind::Trailing, 104, "an underscore")
     ck(parse_kind("0x10") == ParseErrorKind::Trailing && parse_at("0x10") == 1, 105, "a hex prefix")
-    var u = try "-1".parse<u32>() catch => 7
+    var u = try "-1".try_parse<u32>() catch => 7
     ck(u == 7, 106, "negative into unsigned")
-    var o = try "256".parse<u8>() catch => 7
+    var o = try "256".try_parse<u8>() catch => 7
     ck(o == 7, 107, "u8 overflow")
     var msg = string()
     try {
-        var r = "12x".parse<i32>()
+        var r = "12x".try_parse<i32>()
     } catch e: ParseError {
         msg = e.op panic()
     }
@@ -311,7 +311,7 @@ fn text_to_number_errors() panic(ParseError) {
     ck(msg == "parse error: trailing characters at byte 2", 108, "the panic message")
     var msg2 = string()
     try {
-        var r = "".parse<i32>()
+        var r = "".try_parse<i32>()
     } catch e: ParseError {
         msg2 = e.op panic()
     }
@@ -324,7 +324,7 @@ fn round_trip() panic(ParseError) {
     var ok = true
     for var i: usize = 0; i < values.size(); i += 1 {
         var text = values[i] as string
-        var back = text.parse<i64>()
+        var back = text.try_parse<i64>()
         if back != values[i] {
             ok = false
         }

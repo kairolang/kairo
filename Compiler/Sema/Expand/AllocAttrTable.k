@@ -38,6 +38,7 @@
 ///
 ///       @create T(args) | T { f: v }       create<T>(...)          [create_in<T, A>]
 ///       @try_create T(args) | T { f: v }   try_create<T>(...)      [try_create_in<T, A>]
+///                                          (raises AllocError)
 ///       @destroy p                         destroy(p)              [destroy_with<A>]
 ///       @alloc T                           alloc_storage<T>()      [alloc_in<T, A>]
 ///       @alloc(count: n) T                 create_slice<T>(n)      [create_slice_in<T, A>]
@@ -47,9 +48,13 @@
 ///       @free(size: n, align: a) p         free_raw(p, n, a)       [free_bytes<A>]
 ///       @resize(size: o, new_size: n, align: a) p
 ///                                          resize_raw(p, o, n, a)  [resize_bytes<A>]
-///       @try_resize(size: o, new_size: n, align: a) p
+///       @resize_in_place(size: o, new_size: n, align: a) p
 ///                                          resize_raw_in_place(p, o, n, a)
+///                                                                  [resize_in_place<A>]
+///       @try_resize_in_place(size: o, new_size: n, align: a) p
+///                                          try_resize_raw_in_place(p, o, n, a)
 ///                                                                  [try_resize_in_place<A>]
+///                                          (raises AllocError)
 ///
 ///     Overloading by the operand's TYPE (`@free p` for a `*T`, an
 ///     Uninitialized<T> or an UninitializedSlice<T>) is not a row: the
@@ -98,7 +103,8 @@ pub enum AllocAttr derives u8 {
     AllocZeroed,
     Free,
     Resize,
-    TryResize,
+    ResizeInPlace,
+    TryResizeInPlace,
     COUNT, ///< not an allocation attribute.
 }
 
@@ -200,8 +206,12 @@ pub class AllocAttrTable {
             return AllocAttr::Resize
         }
 
-        if word == LangAttrs::try_resize() {
-            return AllocAttr::TryResize
+        if word == LangAttrs::resize_in_place() {
+            return AllocAttr::ResizeInPlace
+        }
+
+        if word == LangAttrs::try_resize_in_place() {
+            return AllocAttr::TryResizeInPlace
         }
 
         return AllocAttr::COUNT
@@ -367,10 +377,18 @@ pub class AllocAttrTable {
                 )
             } case 10 {
                 return AllocAttrTable::_row(
-                    AllocAttr::TryResize,
+                    AllocAttr::ResizeInPlace,
                     AllocNode::Value,
                     ALLOC_KW_SIZE | ALLOC_KW_NEW_SIZE | ALLOC_KW_ALIGN,
                     AllocFn::ResizeRawInPlace,
+                    AllocFn::ResizeInPlace,
+                )
+            } case 11 {
+                return AllocAttrTable::_row(
+                    AllocAttr::TryResizeInPlace,
+                    AllocNode::Value,
+                    ALLOC_KW_SIZE | ALLOC_KW_NEW_SIZE | ALLOC_KW_ALIGN,
+                    AllocFn::TryResizeRawInPlace,
                     AllocFn::TryResizeInPlace,
                 )
             } default {

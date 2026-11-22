@@ -123,8 +123,8 @@ fn test_replace_and_remove() {
         p = null
         ck(m.size() == 47, "three entries removed")
         ck(live() == 47, "swap_remove, shift_remove and pop give their value out and it is destroyed once")
-        var t? = m.try_insert(20, Cnt(2000))
-        ck(t? && live() == 48, "try_insert on a present key returns the new object")
+        var t? = m.insert_new(20, Cnt(2000))
+        ck(t? && live() == 48, "insert_new on a present key returns the new object")
         t = null
         ck(live() == 47, "dropped")
     }

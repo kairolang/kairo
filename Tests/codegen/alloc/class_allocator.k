@@ -36,7 +36,7 @@ fn main() -> i32 {
     var *p = create<Pooled>(1i64, 2i64)
     var *q = @create Pooled(3i64, 4i64)
     var *r = @create Pooled(5i64, 6i64)
-    var *s? = try_create<Pooled>(7i64, 8i64)
+    var s: *Pooled? = try try_create<Pooled>(7i64, 8i64) catch e: AllocError => null
     var *k = create<Plain>(9i64)
     if news != 4 { return 1 }
     if bytes != 4 * sizeof Pooled { return 2 }

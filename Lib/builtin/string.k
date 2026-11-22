@@ -145,12 +145,18 @@ priv inline fn copy_short_(dst: unsafe *u8, src: unsafe *const u8, n: usize) -> 
             // then the single byte.
             eval if sizeof usize > 4 {
                 if n >= 4 {
-                    return copy_u32_(dst, src) | copy_u32_(dst + (n - 4), src + (n - 4))
+                    return copy_u32_(dst, src) | copy_u32_(
+                        dst + (n - 4),
+                        src + (n - 4),
+                    )
                 }
             }
 
             if n >= 2 {
-                return copy_u16_(dst, src) | copy_u16_(dst + (n - 2), src + (n - 2))
+                return copy_u16_(dst, src) | copy_u16_(
+                    dst + (n - 2),
+                    src + (n - 2),
+                )
             }
 
             if n != 0 {
@@ -1020,8 +1026,12 @@ priv fn find_bytes_(h: unsafe *const u8, hn: usize, nd: unsafe *const u8, nn: us
                 // of `x | y`: the test is exact, so the loop stops only at
                 // a word with a real candidate.
                 while i + 2 * W <= span {
-                    var z0 = (load_word_(h + i) ^ bf) | (load_word_unaligned_(h + i + back) ^ bl)
-                    var z1 = (load_word_(h + i + W) ^ bf) | (load_word_unaligned_(h + i + W + back) ^ bl)
+                    var z0 = (load_word_(h + i) ^ bf) | (load_word_unaligned_(
+                        h + i + back,
+                    ) ^ bl)
+                    var z1 = (load_word_(h + i + W) ^ bf) | (load_word_unaligned_(
+                        h + i + W + back,
+                    ) ^ bl)
                     var f0 = (z0 - BYTE_ONES) & ~z0
                     var f1 = (z1 - BYTE_ONES) & ~z1
                     if ((f0 | f1) & BYTE_HIGHS) != 0 {
@@ -1035,7 +1045,9 @@ priv fn find_bytes_(h: unsafe *const u8, hn: usize, nd: unsafe *const u8, nn: us
                     break
                 }
 
-                var z = (load_word_(h + i) ^ bf) | (load_word_unaligned_(h + i + back) ^ bl)
+                var z = (load_word_(h + i) ^ bf) | (load_word_unaligned_(
+                    h + i + back,
+                ) ^ bl)
                 if has_zero_(z) {
                     var m = zero_bytes_(z)
                     while m != 0 {
@@ -1394,8 +1406,7 @@ priv inline fn compare_short_(a:  unsafe *const u8,
 
 /// How two words that differ order, each read from the bytes of a string.
 priv inline fn order_words_(x: usize, y: usize) -> Ordering {
-    return if first_byte_high_(x) < first_byte_high_(y) => Ordering::Less
-           else => Ordering::Greater
+    return if first_byte_high_(x) < first_byte_high_(y) => Ordering::Less else => Ordering::Greater
 }
 
 /// Three-way comparison of two strings' bytes, both at least a word long,
@@ -1517,11 +1528,178 @@ extend ParseError {
     }
 }
 
+/// `v` in decimal at the end of `s`.
+priv fn push_decimal_(@inout s: string, v: u64) {
+    // Most significant digit first; 20 digits hold any u64.
+    var digits: [u8; 20] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    var x                = v
+    var n:      usize    = 20
+    loop {
+        n -= 1
+        digits[n] = 48 + ((x % 10) as u8)
+        x /= 10
+        if x == 0 {
+            break
+        }
+    }
+
+    s.push_ascii_(const &digits[n], 20 - n)
+}
+
+/// The largest size an AllocError records; a larger request reads as this.
+priv eval ALLOC_ERROR_SIZE_MAX: u64 = (1 as u64 << 56) - 1
+
+/// An allocation the allocator could not serve: `size()` bytes at alignment
+/// `align()`. Raised by `try_create` / `try_create_in` (`@try_create`) and
+/// `try_resize_in_place` / `try_resize_raw_in_place`
+/// (`@try_resize_in_place`), where the size is the one asked for. Nothing
+/// was constructed, and the block a resize was given is untouched.
+///
+/// 8 bytes, so a call that raises it returns in registers: the size in the
+/// low 56 bits (saturating), the alignment's log2 in the high 8.
+pub struct AllocError {
+    priv var bits: u64
+}
+
+extend AllocError {
+    /// The error for a request of `size` bytes at alignment `align`, a power
+    /// of two.
+    pub static fn of(size: usize, align: usize) -> AllocError {
+        var s = size as u64
+        if s > ALLOC_ERROR_SIZE_MAX {
+            s = ALLOC_ERROR_SIZE_MAX
+        }
+
+        var lg: u64 = 0
+        for var a = align; a > 1; a >>= 1 {
+            lg += 1
+        }
+
+        return AllocError { bits: s | (lg << 56) }
+    }
+
+    /// The bytes asked for.
+    pub fn size(const self) -> usize {
+        return (self.bits & ALLOC_ERROR_SIZE_MAX) as usize
+    }
+
+    /// The alignment asked for.
+    pub fn align(const self) -> usize {
+        return (1 as usize) << ((self.bits >> 56) as usize)
+    }
+
+    pub fn op panic (const self) -> string {
+        var s = "allocation failed: "
+        push_decimal_(&s, self.size() as u64)
+        s += " bytes at alignment "
+        push_decimal_(&s, self.align() as u64)
+        return s
+    }
+}
+
+pub enum Utf8ErrorKind derives u8 {
+    /// A byte that starts no sequence: a continuation byte, C0, C1 or F5..FF.
+    InvalidLead,
+    /// A lead byte whose next bytes do not continue it: a byte that is not a
+    /// continuation, an overlong form, a surrogate, or a value above U+10FFFF.
+    InvalidContinuation,
+    /// A sequence the end of the input cuts short.
+    Truncated,
+    /// More bytes than a string can hold.
+    TooLong,
+}
+
+/// What `string::try_from_utf8` raises: the bytes are not UTF-8. `at` is
+/// the offset of the lead byte of the first ill-formed sequence (0 for
+/// `TooLong`). 8 bytes, as ParseError is.
+pub struct Utf8Error {
+    var at:   u32           // byte offset, saturating
+    var kind: Utf8ErrorKind
+}
+
+extend Utf8Error {
+    pub fn op panic (const self) -> string {
+        var s = "invalid UTF-8: "
+        if self.kind == Utf8ErrorKind::TooLong {
+            s += "input too long"
+            return s
+        }
+
+        if self.kind == Utf8ErrorKind::InvalidLead {
+            s += "invalid lead byte"
+        } else if self.kind == Utf8ErrorKind::InvalidContinuation {
+            s += "invalid continuation"
+        } else {
+            s += "truncated sequence"
+        }
+
+        s += " at byte "
+        push_decimal_(&s, self.at)
+        return s
+    }
+}
+
+/// Why the sequence whose lead byte is `p[at]` is ill-formed, `at` being
+/// what `validate_` reported for the `n` bytes at `p`.
+///
+/// \safety `p` must be valid for reads of `n` bytes, and `at < n`.
+@cold_path @no_inline
+priv fn utf8_kind_(p: unsafe *const u8, n: usize, at: usize) -> Utf8ErrorKind {
+    unsafe {
+        var b = p[at]
+        if b < 0xc2 || b >= 0xf5 {
+            return Utf8ErrorKind::InvalidLead
+        }
+
+        var need: usize = 2
+        if b >= 0xf0 {
+            need = 4
+        } else if b >= 0xe0 {
+            need = 3
+        }
+
+        // The second byte's range, as validate_ holds it.
+        var lo: u8 = 0x80
+        var hi: u8 = 0xbf
+        if b == 0xe0 {
+            lo = 0xa0
+        } else if b == 0xed {
+            hi = 0x9f
+        } else if b == 0xf0 {
+            lo = 0x90
+        } else if b == 0xf4 {
+            hi = 0x8f
+        }
+
+        var have = n - at
+        for var j: usize = 1; j < need && j < have; j++ {
+            var c = p[at + j]
+            if j == 1 && (c < lo || c > hi) {
+                return Utf8ErrorKind::InvalidContinuation
+            }
+
+            if !is_cont_(c) {
+                return Utf8ErrorKind::InvalidContinuation
+            }
+        }
+
+        if have < need {
+            return Utf8ErrorKind::Truncated
+        }
+
+        return Utf8ErrorKind::InvalidContinuation
+    }
+}
+
 /// Text to a value, in two forms that must accept the same texts:
-/// `from_str` returns null on bad input and nothing else; `from_str_reason`
-/// also writes why into `err`, and is what `string::parse` raises from.
-/// A conformer writes its parser once, as `from_str_reason`, and has
-/// `from_str` call it with a local `ParseError`.
+/// `from_str` returns null on bad input and says nothing else;
+/// `from_str_reason` also writes why into `err`, and is what
+/// `string::try_parse` raises from. A conformer writes its parser once, as
+/// `from_str_reason`, and has `from_str` call it with a local `ParseError`.
+/// Every builtin conformer also has `try_from_str`, which raises that
+/// reason; it joins this interface, in place of `from_str_reason`, once the
+/// compiler that builds this library accepts a panicking static
+/// requirement whose result names `Self`.
 pub interface FromStr {
     static fn from_str(const s: string) -> Self?
     static fn from_str_reason(const s: string, @inout err: ParseError) -> Self?
@@ -2392,7 +2570,11 @@ pub class string {
 
             // A tail call: a string indexed where it is ASCII keeps no
             // frame for the boundary test and the decoder.
-            return string::index_wide_(self.raw() + b, b, self.meta >> LEN_SHIFT)
+            return string::index_wide_(
+                self.raw() + b,
+                b,
+                self.meta >> LEN_SHIFT,
+            )
         }
     }
 
@@ -2873,6 +3055,30 @@ extend string {
             var (bad, conts) = validate_(d, n)
             if bad != UTF8_OK {
                 return null
+            }
+
+            return string::owned_(d, n, conts, n)
+        }
+    }
+
+    /// `b` as a string; raises a `Utf8Error` naming the first ill-formed
+    /// sequence when `b` is not UTF-8.
+    pub static fn try_from_utf8(const b: [const u8;]) panic(Utf8Error) -> string {
+        var n = b.size()
+        if n == 0 {
+            return string()
+        }
+
+        if n > MAX_LEN {
+            panic Utf8Error { at: 0, kind: Utf8ErrorKind::TooLong }
+        }
+
+        unsafe {
+            var unsafe *d = &b[0] as unsafe *const u8
+            var (bad, conts) = validate_(d, n)
+            if bad != UTF8_OK {
+                var at = if bad > (u32::MAX as usize) => u32::MAX else => bad as u32
+                panic Utf8Error { at: at, kind: utf8_kind_(d, n, bad) }
             }
 
             return string::owned_(d, n, conts, n)
@@ -3927,7 +4133,12 @@ extend string {
         return true
     }
 
-    pub fn <T impl FromStr> parse(const self) panic(ParseError) -> T {
+    /// The value this text spells, or null when it spells none.
+    pub fn <T impl FromStr> parse(const self) -> T? = T::from_str(self)
+
+    /// The value this text spells; raises a `ParseError` saying why and at
+    /// which byte when it spells none.
+    pub fn <T impl FromStr> try_parse(const self) panic(ParseError) -> T {
         var err = ParseError { at: 0, kind: ParseErrorKind::None }
 
         var r? = T::from_str_reason(self, &err)

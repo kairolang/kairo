@@ -64,13 +64,13 @@ extend Small impl FromStr {
 }
 
 fn parse_or(const s: string, fallback: u32) -> u32 {
-    var r = try s.parse<Small>() catch => Small { v: fallback }
+    var r = try s.try_parse<Small>() catch => Small { v: fallback }
     return r.v
 }
 
 fn parse_message(const s: string) -> string {
     try {
-        var r = s.parse<Small>()
+        var r = s.try_parse<Small>()
         return "no panic"
     } catch e: ParseError {
         return e.op panic()

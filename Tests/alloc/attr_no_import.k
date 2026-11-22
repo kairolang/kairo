@@ -28,7 +28,7 @@ fn main() -> i32 {
     var score: i32 = 0
 
     // Global allocator.
-    var *a? = @try_create Item(1)
+    var a: *Item? = try @try_create Item(1) catch e: AllocError => null
     if a? { score += a->v; @destroy a }
 
     var unsafe *p = @alloc(size: 16, align: 8)

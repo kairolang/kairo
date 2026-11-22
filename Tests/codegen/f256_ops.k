@@ -209,8 +209,8 @@ fn main() -> i32 {
         fnv_str_(&h[16], s1)
         fnv_str_(&h[17], f"{t:.20e}")
         fnv_str_(&h[18], f"{t:>12.5}")
-        var back = F256()
-        if !F256::parse(s1, &back) {
+        var back? = F256::from_str(s1)
+        if !back? {
             trip_bad += 1
         } else if !cls_(t).is_nan() && back.to_bits() != cls_(t).to_bits() {
             trip_bad += 1

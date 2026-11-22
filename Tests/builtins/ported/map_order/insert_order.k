@@ -1,7 +1,7 @@
 // Where an entry lands in a HashMap<K, V> after every way of adding one: a
 // new key goes to the end; an existing key keeps its place and its stored
 // key whichever call finds it (insert, the setter, the place form,
-// try_insert, get_or_insert, get_or_insert_with, get_or_default, merge,
+// insert_new, get_or_insert, get_or_insert_with, get_or_default, merge,
 // extend_from, a literal with a repeated key); a key added again after a
 // removal goes to the end. first() and last() follow the ends.
 //
@@ -163,8 +163,8 @@ fn test_insert_existing_keeps_stored_key() {
     ck(s.size() == 1 && s.entries()[0].key.tag == 50 && s.entries()[0].value == 7, "stored key: the place form keeps the key already stored")
     var t: {TKey: u64}
     t.insert(TKey { id: 7, tag: 70 }, 1)
-    var back? = t.try_insert(TKey { id: 7, tag: 71 }, 2)
-    ck(back? && back == 2 && t.entries()[0].key.tag == 70 && t.entries()[0].value == 1, "stored key: try_insert keeps the entry as it is")
+    var back? = t.insert_new(TKey { id: 7, tag: 71 }, 2)
+    ck(back? && back == 2 && t.entries()[0].key.tag == 70 && t.entries()[0].value == 1, "stored key: insert_new keeps the entry as it is")
 }
 
 fn test_setter_order() {
@@ -209,15 +209,15 @@ fn test_place_form_order() {
     ck(order == "z2 y1 ", "place form with string keys")
 }
 
-fn test_try_insert_order() {
+fn test_insert_new_order() {
     var m: {u64: u64}
-    var r? = m.try_insert(5, 50)
-    r = m.try_insert(3, 30)
-    ck(!r? && ks(m) == "5 3 ", "try_insert: vacant keys append")
-    r = m.try_insert(5, 51)
-    ck(r? && r == 51 && ks(m) == "5 3 " && m[5] == 50, "try_insert: an occupied key keeps place and value")
-    r = m.try_insert(4, 40)
-    ck(!r? && ks(m) == "5 3 4 " && ends(m), "try_insert: a vacant key appends after refusals")
+    var r? = m.insert_new(5, 50)
+    r = m.insert_new(3, 30)
+    ck(!r? && ks(m) == "5 3 ", "insert_new: vacant keys append")
+    r = m.insert_new(5, 51)
+    ck(r? && r == 51 && ks(m) == "5 3 " && m[5] == 50, "insert_new: an occupied key keeps place and value")
+    r = m.insert_new(4, 40)
+    ck(!r? && ks(m) == "5 3 4 " && ends(m), "insert_new: a vacant key appends after refusals")
 }
 
 fn test_get_or_insert_order() {
@@ -383,8 +383,8 @@ fn test_counted_order() {
         ck(old? && old.v == 0 && live == 21, "counted: insert hands the replaced value back")
         old = null
         ck(live == 20, "counted: the handed-back value dies when dropped")
-        var back? = m.try_insert(7, Obj(600))
-        ck(back? && back.v == 600 && live == 21, "counted: try_insert hands the new value back")
+        var back? = m.insert_new(7, Obj(600))
+        ck(back? && back.v == 600 && live == 21, "counted: insert_new hands the new value back")
         back = null
         ck(live == 20, "counted: the refused value dies when dropped")
         var order = ""
@@ -409,7 +409,7 @@ fn main() -> i32 {
     test_insert_existing_keeps_stored_key()
     test_setter_order()
     test_place_form_order()
-    test_try_insert_order()
+    test_insert_new_order()
     test_get_or_insert_order()
     test_merge_order()
     test_extend_from_order()

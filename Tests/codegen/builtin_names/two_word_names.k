@@ -22,11 +22,11 @@ fn main() -> i32 {
     if q? || !v.is_empty() { bad += 16 }
 
     var m: {string: string} = {}
-    var r1 = m.try_insert("k", "one")
-    var r2 = m.try_insert("k", "two")
+    var r1 = m.insert_new("k", "one")
+    var r2 = m.insert_new("k", "two")
     if r1? || (r2 ?? "") != "two" || m["k"] != "one" { bad += 32 }
-    m.try_insert("j", "three")
-    m.try_insert("l", "four")
+    m.insert_new("j", "three")
+    m.insert_new("l", "four")
     var g = m.swap_remove("k")
     if (g ?? "") != "one" || m.size() != 2 || m.swap_remove("zz")? { bad += 64 }
     var h = m.shift_remove("j")
@@ -41,8 +41,8 @@ fn main() -> i32 {
     var w: [u32] = [1, 2, 3]
     if (w.pop() ?? 0) != 3 || w.size() != 2 { bad += 1024 }
     var n: {u32: u32} = {}
-    n.try_insert(1, 10)
-    n.try_insert(2, 20)
+    n.insert_new(1, 10)
+    n.insert_new(2, 20)
     if (n.shift_remove(1) ?? 0) != 10 || (n.swap_remove(2) ?? 0) != 20 || !n.is_empty() { bad += 2048 }
 
     println(f"bad={bad}")

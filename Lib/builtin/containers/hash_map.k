@@ -10,6 +10,15 @@ import containers::raw_table::*
 import containers::slice::*
 import string::*
 
+/// What `HashMap::try_insert` raises: the key is already present.
+pub struct KeyExists { }
+
+extend KeyExists {
+    pub fn op panic (const self) -> string {
+        return "the key is already present"
+    }
+}
+
 pub class <K, V> MapEntry {
     pub var key:   K
     pub var value: V
@@ -295,7 +304,9 @@ extend <K impl Hash, V> HashMap<K, V> {
         return self.insert_(move(k), move(v))
     }
 
-    pub fn try_insert(self, k: K, v: V) -> V? { // null on success; v back when the key exists
+    /// Inserts only when `k` is absent: null then, and `v` back when the key
+    /// is present, whose value stays as it was.
+    pub fn insert_new(self, k: K, v: V) -> V? {
         var h           = hash_of(self.t, k)
         var slot: usize = 0
         var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
@@ -315,6 +326,33 @@ extend <K impl Hash, V> HashMap<K, V> {
 
         rt_inserted<MapEntry<K, V>, K>(&self.t)
         return null
+    }
+
+    /// Inserts only when `k` is absent and returns the value as stored;
+    /// raises `KeyExists` when the key is present, whose value stays as it
+    /// was (`v` is dropped).
+    pub fn try_insert(self, k: K, v: V) panic(KeyExists) -> *V {
+        var h           = hash_of(self.t, k)
+        var slot: usize = 0
+        var e = raw_find_slot(self.t, k, h, sizeof MapEntry<K, V>, &slot)
+
+        if e != NO_ENTRY {
+            panic KeyExists {}
+        }
+
+        e = self.t.size()
+        unsafe {
+            __builtin_construct_at<MapEntry<K, V>>(
+                self.add_(h, slot),
+                move(k),
+                move(v),
+            )
+        }
+
+        rt_inserted<MapEntry<K, V>, K>(&self.t)
+        unsafe {
+            return &self.ent(e)->value as unsafe *V as *V
+        }
     }
 
     pub fn get_or_insert(self, k: K, v: V) -> *V {

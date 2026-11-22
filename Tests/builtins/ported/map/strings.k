@@ -169,8 +169,8 @@ fn test_values_are_moved_not_copied() {
     ck(r? && r == "payload", "string value moved out by shift_remove")
     var old? = m.insert(5, "new".copy())
     ck(old? && old == "payload" && m[5] == "new", "string value returned by insert")
-    var back? = m.try_insert(5, "other".copy())
-    ck(back? && back == "other" && m[5] == "new", "string value handed back by try_insert")
+    var back? = m.insert_new(5, "other".copy())
+    ck(back? && back == "other" && m[5] == "new", "string value handed back by insert_new")
 }
 
 fn main() -> i32 {

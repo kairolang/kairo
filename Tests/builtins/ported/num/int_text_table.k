@@ -18,10 +18,10 @@
 
 import std::io
 
-// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+// The reason `t.try_parse<T>()` raises: kind None at 0 when it accepts `t`.
 fn <T impl FromStr> reason_of(const t: string) -> ParseError {
     try {
-        var v = t.parse<T>()
+        var v = t.try_parse<T>()
         return ParseError { at: 0, kind: ParseErrorKind::None }
     } catch e: ParseError {
         return e

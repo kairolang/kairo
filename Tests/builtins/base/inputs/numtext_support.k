@@ -118,13 +118,13 @@ fn text(p: unsafe *const u8, n: usize) -> string {
     return s
 }
 
-/// `T::from_str(t)`, with `err` set to the reason `t.parse<T>()` raises
+/// `T::from_str(t)`, with `err` set to the reason `t.try_parse<T>()` raises
 /// (kind None at 0 when it accepts): the two forms of the public parser,
 /// whose agreement each case's checks of value and kind together hold.
 fn <T impl FromStr> parse_reported(const t: string, @inout err: ParseError) -> T? {
     var r = T::from_str(t)
     try {
-        var v = t.parse<T>()
+        var v = t.try_parse<T>()
         err = ParseError { at: 0, kind: ParseErrorKind::None }
     } catch e: ParseError {
         err = e

@@ -23,7 +23,7 @@ fn bad(p: *Box, q: unsafe *u8) {
     @resize(size: 8, align: 8) q
     var *h = @create(in: 5) Box(1)
     var unsafe *i = @alloc_zeroed(size: 8)
-    var j = @try_resize(size: 8, new_size: 8) q
+    var j = @resize_in_place(size: 8, new_size: 8) q
     var *k? = @try_create(in: Arena, in: Arena) Box(1)
     @destroy(in: Arena, extra: 1) p
     @free(size: 8, align: 8, count: 3) q
@@ -53,8 +53,8 @@ fn bad(p: *Box, q: unsafe *u8) {
 // DIAG: alloc_attr_args.k:24:26: error [SC365E]: 'in:' names the allocator, a type: '@create' with 'in: A' allocates from, or frees to, A instead of the allocator in effect
 // DIAG: alloc_attr_args.k:25:21: error [SC365E]: '@alloc_zeroed' with 'size:' also needs 'align:'
 // DIAG-NEXT: alloc_attr_args.k:25:21: note [SC365N]: it is written '@alloc_zeroed(size: n, align: a)'
-// DIAG: alloc_attr_args.k:26:13: error [SC365E]: '@try_resize' with 'size:' and 'new_size:' also needs 'align:'
-// DIAG-NEXT: alloc_attr_args.k:26:13: note [SC365N]: it is written '@try_resize(size: old, new_size: n, align: a) p'
+// DIAG: alloc_attr_args.k:26:13: error [SC365E]: '@resize_in_place' with 'size:' and 'new_size:' also needs 'align:'
+// DIAG-NEXT: alloc_attr_args.k:26:13: note [SC365N]: it is written '@resize_in_place(size: old, new_size: n, align: a) p'
 // DIAG: alloc_attr_args.k:27:38: error [SC365E]: '@try_create' is given 'in:' twice
 // DIAG-NEXT: alloc_attr_args.k:27:27: note [SC365N]: first given here
 // DIAG: alloc_attr_args.k:28:25: error [SC365E]: '@destroy' has no keyword argument 'extra:'

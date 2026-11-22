@@ -718,20 +718,20 @@ fn alloc_like_scoped(like: unsafe *u8, size: usize, align: usize) -> unsafe *u8 
 
 /// Resizes a block in place with the allocator that owns it; false, with the
 /// block untouched, when that allocator cannot. Both sizes are nonzero.
-prot inline fn try_resize_raw(ptr:      unsafe *u8,
-                              old_size: usize,
-                              new_size: usize,
-                              align:    usize) -> bool {
+prot inline fn resize_in_place_raw(ptr:      unsafe *u8,
+                                   old_size: usize,
+                                   new_size: usize,
+                                   align:    usize) -> bool {
     @likely
     if scope_top == &null {
         return Global::resize(ptr, old_size, new_size, align)
     }
 
-    return try_resize_scoped(ptr, old_size, new_size, align)
+    return resize_in_place_scoped(ptr, old_size, new_size, align)
 }
 
 @cold_path @no_inline
-fn try_resize_scoped(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
+fn resize_in_place_scoped(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
     var unsafe *f = owner_of(ptr)
     if f == &null {
         return Global::resize(ptr, old_size, new_size, align)

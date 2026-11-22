@@ -1152,13 +1152,14 @@ pub class LangAttrs {
     /// alloc.k function the row stands for; AllocSugarDesugar rewrites a
     /// use to that call.
     ///
-    ///   `@try_create T(args)`                       null instead of the OOM hook
+    ///   `@try_create T(args)`                       raises AllocError instead of the OOM hook
     ///   `@alloc T` / `@alloc(count: n) T`           typed storage, nothing constructed
     ///   `@alloc(size: n, align: a)`                 untyped bytes
     ///   `@alloc_zeroed(size: n, align: a)`          untyped bytes, all zero
     ///   `@free p` / `@free(size: n, align: a) p`    storage back, no destructor
     ///   `@resize(size: o, new_size: n, align: a) p` grow or shrink, may move
-    ///   `@try_resize(size: o, new_size: n, align: a) p`   in place only
+    ///   `@resize_in_place(size: o, new_size: n, align: a) p`       in place only; false when it cannot
+    ///   `@try_resize_in_place(size: o, new_size: n, align: a) p`   in place only; raises AllocError
     pub static fn try_create() -> string {
         return "try_create"
     }
@@ -1179,8 +1180,12 @@ pub class LangAttrs {
         return "resize"
     }
 
-    pub static fn try_resize() -> string {
-        return "try_resize"
+    pub static fn resize_in_place() -> string {
+        return "resize_in_place"
+    }
+
+    pub static fn try_resize_in_place() -> string {
+        return "try_resize_in_place"
     }
 
     /// The keyword arguments the allocation attributes take. `in: A` names
@@ -1218,7 +1223,8 @@ pub class LangAttrs {
             || word == LangAttrs::alloc_zeroed()
             || word == LangAttrs::free()
             || word == LangAttrs::resize()
-            || word == LangAttrs::try_resize()
+            || word == LangAttrs::resize_in_place()
+            || word == LangAttrs::try_resize_in_place()
     }
 
     /// True when the attribute applies to nothing: `@alloc(size: n, align:
@@ -1433,9 +1439,11 @@ pub class LangAttrs {
             } case 31 {
                 return LangAttrs::resize()
             } case 32 {
-                return LangAttrs::try_resize()
+                return LangAttrs::resize_in_place()
             } case 33 {
                 return LangAttrs::set_scoped_allocator()
+            } case 34 {
+                return LangAttrs::try_resize_in_place()
             } default {
                 return ""
             }
@@ -1492,8 +1500,12 @@ pub class LangAttrs {
             return "resize(size: old, new_size: n, align: a) p"
         }
 
-        if word == LangAttrs::try_resize() {
-            return "try_resize(size: old, new_size: n, align: a) p"
+        if word == LangAttrs::resize_in_place() {
+            return "resize_in_place(size: old, new_size: n, align: a) p"
+        }
+
+        if word == LangAttrs::try_resize_in_place() {
+            return "try_resize_in_place(size: old, new_size: n, align: a) p"
         }
 
         if word == LangAttrs::set_global_allocator() {
@@ -1735,7 +1747,7 @@ pub class LangAttrs {
         }
 
         if word == LangAttrs::try_create() {
-            return "Allocate and construct a `T`, or null when the allocator fails"
+            return "Allocate and construct a `T`; raises `AllocError` when the allocator fails"
         }
 
         if word == LangAttrs::alloc() {
@@ -1754,8 +1766,12 @@ pub class LangAttrs {
             return "Grow or shrink a block of bytes; the block may move"
         }
 
-        if word == LangAttrs::try_resize() {
+        if word == LangAttrs::resize_in_place() {
             return "Grow or shrink a block of bytes in place; false when it cannot"
+        }
+
+        if word == LangAttrs::try_resize_in_place() {
+            return "Grow or shrink a block of bytes in place; raises `AllocError` when it cannot"
         }
 
         if word == LangAttrs::set_global_allocator() {
@@ -1817,6 +1833,8 @@ pub enum AllocFn derives u8 {
     ResizeRaw,
     ResizeBytes,
     ResizeRawInPlace,
+    ResizeInPlace,
+    TryResizeRawInPlace,
     TryResizeInPlace,
     /// The classes `@set_scoped_allocator(A)` stands for: the guard a
     /// function or block opens; on a class or struct, the first and last
@@ -1878,6 +1896,10 @@ pub fn alloc_fn_name(k: AllocFn) -> string {
             return "resize_bytes"
         } case AllocFn::ResizeRawInPlace {
             return "resize_raw_in_place"
+        } case AllocFn::ResizeInPlace {
+            return "resize_in_place"
+        } case AllocFn::TryResizeRawInPlace {
+            return "try_resize_raw_in_place"
         } case AllocFn::TryResizeInPlace {
             return "try_resize_in_place"
         } case AllocFn::Scope {

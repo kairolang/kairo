@@ -1,7 +1,7 @@
 // When the allocator fails, the fallible forms report it and change nothing:
-// `@try_create` and `@alloc` give null without running a constructor, the
-// byte forms give `&null`, `@try_resize` gives false and `@resize` gives
-// `&null`, both leaving the block as it was. This holds for an `in: Failing`
+// `@try_create` raises AllocError and `@alloc` gives null, neither running a
+// constructor, the byte forms give `&null`, `@resize_in_place` gives false
+// and `@resize` gives `&null`, both leaving the block as it was. This holds for an `in: Failing`
 // allocator and for a failing allocator in effect through an open scope.
 
 import builtin::base::alloc::*
@@ -83,10 +83,10 @@ fn filled(p: unsafe *u8, n: usize) -> bool {
 }
 
 fn failing_in() {
-    var a? = @try_create(in: Failing) Box(1)
+    var a: *Box? = try @try_create(in: Failing) Box(1) catch e: AllocError => null
     check(!a?, "try_create(in: Failing) is null")
     check(ctors == 0 && dtors == 0, "no constructor runs when the allocation fails")
-    var b? = @try_create(in: Failing) Point { x: 1, y: 2 }
+    var b: *Point? = try @try_create(in: Failing) Point { x: 1, y: 2 } catch e: AllocError => null
     check(!b?, "try_create of an initializer is null")
 
     var u? = @alloc(in: Failing) Box
@@ -107,8 +107,8 @@ fn failing_in() {
     var unsafe *m = @alloc(size: 32, align: 8)
     fill(m, 32)
     var m0 = m as usize
-    check(!(@try_resize(size: 32, new_size: 64, align: 8, in: Failing) m), "try_resize(in: Failing) is false")
-    check(f_resize == 1 && m as usize == m0 && filled(m, 32), "the block is untouched after try_resize")
+    check(!(@resize_in_place(size: 32, new_size: 64, align: 8, in: Failing) m), "resize_in_place(in: Failing) is false")
+    check(f_resize == 1 && m as usize == m0 && filled(m, 32), "the block is untouched after resize_in_place")
     var unsafe *n = @resize(size: 32, new_size: 64, align: 8, in: Failing) m
     check(n == &null && f_resize == 2, "resize(in: Failing) is &null")
     check(m as usize == m0 && filled(m, 32), "the block is untouched after resize")
@@ -128,9 +128,9 @@ fn failing_scope() {
     var m0 = m as usize
 
     // Out of budget: every fallible form reports it.
-    var a? = @try_create Box(2)
+    var a: *Box? = try @try_create Box(2) catch e: AllocError => null
     check(!a? && ctors == 0, "try_create is null in a failing scope")
-    var b? = @try_create Point { x: 1, y: 2 }
+    var b: *Point? = try @try_create Point { x: 1, y: 2 } catch e: AllocError => null
     check(!b?, "try_create of an initializer is null in a failing scope")
     var u? = @alloc Box
     check(!u?, "alloc T is null in a failing scope")
@@ -141,8 +141,8 @@ fn failing_scope() {
     check(p == &null && z == &null, "byte allocation is &null in a failing scope")
 
     // The block is the scope's: neither resize moves it.
-    check(!(@try_resize(size: 32, new_size: 64, align: 8) m), "try_resize is false in a failing scope")
-    check(m as usize == m0 && filled(m, 32), "the block is untouched after try_resize")
+    check(!(@resize_in_place(size: 32, new_size: 64, align: 8) m), "resize_in_place is false in a failing scope")
+    check(m as usize == m0 && filled(m, 32), "the block is untouched after resize_in_place")
     var unsafe *n = @resize(size: 32, new_size: 64, align: 8) m
     check(n == &null, "resize is &null in a failing scope")
     check(m as usize == m0 && filled(m, 32), "the block is untouched after resize")

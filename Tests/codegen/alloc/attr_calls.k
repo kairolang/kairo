@@ -21,8 +21,8 @@ class Box {
 fn forms(p: *Box, q: unsafe *u8) {
     var *a = @create Box(1)
     var *b = @create(in: A) Box(2)
-    var *c? = @try_create Box(3)
-    var *d? = @try_create(in: A) Box(4)
+    var *c = try @try_create Box(3) catch e: AllocError => p
+    var *d = try @try_create(in: A) Box(4) catch e: AllocError => p
     @destroy a
     @destroy(in: A) b
     var e? = @alloc Box
@@ -39,8 +39,8 @@ fn forms(p: *Box, q: unsafe *u8) {
     @free(size: 8, align: 8, in: A) q
     var unsafe *m = @resize(size: 8, new_size: 16, align: 8) q
     var unsafe *n = @resize(size: 8, new_size: 16, align: 8, in: A) q
-    var o = @try_resize(size: 8, new_size: 16, align: 8) q
-    var r = @try_resize(size: 8, new_size: 16, align: 8, in: A) q
+    var o = @resize_in_place(size: 8, new_size: 16, align: 8) q
+    var r = @resize_in_place(size: 8, new_size: 16, align: 8, in: A) q
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -67,4 +67,4 @@ fn forms(p: *Box, q: unsafe *u8) {
 // IR-NEXT: = ::builtin::alloc_raw::resize_raw(q, 8, 16, 8);
 // IR-NEXT: = ::builtin::base::alloc::resize_bytes<{{.*}}::A>(q, 8, 16, 8);
 // IR-NEXT: = ::builtin::base::alloc::resize_raw_in_place(q, 8, 16, 8);
-// IR-NEXT: = ::builtin::base::alloc::try_resize_in_place<{{.*}}::A>(q, 8, 16, 8);
+// IR-NEXT: = ::builtin::base::alloc::resize_in_place<{{.*}}::A>(q, 8, 16, 8);

@@ -58,7 +58,7 @@ fn main() -> i32 {
 // WARN-DAG: :24:{{[0-9]+}}: warning [SC146W]: {{.*}}back{{.*}}use v[v.size() - 1]
 // WARN-DAG: :26:{{[0-9]+}}: warning [SC146W]: {{.*}}pop_back{{.*}}use pop()
 // WARN-DAG: :30:{{[0-9]+}}: warning [SC146W]: {{.*}}empty{{.*}}use is_empty()
-// WARN-DAG: :31:{{[0-9]+}}: warning [SC146W]: {{.*}}emplace{{.*}}use try_insert()
+// WARN-DAG: :31:{{[0-9]+}}: warning [SC146W]: {{.*}}emplace{{.*}}use insert_new()
 // WARN-DAG: :34:{{[0-9]+}}: warning [SC146W]: {{.*}}erase{{.*}}use swap_remove()
 // WARN-DAG: :35:{{[0-9]+}}: warning [SC146W]: {{.*}}erase_ordered{{.*}}use shift_remove()
 // WARN-DAG: :38:{{[0-9]+}}: warning [SC146W]: {{.*}}empty{{.*}}use is_empty()

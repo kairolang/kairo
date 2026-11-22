@@ -173,11 +173,11 @@ fn run_map(seed: u64, ops: u64) {
             var i = r.find(k)
             if i < 0 { r.put(k, 3) } else { r.vals[i as usize] += 3 }
         } else if c < 420 {
-            var back? = m.try_insert(k, v)
+            var back? = m.insert_new(k, v)
             if r.find(k) >= 0 {
-                if !back? || back != v { fail(seed, at, f"try_insert({k}) on a present key") }
+                if !back? || back != v { fail(seed, at, f"insert_new({k}) on a present key") }
             } else {
-                if back? { fail(seed, at, f"try_insert({k}) on a new key") }
+                if back? { fail(seed, at, f"insert_new({k}) on a new key") }
                 r.put(k, v)
             }
         } else if c < 460 {

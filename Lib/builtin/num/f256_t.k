@@ -379,37 +379,23 @@ pub class F256 {
 
     /// The correctly rounded value of a decimal or hex float literal's
     /// digits: what the compiler emits for `1.5f256`, `0.1` typed `f256`, and
-    /// so on (EmitIR's float literal). Not for users: `parse` is.
+    /// so on (EmitIR's float literal). Not for users: `from_str` is.
     pub static fn lit_(p: *const __builtin_c_char, n: usize) -> F256 {
-        var r       = F256()
-        var v: u512 = 0
+        var r           = F256()
+        var v:    u512  = 0
+        var stop: usize = 0
         unsafe {
             sf_parse_bits(
                 F256::fmt_(),
                 p as unsafe *const u8 as *const u8,
                 n,
                 &v,
+                &stop,
             )
         }
 
         r.bits = v as u256
         return r
-    }
-
-    /// Parses `s` (decimal, `0x` hex, `inf`, `infinity`, `nan`, an optional
-    /// sign, `_` between digits), correctly rounded, into `*out`; false
-    /// (out untouched) when `s` is not a float.
-    ///
-    /// **Note:** Not `-> F256?`: a nullable return from a builtin class with
-    /// this alignment does not compile yet (P721).
-    pub static fn parse(const s: string, out: *F256) -> bool {
-        var v: u512 = 0
-        if !sf_parse_bits(F256::fmt_(), s.data(), s.size(), &v) {
-            return false
-        }
-
-        out->bits = v as u256
-        return true
     }
 
     /// |self| as text into out[0..cap) (rt/fmt.h's contract: conv 'g',
@@ -633,6 +619,65 @@ pub class F256 {
 
     priv inline static fn exp_mask_() -> u256 {
         return ((1 as u256) << 19) - 1 << 236
+    }
+}
+
+// Text in the forms `sf_parse` reads: decimal, `0x` hex, `inf`,
+// `infinity`, `nan` (any case), an optional sign, `_` between digits;
+// correctly rounded.
+extend F256 impl FromStr {
+    /// The value `s` spells, or null when it is not a float.
+    static fn from_str(const s: string) -> F256? {
+        var v:    u512  = 0
+        var stop: usize = 0
+        if !sf_parse_bits(F256::fmt_(), s.data(), s.size(), &v, &stop) {
+            var none: F256? = null
+            return none
+        }
+
+        var r = F256()
+        r.bits = v as u256
+        return r
+    }
+
+    /// `from_str`, writing into `err` why `s` is not a float: the byte the
+    /// parse stopped at (`Empty` for an empty `s`).
+    static fn from_str_reason(const s: string, @inout err: ParseError) -> F256? {
+        var v:    u512  = 0
+        var stop: usize = 0
+        err = ParseError { at: 0, kind: ParseErrorKind::None }
+        if !sf_parse_bits(F256::fmt_(), s.data(), s.size(), &v, &stop) {
+            err = F256::parse_error_(s, stop)
+            var none: F256? = null
+            return none
+        }
+
+        var r = F256()
+        r.bits = v as u256
+        return r
+    }
+}
+
+extend F256 {
+    /// The value `s` spells; raises a `ParseError` at the byte the parse
+    /// stopped at when it is not a float (`Empty` for an empty `s`).
+    pub static fn try_from_str(const s: string) panic(ParseError) -> F256 {
+        var v:    u512  = 0
+        var stop: usize = 0
+        if !sf_parse_bits(F256::fmt_(), s.data(), s.size(), &v, &stop) {
+            panic F256::parse_error_(s, stop)
+        }
+
+        var r = F256()
+        r.bits = v as u256
+        return r
+    }
+
+    /// Why `s` is not a float, the parse having stopped at byte `stop`.
+    priv static fn parse_error_(const s: string, stop: usize) -> ParseError {
+        var at = if stop > (u32::MAX as usize) => u32::MAX else => stop as u32
+        var kind = if s.size() == 0 => ParseErrorKind::Empty else => ParseErrorKind::InvalidChar
+        return ParseError { at: at, kind: kind }
     }
 }
 

@@ -190,8 +190,8 @@ extend InterfaceEmitter {
     /// Failure: the throwing forms never return null (they are not
     /// noexcept, so the new-expression has no null test) and never throw:
     /// they crash with Kairo's out-of-memory message and exit code 134, as
-    /// the default OOM hook does (`__kairo_cxx_got`). `new (std::nothrow)
-    /// X` returns null, as `try_create` does. The placement form is
+    /// the default OOM hook does (`__kairo_cxx_got`); `new (std::nothrow)
+    /// X` returns null. The placement form is
     /// declared too: a class-scope `operator new` hides the global ones, and
     /// `new (p) X(...)` (`__kairo_construct_at`, C++ users) must still work.
     ///

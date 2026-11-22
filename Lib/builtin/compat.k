@@ -98,9 +98,9 @@ extend <K impl Hash, V> HashMap<K, V> {
 
     /// True when `k` was absent and the pair was added; a present key keeps
     /// its value.
-    @deprecated("use try_insert(), which returns the value back when the key exists")
+    @deprecated("use insert_new(), which returns the value back when the key exists")
     pub inline fn emplace(self, k: K, v: V) -> bool {
-        var back = self.try_insert(move(k), move(v))
+        var back = self.insert_new(move(k), move(v))
         return !back?
     }
 

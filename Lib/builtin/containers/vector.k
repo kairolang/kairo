@@ -9,7 +9,7 @@ import alloc_raw::{
     alloc_zeroed_raw,
     free_raw,
     realloc_raw,
-    try_resize_raw,
+    resize_in_place_raw,
 }
 import base::cmp::*
 import base::copy::*
@@ -144,7 +144,7 @@ priv fn vec_resize_in_place(buf:        unsafe *u8,
     var h     = vec_header(elem_align)
     var bytes = vec_block_bytes(new_cap, elem_size, elem_align)
     unsafe {
-        if !try_resize_raw(
+        if !resize_in_place_raw(
             buf - h,
             h + old_cap * elem_size,
             bytes,

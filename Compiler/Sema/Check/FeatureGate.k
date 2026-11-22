@@ -944,8 +944,10 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
                 return "'@free p' or '@free(size: n, align: a) p'"
             } case AllocAttr::Resize {
                 return "'@resize(size: old, new_size: n, align: a) p'"
-            } case AllocAttr::TryResize {
-                return "'@try_resize(size: old, new_size: n, align: a) p'"
+            } case AllocAttr::ResizeInPlace {
+                return "'@resize_in_place(size: old, new_size: n, align: a) p'"
+            } case AllocAttr::TryResizeInPlace {
+                return "'@try_resize_in_place(size: old, new_size: n, align: a) p'"
             } case AllocAttr::COUNT {
                 return ""
             }
