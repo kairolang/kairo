@@ -78,8 +78,16 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,         BuiltinKind,     BuiltinType,        QUAL_CONST,   QualifiedType, RecordType,
-    builtin_for_token, canon_has_const, canon_has_volatile, canon_unqual,
+    AssocType,
+    BuiltinKind,
+    BuiltinType,
+    QUAL_CONST,
+    QualifiedType,
+    RecordType,
+    builtin_for_token,
+    canon_has_const,
+    canon_has_volatile,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -89,6 +97,7 @@ import AST::Node::Casting::{
 import AST::Node::Declarations
 import AST::Node::Expressions::{
     BinaryOperatorExpr,
+    ClosureExpr,
     ConstraintExpr,
     ParenExpr,
     TypeOfExpr,
@@ -100,8 +109,16 @@ import AST::Node::PrimaryExpressions::{
 }
 import AST::Node::Statements::ConditionalStmt
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType, ChainType,    FixedArrayType, FunctionPointerType,
-    GenericParamType, MapType,          NullableType, PointerType,    SetType,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    ChainType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    MapType,
+    NullableType,
+    PointerType,
+    SetType,
     VectorType,
 }
 import AST::VisibilityFacts::{
@@ -113,6 +130,7 @@ import Diagnostic::Code::DiagCode
 import Diagnostic::DiagBuilder::DiagBuilder
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
+import Sema::Check::CaptureAnalysis::closure_declares
 import Sema::Resolve::ConversionHop::ConversionHop
 import Sema::Resolve::GenericArgs::GenericArgs
 import Sema::Resolve::MemberLookup::{
@@ -170,6 +188,8 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
     priv var _self_imm: u32 = u32::MAX
     /// _bind_step is running for ExprTyper (bind_step), not for run().
     priv var _from_typer: bool = false
+    /// The closures around the walk, innermost last.
+    priv var _closures: [unsafe *ClosureExpr]
 
     /// Default ctor so ChainBinding can be a MEMBER of a pass that builds it
     /// in its own body (ExprTyper holds one). Leaves sc null: every entry
@@ -348,6 +368,16 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
 
             if !id->generic_args.is_empty() {
                 return self._anchor_of_generic_head(id)
+            }
+
+            // Inside a closure that captures the binding by pointer the name
+            // is a `*T`, not the declared `T`: ExprTyper types it so
+            // (_capture_view) and binds the step on that pointer, as it does
+            // for a binding with no declared type.
+            if self._ptr_captured(id->resolved_decl) {
+                a.kind = AnchorKind::NeedsInference
+                a.decl = id->resolved_decl
+                return a
             }
 
             return self._anchor_after(id->resolved_decl, &null)
@@ -2084,6 +2114,57 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
         return out
     }
 
+    fn traverse_closure_expr(self, n: unsafe *ClosureExpr) -> unsafe *ClosureExpr {
+        self._closures.push(n)
+        var unsafe *out = RecursiveASTVisitor<ChainBinding>::traverse_closure_expr(
+            self,
+            n,
+        )
+
+        self._closures.pop()
+        return out
+    }
+
+    /// A closure between this use and `d`'s own declaration captures `d` by
+    /// pointer (`|*x|`, `|const *x|`, `|*|`); an inner closure that copies
+    /// an outer one's pointer capture holds the pointer too. `self` under
+    /// `|*|` keeps its receiver type (ExprTyper::_capture_view).
+    priv fn _ptr_captured(self, d: unsafe *Decl) -> bool {
+        if d == &null {
+            return false
+        }
+
+        var i = self._closures.size()
+        while i > 0 {
+            i = i - 1
+            var unsafe *c = self._closures[i]
+            if closure_declares(c, d) {
+                return false
+            }
+
+            for var k: usize = 0; k < c->captures.size(); ++k {
+                var unsafe *cap = c->captures.get(k)
+                if !cap->by_ptr {
+                    continue
+                }
+
+                if cap->name != &null {
+                    if cap->name->resolved_decl == d {
+                        return true
+                    }
+
+                    continue
+                }
+
+                if !(isa<Declarations::ParamDecl>(d) && cast<Declarations::ParamDecl>(d)->is_self) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
     fn traverse_conditional_stmt(self, n: unsafe *ConditionalStmt) -> unsafe *ConditionalStmt {
         if n == &null || !n->is_eval {
             return RecursiveASTVisitor<ChainBinding>::traverse_conditional_stmt(
@@ -2855,7 +2936,7 @@ pub class ChainBinding derives RecursiveASTVisitor<ChainBinding> {
             return false
         }
 
-        var seen = llvm::DenseSet<u64>()
+        var seen                            = llvm::DenseSet<u64>()
         var work: [unsafe *TranslationUnit]
         work.push(start)
         seen.insert(from_fid as u64)
