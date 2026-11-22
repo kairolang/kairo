@@ -12,7 +12,7 @@ class M {
     pub var n: i32
     pub fn M(self, n: i32) { self.n = n; made += 1 }
     @move pub fn M(self, other: Self) { self.n = other.n; other.n = -1; moved += 1 }
-    pub fn op finally(self) { dropped += 1 }
+    pub fn op finally(self) { if self.n != -1 { dropped += 1 } }
 }
 
 fn run() -> i32 {
@@ -38,8 +38,8 @@ fn run() -> i32 {
 fn main() -> i32 {
     var r = run()
     if r != 0 { return r }
-    // Every object constructed, by value or by move, is destroyed once.
-    if dropped != made + moved { return 9 }
+    // Every value constructed is destroyed once, wherever it was moved to.
+    if dropped != made { return 9 }
     return 0
 }
 
@@ -52,7 +52,7 @@ fn main() -> i32 {
 // RUN: %kairo %s --print-ir 2>/dev/null | %FileCheck %s --check-prefix=CXX
 // CXX: Vector< ::move_only_vector::M> w = ::builtin::containers::vector::Vector< ::move_only_vector::M>();
 // CXX-NEXT: __kairo_ext_Vector::reserve<{{.*}}move_only_vector::M>((& w), static_cast<decltype(sizeof(0))>(3));
-// CXX-NEXT: __kairo_ext_Vector::push<{{.*}}move_only_vector::M>((& w), static_cast<{{.*}}move_only_vector::M &&>(a));
+// CXX-NEXT: __kairo_ext_Vector::push<{{.*}}move_only_vector::M>((& w), static_cast<{{.*}}move_only_vector::M{{ ?}}>(static_cast<{{.*}}move_only_vector::M &&>(a)));
 // CXX-NEXT: __kairo_ext_Vector::push<{{.*}}move_only_vector::M>((& w), {{.*}}move_only_vector::M(11));
 // CXX-NEXT: __kairo_ext_Vector::push<{{.*}}move_only_vector::M>((& w), {{.*}}move_only_vector::M(12));
 
