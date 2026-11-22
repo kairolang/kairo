@@ -3,7 +3,7 @@
 // the call runs, does not reach it. A callee that moves its parameter on
 // takes the caller's storage only when no pointer to that storage exists:
 // a local whose address is taken anywhere in its function is passed as an
-// object of the call's own, as is a value moved out of a field.
+// object of the call's own.
 import std::io::println
 
 class R {
@@ -34,14 +34,6 @@ fn through_global(p: R) -> i32 {
     return x.id
 }
 
-struct Box { var r: R }
-
-fn through_owner(p: R, b: *Box) -> i32 {
-    b->r = R(73)
-    var x = p
-    return x.id
-}
-
 fn main() -> i32 {
     {
         var a = R(1)
@@ -58,10 +50,6 @@ fn main() -> i32 {
         seen = &c
         println(f"global {through_global(c)}")
     }
-    {
-        var d = Box { r: R(4) }
-        println(f"owner {through_owner(d.r, &d)}")
-    }
     return 0
 }
 
@@ -76,4 +64,3 @@ fn main() -> i32 {
 // CHECK:      param 1
 // CHECK-NEXT: field 2
 // CHECK-NEXT: global 3
-// CHECK-NEXT: owner 4

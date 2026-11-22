@@ -291,6 +291,11 @@ extend InterfaceEmitter {
     ///     every exit where `live` is still set it moves the value into a
     ///     temporary and destroys that, so the caller's object is left
     ///     moved-from on every path.
+    ///   `::__kairo_fn_of<&f, R(A...)>::get()`  a generic function's
+    ///     instance named as a `fn` value (EmitIR::_fn_ref_adapter): `f`
+    ///     where its function type is `R(A...)`, else a function of that
+    ///     type that calls it, which is the case at an instance where the
+    ///     `fn` type passes `T&&` and `f` keeps its parameter by value.
     prot fn _value_param_helpers(self, header: bool) {
         if self.written.has(HelperBlock::ValueParam) {
             return
@@ -347,6 +352,25 @@ extend InterfaceEmitter {
         self._cg->sink->spell(
             at,
             "template <class T> struct " + pc + " { T* p; bool live; constexpr ~" + pc + "() { if (live) { T __d(static_cast<T&&>(*p)); } } };",
+        )
+
+        self._cg->sink->brk()
+        var fo = LowerTargets::fn_value_of()
+        self._cg->sink->spell(
+            at,
+            "template <auto F, class S> struct " + fo + ";",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <auto F, class R, class... A> struct " + fo + "<F, R(A...)> { static R call(A... a) { return F(static_cast<A&&>(a)...); } static constexpr auto get() noexcept -> R (*)(A...) { if constexpr (requires { static_cast<R (*)(A...)>(F); }) { return static_cast<R (*)(A...)>(F); } else { return &call; } } };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <auto F, class R, class... A> struct " + fo + "<F, R(A...) noexcept> { static R call(A... a) noexcept { return F(static_cast<A&&>(a)...); } static constexpr auto get() noexcept -> R (*)(A...) noexcept { if constexpr (requires { static_cast<R (*)(A...) noexcept>(F); }) { return static_cast<R (*)(A...) noexcept>(F); } else { return &call; } } };",
         )
 
         self._cg->sink->brk()

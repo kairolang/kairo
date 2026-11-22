@@ -3998,6 +3998,15 @@ pub class LowerTargets {
         return "__kairo_pc"
     }
 
+    /// `::__kairo_fn_of<&f, R(A...)>::get()`: the function `f` as a pointer
+    /// of the `fn` type's own function type. `f` itself where its type is
+    /// that one; where a by-value parameter of `f` is by value in C++ and
+    /// the `fn` type passes it as `T&&` (an instance at a destructive
+    /// type), a function of that type that calls `f`.
+    pub static fn fn_value_of() -> string {
+        return "__kairo_fn_of"
+    }
+
     pub static fn value_param_helpers_guard() -> string {
         return "__KAIRO_VALUE_PARAM"
     }

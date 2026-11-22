@@ -391,8 +391,12 @@ extend EmitIR {
                 any = true
             }
 
+            // A generic function's parameter of a type an instance
+            // decides differs only at a destructive instance, which
+            // `::__kairo_fn_of` tells apart.
+            var form = Speller::value_param_form(*h->params.get(i))
             if DeclFacts::param_is_plain_value(d->params[i])
-                && Speller::value_param_form(*h->params.get(i)) == 1
+                && (form == 1 || form == 2 && targs.size() > 0)
                 && !Speller::value_param_passed_rref(d, d->params[i]) {
                 any = true
             }
@@ -400,6 +404,15 @@ extend EmitIR {
 
         if !any {
             return false
+        }
+
+        // The target is the parameter's type as the callee writes it when
+        // that names the callee's own type parameters: the value's own
+        // type is then the one this scope can spell.
+        var unsafe *wc = canon_unqual(want->canonical)
+        if wc != &null && (wc->is_dependent() || wc->is_instantiation_dependent()) {
+            w    = h
+            want = e->type_
         }
 
         var nx = if (self._cg->opts.unwind) => ("") else => " noexcept"
@@ -422,6 +435,11 @@ extend EmitIR {
             ret_t,
             "",
         ) + " { return " + self._spell.qual_name(d) + targs + "(" + fa + "); }"
+        if targs.size() > 0 {
+            adapt = "::" + LowerTargets::fn_value_of() + "<&" + self._spell.qual_name(
+                d,
+            ) + targs + ", " + self._spell.fn_signature(h) + nx + ">::get()"
+        }
 
         // The widening conversion _fn_effect_value makes of a name, of the adapter.
         var widen = w != h
