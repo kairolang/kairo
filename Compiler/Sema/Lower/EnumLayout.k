@@ -1384,8 +1384,8 @@ pub class EnumLayoutQuery {
     /// no `ffi` import still has a clang AST in reach (the builtins' sets),
     /// and a twin of Kairo-only parts needs nothing more than the target.
     priv fn _twin_sets(self, d: unsafe *Decl) -> [unsafe *HeaderSet] {
-        var out: [unsafe *HeaderSet]
-        var unsafe *mine = self.sc->tu
+        var        out:  [unsafe *HeaderSet]
+        var unsafe *mine                     = self.sc->tu
         if mine != &null && mine->header_set != &null {
             out.push(unsafe (mine->header_set as unsafe *HeaderSet))
         }
@@ -1404,7 +1404,7 @@ pub class EnumLayoutQuery {
 
         // Breadth first over the import edges, nearest TU first; bounded.
         var queue: [unsafe *TranslationUnit]
-        var seen: [u32]
+        var seen:  [u32]
         queue.push(mine)
         seen.push(mine->fid)
         var at: usize = 0
@@ -2142,9 +2142,9 @@ pub class EnumLayoutQuery {
         // Every TU's sweep visits every instance: the first fills the ids;
         // the remark is the forming TU's, whichever sweeps first.
         if e->type_ids.size() == 0 {
-            var ps    = PanicSets(self.sc)
-            var ids: [u32]
-            var keys: [u64]
+            var ps              = PanicSets(self.sc)
+            var ids:   [u32]
+            var keys:  [u64]
             var names: [string]
             for var i: usize = p; i < e->args.size(); ++i {
                 var id = ps.type_id(e->args[i])
@@ -2165,6 +2165,15 @@ pub class EnumLayoutQuery {
         }
 
         if size <= 16 || e->formed_fid != self.sc->ctx->fid || !e->formed_at.is_valid() {
+            return
+        }
+
+        // Not for a set first formed in a builtin library file
+        // (`Panic<F256, ParseError>`, F256::try_from_str): whoever reads the
+        // remark cannot change those types. A builtin generic met at a
+        // program's own type forms its set at the program's call, and is
+        // reported there.
+        if self.sc->g != &null && self.sc->g->is_builtin_fid(e->formed_fid) {
             return
         }
 
