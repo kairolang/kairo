@@ -16,6 +16,7 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::AttrFacts::AttrFacts
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::DeclFacts
 import AST::Kind::DeclKind::to_string
@@ -736,6 +737,13 @@ extend Speller {
 
         var unsafe *c = canon_unqual(t->canonical)
         if c == &null {
+            return 0
+        }
+
+        // A `@relocatable` record stays by value: in registers, the
+        // callee's to destroy. `::__kairo_param<T>` says the same of a `T`
+        // that is one (`::__kairo_vf<T>`).
+        if AttrFacts::type_is_relocatable(t) {
             return 0
         }
 

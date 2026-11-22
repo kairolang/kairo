@@ -168,6 +168,7 @@ ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
+import AST::AttrFacts::AttrFacts
 import AST::Context::DeclContext::DeclContextKind
 import AST::DeclFacts::{
     decl_is_ctor,          decl_is_imported,     decl_methods,         decl_name,
@@ -1770,6 +1771,12 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         for var i: usize = 0; i < n->params.size(); ++i {
             var unsafe *p = n->params[i]
             if !param_is_plain_value(p) || p->unname {
+                continue
+            }
+
+            // By value in C++: the callee's own object, destroyed as any
+            // by-value parameter is.
+            if AttrFacts::type_is_relocatable(p->type_) {
                 continue
             }
 

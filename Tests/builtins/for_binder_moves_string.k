@@ -18,4 +18,4 @@ fn main() -> i32 {
 // CHECK-NOT:   error [
 // CHECK-LABEL: int main() noexcept {
 // CHECK:       string piece = static_cast<{{ ?}}::builtin::string::string &&>((* __kairo_it{{[0-9]+}}.current()));
-// CHECK:       total(static_cast<{{ ?}}::builtin::string::string{{ ?}}>(static_cast<{{ ?}}::builtin::string::string &&>(piece)))
+// CHECK:       total(static_cast<{{ ?}}::builtin::string::string &&>(piece))

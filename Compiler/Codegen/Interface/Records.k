@@ -1443,6 +1443,16 @@ extend InterfaceEmitter {
         )
 
         self._cg->sink->brk()
+        if AttrFacts::is_relocatable(d) {
+            self._cg->sink->spell(
+                self._at(d),
+                "template <> inline constexpr bool " + LowerTargets::value_form_trait() + "<" + self._spell->qual_name(
+                    d,
+                ) + "> = true;",
+            )
+
+            self._cg->sink->brk()
+        }
     }
 
     /// The trait's specializations for `d` and the records nested in it,
@@ -1476,6 +1486,18 @@ extend InterfaceEmitter {
         var v    = ""
         if gen {
             x = self._spell->qual_name(d) + self._dm_args(d)
+        }
+
+        // A `@relocatable` record keeps the by-value form as a parameter
+        // (`::__kairo_vf`), said beside the trait and as early.
+        if AttrFacts::is_relocatable(d) && !self._dm_ahead(d) && (gen || !spec) {
+            self._cg->sink->spell(
+                self._at(d),
+                (if (gen) => (self._spell->record_head(d))
+                 else => "template <> ") + "inline constexpr bool " + LowerTargets::value_form_trait() + "<" + x + "> = true;",
+            )
+
+            self._cg->sink->brk()
         }
 
         if !gen {

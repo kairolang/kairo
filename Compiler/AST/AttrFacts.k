@@ -29,15 +29,26 @@ import AST::Context::DeclContext::{
     DeclContextKind,
 }
 import AST::Context::TranslationUnit::TranslationUnit
-import AST::DeclFacts::tu_of
+import AST::DeclFacts::{
+    decl_pattern,
+    tu_of,
+}
 import AST::LangItems::LangAttrs
 import AST::Mixin::Annotation::{
     AnnotationEntry,
     AnnotationKind,
 }
-import AST::Node::Base::Decl
+import AST::Node::Base::{
+    Decl,
+    Type,
+}
+import AST::Node::CanonicalNodes::{
+    RecordType,
+    canon_unqual,
+}
 import AST::Node::Casting::{
     cast,
+    dyn_cast,
     isa,
 }
 import AST::Node::PrimaryExpressions::IntegerLiteralExpr
@@ -121,6 +132,33 @@ pub class AttrFacts {
     /// `@relocatable` on `d` (a record).
     pub static fn is_relocatable(d: unsafe *Decl) -> bool {
         return AttrFacts::find(d, LangAttrs::relocatable()) != &null
+    }
+
+    /// `t` is a record that is `@relocatable` itself (the attribute on it,
+    /// or on the generic record it is an instance of). A by-value
+    /// parameter of it stays by value in C++: clang passes it in registers
+    /// and the callee destroys it, so the callee owns it already and a
+    /// `T&&` would only put it back in memory.
+    pub static fn type_is_relocatable(t: unsafe *Type) -> bool {
+        if t == &null {
+            return false
+        }
+
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
+        var unsafe *rt = dyn_cast<RecordType>(c)
+        if rt == &null || rt->decl == &null {
+            return false
+        }
+
+        if AttrFacts::is_relocatable(rt->decl) {
+            return true
+        }
+
+        var unsafe *pd = decl_pattern(rt->decl)
+        return pd != &null && AttrFacts::is_relocatable(pd)
     }
 
     /// The N of `d`'s `@align(N)`, or 0 when it has none (or an invalid one).

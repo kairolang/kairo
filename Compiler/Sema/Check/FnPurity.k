@@ -147,6 +147,7 @@
 
 ffi "c++" import "vector"
 
+import AST::AttrFacts::AttrFacts
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
     decl_extension_of, decl_generic_params,  decl_is_requirement,     fn_keeps_value_params,
@@ -1875,6 +1876,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         if self._f != &null
             && !fn_keeps_value_params(self._f)
             && param_is_plain_value(p)
+            && !AttrFacts::type_is_relocatable(p->type_)
             && (type_may_be_destructive(p->type_) && value_param_rule(self._f, p) == 1
                 || lifecycle_of(self.sc)->facts_of_type(
                     p->type_->canonical,

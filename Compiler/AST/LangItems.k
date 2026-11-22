@@ -3969,6 +3969,13 @@ pub class LowerTargets {
         return "__KAIRO_DM_TRAIT"
     }
 
+    /// `::__kairo_vf<T>` is true only for a `@relocatable` record
+    /// (AttrFacts::type_is_relocatable): a by-value parameter of it keeps
+    /// the by-value form whatever `::__kairo_dm<T>` says.
+    pub static fn value_form_trait() -> string {
+        return "__kairo_vf"
+    }
+
     pub static fn dm_trait_member() -> string {
         return "__kairo_dm_"
     }

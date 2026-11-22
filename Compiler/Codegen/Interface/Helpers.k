@@ -270,6 +270,12 @@ extend InterfaceEmitter {
         )
 
         self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> inline constexpr bool " + LowerTargets::value_form_trait() + " = false;",
+        )
+
+        self._cg->sink->brk()
         if header {
             self._cg->sink->directive(at, "#endif")
         }
@@ -316,6 +322,7 @@ extend InterfaceEmitter {
         }
 
         var dm = "::" + LowerTargets::dm_trait()
+        var vf = "::" + LowerTargets::value_form_trait()
         var vp = LowerTargets::value_param()
         var ps = LowerTargets::value_pass()
         var pc = LowerTargets::value_param_guard()
@@ -339,13 +346,13 @@ extend InterfaceEmitter {
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "template <class T> using " + vp + " = typename " + vp + "_<" + dm + "<T>, T>::t;",
+            "template <class T> using " + vp + " = typename " + vp + "_<(" + dm + "<T> && !" + vf + "<T>), T>::t;",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "template <class T> using " + ps + " = typename " + vp + "_<" + dm + "<T>, T>::a;",
+            "template <class T> using " + ps + " = typename " + vp + "_<(" + dm + "<T> && !" + vf + "<T>), T>::a;",
         )
 
         self._cg->sink->brk()
