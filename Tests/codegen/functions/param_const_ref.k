@@ -113,8 +113,8 @@ fn ool() -> usize { var o = Ool(); var s: string = "abc"; return o.m(s) }
 // CXX-DAG: ::builtin::string::string returns( ::builtin::string::string s) noexcept;
 // CXX-DAG: decltype(sizeof(0)) address( ::builtin::string::string s) noexcept;
 // CXX-DAG: decltype(sizeof(0)) in_closure( ::builtin::string::string s) noexcept;
-// CXX-DAG: decltype(sizeof(0)) mut_method( ::param_const_ref::Box b) noexcept;
-// CXX-DAG: decltype(sizeof(0)) const_method( ::param_const_ref::Box b) noexcept;
+// CXX-DAG: decltype(sizeof(0)) mut_method( ::param_const_ref::Box && b) noexcept;
+// CXX-DAG: decltype(sizeof(0)) const_method( ::param_const_ref::Box && b) noexcept;
 // CXX-DAG: signed long scalar(signed long n) noexcept;
 // CXX-DAG: signed int point( ::param_const_ref::Pt p) noexcept;
 // CXX-DAG: signed int handle( ::param_const_ref::Handle h) noexcept;

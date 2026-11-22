@@ -40,21 +40,21 @@ fn main() -> i32 {
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
 // CXX:      friend struct::generic::__kairo_ext_Cell;
 // CXX:      struct __kairo_ext_Cell {
-// CXX-NEXT:   template<class T> static void put( ::generic::Cell<T> * self, T v) noexcept;
+// CXX-NEXT:   template<class T> static void put( ::generic::Cell<T> * self, ::__kairo_param<T> v) noexcept;
 // CXX-NEXT:   template<class T> static T get(const::generic::Cell<T> * self) noexcept;
-// CXX-NEXT:   template<class T, class U> static::generic::Cell<U> map(const::generic::Cell<T> * self, ::__kairo_fn<U(T)> f) noexcept;
-// CXX-NEXT:   template<class T> static::generic::Cell<T> make(T v) noexcept;
+// CXX-NEXT:   template<class T, class U> static::generic::Cell<U> map(const::generic::Cell<T> * self, ::__kairo_fn<U( ::__kairo_param<T>)> f) noexcept;
+// CXX-NEXT:   template<class T> static::generic::Cell<T> make( ::__kairo_param<T> v) noexcept;
 // CXX:      template<class T, class U> inline::generic::Cell<U> __kairo_ext_Cell::map(
 // CXX:      return::generic::Cell<U> {
-// CXX:      template<class T> inline::generic::Cell<T> __kairo_ext_Cell::make(T v) noexcept {
+// CXX:      template<class T> inline::generic::Cell<T> __kairo_ext_Cell::make( ::__kairo_param<T> v) noexcept {
 // CXX-NEXT: return::generic::Cell<T> {
 // i64 is `long` or `long long` by target (codegen/target_int64.k).
 // CXX:      ::generic::__kairo_ext_Cell::make<signed long{{( long)?}}>(0);
 // CXX:      ::generic::__kairo_ext_Cell::map<signed long{{( long)?}}, double>((& a), ::generic::halve);
 // CXX:      template void({{ *}}::generic::__kairo_ext_Cell::put<signed long{{( long)?}}>)(
 // CXX:      template signed long{{( long)?}}({{ *}}::generic::__kairo_ext_Cell::get<signed long{{( long)?}}>)(
-// CXX:      template::generic::Cell<double>({{ *}}::generic::__kairo_ext_Cell::map<signed long{{( long)?}}, double>)(const::generic::Cell<signed long{{( long)?}}> *, ::__kairo_fn<double(signed long{{( long)?}})>);
-// CXX:      template::generic::Cell<signed long{{( long)?}}>({{ *}}::generic::__kairo_ext_Cell::make<signed long{{( long)?}}>)(signed long{{( long)?}});
+// CXX:      template::generic::Cell<double>({{ *}}::generic::__kairo_ext_Cell::map<signed long{{( long)?}}, double>)(const::generic::Cell<signed long{{( long)?}}> *, ::__kairo_fn<double( ::__kairo_param<signed long{{( long)?}}>)>);
+// CXX:      template::generic::Cell<signed long{{( long)?}}>({{ *}}::generic::__kairo_ext_Cell::make<signed long{{( long)?}}>)( ::__kairo_param<signed long{{( long)?}}>);
 
 // REQUIRES: clang
 // RUN: rm -rf %t.d
