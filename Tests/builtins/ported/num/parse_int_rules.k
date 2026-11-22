@@ -20,6 +20,16 @@
 
 import std::io
 
+// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+fn <T impl FromStr> reason_of(const t: string) -> ParseError {
+    try {
+        var v = t.parse<T>()
+        return ParseError { at: 0, kind: ParseErrorKind::None }
+    } catch e: ParseError {
+        return e
+    }
+}
+
 static CODE: i32 = 0
 static NO:   i32 = 0
 
@@ -32,8 +42,8 @@ fn fail(const what: string) {
 
 fn ok_i8(const text: string, want: i8) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = i8::from_str(text, &err)
+    var r?  = i8::from_str(text)
+    var err = reason_of<i8>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"i8 '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -45,8 +55,8 @@ fn ok_i8(const text: string, want: i8) {
 
 fn bad_i8(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = i8::from_str(text, &err)
+    var r?  = i8::from_str(text)
+    var err = reason_of<i8>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"i8 '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }
@@ -54,8 +64,8 @@ fn bad_i8(const text: string, kind: ParseErrorKind, at: u32) {
 
 fn ok_i16(const text: string, want: i16) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = i16::from_str(text, &err)
+    var r?  = i16::from_str(text)
+    var err = reason_of<i16>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"i16 '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -67,8 +77,8 @@ fn ok_i16(const text: string, want: i16) {
 
 fn bad_i16(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = i16::from_str(text, &err)
+    var r?  = i16::from_str(text)
+    var err = reason_of<i16>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"i16 '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }
@@ -76,8 +86,8 @@ fn bad_i16(const text: string, kind: ParseErrorKind, at: u32) {
 
 fn ok_i32(const text: string, want: i32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = i32::from_str(text, &err)
+    var r?  = i32::from_str(text)
+    var err = reason_of<i32>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"i32 '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -89,8 +99,8 @@ fn ok_i32(const text: string, want: i32) {
 
 fn bad_i32(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = i32::from_str(text, &err)
+    var r?  = i32::from_str(text)
+    var err = reason_of<i32>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"i32 '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }
@@ -98,8 +108,8 @@ fn bad_i32(const text: string, kind: ParseErrorKind, at: u32) {
 
 fn ok_i64(const text: string, want: i64) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = i64::from_str(text, &err)
+    var r?  = i64::from_str(text)
+    var err = reason_of<i64>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"i64 '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -111,8 +121,8 @@ fn ok_i64(const text: string, want: i64) {
 
 fn bad_i64(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = i64::from_str(text, &err)
+    var r?  = i64::from_str(text)
+    var err = reason_of<i64>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"i64 '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }
@@ -120,8 +130,8 @@ fn bad_i64(const text: string, kind: ParseErrorKind, at: u32) {
 
 fn ok_isize(const text: string, want: isize) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = isize::from_str(text, &err)
+    var r?  = isize::from_str(text)
+    var err = reason_of<isize>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"isize '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -133,8 +143,8 @@ fn ok_isize(const text: string, want: isize) {
 
 fn bad_isize(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = isize::from_str(text, &err)
+    var r?  = isize::from_str(text)
+    var err = reason_of<isize>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"isize '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }
@@ -142,8 +152,8 @@ fn bad_isize(const text: string, kind: ParseErrorKind, at: u32) {
 
 fn ok_u8(const text: string, want: u8) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = u8::from_str(text, &err)
+    var r?  = u8::from_str(text)
+    var err = reason_of<u8>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"u8 '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -155,8 +165,8 @@ fn ok_u8(const text: string, want: u8) {
 
 fn bad_u8(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = u8::from_str(text, &err)
+    var r?  = u8::from_str(text)
+    var err = reason_of<u8>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"u8 '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }
@@ -164,8 +174,8 @@ fn bad_u8(const text: string, kind: ParseErrorKind, at: u32) {
 
 fn ok_u16(const text: string, want: u16) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = u16::from_str(text, &err)
+    var r?  = u16::from_str(text)
+    var err = reason_of<u16>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"u16 '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -177,8 +187,8 @@ fn ok_u16(const text: string, want: u16) {
 
 fn bad_u16(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = u16::from_str(text, &err)
+    var r?  = u16::from_str(text)
+    var err = reason_of<u16>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"u16 '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }
@@ -186,8 +196,8 @@ fn bad_u16(const text: string, kind: ParseErrorKind, at: u32) {
 
 fn ok_u32(const text: string, want: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = u32::from_str(text, &err)
+    var r?  = u32::from_str(text)
+    var err = reason_of<u32>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"u32 '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -199,8 +209,8 @@ fn ok_u32(const text: string, want: u32) {
 
 fn bad_u32(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = u32::from_str(text, &err)
+    var r?  = u32::from_str(text)
+    var err = reason_of<u32>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"u32 '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }
@@ -208,8 +218,8 @@ fn bad_u32(const text: string, kind: ParseErrorKind, at: u32) {
 
 fn ok_u64(const text: string, want: u64) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = u64::from_str(text, &err)
+    var r?  = u64::from_str(text)
+    var err = reason_of<u64>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"u64 '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -221,8 +231,8 @@ fn ok_u64(const text: string, want: u64) {
 
 fn bad_u64(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = u64::from_str(text, &err)
+    var r?  = u64::from_str(text)
+    var err = reason_of<u64>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"u64 '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }
@@ -230,8 +240,8 @@ fn bad_u64(const text: string, kind: ParseErrorKind, at: u32) {
 
 fn ok_usize(const text: string, want: usize) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = usize::from_str(text, &err)
+    var r?  = usize::from_str(text)
+    var err = reason_of<usize>(text)
     if r? {
         if err.kind != ParseErrorKind::None || err.at != 0 || r != want {
             fail(f"usize '{text}' gave {r} kind {err.kind as u8}, want {want}")
@@ -243,8 +253,8 @@ fn ok_usize(const text: string, want: usize) {
 
 fn bad_usize(const text: string, kind: ParseErrorKind, at: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::None }
-    var r?  = usize::from_str(text, &err)
+    var r?  = usize::from_str(text)
+    var err = reason_of<usize>(text)
     if r? || err.kind != kind || err.at != at {
         fail(f"usize '{text}' gave kind {err.kind as u8} at {err.at}, want kind {kind as u8} at {at}")
     }

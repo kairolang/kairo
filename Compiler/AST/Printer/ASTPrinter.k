@@ -825,8 +825,11 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
                 self._expr_list("(", ")", ae->args)
             }
 
-            self.p.put(" ")
-            self.src_expr(ae->operand)
+            if ae->operand != &null {
+                self.p.put(" ")
+                self.src_expr(ae->operand)
+            }
+
             return
         }
 
@@ -4140,8 +4143,8 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
     /// the way back.
     fn _dx_binop(self, e: unsafe *Expressions::BinaryOperatorExpr, is_last: bool) {
         var        spine: [unsafe *Expressions::BinaryOperatorExpr]
-        var unsafe *cur = e
-        var        last = is_last
+        var unsafe *cur                                             = e
+        var        last                                             = is_last
         while true {
             self._head("BinaryOperatorExpr", last)
             self.p.put(" ")
@@ -4634,10 +4637,16 @@ pub class AstDumper derives RecursiveASTVisitor<AstDumper> {
         self.p.newline()
         self.p.enter(is_last)
         for var i: usize = 0; i < e->args.size(); ++i {
-            self._child_expr(e->args[i], false)
+            self._child_expr(
+                e->args[i],
+                e->operand == &null && i + 1 == e->args.size(),
+            )
         }
 
-        self._child_expr(e->operand, true)
+        if e->operand != &null {
+            self._child_expr(e->operand, true)
+        }
+
         self.p.leave()
     }
 

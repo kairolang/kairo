@@ -41,8 +41,7 @@ fn p64(bits: u64, const want: string) {
         fail(f"f64 {bits:#x} printed '{by}' / '{fs}' / '{app}', want '{want}'")
     }
 
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = f64::from_str(want, &err)
+    var r?  = f64::from_str(want)
     if !(r?) || r.to_bits() != bits {
         fail(f"f64 text '{want}' does not read back as {bits:#x}")
     }
@@ -59,8 +58,7 @@ fn p32(bits: u32, const want: string) {
         fail(f"f32 {bits:#x} printed '{by}' / '{fs}' / '{app}', want '{want}'")
     }
 
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = f32::from_str(want, &err)
+    var r?  = f32::from_str(want)
     if !(r?) || r.to_bits() != bits {
         fail(f"f32 text '{want}' does not read back as {bits:#x}")
     }

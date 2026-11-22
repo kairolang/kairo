@@ -108,9 +108,13 @@ priv macro prim_hash!(T) {
 // `push_block_` (ASCII text) or one `push_str` of a borrowed view: no
 // temporary string, no allocation beyond the destination's own growth. The
 // buffer is two TEXT_BUF long and the text lies in its first half, so a
-// read of TEXT_BUF bytes from the text's first byte stays inside it. `from_str` reports through `err` and turns a
-// failure into null at the boundary; the cores never read at or past
-// `s.size()`, so a view is a valid argument.
+// read of TEXT_BUF bytes from the text's first byte stays inside it.
+// `from_str` and `from_str_reason` run the same core, `parse_into`, so they
+// accept the same texts. A core writes `err` only on failure, so each caller
+// hands it a cleared one: `from_str` a local, whose initializer is the only
+// store on the success path, and `from_str_reason` the caller's, cleared
+// first. The cores never read at or past `s.size()`, so a view is a valid
+// argument.
 priv macro prim_text!(T) {
     extend T impl ToString {
         inline fn op as (const self) -> string {
@@ -139,7 +143,19 @@ priv macro prim_text!(T) {
     }
 
     extend T impl FromStr {
-        static inline fn from_str(const s: string, @inout err: ParseError) -> T? {
+        static inline fn from_str(const s: string) -> T? {
+            var err = ParseError { at: 0, kind: ParseErrorKind::None }
+            var v   = T::parse_into(unsafe (s.data() as unsafe *const u8), s.size(), &err)
+
+            if err.kind != ParseErrorKind::None {
+                return null
+            }
+
+            return v
+        }
+
+        static inline fn from_str_reason(const s: string, @inout err: ParseError) -> T? {
+            err   = ParseError { at: 0, kind: ParseErrorKind::None }
             var v = T::parse_into(unsafe (s.data() as unsafe *const u8), s.size(), &err)
 
             if err.kind != ParseErrorKind::None {

@@ -43,10 +43,12 @@
 ///       - an attribute applied to an expression (`@align(16) x`,
 ///         AttributedExpr): it parses, but no attribute has an expression
 ///         meaning yet. X leaves the node and its operand untyped. The
-///         exception is `@create` / `@destroy`, which AllocSugarDesugar
-///         rewrote to alloc.k calls before N; one left here has a shape
-///         with no meaning (`@create x`, `@create T(args).m`), and is
-///         reported as that misuse (SC364E), not as a feature to come.
+///         exception is the allocation attributes (`@create`, `@free`,
+///         ...), which AllocSugarDesugar rewrote to alloc.k calls before
+///         N; one left here matches no overload (`@create x`, `@create
+///         T(args).m`, `@alloc(size: 8)`), and is reported as that misuse
+///         (SC364E for the operand, SC365E for the arguments), not as a
+///         feature to come.
 ///       - an `eval for` directly in a module or class body
 ///         (EvalBlockDecl::stmt): it parses, but nothing unrolls it there.
 ///         (An `eval if` there is folded away by EvalIfFolding.)
@@ -139,10 +141,19 @@ import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
+import Sema::Check::Attribute::AttributeCheck
 import Sema::Check::CallConv::call_conv_of_attr
 import Sema::Check::ClassLifecycle::{
     lifecycle_of,
     lifecycle_open,
+}
+import Sema::Expand::AllocAttrTable::{
+    ALLOC_KW_IN,
+    AllocAttr,
+    AllocAttrTable,
+    AllocAttrUse,
+    AllocMismatch,
+    AllocNode,
 }
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
@@ -378,10 +389,10 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
 
     fn visit_attributed_expr(self, n: *AttributedExpr) -> bool {
         var nm = self.sc->ctx->get_spelling(n->name)
-        // AllocSugarDesugar rewrote every `@create` / `@destroy` of a shape
-        // it has a call for, so one still here is written wrong.
-        if nm == LangAttrs::create() || nm == LangAttrs::destroy() {
-            self._alloc_misuse(n, nm == LangAttrs::create())
+        // AllocSugarDesugar rewrote every allocation attribute a row of
+        // AllocAttrTable takes, so one still here is written wrong.
+        if LangAttrs::is_alloc_attr(nm) {
+            self._alloc_misuse(n, nm)
             return true
         }
 
@@ -866,34 +877,315 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
         b.emit()
     }
 
-    /// SC364E: a `@create` / `@destroy` whose shape has no meaning. The
-    /// attribute applies to one unary expression, postfix chain included,
-    /// so `@create T(args).m` allocates `T(args).m`; that one gets the
-    /// parenthesized spelling as its fix-it.
-    priv fn _alloc_misuse(self, n: *AttributedExpr, is_create: bool) {
+    /// The forms `attr` is written in, for a message.
+    priv fn _alloc_forms(self, attr: AllocAttr) -> string {
+        match attr {
+            case AllocAttr::Create {
+                return "'@create T(args)' or '@create T { field: value }'"
+            } case AllocAttr::TryCreate {
+                return "'@try_create T(args)' or '@try_create T { field: value }'"
+            } case AllocAttr::Destroy {
+                return "'@destroy p'"
+            } case AllocAttr::Alloc {
+                return "'@alloc T', '@alloc(count: n) T' or '@alloc(size: n, align: a)'"
+            } case AllocAttr::AllocZeroed {
+                return "'@alloc_zeroed(size: n, align: a)'"
+            } case AllocAttr::Free {
+                return "'@free p' or '@free(size: n, align: a) p'"
+            } case AllocAttr::Resize {
+                return "'@resize(size: old, new_size: n, align: a) p'"
+            } case AllocAttr::TryResize {
+                return "'@try_resize(size: old, new_size: n, align: a) p'"
+            } case AllocAttr::COUNT {
+                return ""
+            }
+        }
+    }
+
+    /// The keywords in `set`, each as `'name:'`, joined for a message.
+    priv fn _alloc_kw_list(self, set: u8) -> string {
+        var out  = ""
+        var left = set
+        while left != 0 {
+            var b = AllocAttrTable::first_kw(left)
+            if b == 0 {
+                break
+            }
+
+            left = left & ~b
+            if out.size() > 0 {
+                out += if (left == 0) => (" and ") else => ", "
+            }
+
+            out += "'" + AllocAttrTable::kw_word(b) + ":'"
+        }
+
+        return out
+    }
+
+    /// An allocation attribute no row of AllocAttrTable takes: SC365E for
+    /// its argument list (a positional argument, an unknown or repeated
+    /// keyword, a set of keywords no form has), SC364E for the node it is
+    /// applied to. The attribute applies to one unary expression, postfix
+    /// chain included, so `@create T(args).m` allocates `T(args).m`; that
+    /// one gets the parenthesized spelling as its fix-it.
+    priv fn _alloc_misuse(self, n: *AttributedExpr, const nm: string) {
         var at = SourceRange::from_bounds(n->range.start, 1 as u32) | n->name.range
-        var q = LangAttrs::quoted(
-            if (is_create) => (LangAttrs::create()) else => LangAttrs::destroy(),
+        var q = LangAttrs::quoted(nm)
+        var u = AllocAttrTable::classify(
+            self.sc->ctx,
+            unsafe (n as unsafe *AttributedExpr),
         )
 
-        var unsafe *opd = n->operand
-        if !is_create {
-            var b = self.sc->diag->report(
-                DiagID::SC364E,
-                at.start,
-                q.copy() + " takes one pointer: '@destroy p' or '@destroy(p)'",
-            )
+        match u.why {
+            case AllocMismatch::Positional {
+                self._alloc_positional(n, at, q, u)
+            } case AllocMismatch::UnknownKw {
+                self._alloc_unknown_kw(at, q, u)
+            } case AllocMismatch::RepeatedKw {
+                var kw = self.sc->ctx->get_spelling(u.repeated->name)
+                var b = self.sc->diag->report(
+                    DiagID::SC365E,
+                    u.repeated->range.start,
+                    q.copy() + " is given '" + kw + ":' twice",
+                )
 
+                b.first(u.repeated->range)
+                if u.repeated_first != &null {
+                    b.note(
+                        DiagCode(DiagID::SC365N),
+                        u.repeated_first->range.start,
+                        "first given here",
+                    )->child_first(u.repeated_first->range)
+                }
+
+                b.emit()
+            } case AllocMismatch::InNotType {
+                var vr = if (u.kw_in->value != &null) => (u.kw_in->value->range)
+                         else => u.kw_in->range
+                var b = self.sc->diag->report(
+                    DiagID::SC365E,
+                    vr.start,
+                    "'in:' names the allocator, a type: " + q.copy() + " with 'in: A' allocates from, or frees to, A instead of the allocator in effect",
+                )
+
+                b.first(vr)
+                b.emit()
+            } case AllocMismatch::MissingKw {
+                var have = u.kws & ~ALLOC_KW_IN
+                var msg = q.copy() + " with " + self._alloc_kw_list(
+                    have,
+                ) + " also needs " + self._alloc_kw_list(u.missing)
+
+                if have == 0 {
+                    msg = q.copy() + " needs " + self._alloc_kw_list(u.missing)
+                }
+
+                var b = self.sc->diag->report(DiagID::SC365E, at.start, msg)
+                b.first(at)
+                b.note(
+                    DiagCode(DiagID::SC365N),
+                    at.start,
+                    "it is written " + self._alloc_forms(u.attr),
+                )
+
+                b.emit()
+            } case AllocMismatch::ExtraKw {
+                var b = self.sc->diag->report(
+                    DiagID::SC365E,
+                    at.start,
+                    q.copy() + " has no form that takes " + self._alloc_kw_list(
+                        u.extra,
+                    ) + " together",
+                )
+
+                b.first(at)
+                b.note(
+                    DiagCode(DiagID::SC365N),
+                    at.start,
+                    "it is written " + self._alloc_forms(u.attr),
+                )
+
+                b.emit()
+            } case AllocMismatch::Node {
+                self._alloc_node(n, at, q, nm, u)
+            } case AllocMismatch::Ok {
+                // A row takes it, so AllocSugarDesugar would have
+                // rewritten it: only a tree it never walked gets here.
+                self._gate(at, "this allocation attribute here")
+            }
+        }
+    }
+
+    /// An argument written without its keyword. `@create(A) T()` and
+    /// `@destroy(A) p` keep the message they had before `in:` existed, with
+    /// the keyword as a note; the fix-it names the allocator when the
+    /// argument is a type.
+    priv fn _alloc_positional(self,
+                              n:       *AttributedExpr,
+                              at:      SourceRange,
+                              const q: string,
+                              const u: AllocAttrUse) {
+        var unsafe *arg = u.positional
+        var        tu   = TypeUtil(self.sc)
+        var unsafe *id  = dyn_cast<NamedIdentExpr>(arg)
+        var is_type = n->args.size() == 1
+            && id != &null
+            && id->is_bound()
+            && tu.is_type_decl(id->resolved_decl)
+        if u.attr == AllocAttr::Create || u.attr == AllocAttr::Destroy {
+            var text = q.copy() + " takes one pointer: '@destroy p' or '@destroy(p)'"
+            if u.attr == AllocAttr::Create {
+                text = q.copy() + " takes no attribute arguments: the type and its constructor arguments follow it, '@create T(args)' or '@create T { field: value }'"
+            }
+
+            var b = self.sc->diag->report(DiagID::SC364E, at.start, text)
             b.first(at)
+            b.note(
+                DiagCode(DiagID::SC364N),
+                arg->range.start,
+                "the one argument it takes is the allocator, by keyword: " + q.copy() + " with 'in: A'",
+            )->child_first(arg->range)
+            if is_type {
+                b.insert(
+                    arg->range.start,
+                    "in: ",
+                    "name the allocator with 'in:'",
+                )
+            }
+
             b.emit()
             return
         }
 
-        if n->has_args {
+        var b = self.sc->diag->report(
+            DiagID::SC365E,
+            arg->range.start,
+            q.copy() + " takes keyword arguments only: it is written " + self._alloc_forms(
+                u.attr,
+            ),
+        )
+
+        b.first(arg->range)
+        if is_type {
+            b.insert(arg->range.start, "in: ", "name the allocator with 'in:'")
+        }
+
+        b.emit()
+    }
+
+    /// A keyword no form of the attribute takes, with the closest one it
+    /// does take as the fix-it.
+    priv fn _alloc_unknown_kw(self, at: SourceRange, const q: string, const u: AllocAttrUse) {
+        var kw      = self.sc->ctx->get_spelling(u.unknown->name)
+        var allowed = AllocAttrTable::kws_of(u.attr) | ALLOC_KW_IN
+        var b = self.sc->diag->report(
+            DiagID::SC365E,
+            u.unknown->name.range.start,
+            q.copy() + " has no keyword argument '" + kw + ":'",
+        )
+
+        b.first(u.unknown->name.range)
+        b.note(
+            DiagCode(DiagID::SC365N),
+            at.start,
+            "it takes " + self._alloc_kw_list(allowed),
+        )
+
+        var best          = ""
+        var best_d: usize = 0
+        var left          = allowed
+        while left != 0 {
+            var bit = AllocAttrTable::first_kw(left)
+            if bit == 0 {
+                break
+            }
+
+            left = left & ~bit
+            var w = AllocAttrTable::kw_word(bit)
+
+            // An abbreviation (`sz`, `algn`) is its keyword with letters
+            // left out, which an edit distance counts as far away.
+            var d = if (self._is_subsequence(kw, w)) => (0 as usize)
+                    else => AttributeCheck::edit_distance(kw, w)
+
+            if best.size() == 0 || d < best_d {
+                best   = w.copy()
+                best_d = d
+            }
+        }
+
+        if best.size() > 0 && best_d <= 2 && best_d < kw.size() {
+            b.fix(u.unknown->name.range, best, "did you mean '" + best + ":'?")
+        }
+
+        b.emit()
+    }
+
+    /// True when `a`, at least two letters, is `b` with letters left out.
+    priv fn _is_subsequence(self, const a: string, const b: string) -> bool {
+        if a.size() < 2 || a.size() >= b.size() {
+            return false
+        }
+
+        var i: usize = 0
+        for var j: usize = 0; j < b.size() && i < a.size(); ++j {
+            if a.data()[i] == b.data()[j] {
+                i += 1
+            }
+        }
+
+        return i == a.size()
+    }
+
+    /// The keywords pick a form, and the node it is applied to is of
+    /// another kind.
+    priv fn _alloc_node(self,
+                        n:        *AttributedExpr,
+                        at:       SourceRange,
+                        const q:  string,
+                        const nm: string,
+                        const u:  AllocAttrUse) {
+        var unsafe *opd = n->operand
+        var        row  = AllocAttrTable::row(u.row as usize)
+        if row.node == AllocNode::Type {
             var b = self.sc->diag->report(
                 DiagID::SC364E,
                 at.start,
-                q.copy() + " takes no attribute arguments: the type and its constructor arguments follow it, '@create T(args)' or '@create T { field: value }'",
+                q.copy() + " allocates storage for a type and constructs nothing: its operand is the type, '@alloc T' or '@alloc(count: n) T'",
+            )
+
+            b.first(at)
+            if opd != &null {
+                b.note(
+                    DiagCode(DiagID::SC364N),
+                    opd->range.start,
+                    "this is the operand; a type that is not a name is given one with 'type'",
+                )->child_first(opd->range)
+
+                // `@alloc T(args)`: the construction is `@create`'s.
+                if AllocAttrTable::constructed_type(self.sc->ctx, opd) != &null {
+                    b.fix(
+                        n->name.range,
+                        LangAttrs::create(),
+                        "to construct the object as well, write " + LangAttrs::quoted(
+                            LangAttrs::create(),
+                        ),
+                    )
+                }
+            }
+
+            b.emit()
+            return
+        }
+
+        if row.node != AllocNode::Construction {
+            // A Value node takes any expression and a None node is never
+            // given one by the parser.
+            var b = self.sc->diag->report(
+                DiagID::SC364E,
+                at.start,
+                q.copy() + " is written " + self._alloc_forms(u.attr),
             )
 
             b.first(at)
@@ -915,7 +1207,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
                 var b = self.sc->diag->report(
                     DiagID::SC364E,
                     at.start,
-                    q.copy() + " applies to the whole member access after it; a member of the object it creates is reached through parentheses: '(@create T(args))->member'",
+                    q.copy() + " applies to the whole member access after it; a member of the object it creates is reached through parentheses: '(@" + nm + " T(args))->member'",
                 )
 
                 b.first(at)
@@ -950,7 +1242,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
                     && cast<NamedInitializerExpr>(opd)->type_expr == &null))
         var msg = q.copy() + " allocates and constructs one object: its operand is a construction, 'T(args)' or 'T { field: value }'"
         if headless {
-            msg = q.copy() + " needs the type it allocates: write '@create T { field: value }'"
+            msg = q.copy() + " needs the type it allocates: write '@" + nm + " T { field: value }'"
         }
 
         var b = self.sc->diag->report(DiagID::SC364E, at.start, msg)

@@ -24,8 +24,7 @@ fn <T impl Append> appended(const v: T) -> string {
 fn <T impl ToString> text(const v: T) -> string = v as string
 
 fn <T impl FromStr> parsed(const s: string) -> T? {
-    var err = ParseError { at: 0, kind: ParseErrorKind::None }
-    return T::from_str(s, &err)
+    return T::from_str(s)
 }
 
 fn <T impl Copyable> twice(const v: T) -> T = copy(v)

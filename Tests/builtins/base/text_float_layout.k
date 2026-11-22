@@ -165,14 +165,13 @@ fn main() -> i32 {
         123456789, 1234567891, 123456789012, 98765432109876, 1234567890123456,
         9007199254740991, 12345678901234567,
     ]
-    var err = ParseError { at: 0, kind: ParseErrorKind::None }
     for var i: usize = 0; i < 20; ++i {
         for var j: i64 = -30; j <= 25; ++j {
             var t = f"{ks[i]}e{j}"
-            var v = f64::from_str(t, &err) ?? 0.0
+            var v = f64::from_str(t) ?? 0.0
             check64(v.to_bits())
             check64(v.to_bits() | 0x8000000000000000)
-            var f = f32::from_str(t, &err) ?? 0.0
+            var f = f32::from_str(t) ?? 0.0
             check32(f.to_bits())
             check32(f.to_bits() | 0x80000000)
         }

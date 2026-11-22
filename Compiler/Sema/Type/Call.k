@@ -62,15 +62,12 @@ import AST::Context::DeclContext::{
 }
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
-    decl_extension_of,
-    decl_generic_params,
-    decl_instantiated_from,
-    decl_is_imported,
-    decl_is_instance,
-    decl_requires_clause,
-    param_type_pack_param,
+    decl_extension_of, decl_generic_params,  decl_instantiated_from, decl_is_imported,
+    decl_is_instance,  decl_requires_clause, param_type_pack_param,
 }
 import AST::LangItems::{
+    ALLOC_FN_OVERLOADS,
+    AllocFn,
     LangAttrs,
     WellKnownType,
 }
@@ -80,13 +77,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,
-    BuiltinKind,
-    QUAL_CONST,
-    RecordType,
-    canon_has_const,
-    canon_quals,
-    canon_unqual,
+    AssocType, BuiltinKind, QUAL_CONST, RecordType, canon_has_const, canon_quals, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -94,51 +85,21 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    FnBodyKind,
-    FunctionDecl,
-    GenericParamDecl,
-    InterfaceDecl,
-    ModuleDecl,
-    ParamDecl,
-    TransferKind,
-    TypeAliasDecl,
-    VariableDecl,
+    ClassDecl, FnBodyKind,   FunctionDecl,  GenericParamDecl, InterfaceDecl, ModuleDecl,
+    ParamDecl, TransferKind, TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
-    AlignOfExpr,
-    CallExpr,
-    ClosureExpr,
-    ConstraintExpr,
-    FinalizeKind,
-    IfExpr,
-    NamedArgExpr,
-    PackExpansionExpr,
-    SizeOfExpr,
-    SubscriptExpr,
-    TypeCastExpr,
-    TypeTraitExpr,
+    AlignOfExpr,       CallExpr,          ClosureExpr, ConstraintExpr, FinalizeKind, IfExpr,
+    NamedArgExpr,      PackExpansionExpr, SizeOfExpr,  SubscriptExpr,  TypeCastExpr, TypeTraitExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
-    BooleanLiteralExpr,
-    ChainExpr,
-    CharacterLiteralExpr,
-    FloatingLiteralExpr,
-    IntegerLiteralExpr,
-    NamedIdentExpr,
-    NullLiteralExpr,
-    StringLiteralExpr,
+    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
+    IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType,
-    CXXRValueRefType,
-    ChainType,
-    FixedArrayType,
-    FunctionPointerType,
-    GenericParamType,
-    PackExpansionType,
-    VariadicPackType,
+    CXXLValueRefType, CXXRValueRefType,  ChainType,        FixedArrayType, FunctionPointerType,
+    GenericParamType, PackExpansionType, VariadicPackType,
 }
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::named_call_arg_value
@@ -163,16 +124,8 @@ import Sema::Type::NullnessFlow::{
     NULL_READ_REFUSED,
 }
 import Sema::Type::OverloadResolution::{
-    ARG_C_VARARG,
-    ARG_PACK_TAIL,
-    ArgInfo,
-    LitKind,
-    OvlCallScope,
-    OvlOutcome,
-    OvlResult,
-    copy_args,
-    cxx_lref_inout,
-    has_opaque_ffi,
+    ARG_C_VARARG, ARG_PACK_TAIL,  ArgInfo,        LitKind, OvlCallScope, OvlOutcome, OvlResult,
+    copy_args,    cxx_lref_inout, has_opaque_ffi,
 }
 import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::constraint_conjuncts
@@ -1463,6 +1416,12 @@ pub class <T: type> CallTyping {
         return true
     }
 
+    /// True when `fd`, a representative, is alloc.k's function `k`.
+    priv fn _is_alloc_fn(self, fd: unsafe *Decl, k: AllocFn) -> bool {
+        var unsafe *d = self.dyn()->sc->well_known->alloc_fn(k)
+        return d != &null && NameLookup::representative(d) == fd
+    }
+
     /// `create<T>(args)` (and `@create T(args)`, its sugar): alloc.k hands
     /// the pack to `T(args...)` inside its generic body, which only C++
     /// instantiates, so the constructor the arguments reach was never
@@ -1491,14 +1450,22 @@ pub class <T: type> CallTyping {
             return true
         }
 
-        var unsafe *lang = sc->well_known->get(WellKnownType::Create)
-        if lang == &null {
-            return true
+        // create, create_in, try_create and try_create_in: each takes T
+        // first and forwards its arguments to T's constructor.
+        var unsafe *fd = NameLookup::representative(unsafe (f as unsafe *Decl))
+        var        creates = false
+        var unsafe *lang   = sc->well_known->get(WellKnownType::Create)
+        if lang != &null && fd == NameLookup::representative(lang) {
+            creates = true
         }
 
-        var unsafe *fd = NameLookup::representative(unsafe (f as unsafe *Decl))
-        var unsafe *want = NameLookup::representative(lang)
-        if fd != want {
+        if !creates {
+            creates = self._is_alloc_fn(fd, AllocFn::CreateIn)
+                || self._is_alloc_fn(fd, AllocFn::TryCreate)
+                || self._is_alloc_fn(fd, AllocFn::TryCreateIn)
+        }
+
+        if !creates {
             return true
         }
 
@@ -1549,7 +1516,7 @@ pub class <T: type> CallTyping {
             return true
         }
 
-        if !self._narrow_args(unsafe &cands, unsafe &args, true, rec) {
+        if !self.narrow_args(unsafe &cands, unsafe &args, true, rec) {
             return false
         }
 
@@ -1945,6 +1912,29 @@ pub class <T: type> CallTyping {
             if isa<FunctionDecl>(d) {
                 var cands = cxx::std::vector<*Decl>()
                 cands.push_back(d)
+
+                // An allocation attribute's callee is bound to the first
+                // overload of its alloc.k function (AllocSugarDesugar); the
+                // others are candidates too, chosen by the operand's type.
+                var wk = self.dyn()->sc->well_known
+                if wk != &null {
+                    var ak = wk->alloc_fn_of(d)
+                    if ak != AllocFn::COUNT {
+                        for var oi: usize = 1; oi < ALLOC_FN_OVERLOADS; ++oi {
+                            var unsafe *od = wk->alloc_fn(ak, oi)
+                            if od != &null {
+                                cands.push_back(od)
+                            }
+                        }
+                    }
+                }
+
+                // With more than one, the name is an overload set: unbound
+                // for the resolution, which binds it to the winner.
+                if cands.size() > 1 {
+                    id->resolved_decl = &null
+                }
+
                 self._set_explicit(&id->generic_args)
                 var cname = self.dyn()->sc->ctx->get_spelling(id->name)
                 var rt = self._call_candidates(
@@ -1957,6 +1947,10 @@ pub class <T: type> CallTyping {
                     &null,
                     true,
                 )
+
+                if id->resolved_decl == &null {
+                    id->resolved_decl = d
+                }
 
                 self.dyn()->ovl.explicit_args.clear()
                 return rt
@@ -2262,7 +2256,7 @@ pub class <T: type> CallTyping {
             return
         }
 
-        var have  = n->args.size()
+        var have                  = n->args.size()
         var extra: [unsafe *Expr]
         for var i: usize = have; i < want; ++i {
             var p = ce->params[i]
@@ -2660,7 +2654,7 @@ pub class <T: type> CallTyping {
             }
         }
 
-        if !self._narrow_args(unsafe &all, unsafe &args, has_receiver, recv) {
+        if !self.narrow_args(unsafe &all, unsafe &args, has_receiver, recv) {
             self.dyn()->poison_only(n)
             return &null
         }
@@ -2808,11 +2802,23 @@ pub class <T: type> CallTyping {
     /// argument left nullable -- is left alone, so a `T?` parameter keeps
     /// its nullable and is never asked about. A `T?` overload, or a call
     /// that type-checks as written, is untouched.
-    priv fn _narrow_args(self,
-                         cands:        unsafe *cxx::std::vector<unsafe *Decl>,
-                         args:         unsafe *[ArgInfo],
-                         has_receiver: bool,
-                         recv:         unsafe *Type) -> bool {
+    ///
+    /// The resolution of a call, a method, a constructor, a subscript's
+    /// `op []` / `op []=` and an infix user operator other than equality,
+    /// `===` and `??` goes through it. `frees` / `fargs` are a mixed
+    /// resolution's free candidates and their arguments, `fargs[i + 1]`
+    /// being `args[i]` (the receiver operand first); a read made is made in
+    /// both. `must` false narrows a proven place and reports nothing: the
+    /// check that `cands` are only some of the forms that may take the
+    /// arguments makes, before the one that resolves.
+    fn narrow_args(self,
+                   cands:        unsafe *cxx::std::vector<unsafe *Decl>,
+                   args:         unsafe *[ArgInfo],
+                   has_receiver: bool,
+                   recv:         unsafe *Type,
+                   frees:        unsafe *cxx::std::vector<unsafe *Decl> = &null,
+                   fargs:        unsafe *[ArgInfo] = &null,
+                   must:         bool = true) -> bool {
         var idx: [usize]
         for var i: usize = 0; i < args->size(); ++i {
             var *a = &(*args)[i]
@@ -2840,8 +2846,8 @@ pub class <T: type> CallTyping {
                 cands,
                 args,
                 has_receiver,
-                &null,
-                &null,
+                frees,
+                fargs,
                 recv,
             )
         }
@@ -2850,17 +2856,30 @@ pub class <T: type> CallTyping {
             return true
         }
 
-        var alt = copy_args(*args)
+        var alt             = copy_args(*args)
+        var falt: [ArgInfo]
+        if fargs != &null {
+            falt = copy_args(*fargs)
+        }
+
+        var fp: unsafe *[ArgInfo] = &null
+        if fargs != &null {
+            fp = unsafe &falt
+        }
+
         for var j: usize = 0; j < idx.size(); ++j {
             alt[idx[j]].ty = self.dyn()->flow.narrowed_type(alt[idx[j]].ty)
+            if fargs != &null {
+                falt[idx[j] + 1].ty = alt[idx[j]].ty
+            }
         }
 
         if !self.dyn()->ovl.any_viable(
             cands,
             &alt,
             has_receiver,
-            &null,
-            &null,
+            frees,
+            fp,
             recv,
         ) {
             return true
@@ -2871,25 +2890,35 @@ pub class <T: type> CallTyping {
         for var j: usize = 0; j < idx.size(); ++j {
             var unsafe *keep = alt[idx[j]].ty
             alt[idx[j]].ty = (*args)[idx[j]].ty
-            if self.dyn()->ovl.any_viable(
+            if fargs != &null {
+                falt[idx[j] + 1].ty = alt[idx[j]].ty
+            }
+
+            var still = self.dyn()->ovl.any_viable(
                 cands,
                 &alt,
                 has_receiver,
-                &null,
-                &null,
+                frees,
+                fp,
                 recv,
-            ) {
+            )
+
+            if still {
                 continue
             }
 
             alt[idx[j]].ty = keep
+            if fargs != &null {
+                falt[idx[j] + 1].ty = keep
+            }
+
             need.push(idx[j])
         }
 
         var ok = true
         for var j: usize = 0; j < need.size(); ++j {
             var *a = &(*args)[need[j]]
-            var o  = self.dyn()->flow.read_value(a->expr, true)
+            var o  = self.dyn()->flow.read_value(a->expr, must)
             if o == NULL_READ_REFUSED {
                 ok = false
                 continue
@@ -2897,6 +2926,9 @@ pub class <T: type> CallTyping {
 
             if o == NULL_READ_NARROWED {
                 a->ty = a->expr->type_
+                if fargs != &null {
+                    (*fargs)[need[j] + 1].ty = a->ty
+                }
             }
         }
 
@@ -3235,7 +3267,7 @@ pub class <T: type> CallTyping {
 
         var args: [ArgInfo]
         var ok   = self.build_args(n->args, &args)
-        if !dep && !self._narrow_args(unsafe &cands, unsafe &args, true, rec) {
+        if !dep && !self.narrow_args(unsafe &cands, unsafe &args, true, rec) {
             self.dyn()->poison_only(n)
             return &null
         }

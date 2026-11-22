@@ -4,8 +4,9 @@
 ///
 /// Value to text writes the digits right-aligned in a caller buffer and
 /// returns where they start. Text to value takes a pointer and a length and
-/// reports failure through a `ParseError`; the returned value means something
-/// only when `err.kind` is `ParseErrorKind::None`.
+/// reports failure through a `ParseError`, which the caller clears (kind
+/// `None`, at 0) and the parser writes only on failure; the returned value
+/// means something only when `err.kind` is still `ParseErrorKind::None`.
 ///
 /// Nothing here allocates, calls libc or depends on byte order.
 
@@ -516,13 +517,12 @@ inline fn parse_digits(p:          unsafe *const u8,
 /// loop; anything else, every failure included, takes the general path, so
 /// the fast path decides no error.
 ///
-/// **Precondition:** `p` is valid for reads of `n` bytes.
+/// **Precondition:** `p` is valid for reads of `n` bytes; `err` is clear
+/// (kind `None`, at 0), and is written only on failure.
 prot inline fn parse_unsigned(p:          unsafe *const u8,
                               n:          usize,
                               max:        u64,
                               @inout err: ParseError) -> u64 {
-    err.at   = 0
-    err.kind = ParseErrorKind::None
     if n - 1 < 8 {
         var eight = padded_eight(p, n)
         if is_eight_digits(eight) {
@@ -547,14 +547,13 @@ prot inline fn parse_unsigned(p:          unsafe *const u8,
 
 /// Parses `[+-]digits` as a value in `[-max - 1, max]`.
 ///
-/// **Precondition:** `p` is valid for reads of `n` bytes; `max` is `2^k - 1` for the
-/// type's `k` value bits.
+/// **Precondition:** `p` is valid for reads of `n` bytes; `err` is clear
+/// (kind `None`, at 0), and is written only on failure; `max` is
+/// `2^k - 1` for the type's `k` value bits.
 prot inline fn parse_signed(p:          unsafe *const u8,
                             n:          usize,
                             max:        u64,
                             @inout err: ParseError) -> i64 {
-    err.at   = 0
-    err.kind = ParseErrorKind::None
     // One to eight digits after an optional '-', in range: as for
     // `parse_unsigned`.
     var lead: usize = if n != 0 && p[0] == 45 => 1 else => 0

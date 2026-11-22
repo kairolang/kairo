@@ -226,6 +226,7 @@ import AST::DeclFacts::{
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
+    AllocFn,
     LangAttrs,
     WellKnownType,
 }
@@ -245,23 +246,9 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,
-    AdtRole,
-    AssignForm,
-    ClassDecl,
-    DestructiveFact,
-    EnumDecl,
-    FieldDecl,
-    FnBodyKind,
-    FunctionDecl,
-    ImplicitTransfer,
-    InterfaceDecl,
-    ParamDecl,
-    StorageClass,
-    StructDecl,
-    TransferKind,
-    TypeAliasDecl,
-    UnionDecl,
+    AbiKind,      AdtRole,    AssignForm,   ClassDecl,        DestructiveFact, EnumDecl,
+    FieldDecl,    FnBodyKind, FunctionDecl, ImplicitTransfer, InterfaceDecl,   ParamDecl,
+    StorageClass, StructDecl, TransferKind, TypeAliasDecl,    UnionDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -569,7 +556,14 @@ pub class ClassLifecycle derives RecursiveASTVisitor<ClassLifecycle> {
         }
 
         var unsafe *ld = self.sc->well_known->get(WellKnownType::Destroy)
-        return ld != &null && NameLookup::representative(d) == NameLookup::representative(ld)
+        if ld != &null && NameLookup::representative(d) == NameLookup::representative(ld) {
+            return true
+        }
+
+        // `@destroy(in: A) p`: the same destruction through a named
+        // allocator.
+        var unsafe *lw = self.sc->well_known->alloc_fn(AllocFn::DestroyWith)
+        return lw != &null && NameLookup::representative(d) == NameLookup::representative(lw)
     }
 
     /// `@destroy p` with `p: *Base`, where Base has no virtual destructor

@@ -831,7 +831,7 @@ pub class <T: type> ControlTyping {
 
         if b_lit && !e_lit {
             if n->end != &null {
-                et = self.dyn()->type_of(n->end, &null)
+                et = self._bound_type(n->end, &null)
             }
 
             var unsafe *b_hint = et
@@ -839,7 +839,7 @@ pub class <T: type> ControlTyping {
                 b_hint = lit_t
             }
 
-            bt = self.dyn()->type_of(n->begin, b_hint)
+            bt = self._bound_type(n->begin, b_hint)
         } else {
             var b_hint: unsafe *Type = &null
             if b_lit {
@@ -847,7 +847,7 @@ pub class <T: type> ControlTyping {
             }
 
             if n->begin != &null {
-                bt = self.dyn()->type_of(n->begin, b_hint)
+                bt = self._bound_type(n->begin, b_hint)
             }
 
             var unsafe *e_hint = bt
@@ -856,7 +856,7 @@ pub class <T: type> ControlTyping {
             }
 
             if n->end != &null {
-                et = self.dyn()->type_of(n->end, e_hint)
+                et = self._bound_type(n->end, e_hint)
             }
         }
 
@@ -912,6 +912,14 @@ pub class <T: type> ControlTyping {
         }
 
         return r
+    }
+
+    /// A range bound, typed: a nullable place proven non-null here is its
+    /// value (Compiler/Spec/Nullables.md#narrowed-reads), as an operator's
+    /// operand is, before it hints the other bound or unifies with it. One
+    /// not proven stays the nullable, which the integer check rejects.
+    priv fn _bound_type(self, e: unsafe *Expr, hint: unsafe *Type) -> unsafe *Type {
+        return self.dyn()->value_if_proven(e, self.dyn()->type_of(e, hint))
     }
 
     /// The integer `X` when `expected` is the range record `n`'s form

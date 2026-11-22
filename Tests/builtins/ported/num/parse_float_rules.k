@@ -16,6 +16,16 @@
 
 import std::io
 
+// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+fn <T impl FromStr> reason_of(const t: string) -> ParseError {
+    try {
+        var v = t.parse<T>()
+        return ParseError { at: 0, kind: ParseErrorKind::None }
+    } catch e: ParseError {
+        return e
+    }
+}
+
 static const OVF32: u32 = 0xFFFFFFFF
 
 static CODE: i32 = 0
@@ -39,8 +49,8 @@ fn shown(const t: string) -> string {
 /// The text must parse as an f64 with exactly these bits.
 fn bits64(const t: string, want: u64) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = f64::from_str(t, &err)
+    var r?  = f64::from_str(t)
+    var err = reason_of<f64>(t)
     if r? {
         if err.kind != ParseErrorKind::None || r.to_bits() != want {
             fail(f"f64 '{shown(t)}' gave {r.to_bits():#x}, want {want:#x}")
@@ -53,8 +63,8 @@ fn bits64(const t: string, want: u64) {
 /// The text must parse as an f32 with exactly these bits, or be Overflow when `want` is OVF32.
 fn bits32(const t: string, want: u32) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = f32::from_str(t, &err)
+    var r?  = f32::from_str(t)
+    var err = reason_of<f32>(t)
     if want == OVF32 {
         if r? || err.kind != ParseErrorKind::Overflow {
             fail(f"f32 '{shown(t)}' should be Overflow, got kind {err.kind as u8}")
@@ -123,14 +133,14 @@ fn ordinary_special_large_subnormal_zero() {
 /// A finite text beyond the range is Overflow in both types, whatever the sign.
 fn ovf(const t: string) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = f64::from_str(t, &err)
+    var r?  = f64::from_str(t)
+    var err = reason_of<f64>(t)
     if r? || err.kind != ParseErrorKind::Overflow {
         fail(f"f64 '{shown(t)}' should be Overflow, got kind {err.kind as u8}")
     }
 
-    err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var s? = f32::from_str(t, &err)
+    var s? = f32::from_str(t)
+    err = reason_of<f32>(t)
     if s? || err.kind != ParseErrorKind::Overflow {
         fail(f"f32 '{shown(t)}' should be Overflow, got kind {err.kind as u8}")
     }
@@ -232,14 +242,14 @@ fn words() {
 
 fn nan_text(const t: string) {
     NO += 1
-    var err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var r?  = f64::from_str(t, &err)
+    var r?  = f64::from_str(t)
+    var err = reason_of<f64>(t)
     if !(r?) || err.kind != ParseErrorKind::None || !r.is_nan() {
         fail(f"f64 '{t}' should be a NaN")
     }
 
-    err = ParseError { at: 99, kind: ParseErrorKind::Trailing }
-    var s? = f32::from_str(t, &err)
+    var s? = f32::from_str(t)
+    err = reason_of<f32>(t)
     if !(s?) || err.kind != ParseErrorKind::None || !s.is_nan() {
         fail(f"f32 '{t}' should be a NaN")
     }

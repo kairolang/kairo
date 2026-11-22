@@ -18,6 +18,16 @@
 
 import std::io
 
+// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+fn <T impl FromStr> reason_of(const t: string) -> ParseError {
+    try {
+        var v = t.parse<T>()
+        return ParseError { at: 0, kind: ParseErrorKind::None }
+    } catch e: ParseError {
+        return e
+    }
+}
+
 static const KIND: [u8; 13060] = [
     2, 2, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 2, 2, 2, 2, 2, 2, 4, 4, 0, 0, 0, 4, 4, 4, 4, 4,
     4, 4, 0, 0, 0, 4, 4, 4, 4, 4, 2, 2, 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
@@ -5798,8 +5808,8 @@ fn main() -> i32 {
         off += LEN[i] as usize
         var want = KIND[i]
 
-        var e64  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r64? = f64::from_str(t, &e64)
+        var r64? = f64::from_str(t)
+        var e64  = reason_of<f64>(t)
         var ok64 = (e64.kind as u8) == want
         if want == 0 {
             var nan64 = W64[i] == 0xFFFFFFFFFFFFFFFFu64
@@ -5808,8 +5818,8 @@ fn main() -> i32 {
             ok64 = ok64 && !(r64?) && e64.at == (AT[i] as u32)
         }
 
-        var e32  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r32? = f32::from_str(t, &e32)
+        var r32? = f32::from_str(t)
+        var e32  = reason_of<f32>(t)
         var ok32 = (e32.kind as u8) == want
         if want == 0 {
             var nan32 = W32[i] == 0xFFFFFFFFu32

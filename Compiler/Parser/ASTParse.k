@@ -77,23 +77,9 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    EnumDecl,
-    EvalBlockDecl,
-    ExtensionDecl,
-    FFIBlockDecl,
-    FieldDecl,
-    FunctionDecl,
-    InterfaceDecl,
-    ModuleDecl,
-    ProcedureMacroDecl,
-    StructDecl,
-    TestDecl,
-    TransferKind,
-    TypeAliasDecl,
-    UnionDecl,
-    VariableDecl,
-    VisibilityGroupDecl,
+    ClassDecl,    EnumDecl,      EvalBlockDecl, ExtensionDecl,      FFIBlockDecl,        FieldDecl,
+    FunctionDecl, InterfaceDecl, ModuleDecl,    ProcedureMacroDecl, StructDecl,          TestDecl,
+    TransferKind, TypeAliasDecl, UnionDecl,     VariableDecl,       VisibilityGroupDecl,
 }
 import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
@@ -2881,9 +2867,11 @@ pub class ASTParse
 
             // `@destroy(p)` is the whole expression: nothing follows it, and
             // without this the newline would make it a statement attribute
-            // on the NEXT line's statement.
+            // on the NEXT line's statement. The same holds for every
+            // allocation attribute written with an argument list
+            // (`@free(p)`).
             var anm = self.ctx->get_spelling(self.current())
-            destroy_call = anm == LangAttrs::destroy()
+            destroy_call = LangAttrs::is_alloc_attr(anm)
             self.advance() // the name
             // `@cxx::new ...` / `@cxx::delete p`: an expression statement.
             if anm == LangAttrs::cxx_mem() && self.check(TokenKind::OpColonColon) {

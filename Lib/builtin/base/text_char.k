@@ -55,10 +55,9 @@ prot fn char_to_utf8(c: char, buf: unsafe *u8) -> usize {
 /// at most U+10FFFF, and complete. Anything else is `InvalidChar` at 0;
 /// bytes after a well-formed first sequence are `Trailing` at its length.
 ///
-/// **Precondition:** `p` is valid for reads of `n` bytes.
+/// **Precondition:** `p` is valid for reads of `n` bytes; `err` is clear
+/// (kind `None`, at 0), and is written only on failure.
 prot fn parse_char(p: unsafe *const u8, n: usize, @inout err: ParseError) -> char {
-    err.at   = 0
-    err.kind = ParseErrorKind::None
     if n == 0 {
         return text_fail(&err, 0, ParseErrorKind::Empty)
     }
@@ -114,10 +113,9 @@ prot fn parse_char(p: unsafe *const u8, n: usize, @inout err: ParseError) -> cha
 /// Text that does not start with one of the two words is `InvalidChar` at
 /// 0; bytes after the word are `Trailing` at its length.
 ///
-/// **Precondition:** `p` is valid for reads of `n` bytes.
+/// **Precondition:** `p` is valid for reads of `n` bytes; `err` is clear
+/// (kind `None`, at 0), and is written only on failure.
 prot fn parse_bool(p: unsafe *const u8, n: usize, @inout err: ParseError) -> bool {
-    err.at   = 0
-    err.kind = ParseErrorKind::None
     if n == 0 {
         text_fail(&err, 0, ParseErrorKind::Empty)
         return false

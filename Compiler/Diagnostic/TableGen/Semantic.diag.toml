@@ -7225,32 +7225,136 @@ group = "type-check"
     """
 
 [SC364]
-brief = "'@create' or '@destroy' written with an operand it cannot take"
+brief = "an allocation attribute written with an operand it cannot take"
 group = "allocation"
 
     [SC364.E]
     explain = """
-    # '@create' or '@destroy' written with an operand it cannot take
+    # an allocation attribute written with an operand it cannot take
 
-    `@create` allocates one object through the allocator in effect and constructs it; its operand
-    is the construction, a call of the type or an initializer. `@destroy` takes one pointer. Both
-    apply to the one unary expression after them, member accesses included, so a member of the new
-    object is reached through parentheses.
+    `@create` and `@try_create` allocate one object and construct it; their operand is the
+    construction, a call of the type or an initializer. `@alloc` allocates storage and constructs
+    nothing; its operand is the type. `@destroy` takes one pointer. Each applies to the one unary
+    expression after it, member accesses included, so a member of the new object is reached through
+    parentheses.
 
     ```kairo
     var *c = @create Config(8080)           // fine
     var *p = @create Point { x: 1, y: 2 }   // fine
     var *g = @create Box<i32>(1)             // fine
+    var s? = @alloc Config                   // fine: storage for one Config
     var port = @create Config(8080).port    // error: allocates 'Config(8080).port'
     var *n = @create 3                      // error: not a construction
+    var t? = @alloc Config(8080)             // error: '@alloc' constructs nothing
     @destroy(a) b                           // error: one pointer
     ```
 
     ## how to fix
 
     write `@create T(args)`, `@create T { field: value }` (an attribute takes no generic arguments); reach a member as
-    `(@create T(args))->member` (the fix-it); free one pointer per `@destroy p`.
+    `(@create T(args))->member` (the fix-it); free one pointer per `@destroy p`; give `@alloc` a
+    type name (a type that is not a name is given one with `type`), or use `@create` to construct
+    the object as well.
     """
 
     [SC364.N]
     explain = "Points at the operand, or the part of it that makes the form wrong."
+
+[SC365]
+brief = "an allocation attribute given arguments it does not take"
+group = "allocation"
+
+    [SC365.E]
+    explain = """
+    # an allocation attribute given arguments it does not take
+
+    The allocation attributes take keyword arguments only, and each form takes a fixed set:
+
+    ```kairo
+    @create(in: A) T(args)                        // every form takes 'in: A', the allocator
+    @alloc(count: n) T                            // storage for n Ts
+    @alloc(size: n, align: a)                     // untyped bytes
+    @alloc_zeroed(size: n, align: a)
+    @free(size: n, align: a) p
+    @resize(size: old, new_size: n, align: a) p
+    @try_resize(size: old, new_size: n, align: a) p
+    ```
+
+    `size:` and `align:` describe the block as it is now; `new_size:` is the size asked for. `in:`
+    takes a type, the allocator; without it the allocator in effect is used.
+
+    ```kairo
+    var unsafe *b = @alloc(size: 64)              // error: also needs 'align:'
+    @free(sz: 64, align: 8) b                     // error: no keyword argument 'sz:'
+    var *c = @create(Arena) Config(1)             // error: write 'in: Arena'
+    ```
+
+    ## how to fix
+
+    give every keyword the form needs, each once, spelled as above; name the allocator with `in:`.
+    """
+
+    [SC365.N]
+    explain = "Names the keywords or the forms the attribute takes, or points at the first use of a repeated keyword."
+
+[SC366]
+brief = "'@set_scoped_allocator' written where it does not apply"
+group = "allocation"
+
+    [SC366.E]
+    explain = """
+    # '@set_scoped_allocator' written where it does not apply
+
+    `@set_scoped_allocator(A)` goes on a function, a block, or a class or struct, and takes one
+    argument, the allocator type. On a function or block the scope opens on entry and closes on
+    every exit. On a class or struct each object owns an arena that its methods allocate from, freed
+    when the object is destroyed. An `extend` cannot carry it: the object's arena belongs to the
+    type, so the attribute goes on the type's own declaration.
+
+    ```kairo
+    @set_scoped_allocator(Arena)
+    fn build() -> i32 { ... }           // fine
+
+    @set_scoped_allocator(Arena)
+    class Parser { ... }                // fine: one arena per Parser
+
+    @set_scoped_allocator(Arena)
+    extend Parser { ... }               // error: set it on 'class Parser'
+    ```
+
+    ## how to fix
+
+    move the attribute to the declaration of the type (the fix-it removes it from the `extend`), or
+    to the function or block whose allocations it should cover.
+    """
+
+    [SC366.N]
+    explain = "Points at the declaration the attribute belongs on."
+
+[SC367]
+brief = "a scoped allocator open across a 'yield'"
+group = "allocation"
+
+    [SC367.E]
+    explain = """
+    # a scoped allocator open across a 'yield'
+
+    A scoped allocator is in effect for everything the thread runs until its scope closes, and
+    scopes close in the reverse order they opened. A generator that yields while its scope is open
+    hands control back with the scope still in effect: the caller would allocate from it, and could
+    close a scope of its own out of order.
+
+    ```kairo
+    @set_scoped_allocator(Arena)
+    fn numbers() -> yield i32 {         // error
+        yield 1
+    }
+    ```
+
+    ## how to fix
+
+    open the scope on a block that contains no `yield`, or in a function the generator calls.
+    """
+
+    [SC367.N]
+    explain = "Points at the 'yield', or at the attribute that opens the scope."

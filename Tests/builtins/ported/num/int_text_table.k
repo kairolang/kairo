@@ -18,6 +18,16 @@
 
 import std::io
 
+// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+fn <T impl FromStr> reason_of(const t: string) -> ParseError {
+    try {
+        var v = t.parse<T>()
+        return ParseError { at: 0, kind: ParseErrorKind::None }
+    } catch e: ParseError {
+        return e
+    }
+}
+
 static const i8_KIND: [u8; 1327] = [
     3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3,
     3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4,
@@ -239,8 +249,8 @@ fn check_i8() -> i32 {
         var t = blob[off..(off + (i8_LEN[i] as usize))]
         off += i8_LEN[i] as usize
         var want = i8_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = i8::from_str(t, &err)
+        var r?   = i8::from_str(t)
+        var err  = reason_of<i8>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (i8_CLEN[i] as usize))]
@@ -515,8 +525,8 @@ fn check_i16() -> i32 {
         var t = blob[off..(off + (i16_LEN[i] as usize))]
         off += i16_LEN[i] as usize
         var want = i16_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = i16::from_str(t, &err)
+        var r?   = i16::from_str(t)
+        var err  = reason_of<i16>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (i16_CLEN[i] as usize))]
@@ -825,8 +835,8 @@ fn check_i32() -> i32 {
         var t = blob[off..(off + (i32_LEN[i] as usize))]
         off += i32_LEN[i] as usize
         var want = i32_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = i32::from_str(t, &err)
+        var r?   = i32::from_str(t)
+        var err  = reason_of<i32>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (i32_CLEN[i] as usize))]
@@ -1196,8 +1206,8 @@ fn check_i64() -> i32 {
         var t = blob[off..(off + (i64_LEN[i] as usize))]
         off += i64_LEN[i] as usize
         var want = i64_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = i64::from_str(t, &err)
+        var r?   = i64::from_str(t)
+        var err  = reason_of<i64>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (i64_CLEN[i] as usize))]
@@ -1560,8 +1570,8 @@ fn check_isize() -> i32 {
         var t = blob[off..(off + (isize_LEN[i] as usize))]
         off += isize_LEN[i] as usize
         var want = isize_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = isize::from_str(t, &err)
+        var r?   = isize::from_str(t)
+        var err  = reason_of<isize>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (isize_CLEN[i] as usize))]
@@ -1823,8 +1833,8 @@ fn check_u8() -> i32 {
         var t = blob[off..(off + (u8_LEN[i] as usize))]
         off += u8_LEN[i] as usize
         var want = u8_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = u8::from_str(t, &err)
+        var r?   = u8::from_str(t)
+        var err  = reason_of<u8>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (u8_CLEN[i] as usize))]
@@ -2111,8 +2121,8 @@ fn check_u16() -> i32 {
         var t = blob[off..(off + (u16_LEN[i] as usize))]
         off += u16_LEN[i] as usize
         var want = u16_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = u16::from_str(t, &err)
+        var r?   = u16::from_str(t)
+        var err  = reason_of<u16>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (u16_CLEN[i] as usize))]
@@ -2427,8 +2437,8 @@ fn check_u32() -> i32 {
         var t = blob[off..(off + (u32_LEN[i] as usize))]
         off += u32_LEN[i] as usize
         var want = u32_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = u32::from_str(t, &err)
+        var r?   = u32::from_str(t)
+        var err  = reason_of<u32>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (u32_CLEN[i] as usize))]
@@ -2811,8 +2821,8 @@ fn check_u64() -> i32 {
         var t = blob[off..(off + (u64_LEN[i] as usize))]
         off += u64_LEN[i] as usize
         var want = u64_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = u64::from_str(t, &err)
+        var r?   = u64::from_str(t)
+        var err  = reason_of<u64>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (u64_CLEN[i] as usize))]
@@ -3196,8 +3206,8 @@ fn check_usize() -> i32 {
         var t = blob[off..(off + (usize_LEN[i] as usize))]
         off += usize_LEN[i] as usize
         var want = usize_KIND[i]
-        var err  = ParseError { at: 99, kind: ParseErrorKind::Overflow }
-        var r?   = usize::from_str(t, &err)
+        var r?   = usize::from_str(t)
+        var err  = reason_of<usize>(t)
         var ok   = (err.kind as u8) == want
         if want == 0 {
             var c = canon[coff..(coff + (usize_CLEN[i] as usize))]

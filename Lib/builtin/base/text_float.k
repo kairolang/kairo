@@ -1094,8 +1094,6 @@ inline fn <F> clinger(w: u64, q: i64) -> u64 {
 /// when the 128-bit product decides, exact arithmetic otherwise.
 fn <F> parse_float_bits(p: unsafe *const u8, n: usize, @inout err: ParseError) -> u64 {
     var single = __builtin_is_same<F, f32>()
-    err.at   = 0
-    err.kind = ParseErrorKind::None
     if n == 0 {
         return float_fail(&err, 0, ParseErrorKind::Empty)
     }
@@ -1225,7 +1223,8 @@ fn <F> parse_float_bits(p: unsafe *const u8, n: usize, @inout err: ParseError) -
 /// A finite number too large for the type is `Overflow`; one too small
 /// rounds to zero.
 ///
-/// **Precondition:** `p` is valid for reads of `n` bytes.
+/// **Precondition:** `p` is valid for reads of `n` bytes; `err` is clear
+/// (kind `None`, at 0), and is written only on failure.
 prot inline fn parse_f64(p: unsafe *const u8, n: usize, @inout err: ParseError) -> f64 {
     var bits     = parse_float_bits<f64>(p, n, &err)
     var v:   f64 = 0.0

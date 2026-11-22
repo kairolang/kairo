@@ -71,7 +71,7 @@ pub class DepGraph {
     pub var in_degree:           {u32: i32} ///< fid -> number of deps, as scanned (WaveExecutor counts down its own copy)
     pub var mod_paths:           {u32: ModulePath} ///< fid -> its module path
     pub var all_fids:            {u32} ///< every fid in the graph
-    pub var depth_exceeded_path: string                                 = "" ///< "" = under budget; else first file that hit --cmax-import-depth
+    pub var depth_exceeded_path: string            = "" ///< "" = under budget; else first file that hit --cmax-import-depth
     /// Every import cycle the scan met, one per edge that closes one: the
     /// files on it in import order, each importing the next and the last
     /// importing the first (a self-import is one file). The edge from the
@@ -289,12 +289,13 @@ pub class DepScanner {
                 continue
             }
 
-            // `@create` / `@destroy`: spelled as ExprParse matches them. A
-            // macro that expands to one is not seen here (the scan does not
-            // expand); such a file needs the import written.
+            // An allocation attribute (`@create`, `@free`, ...): spelled as
+            // ExprParse matches them. A macro that expands to one is not
+            // seen here (the scan does not expand); such a file needs the
+            // import written.
             if k == TokenKind::OpAt && src.peek(1).kind == TokenKind::LitIdentifier {
                 var an = TokenText::spelling(src.peek(1), self._tcm)
-                if an == LangAttrs::create() || an == LangAttrs::destroy() {
+                if LangAttrs::is_alloc_attr(an) {
                     graph->alloc_sugar.insert(fid)
                 }
             }
@@ -505,7 +506,7 @@ pub class DepScanner {
         // from the build with exit 0 -- no error, and no file to point one at.
         if self._visiting.contains(dep.fid as u64) {
             var cyc: [u32]
-            var on  = false
+            var on         = false
             for var i: usize = 0; i < self._stack.size(); ++i {
                 if self._stack[i] == dep.fid {
                     on = true

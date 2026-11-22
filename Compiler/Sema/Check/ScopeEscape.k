@@ -482,6 +482,8 @@ pub class ScopeEscapeCheck derives RecursiveASTVisitor<ScopeEscapeCheck> {
             || nm == AllocNames::create_slice()
             || nm == AllocNames::alloc_raw()
             || nm == AllocNames::resize_raw()
+            || nm == AllocNames::alloc_storage()
+            || nm == AllocNames::alloc_raw_zeroed()
     }
 
     /// `var s = AllocatorScope<A>()`: by its type, written or inferred.

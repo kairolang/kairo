@@ -668,11 +668,51 @@ pub class WellKnownDecls {
     /// once by the driver, after parse and before any TU's Sema; every hook
     /// that differs between the two libraries asks two_word().
     priv var _two_word: bool = false
+    /// AllocFn -> its overloads, ALLOC_FN_OVERLOADS slots each, null past
+    /// the last. Written by alloc.k's own TU.
+    priv var _alloc: cxx::std::vector<unsafe *Decl>
 
     fn WellKnownDecls(self) {
         for var i: usize = 0; i < (WellKnownType::COUNT as u8 as usize); ++i {
             self._decls.push_back(&null)
         }
+
+        for var i: usize = 0; i < (AllocFn::COUNT as u8 as usize) * ALLOC_FN_OVERLOADS; ++i {
+            self._alloc.push_back(&null)
+        }
+    }
+
+    pub fn _set_alloc(self, k: AllocFn, i: usize, d: unsafe *Decl) {
+        if i < ALLOC_FN_OVERLOADS {
+            self._alloc[(k as u8 as usize) * ALLOC_FN_OVERLOADS + i] = d
+        }
+    }
+
+    /// Overload `i` of the alloc.k function `k`, or null: past the last one,
+    /// or alloc.k is not in this build (`--no-prelude`, a custom builtins
+    /// directory).
+    pub fn alloc_fn(self, k: AllocFn, i: usize = 0) -> unsafe *Decl {
+        if i >= ALLOC_FN_OVERLOADS {
+            return &null
+        }
+
+        return self._alloc[(k as u8 as usize) * ALLOC_FN_OVERLOADS + i]
+    }
+
+    /// Which alloc.k function `d` is the first overload of; COUNT for any
+    /// other declaration.
+    pub fn alloc_fn_of(self, d: unsafe *Decl) -> AllocFn {
+        if d == &null {
+            return AllocFn::COUNT
+        }
+
+        for var i: usize = 0; i < (AllocFn::COUNT as u8 as usize); ++i {
+            if self._alloc[i * ALLOC_FN_OVERLOADS] == d {
+                return ((i as u8) as AllocFn)
+            }
+        }
+
+        return AllocFn::COUNT
     }
 
     pub fn _set(self, k: WellKnownType, d: unsafe *Decl) {
@@ -1107,6 +1147,88 @@ pub class LangAttrs {
         return "destroy"
     }
 
+    /// The other allocation attributes. Each is one entry point with one
+    /// overload per row of Sema::Expand::AllocAttrTable, which names the
+    /// alloc.k function the row stands for; AllocSugarDesugar rewrites a
+    /// use to that call.
+    ///
+    ///   `@try_create T(args)`                       null instead of the OOM hook
+    ///   `@alloc T` / `@alloc(count: n) T`           typed storage, nothing constructed
+    ///   `@alloc(size: n, align: a)`                 untyped bytes
+    ///   `@alloc_zeroed(size: n, align: a)`          untyped bytes, all zero
+    ///   `@free p` / `@free(size: n, align: a) p`    storage back, no destructor
+    ///   `@resize(size: o, new_size: n, align: a) p` grow or shrink, may move
+    ///   `@try_resize(size: o, new_size: n, align: a) p`   in place only
+    pub static fn try_create() -> string {
+        return "try_create"
+    }
+
+    pub static fn alloc() -> string {
+        return "alloc"
+    }
+
+    pub static fn alloc_zeroed() -> string {
+        return "alloc_zeroed"
+    }
+
+    pub static fn free() -> string {
+        return "free"
+    }
+
+    pub static fn resize() -> string {
+        return "resize"
+    }
+
+    pub static fn try_resize() -> string {
+        return "try_resize"
+    }
+
+    /// The keyword arguments the allocation attributes take. `in: A` names
+    /// the allocator and is accepted by every one of them; the others
+    /// belong to the rows that list them (AllocAttrTable).
+    pub static fn kw_in() -> string {
+        return "in"
+    }
+
+    pub static fn kw_size() -> string {
+        return "size"
+    }
+
+    pub static fn kw_align() -> string {
+        return "align"
+    }
+
+    pub static fn kw_count() -> string {
+        return "count"
+    }
+
+    pub static fn kw_new_size() -> string {
+        return "new_size"
+    }
+
+    /// True for an attribute AllocSugarDesugar owns: the parser marks the
+    /// file (TranslationUnit::has_alloc_sugar), the dependency scan adds
+    /// alloc.k to its graph, and FeatureGateCheck explains a use no row
+    /// takes instead of calling it unsupported.
+    pub static fn is_alloc_attr(const word: string) -> bool {
+        return word == LangAttrs::create()
+            || word == LangAttrs::try_create()
+            || word == LangAttrs::destroy()
+            || word == LangAttrs::alloc()
+            || word == LangAttrs::alloc_zeroed()
+            || word == LangAttrs::free()
+            || word == LangAttrs::resize()
+            || word == LangAttrs::try_resize()
+    }
+
+    /// True when the attribute applies to nothing: `@alloc(size: n, align:
+    /// a)` and `@alloc_zeroed(...)` have no operand, and the parser must
+    /// know before it would read one. `sized` is true when the argument
+    /// list has a `size:` keyword.
+    pub static fn alloc_takes_no_operand(const word: string, sized: bool) -> bool {
+        return word == LangAttrs::alloc_zeroed() || (word == LangAttrs::alloc() && sized)
+    }
+
     /// `@cxx::new T(args)` / `@cxx::new [T; n]` / `@cxx::delete p` /
     /// `@cxx::delete [] p`: C++'s own new and delete (c-cpp-memory.mdx),
     /// parsed by ExprParse::_parse_cxx_mem_expr into CxxNewExpr / DeleteExpr.
@@ -1281,6 +1403,18 @@ pub class LangAttrs {
                 return LangAttrs::relocatable()
             } case 26 {
                 return LangAttrs::unpredictable()
+            } case 27 {
+                return LangAttrs::try_create()
+            } case 28 {
+                return LangAttrs::alloc()
+            } case 29 {
+                return LangAttrs::alloc_zeroed()
+            } case 30 {
+                return LangAttrs::free()
+            } case 31 {
+                return LangAttrs::resize()
+            } case 32 {
+                return LangAttrs::try_resize()
             } default {
                 return ""
             }
@@ -1315,6 +1449,30 @@ pub class LangAttrs {
 
         if word == LangAttrs::destroy() {
             return "destroy p"
+        }
+
+        if word == LangAttrs::try_create() {
+            return "try_create T(args)"
+        }
+
+        if word == LangAttrs::alloc() {
+            return "alloc T"
+        }
+
+        if word == LangAttrs::alloc_zeroed() {
+            return "alloc_zeroed(size: n, align: a)"
+        }
+
+        if word == LangAttrs::free() {
+            return "free p"
+        }
+
+        if word == LangAttrs::resize() {
+            return "resize(size: old, new_size: n, align: a) p"
+        }
+
+        if word == LangAttrs::try_resize() {
+            return "try_resize(size: old, new_size: n, align: a) p"
         }
 
         if word == LangAttrs::set_global_allocator() {
@@ -1426,6 +1584,10 @@ pub class LangAttrs {
         }
 
         if word == LangAttrs::destroy() {
+            return "expr"
+        }
+
+        if LangAttrs::is_alloc_attr(word) {
             return "expr"
         }
 
@@ -1543,6 +1705,30 @@ pub class LangAttrs {
             return "Destroy and free what `p` points at: sugar for `destroy(p)`"
         }
 
+        if word == LangAttrs::try_create() {
+            return "Allocate and construct a `T`, or null when the allocator fails"
+        }
+
+        if word == LangAttrs::alloc() {
+            return "Allocate storage for a `T`, or bytes, with nothing constructed"
+        }
+
+        if word == LangAttrs::alloc_zeroed() {
+            return "Allocate zeroed bytes"
+        }
+
+        if word == LangAttrs::free() {
+            return "Give storage back without running a destructor"
+        }
+
+        if word == LangAttrs::resize() {
+            return "Grow or shrink a block of bytes; the block may move"
+        }
+
+        if word == LangAttrs::try_resize() {
+            return "Grow or shrink a block of bytes in place; false when it cannot"
+        }
+
         if word == LangAttrs::set_global_allocator() {
             return "The program's global allocator is `A`; a line of its own at file scope"
         }
@@ -1567,6 +1753,109 @@ pub enum GlobalAllocFn derives u8 { Alloc = 0, Free, Resize, Realloc, AllocZeroe
 /// Lib/builtin/alloc_raw.k's default_oom both use it). SIGABRT's shell status.
 pub
 const ABORT_EXIT_CODE: i32 = 134
+
+/// The alloc.k functions (and, last, classes) the allocation attributes
+/// stand for: one per row target of Sema::Expand::AllocAttrTable, then what
+/// `@set_scoped_allocator` expands to. Bound from alloc.k's own TU
+/// (NameResolution::fill_lang_items) into WellKnownDecls, so a use needs no
+/// import and a user function of the same name cannot capture it. An entry
+/// may hold several overloads (`free_storage` takes a pointer, an
+/// Uninitialized<T> or an UninitializedSlice<T>): the call typer chooses
+/// among them by the operand's type.
+pub enum AllocFn derives u8 {
+    Create = 0,
+    CreateIn,
+    TryCreate,
+    TryCreateIn,
+    Destroy,
+    DestroyWith,
+    AllocStorage,
+    AllocIn,
+    CreateSlice,
+    CreateSliceIn,
+    FreeStorage,
+    FreeStorageWith,
+    AllocRaw,
+    AllocBytes,
+    AllocRawZeroed,
+    AllocZeroed,
+    FreeRaw,
+    FreeBytes,
+    ResizeRaw,
+    ResizeBytes,
+    ResizeRawInPlace,
+    TryResizeInPlace,
+    /// The classes `@set_scoped_allocator(A)` stands for: the guard a
+    /// function or block opens, the arena field a class or struct gets, and
+    /// the guard each of its methods opens over that field.
+    Scope,
+    ObjectArena,
+    ObjectArenaScope,
+    COUNT, ///< keep last.
+}
+
+/// How many overloads one AllocFn entry may hold.
+pub
+const ALLOC_FN_OVERLOADS: usize = 4
+
+/// The function's name as alloc.k declares it.
+pub fn alloc_fn_name(k: AllocFn) -> string {
+    match k {
+        case AllocFn::Create {
+            return "create"
+        } case AllocFn::CreateIn {
+            return "create_in"
+        } case AllocFn::TryCreate {
+            return "try_create"
+        } case AllocFn::TryCreateIn {
+            return "try_create_in"
+        } case AllocFn::Destroy {
+            return "destroy"
+        } case AllocFn::DestroyWith {
+            return "destroy_with"
+        } case AllocFn::AllocStorage {
+            return "alloc_storage"
+        } case AllocFn::AllocIn {
+            return "alloc_in"
+        } case AllocFn::CreateSlice {
+            return "create_slice"
+        } case AllocFn::CreateSliceIn {
+            return "create_slice_in"
+        } case AllocFn::FreeStorage {
+            return "free_storage"
+        } case AllocFn::FreeStorageWith {
+            return "free_storage_with"
+        } case AllocFn::AllocRaw {
+            return "alloc_raw"
+        } case AllocFn::AllocBytes {
+            return "alloc_bytes"
+        } case AllocFn::AllocRawZeroed {
+            return "alloc_raw_zeroed"
+        } case AllocFn::AllocZeroed {
+            return "alloc_zeroed"
+        } case AllocFn::FreeRaw {
+            return "free_raw"
+        } case AllocFn::FreeBytes {
+            return "free_bytes"
+        } case AllocFn::ResizeRaw {
+            return "resize_raw"
+        } case AllocFn::ResizeBytes {
+            return "resize_bytes"
+        } case AllocFn::ResizeRawInPlace {
+            return "resize_raw_in_place"
+        } case AllocFn::TryResizeInPlace {
+            return "try_resize_in_place"
+        } case AllocFn::Scope {
+            return "AllocatorScope"
+        } case AllocFn::ObjectArena {
+            return "ObjectArena"
+        } case AllocFn::ObjectArenaScope {
+            return "ObjectArenaScope"
+        } case AllocFn::COUNT {
+            return ""
+        }
+    }
+}
 
 /// Lib/builtin/base/alloc.k's names that the compiler reads.
 /// Not lang items (only create / destroy are, for the
@@ -1630,7 +1919,7 @@ pub class AllocNames {
     /// What ScopeEscapeCheck tracks: the scope guard, and the calls whose
     /// result comes from the allocator in effect.
     pub static fn scope_guard() -> string {
-        return "AllocatorScope"
+        return alloc_fn_name(AllocFn::Scope)
     }
 
     pub static fn create_slice() -> string {
@@ -1643,6 +1932,14 @@ pub class AllocNames {
 
     pub static fn resize_raw() -> string {
         return "resize_raw"
+    }
+
+    pub static fn alloc_storage() -> string {
+        return alloc_fn_name(AllocFn::AllocStorage)
+    }
+
+    pub static fn alloc_raw_zeroed() -> string {
+        return alloc_fn_name(AllocFn::AllocRawZeroed)
     }
 }
 

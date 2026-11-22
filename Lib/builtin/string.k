@@ -1517,10 +1517,14 @@ extend ParseError {
     }
 }
 
-/// Until a panicking requirement may return `Self`: the error comes back
-/// through `err`, and `string::parse` turns a null into the panic.
+/// Text to a value, in two forms that must accept the same texts:
+/// `from_str` returns null on bad input and nothing else; `from_str_reason`
+/// also writes why into `err`, and is what `string::parse` raises from.
+/// A conformer writes its parser once, as `from_str_reason`, and has
+/// `from_str` call it with a local `ParseError`.
 pub interface FromStr {
-    static fn from_str(const s: string, @inout err: ParseError) -> Self?
+    static fn from_str(const s: string) -> Self?
+    static fn from_str_reason(const s: string, @inout err: ParseError) -> Self?
 }
 
 pub interface ToString {
@@ -3926,7 +3930,7 @@ extend string {
     pub fn <T impl FromStr> parse(const self) panic(ParseError) -> T {
         var err = ParseError { at: 0, kind: ParseErrorKind::None }
 
-        var r? = T::from_str(self, &err)
+        var r? = T::from_str_reason(self, &err)
         if r? {
             return r
         }

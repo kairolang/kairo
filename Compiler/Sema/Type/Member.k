@@ -1081,6 +1081,11 @@ pub class <T: type> MemberTyping {
 
         var args: [ArgInfo]
         args.push(self.dyn()->arg_info(n->index))
+        if !self.dyn()->narrow_args(cands, &args, true, obj) {
+            self.dyn()->poison_only(n)
+            return &null
+        }
+
         var r = self.dyn()->ovl.resolve(
             cands,
             &args,
@@ -1315,6 +1320,18 @@ pub class <T: type> MemberTyping {
                 sargs.push(self.dyn()->arg_info(n->index))
                 sargs.push(self.dyn()->arg_info(value))
                 var unsafe *so = unsafe (obj as unsafe *Type)
+                // The place forms may take the nullable as it is: a proven
+                // place is read for the setters, an unproven one is left to
+                // the form that resolves.
+                self.dyn()->narrow_args(
+                    unsafe &setters,
+                    &sargs,
+                    true,
+                    so,
+                    &null,
+                    &null,
+                    false,
+                )
                 if places.size() == 0
                     || self.dyn()->ovl.any_viable(
                         unsafe &setters,
@@ -1347,6 +1364,15 @@ pub class <T: type> MemberTyping {
             var probe: [ArgInfo]
             probe.push(self.dyn()->arg_info(n->index))
             var unsafe *ro = unsafe (obj as unsafe *Type)
+            self.dyn()->narrow_args(
+                unsafe &places,
+                &probe,
+                true,
+                ro,
+                &null,
+                &null,
+                false,
+            )
             if !self.dyn()->ovl.any_viable(
                 unsafe &places,
                 &probe,
@@ -1402,6 +1428,11 @@ pub class <T: type> MemberTyping {
                                   obj:     *Type,
                                   setters: unsafe *cxx::std::vector<*Decl>,
                                   args:    unsafe *[ArgInfo]) -> unsafe *Type {
+        if !self.dyn()->narrow_args(setters, args, true, obj) {
+            self.dyn()->poison_only(n)
+            return &null
+        }
+
         var r = self.dyn()->ovl.resolve(
             setters,
             args,
@@ -2019,7 +2050,14 @@ pub class <T: type> MemberTyping {
             return bt
         }
 
-        var it = self.dyn()->type_of(n->index, usize_t)
+        // A nullable place proven non-null here indexes as its value
+        // (Compiler/Spec/Nullables.md#narrowed-reads); one not proven stays
+        // the nullable, which is no integer.
+        var it = self.dyn()->value_if_proven(
+            n->index,
+            self.dyn()->type_of(n->index, usize_t),
+        )
+
         if self.dyn()->propagate(n, n->index) {
             return &null
         }

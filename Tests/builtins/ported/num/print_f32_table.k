@@ -16,6 +16,16 @@
 
 import std::io
 
+// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+fn <T impl FromStr> reason_of(const t: string) -> ParseError {
+    try {
+        var v = t.parse<T>()
+        return ParseError { at: 0, kind: ParseErrorKind::None }
+    } catch e: ParseError {
+        return e
+    }
+}
+
 static const BITS: [u32; 20800] = [
     0x0u32, 0x1u32, 0x7FFFFFu32, 0x1820C7u32, 0x62BFB2u32, 0x807ED15Bu32,
     0x779087u32, 0x801D257Cu32, 0x6384DEu32, 0x16E482u32, 0x80534F54u32, 0x291F22u32,
@@ -3610,8 +3620,8 @@ fn main() -> i32 {
                 io::println(f"FAIL case {i}: bits {BITS[i]:#x} printed {got} / {app} / {fs}, want {want}")
             }
         } else {
-            var err = ParseError { at: 77, kind: ParseErrorKind::Trailing }
-            var r?  = f32::from_str(got, &err)
+            var r?  = f32::from_str(got)
+            var err = reason_of<f32>(got)
             var nan = (BITS[i] & 0x7FFFFFFFu32) > 0x7F800000u32
             if !(r?) || err.kind != ParseErrorKind::None || (!nan && r.to_bits() != BITS[i]) {
                 bad += 1

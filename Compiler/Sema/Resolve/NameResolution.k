@@ -106,7 +106,10 @@ import AST::Kind::PatternKind::{
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
+    AllocFn,
+    LangModules,
     WellKnownType,
+    alloc_fn_name,
     to_string,
 }
 import AST::Mixin::Annotation::{
@@ -413,7 +416,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
 
     var cur_dc: unsafe *DeclContext = &null ///< table-owning scope cursor.
     /// The declaration the innermost DeclStmt holds, while it is walked.
-    var _stmt_var: unsafe *Decl                 = &null
+    var _stmt_var: unsafe *Decl = &null
     var locals:    [LocalScope]         ///< executable-scope stack.
 
     /// `self` lexes as KwSelf, not LitIdentifier, so ASTContext::
@@ -696,7 +699,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
                 }
 
                 var group:  [unsafe *Decl]
-                var blocks: usize = 0
+                var blocks: usize          = 0
                 for var j: usize = k; j < scopes.size(); ++j {
                     var unsafe *cell = (scopes)[j]->lookup_symbol(e.name)
                     if cell == &null {
@@ -874,6 +877,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         // misses and writes nothing.
         self._bind_lang(root, WellKnownType::Create)
         self._bind_lang(root, WellKnownType::Destroy)
+        self._bind_alloc_fns(root)
         var unsafe *dsz = dyn_cast<Declarations::FunctionDecl>(
             self.sc->well_known->get(WellKnownType::DynamicSize),
         )
@@ -1035,6 +1039,41 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
     }
 
+    /// The alloc.k functions and classes the allocation attributes stand for
+    /// (AllocFn), with every overload of each. Bound only by alloc.k's own TU, so no
+    /// other builtin file's function of the same name takes a slot; the
+    /// lookup reaches alloc_raw.k's names through alloc.k's `pub import`.
+    priv fn _bind_alloc_fns(self, root: unsafe *DeclContext) {
+        var leaf = self.sc->ctx->module_leaf_imm
+        if leaf == u32::MAX
+            || self.sc->ctx->module_base.segments.size() != 3
+            || self.sc->imm_table()->get_ident(leaf) != LangModules::alloc_file() {
+            return
+        }
+
+        for var i: usize = 0; i < (AllocFn::COUNT as u8 as usize); ++i {
+            var k  = ((i as u8) as AllocFn)
+            var im = self.sc->imm_table()->find_ident(alloc_fn_name(k))
+            if im == u32::MAX {
+                continue
+            }
+
+            var r = self.sc->lookup.unqualified(root, DeclName::ident(im))
+            if !r.found() {
+                continue
+            }
+
+            var slot: usize = 0
+            for var j: usize = 0; j < r.cell->size(); ++j {
+                var unsafe *d = r.cell->get(j)
+                if d != &null {
+                    self.sc->well_known->_set_alloc(k, slot, d)
+                    slot += 1
+                }
+            }
+        }
+    }
+
     priv fn _bind_lang(self, root: unsafe *DeclContext, k: WellKnownType) {
         var spelling = to_string(k)
         var im       = self.sc->imm_table()->find_ident(spelling)
@@ -1127,7 +1166,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
         }
 
         var group: [unsafe *Decl]
-        var all_fn = true
+        var all_fn                = true
 
         for var i: usize = 0; i < n; ++i {
             var unsafe *d = e.cell->get(i)

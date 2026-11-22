@@ -10,7 +10,12 @@ struct Small {
 }
 
 extend Small impl FromStr {
-    static fn from_str(const s: string, @inout err: ParseError) -> Small? {
+    static fn from_str(const s: string) -> Small? {
+        var err = ParseError { at: 0, kind: ParseErrorKind::None }
+        return Small::from_str_reason(s, &err)
+    }
+
+    static fn from_str_reason(const s: string, @inout err: ParseError) -> Small? {
         if s.is_empty() {
             err.kind = ParseErrorKind::Empty
             return null

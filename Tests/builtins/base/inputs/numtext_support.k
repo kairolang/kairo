@@ -1,9 +1,9 @@
 /// The number-text tests' support: a seeded generator, byte-string access,
 /// failure reporting, and the conversions under test spelled as functions on
 /// byte buffers. Each of those goes through the public members only
-/// (`append_to`, `op as string`, `from_str`), so the tests exercise exactly
-/// what a program calls. A test's exit status is 0 or the number of its
-/// first failing case (capped at 250).
+/// (`append_to`, `op as string`, `from_str`, `parse`), so the tests
+/// exercise exactly what a program calls. A test's exit status is 0 or the
+/// number of its first failing case (capped at 250).
 
 import std::io::*
 
@@ -118,6 +118,21 @@ fn text(p: unsafe *const u8, n: usize) -> string {
     return s
 }
 
+/// `T::from_str(t)`, with `err` set to the reason `t.parse<T>()` raises
+/// (kind None at 0 when it accepts): the two forms of the public parser,
+/// whose agreement each case's checks of value and kind together hold.
+fn <T impl FromStr> parse_reported(const t: string, @inout err: ParseError) -> T? {
+    var r = T::from_str(t)
+    try {
+        var v = t.parse<T>()
+        err = ParseError { at: 0, kind: ParseErrorKind::None }
+    } catch e: ParseError {
+        err = e
+    }
+
+    return r
+}
+
 pub fn u8_to_text(v: u8, buf: unsafe *u8, cap: usize) -> TextRange {
     var s = string()
     v.append_to(&s)
@@ -129,7 +144,7 @@ pub fn u8_to_text(v: u8, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_u8(p: unsafe *const u8, n: usize, @inout err: ParseError) -> u8 {
-    return u8::from_str(text(p, n), &err) ?? 0
+    return parse_reported<u8>(text(p, n), &err) ?? 0
 }
 
 pub fn u16_to_text(v: u16, buf: unsafe *u8, cap: usize) -> TextRange {
@@ -143,7 +158,7 @@ pub fn u16_to_text(v: u16, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_u16(p: unsafe *const u8, n: usize, @inout err: ParseError) -> u16 {
-    return u16::from_str(text(p, n), &err) ?? 0
+    return parse_reported<u16>(text(p, n), &err) ?? 0
 }
 
 pub fn u32_to_text(v: u32, buf: unsafe *u8, cap: usize) -> TextRange {
@@ -157,7 +172,7 @@ pub fn u32_to_text(v: u32, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_u32(p: unsafe *const u8, n: usize, @inout err: ParseError) -> u32 {
-    return u32::from_str(text(p, n), &err) ?? 0
+    return parse_reported<u32>(text(p, n), &err) ?? 0
 }
 
 pub fn u64_to_text(v: u64, buf: unsafe *u8, cap: usize) -> TextRange {
@@ -171,7 +186,7 @@ pub fn u64_to_text(v: u64, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_u64(p: unsafe *const u8, n: usize, @inout err: ParseError) -> u64 {
-    return u64::from_str(text(p, n), &err) ?? 0
+    return parse_reported<u64>(text(p, n), &err) ?? 0
 }
 
 pub fn i8_to_text(v: i8, buf: unsafe *u8, cap: usize) -> TextRange {
@@ -185,7 +200,7 @@ pub fn i8_to_text(v: i8, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_i8(p: unsafe *const u8, n: usize, @inout err: ParseError) -> i8 {
-    return i8::from_str(text(p, n), &err) ?? 0
+    return parse_reported<i8>(text(p, n), &err) ?? 0
 }
 
 pub fn i16_to_text(v: i16, buf: unsafe *u8, cap: usize) -> TextRange {
@@ -199,7 +214,7 @@ pub fn i16_to_text(v: i16, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_i16(p: unsafe *const u8, n: usize, @inout err: ParseError) -> i16 {
-    return i16::from_str(text(p, n), &err) ?? 0
+    return parse_reported<i16>(text(p, n), &err) ?? 0
 }
 
 pub fn i32_to_text(v: i32, buf: unsafe *u8, cap: usize) -> TextRange {
@@ -213,7 +228,7 @@ pub fn i32_to_text(v: i32, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_i32(p: unsafe *const u8, n: usize, @inout err: ParseError) -> i32 {
-    return i32::from_str(text(p, n), &err) ?? 0
+    return parse_reported<i32>(text(p, n), &err) ?? 0
 }
 
 pub fn i64_to_text(v: i64, buf: unsafe *u8, cap: usize) -> TextRange {
@@ -227,7 +242,7 @@ pub fn i64_to_text(v: i64, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_i64(p: unsafe *const u8, n: usize, @inout err: ParseError) -> i64 {
-    return i64::from_str(text(p, n), &err) ?? 0
+    return parse_reported<i64>(text(p, n), &err) ?? 0
 }
 
 pub fn usize_to_text(v: usize, buf: unsafe *u8, cap: usize) -> TextRange {
@@ -241,7 +256,7 @@ pub fn usize_to_text(v: usize, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_usize(p: unsafe *const u8, n: usize, @inout err: ParseError) -> usize {
-    return usize::from_str(text(p, n), &err) ?? 0
+    return parse_reported<usize>(text(p, n), &err) ?? 0
 }
 
 pub fn isize_to_text(v: isize, buf: unsafe *u8, cap: usize) -> TextRange {
@@ -255,7 +270,7 @@ pub fn isize_to_text(v: isize, buf: unsafe *u8, cap: usize) -> TextRange {
 }
 
 pub fn parse_isize(p: unsafe *const u8, n: usize, @inout err: ParseError) -> isize {
-    return isize::from_str(text(p, n), &err) ?? 0
+    return parse_reported<isize>(text(p, n), &err) ?? 0
 }
 
 pub fn f64_to_text(v: f64, buf: unsafe *u8) -> usize {
@@ -268,7 +283,7 @@ pub fn f64_to_text(v: f64, buf: unsafe *u8) -> usize {
 }
 
 pub fn parse_f64(p: unsafe *const u8, n: usize, @inout err: ParseError) -> f64 {
-    return f64::from_str(text(p, n), &err) ?? 0.0
+    return parse_reported<f64>(text(p, n), &err) ?? 0.0
 }
 
 pub fn f32_to_text(v: f32, buf: unsafe *u8) -> usize {
@@ -281,7 +296,7 @@ pub fn f32_to_text(v: f32, buf: unsafe *u8) -> usize {
 }
 
 pub fn parse_f32(p: unsafe *const u8, n: usize, @inout err: ParseError) -> f32 {
-    return f32::from_str(text(p, n), &err) ?? 0.0
+    return parse_reported<f32>(text(p, n), &err) ?? 0.0
 }
 
 pub fn char_to_utf8(c: char, buf: unsafe *u8) -> usize {
@@ -294,11 +309,11 @@ pub fn char_to_utf8(c: char, buf: unsafe *u8) -> usize {
 }
 
 pub fn parse_char(p: unsafe *const u8, n: usize, @inout err: ParseError) -> char {
-    return char::from_str(text(p, n), &err) ?? '\x00'
+    return parse_reported<char>(text(p, n), &err) ?? '\x00'
 }
 
 pub fn parse_bool(p: unsafe *const u8, n: usize, @inout err: ParseError) -> bool {
-    return bool::from_str(text(p, n), &err) ?? false
+    return parse_reported<bool>(text(p, n), &err) ?? false
 }
 
 /// The public parser has one path; the tests' "exact" calls take it too.

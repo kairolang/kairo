@@ -13,6 +13,16 @@
 
 import std::io
 
+// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+fn <T impl FromStr> reason_of(const t: string) -> ParseError {
+    try {
+        var v = t.parse<T>()
+        return ParseError { at: 0, kind: ParseErrorKind::None }
+    } catch e: ParseError {
+        return e
+    }
+}
+
 static CODE: i32 = 0
 static NO:   i32 = 0
 
@@ -64,8 +74,8 @@ fn do_i8(v: i8) {
     var app  = string()
     v.append_to(&app)
     chk(v as string, app, f"{v}", want, "i8")
-    var err = ParseError { at: 9, kind: ParseErrorKind::Trailing }
-    var r?  = i8::from_str(want, &err)
+    var r?  = i8::from_str(want)
+    var err = reason_of<i8>(want)
     NO += 1
     if !(r?) || r != v || err.kind != ParseErrorKind::None {
         fail(f"i8 '{want}' did not read back")
@@ -77,8 +87,8 @@ fn do_u8(v: u8) {
     var app  = string()
     v.append_to(&app)
     chk(v as string, app, f"{v}", want, "u8")
-    var err = ParseError { at: 9, kind: ParseErrorKind::Trailing }
-    var r?  = u8::from_str(want, &err)
+    var r?  = u8::from_str(want)
+    var err = reason_of<u8>(want)
     NO += 1
     if !(r?) || r != v || err.kind != ParseErrorKind::None {
         fail(f"u8 '{want}' did not read back")
@@ -90,8 +100,8 @@ fn do_i16(v: i16) {
     var app  = string()
     v.append_to(&app)
     chk(v as string, app, f"{v}", want, "i16")
-    var err = ParseError { at: 9, kind: ParseErrorKind::Trailing }
-    var r?  = i16::from_str(want, &err)
+    var r?  = i16::from_str(want)
+    var err = reason_of<i16>(want)
     NO += 1
     if !(r?) || r != v || err.kind != ParseErrorKind::None {
         fail(f"i16 '{want}' did not read back")
@@ -103,8 +113,8 @@ fn do_u16(v: u16) {
     var app  = string()
     v.append_to(&app)
     chk(v as string, app, f"{v}", want, "u16")
-    var err = ParseError { at: 9, kind: ParseErrorKind::Trailing }
-    var r?  = u16::from_str(want, &err)
+    var r?  = u16::from_str(want)
+    var err = reason_of<u16>(want)
     NO += 1
     if !(r?) || r != v || err.kind != ParseErrorKind::None {
         fail(f"u16 '{want}' did not read back")
@@ -116,8 +126,8 @@ fn do_i32(v: i32) {
     var app  = string()
     v.append_to(&app)
     chk(v as string, app, f"{v}", want, "i32")
-    var err = ParseError { at: 9, kind: ParseErrorKind::Trailing }
-    var r?  = i32::from_str(want, &err)
+    var r?  = i32::from_str(want)
+    var err = reason_of<i32>(want)
     NO += 1
     if !(r?) || r != v || err.kind != ParseErrorKind::None {
         fail(f"i32 '{want}' did not read back")
@@ -129,8 +139,8 @@ fn do_u32(v: u32) {
     var app  = string()
     v.append_to(&app)
     chk(v as string, app, f"{v}", want, "u32")
-    var err = ParseError { at: 9, kind: ParseErrorKind::Trailing }
-    var r?  = u32::from_str(want, &err)
+    var r?  = u32::from_str(want)
+    var err = reason_of<u32>(want)
     NO += 1
     if !(r?) || r != v || err.kind != ParseErrorKind::None {
         fail(f"u32 '{want}' did not read back")
@@ -142,8 +152,8 @@ fn do_i64(v: i64) {
     var app  = string()
     v.append_to(&app)
     chk(v as string, app, f"{v}", want, "i64")
-    var err = ParseError { at: 9, kind: ParseErrorKind::Trailing }
-    var r?  = i64::from_str(want, &err)
+    var r?  = i64::from_str(want)
+    var err = reason_of<i64>(want)
     NO += 1
     if !(r?) || r != v || err.kind != ParseErrorKind::None {
         fail(f"i64 '{want}' did not read back")
@@ -153,7 +163,7 @@ fn do_i64(v: i64) {
     var app2 = string()
     w.append_to(&app2)
     chk(w as string, app2, f"{w}", want, "isize")
-    var r2? = isize::from_str(want, &err)
+    var r2? = isize::from_str(want)
     NO += 1
     if !(r2?) || r2 != w {
         fail(f"isize '{want}' did not read back")
@@ -165,8 +175,8 @@ fn do_u64(v: u64) {
     var app  = string()
     v.append_to(&app)
     chk(v as string, app, f"{v}", want, "u64")
-    var err = ParseError { at: 9, kind: ParseErrorKind::Trailing }
-    var r?  = u64::from_str(want, &err)
+    var r?  = u64::from_str(want)
+    var err = reason_of<u64>(want)
     NO += 1
     if !(r?) || r != v || err.kind != ParseErrorKind::None {
         fail(f"u64 '{want}' did not read back")
@@ -176,7 +186,7 @@ fn do_u64(v: u64) {
     var app2 = string()
     w.append_to(&app2)
     chk(w as string, app2, f"{w}", want, "usize")
-    var r2? = usize::from_str(want, &err)
+    var r2? = usize::from_str(want)
     NO += 1
     if !(r2?) || r2 != w {
         fail(f"usize '{want}' did not read back")

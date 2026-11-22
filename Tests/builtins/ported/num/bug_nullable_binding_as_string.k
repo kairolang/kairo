@@ -8,14 +8,13 @@
 import std::io
 
 fn main() -> i32 {
-    var err = ParseError { at: 0, kind: ParseErrorKind::None }
-    var r?  = i32::from_str("12", &err)
+    var r?  = i32::from_str("12")
     if r? {
         var by = r as string
         io::println(by)
     }
 
-    var f? = f64::from_str("2.5", &err)
+    var f? = f64::from_str("2.5")
     if f? {
         var by = f as string
         io::println(by)

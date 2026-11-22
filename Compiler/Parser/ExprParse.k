@@ -1039,15 +1039,17 @@ pub class <T: type> ExprParse {
         self.dyn()->advance() // consume the name
         var head = at_range | name_tok.range
 
-        // `@create` / `@destroy` are sugar for alloc.k's create / destroy
+        // The allocation attributes stand for alloc.k's functions
         // (AllocSugarDesugar rewrites them before N). A generic form,
-        // `@create<T>(args)` / `@destroy<T>(p)`, is an error (the attribute
-        // takes no generic arguments) and parses AS the library call: the operand is `create<T>(args)`,
-        // its callee spelled with the attribute's own token. Without this the
-        // `<` would be read as the operand and fail as "expected an
-        // expression".
-        var attr_nm = self.dyn()->ctx->get_spelling(name_tok)
-        var is_alloc = attr_nm == LangAttrs::create() || attr_nm == LangAttrs::destroy()
+        // `@create<T>(args)` / `@destroy<T>(p)`, is an error (an attribute
+        // takes no generic arguments). For `@create` and `@destroy`, which
+        // share their function's name, it parses AS the library call: the
+        // operand is `create<T>(args)`, its callee spelled with the
+        // attribute's own token. Without this the `<` would be read as the
+        // operand and fail as "expected an expression".
+        var attr_nm  = self.dyn()->ctx->get_spelling(name_tok)
+        var is_alloc = LangAttrs::is_alloc_attr(attr_nm)
+        var is_call = attr_nm == LangAttrs::create() || attr_nm == LangAttrs::destroy()
         if is_alloc {
             self.dyn()->tu->has_alloc_sugar = true
         }
@@ -1077,7 +1079,12 @@ pub class <T: type> ExprParse {
                 has_ty = true
             }
 
+            // The type goes after the attribute where the attribute takes
+            // one; `@destroy`, `@free` and the byte forms take none.
             var is_create = attr_nm == LangAttrs::create()
+            var names_ty = is_create
+                || attr_nm == LangAttrs::try_create()
+                || attr_nm == LangAttrs::alloc()
             var gb = self.dyn()->diag->report(
                 DiagID::S001E,
                 lt_range.start,
@@ -1085,20 +1092,64 @@ pub class <T: type> ExprParse {
             )
 
             gb.first(spec_range)
-            if is_create && has_ty {
+            if names_ty && has_ty {
                 gb.fix(
                     spec_range,
                     f" {ty_text}",
-                    f"write '@create {ty_text}(args)'",
+                    (if (attr_nm == LangAttrs::alloc()) => (f"write '@{attr_nm} {ty_text}'") else => f"write '@{attr_nm} {ty_text}(args)'"),
                 )
-            } else if !is_create {
+            } else if attr_nm == LangAttrs::destroy() {
                 gb.remove(
                     spec_range,
                     "'@destroy' infers the type from its pointer: write '@destroy(p)'",
                 )
+            } else if !names_ty {
+                gb.remove(
+                    spec_range,
+                    f"'@{attr_nm}' takes its type from its operand",
+                )
             }
 
             gb.emit()
+
+            // Only `@create` / `@destroy` have a call to stand in for the
+            // rejected form; the rest is skipped to the end of its operand.
+            if !is_call {
+                var skip_end = spec_range
+                if self.dyn()->check(TokenKind::OpLParen) {
+                    var sl = self.dyn()->current_ptr()->range
+                    self.dyn()->advance(T::SkipNL::After)
+                    self.dyn()->nl_push()
+                    var sargs: kairo::std::StackBuf<*Expr, 8>
+                    if !self.dyn()->check(TokenKind::OpRParen) {
+                        self._parse_call_args(&sargs, sl)
+                    }
+
+                    self.dyn()->nl_pop()
+                    if self.dyn()->check(TokenKind::OpRParen) {
+                        skip_end = self.dyn()->current_ptr()->range
+                        self.dyn()->advance_raw()
+                    }
+                }
+
+                var sends = self.dyn()->is_eof()
+                    || self.dyn()->_is_terminator_tok(self.dyn()->current_ptr())
+                    || self.dyn()->check(TokenKind::OpRParen)
+                    || self.dyn()->check(TokenKind::OpRSquare)
+                    || self.dyn()->check(TokenKind::OpRBrace)
+                    || self.dyn()->check(TokenKind::OpComma)
+                if !sends {
+                    var unsafe *sop = self._parse_unary_expr(stop)
+                    if sop != &null {
+                        skip_end = sop->range
+                    }
+                }
+
+                return Expressions::AttributedExpr::create_error(
+                    self.dyn()->ctx,
+                    head | skip_end,
+                )
+            }
 
             callee->generic_args.from_buf(
                 gargs.data(),
@@ -1184,6 +1235,22 @@ pub class <T: type> ExprParse {
         // Nothing to apply to (`var b = @create`, `f(@create)`): said here,
         // naming the attribute. The operand parser's own "expected
         // expression, found ')'" points past it, and its recovery cascades.
+        // `@alloc(size: n, align: a)` and `@alloc_zeroed(...)` apply to
+        // nothing: what follows belongs to the enclosing expression
+        // (`@alloc(size: n, align: a) as unsafe *Header`).
+        var sized = false
+        for var ai: u32 = 0; ai < args.size(); ++ai {
+            if args[ai] != &null
+                && isa<Expressions::NamedArgExpr>(args[ai])
+                && self.dyn()->ctx->get_spelling(
+                    cast<Expressions::NamedArgExpr>(args[ai])->name,
+                ) == LangAttrs::kw_size() {
+                sized = true
+            }
+        }
+
+        var bare = is_alloc && has_args && LangAttrs::alloc_takes_no_operand(attr_nm, sized)
+
         var operand: unsafe *Expr = &null
         var ends = self.dyn()->is_eof()
             || self.dyn()->_is_terminator_tok(self.dyn()->current_ptr())
@@ -1191,20 +1258,40 @@ pub class <T: type> ExprParse {
             || self.dyn()->check(TokenKind::OpRSquare)
             || self.dyn()->check(TokenKind::OpRBrace)
             || self.dyn()->check(TokenKind::OpComma)
-        if !ends {
+        if !ends && !bare {
             operand = self._parse_unary_expr(stop)
         }
 
-        // `@destroy(p)`: the parenthesized spelling of `@destroy p`. The one
-        // argument is the operand; there is no attribute argument list.
+        // `@destroy(p)` / `@free(p)`: the parenthesized spelling of
+        // `@destroy p` / `@free p`. The one argument is the operand; there
+        // is no attribute argument list. A keyword argument is never the
+        // operand (`@destroy(in: A)`).
         if operand == &null
             && is_alloc
-            && attr_nm == LangAttrs::destroy()
+            && (attr_nm == LangAttrs::destroy() || attr_nm == LangAttrs::free())
             && has_args
-            && args.size() == 1 {
+            && args.size() == 1
+            && args[0] != &null
+            && !isa<Expressions::NamedArgExpr>(args[0]) {
             operand  = args[0]
             has_args = false
             args.clear()
+        }
+
+        // An allocation attribute with arguments and nothing after them is
+        // kept whole: either it takes no operand, or FeatureGateCheck says
+        // which form its arguments are closest to.
+        if operand == &null && is_alloc && has_args {
+            var be = Expressions::AttributedExpr::create(
+                self.dyn()->ctx,
+                head,
+                name_tok,
+                &null,
+            )
+
+            be->has_args = true
+            be->args.from_buf(args.data(), args.size(), self.dyn()->ctx)
+            return be
         }
 
         if operand == &null {
@@ -2839,8 +2926,10 @@ pub class <T: type> ExprParse {
                 return
             }
 
-            // check for named argument: ident `:` expr (but not ident `::`)
-            if self.dyn()->check(TokenKind::LitIdentifier)
+            // check for named argument: ident `:` expr (but not ident `::`).
+            // `in` is a keyword and also an argument name (`@create(in: A)
+            // T()`); no expression starts with `in :`.
+            if (self.dyn()->check(TokenKind::LitIdentifier) || self.dyn()->check(TokenKind::KwIn))
                 && self.dyn()->check_peek(TokenKind::OpColon)
                 && !self.dyn()->check_peek(TokenKind::OpColonColon) {
                 var name_ptr   = self.dyn()->current_ptr()

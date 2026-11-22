@@ -30,8 +30,7 @@ fn main() -> i32 {
                 continue
             }
 
-            var err = ParseError { at: 0, kind: ParseErrorKind::None }
-            var n?  = i32::from_str(t, &err)
+            var n?  = i32::from_str(t)
             if n? {
                 add_score(&scores, name, n)
             } else {

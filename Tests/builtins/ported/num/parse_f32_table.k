@@ -13,6 +13,16 @@
 
 import std::io
 
+// The reason `t.parse<T>()` raises: kind None at 0 when it accepts `t`.
+fn <T impl FromStr> reason_of(const t: string) -> ParseError {
+    try {
+        var v = t.parse<T>()
+        return ParseError { at: 0, kind: ParseErrorKind::None }
+    } catch e: ParseError {
+        return e
+    }
+}
+
 static const WANT: [u32; 24208] = [
     0x712F75AEu32, 0x712F75AEu32, 0x712F75ADu32, 0xCDC342F2u32, 0x4DC342F3u32, 0x4DC342F2u32,
     0x731198F8u32, 0x731198F8u32, 0xF31198F7u32, 0x558D3186u32, 0x558D3187u32, 0x558D3186u32,
@@ -4412,8 +4422,8 @@ fn main() -> i32 {
         }
 
         var t   = blob[off..end]
-        var err = ParseError { at: 77, kind: ParseErrorKind::Trailing }
-        var r?  = f32::from_str(t, &err)
+        var r?  = f32::from_str(t)
+        var err = reason_of<f32>(t)
         var want = WANT[i]
         var ok   = false
         if want == 0xFFFFFFFFu32 {

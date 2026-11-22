@@ -62,14 +62,13 @@ fn text_to_u64(digits: u64) {
     var v = integers(digits)
     var text: [string]
     for var i: usize = 0; i < COUNT as usize; i += 1 { text.push(v[i] as string) }
-    var err = ParseError { at: 0, kind: ParseErrorKind::None }
     bench_begin(COUNT * PASSES)
     while bench_next() {
         var acc: u64 = 0
         bench_tic()
         for var p: u64 = 0; p < PASSES; p += 1 {
             unsafe { bench_sink_ptr(&text[0] as unsafe *const void) }
-            for var i: usize = 0; i < COUNT as usize; i += 1 { acc += u64::from_str(text[i], &err) ?? 0 }
+            for var i: usize = 0; i < COUNT as usize; i += 1 { acc += u64::from_str(text[i]) ?? 0 }
         }
         bench_toc(acc)
     }
@@ -98,7 +97,6 @@ fn text_to_f64() {
     var v = doubles()
     var text: [string]
     for var i: usize = 0; i < COUNT as usize; i += 1 { text.push(v[i] as string) }
-    var err = ParseError { at: 0, kind: ParseErrorKind::None }
     bench_begin(COUNT * PASSES)
     while bench_next() {
         var acc: u64 = 0
@@ -106,7 +104,7 @@ fn text_to_f64() {
         for var p: u64 = 0; p < PASSES; p += 1 {
             unsafe { bench_sink_ptr(&text[0] as unsafe *const void) }
             for var i: usize = 0; i < COUNT as usize; i += 1 {
-                acc += (f64::from_str(text[i], &err) ?? 0.0).to_bits()
+                acc += (f64::from_str(text[i]) ?? 0.0).to_bits()
             }
         }
         bench_toc(acc)

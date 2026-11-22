@@ -948,12 +948,37 @@ pub class <T: type> OperatorTyping {
             rcv = canon_unqual(rcv)
         }
 
+        if view != &null || hop.conv != &null {
+            rcv = if (view != &null) => (view) else => hop.target
+        }
+
+        // A nullable operand proven non-null here is passed as its value
+        // where only that fits, as a call's argument is (CallTyping::
+        // narrow_args): `x in v` after `if x?`. Done before either check
+        // below asks whether a candidate takes the operands. Equality, `===`
+        // and `??` take the nullable as it is (`a == 5` is false on a null
+        // `a`), so an unproven operand there is no read.
+        var takes_nullable = self._is_equality(k0)
+            || k0 == TokenKind::OpEqualEqualEqual
+            || k0 == TokenKind::OpQuestionQuestion
+        if !takes_nullable
+            && !self.dyn()->narrow_args(
+                unsafe &cands,
+                &margs,
+                true,
+                rcv,
+                unsafe &frees,
+                &fargs,
+            ) {
+            self.dyn()->poison_only(n)
+            return &null
+        }
+
         // The operator of a conversion's result (or of an array's view) is
         // used when it takes these operands, and is otherwise as absent as
         // it was: the caller's fallbacks and its "no operator" error stay
         // the type's.
         if view != &null || hop.conv != &null {
-            rcv = if (view != &null) => (view) else => hop.target
             if !self.dyn()->ovl.any_viable(
                 &cands,
                 &margs,

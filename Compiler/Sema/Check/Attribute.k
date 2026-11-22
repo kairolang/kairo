@@ -83,13 +83,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    FieldDecl,
-    FunctionDecl,
-    ProcedureMacroDecl,
-    StructDecl,
-    UnionDecl,
-    VariableDecl,
+    ClassDecl, FieldDecl, FunctionDecl, ProcedureMacroDecl, StructDecl, UnionDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -201,7 +195,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
                 break
             }
 
-            var d = self._edit_distance(nm, k)
+            var d = AttributeCheck::edit_distance(nm, k)
             if best.size() == 0 || d < best_d {
                 best   = k.copy()
                 best_d = d
@@ -221,8 +215,9 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     }
 
     /// Two-row Levenshtein (Command::_edit_distance); runs only on a name
-    /// that is already an error.
-    priv fn _edit_distance(self, const a: string, const b: string) -> usize {
+    /// that is already an error. FeatureGateCheck reads it for an
+    /// allocation attribute's keyword.
+    pub static fn edit_distance(const a: string, const b: string) -> usize {
         var n = a.size()
         var m = b.size()
         if n == 0 {
