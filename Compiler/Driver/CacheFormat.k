@@ -24,7 +24,7 @@
 /// and by any change that alters emitted objects without a version bump
 /// (Compiler/Spec/Incremental.md#development-builds).
 pub
-const CACHE_SCHEMA: u32 = 2
+const CACHE_SCHEMA: u32 = 3
 
 /// Bumped by any change to the incremental Sema manifest or record format,
 /// or to what the hit decision compares. 3: f.env keys the cache-root

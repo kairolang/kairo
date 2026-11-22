@@ -18,7 +18,7 @@ pub fn first() -> i32 { return 1 }
 // RUN: printf 'pub fn second() -> i32 { return 2 }\n' > %t.d/second.k
 // The first compile creates the store for this compiler and flags.
 // RUN: %kairo %s -c -o %t.d/a.o --cache-dir %t.c
-// RUN: O=$(echo %t.c/kairo-cache-v2/*/objects); test -d "$O"; echo "$O" > %t.d/objects
+// RUN: O=$(echo %t.c/kairo-cache-v3/*/objects); test -d "$O"; echo "$O" > %t.d/objects
 // RUN: ls "$(cat %t.d/objects)" | wc -l > %t.d/before
 // RUN: python3 %S/inputs/library_cache_cap/seed.py file "$(cat %t.d/objects)"
 // RUN: ls "$(cat %t.d/objects)" | grep -c '^fake' | grep -x 3 > /dev/null
