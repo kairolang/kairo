@@ -47,7 +47,7 @@ fn headless() {
 // DIAG-NEXT: create_destroy_misuse.k:19:22: note [SC364N]: this is the operand
 // DIAG: create_destroy_misuse.k:20:14: error [SC364E]: '@create' allocates and constructs one object
 // DIAG-NEXT: create_destroy_misuse.k:20:22: note [SC364N]: this is the operand
-// DIAG: create_destroy_misuse.k:21:14: error [SC364E]: '@create' takes no attribute arguments: the type and its constructor arguments follow it, '@create T(args)' or '@create T { field: value }'
+// DIAG: create_destroy_misuse.k:21:14: error [SC364E]: '@create' takes one attribute argument, the allocator by keyword ('@create(in: A) T(args)'): the type and its constructor arguments follow it, '@create T(args)' or '@create T { field: value }'
 // DIAG: create_destroy_misuse.k:22:5: error [SC364E]: '@destroy' takes one pointer: '@destroy p' or '@destroy(p)'
 // DIAG: create_destroy_misuse.k:32:14: error [SC364E]: '@create' needs the type it allocates: write '@create T { field: value }'
 // DIAG-NEXT: create_destroy_misuse.k:32:22: note [SC364N]: this is the operand

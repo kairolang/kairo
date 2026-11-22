@@ -51,7 +51,7 @@ fn good(p: *Box, q: *Box, r: *Box, s: *Box) {
 // DIAG-NEXT: alloc_attr_operand.k:23:14: note [SC364N]: the one argument it takes is the allocator, by keyword: '@destroy' with 'in: A'
 // DIAG: alloc_attr_operand.k:24:26: error [SC365E]: '@try_create' takes keyword arguments only: it is written '@try_create T(args)' or '@try_create T { field: value }'
 // DIAG-NEXT: fix-it:"{{.*}}alloc_attr_operand.k":{24:26-24:26}:"in: "
-// DIAG: alloc_attr_operand.k:25:14: error [SC364E]: '@create' takes no attribute arguments: the type and its constructor arguments follow it, '@create T(args)' or '@create T { field: value }'
+// DIAG: alloc_attr_operand.k:25:14: error [SC364E]: '@create' takes one attribute argument, the allocator by keyword ('@create(in: A) T(args)'): the type and its constructor arguments follow it, '@create T(args)' or '@create T { field: value }'
 // DIAG-NEXT: fix-it:"{{.*}}alloc_attr_operand.k":{25:22-25:22}:"in: "
 // DIAG-NEXT: alloc_attr_operand.k:25:22: note [SC364N]: the one argument it takes is the allocator, by keyword: '@create' with 'in: A'
 // DIAG: alloc_attr_operand.k:26:5: error [SC364E]: '@free' is written '@free p' or '@free(size: n, align: a) p'

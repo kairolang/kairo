@@ -113,22 +113,52 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,    EnumDecl,         EvalBlockDecl, ExtensionDecl, FFIBlockDecl, FieldDecl,
-    FunctionDecl, GenericParamDecl, InterfaceDecl, ParamDecl,     StructDecl,   TestDecl,
-    UnionDecl,    VariableDecl,
+    ClassDecl,
+    EnumDecl,
+    EvalBlockDecl,
+    ExtensionDecl,
+    FFIBlockDecl,
+    FieldDecl,
+    FunctionDecl,
+    GenericParamDecl,
+    InterfaceDecl,
+    ParamDecl,
+    StructDecl,
+    TestDecl,
+    UnionDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
-    AlignOfExpr, AnonInitializerExpr, AttributedExpr, CallExpr, ClosureExpr, NamedInitializerExpr,
-    SizeOfExpr,  SpawnExpr,           ThreadExpr,
+    AlignOfExpr,
+    AnonInitializerExpr,
+    AttributedExpr,
+    CallExpr,
+    ClosureExpr,
+    NamedInitializerExpr,
+    SizeOfExpr,
+    SpawnExpr,
+    ThreadExpr,
 }
 import AST::Node::PrimaryExpressions::{
-    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
-    IntegerLiteralExpr, NamedIdentExpr, StringLiteralExpr,
+    BooleanLiteralExpr,
+    ChainExpr,
+    CharacterLiteralExpr,
+    FloatingLiteralExpr,
+    IntegerLiteralExpr,
+    NamedIdentExpr,
+    StringLiteralExpr,
 }
 import AST::Node::Statements::{
-    ConditionalStmt,       ContextBindingStmt, DeclStmt, DestructureKind,
-    DestructuringDeclStmt, EvalBlockStmt,      IterKind, JumpIntrinsicStmt,
-    LabelIntrinsicStmt,    RangedForStmt,
+    ConditionalStmt,
+    ContextBindingStmt,
+    DeclStmt,
+    DestructureKind,
+    DestructuringDeclStmt,
+    EvalBlockStmt,
+    IterKind,
+    JumpIntrinsicStmt,
+    LabelIntrinsicStmt,
+    RangedForStmt,
 }
 import AST::Node::Types::{
     ChainType,
@@ -1056,7 +1086,7 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
         if u.attr == AllocAttr::Create || u.attr == AllocAttr::Destroy {
             var text = q.copy() + " takes one pointer: '@destroy p' or '@destroy(p)'"
             if u.attr == AllocAttr::Create {
-                text = q.copy() + " takes no attribute arguments: the type and its constructor arguments follow it, '@create T(args)' or '@create T { field: value }'"
+                text = q.copy() + " takes one attribute argument, the allocator by keyword ('@create(in: A) T(args)'): the type and its constructor arguments follow it, '@create T(args)' or '@create T { field: value }'"
             }
 
             var b = self.sc->diag->report(DiagID::SC364E, at.start, text)
