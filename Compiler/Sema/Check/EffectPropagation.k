@@ -91,8 +91,14 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    AssignOperatorExpr, BinaryOperatorExpr, CallExpr, ClosureExpr, SubscriptExpr, TryCatchExpr,
-    TypeCastExpr,       UnaryOperatorExpr,
+    AssignOperatorExpr,
+    BinaryOperatorExpr,
+    CallExpr,
+    ClosureExpr,
+    SubscriptExpr,
+    TryCatchExpr,
+    TypeCastExpr,
+    UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -742,7 +748,36 @@ pub fn panic_bind_call(tu:   unsafe *TypeUtil,
         return true
     }
 
-    if owner != &null && decl_generic_params(owner).size() > 0 {
+    if owner != &null && isa<Declarations::ExtensionDecl>(owner) {
+        // A generic extension's parameters are those its target names
+        // (`extend <K, V> HashMap<K, V>`): read off the receiver's record
+        // for that target, which no record's pattern is the extension for.
+        var unsafe *ext              = cast<Declarations::ExtensionDecl>(owner)
+        var        tgt: unsafe *Type = &null
+        if ext->target != &null && ext->target->canonical != &null {
+            tgt = canon_unqual(ext->target->canonical)
+        }
+
+        if tgt != &null && isa<RecordType>(tgt) && decl_generic_params(owner).size() > 0 {
+            var unsafe *td              = tu->record_decl(tgt)
+            var        r:  unsafe *Type = &null
+            if td != &null {
+                r = panic_base_at(
+                    tu,
+                    panic_recv_value(tu, recv),
+                    NameLookup::representative(tu->pattern_of(td)),
+                    0,
+                )
+            }
+
+            if r != &null && isa<RecordType>(r) {
+                d->bind_extension_of(
+                    unsafe (f as unsafe *Decl),
+                    cast<RecordType>(r),
+                )
+            }
+        }
+    } else if owner != &null && decl_generic_params(owner).size() > 0 {
         var unsafe *r = panic_base_at(tu, panic_recv_value(tu, recv), owner, 0)
         if r != &null {
             d->bind_from_record(r)
@@ -950,7 +985,7 @@ pub fn overridden_at(tu:       unsafe *TypeUtil,
     var nm = if (m->is_operator) => (OperatorFacts::symbol(m))
              else => tu->decl_name(unsafe (m as unsafe *Decl))
     var seen: [unsafe *Decl]
-    var todo = cxx::std::vector<unsafe *Type>()
+    var todo                 = cxx::std::vector<unsafe *Type>()
     for var i: usize = 0; i < cd->derives_list.size(); ++i {
         var unsafe *e = cd->derives_list.get(i)
         if e == &null || e->base == &null || e->base->canonical == &null {
@@ -1264,7 +1299,7 @@ pub class PanicWalk derives RecursiveASTVisitor<PanicWalk> {
     priv var _arm_decl: [unsafe *Decl]
     priv var _arm_try:  [usize]
     priv var _arm_bare: [u8]
-    priv var _depth:    u32                            = 0
+    priv var _depth:    u32            = 0
     /// What the call being recorded is written as (PanicSite::op_node,
     /// via_for); set around one _call.
     priv var _op_node: unsafe *Expr = &null
@@ -1861,8 +1896,8 @@ pub class EffectCollect derives RecursiveASTVisitor<EffectCollect> {
 /// The build-wide table: every inferable body of the graph, solved at once.
 pub class EffectTable {
     pub var entries: [EffectEntry]
-    pub var solved:  bool                          = false
-    pub var rounds:  u32                           = 0
+    pub var solved:  bool          = false
+    pub var rounds:  u32           = 0
 
     fn EffectTable(self) { }
 
