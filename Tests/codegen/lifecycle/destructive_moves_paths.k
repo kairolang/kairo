@@ -357,7 +357,7 @@ fn main() -> i32 {
 // CXX-NOT: cleanup
 // CXX: static_cast< ::{{.*}}::Res &&>(__k_s_a.v)
 // CXX-LABEL: give(bool c) noexcept {
-// CXX: return(__k_s_a.live = false, static_cast< ::{{.*}}::Res &&>(__k_s_a.s.v));
+// CXX: return static_cast< ::{{.*}}::Res &&>(__k_s_a.v);
 // CXX-LABEL: make() noexcept {
 // CXX: ::{{.*}}::Res a = ::{{.*}}::Res(13);
 // CXX-LABEL: void assign_dead() noexcept {
@@ -370,7 +370,7 @@ fn main() -> i32 {
 // CXX-LABEL: void named_arg() noexcept {
 // CXX: ::__kairo_ulf< ::{{.*}}::Res> __k_s_a {
 // CXX-LABEL: ended_or_given(bool c) noexcept {
-// CXX: return(__k_s_a.live = false, static_cast< ::{{.*}}::Res &&>(__k_s_a.s.v));
+// CXX: return static_cast< ::{{.*}}::Res &&>(__k_s_a.v);
 // CXX-LABEL: void konst() noexcept {
 // CXX-NOT: __kairo_ul
 // CXX: }

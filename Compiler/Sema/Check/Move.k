@@ -1114,6 +1114,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
     /// Finally bodies being walked: a panic met inside one does not walk
     /// the pending bodies again, its own among them.
     priv var _fin_depth: usize = 0
+    /// The local a `return` being left returns by a disarmed move
+    /// (_return_value), null outside one: at that return's exits the
+    /// local is moved, though no mark says so.
+    priv var _returning: unsafe *Decl = &null
     /// Why no local of the body being walked may have a move disarmed
     /// ("" when they may): a constructor (CtorInitLowering may carry a local
     /// across its split as a slot), an `eval` or constexpr function (the
@@ -1614,6 +1618,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         }
 
         self._exit(MOVE_ON_RETURN)
+        self._returning = &null
         self._settle_locals(&null)
         var left = move(self._out)
         self._fn          = saved_fn
@@ -1726,7 +1731,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self._return_value(v)
             self._run_finallys_to(0)
             self._exit(kind)
-            self._st.dead = true
+            self._returning = &null
+            self._st.dead   = true
             return
         }
 
@@ -1742,7 +1748,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self._return_value(v)
             self._run_finallys_to(0)
             self._exit(kind)
-            self._st.dead = true
+            self._returning = &null
+            self._st.dead   = true
             return
         }
 
@@ -1753,7 +1760,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._return_value(v)
         self._run_finallys_to(0)
         self._exit(if (nul) => (MOVE_ON_NON_NULL) else => MOVE_ON_TRUE)
-        self._st = f
+        self._returning = &null
+        self._st        = f
         self._run_finallys_to(0)
         self._exit(if (nul) => (MOVE_ON_NULL) else => MOVE_ON_FALSE)
         self._st.dead = true
@@ -2840,7 +2848,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 // Moved only while the move's mark is still there: a mark
                 // taken back some other way than an assignment leaves the
                 // object to the flag.
-                if !self._st.is_disarmed(d) || self._st.index_of(d, "") == usize::MAX {
+                var returned = d == self._returning && self._st.is_disarmed(d)
+                if (!self._st.is_disarmed(d) || self._st.index_of(d, "") == usize::MAX)
+                    && !returned {
                     self._ends.alive_unmoved_at_exit(d)
                 }
             }
@@ -4977,6 +4987,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             if rd != &null && isa<VariableDecl>(rd) && self._ends.is_cand(rd) {
                 record_real_transfer(self.sc, v, rd)
                 self._disarm_site(rd, v, true)
+                self._returning = rd
             }
         }
 
