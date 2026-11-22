@@ -953,9 +953,12 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             // copied (PatternTyping::_type_binder), read in place. So is a
             // scalar `var v` the arm never writes, in an arm that cannot
             // write the scrutinee (_arm_reads_only): the read then happens
-            // at each use, a load clang cannot hoist above the arm's
-            // branches, so `if c => v else => w` stays a predicted branch
-            // instead of a select whose result waits on `c`.
+            // at each use. When the scrutinee is reached through a pointer
+            // or a computed index, clang cannot prove that load safe to run
+            // before the arm's branches, so `if c => v else => w` stays a
+            // predicted branch instead of a select whose result waits on
+            // `c`. A local scrutinee may still become a select, as a copy
+            // does.
             if b.pat->is_const || vd->borrows || (ro && self._reads_in_place(vd, vt)) {
                 vd->type_ = self.sc->types->cxx_lref(
                     self.sc->types->qualified(vt, QUAL_CONST),
