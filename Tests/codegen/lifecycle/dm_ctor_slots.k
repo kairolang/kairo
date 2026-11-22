@@ -5,9 +5,9 @@
 // field trivial) neither the slot nor the temporary a prvalue is built in
 // runs the destructor of what it moved from. Each line is
 // `case: kairo-class-calls c++-type-calls`, the destructor calls of one
-// construction, the value's own included: for `C` a prvalue or a moved
-// local is one call, a by-value parameter two (the parameter's own
-// moved-from object is still destroyed). A COPY class (`K`) copies, and
+// construction, the value's own included: for `C` a prvalue, a moved
+// local and a by-value parameter are one call each (the parameter is the
+// caller's object, never destroyed moved-from). A COPY class (`K`) copies, and
 // every object it copies from is destroyed: the temporary or parameter, the
 // slot's value, the field. `DmCxx` has a default constructor, so `HoldX`
 // assigns its field after building it and has no slot: C++'s rule, as
@@ -152,7 +152,7 @@ fn main() -> i32 {
 // RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d/o2
 // RUN: %t.o2.exe | %FileCheck %s --check-prefix=OUT --match-full-lines
 // OUT:      C prvalue: 1 0
-// OUT-NEXT: C param: 2 0
+// OUT-NEXT: C param: 1 0
 // OUT-NEXT: C local: 2 0
 // OUT-NEXT: K prvalue: 3 0
 // OUT-NEXT: K param: 3 0

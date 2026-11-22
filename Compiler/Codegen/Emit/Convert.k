@@ -21,6 +21,7 @@ ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
 import AST::Context::InstantiationRegistry::InstanceEntry
+import AST::DeclFacts
 import AST::DeclFacts::decl_pattern
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::{
@@ -34,13 +35,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,
-    BuiltinType,
-    RecordType,
-    builtin_info,
-    canon_has_const,
-    canon_quals,
-    canon_unqual,
+    BuiltinKind, BuiltinType, RecordType, builtin_info, canon_has_const, canon_quals, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -63,15 +58,11 @@ import AST::Node::PrimaryExpressions::{
     NullLiteralExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType,
-    CXXRValueRefType,
-    FixedArrayType,
-    FunctionPointerType,
-    GenericParamType,
-    NullableType,
-    PointerType,
+    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
+    NullableType,     PointerType,
 }
 import AST::ParamMode::ParamMode
+import Codegen::Emit::Calls
 import Codegen::Emit::Decls
 import Codegen::Emit::EmitIR::EmitIR
 import Codegen::Emit::Exprs
@@ -357,20 +348,22 @@ extend EmitIR {
             return false
         }
 
-        var unsafe *d = self._fn_ref_decl(e)
+        // A generic function named with its arguments (`f<C>`) is one
+        // too: `targs` spells them after its name.
+        var unsafe *d    = self._fn_ref_decl(e)
+        var        targs = ""
         if d == &null {
-            return false
-        }
-
-        var any = false
-        for var i: usize = 0; i < d->params.size(); ++i {
-            if Speller::by_ref_value_param(d->params[i]) {
-                any = true
+            d = self._fn_ref_generic(e)
+            if d == &null {
+                return false
             }
-        }
 
-        if !any {
-            return false
+            var unsafe *x = e
+            while x != &null && isa<ParenExpr>(x) {
+                x = cast<ParenExpr>(x)->inner
+            }
+
+            targs = self._spell.args_str(self._written_targs(x))
         }
 
         var unsafe *h  = dyn_cast<FunctionPointerType>(canon_unqual(e->type_))
@@ -384,6 +377,28 @@ extend EmitIR {
         }
 
         if h->params.size() != d->params.size() || h->modes.size() < h->params.size() {
+            return false
+        }
+
+        // Or one whose `fn` type passes a by-value parameter as `T&&`
+        // (Speller::value_param_form: a destructive class) while the
+        // function declares its own by value: a function that keeps its
+        // by-value parameters, or a generic one whose parameter names its
+        // own type parameter (DeclFacts::value_param_rule).
+        var any = false
+        for var i: usize = 0; i < d->params.size(); ++i {
+            if Speller::by_ref_value_param(d->params[i]) {
+                any = true
+            }
+
+            if DeclFacts::param_is_plain_value(d->params[i])
+                && Speller::value_param_form(*h->params.get(i)) == 1
+                && !Speller::value_param_passed_rref(d, d->params[i]) {
+                any = true
+            }
+        }
+
+        if !any {
             return false
         }
 
@@ -406,7 +421,7 @@ extend EmitIR {
         var adapt = "+[](" + ps + ")" + nx + " -> " + self._spell.decl(
             ret_t,
             "",
-        ) + " { return " + self._spell.qual_name(d) + "(" + fa + "); }"
+        ) + " { return " + self._spell.qual_name(d) + targs + "(" + fa + "); }"
 
         // The widening conversion _fn_effect_value makes of a name, of the adapter.
         var widen = w != h
@@ -548,6 +563,74 @@ extend EmitIR {
         }
 
         return h->return_type->canonical == w->return_type->canonical
+    }
+
+    /// The generic free function or static member `e` names as a value
+    /// with its type arguments written (`f<C>`, `ns::f<C>`), or null. Its
+    /// arguments are the last name's; a qualifier that takes arguments, or
+    /// goes through a value or a witness, is not one.
+    priv fn _fn_ref_generic(self, e: unsafe *Expr) -> unsafe *FunctionDecl {
+        var unsafe *x = e
+        while x != &null && isa<ParenExpr>(x) {
+            x = cast<ParenExpr>(x)->inner
+        }
+
+        if x == &null {
+            return &null
+        }
+
+        var d: unsafe *Decl = &null
+        if isa<NamedIdentExpr>(x) {
+            var unsafe *ni = cast<NamedIdentExpr>(x)
+            if ni->generic_args.size() == 0 {
+                return &null
+            }
+
+            d = ni->resolved_decl
+            if d != &null && self._is_local(d) {
+                return &null
+            }
+        } else if isa<ChainExpr>(x) {
+            var unsafe *ce = cast<ChainExpr>(x)
+            if ce->steps.size() == 0 {
+                return &null
+            }
+
+            if ce->base != &null {
+                var unsafe *hb = dyn_cast<NamedIdentExpr>(ce->base)
+                if hb == &null || hb->resolved_decl == &null || hb->generic_args.size() > 0 {
+                    return &null
+                }
+
+                if !isa<ModuleDecl>(hb->resolved_decl) {
+                    return &null
+                }
+            }
+
+            for var i: usize = 0; i < ce->steps.size(); ++i {
+                var unsafe *st = ce->steps.get(i)
+                if st->access_kind != ChainExpr::AccessKind::ColonColon
+                    || st->through != &null
+                    || st->witness_iface != &null {
+                    return &null
+                }
+
+                if (st->generic_args.size() > 0) != (i + 1 == ce->steps.size()) {
+                    return &null
+                }
+            }
+
+            d = ce->steps.get(ce->steps.size() - 1)->resolved_decl
+        } else {
+            return &null
+        }
+
+        var unsafe *f = dyn_cast<FunctionDecl>(d)
+        if f == &null || f->generic_params.size() == 0 || f->is_method() {
+            return &null
+        }
+
+        return f
     }
 
     /// The non-generic free function or static member `e` names as a
@@ -903,6 +986,17 @@ extend EmitIR {
 
         if n->dynamic_only {
             self._cast_to(n->target, n->operand, "dynamic_cast")
+            return
+        }
+
+        // A prvalue CopyMoveLowering wrapped to carry the parameter it is
+        // passed to (TypeCastExpr::hand): the value itself wherever it is
+        // not that parameter's argument (EmitIR::_value_arg).
+        if n->hand != &null
+            && n->target != &null
+            && n->target->canonical != &null
+            && !isa<CXXRValueRefType>(n->target->canonical) {
+            self.emit(n->operand)
             return
         }
 

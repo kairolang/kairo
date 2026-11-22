@@ -92,16 +92,8 @@ import AST::Node::Declarations::{
     FunctionDecl,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr,
-    BinaryOperatorExpr,
-    CallExpr,
-    ImplicitBoundaryCastExpr,
-    OpRewrite,
-    ParenExpr,
-    REMAKE_DEAD,
-    REMAKE_MAYBE,
-    SubscriptExpr,
-    TypeCastExpr,
+    AssignOperatorExpr, BinaryOperatorExpr, CallExpr,     ImplicitBoundaryCastExpr, OpRewrite,
+    ParenExpr,          REMAKE_DEAD,        REMAKE_MAYBE, SubscriptExpr,            TypeCastExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -275,9 +267,9 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             return out
         }
 
-        var unsafe *f   = self._fn(n->resolved_op)
-        var        k    = n->op_token.kind
-        var args: [unsafe *Expr]
+        var unsafe *f                   = self._fn(n->resolved_op)
+        var        k                    = n->op_token.kind
+        var        args: [unsafe *Expr]
 
         match n->op_rewrite {
             case OpRewrite::Not {
@@ -345,14 +337,12 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             return out
         }
 
-        var unsafe *f   = self._fn(n->resolved_op)
-        var args: [unsafe *Expr]
+        var unsafe *f                   = self._fn(n->resolved_op)
+        var        args: [unsafe *Expr]
         // C++ tells postfix from prefix by an `int` argument, `0` by
         // convention. Its type is i32: `int` on every target Kairo has.
         if OperatorFacts::is_postfix(f) {
-            args.push(
-                self.synth.int_literal(n->range, 0, BuiltinKind::I32),
-            )
+            args.push(self.synth.int_literal(n->range, 0, BuiltinKind::I32))
         }
 
         return self._call(
@@ -403,8 +393,8 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
             return out
         }
 
-        var unsafe *f   = self._fn(n->resolved_op)
-        var args: [unsafe *Expr]
+        var unsafe *f                   = self._fn(n->resolved_op)
+        var        args: [unsafe *Expr]
         args.push(n->rhs)
         // The type declared this compound operator: a call.
         if OperatorFacts::op_kind(f) == n->op_token.kind {
@@ -523,7 +513,11 @@ pub class OperatorLowering derives ASTWriter<OperatorLowering> {
                     && (isa<CXXRValueRefType>(oc->type_) || isa<CXXLValueRefType>(oc->type_)))
                     || (oc->target != &null
                         && (isa<CXXRValueRefType>(oc->target) || isa<CXXLValueRefType>(oc->target)))
+                // Nor is the cast CopyMoveLowering wraps a prvalue argument
+                // in to carry its parameter (TypeCastExpr::hand): EmitIR
+                // reads it and writes the operand.
                 if (!is_ref)
+                    && oc->hand == &null
                     && oc->operand != &null
                     && oc->operand->type_ != &null
                     && oc->type_ != &null {

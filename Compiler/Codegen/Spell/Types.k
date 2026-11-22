@@ -32,16 +32,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,
-    BuiltinKind,
-    BuiltinType,
-    QUAL_CONST,
-    QUAL_VOLATILE,
-    QualifiedType,
-    RecordType,
-    builtin_info,
-    canon_has_const,
-    canon_unqual,
+    AssocType,  BuiltinKind,  BuiltinType,     QUAL_CONST,   QUAL_VOLATILE, QualifiedType,
+    RecordType, builtin_info, canon_has_const, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -50,16 +42,8 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Types::{
-    CXXLValueRefType,
-    CXXRValueRefType,
-    ChainType,
-    FixedArrayType,
-    FunctionPointerType,
-    GenericParamType,
-    NullableType,
-    OpaqueFFIType,
-    PointerType,
-    TypeExpr,
+    CXXLValueRefType, CXXRValueRefType, ChainType,     FixedArrayType, FunctionPointerType,
+    GenericParamType, NullableType,     OpaqueFFIType, PointerType,    TypeExpr,
     ValueOp,
 }
 import AST::OperatorFacts::OperatorFacts
@@ -644,6 +628,8 @@ extend Speller {
                 "",
                 subst,
                 scope,
+                false,
+                1,
             )
         }
 
@@ -664,10 +650,15 @@ extend Speller {
 
     /// A parameter's C++ type from its mode (AST/ParamMode.k rules, as
     /// EmitIR documents them). `is_const` is the `const x: T` marker.
+    /// `of` is the function the parameter is declared by: a by-value
+    /// parameter of a destructive type is a `T&&` only where that
+    /// function's signature is Kairo's to choose (value_param_form), so
+    /// with none it stays by value.
     fn param_type(self,
                   p:     unsafe *Declarations::ParamDecl,
                   subst: unsafe *InstanceEntry = &null,
-                  scope: unsafe *Decl = &null) -> string {
+                  scope: unsafe *Decl = &null,
+                  of:    unsafe *Declarations::FunctionDecl = &null) -> string {
         // A type pack is `T...` (the C++ parameter pack); under an instance it
         // is that instance's elements, one parameter each.
         if DeclFacts::param_is_type_pack(p) {
@@ -724,7 +715,61 @@ extend Speller {
             "",
             subst,
             scope,
+            false,
+            DeclFacts::value_param_rule(of, p),
         )
+    }
+
+    /// How a plain by-value parameter of type `t` reaches C++ where its
+    /// function's signature is Kairo's to choose
+    /// (Compiler/Spec/Ownership.md#by-value-parameters): 0 by value, 1 as
+    /// `T&&` (a destructive class: its moved-from object needs no
+    /// destructor, so a body that moves the value on leaves nothing to
+    /// destroy), 2 as `::__kairo_param<T>` (a type a generic parameter
+    /// decides, which is `T&&` at a destructive instance and `T` at every
+    /// other). The one predicate of every spelling of a parameter and of
+    /// every argument passed to one.
+    static fn value_param_form(t: unsafe *Type) -> u8 {
+        if t == &null || t->canonical == &null {
+            return 0
+        }
+
+        var unsafe *c = canon_unqual(t->canonical)
+        if c == &null {
+            return 0
+        }
+
+        if c->is_dependent() || c->is_instantiation_dependent() {
+            return if (DeclFacts::type_may_be_destructive(t)) => (2) else => 0
+        }
+
+        var unsafe *rt = dyn_cast<RecordType>(c)
+        if rt == &null || rt->decl == &null {
+            return 0
+        }
+
+        var unsafe *r  = Speller::rep(rt->decl)
+        var unsafe *cd = dyn_cast<Declarations::ClassDecl>(r)
+        if cd == &null || DeclFacts::decl_is_imported(r) {
+            return 0
+        }
+
+        return if (cd->destructive == Declarations::DestructiveFact::Yes) => (1) else => 0
+    }
+
+    /// `p`, a parameter of `f`, is declared as a reference to the caller's
+    /// object that a body may end (value_param_form is not 0): a plain
+    /// by-value parameter of a function that does not keep its by-value
+    /// parameters.
+    static fn value_param_passed_rref(f: unsafe *Declarations::FunctionDecl,
+                                      p: unsafe *Declarations::ParamDecl) -> bool {
+        if !DeclFacts::param_is_plain_value(p) {
+            return false
+        }
+
+        var rule = DeclFacts::value_param_rule(f, p)
+        var form = Speller::value_param_form(p->type_)
+        return rule != 0 && form != 0 && !(rule == 2 && form == 2)
     }
 
     /// The parameter is spelled as a `const` one: written `const x: T`, or a
@@ -769,7 +814,8 @@ extend Speller {
                   p:          unsafe *Declarations::ParamDecl,
                   const name: string,
                   subst:      unsafe *InstanceEntry = &null,
-                  scope:      unsafe *Decl = &null) -> string {
+                  scope:      unsafe *Decl = &null,
+                  of:         unsafe *Declarations::FunctionDecl = &null) -> string {
         var unsafe *c = if (p->type_ != &null) => (p->type_->canonical) else => &null
         if !p->is_pack && c != &null && canon_unqual(c)->kind == TypeKind::FixedArrayType {
             if p->mode == ParamMode::Value && !p->is_const {
@@ -807,6 +853,8 @@ extend Speller {
             name,
             subst,
             scope,
+            false,
+            DeclFacts::value_param_rule(of, p),
         )
     }
 
@@ -816,7 +864,7 @@ extend Speller {
     /// A `fn` type's parameter `t` in mode `mode`, declared as `name`
     /// (a wrapper lambda's parameter, EmitIR::_fn_effect_value).
     fn param_named(self, t: unsafe *Type, mode: ParamMode, const name: string) -> string {
-        return self._param_type(t, mode, false, name, &null, &null)
+        return self._param_type(t, mode, false, name, &null, &null, false, 1)
     }
 
     /// A closure's parameter `p`, declared as `name`. The `fn` value is
@@ -838,6 +886,7 @@ extend Speller {
             &null,
             &null,
             true,
+            1,
         )
     }
 
@@ -846,6 +895,10 @@ extend Speller {
     /// `is_const` is the `const x: T` marker; with `fn_param` it stays
     /// on the parameter (a closure's, whose type is its `fn` type's), and
     /// without it a record or a type parameter is passed as `const T&`.
+    /// `rref`: which of value_param_form's spellings a plain by-value
+    /// parameter takes (DeclFacts::value_param_rule: 0 none, 1 both, 2
+    /// the `T&&` of a type that names no parameter only); a `fn` type's and
+    /// a closure's take both.
     priv fn _param_type(self,
                         t:          unsafe *Type,
                         mode:       ParamMode,
@@ -853,7 +906,8 @@ extend Speller {
                         const name: string,
                         subst:      unsafe *InstanceEntry,
                         scope:      unsafe *Decl,
-                        fn_param:   bool = false) -> string {
+                        fn_param:   bool = false,
+                        rref:       u8 = 0) -> string {
         // `[T; N]` is never passed by value: a Value-mode array is a
         // `const` parameter's reference, in a `fn` type as in param_decl.
         if mode == ParamMode::Value && t != &null && t->canonical != &null {
@@ -872,6 +926,18 @@ extend Speller {
 
         if mode == ParamMode::Move {
             return self.decl(t, self._ref_declarator("&&", name), subst, scope)
+        }
+
+        // A closure's `const x: T` of a type its `fn` type passes as a
+        // reference (value_param_form) is that reference: the lambda's
+        // function type must be the `fn` type's, and a `const T&&` is
+        // another type. The `const` is Kairo's check either way.
+        if is_const
+            && fn_param
+            && rref == 1
+            && mode == ParamMode::Value
+            && Speller::value_param_form(t) != 0 {
+            is_const = false
         }
 
         if is_const && (fn_param || Speller::is_pointer(t)) {
@@ -914,6 +980,28 @@ extend Speller {
             }
 
             return "const " + self.decl(t, name, subst, scope)
+        }
+
+        if rref != 0 && mode == ParamMode::Value {
+            var form = Speller::value_param_form(t)
+            if form == 1 {
+                return self.decl(
+                    t,
+                    self._ref_declarator("&&", name),
+                    subst,
+                    scope,
+                )
+            }
+
+            if form == 2 && rref == 1 {
+                var s = "::" + LowerTargets::value_param() + "<" + self.decl(
+                    t,
+                    "",
+                    subst,
+                    scope,
+                ) + ">"
+                return if (name.size() > 0) => (s + " " + name) else => s
+            }
         }
 
         return self.decl(t, name, subst, scope)

@@ -275,6 +275,86 @@ extend InterfaceEmitter {
         }
     }
 
+    /// A by-value parameter of a type that may be destructive
+    /// (Compiler/Spec/Ownership.md#by-value-parameters), after the trait
+    /// they ask:
+    ///
+    ///   `::__kairo_param<T>`  the parameter's type in a signature where
+    ///     only an instance knows `T`: `T&&` where `::__kairo_dm<T>`, `T`
+    ///     elsewhere. A non-deduced context, so a call names `T`.
+    ///   `::__kairo_pass<T>(e)`  an argument handed to a parameter its
+    ///     callee ends. Where `::__kairo_dm<T>` it is a union that holds
+    ///     the `T` built from `e` in place and converts to `T&&`: nothing
+    ///     destroys the object the callee moved out of. Elsewhere it is
+    ///     `T(e)`, the prvalue the by-value parameter is built from.
+    ///   `::__kairo_pc<T>`  the guard of a parameter its body consumes: at
+    ///     every exit where `live` is still set it moves the value into a
+    ///     temporary and destroys that, so the caller's object is left
+    ///     moved-from on every path.
+    prot fn _value_param_helpers(self, header: bool) {
+        if self.written.has(HelperBlock::ValueParam) {
+            return
+        }
+
+        self.written.set(HelperBlock::ValueParam)
+        var at = self._tu_at()
+        if header {
+            self._cg->sink->directive(
+                at,
+                "#ifndef " + LowerTargets::value_param_helpers_guard(),
+            )
+
+            self._cg->sink->directive(
+                at,
+                "#define " + LowerTargets::value_param_helpers_guard(),
+            )
+        }
+
+        var dm = "::" + LowerTargets::dm_trait()
+        var vp = LowerTargets::value_param()
+        var ps = LowerTargets::value_pass()
+        var pc = LowerTargets::value_param_guard()
+        self._cg->sink->spell(
+            at,
+            "template <class T> union " + ps + "_dm { T v; char none; constexpr ~" + ps + "_dm() {} constexpr operator T&&() && noexcept { return static_cast<T&&>(v); } };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <bool B, class T> struct " + vp + "_ { using t = T; using a = T; };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + vp + "_<true, T> { using t = T&&; using a = " + ps + "_dm<T>; };",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> using " + vp + " = typename " + vp + "_<" + dm + "<T>, T>::t;",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> using " + ps + " = typename " + vp + "_<" + dm + "<T>, T>::a;",
+        )
+
+        self._cg->sink->brk()
+        self._cg->sink->spell(
+            at,
+            "template <class T> struct " + pc + " { T* p; bool live; constexpr ~" + pc + "() { if (live) { T __d(static_cast<T&&>(*p)); } } };",
+        )
+
+        self._cg->sink->brk()
+        if header {
+            self._cg->sink->directive(at, "#endif")
+        }
+    }
+
     /// Union storage for a local whose destructor is not C++'s to run
     /// (Compiler/Spec/Lowering.md#union-storage-locals). `__kairo_ul<T>` has
     /// no constructor, so it is an aggregate and `__kairo_ul<T> s{e}`

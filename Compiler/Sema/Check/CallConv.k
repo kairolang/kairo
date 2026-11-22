@@ -206,6 +206,9 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
                     && cd->derives_list.size() > 0
                     && panic_overridden(unsafe &self._tu, cd, m) != &null {
                     m->overrides_virtual = true
+                    m->overrides_cxx = self._root_is_imported(
+                        panic_overridden(unsafe &self._tu, cd, m),
+                    )
                 }
 
                 if m->abi != AbiKind::Virtual {
@@ -218,6 +221,8 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
                 self._overrides_nothing(cd, m)
                 continue
             }
+
+            m->overrides_cxx = self._root_is_imported(base)
 
             // An override of an imported `T&` method written `-> *T`:
             // C++ sees the reference (FunctionDecl::cxx_ref_return). Here
@@ -259,6 +264,32 @@ pub class CallConvCheck derives RecursiveASTVisitor<CallConvCheck> {
         }
 
         return true
+    }
+
+    /// The virtual `b` (what some method overrides) is an imported C++
+    /// one, or overrides one through its own bases: the whole chain takes
+    /// the parameter types that declaration spells
+    /// (FunctionDecl::overrides_cxx).
+    priv fn _root_is_imported(self, b: unsafe *FunctionDecl) -> bool {
+        var unsafe *x          = b
+        var        hops: usize = 0
+        while x != &null && hops < 64 {
+            if decl_is_imported(unsafe (x as unsafe *Decl)) || x->overrides_cxx {
+                return true
+            }
+
+            var unsafe *o = if (x->semantic_dc != &null) => (x->semantic_dc->owner_decl())
+                            else => &null
+            var unsafe *oc = dyn_cast<ClassDecl>(o)
+            if oc == &null {
+                return false
+            }
+
+            x = panic_overridden(unsafe &self._tu, oc, x)
+            hops += 1
+        }
+
+        return false
     }
 
     /// `override` on `m`, whose parameter list matches no base virtual of

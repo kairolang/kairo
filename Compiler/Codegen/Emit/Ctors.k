@@ -432,7 +432,12 @@ extend EmitIR {
                 continue
             }
 
-            s += ", ::" + LowerTargets::lref() + "<" + self._spell.param_type(p) + "> "
+            s += ", ::" + LowerTargets::lref() + "<" + self._spell.param_type(
+                p,
+                &null,
+                &null,
+                m,
+            ) + "> "
             s += self._spell.tok_name(
                 p->name,
                 Speller::fid_of(unsafe (m as unsafe *Decl)),

@@ -39,7 +39,10 @@ import AST::Context::DeclContext::{
     DeclContextKind,
 }
 import AST::Context::TranslationUnit::TranslationUnit
+import AST::Kind::TypeKind::TypeKind
+import AST::LangItems::entry_point_name
 import AST::Mixin::Annotation::VisibilityKind
+import AST::Mixin::FFILinkage::LinkageKind
 import AST::Mixin::TemplateParams::ForeignFill
 import AST::Node::Base::{
     Decl,
@@ -47,6 +50,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
+    QualifiedType,
     RecordType,
     canon_has_const,
     canon_unqual,
@@ -66,13 +70,11 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType,
-    CXXRValueRefType,
-    FixedArrayType,
-    GenericParamType,
-    PointerType,
+    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
+    NullableType,     PointerType,      TupleType,
 }
 import AST::OperatorFacts::OperatorFacts
+import AST::ParamMode::ParamMode
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
@@ -1827,4 +1829,247 @@ pub fn place_has_const_root(e: unsafe *Expr) -> bool {
     }
 
     return false
+}
+
+/// # By-value parameters of a destructive type
+///
+/// A by-value parameter whose type is destructive (ClassLifecycle: a
+/// moved-from object of it needs no destructor) is a C++ `T&&`, and one
+/// whose type an instance decides is `::__kairo_param<T>`, which is `T&&`
+/// at a destructive instance and `T` at every other
+/// (Compiler/Spec/Ownership.md#by-value-parameters). The rule reads the
+/// declaration alone, so every declaration of a function, a requirement
+/// and what implements it, and a `fn` type and what converts to it agree
+/// with no body in sight.
+
+/// `f`'s by-value parameters keep their C++ by-value type whatever their
+/// Kairo type: its C++ signature is not Kairo's to choose, or its frame
+/// outlives the call and must own what it was passed. A null `f` keeps.
+pub fn fn_keeps_value_params(f: unsafe *Declarations::FunctionDecl) -> bool {
+    if f == &null || f->is_implicit || f->is_imported() {
+        return true
+    }
+
+    // The C signature is the contract; a calling convention's too.
+    if f->ffi_linkage != LinkageKind::None || f->call_conv != 0 {
+        return true
+    }
+
+    // A coroutine's frame outlives the full expression that called it: a
+    // reference parameter would dangle in it.
+    if f->is_generator || f->has_yield || f->is_async() {
+        return true
+    }
+
+    if f->is_eval() || f->is_operator {
+        return true
+    }
+
+    // A transfer constructor's `other`, an allocator operator and an ADT's
+    // generated member are spelled from their role, not their parameters.
+    if f->transfer != Declarations::TransferKind::NotTransfer
+        || f->class_alloc_op != 0
+        || f->adt_role != Declarations::AdtRole::None {
+        return true
+    }
+
+    // An override of an imported virtual takes what the C++ base declares.
+    if f->overrides_cxx {
+        return true
+    }
+
+    // The entry point's signature is the C runtime's.
+    if !f->is_method() && decl_name(unsafe (f as unsafe *Decl)) == entry_point_name() {
+        var unsafe *dc = f->semantic_dc
+        var unsafe *o  = if (dc != &null) => (dc->owner_decl()) else => &null
+        if o == &null || isa<Declarations::ModuleDecl>(o) {
+            return true
+        }
+    }
+
+    return false
+}
+
+/// `f` keeps a by-value parameter whose type a generic parameter decides
+/// by value: a constructor of a generic record. C++ deduces a class
+/// template's arguments from its constructors' parameters, and
+/// `::__kairo_param<T>` is a context nothing is deduced from. A parameter
+/// of a type that names no generic parameter is unaffected.
+pub fn fn_keeps_dependent_value_params(f: unsafe *Declarations::FunctionDecl) -> bool {
+    if f == &null || !decl_is_ctor(f) {
+        return false
+    }
+
+    var unsafe *dc        = f->semantic_dc
+    var        depth: u32 = 0
+    while dc != &null && depth < 64 && dc->is_type_scope() {
+        var unsafe *o = dc->owner_decl()
+        if o == &null {
+            break
+        }
+
+        if decl_generic_params(o).size() > 0 {
+            return true
+        }
+
+        dc = o->semantic_dc
+        depth += 1
+    }
+
+    return false
+}
+
+/// `t` names a generic parameter `f` itself declares (`T` of
+/// `fn <T> f(x: T)`, of `x: Box<T>`), as opposed to one of the record,
+/// extension or interface `f` is a member of. True for a dependent type
+/// this cannot take apart.
+pub fn type_names_param_of(t: unsafe *Type, f: unsafe *Declarations::FunctionDecl) -> bool {
+    if t == &null || f == &null {
+        return false
+    }
+
+    var unsafe *c = if (t->canonical != &null) => (t->canonical) else => t
+    if !c->is_dependent() && !c->is_instantiation_dependent() {
+        return false
+    }
+
+    match c->kind {
+        case TypeKind::GenericParamType {
+            var unsafe *o = cast<GenericParamType>(c)->owner
+            if o == &null {
+                return true
+            }
+
+            var unsafe *of = dyn_cast<Declarations::FunctionDecl>(o)
+            if of == &null {
+                return false
+            }
+
+            return of == f
+                || of->canonical_decl() == f->canonical_decl()
+                || decl_pattern(o) == decl_pattern(unsafe (f as unsafe *Decl))
+        } case TypeKind::QualifiedType {
+            return type_names_param_of(cast<QualifiedType>(c)->inner, f)
+        } case TypeKind::PointerType {
+            return type_names_param_of(cast<PointerType>(c)->pointee, f)
+        } case TypeKind::NullableType {
+            return type_names_param_of(cast<NullableType>(c)->inner, f)
+        } case TypeKind::FixedArrayType {
+            return type_names_param_of(cast<FixedArrayType>(c)->element, f)
+        } case TypeKind::CXXLValueRefType {
+            return type_names_param_of(cast<CXXLValueRefType>(c)->referee, f)
+        } case TypeKind::CXXRValueRefType {
+            return type_names_param_of(cast<CXXRValueRefType>(c)->referee, f)
+        } case TypeKind::TupleType {
+            var unsafe *tt = cast<TupleType>(c)
+            for var i: usize = 0; i < tt->elements.size(); ++i {
+                if type_names_param_of(*tt->elements.get(i), f) {
+                    return true
+                }
+            }
+
+            return false
+        } case TypeKind::RecordType {
+            var unsafe *r = cast<RecordType>(c)
+            for var i: usize = 0; i < r->args.size(); ++i {
+                if type_names_param_of(*r->args.get(i), f) {
+                    return true
+                }
+            }
+
+            return r->outer != &null && type_names_param_of(r->outer, f)
+        } case TypeKind::FunctionPointerType {
+            var unsafe *fp = cast<FunctionPointerType>(c)
+            for var i: usize = 0; i < fp->params.size(); ++i {
+                if type_names_param_of(*fp->params.get(i), f) {
+                    return true
+                }
+            }
+
+            return type_names_param_of(fp->return_type, f)
+        } default {
+            return true
+        }
+    }
+}
+
+/// How the plain by-value parameter `p` of `f` may be passed: 0 by value
+/// whatever its type, 1 as its type says (`T&&` for a destructive class,
+/// `::__kairo_param<T>` for a type a generic parameter decides), 2 as
+/// `T&&` only, a type that names a generic parameter staying by value.
+/// The last is a parameter C++ deduces template arguments from, which
+/// `::__kairo_param<T>` cannot give: one whose type names a parameter `f`
+/// itself declares, and any parameter of a generic record's constructor.
+/// Codegen/Spell reads the type against the answer
+/// (Speller::value_param_form); MoveCheck follows the same parameters.
+pub fn value_param_rule(f: unsafe *Declarations::FunctionDecl,
+                        p: unsafe *Declarations::ParamDecl) -> u8 {
+    if p == &null || fn_keeps_value_params(f) {
+        return 0
+    }
+
+    if fn_keeps_dependent_value_params(f) || type_names_param_of(p->type_, f) {
+        return 2
+    }
+
+    return 1
+}
+
+/// `p` is passed by value with nothing that already makes it a reference:
+/// mode by value, not `self`, not `const` (a `const T&`, written or
+/// inferred), not a pack.
+pub fn param_is_plain_value(p: unsafe *Declarations::ParamDecl) -> bool {
+    if p == &null || p->is_self || p->is_const || p->inferred_const || p->is_pack {
+        return false
+    }
+
+    if p->mode != ParamMode::Value || p->is_poisoned() {
+        return false
+    }
+
+    return !param_is_type_pack(p) && p->type_ != &null && p->type_->canonical != &null
+}
+
+/// A type that depends on a generic parameter may be a destructive class
+/// at some instance: the parameter itself, a Kairo class over it, or a
+/// type only an instance names. False for a type that is none at every
+/// instance (a pointer, a nullable, a tuple, an array, a `fn` type, a
+/// struct, an imported record) and for a type that does not depend on a
+/// parameter, whose answer Sema has.
+pub fn type_may_be_destructive(t: unsafe *Type) -> bool {
+    if t == &null {
+        return false
+    }
+
+    var unsafe *c = canon_unqual(
+        if (t->canonical != &null) => (t->canonical) else => t,
+    )
+
+    if c == &null || !c->is_dependent() && !c->is_instantiation_dependent() {
+        return false
+    }
+
+    match c->kind {
+        case TypeKind::PointerType,      TypeKind::NullableType,
+             TypeKind::TupleType,        TypeKind::FixedArrayType,
+             TypeKind::BuiltinType,      TypeKind::FunctionPointerType,
+             TypeKind::VariadicPackType, TypeKind::PackExpansionType,
+             TypeKind::CXXLValueRefType, TypeKind::CXXRValueRefType {
+            return false
+        } case TypeKind::GenericParamType {
+            return !cast<GenericParamType>(c)->is_pack
+        } case TypeKind::RecordType {
+            var unsafe *r = cast<RecordType>(c)
+            if r->decl == &null {
+                return false
+            }
+
+            var unsafe *pd = decl_pattern(r->decl)
+            return isa<Declarations::ClassDecl>(pd)
+                && !decl_is_imported(r->decl)
+                && !decl_is_imported(pd)
+        } default {
+            return true
+        }
+    }
 }

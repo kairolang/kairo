@@ -682,6 +682,7 @@ extend InterfaceEmitter {
                 p,
                 &null,
                 owner,
+                m,
             ) + "> "
             s += self._spell->tok_name(
                 p->name,

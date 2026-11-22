@@ -420,6 +420,10 @@ fn io_param_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::ParamDecl) {
 
         ar->sema_null<Type>(n->pack_type, "ParamDecl::pack_type")
         ar->sema_false(n->inferred_const, "ParamDecl::inferred_const")
+        ar->sema_is(
+            n->owner == Declarations::ParamOwner::Caller,
+            "ParamDecl::owner",
+        )
     }
 }
 
@@ -510,6 +514,7 @@ fn io_function_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::FunctionDec
 
         ar->sema_false(n->cxx_ref_return, "FunctionDecl::cxx_ref_return")
         ar->sema_false(n->overrides_virtual, "FunctionDecl::overrides_virtual")
+        ar->sema_false(n->overrides_cxx, "FunctionDecl::overrides_cxx")
         ar->sema_false(n->is_generator, "FunctionDecl::is_generator")
         ar->sema_false(n->has_yield, "FunctionDecl::has_yield")
         ar->sema_false(n->no_unwind, "FunctionDecl::no_unwind")

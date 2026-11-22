@@ -188,6 +188,7 @@ pub enum HelperBlock derives u32 {
     MayAlias     = 1 << 16, ///< LowerTargets::may_alias.
     GenEach      = 1 << 17, ///< `::__kairo_each` / `::__kairo_at` (a generator's push form).
     DmTrait      = 1 << 18, ///< _dm_trait_helper (`::__kairo_dm`).
+    ValueParam   = 1 << 19, ///< _value_param_helpers (`::__kairo_param`).
 }
 
 /// HelperBlock's variants are its FlagSet's bits (Support/FlagSet.k).
@@ -493,12 +494,18 @@ pub class InterfaceEmitter {
         }
 
         // The destructive-move trait: before the slots, which ask it, and
-        // before any record definition specializes it. Only where one does
-        // or a slot is planned, so no other TU's text changes.
+        // before any record definition specializes it; and the by-value
+        // parameter's helpers, which any generic signature may name.
         var slots = !self.written.has(HelperBlock::CtorSlots) && self._needs_ctor_slots()
-        if !self.written.has(HelperBlock::DmTrait) && (slots || self._needs_dm_trait()) {
+        if !self.written.has(HelperBlock::DmTrait) {
             self._cg->sink->unanchored(true)
             self._dm_trait_helper(header)
+            self._cg->sink->unanchored(false)
+        }
+
+        if !self.written.has(HelperBlock::ValueParam) {
+            self._cg->sink->unanchored(true)
+            self._value_param_helpers(header)
             self._cg->sink->unanchored(false)
         }
 
@@ -1004,6 +1011,21 @@ pub class InterfaceEmitter {
         var t0_end: usize = 0
         while t0_end < n && self._plan->entries[t0_end].tier == PlanTier::FwdDecls {
             t0_end += 1
+        }
+
+        // The destructive-move trait of each class whose answer needs no
+        // definition, ahead of them all (_dm_ahead).
+        for var j: usize = i; j < n && self._plan->entries[j].tier == PlanTier::Definitions; ++j {
+            var unsafe *de = unsafe &self._plan->entries[j]
+            if header && !de->own {
+                continue
+            }
+
+            if de->eval_item != &null || de->scope != &null || de->witness != &null {
+                continue
+            }
+
+            self._dm_spec_ahead(de->decl)
         }
 
         self._vp_declared.clear()

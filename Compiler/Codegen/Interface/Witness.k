@@ -77,14 +77,9 @@ import AST::Context::InstantiationRegistry::{
     InstanceEntry,
 }
 import AST::DeclFacts::{
-    decl_extension_of,
-    decl_generic_params,
-    decl_is_ctor_requirement,
-    decl_is_imported,
-    decl_is_instance,
-    decl_is_requirement,
-    decl_name,
-    decl_pattern,
+    decl_extension_of,    decl_generic_params, decl_is_ctor_requirement, decl_is_imported,
+    decl_is_instance,     decl_is_requirement, decl_name,                decl_pattern,
+    param_is_plain_value,
 }
 import AST::LangItems::{
     LowerTargets,
@@ -443,7 +438,7 @@ pub class EmitWitness {
                 s += ", "
             }
 
-            s += self._spell->param_decl(p, "", subst)
+            s += self._spell->param_decl(p, "", subst, &null, m)
             k += 1
         }
 
@@ -691,12 +686,22 @@ pub class EmitWitness {
                     parms += ", "
                 }
 
-                parms += self._spell->param_decl(q, a, subs[i])
+                parms += self._spell->param_decl(q, a, subs[i], &null, m)
                 if args.size() > 0 {
                     args += ", "
                 }
 
-                args += a
+                // A by-value parameter that may be a `T&&`
+                // (Speller::value_param_form) is forwarded as the witness
+                // forwards it: the clause then asks for the move its call
+                // makes, where the bare name is an lvalue no `T&&` binds
+                // and a destructive class cannot copy.
+                if param_is_plain_value(q) && Speller::value_param_form(q->type_) != 0 {
+                    args += "static_cast<decltype(" + a + ")&&>(" + a + ")"
+                } else {
+                    args += a
+                }
+
                 // Forwarded as the witness forwards: a by-value `other: Self`
                 // is then an rvalue, so a `@move` requirement's clause asks
                 // for a move constructor, not a copy one.
@@ -1225,7 +1230,7 @@ pub class EmitWitness {
                 ps += ", "
             }
 
-            ps += self._spell->param_decl(p, self._pname(m, p), subst)
+            ps += self._spell->param_decl(p, self._pname(m, p), subst, &null, m)
         }
 
         if Speller::op_is_postfix(m) {

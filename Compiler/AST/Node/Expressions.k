@@ -2273,6 +2273,16 @@ pub class TypeCastExpr derives Expr {
     /// Sema/Check/LocalDisposition.k). EmitIR ends the local's lifetime
     /// here without running its destructor. Null on every other cast.
     pub var disarms: unsafe *Decl = &null
+    /// The by-value parameter (a ParamDecl) this value is the argument of,
+    /// when it may hand its storage to the callee: the parameter's type as
+    /// the call instantiates it is the value's own, and nothing can leave
+    /// the call between the argument's evaluation and the call itself
+    /// (SemaContext::hand_sites). On a move's cast, or on a cast of a
+    /// prvalue to its own type that CopyMoveLowering wraps it in to carry
+    /// this. EmitIR hands the storage over only where the callee ends the
+    /// object (ParamOwner, EmitIR::_value_arg), and writes the wrapped
+    /// prvalue as it stands everywhere else.
+    pub var hand: unsafe *Decl = &null
 
     /// The bare `dynamic_cast<D*>(p)`, a null pointer on a miss: only
     /// OperatorLowering's expansion of an asserting downcast makes one.

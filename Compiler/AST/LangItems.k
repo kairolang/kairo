@@ -3977,6 +3977,35 @@ pub class LowerTargets {
         return "__kairo_dmt"
     }
 
+    /// A by-value parameter of a type that may be destructive
+    /// (InterfaceEmitter::_value_param_helpers, Compiler/Spec/Ownership.md#by-value-parameters):
+    /// `::__kairo_param<T>` is the parameter's C++ type where only an
+    /// instance knows `T` (`T&&` where `::__kairo_dm<T>`, `T` elsewhere);
+    /// `::__kairo_pass<T>(e)` is an argument handed to a parameter its
+    /// callee ends, built in storage nothing destroys where
+    /// `::__kairo_dm<T>` and the plain `T(e)` elsewhere; `::__kairo_pc<T>`
+    /// is the guard of a parameter its body consumes, declared
+    /// `__k_g_<name>` with the flag `live` the body's moves clear.
+    pub static fn value_param() -> string {
+        return "__kairo_param"
+    }
+
+    pub static fn value_pass() -> string {
+        return "__kairo_pass"
+    }
+
+    pub static fn value_param_guard() -> string {
+        return "__kairo_pc"
+    }
+
+    pub static fn value_param_helpers_guard() -> string {
+        return "__KAIRO_VALUE_PARAM"
+    }
+
+    pub static fn value_param_guard_var(const nm: string) -> string {
+        return "__k_g_" + nm
+    }
+
     /// The compiler builtin that makes an index pack (`__make_integer_seq<
     /// Q, usize, N>` is `Q<usize, 0, ..., N-1>`): an array slot builds its
     /// elements from one with no <utility>.

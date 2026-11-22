@@ -58,24 +58,12 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    FieldDecl,
-    FnBodyKind,
-    LocalDtor,
-    StorageClass,
-    StructDecl,
-    TypeAliasDecl,
-    VariableDecl,
+    ClassDecl,    FieldDecl,  FnBodyKind,    FunctionDecl, LocalDtor, ParamDecl, ParamOwner,
+    StorageClass, StructDecl, TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr,
-    CallExpr,
-    FinalizeKind,
-    InitListExpr,
-    REMAKE_DEAD,
-    REMAKE_LIVE,
-    REMAKE_MAYBE,
-    TypeCastExpr,
+    AssignOperatorExpr, CallExpr,     FinalizeKind, InitListExpr, REMAKE_DEAD, REMAKE_LIVE,
+    REMAKE_MAYBE,       TypeCastExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -98,6 +86,7 @@ import Codegen::Plan::Visitors::GlobalInitReach
 import Codegen::Spell::Spell::Speller
 import Diagnostic::Code::DiagCode
 import Diagnostic::Registry::DiagID
+import Location::SourceRange::SourceRange
 import Token::Token::Token
 import Token::TokenKind::TokenKind
 
@@ -439,6 +428,27 @@ extend EmitIR {
     /// real transfer's constructor is a Kairo one, which cannot throw.
     /// Elided, nothing is left to run.
     prot fn _disarm_site(self, n: unsafe *TypeCastExpr) {
+        // A move out of a parameter its body consumes: the guard's flag
+        // is cleared with the move, as a flagged local's is.
+        var unsafe *pd = dyn_cast<ParamDecl>(n->disarms)
+        if pd != &null {
+            if !self._param_guarded(self._cur_fn, pd) {
+                self._cast(n)
+                return
+            }
+
+            self._cg->sink->spell(
+                n->range,
+                "(" + LowerTargets::value_param_guard_var(
+                    self._spell.tok_name(pd->name, self._owning_fid()),
+                ) + ".live = false, ",
+            )
+
+            self._cast(n)
+            self._cg->sink->spell(n->range, ")")
+            return
+        }
+
         var r = self._ul_use(n->disarms)
         if r == usize::MAX || self._ul_decl[r]->dtor_mode == LocalDtor::Cleanup {
             self._ice(
@@ -460,6 +470,43 @@ extend EmitIR {
 
         self._cast(n)
         self._cg->sink->spell(n->range, ")")
+    }
+
+    /// `p`, a parameter of `f`, has a guard in `f`'s body: the body
+    /// consumes it (ParamOwner::Consumed) and C++ passes it as `T&&`.
+    prot fn _param_guarded(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl) -> bool {
+        return f != &null
+            && p != &null
+            && p->owner == ParamOwner::Consumed
+            && Speller::value_param_passed_rref(f, p)
+    }
+
+    /// The guards of the parameters `f`'s body consumes, first in the body
+    /// (`::__kairo_pc<T> __k_g_p{&p, true};`): at every exit where no move
+    /// cleared `live`, the guard moves the value into a temporary and
+    /// destroys that, so the caller's object is moved-from on every path
+    /// out of the body (Compiler/Spec/Ownership.md#by-value-parameters).
+    prot fn _param_guards(self, f: unsafe *FunctionDecl, at: SourceRange) {
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var unsafe *p = f->params[i]
+            if !self._param_guarded(f, p) {
+                continue
+            }
+
+            var nm = self._spell.tok_name(
+                p->name,
+                Speller::fid_of(unsafe (f as unsafe *Decl)),
+            )
+
+            self._cg->sink->spell(
+                at,
+                "::" + LowerTargets::value_param_guard() + "<" + self._spell._type(
+                    p->type_,
+                ) + "> " + LowerTargets::value_param_guard_var(
+                    nm,
+                ) + "{" + LowerTargets::clang_addressof() + "(" + nm + "), true};",
+            )
+        }
     }
 
     /// `x = e` that constructs a finalized local again

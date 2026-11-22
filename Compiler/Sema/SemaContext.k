@@ -491,6 +491,11 @@ pub class SemaContext {
     /// moved-from local is not destroyed. CopyMoveLowering moves each onto
     /// its cast (TypeCastExpr::disarms).
     pub var disarm_sites: llvm::DenseMap<u64, u64>
+    /// Arguments that may hand their storage to the by-value parameter
+    /// they are passed to (TypeCastExpr::hand): the argument -> the
+    /// ParamDecl, both as u64. One writer, MoveCheck::_call, which clears
+    /// it at the start of each run; CopyMoveLowering moves each onto a cast.
+    pub var hand_sites: llvm::DenseMap<u64, u64>
     /// The vector, set and map literals (`*Expr` as u64) whose elements
     /// cannot be copied, so each is moved in through
     /// TypeUtil::literal_build. One writer, MoveCheck, which records the

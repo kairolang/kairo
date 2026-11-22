@@ -75,11 +75,11 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // DIAG-NOT: error
 
-// The lambda takes the record by value, as `fn(string, bool) -> i32` does,
+// The lambda takes the record as `fn(string, bool) -> i32` does (`string&&`),
 // and a const pointer parameter keeps its pointee writable.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
 // IR-LABEL: CODEGEN C++: {{.*}}const_param_run.k
-// IR:     +{{ ?}}[{{ ?}}]{{ ?}}({{ ?}}const{{ ?}}::builtin::string::string s{{ ?}},{{ ?}}bool b{{ ?}})
+// IR:     +{{ ?}}[{{ ?}}]{{ ?}}({{ ?}}::builtin::string::string{{ ?}}&&{{ ?}}s{{ ?}},{{ ?}}bool b{{ ?}})
 // IR:     ::builtin::string::string{{ ?}}*{{ ?}}const q
 // IR:     ({{ ?}}const signed int{{ ?}}({{ ?}}&{{ ?}}xs{{ ?}}){{\[}}3{{\]}}{{ ?}})
 // IR-NOT: ]{{ ?}}({{ ?}}const{{ ?}}::builtin::string::string{{ ?}}&{{ ?}}s{{[,)]}}

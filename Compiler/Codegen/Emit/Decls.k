@@ -55,22 +55,9 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    EnumDecl,
-    ExtensionDecl,
-    FFIBlockDecl,
-    FieldDecl,
-    FieldFold,
-    FnBodyKind,
-    FunctionDecl,
-    InterfaceDecl,
-    ModuleDecl,
-    SpecKind,
-    StructDecl,
-    TypeAliasDecl,
-    UnionDecl,
-    VariableDecl,
-    VisibilityGroupDecl,
+    ClassDecl,     EnumDecl,     ExtensionDecl, FFIBlockDecl,        FieldDecl, FieldFold,
+    FnBodyKind,    FunctionDecl, InterfaceDecl, ModuleDecl,          SpecKind,  StructDecl,
+    TypeAliasDecl, UnionDecl,    VariableDecl,  VisibilityGroupDecl,
 }
 import AST::Node::Statements::CompoundStmt
 import Codegen::Emit::Ctors
@@ -1003,6 +990,9 @@ extend EmitIR {
                     p->name,
                     Speller::fid_of(unsafe (f as unsafe *Decl)),
                 ),
+                &null,
+                &null,
+                f,
             )
         }
 
@@ -1034,6 +1024,7 @@ extend EmitIR {
         }
 
         self._cg->sink->synth_at_start(b->range, clang::tok::l_brace)
+        self._param_guards(f, b->range)
         if ext != &null && f->is_operator {
             var pro = if (f->is_const()) => ("const ") else => ""
             // `[i32; 2]`'s pointer is `int (*self)[2]`: one type-specifier.

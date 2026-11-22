@@ -149,10 +149,8 @@ ffi "c++" import "vector"
 
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
-    decl_extension_of,
-    decl_generic_params,
-    decl_is_requirement,
-    is_global_storage,
+    decl_extension_of, decl_generic_params,  decl_is_requirement,     fn_keeps_value_params,
+    is_global_storage, param_is_plain_value, type_may_be_destructive, value_param_rule,
 }
 import AST::ExprFacts::callee_decl
 import AST::Kind::ExprKind::ExprKind
@@ -181,8 +179,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,   AdtRole,     ClassDecl,   ExtensionDecl, FieldDecl,    FnBodyKind, FunctionDecl,
-    ParamDecl, PurityLevel, PurityProof, TransferKind,  VariableDecl,
+    AbiKind,   AdtRole,    ClassDecl,   ExtensionDecl, FieldDecl,    FnBodyKind,   FunctionDecl,
+    ParamDecl, ParamOwner, PurityLevel, PurityProof,   TransferKind, VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::Patterns::{
@@ -245,14 +243,14 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     priv var _level: PurityLevel          = PurityLevel::None
     /// Which walk this is (see PurityWalk). Under Infer, rules break
     /// silently into _fail instead of reporting.
-    priv var _walk:  PurityWalk                             = PurityWalk::Check
-    priv var _fail:  bool                                   = false
+    priv var _walk:  PurityWalk             = PurityWalk::Check
+    priv var _fail:  bool                   = false
     priv var _cands: [unsafe *FunctionDecl]
     /// The Prove walk's findings for the function being walked: a loop
     /// whose end is not proven, a callee that is not proven, and the
     /// callees whose proof is still Pending (appended to _deps).
-    priv var _unbounded: bool                                   = false
-    priv var _bad_call:  bool                                   = false
+    priv var _unbounded: bool                   = false
+    priv var _bad_call:  bool                   = false
     priv var _deps:      [unsafe *FunctionDecl]
     /// The Prove walk met something a call on values the program never
     /// passed must not do: stop the program, read through a pointer the
@@ -600,9 +598,9 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     /// Every link of `f`'s redeclaration chain, `f` included.
     priv fn _links(self, f: unsafe *FunctionDecl) -> [unsafe *FunctionDecl] {
         var        out:   [unsafe *FunctionDecl]
-        var unsafe *head        = f->first_decl()
-        var unsafe *cur         = head
-        var        guard: usize = 0
+        var unsafe *head                         = f->first_decl()
+        var unsafe *cur                          = head
+        var        guard: usize                  = 0
         while cur != &null && guard < 64 {
             if cur != f {
                 out.push(cur)
@@ -1168,6 +1166,22 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         var ms_abi = ci != &null && ci->target.effective_triple.ends_with("-msvc")
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]
+            // A by-value parameter the body ends (ParamOwner) is the
+            // caller's object, moved out of or destroyed here: a write to
+            // the caller's memory, which a call that is dropped or merged
+            // would not make.
+            if p != &null && p->owner != ParamOwner::Caller {
+                var pat = if (p->range.is_valid()) => (p->range) else => f->name.range
+                self._report(
+                    pat,
+                    "take '" + self._tu.decl_name(
+                        p,
+                    ) + "' by value and move it on: the caller's object is left moved-from",
+                )
+
+                continue
+            }
+
             if p == &null || p->type_ == &null || self._by_reference(p) {
                 continue
             }
@@ -1847,12 +1861,24 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     }
 
     /// `p` reaches the callee as a pointer in C++ (Speller::_param_type):
-    /// `@inout`, `@move`, `self`, a `const` record or type parameter, and a
-    /// parameter ParamPassInference turned into `const T&`. A by-value
+    /// `@inout`, `@move`, `self`, a `const` record or type parameter, a
+    /// parameter ParamPassInference turned into `const T&`, and a by-value
+    /// parameter of a destructive type (or one an instance may make so),
+    /// which is a `T&&` to the caller's object. Any other by-value
     /// record is a fresh caller copy (clang weakens the promise to "reads
     /// its argument copies" for it), so reading it is reading an input.
     priv fn _by_reference(self, p: unsafe *ParamDecl) -> bool {
         if p->is_self || p->inferred_const {
+            return true
+        }
+
+        if self._f != &null
+            && !fn_keeps_value_params(self._f)
+            && param_is_plain_value(p)
+            && (type_may_be_destructive(p->type_) && value_param_rule(self._f, p) == 1
+                || lifecycle_of(self.sc)->facts_of_type(
+                    p->type_->canonical,
+                ).destructive == LifecycleTri::Yes) {
             return true
         }
 

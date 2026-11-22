@@ -234,6 +234,27 @@ pub enum LocalDtor derives u8 {
     Flagged,
 }
 
+/// Who ends the object a by-value parameter of a destructive type names
+/// (ParamDecl::owner). C++ passes such a parameter as `T&&`
+/// (DeclFacts::fn_keeps_value_params, Compiler/Spec/Ownership.md#by-value-parameters),
+/// so the object is the caller's storage, and a moved-from object of a
+/// destructive type needs no destructor: a body that moves the value on
+/// leaves nothing for anyone to destroy. Written by MoveCheck
+/// (LocalEnds::settle) from the body; a declaration with no Kairo body
+/// keeps `Caller`.
+pub enum ParamOwner derives u8 {
+    /// The caller destroys what it passed after the call, moved-from or
+    /// not: the body promises nothing. Every parameter by default.
+    Caller = 0,
+    /// Every path that leaves the body has moved the value out by a real
+    /// transfer: the caller's object is moved-from when the call returns.
+    Moved,
+    /// Every path that leaves the body has moved the value out or, where
+    /// it did not, moves it into a temporary the body destroys
+    /// (`::__kairo_pc<T>`, a `live` flag the body's moves clear).
+    Consumed,
+}
+
 /// Lifecycle attribute on a transfer constructor (@copy / @move).
 pub enum TransferKind derives u8 {
     NotTransfer = 0, ///< not a transfer ctor.
@@ -539,6 +560,12 @@ pub class ParamDecl derives Decl {
     /// (Speller::_param_type, EmitIR's fn-value adapter). The Kairo type
     /// and every Sema fact stay the by-value parameter's.
     pub var inferred_const: bool = false
+    /// Who ends the object this by-value parameter names when C++ passes
+    /// it as `T&&` (ParamOwner). One writer, MoveCheck, when the walk of
+    /// the function's body ends; read by codegen only, at a call whose
+    /// callee is this declaration's function (EmitIR::_handed_arg) and in
+    /// the body (EmitIR::_param_guards).
+    pub var owner: ParamOwner = ParamOwner::Caller
 
     pub fn is_inout(self) -> bool {
         return self.mode == ParamMode::Inout
@@ -753,8 +780,13 @@ pub class FunctionDecl
     /// one, so clang never warns that one member of a class is marked
     /// `override` and another is not (C505W, which the user cannot act on).
     /// Writer: CallConvCheck.
-    pub var overrides_virtual: bool         = false
-    pub var transfer:          TransferKind = TransferKind::NotTransfer ///< @copy/@move on a transfer ctor.
+    pub var overrides_virtual: bool = false
+    /// The virtual this method overrides is, at the root of its chain of
+    /// overrides, an imported C++ one: its parameter types are that
+    /// declaration's, so a by-value parameter stays by value
+    /// (DeclFacts::fn_keeps_value_params). Writer: CallConvCheck.
+    pub var overrides_cxx: bool         = false
+    pub var transfer:      TransferKind = TransferKind::NotTransfer ///< @copy/@move on a transfer ctor.
     /// Written `-> yield T`: a C++ coroutine. Writer: X (StmtTyping::
     /// traverse_function_decl), before the body is typed. The WRITTEN
     /// qualifier, never the canonical: a spelled-out `-> Yield<T>` is an

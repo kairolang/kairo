@@ -27,6 +27,11 @@
 ///     needs nothing here: C++ copies it through the record's own copy
 ///     constructor.
 ///
+///     An argument that may hand its storage to the by-value parameter it
+///     is passed to (SemaContext::hand_sites) carries that parameter on its
+///     cast (TypeCastExpr::hand); a prvalue, which needs no move, is
+///     wrapped in a cast to its own type for it.
+///
 ///   Phase: LOWER, after FieldInitLowering and before every pass that
 ///   rebuilds an expression, so each recorded node is still the one
 ///   MoveCheck saw.
@@ -75,7 +80,9 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
             return
         }
 
-        if self.sc->move_sites.empty() && self.sc->instance_move_sites.empty() {
+        if self.sc->move_sites.empty()
+            && self.sc->instance_move_sites.empty()
+            && self.sc->hand_sites.empty() {
             return
         }
 
@@ -91,9 +98,33 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
 
         var site = self.sc->move_sites.count(e as usize as u64) != 0
         var some = self.sc->instance_move_sites.count(e as usize as u64) != 0
+        var hand              = self.sc->hand_sites.find(e as usize as u64)
+        var to:  unsafe *Decl = &null
+        if hand != self.sc->hand_sites.end() {
+            to = unsafe (hand->second as unsafe *Decl)
+        }
+
         var unsafe *out = ASTWriter<CopyMoveLowering>::transform_expr(self, e)
-        if !site && !some || out == &null || out->type_ == &null {
+        if out == &null || out->type_ == &null {
             return out
+        }
+
+        // A prvalue argument that may hand its storage over: a cast to its
+        // own type carries the parameter to EmitIR (TypeCastExpr::hand).
+        if !site && !some {
+            if to == &null || out->value_category != Expr::ValueCategory::RValue {
+                return out
+            }
+
+            var unsafe *h = self.synth.cast_to(
+                out->range,
+                out,
+                canon_unqual(out->type_),
+                CastMode::Default,
+            )
+
+            cast<TypeCastExpr>(h)->hand = to
+            return h
         }
 
         var unsafe *c = self.synth.cast_to(
@@ -105,6 +136,7 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
 
         c->value_category                    = Expr::ValueCategory::XValue
         cast<TypeCastExpr>(c)->instance_move = some && !site
+        cast<TypeCastExpr>(c)->hand          = to
         var dis = self.sc->disarm_sites.find(e as usize as u64)
         if dis != self.sc->disarm_sites.end() {
             cast<TypeCastExpr>(c)->disarms = unsafe (dis->second as unsafe *Decl)

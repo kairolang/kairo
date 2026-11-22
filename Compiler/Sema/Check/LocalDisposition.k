@@ -33,7 +33,17 @@
 ///     the body, so a second check of the same tree (the language
 ///     server's) leaves no stale mode behind.
 ///
-///   Phase: CHECK (MoveCheck). EmitIR reads VariableDecl::dtor_mode.
+///     A by-value parameter C++ passes as `T&&` (DeclFacts::
+///     fn_keeps_value_params) names the caller's storage, so nothing in the
+///     body destroys it. It has a row too (LocalEnds::declare_param), and
+///     the same walk says who ends the object (ParamOwner): the body, when
+///     every exit is reached with the value moved out by a real transfer
+///     (Moved), or moved out on some and untouched on the others, where a
+///     guard moves it into a temporary and destroys that (Consumed); the
+///     caller otherwise, which is always correct.
+///
+///   Phase: CHECK (MoveCheck). EmitIR reads VariableDecl::dtor_mode and
+///   ParamDecl::owner.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -69,14 +79,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    FieldDecl,
-    FnBodyKind,
-    FunctionDecl,
-    LocalDtor,
-    StorageClass,
-    StructDecl,
-    VariableDecl,
+    ClassDecl,    FieldDecl,  FnBodyKind,   FunctionDecl, LocalDtor, ParamDecl, ParamOwner,
+    StorageClass, StructDecl, VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::Types::{
@@ -419,11 +423,31 @@ pub fn part_record_refusal(sc: unsafe *SemaContext,
     return ""
 }
 
-/// One local a body declares, as both providers follow it.
+/// One local a body declares, as both providers follow it, or one by-value
+/// parameter of the function whose body it is (`p`).
 pub class LocalEndRow {
-    pub var d:     unsafe *VariableDecl = &null
-    pub var ends:  usize                = 0 ///< sites that end it (a `finally()` call).
-    pub var alive: bool                 = false ///< some exit of its scope is reached with it not finalized on every path.
+    pub var d: unsafe *VariableDecl = &null
+    /// The parameter this row follows, null for a local's row; `key` is
+    /// the declaration a use resolves to, either one.
+    pub var p:   unsafe *ParamDecl = &null
+    pub var key: unsafe *Decl      = &null
+    /// `p` only: a guard may end it where the body did not move it
+    /// (ParamOwner::Consumed). False where no guard can be declared (a
+    /// constructor, whose parameters cross its split; a generic type; an
+    /// `eval` or constexpr function).
+    pub var guard_ok: bool = false
+    /// `p` only: its type depends on a generic parameter, so its transfers
+    /// are pending moves (MoveCheck::_dependent_transfer), which leave no
+    /// mark in the moved set.
+    pub var dep: bool = false
+    /// `p` only: something in the body may move it, or a part of it, some
+    /// other way than by a real transfer of the whole of it (or an exit is
+    /// reached with such a transfer's mark taken back). The object may
+    /// then be moved-from where no site of the row said so, and only its
+    /// owner's destructor is safe on it.
+    pub var dirty: bool  = false
+    pub var ends:  usize = 0 ///< sites that end it (a `finally()` call).
+    pub var alive: bool  = false ///< some exit of its scope is reached with it not finalized on every path.
     /// Why its declaration cannot take union storage ("" when it can): it
     /// keeps `Scope`, and a `finally()` of it is SC116E.
     pub var refusal: string = ""
@@ -522,10 +546,85 @@ pub class LocalEnds {
 
         var r = LocalEndRow()
         r.d       = d
+        r.key     = unsafe (d as unsafe *Decl)
         r.refusal = refusal.copy()
         r.cand    = cand && refusal.size() == 0
         r.pcand   = pcand && refusal.size() == 0
         self.rows.push(r)
+    }
+
+    /// `p` is a by-value parameter of the function whose body this is that
+    /// C++ passes as `T&&` (or may, at an instance: `dep`). Its real
+    /// transfers are followed as a local's are; `guard_ok` as
+    /// LocalEndRow::guard_ok.
+    fn declare_param(self, p: unsafe *ParamDecl, dep: bool, guard_ok: bool) {
+        if self.index_of(unsafe (p as unsafe *Decl)) != usize::MAX {
+            return
+        }
+
+        var r = LocalEndRow()
+        r.p        = p
+        r.key      = unsafe (p as unsafe *Decl)
+        r.cand     = true
+        r.dep      = dep
+        r.guard_ok = guard_ok && !dep
+        self.rows.push(r)
+    }
+
+    /// `d` is a parameter's row.
+    fn is_param(self, d: unsafe *Decl) -> bool {
+        var i = self.index_of(d)
+        return i != usize::MAX && self.rows[i].p != &null
+    }
+
+    /// `d` is a parameter's row whose type an instance decides.
+    fn is_dep_param(self, d: unsafe *Decl) -> bool {
+        var i = self.index_of(d)
+        return i != usize::MAX && self.rows[i].p != &null && self.rows[i].dep
+    }
+
+    /// The parameter rows, in declaration order.
+    fn params(self) -> [unsafe *Decl] {
+        var out: [unsafe *Decl]
+        for var i: usize = 0; i < self.rows.size(); ++i {
+            if self.rows[i].p != &null {
+                out.push(self.rows[i].key)
+            }
+        }
+
+        return out
+    }
+
+    /// `e` is one of the real transfers the row of `d` counts (a site or a
+    /// `return`).
+    fn is_site(self, d: unsafe *Decl, e: unsafe *Expr) -> bool {
+        var i = self.index_of(d)
+        if i == usize::MAX || e == &null {
+            return false
+        }
+
+        for var k: usize = 0; k < self.rows[i].sites.size(); ++k {
+            if self.rows[i].sites[k] == e {
+                return true
+            }
+        }
+
+        for var k: usize = 0; k < self.rows[i].rets.size(); ++k {
+            if self.rows[i].rets[k] == e {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// The parameter `d` may be moved some other way than by one of its
+    /// row's real transfers (LocalEndRow::dirty).
+    fn dirty_at_exit(self, d: unsafe *Decl) {
+        var i = self.index_of(d)
+        if i != usize::MAX {
+            self.rows[i].dirty = true
+        }
     }
 
     /// `d` is a row whose part moves may be left out of its destruction
@@ -603,7 +702,7 @@ pub class LocalEnds {
 
     fn index_of(self, d: unsafe *Decl) -> usize {
         for var i: usize = 0; i < self.rows.size(); ++i {
-            if unsafe (self.rows[i].d as unsafe *Decl) == d {
+            if self.rows[i].key == d {
                 return i
             }
         }
@@ -779,7 +878,12 @@ pub class LocalEnds {
     /// clears the flag there.
     fn settle(self, sc: unsafe *SemaContext, may_unwind: bool) {
         for var i: usize = 0; i < self.rows.size(); ++i {
-            var *r      = &self.rows[i]
+            var *r = &self.rows[i]
+            if r->p != &null {
+                _settle_param(sc, *r, may_unwind)
+                continue
+            }
+
             var managed = r->managed()
             for var k: usize = 0; k < r->rets.size(); ++k {
                 sc->move_sites.erase(r->rets[k] as usize as u64)
@@ -831,6 +935,64 @@ pub class LocalEnds {
                 disarm_local_at(sc, r->rets[k], r->d, m)
             }
         }
+    }
+}
+
+/// Who ends the object the parameter of row `r` names (ParamDecl::owner),
+/// written onto the declaration, and the sites a guard's flag is cleared
+/// at. The body ends it only when every exit is reached with it moved out
+/// by a real transfer of the whole of it or, with a guard, not moved at
+/// all, and nothing else was done to its storage: no `finally()`, no
+/// assignment after a move, no move capture, no site that cannot be placed
+/// on its path, and no C++ exception that leaves where the walk does not
+/// see (`may_unwind`). Anything else leaves it the caller's, which destroys
+/// what it passed as C++ destroys a by-value argument.
+///
+/// A `return p` of such a parameter is a move site either way: the C++
+/// parameter is a reference, which no copy elision applies to.
+fn _settle_param(sc: unsafe *SemaContext, const r: LocalEndRow, may_unwind: bool) {
+    r.p->owner = ParamOwner::Caller
+    for var k: usize = 0; k < r.mremakes.size(); ++k {
+        var unsafe *asn = r.mremakes[k]
+        asn->remake = asn->remake | Expressions::REMAKE_LIVE
+    }
+
+    if !r.dep {
+        for var k: usize = 0; k < r.rets.size(); ++k {
+            sc->move_sites.insert(r.rets[k] as usize as u64)
+        }
+    }
+
+    var ok = r.cand
+        && !r.bad
+        && !r.dirty
+        && !may_unwind
+        && r.ends == 0
+        && r.caps.size() == 0
+        && r.remakes.size() == 0
+        && r.mremakes.size() == 0
+        && r.ppaths.size() == 0
+        && r.sites.size() + r.rets.size() > 0
+    if !ok {
+        return
+    }
+
+    if !r.alive_unmoved {
+        r.p->owner = ParamOwner::Moved
+        return
+    }
+
+    if !r.guard_ok {
+        return
+    }
+
+    r.p->owner = ParamOwner::Consumed
+    for var k: usize = 0; k < r.sites.size(); ++k {
+        sc->disarm_sites[r.sites[k] as usize as u64] = r.p as usize as u64
+    }
+
+    for var k: usize = 0; k < r.rets.size(); ++k {
+        sc->disarm_sites[r.rets[k] as usize as u64] = r.p as usize as u64
     }
 }
 

@@ -28,11 +28,8 @@ import AST::ASTSupport::FrozenList
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::OverloadCell
 import AST::DeclFacts::{
-    decl_ffi_tag_keyword,
-    decl_is_imported,
-    decl_pattern,
-    param_is_type_pack,
-    param_type_pack_param,
+    decl_ffi_tag_keyword, decl_is_imported,   decl_pattern,          fn_keeps_value_params,
+    param_is_plain_value, param_is_type_pack, param_type_pack_param,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::LowerTargets
@@ -54,17 +51,11 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    FunctionDecl,
-    InterfaceDecl,
-    ParamDecl,
-    TypeAliasDecl,
+    AbiKind,       ClassDecl,    FnBodyKind, FunctionDecl, InterfaceDecl, ParamDecl, ParamOwner,
+    TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
-    CallExpr,
-    FinalizeKind,
-    PackExpansionExpr,
-    ParenExpr,
+    CallExpr,          FinalizeKind, PackExpansionExpr, ParenExpr, SubscriptExpr, TypeCastExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -422,13 +413,13 @@ extend EmitIR {
             && f->op_token.size() == 1
             && self._infix_operator(f->op_token[0].kind) {
             self._cg->sink->spell(n->range, "(")
-            self._arg(n->args[0], f->params[0], inst)
+            self._arg(n->args[0], f->params[0], inst, f)
             self._cg->sink->spell(
                 n->range,
                 " " + self._cg->ctx->get_spelling(f->op_token[0]) + " ",
             )
 
-            self._arg(n->args[1], f->params[1], inst)
+            self._arg(n->args[1], f->params[1], inst, f)
             self._cg->sink->spell(n->range, ")")
             return
         }
@@ -460,7 +451,7 @@ extend EmitIR {
             && n->witness_iface == &null
             && !self._is_extension_member(callee) {
             self._cg->sink->spell(n->args[0]->range, "(")
-            self._arg(n->args[0], f->params[0], inst)
+            self._arg(n->args[0], f->params[0], inst, f)
             self._cg->sink->spell(n->args[0]->range, ").")
             var unsafe *qt = n->qualifier
             if qt == &null
@@ -1109,7 +1100,7 @@ extend EmitIR {
 
     /// The generic arguments written on a plain callee (`f<A>` or
     /// `ns::f<A>`), as canonicals in order; empty when none were written.
-    priv fn _written_targs(self, c: unsafe *Expr) -> cxx::std::vector<unsafe *Type> {
+    prot fn _written_targs(self, c: unsafe *Expr) -> cxx::std::vector<unsafe *Type> {
         var out = cxx::std::vector<unsafe *Type>()
         var gl: unsafe *FrozenList<ChainType::GenericArg> = &null
         if isa<NamedIdentExpr>(c) {
@@ -1247,7 +1238,7 @@ extend EmitIR {
                 )
             }
 
-            self._arg(a, p, inst)
+            self._arg(a, p, inst, f)
             if alias.size() > 0 {
                 self._cg->sink->spell(a->range, ")")
             }
@@ -1355,7 +1346,13 @@ extend EmitIR {
         self._cg->sink->spell(a->range, ")")
     }
 
-    priv fn _arg(self, a: unsafe *Expr, p: unsafe *ParamDecl, inst: unsafe *InstanceEntry) {
+    /// `f` is the function `p` is a parameter of, null when the callee is
+    /// not one function Sema bound.
+    priv fn _arg(self,
+                 a:    unsafe *Expr,
+                 p:    unsafe *ParamDecl,
+                 inst: unsafe *InstanceEntry,
+                 f:    unsafe *FunctionDecl = &null) {
         // `&x` bound to an @inout parameter is the mode marker, not address-of.
         var unsafe *u = dyn_cast<UnaryOperatorExpr>(a)
         if u != &null && u->is_mode_marker {
@@ -1371,7 +1368,10 @@ extend EmitIR {
         }
 
         if p == &null {
-            self.emit(a)
+            if !self._value_arg(a, &null, &null, &null, inst) {
+                self.emit(a)
+            }
+
             return
         }
 
@@ -1427,7 +1427,257 @@ extend EmitIR {
             return
         } // an lvalue binds to T& as is.
 
+        if param_is_plain_value(p) && self._value_arg(a, p, f, pt, inst) {
+            return
+        }
+
         self._value(a, pt, inst)
+    }
+
+    /// A by-value argument of a type that is, or at an instance may be,
+    /// destructive (Speller::value_param_form): a move (CopyMoveLowering's
+    /// `x as T&&`), the prvalue CopyMoveLowering wrapped to carry its
+    /// parameter (TypeCastExpr::hand), or any other value. Its parameter
+    /// may be a `T&&` (Compiler/Spec/Ownership.md#by-value-parameters), and
+    /// who destroys the object depends on the callee:
+    ///
+    ///   - The callee ends it (_param_ends) and the argument may hand its
+    ///     storage over (`hand` names this parameter). A local or a
+    ///     parameter is passed as it is, its own storage; anything else,
+    ///     a prvalue included, is built in `::__kairo_pass<T>(e)`, which
+    ///     nothing destroys where T is destructive.
+    ///   - Anything else. A prvalue goes as written: a C++ temporary,
+    ///     destroyed after the call. A move is made at the argument,
+    ///     `static_cast<T>(x as T&&)`: the callee gets an object of the
+    ///     call's own, as a by-value parameter always was, and the moved
+    ///     local was moved whether or not the callee takes the value. A
+    ///     parameter that is by value in C++ is that object already, so
+    ///     its argument is unchanged.
+    ///
+    /// `p` null: a callee Sema bound to no declaration (a `fn` value, a
+    /// call clang resolves per instance), `pt` its parameter type when
+    /// known. True when it emitted.
+    prot fn _value_arg(self,
+                       a:    unsafe *Expr,
+                       p:    unsafe *ParamDecl,
+                       f:    unsafe *FunctionDecl,
+                       pt:   unsafe *Type,
+                       inst: unsafe *InstanceEntry) -> bool {
+        var unsafe *tc = dyn_cast<TypeCastExpr>(a)
+        var plain = tc == &null
+            || tc->operand == &null
+            || tc->target == &null
+            || tc->target->canonical == &null
+        if !plain && !isa<CXXRValueRefType>(tc->target->canonical) && tc->hand == &null {
+            plain = true
+        }
+
+        // Any other value that is not a prvalue in C++ for certain (an
+        // `if` or `match` expression whose arms move, a `??`): a `T&&`
+        // parameter would bind what its arms moved without taking it, and
+        // nothing would destroy that. `static_cast<T>(e)` makes the
+        // call's own object of it and is the prvalue itself where `e`
+        // already is one. A call's result is a prvalue and goes as it is;
+        // a place (a name, a field, an element, a pointer's target) that
+        // was not moved is a copy the by-value parameter makes.
+        if plain {
+            if a->type_ == &null || Speller::value_param_form(a->type_) == 0 {
+                return false
+            }
+
+            var unsafe *x = a
+            while x != &null && isa<ParenExpr>(x) {
+                x = cast<ParenExpr>(x)->inner
+            }
+
+            if x == &null {
+                return false
+            }
+
+            if isa<CallExpr>(x) && a->value_category == Expr::ValueCategory::RValue {
+                return false
+            }
+
+            if isa<NamedIdentExpr>(x)
+                || isa<ChainExpr>(x)
+                || isa<SubscriptExpr>(x)
+                || isa<UnaryOperatorExpr>(x) {
+                return false
+            }
+
+            if self._param_by_value(f, p) {
+                return false
+            }
+
+            self._cg->sink->spell(
+                a->range,
+                "static_cast<" + self._spell._type(canon_unqual(a->type_)) + ">(",
+            )
+
+            self._plain_value(a, pt, inst)
+            self._cg->sink->spell(a->range, ")")
+            return true
+        }
+
+        var moves = isa<CXXRValueRefType>(tc->target->canonical)
+
+        var unsafe *vt = tc->operand->type_
+        var form = if (vt != &null) => (Speller::value_param_form(vt)) else => 0
+        if form == 0 {
+            if moves {
+                return false
+            }
+
+            self._unhanded_value(tc->operand, p, f, pt, inst)
+            return true
+        }
+
+        var        ts  = self._spell._type(canon_unqual(vt))
+        var unsafe *hp = dyn_cast<ParamDecl>(tc->hand)
+        if hp != &null && p != &null && hp->index == p->index && self._param_ends(f, p) {
+            if moves && !tc->instance_move && self._names_own_storage(tc->operand) {
+                self.emit(a)
+                return true
+            }
+
+            self._cg->sink->spell(
+                a->range,
+                "::" + LowerTargets::value_pass() + "<" + ts + ">(",
+            )
+
+            if moves {
+                self.emit(a)
+            } else {
+                self._plain_value(tc->operand, pt, inst)
+            }
+
+            self._cg->sink->spell(a->range, ")")
+            return true
+        }
+
+        if !moves {
+            self._unhanded_value(tc->operand, p, f, pt, inst)
+            return true
+        }
+
+        if self._param_by_value(f, p) {
+            return false
+        }
+
+        self._cg->sink->spell(a->range, "static_cast<" + ts + ">(")
+        self.emit(a)
+        self._cg->sink->spell(a->range, ")")
+        return true
+    }
+
+    /// The value CopyMoveLowering wrapped to carry its parameter, where it
+    /// does not hand its storage over: written as any argument that
+    /// carries nothing (its arms may still move).
+    priv fn _unhanded_value(self,
+                            e:    unsafe *Expr,
+                            p:    unsafe *ParamDecl,
+                            f:    unsafe *FunctionDecl,
+                            pt:   unsafe *Type,
+                            inst: unsafe *InstanceEntry) {
+        if !self._value_arg(e, p, f, pt, inst) {
+            self._plain_value(e, pt, inst)
+        }
+    }
+
+    /// `p`, a parameter of `f`, is by value in C++: the parameter object
+    /// is built from the argument as it stands, so the argument needs no
+    /// object of its own. False for a callee or a parameter not known.
+    priv fn _param_by_value(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl) -> bool {
+        return f != &null && p != &null && !Speller::value_param_passed_rref(f, p)
+    }
+
+    /// `e` as an argument of type `pt` with nothing added (`pt` null: as
+    /// written).
+    priv fn _plain_value(self, e: unsafe *Expr, pt: unsafe *Type, inst: unsafe *InstanceEntry) {
+        if pt == &null {
+            self.emit(e)
+            return
+        }
+
+        self._value(e, pt, inst)
+    }
+
+    /// A call of `f` runs the body whose walk decided `p`'s owner, and that
+    /// body ends the object `p` names (ParamOwner): `p` is declared `T&&`
+    /// (Speller::value_param_passed_rref), the call is not dispatched
+    /// through a vtable or an interface's witness, and the link of `f`
+    /// that has the body says so. False for every callee whose body is not
+    /// Kairo's to read, which leaves the object to the caller.
+    priv fn _param_ends(self, f: unsafe *FunctionDecl, p: unsafe *ParamDecl) -> bool {
+        if f == &null || p == &null || !Speller::value_param_passed_rref(f, p) {
+            return false
+        }
+
+        if f->abi == AbiKind::Virtual || f->abi == AbiKind::Override || f->overrides_virtual {
+            return false
+        }
+
+        if self._is_requirement(unsafe (f as unsafe *Decl)) {
+            return false
+        }
+
+        var unsafe *body = dyn_cast<FunctionDecl>(
+            decl_pattern(unsafe (f as unsafe *Decl)),
+        )
+
+        if body == &null {
+            body = f
+        }
+
+        if body->body_kind != FnBodyKind::Block && body->body_kind != FnBodyKind::Expr {
+            body = body->definition()
+        }
+
+        if body == &null
+            || body->body_kind != FnBodyKind::Block && body->body_kind != FnBodyKind::Expr {
+            return false
+        }
+
+        var at = usize::MAX
+        for var i: usize = 0; i < f->params.size(); ++i {
+            if f->params[i] == p {
+                at = i
+            }
+        }
+
+        if at == usize::MAX || at >= body->params.size() || body->params[at] == &null {
+            return false
+        }
+
+        return body->params[at]->owner != ParamOwner::Caller
+    }
+
+    /// `e` names a local or a by-value parameter of the function being
+    /// written, whole: storage no other name reaches once it is moved. A
+    /// binder that borrows, a static and a field are someone else's
+    /// storage, which a callee's reference parameter must not alias.
+    priv fn _names_own_storage(self, e: unsafe *Expr) -> bool {
+        var unsafe *x = e
+        while x != &null && isa<ParenExpr>(x) {
+            x = cast<ParenExpr>(x)->inner
+        }
+
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(x)
+        if ni == &null || ni->resolved_decl == &null {
+            return false
+        }
+
+        var unsafe *v = dyn_cast<VariableDecl>(ni->resolved_decl)
+        if v != &null {
+            return !v->is_static()
+                && !v->is_thread
+                && !v->borrows
+                && !v->borrow_inst
+                && !v->place_ref
+        }
+
+        var unsafe *q = dyn_cast<ParamDecl>(ni->resolved_decl)
+        return q != &null && q->mode == ParamMode::Value && !q->is_self && !q->is_const
     }
 
     /// The `fn` type of a callee that is a VALUE, not a function: one whose
@@ -1503,6 +1753,12 @@ extend EmitIR {
 
                 self.emit(a)
                 self._cg->sink->spell(a->range, ")")
+                continue
+            }
+
+            // The value behind a `fn` value is not known to end what it is
+            // passed: a moved argument is an object of the call's own.
+            if self._value_arg(a, &null, &null, pt, &null) {
                 continue
             }
 

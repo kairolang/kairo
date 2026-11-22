@@ -574,10 +574,13 @@ extend InterfaceEmitter {
                 s += "typename ::" + LowerTargets::nondeduced() + "<" + self._spell->param_decl(
                     p,
                     "",
+                    &null,
+                    &null,
+                    f,
                 ) + ">::type " + nm
                 call += "static_cast<decltype(" + nm + ")&&>(" + nm + ")"
             } else {
-                s += self._spell->param_decl(p, nm)
+                s += self._spell->param_decl(p, nm, &null, &null, f)
                 call += "static_cast<decltype(" + nm + ")&&>(" + nm + ")"
             }
 
@@ -685,7 +688,7 @@ extend InterfaceEmitter {
                 )
             }
 
-            s += self._spell->param_decl(p, nm, &null, scope)
+            s += self._spell->param_decl(p, nm, &null, scope, f)
             if defaults {
                 s += self._default_arg(f, i)
             }
@@ -852,7 +855,7 @@ extend InterfaceEmitter {
                               ext,
                               ie,
                           ))
-                          else => self._spell->param_decl(p, "", ie)
+                          else => self._spell->param_decl(p, "", ie, &null, f)
                 if one.size() == 0 {
                     continue
                 }

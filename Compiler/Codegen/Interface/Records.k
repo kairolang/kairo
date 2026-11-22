@@ -1396,6 +1396,55 @@ extend InterfaceEmitter {
         return s + ">"
     }
 
+    /// `d`'s specialization of the trait is written ahead of every
+    /// definition: a class Sema calls destructive that is declared at
+    /// namespace scope and is neither generic nor a specialization, so its
+    /// answer needs nothing of its definition. A template that a record's
+    /// definition instantiates may ask it for a class that is not defined
+    /// yet (`class Node { var kids: Stack<Node> }`: `Stack<Node>::put`
+    /// takes a `::__kairo_param<Node>`), and a specialization after that
+    /// use is ill-formed.
+    prot fn _dm_ahead(self, d: unsafe *Decl) -> bool {
+        if !self._dm_nameable(d)
+            || DeclFacts::decl_generic_params(d).size() > 0
+            || Speller::is_record_spec(d) {
+            return false
+        }
+
+        if d->semantic_dc != &null && d->semantic_dc->is_type_scope() {
+            return false
+        }
+
+        return self._dm_fact(d) == Declarations::DestructiveFact::Yes
+    }
+
+    /// The trait's specialization for a class _dm_ahead names, after a
+    /// declaration of the class.
+    prot fn _dm_spec_ahead(self, d: unsafe *Decl) {
+        if !self._dm_ahead(d) {
+            return
+        }
+
+        self._wrapped(
+            d,
+            fn () {
+                self._cg->sink->spell(
+                    self._at(d),
+                    "class " + self._spell->leaf(d) + ";",
+                )
+            },
+        )
+
+        self._cg->sink->spell(
+            self._at(d),
+            "template <> inline constexpr bool " + LowerTargets::dm_trait() + "<" + self._spell->qual_name(
+                d,
+            ) + "> = true;",
+        )
+
+        self._cg->sink->brk()
+    }
+
     /// The trait's specializations for `d` and the records nested in it,
     /// at global scope after its definition (before any use, which needs
     /// the complete type). True for a class Sema calls destructive; the
@@ -1434,6 +1483,11 @@ extend InterfaceEmitter {
             // partial specialization of the trait for its primary.
 
             if fact == Declarations::DestructiveFact::Yes {
+                // Written ahead of the definitions (_dm_specs_ahead).
+                if self._dm_ahead(d) {
+                    return
+                }
+
                 v = "true"
             } else if spec {
                 v = "false"
