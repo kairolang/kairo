@@ -36,12 +36,13 @@ class Tok impl Hash {
     @move pub fn Tok(self, other: Self) {
         self.id  = other.id
         other.id = -1
-        live  += 1
         moves += 1
     }
 
     pub fn op finally(self) {
-        live -= 1
+        if self.id != -1 {
+            live -= 1
+        }
     }
 
     pub fn op == (const self, const o: Tok) -> bool {

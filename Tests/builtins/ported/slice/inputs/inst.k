@@ -8,7 +8,7 @@ pub eval ST_LIVE:  u64 = 0x51A7E51A7E51A7E5u64
 pub eval ST_MOVED: u64 = 0x30FED30FED30FED3u64
 pub eval ST_DEAD:  u64 = 0xDEADDEADDEADDEADu64
 
-/// Objects constructed or moved into existence and not yet destroyed.
+/// Values constructed and not yet destroyed; a moved-from object holds none.
 pub static LIVE: i64 = 0
 /// Constructions from a key, moves, destructions, and states found wrong.
 pub static MADE: i64 = 0
@@ -41,7 +41,6 @@ pub class Inst {
         self.id   = other.id
         self.tag  = ST_LIVE
         other.tag = ST_MOVED
-        LIVE += 1
         MOVES += 1
     }
 
@@ -50,9 +49,12 @@ pub class Inst {
             BAD += 1
         }
 
+        if self.tag == ST_LIVE {
+            LIVE -= 1
+            DROPS += 1
+        }
+
         self.tag = ST_DEAD
-        LIVE -= 1
-        DROPS += 1
     }
 
     pub fn key(const self) -> i64 {
@@ -103,7 +105,6 @@ pub class Dup {
         self.k    = other.k
         self.tag  = ST_LIVE
         other.tag = ST_MOVED
-        LIVE += 1
     }
 
     pub fn copy(const self) -> Dup {
@@ -120,8 +121,11 @@ pub class Dup {
             BAD += 1
         }
 
+        if self.tag == ST_LIVE {
+            LIVE -= 1
+        }
+
         self.tag = ST_DEAD
-        LIVE -= 1
     }
 }
 

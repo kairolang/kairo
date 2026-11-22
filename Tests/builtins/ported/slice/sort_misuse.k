@@ -191,7 +191,6 @@ class Wild impl Ord {
         self.id   = other.id
         self.tag  = ST_LIVE
         other.tag = ST_MOVED
-        LIVE += 1
     }
 
     pub fn op finally(self) {
@@ -199,8 +198,11 @@ class Wild impl Ord {
             BAD += 1
         }
 
+        if self.tag == ST_LIVE {
+            LIVE -= 1
+        }
+
         self.tag = ST_DEAD
-        LIVE -= 1
     }
 
     @no_warn(SC202W)

@@ -23,11 +23,12 @@ class Tracked {
     @move pub fn Tracked(self, other: Self) {
         self.v  = other.v
         other.v = -1
-        live += 1
     }
 
     pub fn op finally(self) {
-        live -= 1
+        if self.v != -1 {
+            live -= 1
+        }
     }
 }
 

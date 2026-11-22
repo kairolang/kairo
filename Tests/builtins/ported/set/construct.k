@@ -41,13 +41,12 @@ class Ctr {
         self.v = other.v
         self.state = 1
         other.state = 2
-        live += 1
     }
 
     pub fn op finally(self) {
         if self.state == 0 { errors += 1 }
+        if self.state == 1 { live -= 1 }
         self.state = 0
-        live -= 1
     }
 }
 

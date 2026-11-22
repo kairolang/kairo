@@ -64,11 +64,11 @@ pub fn reset() {
     SOURCES = 0
 }
 
-/// Every object made since reset() is destroyed exactly once, none was
+/// Every value made since reset() is destroyed exactly once, none was
 /// touched in a bad state, and no source is left.
 pub fn expect_balanced(const name: string) {
     expect(LIVE == 0 && ERRS == 0, f"{name}: {LIVE} live, {ERRS} bad touches")
-    var made = CTORS + MOVES
+    var made = CTORS
     expect(DTORS == made, f"{name}: destroyed {DTORS} of {made}")
     expect(SOURCES == 0, f"{name}: {SOURCES} sources left")
 }
@@ -143,7 +143,6 @@ pub class Counted {
         self.state  = ALIVE
         self.id     = other.id
         other.state = MOVED
-        LIVE += 1
         MOVES += 1
     }
 
@@ -152,9 +151,12 @@ pub class Counted {
             ERRS += 1
         }
 
+        if self.state == ALIVE {
+            LIVE -= 1
+            DTORS += 1
+        }
+
         self.state = DEAD
-        LIVE -= 1
-        DTORS += 1
     }
 
     pub fn get(const self) -> i64 {
@@ -470,7 +472,6 @@ pub class Ranked {
         self.rank   = other.rank
         self.tag    = other.tag
         other.state = MOVED
-        LIVE += 1
         MOVES += 1
     }
 
@@ -479,9 +480,12 @@ pub class Ranked {
             ERRS += 1
         }
 
+        if self.state == ALIVE {
+            LIVE -= 1
+            DTORS += 1
+        }
+
         self.state = DEAD
-        LIVE -= 1
-        DTORS += 1
     }
 
     pub fn op == (const self, const o: Ranked) -> bool = self.rank == o.rank

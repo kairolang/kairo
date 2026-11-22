@@ -52,11 +52,11 @@ pub fn reset() {
     LOGGED = 0
 }
 
-/// Every object made since reset() is destroyed exactly once and none was
+/// Every value made since reset() is destroyed exactly once and none was
 /// touched in a bad state.
 pub fn expect_clean(const name: string) {
     expect(LIVE == 0 && ERRS == 0, name)
-    var made = CTORS + MOVES
+    var made = CTORS
     expect(DTORS == made, f"{name}: destroyed {DTORS} of {made}")
 }
 
@@ -110,7 +110,6 @@ pub class Counted {
         self.state  = ALIVE
         self.id     = other.id
         other.state = MOVED
-        LIVE += 1
         MOVES += 1
     }
 
@@ -121,11 +120,11 @@ pub class Counted {
 
         if self.state == ALIVE {
             log_id(self.id)
+            LIVE -= 1
+            DTORS += 1
         }
 
         self.state = DEAD
-        LIVE -= 1
-        DTORS += 1
     }
 
     pub fn get(const self) -> i64 {
@@ -179,7 +178,6 @@ pub class RCounted {
         self.state  = ALIVE
         self.id     = other.id
         other.state = MOVED
-        LIVE += 1
         MOVES += 1
     }
 
@@ -190,11 +188,11 @@ pub class RCounted {
 
         if self.state == ALIVE {
             log_id(self.id)
+            LIVE -= 1
+            DTORS += 1
         }
 
         self.state = DEAD
-        LIVE -= 1
-        DTORS += 1
     }
 
     pub fn get(const self) -> i64 {

@@ -111,7 +111,6 @@ pub class Tracked {
         self.state  = ALIVE
         self.id     = other.id
         other.state = MOVED
-        LIVE += 1
     }
 
     pub fn op finally(self) {
@@ -119,8 +118,11 @@ pub class Tracked {
             ERRS += 1
         }
 
+        if self.state == ALIVE {
+            LIVE -= 1
+        }
+
         self.state = DEAD
-        LIVE -= 1
     }
 
     pub fn get(const self) -> i64 {
@@ -168,7 +170,6 @@ pub class RTracked {
         self.state  = ALIVE
         self.id     = other.id
         other.state = MOVED
-        LIVE += 1
     }
 
     pub fn op finally(self) {
@@ -176,8 +177,11 @@ pub class RTracked {
             ERRS += 1
         }
 
+        if self.state == ALIVE {
+            LIVE -= 1
+        }
+
         self.state = DEAD
-        LIVE -= 1
     }
 
     pub fn get(const self) -> i64 {
