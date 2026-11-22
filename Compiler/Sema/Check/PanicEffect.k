@@ -1146,8 +1146,16 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
         // conformers return it, PanicLowering::_result_of), where `Self` has
         // no C++ type: codegen stops on the interface (I003E). Reported at
         // the declaration, which every conformer and every call through a
-        // bound -- operator form or method form -- goes through.
-        if self._in_interface(f) && self._result_names_self(f) {
+        // bound -- operator form or method form -- goes through. A static
+        // requirement whose value alone names `Self` is the exception: each
+        // conformer's result reads `Self` as the conformer, and each call
+        // through a bound as the call's own type (PanicLowering::_call).
+        var self_gated = self._result_names_self(f)
+        if !f->is_method() {
+            self_gated = self._set_names_self(f)
+        }
+
+        if self._in_interface(f) && self_gated {
             var b = self.sc->diag->report(
                 DiagID::SC116E,
                 at.start,
@@ -1532,6 +1540,10 @@ pub class PanicEffectChecking derives RecursiveASTVisitor<PanicEffectChecking> {
             return true
         }
 
+        return self._set_names_self(f)
+    }
+
+    priv fn _set_names_self(self, f: unsafe *Declarations::FunctionDecl) -> bool {
         for var i: usize = 0; i < f->panic_set.size(); ++i {
             var unsafe *t = f->panic_set[i]
             if t != &null && self._names_self(t->canonical, 0) {

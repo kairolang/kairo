@@ -136,6 +136,7 @@ import AST::Node::Declarations::{
     ExtensionDecl,
     FnModifier,
     FunctionDecl,
+    InterfaceDecl,
     PanicSetState,
     ParamDecl,
     StorageClass,
@@ -265,8 +266,8 @@ pub struct PanicBody {
     var copy_bars:  [usize]
     var copy_exits: [PanicCopyExit]
     var holders:    [PanicHolder]
-    var fn_r:       unsafe *Type                    = &null ///< the body's result, or null when it does not panic.
-    var fn_t:       unsafe *Type                    = &null ///< its value type T.
+    var fn_r:       unsafe *Type    = &null ///< the body's result, or null when it does not panic.
+    var fn_t:       unsafe *Type    = &null ///< its value type T.
     /// The variables declared so far in the body, when it panics: the ones
     /// a `return` or `panic` of the bare name moves (_moved_local).
     var locals: [unsafe *VariableDecl]
@@ -300,7 +301,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     priv var _ml_ready: bool         = false
     /// The function being lowered, and the dependent panic results its body
     /// names so far (_dep): its FunctionDecl::panic_deps.
-    priv var _cur:  unsafe *FunctionDecl           = &null
+    priv var _cur:  unsafe *FunctionDecl = &null
     priv var _deps: [unsafe *Type]
     /// Lowers a panicking operator to its call ahead of OperatorLowering
     /// (_op_call); made on the first one. One for the run: the names it
@@ -414,6 +415,17 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
                 self._result_of(req),
                 if (row != &null) => (row->iface) else => &null,
             )
+
+            // A static requirement's `Self` (PanicEffectChecking admits no
+            // other) is this conformer: `Panic<FromStr, E>` met by i32 is
+            // `Panic<i32, E>`, what the witness names for `__kairo_Self`.
+            if qr != &null && row != &null && !req->is_method() {
+                var sub = Substitution(self.sc)
+                qr = self._formed(
+                    f->range,
+                    sub.replace_self(qr, row->iface_decl, row->conformer),
+                )
+            }
 
             if qr != &null {
                 return self._store(f, qr)
@@ -1365,12 +1377,51 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
             rc = self._formed(c->range, x)
         }
 
+        rc = self._self_at_call(c, f, rc)
         self._dep(rc)
         var set = cxx::std::vector<unsafe *Type>()
         r.call = c
         r.rc   = rc
         r.fails = panic_call_set(unsafe &self.tu, f, c, recv, unsafe &set) == PanicKnown::Set
         return r
+    }
+
+    /// A call of a static requirement whose value names `Self`
+    /// (`T::try_from_str(s)` through `T impl FromStr`): its result over the
+    /// call's own type, which reads `Self` as the type the call is made
+    /// through, and the requirement's set. `rc` for any other call.
+    priv fn _self_at_call(self,
+                          c:  unsafe *Expressions::CallExpr,
+                          f:  unsafe *FunctionDecl,
+                          rc: unsafe *Type) -> unsafe *Type {
+        if f->is_method() || c->type_ == &null || self.q.panic_adt(rc) == &null {
+            return rc
+        }
+
+        var unsafe *dc = f->semantic_dc
+        if dc == &null
+            || dc->owner_decl() == &null
+            || !isa<InterfaceDecl>(NameLookup::representative(dc->owner_decl())) {
+            return rc
+        }
+
+        var args = self.tu.record_args(self.tu.as_value(rc))
+        if args.size() == 0 {
+            return rc
+        }
+
+        var unsafe *own = canon_unqual(c->type_)
+        if own == canon_unqual(args[0]) {
+            return rc
+        }
+
+        var els = cxx::std::vector<unsafe *Type>()
+        for var i: usize = 1; i < args.size(); ++i {
+            els.push_back(canon_unqual(args[i]))
+        }
+
+        var unsafe *r = PanicSets(self.sc).form(c->range, own, unsafe &els)
+        return if (r != &null) => (r) else => rc
     }
 
     /// The function a call selected, or null (PanicWalk's rule).
@@ -1595,7 +1646,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     /// # try / catch (§4.4)
 
     fn transform_try_catch_stmt(self, n: unsafe *TryCatchStmt) -> cxx::std::vector<unsafe *Stmt> {
-        var at    = n->range
+        var at                = n->range
         var arms:  [PanicArm]
         var cxx_v: [PanicArm]
         for var i: usize = 0; i < n->arms.size(); ++i {
@@ -1743,7 +1794,7 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
     }
 
     fn transform_try_catch_expr(self, n: unsafe *Expressions::TryCatchExpr) -> unsafe *Expr {
-        var at    = n->range
+        var at                = n->range
         var arms:  [PanicArm]
         var cxx_v: [PanicArm]
         for var i: usize = 0; i < n->catch_arms.size(); ++i {
@@ -2039,8 +2090,8 @@ pub class PanicLowering derives ASTWriter<PanicLowering> {
         }
 
         var typed: [usize]
-        var caught     = cxx::std::vector<unsafe *Type>()
-        var bare:  i64 = -1
+        var caught         = cxx::std::vector<unsafe *Type>()
+        var bare:  i64     = -1
         for var i: usize = 0; i < arms.size(); ++i {
             var unsafe *a = unsafe &(arms)[i]
             if a->filter == &null {
