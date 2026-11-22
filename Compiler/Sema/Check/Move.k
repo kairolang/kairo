@@ -1457,6 +1457,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 if (cm == Expressions::CaptureMode::Ptr || cm == Expressions::CaptureMode::ConstPtr)
                     && n->held[i].decl != &null {
                     self._addr.insert(n->held[i].decl as usize as u64)
+                    self._ends.spoil(n->held[i].decl)
                 }
             }
 
@@ -1480,8 +1481,24 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                 }
 
                 var unsafe *d = n->held[i].decl
+                n->held.get(i)->disarms = false
                 if !self._tracked(d) {
                     continue
+                }
+
+                // The capture is move-constructed where the closure is
+                // built (the lambda in its heap slot, `new auto(...)`):
+                // for a local of this body it is a real transfer.
+                var unsafe *fu = n->held[i].first_use
+                if fu != &null && isa<VariableDecl>(d) && self._ends.is_cand(d) {
+                    record_real_transfer(
+                        self.sc,
+                        unsafe (fu as unsafe *Expr),
+                        d,
+                    )
+
+                    self._disarm_site(d, unsafe (fu as unsafe *Expr), false)
+                    self._ends.captured_at(d, n, i)
                 }
 
                 var mp = MovedPart()
@@ -3225,6 +3242,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                                 || rx->value_category != Expr::ValueCategory::RValue {
                                 self._ends.spoil(pl.d)
                             }
+                        }
+
+                        // A store into a part of a local moved (or maybe
+                        // moved) whole puts a live value into the moved-from
+                        // object: only its destructor can release it.
+                        if pl.path.size() > 0
+                            && !self._st.dead
+                            && self._ends.is_cand(pl.d)
+                            && (self._st.is_disarmed(pl.d)
+                                || self._st.index_of(pl.d, "") != usize::MAX) {
+                            self._ends.spoil(pl.d)
                         }
 
                         var moved = self._move_remake_state(pl)
@@ -7005,6 +7033,9 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         if d != &null {
             self._addr.insert(d as usize as u64)
             self._st.drop_link(d)
+            // A pointer into the local can store a value into its storage
+            // after a move, which nothing would then destroy.
+            self._ends.spoil(d)
         }
     }
 

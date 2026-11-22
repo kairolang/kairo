@@ -330,6 +330,11 @@ pub class LocalEndRow {
     /// included (EmitIR writes every one), and its `return x` values.
     pub var sites: [unsafe *Expr]
     pub var rets:  [unsafe *Expr]
+    /// Its Move captures: the closure and the index of the capture row
+    /// (ClosureExpr::Held::disarms, written by settle). Each is also in
+    /// `sites`, keyed by the capture's first use.
+    pub var caps:   [unsafe *Expressions::ClosureExpr]
+    pub var cap_at: [usize]
     /// Visits of its sites, loop passes included: an assignment to it
     /// compares the count before and after its right-hand side.
     pub var visits: usize = 0
@@ -434,6 +439,23 @@ pub class LocalEnds {
         }
 
         self.rows[i].sites.push(site)
+    }
+
+    /// Capture row `k` of closure `c` moves the whole local `d` in.
+    fn captured_at(self, d: unsafe *Decl, c: unsafe *Expressions::ClosureExpr, k: usize) {
+        var i = self.index_of(d)
+        if i == usize::MAX || !self.rows[i].cand {
+            return
+        }
+
+        for var j: usize = 0; j < self.rows[i].caps.size(); ++j {
+            if self.rows[i].caps[j] == c && self.rows[i].cap_at[j] == k {
+                return
+            }
+        }
+
+        self.rows[i].caps.push(c)
+        self.rows[i].cap_at.push(k)
     }
 
     /// `v` is a `return d` of the whole local `d`.
@@ -571,6 +593,10 @@ pub class LocalEnds {
             }
 
             r->d->dtor_mode = m
+            for var k: usize = 0; k < r->caps.size(); ++k {
+                r->caps[k]->held.get(r->cap_at[k])->disarms = managed
+            }
+
             if !managed {
                 continue
             }

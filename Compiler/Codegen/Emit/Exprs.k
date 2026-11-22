@@ -57,6 +57,7 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations::{
     InterfaceDecl,
+    LocalDtor,
     ParamDecl,
     StorageClass,
     VariableDecl,
@@ -812,9 +813,26 @@ extend EmitIR {
                 case CaptureMode::Copy {
                     s += if (origin == nm) => (nm) else => nm + " = " + origin
                 } case CaptureMode::Move {
-                    s += nm + " = static_cast<" + self._spell._type(
+                    var mv = "static_cast<" + self._spell._type(
                         self._capture_type(d),
                     ) + "&&>(" + origin + ")"
+                    // A disarmed move (ClosureExpr::Held::disarms): flagged,
+                    // the flag is cleared as the capture is built.
+                    if n->held[i].disarms {
+                        if ur == usize::MAX || self._ul_decl[ur]->dtor_mode == LocalDtor::Cleanup {
+                            self._ice(
+                                n->range,
+                                "EmitIR: a disarmed capture of a local that is not elided or flagged; its mode and its sites disagree",
+                            )
+                        }
+
+                        self._ul_ends[ur] += 1
+                        if self._ul_decl[ur]->dtor_mode == LocalDtor::Flagged {
+                            mv = "(" + self._ul_store[ur] + ".live = false, " + mv + ")"
+                        }
+                    }
+
+                    s += nm + " = " + mv
                 } case CaptureMode::Ptr {
                     s += nm + " = &" + place
                 } case CaptureMode::ConstPtr {

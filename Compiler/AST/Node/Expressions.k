@@ -2576,6 +2576,11 @@ pub class ClosureExpr derives Expr {
         /// own name in the list): what MoveCheck reads as the capture's
         /// read. The tree's, before any lowering rebuilds it.
         pub var first_use: unsafe *NamedIdentExpr = &null
+        /// A Move capture that empties a local whose moves are disarmed
+        /// (LocalEnds::settle): EmitIR builds the capture out of the
+        /// local's union storage and clears its flag there, so the
+        /// moved-from object is not destroyed.
+        pub var disarms: bool = false
     }
 
     /// What the closure holds, decided once by ClosureCaptures (CHECK) and
