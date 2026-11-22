@@ -857,7 +857,8 @@ pub class FunctionDecl
     pub var purity_proof: u8 = 0
     /// A call of the function may be evaluated where the program would not
     /// have made it: it has a purity level, written or inferred, its
-    /// termination is proven, and nothing it runs can stop the program
+    /// termination is proven, and nothing it runs stops the program or
+    /// reads through a pointer its arguments do not reach
     /// (Compiler/Spec/SemanticChecks.md, "Speculatable functions"). A `fn`
     /// value made from its name carries the fact (EmitIR::_fn_spec_value),
     /// which `__builtin_fn_speculatable` reads. Writer:

@@ -99,20 +99,30 @@
 ///     when a call of it may be evaluated on arguments the program never
 ///     passed it, provided every pointer reachable from those arguments is
 ///     valid: a block scan tests a predicate on elements past the one that
-///     ends the scan (Lib/std/iter.k). The promise and the proof allow that
-///     only for a body in which nothing stops the program or faults, which
-///     the purity rules leave open on purpose (a zero divisor). So the
-///     Prove walk also records what can: an integer `/` or `%` whose divisor
-///     is not a nonzero literal, an index the language does not check
-///     through an operator (a fixed array, a pointer), an `unsafe` block or
-///     expression, a call of anything but a speculatable function, an eval
-///     fn or an intrinsic that holds for every argument (not `assume`,
-///     `unreachable`, `assume_aligned`, nor a C/C++ function), and a read of
-///     a global or static that is not a number, a `bool` or a `char`. The
-///     last one keeps every pointer the function reads through within reach
-///     of its arguments: a pointer taken from a global may be one the
-///     program only follows after a test the other arguments would fail,
-///     and nothing says it is still valid.
+///     ends the scan (Lib/std/iter.k). The promise and the proof leave open
+///     two things such a call must not do, so the Prove walk records each:
+///
+///       stop the program   an integer `/` or `%` whose divisor is not a
+///                          nonzero literal, an index the language does not
+///                          check through an operator (a fixed array, a
+///                          pointer), an `unsafe` block or expression, a
+///                          call of anything but a speculatable function, an
+///                          eval fn or an intrinsic that holds for every
+///                          argument (not `assume`, `unreachable`,
+///                          `assume_aligned`, nor a C/C++ function).
+///       read through a     every dereference (`*e`, `e->x`) is of a path
+///       pointer its        from a parameter: the parameter, what a path
+///       arguments do not   points at, a field of one, the address of one
+///       reach              or of a number. A call, a method and a user
+///                          operator are handed only such paths and numbers
+///                          (`bool` and `char` count as numbers here).
+///                          Nothing but a number is assigned or stepped, and
+///                          no global or static but a number is read. So
+///                          pointer arithmetic, which safe code may write
+///                          unchecked (`*(*p + 1)`), a local that holds a
+///                          pointer (unset, or stepped past the argument)
+///                          and a pointer a callee returns are never read
+///                          through.
 ///
 ///   Phase: CHECK (after ExprTyper: reads resolved declarations and types;
 ///          before every lowering, so it sees only what the user wrote and
@@ -165,18 +175,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,
-    AdtRole,
-    ClassDecl,
-    ExtensionDecl,
-    FieldDecl,
-    FnBodyKind,
-    FunctionDecl,
-    ParamDecl,
-    PurityLevel,
-    PurityProof,
-    TransferKind,
-    VariableDecl,
+    AbiKind,   AdtRole,     ClassDecl,   ExtensionDecl, FieldDecl,    FnBodyKind, FunctionDecl,
+    ParamDecl, PurityLevel, PurityProof, TransferKind,  VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::Patterns::{
@@ -248,8 +248,9 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
     priv var _unbounded: bool                                   = false
     priv var _bad_call:  bool                                   = false
     priv var _deps:      [unsafe *FunctionDecl]
-    /// The Prove walk met something that can stop the program or fault on
-    /// a value the program never passed: the function is not speculatable
+    /// The Prove walk met something a call on values the program never
+    /// passed must not do: stop the program, or read through a pointer the
+    /// arguments do not reach. The function is not speculatable
     /// (header, "Speculation").
     priv var _traps: bool = false
     /// Inferred levels kept, and the inferred levels the termination proof
@@ -748,6 +749,151 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
         self._traps = true
     }
 
+    /// A number, a `bool` or a `char`: a value that holds no pointer.
+    priv fn _plain(self, t: unsafe *Type) -> bool {
+        if t == &null || t->canonical == &null {
+            return false
+        }
+
+        var k = self._tu.kind_of(t->canonical)
+        return k != BuiltinKind::COUNT && k != BuiltinKind::Void
+    }
+
+    /// `e` is a path from a parameter of the function being walked: the
+    /// parameter, what a path points at, a field of a path, or the address
+    /// of a path or of a plain value. A pointer such a path gives is one
+    /// the arguments reach (header, "Speculation"); a local, an arithmetic
+    /// result and a call's result are not paths.
+    priv fn _path(self, e: unsafe *Expr) -> bool {
+        var unsafe *x = self._tu.strip_parens(e)
+        if x == &null {
+            return false
+        }
+
+        if isa<NamedIdentExpr>(x) {
+            var unsafe *p = dyn_cast<ParamDecl>(
+                cast<NamedIdentExpr>(x)->resolved_decl,
+            )
+
+            if p == &null || self._f == &null {
+                return false
+            }
+
+            for var i: usize = 0; i < self._f->params.size(); ++i {
+                if self._f->params[i] == p {
+                    return true
+                }
+            }
+
+            return false
+        }
+
+        if isa<Expressions::UnaryOperatorExpr>(x) {
+            var unsafe *u = cast<Expressions::UnaryOperatorExpr>(x)
+            if u->resolved_op != &null || u->fix != Expressions::UnaryOperatorExpr::Fix::Prefix {
+                return false
+            }
+
+            if u->op_token.kind == TokenKind::OpStar {
+                return self._path(u->operand)
+            }
+
+            return u->op_token.kind == TokenKind::OpAmp && self._sound(u->operand)
+        }
+
+        if isa<ChainExpr>(x) {
+            var unsafe *c = cast<ChainExpr>(x)
+            return self._chain_path(c, c->steps.size())
+        }
+
+        return false
+    }
+
+    /// The first `upto` steps of `c` read fields of a path.
+    priv fn _chain_path(self, c: unsafe *ChainExpr, upto: usize) -> bool {
+        if c->base == &null || !self._path(c->base) {
+            return false
+        }
+
+        for var i: usize = 0; i < upto; ++i {
+            var unsafe *st = c->steps.get(i)
+            if st->access_kind == ChainExpr::AccessKind::ColonColon {
+                return false
+            }
+
+            if st->target != ChainExpr::StepTarget::TupleIndex
+                && (st->resolved_decl == &null || !isa<FieldDecl>(st->resolved_decl)) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// `e` may be handed to code that reads through what it is given: a
+    /// plain value, or a path.
+    priv fn _sound(self, e: unsafe *Expr) -> bool {
+        return self._plain(self._expr_type(e)) || self._path(e)
+    }
+
+    /// The Prove walk reached a dereference of `e`.
+    priv fn _follows(self, e: unsafe *Expr) {
+        if self._walk == PurityWalk::Prove && !self._path(e) {
+            self._traps = true
+        }
+    }
+
+    /// The Prove walk reached `e` handed to a callee: an argument, a
+    /// receiver, a user operator's operand.
+    priv fn _hands(self, e: unsafe *Expr) {
+        if self._walk == PurityWalk::Prove && !self._sound(e) {
+            self._traps = true
+        }
+    }
+
+    /// The Prove walk reached an assignment to `e`, or a `++` or `--` of
+    /// it, with no user operator. A parameter that holds a pointer is a
+    /// path only while it keeps the value it was passed, so nothing but a
+    /// plain value is written.
+    priv fn _rebinds(self, e: unsafe *Expr) {
+        if self._walk == PurityWalk::Prove && !self._plain(self._expr_type(e)) {
+            self._traps = true
+        }
+    }
+
+    /// The Prove walk reached the call `n`: every argument and the receiver
+    /// of a method are handed to the callee.
+    priv fn _hands_call(self, n: unsafe *Expressions::CallExpr) {
+        if self._walk != PurityWalk::Prove {
+            return
+        }
+
+        for var i: usize = 0; i < n->args.size(); ++i {
+            var unsafe *a = self._tu.strip_parens(*n->args.get(i))
+            if a != &null && isa<Expressions::NamedArgExpr>(a) {
+                a = cast<Expressions::NamedArgExpr>(a)->value
+            }
+
+            self._hands(a)
+        }
+
+        var unsafe *c = dyn_cast<ChainExpr>(self._tu.strip_parens(n->callee))
+        if c == &null || c->steps.size() == 0 {
+            return
+        }
+
+        var last = c->steps.size() - 1
+        if c->steps.get(last)->access_kind == ChainExpr::AccessKind::ColonColon {
+            return
+        }
+
+        var unsafe *rt = if last == 0 => self._expr_type(c->base)
+                         else => c->steps.get(last - 1)->resolved_type
+        if !self._plain(rt) && !self._chain_path(c, last) {
+            self._traps = true
+        }
+    }
+
     /// The walk reports nothing: a broken rule sets _fail instead.
     priv fn _silent(self) -> bool {
         return self._walk == PurityWalk::Infer || self._walk == PurityWalk::Prove
@@ -1061,6 +1207,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             var it = self.sc->implicit_convs.find(n as usize as u64)
             if it != self.sc->implicit_convs.end() {
                 self._callee(n->range, unsafe (it->second as unsafe *Decl))
+                self._hands(unsafe (n as unsafe *Expr))
             }
         }
 
@@ -1188,6 +1335,10 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 if self._level == PurityLevel::Const {
                     self._deref(st->range, "read through a pointer")
                 }
+
+                if self._walk == PurityWalk::Prove && !self._chain_path(n, i) {
+                    self._traps = true
+                }
             }
 
             if self._level == PurityLevel::Const {
@@ -1210,6 +1361,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         if n->resolved_op != &null {
             self._callee(n->range, n->resolved_op)
+            self._hands(n->base)
+            self._hands(n->index)
             return true
         }
 
@@ -1236,6 +1389,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         if n->resolved_op != &null {
             self._callee(n->range, n->resolved_op)
+            self._hands(n->operand)
             return true
         }
 
@@ -1245,12 +1399,15 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
                 self._deref(n->range, "dereference a pointer")
             }
 
+            self._follows(n->operand)
             return true
         }
 
-        if self._level == PurityLevel::Pure
-            && (k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus) {
-            self._write(n->operand, n->range)
+        if k == TokenKind::OpPlusPlus || k == TokenKind::OpMinusMinus {
+            self._rebinds(n->operand)
+            if self._level == PurityLevel::Pure {
+                self._write(n->operand, n->range)
+            }
         }
 
         return true
@@ -1263,6 +1420,8 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         if n->resolved_op != &null {
             self._callee(n->range, n->resolved_op)
+            self._hands(n->lhs)
+            self._hands(n->rhs)
         } else if self._walk == PurityWalk::Prove
             && (n->op_token.kind == TokenKind::OpSlash
                 || n->op_token.kind == TokenKind::OpPercent) {
@@ -1279,10 +1438,15 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         if n->resolved_op != &null {
             self._callee(n->range, n->resolved_op)
-        } else if self._walk == PurityWalk::Prove
-            && (n->op_token.kind == TokenKind::OpSlashEqual
-                || n->op_token.kind == TokenKind::OpPercentEqual) {
-            self._divides(n->lhs, n->rhs)
+            self._hands(n->lhs)
+            self._hands(n->rhs)
+        } else {
+            self._rebinds(n->lhs)
+            if self._walk == PurityWalk::Prove
+                && (n->op_token.kind == TokenKind::OpSlashEqual
+                    || n->op_token.kind == TokenKind::OpPercentEqual) {
+                self._divides(n->lhs, n->rhs)
+            }
         }
 
         if self._level == PurityLevel::Pure {
@@ -1299,10 +1463,12 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
 
         if n->resolved_op != &null {
             self._callee(n->range, n->resolved_op)
+            self._hands(n->operand)
         }
 
         if n->resolved_ctor != &null {
             self._callee(n->range, n->resolved_ctor)
+            self._hands(n->operand)
         }
 
         if n->asserting_downcast {
@@ -1330,6 +1496,7 @@ pub class FnPurityCheck derives RecursiveASTVisitor<FnPurityCheck> {
             return true
         }
 
+        self._hands_call(n)
         var unsafe *d = callee_decl(n)
         if n->ctor_decl != &null {
             d = n->ctor_decl

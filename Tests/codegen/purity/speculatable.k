@@ -2,13 +2,17 @@
 // function may be evaluated on arguments the program never passed it. The
 // compiler says so, in a value made from the function's name, for a
 // predicate (a `bool` result) with a purity level (written or inferred), a
-// termination proof, and nothing in its body that can stop the program: no
-// integer `/` or `%` by anything but a nonzero literal, no index the
-// language does not check through an operator, no `unsafe`, no `assume`, no
-// call of a function that is not speculatable itself, and no read of a
-// global that is not a number (a pointer from a global is one the arguments
-// do not reach). The fact follows the value through copies and parameters;
-// a closure and a value made any other way say no.
+// termination proof, and a body that does neither of two things. It does not
+// stop the program: no integer `/` or `%` by anything but a nonzero literal,
+// no index the language does not check through an operator, no `unsafe`, no
+// `assume`, no call of a function that is not speculatable itself. It reads
+// through no pointer its arguments do not reach: every dereference is of a
+// path from a parameter, a callee is handed only such paths and numbers,
+// nothing but a number is assigned, and no global but a number is read; so a
+// stepped pointer (`*(*p + 1)`, which safe code may write unchecked), a
+// pointer held in a local and a pointer a callee returns are never read
+// through. The fact follows the value through copies and parameters; a
+// closure and a value made any other way say no.
 
 import std::io
 
@@ -68,6 +72,73 @@ fn assumes(p: *const i32) -> bool {
     return *p > 3
 }
 
+
+struct Cell {
+    var v: i32
+    var at: *const i32
+}
+
+// A pointer the argument does not reach: stepped, held in a local, never
+// set, or handed back by a callee.
+fn reads_next(p: *const (*const i32)) -> bool = **p + *(*p + 1) == 15
+fn reads_previous(p: *const (*const i32)) -> bool = **p + *(*p - 1) == 15
+fn steps_copy(p: *const (*const i32)) -> bool {
+    var q = *p
+    q += 1
+    return *q > 3
+}
+fn steps_copy_back(p: *const (*const i32)) -> bool {
+    var q = *p
+    q -= 1
+    return *q > 3
+}
+fn increments_copy(p: *const (*const i32)) -> bool {
+    var q = *p
+    ++q
+    return *q > 3
+}
+fn post_increments_copy(p: *const (*const i32)) -> bool {
+    var q = *p
+    q++
+    return *q > 3
+}
+fn stepped(q: *const i32) -> *const i32 = q + 1
+fn reads_stepped(p: *const (*const i32)) -> bool = *stepped(*p) > 3
+fn passes_stepped(p: *const (*const i32)) -> bool = clean(*p + 1)
+fn reads_copy(p: *const (*const i32)) -> bool {
+    var q = *p
+    return *q > 3
+}
+fn reads_unset(p: *const (*const i32)) -> bool {
+    var q: *const i32
+    if **p > 100 {
+        return *q > 3
+    }
+
+    return false
+}
+fn reads_unset_field(p: *const (*const i32)) -> bool {
+    var c = Cell { v: 1 }
+    if **p > 100 {
+        return *c.at > 3
+    }
+
+    return false
+}
+
+// A path from the argument, and the address of a number.
+fn reads_twice(p: *const (*const i32)) -> bool = **p > 3
+fn reads_field(c: *const Cell) -> bool = c->v > 3
+fn follows_field(c: *const Cell) -> bool = *c->at > 3
+fn passes_argument(p: *const (*const i32)) -> bool = clean(*p)
+fn passes_number_address(p: *const i32) -> bool {
+    var x = *p * 2
+    return clean(const &x)
+}
+
+// `-1` is not a literal: the divisor is an expression.
+fn minus_one_divisor(p: *const i32) -> bool = *p / -1 > 3
+
 fn ask(f: fn(*const i32) -> bool) -> bool = __builtin_fn_speculatable(const &f)
 
 fn say(const name: string, yes: bool) {
@@ -119,6 +190,43 @@ fn main() -> i32 {
     say("follows_global", __builtin_fn_speculatable(const &f_follows_global))
     say("reads_record_global", __builtin_fn_speculatable(const &f_reads_record_global))
 
+    var f_reads_next: fn(*const (*const i32)) -> bool = reads_next
+    var f_reads_previous: fn(*const (*const i32)) -> bool = reads_previous
+    var f_steps_copy: fn(*const (*const i32)) -> bool = steps_copy
+    var f_steps_copy_back: fn(*const (*const i32)) -> bool = steps_copy_back
+    var f_increments_copy: fn(*const (*const i32)) -> bool = increments_copy
+    var f_post_increments_copy: fn(*const (*const i32)) -> bool = post_increments_copy
+    var f_reads_stepped: fn(*const (*const i32)) -> bool = reads_stepped
+    var f_passes_stepped: fn(*const (*const i32)) -> bool = passes_stepped
+    var f_reads_copy: fn(*const (*const i32)) -> bool = reads_copy
+    var f_reads_unset: fn(*const (*const i32)) -> bool = reads_unset
+    var f_reads_unset_field: fn(*const (*const i32)) -> bool = reads_unset_field
+    say("reads_next", __builtin_fn_speculatable(const &f_reads_next))
+    say("reads_previous", __builtin_fn_speculatable(const &f_reads_previous))
+    say("steps_copy", __builtin_fn_speculatable(const &f_steps_copy))
+    say("steps_copy_back", __builtin_fn_speculatable(const &f_steps_copy_back))
+    say("increments_copy", __builtin_fn_speculatable(const &f_increments_copy))
+    say("post_increments_copy", __builtin_fn_speculatable(const &f_post_increments_copy))
+    say("reads_stepped", __builtin_fn_speculatable(const &f_reads_stepped))
+    say("passes_stepped", __builtin_fn_speculatable(const &f_passes_stepped))
+    say("reads_copy", __builtin_fn_speculatable(const &f_reads_copy))
+    say("reads_unset", __builtin_fn_speculatable(const &f_reads_unset))
+    say("reads_unset_field", __builtin_fn_speculatable(const &f_reads_unset_field))
+
+    var f_reads_twice: fn(*const (*const i32)) -> bool = reads_twice
+    var f_reads_field: fn(*const Cell) -> bool = reads_field
+    var f_follows_field: fn(*const Cell) -> bool = follows_field
+    var f_passes_argument: fn(*const (*const i32)) -> bool = passes_argument
+    var f_passes_number_address: fn(*const i32) -> bool = passes_number_address
+    say("reads_twice", __builtin_fn_speculatable(const &f_reads_twice))
+    say("reads_field", __builtin_fn_speculatable(const &f_reads_field))
+    say("follows_field", __builtin_fn_speculatable(const &f_follows_field))
+    say("passes_argument", __builtin_fn_speculatable(const &f_passes_argument))
+    say("passes_number_address", __builtin_fn_speculatable(const &f_passes_number_address))
+
+    var f_minus_one_divisor: fn(*const i32) -> bool = minus_one_divisor
+    say("minus_one_divisor", __builtin_fn_speculatable(const &f_minus_one_divisor))
+
     // The fact is the value's: a copy keeps it, an assignment replaces it,
     // and a parameter receives it.
     var copy = f_clean
@@ -166,6 +274,23 @@ fn main() -> i32 {
 // INFER-DAG: float_divisor=1
 // INFER-DAG: hinted=1
 // INFER-DAG: ranged=1
+// INFER-DAG: reads_twice=1
+// INFER-DAG: reads_field=1
+// INFER-DAG: follows_field=1
+// INFER-DAG: passes_argument=1
+// INFER-DAG: passes_number_address=1
+// ALL-DAG: reads_next=0
+// ALL-DAG: reads_previous=0
+// ALL-DAG: steps_copy=0
+// ALL-DAG: steps_copy_back=0
+// ALL-DAG: increments_copy=0
+// ALL-DAG: post_increments_copy=0
+// ALL-DAG: reads_stepped=0
+// ALL-DAG: passes_stepped=0
+// ALL-DAG: reads_copy=0
+// ALL-DAG: reads_unset=0
+// ALL-DAG: reads_unset_field=0
+// ALL-DAG: minus_one_divisor=0
 // ALL-DAG: divides=0
 // ALL-DAG: remainder=0
 // ALL-DAG: divides_by_zero_literal=0
