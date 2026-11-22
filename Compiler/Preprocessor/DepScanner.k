@@ -289,13 +289,13 @@ pub class DepScanner {
                 continue
             }
 
-            // An allocation attribute (`@create`, `@free`, ...): spelled as
-            // ExprParse matches them. A macro that expands to one is not
-            // seen here (the scan does not expand); such a file needs the
-            // import written.
+            // An allocation attribute (`@create`, `@free`, ...,
+            // `@set_scoped_allocator`): spelled as the parser matches them. A
+            // macro that expands to one is not seen here (the scan does not
+            // expand); such a file needs the import written.
             if k == TokenKind::OpAt && src.peek(1).kind == TokenKind::LitIdentifier {
                 var an = TokenText::spelling(src.peek(1), self._tcm)
-                if LangAttrs::is_alloc_attr(an) {
+                if LangAttrs::uses_alloc_module(an) {
                     graph->alloc_sugar.insert(fid)
                 }
             }

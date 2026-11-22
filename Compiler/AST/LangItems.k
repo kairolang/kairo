@@ -1299,6 +1299,23 @@ pub class LangAttrs {
         return "set_global_allocator"
     }
 
+    /// `@set_scoped_allocator(A)` on a function or a block: an
+    /// AllocatorScope<A> open for the whole body (ScopedAllocatorExpand).
+    /// A declaration and statement attribute, never an expression one, so
+    /// it is not an is_alloc_attr word; it needs alloc.k all the same
+    /// (uses_alloc_module).
+    pub static fn set_scoped_allocator() -> string {
+        return "set_scoped_allocator"
+    }
+
+    /// True for an attribute whose expansion names an alloc.k declaration:
+    /// the parser marks the file (TranslationUnit::has_alloc_sugar), and the
+    /// dependency scan adds alloc.k to its graph, so the file needs no
+    /// import of it.
+    pub static fn uses_alloc_module(const word: string) -> bool {
+        return LangAttrs::is_alloc_attr(word) || word == LangAttrs::set_scoped_allocator()
+    }
+
     /// The attribute a FunctionDecl::call_conv value is written as, without
     /// the `@`; "" for the default convention. The one place a diagnostic
     /// or the ABI note turns the number back into a name.
@@ -1415,6 +1432,8 @@ pub class LangAttrs {
                 return LangAttrs::resize()
             } case 32 {
                 return LangAttrs::try_resize()
+            } case 33 {
+                return LangAttrs::set_scoped_allocator()
             } default {
                 return ""
             }
@@ -1477,6 +1496,10 @@ pub class LangAttrs {
 
         if word == LangAttrs::set_global_allocator() {
             return "set_global_allocator(A)"
+        }
+
+        if word == LangAttrs::set_scoped_allocator() {
+            return "set_scoped_allocator(A)"
         }
 
         return word.copy()
@@ -1593,6 +1616,10 @@ pub class LangAttrs {
 
         if word == LangAttrs::set_global_allocator() {
             return "file"
+        }
+
+        if word == LangAttrs::set_scoped_allocator() {
+            return "fn stmt type"
         }
 
         if word == LangAttrs::no_inline() {
@@ -1731,6 +1758,10 @@ pub class LangAttrs {
 
         if word == LangAttrs::set_global_allocator() {
             return "The program's global allocator is `A`; a line of its own at file scope"
+        }
+
+        if word == LangAttrs::set_scoped_allocator() {
+            return "Allocations in this function or block, and in everything it calls, come from `A` until it ends"
         }
 
         if word == LangAttrs::no_inline() {

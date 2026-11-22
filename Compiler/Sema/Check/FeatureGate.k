@@ -48,7 +48,8 @@
 ///         N; one left here matches no overload (`@create x`, `@create
 ///         T(args).m`, `@alloc(size: 8)`), and is reported as that misuse
 ///         (SC364E for the operand, SC365E for the arguments), not as a
-///         feature to come.
+///         feature to come. `@set_scoped_allocator` there is a misplaced
+///         attribute (SC143E): it applies to a function or a block.
 ///       - an `eval for` directly in a module or class body
 ///         (EvalBlockDecl::stmt): it parses, but nothing unrolls it there.
 ///         (An `eval if` there is folded away by EvalIfFolding.)
@@ -121,8 +122,8 @@ import AST::Node::Expressions::{
     SizeOfExpr,  SpawnExpr,           ThreadExpr,
 }
 import AST::Node::PrimaryExpressions::{
-    ChainExpr,
-    NamedIdentExpr,
+    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
+    IntegerLiteralExpr, NamedIdentExpr, StringLiteralExpr,
 }
 import AST::Node::Statements::{
     ConditionalStmt,       ContextBindingStmt, DeclStmt, DestructureKind,
@@ -147,6 +148,7 @@ import Sema::Check::ClassLifecycle::{
     lifecycle_of,
     lifecycle_open,
 }
+import Sema::Check::ScopedAllocator::ScopedAllocatorCheck
 import Sema::Expand::AllocAttrTable::{
     ALLOC_KW_IN,
     AllocAttr,
@@ -393,6 +395,24 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
         // AllocAttrTable takes, so one still here is written wrong.
         if LangAttrs::is_alloc_attr(nm) {
             self._alloc_misuse(n, nm)
+            return true
+        }
+
+        // A function, block or record attribute: before an expression it
+        // applies to nothing, which is a misplaced attribute, not a feature
+        // to come.
+        if nm == LangAttrs::set_scoped_allocator() {
+            var at = SourceRange::from_bounds(n->range.start, 1 as u32) | n->name.range
+            var b = self.sc->diag->report(
+                DiagID::SC143E,
+                at.start,
+                LangAttrs::quoted(
+                    nm,
+                ) + " " + ScopedAllocatorCheck::where_it_applies() + "; it does not apply to an expression",
+            )
+
+            b.first(at)
+            b.emit()
             return true
         }
 
@@ -1157,14 +1177,23 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
 
             b.first(at)
             if opd != &null {
+                // A construction or a literal is not a type written another
+                // way; only then is the alias the advice.
+                var made = AllocAttrTable::constructed_type(self.sc->ctx, opd) != &null
+                var lit = isa<IntegerLiteralExpr>(opd)
+                    || isa<FloatingLiteralExpr>(opd)
+                    || isa<StringLiteralExpr>(opd)
+                    || isa<CharacterLiteralExpr>(opd)
+                    || isa<BooleanLiteralExpr>(opd)
                 b.note(
                     DiagCode(DiagID::SC364N),
                     opd->range.start,
-                    "this is the operand; a type that is not a name is given one with 'type'",
+                    (if (made || lit) => ("this is the operand") else => "this is the operand; a type that is not a name is given one with 'type'"),
                 )->child_first(opd->range)
 
-                // `@alloc T(args)`: the construction is `@create`'s.
-                if AllocAttrTable::constructed_type(self.sc->ctx, opd) != &null {
+                // `@alloc T(args)`: the construction is `@create`'s, which
+                // takes no `count:`.
+                if made && (u.kws & ~ALLOC_KW_IN) == 0 {
                     b.fix(
                         n->name.range,
                         LangAttrs::create(),

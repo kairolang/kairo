@@ -1092,7 +1092,11 @@ pub class <T: type> ExprParse {
             )
 
             gb.first(spec_range)
-            if names_ty && has_ty {
+
+            // `@alloc<T>(count: n)`: the type goes after the argument list,
+            // which one replacement of the `<T>` cannot say.
+            var alloc_args = attr_nm == LangAttrs::alloc() && self.dyn()->check(TokenKind::OpLParen)
+            if names_ty && has_ty && !alloc_args {
                 gb.fix(
                     spec_range,
                     f" {ty_text}",
@@ -1259,7 +1263,22 @@ pub class <T: type> ExprParse {
             || self.dyn()->check(TokenKind::OpRBrace)
             || self.dyn()->check(TokenKind::OpComma)
         if !ends && !bare {
-            operand = self._parse_unary_expr(stop)
+            // `@alloc i32`, `@alloc(count: n) u8`: the operand is a type,
+            // and a primitive's name is one although it opens no
+            // expression elsewhere. Before `(` or `::` it already does.
+            var prim = attr_nm == LangAttrs::alloc()
+                && self.dyn()->check(
+                    fn(k: TokenKind) -> bool {
+                        return is_annotation(k)
+                    },
+                )
+                && self.dyn()->ig_peek_kind() != TokenKind::OpLParen
+                && self.dyn()->ig_peek_kind() != TokenKind::OpColonColon
+            if prim {
+                operand = self._parse_ident_expr()
+            } else {
+                operand = self._parse_unary_expr(stop)
+            }
         }
 
         // `@destroy(p)` / `@free(p)`: the parenthesized spelling of

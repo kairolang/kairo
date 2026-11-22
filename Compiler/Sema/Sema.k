@@ -83,6 +83,7 @@ import Sema::Expand::DeclaredQuery::DeclaredQueryFolding
 import Sema::Expand::EvalIfFolding::EvalIfFolding
 import Sema::Expand::PrimitiveLimit::PrimitiveLimitDesugar
 import Sema::Expand::Requires::RequiresDesugar
+import Sema::Expand::ScopedAllocator::ScopedAllocatorExpand
 import Sema::Lower::Call::CallLowering
 import Sema::Lower::Coalesce::CoalesceLowering
 import Sema::Lower::CopyMove::CopyMoveLowering
@@ -575,6 +576,10 @@ pub class Sema {
         // rewritten before N, so the minted callee binds as a written
         // one does and no later pass meets the attribute.
         self._pass<AllocSugarDesugar>("AllocSugar")
+        // `@set_scoped_allocator(A)` on a function or block: its
+        // AllocatorScope<A> guard, prepended as a statement, before N for
+        // the same reason.
+        self._pass<ScopedAllocatorExpand>("ScopedAllocator")
         self._pass<EvalIfFolding>("EvalIfFolding")
 
         // After the fold, so a name only an untaken branch declares is gone:

@@ -41,6 +41,9 @@
 ///       - `@deprecated` / `@deprecated("msg")`, `@no_warn(CODE, ...)`: any
 ///         declaration. A `@no_warn` code must name a warning: an unknown
 ///         code, or one of an error, is an error.
+///       - `@set_scoped_allocator(A)`: a function, a block, a class or
+///         struct, or an `extend` (to be told it cannot); the rules are
+///         ScopedAllocatorCheck's. Anywhere else, misplaced.
 ///       - `@unreachable`: reserved, SC116E.
 ///       - a user attribute macro (`macro @name(...)`): SC116E -- macro
 ///         expansion (Sema::_stage_expand) is not implemented, so the
@@ -99,7 +102,10 @@ import AST::Node::PrimaryExpressions::{
     StringLiteralExpr,
 }
 import AST::Node::Program::TopLevelKind
-import AST::Node::Statements::ConditionalStmt
+import AST::Node::Statements::{
+    CompoundStmt,
+    ConditionalStmt,
+}
 import AST::Node::Types::ChainType
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::{
@@ -115,6 +121,8 @@ import Diagnostic::Severity::DiagSeverity
 import Lexer::Immediate::ImmediateTable
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
+import Sema::Check::ScopedAllocator::ScopedAllocatorCheck
+import Sema::Expand::ScopedAllocator::ScopedAllocatorExpand
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
 import Sema::Type::TypeUtil::TypeUtil
@@ -559,6 +567,22 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             return
         }
 
+        if nm == LangAttrs::set_scoped_allocator() {
+            if ScopedAllocatorCheck::decl_target(d) {
+                ScopedAllocatorCheck(self.sc).check_decl(d, e)
+            } else {
+                self._misplaced(
+                    e,
+                    nm,
+                    ScopedAllocatorCheck::where_it_applies(),
+                    d->range,
+                    "declaration",
+                )
+            }
+
+            return
+        }
+
         if nm == LangAttrs::implicit_conversion() {
             if !fnd {
                 self._misplaced(
@@ -735,6 +759,19 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             return
         }
 
+        // A block statement is ScopedAllocatorCheck's (visit_stmt).
+        if nm == LangAttrs::set_scoped_allocator() {
+            self._misplaced(
+                e,
+                nm,
+                ScopedAllocatorCheck::where_it_applies(),
+                owner,
+                what,
+            )
+
+            return
+        }
+
         var place = "a type"
         if is_stmt {
             place = "a statement"
@@ -799,6 +836,15 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         for var i: usize = 0; i < n->annotations.size(); ++i {
             var unsafe *e = n->annotations.get(i)
             if e == &null || e->kind != AnnotationKind::Attribute || e->name == u32::MAX {
+                continue
+            }
+
+            if isa<CompoundStmt>(n) && ScopedAllocatorExpand::is_attr(self.sc, e) {
+                ScopedAllocatorCheck(self.sc).check_block(
+                    cast<CompoundStmt>(n),
+                    e,
+                )
+
                 continue
             }
 

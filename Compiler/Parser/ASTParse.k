@@ -3311,6 +3311,15 @@ pub class ASTParse
 
                 var name_tok = self.current()
                 var name     = self.ctx->hoisted->intern_tok(name_tok)
+                // `@set_scoped_allocator(A)` expands to alloc.k's guard, which
+                // the file then reaches through the driver's nameless edge.
+                if self.tu != &null
+                    && LangAttrs::uses_alloc_module(
+                        self.ctx->get_spelling(name_tok),
+                    ) {
+                    self.tu->has_alloc_sugar = true
+                }
+
                 self.advance() // consume identifier
 
                 var end_range = name_tok.range

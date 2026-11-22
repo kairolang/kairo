@@ -1937,6 +1937,20 @@ pub class <T: type> CallTyping {
 
                 self._set_explicit(&id->generic_args)
                 var cname = self.dyn()->sc->ctx->get_spelling(id->name)
+
+                // A callee an allocation attribute minted is spelled as
+                // alloc.k's function over the attribute's own word: a
+                // message names what was written, `@alloc`, not `alloc_raw`.
+                if wk != &null && wk->alloc_fn_of(d) != AllocFn::COUNT {
+                    var written = self.dyn()->sc->ctx->get_spelling(
+                        id->name.range,
+                    )
+
+                    if written.size() > 0 && written != cname && LangAttrs::is_alloc_attr(written) {
+                        cname = LangAttrs::at(written)
+                    }
+                }
+
                 var rt = self._call_candidates(
                     n,
                     &cands,

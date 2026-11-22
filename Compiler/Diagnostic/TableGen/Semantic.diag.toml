@@ -7308,24 +7308,40 @@ group = "allocation"
     `@set_scoped_allocator(A)` goes on a function, a block, or a class or struct, and takes one
     argument, the allocator type. On a function or block the scope opens on entry and closes on
     every exit. On a class or struct each object owns an arena that its methods allocate from, freed
-    when the object is destroyed. An `extend` cannot carry it: the object's arena belongs to the
-    type, so the attribute goes on the type's own declaration.
+    when the object is destroyed.
+
+    It is an error:
+
+    - with no argument, more than one, a keyword argument, or an argument that is not a type;
+    - on a function with no body (a declaration, `= default`, an interface requirement, an `ffi`
+      function): there is no body for the scope to open in;
+    - on a function with an expression body and no written return type: the scope opens in a block
+      body, and a block body does not infer the return type the expression body would;
+    - on an `extend`: the object's arena belongs to the type, so the attribute goes on the type's
+      own declaration.
 
     ```kairo
     @set_scoped_allocator(Arena)
     fn build() -> i32 { ... }           // fine
 
     @set_scoped_allocator(Arena)
+    fn size() -> usize = 4              // fine: the return type is written
+
+    @set_scoped_allocator(Arena)
     class Parser { ... }                // fine: one arena per Parser
 
     @set_scoped_allocator(Arena)
     extend Parser { ... }               // error: set it on 'class Parser'
+
+    @set_scoped_allocator               // error: name the allocator type
+    fn run() { ... }
     ```
 
     ## how to fix
 
     move the attribute to the declaration of the type (the fix-it removes it from the `extend`), or
-    to the function or block whose allocations it should cover.
+    to the function or block whose allocations it should cover; write the allocator type as its one
+    argument; write the return type of an expression-bodied function, or give it a block body.
     """
 
     [SC366.N]
