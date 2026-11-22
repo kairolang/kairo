@@ -167,8 +167,9 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
         return true
     }
 
-    /// A local the compiler made before this pass (the guard of
-    /// `@set_scoped_allocator`) carries the reserved prefix on purpose.
+    /// A local or field the compiler made before this pass (the guards and
+    /// the arena fields of `@set_scoped_allocator`) carries the reserved
+    /// prefix on purpose.
     fn visit_variable_decl(self, n: *Declarations::VariableDecl) -> bool {
         if n->is_implicit {
             return true
@@ -179,6 +180,10 @@ pub class CxxNameCheck derives RecursiveASTVisitor<CxxNameCheck> {
     }
 
     fn visit_field_decl(self, n: *Declarations::FieldDecl) -> bool {
+        if n->is_implicit {
+            return true
+        }
+
         self._check(n->name, "field")
         return true
     }

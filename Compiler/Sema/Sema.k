@@ -84,6 +84,7 @@ import Sema::Expand::EvalIfFolding::EvalIfFolding
 import Sema::Expand::PrimitiveLimit::PrimitiveLimitDesugar
 import Sema::Expand::Requires::RequiresDesugar
 import Sema::Expand::ScopedAllocator::ScopedAllocatorExpand
+import Sema::Expand::ScopedArena::ScopedArenaMethods
 import Sema::Lower::Call::CallLowering
 import Sema::Lower::Coalesce::CoalesceLowering
 import Sema::Lower::CopyMove::CopyMoveLowering
@@ -576,11 +577,13 @@ pub class Sema {
         // rewritten before N, so the minted callee binds as a written
         // one does and no later pass meets the attribute.
         self._pass<AllocSugarDesugar>("AllocSugar")
+        self._pass<EvalIfFolding>("EvalIfFolding")
         // `@set_scoped_allocator(A)` on a function or block: its
         // AllocatorScope<A> guard, prepended as a statement, before N for
-        // the same reason.
+        // the same reason; on a class or struct, the two arena fields,
+        // before T lays the record out. After the fold, which rebuilds a
+        // record's field list: the end field stays last.
         self._pass<ScopedAllocatorExpand>("ScopedAllocator")
-        self._pass<EvalIfFolding>("EvalIfFolding")
 
         // After the fold, so a name only an untaken branch declares is gone:
         // each `__builtin_is_declared<P>()` left becomes its answer. Before
@@ -769,6 +772,12 @@ pub class Sema {
 
     /// Every typed check before ConformanceChecking, in schedule order.
     priv fn _typed_checks_front(self) {
+        // The methods of a `@set_scoped_allocator` class or struct, and of
+        // every `extend` of one, open the object's arena: after T, which
+        // knows each extension's target; before X, which types the guards
+        // as written statements.
+        self._pass<ScopedArenaMethods>("ScopedArenaMethods")
+
         // Every attribute means something where it is written, or is an
         // error (unknown, misplaced, a bad argument, not yet supported).
         // Before X: an error here is reported beside, not after, the

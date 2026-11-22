@@ -1,7 +1,7 @@
 /// --- The Kairo Project ---------------- Sema/Expand/ScopedAllocator.k --- ///
 ///
 /// `@set_scoped_allocator(A)`: one attribute, one overload per node it is
-/// written on, each a rewrite of the tree before anything resolves a name.
+/// written on, each a rewrite of the tree.
 ///
 ///   \detail
 ///     Each overload is what a library attribute macro would do, written as
@@ -11,6 +11,12 @@
 ///           prepends to the body   var <fresh> = AllocatorScope<A>()
 ///       macro @set_scoped_allocator(node: *AST::Block, A: type)
 ///           prepends to the block  var <fresh> = AllocatorScope<A>()
+///       macro @set_scoped_allocator(node: *AST::ClassDecl, A: type)
+///       macro @set_scoped_allocator(node: *AST::StructDecl, A: type)
+///           adds the fields        var __kairo_arena:     ObjectArena<A>     (first)
+///                                  var __kairo_arena_end: ObjectArenaEnd<A>  (last)
+///           and starts every method with
+///                                  var <fresh> = ObjectArenaScope<A>(const &self.__kairo_arena)
 ///
 ///     AllocatorScope<A> (Lib/builtin/base/alloc.k) opens the scope when it
 ///     is constructed and closes it when it is destroyed, so the scope is
@@ -33,6 +39,11 @@
 ///     application) and resolves where the body starts. Every minted node
 ///     carries the attribute's range, so an error about AllocatorScope<A>
 ///     (an A that is not a ScopedFullAllocator) lands on the attribute.
+///     In a constructor the guard follows the base initializers
+///     (`Base::Base(self, ...)`), which stay its first statements
+///     (BaseInitCheck); it is recorded in SemaContext::scoped_lead, so a
+///     constructor that initializes a field in place opens the scope where
+///     the object exists (CtorInitLowering).
 ///
 ///     An expression-bodied function (`fn f() -> T = e`) becomes the block
 ///     it abbreviates first, as ExprBodyDesugar would make it: `{ return e }`,
@@ -40,13 +51,32 @@
 ///     its return type is inferred from the expression body, and a block
 ///     body would make it `void`.
 ///
+///     On a class or struct the overload is two halves. Here, before T
+///     (layout, lifecycle and TypeCycle read the fields), the two fields
+///     join the record: the ObjectArena<A> before every other field and the
+///     ObjectArenaEnd<A> after them, so the pair brackets the others'
+///     construction, destruction and member-by-member assignment (alloc.k's
+///     comment). Symbol tables are frozen after parsing, so nothing finds
+///     the fields by name: each field type's head is bound to alloc.k's
+///     class (TypeResolve takes a bound head as it is), and every reference
+///     to a field is bound to its FieldDecl. Both are compiler declarations
+///     (Decl::is_implicit): tools that mirror the source skip them, and
+///     kfmt and kals, which read the parsed tree, never see them. The end field's range is the record's closing brace,
+///     so a field an `eval if` decided in T is laid out before it
+///     (EvalIfFolding::_fields_in_source_order). This pass runs after the
+///     declaration-scope `eval if`s are folded, for the same reason.
+///     The methods' guards are ScopedArenaMethods' (Sema/Expand/
+///     ScopedArena.k), after T: an `extend`'s target is known only then.
+///     The first use with one type argument is the record's; a second one
+///     is ScopedAllocatorCheck's to report.
+///
 ///     What is left alone, for ScopedAllocatorCheck to report: a use whose
 ///     arguments are not one type, a function with no body (or an
-///     expression body with no return type), a class, struct or `extend`,
-///     and the attribute on any other node.
+///     expression body with no return type), an `extend`, and the attribute
+///     on any other node.
 ///
-///   Phase: EXPAND (before N: the minted callee and type argument resolve
-///          as written ones do)
+///   Phase: EXPAND, after EvalIfFolding (before N: the minted callee and
+///          type argument resolve as written ones do)
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -59,14 +89,18 @@
 
 ffi "c++" import "vector"
 
+import AST::Context::DeclContext::DeclContext
 import AST::LangItems::{
     AllocFn,
     LangAttrs,
+    LowerTargets,
+    WellKnownDecls,
     alloc_fn_name,
 }
 import AST::Mixin::Annotation::{
     AnnotationEntry,
     AnnotationKind,
+    VisibilityKind,
 }
 import AST::Node::Base::{
     Decl,
@@ -80,16 +114,16 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    FnBodyKind,
-    FunctionDecl,
-    StorageClass,
-    VariableDecl,
+    ClassDecl, FieldDecl, FnBodyKind, FunctionDecl, StorageClass, StructDecl, VariableDecl,
 }
 import AST::Node::Expressions::{
     CallExpr,
     NamedArgExpr,
 }
-import AST::Node::PrimaryExpressions::NamedIdentExpr
+import AST::Node::PrimaryExpressions::{
+    ChainExpr,
+    NamedIdentExpr,
+}
 import AST::Node::Statements::{
     CompoundStmt,
     DeclStmt,
@@ -183,6 +217,164 @@ pub class ScopedAllocatorExpand derives ASTWriter<ScopedAllocatorExpand> {
         return false
     }
 
+    /// The use of the attribute that gives a class or struct its arena:
+    /// the first with one type argument. Null when there is none.
+    pub static fn record_attr(sc: unsafe *SemaContext, d: unsafe *Decl) -> unsafe *AnnotationEntry {
+        if d == &null || !d->has_attribute() {
+            return &null
+        }
+
+        for var i: usize = 0; i < d->annotations.size(); ++i {
+            var unsafe *e = d->annotations.get(i)
+            if ScopedAllocatorExpand::is_attr(sc, e)
+                && ScopedAllocatorExpand::allocator_type(sc, e) != &null {
+                return e
+            }
+        }
+
+        return &null
+    }
+
+    /// The field `@set_scoped_allocator` gave record `d`: its ObjectArena<A>
+    /// (`end` false) or its ObjectArenaEnd<A> (`end` true). Null for a
+    /// record without the attribute, and with no alloc.k in the build. Told
+    /// by its bound type head, never by name.
+    pub static fn arena_field(well: unsafe *WellKnownDecls,
+                              d:    unsafe *Decl,
+                              end:  bool) -> unsafe *FieldDecl {
+        if well == &null || d == &null {
+            return &null
+        }
+
+        var        k    = if (end) => (AllocFn::ObjectArenaEnd) else => AllocFn::ObjectArena
+        var unsafe *cls = well->alloc_fn(k)
+        if cls == &null {
+            return &null
+        }
+
+        var unsafe *cd = dyn_cast<ClassDecl>(d)
+        var unsafe *sd = dyn_cast<StructDecl>(d)
+        if cd == &null && sd == &null {
+            return &null
+        }
+
+        var n = if (cd != &null) => (cd->fields.size()) else => sd->fields.size()
+        for var i: usize = 0; i < n; ++i {
+            var unsafe *f = if (cd != &null) => (cd->fields[i]) else => sd->fields[i]
+            if f == &null || !f->is_implicit {
+                continue
+            }
+
+            var unsafe *ct = dyn_cast<ChainType>(f->type_)
+            if ct == &null || ct->segments.size() != 1 {
+                continue
+            }
+
+            var unsafe *nm = ct->segments.get(0)->name
+            if nm != &null && nm->resolved_decl == cls {
+                return f
+            }
+        }
+
+        return &null
+    }
+
+    /// `s` is a constructor called by name, `Base::Base(self, ...)`, the
+    /// form a base initializer is written in. Read by shape: this runs
+    /// before X binds the callee, and a constructor may be called by name
+    /// only as a base initializer (BaseInitCheck).
+    pub static fn is_base_init_shape(sc: unsafe *SemaContext, s: unsafe *Stmt) -> bool {
+        var unsafe *es = dyn_cast<ExpressionStmt>(s)
+        if es == &null || es->expr == &null {
+            return false
+        }
+
+        var unsafe *call = dyn_cast<CallExpr>(es->expr)
+        if call == &null {
+            return false
+        }
+
+        var unsafe *ch = dyn_cast<ChainExpr>(call->callee)
+        if ch == &null || ch->steps.size() == 0 {
+            return false
+        }
+
+        var unsafe *last = ch->steps.get(ch->steps.size() - 1)
+        if last->access_kind != ChainExpr::AccessKind::ColonColon || last->name == &null {
+            return false
+        }
+
+        var owner: unsafe *NamedIdentExpr = &null
+        if ch->steps.size() >= 2 {
+            owner = ch->steps.get(ch->steps.size() - 2)->name
+        } else {
+            owner = dyn_cast<NamedIdentExpr>(ch->base)
+        }
+
+        if owner == &null {
+            return false
+        }
+
+        return sc->ctx->get_spelling(owner->name) == sc->ctx->get_spelling(
+            last->name->name,
+        )
+    }
+
+    /// How many statements open `blk` as base initializers: where a guard
+    /// goes, after them.
+    pub static fn lead_base_inits(sc: unsafe *SemaContext, blk: unsafe *CompoundStmt) -> usize {
+        var n: usize = 0
+        while n < blk->body.size() && ScopedAllocatorExpand::is_base_init_shape(sc, blk->body[n]) {
+            n += 1
+        }
+
+        return n
+    }
+
+    /// `blk` with `stmts` after its base initializers, each recorded in
+    /// SemaContext::scoped_lead.
+    pub static fn insert_lead(sc:          unsafe *SemaContext,
+                              blk:         unsafe *CompoundStmt,
+                              const stmts: [unsafe *Stmt]) {
+        var at = ScopedAllocatorExpand::lead_base_inits(sc, blk)
+        var b  = ListBuilder<unsafe *Stmt>(sc->ctx)
+        for var i: usize = 0; i < at; ++i {
+            b.push(blk->body[i])
+        }
+
+        for var i: usize = 0; i < stmts.size(); ++i {
+            b.push(stmts[i])
+            sc->scoped_lead.insert(stmts[i] as usize as u64)
+        }
+
+        for var i: usize = at; i < blk->body.size(); ++i {
+            b.push(blk->body[i])
+        }
+
+        b.freeze_into(&blk->body)
+    }
+
+    /// An expression body as the block it abbreviates, as ExprBodyDesugar
+    /// makes it: `{ return e }`, or `{ e }` for `-> !`. The function has a
+    /// written return type, or is `-> !`.
+    pub static fn expr_body_to_block(sc: unsafe *SemaContext, n: unsafe *FunctionDecl) {
+        var unsafe *e              = n->body_expr
+        var        s: unsafe *Stmt = &null
+        if n->is_noreturn {
+            s = ExpressionStmt::create(sc->ctx, e->range, e)
+        } else {
+            s = ReturnStmt::create(sc->ctx, e->range, e)
+        }
+
+        var stmts = ListBuilder<unsafe *Stmt>(sc->ctx)
+        stmts.push(s)
+        var unsafe *body = CompoundStmt::create(sc->ctx, e->range)
+        stmts.freeze_into(&body->body)
+        n->body_block = body
+        n->body_expr  = &null
+        n->body_kind  = FnBodyKind::Block
+    }
+
     /// # the overloads
 
     fn transform_function_decl(self, n: unsafe *FunctionDecl) -> cxx::std::vector<unsafe *Decl> {
@@ -201,24 +393,13 @@ pub class ScopedAllocatorExpand derives ASTWriter<ScopedAllocatorExpand> {
         }
 
         if n->body_kind == FnBodyKind::Expr {
-            var unsafe *e              = n->body_expr
-            var        s: unsafe *Stmt = &null
-            if n->is_noreturn {
-                s = ExpressionStmt::create(self.ctx, e->range, e)
-            } else {
-                s = ReturnStmt::create(self.ctx, e->range, e)
-            }
-
-            var stmts = self.list_builder<unsafe *Stmt>()
-            stmts.push(s)
-            var unsafe *body = CompoundStmt::create(self.ctx, e->range)
-            stmts.freeze_into(&body->body)
-            n->body_block = body
-            n->body_expr  = &null
-            n->body_kind  = FnBodyKind::Block
+            ScopedAllocatorExpand::expr_body_to_block(
+                unsafe (self.sc as unsafe *SemaContext),
+                n,
+            )
         }
 
-        self._prepend(n->body_block, guards)
+        self._prepend(n->body_block, guards, true)
         return out
     }
 
@@ -246,7 +427,27 @@ pub class ScopedAllocatorExpand derives ASTWriter<ScopedAllocatorExpand> {
             }
         }
 
-        self._prepend(n, guards)
+        self._prepend(n, guards, false)
+        return out
+    }
+
+    fn transform_class_decl(self, n: unsafe *ClassDecl) -> cxx::std::vector<unsafe *Decl> {
+        var out = ASTWriter<ScopedAllocatorExpand>::transform_class_decl(
+            self,
+            n,
+        )
+
+        self._add_arena(unsafe (n as unsafe *Decl))
+        return out
+    }
+
+    fn transform_struct_decl(self, n: unsafe *StructDecl) -> cxx::std::vector<unsafe *Decl> {
+        var out = ASTWriter<ScopedAllocatorExpand>::transform_struct_decl(
+            self,
+            n,
+        )
+
+        self._add_arena(unsafe (n as unsafe *Decl))
         return out
     }
 
@@ -270,47 +471,78 @@ pub class ScopedAllocatorExpand derives ASTWriter<ScopedAllocatorExpand> {
     }
 
     /// `blk` with one guard per attribute in `attrs` before its first
-    /// statement. An attribute whose arguments are not one type gets none.
-    /// A block that already starts with the guards (a second Expand over the
-    /// same tree) is left as it is.
-    priv fn _prepend(self, blk: unsafe *CompoundStmt, const attrs: [unsafe *AnnotationEntry]) {
+    /// statement, or in a function body after its base initializers
+    /// (`body`). An attribute whose arguments are not one type gets none.
+    /// A block that already holds the guards (a second Expand over the same
+    /// tree) is left as it is.
+    priv fn _prepend(self,
+                     blk:         unsafe *CompoundStmt,
+                     const attrs: [unsafe *AnnotationEntry],
+                     body:        bool) {
         if blk == &null || attrs.size() == 0 || self._expanded(blk, attrs[0]) {
             return
         }
 
-        var stmts = self.list_builder<unsafe *Stmt>()
-        var added = false
+        var stmts: [unsafe *Stmt]
         for var i: usize = 0; i < attrs.size(); ++i {
             var unsafe *g = self._guard(attrs[i])
             if g != &null {
                 stmts.push(g)
-                added = true
             }
         }
 
-        if !added {
+        if stmts.size() == 0 {
             return
         }
 
-        for var i: usize = 0; i < blk->body.size(); ++i {
-            stmts.push(blk->body[i])
+        if body {
+            ScopedAllocatorExpand::insert_lead(
+                unsafe (self.sc as unsafe *SemaContext),
+                blk,
+                stmts,
+            )
+
+            return
         }
 
-        stmts.freeze_into(&blk->body)
+        var b = self.list_builder<unsafe *Stmt>()
+        for var i: usize = 0; i < stmts.size(); ++i {
+            b.push(stmts[i])
+        }
+
+        for var i: usize = 0; i < blk->body.size(); ++i {
+            b.push(blk->body[i])
+        }
+
+        b.freeze_into(&blk->body)
     }
 
-    /// The block's first statement is the guard minted for `e`.
+    /// One of the block's leading statements (base initializers, then
+    /// compiler-made locals) is the guard minted for `e`.
     priv fn _expanded(self, blk: unsafe *CompoundStmt, e: unsafe *AnnotationEntry) -> bool {
-        if blk->body.size() == 0 {
-            return false
+        for var i: usize = 0; i < blk->body.size(); ++i {
+            var unsafe *s = blk->body[i]
+            if ScopedAllocatorExpand::is_base_init_shape(
+                unsafe (self.sc as unsafe *SemaContext),
+                s,
+            ) {
+                continue
+            }
+
+            var unsafe *ds = dyn_cast<DeclStmt>(s)
+            if ds == &null
+                || ds->decl == &null
+                || !isa<VariableDecl>(ds->decl)
+                || !ds->decl->is_implicit {
+                return false
+            }
+
+            if ds->decl->range == e->range {
+                return true
+            }
         }
 
-        var unsafe *ds = dyn_cast<DeclStmt>(blk->body[0])
-        if ds == &null || ds->decl == &null || !isa<VariableDecl>(ds->decl) {
-            return false
-        }
-
-        return ds->decl->is_implicit && ds->decl->range == e->range
+        return false
     }
 
     /// `var <fresh> = AllocatorScope<A>()` for attribute `e`; null when its
@@ -358,5 +590,132 @@ pub class ScopedAllocatorExpand derives ASTWriter<ScopedAllocatorExpand> {
         vd->init        = call
         vd->is_implicit = true
         return unsafe (DeclStmt::create(self.sc->ctx, at, unsafe (vd as unsafe *Decl)) as unsafe *Stmt)
+    }
+
+    /// # the fields
+
+    /// Record `d` (a class or struct) with its arena fields, when it carries
+    /// the attribute with one type argument and does not have them yet:
+    /// `__kairo_arena` before every other field, `__kairo_arena_end` after
+    /// them, indices renumbered. Nothing without alloc.k in the build: no
+    /// class to name.
+    priv fn _add_arena(self, d: unsafe *Decl) {
+        var unsafe *e = ScopedAllocatorExpand::record_attr(
+            unsafe (self.sc as unsafe *SemaContext),
+            d,
+        )
+
+        if e == &null || self.sc->well_known == &null {
+            return
+        }
+
+        if self.sc->well_known->alloc_fn(AllocFn::ObjectArena) == &null
+            || self.sc->well_known->alloc_fn(AllocFn::ObjectArenaEnd) == &null
+            || ScopedAllocatorExpand::arena_field(self.sc->well_known, d, false) != &null {
+            return
+        }
+
+        var unsafe *cd = dyn_cast<ClassDecl>(d)
+        var unsafe *sd = dyn_cast<StructDecl>(d)
+        var unsafe *dc = if (cd != &null) => (unsafe (cd as unsafe *DeclContext))
+                         else => unsafe (sd as unsafe *DeclContext)
+        var old = if (cd != &null) => (cd->fields) else => sd->fields
+        var end = SourceRange::from_bounds(
+            d->range.end.with_offset(-1),
+            1 as u32,
+        )
+
+        var b = ListBuilder<unsafe *FieldDecl>(self.sc->ctx)
+        b.push(
+            self._field(
+                dc,
+                e,
+                AllocFn::ObjectArena,
+                LowerTargets::object_arena_field(),
+                e->range,
+            ),
+        )
+
+        for var i: usize = 0; i < old.size(); ++i {
+            b.push(old[i])
+        }
+
+        b.push(
+            self._field(
+                dc,
+                e,
+                AllocFn::ObjectArenaEnd,
+                LowerTargets::object_arena_end_field(),
+                end,
+            ),
+        )
+
+        if cd != &null {
+            b.freeze_into(&cd->fields)
+        } else {
+            b.freeze_into(&sd->fields)
+        }
+
+        var now = if (cd != &null) => (cd->fields) else => sd->fields
+        for var i: usize = 0; i < now.size(); ++i {
+            if now[i] != &null {
+                now[i]->index = (i as u32)
+            }
+        }
+    }
+
+    /// `var <name>: <k><A>`, A read from attribute `e`, the type's head
+    /// bound to alloc.k's class `k`. The type carries the attribute's
+    /// range, so an error about it (an A that is not an ArenaAllocator)
+    /// lands there; the field itself is at `at`.
+    priv fn _field(self,
+                   dc:         unsafe *DeclContext,
+                   e:          unsafe *AnnotationEntry,
+                   k:          AllocFn,
+                   const name: string,
+                   at:         SourceRange) -> unsafe *FieldDecl {
+        var spot = e->range
+        var unsafe *head = NamedIdentExpr::create(
+            self.sc->ctx,
+            spot,
+            self._synth.ident(spot, alloc_fn_name(k)),
+        )
+
+        head->resolved_decl = self.sc->well_known->alloc_fn(k)
+        var unsafe *ga = self.sc->ctx->alloc_array<ChainType::GenericArg>(1)
+        ga[0].name       = &null
+        ga[0].name_range = SourceRange::invalid()
+        ga[0].ty = ScopedAllocatorExpand::allocator_type(
+            unsafe (self.sc as unsafe *SemaContext),
+            e,
+        )
+
+        var unsafe *seg = self.sc->ctx->alloc_array<ChainType::ChainSegment>(1)
+        seg[0].name          = head
+        seg[0].resolved_type = &null
+        seg[0].resolved_decl = &null
+        seg[0].range         = spot
+        seg[0].sep           = ChainType::SegmentSeparator::None
+        seg[0].seg_kind      = ChainType::SegmentKind::GenericApp
+        seg[0].generic_args.from_raw(ga, 1)
+        var unsafe *ct = ChainType::create(self.sc->ctx, spot)
+        ct->segments.from_raw(seg, 1)
+
+        var unsafe *f = FieldDecl::create(
+            self.sc->ctx,
+            at,
+            self._synth.ident(at, name),
+            StorageClass::Var,
+            unsafe (ct as unsafe *Type),
+            0,
+        )
+
+        // Public: an `extend` in another file is emitted outside the
+        // record, and its guard reads the field. No source can name it.
+        f->is_implicit = true
+        f->visibility  = VisibilityKind::Public
+        f->lexical_dc  = dc
+        f->semantic_dc = dc
+        return f
     }
 }

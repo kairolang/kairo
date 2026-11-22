@@ -1300,7 +1300,9 @@ pub class LangAttrs {
     }
 
     /// `@set_scoped_allocator(A)` on a function or a block: an
-    /// AllocatorScope<A> open for the whole body (ScopedAllocatorExpand).
+    /// AllocatorScope<A> open for the whole body; on a class or struct, an
+    /// arena of A per object that every method allocates from
+    /// (ScopedAllocatorExpand).
     /// A declaration and statement attribute, never an expression one, so
     /// it is not an is_alloc_attr word; it needs alloc.k all the same
     /// (uses_alloc_module).
@@ -1761,7 +1763,7 @@ pub class LangAttrs {
         }
 
         if word == LangAttrs::set_scoped_allocator() {
-            return "Allocations in this function or block, and in everything it calls, come from `A` until it ends"
+            return "Allocations in this function or block, and in everything it calls, come from `A` until it ends; on a class or struct, each object owns an arena of `A` that its methods allocate from"
         }
 
         if word == LangAttrs::no_inline() {
@@ -1817,10 +1819,12 @@ pub enum AllocFn derives u8 {
     ResizeRawInPlace,
     TryResizeInPlace,
     /// The classes `@set_scoped_allocator(A)` stands for: the guard a
-    /// function or block opens, the arena field a class or struct gets, and
-    /// the guard each of its methods opens over that field.
+    /// function or block opens; on a class or struct, the first and last
+    /// fields it gets (the arena and the end of its life), and the guard
+    /// each of its methods opens over the first.
     Scope,
     ObjectArena,
+    ObjectArenaEnd,
     ObjectArenaScope,
     COUNT, ///< keep last.
 }
@@ -1880,6 +1884,8 @@ pub fn alloc_fn_name(k: AllocFn) -> string {
             return "AllocatorScope"
         } case AllocFn::ObjectArena {
             return "ObjectArena"
+        } case AllocFn::ObjectArenaEnd {
+            return "ObjectArenaEnd"
         } case AllocFn::ObjectArenaScope {
             return "ObjectArenaScope"
         } case AllocFn::COUNT {
@@ -1945,6 +1951,13 @@ pub class AllocNames {
 
     pub static fn in_suffix() -> string {
         return "_in"
+    }
+
+    /// ObjectArena's and ObjectArenaEnd's method that takes over another
+    /// object's arena: what a `@move` constructor of a `@set_scoped_allocator`
+    /// record starts with (ScopedArenaMethods).
+    pub static fn arena_take() -> string {
+        return "take"
     }
 
     /// What ScopeEscapeCheck tracks: the scope guard, and the calls whose
@@ -3064,6 +3077,18 @@ pub class LowerTargets {
     /// (EmitIR::_checked_downcast). Local to that lambda.
     pub static fn checked_downcast_value() -> string {
         return "__kairo_dc"
+    }
+
+    /// The two fields `@set_scoped_allocator(A)` adds to a class or struct
+    /// (ScopedAllocatorExpand): the object's ObjectArena<A>, first, and its
+    /// ObjectArenaEnd<A>, last. Nothing finds them by name: every
+    /// reference the compiler makes is bound to the FieldDecl.
+    pub static fn object_arena_field() -> string {
+        return "__kairo_arena"
+    }
+
+    pub static fn object_arena_end_field() -> string {
+        return "__kairo_arena_end"
     }
 
     /// The reserved identifier prefix. CxxNameCheck rejects user identifiers

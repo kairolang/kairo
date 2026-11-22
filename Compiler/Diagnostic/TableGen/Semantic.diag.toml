@@ -7345,7 +7345,7 @@ group = "allocation"
     """
 
     [SC366.N]
-    explain = "Points at the declaration the attribute belongs on."
+    explain = "Points at the declaration the attribute belongs on, or at the attribute a class or struct and its methods take their arena from."
 
 [SC367]
 brief = "a scoped allocator open across a 'yield'"

@@ -112,16 +112,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinInfo,
-    BuiltinKind,
-    BuiltinType,
-    QUAL_CONST,
-    QUAL_VOLATILE,
-    QualifiedType,
-    RecordType,
-    builtin_for_token,
-    builtin_info,
-    canon_unqual,
+    BuiltinInfo, BuiltinKind,       BuiltinType,  QUAL_CONST,   QUAL_VOLATILE, QualifiedType,
+    RecordType,  builtin_for_token, builtin_info, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -131,12 +123,7 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    BinaryOperatorExpr,
-    CallExpr,
-    ClosureExpr,
-    ConstraintExpr,
-    ParenExpr,
-    TypeCastExpr,
+    BinaryOperatorExpr, CallExpr, ClosureExpr, ConstraintExpr, ParenExpr, TypeCastExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -152,25 +139,11 @@ import AST::Node::Statements::{
     RangedForStmt,
 }
 import AST::Node::Types::{
-    CXXLValueRefType,
-    CXXRValueRefType,
-    ChainType,
-    FixedArrayType,
-    FunctionPointerType,
-    GenericParamType,
-    MapType,
-    NullableType,
-    OpaqueFFIType,
-    PackExpansionType,
-    PointerType,
-    SelfType,
-    SetType,
-    SubstGenericParamType,
-    TupleType,
-    TypeExpr,
-    ValueOp,
-    VariadicPackType,
-    VectorType,
+    CXXLValueRefType,    CXXRValueRefType,      ChainType,   FixedArrayType,
+    FunctionPointerType, GenericParamType,      MapType,     NullableType,
+    OpaqueFFIType,       PackExpansionType,     PointerType, SelfType,
+    SetType,             SubstGenericParamType, TupleType,   TypeExpr,
+    ValueOp,             VariadicPackType,      VectorType,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
@@ -2476,14 +2449,21 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             // local type can be its head, and the walk begins at the TU, as
             // ChainBinding anchors `::m::f()` in an expression.
             var rooted = ct->accesses_global_scope()
-            var gh     = Self::GenericHit()
-            if !rooted {
+            // A head the compiler minted already bound (the fields of
+            // `@set_scoped_allocator`, ScopedAllocatorExpand): its name may
+            // be one this file cannot see, and nothing it declares may
+            // capture it.
+            var unsafe *bound = seg0->name->resolved_decl
+            var        gh     = Self::GenericHit()
+            if !rooted && bound == &null {
                 gh = self._lookup_generic(imm)
             }
 
             if gh.decl != &null {
                 head       = unsafe (gh.decl as unsafe *Decl)
                 head_owner = gh.owner
+            } else if bound != &null {
+                head = bound
             } else {
                 if !rooted {
                     head = self._lookup_local_type(imm)
@@ -4206,9 +4186,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
             self._amb_second = &null
         }
 
-        var found                  = none
+        var found                     = none
         var found_via: [unsafe *Type]
-        var found_bc: unsafe *Type = &null
+        var found_bc:  unsafe *Type   = &null
         for var i: usize = 0; i < cd->derives_list.size(); ++i {
             var unsafe *e = cd->derives_list.get(i)
             if e == &null || e->base == &null {
@@ -4258,9 +4238,9 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
                 }
             }
 
-            var        hit  = none
+            var        hit                  = none
             var        path: [unsafe *Type]
-            var unsafe *bdc = NameLookup::context_of(body)
+            var unsafe *bdc                 = NameLookup::context_of(body)
             if bdc != &null {
                 hit = self.sc->lookup.in_context(
                     bdc,
@@ -5953,8 +5933,8 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         // Innermost first; pushed reversed below.
         var        owners: [unsafe *Decl]
-        var        local  = false
-        var unsafe *c     = home
+        var        local                  = false
+        var unsafe *c                     = home
         while c != &null {
             if c->is_translation_unit() || c->dc_kind == DeclContextKind::Module {
                 break

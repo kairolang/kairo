@@ -18,7 +18,13 @@
 ///       - an `extend`: SC366E, with a note at the extended type's own
 ///         declaration, where the attribute belongs, and a fix-it that
 ///         removes it;
-///       - a class or struct: SC116E, not yet supported.
+///       - a second use with a type on one class or struct: SC366E, with a
+///         note at the first, which names the one arena an object owns,
+///         and a fix-it that removes the second.
+///
+///     The methods of a class or struct with the attribute are
+///     ScopedArenaMethods' to judge (Sema/Expand/ScopedArena.k): it reports
+///     the methods it cannot give the arena's guard.
 ///
 ///     A `yield` inside a function or block that carries the attribute is
 ///     SC367E, with a note at the attribute. A generator is a C++ coroutine
@@ -108,16 +114,10 @@ pub class ScopedAllocatorCheck {
         }
 
         if isa<ClassDecl>(d) || isa<StructDecl>(d) {
-            var b = self.sc->diag->report(
-                DiagID::SC116E,
-                e->range.start,
-                LangAttrs::quoted(
-                    LangAttrs::set_scoped_allocator(),
-                ) + " on a class or struct is not yet supported",
-            )
+            if self._check_args(e) {
+                self._second_on_record(d, e)
+            }
 
-            b.first(e->range)
-            b.emit()
             return
         }
 
@@ -226,6 +226,32 @@ pub class ScopedAllocatorCheck {
         b.emit()
     }
 
+    /// SC366E when `e` is not the use that gives record `d` its arena
+    /// (ScopedAllocatorExpand::record_attr): an object owns one.
+    priv fn _second_on_record(self, d: unsafe *Decl, e: unsafe *AnnotationEntry) {
+        var unsafe *first = ScopedAllocatorExpand::record_attr(self.sc, d)
+        if first == &null || first == e {
+            return
+        }
+
+        var an = LangAttrs::quoted(LangAttrs::set_scoped_allocator())
+        var nm = self._tu.decl_name(d)
+        var b = self.sc->diag->report(
+            DiagID::SC366E,
+            e->range.start,
+            an.copy() + f" is written twice on '{nm}': an object owns one arena",
+        )
+
+        b.first(e->range)
+        b.note(
+            DiagCode(DiagID::SC366N),
+            first->range.start,
+            "this one names the arena's allocator",
+        )->child_first(first->range)
+        b.remove(e->range, "remove the second " + an)
+        b.emit()
+    }
+
     priv fn _on_extend(self, ext: unsafe *ExtensionDecl, e: unsafe *AnnotationEntry) {
         var an = LangAttrs::quoted(LangAttrs::set_scoped_allocator())
         var b = self.sc->diag->report(
@@ -290,23 +316,22 @@ pub class ScopedAllocatorCheck {
     /// # yield
 
     priv fn _scan_yields(self, root: unsafe *Stmt, e: unsafe *AnnotationEntry) {
-        var scan = ScopedYieldScan(self.sc, root, e)
+        var scan = ScopedYieldScan(self.sc, root, e->range)
         scan.dispatch_stmt(root)
     }
 }
 
 /// The `yield`s lexically inside one scope (ScopedAllocatorCheck's file
 /// header): not into a closure, a nested function declaration, or a nested
-/// block that opens a scope of its own.
-class ScopedYieldScan derives RecursiveASTVisitor<ScopedYieldScan> {
+/// block that opens a scope of its own. Each is SC367E with a note at
+/// `attr`, the attribute that opens the scope; `found` counts them.
+pub class ScopedYieldScan derives RecursiveASTVisitor<ScopedYieldScan> {
     pub var  sc:    unsafe *SemaContext
+    pub var  found: usize               = 0
     priv var _root: unsafe *Stmt
-    priv var _attr: unsafe *AnnotationEntry
+    priv var _attr: SourceRange
 
-    fn ScopedYieldScan(self,
-                       sc:   unsafe *SemaContext,
-                       root: unsafe *Stmt,
-                       attr: unsafe *AnnotationEntry) {
+    fn ScopedYieldScan(self, sc: unsafe *SemaContext, root: unsafe *Stmt, attr: SourceRange) {
         self.sc    = sc
         self._root = root
         self._attr = attr
@@ -338,10 +363,11 @@ class ScopedYieldScan derives RecursiveASTVisitor<ScopedYieldScan> {
         b.first(at)
         b.note(
             DiagCode(DiagID::SC367N),
-            self._attr->range.start,
+            self._attr.start,
             "the scope opens here",
-        )->child_first(self._attr->range)
+        )->child_first(self._attr)
         b.emit()
+        self.found += 1
         return true
     }
 }

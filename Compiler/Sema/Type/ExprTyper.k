@@ -111,12 +111,7 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,
-    QUAL_CONST,
-    RecordType,
-    builtin_for_token,
-    canon_has_const,
-    canon_quals,
+    BuiltinKind,  QUAL_CONST, RecordType, builtin_for_token, canon_has_const, canon_quals,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -126,29 +121,13 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    EnumDecl,
-    EnumVariantDecl,
-    ExtensionDecl,
-    FieldDecl,
-    FnBodyKind,
-    FunctionDecl,
-    GenericParamDecl,
-    InterfaceDecl,
-    ModuleDecl,
-    ParamDecl,
-    TypeAliasDecl,
-    VariableDecl,
+    EnumDecl,         EnumVariantDecl, ExtensionDecl, FieldDecl, FnBodyKind,    FunctionDecl,
+    GenericParamDecl, InterfaceDecl,   ModuleDecl,    ParamDecl, TypeAliasDecl, VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
-    BooleanLiteralExpr,
-    ChainExpr,
-    CharacterLiteralExpr,
-    FloatingLiteralExpr,
-    IntegerLiteralExpr,
-    NamedIdentExpr,
-    NullLiteralExpr,
-    StringLiteralExpr,
+    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
+    IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
 }
 import AST::Node::Program::TopLevelKind
 import AST::Node::Types::{
@@ -1469,7 +1448,7 @@ pub class ExprTyper
                 return &null
             }
 
-            var ded    = Deduction(self.sc, &null)
+            var ded                    = Deduction(self.sc, &null)
             var owners: [unsafe *Decl]
             owners.push(d)
             var unsafe *rep = NameLookup::representative(d)
@@ -2701,9 +2680,16 @@ pub class ExprTyper
             }
 
             // args is a FrozenList<*void>: the annotation mixin cannot name
-            // Expr (AST/Mixin/Annotation.k), but every element is one.
+            // Expr (AST/Mixin/Annotation.k), but every element is one. A
+            // keyword argument (`in: A`) is no expression of its own: its
+            // value is.
             for var j: usize = 0; j < a->args.size(); ++j {
-                self.type_of(a->args[j], &null)
+                var unsafe *arg = a->args[j]
+                if arg != &null && isa<Expressions::NamedArgExpr>(arg) {
+                    arg = cast<Expressions::NamedArgExpr>(arg)->value
+                }
+
+                self.type_of(arg, &null)
             }
         }
 

@@ -11,10 +11,15 @@
 ///                            ^ S_pre (body[0])                              ^ S_post (body[1])
 ///
 ///     That is the whole rewrite: two blocks, nothing renamed, nothing
-///     minted. EmitIR writes body[0] as the body of a static pre-function
-///     that fills the constructor's slots, and body[1] as the body of a
-///     private constructor whose mem-initializers move the slots into the
-///     members (Compiler/Spec/Codegen.md#emitir). Sema's view of the record is untouched:
+///     minted. The statements `@set_scoped_allocator` put at the head of
+///     the body (a guard, an arena takeover; SemaContext::scoped_lead)
+///     belong to the object's life, so they open S_post wherever the
+///     frontier falls: what runs before it allocates from the allocator in
+///     effect where the object is built. EmitIR writes body[0] as the body
+///     of a static pre-function that fills the constructor's slots, and
+///     body[1] as the body of a private constructor whose mem-initializers
+///     move the slots into the members (Compiler/Spec/Codegen.md#emitir).
+///     Sema's view of the record is untouched:
 ///     no member is added, so overload sets, ClassLifecycle and InitCheck
 ///     never see the C++ machinery.
 ///
@@ -98,12 +103,17 @@ pub class CtorInitLowering derives ASTWriter<CtorInitLowering> {
         var unsafe *pre    = CompoundStmt::create(self.ctx, pre_at)
         var unsafe *post   = CompoundStmt::create(self.ctx, post_at)
         var        pb      = self.list_builder<unsafe *Stmt>()
+        var        qb      = self.list_builder<unsafe *Stmt>()
         for var i: usize = 0; i < k; ++i {
-            pb.push(body->body[i])
+            var unsafe *st = body->body[i]
+            if self.sc->scoped_lead.count(st as usize as u64) != 0 {
+                qb.push(st)
+            } else {
+                pb.push(st)
+            }
         }
 
         pb.freeze_into(&pre->body)
-        var qb = self.list_builder<unsafe *Stmt>()
         for var i: usize = k; i < body->body.size(); ++i {
             qb.push(body->body[i])
         }

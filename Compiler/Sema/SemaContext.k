@@ -68,13 +68,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtRole,
-    EnumDecl,
-    FunctionDecl,
-    GenericParamDecl,
-    ImportDecl,
-    SpecKind,
-    StructDecl,
+    AdtRole, EnumDecl, FunctionDecl, GenericParamDecl, ImportDecl, SpecKind, StructDecl,
 }
 import AST::Node::Expressions::ConstraintExpr
 import AST::VisibilityFacts::{
@@ -465,6 +459,15 @@ pub class SemaContext {
     /// Null when nothing set one up: PanicEffectChecking then solves this TU
     /// alone. Untyped for the same import-cycle reason as `lifecycle`.
     pub var effects: unsafe *void = &null
+
+    /// The statements `@set_scoped_allocator` put at the head of a body
+    /// (`*Stmt` as u64): each guard, and a transfer constructor's takeover
+    /// of its source's arena (ScopedAllocatorExpand, ScopedArenaMethods).
+    /// They belong to the object's life, not to the part of a constructor
+    /// that runs before the object exists: CtorInitCheck does not read them
+    /// as uses of `self` or let them move its frontier, and
+    /// CtorInitLowering puts them at the head of S_post.
+    pub var scoped_lead: llvm::DenseSet<u64>
 
     /// The expressions a transfer moves from (`*Expr` as u64): a MOVE value
     /// passed, initialized from or assigned. One writer, MoveCheck, which

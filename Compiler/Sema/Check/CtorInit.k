@@ -124,15 +124,8 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AdtRole,
-    ClassDecl,
-    FieldDecl,
-    FnBodyKind,
-    FunctionDecl,
-    ParamDecl,
-    StructDecl,
-    TransferKind,
-    VariableDecl,
+    AdtRole,      ClassDecl,    FieldDecl, FnBodyKind, FunctionDecl, ParamDecl, StructDecl,
+    TransferKind, VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -1245,6 +1238,13 @@ pub class CtorInitCheck derives RecursiveASTVisitor<CtorInitCheck> {
         // `Base::Base(self, ...)`: the base's mem-initializer, built before
         // any field (BaseInitCheck admitted it, and judged its `self`).
         if base_init_stmt(s) != &null {
+            return
+        }
+
+        // A `@set_scoped_allocator` guard or arena takeover: part of the
+        // object's life, moved to the head of S_post (CtorInitLowering), so
+        // neither a use of `self` here nor a statement the frontier counts.
+        if self.sc->scoped_lead.count(s as usize as u64) != 0 {
             return
         }
 
