@@ -258,7 +258,11 @@ extend EmitIR {
 
         // The constructor Kairo declared: fill a fresh slot record, then
         // delegate. The temporary lives to the end of this mem-initializer.
-        var pub_h = oh + inl + q + "::" + leaf + "(" + self._params_text(
+        // A tagged transfer constructor's (Speller::tagged_transfer) takes
+        // the tag here; the class defines the forwarder callers name.
+        var tag = if (self._spell.tagged_transfer(m, owner)) => (Speller::transfer_tag() + ", ")
+                  else => ""
+        var pub_h = oh + inl + q + "::" + leaf + "(" + tag + self._params_text(
             m,
             &null,
         ) + ")"

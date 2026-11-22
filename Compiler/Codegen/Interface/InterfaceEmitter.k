@@ -1342,7 +1342,7 @@ pub class InterfaceEmitter {
 
     /// The C++ is compiled for the Microsoft C++ ABI.
     prot fn _ms_abi(self) -> bool {
-        return self._cg->opts.target_triple.ends_with("-msvc")
+        return self._spell->ms_abi()
     }
 
     /// # Namespace wrapping

@@ -131,8 +131,14 @@ extend InterfaceEmitter {
             s += nm + self._spell->spec_suffix(m)
         }
 
+        var tagged = is_ctor && self._spell->tagged_transfer(m, owner)
+        var params = self._params(m, false, &null, owner, true)
         s += "("
-        s += self._params(m, false, &null, owner, true)
+        if tagged {
+            s += Speller::transfer_tag() + ", "
+        }
+
+        s += params
         s += ")"
         if is_method && m->is_const() {
             s += " const"
@@ -151,8 +157,52 @@ extend InterfaceEmitter {
 
         s += self._body_suffix(m)
         s += ";"
+        if tagged {
+            s = self._transfer_forwarder(m, owner, params) + " " + s
+        }
+
         s += self._push_method_decl(m, owner)
         return s
+    }
+
+    /// The forwarder of a tagged transfer constructor
+    /// (Speller::tagged_transfer), defined in the class: the constructor
+    /// every caller names. It comes first, so it is the declaration on the
+    /// constructor's name, where the Sema agreement pass looks for the
+    /// callee Kairo chose.
+    priv fn _transfer_forwarder(self,
+                                m:            unsafe *Declarations::FunctionDecl,
+                                owner:        unsafe *Decl,
+                                const params: string) -> string {
+        var leaf = self._spell->leaf(owner)
+        var s    = LowerTargets::attr_always_inline()
+        if m->is_eval() {
+            s += "consteval "
+        } else if m->is_constexpr() {
+            s += "constexpr "
+        }
+
+        s += leaf.copy() + "(" + params + ")"
+        if m->no_unwind {
+            s += " noexcept"
+        }
+
+        s += " : " + leaf + "(" + Speller::transfer_tag() + "{}"
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var unsafe *p = m->params[i]
+            if p == &null || p->is_self {
+                continue
+            }
+
+            var nm = self._spell->tok_name(
+                p->name,
+                Speller::fid_of(unsafe (m as unsafe *Decl)),
+            )
+
+            s += ", static_cast<decltype(" + nm + ")&&>(" + nm + ")"
+        }
+
+        return s + ") {}"
     }
 
     /// The push form of generator method `m` (generator_push_form),

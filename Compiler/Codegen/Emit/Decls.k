@@ -517,6 +517,12 @@ extend EmitIR {
         }
 
         head += "("
+        // The constructor that holds the body of a tagged transfer
+        // constructor; the class defines the one callers name.
+        if is_ctor && self._spell.tagged_transfer(m, owner) {
+            head += Speller::transfer_tag() + ", "
+        }
+
         head += self._params_text(m, &null)
         head += ")"
         if m->is_method() && m->is_const() {

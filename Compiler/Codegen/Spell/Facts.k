@@ -402,6 +402,60 @@ extend Speller {
         return self.leaf(unsafe (f as unsafe *Decl)) == self.leaf(owner)
     }
 
+    /// The C++ is compiled for the Microsoft C++ ABI.
+    fn ms_abi(self) -> bool {
+        return self._cg->opts.target_triple.ends_with("-msvc")
+    }
+
+    /// Copy or move constructor `f` of `owner` is spelled as two: a
+    /// forwarder defined in the class, which every caller names, and a
+    /// constructor taking transfer_tag() first, which holds the body and
+    /// the mem-initializers and is defined out of line.
+    ///
+    /// For a `trivial_abi` record (AttrFacts::record_attr) whose transfer
+    /// constructor has a body. Clang marks a `trivial_abi` record's
+    /// user-provided copy and move constructors trivial for calls on their
+    /// declaration in the class only (Sema::CheckCompletedCXXClass); an
+    /// out-of-line definition is a redeclaration without the mark, and the
+    /// class's lookup returns it from then on (findTrivialSpecialMember
+    /// reads the mark of the one it selects). A record holding one as a
+    /// field (a struct, a tuple instance, a closure) whose definition clang
+    /// completes after that definition is then passed in memory through a
+    /// pointer; before it, by value. Which comes first depends on the
+    /// stream, not on the record: the interface PCH takes every TU of the
+    /// graph in module-path order, so two programs sharing an object cache
+    /// would disagree on the record's call ABI. A constructor defined in
+    /// the class has no redeclaration. The members of a class template are
+    /// instantiated, never redeclared, so they keep the one form.
+    fn tagged_transfer(self, f: unsafe *Declarations::FunctionDecl, owner: unsafe *Decl) -> bool {
+        if f->is_operator
+            || f->body_kind != Declarations::FnBodyKind::Block
+            || !AttrFacts::is_relocatable(owner)
+            || self.ms_abi() {
+            return false
+        }
+
+        if !self.is_ctor_of(f, owner) || !self.is_special_member(f, owner) {
+            return false
+        }
+
+        var chain = self.owner_chain(owner)
+        for var i: usize = 0; i < chain.size(); ++i {
+            if DeclFacts::decl_generic_params(chain[i]).size() > 0 {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// The leading parameter of a tagged transfer constructor
+    /// (tagged_transfer): the ADT variant tag, which no constructor a
+    /// Kairo class declares takes.
+    static fn transfer_tag() -> string {
+        return "::" + LowerTargets::adt_variant_tag() + "<0>"
+    }
+
     /// `d` emits no constructor: a C++ aggregate (a struct or union always
     /// is one to Kairo; a class only with no constructor of any kind).
     fn is_aggregate_record(self, d: unsafe *Decl) -> bool {
