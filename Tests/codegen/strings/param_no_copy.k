@@ -1,14 +1,18 @@
-// A call to a function whose string parameter is never mutated binds
-// the caller's string (`const string&`), so passing an OWNED string costs
-// no allocation. Counted by a global allocator that forwards to System. A
-// parameter the body mutates still gets its copy (one block per call), and
-// so does a call through a `fn` value: the adapter takes the type's
-// by-value parameter, which costs what the by-value call did before.
+// A call to a function whose parameter of a COPY, non-trivially-copyable
+// record is never mutated binds the caller's value (`const T&`), so passing
+// one costs no copy. Counted by the record's copy constructor and by a
+// global allocator that forwards to System. A parameter the body mutates
+// still gets its copy (one per call), and so does a call through a `fn`
+// value: the adapter takes the type's by-value parameter, two copies per
+// call. A string is MOVE, so a by-value string parameter takes the caller's
+// string; a read-only one is written `const`, which borrows and allocates
+// nothing.
 
 import builtin::base::alloc::*
 
 static allocs: i64 = 0
 static live: i64 = 0
+static copies: i64 = 0
 
 class Counting {
     static fn alloc(size: usize, align: usize) -> unsafe *u8 { allocs += 1; live += 1; return System::alloc(size, align) }
@@ -20,31 +24,46 @@ class Counting {
 
 @set_global_allocator(Counting)
 
-@no_inline fn reads(s: string) -> usize { return s.size() }
-@no_inline fn forwards(s: string) -> usize { return reads(s) + 1 }
-@no_inline fn mutates(s: string) -> usize { s.push('!'); return s.size() }
+class Text {
+    pub var s: string
+    pub fn Text(self) { self.s = string() }
+    @copy pub fn Text(self, const other: Self) { self.s = other.s.copy(); copies += 1 }
+    pub fn size(const self) -> usize { return self.s.size() }
+    pub fn push(self, c: char) { self.s.push(c) }
+}
+
+@no_inline fn reads(t: Text) -> usize { return t.size() }
+@no_inline fn forwards(t: Text) -> usize { return reads(t) + 1 }
+@no_inline fn mutates(t: Text) -> usize { t.push('!'); return t.size() }
+@no_inline fn borrows(const s: string) -> usize { return s.size() }
 
 fn main() -> i32 {
+    var t = Text()
+    for var i: usize = 0; i < 1000; ++i { t.push('x') }
+    var base = copies
+    var abase = allocs
+    var total: usize = 0
+    for var i: usize = 0; i < 100; ++i { total += reads(t) + forwards(t) }
+    if total != 200100 { return 1 }
+    if (copies != base) || (allocs != abase) { return 2 }   // no copy on either call
+
+    base = copies
+    for var i: usize = 0; i < 10; ++i { total += mutates(t) }
+    if copies - base != 10 { return 3 }     // one copy per call
+
+    base = copies
+    var f = reads
+    for var i: usize = 0; i < 10; ++i { total += f(t) }
+    // Two copies per call: __kairo_fn's by-value argument, then its forward
+    // into the adapter's (Text has no move constructor, so a move copies).
+    if copies - base != 20 { return 4 }
+
     var s = string()
     for var i: usize = 0; i < 1000; ++i { s.push('x') }
-    var base = allocs
-    var total: usize = 0
-    for var i: usize = 0; i < 100; ++i { total += reads(s) + forwards(s) }
-    if total != 200100 { return 1 }
-    if allocs != base { return 2 }          // no copy on either call
-
-    base = allocs
-    for var i: usize = 0; i < 10; ++i { total += mutates(s) }
-    if allocs - base != 10 { return 3 }     // one copy per call
-
-    base = allocs
-    var f = reads
-    for var i: usize = 0; i < 10; ++i { total += f(s) }
-    // Two blocks per call, as before the fix: __kairo_fn's by-value argument,
-    // then its forward into the adapter's (a move of a COPY string copies
-    // until its successor lands).
-    if allocs - base != 20 { return 4 }
-    if s.length() != 1000 { return 5 }
+    abase = allocs
+    for var i: usize = 0; i < 100; ++i { total += borrows(s) }
+    if allocs != abase { return 5 }         // a const string borrows
+    if (t.size() != 1000) || (s.size() != 1000) { return 6 }
     return 42
 }
 
@@ -52,10 +71,10 @@ fn main() -> i32 {
 
 // BEGIN-GENERATED-CHECKS(DIAG) mode=diag -- regenerate with Tests/gen_checks.py, do not hand-edit
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --implicit-check-not="error [" --implicit-check-not="warning ["
-// DIAG: {{.*}}:23:21: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
-// DIAG-NEXT: fix-it:"{{.*}}":{23:21-23:21}:"const "
-// DIAG: {{.*}}:24:24: warning [SC224W]: parameter 's' is never mutated; declare it 'const'
-// DIAG-NEXT: fix-it:"{{.*}}":{24:24-24:24}:"const "
+// DIAG: {{.*}}:35:21: warning [SC224W]: parameter 't' is never mutated; declare it 'const'
+// DIAG-NEXT: fix-it:"{{.*}}":{35:21-35:21}:"const "
+// DIAG: {{.*}}:36:24: warning [SC224W]: parameter 't' is never mutated; declare it 'const'
+// DIAG-NEXT: fix-it:"{{.*}}":{36:24-36:24}:"const "
 // END-GENERATED-CHECKS(DIAG)
 
 // BEGIN-GENERATED-CHECKS(EXEC) mode=run -- regenerate with Tests/gen_checks.py, do not hand-edit

@@ -1,34 +1,36 @@
-// A write through the mutable `[]` keeps codepoints() right. The
-// operator hands out a raw byte place and never sees the store, so it
-// marks the count stale and codepoints() counts the bytes (string.k,
-// CPS_STALE). Each write below changes what the bytes encode: an ASCII
-// byte becomes a lead byte (still one codepoint), then the byte after it
-// a continuation (two bytes, one codepoint), then ASCII again, then a
-// continuation where a codepoint started. A stale count survives `+`
-// and `+=` on either side, and subslice() of a stale string counts its
-// own bytes.
+// codepoints() stays right through every edit that changes what the bytes
+// encode. A string has no writable `[]`: each edit goes through a mutator,
+// which keeps the count (string.k: a heap string's count word is exact).
+// Each step below changes the mix: an ASCII string gains a two-byte char,
+// a three-byte one in the middle, loses a char from the middle and from
+// the end, is cut back to ASCII. The count survives `+` and `+=` on either
+// side, a non-ASCII view appended is counted as it is copied, and a view
+// of an edited string counts its own bytes.
 
 fn main() -> i32 {
-    var s = "abcd"
+    var s = "abcd".to_owned()
     var r = 0
     if s.codepoints() == 4 { r += 1 }
-    s[1] = 0xC3
-    if s.codepoints() == 4 { r += 2 }
-    s[2] = 0xA9                       // "aéd"
-    if s.codepoints() == 3 { r += 4 }
-    s[2] = 0x63
-    if s.codepoints() == 4 { r += 8 }
-    s[1] = 0x80
-    if s.codepoints() == 3 { r += 16 }
-    var t = s.copy() + s                     // both stale
-    if t.codepoints() == 6 { r += 32 }
+    s.insert(1, "é")                  // "aébcd"
+    if (s.codepoints() == 5) && (s.size() == 6) { r += 2 }
+    s.insert(3, "€")                  // "aé€bcd"
+    if (s.codepoints() == 6) && (s.size() == 9) { r += 4 }
+    s.remove_range(1..3)              // "a€bcd"
+    if (s.codepoints() == 5) && (s.size() == 7) && (s == "a€bcd") { r += 8 }
+    var last = s.pop() ?? ' '         // 'd'
+    if (s.codepoints() == 4) && (last == 'd') { r += 16 }
+    var t = s.copy() + s              // "a€bca€bc"
+    if t.codepoints() == 8 { r += 32 }
     var u = "xy"
-    u += s                            // fresh += stale
-    s += "z"                          // stale += fresh
-    if (u.codepoints() == 5) && (s.codepoints() == 4) { r += 64 }
-    var v = s.subslice(1, 3)          // 0x80 'c' 'd': two
-    if v.codepoints() == 2 { r += 128 }
-    return if r == 255 => 0 else => r
+    u += s                            // literal += heap
+    s += "z€"                         // heap += literal
+    s.push_str("ñandú"[0..3])         // a non-ASCII view: "ña"
+    if (u.codepoints() == 6) && (s.codepoints() == 8) { r += 64 }
+    var v = s[1..6]                   // "€bc": a view, two of it ASCII
+    if (v.codepoints() == 3) && v.is_view() { r += 128 }
+    s.truncate(1)                     // "a": ASCII again
+    if (s.codepoints() == 1) && s.is_ascii() { r += 256 }
+    return if r == 511 => 0 else => r
 }
 
 // --- lit wiring -----------------------------------------------------------

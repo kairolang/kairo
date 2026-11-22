@@ -20,11 +20,9 @@ fn sum_const(const v: [i32]) -> i32 {
     return s
 }
 
-// Parameters written without `const` that only read: the loops take
-// `op in (const self)`, which reads them, so they are passed as `const T&`
-// and SC224W says to write `const`.
-// DIAG: builtin_container_pointer_iter.k:[[@LINE+2]]:14: warning [SC224W]: parameter 'v' is never mutated; declare it 'const'
-// DIAG: builtin_container_pointer_iter.k:[[@LINE+1]]:24: warning [SC224W]: parameter 'm' is never mutated; declare it 'const'
+// Parameters written without `const` own their containers (a container is
+// MOVE, so the caller passes a copy) and only read them. A MOVE parameter
+// keeps its value and gets no SC224W, so only the values are checked here.
 fn sum_plain(v: [i32], m: {i32: i32}) -> i32 {
     var s = 0
     for x in v {
@@ -117,7 +115,7 @@ fn main() -> i32 {
         return 6
     }
 
-    if sum_plain(v, m) != 36 + 68 {
+    if sum_plain(v.copy(), m.copy()) != 36 + 68 {
         return 8
     }
 

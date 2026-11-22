@@ -1,9 +1,10 @@
 // Kairo ADTs as an imported template's arguments: a non-generic one in a
-// `vector`, a generic one's instance as a `map` value, and one whose
-// payload is non-trivial (a `string`). Phase A's stand-in is the ADT's tag
+// `vector`, a generic one's instance as a `map` value, one whose payload
+// is a non-trivial COPY record (a written copy constructor), and one whose
+// payload is a `string`, which is MOVE. Phase A's stand-in is the ADT's tag
 // word followed by its payload fields, so it copies exactly when the real
-// record does; the fill reads every member type back as the Kairo ADT,
-// which then matches as usual.
+// record does, and a MOVE one only moves; the fill reads every member type
+// back as the Kairo ADT, which then matches as usual.
 //
 // `map::operator[]` is not used: it default-constructs the value, and a
 // Kairo ADT has no default (C++ rejects it, as for any type without one).
@@ -13,7 +14,15 @@ ffi "c++" import "map"
 
 enum Shape { Circle { r: i32 }, Square { s: i32 }, Empty }
 enum <T> Opt { Some { v: T }, None }
-enum Msg { Text { s: string }, Num { n: i32 } }
+class Txt {
+    pub var s: string
+    pub fn Txt(self, const s: string) { self.s = s.copy() }
+    @copy pub fn Txt(self, const other: Self) { self.s = other.s.copy() }
+    pub fn size(const self) -> usize { return self.s.size() }
+}
+
+enum Msg { Text { s: Txt }, Num { n: i32 } }
+enum Owned { Text { s: string }, Num { n: i32 } }
 
 fn area(s: Shape) -> i32 = match s {
     case .Circle(var r) => r * 3
@@ -31,6 +40,11 @@ fn size_of(m: Msg) -> i32 = match m {
     case .Num(var n) => n
 }
 
+fn owned_size(const m: Owned) -> i32 = match m {
+    case .Text(const s) => s.size() as i32
+    case .Num(const n) => n
+}
+
 fn main() -> i32 {
     var v: cxx::std::vector<Shape>
     v.push_back(Shape::Circle { r: 2 })
@@ -46,10 +60,17 @@ fn main() -> i32 {
     n += get(m.at(1)) + get(m.at(2))                      // 131
 
     var ms: cxx::std::vector<Msg>
-    ms.push_back(Msg::Text { s: "abcd" })
+    ms.push_back(Msg::Text { s: Txt("abcd") })
     ms.push_back(Msg::Num { n: 2 })
     var copy = ms                                         // the vector copies: Msg does
     for x in copy { n += size_of(x) }                     // 137
+    for x in ms { n += size_of(x) }                       // 143
+
+    var os: cxx::std::vector<Owned>
+    os.push_back(Owned::Text { s: "abcdefg" })
+    os.push_back(Owned::Num { n: 3 })
+    var moved = cxx::std::move(os)                        // Owned only moves
+    for const *x in moved { n += owned_size(*x) }         // 153
     return n
 }
 
@@ -60,4 +81,4 @@ fn main() -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe; test $? -eq 137
+// RUN: %t.exe; test $? -eq 153

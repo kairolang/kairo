@@ -1,7 +1,7 @@
-// A byte string is a `[const u8;]` and nothing else: it converts where a
-// read-only slice does, and nowhere a `string`, a writable slice or a
-// pointer is wanted. Nothing writes through it, a C string parameter does
-// not take it, and it is not an eval value yet.
+// A byte string is a `[const u8;]` and nothing else: it converts and compares
+// (the slice's `==`, in a match) where a read-only slice does, and nowhere a
+// `string`, a writable slice or a pointer is wanted. Nothing writes through
+// it, a C string parameter does not take it, and it is not an eval value yet.
 
 ffi "c++" import "cstring"
 
@@ -49,7 +49,6 @@ fn bad() {
 // CHECK: {{.*}}:33:5: error [SC063E]: no matching overload for call to 'take_string'
 // CHECK: {{.*}}:34:5: error [SC063E]: no matching overload for call to 'strlen'
 // CHECK: {{.*}}:35:10: error [SC116E]: an 'eval' constant of slice type '[const u8;]' is not yet supported: a slice has no compile-time form; declare 'E' as a fixed array
-// CHECK: {{.*}}:37:15: error [SC066E]: no 'op ==' on '[const u8;]'; a record compares only through its own operator
 //
 // The literal's type, and the tree's mark for it.
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
