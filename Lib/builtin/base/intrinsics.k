@@ -555,11 +555,13 @@ pub fn <T> __builtin_constant_p(v: T) -> bool {
 }
 
 /// Returns true when `*f` is a `fn` value that says its function is speculatable: a call of it
-/// may be evaluated on arguments the program never passed it, and nothing can tell, provided
-/// every pointer reachable from those arguments is valid. The compiler says so for a predicate
-/// it proved has no effect, always returns, cannot stop the program and reads through no
-/// pointer its arguments do not reach, in a value made from that function's name; the fact
-/// follows the value through every copy.
+/// may be evaluated on arguments the program never passed it, provided every pointer reachable
+/// from those arguments is valid. Such a call changes nothing and cannot stop the program; it
+/// reads the memory those arguments reach, and it takes time, with a bound the function's text
+/// sets. The compiler says so for a predicate it proved has no effect, always returns, cannot
+/// stop the program, has no loop and reads through no pointer but its arguments and what they
+/// point at, in a value made from that function's name; the fact follows the value through
+/// every copy.
 ///
 /// The read is a run-time one that folds to a constant where the optimizer sees the value made.
 /// A false result proves nothing: a closure, a function reached any other way and a function

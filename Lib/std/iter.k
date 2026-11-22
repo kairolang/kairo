@@ -933,16 +933,27 @@ class <T> DriveBack<SliceIterMut<T>> derives SliceMutBackDrive<T> requires sizeo
 // the same scan can test a block of elements with no exit inside the block:
 // a countable loop, which it does vectorize. A block is tested whole, so the
 // predicate also runs on elements past the one that ends the scan, and
-// again on the block that holds it. Nothing can tell when both of these
-// hold, and any other scan keeps the item loop alone, which calls the
+// again on the block that holds it. A scan takes that form only when both of
+// these hold, and any other scan keeps the item loop alone, which calls the
 // predicate once per item up to the one that ends the scan:
 //
 //   - the compiler vouches for the predicate (`__builtin_fn_speculatable`:
-//     no effect, no trap, always returns, and it reads through no pointer
-//     its argument does not reach);
+//     no effect, nothing that stops the program, no loop, and it reads
+//     through no pointer but its argument and what that points at);
 //   - the elements are numbers, so what the argument reaches is the element
 //     and nothing behind it. An element that holds a pointer may hold one
 //     that is no longer valid past the element that ends the scan.
+//
+// The answer is the item loop's. Two things differ from it:
+//
+//   - the scan reads elements past the one that ends it, up to the end of
+//     that element's block and never outside the slice. A program in which
+//     another thread writes those elements while the scan runs has a data
+//     race that the item loop does not have;
+//   - the predicate is called up to SCAN_BLOCK times more than the item
+//     loop calls it, SCAN_BLOCK - 1 of them at most on elements past the
+//     one that ends the scan. Each call is loop-free, so the extra time has
+//     a bound the predicate's text sets, whatever the elements hold.
 //
 // `Blocks<I>` is chosen per chain type as `Drive<I>` is. The primary skips
 // nothing, so a chain with no specialization is the item loop alone.
