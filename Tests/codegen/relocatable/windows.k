@@ -109,7 +109,7 @@ fn main() -> i32 {
 // RUN: %kairo %s --print-ir --target=x86_64-windows-gnu | %FileCheck %s --check-prefix=CXX
 // CXX: class __attribute((trivial_abi)) Handle {
 // CXX-NEXT: public: using __kairo_relocatable = Handle;
-// CXX: __attribute((noinline)) __attribute((const)) decltype(sizeof(0)) peek_owned(
+// CXX: __attribute((noinline)) __attribute((pure)) decltype(sizeof(0)) peek_owned(
 // CXX: __attribute((noinline)) decltype(sizeof(0)) take_plain(
 
 // QUIET-NOT: error [

@@ -13,7 +13,7 @@
 // CXX:     class Handle {
 // CXX-NEXT: public: using __kairo_relocatable = Handle;
 // CXX-NOT: trivial_abi
-// CXX: __attribute((noinline)) decltype(sizeof(0)) peek_owned(
+// CXX: __attribute((noinline)) __attribute((pure)) decltype(sizeof(0)) peek_owned(
 // CXX: __attribute((noinline)) decltype(sizeof(0)) take_plain(
 
 // QUIET-NOT: error [

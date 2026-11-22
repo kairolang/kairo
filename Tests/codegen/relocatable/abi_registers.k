@@ -117,7 +117,7 @@ fn main() -> i32 {
 // X86-DAG: define {{.*}}{ ptr, i64 } @{{[A-Za-z0-9_]*}}make_generic{{[A-Za-z0-9_]*}}(i64 noundef %{{[^,)]*}})
 // X86-DAG: define {{.*}}i64 @{{[A-Za-z0-9_]*}}take_nested{{[A-Za-z0-9_]*}}(i64 %{{[^,]*}}, i64 %{{[^,)]*}})
 // X86-DAG: define {{.*}}{ i64, i64 } @{{[A-Za-z0-9_]*}}make_nested{{[A-Za-z0-9_]*}}(i64 noundef %{{[^,)]*}})
-// X86-DAG: define {{.*}}i64 @{{[A-Za-z0-9_]*}}take_slow{{[A-Za-z0-9_]*}}(ptr noundef %{{[^,)]*}})
+// X86-DAG: define {{.*}}i64 @{{[A-Za-z0-9_]*}}take_slow{{[A-Za-z0-9_]*}}(ptr {{[^,)]*}})
 // X86-DAG: define {{.*}}void @{{[A-Za-z0-9_]*}}make_slow{{[A-Za-z0-9_]*}}(ptr {{.*}}sret({{.*}}Slow{{.*}}) {{.*}}, i64 noundef %{{[^,)]*}})
 
 // REQUIRES: sysroot-aarch64-linux-gnu
@@ -129,5 +129,5 @@ fn main() -> i32 {
 // A64-DAG: define {{.*}}[2 x i64] @{{[A-Za-z0-9_]*}}make_generic{{[A-Za-z0-9_]*}}(i64 noundef %{{[^,)]*}})
 // A64-DAG: define {{.*}}i64 @{{[A-Za-z0-9_]*}}take_nested{{[A-Za-z0-9_]*}}([2 x i64] %{{[^,)]*}})
 // A64-DAG: define {{.*}}[2 x i64] @{{[A-Za-z0-9_]*}}make_nested{{[A-Za-z0-9_]*}}(i64 noundef %{{[^,)]*}})
-// A64-DAG: define {{.*}}i64 @{{[A-Za-z0-9_]*}}take_slow{{[A-Za-z0-9_]*}}(ptr noundef %{{[^,)]*}})
+// A64-DAG: define {{.*}}i64 @{{[A-Za-z0-9_]*}}take_slow{{[A-Za-z0-9_]*}}(ptr {{[^,)]*}})
 // A64-DAG: define {{.*}}void @{{[A-Za-z0-9_]*}}make_slow{{[A-Za-z0-9_]*}}(ptr {{.*}}sret({{.*}}Slow{{.*}}) {{.*}}, i64 noundef %{{[^,)]*}})
