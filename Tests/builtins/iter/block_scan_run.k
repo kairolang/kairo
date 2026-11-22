@@ -12,6 +12,12 @@
 // and never after, as a loop over the items calls it; so is a predicate that
 // divides by the element, which the zero elements past the deciding one
 // would stop.
+//
+// What a skip_while passes on is read by a scan behind it (position, find,
+// any, next): the first item passed is the one the skip stopped at, and the
+// scan stops at a second mark behind it, with either mark in the items
+// tested one at a time, on a block's first and last element and behind the
+// last whole block.
 
 import std::iter::*
 import std::io
@@ -29,6 +35,7 @@ fn hold(const end: string, const what: string, n: usize, at: usize, cond: bool) 
 }
 
 fn is_mark(p: *const (*const i32)) -> bool = **p == 5000
+fn is_second(p: *const (*const i32)) -> bool = **p == 6000
 fn not_mark(p: *const (*const i32)) -> bool = **p != 5000
 
 fn counted_is_mark(p: *const (*const i32)) -> bool {
@@ -173,15 +180,84 @@ fn divisor_past_the_end() {
     }
 }
 
-/// The item a skip_while stops at is the first one it passes on, and the
-/// items behind it follow untested.
-fn skip_while_passes_the_rest() {
-    var v = marked(100, 60)
-    var s: [const i32;] = v
-    var t = iter(s.iter()).skip_while(not_mark)
-    var first = t.next()
-    hold("rest", "skip_while first", 100, 60, first? && *unwrap!(first) == 5000)
-    hold("rest", "skip_while count", 100, 60, t.count() == 39)
+/// The scans behind a skip_while, for a first mark `at` items from the end
+/// the scan starts at (`at == n`: none) and a second one `gap` items behind
+/// it when `second`.
+fn skipped_scans(const label: string,
+                 const s: [const i32;],
+                 n: usize,
+                 at: usize,
+                 gap: usize,
+                 second: bool,
+                 back: bool) {
+    var hit = at < n
+    var pos: usize? = null
+    var again: usize? = null
+    var found: (*const i32)? = null
+    var first: (*const i32)? = null
+    var some = false
+    if back {
+        pos = iter(s.iter()).rev().skip_while(not_mark).position(is_second)
+        again = iter(s.iter()).rev().skip_while(not_mark).position(is_mark)
+        found = iter(s.iter()).rev().skip_while(not_mark).find(is_second)
+        some = iter(s.iter()).rev().skip_while(not_mark).any(is_second)
+        var t = iter(s.iter()).rev().skip_while(not_mark)
+        first = t.next()
+    } else {
+        pos = iter(s.iter()).skip_while(not_mark).position(is_second)
+        again = iter(s.iter()).skip_while(not_mark).position(is_mark)
+        found = iter(s.iter()).skip_while(not_mark).find(is_second)
+        some = iter(s.iter()).skip_while(not_mark).any(is_second)
+        var t = iter(s.iter()).skip_while(not_mark)
+        first = t.next()
+    }
+
+    hold(label, "skip_while position", n, at, pos? == second && (pos ?? gap) == gap)
+    hold(label, "skip_while position of the first", n, at, again? == hit && (again ?? 0) == 0)
+    hold(label, "skip_while any", n, at, some == second)
+    if second {
+        var want: *const i32 = if back => &s[n - 1 - at - gap] else => &s[at + gap]
+        hold(label, "skip_while find", n, at, found? && unwrap!(found) == want)
+    } else {
+        hold(label, "skip_while find", n, at, !found?)
+    }
+
+    if hit {
+        var want: *const i32 = if back => &s[n - 1 - at] else => &s[at]
+        hold(label, "skip_while next", n, at, first? && unwrap!(first) == want)
+    } else {
+        hold(label, "skip_while next", n, at, !first?)
+    }
+}
+
+/// Lengths with no block, one block exactly, one item over, and several
+/// blocks; the first mark at every index; the second one next to it, a
+/// block behind it, one item to either side of that, or absent.
+fn skip_while_then_scan() {
+    for var n: usize = 0; n <= 110; n += 1 {
+        if n > 1 && (n < 39 || n > 41) && n != 72 && n != 73 && n != 110 {
+            continue
+        }
+
+        for var at: usize = 0; at <= n; at += 1 {
+            for var gap: usize = 0; gap <= 33; gap += 1 {
+                if gap >= 3 && gap <= 30 {
+                    continue
+                }
+
+                var second = gap != 0 && at + gap < n
+                var front = marked(n, at)
+                var back = marked(n, if at < n => n - 1 - at else => n)
+                if second {
+                    front[at + gap] = 6000
+                    back[n - 1 - at - gap] = 6000
+                }
+
+                skipped_scans("front", front, n, at, gap, second, false)
+                skipped_scans("back", back, n, at, gap, second, true)
+            }
+        }
+    }
 }
 
 /// Elements that are records keep the loop over the items; the answers are
@@ -207,7 +283,7 @@ fn records() {
 fn main() -> i32 {
     every_position()
     divisor_past_the_end()
-    skip_while_passes_the_rest()
+    skip_while_then_scan()
     records()
     return if failed == 0 => 0 else => 1
 }
