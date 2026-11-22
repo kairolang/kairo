@@ -54,6 +54,7 @@ ffi "c++" import "llvm/Support/VirtualFileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
+ffi "c++" import "Native/ModulePass.hh"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 
@@ -75,6 +76,7 @@ import Codegen::Backend::SemaAgreeReport::{
     AgreeFinding,
     agree_finding_copy,
 }
+import Codegen::Backend::SpecDevirt::SpecDevirt
 import Codegen::CodegenContext::{
     CodegenContext,
     CodegenPhase,
@@ -450,6 +452,12 @@ pub class CodegenBackend derives TokenFiller {
         if kind == EmitKind::Obj {
             cgo->DiscardValueNames = (true as u32)
         }
+
+        // Multi-target virtual calls versioned on the loaded slot, ahead of
+        // the inliner (Codegen/Backend/SpecDevirt.k). It reads the type tests
+        // clang emits under -fdevirtualize-speculatively (ClangBackend's cc1
+        // line, above -O0), so the two passes are on together.
+        kairo_add_pipeline_start_pass<SpecDevirt>(&*cgo)
 
         // Phase B: the headers were parsed once already (HeaderSet). Each TU
         // loads them as ONE implicit PCH, clang's limit: the merged PCH of
