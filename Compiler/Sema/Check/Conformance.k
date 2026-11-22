@@ -148,6 +148,7 @@ import AST::OperatorFacts::{
     OperatorFacts,
     op_decl_name,
 }
+import AST::ParamMode::param_mode_prefix
 import AST::VisibilityFacts::default_visibility_of
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::DiagCode
@@ -1275,13 +1276,13 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             var edges = decl_implements(d)
             for var i: usize = 0; i < edges.size(); ++i {
-                self._check_declared(d, self._self_type(d), edges.get(i)->base)
+                self._check_declared(d, self._self_type(d), edges.get(i))
             }
         } else if isa<Declarations::ExtensionDecl>(d) {
             var unsafe *x = cast<Declarations::ExtensionDecl>(d)
             var unsafe *t = if (x->target != &null) => (self._canon(x->target)) else => &null
             for var i: usize = 0; i < x->implements.size(); ++i {
-                self._check_declared(d, t, x->implements.get(i)->base)
+                self._check_declared(d, t, x->implements.get(i))
             }
         } else if isa<Declarations::InterfaceDecl>(d) {
             self._check_assoc_defaults(cast<Declarations::InterfaceDecl>(d))
@@ -1869,21 +1870,25 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// instantiating a bounded template with X is the use Kairo never sees
     /// (Compiler/Spec/Witnesses.md#emission). A GENERIC conformance (`extend <E> Wrap<E> impl
     /// I`, `class <T> Box impl I`) is one row over `by`'s own parameters,
-    /// the partial specialization's. A row that does not hold is left
-    /// unreported: the impl-only rule is not built, and a host's
-    /// instantiation then fails at the concept, as a structural one does.
-    priv fn _check_declared(self, by: unsafe *Decl, x: unsafe *Type, base: unsafe *Type) {
-        if x == &null || base == &null {
+    /// the partial specialization's. A row that does not hold is an error
+    /// at the `impl` clause (_report_declared), whether or not anything
+    /// uses the conformance (classes.mdx, Interfaces).
+    priv fn _check_declared(self,
+                            by:   unsafe *Decl,
+                            x:    unsafe *Type,
+                            edge: unsafe *Declarations::InheritEdge) {
+        if x == &null || edge == &null || edge->base == &null {
             return
         }
 
         var unsafe *c     = self._canon(x)
-        var unsafe *iface = self._canon(base)
+        var unsafe *iface = self._canon(edge->base)
         if c == &null || iface == &null {
             return
         }
 
-        if self._iface_decl(iface) == &null {
+        var unsafe *idecl = self._iface_decl(iface)
+        if idecl == &null {
             return
         }
 
@@ -1894,11 +1899,414 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         }
 
         var unsafe *row = self.conforms(c, iface, by)
-        if row == &null || !row->ok {
+        if row == &null {
+            return
+        }
+
+        if !row->ok {
+            self._report_declared(by, edge, c, iface, idecl, row)
             return
         }
 
         self.sc->instances->declare_row(by, row)
+    }
+
+    /// Declared conformance `row` of `x` to `iface`, written as `edge` on
+    /// `by`, does not hold: SC162E at the clause, naming every requirement
+    /// that is missing, each with a note at its declaration in the
+    /// interface, and a fix-it adding a stub for each missing method that
+    /// has no member of its name. A failure the use site words more
+    /// precisely (an associated type, a constructor or lifecycle
+    /// requirement, a witness hidden from this file) is reported as the use
+    /// site reports it, at the clause. Two complete implementations in
+    /// different files hold here; that is SC163E at the use that sees both.
+    /// A redeclared record is reported once (_reports_clause), and the
+    /// fix-it goes only on the declaration with the body.
+    ///
+    /// A generic conformer (`class <T> Box impl I`) is checked only for
+    /// what no argument can change: a method requirement with no member of
+    /// its name at all, an associated type it neither declares nor has a
+    /// default for. A signature, a lifecycle requirement or a bound that
+    /// reads a parameter is checked per instance, where a bound meets it.
+    ///
+    /// An instance, an imported record, and an interface imported from C++
+    /// (a concept, which clang checks) are not reported here.
+    priv fn _report_declared(self,
+                             by:    unsafe *Decl,
+                             edge:  unsafe *Declarations::InheritEdge,
+                             x:     unsafe *Type,
+                             iface: unsafe *Type,
+                             idecl: unsafe *Declarations::InterfaceDecl,
+                             row:   unsafe *ConformanceRow) {
+        if decl_is_instance(by)
+            || decl_is_imported(by)
+            || decl_is_imported(unsafe (idecl as unsafe *Decl))
+            || !edge->range.start.is_valid()
+            || row->clash != &null
+            || !self._reports_clause(by, iface) {
+            return
+        }
+
+        var dep                   = x->is_dependent()
+        var decls: [unsafe *Decl]
+        var srcs:  [unsafe *Type]
+        self._reqs(idecl, row->iface, &decls, &srcs)
+
+        var plain         = row->hidden == &null
+        var miss: [usize]
+        for var i: usize = 0; i < row->witnesses.size() && i < decls.size(); ++i {
+            if row->witnesses[i] != &null {
+                continue
+            }
+
+            var unsafe *ta = dyn_cast<Declarations::TypeAliasDecl>(decls[i])
+            if ta != &null {
+                if dep && ta->aliased == &null && !self._declares_alias(x, ta) {
+                    miss.push(i)
+                }
+
+                plain = false
+                continue
+            }
+
+            var unsafe *m = dyn_cast<Declarations::FunctionDecl>(decls[i])
+            if m == &null {
+                continue
+            }
+
+            if decl_is_ctor_requirement(m) {
+                plain = false
+                continue
+            }
+
+            // The Copyable lang item's `copy` needs no member: a COPY
+            // instance meets it through its copy constructor, which only a
+            // type argument decides.
+            if dep
+                && (self._named_member(x, m) != &null
+                    || self._is_copy_requirement(
+                        self._iface_decl(
+                            if (srcs[i] != &null) => (srcs[i]) else => iface,
+                        ),
+                        m,
+                    )) {
+                continue
+            }
+
+            miss.push(i)
+        }
+
+        if !dep && !plain {
+            self._report(edge->range, &null, x, iface, row)
+            return
+        }
+
+        if miss.size() == 0 {
+            return
+        }
+
+        var xs    = self.tu.str(x)
+        var is    = self.tu.str(iface)
+        var names = ""
+        for var k: usize = 0; k < miss.size(); ++k {
+            if k > 0 {
+                names += ", "
+            }
+
+            names += "'" + self._requirement_name(decls[miss[k]]) + "'"
+        }
+
+        var all_methods = true
+        var all_assoc   = true
+        for var k: usize = 0; k < miss.size(); ++k {
+            if isa<Declarations::FunctionDecl>(decls[miss[k]]) {
+                all_assoc = false
+            } else {
+                all_methods = false
+            }
+        }
+
+        var msg = f"'{xs}' declares 'impl {is}' but does not conform to it: it has no {names}"
+        if all_methods && miss.size() == 1 {
+            msg += " with the requirement's signature"
+        } else if all_methods {
+            msg += " with the requirements' signatures"
+        }
+
+        // Only associated types missing is SC161E, as at a use.
+        var code = if (all_assoc) => (DiagID::SC161E) else => DiagID::SC162E
+        var d    = self.sc->diag->report(code, edge->range.start, msg.copy())
+        d.first(edge->range)
+
+        var stubs = ""
+        for var k: usize = 0; k < miss.size(); ++k {
+            var unsafe *rq  = decls[miss[k]]
+            var        rn   = self._requirement_name(rq)
+            var unsafe *src = srcs[miss[k]]
+            var        why  = f"'{rn}' is required here"
+            if src != &null && canon_unqual(src) != iface {
+                why = f"'{rn}' is required here, by '{self.tu.str(src)}', which '{is}' derives"
+            }
+
+            if rq->range.start.is_valid() {
+                d.note(rq->range.start, why)->child_first(rq->range)
+            }
+
+            var unsafe *m = dyn_cast<Declarations::FunctionDecl>(rq)
+            if m == &null {
+                continue
+            }
+
+            var unsafe *near = self._named_member(x, m)
+            if near != &null {
+                var unsafe *nf = cast<Declarations::FunctionDecl>(near)
+                var nat = if (nf->is_operator && nf->op_token.size() > 0) => (nf->op_token[0].range)
+                          else => decl_name_tok(near).range
+                if nat.start.is_valid() {
+                    d.note(
+                        nat.start,
+                        f"'{rn}' is declared here, with a signature other than the requirement's",
+                    )->child_first(nat)
+                }
+
+                continue
+            }
+
+            var unsafe *sdecl = if (src != &null) => (self._iface_decl(
+                                    canon_unqual(src),
+                                ))
+                                else => &null
+            if m->generic_params.size() == 0 {
+                stubs += "    " + self._stub_text(
+                    m,
+                    x,
+                    if (sdecl != &null) => (canon_unqual(src)) else => iface,
+                    if (sdecl != &null) => (sdecl) else => idecl,
+                ) + "\n"
+            }
+        }
+
+        var close = by->range.end
+        if stubs.size() > 0 && close.is_valid() && self._is_definition(by) {
+            d.insert(close.retreat(1), stubs, "add the missing members")
+        }
+
+        d.emit()
+    }
+
+    /// Whether `by`'s clause naming `iface` is the one a failing declared
+    /// conformance is reported at, so a redeclared record gets one error:
+    /// the definition's clause when the definition names `iface`, else the
+    /// first redeclaration that does. An extension is its own.
+    priv fn _reports_clause(self, by: unsafe *Decl, iface: unsafe *Type) -> bool {
+        var links = self._links(by)
+        if links.size() < 2 {
+            return true
+        }
+
+        var first: unsafe *Decl = &null
+        for var i: usize = 0; i < links.size(); ++i {
+            if !self._names_iface(links[i], iface) {
+                continue
+            }
+
+            if self._is_definition(links[i]) {
+                return links[i] == by
+            }
+
+            if first == &null {
+                first = links[i]
+            }
+        }
+
+        return first == by
+    }
+
+    /// `d` has an `impl` edge whose interface is canonical `iface`.
+    priv fn _names_iface(self, d: unsafe *Decl, iface: unsafe *Type) -> bool {
+        var edges = decl_implements(d)
+        for var i: usize = 0; i < edges.size(); ++i {
+            var unsafe *e = edges.get(i)
+            if e != &null && e->base != &null && self._canon(e->base) == iface {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// `d` is the declaration with the body: the defining link of a class,
+    /// struct or union, or any other declaration.
+    priv fn _is_definition(self, d: unsafe *Decl) -> bool {
+        if isa<Declarations::ClassDecl>(d) {
+            return cast<Declarations::ClassDecl>(d)->is_this_definition
+        }
+
+        if isa<Declarations::StructDecl>(d) {
+            return cast<Declarations::StructDecl>(d)->is_this_definition
+        }
+
+        if isa<Declarations::UnionDecl>(d) {
+            return cast<Declarations::UnionDecl>(d)->is_this_definition
+        }
+
+        return true
+    }
+
+    /// The links of record `d`'s redeclaration chain in source order; `d`
+    /// alone for any other declaration.
+    priv fn _links(self, d: unsafe *Decl) -> [unsafe *Decl] {
+        var out: [unsafe *Decl]
+        if isa<Declarations::ClassDecl>(d) {
+            var unsafe *h = cast<Declarations::ClassDecl>(d)->first_decl()
+            var unsafe *c = h
+            while true {
+                out.push(unsafe (c as unsafe *Decl))
+                c = c->next_in_chain()
+                if c == h {
+                    break
+                }
+            }
+        } else if isa<Declarations::StructDecl>(d) {
+            var unsafe *h = cast<Declarations::StructDecl>(d)->first_decl()
+            var unsafe *c = h
+            while true {
+                out.push(unsafe (c as unsafe *Decl))
+                c = c->next_in_chain()
+                if c == h {
+                    break
+                }
+            }
+        } else if isa<Declarations::UnionDecl>(d) {
+            var unsafe *h = cast<Declarations::UnionDecl>(d)->first_decl()
+            var unsafe *c = h
+            while true {
+                out.push(unsafe (c as unsafe *Decl))
+                c = c->next_in_chain()
+                if c == h {
+                    break
+                }
+            }
+        } else {
+            out.push(d)
+        }
+
+        return out
+    }
+
+    /// `rq` as a diagnostic names it: an operator by its symbol.
+    priv fn _requirement_name(self, rq: unsafe *Decl) -> string {
+        var unsafe *m = dyn_cast<Declarations::FunctionDecl>(rq)
+        if m != &null {
+            return self._req_name(m)
+        }
+
+        return self.tu.decl_name(rq)
+    }
+
+    /// A member of `x` with the name of method requirement `m`, whatever
+    /// its signature: an own or inherited member or an extension member,
+    /// never the interface's own requirement. Null when there is none.
+    priv fn _named_member(self,
+                          x: unsafe *Type,
+                          m: unsafe *Declarations::FunctionDecl) -> unsafe *Decl {
+        var cands = cxx::std::vector<unsafe *Decl>()
+        self.ml.lookup(x, self._name_of(m), unsafe &cands)
+        for var i: usize = 0; i < cands.size(); ++i {
+            var unsafe *f = dyn_cast<Declarations::FunctionDecl>(cands[i])
+            if f == &null || f->is_poisoned() || f->is_implicit {
+                continue
+            }
+
+            if !self._owned_by_interface(cands[i]) {
+                return cands[i]
+            }
+        }
+
+        return &null
+    }
+
+    /// `x` declares an alias named as associated type `ta`.
+    priv fn _declares_alias(self,
+                            x:  unsafe *Type,
+                            ta: unsafe *Declarations::TypeAliasDecl) -> bool {
+        var        cands = cxx::std::vector<unsafe *Decl>()
+        var unsafe *imms = self.sc->ctx->get_imm_table()
+        self.ml.lookup(
+            x,
+            DeclName::ident(imms->intern_ident_copy(self.tu.decl_name(ta))),
+            unsafe &cands,
+        )
+
+        for var i: usize = 0; i < cands.size(); ++i {
+            var unsafe *a = dyn_cast<Declarations::TypeAliasDecl>(cands[i])
+            if a != &null && !a->is_associated {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Method requirement `m` as conformer `x` would declare it, with an
+    /// empty body: `pub fn area(const self) -> i32 { }`. `Self` and the
+    /// interface's parameters are spelled as `x` binds them.
+    priv fn _stub_text(self,
+                       m:     unsafe *Declarations::FunctionDecl,
+                       x:     unsafe *Type,
+                       iface: unsafe *Type,
+                       idecl: unsafe *Declarations::InterfaceDecl) -> string {
+        var unsafe *ctx = NameLookup::ctx_of(unsafe (m as unsafe *Decl))
+        var        s    = "pub "
+        if m->abi == Declarations::AbiKind::Static {
+            s += "static "
+        }
+
+        s += "fn " + self._req_name(m) + "("
+        var k: usize = 0
+        for var i: usize = 0; i < m->params.size(); ++i {
+            var unsafe *p = m->params[i]
+            if p == &null {
+                continue
+            }
+
+            if k > 0 {
+                s += ", "
+            }
+
+            k += 1
+            if p->is_self {
+                s += if (p->is_const) => ("const self") else => ("self")
+                continue
+            }
+
+            s += param_mode_prefix(p->mode)
+            if p->is_const {
+                s += "const "
+            }
+
+            var pn = ctx->get_spelling(p->name)
+            if pn.size() == 0 {
+                pn = f"p{i}"
+            }
+
+            s += pn + ": " + self.tu.str(
+                self._as_conformer(p->type_, x, iface, idecl, m, m),
+            )
+        }
+
+        s += ")"
+        if m->return_type != &null {
+            var rt = self.tu.str(
+                self._as_conformer(m->return_type, x, iface, idecl, m, m),
+            )
+
+            if rt.size() > 0 && rt != "void" {
+                s += " -> " + rt
+            }
+        }
+
+        return s + " { }"
     }
 
     /// Every record instance in `t`, its arguments included (`Vec<Box<M>>`).
@@ -2244,7 +2652,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// Roots whose chain already reported the depth limit: one error per
     /// use, however many branches of its chain run past it.
     priv var _too_deep: [unsafe *InstanceEntry]
-    priv var _indexed:  bool                                    = false
+    priv var _indexed:  bool                    = false
     /// Instances first met with no range, and the range the visitor was
     /// under: checked there if no written use came by the end of the TU.
     priv var _rangeless:    [unsafe *InstanceEntry]
@@ -3048,7 +3456,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         var unsafe *prim = e->primary
         var        ok    = true
         if prim != &null {
-            var unsafe *req   = decl_requires_clause(prim)
+            var unsafe *req = decl_requires_clause(prim)
             var bounds: [unsafe *ConstraintExpr]
             self._impl_bounds(req, unsafe &bounds)
             for var i: usize = 0; i < bounds.size(); ++i {
@@ -3218,8 +3626,8 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return true
         }
 
-        var        ok     = true
-        var unsafe *xdd   = unsafe (xd as unsafe *Decl)
+        var        ok                               = true
+        var unsafe *xdd                             = unsafe (xd as unsafe *Decl)
         var        bounds: [unsafe *ConstraintExpr]
         self._impl_bounds(decl_requires_clause(xdd), unsafe &bounds)
         for var i: usize = 0; i < bounds.size(); ++i {
@@ -3403,10 +3811,10 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                             a: unsafe *Declarations::FunctionDecl,
                             b: unsafe *Declarations::FunctionDecl) -> bool {
         var        atoms: [ClauseAtom]
-        var unsafe *ra   = self._clause_of(a)
-        var unsafe *rb   = self._clause_of(b)
-        var unsafe *xa   = self._ext_clause_of(a)
-        var unsafe *xb   = self._ext_clause_of(b)
+        var unsafe *ra                 = self._clause_of(a)
+        var unsafe *rb                 = self._clause_of(b)
+        var unsafe *xa                 = self._ext_clause_of(a)
+        var unsafe *xb                 = self._ext_clause_of(b)
         if !self._in_cxx_head(ra, 0)
             || !self._in_cxx_head(rb, 0)
             || !self._in_cxx_head(xa, 0)
@@ -5049,7 +5457,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// the chain's first three and last three instances.
     priv fn _too_deep_at(self, e: unsafe *InstanceEntry, const next: string, at: SourceRange) {
         var        chain: [unsafe *InstanceEntry]
-        var unsafe *r    = e
+        var unsafe *r                             = e
         while r != &null {
             chain.push(r)
             r = r->via
@@ -5118,7 +5526,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     /// fails for an instance (a lifecycle failure) reports at `use_at` with this.
     fn chain_notes(self, b: unsafe *DiagBuilder, e: unsafe *InstanceEntry) {
         var        hops: [unsafe *InstanceEntry]
-        var unsafe *h   = e
+        var unsafe *h                            = e
         while h != &null && h->via != &null {
             hops.push(h)
             h = h->via
@@ -5329,9 +5737,9 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
         self._reqs(idecl, iface, &decls, &srcs)
         for var i: usize = 0; i < decls.size(); ++i {
             var unsafe *m = dyn_cast<Declarations::FunctionDecl>(decls[i])
-            var w:  unsafe *Decl = &null
+            var w:  unsafe *Decl   = &null
             var ea: [unsafe *Type]
-            var at: unsafe *Type = &null
+            var at: unsafe *Type   = &null
             var unsafe *ta = dyn_cast<Declarations::TypeAliasDecl>(decls[i])
             if ta != &null {
                 w = self._assoc_implementation(x, iface, ta, unsafe &at)
@@ -5954,7 +6362,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
-        var unsafe *xdd   = unsafe (ext as unsafe *Decl)
+        var unsafe *xdd                             = unsafe (ext as unsafe *Decl)
         var        bounds: [unsafe *ConstraintExpr]
         self._impl_bounds(decl_requires_clause(xdd), unsafe &bounds)
         if bounds.size() == 0 {
@@ -6503,7 +6911,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             return &null
         }
 
-        var unsafe *dc   = NameLookup::context_of(self.sc->body_of(d)) // an unfilled instance has an empty table; its body's.
+        var unsafe *dc = NameLookup::context_of(self.sc->body_of(d)) // an unfilled instance has an empty table; its body's.
         var cands: [unsafe *Decl]
         if dc != &null {
             var cell = self.sc->lookup.in_context(dc, DeclName::ctor())

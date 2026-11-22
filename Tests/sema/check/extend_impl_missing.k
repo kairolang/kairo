@@ -3,17 +3,6 @@
 // declaration that all interface requirements are satisfied. Missing
 // methods are a compile error."), whether or not anything uses the type
 // through the interface.
-//
-// XFAIL: *
-// Waits on reporting an `extend ... impl` that misses interface methods at
-// the `extend` (status.mdx, Not Diagnosed), and on diagnosing a declared
-// conformance that does not hold.
-//
-// Today conformance is
-// checked only where a bound meets the type (SC001E "does not conform", as
-// in conformance_base_missing.k), so this file is accepted without a word.
-// The code is not decided; the check asks for an error at the `extend`.
-// When it XPASSes, delete the XFAIL and pin the code and message.
 
 interface Drawable {
     fn draw(const self) -> i32

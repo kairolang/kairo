@@ -71,6 +71,8 @@ fn main() -> i32 {
 
 // --- lit wiring ---
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --implicit-check-not="error ["
+// CHECK: {{.*}}:36:25: error [SC162E]: 'MissingPost' declares 'impl Step' but does not conform to it: it has no 'op r++' with the requirement's signature
+// CHECK: {{.*}}:41:25: error [SC162E]: 'WrongFixity' declares 'impl Pre' but does not conform to it: it has no 'op l++' with the requirement's signature
 // CHECK: {{.*}}:60:13: error [R025E]: '++' on 'T' needs a bound that declares 'op ++'; none of the bounds of 'T' does
 // CHECK: {{.*}}:67:13: error [SC162E]: 'MissingPost' does not conform to 'Step': no member 'op r++' with the requirement's signature
 // CHECK: {{.*}}:9:5: note [I900N]: 'op r++' is required here
