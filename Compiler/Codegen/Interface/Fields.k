@@ -695,7 +695,10 @@ extend InterfaceEmitter {
     /// The definitions of `d`'s static fields and of every nested record's,
     /// after `d`'s closing brace (file header, Static fields). `d` is the
     /// outermost record of a tier-1 entry; anything else has no statics.
-    prot fn _static_defs(self, d: unsafe *Decl) {
+    /// With `only_dynamic`, only the definitions the interface PCH leaves
+    /// to the TU (_dynamic_static): a TU under the PCH writes those for
+    /// each record whose definition the PCH holds (pch_static_owners).
+    prot fn _static_defs(self, d: unsafe *Decl, only_dynamic: bool = false) {
         if !self._has_statics(d) {
             return
         }
@@ -704,6 +707,11 @@ extend InterfaceEmitter {
         for var i: usize = 0; i < fields.size(); ++i {
             var unsafe *f = fields[i]
             if f == &null || !f->is_static() || f->is_anonymous_union {
+                continue
+            }
+
+            var dynamic = self._dynamic_static(f, d)
+            if (only_dynamic && !dynamic) || (self.pch_stream && dynamic) {
                 continue
             }
 
@@ -722,9 +730,76 @@ extend InterfaceEmitter {
             }
 
             if self._has_statics(nd) {
-                self._static_defs(Speller::rep(nd))
+                self._static_defs(Speller::rep(nd), only_dynamic)
             }
         }
+    }
+
+    /// `d` or a record nested in it has a static the interface PCH leaves
+    /// to the TU (_dynamic_static).
+    prot fn _has_dynamic_statics(self, d: unsafe *Decl) -> bool {
+        if !self._has_statics(d) {
+            return false
+        }
+
+        var fields = DeclFacts::decl_fields(d)
+        for var i: usize = 0; i < fields.size(); ++i {
+            var unsafe *f = fields[i]
+            if f != &null
+                && f->is_static()
+                && !f->is_anonymous_union
+                && self._dynamic_static(f, d) {
+                return true
+            }
+        }
+
+        var unsafe *dc = Speller::dc_of(d)
+        if dc == &null {
+            return false
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *nd = *dc->dc_decls.get(i)
+            if nd != &null && self._has_dynamic_statics(Speller::rep(nd)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// A static definition clang emits in every TU that sees it, used or
+    /// not: an inline variable with dynamic initialization (a thunk's call,
+    /// element thunks, or `{}` of a record type) is "required" by
+    /// ASTContext::DeclMustBeEmitted, so its guarded initializer, and the
+    /// reference to the owner's thunk, land in that TU's object. A scalar's
+    /// `{}` is constant and counts too: where it is written changes no
+    /// object. A member
+    /// of a template is instantiated only where used, and a constant
+    /// (`constexpr`, a folded `constinit`) is emitted only where used, so
+    /// neither counts.
+    ///
+    /// The interface PCH holds every TU's interface, so a definition it
+    /// held would be emitted into every TU that loads it, including TUs
+    /// that do not reach the owner. That object would then depend on the
+    /// graph it was compiled in while its key is the TU's own
+    /// (Compiler/Spec/Incremental.md#shared-across-graphs), and a tool
+    /// whose graph lacks the owner could not link the object another tool
+    /// stored. So the PCH leaves these out (pch_stream) and each TU writes
+    /// the ones of the records its own plan defines.
+    priv fn _dynamic_static(self, f: unsafe *Declarations::FieldDecl, owner: unsafe *Decl) -> bool {
+        if f->is_eval() {
+            return false
+        }
+
+        if f->init_fold == Declarations::FieldFold::Int
+            || f->init_fold == Declarations::FieldFold::True
+            || f->init_fold == Declarations::FieldFold::False
+            || f->init_fold == Declarations::FieldFold::Null {
+            return false
+        }
+
+        return self._spell->owner_template_head(owner).size() == 0
     }
 
     /// The kinds that declare static fields: a class, a struct or a union.

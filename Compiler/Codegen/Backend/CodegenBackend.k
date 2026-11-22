@@ -59,6 +59,7 @@ ffi "c++" import "memory"
 
 import AST::Context::ASTContext::ASTContext
 import AST::Context::InstantiationRegistry::InstantiationRegistry
+import AST::Node::Base::Decl
 import Codegen::Backend::CodegenAction::{
     EmitKind,
     KairoEmitAsm,
@@ -258,13 +259,17 @@ pub class CodegenBackend derives TokenFiller {
         // Under the interface PCH the plan is pruned by its keys, as a kcc
         // include prunes what an earlier one wrote: the PCH's stream ran this
         // very plan, so what is left is tier 3 (this TU's `extern template`s
-        // and homes; the PCH writes none) and, should the two ever disagree,
-        // a stray entry -- counted for -v, and harmless where it is new to
-        // clang.
+        // and homes; the PCH writes none), the dynamic static definitions of
+        // the records it prunes (pch_defs), and, should the two ever
+        // disagree, a stray entry -- counted for -v, and harmless where it is
+        // new to clang.
         var unsafe *pch = if (self._iface != &null
                               && self._iface->ok) => (unsafe &self._iface->seen)
                           else => (&null as unsafe *IncludedDecls)
         var strays: usize = 0
+        // The records whose definitions the PCH holds: the TU still writes
+        // their dynamic statics (InterfaceEmitter::keep_pch_statics).
+        var pch_defs = cxx::std::vector<unsafe *Decl>()
         if pch != &null {
             var kept = cxx::std::vector<PlanEntry>()
             for var i: usize = 0; i < plan->entries.size(); ++i {
@@ -275,6 +280,12 @@ pub class CodegenBackend derives TokenFiller {
                     }
 
                     if pch->has(plan, e) {
+                        if e->tier == PlanTier::Definitions
+                            && e->scope == &null
+                            && e->witness == &null {
+                            pch_defs.push_back(e->decl)
+                        }
+
                         continue
                     }
 
@@ -297,6 +308,9 @@ pub class CodegenBackend derives TokenFiller {
         if pch != &null {
             pch->give(unsafe &ie)
             ir.pch_bodies = pch->body_set()
+            for var i: usize = 0; i < pch_defs.size(); ++i {
+                ie.keep_pch_statics(pch_defs[i])
+            }
         }
 
         ie.run()

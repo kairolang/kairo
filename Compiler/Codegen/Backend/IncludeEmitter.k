@@ -461,6 +461,7 @@ pub class IncludeEmitter {
         // Not the interface PCH's: it is spelled as a Kairo TU's own stream
         // is, which never gets that half.
         ie.cxx_exceptions = !program && ci->getLangOpts().CXXExceptions != 0
+        ie.pch_stream     = program
         for var k: usize = 0; k < pruned.size(); ++k {
             ie.pruned_insts.push_back(pruned[k])
         }

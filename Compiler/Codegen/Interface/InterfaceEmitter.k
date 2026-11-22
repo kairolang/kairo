@@ -70,7 +70,10 @@
 ///     reject it, and it turns cross-TU initialization order from a runtime
 ///     surprise into a guarantee. A thunk's call is dynamic initialization,
 ///     never `constinit` -- deciding constness per instance needs the
-///     monomorphizer (Compiler/Spec/Codegen.md#remaining-work). No initializer
+///     monomorphizer (Compiler/Spec/Codegen.md#remaining-work). The
+///     interface PCH's stream leaves a dynamically initialized one out, and a
+///     TU under the PCH writes it at the end of tier 1 (_dynamic_static,
+///     pch_static_owners). No initializer
 ///         at all is `{}`: Kairo
 ///     has no uninitialized variable. Not inside a nested record's braces:
 ///     `T Outer::Inner::s = ...;` is a namespace-scope declaration.
@@ -240,6 +243,14 @@ pub class InterfaceEmitter {
     /// (IncludeEmitter prunes tier 3): their type-id specializations are
     /// still the host's to see.
     pub var pruned_insts: cxx::std::vector<unsafe *InstanceEntry>
+    /// This is the interface PCH's stream (IncludeEmitter in program
+    /// mode): the static definitions clang would emit into every TU that
+    /// loads the PCH are left out (_dynamic_static).
+    pub var pch_stream: bool = false
+    /// A TU under the interface PCH: the records whose definitions its plan
+    /// named and the PCH holds (keep_pch_statics), in plan order. The TU
+    /// writes their dynamic static definitions itself, at the end of tier 1.
+    pub var pch_static_owners: cxx::std::vector<unsafe *Decl>
     /// The value-parameter templates tier 1 has forward-declared
     /// (_vp_fwd_decls), each once.
     prot var _vp_declared: cxx::std::vector<unsafe *Decl>
@@ -248,6 +259,15 @@ pub class InterfaceEmitter {
         self._cg    = cg
         self._plan  = plan
         self._spell = plan->spell()
+    }
+
+    /// A TU under the interface PCH: `d` is the record of a definition
+    /// entry the PCH holds. Kept in pch_static_owners when it or a nested
+    /// record has a static the PCH left out.
+    pub fn keep_pch_statics(self, d: unsafe *Decl) {
+        if self._has_dynamic_statics(d) {
+            self.pch_static_owners.push_back(d)
+        }
     }
 
     fn set_ffi_lines(self, lines: cxx::std::vector<string>) {
@@ -1108,6 +1128,11 @@ pub class InterfaceEmitter {
         // Any left (its class is not defined in this stream): declared
         // before the functions, which may name it.
         self._vp_fwd_decls(t0_end, i, header)
+
+        for var j: usize = 0; j < self.pch_static_owners.size(); ++j {
+            var unsafe *so = self.pch_static_owners[j]
+            self._wrapped(so, fn () { self._static_defs(so, true) })
+        }
 
         // tier 2
         while i < n && self._plan->entries[i].tier == PlanTier::Functions {

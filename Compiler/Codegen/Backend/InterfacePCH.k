@@ -17,8 +17,10 @@
 ///   once (IncludedDecls), so the result is the union of what the TUs used
 ///   to write, in an order each plan already made valid. A TU then prunes
 ///   its own plan by the same keys (IncludedDecls::has) and its bodies by
-///   the same set (EmitIR::pch_bodies); what is left is its tier 3 and the
-///   bodies only its object defines.
+///   the same set (EmitIR::pch_bodies); what is left is its tier 3, the
+///   bodies only its object defines, and the dynamically initialized
+///   static definitions of its records, which the PCH leaves out
+///   (InterfaceEmitter::pch_stream).
 ///
 ///   A Backend/ file because it imports emitters (see CodegenBackend.k's
 ///   import rule).
