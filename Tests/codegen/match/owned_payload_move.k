@@ -164,7 +164,7 @@ fn main() -> i32 {
 // IR-LABEL: read_then_take({{.*}} r) noexcept {
 // IR:       ::builtin::string::string & value = __kairo_m0_s.__kairo_Found.value;
 // IR:       size_of(r);
-// IR:       take(static_cast<{{ ?}}::builtin::string::string{{ ?}}&&>(value))
+// IR:       take(static_cast<{{ ?}}::builtin::string::string{{ ?}}>(static_cast<{{ ?}}::builtin::string::string{{ ?}}&&>(value)))
 // IR-LABEL: either({{.*}} t) noexcept {
 // IR:       Two & __kairo_m0_s = t;
 // IR-NEXT:  ::builtin::string::string * __kairo_m0_p0 {
