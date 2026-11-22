@@ -1,6 +1,6 @@
 // Kairo's FP semantics are its own, not C++'s, though both compile in one
-// clang TU. Kairo code: no contraction, no errno from math functions
-// (FlagTranslator::kairo_fp_cc1). The ffi header's code, including a
+// clang TU. Kairo code: contraction within one expression, no errno from
+// math functions (FlagTranslator::kairo_fp_cc1). The ffi header's code, including a
 // template Kairo instantiates: what clang++ gives C++ on the target
 // (contraction on; errno where the target's C++ default has it, glibc yes,
 // musl no), restored by the pragmas around the header region
@@ -26,9 +26,7 @@ fn main() -> i32 {
 // RUN: %FileCheck %s --check-prefixes=ALL,GNU < %t.gnu/pch_set.ll
 
 // ALL-LABEL: define {{.*}}@_ZN7pch_set5k_macEddd(
-// ALL-NOT:   fmuladd
-// ALL:       fmul double
-// ALL:       fadd double
+// ALL:       call double @llvm.fmuladd.f64(
 // ALL-LABEL: define {{.*}}@_ZN7pch_set6k_sqrtEd(
 // ALL:       call double @llvm.sqrt.f64(
 // ALL-LABEL: define {{.*}}@_Z5h_macddd(

@@ -1,8 +1,8 @@
 // pch_set.k's split, for a header set that reaches the TU as text: this
 // TU's own set (<vector>) is its PCH, so lib.k's set (fp_split.h) is
 // `#include`d through phase B's wrapper, which carries the same pragmas.
-// lib_mac is inline, so h_mac is compiled here; it keeps contraction while
-// this file's own k_mac does not.
+// lib_mac is inline, so h_mac is compiled here; it keeps C++'s contraction,
+// as this file's own k_mac has Kairo's.
 
 ffi "c++" import "vector"
 import lib
@@ -21,8 +21,6 @@ fn main() -> i32 {
 // RUN: %FileCheck %s < %t.d/textual_set.ll
 
 // CHECK-LABEL: define {{.*}}@_ZN11textual_set5k_macEddd(
-// CHECK-NOT:   fmuladd
-// CHECK:       fmul double
-// CHECK:       fadd double
+// CHECK:       call double @llvm.fmuladd.f64(
 // CHECK-LABEL: define {{.*}}@_Z5h_macddd(
 // CHECK:       call double @llvm.fmuladd.f64(

@@ -5,7 +5,7 @@
 //     or c_add would be C++-mangled and the link against c_add.c fails;
 //   - sub/deep.h, found only through -I: by name (HeaderSet::replay_include);
 //   - c_mac, C code in that header: C's contraction (fmuladd) inside the
-//     header FP pragmas, where this file's own a * b + c is not fused.
+//     header region, as this file's own a * b + c has Kairo's.
 
 ffi "c++" import "vector"
 import lib
@@ -33,7 +33,6 @@ fn main() -> i32 {
 // SYM-DAG: declare i32 @c_add(i32 noundef, i32 noundef)
 // SYM-DAG: define linkonce_odr {{.*}}@_Z10deep_twicei(
 // CHECK-LABEL: define {{.*}}@_ZN3app5k_macEddd(
-// CHECK-NOT:   fmuladd
-// CHECK:       fmul double
+// CHECK:       call double @llvm.fmuladd.f64(
 // CHECK-LABEL: define internal {{.*}}@_ZL5c_macddd(
 // CHECK:       call double @llvm.fmuladd.f64(
