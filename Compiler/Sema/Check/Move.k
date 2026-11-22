@@ -1314,6 +1314,16 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             }
         }
 
+        // A binding whose address is taken anywhere keeps its storage to
+        // itself: a callee handed it would have a parameter that a pointer
+        // to the binding (another argument, a global, a field) still
+        // writes through, which no by-value parameter allows.
+        for var i: usize = 0; i < self._hand_log_e.size(); ++i {
+            if self._addr.count(self._hand_log_d[i] as usize as u64) != 0 {
+                self.sc->hand_sites.erase(self._hand_log_e[i] as usize as u64)
+            }
+        }
+
         for var i: usize = 0; i < self._tentative.size(); ++i {
             var key = (self._tentative[i] as usize as u64)
             if self._addr.count(self._tentative_decl[i] as usize as u64) != 0 {

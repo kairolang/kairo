@@ -93,7 +93,7 @@ fn main() -> i32 {
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
 // CXX-NEXT:     template<class T> class G {
-// CXX-NEXT:         public: signed int g({{ ?}}::__kairo_param<T> t) noexcept;
+// CXX-NEXT:         public: signed int g(T t) noexcept;
 // CXX-NEXT:     };
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
@@ -166,7 +166,7 @@ fn main() -> i32 {
 // CXX-NEXT:     }
 // CXX-NEXT: }
 // CXX: namespace {{[A-Za-z0-9_]+}} {
-// CXX-NEXT:     template<class T> inline signed int G<T>::g({{ ?}}::__kairo_param<T> t) noexcept {
+// CXX-NEXT:     template<class T> inline signed int G<T>::g(T t) noexcept {
 // CXX-NEXT:         return 1;
 // CXX-NEXT:     }
 // CXX-NEXT: }

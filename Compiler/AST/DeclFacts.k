@@ -1891,12 +1891,16 @@ pub fn fn_keeps_value_params(f: unsafe *Declarations::FunctionDecl) -> bool {
 }
 
 /// `f` keeps a by-value parameter whose type a generic parameter decides
-/// by value: a constructor of a generic record. C++ deduces a class
-/// template's arguments from its constructors' parameters, and
-/// `::__kairo_param<T>` is a context nothing is deduced from. A parameter
+/// by value: a member a generic record declares in its own body. C++
+/// instantiates such a member's declaration with the class, where the
+/// trait `::__kairo_param<T>` asks may have no answer yet (the record's
+/// own instance, a class its definition is part of), and deduces a class
+/// template's arguments from its constructors' parameters, which
+/// `::__kairo_param<T>` gives nothing to. A member an extension declares
+/// is a template of its own, instantiated where it is called. A parameter
 /// of a type that names no generic parameter is unaffected.
 pub fn fn_keeps_dependent_value_params(f: unsafe *Declarations::FunctionDecl) -> bool {
-    if f == &null || !decl_is_ctor(f) {
+    if f == &null || decl_extension_of(unsafe (f as unsafe *Decl)) != &null {
         return false
     }
 
@@ -1998,8 +2002,9 @@ pub fn type_names_param_of(t: unsafe *Type, f: unsafe *Declarations::FunctionDec
 /// `::__kairo_param<T>` for a type a generic parameter decides), 2 as
 /// `T&&` only, a type that names a generic parameter staying by value.
 /// The last is a parameter C++ deduces template arguments from, which
-/// `::__kairo_param<T>` cannot give: one whose type names a parameter `f`
-/// itself declares, and any parameter of a generic record's constructor.
+/// `::__kairo_param<T>` cannot give (its type names a parameter `f` itself
+/// declares), and any parameter of a member a generic record declares in
+/// its body (fn_keeps_dependent_value_params).
 /// Codegen/Spell reads the type against the answer
 /// (Speller::value_param_form); MoveCheck follows the same parameters.
 pub fn value_param_rule(f: unsafe *Declarations::FunctionDecl,
