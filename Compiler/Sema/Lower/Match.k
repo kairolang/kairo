@@ -39,8 +39,11 @@
 ///     - Labels come from LowerTargets with a per-function match number: C++
 ///       labels are function-scoped.
 ///     - A binder `var x` copies its occurrence; `const x` is `const T&` to
-///       it, as is a `var x` of a type that cannot be copied. A guard reads
-///       its binders as `const T&` of its own.
+///       it, as is a `var x` of a type that cannot be copied, and a `var x`
+///       of a builtin scalar type that the arm never assigns when nothing in
+///       the arm can write the scrutinee (_arm_reads_only): a copy and the
+///       reference then read the same value. A guard reads its binders as
+///       `const T&` of its own.
 ///     - A `var x` that takes its payload (VariableDecl::moves_payload: the
 ///       match owns its scrutinee and an arm moves `x` out) is `T& x` to
 ///       its occurrence, and a class lvalue scrutinee is then bound by
@@ -106,10 +109,12 @@ ffi "c++" import "vector"
 import AST::ASTSupport::FrozenList
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::adt_variant_at
+import AST::Kind::ExprKind::ExprKind
 import AST::Kind::PatternKind::{
     PatternKind,
     to_string,
 }
+import AST::Kind::StmtKind::StmtKind
 import AST::Kind::TypeKind::to_string
 import AST::LangItems::{
     LangMembers,
@@ -151,14 +156,19 @@ import AST::Node::Expressions::{
     MatchExpr,
     ParenExpr,
     StmtExpr,
+    SubscriptExpr,
     TupleLiteralExpr,
+    TypeCastExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::Patterns::{
     LiteralPattern,
     RangePattern,
 }
-import AST::Node::PrimaryExpressions::NamedIdentExpr
+import AST::Node::PrimaryExpressions::{
+    ChainExpr,
+    NamedIdentExpr,
+}
 import AST::Node::Statements::{
     CompoundStmt,
     ConditionalStmt,
@@ -167,13 +177,18 @@ import AST::Node::Statements::{
     ExpressionStmt,
     JumpIntrinsicStmt,
     LabelIntrinsicStmt,
+    LoopStmt,
     MatchCase,
     MatchStmt,
+    ReturnStmt,
     SwitchDispatchStmt,
+    WhileLoopStmt,
 }
 import AST::Node::Types::{
     CXXLValueRefType,
     CXXRValueRefType,
+    FixedArrayType,
+    PointerType,
 }
 import AST::Visitor::ASTWriter::{
     ASTWriter,
@@ -210,13 +225,13 @@ import Token::TokenKind::TokenKind
 
 /// What one arm needs from the rendering.
 pub struct ArmPlan {
-    var reached: bool                  = false
-    var slots:   bool                  = false ///< binders differ between paths: read through slots.
-    var rep:     i32                   = -1 ///< a Leaf/Guard node whose binders stand for every path.
-    var used:    bool                  = false ///< its label is a goto target.
+    var reached: bool  = false
+    var slots:   bool  = false ///< binders differ between paths: read through slots.
+    var rep:     i32   = -1    ///< a Leaf/Guard node whose binders stand for every path.
+    var used:    bool  = false ///< its label is a goto target.
     var label:   Token
-    var guards:  [u32] ///< its Guard nodes.
-    var glabel:  Token ///< the shared guard block, when guards.size() > 1.
+    var guards:  [u32]         ///< its Guard nodes.
+    var glabel:  Token         ///< the shared guard block, when guards.size() > 1.
 }
 
 /// A binder slot: `const T* __kairo_mN_pI`, for one decl of one arm.
@@ -247,24 +262,25 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     /// A binder of this match takes its payload by move
     /// (VariableDecl::moves_payload): the scrutinee is read in place
     /// through a mutable reference, so the payload can be moved out.
-    priv var _owns:      bool                                   = false
+    priv var _owns:      bool                   = false
     priv var _locals:    [unsafe *VariableDecl] ///< by occurrence; null when reached through a parent.
     priv var _labels:    [Token] ///< by node.
     priv var _queued:    [u8]
     priv var _queue:     [u32]
     priv var _arms:      [ArmPlan]
     priv var _slots:     [Slot]
-    priv var _arm_ix:    unsafe *VariableDecl                   = &null
-    priv var _cont:      unsafe *VariableDecl                   = &null
+    priv var _arm_ix:    unsafe *VariableDecl   = &null
+    priv var _cont:      unsafe *VariableDecl   = &null
     priv var _fail:      Token
-    priv var _fail_used: bool                                   = false
+    priv var _fail_used: bool                   = false
     /// A jump to the fail block from a test that is not an ADT tag's: the
     /// block then takes the general policy, not the ADT one (_policy).
-    priv var _fail_general: bool  = false
-    priv var _adt_ctx:      bool  = false ///< the test now rendering is over a variant-only enum (_holds_only_variants).
+    priv var _fail_general: bool           = false
+    priv var _adt_ctx:      bool           = false ///< the test now rendering is over a variant-only enum (_holds_only_variants).
     priv var _end:          Token
-    priv var _buckets:      usize = 0
-    priv var _qi:           usize = 0 ///< next queued node to emit.
+    priv var _buckets:      usize          = 0
+    priv var _qi:           usize          = 0 ///< next queued node to emit.
+    priv var _ro_written:   [unsafe *Decl] ///< locals the arm _arm_reads_only scanned assigns.
 
     // Never transferred: a pass is built where it runs. ASTWriter is
     // copyable, which a non-transferable class may derive and a move-only
@@ -421,7 +437,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         self._declare_state(&pre)
 
         var code: [unsafe *Stmt]
-        var root = self._t->nodes[self._t->root as usize]
+        var root                 = self._t->nodes[self._t->root as usize]
         var skip_root = !self._value
             && root.kind == DKind::Leaf
             && !self._arms[root.arm as usize].slots
@@ -497,9 +513,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         self._labels = []
         self._queued = []
         for var i: usize = 0; i < nn; ++i {
-            self._labels.push(
-                self._name(LowerTargets::match_node(self._n, i)),
-            )
+            self._labels.push(self._name(LowerTargets::match_node(self._n, i)))
 
             self._queued.push(0)
         }
@@ -529,10 +543,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// Bind `e0` once. A tuple literal binds each element instead, in order;
     /// an element no pattern reaches is still evaluated.
-    priv fn _bind_scrutinee(self,
-                            e0:  unsafe *Expr,
-                            occ: i32,
-                            pre: unsafe *[unsafe *Stmt]) {
+    priv fn _bind_scrutinee(self, e0: unsafe *Expr, occ: i32, pre: unsafe *[unsafe *Stmt]) {
         var unsafe *e  = self.tu.strip_parens(e0)
         var unsafe *tl = dyn_cast<TupleLiteralExpr>(e)
         if tl != &null {
@@ -931,14 +942,21 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     priv fn _arm_binders(self, arm: u32, @inout out: [unsafe *Stmt]) {
         var *a  = &self._arms[arm as usize]
         var rep = self._t->nodes[a->rep as usize]
+        self._ro_written.clear()
+        var ro = rep.nbind > 0 && self._arm_reads_only(arm)
         for var k: u32 = 0; k < rep.nbind; ++k {
             var        b   = self._t->binds[(rep.bind0 + k) as usize]
             var unsafe *vd = cast<VariableDecl>(b.pat->decl)
             var unsafe *vt = self._binder_type(vd)
             vd->init = self._binder_init(arm, vd)
             // `case const v`, and `case var v` of a type that cannot be
-            // copied (PatternTyping::_type_binder), read in place.
-            if b.pat->is_const || vd->borrows {
+            // copied (PatternTyping::_type_binder), read in place. So is a
+            // scalar `var v` the arm never writes, in an arm that cannot
+            // write the scrutinee (_arm_reads_only): the read then happens
+            // at each use, a load clang cannot hoist above the arm's
+            // branches, so `if c => v else => w` stays a predicted branch
+            // instead of a select whose result waits on `c`.
+            if b.pat->is_const || vd->borrows || (ro && self._reads_in_place(vd, vt)) {
                 vd->type_ = self.sc->types->cxx_lref(
                     self.sc->types->qualified(vt, QUAL_CONST),
                 )
@@ -960,6 +978,225 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
                 unsafe (DeclStmt::create(self.ctx, b.pat->range, unsafe (vd as unsafe *Decl)) as unsafe *Stmt),
             )
         }
+    }
+
+    /// A `var` binder that _arm_binders may bind as `const T&`: a builtin
+    /// scalar (no constructor, destructor or move to keep), not taking or
+    /// borrowing its payload, and never assigned in the arm.
+    priv fn _reads_in_place(self, vd: unsafe *VariableDecl, vt: unsafe *Type) -> bool {
+        if vd->moves_payload || vd->borrow_inst || !self._ro_scalar(vt) {
+            return false
+        }
+
+        for var i: usize = 0; i < self._ro_written.size(); ++i {
+            if self._ro_written[i] == unsafe (vd as unsafe *Decl) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// No statement or expression of the arm can change the scrutinee's
+    /// storage, so a binder read at its use sees what a copy made at entry
+    /// would hold. Default deny: a call, closure, `&`, user operator or
+    /// conversion, any store but to a builtin scalar local, a local of any
+    /// other type (its destructor runs user code), and every node kind not
+    /// listed. A scalar local is an object of its own, never part of the
+    /// scrutinee; the locals assigned are collected in _ro_written.
+    priv fn _arm_reads_only(self, arm: u32) -> bool {
+        var unsafe *mc = self._cases->get(arm as usize)
+        if mc->body != &null {
+            return self._ro_stmt(unsafe (mc->body as unsafe *Stmt))
+        }
+
+        return self._ro_expr(mc->expression)
+    }
+
+    /// What `t` means, unqualified: a written type (`var i: i32`) is a
+    /// syntax node whose canonical link says what it names.
+    priv fn _ro_canon(self, t: unsafe *Type) -> unsafe *Type {
+        if t == &null {
+            return &null
+        }
+
+        if t->canonical != &null {
+            return canon_unqual(t->canonical)
+        }
+
+        return canon_unqual(t)
+    }
+
+    priv fn _ro_scalar(self, t: unsafe *Type) -> bool {
+        var unsafe *c = self._ro_canon(t)
+        return c != &null && isa<BuiltinType>(c)
+    }
+
+    priv fn _ro_stmt(self, s: unsafe *Stmt) -> bool {
+        if s == &null {
+            return true
+        }
+
+        match s->kind {
+            case StmtKind::CompoundStmt {
+                var unsafe *c = cast<CompoundStmt>(s)
+                for var i: usize = 0; i < c->body.size(); ++i {
+                    if !self._ro_stmt(c->body[i]) {
+                        return false
+                    }
+                }
+
+                return true
+            } case StmtKind::ExpressionStmt {
+                return self._ro_expr(cast<ExpressionStmt>(s)->expr)
+            } case StmtKind::DeclStmt {
+                var unsafe *vd = dyn_cast<VariableDecl>(cast<DeclStmt>(s)->decl)
+                return vd != &null && self._ro_scalar(vd->type_) && self._ro_expr(vd->init)
+            } case StmtKind::ConditionalStmt {
+                var unsafe *c = cast<ConditionalStmt>(s)
+                return !c->is_eval
+                    && self._ro_expr(c->cond)
+                    && self._ro_stmt(unsafe (c->then_ as unsafe *Stmt))
+                    && self._ro_stmt(c->else_)
+            } case StmtKind::WhileLoopStmt {
+                var unsafe *w = cast<WhileLoopStmt>(s)
+                return self._ro_expr(w->cond) && self._ro_stmt(unsafe (w->body as unsafe *Stmt))
+            } case StmtKind::LoopStmt {
+                return self._ro_stmt(
+                    unsafe (cast<LoopStmt>(s)->body as unsafe *Stmt),
+                )
+            } case StmtKind::BreakStmt {
+                return true
+            } case StmtKind::ContinueStmt {
+                return true
+            } case StmtKind::ReturnStmt {
+                var unsafe *v = cast<ReturnStmt>(s)->value
+                return v == &null || (self._ro_scalar(v->type_) && self._ro_expr(v))
+            } default {
+                return false
+            }
+        }
+    }
+
+    priv fn _ro_expr(self, e: unsafe *Expr) -> bool {
+        if e == &null {
+            return true
+        }
+
+        match e->kind {
+            case ExprKind::IntegerLiteralExpr {
+                return true
+            } case ExprKind::FloatingLiteralExpr {
+                return true
+            } case ExprKind::CharacterLiteralExpr {
+                return true
+            } case ExprKind::BooleanLiteralExpr {
+                return true
+            } case ExprKind::NullLiteralExpr {
+                return true
+            } case ExprKind::NamedIdentExpr {
+                return true
+            } case ExprKind::ParenExpr {
+                return self._ro_expr(cast<ParenExpr>(e)->inner)
+            } case ExprKind::ChainExpr {
+                // Field reads only: any other step may run code.
+                var unsafe *c = cast<ChainExpr>(e)
+                for var i: usize = 0; i < c->steps.size(); ++i {
+                    var unsafe *st = c->steps.get(i)
+                    if (st->access_kind != ChainExpr::AccessKind::Dot
+                        && st->access_kind != ChainExpr::AccessKind::Arrow)
+                        || st->hop_conv != &null
+                        || st->hop_type != &null
+                        || st->resolved_decl == &null
+                        || !isa<FieldDecl>(st->resolved_decl) {
+                        return false
+                    }
+                }
+
+                return self._ro_expr(c->base)
+            } case ExprKind::UnaryOperatorExpr {
+                var unsafe *u = cast<UnaryOperatorExpr>(e)
+                if u->resolved_op != &null || u->op_token.kind == TokenKind::OpAmp {
+                    return false
+                }
+
+                if u->op_token.kind == TokenKind::OpPlusPlus
+                    || u->op_token.kind == TokenKind::OpMinusMinus {
+                    return self._ro_local_write(u->operand)
+                }
+
+                return self._ro_expr(u->operand)
+            } case ExprKind::BinaryOperatorExpr {
+                var unsafe *b = cast<BinaryOperatorExpr>(e)
+                return b->resolved_op == &null
+                    && self._ro_scalar(e->type_)
+                    && self._ro_expr(b->lhs)
+                    && self._ro_expr(b->rhs)
+            } case ExprKind::SubscriptExpr {
+                // An element of a fixed array or a pointer: a library
+                // container's subscript may insert, and so move, the storage
+                // a scrutinee reference points into.
+                var unsafe *s = cast<SubscriptExpr>(e)
+                if s->resolved_op != &null || s->base == &null {
+                    return false
+                }
+
+                var unsafe *bt = self._ro_canon(
+                    self._referee(self._ro_canon(s->base->type_)),
+                )
+
+                return bt != &null
+                    && (isa<FixedArrayType>(bt) || isa<PointerType>(bt))
+                    && self._ro_expr(s->base)
+                    && self._ro_expr(s->index)
+            } case ExprKind::TypeCastExpr {
+                var unsafe *c = cast<TypeCastExpr>(e)
+                return c->resolved_op == &null
+                    && c->resolved_ctor == &null
+                    && self._ro_scalar(e->type_)
+                    && self._ro_expr(c->operand)
+            } case ExprKind::IfExpr {
+                var unsafe *f = cast<IfExpr>(e)
+                if !self._ro_scalar(e->type_)
+                    || !self._ro_expr(f->condition)
+                    || !self._ro_expr(f->then_expr) {
+                    return false
+                }
+
+                for var i: usize = 0; i < f->else_ifs.size(); ++i {
+                    var ei = f->else_ifs[i]
+                    if !self._ro_expr(ei.condition) || !self._ro_expr(ei.body) {
+                        return false
+                    }
+                }
+
+                return self._ro_expr(f->else_expr)
+            } case ExprKind::AssignOperatorExpr {
+                var unsafe *a = cast<AssignOperatorExpr>(e)
+                return a->resolved_op == &null
+                    && self._ro_local_write(a->lhs)
+                    && self._ro_expr(a->rhs)
+            } default {
+                return false
+            }
+        }
+    }
+
+    /// `x` alone, a local of builtin scalar type: the one store an arm
+    /// that reads its binders in place may make.
+    priv fn _ro_local_write(self, lhs: unsafe *Expr) -> bool {
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(self.tu.strip_parens(lhs))
+        if ni == &null {
+            return false
+        }
+
+        var unsafe *vd = dyn_cast<VariableDecl>(ni->resolved_decl)
+        if vd == &null || !self._ro_scalar(vd->type_) {
+            return false
+        }
+
+        self._ro_written.push(ni->resolved_decl)
+        return true
     }
 
     /// The guard's own binders: `const T& x = <occurrence>`, never the
@@ -990,8 +1227,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// Statement form: `{ binders; body }`.
     priv fn _arm_block(self, arm: u32) -> unsafe *CompoundStmt {
-        var unsafe *mc = self._cases->get(arm as usize)
-        var out: [unsafe *Stmt]
+        var unsafe *mc                 = self._cases->get(arm as usize)
+        var        out: [unsafe *Stmt]
         self._arm_binders(arm, &out)
         if mc->body != &null {
             for var i: usize = 0; i < mc->body->body.size(); ++i {
@@ -1327,8 +1564,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
 
     /// `{ const T& x = ...; if (guard) { <accept> } }`
     priv fn _guard_block(self, arm: u32) -> unsafe *CompoundStmt {
-        var unsafe *mc   = self._cases->get(arm as usize)
-        var inner: [unsafe *Stmt]
+        var unsafe *mc                   = self._cases->get(arm as usize)
+        var        inner: [unsafe *Stmt]
         self._guard_binders(arm, &inner)
         var take: [unsafe *Stmt]
         if self._value {
@@ -1465,8 +1702,8 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
         }
 
         var cases: [DispatchCase]
-        var count = n.nedge
-        var other = n.other
+        var count                 = n.nedge
+        var other                 = n.other
         // A complete integer switch has no default of its own: the last
         // edge takes it. A complete enum's default is UnmatchedPolicy.
         if other < 0 && d.kind == DomainKind::Int && count > 0 {
@@ -1579,7 +1816,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
             texts.push_back(b)
         }
 
-        var lens: [usize]
+        var lens:   [usize]
         var bucket: [Token]
         for var k: u32 = 0; k < n.nedge; ++k {
             var *b   = &texts[k as usize]
@@ -2060,10 +2297,7 @@ pub class MatchLowering derives ASTWriter<MatchLowering> {
     }
 
     /// `if (c) { goto <child>; }`
-    priv fn _if_goto(self,
-                     c:          unsafe *Expr,
-                     child:      i32,
-                     @inout out: [unsafe *Stmt]) {
+    priv fn _if_goto(self, c: unsafe *Expr, child: i32, @inout out: [unsafe *Stmt]) {
         var take: [unsafe *Stmt]
         take.push(self._jump(self._target(child)))
         out.push(
