@@ -407,8 +407,10 @@ pub class FlagTranslator {
     }
 
     /// the floating-point semantics Kairo's own code has whatever the
-    /// target's C++ defaults are (IEEE 754, precise model): no
-    /// contraction, no fast-math, no errno from the math functions.
+    /// target's C++ defaults are (IEEE 754, precise model): contraction
+    /// within one expression (a multiply and an add may fuse into one
+    /// FMA, never across statements), no fast-math, no errno from the
+    /// math functions.
     ///
     /// For Kairo's compile line only, ahead of the user's own
     /// codegen() words so an explicit --fp-contract / --fp-model /
@@ -417,7 +419,8 @@ pub class FlagTranslator {
     /// -fno-math-errno (errno is off unless -fmath-errno is given,
     /// and probe_filter never keeps that one). Contraction is the
     /// one cc1 default the driver changes for C++ (-ffp-contract=on),
-    /// so it is pinned rather than left to the default.
+    /// and probe_filter drops the driver's word, so it is written here
+    /// rather than left to cc1's default (off).
     ///
     ///          C/C++ inputs never see these (they take the driver line), and
     ///          the ffi headers compiled in the same clang TU get their C++
@@ -426,7 +429,7 @@ pub class FlagTranslator {
     ///          keeps Kairo's.
     pub static fn kairo_fp_cc1() -> cxx::std::vector<string> {
         var o = cxx::std::vector<string>()
-        o.push_back("-ffp-contract=off")
+        o.push_back("-ffp-contract=on")
         return o
     }
 
@@ -446,10 +449,14 @@ pub class FlagTranslator {
     ///          something: then the header follows the user's flag as a
     ///          C/C++ input would. `user_cc1` is the user's codegen() words.
     ///
+    ///          Only what differs from Kairo's state is written: a header
+    ///          region whose C++ defaults match Kairo's line (contraction on,
+    ///          no errno, as on musl) gets no pragma at all.
     ///          float_control(precise, on) is the only pragma that turns errno
-    ///          back on; it also sets contraction on, so the contract pragma
-    ///          comes after it. The push/pop pair puts Kairo's state back for
-    ///          everything after the headers.
+    ///          back on; it also sets contraction on, so a contract pragma
+    ///          after it is needed whenever the header's contraction is not
+    ///          on, even where it equals Kairo's. The push/pop pair puts
+    ///          Kairo's state back for everything after the headers.
     ///
     ///          `float_control`: the target honours `#pragma float_control`
     ///          (clang's TargetInfo::hasStrictFP). Where it does not (wasm),
@@ -464,7 +471,7 @@ pub class FlagTranslator {
                                     @inout open:        cxx::std::vector<string>,
                                     @inout close:       cxx::std::vector<string>) {
         var contract       = cxx_contract.copy()
-        var kairo_contract = "off"               // kairo_fp_cc1's pin
+        var kairo_contract = "on"                // kairo_fp_cc1's default
         var fast           = false
         for *w in user_cc1 {
             if w->starts_with("-ffp-contract=") {
@@ -491,26 +498,45 @@ pub class FlagTranslator {
             kairo_contract = "fast"
         }
 
-        if contract.is_empty() {
-            contract = "off"
+        if kairo_contract.is_empty() {
+            kairo_contract = "on"
         }
 
-        if kairo_contract.is_empty() {
-            kairo_contract = "off"
+        // No driver word (the probe failed): C++'s default is not known,
+        // and the header keeps Kairo's contraction.
+        if contract.is_empty() {
+            contract = kairo_contract.copy()
         }
 
         if !float_control {
-            open.push_back(f"#pragma clang fp contract({contract})")
-            close.push_back(f"#pragma clang fp contract({kairo_contract})")
+            if contract != kairo_contract {
+                open.push_back(f"#pragma clang fp contract({contract})")
+                close.push_back(f"#pragma clang fp contract({kairo_contract})")
+            }
+
+            return
+        }
+
+        var body  = cxx::std::vector<string>()
+        var state = kairo_contract.copy()
+        if cxx_math_errno && !fast {
+            body.push_back("#pragma float_control(precise, on)")
+            state = "on"
+        }
+
+        if contract != state {
+            body.push_back(f"#pragma clang fp contract({contract})")
+        }
+
+        if body.empty() {
             return
         }
 
         open.push_back("#pragma float_control(push)")
-        if cxx_math_errno && !fast {
-            open.push_back("#pragma float_control(precise, on)")
+        for *l in body {
+            open.push_back(l->copy())
         }
 
-        open.push_back(f"#pragma clang fp contract({contract})")
         close.push_back("#pragma float_control(pop)")
     }
 

@@ -3186,10 +3186,10 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
             "fp-contract",
             "",
             "fp-contract",
-            "fused FP ops (FMAs): off|on|fast (default: off; wins over --fp-model)",
-            "off",
+            "fused FP ops (FMAs): off|on|fast (default: on; wins over --fp-model)",
+            "on",
             _fp_contract_choices(),
-            "off",
+            "on",
         ),
     )
 
