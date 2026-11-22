@@ -808,6 +808,7 @@ fn io_type_cast_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::TypeCastExp
         ar->sema_false(n->base_adjust, "TypeCastExpr::base_adjust")
         ar->sema_null<Decl>(n->disarms, "TypeCastExpr::disarms")
         ar->sema_null<Decl>(n->hand, "TypeCastExpr::hand")
+        ar->sema_false(n->kept, "TypeCastExpr::kept")
         ar->sema_false(n->instance_move, "TypeCastExpr::instance_move")
     }
 }

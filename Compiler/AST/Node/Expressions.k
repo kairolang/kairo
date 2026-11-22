@@ -2284,6 +2284,12 @@ pub class TypeCastExpr derives Expr {
     /// prvalue as it stands everywhere else.
     pub var hand: unsafe *Decl = &null
 
+    /// This move is into a parameter MoveCheck could not see
+    /// (SemaContext::kept_move_sites): the moved place keeps whatever
+    /// destroys it, so nothing is lost when the callee does not take the
+    /// value.
+    pub var kept: bool = false
+
     /// The bare `dynamic_cast<D*>(p)`, a null pointer on a miss: only
     /// OperatorLowering's expansion of an asserting downcast makes one.
     /// EmitIR spells it as is.

@@ -496,6 +496,12 @@ pub class SemaContext {
     /// ParamDecl, both as u64. One writer, MoveCheck::_call, which clears
     /// it at the start of each run; CopyMoveLowering moves each onto a cast.
     pub var hand_sites: llvm::DenseMap<u64, u64>
+    /// Moves into a parameter MoveCheck could not see (a callee clang
+    /// resolves per instance, a `fn` value): the moved place keeps its
+    /// destructor (MoveKind::UnknownParam). Written by MoveCheck, which
+    /// clears it at the start of each run; CopyMoveLowering marks the
+    /// move's cast with it (TypeCastExpr::kept).
+    pub var kept_move_sites: llvm::DenseSet<u64>
     /// The vector, set and map literals (`*Expr` as u64) whose elements
     /// cannot be copied, so each is moved in through
     /// TypeUtil::literal_build. One writer, MoveCheck, which records the

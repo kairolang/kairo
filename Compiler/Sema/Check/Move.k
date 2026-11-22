@@ -1279,6 +1279,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self.sc->real_moves.clear()
         self.sc->disarm_sites.clear()
         self.sc->hand_sites.clear()
+        self.sc->kept_move_sites.clear()
         self._hand_log_e = []
         self._hand_log_d = []
         var *items = &tu->program->items
@@ -5562,6 +5563,10 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                               dest:      unsafe *Type = &null) {
         if e == &null || e->is_poisoned() {
             return
+        }
+
+        if kind == MoveKind::UnknownParam {
+            self.sc->kept_move_sites.insert(e as usize as u64)
         }
 
         if !moves_on_pass(self.sc, e->type_) {

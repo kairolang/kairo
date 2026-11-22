@@ -98,6 +98,7 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
 
         var site = self.sc->move_sites.count(e as usize as u64) != 0
         var some = self.sc->instance_move_sites.count(e as usize as u64) != 0
+        var kept = self.sc->kept_move_sites.count(e as usize as u64) != 0
         var hand              = self.sc->hand_sites.find(e as usize as u64)
         var to:  unsafe *Decl = &null
         if hand != self.sc->hand_sites.end() {
@@ -137,6 +138,7 @@ pub class CopyMoveLowering derives ASTWriter<CopyMoveLowering> {
         c->value_category                    = Expr::ValueCategory::XValue
         cast<TypeCastExpr>(c)->instance_move = some && !site
         cast<TypeCastExpr>(c)->hand          = to
+        cast<TypeCastExpr>(c)->kept          = kept
         var dis = self.sc->disarm_sites.find(e as usize as u64)
         if dis != self.sc->disarm_sites.end() {
             cast<TypeCastExpr>(c)->disarms = unsafe (dis->second as unsafe *Decl)

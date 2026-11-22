@@ -1452,7 +1452,9 @@ extend EmitIR {
     ///     call's own, as a by-value parameter always was, and the moved
     ///     local was moved whether or not the callee takes the value. A
     ///     parameter that is by value in C++ is that object already, so
-    ///     its argument is unchanged.
+    ///     its argument is unchanged; so is a move into a callee nothing
+    ///     is known of, from a place that keeps its destructor
+    ///     (TypeCastExpr::kept).
     ///
     /// `p` null: a callee Sema bound to no declaration (a `fn` value, a
     /// call clang resolves per instance), `pt` its parameter type when
@@ -1561,6 +1563,14 @@ extend EmitIR {
         }
 
         if self._param_by_value(f, p) {
+            return false
+        }
+
+        // Nothing is known of the callee (clang resolves it per instance),
+        // and the moved place keeps its destructor: the move goes as it
+        // is, so a C++ `T&&` parameter (`std::vector::push_back`) takes
+        // the value with one move, as a by-value parameter does.
+        if tc->kept && p == &null && pt == &null {
             return false
         }
 
