@@ -35,12 +35,19 @@
 extern "C" {
 #endif
 
+/* v in decimal into out, which has room for 20 bytes: exactly the digits,
+ * no sign, no NUL, nothing written past them. Returns the digit count. */
+int kairo_rt_fmt_dec_u64(unsigned char *out, uint64_t v) KAIRO_RT_NOEXCEPT;
+
 unsigned char *kairo_rt_fmt_alloc(size_t n) KAIRO_RT_NOEXCEPT;
 unsigned char *kairo_rt_fmt_realloc(unsigned char *p, size_t n) KAIRO_RT_NOEXCEPT;
 void           kairo_rt_fmt_free(unsigned char *p) KAIRO_RT_NOEXCEPT;
 
 /* |v| as text into out[0..cap): the sign bit is ignored, the caller owns
- * the sign. No NUL. Returns the bytes written, at most cap.
+ * the sign. No NUL. Returns the bytes written, at most cap; bytes of out
+ * past that count and below cap may be overwritten. The shortest form
+ * (prec < 0) writes straight into out when cap is at least 48, and goes
+ * through a scratch copy below that.
  *
  *   conv  'g' | 'e' | 'E', C's layouts: 'e' is d[.ddd]e+XX with a signed
  *         exponent of at least two digits; 'g' is fixed notation unless the

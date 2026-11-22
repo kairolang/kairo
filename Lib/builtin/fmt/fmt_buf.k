@@ -104,7 +104,9 @@ pub class FmtBuf {
     /// Below 128 it uses the inline storage (growing to the heap only if the text outgrows it);
     /// from
     /// 128 up the heap block is allocated now, sized once.
-    pub fn FmtBuf(self, cap: usize) {
+    ///
+    /// Inline: every f-string's bound is a constant, so the branch folds at the call site.
+    pub inline fn FmtBuf(self, cap: usize) {
         self.len    = 0
         self.cp_len = 0
         if cap < FMTBUF_INLINE {
@@ -147,8 +149,9 @@ pub class FmtBuf {
     @copy fn FmtBuf(self, const other: Self) = delete
     @move fn FmtBuf(self, other: Self) = delete
 
-    /// A spilled buffer that was never handed over by finish().
-    fn op finally(self) {
+    /// A spilled buffer that was never handed over by finish(). Inline: after `finish()` data
+    /// is null and the whole body folds away at the call site.
+    inline fn op finally(self) {
         if self.spilled_() {
             unsafe {
                 FmtBuf::release_(self.data as unsafe *u8, self.cap)
@@ -468,7 +471,13 @@ pub class FmtBuf {
 
             var n: i32 = 0
             unsafe {
-                n = kairo_rt_fmt_f32(unsafe &self.data[at], 31, v, -1, 103)
+                n = kairo_rt_fmt_f32(
+                    unsafe &self.data[at],
+                    self.cap - at,
+                    v,
+                    -1,
+                    103,
+                )
             }
 
             self.cp_len += (at - self.len) + (n as usize)
@@ -503,7 +512,9 @@ pub class FmtBuf {
 
         if spec == 0 {
             // Shortest f64 text is at most 24 bytes: written in place, no
-            // digit slot, no move.
+            // digit slot, no move. rt is handed all the room there is, not
+            // the 31 reserved: from 48 bytes of room it writes straight into
+            // data instead of through its scratch and a copy.
             self.reserve_(32)
             var at = self.len
             if neg {
@@ -513,7 +524,13 @@ pub class FmtBuf {
 
             var n: i32 = 0
             unsafe {
-                n = kairo_rt_fmt_f64(unsafe &self.data[at], 31, v, -1, 103)
+                n = kairo_rt_fmt_f64(
+                    unsafe &self.data[at],
+                    self.cap - at,
+                    v,
+                    -1,
+                    103,
+                )
             }
 
             self.cp_len += (at - self.len) + (n as usize)
@@ -611,29 +628,31 @@ pub class FmtBuf {
 
     // The integer the bytes at p[off..] hold in the target's byte order, so
     // a float's sign bit is the top bit wherever it sits in memory. Any
-    // pointer may be read as bytes; clang turns these into one load.
+    // pointer may be read as bytes; clang turns these into one load. Inline:
+    // the inline put_* read a hole's sign through them, and a call would
+    // send the value through memory.
     eval if defined!(__BIG_ENDIAN__) {
-        priv static fn bits16_(p: unsafe *const u8, off: usize) -> u16 {
+        priv static inline fn bits16_(p: unsafe *const u8, off: usize) -> u16 {
             return ((p[off] as u16) << 8) | (p[off + 1] as u16)
         }
 
-        priv static fn bits32_(p: unsafe *const u8, off: usize) -> u32 {
+        priv static inline fn bits32_(p: unsafe *const u8, off: usize) -> u32 {
             return ((p[off] as u32) << 24) | ((p[off + 1] as u32) << 16) | ((p[off + 2] as u32) << 8) | (p[off + 3] as u32)
         }
 
-        priv static fn bits64_(p: unsafe *const u8, off: usize) -> u64 {
+        priv static inline fn bits64_(p: unsafe *const u8, off: usize) -> u64 {
             return ((FmtBuf::bits32_(p, off) as u64) << 32) | (FmtBuf::bits32_(p, off + 4) as u64)
         }
     } else {
-        priv static fn bits16_(p: unsafe *const u8, off: usize) -> u16 {
+        priv static inline fn bits16_(p: unsafe *const u8, off: usize) -> u16 {
             return (p[off] as u16) | ((p[off + 1] as u16) << 8)
         }
 
-        priv static fn bits32_(p: unsafe *const u8, off: usize) -> u32 {
+        priv static inline fn bits32_(p: unsafe *const u8, off: usize) -> u32 {
             return (p[off] as u32) | ((p[off + 1] as u32) << 8) | ((p[off + 2] as u32) << 16) | ((p[off + 3] as u32) << 24)
         }
 
-        priv static fn bits64_(p: unsafe *const u8, off: usize) -> u64 {
+        priv static inline fn bits64_(p: unsafe *const u8, off: usize) -> u64 {
             return (FmtBuf::bits32_(p, off) as u64) | ((FmtBuf::bits32_(p, off + 4) as u64) << 32)
         }
     }
@@ -989,7 +1008,22 @@ pub class FmtBuf {
         } // b
     }
 
-    priv fn int64_(self, v: u64, neg: bool, spec: u64) {
+    /// Every integer hole of at most 64 bits. Inline: the spec is a constant at every call site,
+    /// so `{x}` goes straight to dec64_ and only a hole with a spec calls int64_spec_.
+    ///
+    /// dec64_ needs room for the widest u64 (21 bytes with a sign), more than the lowering's bound
+    /// for a narrow integer (4 bytes for an i8): with less room left, the hole takes
+    /// int64_spec_, which reserves exactly its digits, so it never grows the buffer where the
+    /// bound said it would fit.
+    priv inline fn int64_(self, v: u64, neg: bool, spec: u64) {
+        if (spec == 0) && (self.cap - self.len >= 21) {
+            self.dec64_(if neg => 0 - v else => v, neg)
+        } else {
+            self.int64_spec_(v, neg, spec)
+        }
+    }
+
+    priv fn int64_spec_(self, v: u64, neg: bool, spec: u64) {
         var mag = v
         if neg {
             mag = 0 - mag
@@ -1049,6 +1083,25 @@ pub class FmtBuf {
         }
 
         self.number_(&tmp[i], 72 - i, neg, spec)
+    }
+
+    /// `{x}` with no spec on an integer of at most 64 bits, magnitude `mag`: the sign, then rt's
+    /// digits written straight into data (no scratch, no copy, no division per digit). The caller
+    /// has checked for 21 bytes of room: a sign and the 20 digits of u64::MAX.
+    priv inline fn dec64_(self, mag: u64, neg: bool) {
+        var at = self.len
+        if neg {
+            self.data[at] = 45
+            at += 1
+        }
+
+        var n: i32 = 0
+        unsafe {
+            n = kairo_rt_fmt_dec_u64(unsafe &self.data[at], mag)
+        }
+
+        self.cp_len += (at - self.len) + (n as usize)
+        self.len = at + (n as usize)
     }
 
     priv fn int128_(self, v: u128, neg: bool, spec: u64) {

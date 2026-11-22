@@ -36,26 +36,41 @@ int kairo_rt_fmt_f8e5m2(unsigned char *out, size_t cap, uint8_t bits, int prec, 
     return kairo_rt_fmt_format_float_(out, cap, &f, bits, 0, 2, prec, conv);
 }
 
+/* The general path of f32 and f64 (a precision, zero, inf, nan) lives out
+ * of line: its decoded fclass and calls would otherwise give the shortest
+ * path, the one `{x}` takes, a stack frame and six register saves. */
+#if defined(__GNUC__) || defined(__clang__)
+#define FMT_OUT_OF_LINE __attribute__((noinline))
+#else
+#define FMT_OUT_OF_LINE
+#endif
+
+static FMT_OUT_OF_LINE int fmt_f32_general(unsigned char *out, size_t cap, uint32_t bits, int prec, unsigned char conv) {
+    fclass f = kairo_rt_fmt_decode_ieee_(0, bits, 23, 8, 0);
+    return kairo_rt_fmt_format_float_(out, cap, &f, bits, 32, 9, prec, conv);
+}
+
+static FMT_OUT_OF_LINE int fmt_f64_general(unsigned char *out, size_t cap, uint64_t bits, int prec, unsigned char conv) {
+    fclass f = kairo_rt_fmt_decode_ieee_(0, bits, 52, 11, 0);
+    return kairo_rt_fmt_format_float_(out, cap, &f, bits, 64, 17, prec, conv);
+}
+
 int kairo_rt_fmt_f32(unsigned char *out, size_t cap, float v, int prec, unsigned char conv) {
     uint32_t bits;
-    fclass   f;
     memcpy(&bits, &v, sizeof bits);
     if (prec < 0 && ((bits >> 23) & 0xFF) != 0xFF && (bits << 1) != 0) {
         return kairo_rt_fmt_write_shortest_(out, cap, kairo_rt_fmt_db32_to_decimal_(bits), conv, 9);
     }
-    f = kairo_rt_fmt_decode_ieee_(0, bits, 23, 8, 0);
-    return kairo_rt_fmt_format_float_(out, cap, &f, bits, 32, 9, prec, conv);
+    return fmt_f32_general(out, cap, bits, prec, conv);
 }
 
 int kairo_rt_fmt_f64(unsigned char *out, size_t cap, double v, int prec, unsigned char conv) {
     uint64_t bits;
-    fclass   f;
     memcpy(&bits, &v, sizeof bits);
     if (prec < 0 && ((bits >> 52) & 0x7FF) != 0x7FF && (bits << 1) != 0) {
         return kairo_rt_fmt_write_shortest_(out, cap, kairo_rt_fmt_db64_to_decimal_(bits), conv, 17);
     }
-    f = kairo_rt_fmt_decode_ieee_(0, bits, 52, 11, 0);
-    return kairo_rt_fmt_format_float_(out, cap, &f, bits, 64, 17, prec, conv);
+    return fmt_f64_general(out, cap, bits, prec, conv);
 }
 
 int kairo_rt_fmt_f128(unsigned char *out, size_t cap, uint64_t hi, uint64_t lo, int prec, unsigned char conv) {

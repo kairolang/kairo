@@ -83,24 +83,47 @@ static int digits_u32(uint32_t n, unsigned char *w) {
     return len;
 }
 
-/* v in [1, 10^17] as ASCII, forward; returns the digit count. */
+/* lo in [0, 10^8) as exactly eight ASCII digits, leading zeros kept. */
+static inline void digits8(uint32_t lo, unsigned char *w) {
+    uint64_t prod = ((lo * UINT64_C(281474978)) >> 16) + 1;
+    int      i;
+    for (i = 0; i < 4; ++i) {
+        put2(w, (uint32_t)(prod >> 32));
+        w += 2;
+        prod = (prod & UINT32_C(0xffffffff)) * 100;
+    }
+}
+
+/* v in [1, 10^17) as ASCII, forward; returns the digit count. */
 static int digits_u64(uint64_t v, unsigned char *w) {
     if (v >= UINT64_C(100000000)) {
         /* A block of up to nine digits, then exactly eight. */
         uint32_t hi  = (uint32_t)(v / UINT64_C(100000000));
         uint32_t lo  = (uint32_t)v - hi * UINT32_C(100000000);
         int      len = digits_u32(hi, w);
-        uint64_t prod = ((lo * UINT64_C(281474978)) >> 16) + 1;
-        int      i;
-        w += len;
-        for (i = 0; i < 4; ++i) {
-            put2(w, (uint32_t)(prod >> 32));
-            w += 2;
-            prod = (prod & UINT32_C(0xffffffff)) * 100;
-        }
+        digits8(lo, w + len);
         return len + 8;
     }
     return digits_u32((uint32_t)v, w);
+}
+
+int kairo_rt_fmt_dec_u64(unsigned char *out, uint64_t v) {
+    if (v >= UINT64_C(10000000000000000)) {
+        /* 17 to 20 digits: a head below 1845, then two blocks of eight. */
+        uint64_t head = v / UINT64_C(10000000000000000);
+        uint64_t rest = v - head * UINT64_C(10000000000000000);
+        uint32_t hi   = (uint32_t)(rest / UINT64_C(100000000));
+        uint32_t lo   = (uint32_t)(rest - (uint64_t)hi * UINT64_C(100000000));
+        int      len  = digits_u32((uint32_t)head, out);
+        digits8(hi, out + len);
+        digits8(lo, out + len + 8);
+        return len + 16;
+    }
+    if (v == 0) {
+        out[0] = '0';
+        return 1;
+    }
+    return digits_u64(v, out);
 }
 
 static void emit_exponent(emitter *em, int e, unsigned char conv) {
@@ -169,14 +192,19 @@ static inline void put_digits(unsigned char *w, uint64_t sig, const unsigned cha
     else            memcpy(w, dg, (size_t)n);
 }
 
+/* Room in out from which layout_short writes there directly: the longest
+ * text (43 bytes) and the fraction move's 16-byte overrun (34) both fit. */
+#define SHORT_DIRECT 48
+
 /* The shortest form, laid out without per-byte checks: the text is at most
  * 43 bytes (36 digits, point, e, sign, four exponent digits) and lands in
- * out directly when out is big enough, else in a scratch that is cut down.
- * The digits come from sig (Dragonbox) or from dg (the exact path). */
+ * out directly when out has SHORT_DIRECT bytes, else in a scratch that is
+ * cut down. The digits come from sig (Dragonbox) or from dg (the exact
+ * path). */
 static int layout_short(unsigned char *out, size_t cap, uint64_t sig, const unsigned char *dg, int n,
                         int exp10, unsigned char conv, int p) {
     unsigned char  scratch[64];
-    unsigned char *dst = cap >= sizeof scratch ? out : scratch;
+    unsigned char *dst = cap >= SHORT_DIRECT ? out : scratch;
     unsigned char *w = dst;
     size_t         len;
     int            i;
@@ -210,9 +238,19 @@ static int layout_short(unsigned char *out, size_t cap, uint64_t sig, const unsi
         w += n;
         for (i = exp10 + 1 - n; i > 0; --i) *w++ = '0';
     } else {
-        /* ddd.ddd: the fraction moves right by one for the point. */
+        /* ddd.ddd: the fraction moves right by one for the point. With at
+         * most 17 digits the fraction is at most 16 bytes and moves as one
+         * fixed 16-byte block (a register, not a library call); the bytes
+         * it carries past the text end below byte 34, inside SHORT_DIRECT
+         * and the scratch. */
         put_digits(w, sig, dg, n);
-        memmove(w + exp10 + 2, w + exp10 + 1, (size_t)(n - exp10 - 1));
+        if (n <= 17) {
+            unsigned char frac[16];
+            memcpy(frac, w + exp10 + 1, sizeof frac);
+            memcpy(w + exp10 + 2, frac, sizeof frac);
+        } else {
+            memmove(w + exp10 + 2, w + exp10 + 1, (size_t)(n - exp10 - 1));
+        }
         w[exp10 + 1] = '.';
         w += n + 1;
     }
