@@ -3,8 +3,14 @@
 /// Called by the compiler: a literal `[a, b, c]` is `Vector()`, then
 /// `reserve(n)`, then `push(v)` per element. Keep those three as they are.
 
-ffi "c++" import "rt/global_alloc.h"
-
+import alloc_raw::{
+    alloc_like_raw,
+    alloc_nz_raw,
+    alloc_zeroed_raw,
+    free_raw,
+    realloc_raw,
+    try_resize_raw,
+}
 import base::cmp::*
 import base::copy::*
 import base::intrinsics::*
@@ -68,18 +74,46 @@ priv inline fn vec_next_cap(old: usize, need: usize) -> usize {
     return need
 }
 
-/// A new block for exactly `cap` elements (`cap > 0`); returns element 0,
-/// with the capacity word written.
+/// A new block for exactly `cap` elements (`cap > 0`), from the allocator in
+/// effect (the innermost open scope, else Global); returns element 0, with
+/// the capacity word written.
 priv fn vec_alloc(cap: usize, elem_size: usize, elem_align: usize, zeroed: bool) -> unsafe *u8 {
     var bytes            = vec_block_bytes(cap, elem_size, elem_align)
     var al               = vec_block_align(elem_align)
     var blk:  unsafe *u8 = &null
     if zeroed {
-        blk = kairo_global_alloc_zeroed(bytes, al)
+        blk = alloc_zeroed_raw(bytes, al)
     } else {
-        blk = kairo_global_alloc(bytes, al)
+        blk = alloc_nz_raw(bytes, al)
     }
 
+    return vec_adopt(blk, cap, elem_align)
+}
+
+/// As `vec_alloc`, for a block that replaces the one whose element 0 is
+/// `old`: it comes from `old`'s allocator, so a vector keeps its allocator
+/// when it grows inside another scope.
+priv fn vec_alloc_like(old:        unsafe *u8,
+                       cap:        usize,
+                       elem_size:  usize,
+                       elem_align: usize) -> unsafe *u8 {
+    var bytes = vec_block_bytes(cap, elem_size, elem_align)
+    unsafe {
+        return vec_adopt(
+            alloc_like_raw(
+                old - vec_header(elem_align),
+                bytes,
+                vec_block_align(elem_align),
+            ),
+            cap,
+            elem_align,
+        )
+    }
+}
+
+/// Element 0 of a fresh block `blk` for `cap` elements, with the capacity
+/// word written; traps when the allocation failed.
+priv inline fn vec_adopt(blk: unsafe *u8, cap: usize, elem_align: usize) -> unsafe *u8 {
     if blk == &null {
         vec_alloc_fail()
     }
@@ -95,7 +129,7 @@ priv fn vec_alloc(cap: usize, elem_size: usize, elem_align: usize, zeroed: bool)
 priv inline fn vec_free(buf: unsafe *u8, cap: usize, elem_size: usize, elem_align: usize) {
     var h = vec_header(elem_align)
     unsafe {
-        kairo_global_free(buf - h, h + cap * elem_size, vec_block_align(elem_align))
+        free_raw(buf - h, h + cap * elem_size, vec_block_align(elem_align))
     }
 }
 
@@ -110,7 +144,7 @@ priv fn vec_resize_in_place(buf:        unsafe *u8,
     var h     = vec_header(elem_align)
     var bytes = vec_block_bytes(new_cap, elem_size, elem_align)
     unsafe {
-        if !kairo_global_resize(
+        if !try_resize_raw(
             buf - h,
             h + old_cap * elem_size,
             bytes,
@@ -141,7 +175,7 @@ priv fn vec_realloc(buf:        unsafe *u8,
     var bytes            = vec_block_bytes(new_cap, elem_size, elem_align)
     var blk:  unsafe *u8 = &null
     unsafe {
-        blk = kairo_global_realloc(
+        blk = realloc_raw(
             buf - h,
             h + old_cap * elem_size,
             bytes,
@@ -398,7 +432,13 @@ pub class <T> Vector {
             }
 
             unsafe {
-                var unsafe *nb = vec_alloc(cap, sizeof T, alignof T, false) as unsafe *T
+                var nb: unsafe *T = &null
+                if old == 0 {
+                    nb = vec_alloc(cap, sizeof T, alignof T, false) as unsafe *T
+                } else {
+                    nb = vec_alloc_like(ob as unsafe *u8, cap, sizeof T, alignof T) as unsafe *T
+                }
+
                 for var i: usize = 0; i < self.len; ++i {
                     __builtin_construct_at<T>(
                         (nb + i) as unsafe *u8,
@@ -639,7 +679,10 @@ pub class <T> Vector {
             // no move to take the temporary with.
             unsafe {
                 for var i: usize = 0; i < n; ++i {
-                    __builtin_construct_at<T>((dst + i) as unsafe *u8, *(src + i))
+                    __builtin_construct_at<T>(
+                        (dst + i) as unsafe *u8,
+                        *(src + i),
+                    )
                 }
             }
         } else {
@@ -739,7 +782,7 @@ extend <T> Vector<T> {
                     return
                 }
 
-                var unsafe *nb = vec_alloc(self.len, sizeof T, alignof T, false) as unsafe *T
+                var unsafe *nb = vec_alloc_like(ob as unsafe *u8, self.len, sizeof T, alignof T) as unsafe *T
                 Vector<T>::relocate_(nb, ob, self.len)
                 vec_free(ob as unsafe *u8, c, sizeof T, alignof T)
                 self.set_base_(nb)

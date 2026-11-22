@@ -46,6 +46,7 @@ import AST::Node::Declarations::{
     EnumDecl,
     GenericParamKindBound,
     InterfaceDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -56,7 +57,10 @@ import AST::Node::Expressions::{
     SubscriptExpr,
     UnaryOperatorExpr,
 }
-import AST::Node::PrimaryExpressions::IntegerLiteralExpr
+import AST::Node::PrimaryExpressions::{
+    IntegerLiteralExpr,
+    NamedIdentExpr,
+}
 import AST::Node::Types::{
     CXXLValueRefType,
     GenericParamType,
@@ -613,7 +617,22 @@ extend EmitIR {
                 ) + " __kb; return __kt; } }(",
             )
 
+            // A sequencing snapshot (`auto __kairo_ord0 = a;`) stands for the
+            // temporary it holds, which nothing reads after this operator:
+            // passed as the lvalue it is, `__kt` would copy it, and a MOVE
+            // type (a string) has no copy.
+            var lhs_snap = self._snapshot_local(n->lhs)
+            if lhs_snap {
+                s->spell(n->range, "static_cast<decltype(")
+                self.emit(n->lhs)
+                s->spell(n->range, ")&&>(")
+            }
+
             self.emit(n->lhs)
+            if lhs_snap {
+                s->spell(n->range, ")")
+            }
+
             s->spell(n->range, ", ")
             self.emit(n->rhs)
             s->spell(n->range, "))")
@@ -708,6 +727,21 @@ extend EmitIR {
         }
 
         return self._unknown_typed(a) || self._unknown_typed(b)
+    }
+
+    /// `e` names a local bound as an `auto` copy (VariableDecl::auto_copy).
+    /// The one such local an operand of a derived operator can name is
+    /// SequenceLowering's snapshot of that operand, whose one reader is the
+    /// operator it was bound for; a loop's `auto` range and iterator locals
+    /// are never an operator's operand.
+    priv fn _snapshot_local(self, e: unsafe *Expr) -> bool {
+        var unsafe *ni = dyn_cast<NamedIdentExpr>(e)
+        if ni == &null {
+            return false
+        }
+
+        var unsafe *vd = dyn_cast<VariableDecl>(ni->resolved_decl)
+        return vd != &null && vd->auto_copy
     }
 
     priv fn _unknown_typed(self, e: unsafe *Expr) -> bool {

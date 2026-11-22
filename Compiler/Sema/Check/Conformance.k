@@ -5823,7 +5823,7 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
                 )
 
                 if wf != &null {
-                    self._extension_bound_rows(wf, x, unsafe &row.bound_rows)
+                    self._extension_bound_rows(wf, x, unsafe &row.bound_rows, &null)
                 }
             }
         }
@@ -6348,15 +6348,27 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
     pub fn unmet_extension_bound(self,
                                  f: unsafe *Declarations::FunctionDecl,
                                  x: unsafe *Type) -> unsafe *ConstraintExpr {
-        return self._extension_bound_rows(f, x, &null)
+        return self._extension_bound_rows(f, x, &null, &null)
+    }
+
+    /// unmet_extension_bound, with the argument that does not meet the
+    /// bound and the bound's interface, both at `x`.
+    pub fn unmet_extension_blocker(self,
+                                   f: unsafe *Declarations::FunctionDecl,
+                                   x: unsafe *Type) -> ImplBlocker {
+        var out = ImplBlocker{}
+        out.bound = self._extension_bound_rows(f, x, &null, unsafe &out)
+        return out
     }
 
     /// unmet_extension_bound, appending the row of each bound met to `out`
-    /// when it is not null.
+    /// when it is not null, and naming the unmet bound's argument and
+    /// interface in `fail` when it is not null.
     priv fn _extension_bound_rows(self,
-                                  f:   unsafe *Declarations::FunctionDecl,
-                                  x:   unsafe *Type,
-                                  out: unsafe *cxx::std::vector<unsafe *ConformanceRow>) -> unsafe *ConstraintExpr {
+                                  f:    unsafe *Declarations::FunctionDecl,
+                                  x:    unsafe *Type,
+                                  out:  unsafe *cxx::std::vector<unsafe *ConformanceRow>,
+                                  fail: unsafe *ImplBlocker) -> unsafe *ConstraintExpr {
         var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
         if ext == &null || x == &null || x->is_dependent() {
             return &null
@@ -6408,6 +6420,11 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
 
             var unsafe *row = self.conforms(arg, iface)
             if row == &null || !row->ok {
+                if fail != &null {
+                    fail->x     = arg
+                    fail->iface = iface
+                }
+
                 return b
             }
 
@@ -7848,14 +7865,43 @@ pub class ConformanceChecking derives RecursiveASTVisitor<ConformanceChecking> {
             unsafe &cands,
         )
 
-        // A `copy` the instance does not have (_dropped_from) is no
-        // declaration of the wrong shape: the type is merely not copyable.
-        var own: unsafe *Decl = &null
+        // A `copy` the instance does not have (_dropped_from, or a member
+        // of an extension whose bound it does not meet) is no declaration
+        // of the wrong shape: the type is merely not copyable.
+        var own:   unsafe *Decl = &null
+        var gated = ImplBlocker{}
         for var i: usize = 0; i < cands.size() && own == &null; ++i {
             var unsafe *cf = dyn_cast<Declarations::FunctionDecl>(cands[i])
-            if cf == &null || !self._dropped_from(cf, x) {
+            if cf == &null {
                 own = cands[i]
+                continue
             }
+
+            if self._dropped_from(cf, x) {
+                continue
+            }
+
+            var ub = self.unmet_extension_blocker(cf, x)
+            if ub.bound == &null {
+                own = cands[i]
+            } else if gated.bound == &null {
+                gated = ub
+            }
+        }
+
+        if own == &null && gated.bound != &null && gated.x != &null && gated.iface != &null {
+            var an = self.tu.str(gated.x)
+            var bn = self.tu.str(gated.iface)
+            d->note(
+                at.start,
+                f"'{xs}' is not a COPY type, and its 'copy' is declared only where '{an} impl {bn}'",
+            )
+
+            d->note(
+                gated.bound->range.start,
+                f"'{xs}' has 'copy' only where '{an} impl {bn}': '{an}' does not conform to '{bn}'",
+            )->child_first(gated.bound->range)
+            return
         }
 
         if own != &null {

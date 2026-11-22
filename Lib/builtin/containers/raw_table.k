@@ -36,9 +36,14 @@
 /// and filters one bit less per doubling; a 64-bit hash array would lift
 /// that.
 
-ffi "c++" import "rt/global_alloc.h"
 ffi "c++" import "raw_group.h"
 
+import alloc_raw::{
+    alloc_like_raw,
+    alloc_nz_raw,
+    alloc_zeroed_raw,
+    free_raw,
+}
 import base::cmp::*
 import base::copy::*
 import base::hash::*
@@ -331,16 +336,22 @@ priv fn rt_fill_empty(block: unsafe *u8, nbuckets: usize) {
 }
 
 /// A fresh block with an empty index. The hashes and the entries are
-/// uninitialized.
+/// uninitialized. It comes from the allocator that owns `like`, a block it
+/// replaces, so a table keeps its allocator when it grows inside another
+/// scope; a null `like` (no block yet) takes the allocator in effect.
 priv fn rt_block_new(nbuckets:    usize,
                      entry_size:  usize,
                      entry_align: usize,
-                     seed:        u64) -> unsafe *u8 {
-    var bytes = rt_block_bytes(nbuckets, entry_size, entry_align)
-    var block: unsafe *u8 = kairo_global_alloc(
-        bytes,
-        rt_block_align(entry_align),
-    )
+                     seed:        u64,
+                     like:        unsafe *u8) -> unsafe *u8 {
+    var bytes             = rt_block_bytes(nbuckets, entry_size, entry_align)
+    var al                = rt_block_align(entry_align)
+    var block: unsafe *u8 = &null
+    if like == &null {
+        block = alloc_nz_raw(bytes, al)
+    } else {
+        block = alloc_like_raw(like, bytes, al)
+    }
 
     if block == &null {
         raw_table_alloc_fail()
@@ -365,7 +376,7 @@ priv fn rt_block_new(nbuckets:    usize,
 /// alignment.
 priv fn rt_block_free(block: unsafe *u8, entry_size: usize, entry_align: usize) {
     unsafe {
-        kairo_global_free(
+        free_raw(
             block,
             rt_block_bytes(rt_header(block)->mask + 1, entry_size, entry_align),
             rt_block_align(entry_align),
@@ -653,12 +664,18 @@ prot class RawTable {
     priv fn swap_block(self, nbuckets: usize, entry_size: usize, entry_align: usize) -> unsafe *u8 {
         var unsafe *old = self.base()
         unsafe {
-            var unsafe *oh = rt_header(old)
+            var unsafe *oh              = rt_header(old)
+            var        like: unsafe *u8 = &null
+            if oh->cap != 0 {
+                like = old
+            }
+
             var unsafe *nb = rt_block_new(
                 nbuckets,
                 entry_size,
                 entry_align,
                 oh->seed,
+                like,
             )
 
             if self.len != 0 {
@@ -829,8 +846,14 @@ prot class RawTable {
                 return
             }
 
-            var        n   = oh->mask + 1
-            var unsafe *nb = rt_block_new(n, entry_size, entry_align, oh->seed)
+            var n = oh->mask + 1
+            var unsafe *nb = rt_block_new(
+                n,
+                entry_size,
+                entry_align,
+                oh->seed,
+                &null,
+            )
 
             // The buckets and the hashes of the live entries are one run.
             __builtin_copy(
@@ -1212,8 +1235,8 @@ prot class RawTable {
 
             // seen[e]: entry e is named. mark[k]: 1 + the home whose probe
             // sequence was last walked over bucket k.
-            var unsafe *seen = kairo_global_alloc_zeroed(self.len + 1, 1)
-            var unsafe *mark = kairo_global_alloc_zeroed(n * sizeof usize, alignof usize) as unsafe *usize
+            var unsafe *seen = alloc_zeroed_raw(self.len + 1, 1)
+            var unsafe *mark = alloc_zeroed_raw(n * sizeof usize, alignof usize) as unsafe *usize
             if seen == &null || mark == &null {
                 raw_table_alloc_fail()
             }
@@ -1282,12 +1305,8 @@ prot class RawTable {
                 k += 1
             }
 
-            kairo_global_free(seen, self.len + 1, 1)
-            kairo_global_free(
-                mark as unsafe *u8,
-                n * sizeof usize,
-                alignof usize,
-            )
+            free_raw(seen, self.len + 1, 1)
+            free_raw(mark as unsafe *u8, n * sizeof usize, alignof usize)
 
             if fail != 0 {
                 return fail

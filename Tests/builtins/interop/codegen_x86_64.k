@@ -2,7 +2,8 @@
 // pointer and its length: two loads and a shift, with no call and no branch,
 // so it is the same for every state. `into_cxx()` on a `[i32]` allocates the
 // C++ block once and copies every element with one memcpy, then frees the
-// Kairo block; nothing is pushed one by one.
+// Kairo block through System, inlined (the small-block free or the general
+// one, by the block's size); nothing is pushed one by one.
 
 ffi "c++" import "string_view"
 ffi "c++" import "vector"
@@ -41,6 +42,7 @@ fn main() -> i32 {
 // CHECK-NOT:   callq
 // CHECK:       callq memcpy
 // CHECK-NOT:   callq
-// CHECK:       callq kairo_global_free
+// CHECK:       callq mi_free_small_nonnull
+// CHECK:       callq mi_free
 // CHECK-NOT:   callq {{.*}}emplace_back
 // CHECK:       {{^}}.Lfunc_end

@@ -644,6 +644,130 @@ pub fn resize_raw(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usiz
     }
 }
 
+// --- the container family ---------------------------------------------------
+// What the builtin containers allocate through. Every size is nonzero and
+// every alignment a power of two by construction, so these skip alloc_raw's
+// checks; a container frees with free_raw. With no scope open each is one
+// thread-local load and a test in
+// front of the inlined Global call; with one open, an out-of-line call. A
+// container's block stays with the allocator that made it: growing or
+// replacing a block goes to its owner (owner_of), not to the scope in effect.
+
+/// `alloc_raw` for a nonzero `size` and a power-of-two `align`.
+prot inline fn alloc_nz_raw(size: usize, align: usize) -> unsafe *u8 {
+    var unsafe *f = scope_top
+    @likely
+    if f == &null {
+        return Global::alloc(size, align)
+    }
+
+    unsafe {
+        return f->alloc(size, align)
+    }
+}
+
+/// `alloc_nz_raw` with every byte zero. A scoped allocator has no zeroed
+/// entry point in its frame, so the scope path clears the block itself.
+prot inline fn alloc_zeroed_raw(size: usize, align: usize) -> unsafe *u8 {
+    @likely
+    if scope_top == &null {
+        return Global::alloc_zeroed(size, align)
+    }
+
+    return alloc_zeroed_scoped(size, align)
+}
+
+@cold_path @no_inline
+fn alloc_zeroed_scoped(size: usize, align: usize) -> unsafe *u8 {
+    var unsafe *f            = scope_top
+    var        p: unsafe *u8 = &null
+    unsafe {
+        p = f->alloc(size, align)
+    }
+
+    if p != &null {
+        __builtin_set_mem(p, 0 as byte, size)
+    }
+
+    return p
+}
+
+/// Allocates `size` bytes (nonzero) from the allocator that owns the live
+/// block `like`: what a container uses for the block that replaces `like`,
+/// so the container keeps its allocator when it grows inside another scope.
+prot inline fn alloc_like_raw(like: unsafe *u8, size: usize, align: usize) -> unsafe *u8 {
+    @likely
+    if scope_top == &null {
+        return Global::alloc(size, align)
+    }
+
+    return alloc_like_scoped(like, size, align)
+}
+
+@cold_path @no_inline
+fn alloc_like_scoped(like: unsafe *u8, size: usize, align: usize) -> unsafe *u8 {
+    var unsafe *f = owner_of(like)
+    if f == &null {
+        return Global::alloc(size, align)
+    }
+
+    unsafe {
+        return f->alloc(size, align)
+    }
+}
+
+/// Resizes a block in place with the allocator that owns it; false, with the
+/// block untouched, when that allocator cannot. Both sizes are nonzero.
+prot inline fn try_resize_raw(ptr:      unsafe *u8,
+                              old_size: usize,
+                              new_size: usize,
+                              align:    usize) -> bool {
+    @likely
+    if scope_top == &null {
+        return Global::resize(ptr, old_size, new_size, align)
+    }
+
+    return try_resize_scoped(ptr, old_size, new_size, align)
+}
+
+@cold_path @no_inline
+fn try_resize_scoped(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> bool {
+    var unsafe *f = owner_of(ptr)
+    if f == &null {
+        return Global::resize(ptr, old_size, new_size, align)
+    }
+
+    unsafe {
+        return f->resize(ptr, old_size, new_size, align)
+    }
+}
+
+/// Resizes a block with the allocator that owns it, moving it if it must;
+/// `&null`, with the block untouched, on failure. Both sizes are nonzero.
+prot inline fn realloc_raw(ptr:      unsafe *u8,
+                           old_size: usize,
+                           new_size: usize,
+                           align:    usize) -> unsafe *u8 {
+    @likely
+    if scope_top == &null {
+        return Global::realloc(ptr, old_size, new_size, align)
+    }
+
+    return realloc_scoped(ptr, old_size, new_size, align)
+}
+
+@cold_path @no_inline
+fn realloc_scoped(ptr: unsafe *u8, old_size: usize, new_size: usize, align: usize) -> unsafe *u8 {
+    var unsafe *f = owner_of(ptr)
+    if f == &null {
+        return Global::realloc(ptr, old_size, new_size, align)
+    }
+
+    unsafe {
+        return f->realloc(ptr, old_size, new_size, align)
+    }
+}
+
 // --- System: the default global allocator -----------------------------------
 // mimalloc (rt/mimalloc.c). On ELF and wasm targets it is also the C heap, so
 // C, C++ and Kairo share one heap, except for Linux's large blocks (rt/heap.h);
