@@ -116,6 +116,7 @@ pub class ScopedAllocatorCheck {
         if isa<ClassDecl>(d) || isa<StructDecl>(d) {
             if self._check_args(e) {
                 self._second_on_record(d, e)
+                self._no_arena_classes(d, e)
             }
 
             return
@@ -223,6 +224,28 @@ pub class ScopedAllocatorCheck {
             b.remove(e->range, "remove " + an)
         }
 
+        b.emit()
+    }
+
+    /// SC366E when record `d` carries the attribute and has no arena
+    /// fields: the build has no alloc.k to take ObjectArena from
+    /// (`--no-prelude`, a builtins directory without it), and the attribute
+    /// would otherwise be accepted and do nothing.
+    priv fn _no_arena_classes(self, d: unsafe *Decl, e: unsafe *AnnotationEntry) {
+        if ScopedAllocatorExpand::record_attr(self.sc, d) != e
+            || ScopedAllocatorExpand::arena_field(self.sc->well_known, d, false) != &null {
+            return
+        }
+
+        var b = self.sc->diag->report(
+            DiagID::SC366E,
+            e->range.start,
+            LangAttrs::quoted(
+                LangAttrs::set_scoped_allocator(),
+            ) + " on a class or struct needs the builtin library's allocation module ('builtin::base::alloc'), which this build does not have",
+        )
+
+        b.first(e->range)
         b.emit()
     }
 

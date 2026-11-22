@@ -722,6 +722,12 @@ pub class <A impl ArenaAllocator> ObjectArena {
         return self.arena
     }
 
+    /// Always true: an arena is where its owner's memory comes from, not part of the owner's
+    /// value, so an owner's member-by-member `op ==` compares its other fields.
+    pub inline fn op ==(const self, const other: Self) -> bool {
+        return true
+    }
+
     /// Frees this arena and takes over other's: what a hand-written move constructor of the owner
     /// starts with, so the blocks it moves across stay with their arena.
     pub fn take(self, other: *ObjectArena<A>) {
@@ -756,6 +762,11 @@ pub class <A impl ArenaAllocator> ObjectArenaEnd {
     pub inline fn ObjectArenaEnd(self, other: Self) {
         self.arena  = other.arena
         other.arena = 0
+    }
+
+    /// Always true, as ObjectArena's: the owner's `op ==` compares its other fields.
+    pub inline fn op ==(const self, const other: Self) -> bool {
+        return true
     }
 
     /// Takes over other's handle after the owner's ObjectArena took the arena: the second

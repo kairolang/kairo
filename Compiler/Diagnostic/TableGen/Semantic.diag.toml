@@ -7318,7 +7318,12 @@ group = "allocation"
     - on a function with an expression body and no written return type: the scope opens in a block
       body, and a block body does not infer the return type the expression body would;
     - on an `extend`: the object's arena belongs to the type, so the attribute goes on the type's
-      own declaration.
+      own declaration;
+    - twice on one class or struct: an object owns one arena;
+    - on a class or struct in a build without the builtin library's allocation module
+      (`--no-prelude`): the arena's classes are declared there;
+    - when a method of the class or struct, or of an `extend` of it, has an expression body and no
+      written return type: each method opens the arena in a block body.
 
     ```kairo
     @set_scoped_allocator(Arena)
@@ -7367,9 +7372,13 @@ group = "allocation"
     }
     ```
 
+    A generator method of a `@set_scoped_allocator` class or struct is the same error: every method
+    of such a type opens the object's arena for its whole body.
+
     ## how to fix
 
-    open the scope on a block that contains no `yield`, or in a function the generator calls.
+    open the scope on a block that contains no `yield`, or in a function the generator calls; write
+    a generator over an arena object as a free function that takes the object.
     """
 
     [SC367.N]

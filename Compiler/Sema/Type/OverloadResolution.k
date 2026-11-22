@@ -93,15 +93,8 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,
-    BuiltinKind,
-    QUAL_CONST,
-    QUAL_VOLATILE,
-    RecordType,
-    builtin_info,
-    canon_has_const,
-    canon_quals,
-    canon_unqual,
+    AssocType,   BuiltinKind,  QUAL_CONST, QUAL_VOLATILE, RecordType, builtin_info, canon_has_const,
+    canon_quals, canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -109,13 +102,7 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,
-    EnumDecl,
-    FunctionDecl,
-    ParamDecl,
-    SpecKind,
-    TransferKind,
-    VariableDecl,
+    ClassDecl, EnumDecl, FunctionDecl, ParamDecl, SpecKind, TransferKind, VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -126,15 +113,8 @@ import AST::Node::Expressions::{
     UnaryOperatorExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType,
-    CXXRValueRefType,
-    FixedArrayType,
-    FunctionPointerType,
-    GenericParamType,
-    NullableType,
-    OpaqueFFIType,
-    PointerType,
-    TypeExpr,
+    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
+    NullableType,     OpaqueFFIType,    PointerType,    TypeExpr,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
@@ -143,10 +123,12 @@ import Diagnostic::NoteText::declared_here
 import Diagnostic::Registry::DiagID
 import Location::SourceLocation::SourceLocation
 import Location::SourceRange::SourceRange
+import Native::ClangEnableIf::EnableIfState
 import Sema::Check::Conformance::{
     ClauseFalse,
     ConformanceChecking,
 }
+import Sema::Foreign::ForeignInstantiate::ForeignInstantiate
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::SemaContext::SemaContext
@@ -563,6 +545,9 @@ pub class Candidate {
     /// SfinaeDeferred, and the dependent argument is a dereference (`*slot`
     /// on `slot: *T`): see OvlResult::deref_dep.
     pub var deref_dep: bool = false
+    /// An imported function's enable_if state (EnableIfState): Failed is
+    /// rejected in _collect, Satisfied beats None in _enable_if_tiebreak.
+    pub var enable_if: u8 = 0
     fn Candidate(self) { }
 
     pub fn verdict(const self) -> Verdict {
@@ -599,10 +584,10 @@ pub class Candidate {
 }
 
 pub class OvlResult {
-    pub var outcome:      OvlOutcome              = OvlOutcome::Empty
-    pub var decl:         unsafe *FunctionDecl    = &null
+    pub var outcome:      OvlOutcome           = OvlOutcome::Empty
+    pub var decl:         unsafe *FunctionDecl = &null
     pub var arg_to_param: [usize]
-    pub var via_free:     bool                    = false ///< winner came from the free list: arg_to_param indexes fargs.
+    pub var via_free:     bool                 = false ///< winner came from the free list: arg_to_param indexes fargs.
     /// The receiver was bound to the winner's `self`, which then matched no
     /// argument: arg_to_param indexes the params AFTER `self`.
     /// finish_call_args reads this rather than guessing.
@@ -1046,6 +1031,12 @@ pub class OverloadResolution {
             winners = self._partial_order(unsafe &cs, &winners)
         }
 
+        // enable_if, clang's last tiebreak before the ambiguity: see
+        // _enable_if_tiebreak.
+        if winners.size() > 1 {
+            winners = self._enable_if_tiebreak(unsafe &cs, &winners)
+        }
+
         if defer && self._undecided(cs, winners) {
             out.outcome = OvlOutcome::Deferred
             return out
@@ -1137,7 +1128,7 @@ pub class OverloadResolution {
 
         var fails: [usize]
         var whys:  [string]
-        var held  = 0 as usize
+        var held            = 0 as usize
         for var i: usize = 0; i < cs->size(); ++i {
             var *c = &(*cs)[i]
             if !c->viable() {
@@ -1657,6 +1648,55 @@ pub class OverloadResolution {
         }
 
         return better
+    }
+
+    /// An imported function whose enable_if condition is false is no
+    /// candidate, as in clang (CheckEnableIf). A condition only clang can
+    /// decide, one naming a parameter, leaves the candidate viable.
+    priv fn _enable_if(self, c: *Candidate) {
+        var why = ""
+        var state = ForeignInstantiate::decl_enable_if(
+            unsafe (c->f as unsafe *Decl),
+            &why,
+        )
+
+        c->enable_if = state
+        if state != EnableIfState::Failed as u8 {
+            return
+        }
+
+        c->reject()
+        c->reason = if why.size() > 0 => f"its enable_if condition is false: {why}"
+                    else => "its enable_if condition is false"
+    }
+
+    /// Of tied winners, those whose enable_if conditions all hold, when any
+    /// do and some others have no enable_if at all: clang's
+    /// compareEnableIfAttrs makes a function with enable_if attributes
+    /// better than one without, so libc++'s `_LIBCPP_PREFERRED_OVERLOAD`
+    /// `memchr` (`enable_if(true, "")`) beats the C library's. A winner
+    /// whose condition clang decides only at the call is neither preferred
+    /// nor dropped, and two winners that both have conditions stay tied:
+    /// clang orders those by comparing the conditions, which Kairo does not.
+    priv fn _enable_if_tiebreak(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
+        var held: [usize]
+        var none          = false
+        for var i: usize = 0; i < winners.size(); ++i {
+            var st = (*cs)[winners[i]].enable_if
+            if st == EnableIfState::Satisfied as u8 {
+                held.push(winners[i])
+            } else if st == EnableIfState::None as u8 {
+                none = true
+            } else {
+                return winners.copy()
+            }
+        }
+
+        if held.size() == 0 || !none {
+            return winners.copy()
+        }
+
+        return held
     }
 
     /// The winners no other winner beats on pointee cv.
@@ -2402,6 +2442,10 @@ pub class OverloadResolution {
             }
 
             self._judge(unsafe &c, args, has_receiver, receiver, qualifier)
+            if c.viable() && f->is_imported() {
+                self._enable_if(&c)
+            }
+
             if c.viable() && c.generic && f->is_imported() && c.verdict() != Verdict::Assumed {
                 self._clang_substitute(&c, args, has_receiver)
             }
@@ -2431,7 +2475,7 @@ pub class OverloadResolution {
             return
         }
 
-        var unsafe *f     = c->f
+        var unsafe *f                          = c->f
         var        params: [unsafe *ParamDecl]
         for var i: usize = 0; i < f->params.size(); ++i {
             var unsafe *p = f->params[i]
@@ -4857,7 +4901,7 @@ pub class OverloadResolution {
         // overload reachable by its own conversion): the note lists them and
         // no edit is offered, since which one is meant is the user's call.
         var utargets: [string]
-        var ufirst:  usize = usize::MAX
+        var ufirst:   usize    = usize::MAX
         for var i: usize = 0; i < cs->size(); ++i {
             var *c = &(*cs)[i]
             if c->uconv_to == "" {
@@ -5038,9 +5082,9 @@ pub class OverloadResolution {
                              winners:    *[usize],
                              at:         SourceRange,
                              const name: string) -> bool {
-        var cc    = ConformanceChecking(self.sc)
+        var cc = ConformanceChecking(self.sc)
         var opens: [cxx::std::vector<unsafe *Expr>]
-        var any   = false
+        var any                                     = false
         for var i: usize = 0; i < winners->size(); ++i {
             var *c = &(*cs)[(*winners)[i]]
             var os = cxx::std::vector<unsafe *Expr>()

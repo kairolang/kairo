@@ -1038,8 +1038,8 @@ pub class FeatureGateCheck derives RecursiveASTVisitor<FeatureGateCheck> {
     }
 
     /// An argument written without its keyword. `@create(A) T()` and
-    /// `@destroy(A) p` keep the message they had before `in:` existed, with
-    /// the keyword as a note; the fix-it names the allocator when the
+    /// `@destroy(A) p` are SC364E with the keyword as a note; the other
+    /// attributes are SC365E. The fix-it names the allocator when the
     /// argument is a type.
     priv fn _alloc_positional(self,
                               n:       *AttributedExpr,

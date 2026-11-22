@@ -163,8 +163,10 @@ Compiler/
                     ClangTime, Progress), the object cache's hashing
                     (ObjCache), SharedVFS (a codegen TU's view of the
                     fan-out's shared in-memory file layer), ClangDiag,
-                    ClangPurity, ClangMoveWalk (whether a C++ function's body
-                    moves out of a reference parameter, for MoveCheck), and
+                    ClangPurity, ClangEnableIf (a C++ function's enable_if
+                    conditions, for overload resolution), ClangMoveWalk
+                    (whether a C++ function's body moves out of a reference
+                    parameter, for MoveCheck), and
                     the plain parts of Shims and Types. C++ (.hh), for what
                     Kairo cannot spell: Prelude, Types, SmallFunction, Shims,
                     TokenArray, Placement, AddrRanges, Log, the rest of

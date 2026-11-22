@@ -81,14 +81,8 @@ import AST::Context::InstantiationRegistry::{
     InstantiationRegistry,
 }
 import AST::DeclFacts::{
-    decl_clang,
-    decl_cxx_spelling,
-    decl_fill_failed,
-    decl_foreign_fill,
-    decl_instantiated_from,
-    decl_origin_fid,
-    decl_origin_set,
-    decl_publish_fill,
+    decl_clang,             decl_cxx_spelling, decl_fill_failed, decl_foreign_fill,
+    decl_instantiated_from, decl_origin_fid,   decl_origin_set,  decl_publish_fill,
     decl_set_imported,
 }
 import AST::Mixin::TemplateParams::ForeignFill
@@ -107,6 +101,10 @@ import Diagnostic::ClangDiagAdapter::ClangDiagAdapter
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::HeaderSet::HeaderSet
 import Location::SourceRange::SourceRange
+import Native::ClangEnableIf::{
+    EnableIfState,
+    clang_enable_if,
+}
 import Native::ClangMoveWalk::{
     CxxLibRoots,
     CxxMoveCache,
@@ -1253,6 +1251,24 @@ pub class ForeignInstantiate {
         // so a non-null one is live; the mutex itself always is.
         var slock = kairo::std::LockGuard(*hs->sema_lock())
         return clang_decl_purity(cd)
+    }
+
+    /// The imported function `f`'s enable_if state (an EnableIfState, see
+    /// Native/ClangEnableIf.k), with a failed condition's message in `why`.
+    /// Under the set lock, for decl_purity's reason.
+    static fn decl_enable_if(f: unsafe *Decl, @inout why: string) -> u8 {
+        var unsafe *cd = decl_clang(f)
+        if cd == &null {
+            return EnableIfState::None as u8
+        }
+
+        var unsafe *hs = unsafe (decl_origin_set(f) as unsafe *HeaderSet)
+        if hs == &null {
+            return clang_enable_if(cd, &why)
+        }
+
+        var slock = kairo::std::LockGuard(*hs->sema_lock())
+        return clang_enable_if(cd, &why)
     }
 
     /// Does the C++ function `f` move out of what its parameter `idx` (the
