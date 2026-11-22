@@ -27,6 +27,7 @@ import AST::AttrFacts::AttrFacts
 import AST::DeclFacts::{
     decl_fold_pin,
     decl_name_tok,
+    decl_pattern,
 }
 import AST::Kind::DeclKind::{
     DeclKind,
@@ -47,14 +48,18 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
+    RecordType,
     canon_has_const,
     canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
     dyn_cast,
+    isa,
 }
 import AST::Node::Declarations::{
+    ClassDecl,
+    FieldDecl,
     FnBodyKind,
     LocalDtor,
     StorageClass,
@@ -156,7 +161,10 @@ extend EmitIR {
     /// where the hook is `__attribute__((cleanup(__kairo_ul_run)))
     /// ::__kairo_ulh __k_h_x{&__k_s_x, &<storage type>::__drop}`, declared
     /// after the object so a path that leaves while the initializer runs
-    /// destroys nothing. `{}` for `var x: T` value-initializes as `T x{}`
+    /// destroys nothing. A Cleanup local with moved parts
+    /// (VariableDecl::moved_parts) has a hook of its own instead, which
+    /// destroys what is left (_residual).
+    /// `{}` for `var x: T` value-initializes as `T x{}`
     /// does. False when this declaration cannot take the storage: only a
     /// Cleanup local, which is then the plain `T x` it is equivalent to.
     priv fn _union_local_decl(self, n: unsafe *VariableDecl, in_for_init: bool) -> bool {
@@ -231,11 +239,25 @@ extend EmitIR {
         }
 
         if m != LocalDtor::Elided {
+            var drop = "&" + st + "::" + LowerTargets::union_local_drop()
+            if n->moved_parts.size() > 0 {
+                if m != LocalDtor::Cleanup {
+                    self._ice(
+                        n->range,
+                        "EmitIR: moved parts on a local whose storage is not Cleanup; LocalDisposition writes them only with Cleanup",
+                    )
+                }
+
+                drop = "+[](void* q) noexcept { auto& " + LowerTargets::union_local_obj() + " = static_cast<" + st + "*>(q)->" + LowerTargets::union_local_obj() + "; " + self._residual(
+                    n,
+                ) + "}"
+            }
+
             self._cg->sink->spell(
                 at,
                 "; __attribute__((cleanup(" + LowerTargets::union_local_run() + "))) ::" + LowerTargets::union_local_hook() + " " + LowerTargets::union_local_hook_var(
                     nm,
-                ) + "{&" + store + ", &" + st + "::" + LowerTargets::union_local_drop() + "}",
+                ) + "{&" + store + ", " + drop + "}",
             )
         }
 
@@ -247,6 +269,133 @@ extend EmitIR {
         self._ul_obj.push_back(obj)
         self._ul_ends.push_back(0)
         return true
+    }
+
+    /// The destruction of what is left of `n` once its moved parts are
+    /// out (VariableDecl::moved_parts): each remaining by-value field of
+    /// its class in reverse declaration order, as the implicit destructor
+    /// would run them, a field with a moved part of its own taken apart
+    /// the same way. The object is the hook's `v` (_union_local_decl).
+    priv fn _residual(self, n: unsafe *VariableDecl) -> string {
+        var unsafe *r = dyn_cast<RecordType>(canon_unqual(n->type_->canonical))
+        if r == &null || r->decl == &null || !isa<ClassDecl>(decl_pattern(r->decl)) {
+            self._ice(
+                n->range,
+                "EmitIR: moved parts on a local that is not a class; LocalDisposition gives them only to one",
+            )
+        }
+
+        var starts: [usize]
+        var at:     usize   = 0
+        while at < n->moved_parts.size() {
+            starts.push(at)
+            while n->moved_parts[at] != &null {
+                at += 1
+            }
+
+            at += 1
+        }
+
+        return self._residual_of(
+            cast<ClassDecl>(decl_pattern(r->decl)),
+            LowerTargets::union_local_obj(),
+            n,
+            starts,
+            0,
+        )
+    }
+
+    /// _residual for the class `c` at `obj`, the paths of `n`'s moved parts
+    /// that start at `starts` all running through it, `depth` fields in.
+    /// `c` is a pattern, never an instance, which has no fields of its
+    /// own. Every path must name one of `c`'s fields: one that names none
+    /// would leave a field undestroyed, so it is an ICE.
+    priv fn _residual_of(self,
+                         c:            unsafe *ClassDecl,
+                         const obj:    string,
+                         n:            unsafe *VariableDecl,
+                         const starts: [usize],
+                         depth:        usize) -> string {
+        var s              = ""
+        var matched: usize = 0
+        var i              = c->fields.size()
+        while i > 0 {
+            i -= 1
+            var unsafe *fd = c->fields[i]
+            if fd == &null || fd->is_static() {
+                continue
+            }
+
+            var nm = self._spell.tok_name(
+                fd->name,
+                Speller::fid_of(unsafe (fd as unsafe *Decl)),
+            )
+
+            // By name: an instance's fields and the pattern's that a
+            // moved part's path may hold are different declarations, and
+            // a class's field names are its own.
+            var whole         = false
+            var sub:  [usize]
+            for var k: usize = 0; k < starts.size(); ++k {
+                var unsafe *pf = n->moved_parts[starts[k] + depth]
+                if pf == &null
+                    || self._spell.tok_name(
+                        pf->name,
+                        Speller::fid_of(unsafe (pf as unsafe *Decl)),
+                    ) != nm {
+                    continue
+                }
+
+                matched += 1
+                if n->moved_parts[starts[k] + depth + 1] == &null {
+                    whole = true
+                } else {
+                    sub.push(starts[k])
+                }
+            }
+
+            var at = obj.copy() + "." + nm
+
+            if whole {
+                if sub.size() > 0 {
+                    self._ice(
+                        n->range,
+                        "EmitIR: a moved part inside another; LocalDisposition refuses overlapping parts",
+                    )
+                }
+
+                continue
+            }
+
+            if sub.size() == 0 {
+                s += "::" + LowerTargets::union_local_destroy() + "(" + at + "); "
+                continue
+            }
+
+            var unsafe *next                   = n->moved_parts[sub[0] + depth + 1]
+            var        nc:   unsafe *ClassDecl = &null
+            if next->semantic_dc != &null && next->semantic_dc->dc_owner != &null {
+                nc = dyn_cast<ClassDecl>(next->semantic_dc->dc_owner)
+            }
+
+            if nc == &null {
+                self._ice(
+                    n->range,
+                    "EmitIR: a moved part's field outside a class; LocalDisposition gives them only to one",
+                )
+            }
+
+            s += self._residual_of(nc, at, n, sub, depth + 1)
+        }
+
+        if matched != starts.size() {
+            self._ice(
+                n->range,
+                "EmitIR: a moved part that names no field of its class; the rest of the local would not be destroyed",
+            )
+        }
+
+        return s
     }
 
     /// `x.finally()` (CallExpr::finalize, decided by MoveCheck): the

@@ -47,9 +47,11 @@
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "vector"
 
+import AST::ASTSupport::FrozenList
 import AST::DeclFacts::{
     decl_is_imported,
     decl_pattern,
+    tu_of,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::Node::Base::{
@@ -67,8 +69,13 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
+    ClassDecl,
+    FieldDecl,
+    FnBodyKind,
+    FunctionDecl,
     LocalDtor,
     StorageClass,
+    StructDecl,
     VariableDecl,
 }
 import AST::Node::Expressions
@@ -82,6 +89,7 @@ import Sema::Check::ClassLifecycle::{
     lifecycle_of,
 }
 import Sema::SemaContext::SemaContext
+import Token::TokenKind::TokenKind
 
 /// The move at `site` is a real transfer of the whole local `d`
 /// (MoveKind::Transfer: a Kairo move construction, move assignment or
@@ -281,6 +289,23 @@ fn _in_type_scope(d: unsafe *Decl) -> bool {
 /// there, so every such case is refused here first: an attribute covers
 /// `@align`.
 pub fn disarm_refusal(sc: unsafe *SemaContext, v: unsafe *VariableDecl) -> string {
+    var u = disarm_storage_refusal(v)
+    if u.size() > 0 {
+        return u
+    }
+
+    if destructive_type(sc, v->type_) != LifecycleTri::Yes {
+        return "its type's moved-from object is destroyed"
+    }
+
+    return ""
+}
+
+/// disarm_refusal without the question about the local's own type: why a
+/// move out of `v`, whole or a part of it, cannot change how the rest of
+/// it is destroyed ("" when it can). A part's type is asked on its own
+/// (part_moved_refusal).
+pub fn disarm_storage_refusal(v: unsafe *VariableDecl) -> string {
     var u = union_storage_refusal(v)
     if u.size() > 0 {
         return u
@@ -305,8 +330,90 @@ pub fn disarm_refusal(sc: unsafe *SemaContext, v: unsafe *VariableDecl) -> strin
         return "it is a binder or a lowering's local"
     }
 
-    if destructive_type(sc, v->type_) != LifecycleTri::Yes {
-        return "its type's moved-from object is destroyed"
+    return ""
+}
+
+/// Why a field of type `t` moved out of a local cannot be left out of the
+/// local's destruction ("" when it can): its moved-from object must need
+/// no destructor (destructive_type), and every transfer of it must be a
+/// move (a type that copies has its moves decided later, per use), and it
+/// must be a record, not an array, tuple, nullable or enum.
+pub fn part_moved_refusal(sc: unsafe *SemaContext, t: unsafe *Type) -> string {
+    if t == &null || t->canonical == &null || t->canonical->is_dependent() {
+        return "its type is not known"
+    }
+
+    var unsafe *r = dyn_cast<RecordType>(canon_unqual(t->canonical))
+    if r == &null || r->decl == &null || !(isa<ClassDecl>(r->decl) || isa<StructDecl>(r->decl)) {
+        return "it is not a class"
+    }
+
+    if destructive_type(sc, t) != LifecycleTri::Yes {
+        return "its moved-from object is destroyed"
+    }
+
+    if lifecycle_of(sc)->facts_of_type(t->canonical).copyable != LifecycleTri::No {
+        return "its type copies"
+    }
+
+    return ""
+}
+
+/// Why the record `t`, the local's type or a field's on the way to a
+/// moved part, cannot be destroyed field by field in the body of `f`
+/// ("" when it can). The residual hook (VariableDecl::moved_parts) runs
+/// the destructor of each field the moves left, which is all the
+/// record's own destructor does only when that is the implicit one: a
+/// Kairo class with no `op finally` body, no base and no vptr. The hook
+/// is a lambda in `f` naming the record's fields, which a private field
+/// allows only to the functions the record befriends; a free function of
+/// the record's own file and namespace is one (EmitPlan::file_friends),
+/// and anything else is refused.
+pub fn part_record_refusal(sc: unsafe *SemaContext,
+                           t:  unsafe *Type,
+                           f:  unsafe *FunctionDecl) -> string {
+    if t == &null || t->canonical == &null || t->canonical->is_dependent() {
+        return "its type is not known"
+    }
+
+    var unsafe *r = dyn_cast<RecordType>(canon_unqual(t->canonical))
+    if r == &null || r->decl == &null || !isa<ClassDecl>(r->decl) {
+        return "it is not a class"
+    }
+
+    var unsafe *c = dyn_cast<ClassDecl>(decl_pattern(r->decl))
+    if c == &null || decl_is_imported(r->decl) || decl_is_imported(unsafe (c as unsafe *Decl)) {
+        return "it is not a Kairo class"
+    }
+
+    if c->derives_list.size() > 0 || cast<ClassDecl>(r->decl)->derives_list.size() > 0 {
+        return "it has a base"
+    }
+
+    if lifecycle_of(sc)->facts_of_type(t->canonical).polymorphic != LifecycleTri::No {
+        return "it is polymorphic"
+    }
+
+    for var i: usize = 0; i < c->methods.size(); ++i {
+        var unsafe *m = c->methods[i]
+        if m != &null
+            && m->is_operator
+            && m->op_token.size() > 0
+            && m->op_token[0].kind == TokenKind::KwFinally
+            && m->body_kind != FnBodyKind::Default {
+            return "it has a destructor of its own"
+        }
+    }
+
+    if f == &null
+        || f->is_method()
+        || f->generic_params.size() > 0
+        || f->semantic_dc == &null
+        || f->semantic_dc != c->semantic_dc
+        || f->lexical_dc == &null
+        || c->lexical_dc == &null
+        || tu_of(f->lexical_dc) != tu_of(c->lexical_dc) {
+        return "its fields are reached only by the functions of its own file and namespace"
     }
 
     return ""
@@ -331,8 +438,7 @@ pub class LocalEndRow {
     pub var sites: [unsafe *Expr]
     pub var rets:  [unsafe *Expr]
     /// Its Move captures: the closure and the index of the capture row
-    /// (ClosureExpr::Held::disarms, written by settle). Each is also in
-    /// `sites`, keyed by the capture's first use.
+    /// (ClosureExpr::Held::disarms, written by settle), each once.
     pub var caps:   [unsafe *Expressions::ClosureExpr]
     pub var cap_at: [usize]
     /// Visits of its sites, loop passes included: an assignment to it
@@ -350,7 +456,40 @@ pub class LocalEndRow {
     /// moved-from object is still there and `op =` is what runs.
     pub var mremakes: [unsafe *Expressions::AssignOperatorExpr]
     pub var mbits:    [u8]
+    /// A move of a field out of it may leave that field out of its
+    /// destruction (disarm_storage_refusal and the body's own refusals
+    /// passed; LocalEnds::part_moved_at asks the rest per move).
+    pub var pcand: bool = false
+    /// Some part move of it, or something done to it, rules that out.
+    pub var pbad: bool = false
+    /// Each path a part move takes out of it, once, and the fields of
+    /// each (MovePlace::segs), every path's ended by a null.
+    pub var ppaths: [string]
+    pub var psegs:  [unsafe *Decl]
+    /// The exits of its scope seen, and the parts moved out at the first:
+    /// every other exit must have exactly these moved out, on every path.
+    pub var pexits: usize    = 0
+    pub var pset:   [string]
     fn LocalEndRow(self) { }
+
+    /// What is left of it after its part moves is destroyed field by
+    /// field (VariableDecl::moved_parts): the same parts are moved out at
+    /// every exit, and nothing else ends, moves or rebuilds the whole, nor
+    /// can leave the body where the walk does not see (`may_unwind`).
+    fn partial(self, may_unwind: bool) -> bool {
+        return self.pcand
+            && !self.pbad
+            && !self.bad
+            && !may_unwind
+            && self.refusal.size() == 0
+            && self.sites.size() == 0
+            && self.rets.size() == 0
+            && self.caps.size() == 0
+            && self.ends == 0
+            && self.remakes.size() == 0
+            && self.mremakes.size() == 0
+            && self.pset.size() > 0
+    }
 
     /// Its real transfers are disarmed: it can take the storage, every one
     /// of them can disarm, and there is one that is not a `return`, or a
@@ -361,7 +500,9 @@ pub class LocalEndRow {
             return false
         }
 
-        return self.sites.size() > 0 || self.ends > 0 && self.rets.size() > 0
+        return self.sites.size() > 0
+            || self.caps.size() > 0
+            || self.ends > 0 && self.rets.size() > 0
     }
 }
 
@@ -373,7 +514,8 @@ pub class LocalEnds {
 
     /// `d` is a local this body declares (a DeclStmt of one of its blocks);
     /// `refusal` as LocalEndRow::refusal, `cand` as LocalEndRow::cand.
-    fn declare(self, d: unsafe *VariableDecl, const refusal: string, cand: bool) {
+    /// `pcand` as LocalEndRow::pcand.
+    fn declare(self, d: unsafe *VariableDecl, const refusal: string, cand: bool, pcand: bool) {
         if self.index_of(d) != usize::MAX {
             return
         }
@@ -382,7 +524,75 @@ pub class LocalEnds {
         r.d       = d
         r.refusal = refusal.copy()
         r.cand    = cand && refusal.size() == 0
+        r.pcand   = pcand && refusal.size() == 0
         self.rows.push(r)
+    }
+
+    /// `d` is a row whose part moves may be left out of its destruction
+    /// (LocalEndRow::pcand).
+    fn is_pcand(self, d: unsafe *Decl) -> bool {
+        var i = self.index_of(d)
+        return i != usize::MAX && self.rows[i].pcand
+    }
+
+    /// A real transfer moves the part `path` (fields `segs`) out of `d`;
+    /// `ok` false when this one cannot be left out, which rules out all.
+    fn part_moved_at(self,
+                     d:          unsafe *Decl,
+                     const path: string,
+                     const segs: [unsafe *Decl],
+                     ok:         bool) {
+        var i = self.index_of(d)
+        if i == usize::MAX || !self.rows[i].pcand {
+            return
+        }
+
+        if !ok {
+            self.rows[i].pbad = true
+        }
+
+        for var k: usize = 0; k < self.rows[i].ppaths.size(); ++k {
+            if self.rows[i].ppaths[k] == path {
+                return
+            }
+        }
+
+        self.rows[i].ppaths.push(path.copy())
+        for var k: usize = 0; k < segs.size(); ++k {
+            self.rows[i].psegs.push(segs[k])
+        }
+
+        self.rows[i].psegs.push(&null)
+    }
+
+    /// An exit of `d`'s scope is reached with the parts `may` moved out on
+    /// some path and `must` on every path (`""`: the whole of it).
+    fn part_exit(self, d: unsafe *Decl, const may: [string], const must: [string]) {
+        var i = self.index_of(d)
+        if i == usize::MAX || !self.rows[i].pcand {
+            return
+        }
+
+        var *r = &self.rows[i]
+        if !_same_paths(may, must) || _has_path(may, "") || _paths_overlap(must) {
+            r->pbad = true
+        }
+
+        if r->pexits == 0 {
+            r->pset = must.copy()
+        } else if !_same_paths(r->pset, must) {
+            r->pbad = true
+        }
+
+        r->pexits += 1
+    }
+
+    /// No part move of `d` may be left out of its destruction.
+    fn spoil_parts(self, d: unsafe *Decl) {
+        var i = self.index_of(d)
+        if i != usize::MAX {
+            self.rows[i].pbad = true
+        }
     }
 
     /// LocalEndRow::refusal of `d` ("" when it is not a row).
@@ -441,11 +651,17 @@ pub class LocalEnds {
         self.rows[i].sites.push(site)
     }
 
-    /// Capture row `k` of closure `c` moves the whole local `d` in.
-    fn captured_at(self, d: unsafe *Decl, c: unsafe *Expressions::ClosureExpr, k: usize) {
+    /// Capture row `k` of closure `c` moves the whole local `d` in; `ok`
+    /// as for moved_at.
+    fn captured_at(self, d: unsafe *Decl, c: unsafe *Expressions::ClosureExpr, k: usize, ok: bool) {
         var i = self.index_of(d)
         if i == usize::MAX || !self.rows[i].cand {
             return
+        }
+
+        self.rows[i].visits += 1
+        if !ok {
+            self.rows[i].bad = true
         }
 
         for var j: usize = 0; j < self.rows[i].caps.size(); ++j {
@@ -577,9 +793,14 @@ pub class LocalEnds {
 
             // A construction that may find an object there tests `live`.
             var maybe = _maybe_remade(r->remakes) || managed && _maybe_remade(r->mremakes)
+            var partial = !managed && r->partial(may_unwind)
+            r->d->moved_parts = FrozenList<unsafe *FieldDecl>::empty()
             var m = LocalDtor::Scope
             if r->refusal.size() > 0 {
                 m = LocalDtor::Scope
+            } else if partial {
+                m                 = LocalDtor::Cleanup
+                r->d->moved_parts = _moved_parts(sc, *r)
             } else if managed {
                 m = if (r->alive_unmoved || maybe || may_unwind) => (LocalDtor::Flagged)
                     else => LocalDtor::Elided
@@ -611,6 +832,77 @@ pub class LocalEnds {
             }
         }
     }
+}
+
+/// The fields of each path in `r.pset`, every path's ended by a null
+/// (VariableDecl::moved_parts).
+fn _moved_parts(sc: unsafe *SemaContext, const r: LocalEndRow) -> FrozenList<unsafe *FieldDecl> {
+    var v = cxx::std::vector<unsafe *FieldDecl>()
+    for var k: usize = 0; k < r.pset.size(); ++k {
+        var at: usize = 0
+        for var p: usize = 0; p < r.ppaths.size(); ++p {
+            if r.ppaths[p] == r.pset[k] {
+                break
+            }
+
+            while r.psegs[at] != &null {
+                at += 1
+            }
+
+            at += 1
+        }
+
+        while r.psegs[at] != &null {
+            v.push_back(cast<FieldDecl>(r.psegs[at]))
+            at += 1
+        }
+
+        v.push_back(&null)
+    }
+
+    var out = FrozenList<unsafe *FieldDecl>::empty()
+    out.from_vec(unsafe &v, sc->ctx)
+    return out
+}
+
+/// `a` and `b` hold the same paths, in any order.
+fn _same_paths(const a: [string], const b: [string]) -> bool {
+    for var i: usize = 0; i < a.size(); ++i {
+        if !_has_path(b, a[i]) {
+            return false
+        }
+    }
+
+    for var i: usize = 0; i < b.size(); ++i {
+        if !_has_path(a, b[i]) {
+            return false
+        }
+    }
+
+    return true
+}
+
+fn _has_path(const v: [string], const p: string) -> bool {
+    for var i: usize = 0; i < v.size(); ++i {
+        if v[i] == p {
+            return true
+        }
+    }
+
+    return false
+}
+
+/// Two of `v`'s paths name overlapping storage (one is the other's part).
+fn _paths_overlap(const v: [string]) -> bool {
+    for var i: usize = 0; i < v.size(); ++i {
+        for var k: usize = 0; k < v.size(); ++k {
+            if i != k && (v[i] == v[k] || v[k].starts_with(v[i].copy() + ".")) {
+                return true
+            }
+        }
+    }
+
+    return false
 }
 
 /// Some assignment of `v` is reached maybe dead: MAYBE, or DEAD on one

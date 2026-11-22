@@ -1177,6 +1177,13 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     /// body, read by EmitIR. `Scope` for anything that is not a block-scope
     /// local with a non-trivial destructor.
     pub var dtor_mode: LocalDtor = LocalDtor::Scope
+    /// The parts a Cleanup local's value has lost on every path to every
+    /// exit of its scope (written by Sema/Check/LocalDisposition.k with
+    /// `dtor_mode`, read by EmitIR): each a path of by-value fields from
+    /// the local's class, ended by a null. The hook then destroys the
+    /// object field by field without them, since a moved-out field's
+    /// moved-from object is not destroyed. Empty for every other local.
+    pub var moved_parts: FrozenList<unsafe *FieldDecl>
 
     pub static fn create(ctx:     unsafe *ASTContext,
                          range:   SourceRange,

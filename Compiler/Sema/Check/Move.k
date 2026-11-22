@@ -281,7 +281,10 @@ import Sema::Check::EffectPropagation::{
 import Sema::Check::LocalDisposition::{
     LocalEnds,
     disarm_refusal,
+    disarm_storage_refusal,
     local_has_dtor,
+    part_moved_refusal,
+    part_record_refusal,
     record_real_transfer,
     union_storage_refusal,
 }
@@ -626,6 +629,11 @@ pub class MoveState {
     /// stands on (MoveCheck::_no_must) is not added: the set may say less
     /// than the truth, never more.
     pub var disarmed: [unsafe *Decl]
+    /// Parts moved by a real transfer that may be left out of their
+    /// local's destruction (LocalEnds::part_moved_at) on EVERY path
+    /// reaching here; joined like `disarmed`. An assignment to a part, or
+    /// to what holds it, takes it out.
+    pub var parts: [MovedPart]
     fn MoveState(self) { }
 
     fn copy(const self) -> MoveState {
@@ -643,7 +651,18 @@ pub class MoveState {
 
         r.ended    = self.ended.copy()
         r.disarmed = self.disarmed.copy()
+        r.parts    = copy_parts(self.parts)
         return r
+    }
+
+    fn has_part(const self, d: unsafe *Decl, const path: string) -> bool {
+        for var i: usize = 0; i < self.parts.size(); ++i {
+            if self.parts[i].d == d && self.parts[i].path == path {
+                return true
+            }
+        }
+
+        return false
     }
 
     fn link_of(self, d: unsafe *Decl) -> usize {
@@ -732,6 +751,16 @@ pub class MoveState {
 
             m += 1
         }
+
+        var q: usize = 0
+        while q < self.parts.size() {
+            if self.parts[q].d == d {
+                self.parts.remove(q)
+                continue
+            }
+
+            q += 1
+        }
     }
 
     fn add_pending(self, const p: PendingMove) {
@@ -811,6 +840,16 @@ pub class MoveState {
 
                 m += 1
             }
+        }
+
+        var q: usize = 0
+        while q < self.parts.size() {
+            if self.parts[q].d == d && path_within(self.parts[q].path, path) {
+                self.parts.remove(q)
+                continue
+            }
+
+            q += 1
         }
 
         for var r: usize = 0; r < self.reported.size(); ++r {
@@ -904,6 +943,14 @@ pub fn move_join(const a: MoveState, const b: MoveState) -> MoveState {
     }
 
     out.disarmed = moved_both
+    var parts_both: [MovedPart]
+    for var i: usize = 0; i < a.parts.size(); ++i {
+        if b.has_part(a.parts[i].d, a.parts[i].path) {
+            parts_both.push(a.parts[i].copy())
+        }
+    }
+
+    out.parts = parts_both
     return out
 }
 
@@ -1488,17 +1535,14 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
 
                 // The capture is move-constructed where the closure is
                 // built (the lambda in its heap slot, `new auto(...)`):
-                // for a local of this body it is a real transfer.
-                var unsafe *fu = n->held[i].first_use
-                if fu != &null && isa<VariableDecl>(d) && self._ends.is_cand(d) {
-                    record_real_transfer(
-                        self.sc,
-                        unsafe (fu as unsafe *Expr),
-                        d,
-                    )
-
-                    self._disarm_site(d, unsafe (fu as unsafe *Expr), false)
-                    self._ends.captured_at(d, n, i)
+                // for a local of this body it is a real transfer. Its site
+                // is the capture row, not `first_use`, which is a node of
+                // the closure's body (a move of the closure's own member
+                // there is not this local's).
+                if isa<VariableDecl>(d) && self._ends.is_cand(d) {
+                    var ok = self._fin_depth == 0 && self._uneval == 0
+                    self._ends.captured_at(d, n, i, ok)
+                    self._must_disarm(d, ok)
                 }
 
                 var mp = MovedPart()
@@ -2791,6 +2835,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         for var k: usize = 0; k < self._block_locals[i].size(); ++k {
             var unsafe *d = self._block_locals[i][k]
             if !self._st.is_ended(d) {
+                self._part_exit(d)
                 self._ends.alive_at_exit(d)
                 // Moved only while the move's mark is still there: a mark
                 // taken back some other way than an assignment leaves the
@@ -3253,6 +3298,15 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                             && (self._st.is_disarmed(pl.d)
                                 || self._st.index_of(pl.d, "") != usize::MAX) {
                             self._ends.spoil(pl.d)
+                        }
+
+                        // A whole assignment, or a store into a moved part
+                        // or into what holds one, builds a value the
+                        // field-by-field destruction would leave out.
+                        if self._ends.is_pcand(pl.d)
+                            && (pl.path.size() == 0
+                                || self._st.overlap_of(pl.d, pl.path) != usize::MAX) {
+                            self._ends.spoil_parts(pl.d)
                         }
 
                         var moved = self._move_remake_state(pl)
@@ -3838,12 +3892,17 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
                         self.sc->opts.destructive_moves
                             && self._body_refusal.size() == 0
                             && disarm_refusal(self.sc, vd).size() == 0,
+                        self.sc->opts.destructive_moves
+                            && self._body_refusal.size() == 0
+                            && self._fn != &null
+                            && disarm_storage_refusal(vd).size() == 0,
                     )
 
                     // Inside a `try` with a C++ exception arm, a C++ call
                     // may leave this local's scope where the walk does not see.
                     for var t: usize = 0; t < self._tries.size(); ++t {
                         if self._tries[t].cxx_arm {
+                            self._ends.spoil_parts(unsafe (vd as unsafe *Decl))
                             self._ends.alive_at_exit(
                                 unsafe (vd as unsafe *Decl),
                             )
@@ -7086,6 +7145,8 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             && self._same_type(dest, e->type_) {
             record_real_transfer(self.sc, e, pl.d)
             self._disarm_site(pl.d, e, false)
+        } else if kind == MoveKind::Transfer && pl.path.size() > 0 && !pl.elem {
+            self._part_site(pl, e, dest)
         }
 
         var mp = MovedPart()
@@ -7123,6 +7184,108 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             self._ends.moved_at(d, e, ok)
         }
 
+        self._must_disarm(d, ok)
+    }
+
+    /// `e`, a real transfer of the part `pl` of a local: a site the
+    /// provider of part moves counts (LocalEnds::part_moved_at). It can be
+    /// left out of the local's destruction only when it is a chain of
+    /// by-value fields straight from the local, into the same type, every
+    /// record on the way passes part_record_refusal and the part's type
+    /// part_moved_refusal, and the walk places it on every path it stands
+    /// on, outside a `finally { }` body and an unevaluated operand, in a
+    /// function's own body. On a live path the part joins the must-set.
+    priv fn _part_site(self, const pl: MovePlace, e: unsafe *Expr, dest: unsafe *Type) {
+        if !self._ends.is_pcand(pl.d) {
+            return
+        }
+
+        var ok = self._fin_depth == 0
+            && self._uneval == 0
+            && self._no_must == 0
+            && self._fn != &null
+            && !pl.has_ptr
+            && !pl.deref
+            && !pl.starred
+            && !pl.opaque
+            && self._same_type(dest, e->type_)
+            && self._part_chain_ok(pl, e)
+        self._ends.part_moved_at(pl.d, pl.path, pl.segs, ok)
+        if ok && !self._st.dead && !self._st.has_part(pl.d, pl.path) {
+            var mp = MovedPart()
+            mp.d    = pl.d
+            mp.path = pl.path.copy()
+            self._st.parts.push(mp)
+        }
+    }
+
+    /// `e` is `x.f1. ... .fn` on the local `pl.d`: `.` steps naming
+    /// by-value fields (no tuple ordinal), each record on the way and the
+    /// moved field's type as _part_site requires.
+    priv fn _part_chain_ok(self, const pl: MovePlace, e: unsafe *Expr) -> bool {
+        var unsafe *c = dyn_cast<ChainExpr>(self._tu.strip_parens(e))
+        if c == &null
+            || c->base == &null
+            || c->steps.size() == 0
+            || c->steps.size() != pl.segs.size() {
+            return false
+        }
+
+        var unsafe *b = dyn_cast<NamedIdentExpr>(self._tu.strip_parens(c->base))
+        if b == &null || b->resolved_decl != pl.d {
+            return false
+        }
+
+        var unsafe *rec = c->base->type_
+        for var i: usize = 0; i < c->steps.size(); ++i {
+            var unsafe *st = c->steps.get(i)
+            var unsafe *fd = dyn_cast<FieldDecl>(st->resolved_decl)
+            if st->access_kind != ChainExpr::AccessKind::Dot
+                || fd == &null
+                || fd->is_static()
+                || st->is_tuple_index()
+                || pl.segs[i] != st->resolved_decl {
+                return false
+            }
+
+            if part_record_refusal(self.sc, rec, self._fn).size() > 0 {
+                return false
+            }
+
+            rec = st->resolved_type
+        }
+
+        return part_moved_refusal(self.sc, e->type_).size() == 0
+    }
+
+    /// `d`, a local whose part moves may be left out of its destruction,
+    /// is alive at an exit of its scope: the parts moved out on some path
+    /// and on every path here go to LocalEnds::part_exit.
+    priv fn _part_exit(self, d: unsafe *Decl) {
+        if !self._ends.is_pcand(d) {
+            return
+        }
+
+        var may:  [string]
+        var must: [string]
+        for var i: usize = 0; i < self._st.moved.size(); ++i {
+            if self._st.moved[i].d == d {
+                may.push(self._st.moved[i].path.copy())
+            }
+        }
+
+        for var i: usize = 0; i < self._st.parts.size(); ++i {
+            if self._st.parts[i].d == d {
+                must.push(self._st.parts[i].path.copy())
+            }
+        }
+
+        self._ends.part_exit(d, may, must)
+    }
+
+    /// A disarm site of `d` that can disarm (`ok`) is reached here: on a
+    /// live path the walk can place, `d` joins the must-set.
+    priv fn _must_disarm(self, d: unsafe *Decl, ok: bool) {
         if ok && !self._st.dead && self._no_must == 0 && !self._st.is_disarmed(d) {
             self._st.disarmed.push(d)
         }
