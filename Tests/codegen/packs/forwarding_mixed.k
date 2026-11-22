@@ -2,7 +2,7 @@
 // method and an instance method into a function, an empty pack, and a
 // move-only element beside copyable ones. (Into a constructor is
 // ctor_from_pack.k, XFAIL.) Every temporary crosses every
-// layer without a copy, and the move-only one is moved once.
+// layer without a copy, and the move-only one is never moved (a `T&&`).
 
 var moves: i32 = 0
 var copies: i32 = 0
@@ -37,11 +37,11 @@ fn <...A> relay(...args: A) -> i32 { return how_many(args...) }
 fn main() -> i32 {
     var s = Factory::make(Tok(1), Counted(2), 3)
     if s != 6 { return 1 }
-    if (moves != 1) || (copies != 0) { return 2 }
+    if (moves != 0) || (copies != 0) { return 2 }
     var f = Factory()
     var s2 = f.make_via(Tok(10), Counted(20), 30)
     if s2 != 60 { return 3 }
-    if (moves != 2) || (copies != 0) { return 4 }
+    if (moves != 0) || (copies != 0) { return 4 }
     if relay() != 0 { return 5 }
     if relay(1, 2.5, true) != 3 { return 6 }
     return 0

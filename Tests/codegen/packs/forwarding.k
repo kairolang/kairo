@@ -1,8 +1,8 @@
 // A type pack is forwarded, not copied, at every layer: `...args: T`
 // is `T&&... args`, an expansion `args...` is `static_cast<T&&>(args)...`,
 // and `for a in args` binds each element as an lvalue. A temporary reaches
-// the last layer untouched: a MOVE value through two layers is moved once,
-// by the parameter that finally owns it, and a @copy value through three
+// the last layer untouched: a MOVE value through two layers into a reader
+// is never moved (its by-value parameter is a `T&&`), and a @copy value through three
 // layers into a `const` reader is never copied. An lvalue of a COPY type at
 // the first call is still copied once, as any `x: T` parameter copies it.
 // `const` and `@inout` packs keep their modes: `const T... xs`, and the
@@ -43,10 +43,10 @@ fn <...T> count_const(const ...args: T) -> i32 { return count(args...) }
 
 fn main() -> i32 {
     if tok_outer(Tok(5)) != 5 { return 1 }
-    if moves != 1 { return 10 + moves }
+    if moves != 0 { return 10 + moves }
     var h = Tok(6)
     if tok_outer(h) != 6 { return 2 }
-    if moves != 2 { return 20 + moves }
+    if moves != 0 { return 20 + moves }
     if cnt_1(Counted(7)) != 7 { return 3 }
     if copies != 0 { return 30 + copies }
     var c = Counted(8)
