@@ -584,6 +584,7 @@ def postbuild(tree: Path, mode: str, triple: str, llvm_build: Path = None, targe
     # tree's Lib/, never the checkout's (which may hold unrelated uncommitted work).
     if src is not None:
         env["KBLD_LIB_SRC"] = str(src / "Lib")
+        env["KBLD_TEMPLATES_SRC"] = str(src / "Extras" / "Templates")
     if llvm_build:
         env["KAIRO_LLVM_BUILD"] = str(llvm_build)
     if target:

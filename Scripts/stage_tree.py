@@ -10,6 +10,8 @@
 #                 builtin       Lib/builtin, the builtin module tree
 #                 std           Lib/std, the standard library tree
 #                 rt            Lib/rt, the runtime sources
+#   <tree>/share/kairo/templates/ Extras/Templates, the projects `kairo --init`
+#                 copies (Driver/CompilerInit.k finds them beside bin/)
 #
 # The compiler derives --resource-dir, --builtins-dir and --std-dir from
 # <exe>/../lib when they are not given (CompilerInstance::_discover_roots),
@@ -116,6 +118,7 @@ else:
 # lld are the ones that tree ships. The resource dir's headers are the same fork's.
 LLVM_BUILD = Path(os.environ["KAIRO_LLVM_BUILD"]) if os.environ.get("KAIRO_LLVM_BUILD") else BUILD_DIR / "llvm"
 LIB_SRC    = Path(getenv("KBLD_LIB_SRC", str(ROOT / "Lib")))   # build.py --src sets it
+TEMPLATES_SRC = Path(getenv("KBLD_TEMPLATES_SRC", str(ROOT / "Extras" / "Templates")))  # and this
 # The staged copy is always there after stage_tools(); it reads ELF, Mach-O
 # and PE alike, so the gates need no host binutils.
 OBJDUMP    = BUILD_DIR / "llvm" / "bin" / ("llvm-objdump" + HOST_EXE)
@@ -302,6 +305,21 @@ def stage_tree(tree: Path, link_lib: bool) -> None:
         else:
             n = mirror(src, dst, name)
             log(f"{tree.name}: lib/{name} ({n} updated)")
+
+    # The --init templates: linked like Lib/ in a debug tree, so an edit to a
+    # template is what the next --init copies.
+    if not TEMPLATES_SRC.is_dir():
+        die(f"{TEMPLATES_SRC} is missing")
+    tdst = tree / "share" / "kairo" / "templates"
+    if link_lib:
+        rel = os.path.relpath(TEMPLATES_SRC, tdst.parent)
+        if not tdst.is_symlink() and tdst.exists():
+            remove(tdst)
+        symlink(rel, tdst)
+        log(f"{tree.name}: share/kairo/templates -> {rel}")
+    else:
+        n = mirror(TEMPLATES_SRC, tdst)
+        log(f"{tree.name}: share/kairo/templates ({n} updated)")
 
     tools = stage_tools(tree / "bin", rd.name)
     log(f"{tree.name}: bin/ {', '.join(tools)}")

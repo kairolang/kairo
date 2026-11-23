@@ -88,14 +88,16 @@ def T(name: str) -> Path:
 TABLE: list[Component] = [
     Component("kairo", "Kairo (kairo, kcc, kld, kfmt, ksys, kals, builtin, std, rt, scripts)", KAIRO_LICENSE, "",
               "bin/kairo, bin/kcc, bin/kld, bin/kfmt, bin/ksys, bin/kals, lib/builtin, lib/std, lib/rt, "
-              "scripts/darwin-sysroot.sh, scripts/msvc-sysroot.{sh,ps1}; share/kairo/sysroot's own files "
+              "scripts/darwin-sysroot.sh, scripts/msvc-sysroot.{sh,ps1}, share/kairo/templates; "
+              "share/kairo/sysroot's own files "
               "(registry.toml, families/, quirks.toml, shims/, validate/; its inputs are listed per component)",
               [("LICENSE", [C("LICENSE")])],
               # share/kairo/sysroot is claimed whole here; installed() then reads its
               # registry.toml [licenses] and pulls in the component of every input dir.
               claims=["bin/kairo*", "bin/kcc*", "bin/kld*", "bin/kfmt*", "bin/ksys*", "bin/kals*",
                       "lib/builtin", "lib/std", "lib/rt", "scripts/darwin-sysroot.sh",
-                      "scripts/msvc-sysroot.sh", "scripts/msvc-sysroot.ps1", "share/kairo/sysroot"]),
+                      "scripts/msvc-sysroot.sh", "scripts/msvc-sysroot.ps1", "share/kairo/sysroot",
+                      "share/kairo/templates"]),
     Component("llvm", "LLVM, clang, lld, compiler-rt, libc++, libc++abi, libunwind (Kairo fork)",
               LLVM_LICENSE + " (legacy NCSA / MIT sections for older files)", "22.1.0",
               "linked into bin/kairo, bin/kcc, bin/kld, bin/llvm-ar, bin/llvm-symbolizer; "

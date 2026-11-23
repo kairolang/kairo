@@ -32,6 +32,8 @@ lld in-process, and a user never needs the binaries):
             compiling. Target-specific, so the SAME overlays go into every host archive, from
             one canonical build/sdk-overlays (Scripts/build_sdk_overlays.py); their REVISION
             must match the runtimes', and every file must be on the overlay allowlist.
+  share/kairo/templates/  the projects `kairo --init` copies (source: Extras/Templates/,
+            staged into the tree by stage_tree.py)
   LICENSE, NOTICE, LICENSES/, THIRD-PARTY-NOTICES               (Scripts/collect_licenses.py)
 
 --legacy-sysroots ships all 18 redistributable roots of sysroot/manifest.json, as 0.2.0 did
@@ -220,6 +222,15 @@ def stage_lib(triple: str, dst: Path) -> None:
     for p in src.glob("*"):
         if p.is_file() and (fnmatch.fnmatch(p.name, "*.so*") or p.suffix in (".dylib", ".dll")):
             link_or_copy(p, dst / "lib" / p.name)
+
+
+def stage_templates(triple: str, dst: Path) -> None:
+    """share/kairo/templates, the projects `kairo --init` copies, from the staged tree
+    (stage_tree.py puts Extras/Templates there). Without it --init fails in the install."""
+    src = tree_of(triple) / "share" / "kairo" / "templates"
+    if not src.is_dir():
+        die(f"{src} is missing (rebuild, or run Scripts/stage_tree.py on the tree)")
+    copy_resolved(src.resolve(), dst / "share" / "kairo" / "templates")
 
 
 # scripts/: shipped as is, mode 0755. They may only run the install's own tools (kcc, kld,
@@ -621,6 +632,7 @@ def stage_dir(triple: str, ver: str, sysroots: str, work: Path, allow_missing: s
     dst.mkdir(parents=True)
     stage_bin(triple, dst, allow_missing)
     stage_lib(triple, dst)
+    stage_templates(triple, dst)
     stage_scripts(dst)
     stage_runtimes(dst)
     if overlays:
