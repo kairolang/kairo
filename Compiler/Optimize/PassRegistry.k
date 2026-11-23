@@ -29,6 +29,7 @@ import Optimize::KairoPass::{
     KairoPass,
     PassPoint,
 }
+import Optimize::LLVM::AllocModel::AllocModel
 import Optimize::LLVM::SpecDevirt::SpecDevirt
 
 /// One pass as the registry lists it: a KairoPass's static answers, and
@@ -58,7 +59,7 @@ fn <P impl KairoPass> info_of() -> KairoPassInfo {
 
 /// Every Kairo pass. Passes at one point run in this order.
 pub fn kairo_passes() -> [KairoPassInfo] {
-    return [info_of<SpecDevirt>()]
+    return [info_of<SpecDevirt>(), info_of<AllocModel>()]
 }
 
 /// Whether some pass is named `name`.

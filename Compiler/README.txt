@@ -78,9 +78,10 @@ Compiler/
 │   │               (--print-kairo-passes, --disable-kairo-pass)
 │   └── LLVM/       passes over a TU's IR inside LLVM's pipeline, written in
 │                   Kairo: SpecDevirt (speculative devirtualization of a
-│                   virtual call with a few targets); and PassBridge.hh,
-│                   the C++ that registers a pass at its point with clang's
-│                   PassBuilder
+│                   virtual call with a few targets), AllocModel (the runtime
+│                   heap's entry points as allocation functions); and
+│                   PassBridge.hh, the C++ that registers a pass at its
+│                   point with clang's PassBuilder
 ├── AST/
 │   ├── Node/       node defs + RTTI casting (isa/cast/dyn_cast via kind
 │   │               field); CanonicalNodes: BuiltinType and RecordType, the
