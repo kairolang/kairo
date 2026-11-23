@@ -129,17 +129,18 @@ group = "cxx-interop"
     global scope. Declaring a reserved name is undefined behavior, and it may silently collide with a
     standard-library or compiler-internal name in the C++ code that sees it.
 
-    Kairo applies one rule everywhere on purpose: a leading underscore is refused at EVERY scope,
-    including class fields, parameters and locals, where C++ itself would accept `_count`. A rule
-    that holds at one scope and not another costs more to remember than the occasional rename. The
-    message says which case a name hit: "reserved by C++ at every scope" for `__` and `_Upper`, or
-    "Kairo reserves leading-underscore names" for a plain leading underscore.
+    `__` and `_Upper` are reported on every name: fields, parameters and locals included. A plain
+    leading underscore (`_count`) is reported only on a declaration C++ code can name: a `pub` one,
+    or an unmarked or `prot` one in a file under a `module.k`, which the C++ files of that directory
+    see. A `priv` declaration, or any declaration of a file with no `module.k` above it, is named
+    only by Kairo, and C++ allows `_count` at class and local scope.
 
     ## example
 
     ```kairo
     class Counter {
-        var _count: i32     // warning: Kairo reserves leading-underscore names at every scope
+        priv var _count: i32 // fine: private, so C++ never names it
+        pub fn _reset(self)  // warning: C++ code can name it
         var __raw: i32      // warning: reserved by C++ at every scope (double underscore)
     }
     ```
@@ -147,7 +148,7 @@ group = "cxx-interop"
     ## how to fix
 
     rename the declaration so it does not start with an underscore and contains no `__`
-    (`count`, `count_`, `raw_count`).
+    (`reset`, `count_`, `raw_count`), or make it private.
     """
 
 [SC006]
