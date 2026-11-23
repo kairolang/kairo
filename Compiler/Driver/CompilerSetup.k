@@ -74,6 +74,7 @@ import Driver::CompilerNative
 import Interop::Clang::ClangBackend::ClangBackendConfig
 import Native::HostCPU::{
     host_cpu_features,
+    host_cpu_key,
     host_cpu_name,
     x86_64_level,
     x86_64_level_name,
@@ -1869,7 +1870,14 @@ extend CompilerInstance {
                 return
             }
 
-            self.invocation()->target.mcpu = host_cpu_name()
+            self.invocation()->target.mcpu       = host_cpu_name()
+            self.invocation()->target.native_cpu = "mcpu " + host_cpu_key()
+        }
+
+        // The clang driver resolves --march=native (it never reaches cc1
+        // as a word); the caches need what it resolved to here.
+        if self._inv.target.march == "native" {
+            self.invocation()->target.native_cpu += "march " + host_cpu_key()
         }
 
         self._apply_host_cpu(&tt)
@@ -1973,12 +1981,7 @@ extend CompilerInstance {
             tg->host_cpu = x86_64_level_name(level) + " " + tg->mtune.copy()
         } else if tt.isAArch64() {
             tg->driver_mcpu = "native"
-            var key = "native " + host_cpu_name()
-            for *f in host_cpu_features() {
-                key += " " + f->copy()
-            }
-
-            tg->host_cpu = key
+            tg->host_cpu    = "native " + host_cpu_key()
         }
     }
 

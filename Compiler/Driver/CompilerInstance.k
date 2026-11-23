@@ -1327,7 +1327,7 @@ pub class CompilerInstance {
             && !self.incr.setup(
                 self.invocation()->linker.cache_dir,
                 self.incr_words,
-                self.invocation()->target.host_cpu,
+                self.invocation()->target.resolved_cpu(),
                 input,
                 self._link_out,
                 format,

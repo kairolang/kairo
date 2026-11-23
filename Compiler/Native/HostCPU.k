@@ -52,6 +52,18 @@ pub fn host_cpu_features() -> [string] {
     return out
 }
 
+/// The host CPU's name and every feature it has, as one line: what a build
+/// for "this machine" resolves to, for a key that must not match the same
+/// command line run on another machine.
+pub fn host_cpu_key() -> string {
+    var key = host_cpu_name()
+    for *f in host_cpu_features() {
+        key += " " + f->copy()
+    }
+
+    return key
+}
+
 fn _has_all(const have: [string], const want: [string]) -> bool {
     for var i: usize = 0; i < want.size(); ++i {
         var found = false

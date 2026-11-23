@@ -99,6 +99,10 @@ pub class TargetOptions {
     /// The clang driver's `-mcpu=` word, which unlike --mcpu also turns the
     /// CPU's features on: `native` under the host CPU default on AArch64.
     pub var driver_mcpu: string = ""
+    /// What `--mcpu native` or `--march=native` resolved to on this machine
+    /// (the CPU name and its features), "" when neither is given. The
+    /// command line spells only `native`, so the caches key this instead.
+    pub var native_cpu: string = ""
     /// --pkg-config names, in order. Run by the driver (_apply_host_system),
     /// whose output lands in the ordinary -I/-D/-L/-l lists.
     pub var pkg_config: cxx::std::vector<string>
@@ -274,6 +278,18 @@ pub class TargetOptions {
         }
 
         return self.effective_triple.copy()
+    }
+
+    /// The CPU this build resolved to on the machine running it where no
+    /// word of the command line spells it: the host CPU default (host_cpu)
+    /// and a `native` spelling (native_cpu). The caches key it, so a cache
+    /// directory carried to another machine does not replay.
+    pub fn resolved_cpu(self) -> string {
+        if self.native_cpu.is_empty() {
+            return self.host_cpu.copy()
+        }
+
+        return self.host_cpu.copy() + "\n" + self.native_cpu.copy()
     }
 
     /// --mfeatures split on commas, each item as a signed LLVM feature name

@@ -193,11 +193,11 @@ pub class ModuleRecords {
     ///   is keyed rather than a list of the flags that matter (a
     ///   false miss costs a run, a false hit a miscompile). The
     ///   observation flags of this feature are left out.
-    /// - `host_cpu`: what the host CPU default resolved to
-    ///   (TargetOptions::host_cpu), the one input of the objects and of
-    ///   the ffi headers' predefined macros that the command line does
-    ///   not spell: the same line on another machine, or a cache directory
-    ///   carried to one, must not replay.
+    /// - `host_cpu`: what the host CPU default or a `native` spelling
+    ///   resolved to (TargetOptions::resolved_cpu), the one input of the
+    ///   objects and of the ffi headers' predefined macros that the
+    ///   command line does not spell: the same line on another machine,
+    ///   or a cache directory carried to one, must not replay.
     /// - `color`: the diagnostic renderer's colour decision.
     pub fn setup(self,
                  const cache_dir: string,

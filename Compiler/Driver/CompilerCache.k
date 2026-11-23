@@ -369,13 +369,13 @@ extend CompilerInstance {
         // --march is no word of target() or codegen() (it rides the driver
         // probe), and the library's objects are compiled for it: a link for
         // the baseline CPU must not take a library built for x86-64-v3.
-        // host_cpu is what the host CPU default resolved to, features
-        // included, which no word spells.
+        // resolved_cpu is what the host CPU default or a `native` spelling
+        // resolved to, features included, which no word spells.
         for *w in FlagTranslator::march_driver(&inv->target) {
             key += "\n" + *w
         }
 
-        key += "\nhost-cpu " + inv->target.host_cpu
+        key += "\nhost-cpu " + inv->target.resolved_cpu()
 
         for *w in FlagTranslator::codegen(&*inv, self._backend->triple(), ClangSpelling::Driver, unsafe &missing) {
             key += "\n" + *w

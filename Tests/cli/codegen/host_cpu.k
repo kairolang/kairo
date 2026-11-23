@@ -26,6 +26,10 @@ fn main() -> i32 { return 0 }
 // BASE-NOT: Host CPU:
 // BASE-NOT: Tune CPU:
 
+// build.py's host_cpu_args finds the word through this help text.
+// RUN: %kairo --help | %FileCheck %s --check-prefix=HELP
+// HELP: baseline (the target's default CPU)
+
 // The word never reaches clang as a CPU name.
 // RUN: %kairo %s --print-clang-args --mcpu= --mcpu=baseline | %FileCheck %s --check-prefix=WORD
 // WORD-NOT: baseline
