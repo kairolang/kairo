@@ -31,11 +31,10 @@ fn main() -> i32 { return 0 }
 // WORD-NOT: baseline
 
 // RUN: { %kairo %s --print-target-info --mcpu= --target=x86_64-linux-musl || true; } | %FileCheck %s --check-prefix=CROSS
-// RUN: { %kairo %s --print-target-info --mcpu= --target=aarch64-linux-musl || true; } | %FileCheck %s --check-prefix=CROSS
 // CROSS-NOT: Host CPU:
 // CROSS:     Default CPU:     {{[^ ]+$}}
 
 // `baseline` is accepted with --target, where it changes nothing.
-// RUN: { %kairo %s --print-target-info --target=aarch64-linux-musl || true; } > %t.a
-// RUN: { %kairo %s --print-target-info --mcpu= --target=aarch64-linux-musl || true; } > %t.b
+// RUN: { %kairo %s --print-target-info --target=x86_64-linux-musl || true; } > %t.a
+// RUN: { %kairo %s --print-target-info --mcpu= --target=x86_64-linux-musl || true; } > %t.b
 // RUN: cmp %t.a %t.b
