@@ -67,6 +67,7 @@
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "llvm/ADT/StringMap.h"
+ffi "c++" import "clang/AST/APValue.h"
 ffi "c++" import "clang/AST/ASTContext.h"
 ffi "c++" import "clang/AST/Attr.h"
 ffi "c++" import "clang/AST/Decl.h"
@@ -181,10 +182,10 @@ pub class DeclImport {
 
     /// ## fill mode (ForeignInstantiate; begin_fill .. end_fill own all of it)
 
-    priv var _mode:        ImportMode                            = ImportMode::HeaderWalk
-    priv var _fill_target: unsafe *HeaderTarget                  = &null ///< Fill: every decl lands here.
-    priv var _fill_scope:  unsafe *DeclContext                   = &null ///< Fill: the instance shell.
-    priv var _fill_spec:   unsafe *clang::Decl                   = &null ///< Fill: the ClassTemplateSpecializationDecl it stands for.
+    priv var _mode:        ImportMode            = ImportMode::HeaderWalk
+    priv var _fill_target: unsafe *HeaderTarget  = &null ///< Fill: every decl lands here.
+    priv var _fill_scope:  unsafe *DeclContext   = &null ///< Fill: the instance shell.
+    priv var _fill_spec:   unsafe *clang::Decl   = &null ///< Fill: the ClassTemplateSpecializationDecl it stands for.
     priv var _fill_scopes: [unsafe *DeclContext] ///< Fill: every table the fill created; end_fill freezes them.
     /// VariantFill only (else null): the USR -> decl table for the
     /// members this fill mints. `vector<usize>` and `vector<u64>` are two
@@ -1733,6 +1734,7 @@ pub class DeclImport {
                 var unsafe *kv = cast<Declarations::VariableDecl>(kd)
                 kv->type_     = ti->_import(v->getType())
                 kv->is_thread = v->getTLSKind() != clang::VarDecl::TLS_None
+                self._define_constexpr_var(v, kv)
             } case clang::Decl::Field {
                 var unsafe *f = llvm::cast<clang::FieldDecl>(d)
                 cast<Declarations::FieldDecl>(kd)->type_ = ti->_import(
@@ -1748,15 +1750,44 @@ pub class DeclImport {
         }
     }
 
+    /// A `constexpr` variable is a compile-time value to an eval context,
+    /// as a `constexpr` function is: C++ computes it there. An integer or
+    /// enumeration one also keeps the value clang computed, for ConstEval,
+    /// which folds the number itself (an array length, a generic value
+    /// argument) after the clang decl is gone. A variable that is not
+    /// `constexpr` (`const int` included) stays a run-time value. `define`
+    /// runs once per clang redeclaration, so both marks only ever turn on.
+    priv fn _define_constexpr_var(self,
+                                  v:  unsafe *clang::VarDecl,
+                                  kv: unsafe *Declarations::VariableDecl) {
+        var unsafe *def = v->getInitializingDeclaration()
+        if !v->isConstexpr() && (def == &null || !def->isConstexpr()) {
+            return
+        }
+
+        kv->ffi_constexpr = true
+        if def == &null || def->isTemplated() || kv->ffi_value.ok {
+            return
+        }
+
+        var unsafe *init = def->getInit()
+        if init == &null || init->isValueDependent() || init->isTypeDependent() {
+            return
+        }
+
+        var unsafe *ap = def->evaluateValue()
+        if ap != &null && ap->isInt() {
+            kv->ffi_value = TypeImport::int_const(ap->getInt())
+        }
+    }
+
     /// Every Kairo decl owning a template parameter list that encloses `d`
     /// (`d`'s own included), outermost first: index = clang depth. A method
     /// of a class template sees the class at depth 0; a member template of
     /// it adds itself at depth 1.
-    priv fn _template_owners(self,
-                             d:          unsafe *clang::Decl,
-                             @inout out: [unsafe *Decl]) {
+    priv fn _template_owners(self, d: unsafe *clang::Decl, @inout out: [unsafe *Decl]) {
         var        inner_first: [unsafe *Decl]
-        var unsafe *cur        = d
+        var unsafe *cur                        = d
         while cur != &null {
             var unsafe *kd = self._tpl_owner(cur)
             if kd != &null {

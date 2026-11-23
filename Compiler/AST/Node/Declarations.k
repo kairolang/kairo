@@ -1104,6 +1104,13 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     pub var type_:     unsafe *Type = &null ///< null => inferred from init.
     pub var init:      unsafe *Expr = &null ///< initializer; null for `var x: T` default-init.
     pub var is_thread: bool         = false ///< `thread` (or `static thread`): thread_local storage; `storage` is Static.
+    /// The value clang computed for an imported `constexpr` integer or
+    /// enumeration variable (`ffi_constexpr`); `ok` is false for any other
+    /// variable, and for one whose value needs more than 64 bits. ConstEval
+    /// reads it where Kairo folds a constant (an array length, a generic
+    /// value argument): the clang decl is gone by then. One writer:
+    /// DeclImport's define step.
+    pub var ffi_value: IntConst
     /// Raw storage for a value of `type_` that is built later and read once
     /// (PanicOpExpr SlotPut / SlotTake): EmitIR declares it as
     /// `::__kairo_raw<T>`, a union with an empty constructor and destructor,

@@ -112,8 +112,16 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinInfo, BuiltinKind,       BuiltinType,  QUAL_CONST,   QUAL_VOLATILE, QualifiedType,
-    RecordType,  builtin_for_token, builtin_info, canon_unqual,
+    BuiltinInfo,
+    BuiltinKind,
+    BuiltinType,
+    QUAL_CONST,
+    QUAL_VOLATILE,
+    QualifiedType,
+    RecordType,
+    builtin_for_token,
+    builtin_info,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -123,7 +131,12 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    BinaryOperatorExpr, CallExpr, ClosureExpr, ConstraintExpr, ParenExpr, TypeCastExpr,
+    BinaryOperatorExpr,
+    CallExpr,
+    ClosureExpr,
+    ConstraintExpr,
+    ParenExpr,
+    TypeCastExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -139,11 +152,25 @@ import AST::Node::Statements::{
     RangedForStmt,
 }
 import AST::Node::Types::{
-    CXXLValueRefType,    CXXRValueRefType,      ChainType,   FixedArrayType,
-    FunctionPointerType, GenericParamType,      MapType,     NullableType,
-    OpaqueFFIType,       PackExpansionType,     PointerType, SelfType,
-    SetType,             SubstGenericParamType, TupleType,   TypeExpr,
-    ValueOp,             VariadicPackType,      VectorType,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    ChainType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    MapType,
+    NullableType,
+    OpaqueFFIType,
+    PackExpansionType,
+    PointerType,
+    SelfType,
+    SetType,
+    SubstGenericParamType,
+    TupleType,
+    TypeExpr,
+    ValueOp,
+    VariadicPackType,
+    VectorType,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
@@ -1320,7 +1347,7 @@ pub class TypeResolution derives RecursiveASTVisitor<TypeResolution> {
 
         var unsafe *vd = dyn_cast<Declarations::VariableDecl>(d)
         var unsafe *fd = dyn_cast<Declarations::FieldDecl>(d)
-        var ev = vd != &null && vd->is_eval() || fd != &null && fd->is_eval()
+        var ev = vd != &null && (vd->is_eval() || vd->ffi_value.ok) || fd != &null && fd->is_eval()
         if !ev {
             return self._vx_fail(
                 e,

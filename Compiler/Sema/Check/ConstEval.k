@@ -14,7 +14,8 @@
 ///       integer literals; unary `-` `~` `+`; binary `+ - * | & ^ << >>`
 ///       (and `bitor` / `bitand` / `xor`) when they are builtin, not a user
 ///       `op`; parentheses; `as` to an integer type; a `const` / `eval`
-///       name whose initializer evaluates; `a.size()` on a fixed array
+///       name whose initializer evaluates; an imported C++ `constexpr`
+///       integer variable, as the value clang computed; `a.size()` on a fixed array
 ///       `[T; N]`, which is N (array_extent_call); and, inside a
 ///       discriminant only, a variant of the same enum declared ABOVE the
 ///       one being defined, whose value StmtTyping has already written.
@@ -406,7 +407,7 @@ pub class ConstEval {
                   decl: unsafe *Decl,
                   ops:  unsafe *cxx::std::vector<unsafe *Type>,
                   ty:   unsafe *Type) -> unsafe *Type {
-        var exact = vk == ValueOp::Unary || vk == ValueOp::Binary || vk == ValueOp::Cast
+        var exact            = vk == ValueOp::Unary || vk == ValueOp::Binary || vk == ValueOp::Cast
         var vals: [IntConst]
         for var i: usize = 0; i < ops->size(); ++i {
             var unsafe *v = dyn_cast<TypeExpr>((*ops)[i])
@@ -1191,6 +1192,12 @@ pub class ConstEval {
         }
 
         var unsafe *vd = dyn_cast<VariableDecl>(d)
+        // An imported `constexpr` variable holds the value clang computed
+        // (DeclImport); it has no Kairo initializer to fold.
+        if vd != &null && vd->ffi_value.ok {
+            return vd->ffi_value
+        }
+
         if vd != &null {
             var nm = self.tu.decl_name(d)
             if !vd->is_const() && !vd->is_eval() {

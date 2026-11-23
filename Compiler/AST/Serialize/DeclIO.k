@@ -586,6 +586,7 @@ fn io_variable_decl(ar: unsafe *ASTArchive, n: unsafe *Declarations::VariableDec
     ar->range(&n->storage_kw)
     eval if defined!(DEBUG) {
         ar->sema_false(n->raw_slot, "VariableDecl::raw_slot")
+        ar->sema_false(n->ffi_value.ok, "VariableDecl::ffi_value")
         ar->sema_false(n->place_ref, "VariableDecl::place_ref")
         ar->sema_false(n->auto_copy, "VariableDecl::auto_copy")
         ar->sema_false(n->header_scope, "VariableDecl::header_scope")

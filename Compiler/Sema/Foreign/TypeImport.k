@@ -76,6 +76,7 @@ import AST::Node::Casting::{
     dyn_cast,
     isa,
 }
+import AST::Node::Declarations::IntConst
 import AST::Node::Types::{
     NullableType,
     PointerType,
@@ -1084,24 +1085,36 @@ pub class TypeImport {
     /// as the canonical value argument, or null for one past 64 bits of
     /// magnitude (`__int128`), which value_arg cannot hold.
     fn integral(self, v: llvm::APSInt) -> unsafe *Type {
-        var neg      = v.isSigned() && v.isNegative()
-        var mag: u64 = 0
-        if neg {
-            var m = v.abs()
-            if m.getActiveBits() > 64 {
-                return &null
-            }
-
-            mag = m.getZExtValue()
-        } else {
-            if v.getActiveBits() > 64 {
-                return &null
-            }
-
-            mag = v.getZExtValue()
+        var c = TypeImport::int_const(v)
+        if !c.ok {
+            return &null
         }
 
-        return self.store->value_arg(neg, mag)
+        return self.store->value_arg(c.neg, c.mag)
+    }
+
+    /// `v` as sign and magnitude; not `ok` when the magnitude needs more
+    /// than 64 bits.
+    pub static fn int_const(v: llvm::APSInt) -> IntConst {
+        var c = IntConst{}
+        c.neg = v.isSigned() && v.isNegative()
+        if c.neg {
+            var m = v.abs()
+            if m.getActiveBits() > 64 {
+                return c
+            }
+
+            c.mag = m.getZExtValue()
+        } else {
+            if v.getActiveBits() > 64 {
+                return c
+            }
+
+            c.mag = v.getZExtValue()
+        }
+
+        c.ok = true
+        return c
     }
 
     /// The Kairo decl a clang decl was imported as. Through the canonical

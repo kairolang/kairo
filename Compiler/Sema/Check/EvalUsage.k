@@ -189,7 +189,7 @@ pub class EvalNeeds derives RecursiveASTVisitor<EvalNeeds> {
     pub var recs:  [unsafe *Decl]
     /// Parallel to recs: where the body needs it, for the note.
     pub var  at:  [SourceRange]
-    priv var _tu: unsafe *TypeUtil              = &null
+    priv var _tu: unsafe *TypeUtil = &null
 
     fn EvalNeeds(self, tu: unsafe *TypeUtil) {
         self._tu = tu
@@ -2003,7 +2003,7 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
         if isa<Expressions::CallExpr>(e) {
             var unsafe *c = cast<Expressions::CallExpr>(e)
             var unsafe *f = self._callee_fn(c)
-            if f == &null || !f->is_eval() {
+            if f == &null || !f->is_eval() && !f->ffi_constexpr {
                 return e
             }
 
@@ -2028,7 +2028,9 @@ pub class EvalUsageChecking derives RecursiveASTVisitor<EvalUsageChecking> {
 
         var unsafe *vd = dyn_cast<Declarations::VariableDecl>(d)
         if vd != &null {
-            if vd->is_eval() {
+            // An imported C++ `constexpr` variable: C++ computes it, as it
+            // does a `constexpr` function's call (_check_ctx_call).
+            if vd->is_eval() || vd->ffi_constexpr {
                 return true
             }
 

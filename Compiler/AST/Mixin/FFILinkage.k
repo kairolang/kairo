@@ -99,7 +99,7 @@ pub class <T> FFILinkage {
     pub var ffi_explicit:        bool                     = false ///< `explicit` ctor / conversion.
     pub var ffi_noexcept:        bool                     = false
     pub var ffi_deleted:         bool                     = false ///< `= delete` as written in the header; a member C++ deleted (a defaulted or implicit one it could not generate) is FnBodyKind::Delete without it.
-    pub var ffi_constexpr:       bool                     = false
+    pub var ffi_constexpr:       bool                     = false ///< a `constexpr` / `consteval` function, or a `constexpr` variable: a compile-time value to an eval context, which C++ computes.
     pub var ffi_virtual:         bool                     = false
     pub var ffi_pure_virtual:    bool                     = false
     pub var ffi_static_member:   bool                     = false ///< static member function (no receiver).
