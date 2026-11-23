@@ -1,4 +1,3 @@
-// XFAIL: *
 // `x as string` on a `var x? = ...` binding that `if x?` has narrowed to non-null is rejected
 // by the C++ stage (CL001E: static_cast from `Null<T> *` to `const T *`), though the checks
 // accept it: nullables.mdx, Narrowing, says a known non-null nullable "is used as its `T`
