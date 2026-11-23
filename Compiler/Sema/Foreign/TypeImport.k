@@ -43,6 +43,7 @@ ffi "c++" import "clang/AST/ASTContext.h"
 ffi "c++" import "clang/AST/Decl.h"
 ffi "c++" import "clang/AST/DeclCXX.h"
 ffi "c++" import "clang/AST/DeclTemplate.h"
+ffi "c++" import "clang/AST/Expr.h"
 ffi "c++" import "clang/AST/ODRHash.h"
 ffi "c++" import "clang/AST/PrettyPrinter.h"
 ffi "c++" import "clang/AST/QualTypeNames.h"
@@ -372,19 +373,39 @@ pub class TypeImport {
 
         var unsafe *lr = qt->getAs<clang::LValueReferenceType>()
         if lr != &null {
-            return self.store->cxx_lref(
-                self._map_or_opaque(lr->getPointeeType()),
-            )
+            return self.store->cxx_lref(self._referee(lr->getPointeeType()))
         }
 
         var unsafe *rr = qt->getAs<clang::RValueReferenceType>()
         if rr != &null {
-            return self.store->cxx_rref(
-                self._map_or_opaque(rr->getPointeeType()),
-            )
+            return self.store->cxx_rref(self._referee(rr->getPointeeType()))
         }
 
         return &null
+    }
+
+    /// A reference's referee. A cv-qualified array is the qualified array,
+    /// not an array of qualified elements: to C++ an array's cv is its
+    /// element's ([basic.type.qualifier]/3), and every reader of a reference
+    /// (cxx_lref_inout, the binding ranks, deduction through the referee)
+    /// reads the referee's own top-level cv. As an array of const elements,
+    /// `const T (&)[N]` would read as an `@inout` parameter, and deduction
+    /// from a `[T; N]` argument would fail on the element's const.
+    priv fn _referee(self, pointee: clang::QualType) -> unsafe *Type {
+        var canon = pointee.getCanonicalType()
+        if canon.isNull() || !canon->isArrayType() {
+            return self._map_or_opaque(pointee)
+        }
+
+        var q = TypeImport::quals_of(self.cctx->getBaseElementType(canon))
+        if q == 0 {
+            return self._map_or_opaque(pointee)
+        }
+
+        return self.store->qualified(
+            self._map_or_opaque(self.cctx->getUnqualifiedArrayType(canon)),
+            q,
+        )
     }
 
     fn opaque(self, qt: clang::QualType) -> unsafe *Type {
@@ -532,17 +553,13 @@ pub class TypeImport {
 
         var unsafe *lr = llvm::dyn_cast<clang::LValueReferenceType>(ty)
         if lr != &null {
-            // the const rides in through _map.
-            return self.store->cxx_lref(
-                self._map_or_opaque(lr->getPointeeType()),
-            )
+            // the const rides in through _map (an array's through _referee).
+            return self.store->cxx_lref(self._referee(lr->getPointeeType()))
         }
 
         var unsafe *rr = llvm::dyn_cast<clang::RValueReferenceType>(ty)
         if rr != &null {
-            return self.store->cxx_rref(
-                self._map_or_opaque(rr->getPointeeType()),
-            )
+            return self.store->cxx_rref(self._referee(rr->getPointeeType()))
         }
 
         /// ## arrays
@@ -558,6 +575,23 @@ pub class TypeImport {
         if ia != &null {
             return self.store->incomplete_array(
                 self._map_or_opaque(ia->getElementType()),
+            )
+        }
+
+        // `T[N]` with N a non-type template parameter is `[T; N]` over the
+        // value parameter, so a `[u8; 16]` argument deduces N := 16 as it
+        // does for a Kairo generic. Any other extent (`N + 1`) stays opaque:
+        // C++ deduces nothing from it either.
+        var unsafe *da = llvm::dyn_cast<clang::DependentSizedArrayType>(ty)
+        if da != &null {
+            var unsafe *n = self._extent_param(da->getSizeExpr())
+            if n == &null {
+                return &null
+            }
+
+            return self.store->array_of_param(
+                self._map_or_opaque(da->getElementType()),
+                n,
             )
         }
 
@@ -1138,6 +1172,47 @@ pub class TypeImport {
         }
 
         return self.reg->find((usr).str())
+    }
+
+    /// The value parameter an array extent names, or null for any other
+    /// extent. The owner comes from the depth table, not the parameter's
+    /// decl: clang uniques a canonical dependent array by the extent's
+    /// (depth, index), so the decl may belong to another template whose
+    /// signature has the same shape.
+    priv fn _extent_param(self, e: unsafe *clang::Expr) -> unsafe *Type {
+        if e == &null {
+            return &null
+        }
+
+        var unsafe *dr = llvm::dyn_cast<clang::DeclRefExpr>(
+            e->IgnoreParenImpCasts(),
+        )
+
+        if dr == &null {
+            return &null
+        }
+
+        var unsafe *nt = llvm::dyn_cast<clang::NonTypeTemplateParmDecl>(
+            dr->getDecl(),
+        )
+
+        if nt == &null || nt->isParameterPack() {
+            return &null
+        }
+
+        if (nt->getDepth() as usize) >= self.tpl_owners.size() {
+            return &null
+        }
+
+        var unsafe *owner = NameLookup::representative(
+            self.tpl_owners[nt->getDepth() as usize],
+        )
+
+        if owner == &null {
+            return &null
+        }
+
+        return self.store->generic_param(owner, nt->getIndex(), false)
     }
 
     /// The Kairo decl that DECLARES a template parameter: the templated
