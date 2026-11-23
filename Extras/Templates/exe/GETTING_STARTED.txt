@@ -1,0 +1,41 @@
+{{name}}
+========
+
+A Kairo program with a library beside it, created by `kairo --init`.
+
+  source/main.k       the program: main() evaluates three expressions with
+                      the calculator and prints each result or error
+  include/module.k    the library {{ident}}: `module {{ident}}` names it, and
+                      `pub import self::calc` makes calc part of it
+  include/calc.k      the library's one module, a reverse-Polish calculator
+  Makefile            the build, for make (Linux, macOS, the BSDs)
+  build.cmd           the same build for Windows, no make needed
+  .gitignore          keeps build/ out of git
+
+Build and run
+-------------
+
+  make                build/debug/{{name}}    (-O0 -g)
+  make release        build/release/{{name}}  (-O2)
+  make run            builds the debug program and runs it
+  make clean          removes build/
+
+On Windows the same four are `build.cmd`, `build.cmd release`,
+`build.cmd run` and `build.cmd clean`; the programs are build\debug\{{name}}.exe
+and build\release\{{name}}.exe. Both builds take KAIRO (the compiler to run)
+and CACHE (the object cache, build/cache) from the environment or, with make,
+from the command line: `make run KAIRO=/opt/kairo/bin/kairo`.
+
+Without either, the debug build is one command:
+
+  kairo source/main.k -I include --cache-dir build/cache -O0 -g -o build/debug/{{name}}
+
+`-I include` makes include/ a search directory, so source/main.k reaches the
+library as `import {{ident}}::calc`. A new file include/text.k is
+`{{ident}}::text`; add `pub import self::text` to include/module.k to make it
+part of the library's public face.
+
+Read more
+---------
+
+  https://www.kairolang.org/docs/

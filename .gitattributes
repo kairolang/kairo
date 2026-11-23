@@ -1,2 +1,3 @@
 *.k linguist-language=Rust linguist-detectable=false
 *.kh linguist-language=Kairo
+*.cmd text eol=crlf

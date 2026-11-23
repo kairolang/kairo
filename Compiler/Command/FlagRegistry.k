@@ -390,6 +390,18 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "",
     )
 
+    // The directory is the one positional input (none: the working
+    // directory); a String flag cannot be given without a value.
+    cmd->define<FlagKind::Bool>(
+        "init",
+        "",
+        "init",
+        "create a new project in the directory given as the input (default: the current directory) and exit; never overwrites a file",
+        false,
+    )
+
+    cmd->inputs_optional_with("init")
+
     cmd->define<FlagKind::Bool>(
         "print-targets",
         "",

@@ -50,6 +50,7 @@ ffi "c++" import "cstdio"
 import Diagnostic::Registry::DiagID
 import Driver::BatchResult::BatchResult
 import Driver::CompilerInfo
+import Driver::CompilerInit
 import Driver::CompilerInstance::CompilerInstance
 import Driver::Progress::progress_configure
 import Driver::Runtime::init_runtime
@@ -219,6 +220,11 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     if !ci->args_ok() {
         ci->flush_errors()
         return ci->failure_status()
+    }
+
+    /// # --init: copy the project template and exit (Driver/CompilerInit.k)
+    if ci->wants_init() {
+        return ci->run_init()
     }
 
     // Before anything reads the current directory: initialize() takes

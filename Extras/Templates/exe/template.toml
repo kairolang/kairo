@@ -1,0 +1,19 @@
+# The project `kairo --init` creates: a program in source/ and a library in
+# include/. Each [files] entry is a file in this directory = the path it is
+# written to in the project. {{name}} and {{ident}} are replaced in the
+# contents, in the paths and in the `next` lines.
+
+next = [
+    "next steps:",
+    "  make run           build and run the debug program (Windows: build.cmd run)",
+    "  GETTING_STARTED.txt says what each file is for",
+]
+
+[files]
+"main.k"              = "source/main.k"
+"module.k"            = "include/module.k"
+"calc.k"              = "include/calc.k"
+"GETTING_STARTED.txt" = "GETTING_STARTED.txt"
+"gitignore"           = ".gitignore"
+"Makefile"            = "Makefile"
+"build.cmd"           = "build.cmd"

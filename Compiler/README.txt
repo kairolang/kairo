@@ -127,7 +127,8 @@ Compiler/
 │                   the incremental API), CompilerNative (runtime and C/C++
 │                   inputs through clang), CompilerCache (runtime object
 │                   cache, --kairo-lib), CompilerLink (outputs, the link),
-│                   CompilerRecovery (--check-past-syntax-errors);
+│                   CompilerRecovery (--check-past-syntax-errors),
+│                   CompilerInit (--init: copies a project template);
 │                   FrontendAction (the per-file pipeline); entry points
 │                   Kairo.k (kairo) and Kcc.k (kcc), both starting through
 │                   Runtime.k; input kinds (InputKinds), KairoIncludes

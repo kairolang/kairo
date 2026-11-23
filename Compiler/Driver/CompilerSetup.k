@@ -415,7 +415,8 @@ extend CompilerInstance {
         if self.wants_help()
             || self.wants_version()
             || self.wants_explain()
-            || self.wants_info_query() {
+            || self.wants_info_query()
+            || self.invocation()->args.get_bool("init") {
             return true
         }
 
