@@ -392,8 +392,8 @@ def is_binary(f: Path) -> bool:
 
 
 def binaries(tree: Path) -> list[Path]:
-    # Real files only: a symlink (clang -> clang-22, libLLVM.so ->
-    # libLLVM.so.22.1) is fixed through its target.
+    # Real files only: a symlink (clang -> clang-23, libLLVM.so ->
+    # libLLVM.so.23.1) is fixed through its target.
     out = []
     for d in (tree / "bin", tree / "lib"):
         if d.is_dir():

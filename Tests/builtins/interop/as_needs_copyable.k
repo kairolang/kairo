@@ -43,8 +43,8 @@ fn main() -> i32 {
 // RUN: rm -rf %t.d
 // RUN: { %kairo %s -o %t.exe --cache-dir %t.d 2>&1 || true; } | %FileCheck %s
 // CHECK: cxx_containers.k:{{[0-9]+}}:{{[0-9]+}}: error [CL001E]: no matching function for call to '__kairo_op_as___std__vector_T_'
-// CHECK: note [I900N]: because '::as_needs_copyable::Tok' does not satisfy 'Copyable_c'
+// CHECK: note [I900N]: because '{{(::)?}}as_needs_copyable::Tok' does not satisfy 'Copyable_c'
 // CHECK: cxx_containers.k:{{[0-9]+}}:{{[0-9]+}}: error [CL001E]: no matching function for call to '__kairo_op_as___std__unordered_map_K__V_'
-// CHECK: note [I900N]: because '::as_needs_copyable::Tok' does not satisfy 'Copyable_c'
+// CHECK: note [I900N]: because '{{(::)?}}as_needs_copyable::Tok' does not satisfy 'Copyable_c'
 // CHECK: cxx_containers.k:{{[0-9]+}}:{{[0-9]+}}: error [CL001E]: no matching function for call to '__kairo_op_as___std__unordered_set_T_'
-// CHECK: note [I900N]: because '::as_needs_copyable::Tok' does not satisfy 'Copyable_c'
+// CHECK: note [I900N]: because '{{(::)?}}as_needs_copyable::Tok' does not satisfy 'Copyable_c'

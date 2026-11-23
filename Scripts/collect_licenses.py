@@ -99,9 +99,9 @@ TABLE: list[Component] = [
                       "scripts/msvc-sysroot.sh", "scripts/msvc-sysroot.ps1", "share/kairo/sysroot",
                       "share/kairo/templates"]),
     Component("llvm", "LLVM, clang, lld, compiler-rt, libc++, libc++abi, libunwind (Kairo fork)",
-              LLVM_LICENSE + " (legacy NCSA / MIT sections for older files)", "22.1.0",
+              LLVM_LICENSE + " (legacy NCSA / MIT sections for older files)", "23.1.6",
               "linked into bin/kairo, bin/kcc, bin/kld, bin/llvm-ar, bin/llvm-symbolizer; "
-              "lib/clang/22 (resource dir); libc++/libc++abi/libunwind/compiler-rt in every sysroot "
+              "lib/clang/23 (resource dir); libc++/libc++abi/libunwind/compiler-rt in every sysroot "
               "(sysroot/*/{lib,compiler-rt,libcxx,include/c++}); share/kairo/runtimes (compiler-rt builtins, LLVM-libc headers, "
               "libunwind, libc++abi, libc++ source for scripts/*.sh); share/kairo/sdk-overlays (libc++ and "
               "compiler-rt builtins prebuilt for the macOS and MSVC roots scripts/*.sh assemble); "

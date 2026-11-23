@@ -172,6 +172,14 @@ extend CompilerInstance {
             ),
         )
 
+        // mimalloc's malloc_usable_size(void *) aliases
+        // mi_malloc_usable_size(const void *), which clang 23 reports under
+        // -Wattribute-alias. The runtime compiles on a cold cache inside the
+        // user's compile, so the warning would reach their output. Clang 22
+        // has no such group, hence the unknown-option silencer before it.
+        extra.push_back("-Wno-unknown-warning-option")
+        extra.push_back("-Wno-attribute-alias")
+
         // Side by side on the pool: each file is its own CompilerInstance
         // (ClangBackend::run_native) printing into its own log. The
         // invocations are built here first, because their argv bytes and

@@ -616,7 +616,7 @@ map, no proxy file.
                          v
               *-----------------------*
               |  Clang front (normal) |   patched kairolang/llvm-project
-              |  drives the .cc TU    |   (kairo-llvm-22.1.0 branch)
+              |  drives the .cc TU    |   (kairo/23.1.6 branch)
               *-----------*-----------*
                           |  on  #include "foo.k"
                           v

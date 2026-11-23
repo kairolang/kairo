@@ -93,6 +93,7 @@ ffi "c++" import "clang/Sema/Sema.h"
 ffi "c++" import "llvm/ADT/APInt.h"
 ffi "c++" import "llvm/ADT/APSInt.h"
 ffi "c++" import "llvm/ADT/SmallVector.h"
+ffi "c++" import "Native/ClangCompat.hh" // template_parm_index
 ffi "c++" import "vector"
 
 import AST::ASTSupport::FrozenList
@@ -1057,7 +1058,7 @@ pub class TypeExport {
         }
 
         var        names: [string]
-        var unsafe *dc   = nd->getDeclContext()
+        var unsafe *dc             = nd->getDeclContext()
         while dc != &null && !dc->isTranslationUnit() {
             var unsafe *ns = llvm::dyn_cast<clang::NamespaceDecl>(dc)
             if ns == &null {
@@ -1970,8 +1971,8 @@ pub class TypeExport {
             return self._standin_enum(en)
         }
 
-        var tk     = clang::TagTypeKind::Struct
-        var tag    = clang::QualType()
+        var tk                     = clang::TagTypeKind::Struct
+        var tag                    = clang::QualType()
         var fields: [unsafe *Type]
         var kbases: [unsafe *Type]
         if !self._shape(d, unsafe &tk, unsafe &tag, &fields, unsafe &kbases) {
@@ -2052,8 +2053,8 @@ pub class TypeExport {
         // derives Annotation<Decl>`) names this record as its argument, and
         // the lookup above takes a record mid-definition as ours.
         rd->startDefinition()
-        var bq: [clang::QualType]
-        var dyn_at = usize::MAX
+        var bq:    [clang::QualType]
+        var dyn_at                   = usize::MAX
         for var i: usize = 0; i < kbases.size(); ++i {
             var q = self._layout_spelling(kbases[i])
             // A base still being defined: this stand-in was reached through
@@ -2256,8 +2257,8 @@ pub class TypeExport {
             }
         }
 
-        var tk    = clang::TagTypeKind::Struct
-        var tag0  = clang::QualType()
+        var tk                    = clang::TagTypeKind::Struct
+        var tag0                  = clang::QualType()
         var probe: [unsafe *Type]
         if !self._shape(prim, unsafe &tk, unsafe &tag0, &probe) {
             return &null
@@ -2312,7 +2313,7 @@ pub class TypeExport {
                     loc,
                     loc,
                     0,
-                    i as u32,
+                    i as kairo::clang_compat::template_parm_index,
                     self._ident(name),
                     vt,
                     false,
@@ -2329,7 +2330,7 @@ pub class TypeExport {
                 loc,
                 loc,
                 0,
-                i as u32,
+                i as kairo::clang_compat::template_parm_index,
                 self._ident(name),
                 true,
                 false,
@@ -2474,8 +2475,8 @@ pub class TypeExport {
             )
         }
 
-        var tk     = clang::TagTypeKind::Struct
-        var tag    = clang::QualType()
+        var tk                     = clang::TagTypeKind::Struct
+        var tag                    = clang::QualType()
         var fields: [unsafe *Type]
         if !self._shape(prim, unsafe &tk, unsafe &tag, &fields) {
             return clang::QualType()

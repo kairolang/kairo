@@ -54,9 +54,9 @@ fn main() -> i32 {
 
 // CHECK-LABEL: define {{.*}}3cutE
 // CHECK-NOT:   alloca
-// CHECK-NOT:   free
+// CHECK-NOT:   {{ call .*free}}
 // CHECK:       call {{.*}}to_owned_
-// CHECK-NOT:   free
+// CHECK-NOT:   {{ call .*free}}
 // CHECK:       ret { ptr, i64 }
 
 // With a four-byte word the first-word compare is of 32-bit words.

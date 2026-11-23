@@ -48,7 +48,7 @@ ffi "c++" import "clang/AST/PrettyPrinter.h"
 ffi "c++" import "clang/AST/QualTypeNames.h"
 ffi "c++" import "llvm/ADT/StringMap.h"
 ffi "c++" import "clang/AST/Type.h"
-ffi "c++" import "clang/Index/USRGeneration.h"
+ffi "c++" import "Native/ClangCompat.hh" // USRGeneration.h, anonymous_tags_plain
 ffi "c++" import "llvm/ADT/APSInt.h"
 ffi "c++" import "llvm/ADT/DenseMap.h"
 ffi "c++" import "llvm/ADT/SmallString.h"
@@ -63,7 +63,12 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind,  BuiltinType, QUAL_CONST, QUAL_VOLATILE, RecordType, builtin_for_c_typedef,
+    BuiltinKind,
+    BuiltinType,
+    QUAL_CONST,
+    QUAL_VOLATILE,
+    RecordType,
+    builtin_for_c_typedef,
     canon_unqual,
 }
 import AST::Node::Casting::{
@@ -149,7 +154,7 @@ pub class TypeImport {
         pol.FullyQualifiedName     = (false as u32)
         pol.SuppressScope          = (false as u32)
         pol.SuppressUnwrittenScope = (true as u32)
-        pol.AnonymousTagLocations  = (false as u32)
+        kairo::clang_compat::anonymous_tags_plain(&pol)
         // A value argument printed bare can name a different instance than
         // the one meant: a `char`-typed one prints as a character literal, so
         // `Narrow<255>` (unsigned char) came out `Narrow<'\xff'>`, which is

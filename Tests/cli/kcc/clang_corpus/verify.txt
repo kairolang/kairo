@@ -1,6 +1,11 @@
 SemaCXX/2008-01-11-BadWarning.cpp	-std=gnu++17 -verify -Wall
 SemaCXX/GH106182.cpp	-std=c++20 -verify
 SemaCXX/GH156458.cpp	-std=c++20 -verify
+SemaCXX/GH167120.cpp	-std=gnu++17 -verify
+SemaCXX/GH190333.cpp	-std=c++20 -verify
+SemaCXX/GH195416.cpp	-std=c++20 -verify
+SemaCXX/GH203701.cpp	-std=c++2b -verify
+SemaCXX/GH37979.cpp	-std=gnu++17 -verify -pedantic
 SemaCXX/GH41441.cpp	-std=gnu++17 -verify
 SemaCXX/GH59446.cpp	-verify -std=c++11
 SemaCXX/GH61441.cpp	-std=gnu++17 -verify -cl-std=clc++ -fblocks
@@ -59,7 +64,7 @@ SemaCXX/access-control-check.cpp	-std=gnu++17 -verify
 SemaCXX/access-member-pointer.cpp	-std=gnu++17 -verify
 SemaCXX/access.cpp	-std=c++11 -verify
 SemaCXX/accessible-base.cpp	-std=gnu++17 -verify
-SemaCXX/addr-label-in-coroutines.cpp	-std=c++20 -verify
+SemaCXX/addr-label-in-coroutines.cpp	-std=c++20 -verify -Wno-coroutines-unsupported-target
 SemaCXX/addr-of-overloaded-function-casting.cpp	-std=gnu++17 -verify
 SemaCXX/addr-of-overloaded-function.cpp	-std=gnu++17 -verify
 SemaCXX/address-of-temporary.cpp	-Wno-error=address-of-temporary -verify -std=gnu++11
@@ -112,6 +117,7 @@ SemaCXX/attr-likelihood.cpp	-std=c++17 -verify
 SemaCXX/attr-lto-visibility-public.cpp	-std=c++11 -verify
 SemaCXX/attr-malloc_span.cpp	-std=c++20 -verify
 SemaCXX/attr-mode-tmpl.cpp	-std=gnu++17 -verify
+SemaCXX/attr-modular-format.cpp	-std=gnu++17 -verify
 SemaCXX/attr-no-sanitize-address.cpp	-std=gnu++17 -verify
 SemaCXX/attr-no-sanitize-memory.cpp	-std=gnu++17 -verify
 SemaCXX/attr-no-sanitize-thread.cpp	-std=gnu++17 -verify
@@ -124,7 +130,7 @@ SemaCXX/attr-noreturn.cpp	-std=gnu++17 -Wno-error=return-type -verify
 SemaCXX/attr-notail.cpp	-std=c++11 -verify
 SemaCXX/attr-reinitializes.cpp	-verify -std=c++11
 SemaCXX/attr-require-constant-initialization.cpp	-verify -DTEST_ONE -std=c++03
-SemaCXX/attr-sentinel.cpp	-std=gnu++17 -verify
+SemaCXX/attr-sentinel.cpp	-verify=expected,cxx17 -std=c++17
 SemaCXX/attr-speculative-load-hardening.cpp	-std=c++11 -verify
 SemaCXX/attr-suppress.cpp	-std=c++11 -verify
 SemaCXX/attr-unavailable.cpp	-std=gnu++17 -verify
@@ -145,8 +151,10 @@ SemaCXX/blocks.cpp	-std=c++11 -verify -fblocks
 SemaCXX/bool-compare.cpp	-std=gnu++17 -verify
 SemaCXX/bool-increment-SFINAE.cpp	-std=c++17 -verify=expected
 SemaCXX/builtin-assume-aligned-tmpl.cpp	-std=gnu++17 -verify
+SemaCXX/builtin-bitreverseg.cpp	-std=gnu++17 -verify
 SemaCXX/builtin-bswapg.cpp	-std=gnu++17 -verify
 SemaCXX/builtin-classify-type.cpp	-std=gnu++17 -verify -fblocks
+SemaCXX/builtin-clear-padding.cpp	-std=gnu++17 -verify
 SemaCXX/builtin-exception-spec.cpp	-std=gnu++17 -isystem %S/Inputs -verify
 SemaCXX/builtin-get-vtable-pointer.cpp	-verify -std=c++2a
 SemaCXX/builtin-invoke.cpp	-verify -std=c++23
@@ -157,6 +165,7 @@ SemaCXX/builtin-ptrtomember-ambig.cpp	-verify -std=c++11
 SemaCXX/builtin-ptrtomember-overload-1.cpp	-verify -std=c++11
 SemaCXX/builtin-ptrtomember-overload.cpp	-verify -std=c++11
 SemaCXX/builtin_objc_msgSend.cpp	-std=gnu++17 -verify
+SemaCXX/builtin_templates_invalid_parameters.cpp	-verify -std=c++11
 SemaCXX/builtins.cpp	-verify -std=c++11 -fcxx-exceptions -fptrauth-intrinsics
 SemaCXX/c99-variable-length-array-cxx11.cpp	-verify -std=c++11 -Wvla-extension
 SemaCXX/c99-variable-length-array.cpp	-std=gnu++17 -verify -Wvla-extension
@@ -187,17 +196,18 @@ SemaCXX/constant-expression.cpp	-verify -std=c++98 -pedantic
 SemaCXX/consteval-builtin.cpp	-std=c++23 -Wno-unused -verify=cxx20-cxx26
 SemaCXX/consteval-return-void.cpp	-std=c++20 -verify
 SemaCXX/constexpr-array-unknown-bound.cpp	-Wno-uninitialized -std=c++1z -verify
+SemaCXX/constexpr-builtin-stdc-bit-functions.cpp	-std=c++14 -verify
 SemaCXX/constexpr-default-init-value-crash.cpp	-std=c++20 -verify
 SemaCXX/constexpr-depth.cpp	-std=c++11 -verify -DMAX=128 -fconstexpr-depth=128
 SemaCXX/constexpr-frame-describe.cpp	-std=c++20 -verify
 SemaCXX/constexpr-function-recovery-crash.cpp	-std=c++20 -fcxx-exceptions -verify
-SemaCXX/constexpr-late-instantiation.cpp	-std=gnu++17 -verify
+SemaCXX/constexpr-late-instantiation.cpp	-std=c++14 -verify
 SemaCXX/constexpr-never-constant.cpp	-std=c++20 -verify -fcxx-exceptions
 SemaCXX/constexpr-return-non-void-cxx2b.cpp	-Wno-error=return-type -std=c++23 -Wimplicit-fallthrough -Wconsumed -verify
 SemaCXX/constexpr-steps.cpp	-std=c++1y -verify -DMAX=1234 -fconstexpr-steps=1234
 SemaCXX/constexpr-subobj-initialization.cpp	-std=gnu++17 -verify
 SemaCXX/constexpr-value-init.cpp	-Wno-uninitialized -std=c++17 -verify
-SemaCXX/constexpr-vectors-access-elements.cpp	-Wno-uninitialized -std=c++17 -verify
+SemaCXX/constexpr-vectors-access-elements.cpp	-Wno-uninitialized -std=c++17 -verify=expected,cpp17
 SemaCXX/constructor-initializer.cpp	-std=gnu++17 -Wreorder -verify
 SemaCXX/constructor-recovery.cpp	-std=gnu++17 -verify
 SemaCXX/constructor.cpp	-std=gnu++17 -verify
@@ -209,19 +219,19 @@ SemaCXX/copy-assignment.cpp	-std=gnu++17 -verify
 SemaCXX/copy-constructor-error.cpp	-std=gnu++17 -verify
 SemaCXX/copy-ctor-template.cpp	-std=gnu++17 -verify
 SemaCXX/copy-initialization.cpp	-std=gnu++17 -verify
-SemaCXX/coroutine-alloc-2.cpp	-std=c++20 -verify
-SemaCXX/coroutine-alloc-3.cpp	-std=c++20 -verify
-SemaCXX/coroutine-alloc-4.cpp	-std=c++20 -verify -fcoro-aligned-allocation
-SemaCXX/coroutine-allocs.cpp	-std=c++20 -verify
-SemaCXX/coroutine-builtins.cpp	-verify -std=c++20
-SemaCXX/coroutine-dealloc.cpp	-std=c++20 -verify
-SemaCXX/coroutine-no-valid-dealloc.cpp	-std=c++20 -verify
-SemaCXX/coroutine-noreturn.cpp	-std=c++20 -Winvalid-noreturn -verify
-SemaCXX/coroutine-rvo.cpp	-verify -std=c++20
-SemaCXX/coroutine-unevaluate.cpp	-std=c++20 -verify
-SemaCXX/coroutine-vla.cpp	-std=c++20 -Wno-vla-cxx-extension -verify
-SemaCXX/coroutine_handle-address-return-type.cpp	-verify -stdlib=libc++ -std=c++20
-SemaCXX/coroutines.cpp	-std=c++23 -verify=expected,cxx20_23,cxx23 -fcxx-exceptions -fexceptions -Wunused-result
+SemaCXX/coroutine-alloc-2.cpp	-std=c++20 -Wno-coroutines-unsupported-target -verify
+SemaCXX/coroutine-alloc-3.cpp	-std=c++20 -Wno-coroutines-unsupported-target -verify
+SemaCXX/coroutine-alloc-4.cpp	-std=c++20 -Wno-coroutines-unsupported-target -verify -fcoro-aligned-allocation
+SemaCXX/coroutine-allocs.cpp	-std=c++20 -Wno-coroutines-unsupported-target -verify
+SemaCXX/coroutine-builtins.cpp	-verify -Wno-coroutines-unsupported-target -std=c++20
+SemaCXX/coroutine-dealloc.cpp	-std=c++20 -Wno-coroutines-unsupported-target -verify
+SemaCXX/coroutine-no-valid-dealloc.cpp	-std=c++20 -verify -Wno-coroutines-unsupported-target
+SemaCXX/coroutine-noreturn.cpp	-std=c++20 -Winvalid-noreturn -verify -Wno-coroutines-unsupported-target
+SemaCXX/coroutine-rvo.cpp	-verify -std=c++20 -Wno-coroutines-unsupported-target
+SemaCXX/coroutine-unevaluate.cpp	-std=c++20 -verify -Wno-coroutines-unsupported-target
+SemaCXX/coroutine-vla.cpp	-std=c++20 -Wno-vla-cxx-extension -Wno-coroutines-unsupported-target -verify
+SemaCXX/coroutine_handle-address-return-type.cpp	-verify -stdlib=libc++ -std=c++20 -Wno-coroutines-unsupported-target
+SemaCXX/coroutines.cpp	-std=c++23 -verify=expected,cxx20_23,cxx23 -fcxx-exceptions -fexceptions -Wunused-result -Wno-coroutines-unsupported-target
 SemaCXX/crash-GH173943.cpp	-verify -std=c++98
 SemaCXX/crash-auto-36064.cpp	-std=c++11 -verify
 SemaCXX/crash-lambda-12645424.cpp	-std=c++11 -verify
@@ -259,7 +269,7 @@ SemaCXX/cxx1y-variable-templates_top_level.cpp	-std=c++98 -verify -Wno-unused-va
 SemaCXX/cxx1z-constexpr-lambdas.cpp	-std=c++1z -verify -fblocks -fcxx-exceptions
 SemaCXX/cxx20-c99-designator.cpp	-std=c++20 -verify=override,reorder -Werror=c99-designator
 SemaCXX/cxx20-decomposition.cpp	-std=c++20 -verify -Wunused-variable
-SemaCXX/cxx20-delayed-typo-correction-crashes.cpp	-verify -std=c++20
+SemaCXX/cxx20-delayed-typo-correction-crashes.cpp	-verify -std=c++20 -Wno-coroutines-unsupported-target
 SemaCXX/cxx20-using-enum.cpp	-std=c++17 -verify
 SemaCXX/cxx20-warn-dangling-paren-list-agg-init.cpp	-verify -std=c++20
 SemaCXX/cxx23-init-statement.cpp	-verify -std=c++23
@@ -272,7 +282,7 @@ SemaCXX/cxx2a-explicit-bool.cpp	-std=c++17 -verify=expected,pre20 -Wno-c++2a-ext
 SemaCXX/cxx2a-nttp-printing.cpp	-std=c++20 -verify
 SemaCXX/cxx2b-deducing-this-compat.cpp	-std=c++20 -verify
 SemaCXX/cxx2b-deducing-this-constexpr.cpp	-std=c++2b -verify
-SemaCXX/cxx2b-deducing-this-coro.cpp	-std=c++2b -verify
+SemaCXX/cxx2b-deducing-this-coro.cpp	-std=c++2b -verify -Wno-coroutines-unsupported-target
 SemaCXX/cxx2b-deducing-this.cpp	-std=c++2b -Woverloaded-virtual -verify
 SemaCXX/cxx2b-designated-initializers.cpp	-std=c++23 -verify
 SemaCXX/cxx2b-p2266-disable-with-msvc-compat.cpp	-std=c++23 -verify=cxx23,new
@@ -282,6 +292,9 @@ SemaCXX/cxx2c-binding-pack-nontemplate.cpp	-std=c++26 -verify=nontemplate
 SemaCXX/cxx2c-binding-pack.cpp	-std=c++26 -verify
 SemaCXX/cxx2c-delete-with-message.cpp	-std=c++2c -verify
 SemaCXX/cxx2c-enum-compare.cpp	-std=c++2c -verify=both,expected
+SemaCXX/cxx2c-expansion-statements-shadow.cpp	-std=c++2c -Wshadow -verify
+SemaCXX/cxx2c-expansion-stmts-control-flow.cpp	-std=c++2c -fblocks -verify
+SemaCXX/cxx2c-expansion-stmts.cpp	-std=c++2c -fdeclspec -fblocks -Wno-vla-cxx-extension -fconstexpr-steps=10000 -verify=expected,old-interp
 SemaCXX/cxx2c-pack-indexing-ext-diags.cpp	-std=c++2c -verify=cxx26 -Wpre-c++26-compat
 SemaCXX/cxx2c-variadic-friends.cpp	-verify -std=c++2c
 SemaCXX/cxx98-compat-flags.cpp	-std=c++17 -Wc++98-compat-pedantic -verify
@@ -299,7 +312,6 @@ SemaCXX/decltype-this.cpp	-verify -std=c++11
 SemaCXX/decltype.cpp	-std=c++11 -verify -Wno-c99-designator
 SemaCXX/decomposition-blocks.cpp	-std=c++17 -verify -fblocks
 SemaCXX/decomposition-openmp.cpp	-verify -std=c++20 -fopenmp
-SemaCXX/deduced-return-type-cxx14.cpp	-std=c++23 -verify=expected,since-cxx20,since-cxx14,cxx20_23,cxx23
 SemaCXX/deduced-return-void.cpp	-std=c++14 -verify
 SemaCXX/default-argument-temporaries.cpp	-std=gnu++17 -verify
 SemaCXX/default-assignment-operator.cpp	-std=gnu++17 -verify
@@ -332,6 +344,7 @@ SemaCXX/err_init_conversion_failed.cpp	-std=gnu++17 -verify
 SemaCXX/err_reference_bind_drops_quals.cpp	-std=gnu++17 -verify
 SemaCXX/err_typecheck_assign_const.cpp	-std=c++11 -verify
 SemaCXX/exception-spec.cpp	-verify -fcxx-exceptions -std=c++11
+SemaCXX/expansion-statements-local-extern-decls.cpp	-I %S/Inputs -std=c++2c -verify
 SemaCXX/explicit.cpp	-verify -std=c++11
 SemaCXX/explicitly-defaulted.cpp	-verify -std=c++11
 SemaCXX/expression-traits.cpp	-std=c++98 -verify -fcxx-exceptions
@@ -365,8 +378,16 @@ SemaCXX/generic-selection.cpp	-std=c++11 -verify
 SemaCXX/gh102293.cpp	-std=c++23 -verify
 SemaCXX/gh113323.cpp	-std=gnu++17 -verify
 SemaCXX/gh113468.cpp	-std=c++20 -verify
+SemaCXX/gh135694.cpp	-std=c++11 -verify -std=c++20
 SemaCXX/gh138775.cpp	-std=c++17 -verify=cxx17
 SemaCXX/gh139818.cpp	-std=c++23 -verify -fcxx-exceptions
+SemaCXX/gh147127.cpp	-std=c++17 -Wc++20-extensions -verify=cxx17
+SemaCXX/gh183505.cpp	-std=gnu++17 -verify
+SemaCXX/gh183887.cpp	-std=c++20 -verify
+SemaCXX/gh185270.cpp	-std=c++23 -verify
+SemaCXX/gh185341.cpp	-std=c++23 -verify
+SemaCXX/gh187664.cpp	-std=gnu++17 -verify
+SemaCXX/gh192026.cpp	-std=gnu++17 -verify
 SemaCXX/gh37257.cpp	-std=gnu++17 -verify
 SemaCXX/gh53815.cpp	-verify -std=c++20
 SemaCXX/gnu-flags.cpp	-std=gnu++17 -verify -DNONE -Wno-gnu
@@ -384,6 +405,8 @@ SemaCXX/increment-decrement.cpp	-std=gnu++17 -verify
 SemaCXX/indirect-goto.cpp	-std=gnu++17 -verify
 SemaCXX/inherit.cpp	-std=gnu++17 -verify
 SemaCXX/init-expr-crash.cpp	-verify -std=c++11
+SemaCXX/init-list-incomplete-dtor-crash.cpp	-std=c++17 -verify
+SemaCXX/init-priority-attr.cpp	-std=gnu++17 -verify
 SemaCXX/injected-class-name-crash.cpp	-std=gnu++17 -verify
 SemaCXX/inline.cpp	-std=gnu++17 -verify
 SemaCXX/instantiate-blocks.cpp	-std=gnu++17 -fblocks -verify
@@ -475,6 +498,7 @@ SemaCXX/nullptr_in_arithmetic_ops.cpp	-Wno-tautological-pointer-compare -fblocks
 SemaCXX/opaque-enum-declaration-in-class-template.cpp	-std=c++11 -Wredeclared-class-member -Wconstant-conversion -Wdeprecated-declarations -Wc++11-narrowing -verify
 SemaCXX/operator-arrow-depth.cpp	-std=gnu++17 -verify -DMAX=128 -foperator-arrow-depth=128
 SemaCXX/operator-arrow-temporary.cpp	-std=gnu++17 -verify
+SemaCXX/os_log.cpp	-verify -std=c++20
 SemaCXX/out-of-line-def-mismatch.cpp	-std=c++98 -verify
 SemaCXX/overload-0x.cpp	-std=c++11 -verify
 SemaCXX/overload-call-copycon.cpp	-std=gnu++17 -verify -Wnon-pod-varargs
@@ -566,7 +590,7 @@ SemaCXX/template-specialization-fatal.cpp	-std=gnu++17 -verify
 SemaCXX/template-specialization.cpp	-std=gnu++17 -verify
 SemaCXX/this-type-deduction-concept.cpp	-std=c++23 -verify
 SemaCXX/this.cpp	-std=gnu++17 -verify
-SemaCXX/thread-safety-coro.cpp	-verify -Wthread-safety -std=c++20
+SemaCXX/thread-safety-coro.cpp	-verify -Wthread-safety -std=c++20 -Wno-coroutines-unsupported-target
 SemaCXX/thread-safety-reference-handling.cpp	-verify -Wthread-safety-analysis -std=c++11
 SemaCXX/thread-specifier.cpp	-std=c++23 -verify
 SemaCXX/trailing-return-0x.cpp	-verify -std=c++11
@@ -588,6 +612,7 @@ SemaCXX/type-traits-unsatisfied-diags-std.cpp	-verify -std=c++20 -DSTD1
 SemaCXX/type-traits-unsatisfied-diags.cpp	-verify -Wno-vla-cxx-extension -Wno-c++26-extensions -std=c++20
 SemaCXX/type_pack_element.cpp	-verify -std=c++11
 SemaCXX/typedef-redecl.cpp	-std=gnu++17 -verify
+SemaCXX/typeid-incomplete-local-crash.cpp	-std=c++17 -verify
 SemaCXX/typeid.cpp	-std=gnu++17 -verify
 SemaCXX/typeof.cpp	-std=gnu++17 -verify
 SemaCXX/typo-correction-builtin-func.cpp	-std=gnu++17 -verify
@@ -630,6 +655,7 @@ SemaCXX/virtual-function-in-union.cpp	-std=gnu++17 -verify
 SemaCXX/virtual-member-functions-key-function.cpp	-std=gnu++17 -verify
 SemaCXX/virtuals.cpp	-fcxx-exceptions -verify -std=c++11
 SemaCXX/void-argument.cpp	-std=gnu++17 -verify
+SemaCXX/void-lambda-return-init.cpp	-std=c++20 -fblocks -verify
 SemaCXX/vtable-instantiation.cpp	-std=gnu++17 -verify
 SemaCXX/warn-address.cpp	-std=gnu++17 -verify -Wno-bool-conversion -Wno-string-compare -Wno-tautological-compare -Waddress
 SemaCXX/warn-array-comparion.cpp	-std=c++17 -verify -verify=expected,not-cxx20
@@ -666,6 +692,7 @@ SemaCXX/warn-literal-conversion.cpp	-std=gnu++17 -Wliteral-conversion -verify
 SemaCXX/warn-logical-not-compare.cpp	-std=gnu++17 -Wlogical-not-parentheses -verify
 SemaCXX/warn-loop-analysis.cpp	-Wloop-analysis -verify -std=c++17
 SemaCXX/warn-max-unsigned-zero.cpp	-Wmax-unsigned-zero -verify -std=c++11
+SemaCXX/warn-maybe-unused-private-field.cpp	-Wunused-private-field -verify -std=c++17
 SemaCXX/warn-memaccess.cpp	-verify -std=c++11 -Wnontrivial-memcall
 SemaCXX/warn-member-not-needed.cpp	-std=gnu++17 -verify -Wunneeded-member-function -Wno-unused-template
 SemaCXX/warn-memset-bad-sizeof.cpp	-std=gnu++17 -verify -Wno-sizeof-array-argument
@@ -705,13 +732,13 @@ SemaCXX/warn-thread-safety-analysis.cpp	-verify -std=c++11 -Wthread-safety -Wthr
 SemaCXX/warn-thread-safety-negative.cpp	-verify -std=c++11 -Wthread-safety -Wthread-safety-beta -Wthread-safety-negative -fcxx-exceptions -DUSE_CAPABILITY=0
 SemaCXX/warn-thread-safety-parsing.cpp	-std=gnu++17 -verify -Wthread-safety
 SemaCXX/warn-thread-safety-verbose.cpp	-verify -std=c++11 -Wthread-safety -Wthread-safety-beta -Wthread-safety-verbose -Wno-thread-safety-negative -fcxx-exceptions -DUSE_CAPABILITY=0
-SemaCXX/warn-throw-out-noexcept-coro.cpp	-std=c++20 -fcxx-exceptions -Wexceptions -verify -fdeclspec
+SemaCXX/warn-throw-out-noexcept-coro.cpp	-std=c++20 -fcxx-exceptions -Wexceptions -Wno-coroutines-unsupported-target -verify -fdeclspec
 SemaCXX/warn-undefined-bool-conversion.cpp	-std=gnu++17 -verify
 SemaCXX/warn-undefined-internal.cpp	-std=gnu++17 -Wundefined-internal -verify
 SemaCXX/warn-uninitialized-const-pointer.cpp	-std=gnu++17 -fcxx-exceptions -Wuninitialized-const-pointer -verify
 SemaCXX/warn-uninitialized-const-reference.cpp	-std=gnu++17 -fcxx-exceptions -fexceptions -Wuninitialized-const-reference -verify
 SemaCXX/warn-unreachable.cpp	-fcxx-exceptions -fexceptions -verify -fblocks -std=c++11 -Wunreachable-code-aggressive -Wno-unused-value -Wno-tautological-compare
-SemaCXX/warn-unsafe-buffer-usage-fold-conditional.cpp	-Wno-all -Wunsafe-buffer-usage -verify -std=c++20
+SemaCXX/warn-unsafe-buffer-usage-fold-conditional.cpp	-Wno-all -Wunsafe-buffer-usage -verify=cxx -std=c++20
 SemaCXX/warn-unsequenced-paren-list-init.cpp	-std=c++20 -Wno-unused -Wunsequenced -verify
 SemaCXX/warn-unsequenced.cpp	-verify=cxx11 -std=c++11 -Wno-unused -Wno-uninitialized -Wunsequenced -Wno-c++17-extensions -Wno-c++14-extensions
 SemaCXX/warn-unused-attribute.cpp	-std=gnu++17 -Wunused-variable -verify
@@ -722,7 +749,7 @@ SemaCXX/warn-unused-filescoped.cpp	-verify -Wunused -Wunused-template -Wunused-m
 SemaCXX/warn-unused-label-error.cpp	-std=gnu++17 -Wunused-variable -Wunused-label -verify
 SemaCXX/warn-unused-lambda-capture.cpp	-Wunused-lambda-capture -Wused-but-marked-unused -Wno-uninitialized -verify -std=c++1z
 SemaCXX/warn-unused-local-typedef.cpp	-Wunused-local-typedef -verify -std=c++1y
-SemaCXX/warn-unused-parameters-coroutine.cpp	-Wunused-parameter -verify -std=c++20
+SemaCXX/warn-unused-parameters-coroutine.cpp	-Wunused-parameter -verify -std=c++20 -Wno-coroutines-unsupported-target
 SemaCXX/warn-unused-parameters.cpp	-Wunused-parameter -verify -std=c++11
 SemaCXX/warn-unused-private-field.cpp	-Wunused -Wused-but-marked-unused -Wno-uninitialized -verify -std=c++11
 SemaCXX/warn-unused-result.cpp	-verify -std=c++11
@@ -780,10 +807,13 @@ Sema/attr-callback.c	-std=gnu17 -verify
 Sema/attr-capabilities.c	-std=gnu17 -Wthread-safety -verify
 Sema/attr-capabilities.cpp	-std=gnu++17 -Wthread-safety -verify
 Sema/attr-cfi-salt.c	-std=c11 -fsanitize=kcfi -verify
+Sema/attr-cleanup-duplicate.c	-std=gnu17 -verify
 Sema/attr-cleanup.c	-std=gnu17 -Wfree-nonheap-object -verify
 Sema/attr-coldhot.c	-std=gnu17 -verify
+Sema/attr-const-pure.c	-std=gnu17 -verify
 Sema/attr-counted-by-bounds-safety-vlas.c	-std=gnu17 -fexperimental-bounds-safety -verify
 Sema/attr-counted-by-late-parsed-off.c	-std=gnu17 -DNEEDS_LATE_PARSING -fno-experimental-late-parse-attributes -verify
+Sema/attr-counted-by-late-parsed-struct-ptrs-anon.c	-std=gnu17 -fexperimental-late-parse-attributes -verify
 Sema/attr-counted-by-late-parsed-struct-ptrs.c	-std=gnu17 -fexperimental-late-parse-attributes -Wpointer-arith -verify
 Sema/attr-counted-by-or-null-last-field.c	-std=gnu17 -Wpointer-arith -verify=expected,immediate
 Sema/attr-counted-by-or-null-late-parsed-off.c	-std=gnu17 -DNEEDS_LATE_PARSING -fno-experimental-late-parse-attributes -verify
@@ -811,7 +841,6 @@ Sema/attr-external-source-symbol.c	-std=gnu17 -fblocks -verify
 Sema/attr-format_arg.c	-std=gnu17 -verify
 Sema/attr-handles.cpp	-std=gnu++17 -verify
 Sema/attr-leaf.c	-std=gnu17 -verify
-Sema/attr-lifetimebound-no-crash.cpp	-std=gnu++17 -verify
 Sema/attr-likelihood.c	-std=gnu17 -verify
 Sema/attr-loader-uninitialized.c	-std=gnu17 -verify
 Sema/attr-loader-uninitialized.cpp	-std=gnu++17 -verify
@@ -822,14 +851,18 @@ Sema/attr-mig.cpp	-std=gnu++17 -verify
 Sema/attr-minsize.c	-std=gnu17 -verify
 Sema/attr-mode-enums.c	-std=gnu17 -verify
 Sema/attr-modular-format.c	-std=gnu17 -verify
+Sema/attr-ms-forceinline.c	-verify=no-ms-ext -std=c23
+Sema/attr-ms-forceinline.cpp	-verify=no-ms-ext -std=c++23
 Sema/attr-musttail.c	-std=gnu17 -verify
 Sema/attr-musttail.cpp	-std=gnu++17 -verify
+Sema/attr-no-outline.c	-std=gnu17 -verify
+Sema/attr-no-outline.cpp	-std=gnu++17 -verify
 Sema/attr-nodebug.c	-std=gnu17 -verify
 Sema/attr-noduplicate.c	-std=gnu17 -verify
 Sema/attr-noinline.c	-std=gnu17 -verify
 Sema/attr-noinline.cpp	-std=gnu++17 -verify -Wno-c++17-extensions
 Sema/attr-nomerge.cpp	-std=gnu++17 -verify
-Sema/attr-nonblocking-constraints.c	-verify -std=c89 -Wfunction-effects -internal-isystem %S/..//Headers/Inputs/include
+Sema/attr-nonblocking-constraints.c	-verify -std=c89 -Wfunction-effects -internal-isystem %S/../Headers/Inputs/include
 Sema/attr-nonblocking-constraints.cpp	-fblocks -fcxx-exceptions -std=c++20 -verify -Wfunction-effects -Wno-vla-extension
 Sema/attr-nonblocking-sema.c	-verify -std=c89
 Sema/attr-nonblocking-sema.cpp	-std=gnu++17 -fblocks -fcxx-exceptions -verify -Wfunction-effects -Wfunction-effect-redeclarations
@@ -840,6 +873,11 @@ Sema/attr-notail.c	-std=gnu17 -verify
 Sema/attr-only-in-default-eval.cpp	-std=gnu++17 -verify
 Sema/attr-osobject.cpp	-std=gnu++17 -verify
 Sema/attr-osobject.mm	-std=gnu++17 -verify -fblocks
+Sema/attr-overflow-behavior-format-strings.c	-std=gnu17 -verify -Wformat -fexperimental-overflow-behavior-types -isystem %S/Inputs
+Sema/attr-overflow-behavior-off.c	-std=gnu17 -Winteger-overflow -Wno-unused-value -verify
+Sema/attr-overflow-behavior-templates.cpp	-std=gnu++17 -fexperimental-overflow-behavior-types -verify -Wimplicit-overflow-behavior-conversion
+Sema/attr-overflow-behavior.c	-Winteger-overflow -Wno-unused-value -fexperimental-overflow-behavior-types -Woverflow-behavior-conversion -Wconstant-conversion -verify -std=c11 -Wno-pointer-sign
+Sema/attr-overflow-behavior.cpp	-std=gnu++17 -Winteger-overflow -Wno-unused-value -fexperimental-overflow-behavior-types -Wconstant-conversion -Woverflow-behavior-conversion -verify
 Sema/attr-ownership.c	-std=gnu17 -verify -Wno-strict-prototypes
 Sema/attr-ownership.cpp	-std=gnu++17 -verify
 Sema/attr-read-only-placement.cpp	-std=gnu++17 -Wread-only-types -verify
@@ -882,9 +920,11 @@ Sema/block-sentinel-attribute.c	-std=gnu17 -fblocks -verify
 Sema/block-storageclass.c	-std=gnu17 -verify -fblocks
 Sema/bool-compare.c	-std=gnu17 -verify -Wno-logical-not-parentheses
 Sema/bpf-attr-preserve-static-offset-warns-nonbpf.c	-std=gnu17 -verify
+Sema/break-continue-cond.c	-verify -std=c90 -DPRE_C99
 Sema/builtin-alloca-with-align.c	-std=gnu17 -verify
 Sema/builtin-allow-sanitize-check.c	-std=gnu17 -verify
 Sema/builtin-classify-type.c	-std=gnu17 -verify -fblocks
+Sema/builtin-clear-padding.c	-std=gnu17 -verify
 Sema/builtin-counted-by-ref.c	-std=c99 -verify
 Sema/builtin-expect-with-probability.cpp	-std=gnu++17 -verify
 Sema/builtin-fpclassification.c	-std=gnu17 -Wno-unused-value -verify
@@ -926,6 +966,7 @@ Sema/complex-promotion.c	-std=gnu17 -verify
 Sema/conditional-expr.c	-std=gnu17 -Wno-pointer-to-int-cast -verify -pedantic -Wsign-conversion
 Sema/conditional.c	-std=gnu17 -fenable-matrix -verify
 Sema/const-init.c	-verify -std=c23
+Sema/const-ptr-int-ptr-cast.c	-std=gnu17 -verify -ffreestanding
 Sema/constant-builtins-2.c	-std=gnu17 -verify
 Sema/constant-builtins-all-args-evaluated.cpp	-std=gnu++17 -verify
 Sema/constant-builtins-fmax.cpp	-std=c++17 -verify
@@ -980,6 +1021,8 @@ Sema/function.c	-std=gnu17 -verify -verify=c2x -pedantic -Wno-strict-prototypes
 Sema/generic-selection-type-extension.c	-std=c2x -verify -Wno-unused
 Sema/generic-selection.c	-std=c11 -Wno-strict-prototypes -Wno-implicit-function-declaration -verify
 Sema/gh106576.c	-std=gnu17 -verify
+Sema/gh170072.c	-std=gnu17 -verify -Wno-unused
+Sema/gh183974.c	-std=gnu17 -fblocks -verify
 Sema/gh87867.c	-verify -std=c23
 Sema/gnu-attributes.c	-std=gnu17 -verify
 Sema/gnu-builtins.c	-verify=gnu -std=gnu17
@@ -988,6 +1031,7 @@ Sema/gnu89.c	-std=gnu89 -pedantic -verify
 Sema/implicit-builtin-decl.c	-std=gnu17 -Wno-strict-prototypes -verify
 Sema/implicit-builtin-freestanding.c	-std=gnu17 -verify -ffreestanding
 Sema/implicit-builtin-redecl.c	-std=gnu17 -verify
+Sema/implicit-cast-complex-to-vector.c	-std=gnu17 -verify=c
 Sema/implicit-cast.c	-std=gnu17 -verify
 Sema/implicit-decl-c90.c	-std=c90 -verify
 Sema/implicit-decl.c	-verify=expected,both -Werror=implicit-function-declaration -std=c99
@@ -997,6 +1041,7 @@ Sema/implicit-void-ptr-cast.c	-Wno-alloc-size -std=c23 -verify=c -Wimplicit-void
 Sema/incompatible-function-pointer-types-extinfo.c	-std=c99 -verify=expected
 Sema/incompatible-function-pointer-types-strict.c	-std=gnu17 -Wincompatible-function-pointer-types-strict -verify=soft,strict
 Sema/incompatible-function-pointer-types.c	-std=gnu17 -Wincompatible-pointer-types -verify=hard,expected
+Sema/incompatible-function-to-ptr-decay.c	-std=gnu17 -fexperimental-overflow-behavior-types -verify
 Sema/incompatible-sign.c	-std=gnu17 -verify
 Sema/incompatible-sign.cpp	-std=gnu++17 -verify
 Sema/incomplete-call.c	-std=gnu17 -Wno-strict-prototypes -verify
@@ -1030,6 +1075,7 @@ Sema/memset-invalid.c	-std=gnu17 -verify
 Sema/merge-decls.c	-std=gnu17 -verify -Wno-strict-prototypes
 Sema/missing-field-initializers.c	-std=gnu17 -verify -Wmissing-field-initializers
 Sema/ms-keyword-system-header.c	-std=gnu17 -isystem %S/Inputs -verify
+Sema/multi-dim-array.c	-std=gnu17 -verify -pedantic -Wno-strict-prototypes -Wno-zero-length-array
 Sema/negative-shift-wrapv.c	-std=gnu17 -Wall -ffreestanding -fwrapv -verify
 Sema/nested-redef.c	-std=gnu17 -verify
 Sema/no-documentation-warn-tagdecl-specifier.c	-std=gnu17 -Wdocumentation -verify
@@ -1044,6 +1090,10 @@ Sema/nonnull.c	-std=gnu17 -verify -Wno-strict-prototypes
 Sema/nullability-and-template-deduction.cpp	-std=gnu++17 -verify
 Sema/nullability.c	-std=gnu17 -fblocks -Wnullable-to-nonnull-conversion -Wno-nullability-declspec -verify
 Sema/offsetof.c	-std=gnu17 -Wno-pointer-to-int-cast -verify
+Sema/overflow-behavior-assignment-pedantic.c	-fexperimental-overflow-behavior-types -Wimplicit-overflow-behavior-conversion-assignment-pedantic -verify -std=c11
+Sema/overflow-behavior-function-boundary-default.c	-std=gnu17 -fexperimental-overflow-behavior-types -verify
+Sema/overflow-behavior-keywords-off.c	-std=gnu17 -verify
+Sema/overflow-behavior-keywords.c	-std=gnu17 -fexperimental-overflow-behavior-types -verify
 Sema/overloadable-complex.c	-std=gnu17 -verify
 Sema/overloadable.c	-std=gnu17 -verify -Wincompatible-pointer-types -Wno-strict-prototypes
 Sema/overloaded-func-transparent-union.c	-std=gnu17 -verify
@@ -1075,6 +1125,7 @@ Sema/return-non-void.c	-Wreturn-type -std=c99 -verify=c99
 Sema/return-noreturn.c	-std=gnu17 -verify -fblocks -Wmissing-noreturn -Wno-unreachable-code
 Sema/return-silent.c	-std=gnu17 -Wno-return-type -verify
 Sema/return-type-mismatch.c	-std=gnu17 -Wno-error=return-type -Wno-return-mismatch -verify=return-type
+Sema/safestack-deprecated-builtins.c	-std=gnu17 -verify -fsanitize=safe-stack
 Sema/scope-check.c	-verify -fblocks -std=gnu99 -Wno-unreachable-code
 Sema/self-comparison.c	-std=gnu17 -verify
 Sema/sentinel-attribute-block.c	-std=gnu17 -fblocks -verify
@@ -1083,6 +1134,7 @@ Sema/shift-bool.c	-std=gnu17 -Wshift-bool -verify
 Sema/shift-bool.cpp	-std=gnu++17 -Wshift-bool -verify
 Sema/shift-count-overflow.c	-std=gnu17 -verify=expected,c -pedantic
 Sema/sign-conversion.c	-std=gnu17 -verify -Wsign-conversion
+Sema/stack_protector_ignore.c	-std=gnu17 -verify
 Sema/static-assert.c	-std=c11 -Wgnu-folding-constant -verify
 Sema/static-init.c	-std=gnu17 -verify -Wno-pointer-to-int-cast -Wno-bool-conversion
 Sema/stmt-expr-in-default-arg.cpp	-verify -std=c++20
@@ -1102,6 +1154,7 @@ Sema/thread_local.c	-std=c23 -verify
 Sema/transparent-union-pointer.c	-std=gnu17 -verify
 Sema/transparent-union.c	-std=gnu17 -verify -Wgnu-flexible-array-union-member
 Sema/type-dependent-attrs.c	-std=c23 -verify
+Sema/type-dependent-attrs.cpp	-std=gnu++17 -verify
 Sema/type-spec-struct-union.c	-std=gnu17 -pedantic -Wno-strict-prototypes -verify
 Sema/typecheck-binop.c	-std=gnu17 -pedantic -verify
 Sema/typedef-prototype.c	-std=gnu17 -verify
@@ -1158,10 +1211,6 @@ Sema/warn-extern-main.c	-std=gnu17 -verify -DTEST1
 Sema/warn-free-nonheap-object.c	-std=gnu17 -Wfree-nonheap-object -verify
 Sema/warn-freestanding-complex.c	-std=gnu17 -ffreestanding -pedantic -verify
 Sema/warn-jump-bypasses-init.c	-std=gnu17 -verify=c,both -Wjump-misses-init
-Sema/warn-lifetime-analysis-capture-by.cpp	-std=gnu++17 --std=c++20 -verify -Wdangling-capture
-Sema/warn-lifetime-analysis-nocfg-disabled.cpp	-std=gnu++17 -Wno-dangling-gsl -Wreturn-stack-address -verify
-Sema/warn-lifetime-analysis-nocfg.cpp	-std=gnu++17 -Wdangling -Wdangling-field -Wreturn-stack-address -verify
-Sema/warn-lifetime-safety.cpp	-std=gnu++17 -fexperimental-lifetime-safety -Wexperimental-lifetime-safety -Wno-dangling -verify
 Sema/warn-logical-not-compare.c	-std=gnu17 -Wlogical-not-parentheses -verify
 Sema/warn-main-return-type.c	-std=gnu17 -verify
 Sema/warn-main-returns-bool-literal.cpp	-std=c++11 -Wmain -verify
@@ -1196,6 +1245,8 @@ Sema/warn-unreachable.c	-std=gnu17 -verify -fblocks -Wunreachable-code-aggressiv
 Sema/warn-unreachable.mm	-std=gnu++17 -fobjc-exceptions -fcxx-exceptions -verify -Wunreachable-code
 Sema/warn-unsequenced.c	-verify -std=c11 -Wno-unused
 Sema/warn-unused-but-set-parameters.c	-std=gnu17 -fblocks -Wunused-but-set-parameter -verify
+Sema/warn-unused-but-set-static-global.c	-std=gnu17 -Wunused-but-set-variable -I %S/Inputs -verify
+Sema/warn-unused-but-set-static-global.cpp	-Wunused-but-set-variable -verify -std=c++17
 Sema/warn-unused-but-set-variables.c	-std=gnu17 -fblocks -Wunused-but-set-variable -verify
 Sema/warn-unused-function.c	-std=gnu17 -Wused-but-marked-unused -Wunused-function -Wunneeded-internal-declaration -verify
 Sema/warn-unused-label.c	-std=gnu17 -Wunused-label -verify
@@ -1207,6 +1258,22 @@ Sema/warn-vla.c	-std=c99 -verify -Wvla
 Sema/wchar.c	-std=gnu17 -verify
 Sema/xray-always-instrument-attr.c	-verify -std=c11
 Sema/xray-log-args-oob.c	-verify -std=c11
+Sema/LifetimeSafety/attr-lifetimebound-no-crash.cpp	-std=gnu++17 -verify
+Sema/LifetimeSafety/capture-by.cpp	-std=gnu++17 --std=c++20 -verify -Wdangling-capture
+Sema/LifetimeSafety/cfg-bailout.cpp	-std=gnu++17 -Wlifetime-safety -lifetime-safety-max-cfg-blocks=3 -Wno-dangling -verify=bailout
+Sema/LifetimeSafety/dangling-field-implicit-ctor.cpp	-std=gnu++17 -Wlifetime-safety-dangling-field -Wno-dangling-gsl -verify=expected,perfunc
+Sema/LifetimeSafety/dangling-field.cpp	-std=gnu++17 -Wlifetime-safety -Wlifetime-safety-annotation-placement -Wno-dangling -verify
+Sema/LifetimeSafety/dangling-global.cpp	-std=gnu++17 -Wlifetime-safety -Wno-dangling -verify
+Sema/LifetimeSafety/inapplicable-lifetimebound.cpp	-std=gnu++17 -Wlifetime-safety-annotation-placement -Wno-dangling -verify
+Sema/LifetimeSafety/invalidations.cpp	-std=gnu++17 -Wlifetime-safety -Wno-dangling -verify
+Sema/LifetimeSafety/lifetimebound-violation.cpp	-std=gnu++17 -Wlifetime-safety-lifetimebound-violation -Wlifetime-safety-annotation-placement -Wno-dangling -verify
+Sema/LifetimeSafety/misplaced-lifetimebound-intra-tu.cpp	-std=gnu++17 -Wlifetime-safety-intra-tu-misplaced-lifetimebound -Wlifetime-safety-annotation-placement -Wno-dangling -verify
+Sema/LifetimeSafety/misplaced-lifetimebound-macro.cpp	-std=gnu++17 -Wlifetime-safety-intra-tu-misplaced-lifetimebound -Wlifetime-safety-annotation-placement -Wno-dangling -verify
+Sema/LifetimeSafety/nocfg-disabled.cpp	-std=gnu++17 -Wno-dangling-gsl -Wreturn-stack-address -verify
+Sema/LifetimeSafety/nocfg.cpp	-std=gnu++17 -Wdangling -Wdangling-field -Wreturn-stack-address -verify
+Sema/LifetimeSafety/noescape-violation.cpp	-std=gnu++17 -flifetime-safety-inference -Wlifetime-safety-noescape -Wlifetime-safety-annotation-placement -verify
+Sema/LifetimeSafety/safety-c.c	-std=gnu17 -Wlifetime-safety -Wno-dangling -Wno-varargs -Wno-non-pod-varargs -verify -fexperimental-lifetime-safety-c
+Sema/LifetimeSafety/safety.cpp	-std=gnu++17 -Wlifetime-safety -Wlifetime-safety-annotation-placement -Wno-dangling -verify=expected,function
 Parser/CompoundStmtScope.c	-std=gnu17 -verify
 Parser/access-spec-attrs.cpp	-std=gnu++17 -verify
 Parser/annotation-token-in-lexed-body.cpp	-std=gnu++17 -verify
@@ -1243,7 +1310,11 @@ Parser/compound_literal.c	-std=gnu17 -verify
 Parser/cxx-ambig-decl-expr.cpp	-std=gnu++17 -verify
 Parser/cxx-ambig-paren-expr-asan.cpp	-std=gnu++17 -pedantic -verify
 Parser/cxx-ambig-paren-expr.cpp	-std=gnu++17 -pedantic -verify
-Parser/cxx-attributes.cpp	-std=gnu++17 -verify
+Parser/cxx-attributes-missing-closing-in-switch.cpp	-std=gnu++17 -verify
+Parser/cxx-attributes-missing-closing.cpp	-std=gnu++17 -verify
+Parser/cxx-attributes-missing-second-closing-in-switch.cpp	-std=gnu++17 -verify
+Parser/cxx-attributes-missing-with-semi-before-closing.cpp	-std=gnu++17 -verify
+Parser/cxx-attributes.cpp	-std=gnu++17 -verify=expected
 Parser/cxx-bad-cast-diagnose-broken-template.cpp	-std=gnu++17 -fcxx-exceptions -fexceptions -verify
 Parser/cxx-bool.cpp	-std=gnu++17 -verify
 Parser/cxx-casting.cpp	-verify -std=c++14
@@ -1264,6 +1335,7 @@ Parser/cxx-invalid-function-decl.cpp	-std=gnu++17 -verify
 Parser/cxx-invalid-using-decl-in-constexpr-crash.cpp	-std=gnu++17 -verify
 Parser/cxx-keyword-identifiers.cpp	-std=c++11 -verify
 Parser/cxx-member-initializers.cpp	-verify -std=c++11
+Parser/cxx-missing-semi-crash.cpp	-std=c++23 -verify
 Parser/cxx-namespace-after-missing-semicolon.cpp	-std=gnu++17 -verify
 Parser/cxx-namespace-alias.cpp	-std=gnu++17 -verify
 Parser/cxx-nested-name-spec.cpp	-std=gnu++17 -verify
@@ -1305,12 +1377,16 @@ Parser/cxx2b-label.cpp	-verify=expected,cxx23 -std=c++23 -Wpre-c++23-compat
 Parser/cxx2b-subscript.cpp	-verify=expected,cxx23 -std=c++23
 Parser/cxx2c-binding-pack.cpp	-std=c++2c -verify
 Parser/cxx2c-delete-with-message.cpp	-std=c++17 -verify=expected,pre26
+Parser/cxx2c-expansion-statements-non-compound-stmt-body.cpp	-std=c++2c -Wexpansion-stmt-missing-braces -verify
+Parser/cxx2c-expansion-statements-not-backported.cpp	-std=c++23 -verify
+Parser/cxx2c-expansion-statements.cpp	-std=c++2c -verify
 Parser/cxx2c-oxford-variadic-comma.cpp	-std=c++2c -fblocks -verify
 Parser/cxx2c-pack-indexing.cpp	-std=c++2c -verify
 Parser/cxx2c-variadic-friends-ext-diags.cpp	-std=c++2c -verify=compat -Wpre-c++26-compat
 Parser/cxx2c-variadic-friends.cpp	-verify -std=c++2c
 Parser/declarators.c	-verify -pedantic -std=c99
 Parser/decls.c	-std=gnu17 -verify -pedantic
+Parser/decltype-gh188014.cpp	-verify -std=c++11
 Parser/defer-ts.c	-std=c11 -fdefer-ts -verify
 Parser/defer-ts.cpp	-std=c++20 -fdefer-ts -verify
 Parser/designator.c	-std=gnu17 -verify -pedantic
@@ -1331,6 +1407,7 @@ Parser/gcc-for-loop-init-compatibility.c	-std=c89 -verify
 Parser/generic-selection-type-extension-pedantic.c	-std=c2x -verify -pedantic
 Parser/generic-selection-type-extension.c	-std=c2x -verify -Wno-unused
 Parser/gh114815.cpp	-verify -std=c++11
+Parser/gh186582.cpp	-std=gnu++17 -verify
 Parser/gh30908-scope-balance-on-invalid-var-direct-init-1.cpp	-std=gnu++17 -ferror-limit 2 -verify
 Parser/gh30908-scope-balance-on-invalid-var-direct-init-2.cpp	-std=gnu++17 -verify
 Parser/gh48527.cpp	-std=gnu++17 -verify
@@ -1341,6 +1418,7 @@ Parser/implicit-casts.c	-std=gnu17 -verify -pedantic
 Parser/knr_parameter_attributes.c	-W -Wall -Wno-deprecated-non-prototype -Werror -verify -std=c99
 Parser/labeled-break-continue.c	-verify -std=c2y
 Parser/lambda-misplaced-capture-default.cpp	-std=c++20 -Wno-unused-value -verify
+Parser/macro-braces-recovery.cpp	-verify=expected -std=c++17
 Parser/macro-expansion-recovery.cpp	-std=gnu++17 -verify
 Parser/max-tokens.cpp	-std=gnu++17 -verify -Wmax-tokens
 Parser/message-expr-alt-op.mm	-std=gnu++17 -verify
@@ -1361,6 +1439,7 @@ Parser/objcxx14-protocol-in-template.mm	-verify -std=c++14
 Parser/offsetof.c	-std=gnu17 -verify
 Parser/parenthesis-balance.cpp	-std=gnu++17 -verify
 Parser/parmvardecl_conversion.c	-std=gnu17 -verify
+Parser/parsing-reflection.cpp	-std=c++26 -freflection -verify
 Parser/pointer-arithmetic.c	-std=gnu17 -verify
 Parser/pointer_promotion.c	-std=gnu17 -verify
 Parser/pragma-fenv_round.c	-std=gnu17 -fexperimental-strict-floating-point -Wignored-pragmas -verify
@@ -1389,6 +1468,7 @@ Parser/warn-dangling-else.cpp	-std=gnu++17 -verify -Wdangling-else
 Parser/warn-misleading-indentation.cpp	-std=c++17 -verify -Wall -Wno-unused -Wno-misleading-indentation -DCXX17
 Parser/while-loop-outside-function.c	-std=gnu17 -verify
 Parser/while-loop-outside-function.cpp	-std=gnu++17 -verify
+Lexer/__counter__-system-include.c	-std=gnu17 -Wpedantic -isystem %S/Inputs -verify=ext
 Lexer/bitint-constants-compat.c	-std=c17 -verify=ext -Wno-unused
 Lexer/block_cmt_end.c	-std=gnu17 -ftrigraphs -verify
 Lexer/c90.c	-std=c90 -verify -pedantic-errors
@@ -1410,7 +1490,9 @@ Lexer/eof-number.c	-std=gnu17 -verify -Wnewline-eof
 Lexer/eof-string.c	-std=gnu17 -verify
 Lexer/final-macro.c	-std=gnu17 -Wfinal-macro -isystem %S/Inputs -verify
 Lexer/gnu-flags.c	-std=gnu17 -verify -DNONE
+Lexer/gnu-zero-variadic-macro-argument-fixit.c	-verify -Wgnu-zero-variadic-macro-arguments -std=c23
 Lexer/hexfloat.cpp	-std=c++98 -verify -pedantic
+Lexer/invalid-directive.cpp	-verify -std=c++20
 Lexer/keywords_test.c	-std=c89 -DFutureKeyword -Wc2x-compat -Wc99-compat -verify=c89
 Lexer/keywords_test.cpp	-std=c++98 -DFutureKeyword -Wc++11-compat -Wc++20-compat -verify=cxx98
 Lexer/multi-char-constants.c	-std=gnu17 -verify -Wfour-char-constants -pedantic-errors
@@ -1430,6 +1512,12 @@ Lexer/utf-16.c	-std=gnu17 -verify
 Lexer/utf8-invalid.c	-std=gnu17 -verify
 Lexer/warn_binary_literals.cpp	-std=c++11 -verify -Wc++14-binary-literal
 Lexer/wchar.c	-std=gnu17 -fwchar-type=short -fno-signed-wchar -verify
+SemaTemplate/GH176155.cpp	-std=c++20 -verify
+SemaTemplate/GH181062.cpp	-verify -std=c++26
+SemaTemplate/GH187909.cpp	-std=gnu++17 -verify
+SemaTemplate/GH188759.cpp	-verify -std=c++26
+SemaTemplate/GH195988.cpp	-std=gnu++17 -verify
+SemaTemplate/GH198890.cpp	-std=c++14 -verify
 SemaTemplate/GH55509.cpp	-verify -std=c++26
 SemaTemplate/GH75426.cpp	-std=c++20 -verify
 SemaTemplate/PR77189.cpp	-std=c++17 -verify
@@ -1485,6 +1573,7 @@ SemaTemplate/equivalence.cpp	-std=gnu++17 -verify
 SemaTemplate/example-typelist.cpp	-std=gnu++17 -verify
 SemaTemplate/exception-spec-crash.cpp	-std=c++11 -verify -Wno-defaulted-function-deleted
 SemaTemplate/explicit-instantiation-cxx20.cpp	-verify -std=c++20
+SemaTemplate/explicit-instantiation-diag-location.cpp	-std=gnu++17 -verify
 SemaTemplate/explicit-specialization-member.cpp	-std=c++17 -verify -fcxx-exceptions
 SemaTemplate/ext-vector-type.cpp	-std=gnu++17 -verify
 SemaTemplate/friend-template.cpp	-std=gnu++17 -verify
@@ -1494,6 +1583,8 @@ SemaTemplate/function-template-specialization-noreturn.cpp	-std=gnu++17 -verify
 SemaTemplate/function-template-specialization.cpp	-std=gnu++17 -verify
 SemaTemplate/generic-lambda.cpp	-std=c++20 -verify
 SemaTemplate/gh138371.cpp	-std=gnu++17 -verify
+SemaTemplate/gh176152.cpp	-std=gnu++17 -verify
+SemaTemplate/gh183983.cpp	-std=gnu++17 -verify
 SemaTemplate/gh57362.cpp	-verify -std=c++20 -Wpre-c++17-compat
 SemaTemplate/gh61159.cpp	-verify -std=c++20
 SemaTemplate/implicit-instantiation-1.cpp	-std=gnu++17 -verify
@@ -1613,6 +1704,7 @@ SemaTemplate/value-dependent-bitfield-cond.cpp	-std=gnu++17 -verify
 SemaTemplate/value-dependent-null-pointer-constant.cpp	-std=gnu++17 -verify
 CXX/basic/basic.def.odr/p1-var.cpp	-std=gnu++17 -verify
 CXX/basic/basic.def.odr/p2-typeid.cpp	-std=gnu++17 -verify
+CXX/basic/basic.link/p11.cpp	-std=c++26 -verify
 CXX/basic/basic.link/p6.cpp	-verify -std=c++1y
 CXX/basic/basic.link/p9.cpp	-std=gnu++17 -verify
 CXX/basic/basic.lookup/basic.lookup.argdep/p2-associated-namespaces-classes.cpp	-verify -std=c++17
@@ -1668,7 +1760,7 @@ CXX/class/class.init/class.copy.elision/p3.cpp	-std=c++23 -fcxx-exceptions -veri
 CXX/class/class.local/p1-0x.cpp	-verify -std=c++11
 CXX/class/class.local/p1.cpp	-std=gnu++17 -verify
 CXX/class/class.local/p2.cpp	-std=gnu++17 -verify
-CXX/class/class.local/p3.cpp	-std=gnu++17 -verify
+CXX/class/class.local/p3.cpp	-std=gnu++17 -verify -verify-directives
 CXX/class/class.local/p4.cpp	-std=gnu++17 -verify
 CXX/class/class.mem/p1.cpp	-std=gnu++17 -verify
 CXX/class/class.mem/p13.cpp	-verify -std=c++14
@@ -1869,6 +1961,7 @@ CXX/expr/expr.prim/expr.prim.lambda/p6.cpp	-std=c++11 -verify
 CXX/expr/expr.prim/expr.prim.lambda/p7.cpp	-Werror=return-type -std=c++11 -verify
 CXX/expr/expr.prim/expr.prim.lambda/p9.cpp	-std=c++17 -verify
 CXX/expr/expr.prim/expr.prim.lambda/templates.cpp	-std=c++11 -Winvalid-noreturn -verify
+CXX/expr/expr.prim/expr.prim.this/p4.cpp	-std=c++23 -Wno-unused-value -verify
 CXX/expr/expr.unary/expr.new/p17.cpp	-std=gnu++17 -verify
 CXX/expr/expr.unary/expr.new/p19.cpp	-std=gnu++17 -verify -fexceptions
 CXX/expr/expr.unary/expr.new/p2-cxx0x.cpp	-verify -std=c++11
@@ -1882,6 +1975,7 @@ CXX/expr/expr.unary/expr.unary.general/p1.cpp	-std=gnu++17 -Wno-unused -verify
 CXX/expr/expr.unary/expr.unary.op/p3.cpp	-std=gnu++17 -verify
 CXX/expr/expr.unary/expr.unary.op/p4.cpp	-std=gnu++17 -verify
 CXX/expr/expr.unary/expr.unary.op/p6.cpp	-std=gnu++17 -verify
+CXX/lex/lex.header/p2.cpp	-std=c++11 -verify
 CXX/lex/lex.literal/lex.ccon/p1.cpp	-std=gnu++17 -verify
 CXX/lex/lex.literal/lex.ext/p1.cpp	-std=c++11 -Wno-deprecated-literal-operator -verify
 CXX/lex/lex.literal/lex.ext/p11.cpp	-std=c++11 -verify
@@ -2072,6 +2166,7 @@ CXX/temp/temp.spec/temp.expl.spec/p4.cpp	-verify -std=c++98
 CXX/temp/temp.spec/temp.expl.spec/p5-example.cpp	-std=gnu++17 -verify
 CXX/temp/temp.spec/temp.expl.spec/p5.cpp	-std=gnu++17 -verify
 CXX/temp/temp.spec/temp.expl.spec/p6.cpp	-std=gnu++17 -verify
+CXX/temp/temp.spec/temp.expl.spec/p7.cpp	-std=c++20 -verify
 CXX/temp/temp.spec/temp.expl.spec/p8.cpp	-std=c++20 -verify
 CXX/temp/temp.spec/temp.expl.spec/p9.cpp	-std=gnu++17 -verify
 CXX/temp/temp.spec/temp.explicit/p1-0x.cpp	-std=c++11 -verify
@@ -2091,7 +2186,7 @@ C/C11/n1285.c	-verify=expected,c -std=c99
 C/C23/n2350.c	-std=gnu17 -verify=silent
 C/C23/n2900_n3011.c	-std=c2x -Wpre-c2x-compat -verify=compat
 C/C23/n3033_2.c	-std=c23 -verify
-C/C23/n3037.c	-std=c23 -pedantic -Wall -Wno-comment -verify=both,c23
+C/C23/n3037.c	-std=c23 -pedantic -Wall -Wno-comment -fexperimental-late-parse-attributes -verify=both,c23
 C/C2y/n3369.c	-std=c2y -pedantic -Wall -Wno-comment -verify
 C/C2y/n3369_1.c	-std=c2y -pedantic -Wpre-c2y-compat -verify=compat
 C/drs/dr157.c	-std=c89 -pedantic -verify
@@ -2101,6 +2196,7 @@ C/drs/dr3xx.c	-std=c89 -Wvla -verify=expected,c89only,c17andearlier -pedantic -W
 C/drs/dr411.c	-std=c89 -verify -DC89 -Wno-c11-extensions
 SemaObjCXX/abstract-class-type-ivar.mm	-std=gnu++17 -verify -Wno-objc-root-class
 SemaObjCXX/arc-libstdcxx.mm	-std=gnu++17 -fobjc-arc -fobjc-arc-cxxlib=libstdc++ -fobjc-runtime-has-weak -verify
+SemaObjCXX/arc-lifetime-rvalue-ref-binding.mm	-std=c++17 -fobjc-arc -verify
 SemaObjCXX/arc-memfunc.mm	-std=gnu++17 -fobjc-arc -verify -fblocks
 SemaObjCXX/arc-overloading.mm	-std=gnu++17 -fobjc-runtime-has-weak -fobjc-arc -verify -fblocks -Wno-objc-root-class
 SemaObjCXX/arc-ppe.mm	-std=gnu++17 -verify -fobjc-arc

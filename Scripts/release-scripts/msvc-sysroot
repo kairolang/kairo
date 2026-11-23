@@ -59,7 +59,7 @@ shift
 #                                 the installed VC tools and Windows Kits.
 #                                 SYSROOT.toml lists it in local_only.
 #   <root>/include/c++/v1, lib/, compiler-rt/
-#                                 libc++ and builtins, built here (LLVM 22,
+#                                 libc++ and builtins, built here (LLVM 23,
 #                                 Apache-2.0 WITH LLVM-exception).
 #
 # Header order matters: include/c++/v1, then clang's resource headers, then
@@ -388,7 +388,7 @@ emit_toml() {
   local triple="$1" xa="$2"
   cat >"$3" <<EOF
 triple        = "$triple"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "windows-msvc"
 sysroot       = "."
 include_dirs  = ["include/c++/v1", "msvc/crt/include", "msvc/sdk/include/ucrt", "msvc/sdk/include/um", "msvc/sdk/include/shared"]
@@ -1191,7 +1191,7 @@ function Probe-Builtins([string]$triple, [string]$lib, [string]$b, [string[]]$sy
 function Write-Toml([string]$name, [string]$xa, [string]$path) {
     $t = @(
         "triple        = `"$name`""
-        'llvm_version  = "22.1.0"'
+        'llvm_version  = "23.1.6"'
         'family        = "windows-msvc"'
         'sysroot       = "."'
         'include_dirs  = ["include/c++/v1", "msvc/crt/include", "msvc/sdk/include/ucrt", "msvc/sdk/include/um", "msvc/sdk/include/shared"]'

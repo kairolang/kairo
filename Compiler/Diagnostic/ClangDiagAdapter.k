@@ -278,7 +278,10 @@ pub class ClangDiagAdapter derives clang::DiagnosticConsumer {
         self._last_fwded = true
     }
 
-    pub override fn finish(self) {
+    // Not an override: DiagnosticConsumer::finish is gone from clang 23. Every
+    // owner calls it before it drops the adapter, and the destructor flushes
+    // what is left.
+    pub fn finish(self) {
         self._flush_all()
     }
 

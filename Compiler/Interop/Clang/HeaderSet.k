@@ -555,8 +555,8 @@ pub class HeaderSet {
         // the parse, so that question never re-parses the set.
         if self._ci->hasPreprocessor() {
             var *pp = &self._ci->getPreprocessor()
-            for var it = pp->macro_begin(true); it != pp->macro_end(true); ++it {
-                var unsafe *ii = it->first
+            for *entry in pp->macros(true) {
+                var unsafe *ii = entry->first
                 if ii != &null && pp->isMacroDefined(ii) {
                     self._macros.try_emplace(ii->getName(), true)
                 }

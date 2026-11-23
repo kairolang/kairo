@@ -8,7 +8,9 @@ Everything is compiled by our own kcc against our own vendored sysroot, so a shi
 tree depends on nothing from the build host: no host glibc floor, no Visual Studio, no
 Homebrew. One Linux machine produces every target.
 
-Output: build/cross-llvm/<triple>/
+Output: build/cross-llvm/<triple>/ (--out-root names another root, --src another LLVM
+source tree and --native-bin another directory of host tablegens, so a second LLVM
+version builds beside the shipping one without touching it)
     deps/prefix/        zlib, zstd (static) and mimalloc (override object), built first
     llvm/               the LLVM build tree (static .a, ThinLTO bitcode)
 
@@ -17,8 +19,8 @@ Shipping profile (max optimization, generic CPU, mimalloc):
     --gc-sections + --icf=safe, static, mimalloc replacing the libc allocator in every
     executable (musl's own malloc is the slow part of a static musl compiler).
 
-Host tools: tablegen comes from the native build (build/llvm/bin), so no native sub-build
-runs. Archives use llvm-ar from PATH (any LLVM >= ours reads our bitcode).
+Host tools: tablegen comes from the native build (build/llvm/bin, or --native-bin), so no
+native sub-build runs. The tablegens must be the same LLVM version as the source. Archives use llvm-ar from PATH (any LLVM >= ours reads our bitcode).
 
 Every compile, C, C++ and assembly, goes through kcc (LLVM is always
 built by kcc; kcc assembles in-process). The default kcc is the one beside the
@@ -199,7 +201,8 @@ def build_deps(triple: str, out: Path, kcc: Path, march: list, jobs: int) -> Non
     log(f"deps ready in {prefix}")
 
 
-def build_llvm(triple: str, out: Path, kcc: Path, march: list, jobs: int, link_jobs: int) -> None:
+def build_llvm(triple: str, out: Path, kcc: Path, march: list, jobs: int, link_jobs: int,
+               src: Path = ROOT / "Lib/llvm-runtimes", native_bin: Path = NATIVE_BIN) -> None:
     system = FAMILIES[triple][0]
     prefix = out / "deps" / "prefix"
     if not (prefix / "lib" / "libzstd.a").exists():
@@ -223,9 +226,9 @@ def build_llvm(triple: str, out: Path, kcc: Path, march: list, jobs: int, link_j
         "-DLLVM_ENABLE_LTO=Thin", "-DLLVM_USE_LINKER=lld",
         f"-DLLVM_PARALLEL_LINK_JOBS={link_jobs}",
         # host tools from the native build: no NATIVE sub-build
-        f"-DLLVM_NATIVE_TOOL_DIR={NATIVE_BIN}",
-        f"-DLLVM_TABLEGEN={NATIVE_BIN / 'llvm-tblgen'}",
-        f"-DCLANG_TABLEGEN={NATIVE_BIN / 'clang-tblgen'}",
+        f"-DLLVM_NATIVE_TOOL_DIR={native_bin}",
+        f"-DLLVM_TABLEGEN={native_bin / 'llvm-tblgen'}",
+        f"-DCLANG_TABLEGEN={native_bin / 'clang-tblgen'}",
         "-DLLVM_ENABLE_ZLIB=FORCE_ON", "-DLLVM_ENABLE_ZSTD=FORCE_ON", "-DLLVM_USE_STATIC_ZSTD=ON",
         f"-DZLIB_INCLUDE_DIR={prefix / 'include'}", f"-DZLIB_LIBRARY={prefix / lib / 'libz.a'}",
         f"-Dzstd_INCLUDE_DIR={prefix / 'include'}", f"-Dzstd_LIBRARY={prefix / lib / 'libzstd.a'}",
@@ -256,7 +259,7 @@ def build_llvm(triple: str, out: Path, kcc: Path, march: list, jobs: int, link_j
     # CLANG_BUILD_TOOLS=OFF leaves the clang driver out of `all`; the staged tree ships it,
     # the two tools the tests use (build_llvm.py's TEST_TOOLS) and llvm-ar, so a tree can
     # archive with its own tools.
-    cmake_build(ROOT / "Lib/llvm-runtimes/llvm", bld, tc, args,
+    cmake_build(src / "llvm", bld, tc, args,
                 ["all", "clang", "llvm-nm", "llvm-objdump", "llvm-ar"], jobs, out / "llvm.log")
     log(f"llvm ready in {bld}")
 
@@ -269,6 +272,13 @@ def main() -> None:
                                   "build/<host>/release/bin, else PATH)")
     ap.add_argument("--march", help="override the CPU floor flags, e.g. '-march=x86-64-v3'")
     ap.add_argument("--step", choices=["all", "deps", "llvm"], default="all")
+    ap.add_argument("--src", default=str(ROOT / "Lib" / "llvm-runtimes"),
+                    help="the LLVM source tree (the llvm-project root; default Lib/llvm-runtimes)")
+    ap.add_argument("--out-root", default=str(ROOT / "build" / "cross-llvm"),
+                    help="where <triple>/ is built (default build/cross-llvm)")
+    ap.add_argument("--native-bin", default=str(NATIVE_BIN),
+                    help="host llvm-tblgen / clang-tblgen / llvm-min-tblgen of the SAME LLVM version as "
+                         "--src (default build/llvm/bin)")
     ap.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 8,
                     help="the TOTAL job budget; with --parallel N each build gets jobs/N")
     ap.add_argument("--link-jobs", type=int, default=None,
@@ -277,9 +287,16 @@ def main() -> None:
     ap.add_argument("--parallel", type=int, default=3, metavar="N",
                     help="build up to N triples at once, splitting -j between them (default 3); "
                          "1 builds them in order, as before")
-    ap.add_argument("--log-dir", default=str(ROOT / "build" / "cross-llvm" / "logs"),
+    ap.add_argument("--log-dir", default=None,
                     help="with --parallel > 1: one <triple>.log per build here")
     a = ap.parse_args()
+    out_root = Path(os.path.abspath(a.out_root))
+    src = Path(os.path.abspath(a.src))
+    native_bin = Path(os.path.abspath(a.native_bin))
+    if not (native_bin / "llvm-tblgen").exists():
+        die(f"no llvm-tblgen in {native_bin}")
+    if a.log_dir is None:
+        a.log_dir = str(out_root / "logs")
     real = Path(os.path.abspath(a.kcc)) if a.kcc else Path(os.path.abspath(find_kcc()))
     if not real.exists():
         die(f"no kcc at {real}")
@@ -287,7 +304,7 @@ def main() -> None:
     # seed that moved (N-1 one run, release the next) would rebuild all of LLVM. Every
     # build goes through one fixed link instead, repointed at whichever kcc this run
     # uses; kcc finds its tree from the real binary, not the link.
-    kcc = ROOT / "build" / "cross-llvm" / ".kcc"
+    kcc = out_root / ".kcc"
     kcc.parent.mkdir(parents=True, exist_ok=True)
     if not (kcc.is_symlink() and os.readlink(kcc) == str(real)):
         if kcc.is_symlink() or kcc.exists():
@@ -300,21 +317,21 @@ def main() -> None:
             die(f"unknown triple {t} (known: {', '.join(FAMILIES)})")
     n = max(1, min(a.parallel, len(triples)))
     if n > 1:
-        run_parallel(triples, n, a, real)
+        run_parallel(triples, n, a, real, src, out_root, native_bin)
         return
     link_jobs = a.link_jobs if a.link_jobs is not None else 2
     for t in triples:
         march = a.march.split() if a.march else FAMILIES[t][2]
-        out = ROOT / "build" / "cross-llvm" / t
+        out = out_root / t
         out.mkdir(parents=True, exist_ok=True)
         log(f"{t}: kcc {kcc}, floor {' '.join(march) or '(sysroot default)'}, -j{a.jobs}, link jobs {link_jobs}")
         if a.step in ("all", "deps"):
             build_deps(t, out, kcc, march, a.jobs)
         if a.step in ("all", "llvm"):
-            build_llvm(t, out, kcc, march, a.jobs, link_jobs)
+            build_llvm(t, out, kcc, march, a.jobs, link_jobs, src, native_bin)
 
 
-def run_parallel(triples: list, n: int, a, kcc: Path) -> None:
+def run_parallel(triples: list, n: int, a, kcc: Path, src: Path, out_root: Path, native_bin: Path) -> None:
     """N builds at once, each a child run of this script for one triple with jobs/N
     compile jobs. The budget is split, not multiplied: three -j24 ninjas on 24 threads
     thrash, and three ThinLTO links at full width are what exhausts RAM. Links default
@@ -329,7 +346,8 @@ def run_parallel(triples: list, n: int, a, kcc: Path) -> None:
 
     def one(t: str):
         argv = [sys.executable, str(Path(__file__).resolve()), t, "--parallel", "1", "--kcc", str(kcc),
-                "--step", a.step, "-j", str(jobs), "--link-jobs", str(link_jobs)]
+                "--step", a.step, "-j", str(jobs), "--link-jobs", str(link_jobs),
+                "--src", str(src), "--out-root", str(out_root), "--native-bin", str(native_bin)]
         if a.march:
             argv.append(f"--march={a.march}")
         logfile = logs / f"{t}.log"

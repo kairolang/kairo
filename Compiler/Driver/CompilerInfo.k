@@ -24,6 +24,7 @@ ffi "c++" import "llvm/Target/TargetOptions.h"
 ffi "c++" import "llvm/Support/CodeGen.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Shims.hh"
+ffi "c++" import "Native/LlvmCompat.hh" // subtarget_info, cpu_key, feature_key
 ffi "c++" import "vector"
 ffi "c++" import "string"
 ffi "c++" import "utility"
@@ -361,7 +362,10 @@ extend CompilerInstance {
             @cxx::delete TM
         }
 
-        var STI: unsafe *llvm::MCSubtargetInfo = unsafe (TM->getMCSubtargetInfo() as unsafe *llvm::MCSubtargetInfo)
+        var STI: unsafe *const llvm::MCSubtargetInfo = kairo::llvm_compat::subtarget_info(
+            TM,
+        )
+
         if STI == &null {
             self._diag->report(
                 DiagID::P005F,
@@ -375,12 +379,15 @@ extend CompilerInstance {
         var cpu_rows: [string]
         var max_cpu:  usize    = 0
 
-        for cpu in STI->getAllProcessorDescriptions() {
+        // By address: from LLVM 23 the rows are not copyable.
+        var cpus = STI->getAllProcessorDescriptions()
+        for ci in 0..cpus.size() {
+            var unsafe *key = kairo::llvm_compat::cpu_key(unsafe &cpus[ci])
             cpu_rows.push(
-                string(unsafe ((cpu.Key as unsafe *const u8) as *const u8)),
+                string(unsafe ((key as unsafe *const u8) as *const u8)),
             )
 
-            max_cpu = cxx::std::max(max_cpu, cxx::std::strlen(cpu.Key))
+            max_cpu = cxx::std::max(max_cpu, cxx::std::strlen(key))
         }
 
         cpu_rows.sort()
@@ -395,11 +402,11 @@ extend CompilerInstance {
         var feat_rows: [(string, string)]
         var max_feat:  usize              = 0
 
-        for feat in STI->getAllProcessorFeatures() {
-            var unsafe *d = feat.Desc
-            var key = string(
-                unsafe ((feat.Key as unsafe *const u8) as *const u8),
-            )
+        var feats = STI->getAllProcessorFeatures()
+        for fi in 0..feats.size() {
+            var unsafe *d  = kairo::llvm_compat::feature_desc(unsafe &feats[fi])
+            var unsafe *fk = kairo::llvm_compat::feature_key(unsafe &feats[fi])
+            var key = string(unsafe ((fk as unsafe *const u8) as *const u8))
 
             if d != &null && *d != 0x00 {
                 feat_rows.push(
@@ -409,7 +416,7 @@ extend CompilerInstance {
                 feat_rows.push((key, ""))
             }
 
-            max_feat = cxx::std::max(max_feat, cxx::std::strlen(feat.Key))
+            max_feat = cxx::std::max(max_feat, cxx::std::strlen(fk))
         }
 
         feat_rows.sort_by(

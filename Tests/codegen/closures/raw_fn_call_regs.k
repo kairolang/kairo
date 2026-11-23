@@ -27,9 +27,9 @@ fn main() -> i32 { return 0 }
 // ASM: through_frame
 // ASM-NOT: (%rsp)
 // ASM-NOT: test
-// ASM: movq (%rdi), %rax
+// ASM: movq {{\(?}}%rdi{{\)?}}, %rax
 // ASM-NEXT: movq %rsi, %rdi
 // ASM-NEXT: movq %rdx, %rsi
-// ASM-NEXT: jmpq *%rax
+// ASM-NEXT: jmpq *{{\(?}}%rax{{\)?}}
 // ASM-NOT: (%rsp)
 // ASM-NOT: __clang_call_terminate

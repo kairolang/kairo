@@ -299,6 +299,31 @@ StaticAnalyzerCore StaticAnalyzerCheckers StaticAnalyzerFrontend
 Format ToolingCore ToolingInclusions ToolingInclusionsStdlib ToolingRefactoring ToolingASTDiff
 ToolingSyntax Transformer Tooling DependencyScanning DirectoryWatcher Support
 """.split()
+
+
+def clang_static_libs(llvm_build: Path) -> list:
+    """CLANG_STATIC, adjusted to the libraries the LLVM release at llvm_build has.
+    From LLVM 23 clangIndex links clangUnifiedSymbolResolution (USR generation), so it
+    follows Index, and clangAnalysisScalable is split into the
+    clangScalableStaticAnalysis* libraries that Driver and FrontendTool link. A link
+    that named an archive the release does not have would fail."""
+    lib = llvm_build / "lib"
+
+    def has(name: str) -> bool:
+        return any((lib / n).is_file() for n in (f"libclang{name}.a", f"clang{name}.lib"))
+
+    out = []
+    for l in CLANG_STATIC:
+        if l == "AnalysisScalable" and not has(l) and has("ScalableStaticAnalysisCore"):
+            out += ["ScalableStaticAnalysisFrontend", "ScalableStaticAnalysisSourceTransformation",
+                    "ScalableStaticAnalysisAnalyses", "ScalableStaticAnalysisCore"]
+            continue
+        out.append(l)
+        if l == "Index" and has("UnifiedSymbolResolution"):
+            out.append("UnifiedSymbolResolution")
+    return out
+
+
 # Every component library a backend can have (lib/Target/<T>/**/CMakeLists.txt): not every
 # backend has every one (NVPTX and SPIRV have no AsmParser or Disassembler; Utils,
 # TargetMCA and SPIRV's Analysis are per target).
@@ -352,7 +377,7 @@ def llvm_args(llvm_src: Path, llvm_build: Path, out_lib: Path, os_: str) -> list
         # STATIC: libLLVM.dll is unsupported on Windows (invariant).
         for d in ("NOMINMAX", "CLANG_BUILD_STATIC", "LLVM_BUILD_STATIC"):
             a += ["--cxx-define", d]
-        for l in CLANG_STATIC:
+        for l in clang_static_libs(llvm_build):
             a += ["-l", f"static:clang{l}"]
         for l in llvm_static_libs(llvm_build):
             a += ["-l", f"static:LLVM{l}"]
@@ -429,7 +454,7 @@ def cross_llvm_args(llvm_src: Path, target: str) -> list:
         a += ["--cxx-define", d]
     for l in LLD_LIBS:
         a += ["-l", f"static:{l}"]
-    for l in CLANG_STATIC:
+    for l in clang_static_libs(llvm_build):
         a += ["-l", f"static:clang{l}"]
     for l in llvm_static_libs(llvm_build):
         a += ["-l", f"static:LLVM{l}"]

@@ -619,7 +619,7 @@ def check_names(names, what: str) -> None:
             die(f"{what}: {n} looks like Apple/MSVC content and must never be in an archive")
         parts = Path(n).parts
         if len(parts) >= 3 and parts[1] == "bin" and parts[2].split(".")[0] in (
-                "clang", "clang++", "clang-22", "clang-cl", "clang-cpp", "lld", "ld.lld", "ld64.lld",
+                "clang", "clang++", "clang-23", "clang-cl", "clang-cpp", "lld", "ld.lld", "ld64.lld",
                 "lld-link", "wasm-ld", "llvm-nm", "llvm-objdump", "katar", "kparse"):
             die(f"{what}: {n} must not ship")
 

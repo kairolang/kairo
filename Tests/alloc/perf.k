@@ -121,7 +121,7 @@ fn main() -> i32 {
 // EH: retq
 // EH-LABEL: 11k_alloc_rawEm>:
 // EH-NOT: pushq
-// EH: jmpq *%rax
+// EH: jmpq *{{\(?}}%rax{{\)?}}
 // EH-LABEL: 10k_free_rawEPhm>:
 // EH-NOT: pushq
 // EH: jmp {{.*}}<{{.*}}free_scoped

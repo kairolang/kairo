@@ -8,16 +8,18 @@ fn main() -> i32 { return 0 }
 // --- lit wiring -----------------------------------------------------------
 // REQUIRES: clang
 // RUN: rm -rf %t.d && mkdir -p %t.d
-// RUN: %clangxx -x c -c %S/inputs/abi_note.c -DMAJOR=22 -DBITS=1 -DFN=a_fn -o %t.d/a.o
-// RUN: %clangxx -x c -c %S/inputs/abi_note.c -DMAJOR=23 -DBITS=1 -DFN=b_fn -o %t.d/b.o
-// RUN: %clangxx -x c -c %S/inputs/abi_note.c -DMAJOR=23 -DBITS=0 -DFN=n_fn -o %t.d/n.o
-// RUN: %clangxx -x c -c %S/inputs/abi_note.c -DMAJOR=22 -DBITS=0 -DFN=z_fn -o %t.d/z.o
+// a.o and z.o carry the toolchain's own LLVM major (the bundled clang's), b.o
+// and n.o the next one.
+// RUN: %clangxx -x c -c %S/inputs/abi_note.c '-DMAJOR=__clang_major__' -DBITS=1 -DFN=a_fn -o %t.d/a.o
+// RUN: %clangxx -x c -c %S/inputs/abi_note.c '-DMAJOR=(__clang_major__+1)' -DBITS=1 -DFN=b_fn -o %t.d/b.o
+// RUN: %clangxx -x c -c %S/inputs/abi_note.c '-DMAJOR=(__clang_major__+1)' -DBITS=0 -DFN=n_fn -o %t.d/n.o
+// RUN: %clangxx -x c -c %S/inputs/abi_note.c '-DMAJOR=__clang_major__' -DBITS=0 -DFN=z_fn -o %t.d/z.o
 
 // Both use one: rejected, naming two of them and their majors. The builtin
-// library's own objects use one too and are built by LLVM 22, so the first
-// named may be one of them rather than a.o.
+// library's own objects use one too and carry the toolchain's major, so the
+// first named may be one of them rather than a.o.
 // RUN: { %kairo %s %t.d/a.o %t.d/b.o -o %t.d/mix.exe --cache-dir %t.d/k1 2>&1 || true; } | %FileCheck %s --check-prefix=MIX
-// MIX: '@preserve_most' is used by {{.*}}.o (LLVM 22) and {{.*}}b.o (LLVM 23); this calling convention is not stable across LLVM versions; rebuild both
+// MIX: '@preserve_most' is used by {{.*}}.o (LLVM {{[0-9]+}}) and {{.*}}b.o (LLVM {{[0-9]+}}); this calling convention is not stable across LLVM versions; rebuild both
 // RUN: test ! -e %t.d/mix.exe
 
 // Only one uses a convention: the other's major does not matter.

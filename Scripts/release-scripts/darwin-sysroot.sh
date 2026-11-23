@@ -18,7 +18,7 @@
 # /usr/lib/system/*.dylib by install name and the linker resolves those (and
 # frameworks) under -syslibroot, which the driver sets to this root.
 #
-# Ours, not Apple's: libc++/libc++abi (LLVM 22, static, hermetic) replace the
+# Ours, not Apple's: libc++/libc++abi (LLVM 23, static, hermetic) replace the
 # SDK's, and compiler-rt TF + bf16 builtins fill what libSystem lacks
 # (binary128, bf16 conversions).
 #
@@ -143,7 +143,7 @@ check_float128() {   # $1 = arch, $2 = min
 emit_toml() {
   cat >"$2" <<EOF
 triple        = "$1"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "darwin"
 sysroot       = "."
 resource_dir  = "clang"

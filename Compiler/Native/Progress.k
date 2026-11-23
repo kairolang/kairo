@@ -36,6 +36,7 @@ ffi "c++" import "cstring"
 ffi "c++" import "filesystem"
 ffi "c++" import "mutex"
 ffi "c++" import "string"
+ffi "c++" import "system_error" // std::error_code
 
 import std::c_char
 

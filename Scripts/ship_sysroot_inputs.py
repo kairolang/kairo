@@ -66,7 +66,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "Scripts"))
 import glibc_stubs  # noqa: E402
 
-LLVM_VERSION = "22.1.0"
+LLVM_VERSION = "23.1.6"
 GLIBC_VERSIONS = [f"2.{n}" for n in range(17, 43)]   # every release 2.17 .. 2.42 (glibc/abilists)
 GLIBC_DEFAULT = "2.31"                                # what a name without -glibc<v> means (0.2.0's)
 GLIBC_KEYS = ["glibc/abilists", "glibc/crt", "glibc/headers", "glibc/src"]
@@ -515,7 +515,7 @@ gather  = ["lib/libc++.a", "lib/libc++abi.a", "lib/libunwind.a", "lib/libc++expe
 
 [toml]
 triple        = "{triple}"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "linux-musl"
 sysroot       = "."
 include_dirs  = ["include/c++/v1", "include"]
@@ -661,7 +661,7 @@ gather  = ["lib/libc++.a", "lib/libc++abi.a", "lib/libunwind.a", "lib/libc++expe
 
 [toml]
 triple        = "{triple}"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "linux-gnu"
 glibc_version = "{libc_version}"
 sysroot       = "."
@@ -740,7 +740,7 @@ gather  = ["lib/libc++.a", "lib/libunwind.a", "include/c++/v1"]
 
 [toml]
 triple        = "{triple}"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "windows-gnu"
 sysroot       = "."
 include_dirs  = ["include/c++/v1", "include"]
@@ -805,7 +805,7 @@ builtins_name   = "libclang_rt.builtins-{arch}.a"
 ''' + _BSD_RUNTIMES + '''
 [toml]
 triple        = "{triple}"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "freebsd"
 sysroot       = "."
 include_dirs  = ["libcxx/include/c++/v1", "usr/include"]
@@ -849,7 +849,7 @@ builtins_name   = "libclang_rt.builtins-{arch}.a"
 ''' + _BSD_RUNTIMES + '''
 [toml]
 triple        = "{triple}"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "netbsd"
 sysroot       = "."
 include_dirs  = ["libcxx/include/c++/v1", "usr/include"]
@@ -909,7 +909,7 @@ gather  = []
 
 [toml]
 triple        = "{triple}"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "wasi"
 sysroot       = "."
 include_dirs  = ["include/wasm32-wasi/eh/c++/v1", "include/wasm32-wasi"]
@@ -980,7 +980,7 @@ gather  = ["lib/libc++.lib", "include/c++/v1"]
 
 [toml]
 triple        = "{triple}"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "windows-msvc"
 sysroot       = "."
 include_dirs  = ["include/c++/v1", "msvc/crt/include", "msvc/sdk/include/ucrt", "msvc/sdk/include/um", "msvc/sdk/include/shared"]
@@ -1061,7 +1061,7 @@ gather  = ["lib/libc++.a", "include/c++/v1"]
 
 [toml]
 triple        = "{triple}"
-llvm_version  = "22.1.0"
+llvm_version  = "23.1.6"
 family        = "darwin"
 sysroot       = "."
 resource_dir  = "clang"
@@ -1103,7 +1103,7 @@ target_rewrite = "{arch}-unknown-linux-musleabihf"
 musl_arch      = "arm"
 
 # build-builtins.sh:72-89 (-fforce-enable-int128 + SOFTWARE_INT128, every musl/mingw arch),
-# Z5: libunwind (LLVM 22) on x32 narrows Registers_x86_64's 64-bit link_reg_t into
+# Z5: libunwind (LLVM 23) on x32 narrows Registers_x86_64's 64-bit link_reg_t into
 # LocalAddressSpace's 32-bit pint_t in an initializer list (DwarfParser.hpp:480), an error
 # by default; the value is an x32 address, so it fits. Kept through the derivation's
 # warning filter (runtimes_recipe.py KEEP_W).

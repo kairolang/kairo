@@ -35,6 +35,10 @@ gen lists the files that the bundled clang -cc1 AND kcc pass, and writes
 until shown otherwise. Fix it, or note it below.
 
 Known divergences (not listed):
+  Sema/builtin-stdc-bit-functions.c  `#include <stdbit.h>` resolves to the
+      host's glibc header under kcc's default (gnu) target, which shadows
+      clang's own stdbit.h and fails on glibc's __glibc_has_builtin; the bare
+      clang -cc1 has no system include path and gets clang's header.
   Preprocessor/header_lookup1.c  <stddef.h> resolves to clang's resource
       header under kcc, and to musl's under the plain clang driver for this
       target: kairo orders the resource dir ahead of the sysroot.
