@@ -76,6 +76,17 @@ pub class ResourceLayout {
         return "rt/mimalloc/include"
     }
 
+    /// The stem of the runtime's heap source (rt/mimalloc.c) and object.
+    pub static fn rt_heap_stem() -> string {
+        return "mimalloc"
+    }
+
+    /// Defined on the heap source's compile under --heaplib=libc: mimalloc
+    /// then leaves malloc and operator new to the C and C++ libraries.
+    pub static fn rt_libc_heap_macro() -> string {
+        return "KAIRO_RT_LIBC_HEAP"
+    }
+
     /// # builtin
 
     /// the builtin root the import resolver loads the prelude from:

@@ -447,6 +447,15 @@ extend CompilerInstance {
         return false
     }
 
+    /// The --heaplib a link of no Kairo code asked for: true for kairo,
+    /// which gives the program the runtime's heap alone (_link_heap_only).
+    /// A link that holds Kairo code takes the runtime whole whatever the
+    /// flag says; under libc its mimalloc is built without the override
+    /// (_start_runtime), so C and C++ keep the C library's heap.
+    prot fn _wants_heap_only(self) -> bool {
+        return self.invocation()->linker.heaplib == "kairo" && !self._link_has_kairo()
+    }
+
     /// Decides, before any file is walked, whether this program's Kairo
     /// files are compiled with __KAIRO_GLOBAL_ALLOCATOR_SET: the builtin's
     /// Global is System inlined without it, and the kairo_global_* symbols

@@ -1796,6 +1796,15 @@ pub class CompilerInstance {
                     result.aborted = true
                 }
             }
+
+            if !result.aborted
+                && kairo_inputs == 0
+                && !self._link_out.is_empty()
+                && self._wants_heap_only() {
+                if !self._link_heap_only() {
+                    result.aborted = true
+                }
+            }
         }
 
         self._join_runtime() // an early start the batch did not get to use.

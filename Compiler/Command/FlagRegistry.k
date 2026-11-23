@@ -306,6 +306,13 @@ pub fn _unwind_tables_choices() -> [string] {
     return c
 }
 
+pub fn _heaplib_choices() -> [string] {
+    var c: [string]
+    c.push("kairo")
+    c.push("libc")
+    return c
+}
+
 pub fn _hardening_choices() -> [string] {
     var c: [string]
     c.push("enum-tags")
@@ -3385,6 +3392,18 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "rtlib",
         "compiler runtime library: compiler-rt|libgcc (default: the sysroot's, else libgcc on a glibc host with GCC)",
         "",
+    )
+
+    cmd->define(
+        FlagDef::str_c(
+            "heaplib",
+            "",
+            "heaplib",
+            "heap behind C malloc and C++ operator new: kairo|libc (default: kairo when the link holds Kairo code, else libc)",
+            "",
+            _heaplib_choices(),
+            "",
+        ),
     )
 
     cmd->define<FlagKind::String>(

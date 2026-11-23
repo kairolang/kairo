@@ -406,6 +406,11 @@ extend CompilerInstance {
             key += "\nglobal-allocator-set"
         }
 
+        // The runtime's heap object is built two ways (_start_runtime).
+        if self.invocation()->linker.heaplib == "libc" {
+            key += "\nheaplib=libc"
+        }
+
         var h   = llvm::xxh3_64bits(kairo::sref(key))
         var hex = llvm::utohexstr(h)
         return root + "/lib/" + self._backend->triple() + "-" + kairo::std::from_std_string<string>(

@@ -102,6 +102,37 @@ extend CompilerInstance {
         return self._finish_runtime()
     }
 
+    /// Compiles the runtime and keeps its heap object alone for the link: on
+    /// ELF and wasm mimalloc's definitions of malloc, free and operator new
+    /// replace the C library's (on MinGW operator new and delete only). The
+    /// rest of the runtime serves Kairo code, which this link has none of;
+    /// the heap object depends on nothing else in it. Linked eagerly, so its
+    /// definitions win even when no object of the program references malloc
+    /// before the C library is searched.
+    prot fn _link_heap_only(self) -> bool {
+        var before = self._native_objs.size()
+        if !self._compile_runtime() {
+            return false
+        }
+
+        var heap: [string]
+        for var i: usize = before; i < self._native_objs.size(); ++i {
+            if Path::stem_of(self._native_objs[i]) == ResourceLayout::rt_heap_stem() {
+                heap.push(self._native_objs[i].copy())
+            }
+        }
+
+        while self._native_objs.size() > before {
+            self._native_objs.pop()
+        }
+
+        for *o in heap {
+            self._native_objs.push(o->copy())
+        }
+
+        return true
+    }
+
     /// The batch's early start (FrontendAction::_sema): only when this run
     /// will compile the runtime at all -- the same test as the batch's call.
     fn prestart_runtime(self) {
@@ -179,6 +210,14 @@ extend CompilerInstance {
         // has no such group, hence the unknown-option silencer before it.
         extra.push_back("-Wno-unknown-warning-option")
         extra.push_back("-Wno-attribute-alias")
+
+        // --heaplib=libc: Kairo allocations still go to mimalloc (System
+        // calls its mi_* entry points), but malloc and operator new stay the
+        // C and C++ libraries'. On every runtime source's line, not only the
+        // heap's: one line keeps the cache slots of a run in step.
+        if self.invocation()->linker.heaplib == "libc" {
+            extra.push_back("-D" + ResourceLayout::rt_libc_heap_macro())
+        }
 
         // Side by side on the pool: each file is its own CompilerInstance
         // (ClangBackend::run_native) printing into its own log. The

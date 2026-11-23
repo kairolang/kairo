@@ -91,6 +91,14 @@ pub fn _kcc_usage() {
     io::println(
         "  -###             print the compile and link jobs, run nothing",
     )
+
+    io::println(
+        "  -heaplib=<lib>   heap behind malloc and operator new: kairo (mimalloc) or libc;",
+    )
+
+    io::println(
+        "                   default kairo when Kairo code is linked, else libc",
+    )
 }
 
 /// the kairo words for kcc's command line (`argc` / `argv`, argv[0]
@@ -125,6 +133,17 @@ pub fn _kcc_words(argc:       i32,
             )
 
             i += 1
+            continue
+        }
+
+        // Kairo's own link option, which clang's table does not know.
+        if a.starts_with("-heaplib=") || a.starts_with("--heaplib=") {
+            var eq: usize = 0
+            while a.data()[eq] != ('=' as u8) {
+                eq += 1
+            }
+
+            passed.push("--heaplib=" + a[eq + 1..])
             continue
         }
 

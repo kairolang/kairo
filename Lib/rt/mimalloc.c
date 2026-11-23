@@ -44,7 +44,11 @@
  * beside symbols the link needs, so that member is always pulled and its malloc
  * collides with ours ("duplicate symbol: malloc", 2026-11-06). NetBSD's own heap
  * is jemalloc, a fast allocator already. */
-#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__NetBSD__) && !defined(MI_MALLOC_OVERRIDE)
+/* KAIRO_RT_LIBC_HEAP (the driver's --heaplib=libc) keeps the C and C++
+ * libraries' malloc and operator new: Kairo's own allocations still come from
+ * mimalloc through its mi_* entry points, as on the targets never overridden. */
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__NetBSD__) && !defined(MI_MALLOC_OVERRIDE) \
+    && !defined(KAIRO_RT_LIBC_HEAP)
 #define MI_MALLOC_OVERRIDE 1
 #endif
 
@@ -121,7 +125,7 @@ KAIRO_RT_NOTICE const char kairo_rt_notice_mimalloc[1096] =
  * `j` (unsigned int) on 32-bit. alloc-override.c has the same list for ELF (`m`),
  * compiled only under MI_MALLOC_OVERRIDE. Apple stays on the system heap until
  * mimalloc's zone override is verified on a Mac. */
-#if defined(_WIN32) && defined(__GNUC__) && !defined(_MSC_VER)
+#if defined(_WIN32) && defined(__GNUC__) && !defined(_MSC_VER) && !defined(KAIRO_RT_LIBC_HEAP)
 typedef struct kairo_rt_nothrow_s { int _tag; } kairo_rt_nothrow_t;
 #define KRT_DEL(name, ...) void name(__VA_ARGS__)
 KRT_DEL(_ZdlPv, void *p) { mi_free(p); }

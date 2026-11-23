@@ -49,11 +49,14 @@ for b in $benches
             set -l tag (string split -m1 : $cxx)[1]
             set -l exe (string split -m1 : $cxx)[2]
             command -q $exe; or continue
+            # kcc's column measures C++ on Kairo's heap (mimalloc).
+            set -l heap
+            test $tag = kcc; and set heap -heaplib=kairo
             if test $b = alloc
-                $exe -O3 -std=c++20 $b.cc -o bin/$b.$tag-new >/dev/null 2>&1
-                $exe -O3 -std=c++20 -DUSE_MALLOC $b.cc -o bin/$b.$tag-malloc >/dev/null 2>&1
+                $exe -O3 -std=c++20 $heap $b.cc -o bin/$b.$tag-new >/dev/null 2>&1
+                $exe -O3 -std=c++20 $heap -DUSE_MALLOC $b.cc -o bin/$b.$tag-malloc >/dev/null 2>&1
             else
-                $exe -O3 -std=c++20 $b.cc -o bin/$b.$tag >/dev/null 2>&1; or echo "$tag build failed: $b"
+                $exe -O3 -std=c++20 $heap $b.cc -o bin/$b.$tag >/dev/null 2>&1; or echo "$tag build failed: $b"
             end
         end
     end

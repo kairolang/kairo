@@ -13,7 +13,8 @@ every implementation must agree on.
 
 Tools: `KAIRO`, `KCC`, `CXX_CLANG`, `CXX_GCC`, `RUSTC` override the defaults;
 a missing tool skips its column. C++ is built three ways: host clang, host
-gcc, and kcc (which links Kairo's runtime, mimalloc included).
+gcc, and kcc with `-heaplib=kairo` (Kairo's heap, mimalloc, behind `malloc` and
+`new`).
 
 | Benchmark | Stresses | Kairo | C++ | Rust |
 |---|---|---|---|---|

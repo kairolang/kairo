@@ -50,6 +50,7 @@ pub class LinkerOptions {
     pub var icf_mode:        string                   = "safe"
     pub var rtlib:           string                   = "" ///< "" = the sysroot's choice, else host detection
     pub var unwindlib:       string                   = "" ///< "" = follows rtlib / the sysroot
+    pub var heaplib:         string                   = "" ///< --heaplib: "" = kairo with Kairo code in the link, else libc
     pub var f_pie:           i32                      = -1 ///< -1 unset: on for Linux executables
 
     /// # general linking
@@ -186,6 +187,7 @@ pub class LinkerOptions {
         o.icf_mode  = args.get_string("icf-mode")
         o.rtlib     = args.get_string("rtlib")
         o.unwindlib = args.get_string("unwindlib")
+        o.heaplib   = args.get_string("heaplib")
         o.f_pie     = args.get_feature("pie")
 
         /// ## general linking
