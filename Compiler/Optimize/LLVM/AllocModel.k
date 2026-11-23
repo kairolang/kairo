@@ -17,7 +17,10 @@
 ///   are sized, and Lib/rt/alloc.h picks the free from the size (a small
 ///   page, a large mapping, mimalloc), so only the free the block's own size
 ///   selects may take it. The family is safe because no annotation lets
-///   LLVM put one free in place of another:
+///   LLVM put one free in place of another. And the program's global
+///   allocator, the kairo_global_* symbols (Lib/rt/global_alloc.h) that
+///   Global calls when some file sets one with `@set_global_allocator(A)`:
+///   a family of its own, "kairo_global", since its blocks are A's.
 ///
 ///       mi_malloc_small mi_malloc        alloc, uninitialized   allocsize(0)
 ///       mi_zalloc_small mi_zalloc        alloc, zeroed          allocsize(0)
@@ -28,32 +31,39 @@
 ///         constant 0 or 1)
 ///       mi_free mi_free_small_nonnull kairo_rt_heap_large_free
 ///                                        free                   allocptr(0)
+///       kairo_global_alloc               alloc, uninitialized   allocsize(0) allocalign(1)
+///       kairo_global_alloc_zeroed        alloc, zeroed          allocsize(0) allocalign(1)
+///       kairo_global_free                free                   allocptr(0)
 ///
 ///   and every allocation returns noalias. A null return is the only
 ///   failure (alloc.k's contract), as for malloc. Above -O0 an allocation
 ///   whose block nothing observes is removed, and with it the chance that
-///   it fails: its null test folds to "not null".
+///   it fails: its null test folds to "not null". The same holds for a
+///   global allocator a program sets: a block nothing uses does not reach
+///   it, so an allocator that counts or logs its calls sees fewer of them
+///   above -O0.
 ///
 ///   What is left alone, and why:
 ///     - alloc_raw / free_raw / resize_raw, the container family and
 ///       everything built on them (`@create`, `@destroy`, the containers):
 ///       they choose the allocator at run time, from the thread's scope
 ///       stack, so a block may be an arena's. Their Global arm reaches the
-///       entry points above, which are annotated there, but the block LLVM
-///       sees is the merge of that arm and the scope's, and the free tests
-///       the stack again, so nothing is removed through them.
+///       entry points above, which are annotated there; AllocSplit
+///       (Optimize/LLVM/AllocSplit.k) gives that arm a path of its own
+///       where it can, and the facts here then apply on it.
 ///     - The scope frames' functions, called through a pointer: arena,
 ///       `@set_scoped_allocator` and user allocators, whose blocks may be
 ///       freed in bulk, never one by one.
-///     - kairo_global_*: under `@set_global_allocator(A)` they are A's,
-///       chosen when the program links, and A's allocations may be counted
-///       or logged.
-///     - kairo_rt_heap_resize: it resizes in place; LLVM has no kind for
-///       that.
-///     - kairo_rt_heap_realloc and System::realloc. As a realloc kind, LLVM
-///       rewrites free(realloc(p)) into free(p), keeping the free's size;
-///       a realloc across a size class then hands the block to the wrong
-///       free (a mapped block to the small-page free).
+///     - A kairo_global_* symbol in the file that defines it: there it is
+///       the allocator's own code, which LLVM reads and inlines as any
+///       function.
+///     - kairo_rt_heap_resize and kairo_global_resize: they resize in
+///       place; LLVM has no kind for that.
+///     - kairo_rt_heap_realloc, System::realloc and kairo_global_realloc.
+///       As a realloc kind, LLVM rewrites free(realloc(p)) into free(p),
+///       keeping the free's size; a realloc across a size class then hands
+///       the block to the wrong free (a mapped block to the small-page
+///       free).
 ///
 ///   Where: at the start of the pipeline, before the inliner. The entry
 ///   points are external functions, never inlined, so the inliner copies
@@ -92,13 +102,14 @@ import Optimize::KairoPass::{
 /// declaration of another shape is not this function. The
 /// indices are parameter numbers, -1 for none.
 struct HeapEntry {
-    var name:  string
-    var shape: string
-    var kind:  u64    = 0
-    var size:  i32    = -1 ///< allocsize: the byte count
-    var align: i32    = -1 ///< allocalign: the alignment
-    var freed: i32    = -1 ///< allocptr: the block freed
-    var zero:  i32    = -1 ///< 0 or 1 here makes a call uninitialized or zeroed
+    var name:   string
+    var shape:  string
+    var family: string = "kairo"
+    var kind:   u64    = 0
+    var size:   i32    = -1      ///< allocsize: the byte count
+    var align:  i32    = -1      ///< allocalign: the alignment
+    var freed:  i32    = -1      ///< allocptr: the block freed
+    var zero:   i32    = -1      ///< 0 or 1 here makes a call uninitialized or zeroed
 }
 
 fn alloc_kind(k: llvm::AllocFnKind) -> u64 {
@@ -142,6 +153,29 @@ fn heap_entries() -> [HeapEntry] {
         HeapEntry { name: "mi_free", shape: "v:p", kind: free, freed: 0 },
         HeapEntry { name: "mi_free_small_nonnull", shape: "v:p", kind: free, freed: 0 },
         HeapEntry { name: "kairo_rt_heap_large_free", shape: "v:pi", kind: free, freed: 0 },
+        HeapEntry {
+            name:   "kairo_global_alloc",
+            shape:  "p:ii",
+            family: "kairo_global",
+            kind:   alloc | uninit | aligned,
+            size:   0,
+            align:  1,
+        },
+        HeapEntry {
+            name:   "kairo_global_alloc_zeroed",
+            shape:  "p:ii",
+            family: "kairo_global",
+            kind:   alloc | zeroed | aligned,
+            size:   0,
+            align:  1,
+        },
+        HeapEntry {
+            name:   "kairo_global_free",
+            shape:  "v:pii",
+            family: "kairo_global",
+            kind:   free,
+            freed:  0,
+        },
     ]
 }
 
@@ -235,7 +269,7 @@ pub class AllocModel impl KairoPass {
         var family = llvm::Attribute::get(
             &*ctx,
             kairo::sref(r"alloc-family"),
-            kairo::sref(r"kairo"),
+            kairo::sref(e.family),
         )
 
         fn_->addFnAttr(family)
