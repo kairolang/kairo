@@ -2,8 +2,8 @@
 // to integer): not u32 (narrower), and not u64, i64 or isize either, though
 // they are as wide on this host -- usize is the one type that holds an
 // address on every target. The fix-it is the spec's own two-step spelling,
-// `p as usize as T`. A nullable pointer proven non-null (`n` holds `&x`)
-// casts as its pointer; an unproven one is not a pointer and does not cast.
+// `p as usize as T`. A nullable pointer is not a pointer: it has to be
+// unwrapped first, and has no cast to an integer at all.
 
 fn main() -> i32 {
     var x: i32 = 5
