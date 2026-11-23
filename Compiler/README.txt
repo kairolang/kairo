@@ -70,6 +70,13 @@ Compiler/
 │   │               token stream printer
 │   └── Backend/    the clang invocation per TU, C++ headers (--emit-headers),
 │                   the #include "foo.k" emitter, the program's interface PCH
+├── Optimize/       the optimisation passes, a module (module.k): what only
+│   │               makes a program faster or smaller, apart from the passes
+│   │               that give it its meaning
+│   └── LLVM/       passes over a TU's IR inside LLVM's pipeline, written in
+│                   Kairo: SpecDevirt (speculative devirtualization of a
+│                   virtual call with a few targets); PassBridge.hh, the C++
+│                   that hands a Kairo pass to clang's PassBuilder
 ├── AST/
 │   ├── Node/       node defs + RTTI casting (isa/cast/dyn_cast via kind
 │   │               field); CanonicalNodes: BuiltinType and RecordType, the

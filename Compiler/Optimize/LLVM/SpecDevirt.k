@@ -1,8 +1,8 @@
-/// --- The Kairo Project ------------------ Codegen/Backend/SpecDevirt.k --- ///
+/// --- The Kairo Project ------------------- Optimize/LLVM/SpecDevirt.k --- ///
 ///
 ///   Speculative devirtualization of a virtual call with a few possible
 ///   targets, run on each Kairo TU's IR at the start of the optimisation
-///   pipeline (Native/ModulePass.hh puts it there).
+///   pipeline (Optimize/LLVM/PassBridge.hh puts it there).
 ///
 ///   A virtual call clang emits for a Kairo class loads the vptr, tests it
 ///   against the static class's type id (llvm.public.type.test, from
@@ -90,7 +90,7 @@ pub struct SpecDevirtSite {
     pub var off:  u64                    = 0
 }
 
-/// The pass. One instance per module run (Native/ModulePass.hh).
+/// The pass. One instance per module run (Optimize/LLVM/PassBridge.hh).
 pub class SpecDevirt {
     /// Type id (its metadata node's address) to 1 + its index in _members.
     priv var _index:   llvm::DenseMap<u64, u32>

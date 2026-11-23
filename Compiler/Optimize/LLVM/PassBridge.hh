@@ -1,4 +1,4 @@
-/* --- The Kairo Project ------------------ Compiler/Native/ModulePass.hh --- */
+/* --- The Kairo Project ----------- Compiler/Optimize/LLVM/PassBridge.hh --- */
 /*
  *   Puts a Kairo-written LLVM module pass into the optimisation pipeline of
  *   a clang codegen run. clang takes extra passes as PassBuilder callbacks

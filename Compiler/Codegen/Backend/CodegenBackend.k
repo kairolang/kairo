@@ -54,7 +54,7 @@ ffi "c++" import "llvm/Support/VirtualFileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "Native/Types.hh"
 ffi "c++" import "Native/Log.hh"
-ffi "c++" import "Native/ModulePass.hh"
+ffi "c++" import "Optimize/LLVM/PassBridge.hh"
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 
@@ -76,7 +76,6 @@ import Codegen::Backend::SemaAgreeReport::{
     AgreeFinding,
     agree_finding_copy,
 }
-import Codegen::Backend::SpecDevirt::SpecDevirt
 import Codegen::CodegenContext::{
     CodegenContext,
     CodegenPhase,
@@ -113,6 +112,7 @@ import Native::ClangTime::{
     ktime_clang_end,
 }
 import Native::Progress::ProgressMeter
+import Optimize::LLVM::SpecDevirt::SpecDevirt
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Support::TimeReport::{
     TimeRegion,
@@ -454,7 +454,7 @@ pub class CodegenBackend derives TokenFiller {
         }
 
         // Multi-target virtual calls versioned on the loaded slot, ahead of
-        // the inliner (Codegen/Backend/SpecDevirt.k). It reads the type tests
+        // the inliner (Optimize/LLVM/SpecDevirt.k). It reads the type tests
         // clang emits under -fdevirtualize-speculatively (ClangBackend's cc1
         // line, above -O0), so the two passes are on together.
         kairo_add_pipeline_start_pass<SpecDevirt>(&*cgo)
