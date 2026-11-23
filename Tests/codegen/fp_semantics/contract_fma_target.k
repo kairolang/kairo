@@ -1,7 +1,7 @@
 // Kairo contracts a multiply and an add within one expression where the
 // target can fuse them into one instruction, and not where it cannot: there
-// a contracted pair computes what the two operations compute, and only
-// hides them from the optimizer. Baseline x86-64 has no fused multiply-add
+// a contracted pair would fuse only where a constant is folded
+// (contract_fold_baseline.k). Baseline x86-64 has no fused multiply-add
 // (SPLIT); x86-64-v3, a CPU with FMA and a feature list that turns it on
 // have one (FUSE), and taking the feature back out of x86-64-v3 leaves none.
 // An explicit --fp-contract decides on every target.

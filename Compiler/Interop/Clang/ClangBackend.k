@@ -946,9 +946,11 @@ pub class ClangBackend {
     /// Kairo's default contraction on this target: `on` where the target
     /// has a fused multiply-add for f32 or f64, `off` elsewhere.
     ///
-    /// Without the instruction LLVM lowers a contracted `llvm.fmuladd` back
-    /// to a multiply and an add: no result changes, and the intrinsic only
-    /// keeps other optimizations off the pair. The test per architecture is
+    /// Without the instruction LLVM lowers a contracted `llvm.fmuladd` to a
+    /// multiply and an add when it runs, but constant folding evaluates it
+    /// as one fused operation, so the same expression could round two ways
+    /// in one program; `off` rounds every evaluation alike and leaves the
+    /// pair to the optimizer. The test per architecture is
     /// the subtarget feature its TargetLowering::isFMAFasterThanFMulAndFAdd
     /// reads for a scalar f32 or f64. An architecture not listed here is
     /// `off`: wasm and MIPS never fuse a scalar.

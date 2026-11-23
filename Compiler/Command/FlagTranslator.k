@@ -413,9 +413,9 @@ pub class FlagTranslator {
     /// instruction, no fast-math, no errno from the math functions.
     ///
     /// `contract` is that target decision, `on` or `off`
-    /// (ClangBackend::_decide_contract): a target with no fused
-    /// multiply-add computes the same results either way, and `off`
-    /// leaves the pair to the optimizer.
+    /// (ClangBackend::_decide_contract): on a target with no fused
+    /// multiply-add, `on` would fuse only where a constant is folded, so
+    /// `off` keeps compile-time and run-time results alike.
     ///
     /// For Kairo's compile line only, ahead of the user's own
     /// codegen() words so an explicit --fp-contract / --fp-model /

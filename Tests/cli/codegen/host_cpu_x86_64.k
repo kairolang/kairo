@@ -12,6 +12,11 @@ fn main() -> i32 { return 0 }
 // LINE:      -target-cpu x86-64{{(-v[234])?}} {{.*}}-tune-cpu {{[a-z0-9_.-]+}}
 // LINE-NOT:  -tune-cpu
 
+// The host default contracts exactly where its level has a fused
+// multiply-add: x86-64-v3 and up.
+// RUN: %kairo %s --print-clang-args --mcpu= | %FileCheck %s --check-prefix=FUSE
+// FUSE:      {{-target-cpu x86-64-v[34] .*-ffp-contract=on|-target-cpu x86-64(-v2)? .*-ffp-contract=off}}
+
 // RUN: %kairo %s --print-target-info --mcpu= | %FileCheck %s --check-prefix=INFO
 // INFO:      Host CPU:        x86-64{{(-v[234])?$}}
 // INFO-NEXT: Tune CPU:        {{[a-z0-9_.-]+$}}
