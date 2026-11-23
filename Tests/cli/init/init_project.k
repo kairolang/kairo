@@ -35,6 +35,6 @@
 // RUN: %kairo %t/demo/source/main.k -I %t/demo/include -o %t.exe
 // RUN: %t.exe | %FileCheck %s --check-prefix=OUT
 // OUT: 3 4 + 2 *  =>  14
-// OUT-NEXT: 1 2 3  =>  error: numbers are left over: an operator is missing
-// OUT-NEXT: 2 x +  =>  error: 'x' is not a number or an operator
+// OUT-NEXT: 1 2 3  =>  error: an operator is missing
+// OUT-NEXT: 2 x +  =>  error: unexpected 'x'
 // RUN: rm -f %t.exe

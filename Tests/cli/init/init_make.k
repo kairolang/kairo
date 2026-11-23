@@ -14,7 +14,7 @@
 // RUN: %t/demo/build/release/demo | %FileCheck %s
 // RUN: make -C %t/demo run KAIRO=%kairo_bin | %FileCheck %s
 // CHECK: 3 4 + 2 *  =>  14
-// CHECK-NEXT: 1 2 3  =>  error: numbers are left over: an operator is missing
-// CHECK-NEXT: 2 x +  =>  error: 'x' is not a number or an operator
+// CHECK-NEXT: 1 2 3  =>  error: an operator is missing
+// CHECK-NEXT: 2 x +  =>  error: unexpected 'x'
 // RUN: make -C %t/demo clean
 // RUN: test ! -e %t/demo/build

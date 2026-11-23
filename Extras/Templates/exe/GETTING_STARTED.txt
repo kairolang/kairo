@@ -7,7 +7,8 @@ A Kairo program with a library beside it, created by `kairo --init`.
                       the calculator and prints each result or error
   include/module.k    the library {{ident}}: `module {{ident}}` names it, and
                       `pub import self::calc` makes calc part of it
-  include/calc.k      the library's one module, a reverse-Polish calculator
+  include/calc.k      the library's one module, a reverse-Polish calculator:
+                      "3 4 + 2 *" is (3 + 4) * 2
   Makefile            the build, for make (Linux, macOS, the BSDs)
   build.cmd           the same build for Windows, no make needed
   .gitignore          keeps build/ out of git
