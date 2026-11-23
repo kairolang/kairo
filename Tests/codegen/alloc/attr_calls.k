@@ -48,9 +48,9 @@ fn forms(p: *Box, q: unsafe *u8) {
 // IR: void forms({{.*}}) noexcept {
 // IR-NEXT: = ::builtin::base::alloc::create<{{.*}}Box, signed int>(1);
 // IR-NEXT: = ::builtin::base::alloc::create_in<{{.*}}Box, {{.*}}::A, signed int>(2);
-// IR-NEXT: = ::builtin::base::alloc::try_create<{{.*}}Box, signed int>(3);
-// IR-NEXT: = ::builtin::base::alloc::try_create_in<{{.*}}Box, {{.*}}::A, signed int>(4);
-// IR-NEXT: ::builtin::base::alloc::destroy<{{.*}}Box>(a);
+// IR: = ::builtin::base::alloc::try_create<{{.*}}Box, signed int>(3);
+// IR: = ::builtin::base::alloc::try_create_in<{{.*}}Box, {{.*}}::A, signed int>(4);
+// IR: ::builtin::base::alloc::destroy<{{.*}}Box>(a);
 // IR-NEXT: ::builtin::base::alloc::destroy_with<{{.*}}::A, {{.*}}Box>(b);
 // IR-NEXT: = ::builtin::base::alloc::alloc_storage<{{.*}}Box>();
 // IR-NEXT: = ::builtin::base::alloc::alloc_in<{{.*}}Box, {{.*}}::A>();

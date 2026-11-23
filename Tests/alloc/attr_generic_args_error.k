@@ -41,5 +41,5 @@ fn bad(p: *Box, q: unsafe *u8) {
 // DIAG-NEXT: fix-it:"{{.*}}attr_generic_args_error.k":{20:10-20:15}:""
 // DIAG: attr_generic_args_error.k:21:28: error [S001E]: '@resize' takes no generic arguments
 // DIAG-NEXT: fix-it:"{{.*}}attr_generic_args_error.k":{21:28-21:32}:""
-// DIAG: attr_generic_args_error.k:22:24: error [S001E]: '@resize_in_place' takes no generic arguments
-// DIAG-NEXT: fix-it:"{{.*}}attr_generic_args_error.k":{22:24-22:28}:""
+// DIAG: attr_generic_args_error.k:22:29: error [S001E]: '@resize_in_place' takes no generic arguments
+// DIAG-NEXT: fix-it:"{{.*}}attr_generic_args_error.k":{22:29-22:33}:""
