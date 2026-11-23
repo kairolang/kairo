@@ -626,8 +626,12 @@ extend CompilerInstance {
     /// themselves, which an info query without inputs still has. Exit 1,
     /// listing nothing, when --disable-kairo-pass names no pass.
     fn print_kairo_passes(self) -> i32 {
+        // A parse that succeeded had its names checked, and reported, when
+        // the invocation was adopted; one that failed (no inputs) did not.
         var cg = CodeGenOptions::from_args(&self.invocation()->args)
-        if !self.kairo_pass_names_ok(cg.kairo_pass_off) {
+        var names_ok = if self.invocation()->args.ok => self.invocation()->ok
+                       else => self.kairo_pass_names_ok(cg.kairo_pass_off)
+        if !names_ok {
             self.flush_errors()
             return EXIT_FAILURE
         }

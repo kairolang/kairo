@@ -23,5 +23,8 @@ fn main() -> i32 { return 0 }
 // RUN: { %kairo --print-kairo-passes -O2 --disable-kairo-pass=no-such-pass 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
 // RUN: { %kairo %s --type-check-only --disable-kairo-pass=no-such-pass 2>&1 || true; } | %FileCheck %s --check-prefix=BAD
 // RUN: not %kairo %s --type-check-only --disable-kairo-pass=no-such-pass
+// RUN: { %kairo --print-kairo-passes %s --disable-kairo-pass=no-such-pass 2>&1 || true; } | %FileCheck %s --check-prefix=ONCE
+// ONCE:     unknown Kairo pass 'no-such-pass'
+// ONCE-NOT: unknown Kairo pass
 // BAD: error [U001E]: unknown Kairo pass 'no-such-pass' in --disable-kairo-pass; the passes are: spec-devirt, alloc-model
 // RUN: %kairo %s --type-check-only --disable-kairo-pass=alloc-model --disable-kairo-pass spec-devirt
