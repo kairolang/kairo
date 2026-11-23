@@ -69,7 +69,7 @@ pub class TargetOptions {
     pub var glibc:     string = "" ///< the glibc version --target spelled (`-glibc2.28`, `.2.28`), else ""
     pub var host:      string = "" ///< --host triple
     pub var march:     string = "" ///< -march / --march
-    pub var mcpu:      string = "" ///< -mcpu  / --mcpu
+    pub var mcpu:      string = "" ///< -mcpu  / --mcpu; never `baseline` (cpu_baseline)
     pub var mtune:     string = "" ///< --mtune
     pub var mabi:      string = "" ///< --mabi
     pub var mfeatures: string = "" ///< --mfeatures (e.g. +avx2,-sse4.1); read it through feature_list()
@@ -87,6 +87,18 @@ pub class TargetOptions {
     pub var m32:          bool   = false
     pub var m64:          bool   = false
     pub var native:       bool   = false ///< --native: the host's own libc, headers and libraries
+    /// `--mcpu baseline`: the target's own default CPU, the one a --target
+    /// build gets, also for a build for the host machine. from_args takes
+    /// the word out of `mcpu`, so nothing forwards it as a CPU name.
+    pub var cpu_baseline: bool = false
+    /// What the host CPU default resolved to, "" when it is not in force
+    /// (CompilerInstance::_apply_host_cpu): the x86-64 level and the tuning
+    /// CPU (`x86-64-v3 znver3`), or on AArch64 the CPU and its features.
+    /// Incremental Sema keys it: the command line does not spell it.
+    pub var host_cpu: string = ""
+    /// The clang driver's `-mcpu=` word, which unlike --mcpu also turns the
+    /// CPU's features on: `native` under the host CPU default on AArch64.
+    pub var driver_mcpu: string = ""
     /// --pkg-config names, in order. Run by the driver (_apply_host_system),
     /// whose output lands in the ordinary -I/-D/-L/-l lists.
     pub var pkg_config: cxx::std::vector<string>
@@ -302,6 +314,11 @@ pub class TargetOptions {
         o.m32       = args.get_bool("m32")
         o.m64       = args.get_bool("m64")
         o.native    = args.get_bool("native")
+        if o.mcpu == "baseline" {
+            o.mcpu         = ""
+            o.cpu_baseline = true
+        }
+
         for s in *args.get_list("pkg-config") {
             o.pkg_config.push_back(s.copy())
         }

@@ -16,6 +16,9 @@
 ///       kairo-only settings, and lit's roots, need);
 ///     - with no `-std=`, C++ defaults to c++23 (the floor an included .k
 ///       needs is C++20: the hook refuses below it);
+///     - with no `-march=` or `-mcpu=` the CPU is the target's default, as
+///       clang's is, on the host too (`--mcpu=baseline`), where `kairo`
+///       targets the host's CPU;
 ///     - `-c`/`-S` write objects for the command line's own files only
 ///       (--emit-scope=inputs), and a link takes builtin, std and the
 ///       runtime from the toolchain's cached library (--kairo-lib), so
@@ -130,6 +133,10 @@ pub fn _kcc_words(argc:       i32,
 
     var kw = cxx::std::vector<string>()
     var cw = cxx::std::vector<string>()
+    // clang compiles for the target's default CPU unless -march or -mcpu
+    // says otherwise, and so does kcc: kairo's host CPU default is turned
+    // off first, where a translated -mcpu= still replaces it.
+    kw.push_back("--mcpu=baseline")
     if !FlagTranslator::from_driver(&clang, &kw, &cw, &*error) {
         return false
     }

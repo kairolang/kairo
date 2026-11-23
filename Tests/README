@@ -170,9 +170,19 @@ test's own TU), cxx (the test's own C++, shared runtime boilerplate dropped),
 run (compile, link, run: exit code and stdout). Generated output still has to
 be READ: it records what the compiler does today, not what it should do.
 
-`%kairo` expands to the resolved binary plus `--error-format=basic` and the
---builtins-dir/--std-dir/--resource-dir roots, `%s` to the test file, `%t` to
-a scratch path.
+`%kairo` expands to the resolved binary plus `--error-format=basic`,
+`--mcpu=baseline` and the --builtins-dir/--std-dir/--resource-dir roots, `%s`
+to the test file, `%t` to a scratch path.
+
+--mcpu=baseline: without --target kairo compiles for the CPU of the machine it
+runs on, and FP contraction follows the CPU, so a test that checked IR,
+assembly or a cc1 line would depend on the machine lit runs on. Every test
+compiles for the target's default CPU instead, as a --target build does. A
+test that wants a CPU names it (`--march=x86-64-v3`, `--mcpu=znver3`: the
+last one wins); a test of the host default itself writes `--mcpu=` (empty,
+the flag as if not given) and checks only what holds on every host
+(cli/codegen/host_cpu.k). `%kairo_bin` is the bare binary and has no such
+pin: a test that uses it must not check generated code.
 
 A test that compiles to `%t.exe` and then runs it starts with
 `// RUN: rm -f %t.exe`. `%t` is the same path on every run, so without it a

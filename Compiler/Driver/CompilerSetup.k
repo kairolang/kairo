@@ -72,6 +72,12 @@ import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerNative
 import Interop::Clang::ClangBackend::ClangBackendConfig
+import Native::HostCPU::{
+    host_cpu_features,
+    host_cpu_name,
+    x86_64_level,
+    x86_64_level_name,
+}
 import Resolution::SearchRoot::{
     read_module_pin_in,
     root_names_equal,
@@ -1863,12 +1869,10 @@ extend CompilerInstance {
                 return
             }
 
-            var host = llvm::sys::getHostCPUName()
-            self.invocation()->target.mcpu = string(
-                unsafe ((host.data() as unsafe *const u8) as *const u8),
-                host.size(),
-            )
+            self.invocation()->target.mcpu = host_cpu_name()
         }
+
+        self._apply_host_cpu(&tt)
 
         if !self._inv.target.mcpu.is_empty() {
             var unsafe *STI = T->createMCSubtargetInfo(
@@ -1924,6 +1928,57 @@ extend CompilerInstance {
                 self.invocation()->ok = false
                 return
             }
+        }
+    }
+
+    /// A build for the machine it runs on targets that machine's CPU.
+    ///
+    /// With no --target, --march or --mcpu, x86-64 code is compiled for the
+    /// highest x86-64 level the host has (x86-64-v2, -v3 or -v4: the level,
+    /// not every feature of the CPU, so the program runs on any CPU of that
+    /// level) and tuned for the host's CPU unless --mtune names another.
+    /// AArch64 code is compiled as clang's -mcpu=native compiles it. Both
+    /// are written into the options --march and --mtune fill, so the driver
+    /// probe, the C and C++ inputs, the runtime's objects and the cache keys
+    /// follow as they do for the flags.
+    ///
+    /// Everything else keeps the target's own default CPU: a --target build
+    /// (the host says nothing about the machine the program will run on),
+    /// `--mcpu baseline`, a triple --m32 or --m64 moved off the host's
+    /// architecture, and the other architectures.
+    prot fn _apply_host_cpu(self, @inout tt: llvm::Triple) {
+        var *tg = &self.invocation()->target
+        if !tg->triple.is_empty()
+            || tg->cpu_baseline
+            || !tg->march.is_empty()
+            || !tg->mcpu.is_empty() {
+            return
+        }
+
+        var host = llvm::Triple(llvm::sys::getProcessTriple())
+        if tt.getArch() != host.getArch() {
+            return
+        }
+
+        if tt.getArch() == llvm::Triple::x86_64 {
+            var level = x86_64_level(host_cpu_features())
+            if level > 1 {
+                tg->march = x86_64_level_name(level)
+            }
+
+            if tg->mtune.is_empty() {
+                tg->mtune = host_cpu_name()
+            }
+
+            tg->host_cpu = x86_64_level_name(level) + " " + tg->mtune.copy()
+        } else if tt.isAArch64() {
+            tg->driver_mcpu = "native"
+            var key = "native " + host_cpu_name()
+            for *f in host_cpu_features() {
+                key += " " + f->copy()
+            }
+
+            tg->host_cpu = key
         }
     }
 

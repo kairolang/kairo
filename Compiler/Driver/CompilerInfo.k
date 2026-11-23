@@ -445,7 +445,9 @@ extend CompilerInstance {
     ///
     /// Triple, architecture, ABI, pointer width, endianness, object format,
     /// data layout and CPU, after --target (else the default target), --m32 /
-    /// --m64, --mcpu and --march.
+    /// --m64, --mcpu and --march. The CPU line says which CPU it is: `CPU`
+    /// for --mcpu, `Host CPU` (and `Tune CPU`) for the host CPU default of
+    /// a build for this machine, `Default CPU` for the target's own.
     fn print_target_info(self) -> i32 {
         var triple = self._effective_triple()
         var llvm_triple = llvm::Triple(
@@ -557,9 +559,17 @@ extend CompilerInstance {
         }
 
         io::println(f"Data layout:     {data_layout}")
-        // An explicit --mcpu is the CPU in use, not the target's default.
-        if self.invocation()->args.is_set("mcpu") {
+        // An explicit --mcpu is the CPU in use, not the target's default;
+        // so is the host's under the host CPU default, which is tuned for
+        // separately on x86-64 (the CPU there is a level).
+        var *tg = &self.invocation()->target
+        if !tg->mcpu.is_empty() {
             io::println(f"CPU:             {cpu}")
+        } else if !tg->host_cpu.is_empty() {
+            io::println(f"Host CPU:        {cpu}")
+            if !tg->mtune.is_empty() && tg->mtune != cpu {
+                io::println(f"Tune CPU:        {tg->mtune}")
+            }
         } else {
             io::println(f"Default CPU:     {cpu}")
         }

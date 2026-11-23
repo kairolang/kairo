@@ -36,8 +36,13 @@ ffi "c++" import "vector"
 import API::EnvNames::EnvNames
 import API::FS::*
 import Driver::CacheFormat::{
-    CACHE_SCHEMA,           INCR_SEMA_SCHEMA,        cache_dir_name,  fingerprint_prefix,
-    fingerprint_schema_key, fingerprint_version_key, incr_run_header,
+    CACHE_SCHEMA,
+    INCR_SEMA_SCHEMA,
+    cache_dir_name,
+    fingerprint_prefix,
+    fingerprint_schema_key,
+    fingerprint_version_key,
+    incr_run_header,
 }
 import Driver::ObjectCache::ObjectCache
 import Native::ObjCache::objcache_file_hash
@@ -188,10 +193,16 @@ pub class ModuleRecords {
     ///   is keyed rather than a list of the flags that matter (a
     ///   false miss costs a run, a false hit a miscompile). The
     ///   observation flags of this feature are left out.
+    /// - `host_cpu`: what the host CPU default resolved to
+    ///   (TargetOptions::host_cpu), the one input of the objects and of
+    ///   the ffi headers' predefined macros that the command line does
+    ///   not spell: the same line on another machine, or a cache directory
+    ///   carried to one, must not replay.
     /// - `color`: the diagnostic renderer's colour decision.
     pub fn setup(self,
                  const cache_dir: string,
                  const words:     [string],
+                 const host_cpu:  string,
                  const input:     string,
                  const output:    string,
                  const format:    string,
@@ -231,6 +242,7 @@ pub class ModuleRecords {
             ver,
         ) + "\n"
         self._f_lines += "f.args " + ObjectCache::hash(args) + "\n"
+        self._f_lines += "f.cpu " + ObjectCache::hash(host_cpu) + "\n"
         self._f_lines += "f.cwd " + ObjectCache::hash(Path::cwd().path_data) + "\n"
         self._f_lines += "f.env " + ObjectCache::hash(envs) + "\n"
         self._f_lines += "f.diag " + format + (if (color) => (" color") else => " plain") + "\n"
@@ -312,6 +324,8 @@ pub class ModuleRecords {
                     var part = if (sp == usize::MAX) => (l->copy()) else => l->subslice(0, sp)
                     if part == "f.args" {
                         self.status = "miss: flags changed"
+                    } else if part == "f.cpu" {
+                        self.status = "miss: host CPU changed"
                     } else if part == "f.env" {
                         self.status = "miss: environment changed"
                     } else if part == fingerprint_version_key() {

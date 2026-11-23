@@ -335,6 +335,14 @@ config.substitutions.append(("%kairo_bin", _sh(kairo_bin)))
 # passes its own --threads (cli/driver/threads.k) writes it later, and the
 # last one wins.
 _kairo_threads = " --threads=2"
+# --mcpu=baseline: without --target kairo compiles for the CPU of the machine
+# it runs on (its x86-64 level, -mcpu=native on arm64), and FP contraction
+# follows the CPU. A test's IR, assembly and cc1 line must not depend on
+# the machine lit runs on, so every test compiles for the target's default
+# CPU, as a --target build does. A test of the host default itself passes
+# `--mcpu=` (empty: the flag as if it were not given); one that names a CPU
+# with --march or --mcpu writes it later, and the last one wins.
+_kairo_cpu = " --mcpu=baseline"
 # A test of a builtin declaration the library does not have yet builds its
 # own builtin tree: `%overlay_builtins %t.lib base/x.k=%S/inputs/x.k` copies
 # Lib/builtin to %t.lib/builtin with the named files added (overlay_builtins.py),
@@ -345,8 +353,8 @@ config.substitutions.append(
         _sh(sys.executable),
         _sh(os.path.join(config.test_source_root, "overlay_builtins.py")),
         _sh(os.path.normpath(os.path.join(config.test_source_root, "..", "Lib"))))))
-config.substitutions.append(("%kairo_overlay", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + _clang_roots(with_builtins=False)))
-config.substitutions.append(("%kairo", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + kairo_roots))
+config.substitutions.append(("%kairo_overlay", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + _kairo_cpu + _clang_roots(with_builtins=False)))
+config.substitutions.append(("%kairo", _sh(kairo_bin) + " --error-format=basic" + _kairo_threads + _kairo_cpu + kairo_roots))
 
 # --- kcc ----------------------------------------------------------------------
 # The clang drop-in, built beside kairo (Compiler/Driver/Kcc.k). It takes
@@ -679,7 +687,7 @@ if clang_bin:
         ("%parity", "%s %s '%s' %s" % (
             _sh(sys.executable),
             _sh(os.path.join(config.test_source_root, "parity_check.py")),
-            _sh(kairo_bin) + kairo_roots,  # one quoted command: kairo + its header roots
+            _sh(kairo_bin) + _kairo_cpu + kairo_roots,  # one quoted command: kairo + its header roots
             _sh(clang_bin))))
     # A C++ driver for tests that compile kairo's emitted objects and LINK them
     # (Tests/codegen/operators). --driver-mode=g++ rather than a sibling

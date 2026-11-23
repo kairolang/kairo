@@ -1113,11 +1113,18 @@ pub class FlagTranslator {
     /// --march, which only the DRIVER spells (cc1 has no -march:
     /// the driver turns it into -target-cpu plus one -target-feature
     /// per implied extension, which is right only per architecture).
-    /// For kairo's own TUs it rides the target probe.
+    /// For kairo's own TUs it rides the target probe. The host CPU
+    /// default's `-mcpu=native` (TargetOptions::driver_mcpu) is the
+    /// driver's too: it reads the host's features, which cc1's
+    /// -target-cpu does not.
     pub static fn march_driver(@inout tgt: TargetOptions) -> cxx::std::vector<string> {
         var o = cxx::std::vector<string>()
         if !tgt.march.is_empty() {
             _fx_push(&o, f"-march={tgt.march}")
+        }
+
+        if !tgt.driver_mcpu.is_empty() {
+            _fx_push(&o, f"-mcpu={tgt.driver_mcpu}")
         }
 
         return o

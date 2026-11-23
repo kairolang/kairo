@@ -859,7 +859,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "march",
         "",
         "march",
-        "target architecture (e.g. armv8-a, x86-64-v3)",
+        "target architecture (e.g. armv8-a, x86-64-v3); without --target the default is the host's CPU",
         "",
     )
 
@@ -867,7 +867,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "mcpu",
         "",
         "mcpu",
-        "target CPU (e.g. apple-m1, znver3, cortex-a72); wins over --march. use --print-cpus to list",
+        "target CPU (e.g. apple-m1, znver3, cortex-a72), native, or baseline (the target's default CPU); wins over --march. use --print-cpus to list",
         "",
     )
 

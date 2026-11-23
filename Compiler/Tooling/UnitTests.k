@@ -37,6 +37,7 @@ import DocComment::Test as doc_comment_test
 import Lexer::Lexer::Test as lexer_test
 import Location::SourceManager::Test as source_manager_test
 import Memory::MappedFileBuffer::Test as mapped_file_buffer_test
+import Native::HostCPU::Test as host_cpu_test
 import Support::FileIO::AtomicFile::Test as atomic_file_test
 import Support::TermRenderer::Test as term_renderer_test
 import Threading::ThreadPool::Test as thread_pool_test
@@ -152,5 +153,6 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
     runner.run("TermRenderer", term_renderer_test)
     runner.run("AtomicFile", atomic_file_test)
     runner.run("DocComment", doc_comment_test)
+    runner.run("HostCPU", host_cpu_test)
     return runner.finish()
 }
