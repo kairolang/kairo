@@ -970,7 +970,10 @@ extend InterfaceEmitter {
             if sc->target_ty != &null {
                 ty = self._spell->_type(sc->target_ty)
             } else if sc->target != &null && self._spell->template_head(sc->target).size() == 0 {
-                ty = self._spell->qual_name(sc->target)
+                // The block's own target type, as the receiver is spelled:
+                // an ADT enum's layout decl (sc->target) is not the enum,
+                // and qual_name spells it `E::E`, which names a constructor.
+                ty = self._spell->_type(sc->exts[i]->target)
             }
 
             if ty.size() == 0 {
