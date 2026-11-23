@@ -467,6 +467,13 @@ def cross_llvm_args(llvm_src: Path, target: str) -> list:
     if tos == "windows":
         for l in MINGW_SYSTEM_LIBS:
             a += ["-l", l]
+    # The archives are ThinLTO bitcode from the kcc that built them, and LLVM stores
+    # each global's GUID in bitcode only from 23 on. A linker at 23 or later reads an
+    # older archive's globals without one: its thin backend then keeps a dead weak
+    # definition in the object while it removes the dead symbols that definition
+    # refers to, and the link ends in undefined symbols. Nothing live refers to such a
+    # definition, so section GC discards it before lld scans its relocations.
+    a += ["-fgc-sections"]
     # No mimalloc object here: the Kairo runtime (Lib/rt/mimalloc.c) already is mimalloc
     # and replaces malloc on ELF, so a Kairo binary has it; a second copy is duplicate
     # symbols. cross_llvm.py links one into the LLVM tools (clang, lld), which are not Kairo.
