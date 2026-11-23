@@ -67,12 +67,15 @@ ffi "c++" import "clang/CodeGen/CodeGenAction.h"
 ffi "c++" import "clang/Lex/PreprocessorOptions.h"
 ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h"
 ffi "c++" import "llvm/ADT/Twine.h"
+ffi "c++" import "llvm/MC/MCSubtargetInfo.h"
+ffi "c++" import "llvm/MC/TargetRegistry.h"
 ffi "c++" import "llvm/Support/MemoryBuffer.h"
 ffi "c++" import "llvm/Support/TargetSelect.h"
 ffi "c++" import "llvm/Support/VirtualFileSystem.h"
 ffi "c++" import "llvm/Support/raw_ostream.h"
 ffi "c++" import "llvm/TargetParser/Triple.h"
 ffi "c++" import "Native/Log.hh"
+ffi "c++" import "Native/LlvmCompat.hh" // feature_key
 ffi "c++" import "vector"
 ffi "c++" import "memory"
 ffi "c++" import "string"
@@ -378,6 +381,9 @@ pub class ClangBackend {
     /// restored to (header_fp_pragmas).
     priv var _cxx_contract:   string = ""
     priv var _cxx_math_errno: bool   = false
+    /// Kairo's default contraction on this target (_decide_contract), set
+    /// with _target_args.
+    priv var _contract: string = "off"
 
     priv var _mu:      kairo::std::Mutex         ///< serializes startup against itself
     priv var _started: bool              = false
@@ -478,6 +484,7 @@ pub class ClangBackend {
         FlagTranslator::header_fp_pragmas(
             self._cxx_contract,
             self._cxx_math_errno,
+            self._contract,
             &self._cfg.extra_cc1,
             fc,
             &*open,
@@ -910,7 +917,120 @@ pub class ClangBackend {
             self._target_args.push_back(a.copy())
         }
 
+        self._contract = self._decide_contract()
         return copy_strings(self._target_args)
+    }
+
+    /// Whether `sti` has the feature `name` on; false for a name its
+    /// target does not define, which checkFeatures alone would report on
+    /// stderr.
+    priv static fn _has_feature(sti:        unsafe *const llvm::MCSubtargetInfo,
+                                const name: string) -> bool {
+        var known = false
+        var feats = sti->getAllProcessorFeatures()
+        for fi in 0..feats.size() {
+            var unsafe *fk = kairo::llvm_compat::feature_key(unsafe &feats[fi])
+            if string(unsafe ((fk as unsafe *const u8) as *const u8)) == name {
+                known = true
+            }
+        }
+
+        if !known {
+            return false
+        }
+
+        var on = "+" + name
+        return sti->checkFeatures(kairo::sref(on))
+    }
+
+    /// Kairo's default contraction on this target: `on` where the target
+    /// has a fused multiply-add for f32 or f64, `off` elsewhere.
+    ///
+    /// Without the instruction LLVM lowers a contracted `llvm.fmuladd` back
+    /// to a multiply and an add: no result changes, and the intrinsic only
+    /// keeps other optimizations off the pair. The test per architecture is
+    /// the subtarget feature its TargetLowering::isFMAFasterThanFMulAndFAdd
+    /// reads for a scalar f32 or f64. An architecture not listed here is
+    /// `off`: wasm and MIPS never fuse a scalar.
+    ///
+    /// The CPU and features are the compile line's own (the last
+    /// -target-cpu and every -target-feature of the driver probe and of
+    /// extra_cc1), so --march, --mcpu and --mfeatures all count.
+    priv fn _decide_contract(self) -> string {
+        var cpu   = ""
+        var feats = ""
+        var words = copy_strings(self._target_args)
+        for *a in self._cfg.extra_cc1 {
+            words.push_back(a->copy())
+        }
+
+        for var i: usize = 0; i < words.size(); ++i {
+            if words[i] == "-msoft-float" {
+                return "off"
+            }
+
+            if i + 1 >= words.size() {
+                continue
+            }
+
+            if words[i] == "-target-cpu" {
+                cpu = words[i + 1].copy()
+            } else if words[i] == "-target-feature" {
+                if !feats.is_empty() {
+                    feats += ","
+                }
+
+                feats += words[i + 1].copy()
+            }
+        }
+
+        var tt = llvm::Triple(
+            llvm::Triple::normalize(kairo::sref(self._clang_triple())),
+        )
+
+        var err: cxx::std::string
+        var unsafe *T = llvm::TargetRegistry::lookupTarget(tt, &err)
+        if T == &null {
+            return "off"
+        }
+
+        var unsafe *sti = T->createMCSubtargetInfo(
+            tt,
+            kairo::sref(cpu),
+            kairo::sref(feats),
+        )
+
+        if sti == &null {
+            return "off"
+        }
+
+        finally {
+            @cxx::delete sti
+        }
+
+        var fuses = false
+        if tt.isX86() {
+            fuses = ClangBackend::_has_feature(sti, "fma")
+                || ClangBackend::_has_feature(sti, "fma4")
+        } else if tt.isAArch64() {
+            fuses = ClangBackend::_has_feature(sti, "fp-armv8")
+        } else if tt.isARM() || tt.isThumb() {
+            fuses = !tt.isOSDarwin()
+                && ClangBackend::_has_feature(sti, "vfp4d16sp")
+                && !ClangBackend::_has_feature(sti, "slowfpvfmx")
+                && !ClangBackend::_has_feature(sti, "soft-float")
+        } else if tt.isRISCV() {
+            fuses = ClangBackend::_has_feature(sti, "f") || ClangBackend::_has_feature(sti, "zfinx")
+        } else if tt.isLoongArch() {
+            fuses = ClangBackend::_has_feature(sti, "f")
+        } else if tt.isPPC() {
+            fuses = ClangBackend::_has_feature(sti, "hard-float")
+                && !ClangBackend::_has_feature(sti, "spe")
+        } else if tt.isSystemZ() {
+            fuses = !ClangBackend::_has_feature(sti, "soft-float")
+        }
+
+        return if (fuses) => ("on") else => "off"
     }
 
     /// the header-search model and the sysroot's required macros,
@@ -1145,9 +1265,10 @@ pub class ClangBackend {
         }
 
         // Kairo's FP semantics, ahead of extra_cc1 so the user's own FP
-        // flags (cc1 takes the last) still win.
+        // flags (cc1 takes the last) still win. _driver_target_args, above,
+        // has decided the contraction.
         if kairo_v {
-            for var a in FlagTranslator::kairo_fp_cc1() {
+            for var a in FlagTranslator::kairo_fp_cc1(self._contract) {
                 self._arg(&*argv, a)
             }
         }

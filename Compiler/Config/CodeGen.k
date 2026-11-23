@@ -45,9 +45,10 @@ pub class CodeGenOptions {
     pub var unwind_tables: string = ""
     /// Whether --unwind-tables / --fp-contract were given. The defaults here
     /// are not what every line gets without the flag (the target probe yields
-    /// async tables on x86_64; --fp-model=strict turns contraction off, and a
-    /// C/C++ input takes the driver's), so forwarding a default would silently
-    /// change those builds; only an explicit flag is forwarded.
+    /// async tables on x86_64; contraction is off on a target with no fused
+    /// multiply-add and under --fp-model=strict, and a C/C++ input takes the
+    /// driver's), so forwarding a default would silently change those
+    /// builds; only an explicit flag is forwarded.
     pub var unwind_tables_set: bool   = false
     pub var fp_contract_set:   bool   = false
     pub var unwindlib:         string = ""

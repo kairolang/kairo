@@ -1,7 +1,9 @@
-// An ffi C++ header region keeps what clang++ gives C++ on the target while
-// Kairo contracts by default too: the header's a * b + c fuses (h_mac and
-// the template t_mac), and on glibc the header's sqrt keeps errno where
-// Kairo's has none. Given explicitly, --fp-contract=off applies to the header
+// An ffi C++ header region keeps what clang++ gives C++ on the target
+// whatever Kairo's own default is there: the header's a * b + c fuses (h_mac
+// and the template t_mac) on baseline x86-64, where Kairo's k_mac does not
+// (no fused multiply-add: SPLIT), and on x86-64-v3, where Kairo contracts
+// too (FUSE); on glibc the header's sqrt keeps errno where Kairo's has
+// none. Given explicitly, --fp-contract=off applies to the header
 // as it would to a C++ input: nothing fuses on either side, on glibc (where
 // float_control(precise, on) restores errno and sets contraction on, so the
 // contract pragma after it is still needed) and on musl.
@@ -17,18 +19,25 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: rm -rf %t.musl %t.gnu %t.gnuoff %t.musloff
+// RUN: rm -rf %t.musl %t.gnu %t.gnuoff %t.musloff %t.muslv3 %t.gnuv3
 // RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-musl --cache-dir %t.musl
-// RUN: %FileCheck %s --check-prefixes=ON,MUSL < %t.musl/contract_header.ll
+// RUN: %FileCheck %s --check-prefixes=ON,SPLIT,MUSL < %t.musl/contract_header.ll
 // RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-gnu --cache-dir %t.gnu
-// RUN: %FileCheck %s --check-prefixes=ON,GNU < %t.gnu/contract_header.ll
+// RUN: %FileCheck %s --check-prefixes=ON,SPLIT,GNU < %t.gnu/contract_header.ll
+// RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-musl --march=x86-64-v3 --cache-dir %t.muslv3
+// RUN: %FileCheck %s --check-prefixes=ON,FUSE,MUSL < %t.muslv3/contract_header.ll
+// RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-gnu --march=x86-64-v3 --cache-dir %t.gnuv3
+// RUN: %FileCheck %s --check-prefixes=ON,FUSE,GNU < %t.gnuv3/contract_header.ll
 // RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-gnu --fp-contract=off --cache-dir %t.gnuoff
 // RUN: %FileCheck %s --check-prefix=OFF < %t.gnuoff/contract_header.ll
 // RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-musl --fp-contract=off --cache-dir %t.musloff
 // RUN: %FileCheck %s --check-prefix=OFF < %t.musloff/contract_header.ll
 
 // ON-LABEL: define {{.*}}@_ZN15contract_header5k_macEddd(
-// ON:       call double @llvm.fmuladd.f64(
+// SPLIT-NOT: fmuladd
+// SPLIT:    fmul double
+// SPLIT:    fadd double
+// FUSE:     call double @llvm.fmuladd.f64(
 // ON-LABEL: define {{.*}}@_ZN15contract_header6k_sqrtEd(
 // ON:       call double @llvm.sqrt.f64(
 // ON-LABEL: define {{.*}}@_Z5h_macddd(

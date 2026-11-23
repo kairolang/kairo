@@ -5,7 +5,9 @@
 //     or c_add would be C++-mangled and the link against c_add.c fails;
 //   - sub/deep.h, found only through -I: by name (HeaderSet::replay_include);
 //   - c_mac, C code in that header: C's contraction (fmuladd) inside the
-//     header region, as this file's own a * b + c has Kairo's.
+//     header region, as this file's own a * b + c has Kairo's: none on
+//     baseline x86-64 (SPLIT), which has no fused multiply-add, and the
+//     same as C's on x86-64-v3 (FUSE).
 
 ffi "c++" import "vector"
 import lib
@@ -28,11 +30,17 @@ fn main() -> i32 {
 // RUN: %t.exe; test $? -eq 42
 
 // RUN: %kairo %s -I %S/inc --emit=llvm-ir -O0 --cache-dir %t.ir
-// RUN: %FileCheck %s < %t.ir/app.ll
+// RUN: %FileCheck %s --check-prefixes=CHECK,SPLIT < %t.ir/app.ll
 // RUN: %FileCheck %s --check-prefix=SYM < %t.ir/app.ll
+// RUN: rm -rf %t.v3
+// RUN: %kairo %s -I %S/inc --emit=llvm-ir -O0 --target=x86_64-linux-musl --march=x86-64-v3 --cache-dir %t.v3
+// RUN: %FileCheck %s --check-prefixes=CHECK,FUSE < %t.v3/app.ll
 // SYM-DAG: declare i32 @c_add(i32 noundef, i32 noundef)
 // SYM-DAG: define linkonce_odr {{.*}}@_Z10deep_twicei(
 // CHECK-LABEL: define {{.*}}@_ZN3app5k_macEddd(
-// CHECK:       call double @llvm.fmuladd.f64(
+// SPLIT-NOT:   fmuladd
+// SPLIT:       fmul double
+// SPLIT:       fadd double
+// FUSE:        call double @llvm.fmuladd.f64(
 // CHECK-LABEL: define internal {{.*}}@_ZL5c_macddd(
 // CHECK:       call double @llvm.fmuladd.f64(

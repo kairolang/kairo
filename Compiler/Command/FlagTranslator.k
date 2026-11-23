@@ -409,8 +409,13 @@ pub class FlagTranslator {
     /// the floating-point semantics Kairo's own code has whatever the
     /// target's C++ defaults are (IEEE 754, precise model): contraction
     /// within one expression (a multiply and an add may fuse into one
-    /// FMA, never across statements), no fast-math, no errno from the
-    /// math functions.
+    /// FMA, never across statements) where the target has the fused
+    /// instruction, no fast-math, no errno from the math functions.
+    ///
+    /// `contract` is that target decision, `on` or `off`
+    /// (ClangBackend::_decide_contract): a target with no fused
+    /// multiply-add computes the same results either way, and `off`
+    /// leaves the pair to the optimizer.
     ///
     /// For Kairo's compile line only, ahead of the user's own
     /// codegen() words so an explicit --fp-contract / --fp-model /
@@ -419,17 +424,17 @@ pub class FlagTranslator {
     /// -fno-math-errno (errno is off unless -fmath-errno is given,
     /// and probe_filter never keeps that one). Contraction is the
     /// one cc1 default the driver changes for C++ (-ffp-contract=on),
-    /// and probe_filter drops the driver's word, so it is written here
-    /// rather than left to cc1's default (off).
+    /// and probe_filter drops the driver's word, so it is always written
+    /// here rather than left to cc1's default.
     ///
     ///          C/C++ inputs never see these (they take the driver line), and
     ///          the ffi headers compiled in the same clang TU get their C++
     ///          defaults back through header_fp_pragmas: an imported header
     ///          keeps C++ semantics, and the same expression written in Kairo
     ///          keeps Kairo's.
-    pub static fn kairo_fp_cc1() -> cxx::std::vector<string> {
+    pub static fn kairo_fp_cc1(const contract: string) -> cxx::std::vector<string> {
         var o = cxx::std::vector<string>()
-        o.push_back("-ffp-contract=on")
+        o.push_back(f"-ffp-contract={contract}")
         return o
     }
 
@@ -451,7 +456,9 @@ pub class FlagTranslator {
     ///
     ///          Only what differs from Kairo's state is written: a header
     ///          region whose C++ defaults match Kairo's line (contraction on,
-    ///          no errno, as on musl) gets no pragma at all.
+    ///          no errno, as on musl for a CPU with a fused multiply-add)
+    ///          gets no pragma at all. `kairo_default` is Kairo's
+    ///          contraction on this target, kairo_fp_cc1's word.
     ///          float_control(precise, on) is the only pragma that turns errno
     ///          back on; it also sets contraction on, so a contract pragma
     ///          after it is needed whenever the header's contraction is not
@@ -464,14 +471,15 @@ pub class FlagTranslator {
     ///          so none is written: errno cannot be restored there anyway,
     ///          and with no push/pop the close line puts Kairo's contraction
     ///          back by hand.
-    pub static fn header_fp_pragmas(const cxx_contract: string,
-                                    cxx_math_errno:     bool,
-                                    @inout user_cc1:    cxx::std::vector<string>,
-                                    float_control:      bool,
-                                    @inout open:        cxx::std::vector<string>,
-                                    @inout close:       cxx::std::vector<string>) {
+    pub static fn header_fp_pragmas(const cxx_contract:  string,
+                                    cxx_math_errno:      bool,
+                                    const kairo_default: string,
+                                    @inout user_cc1:     cxx::std::vector<string>,
+                                    float_control:       bool,
+                                    @inout open:         cxx::std::vector<string>,
+                                    @inout close:        cxx::std::vector<string>) {
         var contract       = cxx_contract.copy()
-        var kairo_contract = "on"                // kairo_fp_cc1's default
+        var kairo_contract = kairo_default.copy()
         var fast           = false
         for *w in user_cc1 {
             if w->starts_with("-ffp-contract=") {
@@ -499,7 +507,7 @@ pub class FlagTranslator {
         }
 
         if kairo_contract.is_empty() {
-            kairo_contract = "on"
+            kairo_contract = kairo_default.copy()
         }
 
         // No driver word (the probe failed): C++'s default is not known,

@@ -3213,7 +3213,7 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
             "fp-contract",
             "",
             "fp-contract",
-            "fused FP ops (FMAs): off|on|fast (default: on; wins over --fp-model)",
+            "fused FP ops (FMAs): off|on|fast (default: on where the target has an FMA instruction, else off; wins over --fp-model)",
             "on",
             _fp_contract_choices(),
             "on",

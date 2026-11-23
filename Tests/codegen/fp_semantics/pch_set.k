@@ -1,6 +1,8 @@
 // Kairo's FP semantics are its own, not C++'s, though both compile in one
-// clang TU. Kairo code: contraction within one expression, no errno from
-// math functions (FlagTranslator::kairo_fp_cc1). The ffi header's code, including a
+// clang TU. Kairo code: contraction within one expression where the target
+// has a fused multiply-add (x86-64-v3: FUSE) and none where it has not
+// (baseline x86-64: SPLIT), no errno from math functions
+// (FlagTranslator::kairo_fp_cc1). The ffi header's code, including a
 // template Kairo instantiates: what clang++ gives C++ on the target
 // (contraction on; errno where the target's C++ default has it, glibc yes,
 // musl no), restored by the pragmas around the header region
@@ -19,14 +21,21 @@ fn main() -> i32 {
 }
 
 // --- lit wiring -----------------------------------------------------------
-// RUN: rm -rf %t.musl %t.gnu
+// RUN: rm -rf %t.musl %t.gnu %t.muslv3 %t.gnuv3
 // RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-musl --cache-dir %t.musl
-// RUN: %FileCheck %s --check-prefixes=ALL,MUSL < %t.musl/pch_set.ll
+// RUN: %FileCheck %s --check-prefixes=ALL,SPLIT,MUSL < %t.musl/pch_set.ll
 // RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-gnu --cache-dir %t.gnu
-// RUN: %FileCheck %s --check-prefixes=ALL,GNU < %t.gnu/pch_set.ll
+// RUN: %FileCheck %s --check-prefixes=ALL,SPLIT,GNU < %t.gnu/pch_set.ll
+// RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-musl --march=x86-64-v3 --cache-dir %t.muslv3
+// RUN: %FileCheck %s --check-prefixes=ALL,FUSE,MUSL < %t.muslv3/pch_set.ll
+// RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-gnu --march=x86-64-v3 --cache-dir %t.gnuv3
+// RUN: %FileCheck %s --check-prefixes=ALL,FUSE,GNU < %t.gnuv3/pch_set.ll
 
 // ALL-LABEL: define {{.*}}@_ZN7pch_set5k_macEddd(
-// ALL:       call double @llvm.fmuladd.f64(
+// SPLIT-NOT: fmuladd
+// SPLIT:     fmul double
+// SPLIT:     fadd double
+// FUSE:      call double @llvm.fmuladd.f64(
 // ALL-LABEL: define {{.*}}@_ZN7pch_set6k_sqrtEd(
 // ALL:       call double @llvm.sqrt.f64(
 // ALL-LABEL: define {{.*}}@_Z5h_macddd(
