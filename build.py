@@ -1022,6 +1022,50 @@ def kairo_has_flag(kairo: Path, flag: str) -> bool:
     return flag in _HELP_PROBE[key]
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+_WARN_START = re.compile(r"^\s*warning @ |: warning[ :\[]")
+_DIAG_CODE = re.compile(r"\[([A-Z]+[0-9]+W)\]")
+
+
+def write_warnings(tool: str, log_path: Path) -> tuple:
+    """Copy every warning in a host build's log (Kairo's, with their notes and
+    snippets, and clang's) to build/warnings/<tool>.txt, replacing the last build's
+    list. Cached objects replay their warnings (Compiler/Spec/Incremental.md), so an
+    incremental build's list is as complete as a clean one's. Returns the count and
+    the path. The file is per tool and not per target: only a host build writes it."""
+    lines = _ANSI.sub("", log_path.read_text(encoding="utf-8", errors="replace")).splitlines()
+    blocks, cur = [], None
+    for line in lines:
+        if _WARN_START.search(line):
+            if cur:
+                blocks.append(cur)
+            cur = [line]
+            if not line.lstrip().startswith("warning @"):
+                # A one-line form (clang's, or --error-format=basic) is its own block.
+                blocks.append(cur)
+                cur = None
+        elif cur is not None:
+            if not line.strip():
+                blocks.append(cur)
+                cur = None
+            else:
+                cur.append(line)
+    if cur:
+        blocks.append(cur)
+    counts = {}
+    for b in blocks:
+        m = _DIAG_CODE.search("\n".join(b))
+        code = m.group(1) if m else ("clang" if ": warning" in b[0] else "other")
+        counts[code] = counts.get(code, 0) + 1
+    path = ROOT / "build" / "warnings" / f"{tool}.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    head = [f"# {tool}: {len(blocks)} warnings, build of {time.strftime('%Y-%m-%d %H:%M')} (log {log_path})"]
+    head += [f"#   {c:<10} {n}" for c, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+    path.write_text("\n".join(head) + "\n\n" + "\n\n".join("\n".join(b) for b in blocks)
+                    + ("\n" if blocks else ""), encoding="utf-8")
+    return len(blocks), path
+
+
 def agree_summary(log_path: Path) -> str:
     """What the compiler's --sema-agreement-summary line in a tool's build log says
     after its `kairo: sema agreement: ` prefix: `0 finding(s) in 405 file(s)`, or the
@@ -1198,7 +1242,7 @@ def _single(a, mode: str, out: Path, cache: Path, kairo: Path, targets: list, ta
     if target:
         # The pipeline made the cross LLVM current first (_cross_llvm_ready).
         argv += ["--target", target, "--stale-llvm", a.stale_llvm or "use"]
-    if a.warnings:      argv.append("--warnings")
+    if a.no_warnings:   argv.append("--no-warnings")
     if a.jobs:          argv += ["-j", str(a.jobs)]
     if a.no_native:     argv.append("--no-native")
     if a.mcpu:          argv += ["--mcpu", a.mcpu]
@@ -1455,8 +1499,8 @@ def main() -> int:
     ap.add_argument("--src", default=None, help="source root holding Compiler/ Linker/ Extras/KaTAR (default: the repo)")
     ap.add_argument("--out", help="tree to build into (default: build/<triple>/stage1.5/<mode> for a self-host tree, "
                                   "build/<triple>/stage1/<mode> for the repo; never over the compiler doing the build)")
-    ap.add_argument("--warnings", action="store_true",
-                    help="self-host tree: keep Kairo warnings (default -w: ~15k deferred until after self-host)")
+    ap.add_argument("--no-warnings", action="store_true",
+                    help="self-host tree: compile with -w (no Kairo warnings and no build/warnings/ files)")
     ap.add_argument("-j", "--jobs", type=int, default=0, help="--threads for the compiler (0 = all CPUs)")
     ap.add_argument("--no-native", action="store_true",
                     help="build against the bundled sysroot instead of the host's C library (default is --native for "
@@ -1622,7 +1666,7 @@ def main() -> int:
         common += shared_libcxx_args(os_, native)
     if a.mcpu:
         common += ["--mcpu", a.mcpu]
-    if selfhost and not a.warnings:
+    if selfhost and a.no_warnings:
         common.append("-w")
     if selfhost:
         # The AST node modules import each other by design (a node names the
@@ -1728,6 +1772,9 @@ def main() -> int:
             prog.log(f"{t}: checked in {secs:.0f} s, no binary (log {log_path})")
             continue
         prog.log(f"{t}: built {binary} in {secs:.0f} s (log {log_path})")
+        if not a.target and not a.no_warnings:
+            n, wpath = write_warnings(t, log_path)
+            prog.log(f"{t}: {n} warning{'' if n == 1 else 's'} (list {wpath})")
         if agree_flag:
             agree[t] = agree_summary(log_path)
 
@@ -1736,10 +1783,9 @@ def main() -> int:
         link_sysroot(out, triple, prog, kairo)
         postbuild(out, mode_name, tree_triple, cross_dir(a.target) / "llvm" if a.target else None, a.target, src)
     if agree:
-        # One line per build: the tree compiles with -w, which hides the pass's
-        # warning (I012W), and a release-built seed only counts.
-        prog.log("sema agreement: " + "; ".join(f"{t} {agree[t]}" for t in sorted(agree))
-                 + ("" if a.warnings else "  (--warnings shows them)"))
+        # One line per build: a release-built seed only counts, and each I012W
+        # warning is in the tool's build/warnings/ file.
+        prog.log("sema agreement: " + "; ".join(f"{t} {agree[t]}" for t in sorted(agree)))
     if not (a.print_jobs or a.print_command):
         prog.done()
         for t in sorted(a.targets) if not check_only else []:
