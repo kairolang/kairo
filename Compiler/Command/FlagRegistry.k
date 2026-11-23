@@ -1088,6 +1088,21 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
     )
 
     cmd->define<FlagKind::StringList>(
+        "disable-kairo-pass",
+        "",
+        "disable-kairo-pass",
+        "turn off one of Kairo's own LLVM passes by name (repeatable; --print-kairo-passes lists them)",
+    )
+
+    cmd->define<FlagKind::Bool>(
+        "print-kairo-passes",
+        "",
+        "print-kairo-passes",
+        "list Kairo's own LLVM passes: name, pipeline point, and whether each runs at this -O; then exit",
+        false,
+    )
+
+    cmd->define<FlagKind::StringList>(
         "mllvm",
         "",
         "mllvm",

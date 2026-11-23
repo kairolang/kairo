@@ -61,6 +61,11 @@ ffi "c++" import "llvm/IR/Module.h"
 ffi "c++" import "llvm/Transforms/Utils/CallPromotionUtils.h"
 ffi "c++" import "Native/Types.hh"
 
+import Optimize::KairoPass::{
+    KairoPass,
+    PassPoint,
+}
+
 /// The most targets one call site is versioned for. Each one is a compare
 /// on the path to every later arm and to the indirect fallback, so past a
 /// few the chain costs more than the indirect call it avoids.
@@ -90,8 +95,8 @@ pub struct SpecDevirtSite {
     pub var off:  u64                    = 0
 }
 
-/// The pass. One instance per module run (Optimize/LLVM/PassBridge.hh).
-pub class SpecDevirt {
+/// The pass. One instance per module run (Optimize/PassRegistry.k).
+pub class SpecDevirt impl KairoPass {
     /// Type id (its metadata node's address) to 1 + its index in _members.
     priv var _index:   llvm::DenseMap<u64, u32>
     priv var _members: [[SpecDevirtMember]]
@@ -99,8 +104,25 @@ pub class SpecDevirt {
 
     pub fn SpecDevirt(self) { }
 
+    pub static fn pass_name() -> string {
+        return "spec-devirt"
+    }
+
+    /// Before the inliner, which then folds each direct arm into its caller.
+    pub static fn pass_point() -> PassPoint {
+        return PassPoint::PipelineStart
+    }
+
+    /// Above -O0, where clang emits the type tests the pass reads
+    /// (-fdevirtualize-speculatively, ClangBackend), and not when optimising
+    /// for size: every versioned site grows by a compare and an inlined copy
+    /// of each target.
+    pub static fn enabled(opt_level: i32, size_level: i32) -> bool {
+        return opt_level > 0 && size_level == 0
+    }
+
     /// Versions every eligible virtual call in `m`; true when one changed.
-    pub fn run(self, m: unsafe *llvm::Module) -> bool {
+    pub fn run(self, m: unsafe *llvm::Module, f: unsafe *llvm::Function) -> bool {
         var unsafe *pub_test = llvm::Intrinsic::getDeclarationIfExists(
             m,
             llvm::Intrinsic::public_type_test as u32,

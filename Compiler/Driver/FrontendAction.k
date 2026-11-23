@@ -4090,6 +4090,12 @@ pub class FrontendAction {
                 ocache.run_part += "agree no-adl\n"
             }
 
+            // A Kairo pass turned off changes the object but no cc1 word:
+            // the passes are registered with the pipeline, not spelled.
+            for *name in cgo->kairo_pass_off {
+                ocache.run_part += "kairo-pass off " + ObjectCache::clean(*name) + "\n"
+            }
+
             if !cgo->test_sema_agreement_swap.is_empty() {
                 ocache.run_part += "agree swap " + ObjectCache::clean(
                     cgo->test_sema_agreement_swap,

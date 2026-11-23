@@ -38,6 +38,7 @@ import API::Toolchain::Toolchain
 import Command::Command::Command
 import Command::FlagRegistry::register_kairo_flags
 import Command::FlagTranslator::FlagTranslator
+import Config::CodeGen::CodeGenOptions
 import Config::Target::object_format_name
 import Diagnostic::Code::diag_from_code
 import Diagnostic::Registry::{
@@ -55,6 +56,11 @@ import Driver::InputKinds::{
 import Interop::Clang::ClangBackend::ClangBackend
 import Interop::Clang::ClangJobs::ClangJobs
 import Native::Types::thread_model_cstr
+import Optimize::KairoPass::pass_point_name
+import Optimize::PassRegistry::{
+    kairo_pass_runs,
+    kairo_passes,
+}
 import Support::Ascii::copy_strings
 import Support::ExitCodes::{
     EXIT_FAILURE,
@@ -597,12 +603,54 @@ extend CompilerInstance {
             return EXIT_OK
         }
 
+        if self.invocation()->args.get_bool("print-kairo-passes") {
+            return self.print_kairo_passes()
+        }
+
         if self.invocation()->args.get_bool("print-cfg") {
             for *s in *self.invocation()->args.get_list("cfg") {
                 io::println(f"{(*s)}")
             }
 
             return EXIT_OK
+        }
+
+        return EXIT_OK
+    }
+
+    //  --print-kairo-passes
+
+    /// One line per Kairo pass (Optimize/PassRegistry.k): its name, its
+    /// point in LLVM's pipeline, and `on` or `off` at this command line's
+    /// -O and --disable-kairo-pass. The options are read from the flags
+    /// themselves, which an info query without inputs still has. Exit 1,
+    /// listing nothing, when --disable-kairo-pass names no pass.
+    fn print_kairo_passes(self) -> i32 {
+        var cg = CodeGenOptions::from_args(&self.invocation()->args)
+        if !self.kairo_pass_names_ok(cg.kairo_pass_off) {
+            self.flush_errors()
+            return EXIT_FAILURE
+        }
+
+        var size_level: i32 = 0
+        if cg.opt_size_z {
+            size_level = 2
+        } else if cg.opt_size {
+            size_level = 1
+        }
+
+        var passes = kairo_passes()
+        for *p in passes {
+            var on = kairo_pass_runs(
+                *p,
+                cg.opt_level,
+                size_level,
+                cg.kairo_pass_off,
+            )
+
+            var state = if on => "on" else => "off"
+            var point = pass_point_name((*p).point)
+            io::println(f"{(*p).name:<16} {point:<24} {state}")
         }
 
         return EXIT_OK

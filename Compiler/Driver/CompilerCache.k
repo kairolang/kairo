@@ -382,6 +382,12 @@ extend CompilerInstance {
         }
 
         key += f"\ndebug={FlagTranslator::debug_on(&inv->codegen)}"
+        // Kairo's own passes are registered with the pipeline, not spelled
+        // as cc1 words, so one turned off is named here.
+        for *name in inv->codegen.kairo_pass_off {
+            key += "\nkairo-pass off " + *name
+        }
+
         key += "\n" + self.invocation()->pp.builtins_dir + "\n" + self.invocation()->pp.std_dir
         // The one macro that does reach the library: the builtin's Global is
         // System inlined, or the kairo_global_* symbols (_settle_global_allocator).

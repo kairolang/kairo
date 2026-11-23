@@ -146,6 +146,9 @@ pub struct ClangBackendConfig {
     pub var opt_level: i32                      = 0 ///< -O level, 0-3 (s and z are 2)
     pub var opt_size:  i32                      = 0 ///< 0 none, 1 -Os, 2 -Oz
     pub var vectorize: bool                     = true ///< loop + SLP vectorizers above -O0 (-f[no-]vectorize)
+    /// Kairo's own LLVM passes turned off (--disable-kairo-pass), by name.
+    /// Not a cc1 word: CodegenBackend reads it when it registers the passes.
+    pub var kairo_pass_off: cxx::std::vector<string>
     /// -g and its modifiers. Handed to the driver probe, never spelled as
     /// cc1 flags here: the driver picks CodeView or DWARF, the debugger
     /// tuning and the info kind per target (see _driver_target_args).
@@ -182,6 +185,7 @@ pub fn copy_backend_config(const src: ClangBackendConfig) -> ClangBackendConfig 
     c.opt_level        = src.opt_level
     c.opt_size         = src.opt_size
     c.vectorize        = src.vectorize
+    c.kairo_pass_off   = copy_strings(src.kairo_pass_off)
     c.debug_info       = src.debug_info
     c.dwarf_version    = src.dwarf_version
     c.debug_macros     = src.debug_macros
@@ -441,6 +445,11 @@ pub class ClangBackend {
 
     pub fn ksm(self) -> unsafe *SourceManager {
         return self._ksm
+    }
+
+    /// The Kairo passes --disable-kairo-pass turned off, by name.
+    pub fn kairo_pass_off(self) -> cxx::std::vector<string> {
+        return copy_strings(self._cfg.kairo_pass_off)
     }
 
     pub fn invocation(self) -> unsafe *clang::CompilerInvocation {

@@ -209,6 +209,10 @@ import Location::SourceManager::SourceManager
 import Native::ObjCache::objcache_hash128_bytes
 import Native::Thread::diag_capture
 import Native::TimeReport::TimeReport
+import Optimize::PassRegistry::{
+    kairo_pass_known,
+    kairo_pass_names,
+}
 import Preprocessor::Preprocessor::PreProcessor
 import Resolution::ImportProbe::ImportResolver
 import Resolution::ModulePath::ModulePath
@@ -483,6 +487,11 @@ pub class CompilerInstance {
         // the caller is expected to check before going further.
         if self.invocation()->ok {
             self._apply_invocation()
+            if !self.kairo_pass_names_ok(
+                self.invocation()->codegen.kairo_pass_off,
+            ) {
+                self.invocation()->ok = false
+            }
         }
 
         var want_threads: i32 = if (self.invocation()->frontend.thread_count == 0) => (llvm::hardware_concurrency().compute_thread_count() as i32)
@@ -827,6 +836,23 @@ pub class CompilerInstance {
         return if (self._sysroot_status != 0) => (self._sysroot_status) else => EXIT_FAILURE
     }
 
+    /// Whether every name in `off` (--disable-kairo-pass) names a Kairo
+    /// pass; each that does not is reported, with the names there are.
+    fn kairo_pass_names_ok(self, const off: cxx::std::vector<string>) -> bool {
+        var ok = true
+        for *name in off {
+            if !kairo_pass_known(*name) {
+                self._diag->report(
+                    DiagID::U001E,
+                    f"unknown Kairo pass '{*name}' in --disable-kairo-pass; the passes are: {kairo_pass_names()}",
+                ).emit()
+                ok = false
+            }
+        }
+
+        return ok
+    }
+
     /// True when any info flag is present whose subsystem is not yet live.
     fn wants_info_query(self) -> bool {
         return self.invocation()->args.get_bool("print-targets")
@@ -839,6 +865,7 @@ pub class CompilerInstance {
             || self.invocation()->args.get_bool("print-target-info")
             || self.invocation()->args.get_bool("print-cfg")
             || self.invocation()->args.get_bool("print-runtimes-revision")
+            || self.invocation()->args.get_bool("print-kairo-passes")
     }
 
     /// The ICE hook: drain every TU's buffered sink into the engine, then

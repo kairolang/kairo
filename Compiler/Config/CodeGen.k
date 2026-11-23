@@ -168,7 +168,10 @@ pub class CodeGenOptions {
 
     pub var pass_plugins:    cxx::std::vector<string> ///< --pass-plugin (repeatable)
     pub var disabled_passes: cxx::std::vector<string> ///< --disable-llvm-pass (repeatable)
-    pub var mllvm_flags:     cxx::std::vector<string> ///< --mllvm (repeatable)
+    /// --disable-kairo-pass (repeatable): Kairo's own LLVM passes turned
+    /// off, by name (Optimize/PassRegistry.k).
+    pub var kairo_pass_off: cxx::std::vector<string>
+    pub var mllvm_flags:    cxx::std::vector<string> ///< --mllvm (repeatable)
     /// --cxx-flags: clang DRIVER words for C/C++ inputs, verbatim and last,
     /// so they win. Kairo's own TUs never see them (they are driver
     /// spellings, and that line is cc1). What kcc's clang-only words become.
@@ -204,7 +207,7 @@ pub class CodeGenOptions {
     pub var coverage_format:     string                   = "llvm"
     pub var coverage_prefix_map: cxx::std::vector<string> ///< --coverage-prefix-map (repeatable)
 
-    static fn from_args(@inout args: ParsedArgs) -> CodeGenOptions {
+    pub static fn from_args(@inout args: ParsedArgs) -> CodeGenOptions {
         var o = CodeGenOptions()
         // -O's value is one of 0 1 2 3 s z g (FlagRegistry rejects the
         // rest). s and z are level 2 plus a size goal and g is level 1,
@@ -337,6 +340,10 @@ pub class CodeGenOptions {
 
         for s in *args.get_list("disable-llvm-pass") {
             o.disabled_passes.push_back(s.copy())
+        }
+
+        for s in *args.get_list("disable-kairo-pass") {
+            o.kairo_pass_off.push_back(s.copy())
         }
 
         for s in *args.get_list("mllvm") {

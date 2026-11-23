@@ -72,11 +72,15 @@ Compiler/
 │                   the #include "foo.k" emitter, the program's interface PCH
 ├── Optimize/       the optimisation passes, a module (module.k): what only
 │   │               makes a program faster or smaller, apart from the passes
-│   │               that give it its meaning
+│   │               that give it its meaning. KairoPass.k: the interface a
+│   │               pass meets and the pipeline points it can run at;
+│   │               PassRegistry.k: the one list of every pass, linked in
+│   │               (--print-kairo-passes, --disable-kairo-pass)
 │   └── LLVM/       passes over a TU's IR inside LLVM's pipeline, written in
 │                   Kairo: SpecDevirt (speculative devirtualization of a
-│                   virtual call with a few targets); PassBridge.hh, the C++
-│                   that hands a Kairo pass to clang's PassBuilder
+│                   virtual call with a few targets); and PassBridge.hh,
+│                   the C++ that registers a pass at its point with clang's
+│                   PassBuilder
 ├── AST/
 │   ├── Node/       node defs + RTTI casting (isa/cast/dyn_cast via kind
 │   │               field); CanonicalNodes: BuiltinType and RecordType, the

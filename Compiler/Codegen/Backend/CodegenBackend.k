@@ -112,7 +112,10 @@ import Native::ClangTime::{
     ktime_clang_end,
 }
 import Native::Progress::ProgressMeter
-import Optimize::LLVM::SpecDevirt::SpecDevirt
+import Optimize::PassRegistry::{
+    kairo_pass_runs,
+    kairo_passes,
+}
 import Preprocessor::PreprocessorSymbolTable::PreprocessorSymbolTable
 import Support::TimeReport::{
     TimeRegion,
@@ -453,11 +456,18 @@ pub class CodegenBackend derives TokenFiller {
             cgo->DiscardValueNames = (true as u32)
         }
 
-        // Multi-target virtual calls versioned on the loaded slot, ahead of
-        // the inliner (Optimize/LLVM/SpecDevirt.k). It reads the type tests
-        // clang emits under -fdevirtualize-speculatively (ClangBackend's cc1
-        // line, above -O0), so the two passes are on together.
-        kairo_add_pipeline_start_pass<SpecDevirt>(&*cgo)
+        // Kairo's own LLVM passes (Optimize/PassRegistry.k), each at its
+        // point in the pipeline, the ones that run at this TU's level. The
+        // level is the invocation's, the one clang builds the pipeline for.
+        var opt_level  = cgo->OptimizationLevel as i32
+        var size_level = cgo->OptimizeSize as i32
+        var pass_off   = self._be->kairo_pass_off()
+        var passes     = kairo_passes()
+        for *p in passes {
+            if kairo_pass_runs(*p, opt_level, size_level, pass_off) {
+                kairo_register_pass(&*cgo, (*p).point as u8, (*p).run)
+            }
+        }
 
         // Phase B: the headers were parsed once already (HeaderSet). Each TU
         // loads them as ONE implicit PCH, clang's limit: the merged PCH of

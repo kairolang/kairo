@@ -77,6 +77,7 @@ import Resolution::SearchRoot::{
     root_names_equal,
     split_module_name,
 }
+import Support::Ascii::copy_strings
 import Support::FileIO::Path::Path
 import Sysroot::Cache::SysCache
 import Sysroot::Generator::SysGen
@@ -802,7 +803,8 @@ extend CompilerInstance {
             bcfg.opt_size = 1
         }
 
-        bcfg.vectorize = cgo->f_vectorize != 0
+        bcfg.vectorize      = cgo->f_vectorize != 0
+        bcfg.kairo_pass_off = copy_strings(cgo->kairo_pass_off)
         // -g0 wins over -g wherever it sits. --dwarf-version always has a
         // value (default 5), so it cannot say whether DWARF was asked for;
         // on MSVC it is left out and the driver emits CodeView, which is
