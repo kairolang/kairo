@@ -1048,6 +1048,15 @@ def kairo_has_flag(kairo: Path, flag: str) -> bool:
     return flag in _HELP_PROBE[key]
 
 
+def host_cpu_args(kairo: Path) -> list:
+    """A host build (no --target) of this tree is for the target's default CPU, as a
+    cross build is: the tree is copied to other machines, so it must not be compiled
+    for the CPU of the one that built it. `--mcpu baseline` says so to a compiler that
+    targets the host's CPU by default. A compiler whose --help does not list the word
+    has no such default, and would reject it."""
+    return ["--mcpu", "baseline"] if kairo_has_flag(kairo, "baseline (the target's default CPU)") else []
+
+
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _WARN_START = re.compile(r"^\s*warning @ |: warning[ :\[]")
 _DIAG_CODE = re.compile(r"\[([A-Z]+[0-9]+W)\]")
@@ -1668,6 +1677,8 @@ def main() -> int:
         reg_extra += tree_library_args(src, a.lib_dir)
         if a.target:
             reg_extra += ["--target", a.target, *floor_args(CROSS[a.target][1])]
+        else:
+            reg_extra += host_cpu_args(kairo)
         reg_o = selfhost_registry(kairo, src, out, prog, reg_extra, cache_root)
     else:
         die("this tree is not self-hosted (no .selfhosted marker): Stage 0 sources need kbld and "
@@ -1690,6 +1701,8 @@ def main() -> int:
         common.append("--native")
     if not a.target:
         common += shared_libcxx_args(os_, native)
+        # Before --mcpu, which then replaces it.
+        common += host_cpu_args(kairo)
     if a.mcpu:
         common += ["--mcpu", a.mcpu]
     if selfhost and a.no_warnings:
