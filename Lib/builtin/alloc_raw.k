@@ -279,6 +279,13 @@ pub struct ScopeChunk {
 
 // Hosted targets have threads, so the stack is per thread. A target with no OS
 // has no thread-local storage and, in practice, one thread.
+//
+// The optimiser reads three facts off scope_top (Compiler/Optimize/LLVM/
+// AllocSplit.k), which every edit here keeps: only scope_push and scope_pop
+// store to it; its address is used for nothing but a load or a store; and no
+// allocator entry point (System's, Global's, the kairo_global_* symbols)
+// returns with a scope opened or closed. With those it joins the no-scope
+// arm of an allocation to the no-scope arm of its free.
 eval if defined!(__linux__) || defined!(_WIN32) || defined!(__APPLE__)
      || defined!(__FreeBSD__) || defined!(__NetBSD__) || defined!(__OpenBSD__)
      || defined!(__ANDROID__) || defined!(__wasi__) || defined!(__EMSCRIPTEN__) {
