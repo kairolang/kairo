@@ -1107,6 +1107,34 @@ extend InterfaceEmitter {
         }
     }
 
+    /// The declarator-id of friend `f`: its own name, or `(::ns::f)`
+    /// when `qualified`. The parentheses keep a return type that ends in a
+    /// name (`::builtin::Null<long>`, `decltype(sizeof(0))`) from lexing
+    /// together with `::ns::f` as one nested-name-specifier.
+    priv fn _friend_declarator(self,
+                               f:         unsafe *Declarations::FunctionDecl,
+                               qualified: bool) -> string {
+        if !qualified {
+            return self._fn_name(f)
+        }
+
+        return "(" + self._spell->qual_name(unsafe (f as unsafe *Decl)) + ")"
+    }
+
+    /// The push form of generator `f` as a friend (_friend_fn_text).
+    priv fn _push_friend_text(self,
+                              f:         unsafe *Declarations::FunctionDecl,
+                              qualified: bool) -> string {
+        var s = self._spell->template_head(unsafe (f as unsafe *Decl)) + "friend bool "
+        s += self._friend_declarator(f, qualified)
+        var ps = self._params(f, false, &null)
+        if ps.size() > 0 {
+            ps += ", "
+        }
+
+        return s + "(" + ps + self._push_sink(f, &null) + ") noexcept;"
+    }
+
     /// `friend R f(P...) noexcept;`, or with its template head: the
     /// function's own declaration (_free_fn_text) as a friend may repeat it
     /// -- the head, `consteval` and `noexcept` kept (a redeclaration must
@@ -1116,23 +1144,6 @@ extend InterfaceEmitter {
     /// the record's namespace, which file_friends made sure is its own;
     /// `qualified`, it names one declared ahead of the record
     /// (EmitPlan::friend_early).
-    /// The push form of generator `f` as a friend (_friend_fn_text).
-    priv fn _push_friend_text(self,
-                              f:         unsafe *Declarations::FunctionDecl,
-                              qualified: bool) -> string {
-        var s = self._spell->template_head(unsafe (f as unsafe *Decl)) + "friend bool "
-        s += if (qualified) => (self._spell->qual_name(
-                 unsafe (f as unsafe *Decl),
-             ))
-             else => self._fn_name(f)
-        var ps = self._params(f, false, &null)
-        if ps.size() > 0 {
-            ps += ", "
-        }
-
-        return s + "(" + ps + self._push_sink(f, &null) + ") noexcept;"
-    }
-
     priv fn _friend_fn_text(self,
                             f:         unsafe *Declarations::FunctionDecl,
                             qualified: bool) -> string {
@@ -1152,10 +1163,7 @@ extend InterfaceEmitter {
 
         s += self._spell->declared_return(f)
         s += " "
-        s += if (qualified) => (self._spell->qual_name(
-                 unsafe (f as unsafe *Decl),
-             ))
-             else => self._fn_name(f)
+        s += self._friend_declarator(f, qualified)
         s += "("
         s += self._params(f, false, &null)
         s += ")"
