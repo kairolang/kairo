@@ -35,7 +35,13 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind, BuiltinType, RecordType, builtin_info, canon_has_const, canon_quals, canon_unqual,
+    BuiltinKind,
+    BuiltinType,
+    RecordType,
+    builtin_info,
+    canon_has_const,
+    canon_quals,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -58,8 +64,13 @@ import AST::Node::PrimaryExpressions::{
     NullLiteralExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
-    NullableType,     PointerType,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    NullableType,
+    PointerType,
 }
 import AST::ParamMode::ParamMode
 import Codegen::Emit::Calls
@@ -791,10 +802,13 @@ extend EmitIR {
     /// (Conversion::array_views_as), the only way an array meets a record.
     /// Spelled as the record's `(data, len)` construction over the array's
     /// own storage; `&(a)[0]` is the first element whichever way the array
-    /// was declared. A slice parameter of a generic callee (`[const T;]` of
-    /// an `extend <T> Slice<T>` member) is spelled through the call's
-    /// instance `subst` (_slice_in): C++ deduces no template argument
-    /// through the conversion. True when it emitted.
+    /// was declared. An array whose element or extent is a parameter of the
+    /// enclosing generic (`[u8; N]` in `class <eval N: usize>`, `[T; N]`)
+    /// is spelled the same way, its extent the parameter itself: C++ has no
+    /// conversion from a C array to the record. A slice parameter of a
+    /// generic callee (`[const T;]` of an `extend <T> Slice<T>` member) is
+    /// spelled through the call's instance `subst` (_slice_in): C++ deduces
+    /// no template argument through the conversion. True when it emitted.
     prot fn _array_view(self,
                         e:     unsafe *Expr,
                         want:  unsafe *Type,
@@ -813,13 +827,21 @@ extend EmitIR {
             return false
         }
 
-        if have->is_dependent() || (w->is_dependent() && !self._slice_in(w, subst)) {
+        // A dependent target without an instance is the enclosing generic's
+        // own type, spelled as it is; with one it is the callee's, which only
+        // a Slice target spells through `subst`.
+        if w->is_dependent() && subst != &null && !self._slice_in(w, subst) {
             return false
         }
 
+        var unsafe *fa = cast<FixedArrayType>(have)
+        var ext = if (fa->extent_param != &null) => (self._spell._type(
+                      fa->extent_param,
+                  ))
+                  else => f"{fa->size_bits}"
         self._cg->sink->spell(e->range, self._spell._type(want, subst) + "(&(")
         self.emit(e)
-        self._cg->sink->spell(e->range, ")[0], " + f"{have->size_bits}" + ")")
+        self._cg->sink->spell(e->range, ")[0], " + ext + ")")
         return true
     }
 
