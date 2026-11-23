@@ -1,8 +1,8 @@
 /// --- The Kairo Project ------------------- Optimize/LLVM/AllocModel.k --- ///
 ///
-///   Tells LLVM which functions allocate, free and reallocate blocks of the
-///   runtime's heap, so the optimiser treats them as it treats malloc and
-///   free: a block that is only written and then freed is removed with its
+///   Tells LLVM which functions allocate and free blocks of the runtime's
+///   heap, so the optimiser treats them as it treats malloc and free: a
+///   block that is only written and then freed is removed with its
 ///   allocation and its free, a load from a block never written folds to
 ///   undef (or to zero for a zeroed one), and a store into a block that is
 ///   freed next is dead. From the calls alone LLVM sees external functions
@@ -11,10 +11,13 @@
 ///   What is annotated: the runtime heap's own entry points, which System
 ///   (Lib/builtin/alloc_raw.k), and Global where it is System, reach through
 ///   the inline helpers of Lib/rt/alloc.h. Their blocks are the process
-///   heap's, each one freeable by itself, and they all pair with each other
-///   (a block one makes, any of the frees may take: Lib/rt/heap.h), so they
-///   are one allocation family, "kairo", which no other function's blocks
-///   pair with:
+///   heap's, each one freeable by itself. They are one allocation family,
+///   "kairo", which no other function's blocks pair with, so LLVM removes a
+///   block only with a Kairo free. The frees are not interchangeable: they
+///   are sized, and Lib/rt/alloc.h picks the free from the size (a small
+///   page, a large mapping, mimalloc), so only the free the block's own size
+///   selects may take it. The family is safe because no annotation lets
+///   LLVM put one free in place of another:
 ///
 ///       mi_malloc_small mi_malloc        alloc, uninitialized   allocsize(0)
 ///       mi_zalloc_small mi_zalloc        alloc, zeroed          allocsize(0)
@@ -23,13 +26,13 @@
 ///       kairo_rt_heap_large_alloc        alloc                  allocsize(0) allocalign(1)
 ///         (uninitialized or zeroed at a call whose third argument is the
 ///         constant 0 or 1)
-///       kairo_rt_heap_realloc, System::realloc
-///                                        realloc                allocsize(2) allocalign(3) allocptr(0)
 ///       mi_free mi_free_small_nonnull kairo_rt_heap_large_free
 ///                                        free                   allocptr(0)
 ///
-///   and every allocation and reallocation returns noalias. A null return is
-///   the only failure (alloc.k's contract), as for malloc.
+///   and every allocation returns noalias. A null return is the only
+///   failure (alloc.k's contract), as for malloc. Above -O0 an allocation
+///   whose block nothing observes is removed, and with it the chance that
+///   it fails: its null test folds to "not null".
 ///
 ///   What is left alone, and why:
 ///     - alloc_raw / free_raw / resize_raw, the container family and
@@ -47,6 +50,10 @@
 ///       or logged.
 ///     - kairo_rt_heap_resize: it resizes in place; LLVM has no kind for
 ///       that.
+///     - kairo_rt_heap_realloc and System::realloc. As a realloc kind, LLVM
+///       rewrites free(realloc(p)) into free(p), keeping the free's size;
+///       a realloc across a size class then hands the block to the wrong
+///       free (a mapped block to the small-page free).
 ///
 ///   Where: at the start of the pipeline, before the inliner. The entry
 ///   points are external functions, never inlined, so the inliner copies
@@ -79,21 +86,19 @@ import Optimize::KairoPass::{
     PassPoint,
 }
 
-/// One heap entry point: its name (a prefix for System::realloc, whose
-/// mangled parameter types differ by target), its shape, and the
-/// allocation facts. `shape` is the return type then the parameters: `p`
-/// a pointer, `i` an integer, `v` no value (`p:ii` is a pointer from two
-/// integers); a declaration of another shape is not this function. The
+/// One heap entry point: its name, its shape, and the allocation facts.
+/// `shape` is the return type then the parameters: `p` a pointer, `i` an
+/// integer, `v` no value (`p:ii` is a pointer from two integers); a
+/// declaration of another shape is not this function. The
 /// indices are parameter numbers, -1 for none.
 struct HeapEntry {
-    var name:   string
-    var prefix: bool   = false
-    var shape:  string
-    var kind:   u64    = 0
-    var size:   i32    = -1    ///< allocsize: the byte count
-    var align:  i32    = -1    ///< allocalign: the alignment
-    var freed:  i32    = -1    ///< allocptr: the block freed or reallocated
-    var zero:   i32    = -1    ///< 0 or 1 here makes a call uninitialized or zeroed
+    var name:  string
+    var shape: string
+    var kind:  u64    = 0
+    var size:  i32    = -1 ///< allocsize: the byte count
+    var align: i32    = -1 ///< allocalign: the alignment
+    var freed: i32    = -1 ///< allocptr: the block freed
+    var zero:  i32    = -1 ///< 0 or 1 here makes a call uninitialized or zeroed
 }
 
 fn alloc_kind(k: llvm::AllocFnKind) -> u64 {
@@ -106,7 +111,6 @@ fn heap_entries() -> [HeapEntry] {
     var uninit  = alloc_kind(llvm::AllocFnKind::Uninitialized)
     var zeroed  = alloc_kind(llvm::AllocFnKind::Zeroed)
     var aligned = alloc_kind(llvm::AllocFnKind::Aligned)
-    var realloc = alloc_kind(llvm::AllocFnKind::Realloc)
     var free    = alloc_kind(llvm::AllocFnKind::Free)
     return [
         HeapEntry { name: "mi_malloc_small", shape: "p:i", kind: alloc | uninit, size: 0 },
@@ -134,23 +138,6 @@ fn heap_entries() -> [HeapEntry] {
             size:  0,
             align: 1,
             zero:  2,
-        },
-        HeapEntry {
-            name:  "kairo_rt_heap_realloc",
-            shape: "p:piii",
-            kind:  realloc | aligned,
-            size:  2,
-            align: 3,
-            freed: 0,
-        },
-        HeapEntry {
-            name:   "_ZN7builtin9alloc_raw6System7reallocEPh",
-            prefix: true,
-            shape:  "p:piii",
-            kind:   realloc | aligned,
-            size:   2,
-            align:  3,
-            freed:  0,
         },
         HeapEntry { name: "mi_free", shape: "v:p", kind: free, freed: 0 },
         HeapEntry { name: "mi_free_small_nonnull", shape: "v:p", kind: free, freed: 0 },
@@ -220,18 +207,6 @@ pub class AllocModel impl KairoPass {
         var changed = false
         var entries = heap_entries()
         for *e in entries {
-            if (*e).prefix {
-                for var it = m->begin(); it != m->end(); ++it {
-                    var unsafe *fn_ = unsafe &*it
-                    if fn_->getName().starts_with(kairo::sref((*e).name))
-                        && self._annotate(m, fn_, *e) {
-                        changed = true
-                    }
-                }
-
-                continue
-            }
-
             var unsafe *fn_ = m->getFunction(kairo::sref((*e).name))
             if fn_ != &null && self._annotate(m, fn_, *e) {
                 changed = true

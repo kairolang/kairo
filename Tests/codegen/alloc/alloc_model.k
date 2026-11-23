@@ -10,7 +10,9 @@
 // heap) and a scoped arena's. Those shapes are checked twice under the same
 // lines, with the pass on and with --disable-kairo-pass=alloc-model.
 //
-// The program prints the same at -O0 and at -O2.
+// The program prints the same at -O0 and at -O2. Every allocation in it
+// succeeds; one that would fail and is removed at -O2 succeeds there
+// instead, since a removed allocation's null test folds to "not null".
 
 import builtin::base::alloc::*
 import std::io::println
