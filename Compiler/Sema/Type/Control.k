@@ -381,6 +381,15 @@ pub class <T: type> ControlTyping {
         return false
     }
 
+    /// `mc` is `case null` alone and unguarded: the one form of the arm
+    /// that answers null.
+    priv fn _lone_null_arm(self, mc: unsafe *MatchCase) -> bool {
+        return !mc->is_default
+            && mc->patterns.size() == 1
+            && self._null_pattern(mc->patterns[0])
+            && mc->guard == &null
+    }
+
     priv fn _arm_has_null(self, mc: unsafe *MatchCase) -> bool {
         for var j: usize = 0; j < mc->patterns.size(); ++j {
             if self._has_null_pattern(mc->patterns[j]) {
@@ -420,10 +429,7 @@ pub class <T: type> ControlTyping {
         }
 
         var unsafe *first = cases->get(0)
-        if !first->is_default
-            && first->patterns.size() == 1
-            && self._null_pattern(first->patterns[0])
-            && first->guard == &null {
+        if self._lone_null_arm(first) {
             return true
         }
 
@@ -479,6 +485,56 @@ pub class <T: type> ControlTyping {
 
         b.emit()
         return false
+    }
+
+    /// A match on a `T?` place proven non-null here matches its value
+    /// (Compiler/Spec/Nullables.md#match): the scrutinee is read as `T`,
+    /// marked as any narrowed read is, and the `T` is the column. Returns
+    /// `st` untouched when the scrutinee is no proven place, when `T` is
+    /// itself nullable (a `case null` there may be `T`'s own null), or when
+    /// an arm other than a lone, unguarded first `case null` mentions null:
+    /// the rules of a match on `T?` then report it as they would unproven.
+    fn match_proven_column(self,
+                           scrutinee: unsafe *Expr,
+                           cases:     *FrozenList<MatchCase>,
+                           st:        unsafe *Type) -> unsafe *Type {
+        if st == &null {
+            return st
+        }
+
+        var inner = self.dyn()->tu.nullable_inner(self.dyn()->tu.as_value(st))
+        if inner == &null || self.dyn()->tu.nullable_inner(inner) != &null {
+            return st
+        }
+
+        for var i: usize = 0; i < cases->size(); ++i {
+            var unsafe *mc = cases->get(i)
+            if self._arm_has_null(mc) && (i > 0 || !self._lone_null_arm(mc)) {
+                return st
+            }
+        }
+
+        return self.dyn()->value_if_proven(scrutinee, st)
+    }
+
+    /// The `null_arm` of a match whose scrutinee match_proven_column read
+    /// as its `T`: its first arm is `case null`, which is kept in the list
+    /// and never reached. PatternChecking and PatternCompilation skip its
+    /// row as they skip any null arm's; CoalesceLowering empties it.
+    fn match_proven_null_arm(self, cases: *FrozenList<MatchCase>) -> bool {
+        return cases->size() > 0 && self._lone_null_arm(cases->get(0))
+    }
+
+    /// Arm `i` is the `case null` of a match on a proven place (`st` is
+    /// the `T` match_proven_column gave): no path reaches it, so its body
+    /// is typed from an unreachable state and adds nothing to the join
+    /// after the match, and its pattern is typed against the declared
+    /// `decl` (`T?`), as a null arm's is.
+    fn match_arm_dropped(self, null_arm: bool, st: unsafe *Type, i: usize) -> bool {
+        return null_arm
+            && i == 0
+            && st != &null
+            && self.dyn()->tu.nullable_inner(self.dyn()->tu.as_value(st)) == &null
     }
 
     /// The match on `st` is on a `T?` and does not answer null first: the
@@ -666,19 +722,24 @@ pub class <T: type> ControlTyping {
     fn type_match_expr(self,
                        n:        unsafe *Expressions::MatchExpr,
                        expected: unsafe *Type) -> unsafe *Type {
-        var st = self.dyn()->type_of(n->scrutinee, &null)
-        st = self.match_infer_column(n->scrutinee, &n->cases, st)
+        var decl = self.dyn()->type_of(n->scrutinee, &null)
+        decl = self.match_infer_column(n->scrutinee, &n->cases, decl)
+        var st = self.match_proven_column(n->scrutinee, &n->cases, decl)
         var acc: unsafe *Type = &null
         var ok                = true
         // As the statement form (StmtTyping::traverse_match_stmt).
         var entry = null_env_copy(self.dyn()->flow.env)
-        n->null_arm = self.match_null_first(
-            n->scrutinee,
-            &n->cases,
-            st,
-            n->range,
-            false,
-        )
+        if st != decl {
+            n->null_arm = self.match_proven_null_arm(&n->cases)
+        } else {
+            n->null_arm = self.match_null_first(
+                n->scrutinee,
+                &n->cases,
+                st,
+                n->range,
+                false,
+            )
+        }
 
         var bad_null = self.match_null_missed(n->null_arm, st)
         var fl       = self.dyn()->flow.dead_env()
@@ -697,6 +758,11 @@ pub class <T: type> ControlTyping {
                 st,
                 &entry,
             )
+
+            if self.match_arm_dropped(n->null_arm, st, i) {
+                self.dyn()->flow.env = self.dyn()->flow.dead_env()
+                col                  = decl
+            }
 
             for var j: usize = 0; j < mc->patterns.size(); ++j {
                 self.dyn()->type_pattern(mc->patterns[j], col)
@@ -722,6 +788,7 @@ pub class <T: type> ControlTyping {
 
         self.dyn()->flow.env = null_env_copy(fl)
         if bad_null {
+            self.dyn()->flow.restore_place(&entry, n->scrutinee)
             n->scrutinee->poison()
         }
 
@@ -1843,7 +1910,7 @@ pub class <T: type> ControlTyping {
                                const given: cxx::std::vector<unsafe *Expressions::InitField>,
                                ve:          *VariadicEnum,
                                const pes:   cxx::std::vector<unsafe *Type>) -> i32 {
-        var pick: i32 = -1
+        var pick: i32            = -1
         var vals: [unsafe *Expr]
         for var k: usize = 0; k < v->payload.size(); ++k {
             if !ve->is_pack_field(v->payload[k]) {

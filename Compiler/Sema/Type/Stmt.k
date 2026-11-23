@@ -2267,8 +2267,8 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
         // them), and its `T` is the extension's, which member_through does
         // not reach.
         var none: [ArgInfo]
-        var recv  = canon_unqual(self.dyn()->tu.strip_nullable(t))
-        var qrecv = recv
+        var recv            = canon_unqual(self.dyn()->tu.strip_nullable(t))
+        var qrecv           = recv
         if self._const_iterable(t) || self._binders_take_const(rf, &forms) {
             qrecv = self.dyn()->sc->types->qualified(recv, QUAL_CONST)
         }
@@ -3834,7 +3834,9 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
     /// Each arm starts from the state before the match, refined by what its
     /// pattern proves (Compiler/Spec/Nullables.md#match: on a `T?`, `case null` sees the
-    /// place Null and every later arm NonNull) and by its guard's true set.
+    /// place Null and every later arm NonNull; on a `T?` place proven
+    /// non-null the match is on its `T` and a `case null` arm is
+    /// unreachable) and by its guard's true set.
     /// After it, the join of the arms' ends, a diverging arm excluded: the
     /// state before the match is not joined in, since a match is exhaustive
     /// (a non-exhaustive one is SC120E), so no path skips every arm.
@@ -3844,16 +3846,21 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             return n
         }
 
-        var st = self.dyn()->type_of(n->scrutinee, &null)
-        st = self.dyn()->match_infer_column(n->scrutinee, &n->cases, st)
+        var decl = self.dyn()->type_of(n->scrutinee, &null)
+        decl = self.dyn()->match_infer_column(n->scrutinee, &n->cases, decl)
+        var st = self.dyn()->match_proven_column(n->scrutinee, &n->cases, decl)
         var entry = null_env_copy(self.dyn()->flow.env)
-        n->null_arm = self.dyn()->match_null_first(
-            n->scrutinee,
-            &n->cases,
-            st,
-            n->range,
-            true,
-        )
+        if st != decl {
+            n->null_arm = self.dyn()->match_proven_null_arm(&n->cases)
+        } else {
+            n->null_arm = self.dyn()->match_null_first(
+                n->scrutinee,
+                &n->cases,
+                st,
+                n->range,
+                true,
+            )
+        }
 
         var bad_null = self.dyn()->match_null_missed(n->null_arm, st)
         var acc      = self.dyn()->flow.dead_env()
@@ -3867,6 +3874,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
                 st,
                 &entry,
             )
+
+            if self.dyn()->match_arm_dropped(n->null_arm, st, i) {
+                self.dyn()->flow.env = self.dyn()->flow.dead_env()
+                col                  = decl
+            }
 
             for var j: usize = 0; j < mc->patterns.size(); ++j {
                 self.dyn()->type_pattern(mc->patterns[j], col)
@@ -3891,6 +3903,7 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
 
         self.dyn()->flow.env = null_env_copy(acc)
         if bad_null {
+            self.dyn()->flow.restore_place(&entry, n->scrutinee)
             n->scrutinee->poison()
         }
 

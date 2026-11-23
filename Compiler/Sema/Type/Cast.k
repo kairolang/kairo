@@ -210,19 +210,31 @@ pub class <T: type> CastTyping {
             src = self.dyn()->tu.as_value(src_c)
         }
 
-        // A non-nullable POINTER target consumes the operand's value: a
-        // nullable pointer proven non-null here (`if p == &null { return }`
-        // above) casts as its `*T`, as `p->x` there reads it.
-        // Unproven, it stays the `*T?` and the rungs below say why it does
-        // not convert. An integer target is left alone: a nullable has no
-        // cast to an integer at all, proven or not (casting.mdx; the
-        // `n as usize` case of Tests/sema/expr_typer/ptr_to_int_errors.k).
-        if self.dyn()->tu.nullable_inner(target) == &null
-            && self.dyn()->tu.pointee(target) != &null {
-            src = self.dyn()->value_if_proven(n->operand, src)
+        // A non-nullable target consumes the operand's value: a nullable
+        // place proven non-null here (`if !x? { return }` above) casts as
+        // its `T` (Compiler/Spec/Nullables.md#narrowed-reads), so `x as
+        // i64` converts the value and `p as usize` the address. Unproven,
+        // it stays the `T?` and the rungs below say why it does not
+        // convert.
+        var narrowed = false
+        if self.dyn()->tu.nullable_inner(target) == &null {
+            var unsafe *vt = self.dyn()->value_if_proven(n->operand, src)
+            narrowed = vt != src
+            src      = vt
         }
 
         if src == target {
+            // A narrowed operand's cast is what makes the value a `T`: `var
+            // a = x as i64` without it is the `i64?`. It is redundant only
+            // into a slot of exactly that type, where the read narrows anyway.
+            if narrowed {
+                if expected != &null && canon_unqual(expected) == canon_unqual(target) {
+                    self._lint_redundant(n, src, target)
+                }
+
+                return target
+            }
+
             // A literal takes its type from the cast (`0 as usize` is a usize
             // literal, not an i32), so against no slot that already holds the
             // type -- `var i = 0 as usize`, `(1 as u64) << 63`, a range bound,

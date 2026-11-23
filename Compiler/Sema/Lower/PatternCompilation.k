@@ -333,9 +333,9 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     priv var _binds:   [DBind]
     priv var _keys:    [string]
     priv var _key_ids: llvm::StringMap<u32> ///< _keys inverted: one probe per accept, not a scan.
-    priv var _budget:  usize                     = 0
-    priv var _over:    bool                      = false
-    priv var _bad:     bool                      = false ///< a test with no rendering was reported.
+    priv var _budget:  usize                = 0
+    priv var _over:    bool                 = false
+    priv var _bad:     bool                 = false ///< a test with no rendering was reported.
     priv var _flat:    [FlatRow] ///< the automaton's rows.
     /// Where a matrix with no rows goes: -1 is a Fail node; inside the upper
     /// half of a split, the root of the lower half. Saved and restored.
@@ -377,7 +377,8 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
     /// `null_arm` (Compiler/Spec/Nullables.md#match): arm 0 is `case null`, which this tree
     /// never reaches; CoalesceLowering answers it before the match, whose
-    /// scrutinee it makes the unwrapped value. So the rows start at arm 1
+    /// scrutinee it makes the unwrapped value, or drops it when the
+    /// scrutinee is a place proven non-null. So the rows start at arm 1
     /// (arm numbers kept) and the root is `T`.
     priv fn _compile(self,
                      scrutinee: unsafe *Expr,
@@ -414,15 +415,18 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             }
         }
 
-        var        rows     = self._rows(cases, match_first_row(null_arm))
+        var rows = self._rows(cases, match_first_row(null_arm))
+        // A proven scrutinee (ControlTyping::match_proven_column) is
+        // already typed `T`.
         var unsafe *root_ty = scrutinee->type_
-        if null_arm {
-            root_ty = self._tu.nullable_inner(self._tu.as_value(root_ty))
+        var unsafe *inner = self._tu.nullable_inner(self._tu.as_value(root_ty))
+        if null_arm && inner != &null {
+            root_ty = inner
         }
 
         self._reset()
         self._budget = (16 as usize) * rows.size() + (64 as usize)
-        var root_occ = self._root(root_ty)
+        var root_occ       = self._root(root_ty)
         var occs:    [u32]
         occs.push(root_occ)
 
@@ -1261,10 +1265,10 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
         // Which Int heads survive each segment; merge neighbours that agree.
         var kids:     [DEdge]
-        var any_hole        = false
+        var any_hole          = false
         var prev_set: [u32]
-        var have_prev       = false
-        var i:        usize = 0
+        var have_prev         = false
+        var i:        usize   = 0
         while i < segs.size() {
             var set = self._covering_rows(*rows, segs[i])
             if set.size() == 0 {
@@ -1366,10 +1370,10 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
         var kids:     [DEdge]
         var kidb:     [u32]           // the bucket each edge's rows are read from: its first key's.
-        var any_hole      = false
-        var have_prev     = false
+        var any_hole          = false
+        var have_prev         = false
         var prev_set: [u32]
-        var next:     u64 = 0 // the least key not yet placed in a segment.
+        var next:     u64     = 0     // the least key not yet placed in a segment.
         for var k: usize = 0; k < keys.size(); ++k {
             var v = keys[k]
             if v > next {
@@ -1446,7 +1450,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
         sort_unique_keys(unsafe &cuts)
         var out:   [Ctor]
-        var start: u64 = 0
+        var start: u64    = 0
         for var i: usize = 0; i <= cuts.size(); ++i {
             var end = if (i < cuts.size()) => (cuts[i] - (1 as u64)) else => max_key
             var c = Ctor{}
@@ -1555,7 +1559,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     priv fn _switch_string(self, rows: unsafe *[CRow], occs: unsafe *[u32]) -> u32 {
         // Keys in first-appearance order, each key's rows bucketed by its
         // decoded bytes in the same pass; wildcard rows join every key.
-        var at: llvm::StringMap<u32>
+        var at:      llvm::StringMap<u32>
         var heads:   [unsafe *AstPattern]
         var buckets: [[u32]]
         var wilds:   [u32]
@@ -1587,7 +1591,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var kids: [DEdge]
         for var k: usize = 0; k < heads.size(); ++k {
             var srows: [CRow]
-            var idx   = self._merge_idx(&buckets[k], wilds)
+            var idx           = self._merge_idx(&buckets[k], wilds)
             for var ii: usize = 0; ii < idx.size(); ++ii {
                 var        *r = &(*rows)[idx[ii] as usize]
                 var unsafe *h = r->cols[0]
@@ -1741,7 +1745,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         // Full expansion: an alternation anywhere is one row per choice.
         for var i: usize = 0; i < rows0.size(); ++i {
             var flat: [FlatRow]
-            var start = FlatRow{}
+            var start           = FlatRow{}
             start.row = (rows0)[i].copy()
             self._flatten((rows0)[i].cols[0], root, &start, &flat)
             for var k: usize = 0; k < flat.size(); ++k {
@@ -1753,11 +1757,11 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var k    = self._flat.size()
         while k > 0 {
             k = k - 1
-            var *fr  = &self._flat[k]
+            var *fr         = &self._flat[k]
             var occs: [u32]
-            var acc  = self._accept(&fr->row, occs, cont as i32)
-            var node = acc
-            var t    = fr->tests.size()
+            var acc         = self._accept(&fr->row, occs, cont as i32)
+            var node        = acc
+            var t           = fr->tests.size()
             while t > 0 {
                 t = t - 1
                 var ft = fr->tests[t]
@@ -1812,7 +1816,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
                 return
             } case PatternKind::AlternationPattern {
-                var unsafe *a  = cast<AlternationPattern>(p)
+                var unsafe *a             = cast<AlternationPattern>(p)
                 var        out: [FlatRow]
                 for var k: usize = 0; k < a->alternatives.size(); ++k {
                     var fork: [FlatRow]

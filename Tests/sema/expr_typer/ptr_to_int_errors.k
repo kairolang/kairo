@@ -2,8 +2,8 @@
 // to integer): not u32 (narrower), and not u64, i64 or isize either, though
 // they are as wide on this host -- usize is the one type that holds an
 // address on every target. The fix-it is the spec's own two-step spelling,
-// `p as usize as T`. A nullable pointer is not a pointer: it has to be
-// unwrapped first, and has no cast to an integer at all.
+// `p as usize as T`. A nullable pointer proven non-null (`n` holds `&x`)
+// casts as its pointer; an unproven one is not a pointer and does not cast.
 
 fn main() -> i32 {
     var x: i32 = 5
@@ -35,5 +35,4 @@ fn main() -> i32 {
 // DIAG: {{.*}}:15:13: error [SC026E]: a pointer converts to 'usize' only; write 'as usize as isize' if you mean to narrow the address
 // DIAG-NEXT: fix-it:"{{.*}}":{15:18-15:18}:"usize as "
 // DIAG-NEXT: {{.*}}:15:13: note [I900N]: '*i32' is a pointer; its address is a 'usize', and narrowing that is an ordinary integer cast
-// DIAG: {{.*}}:18:13: error [SC027E]: no conversion from '*i32?' to 'usize'
 // END-GENERATED-CHECKS(DIAG)

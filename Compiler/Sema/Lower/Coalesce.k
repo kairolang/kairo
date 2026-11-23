@@ -230,10 +230,10 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
             return out
         }
 
-        var deref = self.tu.identity_derefs(lt, rt)
-        var stmts = self.list_builder<unsafe *Stmt>()
+        var deref                 = self.tu.identity_derefs(lt, rt)
+        var stmts                 = self.list_builder<unsafe *Stmt>()
         var tests: [unsafe *Expr]
-        var bound = false
+        var bound                 = false
         var unsafe *lv = self._identity_side(
             n->lhs,
             deref,
@@ -355,13 +355,20 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
     /// over the arms after `case null` with the column `T` (null_arm); the
     /// arm stays in the list, unreached and emptied, so its index and every
     /// other arm's are what the tree names. A scrutinee that is no place is
-    /// bound once and its value moved into the match.
+    /// bound once and its value moved into the match. A scrutinee proven
+    /// non-null is already the marked read of the value: arm 0 is emptied
+    /// and no test is made.
     fn transform_match_stmt(self, n: unsafe *MatchStmt) -> cxx::std::vector<unsafe *Stmt> {
         var out = ASTWriter<CoalesceLowering>::transform_match_stmt(self, n)
         if !n->null_arm
             || n->scrutinee == &null
             || n->scrutinee->is_poisoned()
             || n->cases.size() == 0 {
+            return out
+        }
+
+        if self._proven_scrutinee(n->scrutinee) {
+            self._take_null_arm(n->cases.get(0), n->range)
             return out
         }
 
@@ -402,6 +409,11 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         }
 
         var unsafe *arm0 = n->cases.get(0)
+        if self._proven_scrutinee(n->scrutinee) {
+            self._take_null_arm(arm0, n->range)
+            return out
+        }
+
         if arm0->expression == &null {
             return out
         }
@@ -413,6 +425,13 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         n->scrutinee     = opd.value
         var unsafe *ie = self._select(n->range, opd.#test, (unsafe (n as unsafe *Expr)), a0, n->type_)
         return self._wrap(n, opd, unsafe &stmts, ie)
+    }
+
+    /// The scrutinee of a match with a null arm is typed `T`: a place
+    /// proven non-null (ControlTyping::match_proven_column), whose null arm
+    /// no path reaches.
+    priv fn _proven_scrutinee(self, s: unsafe *Expr) -> bool {
+        return s->type_ != &null && self.tu.nullable_inner(self.tu.as_value(s->type_)) == &null
     }
 
     /// Arm 0's code as a block of its own, the arm left empty: one node is
@@ -528,7 +547,7 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
 
         var base_marked = false
 
-        var acc: [ChainExpr::Step]
+        var acc:   [ChainExpr::Step]
         var tests: [unsafe *Expr]
         for var i: usize = 0; i < c->steps.size(); ++i {
             var st = *c->steps.get(i)

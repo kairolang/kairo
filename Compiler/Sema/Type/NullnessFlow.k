@@ -143,12 +143,24 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, FieldDecl, FnBodyKind, FunctionDecl, ParamDecl, StructDecl, VariableDecl,
+    ClassDecl,
+    FieldDecl,
+    FnBodyKind,
+    FunctionDecl,
+    ParamDecl,
+    StructDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
-    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
-    IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
+    BooleanLiteralExpr,
+    ChainExpr,
+    CharacterLiteralExpr,
+    FloatingLiteralExpr,
+    IntegerLiteralExpr,
+    NamedIdentExpr,
+    NullLiteralExpr,
+    StringLiteralExpr,
 }
 import AST::Node::Statements
 import AST::Node::Types::{
@@ -353,7 +365,7 @@ pub enum NullWhy derives u8 {
 /// `*const` parameter), any call may write through it, and so may any
 /// write the analysis cannot place (`*p = ...`).
 pub struct NullEscape {
-    var node:  unsafe *Expr                   = &null
+    var node:  unsafe *Expr   = &null
     var place: [unsafe *Decl]
     var at:    SourceRange
 }
@@ -367,10 +379,10 @@ extend NullEscape impl Copyable {
 /// One fact: `place` holds `state` here.
 pub struct NullFact {
     var place:  [unsafe *Decl]
-    var state:  Nullness                       = Nullness::Maybe
-    var why:    NullWhy                        = NullWhy::None
+    var state:  Nullness       = Nullness::Maybe
+    var why:    NullWhy        = NullWhy::None
     var at:     SourceRange
-    var global: bool                           = false
+    var global: bool           = false
 }
 
 extend NullFact impl Copyable {
@@ -389,7 +401,7 @@ extend NullFact impl Copyable {
 /// unreachable, so a join ignores it, and a read there is allowed.
 pub struct NullEnv {
     var facts: [NullFact]
-    var dead:  bool                       = false
+    var dead:  bool       = false
 }
 
 extend NullEnv impl Copyable {
@@ -442,8 +454,8 @@ extend NullHeld impl Copyable {
 /// checked path (4.1).
 pub struct NullTrap {
     var place:    [unsafe *Decl]
-    var open_at:  SourceLocation                 ///< the start of y.
-    var close_at: SourceLocation                 ///< the end of z.
+    var open_at:  SourceLocation ///< the start of y.
+    var close_at: SourceLocation ///< the end of z.
     var held:     [NullHeld]
 }
 
@@ -469,7 +481,7 @@ pub struct NullNote {
 /// carries `{x}`; `var clear = fn ()|*x| { ... }` carries `{x}`; a copy
 /// carries what its source does. A `*const` one carries nothing.
 pub struct NullCarrier {
-    var decl:   unsafe *Decl                                     = &null
+    var decl:   unsafe *Decl     = &null
     var places: [[unsafe *Decl]]
 }
 
@@ -483,7 +495,7 @@ extend NullCarrier impl Copyable {
 /// carrier carries (none: storage no place is under); else anywhere a
 /// pointer escaped to.
 pub struct NullThrough {
-    var known:  bool                                             = false
+    var known:  bool             = false
     var places: [[unsafe *Decl]]
 }
 
@@ -517,7 +529,7 @@ extend NullFrame impl Copyable {
 
 pub struct NullLoop {
     var breaks: [NullEnv]
-    var label:  string                    = "" ///< the loop's label, or empty.
+    var label:  string    = "" ///< the loop's label, or empty.
 }
 
 extend NullLoop impl Copyable {
@@ -759,7 +771,7 @@ pub fn null_root_decl(e: unsafe *Expr) -> unsafe *Decl {
 /// it, and so does a capture the typer has not marked yet (capture_ptr).
 pub fn null_place_of(e: unsafe *Expr) -> [unsafe *Decl] {
     var        out: [unsafe *Decl]
-    var unsafe *x  = null_flow_strip_parens(e)
+    var unsafe *x                  = null_flow_strip_parens(e)
     if x == &null {
         return out
     }
@@ -1002,7 +1014,7 @@ const NULL_SCAN_LOST: u8 = 4
 pub struct NullScanState {
     var flags: [u8]
     var at:    [SourceRange]
-    var dead:  bool                          = false
+    var dead:  bool          = false
 }
 
 extend NullScanState impl Copyable {
@@ -1015,7 +1027,7 @@ extend NullScanState impl Copyable {
 /// nested one, with the paths that leave it by `break` and go back to its
 /// head by `continue`.
 pub struct NullScanLoop {
-    var label:  string                          = ""
+    var label:  string          = ""
     var breaks: [NullScanState]
     var conts:  [NullScanState]
 }
@@ -1416,7 +1428,7 @@ pub fn null_scan_inout_at(d: unsafe *Decl, i: usize, recv: bool) -> bool {
 /// does not look into closures: their bodies do not run where they are
 /// written, and a by-pointer capture is followed elsewhere.
 pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
-    pub var sc:    unsafe *SemaContext                              = &null
+    pub var sc:    unsafe *SemaContext = &null
     pub var cands: [[unsafe *Decl]]
     pub var st:    NullScanState
     pub var loops: [NullScanLoop]
@@ -1634,7 +1646,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
     /// carrier's name, a closure.
     priv fn _carry_of(self, e: unsafe *Expr) -> [[unsafe *Decl]] {
         var        out: [[unsafe *Decl]]
-        var unsafe *x  = null_flow_strip_parens(e)
+        var unsafe *x                    = null_flow_strip_parens(e)
         if x == &null {
             return out
         }
@@ -1724,7 +1736,7 @@ pub class NullLoopScan derives RecursiveASTVisitor<NullLoopScan> {
         }
 
         var empty: [NullCarrier]
-        var ptrs  = null_closure_places(n, unsafe &empty)
+        var ptrs                 = null_closure_places(n, unsafe &empty)
         self._lose_sticky(&ptrs, n->range)
         return false
     }
@@ -2659,8 +2671,8 @@ pub class NullnessFlow {
             return
         }
 
-        var        k     = callee->steps.size()
-        var unsafe *last = callee->steps.get(k - 1)
+        var        k                     = callee->steps.size()
+        var unsafe *last                 = callee->steps.get(k - 1)
         var        place: [unsafe *Decl]
         if last->access_kind == ChainExpr::AccessKind::Dot {
             place = if (k == 1) => (null_place_of(callee->base))
@@ -2702,7 +2714,7 @@ pub class NullnessFlow {
     /// arms of an if-expression, a cast's operand.
     fn carry_of(self, e: unsafe *Expr) -> [[unsafe *Decl]] {
         var        out: [[unsafe *Decl]]
-        var unsafe *x  = null_flow_strip_parens(e)
+        var unsafe *x                    = null_flow_strip_parens(e)
         if x == &null {
             return out
         }
@@ -3292,6 +3304,38 @@ pub class NullnessFlow {
         f.at     = at
         f.global = self._shared(place[0])
         null_env_put(env, f)
+    }
+
+    /// After a match on `e` that does not answer null first (SC254E): its
+    /// arms were typed as if the place held a value, which proves nothing,
+    /// so the place takes back the fact it had in `entry`, before the
+    /// match, or none (Maybe). A later match or read of it is judged on
+    /// what the program checked.
+    fn restore_place(self, entry: *NullEnv, e: unsafe *Expr) {
+        if self.env.dead {
+            return
+        }
+
+        var place = null_place_of(e)
+        if place.size() == 0 {
+            return
+        }
+
+        var unsafe *from = unsafe (entry as unsafe *NullEnv)
+        var        i     = null_env_find(from, unsafe &place)
+        if i >= 0 {
+            null_env_put(unsafe &self.env, from->facts[i as usize].copy())
+            return
+        }
+
+        var keep: [NullFact]
+        for var k: usize = 0; k < self.env.facts.size(); ++k {
+            if !null_place_eq(unsafe &self.env.facts[k].place, unsafe &place) {
+                keep.push(self.env.facts[k].copy())
+            }
+        }
+
+        self.env.facts = keep
     }
 
     /// `unwrap!(e)` was just typed: past it, a place `e` names holds a
