@@ -263,15 +263,17 @@ pub class <T> SliceIter {
     /// back.
     ///
     /// A `for` loop reads through what `op in` yields, so the pointer is
-    /// yielded by its address.
+    /// yielded by its address. The walk counts an index as `Vector`'s does,
+    /// so a loop over it vectorizes.
     pub fn op in (self) -> yield *const (*const T) {
-        var unsafe *p = self.lo
-        var unsafe *e = self.hi
+        var unsafe *p       = self.lo
+        var        n        = self.left_()
+        var        i: usize = 0
         unsafe {
-            while p != e {
-                var q = p as *const T
+            while i != n {
+                var q = (p + i) as *const T
                 yield const &q
-                p = p + 1
+                i += 1
             }
         }
     }
@@ -365,13 +367,14 @@ pub class <T> SliceIterMut {
     /// A `for` loop reads through what `op in` yields, so the pointer is
     /// yielded by its address.
     pub fn op in (self) -> yield *const (*T) {
-        var unsafe *p = self.lo
-        var unsafe *e = self.hi
+        var unsafe *p       = self.lo
+        var        n        = self.left_()
+        var        i: usize = 0
         unsafe {
-            while p != e {
-                var q = p as *T
+            while i != n {
+                var q = (p + i) as *T
                 yield const &q
-                p = p + 1
+                i += 1
             }
         }
     }

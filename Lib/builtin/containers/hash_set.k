@@ -39,14 +39,16 @@ pub class <T impl Hash> HashSet {
     }
 
     // Reads the entry array's address and the size once: an insert or a
-    // removal during the walk invalidates it.
+    // removal during the walk invalidates it. Counts an index as `Vector`'s
+    // walk does, so a sum over it vectorizes.
     pub fn op in (const self) -> yield *const T {
-        var unsafe *p   = self.at_(0)
-        var unsafe *end = self.at_(self.t.size())
-        while p != end {
+        var unsafe *b       = self.at_(0)
+        var        n        = self.t.size()
+        var        i: usize = 0
+        while i != n {
             unsafe {
-                yield p as *const T
-                p = p + 1
+                yield (b + i) as *const T
+                i += 1
             }
         }
     }

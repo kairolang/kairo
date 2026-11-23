@@ -388,24 +388,29 @@ pub class <T> Vector {
         return Slice<T>(self.base_(), hi)
     }
 
+    // The element walks count an index up to the length, not a pointer up to
+    // an end pointer: the loop vectorizer's cost model on baseline x86-64
+    // (SSE2) takes an index loop and refuses the pointer walk.
     pub fn op in (self) -> yield *T {
-        var p = self.base_()
+        var p        = self.base_()
+        var n        = self.len
+        var i: usize = 0
         unsafe {
-            var e = p + self.len
-            while p != e {
-                yield p as *T
-                p += 1
+            while i != n {
+                yield (p + i) as *T
+                i += 1
             }
         }
     }
 
     pub fn op in (const self) -> yield *const T {
-        var p = self.base_()
+        var p        = self.base_()
+        var n        = self.len
+        var i: usize = 0
         unsafe {
-            var e = p + self.len
-            while p != e {
-                yield p as unsafe *const T as *const T
-                p += 1
+            while i != n {
+                yield (p + i) as unsafe *const T as *const T
+                i += 1
             }
         }
     }

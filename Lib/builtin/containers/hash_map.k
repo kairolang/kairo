@@ -165,31 +165,36 @@ pub class <K impl Hash, V> HashMap {
     }
 
     // The walks below read the entry array's address and the size once: an
-    // insert or a removal during a walk invalidates it.
+    // insert or a removal during a walk invalidates it. They count an index
+    // as `Vector`'s walk does, so a sum over them vectorizes.
     pub fn op in (self) -> yield (*const K, *V) {
-        var unsafe *e   = self.ent(0)
-        var unsafe *end = self.ent(self.t.size())
-        while e != end {
+        var unsafe *b       = self.ent(0)
+        var        n        = self.t.size()
+        var        i: usize = 0
+        while i != n {
             unsafe {
+                var unsafe *e = b + i
                 var kv = (&e->key as unsafe *const K as *const K, &e->value as unsafe *V as *V)
                 yield kv
-                e = e + 1
+                i += 1
             }
         }
     }
 
     pub fn op in (const self) -> yield (*const K, *const V) {
-        var unsafe *e   = self.ent(0)
-        var unsafe *end = self.ent(self.t.size())
-        while e != end {
+        var unsafe *b       = self.ent(0)
+        var        n        = self.t.size()
+        var        i: usize = 0
+        while i != n {
             unsafe {
+                var unsafe *e = b + i
                 var kv = (
                     &e->key as unsafe *const K as *const K,
                     &e->value as unsafe *const V as *const V,
                 )
 
                 yield kv
-                e = e + 1
+                i += 1
             }
         }
     }
@@ -541,34 +546,37 @@ extend <K impl Hash, V> HashMap<K, V> {
     }
 
     pub fn keys(const self) -> yield *const K {
-        var unsafe *e   = self.ent(0)
-        var unsafe *end = self.ent(self.t.size())
-        while e != end {
+        var unsafe *b       = self.ent(0)
+        var        n        = self.t.size()
+        var        i: usize = 0
+        while i != n {
             unsafe {
-                yield &e->key as unsafe *const K as *const K
-                e = e + 1
+                yield &(b + i)->key as unsafe *const K as *const K
+                i += 1
             }
         }
     }
 
     pub fn values(const self) -> yield *const V {
-        var unsafe *e   = self.ent(0)
-        var unsafe *end = self.ent(self.t.size())
-        while e != end {
+        var unsafe *b       = self.ent(0)
+        var        n        = self.t.size()
+        var        i: usize = 0
+        while i != n {
             unsafe {
-                yield &e->value as unsafe *const V as *const V
-                e = e + 1
+                yield &(b + i)->value as unsafe *const V as *const V
+                i += 1
             }
         }
     }
 
     pub fn values_mut(self) -> yield *V {
-        var unsafe *e   = self.ent(0)
-        var unsafe *end = self.ent(self.t.size())
-        while e != end {
+        var unsafe *b       = self.ent(0)
+        var        n        = self.t.size()
+        var        i: usize = 0
+        while i != n {
             unsafe {
-                yield &e->value as unsafe *V as *V
-                e = e + 1
+                yield &(b + i)->value as unsafe *V as *V
+                i += 1
             }
         }
     }
