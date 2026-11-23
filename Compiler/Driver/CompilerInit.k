@@ -74,6 +74,31 @@ fn init_fill(const text: string, const name: string, const ident: string) -> str
     return text.replace("{{ident}}", ident).replace("{{name}}", name)
 }
 
+fn init_has(const list: cxx::std::vector<string>, const s: string) -> bool {
+    for var i: usize = 0; i < list.size(); ++i {
+        if list[i] == s {
+            return true
+        }
+    }
+
+    return false
+}
+
+/// Removes the files a failed `--init` wrote, then the directories it made.
+/// A directory is removed only once it is empty, and each pass empties the
+/// parents of the ones it removed, so `dirs.size()` passes clear any nesting.
+fn init_undo(const files: cxx::std::vector<string>, const dirs: cxx::std::vector<string>) {
+    for var i: usize = 0; i < files.size(); ++i {
+        LinkFS::remove(files[i])
+    }
+
+    for var pass: usize = 0; pass < dirs.size(); ++pass {
+        for var i: usize = 0; i < dirs.size(); ++i {
+            LinkFS::remove(dirs[i])
+        }
+    }
+}
+
 extend CompilerInstance {
     fn wants_init(self) -> bool {
         return self.invocation()->args.get_bool("init")
@@ -164,12 +189,34 @@ extend CompilerInstance {
             bodies.push_back(init_fill(body, name, ident))
         }
 
+        // The directories this run creates, so a failed write can remove them.
+        var made = cxx::std::vector<string>()
+        for var i: usize = 0; i < dests.size(); ++i {
+            var p = Path::parent_of(Path::join_str(dir, dests[i].copy()))
+            while !p.is_empty() && !LinkFS::exists(p) && !init_has(made, p) {
+                made.push_back(p.copy())
+                p = Path::parent_of(p)
+            }
+        }
+
+        // All or nothing here too: a write that fails removes every file and
+        // directory written before it. None of them existed (checked above).
+        var written = cxx::std::vector<string>()
         for var i: usize = 0; i < dests.size(); ++i {
             var out = Path::join_str(dir, dests[i].copy())
             if !LinkFS::make_dirs(Path::parent_of(out)) || !LinkFS::write(out, bodies[i]) {
-                return self._init_fail(f"--init: cannot write '{out}'")
+                // A write can fail after creating the file (a full disk).
+                LinkFS::remove(out)
+                init_undo(written, made)
+                return self._init_fail(
+                    f"--init: cannot write '{out}'; nothing was written",
+                )
             }
 
+            written.push_back(out.copy())
+        }
+
+        for var i: usize = 0; i < dests.size(); ++i {
             // Relative to where the command ran, as the directory was given.
             var shown = if (n_in == 1) => (LinkText::join(
                             given.copy(),
