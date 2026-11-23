@@ -79,9 +79,11 @@ Compiler/
 │   └── LLVM/       passes over a TU's IR inside LLVM's pipeline, written in
 │                   Kairo: SpecDevirt (speculative devirtualization of a
 │                   virtual call with a few targets), AllocModel (the runtime
-│                   heap's entry points as allocation functions); and
-│                   PassBridge.hh, the C++ that registers a pass at its
-│                   point with clang's PassBuilder
+│                   heap's entry points as allocation functions), AllocSplit
+│                   (a path of its own for the global heap through a
+│                   function that allocates and frees with the allocator
+│                   in effect); and PassBridge.hh, the C++ that registers a
+│                   pass at its point with clang's PassBuilder
 ├── AST/
 │   ├── Node/       node defs + RTTI casting (isa/cast/dyn_cast via kind
 │   │               field); CanonicalNodes: BuiltinType and RecordType, the
