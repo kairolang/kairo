@@ -1880,6 +1880,30 @@ extend CompilerInstance {
             self.invocation()->target.native_cpu += "march " + host_cpu_key()
         }
 
+        // `--mtune native` tunes for the host's CPU, as clang's -mtune=native
+        // does; cc1's -tune-cpu has no `native`, so kairo resolves it as it
+        // does --mcpu's. Tuning changes no result, so a --target build for
+        // the host's architecture takes it too; another architecture has no
+        // CPU of that name.
+        if self._inv.target.mtune == "native" {
+            var host = llvm::Triple(llvm::sys::getProcessTriple())
+            if tt.getArch() != host.getArch() && !(tt.isX86() && host.isX86()) {
+                self._diag->report(
+                    DiagID::P006E,
+                    f"'--mtune native' names the host CPU, which is no CPU of target '{t->effective_triple}'",
+                ).emit()
+                self._diag->report(
+                    DiagID::P006N,
+                    f"name the CPU explicitly; run with --print-cpus --target={t->effective_triple} to list valid values",
+                ).emit()
+                self.invocation()->ok = false
+                return
+            }
+
+            self.invocation()->target.mtune = host_cpu_name()
+            self.invocation()->target.native_cpu += "mtune " + host_cpu_name()
+        }
+
         self._apply_host_cpu(&tt)
 
         if !self._inv.target.mcpu.is_empty() {
