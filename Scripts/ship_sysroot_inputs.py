@@ -1141,6 +1141,18 @@ cflags_add    = ["-fforce-enable-int128"]
 cmake_stages  = ["builtins"]
 cmake_defs    = ["COMPILER_RT_ENABLE_SOFTWARE_INT128=ON"]
 
+# compiler-rt adds the quad-float (tf) builtins to a 32-bit arch only under
+# COMPILER_RT_ENABLE_SOFTWARE_INT128. Clang has a native __int128 and a __float128 on i386 and
+# ARM, so int128-software does not match there, and without this f128 arithmetic (__addtf3 and
+# the rest, which validate's tfbf.k links) has no builtins. Only the CMake derivation reads it:
+# ksys has no float128 probe.
+[quirk.tf-builtins-32]
+match_family = ["musl", "glibc", "mingw"]
+match_arch   = ["i686", "armv6", "armv7"]
+match_probe  = ["float128"]
+cmake_stages = ["builtins"]
+cmake_defs   = ["COMPILER_RT_ENABLE_SOFTWARE_INT128=ON"]
+
 # msvc.sh:107-112: clang-cl drops the plain spelling ("unknown argument"), and on i686 the
 # __int128 and quad-float routines then compile empty.
 [quirk.int128-software-cl]

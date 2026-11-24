@@ -484,8 +484,16 @@ build_runtimes() {   # $1 = clang triple, $2 = xwin arch, $3 = staged root (CRT/
     -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
     -DCOMPILER_RT_ENABLE_SOFTWARE_INT128=ON \
     -DCOMPILER_RT_INCLUDE_TESTS=OFF
-  # libc++ (vcruntime ABI, static only) through the runtimes glue.
+  # libc++ (vcruntime ABI, static only) through the runtimes glue. libc++
+  # takes any Clang that simulates MSVC for clang-cl and passes it cl options
+  # (/std:c++latest), which kcc's GNU front end reads as input files. The hook
+  # runs right after project(Runtimes), once the compiler is identified, and
+  # clears the simulate id for this configure; libc++'s other front-end checks
+  # read CMAKE_CXX_COMPILER_FRONTEND_VARIANT, which stays GNU.
+  local gnu_fe="$WORK/kcc-gnu-front-end.cmake"
+  printf 'set(CMAKE_CXX_SIMULATE_ID "")\n' >"$gnu_fe"
   configure_build "$triple libc++" "$WORK/$triple-libcxx" "$SRC/runtimes" install "$@" \
+    -DCMAKE_PROJECT_Runtimes_INCLUDE="$gnu_fe" \
     -DLLVM_ENABLE_RUNTIMES=libcxx \
     -DLLVM_DEFAULT_TARGET_TRIPLE="$triple" \
     -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_DOCS=OFF \
@@ -1106,8 +1114,16 @@ function Build-Runtimes([string]$triple, [string]$root, [string]$rtarch, [string
     $bt.COMPILER_RT_ENABLE_SOFTWARE_INT128 = 'ON'; $bt.COMPILER_RT_INCLUDE_TESTS = 'OFF'
     $b = Join-Path $Work "$triple-builtins"
     Configure-Build "$triple builtins" $b (Join-Path $Src 'compiler-rt/lib/builtins') $bt
-    # libc++ (vcruntime ABI, static only) through the runtimes glue.
+    # libc++ (vcruntime ABI, static only) through the runtimes glue. libc++
+    # takes any Clang that simulates MSVC for clang-cl and passes it cl options
+    # (/std:c++latest), which kcc's GNU front end reads as input files. The hook
+    # runs right after project(Runtimes), once the compiler is identified, and
+    # clears the simulate id for this configure; libc++'s other front-end checks
+    # read CMAKE_CXX_COMPILER_FRONTEND_VARIANT, which stays GNU.
+    $gnuFe = Join-Path $Work 'kcc-gnu-front-end.cmake'
+    [IO.File]::WriteAllText($gnuFe, "set(CMAKE_CXX_SIMULATE_ID `"`")`n")
     $cx = $common.Clone()
+    $cx.CMAKE_PROJECT_Runtimes_INCLUDE = (Fwd $gnuFe)
     $cx.LLVM_ENABLE_RUNTIMES = 'libcxx'; $cx.LLVM_DEFAULT_TARGET_TRIPLE = $triple
     $cx.LLVM_INCLUDE_TESTS = 'OFF'; $cx.LLVM_INCLUDE_DOCS = 'OFF'
     $cx.LIBCXX_CXX_ABI = 'vcruntime'; $cx.LIBCXX_ENABLE_SHARED = 'OFF'; $cx.LIBCXX_ENABLE_STATIC = 'ON'
