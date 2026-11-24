@@ -43,21 +43,18 @@ import Support::FileIO::Path::Path
 import std::c_char
 import std::io
 
-/// Temporaries minted by this process; with the pid it makes every
-/// temporary name unique, across threads too.
-var _TEMP_SEQ: u64 = 0
-
 /// The private name a publish of `path` writes first:
 /// `<path>.tmp-<pid>-<n>.tmp`, in `path`'s directory so the rename stays
 /// on one filesystem. Both ends mark it (see is_leftover_temp), and it
 /// never ends in an entry's own suffix (`.o`), so a sweep of entries by
 /// suffix skips it.
 pub fn temp_path_for(const path: string) -> string {
-    var n = __builtin_atomic_fetch_add(
-        &_TEMP_SEQ,
-        1 as u64,
-        MemoryOrder::Relaxed,
-    )
+    // Temporaries minted by this process; with the pid it makes every
+    // temporary name unique, across threads too. An Atomic, not a u64
+    // global: i686 aligns a plain u64 to 4 bytes, and an underaligned
+    // 64-bit atomic is a libatomic call that musl does not provide.
+    static seq: kairo::std::Atomic<u64> = kairo::std::Atomic<u64>(0)
+    var n = seq.fetch_add(1, kairo::std::MemoryOrder::relaxed)
 
     return f"{path}.tmp-{llvm::sys::Process::getProcessId()}-{n}.tmp"
 }
