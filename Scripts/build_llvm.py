@@ -241,6 +241,27 @@ def fork_major() -> str:
     return m.group(1)
 
 
+def built_major():
+    """The LLVM major the build tree is configured for (its llvm-config.h), or None before a configure."""
+    h = LLVM_BUILD / "include" / "llvm" / "Config" / "llvm-config.h"
+    m = re.search(r"#define LLVM_VERSION_MAJOR (\d+)", h.read_text()) if h.is_file() else None
+    return m.group(1) if m else None
+
+
+def reset_driver_version(tools, env) -> None:
+    """CLANG_EXECUTABLE_VERSION is a cache variable taken from the major at the FIRST configure, so a tree
+    configured before a major bump keeps naming the driver clang-<old> and 'ninja clang' never makes the
+    clang-<major> stage_tree.py ships. Reset it to the configured major when they differ."""
+    major = built_major()
+    cache = LLVM_BUILD / "CMakeCache.txt"
+    if not major or not cache.is_file():
+        return
+    m = re.search(r"^CLANG_EXECUTABLE_VERSION:\w+=(\S+)", cache.read_text(), re.M)
+    if m and m.group(1) != major:
+        log(f"the driver is named clang-{m.group(1)} in an LLVM {major} tree; reconfiguring it as clang-{major}")
+        run([tools["cmake"], f"-DCLANG_EXECUTABLE_VERSION={major}", str(LLVM_BUILD)], env, None)
+
+
 def seed_host_toolchain(major: str) -> bool:
     src_bin, src_lib = LLVM_BUILD / "bin", LLVM_BUILD / "lib"
     clang = src_bin / f"clang-{major}"
@@ -788,6 +809,7 @@ def main() -> None:
     # backend list after a target was added. ninja makes an
     # up-to-date tool a no-op.
     def build_test_tools():
+        reset_driver_version(tools, env)
         want = ["clang", *TEST_TOOLS]
         log(f"building tools outside `all`: {' '.join(want)}")
         run([tools["ninja"], "-C", str(LLVM_BUILD), f"-j{JOBS}", *want], env, None)
@@ -809,7 +831,11 @@ def main() -> None:
         # The normal build path: same configure, same fork commit, tools present.
         # Nothing can be out of date, so ninja is not even started.
         exe = ".exe" if HOST == "Windows" else ""
-        have_tools = all((LLVM_BUILD / "bin" / (t + exe)).is_file() for t in ("clang", *TEST_TOOLS))
+        # The versioned driver, not bin/clang: after a major bump the clang symlink can still point at the
+        # previous major's binary, which would pass the check while stage_tree.py wants clang-<major>.
+        major = built_major()
+        driver = "clang" if HOST == "Windows" or major is None else f"clang-{major}"
+        have_tools = all((LLVM_BUILD / "bin" / (t + exe)).is_file() for t in (driver, *TEST_TOOLS))
         if src_id is not None and src_id == src_stamp and have_tools:
             log(f"llvm up to date (configure and fork commit {src_id[:12]} unchanged); using the cached build.")
             stage()

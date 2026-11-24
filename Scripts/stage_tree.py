@@ -257,7 +257,8 @@ def stage_tools(bin_dir: Path, ver: str) -> list[str]:
     plan = required_tools(ver)
     for real, links in plan:
         if not (src / (real + EXE)).is_file():
-            die(f"{src / (real + EXE)} is missing (is build/llvm built?)")
+            die(f"{src / (real + EXE)} is missing: build it with 'ninja -C {LLVM_BUILD} {real} lld' "
+                f"(or run Scripts/build_llvm.py, which builds it when missing)")
     for t in OPTIONAL_TOOLS:
         p = src / (t + EXE)
         # An optional tool LLVM ships as a symlink (llvm-ranlib -> llvm-ar)
