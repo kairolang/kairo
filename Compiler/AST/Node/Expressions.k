@@ -2261,6 +2261,14 @@ pub class TypeCastExpr derives Expr {
     /// neither check nor map null).
     pub var checked_downcast: bool = false
 
+    /// `x as U?` from a `T?` with no conversion of its own: the cast
+    /// converts the value and keeps null (Compiler/Spec/Nullables.md#casts).
+    /// Written by CastTyping, which judged the cast from `T`; every other
+    /// verdict on the node (resolved_op, resolved_ctor, checked_downcast,
+    /// enum_check) is the `T as U?` one. CoalesceLowering expands it into
+    /// `if x? => <value> as U? else null` and clears it.
+    pub var null_lift: bool = false
+
     /// `p as *D` from a `*B` with D below B: the ASSERTING downcast
     /// (Compiler/Spec/Panic.md#crashes-are-not-panics), which crashes when the dynamic type is not a D.
     /// Written by CastTyping; OperatorLowering expands it into a

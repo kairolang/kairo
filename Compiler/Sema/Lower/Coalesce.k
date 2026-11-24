@@ -9,6 +9,8 @@
 ///       x ?? y        ->  if x? => x else y
 ///       x?.m          ->  if x? => x.m else null       (`?->` alike; a chain
 ///       x?.f(args)    ->  if x? => x.f(args) else null  tests left to right)
+///       x as U?       ->  if x? => x as U? else null   (x: T?, the cast
+///                                                       lifted by CastTyping)
 ///       unwrap!(x)    ->  if x? => x else <abort>      (a statement, see
 ///                                                       transform_unwrap_expr)
 ///       a === b       ->  (a? && b?) && a == b         (`*a == *b` through
@@ -717,6 +719,34 @@ pub class CoalesceLowering derives ASTWriter<CoalesceLowering> {
         }
 
         return inner
+    }
+
+    /// # a lifted cast
+
+    /// `x as U?` from a `T?` that CastTyping judged as its value
+    /// (TypeCastExpr::null_lift) -> `if x? => <x's value> as U? else null`
+    /// (Compiler/Spec/Nullables.md#casts). The cast node is kept as the
+    /// then-arm with the value as its operand, so OperatorLowering and
+    /// EmitIR lower the `T as U?` they were told about.
+    fn transform_type_cast_expr(self, n: unsafe *TypeCastExpr) -> unsafe *Expr {
+        var unsafe *out = ASTWriter<CoalesceLowering>::transform_type_cast_expr(
+            self,
+            n,
+        )
+
+        if !n->null_lift || n->is_poisoned() || n->type_ == &null || n->operand == &null {
+            return out
+        }
+
+        n->null_lift = false
+        var stmts = self.list_builder<unsafe *Stmt>()
+        var opd   = self._operand(n->operand, unsafe &stmts, "cast")
+        n->operand = opd.value
+        var unsafe *none = NullLiteralExpr::create(self.ctx, n->range, false)
+        none->type_          = n->type_
+        none->value_category = Expr::ValueCategory::RValue
+        var unsafe *ie = self._select(n->range, opd.#test, out, none, n->type_)
+        return self._wrap(out, opd, unsafe &stmts, ie)
     }
 
     /// # `unwrap!`

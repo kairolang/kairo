@@ -44,8 +44,14 @@ import AST::Node::Declarations::{
 }
 import AST::Node::Expressions
 import AST::Node::PrimaryExpressions::{
-    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
-    IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
+    BooleanLiteralExpr,
+    ChainExpr,
+    CharacterLiteralExpr,
+    FloatingLiteralExpr,
+    IntegerLiteralExpr,
+    NamedIdentExpr,
+    NullLiteralExpr,
+    StringLiteralExpr,
 }
 import AST::Node::Statements::CompoundStmt
 import AST::Serialize::Archive::ASTArchive
@@ -798,6 +804,7 @@ fn io_type_cast_expr(ar: unsafe *ASTArchive, n: unsafe *Expressions::TypeCastExp
         ar->sema_null<Decl>(n->resolved_ctor, "TypeCastExpr::resolved_ctor")
         ar->sema_false(n->widening, "TypeCastExpr::widening")
         ar->sema_false(n->checked_downcast, "TypeCastExpr::checked_downcast")
+        ar->sema_false(n->null_lift, "TypeCastExpr::null_lift")
         ar->sema_false(
             n->asserting_downcast,
             "TypeCastExpr::asserting_downcast",

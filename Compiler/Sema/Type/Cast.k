@@ -9,6 +9,8 @@
 ///                                            pointee too, by [conv.qual].
 ///                                            A drop at any level is an
 ///                                            error naming `as unsafe *`
+///       1c. `T? as U?`, no conversion of     judged as `T as U?`; null kept
+///           the nullable's own               (TypeCastExpr::null_lift)
 ///       2. target is `unsafe *X`             reinterpret; U: needs unsafe ctx
 ///       3. target is `*X`, source `*S`,
 ///          S/X derives-related               upcast: static, lint redundant
@@ -282,7 +284,7 @@ pub class <T: type> CastTyping {
             self.dyn()->fail(
                 n,
                 DiagID::SC030E,
-                f"'as const' only adds qualifiers: '{self.dyn()->tu.str(target)}' is not '{self.dyn()->tu.str(src)}' with 'const' added",
+                f"'as const' only adds qualifiers: '{self.dyn()->tu.str(target)}' is not '{self._src_name(n->null_lift, n->operand, src)}' with 'const' added",
             )
 
             return &null
@@ -296,10 +298,20 @@ pub class <T: type> CastTyping {
             self.dyn()->fail(
                 n,
                 DiagID::SC116E,
-                f"a conversion between '{self.dyn()->tu.str(src)}' and '{self.dyn()->tu.str(target)}' is not supported yet; convert through 'f32' or 'f64' with 'as'",
+                f"a conversion between '{self._src_name(n->null_lift, n->operand, src)}' and '{self.dyn()->tu.str(target)}' is not supported yet; convert through 'f32' or 'f64' with 'as'",
             )
 
             return &null
+        }
+
+        // 1c. `T? as U?` that the nullable itself does not convert (no
+        //     implicit conversion, no `op as` of the nullable's own): the
+        //     value converts and null stays null, so the rungs below judge
+        //     `T as U?` and CoalesceLowering adds the null test
+        //     (TypeCastExpr::null_lift).
+        if self._lifts(src, target) {
+            n->null_lift = true
+            src          = self.dyn()->tu.nullable_inner(canon_unqual(src))
         }
 
         // 2. reinterpret to `unsafe *X`.
@@ -308,7 +320,7 @@ pub class <T: type> CastTyping {
                 self.dyn()->fail(
                     n,
                     DiagID::SC026E,
-                    f"only a pointer or an integer can be cast to '{self.dyn()->tu.str(target)}'; '{self.dyn()->tu.str(src)}' is neither",
+                    f"only a pointer or an integer can be cast to '{self.dyn()->tu.str(target)}'; '{self._src_name(n->null_lift, n->operand, src)}' is neither",
                 )
 
                 return &null
@@ -366,7 +378,7 @@ pub class <T: type> CastTyping {
                     self.dyn()->fail(
                         n,
                         DiagID::SC091E,
-                        f"cannot cast '{self.dyn()->tu.str(src)}' to '{self.dyn()->tu.str(target)}': a raw pointer becomes safe only with its own pointee; reinterpret with 'as unsafe *' first",
+                        f"cannot cast '{self._src_name(n->null_lift, n->operand, src)}' to '{self.dyn()->tu.str(target)}': a raw pointer becomes safe only with its own pointee; reinterpret with 'as unsafe *' first",
                     )
 
                     return &null
@@ -381,7 +393,7 @@ pub class <T: type> CastTyping {
                     self.dyn()->sc->diag->report(
                         DiagID::SC023E,
                         n->range.start,
-                        f"cast from the raw pointer '{self.dyn()->tu.str(src)}' to the safe pointer '{self.dyn()->tu.str(target)}' requires an unsafe context",
+                        f"cast from the raw pointer '{self._src_name(n->null_lift, n->operand, src)}' to the safe pointer '{self.dyn()->tu.str(target)}' requires an unsafe context",
                     ).first(n->range)->note(
                         n->range.start,
                         "wrap it in 'unsafe { ... }': the block is your claim that the pointer is valid",
@@ -427,7 +439,7 @@ pub class <T: type> CastTyping {
                     self.dyn()->fail(
                         n,
                         DiagID::SC091E,
-                        f"cannot cast '{self.dyn()->tu.str(src)}' to the safe pointer '{self.dyn()->tu.str(target)}'; erasing the pointee type needs 'as unsafe *void' inside an 'unsafe' block",
+                        f"cannot cast '{self._src_name(n->null_lift, n->operand, src)}' to the safe pointer '{self.dyn()->tu.str(target)}'; erasing the pointee type needs 'as unsafe *void' inside an 'unsafe' block",
                     )
 
                     return &null
@@ -436,7 +448,7 @@ pub class <T: type> CastTyping {
                 self.dyn()->fail(
                     n,
                     DiagID::SC091E,
-                    f"pointer cast between unrelated types '{self.dyn()->tu.str(src)}' and '{self.dyn()->tu.str(target)}'; use 'as unsafe *' to reinterpret",
+                    f"pointer cast between unrelated types '{self._src_name(n->null_lift, n->operand, src)}' and '{self.dyn()->tu.str(target)}'; use 'as unsafe *' to reinterpret",
                 )
 
                 return &null
@@ -453,7 +465,7 @@ pub class <T: type> CastTyping {
                     self.dyn()->sc->diag->report(
                         DiagID::SC024E,
                         n->range.start,
-                        f"static downcast from '{self.dyn()->tu.str(src)}' to '{self.dyn()->tu.str(target)}' is not allowed",
+                        f"static downcast from '{self._src_name(n->null_lift, n->operand, src)}' to '{self.dyn()->tu.str(target)}' is not allowed",
                     ).first(n->range)->note(
                         n->range.start,
                         "write 'as *X' for a checked cast that crashes on a miss, 'as *X?' for one that yields null, or 'as unsafe *X' to reinterpret",
@@ -466,7 +478,7 @@ pub class <T: type> CastTyping {
                     self.dyn()->sc->diag->report(
                         DiagID::SC025E,
                         n->range.start,
-                        f"cannot downcast from '{self.dyn()->tu.str(src)}': '{self.dyn()->tu.decl_name(sd)}' has no virtual methods, so there is no runtime type to check",
+                        f"cannot downcast from '{self._src_name(n->null_lift, n->operand, src)}': '{self.dyn()->tu.decl_name(sd)}' has no virtual methods, so there is no runtime type to check",
                     ).first(n->range)->note(sd->range.start, declared_here())->child_first(
                         sd->range,
                     )->emit()
@@ -513,7 +525,7 @@ pub class <T: type> CastTyping {
                 b.first(n->range, f"pointer cast to '{ts}'")
                 b.note(
                     n->operand->range.start,
-                    f"'{self.dyn()->tu.str(src)}' is a pointer; its address is a 'usize', and narrowing that is an ordinary integer cast",
+                    f"'{self._src_name(n->null_lift, n->operand, src)}' is a pointer; its address is a 'usize', and narrowing that is an ordinary integer cast",
                 )
 
                 if n->target != &null && n->target->range.is_valid() {
@@ -536,7 +548,7 @@ pub class <T: type> CastTyping {
             self.dyn()->sc->diag->report(
                 DiagID::SC026E,
                 n->range.start,
-                f"cannot cast the integer type '{self.dyn()->tu.str(src)}' to the safe pointer '{self.dyn()->tu.str(target)}'; only 'as unsafe *T' can turn an integer into an address",
+                f"cannot cast the integer type '{self._src_name(n->null_lift, n->operand, src)}' to the safe pointer '{self.dyn()->tu.str(target)}'; only 'as unsafe *T' can turn an integer into an address",
             ).first(n->range)->emit()
             n->poison()
             return &null
@@ -562,7 +574,7 @@ pub class <T: type> CastTyping {
                         self.dyn()->fail(
                             n,
                             DiagID::SC023E,
-                            f"cast from '{self.dyn()->tu.str(src)}' to '{self.dyn()->tu.str(target)}' requires an unsafe context",
+                            f"cast from '{self._src_name(n->null_lift, n->operand, src)}' to '{self.dyn()->tu.str(target)}' requires an unsafe context",
                         )
 
                         return &null
@@ -573,7 +585,7 @@ pub class <T: type> CastTyping {
                     self.dyn()->sc->diag->report(
                         DiagID::SC027E,
                         n->range.start,
-                        f"no conversion from '{self.dyn()->tu.str(src)}' to '{self.dyn()->tu.str(target)}'",
+                        f"no conversion from '{self._src_name(n->null_lift, n->operand, src)}' to '{self.dyn()->tu.str(target)}'",
                     ).first(n->range)->note(
                         n->range.start,
                         "these types have no meaningful representation change; use a library function",
@@ -592,7 +604,7 @@ pub class <T: type> CastTyping {
             self.dyn()->sc->diag->report(
                 DiagID::SC029E,
                 n->range.start,
-                f"cannot cast '{self.dyn()->tu.str(src)}' to '{self.dyn()->tu.str(target)}'; a cast cannot fabricate a value for null",
+                f"cannot cast '{self._src_name(n->null_lift, n->operand, src)}' to '{self.dyn()->tu.str(target)}'; a cast cannot fabricate a value for null",
             ).first(n->range)->note(
                 n->range.start,
                 "use 'x ?? default' to supply a fallback, or 'x!' to assert non-null",
@@ -664,7 +676,7 @@ pub class <T: type> CastTyping {
                 var b = self.dyn()->sc->diag->report(
                     DiagID::SC127E,
                     n->range.start,
-                    f"casting '{self.dyn()->tu.str(src)}' to '{en}' needs its underlying type '{u}'; cast to '{u}' first",
+                    f"casting '{self._src_name(n->null_lift, n->operand, src)}' to '{en}' needs its underlying type '{u}'; cast to '{u}' first",
                 )
 
                 b.first(n->range)
@@ -745,21 +757,25 @@ pub class <T: type> CastTyping {
                     &cands,
                 )
             }
-        } else {
+        } else if self.dyn()->tu.nullable_inner(canon_unqual(src)) == &null {
             self.dyn()->ml.lookup(
-                self.dyn()->tu.strip_nullable(src),
+                src,
+                DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
+                &cands,
+            )
+        } else {
+            // A nullable's own conversions, which only an extension of the
+            // nullable declares (`extend Foo? { fn op as ... }`). The
+            // value's `op as` takes a `T`, never the `T?`: a nullable
+            // target lifted above, so here it is an unproven read.
+            self.dyn()->ml.lookup(
+                src,
                 DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
                 &cands,
             )
 
-            // A nullable's own conversions, which only an extension of the
-            // nullable declares (`extend Foo? { fn op as ... }`).
-            if self.dyn()->tu.strip_nullable(src) != src {
-                self.dyn()->ml.lookup(
-                    src,
-                    DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
-                    &cands,
-                )
+            if cands.size() == 0 && self._value_converts(src, target) {
+                return self._unproven_value_cast(n, src, target)
             }
         }
 
@@ -942,6 +958,11 @@ pub class <T: type> CastTyping {
                     if ctors.size() > 0 {
                         var args: [ArgInfo]
                         args.push(self.dyn()->arg_info(n->operand))
+                        // A lifted cast passes the value (null_lift).
+                        if n->null_lift {
+                            args[0].ty = src
+                        }
+
                         var r = self.dyn()->ovl.resolve(
                             &ctors,
                             &args,
@@ -984,7 +1005,13 @@ pub class <T: type> CastTyping {
                             self.dyn()->tu.strip_nullable(target),
                         )
 
-                        self.dyn()->finish_call_args(r.decl, &args, &r)
+                        // A lifted cast's operand is the `T?`, which the
+                        // argument checks would read as a value; the
+                        // expansion passes the value (CoalesceLowering).
+                        if !n->null_lift {
+                            self.dyn()->finish_call_args(r.decl, &args, &r)
+                        }
+
                         return target
                     }
                 }
@@ -993,6 +1020,134 @@ pub class <T: type> CastTyping {
 
         // 5e. nothing
         return self._no_conversion(n, src, target, cg, cbound.size() > 0)
+    }
+
+    /// The source type a diagnostic names: the operand's `T?` as written
+    /// for a lifted cast (TypeCastExpr::null_lift), whose rungs judge `T`.
+    priv fn _src_name(self, lifted: bool, operand: unsafe *Expr, src: unsafe *Type) -> string {
+        if lifted && operand != &null && operand->type_ != &null {
+            return self.dyn()->tu.str(operand->type_)
+        }
+
+        return self.dyn()->tu.str(src)
+    }
+
+    /// `src as target` is a `T? as U?` whose nullable has no conversion
+    /// of its own: neither implicit nor an `op as` declared on the
+    /// nullable. Its value is cast instead (TypeCastExpr::null_lift). A
+    /// dependent side is the instance's question and never lifts.
+    priv fn _lifts(self, src: unsafe *Type, target: unsafe *Type) -> bool {
+        if src->is_dependent() || target->is_dependent() {
+            return false
+        }
+
+        if self.dyn()->tu.nullable_inner(canon_unqual(src)) == &null
+            || self.dyn()->tu.nullable_inner(canon_unqual(target)) == &null {
+            return false
+        }
+
+        if self.dyn()->conv.implicit(src, target) != ImplicitRank::None {
+            return false
+        }
+
+        var cands = cxx::std::vector<*Decl>()
+        self.dyn()->ml.lookup(
+            src,
+            DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
+            &cands,
+        )
+
+        return cands.size() == 0
+    }
+
+    /// The value of nullable `src` has an `op as` yielding `target`
+    /// (its `?` stripped): the conversion rung 5c would pick for a `T`.
+    priv fn _value_converts(self, src: unsafe *Type, target: unsafe *Type) -> bool {
+        var unsafe *inner = self.dyn()->tu.nullable_inner(canon_unqual(src))
+        if inner == &null || inner->is_dependent() {
+            return false
+        }
+
+        var cands = cxx::std::vector<*Decl>()
+        self.dyn()->ml.lookup(
+            inner,
+            DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown),
+            &cands,
+        )
+
+        var unsafe *et = self.dyn()->tu.strip_nullable(target)
+        for var i: usize = 0; i < cands.size(); ++i {
+            var *f? = dyn_cast<FunctionDecl>(cands[i])
+            if f == &null {
+                continue
+            }
+
+            var unsafe *uf = unsafe (cast<FunctionDecl>(cands[i]) as unsafe *FunctionDecl)
+            if decl_extension_of(uf) != &null {
+                if self.dyn()->conv.conversion_yields(
+                    uf,
+                    canon_unqual(inner),
+                    canon_unqual(et),
+                ) {
+                    return true
+                }
+
+                continue
+            }
+
+            var rt = self.dyn()->fn_return_type(f)
+            if rt != &null && rt->is_dependent() {
+                var sb = Substitution(self.dyn()->sc)
+                sb.bind_from_record(inner)
+                var srt = sb.substitute(rt)
+                if srt != &null {
+                    rt = srt
+                }
+            }
+
+            if rt != &null && rt == et {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// SC027E on `x as U` from a `T?` not proven non-null where `T`
+    /// converts to `U`: the conversion takes the value, which this read
+    /// does not have. Always null.
+    priv fn _unproven_value_cast(self,
+                                 n:      unsafe *TypeCastExpr,
+                                 src:    unsafe *Type,
+                                 target: unsafe *Type) -> unsafe *Type {
+        var ss = self._src_name(n->null_lift, n->operand, src)
+        var ts = self.dyn()->tu.str(target)
+        var vs = self.dyn()->tu.str(
+            self.dyn()->tu.nullable_inner(canon_unqual(src)),
+        )
+
+        var b = self.dyn()->sc->diag->report(
+            DiagID::SC027E,
+            n->range.start,
+            f"no conversion from '{ss}' to '{ts}': '{vs}' converts, but this '{ss}' may be null",
+        )
+
+        b.first(n->range)
+        if self.dyn()->tu.nullable_inner(canon_unqual(target)) == &null {
+            b.note(
+                n->operand->range.start,
+                f"test it for null first ('if x?' proves it), supply a value with '??', or cast to '{ts}?' to keep null",
+            )
+        } else {
+            b.note(
+                n->operand->range.start,
+                "test it for null first ('if x?' proves it), or supply a value with '??'",
+            )
+        }
+
+        b.emit()
+        n->poison()
+        return &null
     }
 
     /// `s as [T]` (or `[T]?`) from a slice: SC027E. `target` is the vector,
@@ -1018,7 +1173,7 @@ pub class <T: type> CastTyping {
             var b = self.dyn()->sc->diag->report(
                 DiagID::SC027E,
                 n->range.start,
-                f"a slice does not cast to a vector, and '{self.dyn()->tu.str(src)}' does not hold the elements of '{vec}'",
+                f"a slice does not cast to a vector, and '{self._src_name(n->null_lift, n->operand, src)}' does not hold the elements of '{vec}'",
             )
 
             b.first(n->range)
@@ -1039,7 +1194,7 @@ pub class <T: type> CastTyping {
             b.fix(
                 n->range,
                 f"{vec}::from_slice({text})",
-                f"copy the '{self.dyn()->tu.str(src)}' into a new '{vec}'",
+                f"copy the '{self._src_name(n->null_lift, n->operand, src)}' into a new '{vec}'",
             )
         }
 
@@ -1071,7 +1226,7 @@ pub class <T: type> CastTyping {
         self.dyn()->fail(
             n,
             DiagID::SC027E,
-            f"no conversion from '{self.dyn()->tu.str(src)}' to '{self.dyn()->tu.str(target)}'",
+            f"no conversion from '{self._src_name(n->null_lift, n->operand, src)}' to '{self.dyn()->tu.str(target)}'",
         )
 
         return &null
@@ -1267,7 +1422,7 @@ pub class <T: type> CastTyping {
             self.dyn()->sc->diag->report(
                 DiagID::SC030E,
                 n->range.start,
-                f"cast from '{self.dyn()->tu.str(src)}' to '{self.dyn()->tu.str(target)}' drops '{what}' from the pointee '{self.dyn()->tu.str(lost)}'",
+                f"cast from '{self._src_name(n->null_lift, n->operand, src)}' to '{self.dyn()->tu.str(target)}' drops '{what}' from the pointee '{self.dyn()->tu.str(lost)}'",
             ).first(n->range)->note(
                 n->range.start,
                 "'as' can add 'const' to a pointee, never remove it, and cannot add it on one level while removing it on another; that is a reinterpret: 'as unsafe *T' inside an 'unsafe' block",
@@ -1279,7 +1434,7 @@ pub class <T: type> CastTyping {
         self.dyn()->sc->diag->report(
             DiagID::SC030E,
             n->range.start,
-            f"cast from '{self.dyn()->tu.str(src)}' to '{self.dyn()->tu.str(target)}' adds 'const' below a pointer that is not 'const'",
+            f"cast from '{self._src_name(n->null_lift, n->operand, src)}' to '{self.dyn()->tu.str(target)}' adds 'const' below a pointer that is not 'const'",
         ).first(n->range)->note(
             n->range.start,
             "the result could store a '*const T' through a '*T'; make every level above the added 'const' 'const' too",
@@ -1300,6 +1455,12 @@ pub class <T: type> CastTyping {
                            src:      *Type,
                            target:   unsafe *Type,
                            expected: unsafe *Type) {
+        // A lifted cast judged `T`; its operand is the `T?`, which no
+        // slot takes implicitly where the cast is needed at all.
+        if n->null_lift {
+            return
+        }
+
         n->widening = true
         if expected == &null {
             return
