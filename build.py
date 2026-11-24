@@ -438,6 +438,24 @@ def cross_dir(target: str) -> Path:
     return ROOT / "build" / "cross-llvm" / target
 
 
+def bitcode_producer_major(archive: Path) -> int:
+    """The major version of the clang that wrote the bitcode in archive (its first
+    llvm.ident), or 0 when it holds none (native objects, or no archive)."""
+    try:
+        with open(archive, "rb") as f:
+            head = f.read(8 << 20)
+    except OSError:
+        return 0
+    m = re.search(rb"clang version (\d+)\.", head)
+    return int(m.group(1)) if m else 0
+
+
+def llvm_major(llvm_build: Path) -> int:
+    m = re.search(r"^#define LLVM_VERSION_MAJOR (\d+)",
+                  (llvm_build / "include" / "llvm" / "Config" / "llvm-config.h").read_text(), re.M)
+    return int(m.group(1)) if m else 0
+
+
 def cross_llvm_args(llvm_src: Path, target: str) -> list:
     llvm_build = cross_dir(target) / "llvm"
     deps = cross_dir(target) / "deps" / "prefix"
@@ -474,6 +492,25 @@ def cross_llvm_args(llvm_src: Path, target: str) -> list:
     # refers to, and the link ends in undefined symbols. Nothing live refers to such a
     # definition, so section GC discards it before lld scans its relocations.
     a += ["-fgc-sections"]
+    # Section GC is not enough for such archives. The thin link also marks dead
+    # symbols that a kept definition still calls, and lld's COFF driver reports
+    # undefined symbols before it collects sections: the Windows links, and the
+    # ELF links whose kept callers are live, end in undefined symbols. Without
+    # the dead-symbol analysis nothing is dropped before the backends and every
+    # reference resolves; section GC then removes what nothing reaches. Only an
+    # archive written by a clang older than the LLVM it is linked with needs it.
+    if 0 < bitcode_producer_major(llvm_build / "lib" / "libLLVMSupport.a") < llvm_major(llvm_build):
+        # In a response file the linker expands itself, so the link stays in the
+        # seed's process. An argv that names -mllvm is linked out of process
+        # through kld, and past the command-line limit a seed may hand lld's
+        # MinGW driver --rsp-quoting, which it rejects. The option changes LLVM's
+        # global state in the seed, which runs nothing LLVM-backed after the link.
+        rsp = ROOT / "build" / "lto-compute-dead.rsp"
+        text = "-mllvm\n-compute-dead=false\n"
+        if not rsp.is_file() or rsp.read_text() != text:
+            rsp.parent.mkdir(parents=True, exist_ok=True)
+            rsp.write_text(text)
+        a += [f"--ld-flags=@{rsp}"]
     # No mimalloc object here: the Kairo runtime (Lib/rt/mimalloc.c) already is mimalloc
     # and replaces malloc on ELF, so a Kairo binary has it; a second copy is duplicate
     # symbols. cross_llvm.py links one into the LLVM tools (clang, lld), which are not Kairo.
