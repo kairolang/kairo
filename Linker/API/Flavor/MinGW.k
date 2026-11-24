@@ -8,9 +8,10 @@
 ///   argv[0] stays ld.lld. lld's dispatcher hands a GNU-flavor link whose
 ///   -m names a PE emulation (i386pep, i386pe, arm64pe, thumb2pe) to its
 ///   MinGW driver, which translates GNU options into lld-link's. The
-///   runner, kld's -flavor gnu and posix response-file quoting carry over
-///   unchanged: the dispatcher expands response files before it looks for
-///   -m.
+///   runner and kld's -flavor gnu carry over unchanged: the dispatcher
+///   expands response files before it looks for -m. The MinGW driver has
+///   no --rsp-quoting; it reads a response file GNU-style on every host
+///   but Windows, so the runner passes it none.
 ///
 ///   Order follows clang's MinGW linker order, so a line from here lines up
 ///   against `clang++ --target=x86_64-w64-mingw32 -fuse-ld=lld -###`:
@@ -537,7 +538,7 @@ pub class MinGWArgs {
                                  @inout argv: cxx::std::vector<string>,
                                  @inout msgs: cxx::std::vector<LinkMessage>) {
         var cxx_v: [string]
-        var libc: [string]
+        var libc:  [string]
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
                 msgs.push_back(
@@ -549,7 +550,7 @@ pub class MinGWArgs {
             }
 
             cxx_v = tc.manifest.libcxx_link.copy()
-            libc = tc.manifest.libc_link.copy()
+            libc  = tc.manifest.libc_link.copy()
         } else {
             cxx_v.push("-lc++")
             if tc.unwindlib == "libunwind" {

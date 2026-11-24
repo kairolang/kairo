@@ -193,8 +193,8 @@ pub class LLDRunner {
 
         // kld is a generic lld: the flavor goes in as -flavor at argv[1],
         // which lld reads before any response file is expanded.
-        var flavor = LLDRunner::flavor_of(argv[0])
-        var rest: [string]
+        var flavor          = LLDRunner::flavor_of(argv[0])
+        var rest:  [string]
         for var i: usize = 1; i < argv.size(); ++i {
             rest.push(argv[i].copy())
         }
@@ -242,8 +242,11 @@ pub class LLDRunner {
             args.push("-flavor")
             args.push(flavor.copy())
             // quote_rsp escapes backslashes GNU-style. lld-link defaults to
-            // Windows tokenization, which would keep both of them.
-            if flavor == "gnu" || flavor == "wasm" || flavor == "link" {
+            // Windows tokenization, which would keep both of them. lld's
+            // MinGW driver has no --rsp-quoting and rejects it; it reads a
+            // response file GNU-style on every host but Windows.
+            var mingw = flavor == "gnu" && LLDRunner::_names_pe_emulation(&rest)
+            if (flavor == "gnu" && !mingw) || flavor == "wasm" || flavor == "link" {
                 args.push("--rsp-quoting=posix")
             }
 
@@ -313,6 +316,24 @@ pub class LLDRunner {
         }
 
         return res
+    }
+
+    /// True when a GNU-flavor argv names a PE emulation: lld then hands the
+    /// link to its MinGW driver (lld's isPETargetName).
+    priv static fn _names_pe_emulation(@inout args: [string]) -> bool {
+        for var i: usize = 0; (i + 1) < args.size(); ++i {
+            if args[i] == "-m" {
+                var e = args[i + 1].copy()
+                return e == "i386pe"
+                    || e == "i386pep"
+                    || e == "thumb2pe"
+                    || e == "arm64pe"
+                    || e == "arm64ecpe"
+                    || e == "arm64xpe"
+            }
+        }
+
+        return false
     }
 
     priv static fn _fits(@inout args: [string]) -> bool {
