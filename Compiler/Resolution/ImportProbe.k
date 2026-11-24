@@ -1360,10 +1360,12 @@ pub class ImportResolver {
         return out
     }
 
-    /// The module.k files whose pins this resolver has read.
+    /// The module.k files whose pins this resolver has read. A copy: the
+    /// resolver keeps its list, which reads_pin_of answers from after the
+    /// live check has listed the pins as inputs.
     pub fn pin_files(self) -> cxx::std::vector<string> {
         var lock = kairo::std::LockGuard(self._mu)
-        return self._pin_files
+        return copy_strings(self._pin_files)
     }
 
     /// Whether `path` is a module.k whose pin this resolver has read, by

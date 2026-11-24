@@ -473,8 +473,9 @@ pub class CompilerInstance {
         )
     }
 
-    /// Takes ownership of `inv` (by copy) and stands up everything whose
-    /// construction depends on it. Shared tail of both constructors.
+    /// Takes ownership of `inv` (by move: `*inv` is left moved-from) and
+    /// stands up everything whose construction depends on it. Shared tail of
+    /// both constructors.
     priv fn _adopt(self, inv: unsafe *CompilerInvocation) {
         if inv != &null {
             *self.invocation() = cxx::std::move(*inv)

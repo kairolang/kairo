@@ -69,10 +69,6 @@ pub class DiagCode {
         return self._id
     }
 
-    fn meta(self) -> DiagMeta {
-        return self._meta
-    }
-
     pub fn category(const self) -> DiagCategory {
         return self._meta.category
     }
