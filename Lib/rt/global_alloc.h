@@ -24,7 +24,11 @@
  *   null return, never an abort; a failed resize or realloc leaves the
  *   block untouched; every function is thread-safe. resize never moves
  *   the block (false: nothing changed); realloc may (null: nothing
- *   changed).
+ *   changed). Every function returns with the scoped-allocator stack as
+ *   it found it: one that opens a scope closes it before it returns. The
+ *   optimiser's alloc-split pass relies on this: it treats a call to
+ *   these as one that cannot open or close a scope, so the scope test
+ *   before an allocation still holds at the free after it.
  *
  *   Without LTO a Global call is one direct call to these; with LTO the
  *   forwarder and, where A's functions are inline, A itself inline into

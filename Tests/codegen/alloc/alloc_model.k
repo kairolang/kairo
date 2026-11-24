@@ -5,10 +5,13 @@
 // block reads as zero, and a store into a block that is freed next is dead.
 //
 // A block the function does not own outright stays: one returned, one
-// stored in a global. So does every block whose allocator is chosen at run
-// time: a plain `@create` (from the innermost open scope, else the global
-// heap) and a scoped arena's. Those shapes are checked twice under the same
-// lines, with the pass on and with --disable-kairo-pass=alloc-model.
+// stored in a global. Those shapes are checked twice under the same lines,
+// with the pass on and with --disable-kairo-pass=alloc-model. A block whose
+// allocator is chosen at run time, a plain `@create`'s (the innermost open
+// scope's, else the global heap's) and a scoped arena's, keeps the scope's
+// calls with the pass on and off; the global heap's allocation on the
+// no-scope path stays with the pass off, and with it on AllocSplit
+// (alloc_split.k) may remove it.
 //
 // The program prints the same at -O0 and at -O2. Every allocation in it
 // succeeds; one that would fail and is removed at -O2 succeeds there
@@ -182,6 +185,12 @@ fn main() -> i32 {
 // OFF-LABEL: define {{.*}}@_ZN11alloc_model15store_then_freeEPh(
 // OFF:       store i64 42
 // OFF:       call void @mi_free_small_nonnull(
+// OFF-LABEL: define {{.*}}@_ZN11alloc_model5plainEl(
+// OFF-NOT:   {{^}}}
+// OFF:       call {{.*}}@mi_malloc_small(
+// OFF-LABEL: define {{.*}}@_ZN11alloc_model6scopedEl(
+// OFF-NOT:   {{^}}}
+// OFF:       call {{.*}}@mi_malloc_small(
 
 // STAYS-LABEL: define {{.*}}@_ZN11alloc_model7escapesEl(
 // STAYS:       call {{.*}}@mi_malloc_small(
@@ -191,14 +200,12 @@ fn main() -> i32 {
 // STAYS:       store ptr %{{.*}}, ptr @_ZN11alloc_model4keepE
 // STAYS:       {{^}}}
 // STAYS-LABEL: define {{.*}}@_ZN11alloc_model5plainEl(
-// STAYS:       call {{.*}}@mi_malloc_small(
 // STAYS:       call noundef ptr %{{[0-9a-z.]+}}(i64 noundef 16, i64 noundef 8)
 // STAYS:       call void @mi_free_small_nonnull(
 // STAYS:       call void @_ZN7builtin9alloc_raw11free_scopedEPhmm(
 // STAYS:       {{^}}}
 // STAYS-LABEL: define {{.*}}@_ZN11alloc_model6scopedEl(
 // STAYS:       call {{.*}}@_ZN7builtin9alloc_raw10scope_push
-// STAYS:       call {{.*}}@mi_malloc_small(
 // STAYS:       call noundef ptr %{{[0-9a-z.]+}}(i64 noundef 16, i64 noundef 8)
 // STAYS:       call void @mi_free_small_nonnull(
 // STAYS:       call void @_ZN7builtin9alloc_raw11free_scopedEPhmm(
