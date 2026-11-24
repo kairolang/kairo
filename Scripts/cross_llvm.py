@@ -44,6 +44,11 @@ from build_llvm import EXPERIMENTAL_TARGETS, TARGETS  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 HOST_TRIPLE = "x86_64-linux-gnu"
 NATIVE_BIN = ROOT / "build" / "llvm" / "bin"
+# LLVM_BUILD_TOOLS=OFF and CLANG_BUILD_TOOLS=OFF leave every tool out of `all`, so each one
+# the release needs is named: the clang driver, the two tools the tests use (build_llvm.py's
+# TEST_TOOLS), llvm-ar (a tree archives with its own tools) and llvm-symbolizer, which
+# package_release.py ships in every archive.
+NINJA_TARGETS = ["all", "clang", "llvm-nm", "llvm-objdump", "llvm-ar", "llvm-symbolizer"]
 
 def find_kcc() -> Path:
     """The kcc that builds LLVM: the SEED's (build.py find_seed: build/<host>/N-1, else
@@ -202,7 +207,8 @@ def build_deps(triple: str, out: Path, kcc: Path, march: list, jobs: int) -> Non
 
 
 def build_llvm(triple: str, out: Path, kcc: Path, march: list, jobs: int, link_jobs: int,
-               src: Path = ROOT / "Lib/llvm-runtimes", native_bin: Path = NATIVE_BIN) -> None:
+               src: Path = ROOT / "Lib/llvm-runtimes", native_bin: Path = NATIVE_BIN,
+               targets: list = None) -> None:
     system = FAMILIES[triple][0]
     prefix = out / "deps" / "prefix"
     if not (prefix / "lib" / "libzstd.a").exists():
@@ -256,11 +262,7 @@ def build_llvm(triple: str, out: Path, kcc: Path, march: list, jobs: int, link_j
         # does not yet take Apple's -dynamiclib: libLTO.dylib linked as an
         # executable ("undefined symbol: main").
         args += ["-DLLVM_TOOL_LTO_BUILD=OFF", "-DLLVM_TOOL_REMARKS_SHLIB_BUILD=OFF"]
-    # CLANG_BUILD_TOOLS=OFF leaves the clang driver out of `all`; the staged tree ships it,
-    # the two tools the tests use (build_llvm.py's TEST_TOOLS) and llvm-ar, so a tree can
-    # archive with its own tools.
-    cmake_build(src / "llvm", bld, tc, args,
-                ["all", "clang", "llvm-nm", "llvm-objdump", "llvm-ar"], jobs, out / "llvm.log")
+    cmake_build(src / "llvm", bld, tc, args, targets or NINJA_TARGETS, jobs, out / "llvm.log")
     log(f"llvm ready in {bld}")
 
 
@@ -287,6 +289,9 @@ def main() -> None:
     ap.add_argument("--parallel", type=int, default=3, metavar="N",
                     help="build up to N triples at once, splitting -j between them (default 3); "
                          "1 builds them in order, as before")
+    ap.add_argument("--ninja-targets", default=",".join(NINJA_TARGETS),
+                    help="comma-separated ninja targets of the LLVM step (default: %(default)s); "
+                         "with --out-root, builds one tool without touching the shipping LLVM")
     ap.add_argument("--log-dir", default=None,
                     help="with --parallel > 1: one <triple>.log per build here")
     a = ap.parse_args()
@@ -328,7 +333,8 @@ def main() -> None:
         if a.step in ("all", "deps"):
             build_deps(t, out, kcc, march, a.jobs)
         if a.step in ("all", "llvm"):
-            build_llvm(t, out, kcc, march, a.jobs, link_jobs, src, native_bin)
+            build_llvm(t, out, kcc, march, a.jobs, link_jobs, src, native_bin,
+                       [x for x in a.ninja_targets.split(",") if x])
 
 
 def run_parallel(triples: list, n: int, a, kcc: Path, src: Path, out_root: Path, native_bin: Path) -> None:
@@ -347,7 +353,8 @@ def run_parallel(triples: list, n: int, a, kcc: Path, src: Path, out_root: Path,
     def one(t: str):
         argv = [sys.executable, str(Path(__file__).resolve()), t, "--parallel", "1", "--kcc", str(kcc),
                 "--step", a.step, "-j", str(jobs), "--link-jobs", str(link_jobs),
-                "--src", str(src), "--out-root", str(out_root), "--native-bin", str(native_bin)]
+                "--src", str(src), "--out-root", str(out_root), "--native-bin", str(native_bin),
+                "--ninja-targets", a.ninja_targets]
         if a.march:
             argv.append(f"--march={a.march}")
         logfile = logs / f"{t}.log"
