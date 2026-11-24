@@ -1676,9 +1676,11 @@ def main() -> int:
     llvm_build = ROOT / "build" / "llvm"
     llvm_src = ROOT / "Lib" / "llvm-runtimes"
     kbld_dir = ROOT / "build" / ".kbld"
-    # Reproducible: the generated meta lives under --out (the shared build/.gen would make
-    # two builds race and leak the other's text); the out prefix is remapped.
-    gen_dir = (out / "gen") if repro else ROOT / "build" / ".gen"
+    # The generated meta lives under --out: builds that run at once (two targets, two
+    # tools' trees) would otherwise race on one shared file and compile each other's
+    # text, whose section syntax is per object format. Reproducible: the out prefix is
+    # remapped.
+    gen_dir = out / "gen"
     out_lib = out / "lib"
     (out / "bin").mkdir(parents=True, exist_ok=True)
     out_lib.mkdir(parents=True, exist_ok=True)
