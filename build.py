@@ -1040,22 +1040,6 @@ def _release_triples(host: str) -> list:
     return [rt] if rt == host else [rt, host]
 
 
-def find_seed(triple: str) -> Path:
-    """The SEED: build/<host>/N-1/bin/kairo if there is one (the last
-    release, backed up when the newest was built), else build/<host>/release, else
-    `kairo` on PATH. Its kcc builds LLVM (cross_llvm.find_kcc) and its kairo starts a
-    release's staging step."""
-    for t in _release_triples(triple):
-        for m in ("N-1", "release"):
-            p = ROOT / "build" / t / m / "bin" / f"kairo{EXE}"
-            if p.exists():
-                return p
-    onpath = shutil.which("kairo")
-    if onpath:
-        return Path(onpath)
-    die(f"no seed: no build/<host>/{{N-1,release}}/bin/kairo and no kairo on PATH")
-
-
 _FLAG_PROBE: dict = {}
 
 
@@ -1187,10 +1171,12 @@ def tree_library_args(src: Path, lib_dir=None) -> list:
 
 def find_kairo(arg, triple: str) -> Path:
     """The compiler a build uses: --kairo, else $KAIRO_SEED, else
-    build/<host>/release/bin/kairo (the last good release), else whatever `kairo` is on
-    PATH. The `kcc` beside it is what builds LLVM (Scripts/cross_llvm.py, find_kcc).
-    Note PATH may still be Stage 0 (/usr/local/bin/kairo), which cannot build this tree;
-    the first release run then needs --kairo."""
+    build/<host>/release/bin/kairo (the last good release), else build/<host>/N-1/bin/kairo
+    (the backup a release run leaves), else whatever `kairo` is on PATH. The `kcc` beside
+    it is what builds LLVM (Scripts/cross_llvm.py, find_kcc). release comes before N-1:
+    a release promoted out of place (built elsewhere and renamed over release/) leaves
+    N-1 at an older compiler. Neither tree is safe to read while a release run rewrites
+    release/ (step 4 below); that run passes its own kcc to cross_llvm.py."""
     for c in (arg, os.environ.get("KAIRO_SEED")):
         if c:
             p = Path(c)
@@ -1198,13 +1184,14 @@ def find_kairo(arg, triple: str) -> Path:
                 die(f"no compiler at {p}")
             return p
     for t in _release_triples(triple):
-        rel = ROOT / "build" / t / "release" / "bin" / f"kairo{EXE}"
-        if rel.exists():
-            return rel
+        for m in ("release", "N-1"):
+            p = ROOT / "build" / t / m / "bin" / f"kairo{EXE}"
+            if p.exists():
+                return p
     onpath = shutil.which("kairo")
     if onpath:
         return Path(onpath)
-    die(f"no compiler: no build/<host>/release/bin/kairo and no kairo on PATH; pass --kairo or set KAIRO_SEED")
+    die(f"no compiler: no build/<host>/{{release,N-1}}/bin/kairo and no kairo on PATH; pass --kairo or set KAIRO_SEED")
 
 
 def link_sysroot(out: Path, triple: str, prog, compiler: Path = None) -> None:
@@ -1292,7 +1279,7 @@ def reproducible_args(os_: str, epoch: int, src: Path, out: Path) -> list:
 #                                        compiler, permanent cache build/<triple>/cache/debug.
 #   python3 build.py [--release]         the two-stage release:
 #       1. clear the release caches
-#       2. snapshot build/<triple>/release -> build/<triple>/N-1 (the backup, and the seed)
+#       2. snapshot build/<triple>/release -> build/<triple>/N-1 (the backup, and step 3's seed)
 #       3. N-1 builds kairo alone          -> build/<triple>/staging
 #       4. clear the release cache; staging builds the toolchain -> build/<triple>/release
 #       5. point the toolchain on PATH at it (unless --no-path)
@@ -1488,7 +1475,7 @@ def _cross_llvm_ready(a, host: str, target: str) -> bool:
     built by the seed's kairo into build/<host>/staging."""
     if not _cross_llvm_stale(target):
         return True
-    seed = find_seed(host)
+    seed = find_kairo(None, host)
     kcc = seed.parent / f"kcc{EXE}"
     if not kcc.exists():
         stg = ROOT / "build" / host / "staging"

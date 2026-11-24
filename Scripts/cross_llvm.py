@@ -24,8 +24,8 @@ native sub-build runs. The tablegens must be the same LLVM version as the source
 
 Every compile, C, C++ and assembly, goes through kcc (LLVM is always
 built by kcc; kcc assembles in-process). The default kcc is the one beside the
-compiler build.py uses (build/<host>/release/bin, else PATH): build.py --release never
-rewrites that tree until its replacement has fully built (N-1 holds the backup).
+compiler build.py uses (find_kcc). build.py --release rewrites build/<host>/release, so a
+release run passes --kcc rather than reading that tree.
 """
 import argparse
 import os
@@ -51,12 +51,12 @@ NATIVE_BIN = ROOT / "build" / "llvm" / "bin"
 NINJA_TARGETS = ["all", "clang", "llvm-nm", "llvm-objdump", "llvm-ar", "llvm-symbolizer"]
 
 def find_kcc() -> Path:
-    """The kcc that builds LLVM: the SEED's (build.py find_seed: build/<host>/N-1, else
-    build/<host>/release, else PATH). Never a tree a running build rewrites:
-    build.py --release keeps the last good compiler until the new one has fully built."""
+    """The kcc that builds LLVM: the one beside the seed (build.py find_kairo: $KAIRO_SEED,
+    else build/<host>/release, else build/<host>/N-1, else PATH), else kcc on PATH. A
+    release run rewrites build/<host>/release, so it passes --kcc."""
     sys.path.insert(0, str(ROOT))
     import build
-    kairo = build.find_seed(build.host_triple())
+    kairo = build.find_kairo(None, build.host_triple())
     kcc = kairo.parent / ("kcc" + build.EXE)
     if not kcc.exists():
         found = shutil.which("kcc")
@@ -270,8 +270,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("triple", choices=sorted(FAMILIES))
     ap.add_argument("triples", nargs="*", help="more triples, built in order after the first")
-    ap.add_argument("--kcc", help="the kcc that compiles everything (default: beside build.py's compiler, "
-                                  "build/<host>/release/bin, else PATH)")
+    ap.add_argument("--kcc", help="the kcc that compiles everything (default: the one beside build.py's seed: "
+                                  "$KAIRO_SEED, else build/<host>/release/bin, else build/<host>/N-1/bin, "
+                                  "else kcc on PATH)")
     ap.add_argument("--march", help="override the CPU floor flags, e.g. '-march=x86-64-v3'")
     ap.add_argument("--step", choices=["all", "deps", "llvm"], default="all")
     ap.add_argument("--src", default=str(ROOT / "Lib" / "llvm-runtimes"),
@@ -306,7 +307,7 @@ def main() -> None:
     if not real.exists():
         die(f"no kcc at {real}")
     # CMake bakes the compiler path into the configure (and cmake_build's stamp), so a
-    # seed that moved (N-1 one run, release the next) would rebuild all of LLVM. Every
+    # kcc that moved between runs (another release tree, a --kcc) would rebuild all of LLVM. Every
     # build goes through one fixed link instead, repointed at whichever kcc this run
     # uses; kcc finds its tree from the real binary, not the link.
     kcc = out_root / ".kcc"

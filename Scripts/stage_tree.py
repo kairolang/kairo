@@ -24,7 +24,10 @@
 # debug:   builtin, std and rt are RELATIVE SYMLINKS into Lib/, so a debug
 #          kairo run with no flags sees the edit loop's current Lib/, exactly
 #          as lit does with its explicit roots; a copy would go stale until
-#          the next build. The resource dir and the tools are copies in both.
+#          the next build. The shared libraries bundled from the LLVM build
+#          (libLLVM, libclang-cpp) are symlinks to it too. A tree is a debug
+#          one when it is named debug or build.py stages it with
+#          KBLD_MODE=debug. The resource dir and the tools are copies in both.
 #
 # The tool list is what build_llvm.py builds: LLVM_BUILD_TOOLS=OFF leaves
 # llvm-ar, llvm-strip, llvm-symbolizer, ... out of build/llvm/bin, and this
@@ -418,6 +421,32 @@ def copy_dep(src: Path, dst: Path) -> None:
     log(f"bundled {dst.name} <- {src}")
 
 
+def link_dep(src: Path, dst: Path) -> None:
+    # Relative, like lib/std, and to the resolved file: the link is one hop,
+    # and a soname alias in the LLVM build can change without breaking it.
+    target = os.path.relpath(src.resolve(), dst.parent)
+    if dst.is_symlink() and os.readlink(dst) == target:
+        return
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    os.symlink(target, dst)
+    log(f"linked {dst.name} -> {target}")
+
+
+def from_llvm_build(path: Path) -> bool:
+    return path.resolve().is_relative_to(LLVM_BUILD.resolve())
+
+
+def links_out_of(f: Path, lib: Path) -> bool:
+    """f is a symlink to a file outside lib/ (a debug tree's linked dep), not a
+    soname alias inside it (libLLVM.so -> libLLVM.so.23.1)."""
+    # Lexical, one hop: an alias resolves through the linked dep it names.
+    if not f.is_symlink():
+        return False
+    target = Path(os.path.normpath(f.parent / os.readlink(f)))
+    return not target.is_relative_to(Path(os.path.normpath(lib)))
+
+
 # --- Linux ------------------------------------------------------------------
 
 def elf_dynamic(f: Path) -> tuple[bool, list[str]]:
@@ -459,17 +488,28 @@ def ldd(f: Path) -> tuple[list[tuple[str, str]], list[str]]:
     return found, missing
 
 
-def bundle_linux(tree: Path, lib: Path) -> list[str]:
+def bundle_linux(tree: Path, lib: Path, link: bool) -> list[str]:
+    # link (a debug tree): what comes from the LLVM build is a symlink to it,
+    # not a copy; libLLVM, libclang-cpp and libclang are about 290 MB per tree.
+    # The tree then runs on the LLVM build's current libraries and is not
+    # relocatable, like its lib/std. Patching never reaches the LLVM build:
+    # binaries() skips symlinks, so the linked files keep their own RUNPATH.
+    #
     # 0. Refresh what the tree already bundled from the LLVM build. Step 1 cannot:
     #    once a binary's RUNPATH is $ORIGIN/../lib, ldd resolves libLLVM.so to
     #    the tree's OWN copy, so a rebuilt LLVM was never copied in and binaries
-    #    linked against the new libs ran on the old ones (stage1.5/debug had the
-    #    pre-8f7e268 libLLVM / libclang-cpp). copy_dep unlinks first, so a
-    #    process still mapping the old file keeps its inode.
+    #    linked against the new libs ran on the old ones. copy_dep and link_dep
+    #    unlink first, so a process still mapping the old file keeps its inode.
+    #    A copy in a debug tree becomes a link, and a link in a release tree a
+    #    copy, since step 1 keeps any name that already resolves.
     src_lib = LLVM_BUILD / "lib"
     for f in sorted(lib.glob("lib*.so*")):
         src = src_lib / f.name
-        if src.is_file() and not f.is_symlink() and stale(src.resolve(), f):
+        if not src.is_file() or (f.is_symlink() and not links_out_of(f, lib)):
+            continue
+        if link:
+            link_dep(src, f)
+        elif f.is_symlink() or stale(src.resolve(), f):
             copy_dep(src, f)
 
     # 1. Copy non-system deps until nothing new resolves outside lib/.
@@ -480,9 +520,12 @@ def bundle_linux(tree: Path, lib: Path) -> list[str]:
             for name, path in ldd(f)[0]:
                 if LINUX_SYSTEM.match(name) or Path(path).parent.resolve() == lib.resolve():
                     continue
-                if (lib / name).exists():
+                if (lib / name).exists() and not (links_out_of(lib / name, lib) and not link):
                     continue
-                copy_dep(Path(path), lib / name)
+                if link and from_llvm_build(Path(path)):
+                    link_dep(Path(path), lib / name)
+                else:
+                    copy_dep(Path(path), lib / name)
                 added = True
 
     # 2. Normalize search paths: one relative entry, no absolute or empty ones.
@@ -680,7 +723,7 @@ def dangling_links(root: Path, prune: str | None) -> list[Path]:
     return out
 
 
-def bundle_tree(tree: Path) -> bool:
+def bundle_tree(tree: Path, link_deps: bool = False) -> bool:
     if not (tree / "bin").is_dir():
         return True
     lib = tree / "lib"
@@ -692,7 +735,7 @@ def bundle_tree(tree: Path) -> bool:
         log(f"{tree.name}: {TREE_OS} tree on a {HOST} host: not bundled")
         fails = []
     elif HOST == "Linux":
-        fails = bundle_linux(tree, lib)
+        fails = bundle_linux(tree, lib, link_deps)
     elif HOST == "Darwin":
         fails = bundle_darwin(tree, lib)
     else:
@@ -724,7 +767,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Stage clang, its resource dir and Lib/ into a build tree.")
     ap.add_argument("trees", nargs="*", help="tree directories (default: build/<triple>/$KBLD_MODE)")
     ap.add_argument("--all", action="store_true", help="stage both the debug and the release tree")
-    ap.add_argument("--copy", action="store_true", help="copy Lib/ trees even into a debug tree")
+    ap.add_argument("--copy", action="store_true",
+                    help="copy Lib/ trees and the LLVM build's shared libraries even into a debug tree")
     ap.add_argument("--no-bundle", action="store_true", help="stage only; skip bundling and its gates")
     ap.add_argument("--glibc-floor", metavar="X.Y",
                     help="fail (Linux) if any staged binary needs a glibc newer than X.Y "
@@ -750,10 +794,12 @@ def main() -> None:
     ok = True
     for t in trees:
         # Symlinks only where the tree is the edit loop's; a release tree is
-        # the one that ships.
-        link_lib = (t.name == "debug") and not a.copy and TREE_OS != "Windows"
+        # the one that ships. build.py names the tree it stages (--out may be
+        # any name) and says its mode in KBLD_MODE.
+        debug = t.name == "debug" or (bool(a.trees) and MODE == "debug")
+        link_lib = debug and not a.copy and TREE_OS != "Windows"
         stage_tree(t, link_lib)
-        if not a.no_bundle and not bundle_tree(t):
+        if not a.no_bundle and not bundle_tree(t, link_lib):
             ok = False
     if not ok:
         sys.exit(1)

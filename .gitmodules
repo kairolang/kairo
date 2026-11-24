@@ -17,7 +17,7 @@
 	path = Lib/llvm-runtimes
 	url = https://github.com/kairolang/llvm-project
 	shallow = true
-    branch = kairo-llvm-22.1.0
+	branch = kairo/23.1.6
 
 [submodule "Lib/rt/mimalloc"]
 	path = Lib/rt/mimalloc
