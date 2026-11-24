@@ -96,7 +96,7 @@ pub struct GlibcStep {
 /// glibc/crt/<era>/<arch>.toml (FORMAT.md "glibc/crt").
 pub struct GlibcCrtTable {
     pub var era:       string
-    pub var releases:  string                      ///< "2.17-2.32", "2.34-newest"
+    pub var releases:  string      ///< "2.17-2.32", "2.34-newest"
     pub var crt:       [string]
     pub var nonshared: [string]
     pub var compiles:  [GlibcStep]
@@ -186,7 +186,7 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         var libs: [GlibcLib]
-        var why  = ""
+        var why              = ""
         if !GlibcProvider::read_libs(abi.copy() + "/libs.toml", &libs, &why) {
             return out.refuse(f"share input {abi}/libs.toml: {why}", "")
         }
@@ -257,7 +257,7 @@ pub class GlibcProvider derives SysrootProvider {
 
         var links = SysJobs()
         for *l in libs {
-            var dir  = work.copy() + "/" + l->stem
+            var dir            = work.copy() + "/" + l->stem
             var argv: [string]
             argv.push(ctx->tool("kld"))
             argv.push("-flavor")
@@ -372,10 +372,10 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         var arches: [string]
-        var omit: [string]
-        var toml   = TomlLite(text)
-        var key    = ""
-        var val    = TomlValue{}
+        var omit:   [string]
+        var toml             = TomlLite(text)
+        var key              = ""
+        var val              = TomlValue{}
         while toml.next(&key, &val) {
             if toml.table.is_empty() && key == "arches" && val.kind == 3 {
                 arches = SysUtil::taken(&val.list)
@@ -496,10 +496,10 @@ pub class GlibcProvider derives SysrootProvider {
             )
         }
 
-        var v      = ctx->target.libc_version.copy()
-        var folded = !SysUtil::version_less(v, "2.34")
-        var libs: [GlibcLib]
-        var all: [[GlibcSym]]
+        var v                   = ctx->target.libc_version.copy()
+        var folded              = !SysUtil::version_less(v, "2.34")
+        var libs:  [GlibcLib]
+        var all:   [[GlibcSym]]
         for *stem in GlibcProvider::stems() {
             var l = GlibcLib{}
             l.stem = stem->copy()
@@ -511,7 +511,7 @@ pub class GlibcProvider derives SysrootProvider {
                        )
 
             var syms: [GlibcSym]
-            var file = ab.copy() + "/" + row.abi + "/" + *stem
+            var file             = ab.copy() + "/" + row.abi + "/" + *stem
             if LinkFS::is_file(file.copy() + ".abilist") {
                 var a = ""
                 var n = ""
@@ -631,7 +631,7 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         for var i: usize = 0; i < t.links.size(); ++i {
-            var *l   = &t.links[i]
+            var *l             = &t.links[i]
             var argv: [string]
             argv.push(ctx->tool("kld"))
             argv.push("-flavor")
@@ -1001,7 +1001,7 @@ pub class GlibcProvider derives SysrootProvider {
         }
 
         // default_rule: name -> its newest version.
-        var names: [string]
+        var names:  [string]
         var newest: [string]
         for *s in syms {
             var found = false
@@ -1094,8 +1094,10 @@ pub class GlibcProvider derives SysrootProvider {
             }
         }
 
-        // Nodes: libs.toml's order, then any other the symbols name.
-        var nodes = versions
+        // Nodes: libs.toml's order, then any other the symbols name. A copy:
+        // a plain `var nodes = versions` moves the caller's list out, and
+        // link_stubs reads it again to decide on --version-script.
+        var nodes           = versions.copy()
         var extra: [string]
         for *e in syms {
             if !SysUtil::contains(&nodes, e->version) && !SysUtil::contains(&extra, e->version) {
@@ -1203,8 +1205,8 @@ pub class GlibcProvider derives SysrootProvider {
     }
 
     priv static fn _words(const line: string) -> [string] {
-        var out: [string]
-        var start: usize = 0                          ///< where the current word begins
+        var out:   [string]
+        var start: usize    = 0 ///< where the current word begins
         for var i: usize = 0; i < line.size(); ++i {
             var ch = line.data()[i]
             if ch == (' ' as u8) || ch == ('\t' as u8) || ch == ('\r' as u8) {
