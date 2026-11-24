@@ -742,10 +742,10 @@ pub class JsonDoc {
             }
         }
 
-        var mant_end       = self.pos_
-        var ex:      usize = 0
-        var ex_neg         = false
-        var has_exp        = false
+        var mant_end     = self.pos_
+        var ex:      u64 = 0
+        var ex_neg       = false
+        var has_exp      = false
         if (self.pos_ < self.src_.size())
             && ((self.src_.data()[self.pos_] == ('e' as u8))
                 || (self.src_.data()[self.pos_] == ('E' as u8))) {
@@ -765,17 +765,18 @@ pub class JsonDoc {
                 return n
             }
 
-            // The accumulator stops growing past 2^40, far above any clamp.
+            // The accumulator stops growing past 2^40, far above any clamp;
+            // it is u64 so that bound fits on 32-bit targets too.
             for var i: usize = ex_start; i < self.pos_; ++i {
                 if ex < 0x10000000000 {
-                    ex = (ex * 10) + ((self.src_.data()[i] - 48) as usize)
+                    ex = (ex * 10) + ((self.src_.data()[i] - 48) as u64)
                 }
             }
         }
 
         var len      = self.pos_ - start
         var num: f64 = 0.0
-        if has_exp && (ex > (len + 400)) {
+        if has_exp && (ex > ((len + 400) as u64)) {
             // Past the token's own length plus the double's range the result
             // is infinity or zero whatever the exponent is, so a smaller
             // exponent of the same sign gives the same double without the
