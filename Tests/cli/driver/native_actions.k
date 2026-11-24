@@ -85,9 +85,9 @@ fn main() -> i32 { return 0 }
 // RUN: grep -q 'native_throw.cc' %t.d/pcano.txt
 // RUN: not grep -q -- '-fcxx-exceptions' %t.d/pcano.txt
 
-// Driver-produced -mllvm words survive: -masm=intel is one.
-// RUN: %kairo %S/inputs/native_ir.c -S --cxx-flags=-masm=intel --cache-dir %t.d/intel
-// RUN: %FileCheck %s --check-prefix=INTEL --input-file=%t.d/intel/native_ir.s
+// Driver-produced -mllvm words survive: -masm=intel (x86 only) is one.
+// RUN: %if host-x86_64 %{ %kairo %S/inputs/native_ir.c -S --cxx-flags=-masm=intel --cache-dir %t.d/intel %}
+// RUN: %if host-x86_64 %{ %FileCheck %s --check-prefix=INTEL --input-file=%t.d/intel/native_ir.s %}
 // INTEL: .intel_syntax
 
 // --Werror makes a C/C++ input's warnings errors.

@@ -8,7 +8,7 @@
 // prints its names; the exit code counts them. Each value comes out of
 // a call (one_S), so the casts are runtime conversions at -O0.
 //
-// XFAIL: *
+// XFAIL: host-x86_64
 // Waits on compiler-rt builtins the bundle lacks for f16 <-> i128/u128
 // casts. The casts are E (R5) and clang
 // lowers them to libcalls: L001E undefined symbol __fixhfti, __fixunshfti,
@@ -37,7 +37,7 @@ fn main() -> i32 {
 
 // --- lit wiring ---------------------------------------------------------
 // 4 pairs. -A SC031W: a lint, not the relation (lattice s8).
-// REQUIRES: clang, host-x86_64
+// REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -A SC031W -o %t.exe --cache-dir %t.d 2>&1 | %FileCheck %s --check-prefix=BUILD --allow-empty
 // BUILD-NOT: {{error|warning}}

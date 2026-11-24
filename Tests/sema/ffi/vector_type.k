@@ -26,3 +26,6 @@ fn sse(p: unsafe *const __m128i) -> i32 {
     var w = _mm_set1_epi8(65)
     return _mm_movemask_epi8(_mm_cmpeq_epi8(v, w))
 }
+
+// emmintrin.h is x86's.
+// REQUIRES: host-x86_64

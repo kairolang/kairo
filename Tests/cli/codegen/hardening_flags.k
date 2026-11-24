@@ -39,6 +39,7 @@ fn main() -> i32 { counter = 1; return 0 }
 // RUN: { %kairo %s -o %t.d/a.out -- -ftls-model=initial-exec 2>&1 || true; } | %FileCheck %s --check-prefix=DASH
 // DASH: '-ftls-model=initial-exec' after -- is an input, not a flag
 
-// cc1 takes them all: a real build links and runs.
-// RUN: %kairo %s -o %t.d/hard --cache-dir %t.d/c --stack-protector=strong --cf-protection=full --tls-model=initial-exec -fno-plt -fno-red-zone --trivial-auto-var-init=zero --zero-call-used-regs=used-gpr -fno-delete-null-pointer-checks
-// RUN: %t.d/hard
+// cc1 takes them all: a real build links and runs (--cf-protection is x86's).
+// RUN: %if host-x86_64 %{ %kairo %s -o %t.d/hard --cache-dir %t.d/c --stack-protector=strong --cf-protection=full --tls-model=initial-exec -fno-plt -fno-red-zone --trivial-auto-var-init=zero --zero-call-used-regs=used-gpr -fno-delete-null-pointer-checks %}
+// RUN: %if host-x86_64 %{ %t.d/hard %}
+// REQUIRES: sysroot-x86_64-linux-musl

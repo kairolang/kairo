@@ -129,7 +129,8 @@ fn main() -> i32 {
 // IR-DAG: __builtin_nan("")
 // IR-DAG: (- 9223372036854775807LL - 1)
 
-// REQUIRES: clang
+// limits_lib.k uses f80, which only x86 has.
+// REQUIRES: clang, host-x86_64
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d/c
 // RUN: %t.exe

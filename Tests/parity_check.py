@@ -90,6 +90,39 @@ def sysroot_header_roots(sysroot):
                      os.path.join(sysroot, "include")], []
 
 
+def default_sysroot(kairo_argv):
+    """(sysroot, target) a kairo with no --sysroot resolves for itself, as
+    its --print-dirs reports them ("sysroot: <dir> (manifest)", "target:
+    <triple>"); (None, None) if it names no sysroot or cannot be asked.
+
+    On macOS and Windows that is the bundled SDK / MinGW-w64 sysroot, and
+    the oracle has nothing else to go on: the LLVM build's clang knows no
+    SDK path (xcrun is Apple clang's trick), and lit's trimmed environment
+    drops SDKROOT, so a bare `clang -stdlib=libc++` finds no <vector> and
+    every parity case that includes the C++ library "diverges". The target
+    travels with it: a Windows clang defaults to MSVC, and MinGW headers
+    parsed as MSVC are not the headers kairo parsed.
+    """
+    # print-dirs ignores the input but the driver wants one; it is never read.
+    probe = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "parity_check.py")
+    try:
+        out = subprocess.run(kairo_argv + [probe, "--print-dirs"],
+                             capture_output=True, text=True,
+                             timeout=TIMEOUT).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+    facts = {}
+    for line in out.splitlines():
+        key, sep, val = line.partition(":")
+        if sep and key.strip() in ("sysroot", "target"):
+            facts.setdefault(key.strip(), val.strip())
+    sysroot = re.sub(r"\s*\([^)]*\)$", "", facts.get("sysroot", ""))  # " (manifest)"
+    if not sysroot or not os.path.isdir(sysroot):
+        return None, None
+    return sysroot, facts.get("target") or None
+
+
 def oracle_argv(clang, kairo_argv, cpp):
     """clang on the .cpp, seeing the SAME headers kairo's ffi imports see.
 
@@ -99,16 +132,23 @@ def oracle_argv(clang, kairo_argv, cpp):
     does discover them, and on a GCC host that means libstdc++ -- so the
     oracle was judging a different standard library than the one kairo
     parsed, and a verdict could agree or diverge for reasons neither compiler
-    controls. Mirror the roots from kairo's own flags; without them, fall
-    back to asking for libc++ and let clang find it.
+    controls. Mirror the roots from kairo's own flags. Without --sysroot,
+    on macOS and Windows mirror the sysroot kairo picks for itself
+    (default_sysroot); on Linux fall back to asking for libc++ and let clang
+    find it -- kairo's default there also searches the host's directories
+    after its glibc floor, which a pinned root list would not reproduce.
     """
-    sysroot = resource = None
+    sysroot = resource = target = None
     for a in kairo_argv:
         if a.startswith("--sysroot="):
             sysroot = a.split("=", 1)[1]
         elif a.startswith("--resource-dir="):
             resource = a.split("=", 1)[1]
+    if not sysroot and not sys.platform.startswith("linux"):
+        sysroot, target = default_sysroot(kairo_argv)
     argv = [clang, "-fsyntax-only", "-std=c++26", "-x", "c++"]
+    if target:
+        argv += ["-target", target]
     if sysroot:
         root, dirs, defines = sysroot_header_roots(sysroot)
         # Same split as CompilerInstance::_sysroot_header_roots; slashes

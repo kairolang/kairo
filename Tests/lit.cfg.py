@@ -165,6 +165,38 @@ _llvm_bin = os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "build", "llvm", "bin"))
 # Exposed for lit.local.cfg files (they do not see this module's globals).
 config.kairo_bin = kairo_bin
+
+# The compiler's default target triple, as `kairo --version` prints it. The
+# host-*, default-* and %datamodel facts below come from it, not from the
+# machine lit runs on: a compiler for another architecture (run through
+# binfmt and an emulator) builds and runs that architecture's programs.
+def _default_triple():
+    try:
+        out = subprocess.run([kairo_bin, "--version"], capture_output=True,
+                             text=True, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    for line in out.splitlines():
+        k, sep, v = line.partition(":")
+        if sep and k.strip() == "target triple":
+            return v.strip()
+    return ""
+
+_dt = _default_triple()
+_dt_arch = _dt.split("-")[0]
+
+# Scratch state a run keeps between tests (the kcc library cache, the
+# compiler-rt shim): beside the tree when the tree is a build output (it sits
+# under a build/ directory), else under this checkout's build/lit-external/
+# <tree hash>, so testing an installed compiler never writes into its install
+# prefix or the user's cache.
+_lit_state = os.path.dirname(os.path.dirname(os.path.dirname(kairo_bin)))
+if "build" not in os.path.realpath(_tree).split(os.sep):
+    import hashlib
+    _lit_state = os.path.join(config.test_source_root, "..", "build", "lit-external",
+                              hashlib.sha256(os.path.realpath(_tree).encode("utf-8"))
+                              .hexdigest()[:16])
+    _lit_state = os.path.normpath(_lit_state)
 # --- Locate FileCheck --------------------------------------------------------
 def _find_filecheck():
     p = lit_config.params.get("filecheck")
@@ -296,6 +328,50 @@ if os.path.isdir(_bundle):
         for _f in _sysroot_features(_triple or _d):
             config.available_features.add(_f)
 
+# A --target with no bundled sysroot is built by ksys on first use and cached
+# (Compiler/Spec/SysRoot.md), so the sysroots the toolchain can build count as
+# present too. `ksys probe <name>` answers that without building: exit 0 and
+# `supports: yes` (it needs the toolchain's share/kairo/sysroot inputs, and the
+# Apple and MSVC ones need an SDK this host has). The first test that needs
+# one pays for its build; parallel tests wait on the cache's lock.
+# --param sysroots=bundled counts only the bundled directories.
+_SYSROOT_NAMES = (
+    "x86_64-linux-musl", "x86_64-linux-gnu", "i686-linux-musl", "i686-linux-gnu",
+    "aarch64-linux-musl", "aarch64-linux-gnu", "armv7-linux-musl",
+    "armv7-linux-gnueabihf", "riscv64-linux-musl", "riscv64-linux-gnu",
+    "x86_64-windows-gnu", "i686-windows-gnu", "aarch64-windows-gnu",
+    "armv7-windows-gnu", "x86_64-windows-msvc", "i686-windows-msvc",
+    "aarch64-windows-msvc", "wasm32-wasi", "arm64-apple-macosx",
+    "arm64e-apple-macosx", "x86_64-apple-macosx", "x86_64-unknown-freebsd",
+    "aarch64-unknown-freebsd", "x86_64-unknown-netbsd")
+_sysroot_mode = lit_config.params.get("sysroots", "ondemand")
+if _sysroot_mode not in ("ondemand", "bundled"):
+    lit_config.fatal("--param sysroots=%s: expected ondemand or bundled" % _sysroot_mode)
+_ksys_probe = os.environ.get("KSYS_BIN") or os.path.join(os.path.dirname(kairo_bin), "ksys" + _exe)
+
+def _ksys_builds(name):
+    try:
+        r = subprocess.run([_ksys_probe, "probe", name], capture_output=True,
+                           text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and any(
+        l.split(":", 1)[0].strip() == "supports" and l.split(":", 1)[1].strip() == "yes"
+        for l in r.stdout.splitlines() if ":" in l)
+
+if _sysroot_mode == "ondemand" and os.path.isfile(_ksys_probe):
+    _todo = [n for n in _SYSROOT_NAMES
+             if not all(f in config.available_features for f in _sysroot_features(n))]
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as _pool:
+        _built = [n for n, ok in zip(_todo, _pool.map(_ksys_builds, _todo)) if ok]
+    for _n in _built:
+        for _f in _sysroot_features(_n):
+            config.available_features.add(_f)
+    if _built:
+        lit_config.note("sysroots ksys builds on first use: %s (--param sysroots=bundled "
+                        "skips their tests)" % " ".join(_built))
+
 # `%wine <exe> [args]` runs a Windows executable under Wine (Scripts/run_wine.py:
 # a private prefix, Wine from $KAIRO_WINE, PATH or Steam's Proton). The `wine`
 # feature is set when a tiny generated PE program (Scripts/mk_probe_exe.py,
@@ -407,8 +483,7 @@ if os.path.isdir(_clang_tests) and os.path.isfile(_bundled_clang):
 # on first use. One cache for the suite, under the build tree, never the
 # user cache directory; parallel tests that race to build it are safe (the
 # library is renamed into place).
-config.environment["KAIRO_CACHE_DIR"] = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(kairo_bin))), "lit-kairo-cache")
+config.environment["KAIRO_CACHE_DIR"] = os.path.join(_lit_state, "lit-kairo-cache")
 
 # --- C data model of the default target ---------------------------------------
 # C `long` is 64-bit on LP64 (64-bit Linux, macOS) and 32-bit on LLP64
@@ -416,40 +491,32 @@ config.environment["KAIRO_CACHE_DIR"] = os.path.join(
 # way that target's int64_t is spelled. Tests that check either pass
 # %datamodel to FileCheck and match [[CLONG]], [[CULONG]], [[CXX_I64]], so one
 # test states the right answer on every target instead of only on LP64.
+# Apple's LP64 spells int64_t `long long`, so its i64 is long long too.
 # (Not to kairo as -D types: a macro-expanded type does not yet bind an
 # untyped literal the way the same type written out does.)
-def _default_triple():
-    try:
-        out = subprocess.run([kairo_bin, "--version"], capture_output=True,
-                             text=True, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    for line in out.splitlines():
-        k, sep, v = line.partition(":")
-        if sep and k.strip() == "target triple":
-            return v.strip()
-    return ""
-
-_dt = _default_triple()
-_dt_arch = _dt.split("-")[0]
 if "windows" in _dt or "mingw" in _dt or "msvc" in _dt:
     _long, _cxx_i64 = 32, "signed long long"  # LLP64
 elif _dt_arch in ("i386", "i486", "i586", "i686", "x86", "riscv32", "wasm32") \
         or _dt_arch.startswith(("arm", "thumb")) and _dt_arch not in ("arm64", "arm64e"):
     _long, _cxx_i64 = 32, "signed long long"  # ILP32
+elif "-apple-" in _dt or "darwin" in _dt:
+    _long, _cxx_i64 = 64, "signed long long"  # LP64, int64_t is long long
 else:
     _long, _cxx_i64 = 64, "signed long"       # LP64
-config.substitutions.append(("%datamodel", "-DCLONG=i%d -DCULONG=u%d '-DCXX_I64=%s'"
-                             % (_long, _long, _cxx_i64)))
+config.substitutions.append(("%datamodel", "-DCLONG=i%d -DCULONG=u%d '-DCXX_I64=%s' '-DCXX_U64=%s'"
+                             % (_long, _long, _cxx_i64,
+                                _cxx_i64.replace("signed", "unsigned", 1))))
 
 # --- The default build's host system ------------------------------------------
-# `default-glibc`: a bare `kairo` builds for <arch>-unknown-linux-gnu against
-# the bundled glibc floor with the host's system dirs after it (a glibc Linux
-# host). `pkg-config`, `pkg-<name>`: pkg-config is installed and knows <name>,
+# `default-glibc` / `default-musl`: the C library of the default triple. With
+# glibc, a bare `kairo` builds for <arch>-unknown-linux-gnu against the bundled
+# glibc floor with the host's system dirs after it (a glibc Linux host). `pkg-config`, `pkg-<name>`: pkg-config is installed and knows <name>,
 # so a test of --pkg-config against a real host library is UNSUPPORTED, not
 # failed, on a machine without that library's development files.
 if _dt.endswith("-linux-gnu") or "-linux-gnueabi" in _dt:
     config.available_features.add("default-glibc")
+elif "-linux-musl" in _dt:
+    config.available_features.add("default-musl")
 _pkgconfig = shutil.which("pkg-config")
 if _pkgconfig:
     config.available_features.add("pkg-config")
@@ -464,14 +531,32 @@ if _pkgconfig:
 # For tests whose expectations are the HOST's ABI (f80 on x86, `long` int64_t,
 # size_t == uint64_t): `REQUIRES: host-x86_64`, `REQUIRES: host-linux`, so an
 # arm64 or Darwin host reports them UNSUPPORTED instead of failing on facts
-# the test never claimed to hold there.
-_host_os = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(
-    sys.platform, sys.platform)
+# the test never claimed to hold there. "Host" is the platform a bare kairo
+# builds for and the test then runs: the compiler's default triple, which is
+# the machine's own except for a compiler run under an emulator. Without a
+# triple, the machine lit runs on.
+def _triple_os(triple):
+    for c in triple.split("-")[1:]:
+        c = c.lower()
+        if c.startswith(("darwin", "macos", "ios")):
+            return "darwin"
+        if c.startswith(("windows", "mingw", "win32", "cygwin")):
+            return "windows"
+        if c in ("linux", "freebsd", "netbsd", "openbsd", "wasi"):
+            return c
+        if c.startswith(("freebsd", "netbsd", "openbsd")):
+            return c.rstrip("0123456789.")
+    return ""
+
+_ARCH_NAMES = {"x86_64": "x86_64", "amd64": "x86_64", "AMD64": "x86_64",
+               "arm64": "aarch64", "arm64e": "aarch64", "aarch64": "aarch64",
+               "ARM64": "aarch64"}
+_host_os = _triple_os(_dt) or {"linux": "linux", "darwin": "darwin",
+                               "win32": "windows"}.get(sys.platform, sys.platform)
 config.available_features.add("host-" + _host_os)
 import platform as _platform
-_host_arch = {"x86_64": "x86_64", "amd64": "x86_64", "AMD64": "x86_64",
-              "arm64": "aarch64", "aarch64": "aarch64", "ARM64": "aarch64"}.get(
-    _platform.machine(), _platform.machine())
+_host_arch = _dt_arch or _platform.machine()
+_host_arch = _ARCH_NAMES.get(_host_arch, _host_arch)
 config.available_features.add("host-" + _host_arch)
 
 # --- `timeout` on hosts without coreutils -------------------------------------
@@ -615,8 +700,7 @@ def _bundle_rt_dir(rd, triple, mtriple):
     have = os.path.join(rd, "lib", mtriple)
     if os.path.isdir(want) or not mtriple or not os.path.isdir(have):
         return rd
-    shim = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(kairo_bin))),
-                        "lit-compiler-rt", os.path.basename(os.path.dirname(rd)))
+    shim = os.path.join(_lit_state, "lit-compiler-rt", os.path.basename(os.path.dirname(rd)))
     link = os.path.join(shim, "lib", triple)
     try:
         if not os.path.isdir(link):
@@ -742,7 +826,8 @@ else:
 # Disassembly and symbol checks use LLVM's tools on every host: they read ELF,
 # COFF and Mach-O alike and take the same flags everywhere (--show-all-symbols
 # is not GNU objdump's, and GNU nm cannot read a Mach-O). Looked for as
-# --param objdump= / nm=, then beside FileCheck and clang (an LLVM tree has
+# --param objdump= / nm=, then beside kairo (a staged tree has them, of the
+# compiler's own LLVM), beside clang and beside FileCheck (an LLVM tree has
 # them; Scripts/build_llvm.py builds them), then llvm-* on PATH, then a plain
 # objdump / nm only where it IS LLVM's (macOS). Each found is a feature, so a
 # test says `REQUIRES: llvm-objdump` and is UNSUPPORTED, not "command not
@@ -754,8 +839,9 @@ def _find_llvm_tool(name):
             lit_config.fatal("--param %s=%s does not exist" % (name[len("llvm-"):], p))
         return p
     exe = name + (".exe" if sys.platform == "win32" else "")
-    for d in (os.path.dirname(os.path.abspath(filecheck_bin)),
-              os.path.dirname(clang_bin) if clang_bin else None):
+    for d in (os.path.dirname(kairo_bin),
+              os.path.dirname(clang_bin) if clang_bin else None,
+              os.path.dirname(os.path.abspath(filecheck_bin))):
         if d and os.path.isfile(os.path.join(d, exe)):
             return os.path.join(d, exe)
     found = shutil.which(name)

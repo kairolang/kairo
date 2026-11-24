@@ -7,14 +7,14 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
-// REQUIRES: kcc, default-sysroot
+// REQUIRES: kcc, sysroot-x86_64-linux-gnu
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: echo 'int f(void) { return 1; }' > %t.d/t.c
 
-// ELF.
-// RUN: %kcc -### -dynamiclib %t.d/t.c -o %t.d/x 2>&1 | %FileCheck %s --check-prefix=ELFLIB
+// ELF, on a target with shared libraries (musl's sysroots are static-only).
+// RUN: %kcc --target=x86_64-linux-gnu -### -dynamiclib %t.d/t.c -o %t.d/x 2>&1 | %FileCheck %s --check-prefix=ELFLIB
 // ELFLIB: ld.lld {{.*}}-shared
-// RUN: %kcc -### -rdynamic %t.d/t.c -o %t.d/x 2>&1 | %FileCheck %s --check-prefix=ELFDYN
+// RUN: %kcc --target=x86_64-linux-gnu -### -rdynamic %t.d/t.c -o %t.d/x 2>&1 | %FileCheck %s --check-prefix=ELFDYN
 // ELFDYN: ld.lld {{.*}}--export-dynamic
 
 // A Mach-O link needs the macOS sysroot.

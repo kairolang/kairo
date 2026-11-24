@@ -29,7 +29,7 @@ fn main() -> i32 {
 // The C file is compiled and linked by the same kairo invocation.
 // RUN: %t.exe; test $? -eq 42
 
-// RUN: %kairo %s -I %S/inc --emit=llvm-ir -O0 --cache-dir %t.ir
+// RUN: %kairo %s -I %S/inc --emit=llvm-ir -O0 --target=x86_64-linux-musl --cache-dir %t.ir
 // RUN: %FileCheck %s --check-prefixes=CHECK,SPLIT < %t.ir/app.ll
 // RUN: %FileCheck %s --check-prefix=SYM < %t.ir/app.ll
 // RUN: rm -rf %t.v3

@@ -7,5 +7,6 @@
 
 fn main() -> i32 { return 0 }
 
-// REQUIRES: kcc, clang-corpus
+// Several listed files assume x86_64's signed plain char.
+// REQUIRES: kcc, clang-corpus, host-x86_64
 // RUN: python3 %S/clang_corpus/clang_corpus.py run --mode verify --kcc '%kcc' --clang %bundled_clang --root %clang_tests --list %S/clang_corpus/verify.txt

@@ -44,4 +44,5 @@ fn main() -> i32 {
 // RUN: %kairo %s -finfer-purity -O2 -o %t.exe --cache-dir %t.d/run
 // RUN: %t.exe
 
-// REQUIRES: clang
+// strlen is [[gnu::pure]] in glibc's string.h, not musl's.
+// REQUIRES: clang, default-glibc

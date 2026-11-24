@@ -417,9 +417,9 @@ fn main() -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.exe --cache-dir %t.d
-// RUN: %t.exe | %FileCheck %s --check-prefixes=CHECK,X87
+// RUN: %t.exe | %FileCheck %s --check-prefixes=CHECK%if host-x86_64 %{,X87%}
 // RUN: %kairo %s -O2 -o %t.o2.exe --cache-dir %t.d
-// RUN: %t.o2.exe | %FileCheck %s --check-prefixes=CHECK,X87
+// RUN: %t.o2.exe | %FileCheck %s --check-prefixes=CHECK%if host-x86_64 %{,X87%}
 // CHECK: f16 bits 4400 8000 7bff 1 7c00 fc00 7e00
 // CHECK-NEXT: f16 sqrt 3da8 3e00 8000 0 7c00 111
 // CHECK-NEXT: f16 fma 8010 4900 111 7c00 8000

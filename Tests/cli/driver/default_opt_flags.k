@@ -14,5 +14,5 @@ fn main() -> i32 { return 0 }
 // O0-NOT: -fdevirtualize-speculatively
 // O0-NOT: -fforce-emit-vtables
 
-// RUN: %kairo %s -O2 --target=aarch64-apple-macosx14.0 --print-clang-args 2>&1 | %FileCheck %s --check-prefix=APPLE
+// RUN: %if sysroot-aarch64-macosx %{ %kairo %s -O2 --target=aarch64-apple-macosx14.0 --print-clang-args 2>&1 | %FileCheck %s --check-prefix=APPLE %}
 // APPLE: -fdevirtualize-speculatively

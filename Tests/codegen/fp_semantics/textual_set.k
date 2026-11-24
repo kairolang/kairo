@@ -19,7 +19,7 @@ fn main() -> i32 {
 
 // --- lit wiring -----------------------------------------------------------
 // RUN: rm -rf %t.d %t.v3
-// RUN: %kairo %s --emit=llvm-ir -O0 --cache-dir %t.d
+// RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-musl --cache-dir %t.d
 // RUN: %FileCheck %s --check-prefixes=CHECK,SPLIT < %t.d/textual_set.ll
 // RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-musl --march=x86-64-v3 --cache-dir %t.v3
 // RUN: %FileCheck %s --check-prefixes=CHECK,FUSE < %t.v3/textual_set.ll

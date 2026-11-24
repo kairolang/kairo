@@ -5,6 +5,8 @@
 fn main() -> i32 { return 0 }
 
 // --- lit wiring -----------------------------------------------------------
+// znver3 and the x86-64 default are x86 CPUs.
+// REQUIRES: host-x86_64
 // RUN: %kairo %s --print-clang-args --mcpu=znver3 | %FileCheck %s --check-prefix=EQ
 // EQ: -target-cpu x86-64
 // EQ: -target-cpu znver3

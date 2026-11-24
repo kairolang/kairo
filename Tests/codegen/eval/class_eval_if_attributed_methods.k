@@ -45,10 +45,10 @@ fn main() -> i32 {
 // RUN: { %kairo %s --type-check-only --target=x86_64-linux-gnu 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // RUN: { %kairo %s --type-check-only --target=aarch64-linux-gnu 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
 // RUN: { %kairo %s --type-check-only --target=riscv64-linux-gnu 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
-// RUN: { %kairo %s --type-check-only --target=x86_64-windows-msvc 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty
+// RUN: %if sysroot-x86_64-windows-msvc %{ { %kairo %s --type-check-only --target=x86_64-windows-msvc 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG --allow-empty %}
 // DIAG-NOT: {{error|warning}}
 
-// REQUIRES: clang
+// REQUIRES: clang, sysroot-x86_64-linux-gnu, sysroot-aarch64-linux-gnu, sysroot-riscv64-linux-gnu
 // RUN: rm -rf %t.d
 // RUN: %kairo %s --emit=llvm-ir -O0 --target=x86_64-linux-gnu --cache-dir %t.d/x86
 // RUN: %FileCheck %s --check-prefix=MOST < %t.d/x86/class_eval_if_attributed_methods.ll
