@@ -1455,7 +1455,8 @@ pub class <T: type> CallTyping {
                 }
 
                 if n != &null {
-                    self._report_forwarded(n, f, k, cgp, x, iface)
+                    var none = cxx::std::vector<unsafe *ConstraintExpr>()
+                    self._report_forwarded(n, f, k, cgp, x, iface, none, true)
                 }
 
                 return false
@@ -1596,33 +1597,18 @@ pub class <T: type> CallTyping {
 
     /// `print_all(args...)`: a pack forwarded whole has no type of its own
     /// (ExprTyper leaves the expansion unknown), so the call resolves as
-    /// Dependent and check_forwarded_bounds never sees it. With ONE
-    /// candidate, the expansion fills its type pack, and each `impl` bound
-    /// of that pack must be one of the forwarded pack's own, as for a
-    /// single `T`. Overloads are left to the instance: which one the
-    /// expansion selects is not known here.
+    /// Dependent and check_forwarded_bounds never sees it. The expansion
+    /// fills a candidate's type pack, and each `impl` bound of that pack
+    /// must be one of the forwarded pack's own, as for a single `T`. Which
+    /// overload of a set the expansion selects is the instance's, so a set
+    /// is an error only when every candidate has such a bound unmet: one
+    /// that may take the expansion (no pack, no bound on it, a bound met,
+    /// a C++ or non-generic function) leaves the call to the instance.
     priv fn _check_forwarded_pack(self,
                                   n:          unsafe *CallExpr,
                                   const all:  cxx::std::vector<unsafe *Decl>,
                                   const args: [ArgInfo]) {
-        if all.size() != 1 {
-            return
-        }
-
-        var unsafe *f = dyn_cast<FunctionDecl>((all)[0])
-        if f == &null || f->generic_params.size() == 0 {
-            return
-        }
-
-        var pg: unsafe *GenericParamType = &null
-        for var i: usize = 0; i < f->params.size(); ++i {
-            var unsafe *tp = param_type_pack_param(f->params[i])
-            if tp != &null {
-                pg = tp
-            }
-        }
-
-        if pg == &null {
+        if all.size() == 0 {
             return
         }
 
@@ -1665,6 +1651,75 @@ pub class <T: type> CallTyping {
             return
         }
 
+        // A forward declaration and its definition are one candidate.
+        var seen  = cxx::std::vector<unsafe *Decl>()
+        var fs    = cxx::std::vector<unsafe *FunctionDecl>()
+        var unmet = cxx::std::vector<unsafe *ConstraintExpr>()
+        for var i: usize = 0; i < all.size(); ++i {
+            var unsafe *rep = NameLookup::representative((all)[i])
+            var        dup  = false
+            for var j: usize = 0; j < seen.size(); ++j {
+                if seen[j] == rep {
+                    dup = true
+                }
+            }
+
+            if dup {
+                continue
+            }
+
+            seen.push_back(rep)
+            var unsafe *f = dyn_cast<FunctionDecl>((all)[i])
+            var        k  = self._unmet_pack_bound(f, x)
+            if k == &null {
+                return
+            }
+
+            fs.push_back(f)
+            unmet.push_back(k)
+        }
+
+        if fs.size() == 0 {
+            return
+        }
+
+        var iface = canon_unqual(unmet[0]->rhs->canonical)
+        var more  = cxx::std::vector<unsafe *ConstraintExpr>()
+        var same  = true
+        for var i: usize = 1; i < unmet.size(); ++i {
+            more.push_back(unmet[i])
+            if canon_unqual(unmet[i]->rhs->canonical) != iface {
+                same = false
+            }
+        }
+
+        self._report_forwarded(n, fs[0], unmet[0], cgp, x, iface, more, same)
+    }
+
+    /// The first `impl` bound on `f`'s type pack that the forwarded pack
+    /// `x` does not meet, or null when `f` may take the expansion: no
+    /// Kairo generic function, no type pack, or every bound on it met.
+    priv fn _unmet_pack_bound(self,
+                              f: unsafe *FunctionDecl,
+                              x: unsafe *Type) -> unsafe *ConstraintExpr {
+        if f == &null
+            || f->generic_params.size() == 0
+            || decl_is_imported(unsafe (f as unsafe *Decl)) {
+            return &null
+        }
+
+        var pg: unsafe *GenericParamType = &null
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var unsafe *tp = param_type_pack_param(f->params[i])
+            if tp != &null {
+                pg = tp
+            }
+        }
+
+        if pg == &null {
+            return &null
+        }
+
         var ks = self._impl_bounds_of(f)
         for var i: usize = 0; i < ks.size(); ++i {
             var k   = ks[i]
@@ -1678,14 +1733,12 @@ pub class <T: type> CallTyping {
                 continue
             }
 
-            var iface = canon_unqual(k->rhs->canonical)
-            if self._param_meets(x, iface) {
-                continue
+            if !self._param_meets(x, canon_unqual(k->rhs->canonical)) {
+                return k
             }
-
-            self._report_forwarded(n, f, k, cgp, x, iface)
-            return
         }
+
+        return &null
     }
 
     /// Whether the caller's parameter type `x` promises `iface` through
@@ -1732,16 +1785,20 @@ pub class <T: type> CallTyping {
         return false
     }
 
-    /// R051E for an unbounded `cgp` (with the fix-it adding the bound),
-    /// R025E when it has bounds and none is `iface`: ExprTyper::needs_bound's
-    /// split, for a call instead of an operator.
+    /// R051E for an unbounded `cgp` (with the fix-it adding the bound when
+    /// `fixit`), R025E when it has bounds and none is `iface`:
+    /// ExprTyper::needs_bound's split, for a call instead of an operator.
+    /// `more` are the unmet bounds of the set's other candidates, one note
+    /// each.
     priv fn _report_forwarded(self,
-                              n:     unsafe *CallExpr,
-                              f:     unsafe *FunctionDecl,
-                              k:     unsafe *ConstraintExpr,
-                              cgp:   unsafe *GenericParamDecl,
-                              xt:    unsafe *Type,
-                              iface: unsafe *Type) {
+                              n:          unsafe *CallExpr,
+                              f:          unsafe *FunctionDecl,
+                              k:          unsafe *ConstraintExpr,
+                              cgp:        unsafe *GenericParamDecl,
+                              xt:         unsafe *Type,
+                              iface:      unsafe *Type,
+                              const more: cxx::std::vector<unsafe *ConstraintExpr>,
+                              fixit:      bool) {
         var pname   = self.dyn()->tu.decl_name(cgp)
         var fname   = self.dyn()->tu.decl_name(f)
         var is      = self.dyn()->tu.str(iface)
@@ -1760,6 +1817,12 @@ pub class <T: type> CallTyping {
                 k->range,
             )
 
+            for var i: usize = 0; i < more.size(); ++i {
+                b.note(more[i]->range.start, "required by this bound")->child_first(
+                    more[i]->range,
+                )
+            }
+
             b.note(
                 x.start,
                 f"'{pname}' is declared here; bound it 'impl {is}' too, or by an interface that derives it",
@@ -1777,13 +1840,22 @@ pub class <T: type> CallTyping {
                 k->range,
             )
 
+            for var i: usize = 0; i < more.size(); ++i {
+                b.note(more[i]->range.start, "required by this bound")->child_first(
+                    more[i]->range,
+                )
+            }
+
             b.note(
                 DiagCode(DiagID::R051N),
                 x.start,
                 f"'{pname}' is declared with no bound",
             )->child_first(x)
 
-            b.insert(x.end, f" impl {is}", f"bound '{pname}' by '{is}'")
+            if fixit {
+                b.insert(x.end, f" impl {is}", f"bound '{pname}' by '{is}'")
+            }
+
             b.emit()
         }
     }
