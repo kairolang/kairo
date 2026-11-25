@@ -50,7 +50,7 @@ pub class ELFArgs {
                     @inout tc:   Toolchain,
                     @inout argv: cxx::std::vector<string>,
                     @inout msgs: cxx::std::vector<LinkMessage>) -> bool {
-        var errs0 = LinkDiag::error_count(&msgs)
+        var errs0 = LinkDiag::error_count(msgs)
         var *o    = job.opts
 
         if job.output.is_empty() {
@@ -296,7 +296,7 @@ pub class ELFArgs {
         /// # host libraries (the default build's glibc floor)
         if job.target->host_mode == "floor" && tc.libc == "glibc" && tc.has_manifest {
             job.glibc_floor = tc.manifest.glibc_version.copy()
-            ELFArgs::_scan_host_libs(&job, &tc, want_stat, &msgs)
+            ELFArgs::_scan_host_libs(&job, tc, want_stat, &msgs)
             // A host shared library was linked against the host's glibc, and
             // the floor's libc.so stubs lack its newer symbol versions; lld
             // would reject them. What that means for the program is said
@@ -385,7 +385,7 @@ pub class ELFArgs {
         }
 
         if !no_libs {
-            ELFArgs::_default_libs(&tc, want_stat, &argv, &msgs)
+            ELFArgs::_default_libs(tc, want_stat, &argv, &msgs)
         }
 
         /// # crt end
@@ -404,7 +404,7 @@ pub class ELFArgs {
             }
         }
 
-        return LinkDiag::error_count(&msgs) == errs0
+        return LinkDiag::error_count(msgs) == errs0
     }
 
     /// The libraries this link takes from outside the sysroot: each -l
@@ -413,10 +413,10 @@ pub class ELFArgs {
     /// static archive from a host dir is warned about, since what it needs
     /// from glibc is invisible once it is linked in.
     priv static fn _scan_host_libs(@inout job:  LinkJob,
-                                   @inout tc:   Toolchain,
+                                   const tc:    Toolchain,
                                    want_stat:   bool,
                                    @inout msgs: cxx::std::vector<LinkMessage>) {
-        var *o   = job.opts
+        var *o             = job.opts
         var dirs: [string]
         for *d in o->lib_dirs {
             dirs.push(d->copy())
@@ -430,11 +430,11 @@ pub class ELFArgs {
             dirs.push(tc.gcc_dir.copy())
         }
 
-        for *d in tc.lib_dirs {
+        for const *d in tc.lib_dirs {
             dirs.push(d->copy())
         }
 
-        for *d in tc.host_lib_dirs {
+        for const *d in tc.host_lib_dirs {
             dirs.push(d->copy())
         }
 
@@ -464,7 +464,7 @@ pub class ELFArgs {
                 continue
             }
 
-            var p = HostSystem::find_lib(name, &dirs, stat)
+            var p = HostSystem::find_lib(name, dirs, stat)
             if !p.is_empty() {
                 found.push(p)
             }
@@ -502,7 +502,7 @@ pub class ELFArgs {
 
             var host_dir = false
             var pdir     = LinkFS::real(LinkFS::parent(*p))
-            for *d in tc.host_lib_dirs {
+            for const *d in tc.host_lib_dirs {
                 if LinkFS::real(d->copy()) == pdir {
                     host_dir = true
                 }
@@ -601,13 +601,13 @@ pub class ELFArgs {
     /// libc++ (Kairo objects always need it), libm, the unwinder, the
     /// builtins, libc. Dynamic order matches clang on glibc/libgcc exactly:
     ///   -lc++ -lc++abi -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc
-    priv static fn _default_libs(@inout tc:   Toolchain,
+    priv static fn _default_libs(const tc:    Toolchain,
                                  want_stat:   bool,
                                  @inout argv: cxx::std::vector<string>,
                                  @inout msgs: cxx::std::vector<LinkMessage>) {
         var cxx_v: [string]
-        var libc: [string]
-        var libm  = false
+        var libc:  [string]
+        var libm            = false
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
                 msgs.push_back(
@@ -619,7 +619,7 @@ pub class ELFArgs {
             }
 
             cxx_v = tc.manifest.libcxx_link.copy()
-            libc = tc.manifest.libc_link.copy()
+            libc  = tc.manifest.libc_link.copy()
         } else if !tc.native_bundle.is_empty() {
             // --native: the bundled libc++ by path, never by -L (that dir's
             // libc would win over the host's), and the host's libc.
@@ -693,8 +693,7 @@ pub class ELFArgs {
         ELFArgs::_append(&argv, rt)
     }
 
-    priv static fn _append(@inout argv: cxx::std::vector<string>,
-                           const xs:    [string]) {
+    priv static fn _append(@inout argv: cxx::std::vector<string>, const xs: [string]) {
         for const *x in xs {
             argv.push_back(x->copy())
         }

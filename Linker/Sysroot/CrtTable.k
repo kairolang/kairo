@@ -62,7 +62,7 @@ pub struct CrtDef {
     pub var source:   string
     pub var out:      string
     pub var flags:    [string]
-    pub var strip_at: bool                     = false
+    pub var strip_at: bool     = false
 }
 
 /// One [archive.*]: an import library (`def`), objects (`members`) or
@@ -281,7 +281,7 @@ pub class SysCrt {
             argv.push("-o")
             argv.push(o)
             argv.push(SysCrt::expand(env, d->source))
-            if !jobs.add(&argv, f"{logs}/{n}.log") {
+            if !jobs.add(argv, f"{logs}/{n}.log") {
                 break
             }
 
@@ -328,7 +328,7 @@ pub class SysCrt {
                 argv.push(SysCrt::expand(env, LinkText::slice(*e, 0, eq)))
                 argv.push("-o")
                 argv.push(o)
-                if !jobs.add(&argv, f"{logs}/{n}.log") {
+                if !jobs.add(argv, f"{logs}/{n}.log") {
                     break
                 }
 

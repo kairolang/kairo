@@ -791,7 +791,7 @@ extend Speller {
     }
 
     /// `ns::a::b {` as `namespace a::b`, or "" for the entry TU.
-    fn ns_join(self, @inout segs: cxx::std::vector<string>) -> string {
+    fn ns_join(self, const segs: cxx::std::vector<string>) -> string {
         var s = ""
         for var i: usize = 0; i < segs.size(); ++i {
             if i > 0 {

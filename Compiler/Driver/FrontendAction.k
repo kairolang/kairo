@@ -871,7 +871,7 @@ pub class FrontendAction {
 
         // Before any dump: under --ast-roundtrip the tree the dumps and Sema
         // see is the reloaded one.
-        if !self._ast_serialize(&parse_fids) {
+        if !self._ast_serialize(parse_fids) {
             return false
         }
 
@@ -975,7 +975,7 @@ pub class FrontendAction {
     /// On this thread, one file at a time: a reader appends to its file's
     /// immediate table and, for a macro another file defines, to that
     /// file's, and nothing else is running to race it here.
-    priv fn _ast_serialize(self, @inout fids: cxx::std::vector<u32>) -> bool {
+    priv fn _ast_serialize(self, const fids: cxx::std::vector<u32>) -> bool {
         var *fe = &self._ci->invocation()->frontend
         if fe->emit_ast_bin.is_empty() && (!fe->ast_roundtrip) && (!fe->verify_ast_roundtrip) {
             return true
@@ -1640,7 +1640,7 @@ pub class FrontendAction {
                 hpaths.push_back(bplan.own_header_path())
             }
 
-            EmitPlan::note_header_cycles(&hpaths, &hfrom, &hto)
+            EmitPlan::note_header_cycles(hpaths, hfrom, hto)
         }
 
         if fe->print_cxx {
@@ -3633,7 +3633,7 @@ pub class FrontendAction {
                 self._ci->headers()->wait_codegen_pch()
             }
 
-            merged = self._ci->headers()->codegen_pch(&graph_sets)
+            merged = self._ci->headers()->codegen_pch(graph_sets)
         }
 
         // Pre-pass, driver thread: every decision about a TU (its output paths,
@@ -3820,7 +3820,7 @@ pub class FrontendAction {
 
         // Everything any TU's VFS will hold, mounted (well, listed) before the
         // first TU starts: nothing is added once workers read.
-        crun.mount(&all_sets)
+        crun.mount(all_sets)
 
         // The graph-independent facts every plan below reads (EmitPlan::
         // set_file_ranks, assign_homes; Compiler/Spec/Incremental.md#shared-across-graphs):
@@ -4064,7 +4064,7 @@ pub class FrontendAction {
             // Which header files each TU can reach (ObjectCache::tu_headers):
             // the graph's modules and their import edges.
             ocache.begin_run(
-                &graph_sets,
+                graph_sets,
                 merged != &null && merged->ok,
                 gmods,
                 gedges,
@@ -5557,8 +5557,8 @@ pub class FrontendAction {
                     ctx,
                     opts,
                     n->spec_kind,
-                    &n->spec_args,
-                    &n->generic_params,
+                    n->spec_args,
+                    n->generic_params,
                 )
             } else if isa<Declarations::StructDecl>(d) {
                 var unsafe *n = cast<Declarations::StructDecl>(d)
@@ -5567,8 +5567,8 @@ pub class FrontendAction {
                     ctx,
                     opts,
                     n->spec_kind,
-                    &n->spec_args,
-                    &n->generic_params,
+                    n->spec_args,
+                    n->generic_params,
                 )
             } else if isa<Declarations::UnionDecl>(d) {
                 var unsafe *n = cast<Declarations::UnionDecl>(d)
@@ -5577,8 +5577,8 @@ pub class FrontendAction {
                     ctx,
                     opts,
                     n->spec_kind,
-                    &n->spec_args,
-                    &n->generic_params,
+                    n->spec_args,
+                    n->generic_params,
                 )
             } else if isa<Declarations::InterfaceDecl>(d) {
                 var unsafe *n = cast<Declarations::InterfaceDecl>(d)
@@ -5587,8 +5587,8 @@ pub class FrontendAction {
                     ctx,
                     opts,
                     n->spec_kind,
-                    &n->spec_args,
-                    &n->generic_params,
+                    n->spec_args,
+                    n->generic_params,
                 )
             } else if isa<Declarations::EnumDecl>(d) {
                 var unsafe *n = cast<Declarations::EnumDecl>(d)
@@ -5597,8 +5597,8 @@ pub class FrontendAction {
                     ctx,
                     opts,
                     n->spec_kind,
-                    &n->spec_args,
-                    &n->generic_params,
+                    n->spec_args,
+                    n->generic_params,
                 )
             } else if isa<Declarations::ModuleDecl>(d) {
                 var unsafe *n = cast<Declarations::ModuleDecl>(d)
@@ -6505,11 +6505,11 @@ fn _import_anchor(imp: unsafe *Declarations::ImportDecl) -> string {
 /// indistinguishable in the dump. Append the specialization args (`<i32>`) or,
 /// for a generic primary, the parameter list (`<T>`), rendered through the
 /// same type/token printers the AST dump uses. Non-generic decls get "".
-pub fn _sym_spec_suffix(ctx:                   unsafe *ASTContext,
-                        opts:                  PrintOptions,
-                        spec_kind:             Declarations::SpecKind,
-                        @inout spec_args:      FrozenList<unsafe *Type>,
-                        @inout generic_params: FrozenList<unsafe *Declarations::GenericParamDecl>) -> string {
+pub fn _sym_spec_suffix(ctx:                  unsafe *ASTContext,
+                        opts:                 PrintOptions,
+                        spec_kind:            Declarations::SpecKind,
+                        const spec_args:      FrozenList<unsafe *Type>,
+                        const generic_params: FrozenList<unsafe *Declarations::GenericParamDecl>) -> string {
     // Specialization: render the post-name `<...>` argument pattern.
     if spec_kind == Declarations::SpecKind::Explicit
         || spec_kind == Declarations::SpecKind::Partial {

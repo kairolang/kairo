@@ -81,7 +81,13 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, EnumDecl, EnumVariantDecl, FieldDecl, IntConst, StructDecl, VariableDecl,
+    ClassDecl,
+    EnumDecl,
+    EnumVariantDecl,
+    FieldDecl,
+    IntConst,
+    StructDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::BinaryOperatorExpr
 import AST::Node::Patterns::{
@@ -772,7 +778,7 @@ pub class PatternSpace {
 
     /// Rows of `rows` whose head survives `c`, with the head replaced by
     /// its `c.arity` sub-columns.
-    fn specialize(self, @inout rows: [PatRow], const c: Ctor) -> [PatRow] {
+    fn specialize(self, const rows: [PatRow], const c: Ctor) -> [PatRow] {
         var out: [PatRow]
         for var i: usize = 0; i < rows.size(); ++i {
             var        *r = &(rows)[i]
@@ -798,7 +804,7 @@ pub class PatternSpace {
     }
 
     /// Rows whose head is a wildcard, head dropped.
-    fn default_rows(self, @inout rows: [PatRow]) -> [PatRow] {
+    fn default_rows(self, const rows: [PatRow]) -> [PatRow] {
         var out: [PatRow]
         for var i: usize = 0; i < rows.size(); ++i {
             var *r = &(rows)[i]

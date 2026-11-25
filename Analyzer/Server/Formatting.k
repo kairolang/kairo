@@ -179,7 +179,7 @@ extend Server {
         argv.push(kfmt.copy())
         argv.push("--stdout")
         argv.push(src.copy())
-        var rc = self.run_and_wait(&argv, out)
+        var rc = self.run_and_wait(argv, out)
 
         var text: string = ""
         var read         = LinkFS::read(out, &text)

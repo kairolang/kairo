@@ -474,7 +474,7 @@ pub class FlagTranslator {
     pub static fn header_fp_pragmas(const cxx_contract:  string,
                                     cxx_math_errno:      bool,
                                     const kairo_default: string,
-                                    @inout user_cc1:     cxx::std::vector<string>,
+                                    const user_cc1:      cxx::std::vector<string>,
                                     float_control:       bool,
                                     @inout open:         cxx::std::vector<string>,
                                     @inout close:        cxx::std::vector<string>) {
@@ -1072,7 +1072,7 @@ pub class FlagTranslator {
     /// --mcpu and --pic-level. Separate from codegen() because the
     /// backend places them first: cc1 takes the last -target-cpu, and
     /// --mcpu must beat the cpu the driver probe derived from --march.
-    pub static fn target(@inout tgt: TargetOptions, sp: ClangSpelling) -> cxx::std::vector<string> {
+    pub static fn target(const tgt: TargetOptions, sp: ClangSpelling) -> cxx::std::vector<string> {
         var o   = cxx::std::vector<string>()
         var cc1 = sp == ClangSpelling::CC1
         if !tgt.mcpu.is_empty() {
@@ -1125,7 +1125,7 @@ pub class FlagTranslator {
     /// default's `-mcpu=native` (TargetOptions::driver_mcpu) is the
     /// driver's too: it reads the host's features, which cc1's
     /// -target-cpu does not.
-    pub static fn march_driver(@inout tgt: TargetOptions) -> cxx::std::vector<string> {
+    pub static fn march_driver(const tgt: TargetOptions) -> cxx::std::vector<string> {
         var o = cxx::std::vector<string>()
         if !tgt.march.is_empty() {
             _fx_push(&o, f"-march={tgt.march}")
@@ -1147,7 +1147,7 @@ pub class FlagTranslator {
     /// input gets --c-std only when the user named one, so it
     /// compiles under clang's default otherwise. IR, OpenCL and the
     /// rest take none.
-    static fn language_std(@inout tgt: TargetOptions,
+    static fn language_std(const tgt:  TargetOptions,
                            const lang: string,
                            sp:         ClangSpelling) -> cxx::std::vector<string> {
         var o   = cxx::std::vector<string>()
@@ -1278,7 +1278,7 @@ pub class FlagTranslator {
 
     /// whether this build emits debug info: -g0 wins over -g
     /// wherever it sits.
-    pub static fn debug_on(@inout cgo: CodeGenOptions) -> bool {
+    pub static fn debug_on(const cgo: CodeGenOptions) -> bool {
         return cgo.debug_info && !cgo.no_debug_info
     }
 
@@ -1286,7 +1286,7 @@ pub class FlagTranslator {
     /// --dwarf-version always has a value (default 5), so it cannot say
     /// whether DWARF was asked for; on MSVC it is left out and the
     /// driver emits CodeView, which is what link.exe-style PDBs need.
-    pub static fn dwarf_for(@inout cgo: CodeGenOptions, const triple: string) -> i32 {
+    pub static fn dwarf_for(const cgo: CodeGenOptions, const triple: string) -> i32 {
         var tr = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
         if tr.isWindowsMSVCEnvironment() {
             return 0
@@ -1339,15 +1339,15 @@ pub class FlagTranslator {
             )
         }
 
-        for var a in FlagTranslator::march_driver(&*tgt) {
+        for var a in FlagTranslator::march_driver(*tgt) {
             _fx_push(&o, a)
         }
 
-        for var a in FlagTranslator::target(&*tgt, ClangSpelling::Driver) {
+        for var a in FlagTranslator::target(*tgt, ClangSpelling::Driver) {
             _fx_push(&o, a)
         }
 
-        for var a in FlagTranslator::language_std(&*tgt, lang, ClangSpelling::Driver) {
+        for var a in FlagTranslator::language_std(*tgt, lang, ClangSpelling::Driver) {
             _fx_push(&o, a)
         }
 
@@ -1387,12 +1387,12 @@ pub class FlagTranslator {
             }
         }
 
-        for var a in FlagTranslator::debug_driver(FlagTranslator::debug_on(&*cgo), FlagTranslator::dwarf_for(&*cgo, triple),
+        for var a in FlagTranslator::debug_driver(FlagTranslator::debug_on(*cgo), FlagTranslator::dwarf_for(*cgo, triple),
                                                       FlagTranslator::macros_for(cgo->debug_macros, triple), cgo->embed_source) {
             _fx_push(&o, a)
         }
 
-        for var a in FlagTranslator::warnings(&inv.diag, ClangSpelling::Driver) {
+        for var a in FlagTranslator::warnings(inv.diag, ClangSpelling::Driver) {
             _fx_push(&o, a)
         }
 
@@ -1414,8 +1414,8 @@ pub class FlagTranslator {
     ///   allow  -> -Wno-<grp>   deny/forbid -> -Werror=<grp>
     ///   warn   -> -W<grp>
     /// Native (non-C) codes are skipped; the emit layer governs them.
-    pub static fn warnings(@inout d: DiagnosticOptions,
-                           sp:       ClangSpelling) -> cxx::std::vector<string> {
+    pub static fn warnings(const d: DiagnosticOptions,
+                           sp:      ClangSpelling) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         if d.suppress_warnings {
             out.push_back("-w")
@@ -1497,7 +1497,7 @@ pub class FlagTranslator {
     /// no defaults of its own for any of these, and a table here
     /// would drift from clang. See ClangBackend::_driver_target_args
     /// for why each group is taken.
-    pub static fn probe_filter(@inout cc1: cxx::std::vector<string>) -> cxx::std::vector<string> {
+    pub static fn probe_filter(const cc1: cxx::std::vector<string>) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
         // Flags taking their value as the next word.
         var paired = cxx::std::vector<string>()

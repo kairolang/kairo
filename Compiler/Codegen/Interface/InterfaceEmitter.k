@@ -838,11 +838,11 @@ pub class InterfaceEmitter {
             // only if it agrees on that too: grouping on the segments alone
             // would put a `priv` decl in a `pub` decl's namespace.
             var anon   = self._entry_anon(e)
-            var opened = self._ns_open(e->decl, &ns, anon)
+            var opened = self._ns_open(e->decl, ns, anon)
             while i < n && self._plan->entries[i].tier == PlanTier::FwdDecls {
                 var *f  = &self._plan->entries[i]
                 var fns = self._entry_ns(f)
-                if !self._same_ns(&ns, &fns) {
+                if !self._same_ns(ns, fns) {
                     break
                 }
 
@@ -992,7 +992,7 @@ pub class InterfaceEmitter {
             self._wrapped(ee->decl, fn () { self._free_fn_decl(ef, &null) })
         }
 
-        self._late_decls(&late, &late_d, &todo)
+        self._late_decls(&late, &late_d, todo)
 
         // The functions a record's friend line names qualified
         // (EmitPlan::friend_early), declared ahead of every record. A header
@@ -1056,12 +1056,12 @@ pub class InterfaceEmitter {
                 }
 
                 todo = left
-                self._late_decls(&late, &late_d, &todo)
+                self._late_decls(&late, &late_d, todo)
                 continue
             }
 
             if e->scope != &null {
-                var opened = self._ns_open(e->decl, &e->scope->ns, false)
+                var opened = self._ns_open(e->decl, e->scope->ns, false)
                 self._scope_def(e->scope)
                 self._ns_close(opened)
                 self._scope_panic_msg(e->scope)
@@ -1085,7 +1085,7 @@ pub class InterfaceEmitter {
 
                 if e->witness->std_hash {
                     var sns     = Speller::std_ns()
-                    var sopened = self._ns_open(e->decl, &sns, false)
+                    var sopened = self._ns_open(e->decl, sns, false)
                     EmitWitness(self._cg, self._spell).def(e->witness)
                     self._ns_close(sopened)
                 } else {
@@ -1373,8 +1373,8 @@ pub class InterfaceEmitter {
     /// # Namespace wrapping
 
     priv fn _same_ns(self,
-                     @inout a: cxx::std::vector<string>,
-                     @inout b: cxx::std::vector<string>) -> bool {
+                     const a: cxx::std::vector<string>,
+                     const b: cxx::std::vector<string>) -> bool {
         if a.size() != b.size() {
             return false
         }
@@ -1390,15 +1390,12 @@ pub class InterfaceEmitter {
 
     /// Returns how many braces were opened: the named namespace, plus an
     /// unnamed one nested in it for a decl with no linkage outside its file.
-    priv fn _ns_open(self,
-                     d:         unsafe *Decl,
-                     @inout ns: cxx::std::vector<string>,
-                     anon:      bool) -> u32 {
+    priv fn _ns_open(self, d: unsafe *Decl, const ns: cxx::std::vector<string>, anon: bool) -> u32 {
         var at     = self._at(d)
         var n: u32 = 0
         if ns.size() > 0 {
             var s = "namespace "
-            s += self._spell->ns_join(&ns)
+            s += self._spell->ns_join(ns)
             s += " {"
             self._cg->sink->spell(at, s)
             n += 1
@@ -1431,7 +1428,7 @@ pub class InterfaceEmitter {
     priv fn _late_decls(self,
                         @inout late:   cxx::std::vector<unsafe *Declarations::FunctionDecl>,
                         @inout late_d: cxx::std::vector<unsafe *Decl>,
-                        @inout todo:   cxx::std::vector<unsafe *Decl>) {
+                        const todo:    cxx::std::vector<unsafe *Decl>) {
         var keep   = cxx::std::vector<unsafe *Declarations::FunctionDecl>()
         var keep_d = cxx::std::vector<unsafe *Decl>()
         for var k: usize = 0; k < late.size(); ++k {
@@ -1483,7 +1480,7 @@ pub class InterfaceEmitter {
         }
 
         var ns     = self._spell->ns_segments(d)
-        var opened = self._ns_open(d, &ns, Speller::is_anon(d))
+        var opened = self._ns_open(d, ns, Speller::is_anon(d))
         body()
         self._ns_close(opened)
     }

@@ -329,9 +329,9 @@ pub class DisambigTable {
     /// Creates intermediate scope nodes as needed.
     /// `scope_path` is the sequence of parent names, e.g. ["A", "B"] for A::B::Foo.
     pub fn insert_into(self,
-                       @inout scope_path: cxx::std::vector<string>,
-                       const name:        string,
-                       entry:             DisambigEntry) {
+                       const scope_path: cxx::std::vector<string>,
+                       const name:       string,
+                       entry:            DisambigEntry) {
         var unsafe *node = unsafe &self._root
         for *s in scope_path {
             var k = self.intern(*s)
@@ -448,7 +448,7 @@ pub class DisambigTable {
             }
         }
 
-        self.insert_into(&*scope_path, name, entry)
+        self.insert_into(*scope_path, name, entry)
     }
 
     // DisambigTable::lookup_extensions - new

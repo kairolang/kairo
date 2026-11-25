@@ -164,7 +164,7 @@ pub class IncludedDecls {
 
         if e->scope != &null {
             var k = if (e->tier == PlanTier::Definitions) => ("def ") else => "fwd "
-            k += plan->spell()->ns_join(&e->scope->ns)
+            k += plan->spell()->ns_join(e->scope->ns)
             k += "::"
             k += e->scope->name
             return self._scopes.find(kairo::sref(k)) != self._scopes.end()
@@ -222,7 +222,7 @@ pub class IncludedDecls {
         if e->scope != &null {
             // Tiers 0 and 1 only: the declaration and the definition.
             var k = if (e->tier == PlanTier::Definitions) => ("def ") else => "fwd "
-            k += plan->spell()->ns_join(&e->scope->ns)
+            k += plan->spell()->ns_join(e->scope->ns)
             k += "::"
             k += e->scope->name
             return self._scopes.try_emplace(kairo::sref(k), 1 as u8).second

@@ -388,7 +388,7 @@ extend CompilerInstance {
     /// with a note at the first script's (TUResult::script_at). One error
     /// per extra script; the first one found in input order is the one the
     /// others are measured against.
-    prot fn _reject_second_script(self, @inout result: BatchResult) {
+    prot fn _reject_second_script(self, const result: BatchResult) {
         var first: isize = -1
         for var i: usize = 0; i < result.tu_results.size(); ++i {
             var *r = &result.tu_results[i]
@@ -635,7 +635,7 @@ extend CompilerInstance {
     /// (both define the kairo_global_* symbols strongly), but naming the
     /// two lines beats naming two objects. Objects built apart still reach
     /// kld, which _global_alloc_clash words the same way.
-    prot fn _reject_second_global_allocator(self, @inout result: BatchResult) {
+    prot fn _reject_second_global_allocator(self, const result: BatchResult) {
         var first: isize = -1
         for var i: usize = 0; i < result.tu_results.size(); ++i {
             var *r = &result.tu_results[i]
@@ -680,8 +680,8 @@ extend CompilerInstance {
     /// each as its source file when this run compiled it. Every other
     /// message passes through unchanged.
     priv fn _global_alloc_clash(self,
-                                @inout result: BatchResult,
-                                @inout msgs:   cxx::std::vector<LinkMessage>) {
+                                const result: BatchResult,
+                                @inout msgs:  cxx::std::vector<LinkMessage>) {
         var out  = cxx::std::vector<LinkMessage>()
         var said = false
         var sym  = LowerTargets::global_alloc_symbol_prefix()
@@ -863,24 +863,24 @@ extend CompilerInstance {
         var argv    = cxx::std::vector<string>()
         var msgs    = cxx::std::vector<LinkMessage>()
         var planned = Link::plan(&job, &tc, &argv, &msgs)
-        self._report_link(&msgs)
+        self._report_link(msgs)
         if !planned {
             return
         }
 
         if lk->print_ld_args {
-            io::println(f"{Link::render(&argv)}")
+            io::println(f"{Link::render(argv)}")
             return
         }
 
         if self.invocation()->frontend.verbose {
-            self._diag->report(DiagID::L005V, Link::render(&argv)).emit()
+            self._diag->report(DiagID::L005V, Link::render(argv)).emit()
         }
 
         var res = LinkResult{}
         Link::execute(&job, &argv, &res)
-        self._global_alloc_clash(&result, &res.messages)
-        self._report_link(&res.messages)
+        self._global_alloc_clash(result, &res.messages)
+        self._report_link(res.messages)
         if !res.stdout_text.is_empty() {
             io::println(f"{res.stdout_text}")
         }
@@ -895,7 +895,7 @@ extend CompilerInstance {
 
     /// LinkMessage -> the placeholder L001 codes. Verbose and Debug only
     /// under -v.
-    prot fn _report_link(self, @inout msgs: cxx::std::vector<LinkMessage>) {
+    prot fn _report_link(self, const msgs: cxx::std::vector<LinkMessage>) {
         var verbose = self.invocation()->frontend.verbose
         for *m in msgs {
             if m->severity == LinkSeverity::Fatal {

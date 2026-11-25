@@ -211,7 +211,13 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    BuiltinKind, BuiltinType, RecordType, builtin_info, canon_has_const, canon_quals, canon_unqual,
+    BuiltinKind,
+    BuiltinType,
+    RecordType,
+    builtin_info,
+    canon_has_const,
+    canon_quals,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -1172,7 +1178,7 @@ pub class RedeclMerge {
         }
 
         var xs:   [unsafe *Type]
-        var fixed = false
+        var fixed                = false
         if !self._member_target_args(cls, rt, ext, &xs, &fixed) {
             self._member_refuse(
                 s,
@@ -1193,7 +1199,7 @@ pub class RedeclMerge {
             }
 
             var ys: [unsafe *Type]
-            var ok = true
+            var ok                 = true
             for var j: usize = 0; j < s->spec_args.size(); ++j {
                 var unsafe *a = s->spec_args[j]
                 if a == &null || a->canonical == &null || a->canonical->is_dependent() {
@@ -1264,9 +1270,9 @@ pub class RedeclMerge {
             return
         }
 
-        var unsafe *ext  = decl_extension_of(unsafe (f as unsafe *Decl))
+        var unsafe *ext = decl_extension_of(unsafe (f as unsafe *Decl))
         var xs:   [unsafe *Type]
-        var        fixed = false
+        var fixed                = false
         if !self._member_target_args(cls, rt, ext, &xs, &fixed) || !fixed {
             return
         }
@@ -1963,16 +1969,11 @@ pub class RedeclMerge {
         for var i: usize = 0; i < n; ++i {
             var ba: [ParamBound]
             var bb: [ParamBound]
-            if !self._param_bounds(&ca, prev->generic_params[i], &null, &ba) {
+            if !self._param_bounds(ca, prev->generic_params[i], &null, &ba) {
                 continue
             }
 
-            if !self._param_bounds(
-                &cb,
-                cur->generic_params[i],
-                unsafe &sub,
-                &bb,
-            ) {
+            if !self._param_bounds(cb, cur->generic_params[i], unsafe &sub, &bb) {
                 continue
             }
 
@@ -1989,7 +1990,7 @@ pub class RedeclMerge {
     /// a `derives` bound. False when one did not resolve: it was diagnosed,
     /// and comparing around it would only add a second error.
     priv fn _param_bounds(self,
-                          @inout cs:  cxx::std::vector<unsafe *ConstraintExpr>,
+                          const cs:   cxx::std::vector<unsafe *ConstraintExpr>,
                           gp:         unsafe *Declarations::GenericParamDecl,
                           sub:        unsafe *Substitution,
                           @inout out: [ParamBound]) -> bool {

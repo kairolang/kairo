@@ -93,8 +93,15 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,   BuiltinKind,  QUAL_CONST, QUAL_VOLATILE, RecordType, builtin_info, canon_has_const,
-    canon_quals, canon_unqual,
+    AssocType,
+    BuiltinKind,
+    QUAL_CONST,
+    QUAL_VOLATILE,
+    RecordType,
+    builtin_info,
+    canon_has_const,
+    canon_quals,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -102,7 +109,13 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, EnumDecl, FunctionDecl, ParamDecl, SpecKind, TransferKind, VariableDecl,
+    ClassDecl,
+    EnumDecl,
+    FunctionDecl,
+    ParamDecl,
+    SpecKind,
+    TransferKind,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -113,8 +126,15 @@ import AST::Node::Expressions::{
     UnaryOperatorExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
-    NullableType,     OpaqueFFIType,    PointerType,    TypeExpr,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    NullableType,
+    OpaqueFFIType,
+    PointerType,
+    TypeExpr,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
@@ -995,22 +1015,22 @@ pub class OverloadResolution {
         // orders them so ([over.match.best]: better conversion sequences
         // first, templates after): see _ref_better.
         if winners.size() > 1 {
-            winners = self._ref_tiebreak(unsafe &cs, &winners, margs, fargs)
+            winners = self._ref_tiebreak(unsafe &cs, winners, margs, fargs)
         }
 
         // Integer spelling, also a conversion-sequence ordering: see _int_better.
         if winners.size() > 1 {
-            winners = self._int_tiebreak(unsafe &cs, &winners)
+            winners = self._int_tiebreak(unsafe &cs, winners)
         }
 
         // Pointee cv, the same ordering for a pointer parameter: see _cv_better.
         if winners.size() > 1 {
-            winners = self._cv_tiebreak(unsafe &cs, &winners)
+            winners = self._cv_tiebreak(unsafe &cs, winners)
         }
 
         // A float literal is C++'s double: see _flit_better.
         if winners.size() > 1 {
-            winners = self._flit_tiebreak(unsafe &cs, &winners)
+            winners = self._flit_tiebreak(unsafe &cs, winners)
         }
 
         // non-generic beats generic.
@@ -1028,13 +1048,13 @@ pub class OverloadResolution {
         }
 
         if winners.size() > 1 {
-            winners = self._partial_order(unsafe &cs, &winners)
+            winners = self._partial_order(unsafe &cs, winners)
         }
 
         // enable_if, clang's last tiebreak before the ambiguity: see
         // _enable_if_tiebreak.
         if winners.size() > 1 {
-            winners = self._enable_if_tiebreak(unsafe &cs, &winners)
+            winners = self._enable_if_tiebreak(unsafe &cs, winners)
         }
 
         if defer && self._undecided(cs, winners) {
@@ -1181,7 +1201,7 @@ pub class OverloadResolution {
     /// parameters the call's arguments landed on; a pack or C `...` slot
     /// leaves the tie for the ambiguity diagnostic. Two candidates equally
     /// specialized are ordered by their constraints (_more_specialized).
-    priv fn _partial_order(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
+    priv fn _partial_order(self, cs: unsafe *[Candidate], const winners: [usize]) -> [usize] {
         var *first = &(*cs)[(((winners)[0]))]
         for var i: usize = 0; i < winners.size(); ++i {
             var *c = &(*cs)[(((winners)[i]))]
@@ -1474,10 +1494,10 @@ pub class OverloadResolution {
 
     /// The winners no other winner beats on reference kind.
     priv fn _ref_tiebreak(self,
-                          cs:             unsafe *[Candidate],
-                          @inout winners: [usize],
-                          margs:          unsafe *[ArgInfo],
-                          fargs:          unsafe *[ArgInfo]) -> [usize] {
+                          cs:            unsafe *[Candidate],
+                          const winners: [usize],
+                          margs:         unsafe *[ArgInfo],
+                          fargs:         unsafe *[ArgInfo]) -> [usize] {
         var keep: [usize]
         for var i: usize = 0; i < winners.size(); ++i {
             var *ci    = &(*cs)[(((winners)[i]))]
@@ -1587,7 +1607,7 @@ pub class OverloadResolution {
     }
 
     /// The winners no other winner beats on integer spelling.
-    priv fn _int_tiebreak(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
+    priv fn _int_tiebreak(self, cs: unsafe *[Candidate], const winners: [usize]) -> [usize] {
         var keep: [usize]
         for var i: usize = 0; i < winners.size(); ++i {
             var *ci    = &(*cs)[(((winners)[i]))]
@@ -1678,7 +1698,7 @@ pub class OverloadResolution {
     /// whose condition clang decides only at the call is neither preferred
     /// nor dropped, and two winners that both have conditions stay tied:
     /// clang orders those by comparing the conditions, which Kairo does not.
-    priv fn _enable_if_tiebreak(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
+    priv fn _enable_if_tiebreak(self, cs: unsafe *[Candidate], const winners: [usize]) -> [usize] {
         var held: [usize]
         var none          = false
         for var i: usize = 0; i < winners.size(); ++i {
@@ -1700,7 +1720,7 @@ pub class OverloadResolution {
     }
 
     /// The winners no other winner beats on pointee cv.
-    priv fn _cv_tiebreak(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
+    priv fn _cv_tiebreak(self, cs: unsafe *[Candidate], const winners: [usize]) -> [usize] {
         var keep: [usize]
         for var i: usize = 0; i < winners.size(); ++i {
             var *ci    = &(*cs)[(((winners)[i]))]
@@ -1801,7 +1821,7 @@ pub class OverloadResolution {
     }
 
     /// The winners no other winner beats on a float literal's type.
-    priv fn _flit_tiebreak(self, cs: unsafe *[Candidate], @inout winners: [usize]) -> [usize] {
+    priv fn _flit_tiebreak(self, cs: unsafe *[Candidate], const winners: [usize]) -> [usize] {
         var keep: [usize]
         for var i: usize = 0; i < winners.size(); ++i {
             var *ci    = &(*cs)[(((winners)[i]))]
@@ -4993,7 +5013,7 @@ pub class OverloadResolution {
     /// `place(Shape, i64)`, `Shape::Empty` decides nothing, the tie is in
     /// another argument, and the cast hint is the right one.
     priv fn _variant_spellings(self,
-                               @inout cs:     [Candidate],
+                               const cs:      [Candidate],
                                const winners: [usize],
                                margs:         unsafe *[ArgInfo],
                                fargs:         unsafe *[ArgInfo]) -> string {
@@ -5190,7 +5210,7 @@ pub class OverloadResolution {
             )
         }
 
-        var spelled = self._variant_spellings(&*cs, *winners, margs, fargs)
+        var spelled = self._variant_spellings(*cs, *winners, margs, fargs)
         if spelled.size() > 0 {
             b.note(at.start, spelled)
         } else {

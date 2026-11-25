@@ -365,10 +365,8 @@ pub class HostSystem {
     /// The file lld would take for `-l<name>` searching `dirs` in order:
     /// per directory lib<name>.so, then lib<name>.a (only .a when
     /// `static_only`). "" when none matches.
-    static fn find_lib(const name:  string,
-                       @inout dirs: [string],
-                       static_only: bool) -> string {
-        for *d in dirs {
+    static fn find_lib(const name: string, const dirs: [string], static_only: bool) -> string {
+        for const *d in dirs {
             if !static_only {
                 var so = LinkText::join(d->copy(), f"lib{name}.so")
                 if LinkFS::is_file(so) {
@@ -436,12 +434,12 @@ pub class HostSystem {
         var w64 = cls == 2
         var be  = enc == 2
 
-        var shoff: u64 = if (w64) => (HostSystem::_rd(&d, 40, 8, be))
-                         else => HostSystem::_rd(&d, 32, 4, be)
-        var shentsize: u64 = if (w64) => (HostSystem::_rd(&d, 58, 2, be))
-                             else => HostSystem::_rd(&d, 46, 2, be)
-        var shnum: u64 = if (w64) => (HostSystem::_rd(&d, 60, 2, be))
-                         else => HostSystem::_rd(&d, 48, 2, be)
+        var shoff: u64 = if (w64) => (HostSystem::_rd(d, 40, 8, be))
+                         else => HostSystem::_rd(d, 32, 4, be)
+        var shentsize: u64 = if (w64) => (HostSystem::_rd(d, 58, 2, be))
+                             else => HostSystem::_rd(d, 46, 2, be)
+        var shnum: u64 = if (w64) => (HostSystem::_rd(d, 60, 2, be))
+                         else => HostSystem::_rd(d, 48, 2, be)
         var size = (d.size() as u64)
         if shoff == 0 || shentsize == 0 || shoff + shentsize * shnum > size {
             return r
@@ -451,13 +449,13 @@ pub class HostSystem {
 
         for var i: u64 = 0; i < shnum; ++i {
             var sh = shoff + i * shentsize
-            var ty = HostSystem::_rd(&d, sh + 4, 4, be)
-            var off: u64 = if (w64) => (HostSystem::_rd(&d, sh + 24, 8, be))
-                           else => HostSystem::_rd(&d, sh + 16, 4, be)
-            var len: u64 = if (w64) => (HostSystem::_rd(&d, sh + 32, 8, be))
-                           else => HostSystem::_rd(&d, sh + 20, 4, be)
-            var link: u64 = if (w64) => (HostSystem::_rd(&d, sh + 40, 4, be))
-                            else => HostSystem::_rd(&d, sh + 24, 4, be)
+            var ty = HostSystem::_rd(d, sh + 4, 4, be)
+            var off: u64 = if (w64) => (HostSystem::_rd(d, sh + 24, 8, be))
+                           else => HostSystem::_rd(d, sh + 16, 4, be)
+            var len: u64 = if (w64) => (HostSystem::_rd(d, sh + 32, 8, be))
+                           else => HostSystem::_rd(d, sh + 20, 4, be)
+            var link: u64 = if (w64) => (HostSystem::_rd(d, sh + 40, 4, be))
+                            else => HostSystem::_rd(d, sh + 24, 4, be)
             if off + len > size {
                 continue
             }
@@ -467,10 +465,10 @@ pub class HostSystem {
             }
 
             var lsh = shoff + link * shentsize
-            var str_off: u64 = if (w64) => (HostSystem::_rd(&d, lsh + 24, 8, be))
-                               else => HostSystem::_rd(&d, lsh + 16, 4, be)
-            var str_len: u64 = if (w64) => (HostSystem::_rd(&d, lsh + 32, 8, be))
-                               else => HostSystem::_rd(&d, lsh + 20, 4, be)
+            var str_off: u64 = if (w64) => (HostSystem::_rd(d, lsh + 24, 8, be))
+                               else => HostSystem::_rd(d, lsh + 16, 4, be)
+            var str_len: u64 = if (w64) => (HostSystem::_rd(d, lsh + 32, 8, be))
+                               else => HostSystem::_rd(d, lsh + 20, 4, be)
             if str_off + str_len > size {
                 continue
             }
@@ -480,16 +478,16 @@ pub class HostSystem {
                 var guard: u32 = 0
                 while vn + 16 <= off + len && guard < 4096 {
                     guard += 1
-                    var cnt  = HostSystem::_rd(&d, vn + 2, 2, be)
-                    var aux  = HostSystem::_rd(&d, vn + 8, 4, be)
-                    var next = HostSystem::_rd(&d, vn + 12, 4, be)
+                    var cnt  = HostSystem::_rd(d, vn + 2, 2, be)
+                    var aux  = HostSystem::_rd(d, vn + 8, 4, be)
+                    var next = HostSystem::_rd(d, vn + 12, 4, be)
                     var va   = vn + aux
                     for var k: u64 = 0; k < cnt && va + 16 <= off + len; ++k {
                         var nm = HostSystem::_cstr(
-                            &d,
+                            d,
                             str_off,
                             str_len,
-                            HostSystem::_rd(&d, va + 8, 4, be),
+                            HostSystem::_rd(d, va + 8, 4, be),
                         )
 
                         var v = HostSystem::glibc_version_of(nm.copy())
@@ -498,7 +496,7 @@ pub class HostSystem {
                             r.max_glibc = v.copy()
                         }
 
-                        var anext = HostSystem::_rd(&d, va + 12, 4, be)
+                        var anext = HostSystem::_rd(d, va + 12, 4, be)
                         if anext == 0 {
                             break
                         }
@@ -516,14 +514,14 @@ pub class HostSystem {
                 var esz: u64 = if (w64) => (16) else => 8
                 var e        = off
                 while e + esz <= off + len {
-                    var tag = HostSystem::_rd(&d, e, ((if (w64) => (8) else => 4) as u64), be)
+                    var tag = HostSystem::_rd(d, e, ((if (w64) => (8) else => 4) as u64), be)
                     if tag == 0 {
                         break
                     }
 
                     if tag == 14 { // DT_SONAME
-                        var val = HostSystem::_rd(&d, e + esz / 2, ((if (w64) => (8) else => 4) as u64), be)
-                        var so = HostSystem::_cstr(&d, str_off, str_len, val)
+                        var val = HostSystem::_rd(d, e + esz / 2, ((if (w64) => (8) else => 4) as u64), be)
+                        var so = HostSystem::_cstr(d, str_off, str_len, val)
                         if !so.is_empty() {
                             r.soname = so.copy()
                         }
@@ -555,7 +553,7 @@ pub class HostSystem {
     }
 
     /// `n` bytes at `off` as an unsigned integer; 0 past the end.
-    priv static fn _rd(@inout d: [u8], off: u64, n: u64, be: bool) -> u64 {
+    priv static fn _rd(const d: [u8], off: u64, n: u64, be: bool) -> u64 {
         if off + n > (d.size() as u64) {
             return 0
         }
@@ -576,7 +574,7 @@ pub class HostSystem {
 
     /// The NUL-terminated string at `idx` of the string table at
     /// [`base`, `base` + `len`); "" when out of range.
-    priv static fn _cstr(@inout d: [u8], base: u64, len: u64, idx: u64) -> string {
+    priv static fn _cstr(const d: [u8], base: u64, len: u64, idx: u64) -> string {
         if idx >= len {
             return ""
         }

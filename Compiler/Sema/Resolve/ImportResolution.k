@@ -70,8 +70,16 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,     EnumDecl,  FunctionDecl, ImportDecl, MacroDecl, ModuleDecl, StructDecl,
-    TypeAliasDecl, UnionDecl, VariableDecl,
+    ClassDecl,
+    EnumDecl,
+    FunctionDecl,
+    ImportDecl,
+    MacroDecl,
+    ModuleDecl,
+    StructDecl,
+    TypeAliasDecl,
+    UnionDecl,
+    VariableDecl,
 }
 import AST::VisibilityFacts::{
     default_visibility_of,
@@ -164,7 +172,7 @@ pub class ImportResolution {
         }
 
         if cxx_std.size() > 0 && ffi_orig != &null {
-            self._bind_cxx(overlay, &cxx_std, ffi_orig)
+            self._bind_cxx(overlay, cxx_std, ffi_orig)
         }
 
         if ffi_orig != &null {
@@ -805,7 +813,7 @@ pub class ImportResolution {
                            const visible: string,
                            cell:          unsafe *OverloadCell,
                            proto:         OverlayTarget) {
-        var fns: unsafe *OverloadCell = &null
+        var fns:  unsafe *OverloadCell = &null
         var seen: [unsafe *Decl]
         for var i: usize = 0; i < cell->size(); ++i {
             var unsafe *d = cell->get(i)
@@ -1133,9 +1141,9 @@ pub class ImportResolution {
     /// anything can read it -- the same shape OverlayEntry::merged already
     /// has, so hard invariant #2 stands.
     priv fn _bind_cxx(self,
-                      overlay:         unsafe *ImportOverlay,
-                      @inout std_mods: [unsafe *Decl],
-                      origin:          unsafe *ImportDecl) {
+                      overlay:        unsafe *ImportOverlay,
+                      const std_mods: [unsafe *Decl],
+                      origin:         unsafe *ImportDecl) {
         var at = origin->range
 
         // Both halves of a synthesized token belong to THIS file: the imm in

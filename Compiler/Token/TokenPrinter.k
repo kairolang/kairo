@@ -510,7 +510,7 @@ pub class TokenPrinter {
         line += s->reset
         io::println(f"{line}")
 
-        self._print_interp_exprs(&d->exprs, depth)
+        self._print_interp_exprs(d->exprs, depth)
     }
 
     priv fn _print_char_detail(self, imm: u32, tbl: unsafe *ImmediateTable, depth: usize) {
@@ -532,15 +532,15 @@ pub class TokenPrinter {
         line += s->reset
         io::println(f"{line}")
 
-        self._print_interp_exprs(&d->exprs, depth)
+        self._print_interp_exprs(d->exprs, depth)
     }
 
     /// prints each f-string interpolation hole as a nested token stream,
     /// one nesting level deeper than the owning string/char.
     priv fn _print_interp_exprs(
         self,
-        @inout exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4>,
-        depth:        usize,
+        const exprs: llvm::SmallVector<(unsafe *TokenBuffer<16>, SourceRange), 4>,
+        depth:       usize,
     ) {
         var *s = &self._sgr
 

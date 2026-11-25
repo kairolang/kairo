@@ -2668,7 +2668,7 @@ pub class PPWalker {
             output->append(
                 self._subst_fstring(
                     *tok,
-                    &*bindings,
+                    *bindings,
                     variadic_name,
                     &null,
                     anchor,
@@ -2766,7 +2766,7 @@ pub class PPWalker {
             output->append(
                 self._subst_fstring(
                     *tok,
-                    &*bindings,
+                    *bindings,
                     variadic_name,
                     element,
                     anchor,
@@ -2898,11 +2898,11 @@ pub class PPWalker {
     /// get_payload_table), and the copy was written here. Its hole tokens
     /// stay raw; _expand_fstring wraps them on the way out.
     priv fn _subst_fstring(self,
-                           tok:             Token,
-                           @inout bindings: llvm::SmallDenseMap<u64, unsafe *(TokenBuffer<512>), 8>,
-                           variadic_name:   SymbolID,
-                           element:         unsafe *(TokenBuffer<512>),
-                           anchor:          SourceRange) -> Token {
+                           tok:            Token,
+                           const bindings: llvm::SmallDenseMap<u64, unsafe *(TokenBuffer<512>), 8>,
+                           variadic_name:  SymbolID,
+                           element:        unsafe *(TokenBuffer<512>),
+                           anchor:         SourceRange) -> Token {
         var        tbl: unsafe *ImmediateTable = &null
         var unsafe *d                          = self._fstring_data(tok, &tbl)
         if d == &null {

@@ -403,8 +403,8 @@ pub class SysNames {
             cands.push_back(t->name.copy())
         }
 
-        var names = SysUtil::strings(&cands)
-        var list  = SysUtil::joined(&names, ", ")
+        var names = SysUtil::strings(cands)
+        var list  = SysUtil::joined(names, ", ")
         why = f"\x27{input}\x27 is ambiguous: {list}"
         return false
     }

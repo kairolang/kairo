@@ -181,7 +181,7 @@ pub class WasiProvider derives SysrootProvider {
             var o = env.build.copy() + "/" + a->out
             LinkFS::make_dirs(LinkFS::parent(o))
             LinkFS::remove(o)
-            if !LinkFS::write_archive(o, &objs) {
+            if !LinkFS::write_archive(o, objs) {
                 return out.fail(f"cannot write {o}", "")
             }
         }
@@ -215,7 +215,7 @@ pub class WasiProvider derives SysrootProvider {
             argv.push("-o")
             argv.push(o)
             var log = f"{ctx->log_dir}/link-{LinkFS::filename(l->out)}.log"
-            if SysRun::run(&argv, log) != 0 {
+            if SysRun::run(argv, log) != 0 {
                 var text = ""
                 LinkFS::read(log, &text)
                 return out.fail(

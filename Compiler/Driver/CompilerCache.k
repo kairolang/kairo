@@ -362,7 +362,7 @@ extend CompilerInstance {
         var key     = env::exe_path() + "\n" + self._backend->triple()
         var *inv    = self.invocation()
         var missing = cxx::std::vector<string>()
-        for *w in FlagTranslator::target(&inv->target, ClangSpelling::Driver) {
+        for *w in FlagTranslator::target(inv->target, ClangSpelling::Driver) {
             key += "\n" + *w
         }
 
@@ -371,7 +371,7 @@ extend CompilerInstance {
         // the baseline CPU must not take a library built for x86-64-v3.
         // resolved_cpu is what the host CPU default or a `native` spelling
         // resolved to, features included, which no word spells.
-        for *w in FlagTranslator::march_driver(&inv->target) {
+        for *w in FlagTranslator::march_driver(inv->target) {
             key += "\n" + *w
         }
 
@@ -392,7 +392,7 @@ extend CompilerInstance {
             key += "\n" + *w
         }
 
-        key += f"\ndebug={FlagTranslator::debug_on(&inv->codegen)}"
+        key += f"\ndebug={FlagTranslator::debug_on(inv->codegen)}"
         // Kairo's own passes are registered with the pipeline, not spelled
         // as cc1 words, so one turned off is named here.
         for *name in inv->codegen.kairo_pass_off {
@@ -577,7 +577,7 @@ extend CompilerInstance {
         // vendor, and llvm::Triple reads its second field as one.
         var norm = llvm::Triple::normalize(kairo::sref(self._backend->triple()))
         if llvm::Triple(llvm::Twine(norm)).isWindowsGNUEnvironment() {
-            if !LinkFS::write_archive(tmp.copy() + "/libkairo.a", &objs) {
+            if !LinkFS::write_archive(tmp.copy() + "/libkairo.a", objs) {
                 return false
             }
 

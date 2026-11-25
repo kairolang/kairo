@@ -102,7 +102,7 @@ pub class MingwProvider derives SysrootProvider {
             return out.refuse(f"share input {defs} or {crt} missing", "")
         }
 
-        var lib  = dst.copy() + "/lib"
+        var lib            = dst.copy() + "/lib"
         var none: [string]
         if !SysRun::copy_tree(crt, lib, &none) {
             return out.fail(f"cannot copy {crt} into {lib}", "")
@@ -116,7 +116,7 @@ pub class MingwProvider derives SysrootProvider {
                 continue
             }
 
-            var stem = LinkText::slice(*n, 0, n->size() - 4)
+            var stem           = LinkText::slice(*n, 0, n->size() - 4)
             var args: [string]
             args.push("llvm-dlltool")
             args.push("-m")
@@ -294,7 +294,7 @@ pub class MingwProvider derives SysrootProvider {
                 argv.push(env->build.copy() + "/" + *m)
             }
 
-            if !jobs.add(&argv, f"{logs}/{n}.log") {
+            if !jobs.add(argv, f"{logs}/{n}.log") {
                 break
             }
 
@@ -323,7 +323,7 @@ pub class MingwProvider derives SysrootProvider {
 
                 var log = f"{logs}/addlib-{n}.log"
                 n += 1
-                if SysRun::run(&argv, log) != 0 {
+                if SysRun::run(argv, log) != 0 {
                     var text = ""
                     LinkFS::read(log, &text)
                     return out.fail(

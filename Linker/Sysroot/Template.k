@@ -88,8 +88,8 @@ pub class SysTemplate {
         for *k in self.index.keys_of("domain") {
             var v = p->get(*k)
             var d = self.index.list("domain", *k)
-            if !SysUtil::contains(&d, v) {
-                var list = SysUtil::joined(&d, ", ")
+            if !SysUtil::contains(d, v) {
+                var list = SysUtil::joined(d, ", ")
                 why = f"the runtimes template has no rule for {*k}={v} ({t->name}); it was derived for {*k} in {list}"
                 return false
             }
@@ -233,7 +233,7 @@ pub class SysTemplate {
     /// `when` holds for `p`, concatenated in file order.
     pub static fn pick(r: *SysRecipe, const prefix: string, p: *SysProps) -> [string] {
         var out: [string]
-        var pre = prefix.copy() + ".f"
+        var pre           = prefix.copy() + ".f"
         for var i: usize = 0; i < r->raw_keys.size(); ++i {
             var tb = r->raw_tables[i].copy()
             if r->raw_keys[i] != "add" || !LinkText::starts_with(tb.copy(), pre.copy()) {
@@ -249,7 +249,7 @@ pub class SysTemplate {
             }
 
             var when = r->list(tb, "when")
-            if !SysTemplate::holds(&when, p) {
+            if !SysTemplate::holds(when, p) {
                 continue
             }
 
@@ -263,12 +263,12 @@ pub class SysTemplate {
 
     /// `when`: alternatives (any holds), each space-separated `prop=v1|v2`
     /// clauses (all hold). An empty list always holds.
-    pub static fn holds(@inout when: [string], p: *SysProps) -> bool {
+    pub static fn holds(const when: [string], p: *SysProps) -> bool {
         if when.is_empty() {
             return true
         }
 
-        for *alt in when {
+        for const *alt in when {
             var all = true
             for *c in SysUtil::split(*alt, (' ' as u8)) {
                 if c->is_empty() {
@@ -277,7 +277,7 @@ pub class SysTemplate {
 
                 var eq = LinkText::find(c->copy(), "=", 0)
                 var vs = SysUtil::split(LinkText::slice(*c, eq + 1, c->size()), ('|' as u8))
-                if !SysUtil::contains(&vs, p->get(LinkText::slice(*c, 0, eq))) {
+                if !SysUtil::contains(vs, p->get(LinkText::slice(*c, 0, eq))) {
                     all = false
                     break
                 }
@@ -363,7 +363,7 @@ pub class SysTemplate {
         s += f"runtime = \x22{rt->name}\x22\n\n[flags]\n"
         var langs: [string]
         for *l in rt->langs {
-            if !SysUtil::contains(&langs, *l) {
+            if !SysUtil::contains(langs, *l) {
                 langs.push(l->copy())
                 s += l->copy() + " = " + SysTemplate::_array(
                     SysTemplate::pick(&rules, "flags." + *l, p),
@@ -374,7 +374,7 @@ pub class SysTemplate {
         var keys: [string]
         for var i: usize = 0; i < rt->entries.size(); ++i {
             var k = rt->langs[i].copy() + "@" + rt->pids[i]
-            if SysUtil::contains(&keys, k) {
+            if SysUtil::contains(keys, k) {
                 continue
             }
 

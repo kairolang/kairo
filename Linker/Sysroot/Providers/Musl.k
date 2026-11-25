@@ -209,8 +209,8 @@ pub class MuslProvider derives SysrootProvider {
         LinkFS::make_dirs(logs)
         var jobs = SysJobs()
         jobs.limit(ctx->jobs)
-        var archive = cxx::std::vector<string>()
-        var crts: [string]
+        var archive          = cxx::std::vector<string>()
+        var crts:   [string]
         for var i: usize = 0; i < objs.size(); ++i {
             var *o  = &objs[i]
             var crt = LinkText::starts_with(o->obj.copy(), "crt/")
@@ -245,7 +245,7 @@ pub class MuslProvider derives SysrootProvider {
             argv.push("-o")
             argv.push(path.copy())
             argv.push(src.copy() + "/" + o->src)
-            if !jobs.add(&argv, f"{logs}/{i}.log") {
+            if !jobs.add(argv, f"{logs}/{i}.log") {
                 break
             }
 
@@ -269,7 +269,7 @@ pub class MuslProvider derives SysrootProvider {
         for *t in ctx->recipe.list("libc", "targets") {
             var name = LinkFS::filename(*t)
             if name == "libc.a" {
-                if !LinkFS::write_archive(lib.copy() + "/libc.a", &archive) {
+                if !LinkFS::write_archive(lib.copy() + "/libc.a", archive) {
                     return out.fail(f"cannot write {lib}/libc.a", "")
                 }
             } else if LinkText::ends_with(name.copy(), ".o") {
@@ -307,7 +307,7 @@ pub class MuslProvider derives SysrootProvider {
     /// then the generated bits, then arch/generic/bits, then arch/<ma>/bits.
     pub static fn install_headers(const src: string, const ma: string, const inc: string) -> bool {
         var none: [string]
-        var sub  = src.copy() + "/include"
+        var sub            = src.copy() + "/include"
         for *n in LinkFS::list_dir(sub) {
             var p = sub.copy() + "/" + *n
             if LinkFS::is_dir(p) {
@@ -401,7 +401,7 @@ pub class MuslProvider derives SysrootProvider {
     /// each with the source its pattern rules would pick.
     pub static fn objects(const src: string, const ma: string) -> [MuslObj] {
         var dirs: [string]
-        var top  = SysUtil::list_dir(src.copy() + "/src")
+        var top            = SysUtil::list_dir(src.copy() + "/src")
         SysUtil::sort(&top)
         for *d in top {
             if LinkFS::is_dir(src.copy() + "/src/" + *d) {
@@ -470,7 +470,7 @@ pub class MuslProvider derives SysrootProvider {
         // REPLACED_OBJS: an arch object stands in for the generic one at
         // the same path minus /<ARCH>/.
         var replaced: [string]
-        var marker   = "/" + ma + "/"
+        var marker             = "/" + ma + "/"
         for *o in arch_objs {
             var at = LinkText::find(o->copy(), marker.copy(), 0)
             if at < o->size() {
@@ -485,15 +485,15 @@ pub class MuslProvider derives SysrootProvider {
         }
 
         var keys: [string]
-        var out: [MuslObj]
+        var out:  [MuslObj]
         for var i: usize = 0; i < base_objs.size(); ++i {
-            if !SysUtil::contains(&replaced, base_objs[i]) {
+            if !SysUtil::contains(replaced, base_objs[i]) {
                 keys.push(base_objs[i].copy())
             }
         }
 
         for *o in arch_objs {
-            if !SysUtil::contains(&replaced, *o) {
+            if !SysUtil::contains(replaced, *o) {
                 keys.push(o->copy())
             }
         }
@@ -573,7 +573,7 @@ pub class MuslProvider derives SysrootProvider {
     /// arches whose time_t was 32 bits).
     priv static fn _compat_dirs(const src: string, const ma: string) -> [string] {
         var out: [string]
-        var text = ""
+        var text          = ""
         if !LinkFS::read(src.copy() + "/arch/" + ma + "/arch.mak", &text) {
             return out
         }
@@ -670,7 +670,7 @@ pub class MuslProvider derives SysrootProvider {
     /// Lines without their '\n'; a final line without one is kept.
     priv static fn _lines(const s: string) -> [string] {
         var out: [string]
-        var b:  usize = 0
+        var b:   usize    = 0
         for var i: usize = 0; i < s.size(); ++i {
             if s.data()[i] == ('\n' as u8) {
                 out.push(LinkText::slice(s, b, i))

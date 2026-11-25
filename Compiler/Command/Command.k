@@ -1004,7 +1004,7 @@ pub class Command {
         self._tag_dirty = false
     }
 
-    priv fn _parse_impl(self, @inout args: [string]) -> ParsedArgs {
+    priv fn _parse_impl(self, const args: [string]) -> ParsedArgs {
         var result = ParsedArgs()
         self._tag_dirty = false
         var gstate:  Self::GlobalState = Self::GlobalState::Normal
@@ -1337,7 +1337,7 @@ pub class Command {
             return result
         }
 
-        var result = self._parse_impl(&self._args)
+        var result = self._parse_impl(self._args)
         self._warn_unimplemented(&result)
         return result
     }
@@ -1345,14 +1345,14 @@ pub class Command {
     /// parse words that did not come from main's argv (no program
     /// name in front): the kairo words FlagTranslator::from_driver
     /// makes of a clang command line. Same parser, same checks.
-    pub fn parse_words(self, @inout words: cxx::std::vector<string>) -> ParsedArgs {
+    pub fn parse_words(self, const words: cxx::std::vector<string>) -> ParsedArgs {
         var args: [string]
         args.push("kairo")
         for *w in words {
             args.push(w->copy())
         }
 
-        var result = self._parse_impl(&args)
+        var result = self._parse_impl(args)
         self._warn_unimplemented(&result)
         return result
     }
@@ -1375,7 +1375,7 @@ pub class Command {
             }
         }
 
-        var result = self._parse_impl(&args)
+        var result = self._parse_impl(args)
         self._warn_unimplemented(&result)
         return result
     }

@@ -912,7 +912,7 @@ extend Server {
 
         // Clean only once its job is running: a refused launch leaves the
         // row due, and bridge_next_ offers it again after the backoff.
-        if self.launch_job(&argv, &j, "header") != LaunchResult::Started {
+        if self.launch_job(argv, &j, "header") != LaunchResult::Started {
             return
         }
 

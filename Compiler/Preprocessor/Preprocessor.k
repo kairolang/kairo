@@ -786,7 +786,7 @@ pub class PreProcessor {
     /// for a real cycle: which import to drop, or what to move into a third
     /// module, is a design call. A self-import is the exception: it only
     /// closes the cycle, and the fix-it removes it.
-    priv fn _report_cycle(self, @inout cyc: [u32]) {
+    priv fn _report_cycle(self, const cyc: [u32]) {
         var n = cyc.size()
         if n == 0 {
             return
@@ -1118,7 +1118,7 @@ pub class PreProcessor {
         }
 
         for var c: usize = 0; c < graph.cycles.size(); ++c {
-            self._report_cycle(&graph.cycles[c])
+            self._report_cycle(graph.cycles[c])
         }
 
         // The replayed tokens were copied into each walk's output; the lexers

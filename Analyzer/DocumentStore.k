@@ -617,12 +617,12 @@ pub class SyntaxState {
 
     /// Lands an answer; false (nothing changes) when accepts() refuses it.
     fn land(self,
-            rev:           u64,
-            changed_at:    u64,
-            parsed:        bool,
-            unsure:        bool,
-            const diags:   string,
-            @inout tokens: [i64]) -> bool {
+            rev:          u64,
+            changed_at:   u64,
+            parsed:       bool,
+            unsure:       bool,
+            const diags:  string,
+            const tokens: [i64]) -> bool {
         if !self.accepts(rev, changed_at) {
             return false
         }

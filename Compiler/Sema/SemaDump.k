@@ -100,9 +100,18 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    AssignOperatorExpr, BinaryOperatorExpr, CallExpr,  ClosureExpr,  ListLiteralExpr,
-    ListStorage,        MatchExpr,          OpRewrite, TypeCastExpr, UnaryOperatorExpr,
-    VariantInitExpr,    variant_decl_of,
+    AssignOperatorExpr,
+    BinaryOperatorExpr,
+    CallExpr,
+    ClosureExpr,
+    ListLiteralExpr,
+    ListStorage,
+    MatchExpr,
+    OpRewrite,
+    TypeCastExpr,
+    UnaryOperatorExpr,
+    VariantInitExpr,
+    variant_decl_of,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -131,7 +140,13 @@ import Sema::Lower::PatternCompilation::{
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
 import Sema::Resolve::ResolutionTrace::{
-    MemberOutcome, TraceMemberKind, TraceRow, TraceRowKind, TraceScopeKind, TraceSep, TraceVia,
+    MemberOutcome,
+    TraceMemberKind,
+    TraceRow,
+    TraceRowKind,
+    TraceScopeKind,
+    TraceSep,
+    TraceVia,
 }
 import Sema::SemaContext::{
     SemaContext,
@@ -493,12 +508,12 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// The expression-types section reuses this visitor for a SECOND walk;
     /// the flag is what tells the shared visit_ hooks which pass they are in,
     /// so neither section prints the other's rows.
-    priv var _expr_mode:    bool                     = false
-    priv var _n_ex_typed:   usize                    = 0
-    priv var _n_ex_unknown: usize                    = 0
-    priv var _n_ex_err:     usize                    = 0
+    priv var _expr_mode:    bool     = false
+    priv var _n_ex_typed:   usize    = 0
+    priv var _n_ex_unknown: usize    = 0
+    priv var _n_ex_err:     usize    = 0
     priv var _inferred:     [string]         ///< rows for the inferred-decls list.
-    priv var _tu:           TypeUtil                         ///< only for str(); holds no state.
+    priv var _tu:           TypeUtil         ///< only for str(); holds no state.
 
     pub fn SemaDump(self, sc: unsafe *SemaContext, opts: PrintOptions) {
         self.sc   = sc
@@ -712,7 +727,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
             var rows = cxx::std::vector<SymbolTable::Entry>()
             dc->dc_symbols->collect_entries(&rows)
             var order: [usize]
-            self._source_order(&rows, &order)
+            self._source_order(rows, &order)
 
             if rows.size() > 0 {
                 self._p.paint(Color::Tree, "  ")
@@ -783,11 +798,11 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// frozen table. Rows at one position keep their table order: each key
     /// is the position above the row's index, so the sort is total.
     priv fn _source_order(self,
-                          @inout rows: cxx::std::vector<SymbolTable::Entry>,
-                          @inout out:  [usize]) {
+                          const rows: cxx::std::vector<SymbolTable::Entry>,
+                          @inout out: [usize]) {
         var keys: [u64]
         for var i: usize = 0; i < rows.size(); ++i {
-            keys.push(((self._entry_pos(&rows, i) as u64) << 32) | (i as u64))
+            keys.push(((self._entry_pos(rows, i) as u64) << 32) | (i as u64))
         }
 
         keys.sort()
@@ -799,7 +814,7 @@ pub class SemaDump derives RecursiveASTVisitor<SemaDump> {
     /// Source position of a table row, for ordering. A row with no usable
     /// decl sorts last rather than first: it is the odd one out, and the top
     /// of the list is where the reader starts.
-    priv fn _entry_pos(self, @inout rows: cxx::std::vector<SymbolTable::Entry>, i: usize) -> u32 {
+    priv fn _entry_pos(self, const rows: cxx::std::vector<SymbolTable::Entry>, i: usize) -> u32 {
         var unsafe *cell = rows[i].cell
         if cell == &null {
             return u32::MAX

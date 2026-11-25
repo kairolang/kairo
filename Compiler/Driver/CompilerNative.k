@@ -516,7 +516,7 @@ extend CompilerInstance {
     /// (an external tool, an empty plan) is reported here.
     priv fn _run_native(self, const k: InputKind, @inout words: cxx::std::vector<string>) -> bool {
         var unsafe *jobs = self._native_jobs()
-        var        ok    = jobs->run(&words)
+        var        ok    = jobs->run(words)
         jobs->diags.drain_into(
             unsafe (self._diag as unsafe *DiagEngine),
             unsafe (self._sm as unsafe *SourceManager),
@@ -546,7 +546,7 @@ extend CompilerInstance {
     ///                             the .o files join the link.
     ///
     ///        -o names the output only when it is the build's one output.
-    prot fn _compile_sources(self, @inout natives: [InputKind]) -> bool {
+    prot fn _compile_sources(self, const natives: [InputKind]) -> bool {
         if natives.size() == 0 {
             return true
         }
@@ -565,7 +565,7 @@ extend CompilerInstance {
         if fe->stops_at_preprocess() || fe->stops_at_sema() {
             var pp = fe->stops_at_preprocess()
             var ok = true
-            for *k in natives {
+            for const *k in natives {
                 // An input with no such phase is skipped with a warning, as
                 // clang does (-E: input unused): IR and .i/.ii for -E, IR for
                 // -fsyntax-only.
@@ -640,7 +640,7 @@ extend CompilerInstance {
         var dir = self.object_dir()
 
         var ok = true
-        for *k in natives {
+        for const *k in natives {
             if k->cls == InputClass::Header {
                 // clang's own answer to a header input: a precompiled header,
                 // named after the whole file (foo.h -> foo.h.pch) so foo.h

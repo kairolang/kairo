@@ -153,7 +153,7 @@ extend Server {
     }
 
     /// Starts `argv` with its output in `log`. False when it could not start.
-    fn launch(self, @inout argv: [string], const log: string, pi: *llvm::sys::ProcessInfo) -> bool {
+    fn launch(self, const argv: [string], const log: string, pi: *llvm::sys::ProcessInfo) -> bool {
         // LLVM's process API takes ArrayRefs; SmallVector is the container
         // that makes one without a C++ std container in this tree.
         var refs: llvm::SmallVector<llvm::StringRef, 24>
@@ -202,14 +202,14 @@ extend Server {
     /// doubling, so neither a passing failure drops it nor a binary that
     /// cannot start is spawned on every loop turn. `kind` names it in the
     /// log and to KALS_DEBUG_LAUNCH_FAIL.
-    fn launch_job(self, @inout argv: [string], j: *Job, const kind: string) -> LaunchResult {
+    fn launch_job(self, const argv: [string], j: *Job, const kind: string) -> LaunchResult {
         if self.launch_held() {
             return LaunchResult::Refused // the backoff of an earlier refusal
         }
 
         var now = now_ms()
 
-        if self.debug_refuse_(kind) || (!self.launch(&argv, j->log, &j->pi)) {
+        if self.debug_refuse_(kind) || (!self.launch(argv, j->log, &j->pi)) {
             // Once per run of refusals: the retries say nothing new.
             if self.launch_refusals == 0 {
                 self.log(
@@ -250,9 +250,9 @@ extend Server {
 
     /// Runs `argv` to completion with its output in `log`; its exit code, or
     /// -1 when it could not start. For kfmt, which answers in milliseconds.
-    fn run_and_wait(self, @inout argv: [string], const log: string) -> i32 {
+    fn run_and_wait(self, const argv: [string], const log: string) -> i32 {
         var pi: llvm::sys::ProcessInfo
-        if !self.launch(&argv, log, &pi) {
+        if !self.launch(argv, log, &pi) {
             return -1
         }
 
@@ -418,7 +418,7 @@ extend Server {
             argv.push(wargv[q].copy())
         }
 
-        if self.launch_job(&argv, &j, "index") != LaunchResult::Started {
+        if self.launch_job(argv, &j, "index") != LaunchResult::Started {
             if !j.prog_file.is_empty() {
                 self.garbage.push(j.prog_file.copy())
             }

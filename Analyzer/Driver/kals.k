@@ -256,10 +256,10 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         }
 
         if (rest.size() > 0) && (rest[0] == WA_INDEX_SERVER) {
-            return index_server_main(&rest)
+            return index_server_main(rest)
         }
 
-        return worker_main(&rest)
+        return worker_main(rest)
     }
 
     // The server itself never touches the compiler: it frames messages,

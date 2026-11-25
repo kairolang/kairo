@@ -118,14 +118,14 @@ pub class SysSdk {
             && LinkFS::is_file("/usr/bin/xcrun") {
             // Only with developer tools selected: on a bare Mac the xcrun
             // shim pops the Command Line Tools installer instead of failing.
-            var log  = LinkFS::temp_file("ksys-xcrun", ".txt")
+            var log            = LinkFS::temp_file("ksys-xcrun", ".txt")
             var argv: [string]
             argv.push("/usr/bin/xcrun")
             argv.push("--sdk")
             argv.push("macosx")
             argv.push("--show-sdk-path")
             var text = ""
-            if SysRun::run(&argv, log) == 0 && LinkFS::read(log, &text) {
+            if SysRun::run(argv, log) == 0 && LinkFS::read(log, &text) {
                 sdk = LinkText::trim(text)
             }
 
@@ -347,7 +347,7 @@ pub class SysSdk {
     priv static fn _stage_darwin(const sdk:  string,
                                  const dst:  string,
                                  @inout out: SysOutcome) -> bool {
-        var none: [string]
+        var none:     [string]
         var settings: [string]
         settings.push("SDKSettings.json")
         settings.push("SDKSettings.plist")
@@ -418,7 +418,7 @@ pub class SysSdk {
                                const dst:   string,
                                @inout out:  SysOutcome) -> bool {
         var none: [string]
-        var m    = LinkText::join(dst.copy(), "msvc")
+        var m              = LinkText::join(dst.copy(), "msvc")
         var dirs: [string]
         dirs.push("crt/include")
         dirs.push(f"crt/lib/{xa}")
@@ -649,7 +649,7 @@ pub class SysSdk {
             ct = f"{t->arch}-apple-macosx{Toolchain::macos_floor(t->clang_triple)}"
         }
 
-        var log  = LinkText::join(w.copy(), "compile.log")
+        var log            = LinkText::join(w.copy(), "compile.log")
         var argv: [string]
         argv.push(kcc.copy())
         KccArgv::push_target(&argv, ct, r)
@@ -658,7 +658,7 @@ pub class SysSdk {
         argv.push(src.copy())
         argv.push("-o")
         argv.push(LinkText::join(w.copy(), "t.o"))
-        if SysRun::run(&argv, log) != 0 {
+        if SysRun::run(argv, log) != 0 {
             var keep = LinkFS::temp_file("ksys-sdk-validate", ".log")
             SysRun::put_file(log, keep, false)
             return out.fail(
@@ -695,7 +695,7 @@ pub class SysSdk {
             return ""
         }
 
-        var log  = LinkFS::temp_file("ksys-vswhere", ".txt")
+        var log            = LinkFS::temp_file("ksys-vswhere", ".txt")
         var argv: [string]
         argv.push(vswhere.copy())
         argv.push("-latest")
@@ -706,7 +706,7 @@ pub class SysSdk {
         argv.push("-property")
         argv.push("installationPath")
         var text = ""
-        if SysRun::run(&argv, log) != 0 || !LinkFS::read(log, &text) {
+        if SysRun::run(argv, log) != 0 || !LinkFS::read(log, &text) {
             text = ""
         }
 
@@ -760,7 +760,7 @@ pub class SysSdk {
             SysUtil::json_str(SysSdk::_tool_version()),
         )
 
-        var key = SysUtil::sha256(SysUtil::json_object(&fields))
+        var key = SysUtil::sha256(SysUtil::json_object(fields))
 
         var lock = SysLock()
         if !lock.acquire(c.lock_path(key)) {
@@ -795,7 +795,7 @@ pub class SysSdk {
             var old_work = LinkFS::env("WORK")
             LinkFS::set_env("OUT", stage)
             LinkFS::set_env("WORK", stage.copy() + ".work")
-            var rc = SysRun::run(&argv, log)
+            var rc = SysRun::run(argv, log)
             LinkFS::set_env("OUT", old_out)
             LinkFS::set_env("WORK", old_work)
             LinkFS::remove_tree(stage.copy() + ".work")
@@ -892,7 +892,7 @@ pub class SysSdk {
             SysUtil::json_str(SysSdk::_tool_version()),
         )
 
-        return SysUtil::sha256(SysUtil::json_object(&fields))
+        return SysUtil::sha256(SysUtil::json_object(fields))
     }
 
     /// Copies `from` into `to`, links kept, files hard-linked where
@@ -910,7 +910,7 @@ pub class SysSdk {
 
         var none: [string]
         for *name in LinkFS::list_dir(from) {
-            if SysSdk::_any_glob(*name, &top) || SysSdk::_any_glob(*name, &any) {
+            if SysSdk::_any_glob(*name, top) || SysSdk::_any_glob(*name, any) {
                 continue
             }
 
@@ -941,8 +941,8 @@ pub class SysSdk {
         return true
     }
 
-    priv static fn _any_glob(const name: string, @inout pats: [string]) -> bool {
-        for *p in pats {
+    priv static fn _any_glob(const name: string, const pats: [string]) -> bool {
+        for const *p in pats {
             if SysSdk::_glob(name, *p) {
                 return true
             }

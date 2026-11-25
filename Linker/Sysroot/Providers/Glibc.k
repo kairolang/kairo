@@ -225,7 +225,7 @@ pub class GlibcProvider derives SysrootProvider {
             var *syms = &all[li]
             var c     = ""
             var map   = ""
-            GlibcProvider::stub_sources(&*syms, &l->versions, &c, &map)
+            GlibcProvider::stub_sources(*syms, l->versions, &c, &map)
             var dir = work.copy() + "/" + l->stem
             LinkFS::make_dirs(dir)
             if !LinkFS::write(dir.copy() + "/stub.c", c)
@@ -243,7 +243,7 @@ pub class GlibcProvider derives SysrootProvider {
             argv.push("-o")
             argv.push(dir.copy() + "/stub.o")
             argv.push(dir.copy() + "/stub.c")
-            if !jobs.add(&argv, f"{ctx->log_dir}/stub-{l->stem}.cc.log") {
+            if !jobs.add(argv, f"{ctx->log_dir}/stub-{l->stem}.cc.log") {
                 break
             }
         }
@@ -281,7 +281,7 @@ pub class GlibcProvider derives SysrootProvider {
             )
 
             argv.push(dir.copy() + "/stub.o")
-            if !links.add(&argv, f"{ctx->log_dir}/stub-{l->stem}.ld.log") {
+            if !links.add(argv, f"{ctx->log_dir}/stub-{l->stem}.ld.log") {
                 break
             }
         }
@@ -301,10 +301,10 @@ pub class GlibcProvider derives SysrootProvider {
             }
         }
 
-        var libc    = GlibcProvider::_soname(&libs, "libc")
-        var ld      = GlibcProvider::_soname(&libs, "ld")
-        var libm    = GlibcProvider::_soname(&libs, "libm")
-        var libmvec = GlibcProvider::_soname(&libs, "libmvec")
+        var libc    = GlibcProvider::_soname(libs, "libc")
+        var ld      = GlibcProvider::_soname(libs, "ld")
+        var libm    = GlibcProvider::_soname(libs, "libm")
+        var libmvec = GlibcProvider::_soname(libs, "libmvec")
         if libc.is_empty() || ld.is_empty() || libm.is_empty() {
             return out.refuse("the glibc libraries lack libc, ld or libm", "")
         }
@@ -384,7 +384,7 @@ pub class GlibcProvider derives SysrootProvider {
             }
         }
 
-        if !SysUtil::contains(&arches, arch) {
+        if !SysUtil::contains(arches, arch) {
             return out.refuse(
                 f"share input {hroot} has no headers for {arch}",
                 "",
@@ -505,8 +505,8 @@ pub class GlibcProvider derives SysrootProvider {
             l.stem = stem->copy()
             l.soname = if (*stem == "ld") => (row.ld.copy())
                        else => GlibcProvider::_lookup(
-                           &row.so_keys,
-                           &row.so_vals,
+                           row.so_keys,
+                           row.so_vals,
                            *stem,
                        )
 
@@ -618,7 +618,7 @@ pub class GlibcProvider derives SysrootProvider {
             argv.push(f"-ffile-prefix-map={src}=glibc-{t.era}")
             argv.push(f"-ffile-prefix-map={gen}=glibc-gen")
             LinkFS::make_dirs(LinkFS::parent(work.copy() + "/" + c->out))
-            if !jobs.add(&argv, f"{ctx->log_dir}/glibc-crt-{i}.log") {
+            if !jobs.add(argv, f"{ctx->log_dir}/glibc-crt-{i}.log") {
                 break
             }
         }
@@ -643,7 +643,7 @@ pub class GlibcProvider derives SysrootProvider {
                 argv.push(work.copy() + "/" + *x)
             }
 
-            if SysRun::run(&argv, f"{ctx->log_dir}/glibc-crt-link-{i}.log") != 0 {
+            if SysRun::run(argv, f"{ctx->log_dir}/glibc-crt-link-{i}.log") != 0 {
                 return out.fail(
                     f"glibc start-file link {l->out} failed, see {ctx->log_dir}/glibc-crt-link-{i}.log",
                     "",
@@ -675,7 +675,7 @@ pub class GlibcProvider derives SysrootProvider {
             members.push_back(work.copy() + "/" + *m)
         }
 
-        if !LinkFS::write_archive(lib.copy() + "/libc_nonshared.a", &members) {
+        if !LinkFS::write_archive(lib.copy() + "/libc_nonshared.a", members) {
             return out.fail(f"cannot write {lib}/libc_nonshared.a", "")
         }
 
@@ -891,9 +891,7 @@ pub class GlibcProvider derives SysrootProvider {
         return true
     }
 
-    priv static fn _lookup(@inout keys: [string],
-                           @inout vals: [string],
-                           const k:     string) -> string {
+    priv static fn _lookup(const keys: [string], const vals: [string], const k: string) -> string {
         for var i: usize = 0; i < keys.size(); ++i {
             if keys[i] == k {
                 return vals[i].copy()
@@ -1055,10 +1053,10 @@ pub class GlibcProvider derives SysrootProvider {
     }
 
     /// The stub's C source and version script (glibc_stubs.py stub_sources).
-    pub static fn stub_sources(@inout syms:     [GlibcSym],
-                               @inout versions: [string],
-                               @inout c:        string,
-                               @inout map:      string) {
+    pub static fn stub_sources(const syms:     [GlibcSym],
+                               const versions: [string],
+                               @inout c:       string,
+                               @inout map:     string) {
         var q = "\x22"
         c = "/* generated by ksys (Linker/Sysroot/Providers/Glibc.k): a link-time stand-in, never run */\n"
         // Per node, the names its `global:` must list: the version-name
@@ -1094,13 +1092,10 @@ pub class GlibcProvider derives SysrootProvider {
             }
         }
 
-        // Nodes: libs.toml's order, then any other the symbols name. A copy:
-        // a plain `var nodes = versions` moves the caller's list out, and
-        // link_stubs reads it again to decide on --version-script.
-        var nodes           = versions.copy()
+        // Nodes: libs.toml's order, then any other the symbols name, sorted.
         var extra: [string]
-        for *e in syms {
-            if !SysUtil::contains(&nodes, e->version) && !SysUtil::contains(&extra, e->version) {
+        for const *e in syms {
+            if !SysUtil::contains(versions, e->version) && !SysUtil::contains(extra, e->version) {
                 extra.push(e->version.copy())
             }
         }
@@ -1108,40 +1103,69 @@ pub class GlibcProvider derives SysrootProvider {
         for var i: usize = 1; i < extra.size(); ++i {
             var j = i
             while j > 0 && GlibcProvider::ver_less(extra[j], extra[j - 1]) {
-                var t = extra[j].copy()
-                extra[j]     = extra[j - 1].copy()
-                extra[j - 1] = t.copy()
+                extra[0..].swap(j, j - 1)
                 j -= 1
             }
         }
 
-        for *x in extra {
-            nodes.push(x->copy())
-        }
-
         map = ""
-        var prev = ""
-        for var i: usize = 0; i < nodes.size(); ++i {
-            var v    = nodes[i].copy()
-            var body = ""
-            for var j: usize = 0; j < abs_nodes.size(); ++j {
-                if abs_nodes[j] == v {
-                    body += "  " + abs_names[j] + ";\n"
-                }
-            }
+        var prev       = ""
+        var n:   usize = 0
+        for const v in versions {
+            GlibcProvider::_map_node(
+                &map,
+                &prev,
+                v,
+                n == 0,
+                abs_nodes,
+                abs_names,
+            )
 
-            if !body.is_empty() {
-                body = "  global:\n" + body
-            }
-
-            if i == 0 {
-                body += "  local: *;\n"
-            }
-
-            map += v.copy() + " {\n" + body + "}"
-            map += if (prev.is_empty()) => (";\n") else => " " + prev + ";\n"
-            prev = v.copy()
+            n += 1
         }
+
+        for const v in extra {
+            GlibcProvider::_map_node(
+                &map,
+                &prev,
+                v,
+                n == 0,
+                abs_nodes,
+                abs_names,
+            )
+
+            n += 1
+        }
+    }
+
+    /// Appends version node `v` to `map`: a `global:` list of the names
+    /// `abs_names` binds to it, `local: *` in the script's first node, and
+    /// the node before it (`prev`, then set to `v`) as its parent.
+    priv static fn _map_node(@inout map:      string,
+                             @inout prev:     string,
+                             const v:         string,
+                             const first:     bool,
+                             const abs_nodes: [string],
+                             const abs_names: [string]) {
+        var body = ""
+        for var j: usize = 0; j < abs_nodes.size(); ++j {
+            if abs_nodes[j] == v {
+                body += "  " + abs_names[j] + ";\n"
+            }
+        }
+
+        if !body.is_empty() {
+            body = "  global:\n" + body
+        }
+
+        if first {
+            body += "  local: *;\n"
+        }
+
+        map += v
+        map += " {\n" + body + "}"
+        map += if (prev.is_empty()) => (";\n") else => " " + prev + ";\n"
+        prev = v.copy()
     }
 
     /// glibc_stubs.py _ver_key order: the name part, then the numbers
@@ -1194,8 +1218,8 @@ pub class GlibcProvider derives SysrootProvider {
         return p
     }
 
-    priv static fn _soname(@inout libs: [GlibcLib], const stem: string) -> string {
-        for *l in libs {
+    priv static fn _soname(const libs: [GlibcLib], const stem: string) -> string {
+        for const *l in libs {
             if l->stem == stem {
                 return l->soname.copy()
             }

@@ -699,7 +699,7 @@ extend CompilerInstance {
         var bcfg = ClangBackendConfig{}
         bcfg.triple = self._effective_triple()
         bcfg.wargs = FlagTranslator::warnings(
-            &self.invocation()->diag,
+            self.invocation()->diag,
             ClangSpelling::CC1,
         )
 
@@ -713,7 +713,7 @@ extend CompilerInstance {
 
         // --march is a DRIVER spelling (cc1 has none): the probe turns it
         // into -target-cpu and the -target-feature pairs its extensions imply.
-        for *a in FlagTranslator::march_driver(&(*tgt)) {
+        for *a in FlagTranslator::march_driver((*tgt)) {
             bcfg.driver_words.push_back(a->copy())
         }
 
@@ -734,7 +734,7 @@ extend CompilerInstance {
         // own runtime; --c-std is for the user's C inputs.)
         // Every flag word below is spelled by FlagTranslator, the one home
         // of the kairo <-> clang mapping; this function only places them.
-        for *a in FlagTranslator::target(&(*tgt), ClangSpelling::CC1) {
+        for *a in FlagTranslator::target((*tgt), ClangSpelling::CC1) {
             bcfg.extra_cc1.push_back(a->copy())
         }
 
@@ -871,10 +871,10 @@ extend CompilerInstance {
         // value (default 5), so it cannot say whether DWARF was asked for;
         // on MSVC it is left out and the driver emits CodeView, which is
         // what link.exe-style PDBs need.
-        bcfg.debug_info    = FlagTranslator::debug_on(&(*cgo))
+        bcfg.debug_info    = FlagTranslator::debug_on((*cgo))
         bcfg.debug_macros  = cgo->debug_macros
         bcfg.embed_source  = cgo->embed_source
-        bcfg.dwarf_version = FlagTranslator::dwarf_for(&(*cgo), bcfg.triple)
+        bcfg.dwarf_version = FlagTranslator::dwarf_for((*cgo), bcfg.triple)
         return bcfg
     }
 
@@ -1490,7 +1490,7 @@ extend CompilerInstance {
                 continue
             }
 
-            self._apply_pkg_words(*name, &words)
+            self._apply_pkg_words(*name, words)
         }
 
         return ok
@@ -1502,7 +1502,7 @@ extend CompilerInstance {
     /// -I or -L naming a host system dir is dropped: those are already
     /// searched after the sysroot, and as a -I/-L they would come before it
     /// (-I/usr/include ahead of libc++ is how <cstring> breaks).
-    priv fn _apply_pkg_words(self, const name: string, @inout words: cxx::std::vector<string>) {
+    priv fn _apply_pkg_words(self, const name: string, const words: cxx::std::vector<string>) {
         var *inv       = self.invocation()
         var *tg        = &inv->target
         var i:   usize = 0
@@ -1864,7 +1864,7 @@ extend CompilerInstance {
         var osn:  llvm::StringRef = tt.getOSName()
         var env:  llvm::StringRef = tt.getEnvironmentName()
 
-        var objfmt = CompilerInstance::_object_format_of(&tt)
+        var objfmt = CompilerInstance::_object_format_of(tt)
 
         var *t = &self.invocation()->target
         t->effective_triple = full.copy()
@@ -1893,7 +1893,7 @@ extend CompilerInstance {
         t->is_little_endian   = tt.isLittleEndian()
         t->is_x86             = tt.isX86()
         t->has_os             = tt.getOS() != llvm::Triple::UnknownOS
-        self._fill_clang_type_facts(&tt)
+        self._fill_clang_type_facts(tt)
         t->resolved = true
 
         var err: cxx::std::string
@@ -1962,7 +1962,7 @@ extend CompilerInstance {
             self.invocation()->target.native_cpu += "mtune " + host_cpu_name()
         }
 
-        self._apply_host_cpu(&tt)
+        self._apply_host_cpu(tt)
 
         if !self._inv.target.mcpu.is_empty() {
             var unsafe *STI = T->createMCSubtargetInfo(
@@ -2036,7 +2036,7 @@ extend CompilerInstance {
     /// (the host says nothing about the machine the program will run on),
     /// `--mcpu baseline`, a triple --m32 or --m64 moved off the host's
     /// architecture, and the other architectures.
-    prot fn _apply_host_cpu(self, @inout tt: llvm::Triple) {
+    prot fn _apply_host_cpu(self, const tt: llvm::Triple) {
         var *tg = &self.invocation()->target
         if !tg->triple.is_empty()
             || tg->cpu_baseline
@@ -2069,7 +2069,7 @@ extend CompilerInstance {
 
     /// The one llvm::Triple -> ObjectFormat switch, for the target facts
     /// (_apply_invocation) and --print-target-info alike.
-    prot static fn _object_format_of(@inout tt: llvm::Triple) -> ObjectFormat {
+    prot static fn _object_format_of(const tt: llvm::Triple) -> ObjectFormat {
         var f = ObjectFormat::Unknown
         match tt.getObjectFormat() {
             case llvm::Triple::COFF {
@@ -2107,7 +2107,7 @@ extend CompilerInstance {
     /// which is LP64 and still spells it `long long`. The TargetInfo is
     /// throwaway -- only the answers are kept, so Config/ and Sema still
     /// never see clang.
-    priv fn _fill_clang_type_facts(self, @inout tt: llvm::Triple) {
+    priv fn _fill_clang_type_facts(self, const tt: llvm::Triple) {
         var *t = &self.invocation()->target
 
         var dopts = clang::DiagnosticOptions()

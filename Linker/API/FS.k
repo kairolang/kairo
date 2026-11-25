@@ -281,17 +281,17 @@ pub class LinkFS {
     /// for a linker that has no --start-lib (the MinGW driver) to take
     /// objects lazily. Members keep their basenames; two of one name are
     /// fine to a linker, which reads the symbol table.
-    pub static fn write_archive(const path:     string,
-                                @inout objects: cxx::std::vector<string>) -> bool {
-        return LinkFS::write_archive_as(path, &objects, false)
+    pub static fn write_archive(const path:    string,
+                                const objects: cxx::std::vector<string>) -> bool {
+        return LinkFS::write_archive_as(path, objects, false)
     }
 
     /// write_archive in COFF format when `coff`: what llvm-ar writes for
     /// COFF members (an extra sorted linker member), which link.exe-style
     /// readers expect of a Windows archive.
-    pub static fn write_archive_as(const path:     string,
-                                   @inout objects: cxx::std::vector<string>,
-                                   coff:           bool) -> bool {
+    pub static fn write_archive_as(const path:    string,
+                                   const objects: cxx::std::vector<string>,
+                                   coff:          bool) -> bool {
         var members: cxx::std::vector<llvm::NewArchiveMember>
         for *o in objects {
             var m = llvm::NewArchiveMember::getFile(kairo::sref(*o), true)

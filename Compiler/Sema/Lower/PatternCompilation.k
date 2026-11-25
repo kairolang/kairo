@@ -966,7 +966,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
     /// Rows surviving `c` at the head occurrence, head replaced by the
     /// constructor's fields. A binder head is recorded before it is dropped.
-    priv fn _specialize(self, @inout rows: [CRow], const occs: [u32], const c: Ctor) -> [CRow] {
+    priv fn _specialize(self, const rows: [CRow], const occs: [u32], const c: Ctor) -> [CRow] {
         var out: [CRow]
         for var i: usize = 0; i < rows.size(); ++i {
             var        *r = &(rows)[i]
@@ -1012,11 +1012,11 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             sub.push((rows)[(idx)[i] as usize].copy())
         }
 
-        return self._specialize(&sub, *occs, c)
+        return self._specialize(sub, *occs, c)
     }
 
     /// `a` and `b`, both ascending, merged.
-    priv fn _merge_idx(self, @inout a: [u32], const b: [u32]) -> [u32] {
+    priv fn _merge_idx(self, const a: [u32], const b: [u32]) -> [u32] {
         var out: [u32]
         var i:   usize = 0
         var j:   usize = 0
@@ -1034,7 +1034,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     }
 
     /// Rows whose head is a wildcard, head dropped.
-    priv fn _defaults(self, @inout rows: [CRow], const occs: [u32]) -> [CRow] {
+    priv fn _defaults(self, const rows: [CRow], const occs: [u32]) -> [CRow] {
         var out: [CRow]
         for var i: usize = 0; i < rows.size(); ++i {
             var        *r = &(rows)[i]
@@ -1096,7 +1096,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                      const c: Ctor,
                      d:       Domain) -> u32 {
         var sub   = self._sub_occs((*occs)[0], c, d)
-        var srows = self._specialize(&*rows, *occs, c)
+        var srows = self._specialize(*rows, *occs, c)
         var socc  = self._with_sub(*occs, sub)
         return self._build(unsafe &srows, unsafe &socc)
     }
@@ -1174,7 +1174,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             c.index = order[k]
             c.arity = (adt_variant_at(d.en, order[k] as usize)->payload.size() as u32)
             var sub   = self._sub_occs((*occs)[0], c, d)
-            var idx   = self._merge_idx(&buckets[k], wilds)
+            var idx   = self._merge_idx(buckets[k], wilds)
             var srows = self._specialize_idx(*rows, occs, c, idx)
             var socc  = self._with_sub(*occs, sub)
             var e     = DEdge{}
@@ -1188,7 +1188,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         // Complete over the declared variants: the default is where an
         // undeclared discriminant goes, which is the wildcard rows, or
         // UnmatchedPolicy when there are none.
-        var drows      = self._defaults(&*rows, *occs)
+        var drows      = self._defaults(*rows, *occs)
         var rest       = self._rest(*occs)
         var other: i32 = -1
         // Under a split, an undeclared discriminant still owes the lower
@@ -1235,7 +1235,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             c.kind = CtorKind::Bool
             c.lo   = v
             c.hi   = v
-            var srows = self._specialize(&*rows, *occs, c)
+            var srows = self._specialize(*rows, *occs, c)
             var socc  = self._rest(*occs)
             var e     = DEdge{}
             e.kind  = CtorKind::Bool
@@ -1248,7 +1248,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
         var other: i32 = -1
         if !(have[0] != 0 && have[1] != 0) {
-            var drows = self._defaults(&*rows, *occs)
+            var drows = self._defaults(*rows, *occs)
             var rest  = self._rest(*occs)
             other = (self._build(unsafe &drows, unsafe &rest) as i32)
         }
@@ -1278,7 +1278,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
                 continue
             }
 
-            if have_prev && self._same_rows(&*rows, set, prev_set) {
+            if have_prev && self._same_rows(*rows, set, prev_set) {
                 kids[kids.size() - 1].hi = segs[i].hi
                 i += 1
                 continue
@@ -1300,14 +1300,14 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             c.kind = CtorKind::Int
             c.lo   = kids[k].lo
             c.hi   = kids[k].lo // a key inside the edge: containment is all-or-nothing per segment.
-            var srows = self._specialize(&*rows, *occs, c)
+            var srows = self._specialize(*rows, *occs, c)
             var socc  = self._rest(*occs)
             kids[k].child = self._build(unsafe &srows, unsafe &socc)
         }
 
         var other: i32 = -1
         if any_hole {
-            var drows = self._defaults(&*rows, *occs)
+            var drows = self._defaults(*rows, *occs)
             var rest  = self._rest(*occs)
             other = (self._build(unsafe &drows, unsafe &rest) as i32)
         }
@@ -1383,7 +1383,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
             var b   = at.find(kairo::sref(f"{v}"))->second
             var set = buckets[b as usize].copy()
-            if have_prev && self._same_rows(&*rows, set, prev_set) {
+            if have_prev && self._same_rows(*rows, set, prev_set) {
                 kids[kids.size() - 1].hi = v
             } else {
                 var e = DEdge{}
@@ -1409,7 +1409,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             c.kind = CtorKind::Int
             c.lo   = kids[k].lo
             c.hi   = kids[k].lo
-            var idx   = self._merge_idx(&buckets[kidb[k] as usize], wilds)
+            var idx   = self._merge_idx(buckets[kidb[k] as usize], wilds)
             var srows = self._specialize_idx(*rows, occs, c, idx)
             var socc  = self._rest(*occs)
             kids[k].child = self._build(unsafe &srows, unsafe &socc)
@@ -1417,7 +1417,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
 
         var other: i32 = -1
         if any_hole {
-            var drows = self._defaults(&*rows, *occs)
+            var drows = self._defaults(*rows, *occs)
             var rest  = self._rest(*occs)
             other = (self._build(unsafe &drows, unsafe &rest) as i32)
         }
@@ -1488,7 +1488,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
     /// agree position by position on everything below the head: arm, guard,
     /// remaining columns, binders. `case 1, 2, 3` is three rows of one arm;
     /// this merges their segments into one `1...3` edge.
-    priv fn _same_rows(self, @inout rows: [CRow], const a: [u32], const b: [u32]) -> bool {
+    priv fn _same_rows(self, const rows: [CRow], const a: [u32], const b: [u32]) -> bool {
         if a.size() != b.size() {
             return false
         }
@@ -1591,7 +1591,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
         var kids: [DEdge]
         for var k: usize = 0; k < heads.size(); ++k {
             var srows: [CRow]
-            var idx           = self._merge_idx(&buckets[k], wilds)
+            var idx           = self._merge_idx(buckets[k], wilds)
             for var ii: usize = 0; ii < idx.size(); ++ii {
                 var        *r = &(*rows)[idx[ii] as usize]
                 var unsafe *h = r->cols[0]
@@ -1616,7 +1616,7 @@ pub class PatternCompilation derives RecursiveASTVisitor<PatternCompilation> {
             kids.push(e)
         }
 
-        var drows = self._defaults(&*rows, *occs)
+        var drows = self._defaults(*rows, *occs)
         var rest  = self._rest(*occs)
         var other = (self._build(unsafe &drows, unsafe &rest) as i32)
         return self._switch_node((*occs)[0], kids, other, true)

@@ -104,7 +104,7 @@ pub class TomlLite {
                 return false
             }
 
-            return self._after_key(&key, &val)
+            return self._after_key(key, &val)
         }
 
         var b = self._i
@@ -118,10 +118,10 @@ pub class TomlLite {
         }
 
         key = LinkText::slice(self._s, b, self._i)
-        return self._after_key(&key, &val)
+        return self._after_key(key, &val)
     }
 
-    priv fn _after_key(self, @inout key: string, @inout val: TomlValue) -> bool {
+    priv fn _after_key(self, const key: string, @inout val: TomlValue) -> bool {
         self._skip(false)
         if self._i >= self._s.size() || self._s.data()[self._i] != ('=' as u8) {
             return self._fail(f"expected = after {key}")
@@ -378,51 +378,51 @@ pub class SysrootManifest {
 
     priv fn _set(self, const key: string, @inout v: TomlValue) -> bool {
         if key == "triple" {
-            return self._str(key, &v, &self.triple)
+            return self._str(key, v, &self.triple)
         }
 
         if key == "clang_triple" {
-            return self._str(key, &v, &self.clang_triple)
+            return self._str(key, v, &self.clang_triple)
         }
 
         if key == "llvm_version" {
-            return self._str(key, &v, &self.llvm_version)
+            return self._str(key, v, &self.llvm_version)
         }
 
         if key == "family" {
-            return self._str(key, &v, &self.family)
+            return self._str(key, v, &self.family)
         }
 
         if key == "glibc_version" {
-            return self._str(key, &v, &self.glibc_version)
+            return self._str(key, v, &self.glibc_version)
         }
 
         if key == "sysroot" {
-            return self._str(key, &v, &self.sysroot)
+            return self._str(key, v, &self.sysroot)
         }
 
         if key == "resource_dir" {
-            return self._str(key, &v, &self.resource_dir)
+            return self._str(key, v, &self.resource_dir)
         }
 
         if key == "rtlib" {
-            return self._str(key, &v, &self.rtlib)
+            return self._str(key, v, &self.rtlib)
         }
 
         if key == "unwindlib" {
-            return self._str(key, &v, &self.unwindlib)
+            return self._str(key, v, &self.unwindlib)
         }
 
         if key == "linker" {
-            return self._str(key, &v, &self.linker)
+            return self._str(key, v, &self.linker)
         }
 
         if key == "has_libcxx" {
-            return self._flag(key, &v, &self.has_libcxx)
+            return self._flag(key, v, &self.has_libcxx)
         }
 
         if key == "static" {
-            return self._flag(key, &v, &self.is_static)
+            return self._flag(key, v, &self.is_static)
         }
 
         if key == "include_dirs" {
@@ -460,7 +460,7 @@ pub class SysrootManifest {
         return true
     }
 
-    priv fn _str(self, const key: string, @inout v: TomlValue, @inout dst: string) -> bool {
+    priv fn _str(self, const key: string, const v: TomlValue, @inout dst: string) -> bool {
         if v.kind != 1 {
             self.error = f"{key} must be a string"
             return false
@@ -470,7 +470,7 @@ pub class SysrootManifest {
         return true
     }
 
-    priv fn _flag(self, const key: string, @inout v: TomlValue, @inout dst: bool) -> bool {
+    priv fn _flag(self, const key: string, const v: TomlValue, @inout dst: bool) -> bool {
         if v.kind != 2 {
             self.error = f"{key} must be true or false"
             return false
@@ -493,10 +493,7 @@ pub class SysrootManifest {
         return true
     }
 
-    priv fn _list(self,
-                  const key:  string,
-                  @inout v:   TomlValue,
-                  @inout dst: [string]) -> bool {
+    priv fn _list(self, const key: string, @inout v: TomlValue, @inout dst: [string]) -> bool {
         if v.kind != 3 {
             self.error = f"{key} must be an array of strings"
             return false

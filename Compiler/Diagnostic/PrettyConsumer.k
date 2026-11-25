@@ -372,7 +372,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
         var out: string
         for var i: usize = 0; i < groups.size(); ++i {
-            out += self.render_group(&groups[i], sm, color)
+            out += self.render_group(groups[i], sm, color)
         }
 
         return out
@@ -400,7 +400,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
 
     /// Fix-it message lines and deduped child notes of a group; shared by the
     /// snippet and the snippet-less (--diag-show-context=false) renderings.
-    priv fn render_group_tail(self, @inout group: DiagGroup, color: bool) -> string {
+    priv fn render_group_tail(self, const group: DiagGroup, color: bool) -> string {
         const NL          = "\n"
         var   out: string
         // --- Fix-its: the edit is already shown inline on the primary line;
@@ -462,9 +462,9 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     }
 
     priv fn render_group(self,
-                         @inout group: DiagGroup,
-                         sm:           unsafe *SourceManager,
-                         color:        bool) -> string {
+                         const group: DiagGroup,
+                         sm:          unsafe *SourceManager,
+                         color:       bool) -> string {
         const NL              = "\n"
         var   out:     string
         var   renderer        = TermRenderer(color, 80)
@@ -551,7 +551,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
                 ) + nd->message + NL
             }
 
-            out += self.render_group_tail(&group, color)
+            out += self.render_group_tail(group, color)
             return out + NL
         }
 
@@ -869,7 +869,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
             }
         }
 
-        out += self.render_group_tail(&group, color)
+        out += self.render_group_tail(group, color)
 
         return out + NL
     }
@@ -984,7 +984,7 @@ pub class PrettyDiagConsumer derives DiagConsumer {
         // hidden the message still has to appear: it normally rides on a label.
         if self._show_context {
             out += self.render_labels(
-                &temp_labels,
+                temp_labels,
                 sm,
                 indent.copy(),
                 sev_col.copy(),
@@ -1015,12 +1015,12 @@ pub class PrettyDiagConsumer derives DiagConsumer {
     }
 
     priv fn render_labels(self,
-                          @inout labels: [DiagLabel],
-                          sm:            unsafe *SourceManager,
-                          indent:        string,
-                          sev_col:       string,
-                          color:         bool,
-                          left_pad:      usize) -> string {
+                          const labels: [DiagLabel],
+                          sm:           unsafe *SourceManager,
+                          indent:       string,
+                          sev_col:      string,
+                          color:        bool,
+                          left_pad:     usize) -> string {
         const NL          = "\n"
         var   out: string
 

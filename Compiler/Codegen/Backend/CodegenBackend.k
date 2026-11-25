@@ -661,7 +661,7 @@ pub class CodegenRun {
     /// mounted (the flags CodegenBackend::run checks). Driver thread, before
     /// the fan-out: after it nothing is mounted or flagged, so the workers
     /// only ever read.
-    pub fn mount(self, @inout sets: cxx::std::vector<unsafe *HeaderSet>) {
+    pub fn mount(self, const sets: cxx::std::vector<unsafe *HeaderSet>) {
         if self.merged != &null && self.merged->ok {
             self.mounts.add_pch(
                 self.merged->path,

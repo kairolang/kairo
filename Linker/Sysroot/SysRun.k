@@ -40,7 +40,7 @@ pub class SysRun {
     /// Runs `argv` (argv[0] a path) with stdout and stderr both in `log`
     /// (appended to nothing: the file is replaced). The exit status, or -1
     /// when the program could not be started; `log` then says why.
-    pub static fn run(@inout argv: [string], const log: string) -> i32 {
+    pub static fn run(const argv: [string], const log: string) -> i32 {
         if argv.is_empty() {
             return -1
         }
@@ -157,14 +157,14 @@ pub class SysRun {
     /// Copies `from` into `to` (merged into what is there), symlinks kept
     /// as symlinks. `skip` names top-level entries to leave out.
     pub static fn copy_tree(const from: string, const to: string, @inout skip: [string]) -> bool {
-        return SysRun::_tree(from, to, &skip, false, 0)
+        return SysRun::_tree(from, to, skip, false, 0)
     }
 
     /// As copy_tree, but regular files are hard links where the filesystem
     /// allows one (a copy where it does not). For laying a finished stage
     /// into a root: both sides are cache dirs nothing writes to again.
     pub static fn link_tree(const from: string, const to: string, @inout skip: [string]) -> bool {
-        return SysRun::_tree(from, to, &skip, true, 0)
+        return SysRun::_tree(from, to, skip, true, 0)
     }
 
     /// One file, `from` to `to` (parents made), as a hard link when
@@ -222,7 +222,7 @@ pub class SysRun {
                   else => LinkText::slice(from, root.size() + 1, from.size())
         var rels: [string]
         var tgts: [string]
-        var text = ""
+        var text           = ""
         if LinkFS::read(root.copy() + "/links.tsv", &text) {
             for *line in LinkText::split_lines(text.copy()) {
                 if line->is_empty() {
@@ -266,7 +266,7 @@ pub class SysRun {
 
         for var i: usize in copies {
             var at  = SysRun::_mapped(sub, rels[i], to)
-            var res = SysRun::_resolve_recorded(root, rels[i], &rels, &tgts)
+            var res = SysRun::_resolve_recorded(root, rels[i], rels, tgts)
             if res.is_empty() {
                 err = f"{root}/links.tsv: {rels[i]} -> {tgts[i]} does not resolve inside the input"
                 return false
@@ -292,7 +292,7 @@ pub class SysRun {
         }
 
         var stored: [string]
-        var real: [string]
+        var real:   [string]
         for *line in LinkText::split_lines(text.copy()) {
             if line->is_empty() {
                 continue
@@ -365,16 +365,16 @@ pub class SysRun {
     /// names, through chains and dir links as the OS would resolve them;
     /// "" when it escapes `root`, loops or dangles. The twin of
     /// Scripts/ship_sysroot_inputs.py resolve_recorded().
-    priv static fn _resolve_recorded(const root:  string,
-                                     const rel:   string,
-                                     @inout rels: [string],
-                                     @inout tgts: [string]) -> string {
-        var parts       = SysUtil::split(rel, ('/' as u8))
+    priv static fn _resolve_recorded(const root: string,
+                                     const rel:  string,
+                                     const rels: [string],
+                                     const tgts: [string]) -> string {
+        var parts          = SysUtil::split(rel, ('/' as u8))
         var done: [string]
-        var seen: usize = 0
-        var head: usize = 0
+        var seen: usize    = 0
+        var head: usize    = 0
         while head < parts.size() {
-            var cur = SysUtil::joined(&done, "/")
+            var cur = SysUtil::joined(done, "/")
             cur = if (cur.is_empty()) => (parts[head].copy()) else => cur.copy() + "/" + parts[head]
             var hit = rels.size()
             for var i: usize = 0; i < rels.size(); ++i {
@@ -417,7 +417,7 @@ pub class SysRun {
             done.push(h.copy())
         }
 
-        var res = SysUtil::joined(&done, "/")
+        var res = SysUtil::joined(done, "/")
         if res.is_empty() || !LinkFS::exists(root.copy() + "/" + res) {
             return ""
         }
@@ -425,11 +425,11 @@ pub class SysRun {
         return res
     }
 
-    priv static fn _tree(const from:  string,
-                         const to:    string,
-                         @inout skip: [string],
-                         hard:        bool,
-                         depth:       u32) -> bool {
+    priv static fn _tree(const from: string,
+                         const to:   string,
+                         const skip: [string],
+                         hard:       bool,
+                         depth:      u32) -> bool {
         if depth > 64 || !LinkFS::make_dirs(to) {
             return false
         }
@@ -437,7 +437,7 @@ pub class SysRun {
         var none: [string]
         for *name in LinkFS::list_dir(from) {
             var found = false
-            for *s in skip {
+            for const *s in skip {
                 if *s == *name {
                     found = true
                 }
@@ -459,7 +459,7 @@ pub class SysRun {
             }
 
             if LinkFS::is_dir(s) {
-                if !SysRun::_tree(s, d, &none, hard, depth + 1) {
+                if !SysRun::_tree(s, d, none, hard, depth + 1) {
                     return false
                 }
 
@@ -507,7 +507,7 @@ pub class SysJobs {
     }
 
     /// Starts `argv` with its output in `log`. False once any job failed.
-    pub fn add(self, @inout argv: [string], const log: string) -> bool {
+    pub fn add(self, const argv: [string], const log: string) -> bool {
         if !self.ok() {
             return false
         }

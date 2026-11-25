@@ -81,8 +81,14 @@ import AST::Context::InstantiationRegistry::{
     InstantiationRegistry,
 }
 import AST::DeclFacts::{
-    decl_clang,             decl_cxx_spelling, decl_fill_failed, decl_foreign_fill,
-    decl_instantiated_from, decl_origin_fid,   decl_origin_set,  decl_publish_fill,
+    decl_clang,
+    decl_cxx_spelling,
+    decl_fill_failed,
+    decl_foreign_fill,
+    decl_instantiated_from,
+    decl_origin_fid,
+    decl_origin_set,
+    decl_publish_fill,
     decl_set_imported,
 }
 import AST::Mixin::TemplateParams::ForeignFill
@@ -540,7 +546,7 @@ pub class ForeignInstantiate {
                 qs.push_back(a)
             }
 
-            ty = tx.template_id(ct, &qs)
+            ty = tx.template_id(ct, qs)
             if ty.isNull() {
                 (*why) = "clang rejected the template-id"
                 return FillResult::Failed
@@ -840,9 +846,9 @@ pub class ForeignInstantiate {
             f,
             ftd,
             hs,
-            &*explicit_args,
-            &*arg_tys,
-            &*arg_cats,
+            *explicit_args,
+            *arg_tys,
+            *arg_cats,
             sink,
             &*why,
             want_ret,
@@ -897,9 +903,9 @@ pub class ForeignInstantiate {
             f,
             aftd,
             alt,
-            &*explicit_args,
-            &*arg_tys,
-            &*arg_cats,
+            *explicit_args,
+            *arg_tys,
+            *arg_cats,
             sink,
             &awhy,
             want_ret,
@@ -932,20 +938,20 @@ pub class ForeignInstantiate {
     /// declares it. `opaque` reports that an argument had no spelling there
     /// but an opaque blob, so no return type was imported. Under `_mu`.
     priv fn _deduce_in(self,
-                       f:                    unsafe *Decl,
-                       ftd:                  unsafe *clang::FunctionTemplateDecl,
-                       hs:                   unsafe *HeaderSet,
-                       @inout explicit_args: cxx::std::vector<unsafe *Type>,
-                       @inout arg_tys:       cxx::std::vector<unsafe *Type>,
-                       @inout arg_cats:      cxx::std::vector<Expr::ValueCategory>,
-                       sink:                 unsafe *BufferedDiagSink,
-                       @inout why:           string,
-                       want_ret:             bool,
-                       @inout ret:           unsafe *Type,
-                       fid:                  i64,
-                       @inout opaque:        bool,
-                       conv_at:              unsafe *cxx::std::vector<usize>,
-                       @inout found:         unsafe *void) -> CxxDeduce {
+                       f:                   unsafe *Decl,
+                       ftd:                 unsafe *clang::FunctionTemplateDecl,
+                       hs:                  unsafe *HeaderSet,
+                       const explicit_args: cxx::std::vector<unsafe *Type>,
+                       const arg_tys:       cxx::std::vector<unsafe *Type>,
+                       const arg_cats:      cxx::std::vector<Expr::ValueCategory>,
+                       sink:                unsafe *BufferedDiagSink,
+                       @inout why:          string,
+                       want_ret:            bool,
+                       @inout ret:          unsafe *Type,
+                       fid:                 i64,
+                       @inout opaque:       bool,
+                       conv_at:             unsafe *cxx::std::vector<usize>,
+                       @inout found:        unsafe *void) -> CxxDeduce {
         var unsafe *cctx  = hs->ast()
         var unsafe *csema = hs->sema()
         var        slock  = kairo::std::LockGuard(*hs->sema_lock())
@@ -973,7 +979,7 @@ pub class ForeignInstantiate {
         var ali = clang::TemplateArgumentListInfo(loc, loc)
         var prior: llvm::SmallVector<clang::TemplateArgument, 8>
         for var i: usize = 0; i < explicit_args.size(); ++i {
-            var a = tx.to_clang_arg_of(tpl, i, (explicit_args)[i], &prior)
+            var a = tx.to_clang_arg_of(tpl, i, (explicit_args)[i], prior)
             if a.isNull() {
                 return CxxDeduce::NoAnswer
             }

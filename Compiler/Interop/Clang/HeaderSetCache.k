@@ -336,7 +336,7 @@ pub class HeaderSetCache {
     /// a finished build. The cache owns it because each codegen TU's VFS
     /// mounts its bytes without a copy, so they must outlive every TU.
     pub fn codegen_pch(self,
-                       @inout sets: cxx::std::vector<unsafe *HeaderSet>) -> unsafe *CodegenPCH {
+                       const sets: cxx::std::vector<unsafe *HeaderSet>) -> unsafe *CodegenPCH {
         var key = ""
         for var i: usize = 0; i < sets.size(); ++i {
             key += f"{sets[i]->id}-"
@@ -357,7 +357,7 @@ pub class HeaderSetCache {
 
         // Outside the lock: a 50 ms parse must not stall request()/find()
         // from the threads Sema is running on.
-        p->build(self._be, &sets)
+        p->build(self._be, sets)
         return p
     }
 
@@ -380,7 +380,7 @@ pub class HeaderSetCache {
             kairo::SmallFunction<64>(
                 fn () |me, job, rec| {
                     var _kt = TimeReport::Worker(rec)
-                    me->codegen_pch(&*job)
+                    me->codegen_pch(*job)
                     @cxx::delete job
                 },
             ),

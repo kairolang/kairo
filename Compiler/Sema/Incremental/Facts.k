@@ -434,9 +434,7 @@ pub fn incr_scope_id(dc: unsafe *DeclContext, psym: unsafe *PreprocessorSymbolTa
 /// first, in the order they appear: a record, then its arguments, then the
 /// type it is nested in. A type's structural string, a layout row and a
 /// retraction all read records in this order.
-pub fn incr_type_records(c_in:  unsafe *Type,
-                         depth: u32,
-                         out:   unsafe *[unsafe *Decl]) {
+pub fn incr_type_records(c_in: unsafe *Type, depth: u32, out: unsafe *[unsafe *Decl]) {
     if c_in == &null || depth > 24 {
         return
     }
@@ -960,8 +958,8 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
     }
 
     priv fn _edges(self,
-                   const tag:    string,
-                   @inout edges: FrozenList<Declarations::InheritEdge>) -> string {
+                   const tag:   string,
+                   const edges: FrozenList<Declarations::InheritEdge>) -> string {
         var s: string = ""
         for var i: usize = 0; i < edges.size(); ++i {
             var e = edges[i]
@@ -996,16 +994,16 @@ pub class IncrFacts derives RecursiveASTVisitor<IncrFacts> {
         }
 
         var bases = decl_bases(d)
-        s += self._edges("b", &bases)
+        s += self._edges("b", bases)
         var fields  = decl_fields(d)
         var methods = decl_methods(d)
         if isa<Declarations::ClassDecl>(d) {
             var unsafe *c = cast<Declarations::ClassDecl>(d)
-            s += self._edges("i", &c->implements)
+            s += self._edges("i", c->implements)
             s += f"|cf{c->is_final as u8}{c->is_abstract as u8}"
         } else if isa<Declarations::StructDecl>(d) || isa<Declarations::UnionDecl>(d) {
             var impls = decl_implements(d)
-            s += self._edges("i", &impls)
+            s += self._edges("i", impls)
         } else if isa<Declarations::InterfaceDecl>(d) {
             // A requirement is read by every conformer, whether or not it
             // names it: all of them are layout.
@@ -1315,9 +1313,9 @@ fn _incr_surface(tu:   unsafe *TranslationUnit,
                  g:    unsafe *GlobalDisambigTable,
                  psym: unsafe *PreprocessorSymbolTable,
                  out:  unsafe *cxx::std::vector<string>) {
-    var seen  = llvm::DenseSet<u64>()
+    var seen                            = llvm::DenseSet<u64>()
     var work: [unsafe *TranslationUnit]
-    var first = true
+    var first                           = true
     work.push(tu)
     seen.insert(tu as usize as u64)
     while work.size() > 0 {

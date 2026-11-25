@@ -1123,7 +1123,7 @@ pub fn make_builtin_table() -> [BuiltinInfo] {
     // The table is built at run time (a function-local static), so it is
     // checked here, once, the first time anything asks for a row: a wrong
     // insert fails every compile, not a test.
-    if !verify_builtin_table(&rows) {
+    if !verify_builtin_table(rows) {
         kairo::std::ice_fail(
             "BuiltinTable row is out of order, incomplete, or duplicates a FloatSem",
         )
@@ -1275,7 +1275,7 @@ pub fn is_c_character(b: BuiltinKind) -> bool {
 ///   most: two rows sharing FloatSem::IEEEHalf is the f16/bf16 conflation the
 ///   enum spends three paragraphs warning about, and it should break the
 ///   build rather than a test.
-pub fn verify_builtin_table(@inout rows: [BuiltinInfo]) -> bool {
+pub fn verify_builtin_table(const rows: [BuiltinInfo]) -> bool {
     if rows.size() != ((BuiltinKind::COUNT as u8) as usize) {
         return false
     }

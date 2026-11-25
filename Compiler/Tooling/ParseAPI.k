@@ -488,7 +488,7 @@ pub fn parse_fid(ci: unsafe *CompilerInstance, fid: u32, opts: ParseOptions) -> 
 ///
 /// **Warning:** Invalidates unit.ctx, unit.tu, and every node reached through
 /// them. Refuses while another live TU still imports this fid.
-pub fn release(ci: *CompilerInstance?, @inout unit: ParsedUnit, from: TUStage) -> bool {
+pub fn release(ci: *CompilerInstance?, const unit: ParsedUnit, from: TUStage) -> bool {
     if ci == &null {
         return false
     }
@@ -525,7 +525,7 @@ pub fn release(ci: *CompilerInstance?, @inout unit: ParsedUnit, from: TUStage) -
 ///              var owned = src.std_string();
 ///              var u     = parse_string(ci, owned, "<snippet>", opts);
 pub fn parse_string(ci:          unsafe *CompilerInstance,
-                    @inout code: cxx::std::string,
+                    const code:  cxx::std::string,
                     const vname: string,
                     opts:        ParseOptions) -> ParsedUnit {
     if ci == &null {

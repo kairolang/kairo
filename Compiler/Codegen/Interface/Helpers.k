@@ -1156,7 +1156,7 @@ extend InterfaceEmitter {
 
             for var k: usize = 0; k < x->members.size(); ++k {
                 if DeclFacts::decl_name(unsafe (x->members[k] as unsafe *Decl)) == name {
-                    return "::" + self._spell->ns_join(&x->ns) + "::" + x->name
+                    return "::" + self._spell->ns_join(x->ns) + "::" + x->name
                 }
             }
         }

@@ -1049,7 +1049,7 @@ fn live_slice(st:   *LiveState,
 
 /// `kals --worker --index-server [--cwd <dir>] [--root <dir>] --
 /// <kairo args> <entry>`. Exits at EOF.
-pub fn index_server_main(@inout args: [string]) -> i32 {
+pub fn index_server_main(const args: [string]) -> i32 {
     var st                              = LiveState()
     var words: cxx::std::vector<string>
     var i:     usize                    = 1

@@ -253,7 +253,7 @@ pub class ObjectCache {
     /// By content and spelling, never by mtime: a copied checkout
     /// hashes the same, a touched header does not invalidate.
     pub fn begin_run(self,
-                     @inout sets: cxx::std::vector<unsafe *HeaderSet>,
+                     const sets:  cxx::std::vector<unsafe *HeaderSet>,
                      merged_ok:   bool,
                      const mods:  cxx::std::vector<u32>,
                      const edges: cxx::std::vector<cxx::std::vector<u32>>) {

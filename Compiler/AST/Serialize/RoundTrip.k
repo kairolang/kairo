@@ -94,7 +94,7 @@ fn first_difference(const a: string, const b: string) -> string {
 }
 
 /// Index of the node at family base pointer `p` in `ar`'s node table.
-fn node_index(ar: unsafe *ASTArchive, @inout ids: {u64: u32}, p: unsafe *Decl) -> u32 {
+fn node_index(ar: unsafe *ASTArchive, const ids: {u64: u32}, p: unsafe *Decl) -> u32 {
     if p == &null {
         return u32::MAX - 1
     }
@@ -110,12 +110,12 @@ fn node_index(ar: unsafe *ASTArchive, @inout ids: {u64: u32}, p: unsafe *Decl) -
 /// Two symbol tables hold the same names, in the same order, each naming
 /// the same declarations (by node id). The empty string when they do, else
 /// what differs.
-fn symbols_differ(a:         unsafe *SymbolTable,
-                  b:         unsafe *SymbolTable,
-                  wa:        unsafe *ASTArchive,
-                  @inout ia: {u64: u32},
-                  wb:        unsafe *ASTArchive,
-                  @inout ib: {u64: u32}) -> string {
+fn symbols_differ(a:        unsafe *SymbolTable,
+                  b:        unsafe *SymbolTable,
+                  wa:       unsafe *ASTArchive,
+                  const ia: {u64: u32},
+                  wb:       unsafe *ASTArchive,
+                  const ib: {u64: u32}) -> string {
     if a == &null || b == &null {
         if a == &null && b == &null {
             return ""
@@ -148,8 +148,8 @@ fn symbols_differ(a:         unsafe *SymbolTable,
         }
 
         for var j: usize = 0; j < ea[i].cell->size(); ++j {
-            var x = node_index(wa, &ia, ea[i].cell->get(j))
-            var y = node_index(wb, &ib, eb[i].cell->get(j))
+            var x = node_index(wa, ia, ea[i].cell->get(j))
+            var y = node_index(wb, ib, eb[i].cell->get(j))
             if x != y || x == u32::MAX {
                 return f"name {i}, declaration {j}: node {x} parsed, node {y} reloaded"
             }
@@ -422,9 +422,9 @@ pub class ASTRoundTrip {
             tu->dc_symbols,
             tu2->dc_symbols,
             wa,
-            &ia,
+            ia,
             wb,
-            &ib,
+            ib,
         )
 
         if !tu_diff.is_empty() {
@@ -438,8 +438,8 @@ pub class ASTRoundTrip {
         }
 
         for var i: usize = 0; i < tu->out_of_line.size(); ++i {
-            var x = node_index(wa, &ia, *tu->out_of_line.get(i))
-            var y = node_index(wb, &ib, *tu2->out_of_line.get(i))
+            var x = node_index(wa, ia, *tu->out_of_line.get(i))
+            var y = node_index(wb, ib, *tu2->out_of_line.get(i))
             if x != y || x == u32::MAX {
                 err = f"the reloaded TU's out-of-line list differs at {i}"
                 return false
@@ -487,9 +487,9 @@ pub class ASTRoundTrip {
                 s1->dc_symbols,
                 s2->dc_symbols,
                 wa,
-                &ia,
+                ia,
                 wb,
-                &ib,
+                ib,
             )
 
             if !diff.is_empty() {

@@ -63,11 +63,11 @@ import API::Toolchain::Toolchain
 import Config::Linker::LinkerOptions
 
 pub class MinGWArgs {
-    static fn build(@inout job:  LinkJob,
+    static fn build(const job:   LinkJob,
                     @inout tc:   Toolchain,
                     @inout argv: cxx::std::vector<string>,
                     @inout msgs: cxx::std::vector<LinkMessage>) -> bool {
-        var errs0 = LinkDiag::error_count(&msgs)
+        var errs0 = LinkDiag::error_count(msgs)
         var *o    = job.opts
 
         if job.output.is_empty() {
@@ -305,7 +305,7 @@ pub class MinGWArgs {
             }
         }
 
-        return LinkDiag::error_count(&msgs) == errs0
+        return LinkDiag::error_count(msgs) == errs0
     }
 
     /// PE header and output-file options, in the MinGW driver's spellings

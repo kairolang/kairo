@@ -1321,8 +1321,7 @@ pub class ImportResolver {
                 continue
             }
 
-            if self._segs_start_with(&segs, &r->name)
-                || self._segs_start_with(&segs, &r->spelling) {
+            if self._segs_start_with(segs, r->name) || self._segs_start_with(segs, r->spelling) {
                 return cxx::std::vector<string>()
             }
         }
@@ -1331,8 +1330,8 @@ pub class ImportResolver {
     }
 
     priv fn _segs_start_with(self,
-                             @inout segs: cxx::std::vector<string>,
-                             @inout head: cxx::std::vector<string>) -> bool {
+                             const segs: cxx::std::vector<string>,
+                             const head: cxx::std::vector<string>) -> bool {
         if head.size() == 0 || head.size() > segs.size() {
             return false
         }

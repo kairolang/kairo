@@ -792,7 +792,7 @@ fn fail_json(const why: string) -> string {
 /// Requests queued behind the one being parsed are coalesced per file: only
 /// the newest buffer of a file is parsed, the older ones are answered
 /// `{ "id": n, "superseded": true }` at once. Exits at EOF.
-fn syntax_server_main(@inout base: [string]) -> i32 {
+fn syntax_server_main(const base: [string]) -> i32 {
     var t = Transport()
     while !t.closed {
         if !t.wait(1000) {
@@ -860,7 +860,7 @@ fn syntax_server_main(@inout base: [string]) -> i32 {
 }
 
 /// the worker's whole run. `args` is argv past `--worker`.
-pub fn worker_main(@inout args: [string]) -> i32 {
+pub fn worker_main(const args: [string]) -> i32 {
     if args.size() < 1 {
         return 2
     }
@@ -877,7 +877,7 @@ pub fn worker_main(@inout args: [string]) -> i32 {
             i += 1
         }
 
-        return syntax_server_main(&base)
+        return syntax_server_main(base)
     }
 
     var out_path              = args[0].copy()

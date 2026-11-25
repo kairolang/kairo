@@ -198,7 +198,7 @@ extend Server {
 
         // The buffer is no longer due only once its pass is running: a
         // refused launch leaves it due, and the loop tries again.
-        if self.launch_job(&argv, &j, "syntax") != LaunchResult::Started {
+        if self.launch_job(argv, &j, "syntax") != LaunchResult::Started {
             return
         }
 
@@ -264,7 +264,7 @@ extend Server {
             doc->get_bool(doc->root, SK_PARSED),
             doc->get_bool(doc->root, SK_UNSURE),
             diags,
-            &tokens,
+            tokens,
         )
 
         if publish {

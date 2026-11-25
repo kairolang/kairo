@@ -321,7 +321,7 @@ extend EmitIR {
         if ns.size() > 0 {
             self._cg->sink->spell(
                 at,
-                "namespace " + self._spell.ns_join(&ns) + " {",
+                "namespace " + self._spell.ns_join(ns) + " {",
             )
 
             n += 1
@@ -467,7 +467,7 @@ extend EmitIR {
         var ns   = self._spell.ns_segments(unsafe (n as unsafe *Decl))
         var qual = "::"
         if ns.size() > 0 {
-            qual += self._spell.ns_join(&ns) + "::"
+            qual += self._spell.ns_join(ns) + "::"
         }
 
         qual += self._spell.leaf(n)

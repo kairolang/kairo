@@ -62,8 +62,13 @@ import AST::Context::DeclContext::{
 }
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
-    decl_extension_of, decl_generic_params,  decl_instantiated_from, decl_is_imported,
-    decl_is_instance,  decl_requires_clause, param_type_pack_param,
+    decl_extension_of,
+    decl_generic_params,
+    decl_instantiated_from,
+    decl_is_imported,
+    decl_is_instance,
+    decl_requires_clause,
+    param_type_pack_param,
 }
 import AST::LangItems::{
     ALLOC_FN_OVERLOADS,
@@ -77,7 +82,13 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType, BuiltinKind, QUAL_CONST, RecordType, canon_has_const, canon_quals, canon_unqual,
+    AssocType,
+    BuiltinKind,
+    QUAL_CONST,
+    RecordType,
+    canon_has_const,
+    canon_quals,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -85,21 +96,51 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, FnBodyKind,   FunctionDecl,  GenericParamDecl, InterfaceDecl, ModuleDecl,
-    ParamDecl, TransferKind, TypeAliasDecl, VariableDecl,
+    ClassDecl,
+    FnBodyKind,
+    FunctionDecl,
+    GenericParamDecl,
+    InterfaceDecl,
+    ModuleDecl,
+    ParamDecl,
+    TransferKind,
+    TypeAliasDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
-    AlignOfExpr,       CallExpr,          ClosureExpr, ConstraintExpr, FinalizeKind, IfExpr,
-    NamedArgExpr,      PackExpansionExpr, SizeOfExpr,  SubscriptExpr,  TypeCastExpr, TypeTraitExpr,
+    AlignOfExpr,
+    CallExpr,
+    ClosureExpr,
+    ConstraintExpr,
+    FinalizeKind,
+    IfExpr,
+    NamedArgExpr,
+    PackExpansionExpr,
+    SizeOfExpr,
+    SubscriptExpr,
+    TypeCastExpr,
+    TypeTraitExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
-    BooleanLiteralExpr, ChainExpr,      CharacterLiteralExpr, FloatingLiteralExpr,
-    IntegerLiteralExpr, NamedIdentExpr, NullLiteralExpr,      StringLiteralExpr,
+    BooleanLiteralExpr,
+    ChainExpr,
+    CharacterLiteralExpr,
+    FloatingLiteralExpr,
+    IntegerLiteralExpr,
+    NamedIdentExpr,
+    NullLiteralExpr,
+    StringLiteralExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType,  ChainType,        FixedArrayType, FunctionPointerType,
-    GenericParamType, PackExpansionType, VariadicPackType,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    ChainType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    PackExpansionType,
+    VariadicPackType,
 }
 import AST::ParamMode::ParamMode
 import AST::Visitor::RecursiveASTVisitor::named_call_arg_value
@@ -124,8 +165,16 @@ import Sema::Type::NullnessFlow::{
     NULL_READ_REFUSED,
 }
 import Sema::Type::OverloadResolution::{
-    ARG_C_VARARG, ARG_PACK_TAIL,  ArgInfo,        LitKind, OvlCallScope, OvlOutcome, OvlResult,
-    copy_args,    cxx_lref_inout, has_opaque_ffi,
+    ARG_C_VARARG,
+    ARG_PACK_TAIL,
+    ArgInfo,
+    LitKind,
+    OvlCallScope,
+    OvlOutcome,
+    OvlResult,
+    copy_args,
+    cxx_lref_inout,
+    has_opaque_ffi,
 }
 import Sema::Type::Substitution::Substitution
 import Sema::Type::TypeUtil::constraint_conjuncts
@@ -3280,7 +3329,7 @@ pub class <T: type> CallTyping {
         }
 
         var args: [ArgInfo]
-        var ok   = self.build_args(n->args, &args)
+        var ok              = self.build_args(n->args, &args)
         if !dep && !self.narrow_args(unsafe &cands, unsafe &args, true, rec) {
             self.dyn()->poison_only(n)
             return &null
@@ -3321,7 +3370,7 @@ pub class <T: type> CallTyping {
                 return &null
             }
 
-            self._finish_args_unselected(&args)
+            self._finish_args_unselected(args)
             n->value_category = Expr::ValueCategory::RValue
             return rec
         }
@@ -3419,7 +3468,7 @@ pub class <T: type> CallTyping {
     /// finish_call_args with no winner: there is no parameter to type an
     /// untyped literal against, so it takes its default (what clang will
     /// see it as), and a `name: value` wrapper takes its value's type.
-    priv fn _finish_args_unselected(self, @inout args: [ArgInfo]) {
+    priv fn _finish_args_unselected(self, const args: [ArgInfo]) {
         for var i: usize = 0; i < args.size(); ++i {
             var *a = &(args)[i]
             // A bare `&null` has no parameter to read its pointer type from

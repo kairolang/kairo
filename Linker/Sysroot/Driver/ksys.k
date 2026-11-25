@@ -69,7 +69,7 @@ fn ksys_usage() -> string {
 
 /// Prints `o`'s refusal or failure the way the compiler's basic error
 /// format prints P009E / P010E, and returns its exit status.
-fn ksys_report(@inout o: SysOutcome) -> i32 {
+fn ksys_report(const o: SysOutcome) -> i32 {
     if o.status == 0 {
         return 0
     }
@@ -91,10 +91,7 @@ fn ksys_usage_error(const what: string) -> i32 {
 
 /// `--name=value` or `--name value`; true when argv[i] is that option, with
 /// `i` advanced past its value.
-fn ksys_opt(@inout args: [string],
-            @inout i:    usize,
-            const name:  string,
-            @inout val:  string) -> bool {
+fn ksys_opt(const args: [string], @inout i: usize, const name: string, @inout val: string) -> bool {
     var a = args[i].copy()
     if LinkText::starts_with(a.copy(), name.copy() + "=") {
         val = LinkText::slice(a, name.size() + 1, a.size())
@@ -152,20 +149,20 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
         if a == "-q" || a == "--quiet" {
             gen.quiet = true
-        } else if ksys_opt(&args, &i, "--share", &v) {
+        } else if ksys_opt(args, &i, "--share", &v) {
             gen.share_flag = v.copy()
-        } else if ksys_opt(&args, &i, "--cache", &v) {
+        } else if ksys_opt(args, &i, "--cache", &v) {
             gen.cache_root = v.copy()
-        } else if ksys_opt(&args, &i, "--glibc", &v) {
+        } else if ksys_opt(args, &i, "--glibc", &v) {
             gen.glibc = v.copy()
-        } else if ksys_opt(&args, &i, "--input", &v) {
+        } else if ksys_opt(args, &i, "--input", &v) {
             gen.input = v.copy()
-        } else if ksys_opt(&args, &i, "--out", &v) {
+        } else if ksys_opt(args, &i, "--out", &v) {
             out_dir = v.copy()
         } else if a == "--libc-only" {
             gen.libc_only = true
-        } else if ksys_opt(&args, &i, "--jobs", &v)
-            || ksys_opt(&args, &i, "-j", &v)
+        } else if ksys_opt(args, &i, "--jobs", &v)
+            || ksys_opt(args, &i, "-j", &v)
             || LinkText::starts_with(a.copy(), "-j") && a.size() > 2 {
             if v.is_empty() {
                 v = LinkText::slice(a, 2, a.size())
@@ -226,7 +223,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     if cmd == "probe" {
         gen.probe(words[1], &o)
-        return ksys_report(&o)
+        return ksys_report(o)
     }
 
     if cmd == "ensure" {
@@ -235,7 +232,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             io::println(path)
         }
 
-        return ksys_report(&o)
+        return ksys_report(o)
     }
 
     if cmd == "build" {
@@ -244,7 +241,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         }
 
         gen.build(words[1], out_dir, &o)
-        return ksys_report(&o)
+        return ksys_report(o)
     }
 
     if cmd == "tables" {
@@ -253,17 +250,17 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
         }
 
         gen.tables(words[1], out_dir, &o)
-        return ksys_report(&o)
+        return ksys_report(o)
     }
 
     if cmd == "validate" {
         gen.validate(words[1], &o)
-        return ksys_report(&o)
+        return ksys_report(o)
     }
 
     if cmd == "verify-share" {
         gen.verify_share(&o)
-        return ksys_report(&o)
+        return ksys_report(o)
     }
 
     var c = gen.cache()
@@ -273,7 +270,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
             "set KAIRO_SYSROOT_CACHE, or pass --cache DIR",
         )
 
-        return ksys_report(&o)
+        return ksys_report(o)
     }
 
     if cmd == "ls" {
@@ -297,7 +294,7 @@ pub fn main(argc: i32, argv: unsafe *(unsafe *c_char)) -> i32 {
 
     if !c.remove_name(words[1]) {
         o.refuse(f"no cached sysroot named {words[1]}", "`ksys ls` lists them")
-        return ksys_report(&o)
+        return ksys_report(o)
     }
 
     return 0

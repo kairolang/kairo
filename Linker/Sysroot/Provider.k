@@ -45,7 +45,7 @@ pub class StageCtx {
     pub var log_dir:     string
     pub var tools:       string ///< the dir kcc and kld were found in
     pub var ar:          string ///< llvm-ar (beside them or on PATH)
-    pub var jobs:        usize                      = 0 ///< compiles in flight, 0 = SysRun::jobs()
+    pub var jobs:        usize                    = 0 ///< compiles in flight, 0 = SysRun::jobs()
     /// The stages that ran before this one: names and their committed dirs,
     /// each holding its product under out/.
     pub var done_names: [string]
@@ -141,7 +141,7 @@ pub class SysrootProvider {
     /// recipe's arch list; a provider with more to check (an --input, the
     /// host) refines it. False sets `out` to the refusal.
     pub virtual fn supports(self, t: *SysTarget, r: *SysRecipe, @inout out: SysOutcome) -> bool {
-        if !r->arches.is_empty() && !SysUtil::contains(&r->arches, t->arch) {
+        if !r->arches.is_empty() && !SysUtil::contains(r->arches, t->arch) {
             return out.refuse(f"{t->family} has no port for {t->arch}", "")
         }
 

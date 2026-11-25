@@ -111,7 +111,7 @@ pub class SysRuntimes {
 
         var rts: [string]
         rts.push("builtins")
-        if !SysRuntimes::_compile(ctx, &env, &rts, &out) {
+        if !SysRuntimes::_compile(ctx, &env, rts, &out) {
             return false
         }
 
@@ -165,12 +165,12 @@ pub class SysRuntimes {
         }
 
         var rts = rt_runtimes()
-        if !SysRuntimes::_compile(ctx, &env, &rts, &out) {
+        if !SysRuntimes::_compile(ctx, &env, rts, &out) {
             return false
         }
 
-        var dst   = ctx->stage.copy() + "/out"
-        var hdest = env.target.str("", "headers_dest")
+        var dst            = ctx->stage.copy() + "/out"
+        var hdest          = env.target.str("", "headers_dest")
         var done: [string]
         for *g in gather {
             var at = SysRuntimes::layout_path(&ctx->recipe, *g)
@@ -215,7 +215,7 @@ pub class SysRuntimes {
         )
 
         for *a in env.target.keys_of("archives") {
-            if *a != rl.copy() + "/" + bn && !SysUtil::contains(&done, *a) {
+            if *a != rl.copy() + "/" + bn && !SysUtil::contains(done, *a) {
                 return out.fail(
                     f"the runtimes recipe for {ctx->target.name} builds {*a}, which no [layout] gather item takes",
                     "",
@@ -485,7 +485,7 @@ pub class SysRuntimes {
         }
 
         for *name in LinkFS::list_dir(from) {
-            if SysUtil::contains(&skip, *name) {
+            if SysUtil::contains(skip, *name) {
                 continue
             }
 
@@ -569,7 +569,7 @@ pub class SysRuntimes {
     /// (the tables already carry what the quirks added).
     priv static fn _compile(ctx:        *StageCtx,
                             env:        *RtEnv,
-                            @inout rts: [string],
+                            const rts:  [string],
                             @inout out: SysOutcome) -> bool {
         var logs = ctx->log_dir.copy() + "/cc"
         LinkFS::make_dirs(logs)
@@ -584,7 +584,7 @@ pub class SysRuntimes {
         var jobs = SysJobs()
         jobs.limit(ctx->jobs)
         var n: usize = 0
-        for *rt in rts {
+        for const *rt in rts {
             var key = env->target.str("", *rt)
             if key.is_empty() {
                 continue
@@ -603,8 +603,8 @@ pub class SysRuntimes {
 
             var members: [string]
             for *g in SysRuntimes::_groups(&t) {
-                var lang = t.str(*g, "lang")
-                var fl: [string]
+                var lang          = t.str(*g, "lang")
+                var fl:  [string]
                 for *f in t.list("flags", lang) {
                     fl.push(SysRuntimes::_expand(env, *f))
                 }
@@ -630,7 +630,7 @@ pub class SysRuntimes {
                     argv.push(env->src.copy() + "/" + path)
                     argv.push("-o")
                     argv.push(od.copy() + "/" + member)
-                    if !jobs.add(&argv, f"{logs}/{*rt}-{n}.log") {
+                    if !jobs.add(argv, f"{logs}/{*rt}-{n}.log") {
                         break
                     }
 
@@ -704,7 +704,7 @@ pub class SysRuntimes {
         var tt   = llvm::Triple(norm)
         var coff = tt.isOSBinFormatCOFF()
         LinkFS::make_dirs(LinkFS::parent(to))
-        if !LinkFS::write_archive_as(to, &objs, coff) {
+        if !LinkFS::write_archive_as(to, objs, coff) {
             return out.fail(f"cannot write {to}", "")
         }
 

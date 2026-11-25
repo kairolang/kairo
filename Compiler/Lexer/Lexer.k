@@ -1288,7 +1288,7 @@ pub class Lexer {
         ctx.number_end = self.get_source_location()
 
         self.scan_number_suffix(&ctx)
-        return self.finalize_number(&ctx)
+        return self.finalize_number(ctx)
     }
 
     priv inline fn init_number_ctx(self, start: SourceLocation, is_dot: bool) -> Self::NumberCtx {
@@ -1495,7 +1495,7 @@ pub class Lexer {
         }
     }
 
-    priv inline fn finalize_number(self, @inout ctx: Self::NumberCtx) -> Token {
+    priv inline fn finalize_number(self, const ctx: Self::NumberCtx) -> Token {
         var is_float = ctx.has_decimal || ctx.has_exponent
 
         var tok: Token
@@ -1877,14 +1877,14 @@ pub class Lexer {
         self.scan_text_body(&ctx)
 
         if ctx.is_bytes && !ctx.has_error {
-            self.check_byte_text(&ctx)
+            self.check_byte_text(ctx)
         }
 
-        if !self.finalize_text(&ctx) {
+        if !self.finalize_text(ctx) {
             return self.create_error_token(start, TokenKind::LitString)
         }
 
-        self.lex_text_suffix(&ctx)
+        self.lex_text_suffix(ctx)
         self.emit_fstring_exprs(&ctx)
 
         var head = self.make_text_token(&ctx)
@@ -2414,7 +2414,7 @@ pub class Lexer {
         // unterminated error will be caught by outer f-string termination check
     }
 
-    priv inline fn finalize_text(self, @inout ctx: Self::TextCtx) -> bool {
+    priv inline fn finalize_text(self, const ctx: Self::TextCtx) -> bool {
         if ctx.has_error {
             return false
         }
@@ -2427,7 +2427,7 @@ pub class Lexer {
         return true
     }
 
-    priv inline fn lex_text_suffix(self, @inout ctx: Self::TextCtx) {
+    priv inline fn lex_text_suffix(self, const ctx: Self::TextCtx) {
         // `"a"f"b"`: a prefix glued to the closing quote starts the next
         // segment of the chain, not a suffix. lex_name would lex that whole
         // literal as the "suffix" (and its imm would be orphaned).
@@ -2463,7 +2463,7 @@ pub class Lexer {
     /// above U+007F would mean (which encoding's bytes) is not
     /// left to the file's. One pass over the finished body, off
     /// scan_text_body's per-character path.
-    priv fn check_byte_text(self, @inout ctx: Self::TextCtx) {
+    priv fn check_byte_text(self, const ctx: Self::TextCtx) {
         const base: kairo::std::ConstPtr<u8> = self.file_data()
         var i   = ((ctx.body_start.raw() - self._loc_base) as usize)
         var end = ((ctx.body_end.raw() - self._loc_base) as usize)

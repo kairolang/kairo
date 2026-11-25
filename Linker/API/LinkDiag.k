@@ -47,7 +47,7 @@ pub class LinkDiag {
 
     /// Fatal + Error. Every "did this step fail" check compares this before
     /// and after, so a step never has to track its own failure flag.
-    static fn error_count(@inout msgs: cxx::std::vector<LinkMessage>) -> usize {
+    static fn error_count(const msgs: cxx::std::vector<LinkMessage>) -> usize {
         var n: usize = 0
         for *m in msgs {
             if m->severity == LinkSeverity::Fatal || m->severity == LinkSeverity::Error {

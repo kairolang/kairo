@@ -303,7 +303,7 @@ extend Server {
         j.t0_us    = t0_us
 
         var argv = self.worker_argv(ei, j.out, path, j.marked)
-        if self.launch_job(&argv, &j, "complete") != LaunchResult::Started {
+        if self.launch_job(argv, &j, "complete") != LaunchResult::Started {
             // Nothing is due after a completion: the request is answered.
             self.garbage.push(j.marked.copy())
             self.respond(id, "[]")

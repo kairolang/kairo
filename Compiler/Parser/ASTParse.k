@@ -77,9 +77,23 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,    EnumDecl,      EvalBlockDecl, ExtensionDecl,      FFIBlockDecl,        FieldDecl,
-    FunctionDecl, InterfaceDecl, ModuleDecl,    ProcedureMacroDecl, StructDecl,          TestDecl,
-    TransferKind, TypeAliasDecl, UnionDecl,     VariableDecl,       VisibilityGroupDecl,
+    ClassDecl,
+    EnumDecl,
+    EvalBlockDecl,
+    ExtensionDecl,
+    FFIBlockDecl,
+    FieldDecl,
+    FunctionDecl,
+    InterfaceDecl,
+    ModuleDecl,
+    ProcedureMacroDecl,
+    StructDecl,
+    TestDecl,
+    TransferKind,
+    TypeAliasDecl,
+    UnionDecl,
+    VariableDecl,
+    VisibilityGroupDecl,
 }
 import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
@@ -1785,7 +1799,7 @@ pub class ASTParse
         if self._index_path.empty() {
             self.ctx->hoisted->insert(name, entry)
         } else {
-            self.ctx->hoisted->insert_into(&self._index_path, name, entry)
+            self.ctx->hoisted->insert_into(self._index_path, name, entry)
         }
     }
 

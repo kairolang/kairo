@@ -106,28 +106,28 @@ pub class ClangJobs {
     ///
     /// ### Returns
     /// false on any failure, with clang's diagnostics printed.
-    pub fn run(self, @inout words: cxx::std::vector<string>) -> bool {
-        return self._drive(&words, true)
+    pub fn run(self, const words: cxx::std::vector<string>) -> bool {
+        return self._drive(words, true)
     }
 
     /// what run() would execute, as `clang -cc1 ...` lines in
     /// planned, without executing anything (clang's -###).
-    pub fn plan(self, @inout words: cxx::std::vector<string>) -> bool {
+    pub fn plan(self, const words: cxx::std::vector<string>) -> bool {
         self.planned.clear()
-        return self._drive(&words, false)
+        return self._drive(words, false)
     }
 
     /// a driver query (-dumpversion, -print-resource-dir, ...): clang
     /// prints its answer while the Compilation is built, and plans no
     /// job, which run() and plan() would report as an error.
-    pub fn query(self, @inout words: cxx::std::vector<string>) -> bool {
-        return self._drive(&words, false, true)
+    pub fn query(self, const words: cxx::std::vector<string>) -> bool {
+        return self._drive(words, false, true)
     }
 
     priv fn _drive(self,
-                   @inout words: cxx::std::vector<string>,
-                   execute:      bool,
-                   query:        bool = false) -> bool {
+                   const words: cxx::std::vector<string>,
+                   execute:     bool,
+                   query:       bool = false) -> bool {
         self.error = ""
         self._be->startup()
         if !self._be->ready() {

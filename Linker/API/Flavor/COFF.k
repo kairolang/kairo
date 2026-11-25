@@ -73,11 +73,11 @@ import API::Toolchain::Toolchain
 import Config::Linker::LinkerOptions
 
 pub class COFFArgs {
-    static fn build(@inout job:  LinkJob,
+    static fn build(const job:   LinkJob,
                     @inout tc:   Toolchain,
                     @inout argv: cxx::std::vector<string>,
                     @inout msgs: cxx::std::vector<LinkMessage>) -> bool {
-        var errs0 = LinkDiag::error_count(&msgs)
+        var errs0 = LinkDiag::error_count(msgs)
         var *o    = job.opts
 
         if job.output.is_empty() {
@@ -249,7 +249,7 @@ pub class COFFArgs {
             COFFArgs::_default_libs(&tc, o, no_crt, &argv, &msgs)
         }
 
-        return LinkDiag::error_count(&msgs) == errs0
+        return LinkDiag::error_count(msgs) == errs0
     }
 
     /// PE header and output-file options. Every feature toggle is emitted only
@@ -474,7 +474,7 @@ pub class COFFArgs {
                                  @inout argv: cxx::std::vector<string>,
                                  @inout msgs: cxx::std::vector<LinkMessage>) {
         var cxx_v: [string]
-        var crt: [string]
+        var crt:   [string]
 
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {

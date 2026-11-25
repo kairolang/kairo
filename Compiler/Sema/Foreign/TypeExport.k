@@ -418,8 +418,8 @@ pub class TypeExport {
     /// specialization (CheckTemplateIdType) but does NOT complete it: a
     /// nested argument only has to be nameable. PRE: sema_lock() held.
     fn template_id(self,
-                   ct:          unsafe *clang::ClassTemplateDecl,
-                   @inout args: llvm::SmallVector<clang::TemplateArgument, 8>) -> clang::QualType {
+                   ct:         unsafe *clang::ClassTemplateDecl,
+                   const args: llvm::SmallVector<clang::TemplateArgument, 8>) -> clang::QualType {
         if ct == &null || self.sema == &null {
             return clang::QualType()
         }
@@ -506,17 +506,17 @@ pub class TypeExport {
             return clang::TemplateArgument()
         }
 
-        return self.to_clang_arg_of(ct->getTemplateParameters(), i, t, &prior)
+        return self.to_clang_arg_of(ct->getTemplateParameters(), i, t, prior)
     }
 
     /// to_clang_arg against any template's parameter list: a function
     /// template's explicit arguments (`make_unique<i32>`) are spelled the
     /// same way a class template-id's are.
     fn to_clang_arg_of(self,
-                       tpl:          unsafe *clang::TemplateParameterList,
-                       i:            usize,
-                       t:            unsafe *Type,
-                       @inout prior: llvm::SmallVector<clang::TemplateArgument, 8>) -> clang::TemplateArgument {
+                       tpl:         unsafe *clang::TemplateParameterList,
+                       i:           usize,
+                       t:           unsafe *Type,
+                       const prior: llvm::SmallVector<clang::TemplateArgument, 8>) -> clang::TemplateArgument {
         if t == &null {
             return clang::TemplateArgument()
         }
@@ -550,7 +550,7 @@ pub class TypeExport {
             return clang::TemplateArgument()
         }
 
-        var pt = self._value_param_type(tpl, i, &prior)
+        var pt = self._value_param_type(tpl, i, prior)
         if pt.isNull() {
             return clang::TemplateArgument()
         }
@@ -593,9 +593,9 @@ pub class TypeExport {
     /// The (canonical, integral or enum) type of `tpl`'s `i-th` parameter
     /// when it is a non-type one, or null. Past the end, the trailing pack's.
     priv fn _value_param_type(self,
-                              tpl:          unsafe *clang::TemplateParameterList,
-                              i:            usize,
-                              @inout prior: llvm::SmallVector<clang::TemplateArgument, 8>) -> clang::QualType {
+                              tpl:         unsafe *clang::TemplateParameterList,
+                              i:           usize,
+                              const prior: llvm::SmallVector<clang::TemplateArgument, 8>) -> clang::QualType {
         if tpl == &null {
             return clang::QualType()
         }
@@ -802,7 +802,7 @@ pub class TypeExport {
             qs.push_back(a)
         }
 
-        return self.template_id(ct, &qs)
+        return self.template_id(ct, qs)
     }
 
     /// A complete one-byte struct standing for a type whose layout is
@@ -1405,12 +1405,12 @@ pub class TypeExport {
     /// all or nothing, or a stand-in found by name later would have the
     /// wrong shape.
     priv fn _define(self,
-                    rd:            unsafe *clang::CXXRecordDecl,
-                    tag:           clang::QualType,
-                    @inout fields: [unsafe *Type],
-                    bases:         unsafe *[clang::QualType] = &null,
-                    vptr:          bool = false,
-                    owner:         unsafe *Decl = &null) -> bool {
+                    rd:           unsafe *clang::CXXRecordDecl,
+                    tag:          clang::QualType,
+                    const fields: [unsafe *Type],
+                    bases:        unsafe *[clang::QualType] = &null,
+                    vptr:         bool = false,
+                    owner:        unsafe *Decl = &null) -> bool {
         if !rd->isBeingDefined() {
             rd->startDefinition()
         }
@@ -2103,7 +2103,7 @@ pub class TypeExport {
             return clang::QualType()
         }
 
-        if !self._define(rd, tag, &fields, unsafe &bq, vptr, d) {
+        if !self._define(rd, tag, fields, unsafe &bq, vptr, d) {
             dc->removeDecl(rd)
             return clang::QualType()
         }
@@ -2436,7 +2436,7 @@ pub class TypeExport {
                     ct->getTemplateParameters(),
                     i,
                     a,
-                    &targs,
+                    targs,
                 )
 
                 if va.isNull() {
@@ -2512,7 +2512,7 @@ pub class TypeExport {
         self._sub_args  = unsafe &qs
         var unsafe *saved_vals = self._sub_vals
         self._sub_vals = unsafe &vals
-        var ok = self._define(spec, tag, &fields, &null, false, prim)
+        var ok = self._define(spec, tag, fields, &null, false, prim)
         self._sub_owner = saved_owner
         self._sub_args  = saved_args
         self._sub_vals  = saved_vals

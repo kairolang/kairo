@@ -168,7 +168,7 @@ pub class SysRecipe {
             return []
         }
 
-        return SysUtil::strings(&v->list)
+        return SysUtil::strings(v->list)
     }
 
     /// The keys of `table`, in file order.
@@ -395,24 +395,24 @@ pub class QuirkSet {
                     @inout probe: [string]) -> [SysQuirk] {
         var out: [SysQuirk]
         for *q in self.quirks {
-            if !q->match_arch.is_empty() && !SysUtil::contains(&q->match_arch, t->arch) {
+            if !q->match_arch.is_empty() && !SysUtil::contains(q->match_arch, t->arch) {
                 continue
             }
 
             if !q->match_cpu.is_empty()
-                && !SysUtil::contains(&q->match_cpu, SysNames::cpu_of(t->arch)) {
+                && !SysUtil::contains(q->match_cpu, SysNames::cpu_of(t->arch)) {
                 continue
             }
 
-            if !q->match_family.is_empty() && !SysUtil::contains(&q->match_family, t->recipe) {
+            if !q->match_family.is_empty() && !SysUtil::contains(q->match_family, t->recipe) {
                 continue
             }
 
-            if !q->match_os.is_empty() && !SysUtil::contains(&q->match_os, os) {
+            if !q->match_os.is_empty() && !SysUtil::contains(q->match_os, os) {
                 continue
             }
 
-            if !q->match_env.is_empty() && !SysUtil::contains(&q->match_env, env_) {
+            if !q->match_env.is_empty() && !SysUtil::contains(q->match_env, env_) {
                 continue
             }
 
@@ -420,7 +420,7 @@ pub class QuirkSet {
             for *p in q->match_probe {
                 var neg = LinkText::starts_with(p->copy(), "!")
                 var fact = if (neg) => (LinkText::slice(*p, 1, p->size())) else => p->copy()
-                if SysUtil::contains(&probe, fact) == neg {
+                if SysUtil::contains(probe, fact) == neg {
                     probe_ok = false
                 }
             }
@@ -436,8 +436,8 @@ pub class QuirkSet {
     priv static fn _set(q: *SysQuirk, const key: string, @inout v: TomlValue) -> bool {
         var as_text = v.text.copy()
         if v.kind == 3 {
-            var items = SysUtil::strings(&v.list)
-            as_text = SysUtil::joined(&items, ",")
+            var items = SysUtil::strings(v.list)
+            as_text = SysUtil::joined(items, ",")
         }
 
         q->effects.push(key.copy() + "=" + as_text)

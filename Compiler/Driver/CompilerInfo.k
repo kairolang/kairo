@@ -501,7 +501,7 @@ extend CompilerInstance {
         }
 
         var obj_format = object_format_name(
-            CompilerInstance::_object_format_of(&llvm_triple),
+            CompilerInstance::_object_format_of(llvm_triple),
         )
 
         io::println(f"Triple:          {full_triple}")
@@ -694,7 +694,7 @@ extend CompilerInstance {
             io::println(f"{*line}")
         }
 
-        self._report_link(&msgs)
+        self._report_link(msgs)
         // Info queries return before execute(), so nothing else drains the
         // engine; without this a failed resolve exits 1 silently.
         self.flush_errors()
@@ -756,7 +756,7 @@ extend CompilerInstance {
         var check = kw
         check.push_back("--")
         check.push_back("<from-clang>")
-        var parsed = cmd->parse_words(&check)
+        var parsed = cmd->parse_words(check)
         self.flush_errors()
         return if (parsed.ok) => (EXIT_OK) else => EXIT_FAILURE
     }
@@ -794,7 +794,7 @@ extend CompilerInstance {
 
         var exe  = Path::join_str(Path::parent_of(env::exe_path()), "clang")
         var jobs = ClangJobs(be, exe)
-        if !jobs.query(&w) {
+        if !jobs.query(w) {
             if !jobs.error.is_empty() {
                 self._diag->report(DiagID::U011E, jobs.error.copy()).emit()
             }
@@ -854,7 +854,7 @@ extend CompilerInstance {
             w.push_back("-o")
             w.push_back(Path(k.path).stem() + ".o")
             var jobs = ClangJobs(be, exe)
-            if !jobs.plan(&w) {
+            if !jobs.plan(w) {
                 if !jobs.error.is_empty() {
                     self._diag->report(DiagID::U011E, f"{k.path}: {jobs.error}").emit()
                 }
@@ -914,9 +914,9 @@ extend CompilerInstance {
             var argv = cxx::std::vector<string>()
             var msgs = cxx::std::vector<LinkMessage>()
             var ok   = Link::plan(&job, &tc, &argv, &msgs)
-            self._report_link(&msgs)
+            self._report_link(msgs)
             if ok {
-                io::println(f"{Link::render(&argv)}")
+                io::println(f"{Link::render(argv)}")
             }
         }
 

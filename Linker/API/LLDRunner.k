@@ -70,8 +70,8 @@ pub class LLDRunner {
     static fn run(@inout argv:    cxx::std::vector<string>,
                   const kld_path: string,
                   force_process:  bool) -> LLDRun {
-        if force_process || LLDRunner::poisoned() || LLDRunner::needs_process(&argv) {
-            return LLDRunner::_spawn(&argv, kld_path.copy())
+        if force_process || LLDRunner::poisoned() || LLDRunner::needs_process(argv) {
+            return LLDRunner::_spawn(argv, kld_path.copy())
         }
 
         return LLDRunner::_in_process(&argv)
@@ -81,7 +81,7 @@ pub class LLDRunner {
         return LLDRunner::_poison()->load()
     }
 
-    static fn needs_process(@inout argv: cxx::std::vector<string>) -> bool {
+    static fn needs_process(const argv: cxx::std::vector<string>) -> bool {
         for *a in argv {
             if *a == "-mllvm" || *a == "--mllvm" {
                 return true
@@ -181,7 +181,7 @@ pub class LLDRunner {
 
     /// # out of process
 
-    priv static fn _spawn(@inout argv: cxx::std::vector<string>, kld_path: string) -> LLDRun {
+    priv static fn _spawn(const argv: cxx::std::vector<string>, kld_path: string) -> LLDRun {
         var res = LLDRun{}
         res.in_process = false
 
@@ -224,7 +224,7 @@ pub class LLDRunner {
             args.push(a->copy())
         }
 
-        if !LLDRunner::_fits(&args) {
+        if !LLDRunner::_fits(args) {
             rsp_path = LinkFS::temp_file("kld", "rsp")
             var text = ""
             for *a in rest {
@@ -245,7 +245,7 @@ pub class LLDRunner {
             // Windows tokenization, which would keep both of them. lld's
             // MinGW driver has no --rsp-quoting and rejects it; it reads a
             // response file GNU-style on every host but Windows.
-            var mingw = flavor == "gnu" && LLDRunner::_names_pe_emulation(&rest)
+            var mingw = flavor == "gnu" && LLDRunner::_names_pe_emulation(rest)
             if (flavor == "gnu" && !mingw) || flavor == "wasm" || flavor == "link" {
                 args.push("--rsp-quoting=posix")
             }
@@ -320,7 +320,7 @@ pub class LLDRunner {
 
     /// True when a GNU-flavor argv names a PE emulation: lld then hands the
     /// link to its MinGW driver (lld's isPETargetName).
-    priv static fn _names_pe_emulation(@inout args: [string]) -> bool {
+    priv static fn _names_pe_emulation(const args: [string]) -> bool {
         for var i: usize = 0; (i + 1) < args.size(); ++i {
             if args[i] == "-m" {
                 var e = args[i + 1].copy()
@@ -336,7 +336,7 @@ pub class LLDRunner {
         return false
     }
 
-    priv static fn _fits(@inout args: [string]) -> bool {
+    priv static fn _fits(const args: [string]) -> bool {
         // Views of args' own bytes; args is not touched again while refs lives.
         var refs: cxx::std::vector<llvm::StringRef>
         refs.reserve(args.size())

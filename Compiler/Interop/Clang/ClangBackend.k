@@ -485,7 +485,7 @@ pub class ClangBackend {
             self._cxx_contract,
             self._cxx_math_errno,
             self._contract,
-            &self._cfg.extra_cc1,
+            self._cfg.extra_cc1,
             fc,
             &*open,
             &*close,
@@ -913,7 +913,7 @@ pub class ClangBackend {
 
         // Which of the driver's cc1 words decide the target is the
         // translator's call (FlagTranslator::probe_filter).
-        for var a in FlagTranslator::probe_filter(&cc1) {
+        for var a in FlagTranslator::probe_filter(cc1) {
             self._target_args.push_back(a.copy())
         }
 

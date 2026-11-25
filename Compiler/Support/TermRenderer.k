@@ -24,7 +24,13 @@ ffi "c++" import "vector"
 ffi "c++" import "string"
 
 import Support::Ascii::{
-    ascii_byte, find, is_digit, is_ident_char, is_ident_start, trim, utf8_next,
+    ascii_byte,
+    find,
+    is_digit,
+    is_ident_char,
+    is_ident_start,
+    trim,
+    utf8_next,
 }
 import Support::EvalHash::compute_hash
 import Token::TokenKind::{
@@ -983,8 +989,8 @@ pub class TermRenderer {
                 } else {
                     out += self.clang_word(
                         &ids,
-                        &lo,
-                        &tok,
+                        lo,
+                        tok,
                         text.copy(),
                         line,
                         end,
@@ -1017,8 +1023,8 @@ pub class TermRenderer {
     /// heuristics the Kairo highlighter uses.
     priv fn clang_word(self,
                        @inout ids: clang::IdentifierTable,
-                       @inout lo:  clang::LangOptions,
-                       @inout tok: clang::Token,
+                       const lo:   clang::LangOptions,
+                       const tok:  clang::Token,
                        text:       string,
                        const line: string,
                        end:        usize) -> string {

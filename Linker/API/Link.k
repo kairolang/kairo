@@ -62,19 +62,19 @@ pub class Link {
         }
 
         if tc.format == ObjectFormat::MachO {
-            return MachOArgs::build(&job, &tc, &argv, &msgs)
+            return MachOArgs::build(job, &tc, &argv, &msgs)
         }
 
         if tc.format == ObjectFormat::Coff {
             if tc.libc == "msvc" {
-                return COFFArgs::build(&job, &tc, &argv, &msgs)
+                return COFFArgs::build(job, &tc, &argv, &msgs)
             }
 
-            return MinGWArgs::build(&job, &tc, &argv, &msgs)
+            return MinGWArgs::build(job, &tc, &argv, &msgs)
         }
 
         if tc.format == ObjectFormat::Wasm {
-            return WasmArgs::build(&job, &tc, &argv, &msgs)
+            return WasmArgs::build(job, &tc, &argv, &msgs)
         }
 
         return ELFArgs::build(&job, &tc, &argv, &msgs)
@@ -83,7 +83,7 @@ pub class Link {
     pub static fn execute(@inout job:  LinkJob,
                           @inout argv: cxx::std::vector<string>,
                           @inout res:  LinkResult) -> bool {
-        res.argv = Link::_argv_copy(&argv)
+        res.argv = Link::_argv_copy(argv)
 
         var parent = LinkFS::parent(job.output)
         if !parent.is_empty() && !LinkFS::make_dirs(parent) {
@@ -99,9 +99,9 @@ pub class Link {
 
         // The objects' ABI notes, before lld spends a link on objects that
         // cannot be combined (LinkABI).
-        var errs_abi = LinkDiag::error_count(&res.messages)
-        LinkABI::check(&job, &res.messages)
-        if LinkDiag::error_count(&res.messages) != errs_abi {
+        var errs_abi = LinkDiag::error_count(res.messages)
+        LinkABI::check(job, &res.messages)
+        if LinkDiag::error_count(res.messages) != errs_abi {
             return false
         }
 
@@ -119,7 +119,7 @@ pub class Link {
         res.ret         = run.ret
         res.stdout_text = run.stdout_text.copy()
 
-        var errs0 = LinkDiag::error_count(&res.messages)
+        var errs0 = LinkDiag::error_count(res.messages)
         LinkDiag::parse(run.stderr_text, &res.messages)
 
         if run.poisoned_now {
@@ -131,7 +131,7 @@ pub class Link {
             )
         }
 
-        if run.ret != 0 && LinkDiag::error_count(&res.messages) == errs0 {
+        if run.ret != 0 && LinkDiag::error_count(res.messages) == errs0 {
             res.messages.push_back(
                 LinkDiag::make(
                     LinkSeverity::Error,
@@ -140,9 +140,9 @@ pub class Link {
             )
         }
 
-        res.ok = run.ret == 0 && LinkDiag::error_count(&res.messages) == errs0
+        res.ok = run.ret == 0 && LinkDiag::error_count(res.messages) == errs0
         if res.ok {
-            Link::_check_glibc_floor(&job, &res.messages)
+            Link::_check_glibc_floor(job, &res.messages)
         }
 
         return res.ok
@@ -152,7 +152,7 @@ pub class Link {
     /// needs a newer GLIBC_ symbol version than the floor raises the glibc
     /// the program needs to run, which is what the floor exists to pin. Said
     /// once per library, at its highest version; the link itself is fine.
-    priv static fn _check_glibc_floor(@inout job:  LinkJob,
+    priv static fn _check_glibc_floor(const job:   LinkJob,
                                       @inout msgs: cxx::std::vector<LinkMessage>) {
         var floor = job.glibc_floor.copy()
         if floor.is_empty() {
@@ -184,7 +184,7 @@ pub class Link {
         var tc   = Toolchain()
         var argv = cxx::std::vector<string>()
         if !Link::plan(&job, &tc, &argv, &res.messages) {
-            res.argv = Link::_argv_copy(&argv)
+            res.argv = Link::_argv_copy(argv)
             return res
         }
 
@@ -193,7 +193,7 @@ pub class Link {
     }
 
     /// A copy of `argv` for the result.
-    priv static fn _argv_copy(@inout argv: cxx::std::vector<string>) -> [string] {
+    priv static fn _argv_copy(const argv: cxx::std::vector<string>) -> [string] {
         var out: [string]
         for *a in argv {
             out.push(a->copy())
@@ -203,7 +203,7 @@ pub class Link {
     }
 
     /// One shell-pasteable line.
-    pub static fn render(@inout argv: cxx::std::vector<string>) -> string {
+    pub static fn render(const argv: cxx::std::vector<string>) -> string {
         var s = ""
         for var i: usize = 0; i < argv.size(); ++i {
             if i > 0 {

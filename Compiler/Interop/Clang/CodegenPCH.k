@@ -73,7 +73,7 @@ pub class CodegenPCH {
         self.pch = cxx::std::make_shared<clang::PCHBuffer>()
     }
 
-    fn build(self, be: unsafe *ClangBackend, @inout sets: cxx::std::vector<unsafe *HeaderSet>) {
+    fn build(self, be: unsafe *ClangBackend, const sets: cxx::std::vector<unsafe *HeaderSet>) {
         var _t = TimeRegion("CodegenPCHBuild")
         self.ok = false
         if !be->ready() {

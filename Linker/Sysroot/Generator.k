@@ -254,7 +254,7 @@ pub class SysGen {
             return false
         }
 
-        if SysUtil::contains(&p.inputs, "runtimes-template") {
+        if SysUtil::contains(p.inputs, "runtimes-template") {
             var why  = ""
             var tmpl = p.share.input_path("runtimes-template")
             if !SysRuntimes::from_template(
@@ -270,7 +270,7 @@ pub class SysGen {
             return true
         }
 
-        if !SysUtil::contains(&p.inputs, "runtimes-recipe") {
+        if !SysUtil::contains(p.inputs, "runtimes-recipe") {
             return out.refuse(
                 f"{p.target.name} builds no runtimes from this share tree",
                 "",
@@ -499,7 +499,7 @@ pub class SysGen {
         probe.push("-o")
         probe.push(LinkText::join(work.copy(), "probe"))
         var plog = LinkText::join(work.copy(), "probe.log")
-        SysRun::run(&probe, plog)
+        SysRun::run(probe, plog)
         var ptext = ""
         LinkFS::read(plog, &ptext)
         var seen = SysGen::_sysroots_in(ptext)
@@ -553,7 +553,7 @@ pub class SysGen {
         var have: [string]
         var lack: [string]
         for *src in progs {
-            var want = SysGen::_expected(&exp, *src)
+            var want = SysGen::_expected(exp, *src)
             var need = ""
             for *e in exp {
                 if LinkText::starts_with(e->copy(), "types/" + *src + "=") {
@@ -628,7 +628,7 @@ pub class SysGen {
                 stem.copy() + "-" + lang + ".build.log",
             )
 
-            var rc  = SysRun::run(&argv, blog)
+            var rc  = SysRun::run(argv, blog)
             var pad = src->copy() + ":"
             while pad.size() < 14 {
                 pad += " "
@@ -655,7 +655,7 @@ pub class SysGen {
                 stem.copy() + "-" + lang + ".run.log",
             )
 
-            var got = SysRun::run(&run, rlog)
+            var got = SysRun::run(run, rlog)
             if f"{got}" != want {
                 return out.fail(
                     f"validation failed at {*src}: it exited {got}, expected {want}",
@@ -817,8 +817,8 @@ pub class SysGen {
             }
 
             var v = p.target.libc_version.copy()
-            if !SysUtil::contains(&gv.versions, v) {
-                var list = SysUtil::joined(&gv.versions, ", ")
+            if !SysUtil::contains(gv.versions, v) {
+                var list = SysUtil::joined(gv.versions, ", ")
                 return out.refuse(
                     f"glibc {v} is not in the shipped set {list}",
                     "",
@@ -915,11 +915,11 @@ pub class SysGen {
         p.row("clang_triple", p.target.clang_triple)
         p.row(
             "quirks",
-            if (qids.is_empty()) => ("(none)") else => SysUtil::joined(&qids, ", "),
+            if (qids.is_empty()) => ("(none)") else => SysUtil::joined(qids, ", "),
         )
 
         if rewrites.size() > 1 {
-            var list = SysUtil::joined(&rewrites, ", ")
+            var list = SysUtil::joined(rewrites, ", ")
             return out.refuse(
                 f"quirks {list} each rewrite the target; at most one may",
                 "",
@@ -1017,7 +1017,7 @@ pub class SysGen {
                 need = !p.share.registered(*rt).is_empty()
             }
 
-            if need && !SysUtil::contains(&rels, *rt) {
+            if need && !SysUtil::contains(rels, *rt) {
                 rels.push(rt->copy())
             }
         }
@@ -1064,7 +1064,7 @@ pub class SysGen {
         // the builtins stage, after the libc stages: refuse it before them.
         if self.libc_only {
             p.row("runtimes_from", "none (--libc-only)")
-        } else if SysUtil::contains(&p.inputs, "runtimes-template") {
+        } else if SysUtil::contains(p.inputs, "runtimes-template") {
             var t = SysTemplate()
             if !t.load(p.share.input_path("runtimes-template")) {
                 return out.refuse(t.error, "")
@@ -1079,7 +1079,7 @@ pub class SysGen {
             }
 
             p.row("runtimes_from", "template")
-        } else if SysUtil::contains(&p.inputs, "runtimes-recipe") {
+        } else if SysUtil::contains(p.inputs, "runtimes-recipe") {
             var rdir = p.share.input_path("runtimes-recipe")
             if !LinkFS::is_file(f"{rdir}/targets/{p.target.name}.toml") {
                 return out.refuse(
@@ -1126,7 +1126,7 @@ pub class SysGen {
         }
 
         ctx.share       = p->share.dir.copy()
-        ctx.inputs      = SysUtil::to_cxx(&p->in_paths)
+        ctx.inputs      = SysUtil::to_cxx(p->in_paths)
         ctx.input       = self.input.copy()
         ctx.tools       = p->tools.copy()
         ctx.ar          = SysGen::find_tool("llvm-ar")
@@ -1355,12 +1355,12 @@ pub class SysGen {
             }
 
             var comp = SysUtil::split(*rel, ('/' as u8))[0].copy()
-            if !SysUtil::contains(&comps, comp) {
+            if !SysUtil::contains(comps, comp) {
                 comps.push(comp.copy())
             }
         }
 
-        if !SysUtil::contains(&comps, "runtimes") {
+        if !SysUtil::contains(comps, "runtimes") {
             comps.push("runtimes")
         }
 
@@ -1487,22 +1487,22 @@ pub class SysGen {
             sk.push(stages[i].copy() + "=" + p->stage_keys[i])
         }
 
-        SysUtil::field(&f, "stage_keys", SysUtil::json_list(&sk))
+        SysUtil::field(&f, "stage_keys", SysUtil::json_list(sk))
         var qids: [string]
         for *q in p->quirks {
             qids.push(q->id.copy())
         }
 
-        SysUtil::field(&f, "quirks", SysUtil::json_list(&qids))
+        SysUtil::field(&f, "quirks", SysUtil::json_list(qids))
         var ins: [string]
         for var i: usize = 0; i < p->inputs.size(); ++i {
             ins.push(p->inputs[i].copy() + "=" + p->in_sha[i])
         }
 
-        SysUtil::field(&f, "inputs", SysUtil::json_list(&ins))
+        SysUtil::field(&f, "inputs", SysUtil::json_list(ins))
         var lics = SysUtil::list_dir(tmp.copy() + "/LICENSES")
         SysUtil::sort(&lics)
-        SysUtil::field(&f, "licenses", SysUtil::json_list(&lics))
+        SysUtil::field(&f, "licenses", SysUtil::json_list(lics))
         SysUtil::field(
             &f,
             "clang_triple",
@@ -1519,7 +1519,7 @@ pub class SysGen {
         SysUtil::field(&f, "generated_by", SysUtil::json_str(by))
         if !LinkFS::write(
             tmp.copy() + "/.kairo-sysroot.json",
-            SysUtil::json_object(&f) + "\n",
+            SysUtil::json_object(f) + "\n",
         ) {
             LinkFS::remove_tree(tmp)
             return out.fail(f"cannot write {tmp}/.kairo-sysroot.json", "")
@@ -1571,8 +1571,8 @@ pub class SysGen {
             } else if toml.table == "types" && val.kind == 3 {
                 // [types] "<file>" = ["f16", ...]: the Kairo float types the
                 // program spells, kept as types/<file>=f16,bf16.
-                var items = SysUtil::strings(&val.list)
-                out.push("types/" + key + "=" + SysUtil::joined(&items, ","))
+                var items = SysUtil::strings(val.list)
+                out.push("types/" + key + "=" + SysUtil::joined(items, ","))
             }
         }
 
@@ -1589,11 +1589,11 @@ pub class SysGen {
                              const ty:     string,
                              @inout have:  [string],
                              @inout lack:  [string]) -> bool {
-        if SysUtil::contains(&have, ty) {
+        if SysUtil::contains(have, ty) {
             return true
         }
 
-        if SysUtil::contains(&lack, ty) {
+        if SysUtil::contains(lack, ty) {
             return false
         }
 
@@ -1618,7 +1618,7 @@ pub class SysGen {
         argv.push("-o")
         argv.push(LinkText::join(work.copy(), f"type-{ty}.o"))
         var ok = SysRun::run(
-            &argv,
+            argv,
             LinkText::join(work.copy(), f"type-{ty}.log"),
         ) == 0
         if ok {
@@ -1630,8 +1630,8 @@ pub class SysGen {
         return ok
     }
 
-    priv static fn _expected(@inout exp: [string], const file: string) -> string {
-        for *e in exp {
+    priv static fn _expected(const exp: [string], const file: string) -> string {
+        for const *e in exp {
             if LinkText::starts_with(e->copy(), file.copy() + "=") {
                 return LinkText::slice(*e, file.size() + 1, e->size())
             }
@@ -1656,7 +1656,7 @@ pub class SysGen {
             }
 
             var r = LinkText::slice(text, b, e)
-            if !SysUtil::contains(&out, r) {
+            if !SysUtil::contains(out, r) {
                 out.push(r.copy())
             }
 
@@ -1849,7 +1849,7 @@ pub class SysGen {
             ins.push(p->inputs[i].copy() + "=" + p->in_sha[i])
         }
 
-        SysUtil::field(&f, "inputs", SysUtil::json_list(&ins))
+        SysUtil::field(&f, "inputs", SysUtil::json_list(ins))
         SysUtil::field(
             &f,
             "runtimes_revision",
@@ -1863,7 +1863,7 @@ pub class SysGen {
             SysUtil::json_str(SysGen::tool_version()),
         )
 
-        SysUtil::field(&f, "provider_extra", SysUtil::json_list(&p->extra))
+        SysUtil::field(&f, "provider_extra", SysUtil::json_list(p->extra))
         if !stage.is_empty() {
             SysUtil::field(&f, "stage", SysUtil::json_str(stage))
         }
@@ -1871,12 +1871,12 @@ pub class SysGen {
         var qs: [string]
         for *q in p->quirks {
             if stage.is_empty() || SysGen::_quirk_touches(q, stage) {
-                qs.push(q->id.copy() + ":" + SysUtil::joined(&q->effects, ";"))
+                qs.push(q->id.copy() + ":" + SysUtil::joined(q->effects, ";"))
             }
         }
 
-        SysUtil::field(&f, "quirks", SysUtil::json_list(&qs))
-        return SysUtil::json_object(&f)
+        SysUtil::field(&f, "quirks", SysUtil::json_list(qs))
+        return SysUtil::json_object(f)
     }
 
     priv static fn _quirk_touches(q: *SysQuirk, const stage: string) -> bool {
@@ -1884,9 +1884,9 @@ pub class SysGen {
             return true
         }
 
-        if SysUtil::contains(&q->cflags_stages, stage)
-            || SysUtil::contains(&q->cmake_stages, stage)
-            || SysUtil::contains(&q->force_include_stages, stage) {
+        if SysUtil::contains(q->cflags_stages, stage)
+            || SysUtil::contains(q->cmake_stages, stage)
+            || SysUtil::contains(q->force_include_stages, stage) {
             return true
         }
 

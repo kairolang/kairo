@@ -410,7 +410,7 @@ pub class CompilerInstance {
             self.incr_words.push(w->copy())
         }
 
-        var parsed = self._cmd->parse_words(&words)
+        var parsed = self._cmd->parse_words(words)
         var inv    = CompilerInvocation()
         if parsed.ok {
             inv = CompilerInvocation::from_args(&parsed)
@@ -1776,11 +1776,11 @@ pub class CompilerInstance {
         // reject as a duplicate symbol naming neither file. Only a link joins
         // them, so `-c` and --type-check-only of several scripts stay legal.
         if !self._link_out.is_empty() {
-            self._reject_second_script(&result)
+            self._reject_second_script(result)
         }
 
         if !self._link_out.is_empty() {
-            self._reject_second_global_allocator(&result)
+            self._reject_second_global_allocator(result)
         }
 
         // C/C++ inputs follow the run's action (_compile_sources); the
@@ -1788,7 +1788,7 @@ pub class CompilerInstance {
         // emitted -- an --emit without obj asks for none.
         if !result.aborted && self._diag->error_count() == 0 {
             var _t = TimeRegion("NativeCompile")
-            if !self._compile_sources(&natives) {
+            if !self._compile_sources(natives) {
                 result.aborted = true
             }
 

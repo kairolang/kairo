@@ -52,11 +52,11 @@ import API::Toolchain::Toolchain
 import Config::Linker::LinkerOptions
 
 pub class MachOArgs {
-    static fn build(@inout job:  LinkJob,
+    static fn build(const job:   LinkJob,
                     @inout tc:   Toolchain,
                     @inout argv: cxx::std::vector<string>,
                     @inout msgs: cxx::std::vector<LinkMessage>) -> bool {
-        var errs0 = LinkDiag::error_count(&msgs)
+        var errs0 = LinkDiag::error_count(msgs)
         var *o    = job.opts
 
         if job.output.is_empty() {
@@ -131,7 +131,7 @@ pub class MachOArgs {
             )
         }
 
-        if shared && !MachOArgs::_has_flag(&o->ld_flags, "-install_name") {
+        if shared && !MachOArgs::_has_flag(o->ld_flags, "-install_name") {
             argv.push_back("-install_name")
             if !o->install_name.is_empty() {
                 argv.push_back(o->install_name.copy())
@@ -294,7 +294,7 @@ pub class MachOArgs {
             MachOArgs::_default_libs(&tc, &argv, &msgs)
         }
 
-        return LinkDiag::error_count(&msgs) == errs0
+        return LinkDiag::error_count(msgs) == errs0
     }
 
     /// Options that mean something on ELF and nothing here. Diagnosed only
@@ -391,7 +391,7 @@ pub class MachOArgs {
         if mode == "static" {
             // No -Bstatic: ld64 takes the first of libfoo.dylib / libfoo.tbd /
             // libfoo.a in each directory, so a static request is a path.
-            var a = MachOArgs::_find_archive(name, o, &tc)
+            var a = MachOArgs::_find_archive(name, o, tc)
             if a.is_empty() {
                 msgs.push_back(
                     LinkDiag::make(
@@ -428,7 +428,7 @@ pub class MachOArgs {
 
     priv static fn _find_archive(const name: string,
                                  o:          *LinkerOptions,
-                                 @inout tc:  Toolchain) -> string {
+                                 const tc:   Toolchain) -> string {
         var file = f"lib{name}.a"
         for *d in o->lib_dirs {
             var p = LinkText::join(d->copy(), file.copy())
@@ -444,7 +444,7 @@ pub class MachOArgs {
             }
         }
 
-        for *d in tc.lib_dirs {
+        for const *d in tc.lib_dirs {
             var p = LinkText::join(d->copy(), file.copy())
             if LinkFS::is_file(p) {
                 return p
@@ -462,7 +462,7 @@ pub class MachOArgs {
                                  @inout argv: cxx::std::vector<string>,
                                  @inout msgs: cxx::std::vector<LinkMessage>) {
         var cxx_v: [string]
-        var libc: [string]
+        var libc:  [string]
         if tc.has_manifest {
             if !tc.manifest.has_libcxx {
                 msgs.push_back(
@@ -474,7 +474,7 @@ pub class MachOArgs {
             }
 
             cxx_v = tc.manifest.libcxx_link.copy()
-            libc = tc.manifest.libc_link.copy()
+            libc  = tc.manifest.libc_link.copy()
         }
 
         if cxx_v.is_empty() {
@@ -518,7 +518,7 @@ pub class MachOArgs {
         return out
     }
 
-    priv static fn _has_flag(@inout xs: cxx::std::vector<string>, const f: string) -> bool {
+    priv static fn _has_flag(const xs: cxx::std::vector<string>, const f: string) -> bool {
         for *x in xs {
             if *x == f {
                 return true

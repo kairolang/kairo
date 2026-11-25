@@ -49,11 +49,11 @@ import API::Toolchain::Toolchain
 import Config::Linker::LinkerOptions
 
 pub class WasmArgs {
-    static fn build(@inout job:  LinkJob,
+    static fn build(const job:   LinkJob,
                     @inout tc:   Toolchain,
                     @inout argv: cxx::std::vector<string>,
                     @inout msgs: cxx::std::vector<LinkMessage>) -> bool {
-        var errs0 = LinkDiag::error_count(&msgs)
+        var errs0 = LinkDiag::error_count(msgs)
         var *o    = job.opts
 
         if job.output.is_empty() {
@@ -222,7 +222,7 @@ pub class WasmArgs {
         }
 
         if !no_libs {
-            WasmArgs::_default_libs(&tc, &argv, &msgs)
+            WasmArgs::_default_libs(tc, &argv, &msgs)
         }
 
         /// # crt end
@@ -232,7 +232,7 @@ pub class WasmArgs {
             }
         }
 
-        return LinkDiag::error_count(&msgs) == errs0
+        return LinkDiag::error_count(msgs) == errs0
     }
 
     /// Memory layout and exports. Sizes are emitted only when given: the
@@ -410,7 +410,7 @@ pub class WasmArgs {
     }
 
     /// clang's order: -lc++ -lc++abi [-lunwind] -lc <builtins>.
-    priv static fn _default_libs(@inout tc:   Toolchain,
+    priv static fn _default_libs(const tc:    Toolchain,
                                  @inout argv: cxx::std::vector<string>,
                                  @inout msgs: cxx::std::vector<LinkMessage>) {
         if tc.has_manifest {
@@ -423,11 +423,11 @@ pub class WasmArgs {
                 )
             }
 
-            for *x in tc.manifest.libcxx_link {
+            for const *x in tc.manifest.libcxx_link {
                 argv.push_back(x->copy())
             }
 
-            for *x in tc.manifest.libc_link {
+            for const *x in tc.manifest.libc_link {
                 argv.push_back(x->copy())
             }
         } else {

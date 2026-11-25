@@ -261,9 +261,9 @@ extend EmitPlan {
     /// Records which headers sit in an include cycle: `paths[i]` includes
     /// every `to[k]` with `from[k]` == i. A header is in a cycle when it
     /// reaches itself; two are in one group when each reaches the other.
-    pub static fn note_header_cycles(@inout paths: cxx::std::vector<string>,
-                                     @inout from:  cxx::std::vector<usize>,
-                                     @inout to:    cxx::std::vector<string>) {
+    pub static fn note_header_cycles(const paths: cxx::std::vector<string>,
+                                     const from:  cxx::std::vector<usize>,
+                                     const to:    cxx::std::vector<string>) {
         _HDR_CYCLE_PATH.clear()
         _HDR_CYCLE_SCC.clear()
         var n = paths.size()

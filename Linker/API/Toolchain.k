@@ -161,7 +161,7 @@ pub class Toolchain {
                    t:           *TargetOptions,
                    o:           *LinkerOptions,
                    @inout msgs: cxx::std::vector<LinkMessage>) -> bool {
-        var errs0 = LinkDiag::error_count(&msgs)
+        var errs0 = LinkDiag::error_count(msgs)
         self.ok = false
 
         if !t->resolved {
@@ -401,7 +401,7 @@ pub class Toolchain {
             }
         }
 
-        self.ok = LinkDiag::error_count(&msgs) == errs0
+        self.ok = LinkDiag::error_count(msgs) == errs0
         return self.ok
     }
 
@@ -524,7 +524,7 @@ pub class Toolchain {
             }
         }
 
-        self._find_gcc(&bases, spelled_arch)
+        self._find_gcc(bases, spelled_arch)
     }
 
     /// A mingw-w64 install without a manifest: a distro's
@@ -591,7 +591,7 @@ pub class Toolchain {
         var best_v = ""
         for *g in groots {
             if LinkFS::is_dir(*g) {
-                self._scan_gcc(*g, &tris, "", &best, &best_v)
+                self._scan_gcc(*g, tris, "", &best, &best_v)
             }
         }
 
@@ -1286,7 +1286,7 @@ pub class Toolchain {
         return LinkText::slice(name, b, e)
     }
 
-    priv fn _find_gcc(self, @inout bases: [string], const spelled_arch: string) {
+    priv fn _find_gcc(self, const bases: [string], const spelled_arch: string) {
         var best   = ""
         var best_v = ""
         var tris   = Toolchain::gcc_triples(spelled_arch, self.arch, self.env)
@@ -1296,7 +1296,7 @@ pub class Toolchain {
         libnames.push("lib")
         libnames.push("lib64")
 
-        for *b in bases {
+        for const *b in bases {
             for *ln in libnames {
                 var groot = LinkText::join(
                     LinkText::join(b->copy(), ln->copy()),
@@ -1307,10 +1307,10 @@ pub class Toolchain {
                     continue
                 }
 
-                self._scan_gcc(groot, &tris, "", &best, &best_v)
+                self._scan_gcc(groot, tris, "", &best, &best_v)
                 // i386 on an x86_64 host: the 64-bit GCC's 32/ multilib.
                 if self.arch == "i386" {
-                    self._scan_gcc(groot, &tris64, "32", &best, &best_v)
+                    self._scan_gcc(groot, tris64, "32", &best, &best_v)
                 }
             }
         }
@@ -1320,11 +1320,11 @@ pub class Toolchain {
 
     priv fn _scan_gcc(self,
                       const groot:    string,
-                      @inout tris:    [string],
+                      const tris:     [string],
                       const multilib: string,
                       @inout best:    string,
                       @inout best_v:  string) {
-        for *t in tris {
+        for const *t in tris {
             var tdir = LinkText::join(groot.copy(), t->copy())
             if !LinkFS::is_dir(tdir) {
                 continue

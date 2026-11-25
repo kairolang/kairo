@@ -175,8 +175,8 @@ pub class BuiltinImport {
         var _t = TimeRegion("BuiltinImport")
 
         // ASCII only, so a code-point offset IS a byte offset.
-        var n    = oracle->count()
-        var text = ""
+        var n             = oracle->count()
+        var text          = ""
         var offs: [usize]
         for var i: usize = 0; i < n; ++i {
             offs.push(text.size())
@@ -366,7 +366,7 @@ pub class BuiltinImport {
         var rt: unsafe *Type = &null
         var rq               = fpt->getReturnType()
         if !rq->isVoidType() {
-            rt = self._slot_type(&ti, rq, &slots, 0)
+            rt = self._slot_type(&ti, rq, slots, 0)
             if rt == &null {
                 out.why = f"'{name}' returns '{ti.spelling(rq)}', which Kairo cannot express"
                 return out
@@ -376,7 +376,7 @@ pub class BuiltinImport {
         var ptys: [unsafe *Type]
         for var i: usize = 0; i < np; ++i {
             var        pq  = fpt->getParamType(i as u32)
-            var unsafe *pt = self._slot_type(&ti, pq, &slots, i + 1)
+            var unsafe *pt = self._slot_type(&ti, pq, slots, i + 1)
             if pt == &null {
                 out.why = f"parameter {i + 1} of '{name}' has type '{ti.spelling(pq)}', which Kairo cannot express"
                 return out
@@ -390,7 +390,7 @@ pub class BuiltinImport {
             name,
             fpt,
             rt,
-            &ptys,
+            ptys,
             &ti,
             mask,
             bi->isNoReturn(id),
@@ -405,10 +405,10 @@ pub class BuiltinImport {
     }
 
     priv fn _slot_type(self,
-                       ti:           *TypeImport,
-                       qt:           clang::QualType,
-                       @inout slots: [u8],
-                       i:            usize) -> unsafe *Type {
+                       ti:          *TypeImport,
+                       qt:          clang::QualType,
+                       const slots: [u8],
+                       i:           usize) -> unsafe *Type {
         if i < slots.size() {
             if slots[i] == 1 {
                 return self._store->builtin(BuiltinKind::USize)
@@ -423,15 +423,15 @@ pub class BuiltinImport {
     }
 
     priv fn _mint(self,
-                  id:          u32,
-                  const name:  string,
-                  fpt:         unsafe *const clang::FunctionProtoType,
-                  rt:          unsafe *Type,
-                  @inout ptys: [unsafe *Type],
-                  ti:          *TypeImport,
-                  mask:        u32,
-                  noreturn:    bool,
-                  nothrow:     bool) -> unsafe *FunctionDecl {
+                  id:         u32,
+                  const name: string,
+                  fpt:        unsafe *const clang::FunctionProtoType,
+                  rt:         unsafe *Type,
+                  const ptys: [unsafe *Type],
+                  ti:         *TypeImport,
+                  mask:       u32,
+                  noreturn:   bool,
+                  nothrow:    bool) -> unsafe *FunctionDecl {
         var it = self._name_tok.find(id)
         if it == self._name_tok.end() {
             return &null
@@ -520,8 +520,8 @@ pub class BuiltinImport {
     /// A trailing `.` is C variadic, not a type.
     static fn sized_slots(const ts: string) -> [u8] {
         var out: [u8]
-        var i:  usize = 0
-        var n         = ts.size()
+        var i:   usize = 0
+        var n          = ts.size()
         while i < n {
             if ts.data()[i] == ('.' as u8) {
                 break

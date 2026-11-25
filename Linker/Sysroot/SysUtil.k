@@ -75,7 +75,7 @@ pub class SysUtil {
     /// error naming it. `dir` itself may be one: a share view links whole
     /// inputs in. "" with `err` set on either failure.
     pub static fn tree_sha256(const dir: string, follow: bool, @inout err: string) -> string {
-        var rels: [string]
+        var rels:  [string]
         var links: [string]
         SysUtil::_walk(dir, "", 0, follow, &rels, &links)
         if !links.is_empty() {
@@ -107,7 +107,7 @@ pub class SysUtil {
     /// changes, which is a walk with no reads. A link under a schema 2
     /// input is in it, so a memo never hides one.
     pub static fn tree_stamp(const dir: string, follow: bool) -> string {
-        var rels: [string]
+        var rels:  [string]
         var links: [string]
         SysUtil::_walk(dir, "", 0, follow, &rels, &links)
         SysUtil::sort(&rels)
@@ -165,7 +165,7 @@ pub class SysUtil {
     }
 
     /// A JSON array of strings, in the order given.
-    pub static fn json_list(@inout xs: [string]) -> string {
+    pub static fn json_list(const xs: [string]) -> string {
         var out = "["
         for var i: usize = 0; i < xs.size(); ++i {
             if i > 0 {
@@ -182,9 +182,9 @@ pub class SysUtil {
     /// Canonical JSON object: keys sorted bytewise, no whitespace. Two runs
     /// that mean the same key spell it the same, whatever order the fields
     /// were added in.
-    pub static fn json_object(@inout fields: [SysJsonField]) -> string {
+    pub static fn json_object(const fields: [SysJsonField]) -> string {
         var keys: [string]
-        for *f in fields {
+        for const *f in fields {
             keys.push(f->key.copy())
         }
 
@@ -195,7 +195,7 @@ pub class SysUtil {
                 out += ","
             }
 
-            for *f in fields {
+            for const *f in fields {
                 if f->key == keys[i] {
                     out += SysUtil::json_str(f->key)
                     out += ":"
@@ -224,11 +224,11 @@ pub class SysUtil {
     /// The entries of `dir`, as a Kairo list.
     pub static fn list_dir(const dir: string) -> [string] {
         var names = LinkFS::list_dir(dir)
-        return SysUtil::strings(&names)
+        return SysUtil::strings(names)
     }
 
     /// A Kairo list of copies of `v`'s strings.
-    pub static fn strings(@inout v: cxx::std::vector<string>) -> [string] {
+    pub static fn strings(const v: cxx::std::vector<string>) -> [string] {
         var out: [string]
         for *s in v {
             out.push(s->copy())
@@ -239,15 +239,15 @@ pub class SysUtil {
 
     /// `strings(v)`, leaving `v` empty.
     pub static fn taken(@inout v: cxx::std::vector<string>) -> [string] {
-        var out = SysUtil::strings(&v)
+        var out = SysUtil::strings(v)
         v.clear()
         return out
     }
 
     /// The same strings as a C++ vector, for an API that takes one.
-    pub static fn to_cxx(@inout v: [string]) -> cxx::std::vector<string> {
+    pub static fn to_cxx(const v: [string]) -> cxx::std::vector<string> {
         var out = cxx::std::vector<string>()
-        for *s in v {
+        for const *s in v {
             out.push_back(s->copy())
         }
 
@@ -256,7 +256,7 @@ pub class SysUtil {
 
     pub static fn split(const s: string, sep: u8) -> [string] {
         var out: [string]
-        var b:  usize = 0
+        var b:   usize    = 0
         for var i: usize = 0; i < s.size(); ++i {
             if s.data()[i] == sep {
                 out.push(LinkText::slice(s, b, i))
@@ -306,8 +306,8 @@ pub class SysUtil {
         return false
     }
 
-    pub static fn contains(@inout xs: [string], const s: string) -> bool {
-        for *x in xs {
+    pub static fn contains(const xs: [string], const s: string) -> bool {
+        for const *x in xs {
             if *x == s {
                 return true
             }
@@ -316,7 +316,7 @@ pub class SysUtil {
         return false
     }
 
-    pub static fn joined(@inout xs: [string], const sep: string) -> string {
+    pub static fn joined(const xs: [string], const sep: string) -> string {
         var out = ""
         for var i: usize = 0; i < xs.size(); ++i {
             if i > 0 {

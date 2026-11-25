@@ -146,7 +146,7 @@ import Token::TokenKind::TokenKind
 /// the whole function.
 pub class SeqAddrScan derives RecursiveASTVisitor<SeqAddrScan> {
     pub var  out:       [unsafe *Decl]
-    priv var _closures: u32                            = 0
+    priv var _closures: u32            = 0
 
     fn SeqAddrScan(self) { }
 
@@ -723,7 +723,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         var hoist: [u8]
         var planned = self._plan(unsafe &ops, unsafe &hoist, unsafe &places)
         if n->recv_last && ops.size() == 2 && hoist.size() == 2 {
-            planned = self._plan_recv_last(&ops, &hoist, &places)
+            planned = self._plan_recv_last(ops, &hoist, places)
         }
 
         if !planned {
@@ -803,9 +803,9 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// has one or reads state. `xs` stays in place, evaluated after the
     /// local.
     priv fn _plan_recv_last(self,
-                            @inout ops:    [unsafe *Expr],
-                            @inout hoist:  [u8],
-                            @inout places: [u8]) -> bool {
+                            const ops:    [unsafe *Expr],
+                            @inout hoist: [u8],
+                            const places: [u8]) -> bool {
         var unsafe *late    = (ops)[0]
         var unsafe *early   = (ops)[1]
         var        late_fx  = !self.synth.pure_read(late)
@@ -1338,7 +1338,7 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
         // u8, not bool: the self-host migration rewrites vec<bool> to vec<u8>
         // by name, and a local named like a field (`out`) dragged the field along.
         var lrs: [u8]
-        var f:  unsafe *FunctionDecl = &null
+        var f:   unsafe *FunctionDecl = &null
         var is_ctor = n->ctor_decl != &null && isa<FunctionDecl>(n->ctor_decl)
         if is_ctor {
             f = cast<FunctionDecl>(n->ctor_decl)
