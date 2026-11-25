@@ -33,7 +33,8 @@
 ///   with no visible body (declared only, an extern template's member, a
 ///   body that does not instantiate for these arguments), a virtual call,
 ///   or a call through a pointer, given the object by `U&` / `U*` to
-///   non-const, makes the answer Unknown unless some other path moves:
+///   non-const, or a C `...` argument given a pointer to non-const to it,
+///   makes the answer Unknown unless some other path moves:
 ///   Moves over Unknown over None. Every override of a virtual method and
 ///   every function a pointer can hold has the parameter types the call
 ///   names, so the object bound to one of them by value or by reference or
@@ -98,7 +99,8 @@ type RootPath = cxx::std::string
 pub class CxxMoveAnswer {
     pub var kind: u8 = 0
     /// Unknown: 1 no visible body, 2 virtual call, 3 call through a pointer,
-    /// 4 depth limit, 5 the body does not instantiate for these arguments.
+    /// 4 depth limit, 5 the body does not instantiate for these arguments,
+    /// 7 a pointer to non-const passed through a C `...` argument.
     /// Assumed: 1 a C++ standard library function, 2 a C library one.
     pub var why: u8 = 0
     /// Moves: the expression that moves. Unknown: the call that cannot be
@@ -106,7 +108,7 @@ pub class CxxMoveAnswer {
     pub var begin:   clang::SourceLocation
     pub var end:     clang::SourceLocation
     pub var inside:  unsafe *const clang::FunctionDecl = &null ///< the function whose body holds `begin`.
-    pub var blocker: unsafe *const clang::FunctionDecl = &null ///< Unknown 1/2/5, Assumed: the callee that cannot be read.
+    pub var blocker: unsafe *const clang::FunctionDecl = &null ///< Unknown 1/2/5/7, Assumed: the callee that cannot be read.
 
     pub fn in_is(const self, f: unsafe *const clang::FunctionDecl) -> bool {
         return self.inside != &null
@@ -803,7 +805,36 @@ pub class CxxMoveWalk {
             }
 
             if j >= callee->getNumParams() {
-                continue // a C `...` argument.
+                // A C `...` argument has no declared type: the body reads it
+                // back with `va_arg` as any type it names, so a pointer to
+                // non-const that reaches the object cannot be followed.
+                if Self::mutable_ptr(a->getType()) && self.ptr(&b, a) {
+                    var u = Self::unknown(
+                        7,
+                        b.fn_,
+                        callee,
+                        at->getSourceRange(),
+                    )
+
+                    // The toolchain's own library with no visible body is
+                    // Assumed, as compute() answers for a declared parameter.
+                    var def: unsafe *const clang::FunctionDecl = &null
+                    if self.roots != &null && !callee->hasBody(&def) {
+                        const lib = self.roots->library_of(
+                            self.S->getSourceManager(),
+                            callee,
+                        )
+
+                        if lib != 0 {
+                            u.kind = 3
+                            u.why  = lib
+                        }
+                    }
+
+                    self.note_unknown(&b, u)
+                }
+
+                continue
             }
 
             var pt = callee->getParamDecl(j)->getType()

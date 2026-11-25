@@ -27,9 +27,17 @@ import AST::Context::DeclContext::{
 }
 import AST::Context::SymbolTable::DeclName
 import AST::DeclFacts::{
-    decl_fields,             decl_generic_params, decl_is_imported, decl_is_instance,
-    decl_methods,            decl_only_forward,   decl_pattern,     decl_requires_clause,
-    for_each_unwrapped_decl, param_is_type_pack,  peel_ref,
+    decl_fields,
+    decl_generic_params,
+    decl_is_imported,
+    decl_is_instance,
+    decl_methods,
+    decl_only_forward,
+    decl_pattern,
+    decl_requires_clause,
+    for_each_unwrapped_decl,
+    param_is_type_pack,
+    peel_ref,
 }
 import AST::ExprFacts
 import AST::Kind::DeclKind::{
@@ -56,8 +64,18 @@ import AST::Node::Base::{
     Type,
 }
 import AST::Node::CanonicalNodes::{
-    AssocType,  BuiltinKind,  BuiltinType,     QUAL_CONST,         QUAL_VOLATILE, QualifiedType,
-    RecordType, builtin_info, canon_has_const, canon_has_volatile, canon_quals,   canon_unqual,
+    AssocType,
+    BuiltinKind,
+    BuiltinType,
+    QUAL_CONST,
+    QUAL_VOLATILE,
+    QualifiedType,
+    RecordType,
+    builtin_info,
+    canon_has_const,
+    canon_has_volatile,
+    canon_quals,
+    canon_unqual,
 }
 import AST::Node::Casting::{
     cast,
@@ -308,6 +326,99 @@ pub class TypeUtil {
         }
 
         return self.iter_yield_of(elem) == IterYield::Pointer
+    }
+
+    /// Binder `i` of `n` could not be a `*x` over a record's `op in`
+    /// (StmtTyping::_iter_yield_rule): what it binds is read-only (the const
+    /// form, a `*const T`) or, in a tuple yield, a value element. A loop
+    /// over a mutable object that read through `op in (const self)` would
+    /// take `op in (self)` with a `*x` binder, so that form decides.
+    fn pointer_binder_refused(self, n: unsafe *Statements::RangedForStmt, i: usize) -> bool {
+        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(n->iter_op)
+        if f == &null || n->iter_elem == &null {
+            return false
+        }
+
+        if f->is_const() && !self.const_iterable(n) {
+            var unsafe *g = self.iteration_form(n->iterable->type_, false)
+            if g == &null {
+                return true
+            }
+
+            var unsafe *y = self.fn_yielded(g)
+            if y == &null {
+                return true
+            }
+
+            if self.is_tuple(y) {
+                var gforms = self.fn_iter_yield_elems(g)
+                var gelems = self.tuple_elems(y)
+                if i >= gforms.size() || i >= gelems.size() || gforms[i] != IterYield::Pointer {
+                    return true
+                }
+
+                return canon_has_const(self.pointee(gelems[i]))
+            }
+
+            if self.fn_iter_yield(g) != IterYield::Pointer {
+                return true
+            }
+
+            return canon_has_const(self.pointee(y))
+        }
+
+        var unsafe *pt = n->iter_elem
+        if n->iter_yield == IterYield::Tuple {
+            var forms = self.fn_iter_yield_elems(
+                dyn_cast<Declarations::FunctionDecl>(
+                    self.pattern_of(n->iter_op),
+                ),
+            )
+
+            var elems = self.tuple_elems(n->iter_elem)
+            if i >= forms.size() || i >= elems.size() {
+                return false
+            }
+
+            if forms[i] == IterYield::Value {
+                return true
+            }
+
+            pt = elems[i]
+        } else if n->iter_yield != IterYield::Pointer {
+            return false
+        }
+
+        return f->is_const() || canon_has_const(self.pointee(pt))
+    }
+
+    /// A `*x` binder keeps loop `n` on the `op in (const self)` it
+    /// resolved to: the iterable is const, or its type declares no
+    /// `op in (self)`.
+    fn const_form_kept(self, n: unsafe *Statements::RangedForStmt) -> bool {
+        var unsafe *f = dyn_cast<Declarations::FunctionDecl>(n->iter_op)
+        if f == &null || !f->is_const() {
+            return false
+        }
+
+        return self.const_iterable(n) || self.iteration_form(n->iterable->type_, false) == &null
+    }
+
+    /// `n`'s iterable is const to its `op in` (a const binding or
+    /// parameter, a field through `const self`, a `const T&`).
+    fn const_iterable(self, n: unsafe *Statements::RangedForStmt) -> bool {
+        if n->iterable == &null || n->iterable->type_ == &null {
+            return false
+        }
+
+        var unsafe *o = n->iterable->type_
+        if isa<Types::CXXLValueRefType>(o) {
+            o = cast<Types::CXXLValueRefType>(o)->referee
+        } else if isa<Types::CXXRValueRefType>(o) {
+            o = cast<Types::CXXRValueRefType>(o)->referee
+        }
+
+        return self.has_const(o)
     }
 
     /// The binder rule `f` declares: iter_yield_of its written `Yield<T>`'s

@@ -955,7 +955,9 @@ group = "redeclaration"
 
     a member-specification declares each member once. unlike file scope, a class body has no
     forward-declaration rule to make a repeat meaningful: a second declaration of the same member is
-    always a mistake.
+    always a mistake. every `extend` block of one type in one file (in one module, under one
+    `requires` condition) adds to one member list, so two of those blocks declaring the same member
+    is the same mistake.
 
     ## how to fix
 
@@ -964,7 +966,7 @@ group = "redeclaration"
     """
 
     [R041.N]
-    explain = "Points at the earlier declaration of this member in the same class body."
+    explain = "Points at the earlier declaration of this member in the same class body or `extend` block, or in another `extend` block of the same type in the same file."
 
 [R042]
 brief = "specialization without a primary template"

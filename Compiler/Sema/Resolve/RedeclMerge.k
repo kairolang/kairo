@@ -287,6 +287,8 @@ pub class RedeclMerge {
     var _spec_sub: Substitution
     /// _member_owner's target record.
     var _mo_rt: unsafe *RecordType = &null
+    /// The TU's `extend` blocks in source order, for _merge_extensions.
+    var _exts: [unsafe *Declarations::ExtensionDecl]
 
     fn RedeclMerge(self, sc: unsafe *SemaContext) {
         self.sc = sc
@@ -306,6 +308,7 @@ pub class RedeclMerge {
         }
 
         self._merge_in(tu)
+        self._merge_extensions(tu)
         self._merge_out_of_line(tu)
         // After both merges: a primary's representative is final, and the
         // pairing records it.
@@ -474,6 +477,330 @@ pub class RedeclMerge {
         }
 
         self._stamp_where_groups(group)
+    }
+
+    /// # R(a) across extension blocks
+
+    /// Every `extend` block of one target in this file, in one namespace and
+    /// under one gate, adds to one member list: code generation emits them
+    /// all as one scope struct (Speller::ext_scope_name). A member two such
+    /// blocks both declare is one member declared twice, as it is inside one
+    /// block, and gets the same error. Only this file's blocks are compared:
+    /// a member an imported file's extension also declares is an ambiguity
+    /// at the use (SC064E), not an error here.
+    priv fn _merge_extensions(self, tu: unsafe *TranslationUnit) {
+        self._exts = []
+        self._collect_extensions(tu)
+        for var i: usize = 0; i < self._exts.size(); ++i {
+            for var j: usize = i + 1; j < self._exts.size(); ++j {
+                self._merge_ext_pair(self._exts[i], self._exts[j])
+            }
+        }
+
+        self._exts = []
+    }
+
+    /// The extension blocks of `dc` and of the modules nested in it.
+    priv fn _collect_extensions(self, dc: unsafe *DeclContext) {
+        if dc == &null {
+            return
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var unsafe *d = *dc->dc_decls.get(i)
+            if d == &null {
+                continue
+            }
+
+            for_each_unwrapped_decl(
+                d,
+                fn (x: unsafe *Decl) { self._collect_extension(x) },
+            )
+        }
+    }
+
+    priv fn _collect_extension(self, d: unsafe *Decl) {
+        if isa<Declarations::ExtensionDecl>(d) {
+            var unsafe *e = cast<Declarations::ExtensionDecl>(d)
+            if e->target != &null && e->target->canonical != &null {
+                self._exts.push(e)
+            }
+
+            return
+        }
+
+        if isa<Declarations::ModuleDecl>(d) {
+            self._collect_extensions(NameLookup::context_of(d))
+        }
+    }
+
+    /// The namespace an extension block's scope struct is emitted in: its
+    /// module (one entity however often the file reopens it), or null for
+    /// the file's top level.
+    priv fn _ext_home(self, e: unsafe *Declarations::ExtensionDecl) -> unsafe *Decl {
+        var unsafe *p = e->dc_parent
+        if p == &null {
+            return &null
+        }
+
+        var unsafe *o = p->owner_decl()
+        if o == &null {
+            return &null
+        }
+
+        return NameLookup::representative(o)
+    }
+
+    /// A generic extension block whose parameters carry no bound and no
+    /// `requires` clause. Two blocks that differ in their bounds are two
+    /// constrained C++ templates, ordered by constraint, so only unbounded
+    /// pairs are compared.
+    priv fn _ext_unbounded(self, e: unsafe *Declarations::ExtensionDecl) -> bool {
+        if decl_requires_clause(unsafe (e as unsafe *Decl)) != &null {
+            return false
+        }
+
+        var gps = decl_generic_params(unsafe (e as unsafe *Decl))
+        for var i: usize = 0; i < gps.size(); ++i {
+            var unsafe *gp = gps[i]
+            if gp == &null || gp->impl_bounds.size() > 0 || gp->derives_bounds.size() > 0 {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// Blocks `ea` and `eb` (ea first in the file): when they are one scope
+    /// struct for one target, each name both declare is judged as R(a)
+    /// judges one cell, pairing only members of different blocks.
+    priv fn _merge_ext_pair(self,
+                            ea: unsafe *Declarations::ExtensionDecl,
+                            eb: unsafe *Declarations::ExtensionDecl) {
+        if ea->dc_symbols == &null || eb->dc_symbols == &null {
+            return
+        }
+
+        if self._ext_home(ea) != self._ext_home(eb) {
+            return
+        }
+
+        // A conditional block is a scope struct of its own (its gate's).
+        if (ea->gate == &null) != (eb->gate == &null) {
+            return
+        }
+
+        if ea->gate != &null && ea->gate->scope != eb->gate->scope {
+            return
+        }
+
+        var unsafe *da = unsafe (ea as unsafe *Decl)
+        var unsafe *db = unsafe (eb as unsafe *Decl)
+        if self.sc->eval_branches.exclusive(da, db) {
+            return
+        }
+
+        var gen = decl_generic_params(da).size() > 0
+        if gen != (decl_generic_params(db).size() > 0) {
+            return
+        }
+
+        var unsafe *ta = canon_unqual(ea->target->canonical)
+        var unsafe *tb = canon_unqual(eb->target->canonical)
+        var        sub = Substitution(self.sc)
+        if gen {
+            if !self._ext_unbounded(ea) || !self._ext_unbounded(eb) {
+                return
+            }
+
+            // `extend <T> Box<T>` twice: each block owns its `T`, so eb's
+            // target and members are read over ea's parameters.
+            if !sub.bind_redecl(da, db) {
+                return
+            }
+
+            tb = sub.substitute(eb->target->canonical)
+            if tb == &null {
+                return
+            }
+
+            tb = canon_unqual(tb)
+        }
+
+        if ta == &null || ta != tb {
+            return
+        }
+
+        var rows = cxx::std::vector<SymbolTable::Entry>()
+        eb->dc_symbols->collect_entries(&rows)
+        for var i: usize = 0; i < rows.size(); ++i {
+            if rows[i].cell == &null {
+                continue
+            }
+
+            var unsafe *cell_a = ea->dc_symbols->lookup(rows[i].name)
+            if cell_a == &null {
+                continue
+            }
+
+            var ga = self._fn_group(cell_a)
+            var gb = self._fn_group(rows[i].cell)
+            if ga.size() == 0 || gb.size() == 0 {
+                continue
+            }
+
+            var name = rows[i].name.describe(self.sc->ctx)
+            if ga[0]->is_operator {
+                name = "op " + OperatorFacts::symbol(ga[0])
+            }
+
+            for var x: usize = 0; x < ga.size(); ++x {
+                for var y: usize = 0; y < gb.size(); ++y {
+                    self._merge_ext_members(
+                        name,
+                        ga[x],
+                        gb[y],
+                        gen,
+                        unsafe &sub,
+                    )
+                }
+            }
+        }
+    }
+
+    /// One member of each of two blocks of one scope struct, with R(a)'s
+    /// skips: a poisoned side, sibling `eval if` branches, two transfer
+    /// constructors, a `where` group.
+    priv fn _merge_ext_members(self,
+                               const name: string,
+                               a:          unsafe *Declarations::FunctionDecl,
+                               b:          unsafe *Declarations::FunctionDecl,
+                               gen:        bool,
+                               sub:        unsafe *Substitution) {
+        if a->is_poisoned() || b->is_poisoned() {
+            return
+        }
+
+        if self.sc->eval_branches.exclusive(a, b) {
+            return
+        }
+
+        if a->transfer != Declarations::TransferKind::NotTransfer
+            && b->transfer != Declarations::TransferKind::NotTransfer {
+            return
+        }
+
+        if a->has_where() || b->has_where() {
+            return
+        }
+
+        if gen {
+            if self._ext_member_same(a, b, sub) {
+                self._link(name, a, b, true)
+            }
+
+            return
+        }
+
+        if !self._one_entity(a, b) {
+            self._check_move_overload(name, a, b)
+            if !b->is_poisoned() {
+                self._check_cxx_collision(name, a, b)
+            }
+
+            return
+        }
+
+        if !self._bounds_differ(a, b).is_empty() {
+            return
+        }
+
+        self._link(name, a, b, true)
+    }
+
+    /// Members `a` and `b` of two generic blocks, `b` read over `a`'s
+    /// block's parameters through `sub`, have one signature (the rule of
+    /// _same_signature). A member with generic parameters of its own is not
+    /// compared: its parameters would need a second binding.
+    priv fn _ext_member_same(self,
+                             a:   unsafe *Declarations::FunctionDecl,
+                             b:   unsafe *Declarations::FunctionDecl,
+                             sub: unsafe *Substitution) -> bool {
+        if a->generic_params.size() > 0 || b->generic_params.size() > 0 {
+            return false
+        }
+
+        if a->is_variadic != b->is_variadic || a->params.size() != b->params.size() {
+            return false
+        }
+
+        if OperatorFacts::is_postfix(a) != OperatorFacts::is_postfix(b) {
+            return false
+        }
+
+        if self._is_conversion(a) && self._is_conversion(b) {
+            var unsafe *ra = self._return_canonical(a)
+            var unsafe *rb = self._return_canonical(b)
+            if ra == &null || rb == &null {
+                return false
+            }
+
+            rb = sub->substitute(rb)
+            if rb == &null || canon_unqual(ra) != canon_unqual(rb) {
+                return false
+            }
+        }
+
+        var const_is_identity = OperatorFacts::is_subscript(a)
+            || OperatorFacts::is_arrow(a)
+            || OperatorFacts::is_iteration(a)
+        if const_is_identity && a->is_const() != b->is_const() {
+            return false
+        }
+
+        for var i: usize = 0; i < a->params.size(); ++i {
+            var unsafe *pa = a->params[i]
+            var unsafe *pb = b->params[i]
+            if pa == &null || pb == &null || pa->type_ == &null || pb->type_ == &null {
+                return false
+            }
+
+            var unsafe *ca = pa->type_->canonical
+            var unsafe *cb = pb->type_->canonical
+            if ca == &null || cb == &null {
+                return false
+            }
+
+            cb = sub->substitute(cb)
+            if cb == &null {
+                return false
+            }
+
+            if pa->is_self != pb->is_self {
+                return false
+            }
+
+            if pa->is_self {
+                if !const_is_identity {
+                    ca = canon_unqual(ca)
+                    cb = canon_unqual(cb)
+                }
+
+                if ca != cb {
+                    return false
+                }
+
+                continue
+            }
+
+            var sa = self._param_shape(pa, ca, false, false)
+            var sb = self._param_shape(pb, cb, false, false)
+            if sa.mode != sb.mode || sa.ty != sb.ty {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// Stamp `where_lead` on every member of each `where` group in one cell.

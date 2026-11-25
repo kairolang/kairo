@@ -50,18 +50,13 @@ import AST::Node::Base::{
     Decl,
     Expr,
 }
-import AST::Node::CanonicalNodes::{
-    canon_has_const,
-    canon_unqual,
-}
+import AST::Node::CanonicalNodes::canon_unqual
 import AST::Node::Casting::{
-    cast,
     dyn_cast,
     isa,
 }
 import AST::Node::Declarations::{
     FieldDecl,
-    FunctionDecl,
     VariableDecl,
 }
 import AST::Node::Expressions::{
@@ -74,7 +69,13 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Statements::{
-    BindingShorthand, CompoundStmt, IndexedForStmt, IterKind, IterYield, LoopStmt, RangedForStmt,
+    BindingShorthand,
+    CompoundStmt,
+    IndexedForStmt,
+    IterKind,
+    IterYield,
+    LoopStmt,
+    RangedForStmt,
     WhileLoopStmt,
 }
 import AST::Node::Types::{
@@ -379,85 +380,6 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
         }
     }
 
-    /// Binder `i` of `n` could not be a `*x` over a record's `op in`
-    /// (StmtTyping::_iter_yield_rule): what it binds is read-only (the const
-    /// form, a `*const T`) or, in a tuple yield, a value element. A loop
-    /// over a mutable object that read through `op in (const self)` would
-    /// take `op in (self)` with a `*x` binder, so that form decides.
-    priv fn _ptr_refused(self, n: unsafe *RangedForStmt, i: usize) -> bool {
-        var unsafe *f = dyn_cast<FunctionDecl>(n->iter_op)
-        if f == &null || n->iter_elem == &null {
-            return false
-        }
-
-        if f->is_const() && !self._const_iterable(n) {
-            var unsafe *g = self._tu.iteration_form(n->iterable->type_, false)
-            if g == &null {
-                return true
-            }
-
-            var unsafe *y = self._tu.fn_yielded(g)
-            if y == &null {
-                return true
-            }
-
-            if self._tu.is_tuple(y) {
-                var gforms = self._tu.fn_iter_yield_elems(g)
-                var gelems = self._tu.tuple_elems(y)
-                if i >= gforms.size() || i >= gelems.size() || gforms[i] != IterYield::Pointer {
-                    return true
-                }
-
-                return canon_has_const(self._tu.pointee(gelems[i]))
-            }
-
-            if self._tu.fn_iter_yield(g) != IterYield::Pointer {
-                return true
-            }
-
-            return canon_has_const(self._tu.pointee(y))
-        }
-
-        var unsafe *pt = n->iter_elem
-        if n->iter_yield == IterYield::Tuple {
-            var forms = self._tu.fn_iter_yield_elems(
-                dyn_cast<FunctionDecl>(self._tu.pattern_of(n->iter_op)),
-            )
-
-            var elems = self._tu.tuple_elems(n->iter_elem)
-            if i >= forms.size() || i >= elems.size() {
-                return false
-            }
-
-            if forms[i] == IterYield::Value {
-                return true
-            }
-
-            pt = elems[i]
-        } else if n->iter_yield != IterYield::Pointer {
-            return false
-        }
-
-        return f->is_const() || canon_has_const(self._tu.pointee(pt))
-    }
-
-    /// `n`'s iterable is const to its `op in` (a const binding or
-    /// parameter, a field through `const self`, a `const T&`).
-    priv fn _const_iterable(self, n: unsafe *RangedForStmt) -> bool {
-        if n->iterable == &null || n->iterable->type_ == &null {
-            return false
-        }
-
-        var unsafe *o = n->iterable->type_
-        if isa<CXXLValueRefType>(o) {
-            o = cast<CXXLValueRefType>(o)->referee
-        } else if isa<CXXRValueRefType>(o) {
-            o = cast<CXXRValueRefType>(o)->referee
-        }
-
-        return self._tu.has_const(o)
-    }
-
     priv fn _check_binder(self,
                           n:    unsafe *RangedForStmt,
                           v:    unsafe *VariableDecl,
@@ -522,7 +444,7 @@ pub class ForCopyLint derives RecursiveASTVisitor<ForCopyLint> {
 
         // A `*x` the rule refuses is no fix: the element is not writable
         // through this loop.
-        if self._ptr_refused(n, i) {
+        if self._tu.pointer_binder_refused(n, i) {
             b.note(
                 DiagCode(DiagID::SC275N),
                 name.start,

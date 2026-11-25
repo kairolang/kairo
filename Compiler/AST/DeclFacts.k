@@ -70,8 +70,14 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Types::{
-    CXXLValueRefType, CXXRValueRefType, FixedArrayType, FunctionPointerType, GenericParamType,
-    NullableType,     PointerType,      TupleType,
+    CXXLValueRefType,
+    CXXRValueRefType,
+    FixedArrayType,
+    FunctionPointerType,
+    GenericParamType,
+    NullableType,
+    PointerType,
+    TupleType,
 }
 import AST::OperatorFacts::OperatorFacts
 import AST::ParamMode::ParamMode
@@ -1270,6 +1276,32 @@ pub fn decl_is_ctor(f:        unsafe *Declarations::FunctionDecl,
     }
 
     return fc->get_spelling(f->name) == oc->get_spelling(ot)
+}
+
+/// `f` is the explicit C++ hand-off of its argument: an imported `move` /
+/// `forward` whose one parameter is a `T&&` (`cxx::std::move`,
+/// `cxx::std::forward`). Its argument may name any place and leaves it
+/// moved-from, so an element it names is the place form of a split
+/// subscript, as for a `@move` parameter. The name is spelled as
+/// decl_name does.
+pub fn decl_is_cxx_handoff(f:        unsafe *Declarations::FunctionDecl,
+                           fallback: unsafe *ASTContext = &null) -> bool {
+    if f == &null || !decl_is_imported(f) || f->params.size() != 1 {
+        return false
+    }
+
+    var unsafe *p = f->params[0]
+    if p == &null || p->type_ == &null {
+        return false
+    }
+
+    var unsafe *t = if (p->type_->canonical != &null) => (p->type_->canonical) else => p->type_
+    if !isa<CXXRValueRefType>(canon_unqual(t)) {
+        return false
+    }
+
+    var nm = decl_name(f, fallback)
+    return nm == "move" || nm == "forward"
 }
 
 /// # Storage

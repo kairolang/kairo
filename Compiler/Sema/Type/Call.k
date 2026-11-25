@@ -65,6 +65,7 @@ import AST::DeclFacts::{
     decl_extension_of,
     decl_generic_params,
     decl_instantiated_from,
+    decl_is_cxx_handoff,
     decl_is_imported,
     decl_is_instance,
     decl_requires_clause,
@@ -478,12 +479,18 @@ pub class <T: type> CallTyping {
         return ok
     }
 
-    /// Some function in `cands` takes its `i`th explicit argument `@move`.
+    /// Some function in `cands` takes its `i`th explicit argument `@move`,
+    /// or is the C++ hand-off (decl_is_cxx_handoff), which moves its one
+    /// argument as a `@move` parameter does.
     priv fn _some_moves_at(self, cands: unsafe *cxx::std::vector<unsafe *Decl>, i: usize) -> bool {
         for var k: usize = 0; k < cands->size(); ++k {
             var unsafe *f = dyn_cast<FunctionDecl>((*cands)[k])
             if f == &null {
                 continue
+            }
+
+            if i == 0 && decl_is_cxx_handoff(f, self.dyn()->sc->ctx) {
+                return true
             }
 
             var seen: usize = 0

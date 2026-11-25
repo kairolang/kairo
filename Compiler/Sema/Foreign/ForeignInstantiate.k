@@ -159,8 +159,8 @@ pub enum CxxMoveKind derives u8 {
 }
 
 /// Why a CxxMoveVerdict is Unknown, as its `why` byte. NoBody to
-/// NoInstantiation are Native/ClangMoveWalk.k's CxxMoveAnswer::why values;
-/// NoInstance is cxx_moves_out's own.
+/// NoInstantiation and Variadic are Native/ClangMoveWalk.k's
+/// CxxMoveAnswer::why values; NoInstance is cxx_moves_out's own.
 pub enum CxxMoveUnknownWhy derives u8 {
     NoBody          = 1, ///< no visible body.
     Virtual         = 2, ///< a virtual call.
@@ -168,6 +168,7 @@ pub enum CxxMoveUnknownWhy derives u8 {
     Depth           = 4, ///< the walk reached CXX_MOVE_DEPTH.
     NoInstantiation = 5, ///< the body does not instantiate for these arguments.
     NoInstance      = 6, ///< the template instance the call selects is not known.
+    Variadic        = 7, ///< a pointer to non-const passed through a C `...` argument.
 }
 
 /// Why a CxxMoveVerdict is Assumed, as its `why` byte (CxxMoveAnswer::why).
@@ -186,7 +187,7 @@ pub class CxxMoveVerdict {
     /// has no Kairo file.
     pub var at:          SourceRange = SourceRange::invalid()
     pub var in_name:     string      = "" ///< the function whose body holds `at`.
-    pub var blocker:     string      = "" ///< Unknown 1, 2, 5, Assumed: the callee that could not be read.
+    pub var blocker:     string      = "" ///< Unknown 1, 2, 5, 7, Assumed: the callee that could not be read.
     pub var in_top:      bool        = true ///< `in_name` is the function asked about.
     pub var blocker_top: bool        = true ///< `blocker` is the function asked about.
     fn CxxMoveVerdict(self) { }

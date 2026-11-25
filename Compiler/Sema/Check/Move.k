@@ -171,8 +171,15 @@ import AST::ASTSupport::FrozenList
 import AST::AttrFacts::AttrFacts
 import AST::Context::DeclContext::DeclContextKind
 import AST::DeclFacts::{
-    decl_is_ctor,          decl_is_imported,     decl_methods,         decl_name,
-    fn_keeps_value_params, param_is_plain_value, place_has_const_root, type_may_be_destructive,
+    decl_is_ctor,
+    decl_is_cxx_handoff,
+    decl_is_imported,
+    decl_methods,
+    decl_name,
+    fn_keeps_value_params,
+    param_is_plain_value,
+    place_has_const_root,
+    type_may_be_destructive,
     value_param_rule,
 }
 import AST::ExprFacts::{
@@ -206,10 +213,27 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,     FieldDecl,        FnBodyKind,   FnModifier,    FunctionDecl,  InterfaceDecl,
-    MOVE_ON_FALSE, MOVE_ON_NON_NULL, MOVE_ON_NULL, MOVE_ON_OTHER, MOVE_ON_PANIC, MOVE_ON_RETURN,
-    MOVE_ON_TRUE,  MoveOut,          MoveOutState, ParamDecl,     ParamOwner,    StorageClass,
-    StructDecl,    TransferKind,     VariableDecl,
+    ClassDecl,
+    FieldDecl,
+    FnBodyKind,
+    FnModifier,
+    FunctionDecl,
+    InterfaceDecl,
+    MOVE_ON_FALSE,
+    MOVE_ON_NON_NULL,
+    MOVE_ON_NULL,
+    MOVE_ON_OTHER,
+    MOVE_ON_PANIC,
+    MOVE_ON_RETURN,
+    MOVE_ON_TRUE,
+    MoveOut,
+    MoveOutState,
+    ParamDecl,
+    ParamOwner,
+    StorageClass,
+    StructDecl,
+    TransferKind,
+    VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::Patterns::{
@@ -253,13 +277,27 @@ import Sema::Check::ClassLifecycle::{
 }
 import Sema::Check::Conformance::ConformanceChecking
 import Sema::Check::EffectPropagation::{
-    PanicKnown, panic_bind_call,      panic_call_receiver, panic_call_set, panic_dep,
-    panic_home, panic_set_of_fn_type, pset_add,            pset_has,
+    PanicKnown,
+    panic_bind_call,
+    panic_call_receiver,
+    panic_call_set,
+    panic_dep,
+    panic_home,
+    panic_set_of_fn_type,
+    pset_add,
+    pset_has,
 }
 import Sema::Check::LocalDisposition::{
-    LocalEnds,            destructive_type,      disarm_refusal,     disarm_storage_refusal,
-    local_has_dtor,       names_cxx_member_type, part_moved_refusal, part_record_refusal,
-    record_real_transfer, union_storage_refusal,
+    LocalEnds,
+    destructive_type,
+    disarm_refusal,
+    disarm_storage_refusal,
+    local_has_dtor,
+    names_cxx_member_type,
+    part_moved_refusal,
+    part_record_refusal,
+    record_real_transfer,
+    union_storage_refusal,
 }
 import Sema::Foreign::ForeignInstantiate::{
     CXX_MOVE_DEPTH,
@@ -2494,6 +2532,11 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
             return "the template instance it calls is not known"
         }
 
+        if v.why == 7 {
+            return if (v.blocker_top) => ("it reads a pointer to it from a C `...` argument")
+                   else => f"it passes it to '{v.blocker}' through a C `...` argument"
+        }
+
         return if (v.blocker_top) => ("its body is not visible")
                else => f"it passes it to '{v.blocker}', whose body is not visible"
     }
@@ -4569,7 +4612,7 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         var bound_e:      [unsafe *Expr]
         var pos:          usize               = 0
         var saved_handoff                     = self._handoff
-        self._handoff = self._is_handoff(f)
+        self._handoff = decl_is_cxx_handoff(f, self.sc->ctx)
         // C++ evaluates named arguments in parameter order, and the
         // arguments of a `?.` call only when the receiver is not null.
         var optional = self._optional_callee(n->callee)
@@ -5657,18 +5700,6 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         self._mark(e, how, kind, dest)
     }
 
-    /// `f` is `cxx::std::move` or `cxx::std::forward`: an imported `move` /
-    /// `forward` whose one parameter is a `T&&`, the explicit C++ hand-off
-    /// of its argument, which may name any place.
-    priv fn _is_handoff(self, f: unsafe *FunctionDecl) -> bool {
-        if f == &null || !decl_is_imported(f) || f->params.size() != 1 || f->params[0] == &null {
-            return false
-        }
-
-        var nm = self.sc->ctx->get_spelling(f->name)
-        return (nm == "move" || nm == "forward") && self._rref_param(f->params[0])
-    }
-
     /// A transfer of the MOVE lvalue `x` (`e` unstripped) out of storage
     /// this code reaches through a pointer or a reference (`p->f`, `*p`,
     /// `self.q->f`, a C++ `T&` a call returns): refused with SC182E, since
@@ -6400,11 +6431,28 @@ pub class MoveCheck derives RecursiveASTVisitor<MoveCheck> {
         // _iter_yield_rule): the element's address comes from `-> yield *T`.
         // `const *k` fits a pointer part through either `op in` form.
         var how = f"bind '*{nm}' for the element's address instead"
+        // `*x` is refused (SC298E) where the element is read-only: through
+        // `op in (const self)` on a const iterable or a type with no other
+        // form, or as a `*const T` (a const vector, a set).
+        if n->iter_yield == Statements::IterYield::Pointer
+            && self._tu.pointer_binder_refused(n, 0) {
+            how = f"bind 'const *{nm}' for a pointer to it instead"
+        }
+
         if pointer_part {
             how = f"bind 'const *{nm}' for a pointer to it instead"
         } else if n->iter_yield == Statements::IterYield::Value
             || n->iter_yield == Statements::IterYield::Tuple {
-            how = f"its 'op in' yields values; declare it '-> yield *{ts}' and bind '*{nm}' for the element's address"
+            // Where a `*x` binder keeps the loop on `op in (const self)`,
+            // that form has to yield `*const T` and the binder is `const *x`.
+            var pt = "*"
+            var pb = "*"
+            if self._tu.const_form_kept(n) {
+                pt = "*const "
+                pb = "const *"
+            }
+
+            how = f"its 'op in' yields values; declare it '-> yield {pt}{ts}' and bind '{pb}{nm}' for the element's address"
         }
 
         var what = if (n->bindings.size() == 1) => ("each element")
