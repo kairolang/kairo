@@ -77,17 +77,20 @@
 ///   That is fine   CONTIGUITY is the invariant, not uniformity of
 ///   mechanism. Both overloads append to the same SLoc block in order.
 ///
-///   TODO(perf): the getFileRef path leaves the bytes resident twice (Kairo's
-///   mmap plus clang's ContentCache), and MemBufferInfos is not cleared by
-///   clearIDTables so the virtual path accumulates a ContentCache per fid per
-///   action. SourceManager::overrideFileContents(FileEntryRef, MemoryBufferRef)
-///   collapses both: FileEntry-keyed (survives clearIDTables, no accumulation)
-///   and backed by our mmap (no second read).
+///   A Kairo source's FileEntry has its contents overridden with Kairo's
+///   bytes (SourceManager::overrideFileContents): clang never reads it from
+///   disk, so the block matches what Kairo lexed even when the file changed
+///   on disk since, and the bytes are resident once. C and C++ headers are
+///   read by clang: a precompiled header that included one is rejected once
+///   the file is overridden.
+///
+///   TODO(perf): MemBufferInfos is not cleared by clearIDTables, so the
+///   virtual path accumulates a ContentCache per fid per action.
 ///
 /// \par Lifetime
-///   The Kairo VFM mmaps live for the whole session and must outlive the
-///   clang SM   clang stores MemoryBufferRef views for the virtual path, it
-///   does not copy.
+///   The Kairo VFM buffers live for the whole session and must outlive the
+///   clang SM: clang stores MemoryBufferRef views for both paths, it does
+///   not copy.
 ///
 /// \par Threading
 ///   rebind() runs on the driver thread inside ExecuteAction.
@@ -257,8 +260,31 @@ pub class ClangLocMap {
         // to 37 ms a TU at 12 workers (the per-process fd table, growing
         // under threads, is the likely contention). A file clang does read
         // is opened then.
-        var fref = fm->getFileRef(kairo::sref(path), false)
+        var fref  = fm->getFileRef(kairo::sref(path), false)
+        var hview = self._ksm->get_file_view(kfid)
         if fref as bool {
+            // A Kairo source is handed to clang as the bytes Kairo lexed
+            // instead of being read again: a file written since Kairo read
+            // it would give clang other bytes and another length, and every
+            // loc into it, or into the fids after it in the block, would
+            // translate to the wrong place. The override is keyed on the
+            // FileEntry, so it is one ContentCache per file however many
+            // actions rebind. A C or C++ header is left to clang: a
+            // precompiled header that included it recorded it as read from
+            // disk, and clang rejects that PCH once the file is overridden.
+            if hview.data != &null && Path(path.copy()).extension() == ".k" {
+                self._csm->overrideFileContents(
+                    *fref,
+                    llvm::MemoryBufferRef(
+                        llvm::StringRef(
+                            unsafe (hview.data as kairo::std::ConstPtr<c_char>),
+                            hview.size,
+                        ),
+                        kairo::sref(path),
+                    ),
+                )
+            }
+
             return self._csm->createFileID(
                 *fref,
                 clang::SourceLocation(),
@@ -268,7 +294,6 @@ pub class ClangLocMap {
 
         // No FileEntry: synthetic buffer. Own the narrow name for the clang
         // SM's lifetime   it keeps a StringRef view, it does not copy.
-        var hview = self._ksm->get_file_view(kfid)
         if hview.data == &null || hview.size == 0 {
             return clang::FileID()
         }

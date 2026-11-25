@@ -21,22 +21,22 @@ import std::c_char
 
 /// cross-platform RAII wrapper around memory-mapped file regions.
 ///
-/// `MMapRegion` abstracts OS-specific file mapping APIs (`mmap` on POSIX,
-/// `CreateFileMappingW` on Windows) into a consistent interface for read-only
-/// file access without copying data into user space.
+/// `MMapRegion` gives a file's bytes a stable address for the whole compile.
+/// On POSIX they are read into anonymous memory (`mmap` with
+/// `MAP_ANONYMOUS`), so a later write to the file does not reach them; on
+/// Windows the file is mapped (`CreateFileMappingW`), which the system keeps
+/// from being truncated while the view is open.
 ///
 /// the class ensures cleanup through RAII; automatically unmapping memory
 /// when destroyed. it supports direct pointer access to mapped data and
 /// optional subregion attachment.
 ///
 /// design goals:
-///   - zero-copy read access to large files.
 ///   - deterministic cleanup on scope exit.
 ///   - minimal abstraction overhead.
 ///   - uniform semantics across platforms.
 ///
 /// **Note:**
-/// - always maps in **read-only** mode.
 /// - not thread-safe; external synchronization required.
 /// - includes an implicit null terminator for safety with string-like data.
 ///
@@ -52,6 +52,9 @@ pub class MMapRegion {
     pub var _size:  usize      = 0     ///< mapped region size (in bytes).
     pub var _valid: bool       = false ///< indicates mapping success.
     pub var _owns:  bool       = true  ///< true if region owns the mapping.
+    /// Bytes to unmap on POSIX: the size read plus the terminator's room,
+    /// which _size does not count.
+    pub var _map_len: usize = 0
 
     /// default constructor.
     fn MMapRegion(self) = default
@@ -65,13 +68,14 @@ pub class MMapRegion {
     // Move-only: the destructor unmaps the region, so a copy would unmap it
     // twice. The source is left empty, so its close() is a no-op.
     @move fn MMapRegion(self, other: Self) {
-        self._data   = other._data
-        self._size   = other._size
-        self._valid  = other._valid
-        self._owns   = other._owns
-        other._data  = &null
-        other._size  = 0
-        other._valid = false
+        self._data    = other._data
+        self._size    = other._size
+        self._valid   = other._valid
+        self._owns    = other._owns
+        self._map_len = other._map_len
+        other._data   = &null
+        other._size   = 0
+        other._valid  = false
     }
 
     /// destructor; automatically unmaps region if valid.
@@ -146,25 +150,58 @@ pub class MMapRegion {
                 return true
             }
 
-            var mapping: unsafe *u8 = unsafe (mmap(
+            // The bytes are copied into anonymous memory, not mapped from the
+            // file: a file rewritten in place while the compiler runs (an
+            // editor, a script, another build) would change the bytes under
+            // tokens already lexed, and one truncated kills the process
+            // (SIGBUS) at the next read past its new end. The copy is what
+            // the whole compile, clang's side included, sees. The extra
+            // zeroed byte is the terminator clang's buffers require.
+            var cap = (st.st_size as usize) + 1
+            var mem: unsafe *u8 = unsafe (mmap(
                 &null,
-                st.st_size as usize,
-                kairo::prot_read,
-                kairo::map_private,
-                fd,
+                cap,
+                kairo::prot_read | kairo::prot_write,
+                kairo::map_private | kairo::map_anonymous,
+                -1,
                 0
             ) as unsafe *u8)
 
-            close(fd)
-
-            if mapping == unsafe (kairo::map_failed() as unsafe *u8) {
+            if mem == unsafe (kairo::map_failed() as unsafe *u8) {
+                close(fd)
                 return false
             }
 
-            self._data  = mapping
-            self._size  = st.st_size as usize
-            self._owns  = true
-            self._valid = true
+            // A file that shrank since the fstat ends the copy early; one
+            // that grew is cut at the size the fstat saw.
+            var got: usize = 0
+            var bad        = false
+            while got < cap - 1 {
+                var n = read(fd, mem + got, cap - 1 - got)
+                if n < 0 {
+                    bad = true
+                    break
+                }
+
+                if n == 0 {
+                    break
+                }
+
+                got += n as usize
+            }
+
+            close(fd)
+
+            if bad {
+                munmap(mem, cap)
+                return false
+            }
+
+            self._data    = mem
+            self._size    = got
+            self._map_len = cap
+            self._owns    = true
+            self._valid   = true
         }
 
         return true
@@ -182,12 +219,13 @@ pub class MMapRegion {
         eval if defined!(_WIN32) {
             kairo::win32::unmap(self._data)
         } else {
-            munmap(self._data, self._size)
+            munmap(self._data, self._map_len)
         }
 
-        self._data  = &null
-        self._size  = 0
-        self._valid = false
+        self._data    = &null
+        self._size    = 0
+        self._map_len = 0
+        self._valid   = false
     }
 
     /// returns pointer to mapped data.

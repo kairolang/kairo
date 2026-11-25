@@ -508,6 +508,8 @@ inline const char *langinfo_codeset() noexcept { return ::nl_langinfo(CODESET); 
 inline constexpr int o_rdonly    = O_RDONLY;
 inline constexpr int prot_read   = PROT_READ;
 inline constexpr int map_private = MAP_PRIVATE;
+inline constexpr int prot_write    = PROT_WRITE;
+inline constexpr int map_anonymous = MAP_ANONYMOUS;
 /// MAP_FAILED is `((void *)-1)`: a cast, so not a constant expression.
 inline void *map_failed() noexcept { return MAP_FAILED; }
 
