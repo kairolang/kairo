@@ -30,6 +30,7 @@ import AST::Kind::TypeKind::to_string
 import AST::LangItems::{
     ABORT_EXIT_CODE,
     LangAttrs,
+    LangMembers,
     LowerTargets,
     to_string,
 }
@@ -59,10 +60,12 @@ import AST::Node::Expressions::{
     BinaryOperatorExpr,
     CallExpr,
     ParenExpr,
+    TypeCastExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
     NamedIdentExpr,
+    StringLiteralExpr,
 }
 import AST::Node::Statements::{
     BranchHint,
@@ -100,6 +103,31 @@ import Codegen::Emit::Names
 import Codegen::Emit::Push
 import Codegen::Spell::Spell::Speller
 import Location::SourceRange::SourceRange
+
+/// The longest assertion text a failed `assert` with a run-time message
+/// writes, in bytes: rt/crash.h's KAIRO_RT_CRASH_MAX, past which the runtime
+/// drops the rest anyway.
+const ASSERT_TEXT_MAX: usize = 4096
+
+/// `m`, an `assert` message after StringLowering, is a plain string
+/// literal: the constructor call StringLowering made of it, spanning the
+/// literal alone, whose bytes argument is that literal. A call that merely
+/// takes a literal argument (`f("x")`) spans more than the literal.
+fn _literal_message(m: unsafe *Expr) -> bool {
+    var unsafe *call = dyn_cast<CallExpr>(m)
+    if call == &null || call->args.size() == 0 {
+        return false
+    }
+
+    var unsafe *a = *call->args.get(0)
+    var unsafe *c = dyn_cast<TypeCastExpr>(a)
+    if c != &null {
+        a = c->operand
+    }
+
+    var unsafe *lit = dyn_cast<StringLiteralExpr>(a)
+    return lit != &null && lit->range == call->range
+}
 
 extend EmitIR {
     /// # Statements
@@ -653,11 +681,6 @@ extend EmitIR {
         return if (r->args.size() > 0) => (r->args[0]) else => &null
     }
 
-    /// `assert c, msg?` (Compiler/Spec/Panic.md#crashes-are-not-panics): a crash-family check, so
-    /// `if (!(c)) crash_exit(...)` with the runtime's own noreturn entry. The
-    /// message operand is optional and a `string` here, not a C literal, so the
-    /// crash text is the statement's own source and location instead; that
-    /// names the failed condition and carries the message as written.
     /// `assert static c, "msg"` is C++'s `static_assert(c, "msg")`. In a
     /// generic body `c` depends on the parameters (a C++ trait over `T`), so
     /// no Kairo pass can decide it; clang does, per instance, and a false one
@@ -681,19 +704,65 @@ extend EmitIR {
         self._cg->sink->spell(n->range, ");")
     }
 
+    /// `assert c, msg?` (Compiler/Spec/Panic.md#crashes-are-not-panics): a crash-family check, so
+    /// `if (!(c)) crash_exit(...)` with the runtime's own noreturn entry, which
+    /// formats nothing: the text arrives whole. With no message, or a literal
+    /// one, the text is a C literal of the location and the statement as
+    /// written, which already carries the literal. Any other message is a
+    /// `string` known only at run time, so the failing branch evaluates it,
+    /// once, and joins it to the location and the condition as written in a
+    /// stack buffer of the runtime's limit. That branch is a cold, noinline
+    /// lambda: the buffer is in its frame, not the caller's, and the message
+    /// is never evaluated while the condition holds.
     priv fn _assert(self, n: unsafe *RuntimeAssertStmt) {
         var unsafe *sm = self._cg->ctx->sm
         var        lc  = sm->get_line_col(n->range.start)
+        var at = f"kairo: assertion failed at {sm->get_filename(n->range.start)}:{lc.line}:{lc.column}: "
+        var exit = LowerTargets::rt_crash_exit()
+        if n->message == &null || _literal_message(n->message) {
+            var lit = Speller::c_string(at + sm->get_text(n->range))
+            self._cg->sink->spell(n->range, "if (!(")
+            self.emit(n->condition)
+            self._cg->sink->spell(
+                n->range,
+                ")) ::" + exit + "(reinterpret_cast<const unsigned char*>(" + lit + "), sizeof(" + lit + ") - 1, " + f"{ABORT_EXIT_CODE}" + ");",
+            )
+
+            return
+        }
+
         var lit = Speller::c_string(
-            f"kairo: assertion failed at {sm->get_filename(n->range.start)}:{lc.line}:{lc.column}: {sm->get_text(n->range)}",
+            at + "assert " + sm->get_text(n->condition->range),
         )
 
+        var z   = LowerTargets::cxx_size_t()
+        var cap = f"{ASSERT_TEXT_MAX}"
+        var tw = self._cg->tu != &null
+            && self._cg->tu->global_scope != &null
+            && self._cg->tu->global_scope->well_known()->two_word()
         self._cg->sink->spell(n->range, "if (!(")
         self.emit(n->condition)
         self._cg->sink->spell(
             n->range,
-            ")) ::" + LowerTargets::rt_crash_exit() + "(reinterpret_cast<const unsigned char*>(" + lit + "), sizeof(" + lit + ") - 1, " + f"{ABORT_EXIT_CODE}" + ");",
+            ")) [&]() __attribute__((cold, noinline)) noexcept { const auto& __kairo_am = (",
         )
+
+        self.emit(n->message)
+        var sd   = LangMembers::string_data(tw)
+        var sl   = LangMembers::string_size(tw)
+        var body = "); "
+        body += "const unsigned char* __kairo_ad = reinterpret_cast<const unsigned char*>(__kairo_am." + sd + "()); "
+        body += z.copy() + " __kairo_ak = __kairo_am." + sl + "(); "
+        body += "unsigned char __kairo_ab[" + cap + "]; "
+        body += z.copy() + " __kairo_an = sizeof(" + lit + ") - 1; "
+        body += "if (__kairo_an > " + cap + ") { __kairo_an = " + cap + "; } "
+        body += "__builtin_memcpy(__kairo_ab, " + lit + ", __kairo_an); "
+        body += "if (__kairo_ak > 0 && __kairo_an + 2 < " + cap + ") { "
+        body += "__kairo_ab[__kairo_an++] = 58; __kairo_ab[__kairo_an++] = 32; "
+        body += "if (__kairo_ak > " + cap + " - __kairo_an) { __kairo_ak = " + cap + " - __kairo_an; } "
+        body += "__builtin_memcpy(__kairo_ab + __kairo_an, __kairo_ad, __kairo_ak); __kairo_an += __kairo_ak; } "
+        body += "::" + exit + "(__kairo_ab, __kairo_an, " + f"{ABORT_EXIT_CODE}" + "); }();"
+        self._cg->sink->spell(n->range, body)
     }
 
     /// The weight written on one branch of `n`, as a BranchHint: the `if`'s

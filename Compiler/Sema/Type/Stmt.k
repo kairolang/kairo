@@ -4018,8 +4018,11 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             self.dyn()->require_bool(n->condition, "an 'assert' condition")
         }
 
+        // The message is evaluated when the assertion fails, as a `string`.
         if n->message != &null {
-            self.dyn()->type_of(n->message, self.dyn()->tu.string_type())
+            var unsafe *st = self.dyn()->tu.string_type()
+            self.dyn()->type_of(n->message, st)
+            self.dyn()->check_convertible(n->message, st)
         }
 
         return n
