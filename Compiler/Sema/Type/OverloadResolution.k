@@ -870,6 +870,68 @@ pub class OverloadResolution {
         return false
     }
 
+    /// A call through a const `receiver` (a dependent instance of an
+    /// imported class template) whose every candidate in `members` is a
+    /// method with a non-const `self`: reported as SC063E with one
+    /// "is not const" note per candidate, true. False, reporting nothing,
+    /// when the object is not const or any candidate is const, static or
+    /// not a function: C++ then decides the call per instance.
+    priv fn _reject_const_dependent(self,
+                                    members:    unsafe *cxx::std::vector<unsafe *Decl>,
+                                    receiver:   unsafe *Type,
+                                    at:         SourceRange,
+                                    const name: string) -> bool {
+        if (canon_quals(receiver) & QUAL_CONST) == 0 {
+            return false
+        }
+
+        var cs: [Candidate]
+        for var i: usize = 0; i < members->size(); ++i {
+            var unsafe *f = dyn_cast<FunctionDecl>((*members)[i])
+            if f == &null {
+                return false
+            }
+
+            var has_self   = false
+            var const_self = false
+            for var j: usize = 0; j < f->params.size(); ++j {
+                if f->params[j] != &null && f->params[j]->is_self {
+                    has_self   = true
+                    const_self = f->params[j]->is_const
+                    break
+                }
+            }
+
+            if !has_self || const_self {
+                return false
+            }
+
+            var c = Candidate()
+            c.f = f
+            c.reject()
+            c.reason = f"'{self._callee_name(f)}' is not const; it cannot be called on a const object"
+            c.const_reject = true
+            cs.push(c)
+        }
+
+        if cs.size() == 0 {
+            return false
+        }
+
+        self._report_no_viable(unsafe &cs, at, name)
+        return true
+    }
+
+    /// The name a candidate's diagnostics spell: an operator's symbol
+    /// (`op +=`), since its name token is empty.
+    priv fn _callee_name(self, f: unsafe *FunctionDecl) -> string {
+        if f->is_operator {
+            return "op " + OperatorFacts::symbol(f)
+        }
+
+        return self.tu.decl_name(f)
+    }
+
     fn resolve_mixed(self,
                      members:      unsafe *cxx::std::vector<unsafe *Decl>,
                      margs:        unsafe *[ArgInfo],
@@ -886,6 +948,20 @@ pub class OverloadResolution {
         // ranks on it, _judge_receiver); everything downstream of the
         // result wants the type the call was made through, unqualified.
         out.receiver = canon_unqual(receiver)
+
+        // Whether the call resolves on a dependent C++ receiver is the
+        // instance's question (below), except through a const object when
+        // every candidate the primary template declares is a non-const
+        // method: refused at the definition, as on a concrete instance. The
+        // primary decides, as it does for member names (R025E); an explicit
+        // specialization that adds a const overload is not consulted.
+        if !defer
+            && has_receiver
+            && self._dependent_foreign_receiver(receiver, members)
+            && self._reject_const_dependent(members, receiver, at, name) {
+            out.outcome = OvlOutcome::NoViable
+            return out
+        }
 
         if !defer && (self._any_dependent(margs) || self._any_dependent(fargs)) {
             out.outcome = OvlOutcome::Dependent
@@ -2915,13 +2991,7 @@ pub class OverloadResolution {
         var oq = canon_quals(receiver)
         if (oq & ~sq) != 0 {
             c->reject()
-            // An operator has no name token to spell (TokenText::resolve
-            // asserts on its empty one): its symbol, `op +=`.
-            var nm = if (c->f->is_operator) => ("op " + OperatorFacts::symbol(
-                         c->f,
-                     ))
-                     else => self.tu.decl_name(c->f)
-            c->reason       = f"'{nm}' is not const; it cannot be called on a const object"
+            c->reason = f"'{self._callee_name(c->f)}' is not const; it cannot be called on a const object"
             c->const_reject = true
             return
         }
@@ -2940,10 +3010,7 @@ pub class OverloadResolution {
 
         var rvalue = self.recv_cat == Expr::ValueCategory::RValue
             || self.recv_cat == Expr::ValueCategory::XValue
-        var mname = if (c->f->is_operator) => ("op " + OperatorFacts::symbol(
-                        c->f,
-                    ))
-                    else => self.tu.decl_name(c->f)
+        var mname = self._callee_name(c->f)
         if rq == 1 && rvalue && (sq & QUAL_CONST) == 0 {
             c->reject()
             c->reason = f"'{mname}' is '&'-qualified; it cannot be called on a temporary"

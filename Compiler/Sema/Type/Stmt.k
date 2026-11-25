@@ -3581,12 +3581,14 @@ pub class <T: type> StmtTyping derives RecursiveASTVisitor<T> {
             d = cast<CXXLValueRefType>(d)->referee
         } else if isa<CXXRValueRefType>(d) {
             d = cast<CXXRValueRefType>(d)->referee
-        } else {
+        } else if n->cxx_deref->value_category != Expr::ValueCategory::LValue {
             // A prvalue element is copied into a loop temporary; that copy
             // is the binder's to point at, mutable.
             return false
         }
 
+        // A pointer iterator (a `const T*` from `begin() const`) derefs to
+        // an lvalue of its pointee, cv kept, with no reference around it.
         return self.dyn()->tu.has_const(d)
     }
 
