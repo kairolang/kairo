@@ -79,8 +79,16 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,    FieldDecl,  FnBodyKind,   FunctionDecl, LocalDtor, ParamDecl, ParamOwner,
-    StorageClass, StructDecl, VariableDecl,
+    ClassDecl,
+    FieldDecl,
+    FnBodyKind,
+    FunctionDecl,
+    LocalDtor,
+    ParamDecl,
+    ParamOwner,
+    StorageClass,
+    StructDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions
 import AST::Node::Types::{
@@ -325,6 +333,7 @@ pub fn disarm_storage_refusal(v: unsafe *VariableDecl) -> string {
 
     if v->borrows
         || v->borrow_inst
+        || v->snap_inst
         || v->place_ref
         || v->auto_copy
         || v->raw_slot

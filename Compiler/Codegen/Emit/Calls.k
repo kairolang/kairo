@@ -28,8 +28,14 @@ import AST::ASTSupport::FrozenList
 import AST::Context::InstantiationRegistry::InstanceEntry
 import AST::Context::SymbolTable::OverloadCell
 import AST::DeclFacts::{
-    decl_ffi_tag_keyword,  decl_is_imported,     decl_pattern,       fn_body_in_dependents,
-    fn_keeps_value_params, param_is_plain_value, param_is_type_pack, param_type_pack_param,
+    decl_ffi_tag_keyword,
+    decl_is_imported,
+    decl_pattern,
+    fn_body_in_dependents,
+    fn_keeps_value_params,
+    param_is_plain_value,
+    param_is_type_pack,
+    param_type_pack_param,
 }
 import AST::Kind::TypeKind::TypeKind
 import AST::LangItems::LowerTargets
@@ -51,11 +57,23 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    AbiKind,       ClassDecl,    FnBodyKind, FunctionDecl, InterfaceDecl, ParamDecl, ParamOwner,
-    TypeAliasDecl, VariableDecl,
+    AbiKind,
+    ClassDecl,
+    FnBodyKind,
+    FunctionDecl,
+    InterfaceDecl,
+    ParamDecl,
+    ParamOwner,
+    TypeAliasDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
-    CallExpr,          FinalizeKind, PackExpansionExpr, ParenExpr, SubscriptExpr, TypeCastExpr,
+    CallExpr,
+    FinalizeKind,
+    PackExpansionExpr,
+    ParenExpr,
+    SubscriptExpr,
+    TypeCastExpr,
     UnaryOperatorExpr,
 }
 import AST::Node::PrimaryExpressions::{
@@ -1700,6 +1718,7 @@ extend EmitIR {
                 && !v->is_thread
                 && !v->borrows
                 && !v->borrow_inst
+                && !v->snap_inst
                 && !v->place_ref
         }
 

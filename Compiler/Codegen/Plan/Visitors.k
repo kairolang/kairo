@@ -809,7 +809,7 @@ pub class CaptureWrites derives RecursiveASTVisitor<CaptureWrites> {
     fn visit_variable_decl(self, n: unsafe *VariableDecl) -> bool {
         // A local that is a reference to its initializer (a borrowing
         // binder, a bound place) reads nothing: writes can follow through it.
-        if !n->borrows && !n->borrow_inst && !n->place_ref {
+        if !n->borrows && !n->borrow_inst && !n->snap_inst && !n->place_ref {
             self._read(n->init)
         }
 

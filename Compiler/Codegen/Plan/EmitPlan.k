@@ -111,8 +111,15 @@ import AST::Node::Casting::{
 }
 import AST::Node::Declarations
 import AST::Node::Expressions::{
-    AlignOfExpr,   BinaryOperatorExpr, CallExpr,      ClosureExpr, ConstraintExpr, SizeOfExpr,
-    SubscriptExpr, TypeCastExpr,       TypeTraitExpr,
+    AlignOfExpr,
+    BinaryOperatorExpr,
+    CallExpr,
+    ClosureExpr,
+    ConstraintExpr,
+    SizeOfExpr,
+    SubscriptExpr,
+    TypeCastExpr,
+    TypeTraitExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -1112,7 +1119,8 @@ pub class EmitPlan derives RecursiveASTVisitor<EmitPlan> {
                     self.needs_raw_slot = true
                 }
 
-                if cast<Declarations::VariableDecl>(d)->borrow_inst {
+                if cast<Declarations::VariableDecl>(d)->borrow_inst
+                    || cast<Declarations::VariableDecl>(d)->snap_inst {
                     self.needs_instance_move = true
                 }
 

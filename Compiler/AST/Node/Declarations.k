@@ -1126,6 +1126,12 @@ pub class VariableDecl derives Decl, FFILinkage<VariableDecl> {
     /// declares it `auto`. For a type Kairo cannot spell where the copy is
     /// made (an enum nested in a generic pattern, a dependent type).
     pub var auto_copy: bool = false
+    /// A value of a generic parameter's type bound once (SequenceLowering):
+    /// a copy, the snapshot, at an instance that copies the type, and a
+    /// reference to const at one that cannot, where a snapshot would be a
+    /// copy the type does not have. EmitIR declares it through
+    /// LowerTargets::binder_type. Never written by the user.
+    pub var snap_inst: bool = false
     /// A hidden local that takes the header expression of a `for` loop,
     /// declared in the loop's own block (IterLowering): the temporaries of
     /// its initializer live until that block ends. SequenceLowering reads

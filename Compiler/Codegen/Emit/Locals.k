@@ -58,12 +58,27 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,    FieldDecl,  FnBodyKind,    FunctionDecl, LocalDtor, ParamDecl, ParamOwner,
-    StorageClass, StructDecl, TypeAliasDecl, VariableDecl,
+    ClassDecl,
+    FieldDecl,
+    FnBodyKind,
+    FunctionDecl,
+    LocalDtor,
+    ParamDecl,
+    ParamOwner,
+    StorageClass,
+    StructDecl,
+    TypeAliasDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
-    AssignOperatorExpr, CallExpr,     FinalizeKind, InitListExpr, REMAKE_DEAD, REMAKE_LIVE,
-    REMAKE_MAYBE,       TypeCastExpr,
+    AssignOperatorExpr,
+    CallExpr,
+    FinalizeKind,
+    InitListExpr,
+    REMAKE_DEAD,
+    REMAKE_LIVE,
+    REMAKE_MAYBE,
+    TypeCastExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -651,9 +666,10 @@ extend EmitIR {
             return
         }
 
-        // A binder whose mode its instance decides (VariableDecl::
-        // borrow_inst): a copy or a reference to const, per instance.
-        if n->borrow_inst && n->init != &null && n->type_ != &null {
+        // A binder or a bound value whose mode its instance decides
+        // (VariableDecl::borrow_inst, snap_inst): a copy or a reference to
+        // const, per instance.
+        if (n->borrow_inst || n->snap_inst) && n->init != &null && n->type_ != &null {
             self._cg->sink->spell(
                 n->name.range,
                 "::" + LowerTargets::binder_type() + "<" + self._spell._type(

@@ -30,7 +30,10 @@
 ///     never need binding, so almost every node is untouched. The receiver
 ///     of `x.m(...)` is operand zero for a member call, and argument zero for
 ///     an extension call after ExtensionLowering. A place is bound as
-///     `auto&&` (VariableDecl::place_ref), a value by value.
+///     `auto&&` (VariableDecl::place_ref), a value by value; a value of a
+///     type that cannot be copied is borrowed instead, and one of a generic
+///     parameter's type is a copy or a borrow per instance
+///     (VariableDecl::snap_inst).
 ///
 ///   \par Results
 ///     A record prvalue leaves the block by C++17's guaranteed elision (no
@@ -130,7 +133,10 @@ import AST::Visitor::ASTWriter::{
 }
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Codegen::CodegenICE::codegen_ice
-import Sema::Check::ClassLifecycle::moves_on_pass
+import Sema::Check::ClassLifecycle::{
+    cannot_copy,
+    moves_on_pass,
+}
 import Sema::Lower::LowerStep::LowerStep
 import Sema::Lower::LowerSynth::LowerSynth
 import Sema::SemaContext::{
@@ -1445,8 +1451,9 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
     /// it. A `place` (an assignment's target, a receiver, an array a
     /// subscript indexes, an `inout` argument) is bound by reference, so it
     /// is evaluated once and written through; a value is copied, which is
-    /// the snapshot a later effect must not change. A record value bound for
-    /// an argument or a field (`consumed`) is moved into it.
+    /// the snapshot a later effect must not change, unless its type cannot
+    /// be copied (then it is borrowed, here or per instance). A record
+    /// value bound for an argument or a field (`consumed`) is moved into it.
     priv fn _hoist(self,
                    e:        unsafe *Expr,
                    stmts:    unsafe *ListBuilder<unsafe *Stmt>,
@@ -1502,18 +1509,41 @@ pub class SequenceLowering derives ASTWriter<SequenceLowering> {
             return self.synth.use_of(nv, e->range, Expr::ValueCategory::LValue)
         }
 
-        // A value whose type cannot be copied (a MOVE record) is read where
-        // it is: the operand is a borrow (a `const` parameter, a receiver,
-        // an operator's operand), and a snapshot of it would be a copy the
-        // type does not have. A later operand that changes it is the
-        // program's aliasing, as it is through a reference parameter.
+        // A value of a generic parameter's type, read in place by a borrow
+        // (a `const` parameter, an operator's operand): its instance decides
+        // whether it can be copied, so the local is a snapshot where it can
+        // and a reference to const where it cannot, as a non-dependent MOVE
+        // value below is. An xvalue keeps its `auto` local and its cast.
+        if !place
+            && e->is_lvalue()
+            && !self._materialized(e)
+            && e->type_ != &null
+            && (e->type_->is_dependent() || e->type_->is_instantiation_dependent())
+            && !isa<CXXRValueRefType>(e->type_)
+            && !self._bitfield(e) {
+            var unsafe *sv = self.synth.local(e->range, "ord", e->type_, e)
+            sv->snap_inst = true
+            stmts->push(
+                unsafe (DeclStmt::create(self.ctx, e->range, unsafe (sv as unsafe *Decl)) as unsafe *Stmt),
+            )
+
+            return self.synth.use_of(sv, e->range, Expr::ValueCategory::LValue)
+        }
+
+        // A value whose type cannot be copied (a MOVE record, or one with no
+        // transfer at all, such as an imported class whose copy and move
+        // constructors are deleted) is read where it is: the operand is a
+        // borrow (a `const` parameter, a receiver, an operator's operand),
+        // and a snapshot of it would be a copy the type does not have. A
+        // later operand that changes it is the program's aliasing, as it is
+        // through a reference parameter.
         var borrow = !place
             && e->is_lvalue()
             && !self._materialized(e)
             && e->type_ != &null
             && !e->type_->is_dependent()
             && !e->type_->is_instantiation_dependent()
-            && moves_on_pass(self.sc, e->type_)
+            && (moves_on_pass(self.sc, e->type_) || cannot_copy(self.sc, e->type_))
         if (place || borrow)
             && e->is_lvalue()
             && !self._materialized(e)
