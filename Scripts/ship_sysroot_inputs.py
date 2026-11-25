@@ -555,7 +555,9 @@ cxx_abi      = "libcxxabi"
 sysname      = "Linux"
 os_dir       = "linux"
 static_only  = true
-resource_layout = "compiler-rt/lib/{triple}"
+# clang looks for crtbegin and the builtins only under lib/<its normalized triple>, which
+# carries the vendor (x86_64-unknown-linux-gnu for --target=x86_64-linux-gnu too).
+resource_layout = "compiler-rt/lib/{per_arch.rt_dir}"
 builtins_name   = "libclang_rt.builtins.a"
 
 [per_arch.triple]
@@ -577,6 +579,26 @@ mips64      = "mips64-linux-gnu"
 mips64el    = "mips64el-linux-gnu"
 loongarch64 = "loongarch64-linux-gnu"
 sparc64     = "sparc64-linux-gnu"
+
+[per_arch.rt_dir]                                 # compiler-rt/lib/<dir>: clang's normalized triple
+x86_64      = "x86_64-unknown-linux-gnu"
+i686        = "i686-unknown-linux-gnu"
+aarch64     = "aarch64-unknown-linux-gnu"
+armv7       = "armv7-unknown-linux-gnueabihf"
+riscv64     = "riscv64-unknown-linux-gnu"
+x32         = "x86_64-unknown-linux-gnux32"
+aarch64_be  = "aarch64_be-unknown-linux-gnu"
+riscv32     = "riscv32-unknown-linux-gnu"
+powerpc     = "powerpc-unknown-linux-gnu"
+powerpc64   = "powerpc64-unknown-linux-gnu"
+powerpc64le = "powerpc64le-unknown-linux-gnu"
+s390x       = "s390x-unknown-linux-gnu"
+mips        = "mips-unknown-linux-gnu"
+mipsel      = "mipsel-unknown-linux-gnu"
+mips64      = "mips64-unknown-linux-gnu"
+mips64el    = "mips64el-unknown-linux-gnu"
+loongarch64 = "loongarch64-unknown-linux-gnu"
+sparc64     = "sparc64-unknown-linux-gnu"
 
 [per_arch.multiarch]                              # Debian's multiarch dirs (glibc.sh:65): per-arch headers
 x86_64      = "x86_64-linux-gnu"
