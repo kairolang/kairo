@@ -127,10 +127,10 @@ pub class Command {
     /// Set when the tag flag is applied, cleared by the next input: still set
     /// at the end means a trailing -x that tagged nothing.
     priv var _tag_dirty: bool = false
-    /// A Bool flag that, when given, makes the required inputs optional: a
-    /// mode whose one positional is an optional path (`--init [dir]`).
-    /// "" = none.
-    priv var _waive_key: string
+    /// The Bool flags that, when given, make the required inputs optional: a
+    /// mode whose one positional is an optional path (`--init [dir]`), or a
+    /// query answered from the flags alone (`--print-target-info`).
+    priv var _waive_keys: [string]
 
 
     fn Command(self, argc: i32, argv: unsafe *(unsafe *c_char), diag: unsafe *DiagEngine) {
@@ -317,7 +317,7 @@ pub class Command {
     }
 
     fn inputs_optional_with(self, const key: string) {
-        self._waive_key = key.copy()
+        self._waive_keys.push(key.copy())
     }
 
     fn mark_unimplemented(self, const key: string) {
@@ -1302,7 +1302,13 @@ pub class Command {
             }
 
             if def->kind == FlagKind::PathList {
-                var waived = !self._waive_key.is_empty() && result.get_bool(self._waive_key)
+                var waived = false
+                for *k in self._waive_keys {
+                    if result.get_bool(*k) {
+                        waived = true
+                    }
+                }
+
                 if result.inputs.size() == 0 && !waived {
                     self._diag->report(
                         DiagCode(DiagID::U004E),

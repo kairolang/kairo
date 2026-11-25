@@ -497,6 +497,11 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         false,
     )
 
+    // Needs no input, and must parse as a compile would: a failed parse
+    // skips the target setup that resolves --mcpu native and the host CPU
+    // default, which the CPU line reports.
+    cmd->inputs_optional_with("print-target-info")
+
     cmd->define<FlagKind::Bool>(
         "print-pass-pipeline",
         "",
