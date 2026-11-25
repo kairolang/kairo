@@ -2021,6 +2021,25 @@ pub fn register_kairo_flags(cmd: unsafe *Command) {
         "raw flag passthrough to the linker (lld; repeatable)",
     )
 
+    // A second spelling of --ld-flags: the same key, so both fill one list
+    // and the words reach the linker in command-line order, whichever
+    // spelling each was given with.
+    cmd->define<FlagKind::StringList>(
+        "ld-flags",
+        "",
+        "linker-arg",
+        "pass one argument to the linker, after kairo's own (--linker-arg=--import-undefined; repeatable, in order)",
+    )
+
+    // The clang spelling (-Xlinker <arg>, as kcc translates it): the same key
+    // again, so it joins the one ordered list.
+    cmd->define<FlagKind::StringList>(
+        "ld-flags",
+        "",
+        "Xlinker",
+        "pass one argument to the linker (-Xlinker --import-undefined; repeatable, in order)",
+    )
+
     cmd->define<FlagKind::StringList>(
         "cxx-flags",
         "",
@@ -4007,13 +4026,6 @@ pub fn register_test_flags(cmd: *Command) {
         "",
         "Xcxx",
         "pass flag directly to C++ backend",
-    )
-
-    cmd->define<FlagKind::StringList>(
-        "xlinker",
-        "",
-        "Xlinker",
-        "pass flag directly to linker",
     )
 
     // misc
