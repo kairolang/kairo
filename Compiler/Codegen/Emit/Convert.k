@@ -1270,6 +1270,10 @@ extend EmitIR {
             return
         }
 
+        if kind == "static_cast" && self._int_to_bf16(n) {
+            return
+        }
+
         self._cast_to(n->target, n->operand, kind)
     }
 
@@ -1394,6 +1398,147 @@ extend EmitIR {
         }
 
         return true
+    }
+
+    /// An integer `as` bf16 rounds once, to nearest even. LLVM lowers an
+    /// integer-to-bfloat conversion through f32 wherever bfloat arithmetic is
+    /// not native, which rounds twice for an integer wider than f32's 24-bit
+    /// significand (2^30 + 2^22 + 1 becomes 2^30, not 2^30 + 2^23), and a
+    /// 128-bit source has no runtime routine at all: AArch64 instruction
+    /// selection aborts on it, as i686's does on a 64-bit one. So the cast is
+    /// a lambda that keeps the magnitude's top 24 bits with every bit below
+    /// them folded into the lowest (a sticky bit), converts that to f32, which
+    /// is exact, and rounds the f32 to bf16 once. 24 bits is bf16's 8 plus at
+    /// least 2, so the sticky bit breaks every tie the dropped bits would:
+    ///
+    ///     [](I x) noexcept -> __bf16 { U m = |x|; int s = W - clz(m) - 24;
+    ///         if (s > 0) m = (m >> s | (m & (2^s - 1)) != 0) << s;
+    ///         return static_cast<__bf16>(+-static_cast<float>(m)); }(e)
+    ///
+    /// Taken for a builtin integer source of 32 bits or more; a narrower one
+    /// is exact in f32 and keeps the plain conversion, as does an operand
+    /// typed only per instance. A nullable target (`x as bf16?`) converts to
+    /// its inner type first. True when the cast was spelled; false for any
+    /// other pair.
+    ///
+    /// ### Parameters
+    /// - `n`: an `as` whose kind is static_cast.
+    ///
+    /// ### Returns
+    /// Whether the cast was emitted here.
+    priv fn _int_to_bf16(self, n: unsafe *TypeCastExpr) -> bool {
+        if n->mode != CastMode::Default && n->mode != CastMode::Static {
+            return false
+        }
+
+        var unsafe *dst   = self._builtin_of(n->target)
+        var unsafe *inner = n->target
+        if dst == &null && n->target != &null && n->target->canonical != &null {
+            inner = self._nullable_inner(canon_unqual(n->target->canonical))
+            dst   = self._builtin_of(inner)
+        }
+
+        if dst == &null || dst->builtin != BuiltinKind::BF16 {
+            return false
+        }
+
+        var unsafe *st  = n->operand->type_
+        var unsafe *src = self._builtin_of(st)
+        if src == &null || !src->info()->is_integer() || src->size_bits < 32 {
+            return false
+        }
+
+        var bf   = self._spell._type(inner, &null)
+        var fl   = builtin_info(BuiltinKind::F32)->cxx.copy()
+        var x    = LowerTargets::fp_to_int_param()
+        var wrap = inner != n->target
+        if wrap {
+            self._cg->sink->spell(
+                n->operand->range,
+                "static_cast<" + self._spell._type(n->target, &null) + ">(",
+            )
+        }
+
+        // Every name the body declares is reserved, so no macro of an
+        // imported header can reach it.
+        var u    = self._spell.wrap_carrier(st)
+        var w    = f"{Speller::int_width(st)}"
+        var sgn  = src->info()->is_signed()
+        var body = ""
+        body.push_str(
+            u.copy() + " __kairo_bm = static_cast<" + u + ">(" + x + "); ",
+        )
+
+        if sgn {
+            body.push_str("bool __kairo_bn = " + x + " < 0; ")
+            body.push_str(
+                "if (__kairo_bn) { __kairo_bm = static_cast<" + u + ">(0) - __kairo_bm; } ",
+            )
+        }
+
+        body.push_str(
+            "int __kairo_bs = " + w + " - __builtin_clzg(__kairo_bm, " + w + ") - 24; ",
+        )
+
+        body.push_str(
+            "if (__kairo_bs > 0) { __kairo_bm = (__kairo_bm >> __kairo_bs | static_cast<" + u + ">(",
+        )
+
+        body.push_str(
+            "(__kairo_bm & ((static_cast<" + u + ">(1) << __kairo_bs) - static_cast<" + u + ">(1))) != 0))",
+        )
+
+        body.push_str(" << __kairo_bs; } ")
+        body.push_str(
+            fl.copy() + " __kairo_bf = static_cast<" + fl + ">(__kairo_bm); ",
+        )
+
+        if sgn {
+            body.push_str(
+                "return static_cast<" + bf + ">(__kairo_bn ? -__kairo_bf : __kairo_bf);",
+            )
+        } else {
+            body.push_str("return static_cast<" + bf + ">(__kairo_bf);")
+        }
+
+        self._spell_shifts(
+            n->operand,
+            "[](" + self._spell._type(
+                st,
+                &null,
+            ) + " " + x + ") noexcept -> " + bf + " { " + body + " }(",
+        )
+
+        self.emit(n->operand)
+        self._cg->sink->spell(n->operand->range, ")")
+        if wrap {
+            self._cg->sink->spell(n->operand->range, ")")
+        }
+
+        return true
+    }
+
+    /// spell() of `text` with each `<<` and `>>` in it one shift token:
+    /// spell() alone splits both in two, as a template's closing `>>`.
+    priv fn _spell_shifts(self, at: unsafe *Expr, const text: string) {
+        var n           = text.size()
+        var i:   usize  = 0
+        var seg: string = ""
+        while i < n {
+            var c = text.data()[i]
+            if (c == ('<' as u8) || c == ('>' as u8)) && i + 1 < n && text.data()[i + 1] == c {
+                self._cg->sink->spell(at->range, seg)
+                self._cg->sink->shift(at->range, c == ('<' as u8))
+                seg = ""
+                i += 2
+                continue
+            }
+
+            seg.push(c)
+            i += 1
+        }
+
+        self._cg->sink->spell(at->range, seg)
     }
 
     /// The builtin `t` is, through sugar and cv, or null.
