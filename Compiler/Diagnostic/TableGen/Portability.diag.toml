@@ -280,3 +280,30 @@ group = "target"
     read the log the message names. A failure that repeats with the same inputs is a toolchain
     bug: report it with that log.
     """
+
+[P011]
+brief = "target is not supported"
+group = "target"
+
+    [P011.E]
+    explain = """
+    # target is not supported
+
+    the triple is one LLVM knows, but Kairo code cannot be built for it. A Kairo program needs
+    a C library under its runtime and libc++, and `wasm32-unknown-unknown` (any WebAssembly triple
+    with no operating system) has none. A build that holds no Kairo code (C or C++ only, with
+    `kcc` or `kairo`) is not refused.
+
+    ```
+    kairo --target=wasm32-unknown-unknown main.k    # error
+    ```
+
+    ## how to fix
+
+    build for `wasm32-wasi`. Its module runs in a browser as well: give the instance the WASI
+    imports it uses (a browser page can supply small stubs for them), and export the functions
+    JavaScript calls with `@export("name")`.
+    """
+
+    [P011.N]
+    explain = "Names the target to use instead."

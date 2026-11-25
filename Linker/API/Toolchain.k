@@ -129,7 +129,7 @@ pub class Toolchain {
     pub var lib_dirs:      [string] ///< system library search order
     pub var crt_dir:       string
     pub var gcc_dir:       string
-    pub var toolchain_lib: string                   ///< libc++ outside the system dirs, or ""
+    pub var toolchain_lib: string   ///< libc++ outside the system dirs, or ""
     /// The host's dirs, searched AFTER lib_dirs: LIBRARY_PATH, then the
     /// system defaults (TargetOptions::host_lib_dirs). Kept apart from
     /// lib_dirs so crt and libc lookups (find_lib_file) never take the
@@ -258,7 +258,7 @@ pub class Toolchain {
                 msgs.push_back(
                     LinkDiag::make(
                         LinkSeverity::Fatal,
-                        "emscripten links through emcc, which owns its JS glue and system libraries; target wasm32-wasip1 or wasm32-unknown-unknown",
+                        "emscripten links through emcc, which owns its JS glue and system libraries; target wasm32-wasip1",
                     ),
                 )
 
@@ -481,7 +481,7 @@ pub class Toolchain {
 
     priv fn _layout_host(self, const spelled_arch: string) {
         var bases: [string]
-        var usr   = LinkText::join(self.sysroot.copy(), "usr")
+        var usr             = LinkText::join(self.sysroot.copy(), "usr")
         if LinkFS::is_dir(LinkText::join(usr.copy(), "lib"))
             || LinkFS::is_dir(LinkText::join(usr.copy(), "lib64")) {
             self.style = "root"
@@ -537,8 +537,8 @@ pub class Toolchain {
         self.style        = "prefix"
         self.pass_sysroot = false
 
-        var tris  = Toolchain::mingw_triples(spelled_arch, self.arch)
-        var usr   = LinkText::join(self.sysroot.copy(), "usr")
+        var tris            = Toolchain::mingw_triples(spelled_arch, self.arch)
+        var usr             = LinkText::join(self.sysroot.copy(), "usr")
         var bases: [string]
         for *tr in tris {
             bases.push(LinkText::join(self.sysroot.copy(), tr->copy()))
@@ -580,15 +580,11 @@ pub class Toolchain {
             LinkText::join(LinkText::join(self.sysroot.copy(), "lib"), "gcc"),
         )
 
-        groots.push(
-            LinkText::join(LinkText::join(usr.copy(), "lib"), "gcc"),
-        )
+        groots.push(LinkText::join(LinkText::join(usr.copy(), "lib"), "gcc"))
 
         var up = LinkFS::parent(self.sysroot)
         if !up.is_empty() {
-            groots.push(
-                LinkText::join(LinkText::join(up.copy(), "lib"), "gcc"),
-            )
+            groots.push(LinkText::join(LinkText::join(up.copy(), "lib"), "gcc"))
         }
 
         var best   = ""
@@ -887,9 +883,7 @@ pub class Toolchain {
     priv fn _rt_roots(self, t: *TargetOptions) -> [string] {
         var roots: [string]
         if !self.native_bundle.is_empty() {
-            roots.push(
-                LinkText::join(self.native_bundle.copy(), "compiler-rt"),
-            )
+            roots.push(LinkText::join(self.native_bundle.copy(), "compiler-rt"))
         }
 
         if self.has_manifest && !self.manifest.resource_dir.is_empty() {
@@ -1946,10 +1940,8 @@ pub class Toolchain {
     }
 
     /// Directory names distros put a GCC install under, most specific first.
-    static fn gcc_triples(const spelled: string,
-                          const a:       string,
-                          const env:     string) -> [string] {
-        var out: [string]
+    static fn gcc_triples(const spelled: string, const a: string, const env: string) -> [string] {
+        var out:   [string]
         var archs: [string]
         if a == "i386" {
             archs.push("i686")
@@ -2198,7 +2190,7 @@ pub class Toolchain {
         }
 
         var devs: [string]
-        var dd   = LinkText::strip_slash(LinkFS::env(EnvNames::developer_dir()))
+        var dd = LinkText::strip_slash(LinkFS::env(EnvNames::developer_dir()))
         if !dd.is_empty() {
             devs.push(dd.copy())
         }
@@ -2420,7 +2412,7 @@ pub class Toolchain {
 
     priv static fn _split(s: string, sep: u8) -> [string] {
         var out: [string]
-        var b:  usize = 0
+        var b:   usize    = 0
         for var i: usize = 0; i < s.size(); ++i {
             if s.data()[i] == sep {
                 out.push(LinkText::slice(s, b, i))

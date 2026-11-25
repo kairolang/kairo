@@ -39,6 +39,7 @@ import API::HostSystem::{
     HostSystem,
     PkgConfigError,
 }
+import API::LinkABI::LinkABI
 import API::SysrootManifest::SysrootManifest
 import API::Text::LinkText
 import API::Toolchain::Toolchain
@@ -71,6 +72,10 @@ import Diagnostic::PrettyConsumer::PrettyDiagConsumer
 import Diagnostic::Registry::DiagID
 import Driver::CompilerInstance::CompilerInstance
 import Driver::CompilerNative
+import Driver::InputKinds::{
+    InputClass,
+    classify_input,
+}
 import Interop::Clang::ClangBackend::ClangBackendConfig
 import Native::HostCPU::{
     host_cpu_features,
@@ -596,6 +601,55 @@ extend CompilerInstance {
         var ta = llvm::Triple(llvm::Triple::normalize(kairo::sref(name)))
         var tb = llvm::Triple(llvm::Triple::normalize(kairo::sref(triple)))
         return ta.getSubArch() == tb.getSubArch()
+    }
+
+    /// A command-line input is Kairo code: a `.k` file, or an object or
+    /// archive carrying the ABI note. Read off the invocation, so it can be
+    /// asked before the inputs are planned (_check_supported_target).
+    prot fn _inputs_name_kairo(self) -> bool {
+        var *inv = self.invocation()
+        for var i: usize = 0; i < inv->input_files.size(); ++i {
+            var k = classify_input(inv->input_files[i], inv->input_lang(i))
+            if k.cls == InputClass::Kairo {
+                return true
+            }
+
+            if k.cls == InputClass::LinkInput && LinkABI::carries_note(k.path) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// False, with P011E, when `has_kairo` (Kairo code is compiled or linked)
+    /// and the target is one no Kairo program can be built for: a
+    /// WebAssembly triple with no operating system (wasm32-unknown-unknown,
+    /// wasm32, wasm32-none, wasm64-unknown-unknown) has no C library, which
+    /// the runtime and libc++ are built on. A plain C or C++ build for it is
+    /// clang's and goes ahead. _apply_invocation asks with the command
+    /// line's inputs, before the sysroot search would warn first; execute
+    /// asks again once the inputs' `#include "x.k"`s are known.
+    prot fn _check_supported_target(self, has_kairo: bool) -> bool {
+        if !has_kairo {
+            return true
+        }
+
+        var t  = self._effective_triple()
+        var tt = llvm::Triple(llvm::Triple::normalize(kairo::sref(t)))
+        if !tt.isWasm() || tt.getOS() != llvm::Triple::UnknownOS {
+            return true
+        }
+
+        self._diag->report(
+            DiagID::P011E,
+            f"target '{t}' is not supported: a WebAssembly target with no operating system has no C library, which Kairo's runtime needs",
+        ).emit()
+        self._diag->report(
+            DiagID::P011N,
+            "build for --target=wasm32-wasi; its modules also run in a browser, given the WASI imports they use",
+        ).emit()
+        return false
     }
 
     /// Returns the effective target triple: --target if given, else the
@@ -1712,6 +1766,10 @@ extend CompilerInstance {
         // the cc1 and driver triples, the env macro, the link) sees one
         // canonical spelling.
         self._canonical_target()
+        if !self._check_supported_target(self._inputs_name_kairo()) {
+            self.invocation()->ok = false
+            return
+        }
 
         // Before _use_bundled_sysroot fills it: whether the user named the
         // root, which keeps a default build off the host's dirs.

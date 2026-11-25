@@ -1675,6 +1675,12 @@ pub class CompilerInstance {
         }
 
         self._discover_includes()
+        // A C++ input that includes a `.k` makes this Kairo code too.
+        if !self._check_supported_target(self._link_has_kairo()) {
+            result.aborted = true
+            return result
+        }
+
         if !self._claim_input_identities() {
             result.aborted = true
             return result
