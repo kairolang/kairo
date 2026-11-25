@@ -591,6 +591,10 @@ def otool_deps(f: Path) -> list[str]:
     own = otool_id(f)
     deps = []
     for line in run_out(["otool", "-L", str(f)]).splitlines()[1:]:
+        # A universal file lists each slice under an unindented "<path> (architecture X):" header; only the
+        # indented lines are dependencies.
+        if not line[:1].isspace():
+            continue
         dep = line.strip().split(" (compatibility")[0].strip()
         if dep and dep != own:
             deps.append(dep)
@@ -609,6 +613,10 @@ def resolve_macho(dep: str, f: Path) -> Path | None:
             r = r.replace("@loader_path", str(f.parent)).replace("@executable_path", str(f.parent))
             if (Path(r) / tail).is_file():
                 return Path(r) / tail
+        # The tools are linked with only @loader_path/../lib, which holds no LLVM dylib until this step copies
+        # it there: find it where the link did.
+        if (LLVM_BUILD / "lib" / tail).is_file():
+            return LLVM_BUILD / "lib" / tail
         return None
     if dep.startswith("@loader_path/"):
         c = f.parent / dep[len("@loader_path/"):]

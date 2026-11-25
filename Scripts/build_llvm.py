@@ -412,6 +412,10 @@ def otool_deps(f: Path) -> list[str]:
     own = otool_id(f)
     deps = []
     for line in capture(["otool", "-L", str(f)]).splitlines()[1:]:
+        # A universal file lists each slice under an unindented "<path> (architecture X):" header; only the
+        # indented lines are dependencies.
+        if not line[:1].isspace():
+            continue
         line = line.strip()
         if not line:
             continue
