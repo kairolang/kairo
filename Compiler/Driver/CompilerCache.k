@@ -716,7 +716,7 @@ extend CompilerInstance {
     /// removes the cached libraries beside `keep` that no link has
     /// used for 30 days, and what a crashed build left (a day old);
     /// then, past CACHE_LIBRARY_MAX_BYTES, the least recently used
-    /// others (cache_evict_to_cap).
+    /// others, a crashed build's trees included (cache_evict_to_cap).
     ///
     /// Every compiler rebuild and every option set leaves a library
     /// of its own, and nothing else removes them. Run when a library
@@ -763,14 +763,16 @@ extend CompilerInstance {
                 continue
             }
 
-            if !partial {
-                var bytes = LinkFS::tree_size(p)
-                kept.push(
-                    CacheEntryStat { path: p.copy(), at: last, bytes: bytes, tree: true },
-                )
+            // A leftover tree under the age bound counts inside the cap too:
+            // a `.copy-` tree is a whole library. A tree a live publish is
+            // still writing is minutes old, inside CACHE_RECENT_STORE_NS,
+            // which the cap never evicts.
+            var bytes = LinkFS::tree_size(p)
+            kept.push(
+                CacheEntryStat { path: p.copy(), at: last, bytes: bytes, tree: true },
+            )
 
-                total += bytes
-            }
+            total += bytes
         }
 
         cache_evict_to_cap(&kept, total, CACHE_LIBRARY_MAX_BYTES, now)
