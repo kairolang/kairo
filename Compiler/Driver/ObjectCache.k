@@ -196,7 +196,8 @@ pub class ObjectCache {
     fn ObjectCache(self) = default
 
     /// F for this backend and options, under `cache_dir`; false
-    /// (nothing is cached) without a cache dir or a ready backend.
+    /// (nothing is cached) without a cache dir or a ready backend, or for
+    /// an object format other than ELF, Mach-O and COFF.
     pub fn setup(self, be: unsafe *ClangBackend, const cache_dir: string) -> bool {
         self.on = false
         if cache_dir.is_empty() || be == &null || !be->ready() {
@@ -210,19 +211,24 @@ pub class ObjectCache {
             }
         }
 
-        self._f_lines = self._fingerprint(be, &args)
-        self.f_hash   = ObjectCache::hash(self._f_lines)
-        self.dir = cache_dir.copy() + "/" + cache_dir_name() + "/" + self.f_hash
-        if !LinkFS::make_dirs(self.dir.copy() + "/objects") {
-            return false
-        }
-
+        // The record needs a section every link leaves out (record_asm). A
+        // wasm custom section is copied into the linked module, so a format
+        // without such a section caches nothing.
         var norm = llvm::Triple::normalize(kairo::sref(be->triple()))
         var tt   = llvm::Triple(llvm::Twine(norm))
         if tt.isOSBinFormatMachO() {
             self._fmt = 1
         } else if tt.isOSBinFormatCOFF() {
             self._fmt = 2
+        } else if !tt.isOSBinFormatELF() {
+            return false
+        }
+
+        self._f_lines = self._fingerprint(be, &args)
+        self.f_hash   = ObjectCache::hash(self._f_lines)
+        self.dir = cache_dir.copy() + "/" + cache_dir_name() + "/" + self.f_hash
+        if !LinkFS::make_dirs(self.dir.copy() + "/objects") {
+            return false
         }
 
         self.on = true
