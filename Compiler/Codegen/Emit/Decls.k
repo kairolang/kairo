@@ -21,6 +21,7 @@ ffi "c++" import "Native/Shims.hh"
 ffi "c++" import "clang/Basic/TokenKinds.h"
 ffi "c++" import "vector"
 
+import AST::AttrFacts::AttrFacts
 import AST::Context::DeclContext::DeclContext
 import AST::DeclFacts::{
     decl_cxx_spelling,
@@ -55,9 +56,22 @@ import AST::Node::Casting::{
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl,     EnumDecl,     ExtensionDecl, FFIBlockDecl,        FieldDecl, FieldFold,
-    FnBodyKind,    FunctionDecl, InterfaceDecl, ModuleDecl,          SpecKind,  StructDecl,
-    TypeAliasDecl, UnionDecl,    VariableDecl,  VisibilityGroupDecl,
+    ClassDecl,
+    EnumDecl,
+    ExtensionDecl,
+    FFIBlockDecl,
+    FieldDecl,
+    FieldFold,
+    FnBodyKind,
+    FunctionDecl,
+    InterfaceDecl,
+    ModuleDecl,
+    SpecKind,
+    StructDecl,
+    TypeAliasDecl,
+    UnionDecl,
+    VariableDecl,
+    VisibilityGroupDecl,
 }
 import AST::Node::Statements::CompoundStmt
 import Codegen::Emit::Ctors
@@ -391,6 +405,20 @@ extend EmitIR {
             self._cc_mark(n)
         }
 
+        // `@export`: an `ffi "c"` function exported under its own name is
+        // that symbol already, so the attributes go on it; any other gets a
+        // forwarding definition after it (_export_def).
+        // Only in the function's own TU: an `inline` body is written into
+        // every TU that imports it, and the C symbol must be defined once.
+        var own = Speller::tu_of(unsafe (n as unsafe *Decl)) == self._cg->tu
+        var xname = if (ext == &null && !is_main && own) => (AttrFacts::export_name(n)) else => ""
+        var x_self = !xname.is_empty()
+            && Speller::c_linkage(n).size() > 0
+            && xname == self._spell.leaf(n)
+        if x_self {
+            head += LowerTargets::attr_export(xname, self._cg->opts.wasm)
+        }
+
         // `inline` puts the body in the interface (EmitPlan::visible_bodies):
         // every TU that declares it defines it, its own TU included, with the
         // same text, and the linker keeps one. A template is C++ `inline`
@@ -424,6 +452,52 @@ extend EmitIR {
         self._body(n, ext)
         self._push_twin_free(n, ext, at)
         self._close_ns(n->range, wrap)
+        if !xname.is_empty() && !x_self {
+            self._export_def(n, xname, at)
+        }
+    }
+
+    /// The C function `@export(xname)` asks for: `extern "C"`, so its
+    /// symbol is `xname` unmangled (with the target's C prefix, where it has
+    /// one), forwarding to `n` by its qualified name. Outside `n`'s
+    /// namespaces: in an unnamed one the definition would have internal
+    /// linkage. AttributeCheck admits only C parameter and return types,
+    /// passed by value, so the parameters forward as they are.
+    priv fn _export_def(self, n: unsafe *FunctionDecl, const xname: string, at: SourceRange) {
+        var ns   = self._spell.ns_segments(unsafe (n as unsafe *Decl))
+        var qual = "::"
+        if ns.size() > 0 {
+            qual += self._spell.ns_join(&ns) + "::"
+        }
+
+        qual += self._spell.leaf(n)
+        var args  = ""
+        var first = true
+        for var i: usize = 0; i < n->params.size(); ++i {
+            var unsafe *p = n->params[i]
+            if p == &null || p->is_self {
+                continue
+            }
+
+            if !first {
+                args += ", "
+            }
+
+            first = false
+            args += self._spell.tok_name(
+                p->name,
+                Speller::fid_of(unsafe (n as unsafe *Decl)),
+            )
+        }
+
+        var s = "namespace " + LowerTargets::export_ns() + " { extern \"C\" "
+        s += LowerTargets::attr_export(xname, self._cg->opts.wasm)
+        s += self._spell.declared_return(n) + " " + xname + "("
+        // No `noexcept`: a C declaration of the same function (an `ffi "c"`
+        // one, a header's) has none, and the two must agree.
+        s += self._params_text(n, &null) + ") { return " + qual + "(" + args + "); } }"
+        self._cg->sink->spell(at, s)
+        self._cg->sink->brk()
     }
 
     /// `RET Owner::name(params) [const|noexcept] { body }`, inside the owner's wrapper.

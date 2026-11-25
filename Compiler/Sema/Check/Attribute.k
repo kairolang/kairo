@@ -44,6 +44,13 @@
 ///       - `@set_scoped_allocator(A)`: a function, a block, a class or
 ///         struct, or an `extend` (to be told it cannot); the rules are
 ///         ScopedAllocatorCheck's. Anywhere else, misplaced.
+///       - `@export(name)`: a free function defined here, not generic, eval
+///         or async, that cannot panic, whose parameters are passed by value
+///         and whose parameter and return types are C types (_c_type);
+///         `name` is one string literal that is a C identifier. After the
+///         walk, two exports of one name, or an export that takes the name
+///         of an `ffi "c"` function defined in the same file, are SC370E
+///         (_check_export_clashes): both would define the one C symbol.
 ///       - `@unreachable`: reserved, SC116E.
 ///       - a user attribute macro (`macro @name(...)`): SC116E -- macro
 ///         expansion (Sema::_stage_expand) is not implemented, so the
@@ -68,8 +75,16 @@
 ffi "c++" import "vector"
 
 import AST::AttrFacts::AttrFacts
-import AST::DeclFacts::decl_pattern
-import AST::LangItems::LangAttrs
+import AST::Context::DeclContext::DeclContext
+import AST::DeclFacts::{
+    decl_extension_of,
+    decl_generic_params,
+    decl_pattern,
+}
+import AST::LangItems::{
+    LangAttrs,
+    entry_point_name,
+}
 import AST::Mixin::Annotation::{
     AnnotationEntry,
     AnnotationKind,
@@ -80,13 +95,26 @@ import AST::Node::Base::{
     Stmt,
     Type,
 }
+import AST::Node::CanonicalNodes::{
+    BuiltinKind,
+    BuiltinType,
+    RecordType,
+    canon_unqual,
+}
 import AST::Node::Casting::{
     cast,
     dyn_cast,
     isa,
 }
 import AST::Node::Declarations::{
-    ClassDecl, FieldDecl, FunctionDecl, ProcedureMacroDecl, StructDecl, UnionDecl, VariableDecl,
+    ClassDecl,
+    EnumDecl,
+    FieldDecl,
+    FunctionDecl,
+    ProcedureMacroDecl,
+    StructDecl,
+    UnionDecl,
+    VariableDecl,
 }
 import AST::Node::Expressions::{
     AssignOperatorExpr,
@@ -106,7 +134,15 @@ import AST::Node::Statements::{
     CompoundStmt,
     ConditionalStmt,
 }
-import AST::Node::Types::ChainType
+import AST::Node::Types::{
+    ChainType,
+    FunctionPointerType,
+    PointerType,
+}
+import AST::ParamMode::{
+    ParamMode,
+    param_mode_name,
+}
 import AST::Visitor::RecursiveASTVisitor::RecursiveASTVisitor
 import Diagnostic::Code::{
     DiagCode,
@@ -141,6 +177,14 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     /// The uses already reported (a type segment's name may be reached
     /// twice): one warning per location.
     priv var _seen: [SourceLocation]
+    /// Every valid `@export` of the TU, in walk order: the name, the
+    /// attribute and the function (_check_export_clashes).
+    priv var _exp_names: [string]
+    priv var _exp_at:    [SourceRange]
+    priv var _exp_fns:   [unsafe *FunctionDecl]
+    /// Every `ffi "c"` function the TU defines: its C symbol is its name.
+    priv var _cfn_names: [string]
+    priv var _cfn_fns:   [unsafe *FunctionDecl]
 
     fn AttributeCheck(self, sc: unsafe *SemaContext) {
         self.sc  = sc
@@ -155,6 +199,7 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     fn run(self) {
         self._mode = 1
         self._walk()
+        self._check_export_clashes()
     }
 
     fn run_uses(self) {
@@ -542,6 +587,396 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
         )
     }
 
+    /// # @export
+
+    /// A function at file scope that is neither a method nor an extension
+    /// member: the forwarding definition codegen writes for an export sits
+    /// outside every namespace and names the function through its module's,
+    /// which reaches such a function whatever its visibility.
+    priv fn _is_free_fn(self, f: unsafe *FunctionDecl) -> bool {
+        var unsafe *d = unsafe (f as unsafe *Decl)
+        if f->is_method() || decl_extension_of(d) != &null {
+            return false
+        }
+
+        var unsafe *dc = d->semantic_dc
+        return dc != &null && dc->is_translation_unit()
+    }
+
+    /// `t` crosses a C call as itself: `bool`, an integer of at most 64
+    /// bits, `f32` or `f64`, a pointer, a raw function pointer, or a plain
+    /// enum (its underlying integer). `ret` admits no type, `void` and `!`
+    /// too. Anything else is a C++ class or a type C spells differently.
+    priv fn _c_type(self, t: unsafe *Type, ret: bool) -> bool {
+        if t == &null {
+            return ret
+        }
+
+        var unsafe *c = canon_unqual(
+            if (t->canonical != &null) => (t->canonical) else => t,
+        )
+
+        if c == &null {
+            return false
+        }
+
+        var unsafe *b = dyn_cast<BuiltinType>(c)
+        if b != &null {
+            if b->builtin == BuiltinKind::Void || b->builtin == BuiltinKind::Never {
+                return ret
+            }
+
+            if b->builtin == BuiltinKind::Bool {
+                return true
+            }
+
+            var *info = b->info()
+            if info->is_integer() {
+                return info->bits <= 64
+            }
+
+            if info->is_float() {
+                return info->bits == 32 || info->bits == 64
+            }
+
+            return false
+        }
+
+        if isa<PointerType>(c) {
+            return true
+        }
+
+        var unsafe *fp = dyn_cast<FunctionPointerType>(c)
+        if fp != &null {
+            return fp->is_raw
+        }
+
+        var unsafe *rt = dyn_cast<RecordType>(c)
+        if rt != &null && rt->decl != &null && rt->args.size() == 0 {
+            var unsafe *ed = dyn_cast<EnumDecl>(rt->decl)
+            return ed != &null && !ed->is_adt
+        }
+
+        return false
+    }
+
+    /// `s` with every character a C identifier cannot hold replaced by `_`,
+    /// and a `_` before a leading digit: the fix-it's suggestion.
+    priv fn _c_ident_of(self, const s: string) -> string {
+        var out = ""
+        for var i: usize = 0; i < s.size(); ++i {
+            var c = s.data()[i]
+            var alpha = c >= ('a' as u8) && c <= ('z' as u8)
+                || c >= ('A' as u8) && c <= ('Z' as u8)
+                || c == ('_' as u8)
+            var digit = c >= ('0' as u8) && c <= ('9' as u8)
+            if i == 0 && digit {
+                out.push('_' as u8)
+            }
+
+            if alpha || digit {
+                out.push(c)
+            } else {
+                out.push('_' as u8)
+            }
+        }
+
+        return out
+    }
+
+    /// SC369E at `at`, with a note at the attribute.
+    priv fn _not_exportable(self, e: unsafe *AnnotationEntry, at: SourceRange, const msg: string) {
+        var b = self.sc->diag->report(DiagID::SC369E, at.start, msg.copy())
+        b.first(at)
+        b.note(
+            e->range.start,
+            LangAttrs::quoted(LangAttrs::export_fn()) + " is written here",
+        )
+
+        b.emit()
+    }
+
+    priv fn _check_export(self, d: unsafe *Decl, e: unsafe *AnnotationEntry) {
+        var        nm = LangAttrs::export_fn()
+        var unsafe *f = dyn_cast<FunctionDecl>(d)
+        if f == &null || !self._is_free_fn(f) {
+            self._misplaced(
+                e,
+                nm,
+                "applies only to a free function; to export a method, export a free function that calls it",
+                d->range,
+                "declaration",
+            )
+
+            return
+        }
+
+        if !f->has_body() {
+            self._misplaced(
+                e,
+                nm,
+                "applies only to a function defined here, with a body",
+                d->range,
+                "declaration",
+            )
+
+            return
+        }
+
+        var fname = self._tu.decl_name(d)
+        if fname == entry_point_name() {
+            self._misplaced(
+                e,
+                nm,
+                "does not apply to the program's entry point",
+                d->range,
+                "declaration",
+            )
+
+            return
+        }
+
+        // The name: one plain string literal that is a C identifier.
+        var at                            = e->range
+        var sl: unsafe *StringLiteralExpr = &null
+        if e->args.size() >= 1 && self._arg(e, 0) != &null {
+            var unsafe *a0 = self._arg(e, 0)
+            at = a0->range
+            if isa<StringLiteralExpr>(a0) {
+                sl = cast<StringLiteralExpr>(a0)
+            }
+        }
+
+        if e->args.size() != 1 || sl == &null || sl->is_format() || sl->is_bytes() {
+            self._bad_arg(
+                e,
+                at,
+                LangAttrs::quoted(nm) + " takes one string literal, the C name: '" + LangAttrs::at(
+                    nm,
+                ) + "(\"render\")'",
+            )
+
+            return
+        }
+
+        var cname = AttrFacts::string_text(sl)
+        if !AttrFacts::is_c_ident(cname) {
+            var b = self.sc->diag->report(
+                DiagID::SC144E,
+                at.start,
+                "'" + cname + "' is not a C identifier; " + LangAttrs::quoted(
+                    nm,
+                ) + " needs letters, digits and '_', not starting with a digit",
+            )
+
+            b.first(at)
+            var fixed = self._c_ident_of(cname)
+            if fixed.size() > 0 {
+                b.fix(at, "\"" + fixed + "\"", "use '" + fixed + "'")
+            }
+
+            b.emit()
+            return
+        }
+
+        if cname.starts_with("__kairo_") {
+            self._bad_arg(
+                e,
+                at,
+                "'" + cname + "' begins with '__kairo_', which is reserved for the compiler",
+            )
+
+            return
+        }
+
+        // The signature: one C function, with C types.
+        var ok  = true
+        var who = "'" + fname + "'"
+        var gps = decl_generic_params(d)
+        if gps.size() > 0 {
+            var unsafe *gp = gps[0]
+            var b = self.sc->diag->report(
+                DiagID::SC369E,
+                e->range.start,
+                "generic function " + who + " cannot be exported: a C name names one function, and a generic function is one per instance",
+            )
+
+            b.first(e->range)
+            b.note(gp->range.start, "the generic parameters are here")->child_first(
+                gp->range,
+            )
+
+            b.note(
+                "export a function that is not generic and calls the instance it needs",
+            )
+
+            b.emit()
+            return
+        }
+
+        if f->is_eval() {
+            self._not_exportable(
+                e,
+                f->name.range,
+                "eval function " + who + " cannot be exported: it has no code at run time",
+            )
+
+            ok = false
+        }
+
+        if f->is_async() {
+            self._not_exportable(
+                e,
+                f->name.range,
+                "async function " + who + " cannot be exported: it returns a task, which C cannot receive",
+            )
+
+            ok = false
+        }
+
+        if f->panic_set.size() > 0 {
+            var pat = if (f->panic_range.is_valid()) => (f->panic_range) else => d->range
+            self._not_exportable(
+                e,
+                pat,
+                who.copy() + " can panic, so it cannot be exported: its result carries the panic, which C cannot read",
+            )
+
+            ok = false
+        }
+
+        for var i: usize = 0; i < f->params.size(); ++i {
+            var unsafe *p = f->params[i]
+            if p == &null || p->is_self {
+                continue
+            }
+
+            var pname = self._tu.decl_name(unsafe (p as unsafe *Decl))
+            if p->is_pack {
+                self._not_exportable(
+                    e,
+                    p->range,
+                    "parameter '" + pname + "' of " + who + " is variadic, which a C function exported this way cannot take",
+                )
+
+                ok = false
+                continue
+            }
+
+            if p->mode != ParamMode::Value {
+                self._not_exportable(
+                    e,
+                    p->range,
+                    "parameter '" + pname + "' of " + who + " is passed " + param_mode_name(
+                        p->mode,
+                    ) + ", as a C++ reference, which C has no type for; take a pointer instead",
+                )
+
+                ok = false
+                continue
+            }
+
+            if !self._c_type(p->type_, false) {
+                var pt = if (p->type_ != &null && p->type_->range.is_valid()) => (p->type_->range)
+                         else => p->range
+                self._not_exportable(
+                    e,
+                    pt,
+                    "parameter '" + pname + "' of " + who + " has type '" + self._tu.str(
+                        p->type_,
+                    ) + "', which is not a C type",
+                )
+
+                ok = false
+            }
+        }
+
+        if !self._c_type(f->return_type, true) {
+            var rt = if (f->return_type != &null
+                         && f->return_type->range.is_valid()) => (f->return_type->range)
+                     else => d->range
+            self._not_exportable(
+                e,
+                rt,
+                who.copy() + " returns '" + self._tu.str(
+                    f->return_type,
+                ) + "', which is not a C type",
+            )
+
+            ok = false
+        }
+
+        if !ok {
+            return
+        }
+
+        for var i: usize = 0; i < self._exp_fns.size(); ++i {
+            if self._exp_fns[i] == f {
+                // A second `@export` on one function: it would have two C names.
+                self._bad_arg(
+                    e,
+                    e->range,
+                    who.copy() + " is already exported; a function has one " + LangAttrs::quoted(
+                        nm,
+                    ),
+                )
+
+                return
+            }
+        }
+
+        self._exp_names.push(cname.copy())
+        self._exp_at.push(e->range)
+        self._exp_fns.push(f)
+    }
+
+    /// Two exports of one name, or an export named like an `ffi "c"`
+    /// function this file defines (other than the exported function itself,
+    /// which then keeps its one symbol): each pair defines one C symbol twice.
+    priv fn _check_export_clashes(self) {
+        for var i: usize = 0; i < self._exp_names.size(); ++i {
+            var clash: unsafe *Decl = &null
+            var first               = SourceRange::invalid()
+            for var j: usize = 0; j < i; ++j {
+                if self._exp_names[j] == self._exp_names[i] {
+                    clash = unsafe (self._exp_fns[j] as unsafe *Decl)
+                    first = self._exp_at[j]
+                    break
+                }
+            }
+
+            if clash == &null {
+                for var j: usize = 0; j < self._cfn_names.size(); ++j {
+                    if self._cfn_names[j] == self._exp_names[i]
+                        && self._cfn_fns[j] != self._exp_fns[i] {
+                        clash = unsafe (self._cfn_fns[j] as unsafe *Decl)
+                        first = clash->range
+                        break
+                    }
+                }
+            }
+
+            if clash == &null {
+                continue
+            }
+
+            var b = self.sc->diag->report(
+                DiagID::SC370E,
+                self._exp_at[i].start,
+                "'" + self._exp_names[i] + "' is already the C name of '" + self._tu.decl_name(
+                    clash,
+                ) + "'; two functions cannot define one C symbol",
+            )
+
+            b.first(self._exp_at[i])
+            b.note(first.start, "'" + self._exp_names[i] + "' is defined here")->child_first(
+                first,
+            )
+
+            b.emit()
+        }
+    }
+
     /// # positions
 
     priv fn _is_record(self, d: unsafe *Decl) -> bool {
@@ -715,6 +1150,11 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
             return
         }
 
+        if nm == LangAttrs::export_fn() {
+            self._check_export(d, e)
+            return
+        }
+
         // A known name this pass has no rule for: its owner decides.
     }
 
@@ -785,7 +1225,20 @@ pub class AttributeCheck derives RecursiveASTVisitor<AttributeCheck> {
     /// # the walk
 
     fn visit_decl(self, n: unsafe *Decl) -> bool {
-        if n == &null || !n->has_attribute() || self._mode == 2 {
+        if n == &null || self._mode == 2 {
+            return true
+        }
+
+        // The C symbols this file defines, for _check_export_clashes.
+        if self._mode == 1 {
+            var unsafe *cf = dyn_cast<FunctionDecl>(n)
+            if cf != &null && cf->is_ffi_c() && cf->has_body() {
+                self._cfn_names.push(self._tu.decl_name(n))
+                self._cfn_fns.push(cf)
+            }
+        }
+
+        if !n->has_attribute() {
             return true
         }
 

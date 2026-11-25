@@ -24,6 +24,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import AST::Context::ASTContext::ASTContext
 import AST::Context::DeclContext::{
     DeclContext,
     DeclContextKind,
@@ -51,7 +52,11 @@ import AST::Node::Casting::{
     dyn_cast,
     isa,
 }
-import AST::Node::PrimaryExpressions::IntegerLiteralExpr
+import AST::Node::Declarations::FunctionDecl
+import AST::Node::PrimaryExpressions::{
+    IntegerLiteralExpr,
+    StringLiteralExpr,
+}
 import Lexer::Immediate::ImmediateTable
 
 /// The largest `@align(N)`: clang's limit for an ELF object (2^28).
@@ -122,6 +127,93 @@ pub class AttrFacts {
         }
 
         return v
+    }
+
+    /// The text of string literal `sl`: its decoded value, else its
+    /// spelling less the quotes.
+    pub static fn string_text(sl: unsafe *StringLiteralExpr) -> string {
+        if sl == &null {
+            return ""
+        }
+
+        if sl->imm != &null && sl->imm->has_owned_text() {
+            return string::from_bytes_unchecked(
+                unsafe ((sl->imm->owned_ptr as unsafe *const u8) as *const u8),
+                sl->imm->owned_len as usize,
+            )
+        }
+
+        if sl->ctx == &null {
+            return ""
+        }
+
+        var sp = sl->ctx->get_spelling(sl->token)
+        var n  = sp.size()
+        if n >= 2 && sp.data()[0] == ('"' as u8) && sp.data()[n - 1] == ('"' as u8) {
+            var t: string = sp.subslice(1, n - 2)
+            return t
+        }
+
+        return sp
+    }
+
+    /// `s` is a C identifier: `[A-Za-z_][A-Za-z0-9_]*`. The name an
+    /// `@export` gives must be one, or no C caller could write it.
+    pub static fn is_c_ident(const s: string) -> bool {
+        if s.size() == 0 {
+            return false
+        }
+
+        for var i: usize = 0; i < s.size(); ++i {
+            var c = s.data()[i]
+            var alpha = c >= ('a' as u8) && c <= ('z' as u8)
+                || c >= ('A' as u8) && c <= ('Z' as u8)
+                || c == ('_' as u8)
+            var digit = c >= ('0' as u8) && c <= ('9' as u8)
+            if !alpha && (i == 0 || !digit) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// The name of one `@export(name)`: a single plain string literal that
+    /// is a C identifier; "" for anything else (AttributeCheck reports it).
+    pub static fn export_value(e: unsafe *AnnotationEntry) -> string {
+        if e == &null || e->args.size() != 1 {
+            return ""
+        }
+
+        var unsafe *a = e->args[0]
+        if a == &null || !isa<StringLiteralExpr>(a) {
+            return ""
+        }
+
+        var unsafe *sl = cast<StringLiteralExpr>(a)
+        if sl->is_format() || sl->is_bytes() {
+            return ""
+        }
+
+        var t = AttrFacts::string_text(sl)
+        if !AttrFacts::is_c_ident(t) {
+            return ""
+        }
+
+        return t
+    }
+
+    /// The C name `@export` gives function `f`, or "" when it has none (or
+    /// an invalid one). Read from the definition's own annotations: the
+    /// attribute stands on a definition (AttributeCheck).
+    pub static fn export_name(f: unsafe *FunctionDecl) -> string {
+        if f == &null {
+            return ""
+        }
+
+        return AttrFacts::export_value(
+            AttrFacts::find(unsafe (f as unsafe *Decl), LangAttrs::export_fn()),
+        )
     }
 
     /// `@packed` on `d` (a record).

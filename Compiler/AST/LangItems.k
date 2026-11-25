@@ -1368,6 +1368,14 @@ pub class LangAttrs {
         return "unreachable"
     }
 
+    /// `@export("name")` on a free function: the function is also defined
+    /// as the C symbol `name` (and, on wasm, exported from the module under
+    /// it). AttrFacts::export_name reads it; AttributeCheck says where it may
+    /// stand.
+    pub static fn export_fn() -> string {
+        return "export"
+    }
+
     /// Every attribute name above, one per index, then "" past the last.
     /// AttributeCheck's known-name test and its did-you-mean read this, so
     /// an attribute is not "unknown" once its row is listed HERE: a new row
@@ -1444,6 +1452,8 @@ pub class LangAttrs {
                 return LangAttrs::set_scoped_allocator()
             } case 34 {
                 return LangAttrs::try_resize_in_place()
+            } case 35 {
+                return LangAttrs::export_fn()
             } default {
                 return ""
             }
@@ -1514,6 +1524,10 @@ pub class LangAttrs {
 
         if word == LangAttrs::set_scoped_allocator() {
             return "set_scoped_allocator(A)"
+        }
+
+        if word == LangAttrs::export_fn() {
+            return "export(name)"
         }
 
         return word.copy()
@@ -1637,6 +1651,10 @@ pub class LangAttrs {
         }
 
         if word == LangAttrs::no_inline() {
+            return "fn"
+        }
+
+        if word == LangAttrs::export_fn() {
             return "fn"
         }
 
@@ -1784,6 +1802,10 @@ pub class LangAttrs {
 
         if word == LangAttrs::no_inline() {
             return "Never inline the function"
+        }
+
+        if word == LangAttrs::export_fn() {
+            return "Also define the function as the unmangled C symbol `name`; on wasm, export it from the module under that name"
         }
 
         return ""
@@ -4196,6 +4218,27 @@ pub class LowerTargets {
 
     pub static fn attr_noinline() -> string {
         return "__attribute__((noinline)) "
+    }
+
+    /// The namespace an `@export` definition sits in. Not the global one:
+    /// there the C name would collide with a module namespace of the same
+    /// name (`render` exported from render.k). An `extern "C"` function
+    /// keeps its plain symbol in any named namespace.
+    pub static fn export_ns() -> string {
+        return "__kairo_export"
+    }
+
+    /// The attributes of an `@export` definition, with a trailing space:
+    /// `used` keeps it in an object nothing calls, default visibility makes
+    /// it visible outside a shared object, and on wasm `export_name` puts it
+    /// in the module's exports.
+    pub static fn attr_export(const name: string, wasm: bool) -> string {
+        var s = "__attribute__((used, visibility(\"default\")"
+        if wasm {
+            s += ", export_name(\"" + name + "\")"
+        }
+
+        return s + ")) "
     }
 
     pub static fn attr_pure() -> string {

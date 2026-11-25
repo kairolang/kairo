@@ -68,6 +68,9 @@ pub class EmitOptions {
     /// The target's objects are ELF, the one format whose TLS models the
     /// tls_model attribute picks between.
     pub var elf: bool = false
+    /// The target's objects are wasm: an `@export` function is also
+    /// exported from the module (LowerTargets::attr_export).
+    pub var wasm: bool = false
     /// --tls-model, "" when not given (Speller::tls_model picks per global).
     pub var tls_model: string = ""
     /// The target is x32 (x86_64 gnux32 / muslx32). lld relaxes an
@@ -136,6 +139,7 @@ pub class CodegenContext {
             self.opts.target_triple = ctx->ci->target.effective_triple.copy()
             self.opts.exe_link      = !ctx->ci->linker.shared && !ctx->ci->linker.compile_only
             self.opts.elf           = ctx->ci->target.object_format_kind == ObjectFormat::Elf
+            self.opts.wasm          = ctx->ci->target.object_format_kind == ObjectFormat::Wasm
             self.opts.tls_model     = ctx->ci->codegen.tls_model.copy()
             self.opts.check_assume  = ctx->ci->codegen.opt_level == 0
             self.opts.freestanding  = ctx->ci->lang.freestanding

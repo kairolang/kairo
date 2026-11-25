@@ -7386,3 +7386,67 @@ group = "allocation"
 
     [SC367.N]
     explain = "Points at the 'yield', or at the attribute that opens the scope."
+
+[SC369]
+brief = "function cannot be exported with a C name"
+group = "attributes"
+
+    [SC369.E]
+    explain = """
+    # function cannot be exported with a C name
+
+    `@export("name")` defines the function a second time as the C function `name`, which a C
+    caller, or a WebAssembly host, calls by that name. A C function has one symbol, takes its
+    arguments by value, and has types C can spell, so the exported function must be the same:
+
+    - not generic (a generic function is one function per instance), `eval` (it has no code at
+      run time), `async` (it returns a task), or able to panic (its result carries the panic);
+    - every parameter passed by value: `@inout` and `@move` are references, and a variadic
+      parameter is a slice;
+    - every parameter and the result of a C type: `bool`, an integer of at most 64 bits, `f32`,
+      `f64`, a pointer, an `unsafe fn` pointer or a plain enum. A string, a slice, a nullable, a
+      tuple, a class, a struct or a closure is not one.
+
+    ```kairo
+    @export("greet")
+    fn greet(name: string) -> i32 { ... }      // error: 'string' is not a C type
+    ```
+
+    ## how to fix
+
+    export a function whose signature is C's, and convert inside it: take a pointer and a length
+    instead of a string or a slice, an out-pointer instead of an `@inout` parameter, and call the
+    generic instance you need from a function that is not generic.
+    """
+
+    [SC369.N]
+    explain = "Points at the '@export' attribute."
+
+[SC370]
+brief = "two functions define one C symbol"
+group = "attributes"
+
+    [SC370.E]
+    explain = """
+    # two functions define one C symbol
+
+    a C symbol names one function in the whole program. Two `@export` attributes with the same
+    name, or an `@export` named like an `ffi "c"` function the same file defines, would define
+    that symbol twice. The same name exported from two different files is reported by the linker
+    as a duplicate symbol.
+
+    ```kairo
+    @export("render")
+    fn render_table(n: i32) -> i32 { ... }
+
+    @export("render")                          // error: 'render' is already the C name of 'render_table'
+    fn render_list(n: i32) -> i32 { ... }
+    ```
+
+    ## how to fix
+
+    give each export its own name.
+    """
+
+    [SC370.N]
+    explain = "Points at the function that already defines the symbol."
