@@ -8,14 +8,16 @@ every `pub` declaration, its `///` comment block and its signature. Where the
 two disagree the compiler is right and this script has a bug. It reads the
 doc-comment format in build/libdocs/STYLE.md (tags \\param \\returns \\panics
 \\safety \\example \\note \\see; legacy \\brief/\\detail/\\par/\\class are
-tolerated) and writes one MDX page per module/area into the website.
+tolerated) and writes one MDX page per module/area into the website's docs
+(the kairolang/kairo-docs repository).
 
 Usage:
-    python3 Scripts/gen_lib_docs.py [--lib Lib] [--web <kairo-web checkout>]
+    python3 Scripts/gen_lib_docs.py [--lib Lib] [--docs <kairo-docs checkout>]
                                     [--allow-undocumented]
 
 `--lib` is a directory holding `builtin/` (core, the implicit prelude) and
-`std/`. Output: <web>/src/content/docs/library/{index,core/*,std/*}.mdx.
+`std/`. Output: <docs>/library/{index,core/*,std/*}.mdx. `--docs` defaults to
+$KAIRO_DOCS_DIR, else a kairo-docs checkout beside this repository.
 
 Deterministic: same input gives byte-identical output (no timestamps, sorted
 traversal). Exit status is 1 when a `pub` declaration has no doc comment,
@@ -33,6 +35,7 @@ Rules beyond the style guide:
 """
 import argparse
 import json
+import os
 import re
 import sys
 from collections import OrderedDict
@@ -1020,12 +1023,12 @@ def page_intro(files):
 def main():
     ap = argparse.ArgumentParser(description="Generate library reference MDX pages (interim extractor).")
     ap.add_argument("--lib", default="Lib")
-    ap.add_argument("--web", default=str(Path(__file__).resolve().parent.parent.parent / "kairo-web"),
-                    help="the website checkout (default: the sibling of this repository)")
+    ap.add_argument("--docs", default=os.environ.get("KAIRO_DOCS_DIR") or str(Path(__file__).resolve().parent.parent.parent / "kairo-docs"),
+                    help="the kairo-docs checkout (default: $KAIRO_DOCS_DIR, else the sibling of this repository)")
     ap.add_argument("--allow-undocumented", action="store_true")
     a = ap.parse_args()
     lib = Path(a.lib)
-    out_root = Path(a.web) / "src/content/docs/library"
+    out_root = Path(a.docs) / "library"
 
     core_files = read_lib(lib, "builtin")
     std_files = read_lib(lib, "std")
