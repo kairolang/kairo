@@ -1,5 +1,3 @@
-// XFAIL: *
-//
 // Compiler defect: in a generic function, passing a vector variable to a
 // `const` parameter together with a second argument that is a call returning
 // a vector makes the emitted C++ copy the variable, and the program is
