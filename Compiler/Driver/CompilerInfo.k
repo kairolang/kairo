@@ -783,7 +783,8 @@ extend CompilerInstance {
 
         var w = cxx::std::vector<string>()
         if !self.invocation()->target.resource_dir.is_empty() {
-            w.push_back(
+            self._native_arg(
+                &w,
                 "-resource-dir=" + self.invocation()->target.resource_dir,
             )
         }
@@ -847,12 +848,12 @@ extend CompilerInstance {
             }
 
             var w = self._native_words_for(be, k)
-            w.push_back("-c")
-            w.push_back("-x")
-            w.push_back(k.type_name())
-            w.push_back(k.path.copy())
-            w.push_back("-o")
-            w.push_back(Path(k.path).stem() + ".o")
+            self._native_arg(&w, "-c")
+            self._native_arg(&w, "-x")
+            self._native_arg(&w, k.type_name())
+            self._native_arg(&w, k.path)
+            self._native_arg(&w, "-o")
+            self._native_arg(&w, Path(k.path).stem() + self._native_obj_ext())
             var jobs = ClangJobs(be, exe)
             if !jobs.plan(w) {
                 if !jobs.error.is_empty() {
@@ -884,7 +885,7 @@ extend CompilerInstance {
                 )
 
                 if k.cls == InputClass::Source {
-                    job.add_object(Path(k.path).stem() + ".o")
+                    job.add_object(Path(k.path).stem() + self._native_obj_ext())
                 } else if k.cls == InputClass::Kairo {
                     // kairo_object_stem's rule; _inputs is not built for an info query.
                     var stem  = Path(k.path).stem()

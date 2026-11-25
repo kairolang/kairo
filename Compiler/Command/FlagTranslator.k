@@ -1400,8 +1400,78 @@ pub class FlagTranslator {
             _fx_push(&o, a)
         }
 
+        if cgo->clang_cl() {
+            return FlagTranslator::cl_line(o, cgo->cxx_flags)
+        }
+
         for *a in cgo->cxx_flags {
             _fx_push(&o, (*a))
+        }
+
+        return o
+    }
+
+    /// ends a /Tc or /Tp input's language before the next input, back to
+    /// /TC's or /TP's (`lang`) or the extension's; nothing when no input
+    /// follows it, so no -x is left trailing.
+    static fn _cl_end_tc(@inout out:     cxx::std::vector<string>,
+                         @inout pending: bool,
+                         const lang:     string) {
+        if !pending {
+            return
+        }
+
+        out.push_back("-x")
+        out.push_back(if (lang.is_empty()) => ("none") else => lang.copy())
+        pending = false
+    }
+
+    /// `w` as a clang-cl word: clang-cl reads a /clang: word with clang's
+    /// own options, so kairo's words keep the one spelling on both lines.
+    pub static fn cl_word(const w: string) -> string {
+        return "/clang:" + w
+    }
+
+    /// a clang-cl line: kairo's words `mine` through /clang:, then the
+    /// user's clang-cl words `user` as given.
+    ///
+    /// clang-cl appends every /clang: word after the line's own words, so
+    /// a kairo word the user's words also decide would win over them: the
+    /// level (-O, against /O1 /O2 /Od /Ox ...) and the standard (-std=,
+    /// against /std:) are left to the user's words when there are any.
+    pub static fn cl_line(const mine: cxx::std::vector<string>,
+                          const user: cxx::std::vector<string>) -> cxx::std::vector<string> {
+        var user_opt = false
+        var user_std = false
+        for *u in user {
+            if u->size() < 2 || (u->data()[0] != ('/' as u8) && u->data()[0] != ('-' as u8)) {
+                continue
+            }
+
+            if u->data()[1] == ('O' as u8) {
+                user_opt = true
+            }
+
+            if u->subslice(1, u->size() - 1).starts_with("std:") {
+                user_std = true
+            }
+        }
+
+        var o = cxx::std::vector<string>()
+        for *w in mine {
+            if user_opt && w->starts_with("-O") {
+                continue
+            }
+
+            if user_std && w->starts_with("-std=") {
+                continue
+            }
+
+            o.push_back(FlagTranslator::cl_word(*w))
+        }
+
+        for *u in user {
+            o.push_back(u->copy())
         }
 
         return o
@@ -1585,14 +1655,22 @@ pub class FlagTranslator {
     ///
     /// ### Parameters
     /// - `argv`: the clang command line WITHOUT argv[0].
+    /// - `cl`: the line is clang-cl's (`--driver-mode=cl`). It is
+    ///   tokenized by clang-cl's options, both spellings (`/c`, `-c`),
+    ///   and a clang-cl option that is an alias of a clang one (`/c`,
+    ///   `/I`, `/D`) translates as that option. The clang-cl options
+    ///   that name what kairo decides itself become kairo words: `/Fo`
+    ///   and `/Fe` the output, `/Tc` `/Tp` `/TC` `/TP` an input's
+    ///   language. The rest stay clang words, in the user's spelling.
     ///
     /// ### Returns
-    /// false when clang's table reports a missing value; `error`
-    /// says which.
+    /// false when clang's table reports a missing value, or a clang-cl
+    /// form kcc cannot honour; `error` says which.
     pub static fn from_driver(@inout argv:       cxx::std::vector<string>,
                               @inout kairo_out:  cxx::std::vector<string>,
                               @inout clang_only: cxx::std::vector<string>,
-                              @inout error:      string) -> bool {
+                              @inout error:      string,
+                              cl:                bool = false) -> bool {
         var rows = _fx_reverse_rows()
         var cargv: cxx::std::vector<kairo::std::ConstPtr<c_char>>
         for var i: usize = 0; i < argv.size(); ++i {
@@ -1603,8 +1681,13 @@ pub class FlagTranslator {
         var missing_cnt: u32 = 0
         var *table           = &clang::getDriverOptTable()
         // The plain driver's options only: without the mask, clang-cl's
-        // spellings (/O, which also answers to -O) match too.
+        // spellings (/O, which also answers to -O) match too. A clang-cl
+        // line takes clang-cl's options alone, as clang-cl reads it.
         var vis = llvm::opt::Visibility((clang::options::ClangOption as u32))
+        if cl {
+            vis = llvm::opt::Visibility((clang::options::CLOption as u32))
+        }
+
         var args = table->ParseArgs(
             llvm::ArrayRef<unsafe *const c_char>(cargv),
             &missing_idx,
@@ -1616,6 +1699,35 @@ pub class FlagTranslator {
             var w = argv[missing_idx as usize].copy()
             (error) = f"clang option '{w}' is missing its value"
             return false
+        }
+
+        // /TC and /TP name the language of every input, wherever they sit;
+        // kairo's -x names it for the inputs after it, so it goes first.
+        var cl_lang  = ""
+        var cl_reset = false
+        if cl {
+            var lit  = args.begin()
+            var lend = args.end()
+            while lit != lend {
+                var lps = (*lit)->getOption().getPrefixedName()
+                var ln = string(
+                    unsafe ((lps.data() as unsafe *const u8) as *const u8),
+                    lps.size(),
+                )
+
+                if ln == "/TC" {
+                    cl_lang = "c"
+                } else if ln == "/TP" {
+                    cl_lang = "c++"
+                }
+
+                ++lit
+            }
+
+            if !cl_lang.is_empty() {
+                kairo_out.push_back("-x")
+                kairo_out.push_back(cl_lang.copy())
+            }
         }
 
         var it  = args.begin()
@@ -1632,6 +1744,7 @@ pub class FlagTranslator {
             var nval = a->getNumValues()
 
             if opt.getKind() == llvm::opt::Option::InputClass {
+                FlagTranslator::_cl_end_tc(&kairo_out, &cl_reset, cl_lang)
                 kairo_out.push_back(
                     string(
                         unsafe ((a->getValue(0) as unsafe *const u8) as *const u8),
@@ -1640,6 +1753,48 @@ pub class FlagTranslator {
 
                 ++it
                 continue
+            }
+
+            if cl {
+                var v = ""
+                if nval > 0 {
+                    v = string(
+                        unsafe ((a->getValue(0) as unsafe *const u8) as *const u8),
+                    )
+                }
+
+                if pname == "/TC" || pname == "/TP" {
+                    ++it
+                    continue
+                }
+
+                // The object (/Fo) and the executable (/Fe) are kairo's -o.
+                if pname == "/Fo" || pname == "/Fe" {
+                    var last = if (v.is_empty()) => (0 as u8) else => v.data()[v.size() - 1]
+                    if v.is_empty() || last == ('/' as u8) || last == ('\\' as u8) {
+                        (error) = f"clang-cl option '{pname}' names a directory; kcc needs the output file's name"
+                        return false
+                    }
+
+                    kairo_out.push_back("-o")
+                    kairo_out.push_back(v)
+                    ++it
+                    continue
+                }
+
+                // One input in a named language; the inputs after it keep
+                // /TC's or /TP's, or their extension's.
+                if pname == "/Tc" || pname == "/Tp" {
+                    kairo_out.push_back("-x")
+                    kairo_out.push_back(
+                        if (pname == "/Tc") => ("c") else => "c++",
+                    )
+
+                    kairo_out.push_back(v)
+                    cl_reset = true
+                    ++it
+                    continue
+                }
             }
 
             // -std= is the one row that splits on its value: kairo keeps a C
@@ -1744,8 +1899,17 @@ pub class FlagTranslator {
 
             if !hit {
                 // Rendered back exactly as clang would hand it to itself.
-                var rendered: llvm::opt::ArgStringList
-                a->render(args, &rendered)
+                // An alias renders as the option it stands for, which may
+                // be a spelling clang-cl does not take: under cl the
+                // user's own word goes back instead.
+                var        rendered: llvm::opt::ArgStringList
+                var unsafe *orig                              = a->getAlias()
+                if cl && orig != &null {
+                    orig->render(args, &rendered)
+                } else {
+                    a->render(args, &rendered)
+                }
+
                 for var k: usize = 0; k < rendered.size(); ++k {
                     clang_only.push_back(
                         string(

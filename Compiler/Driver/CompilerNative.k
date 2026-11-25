@@ -392,11 +392,16 @@ extend CompilerInstance {
     prot fn _native_words_for(self,
                               be:      unsafe *ClangBackend,
                               const k: InputKind) -> cxx::std::vector<string> {
-        var w = cxx::std::vector<string>()
+        var w  = cxx::std::vector<string>()
+        var cl = self.invocation()->codegen.clang_cl()
         // IR and already-preprocessed input search no headers: the roots would
         // only draw clang's "argument unused" warning, once per root.
         if k.needs_headers() {
-            w = be->sysroot_words(k.is_c_family_c(), ClangSpelling::Driver)
+            for var a in be->sysroot_words(k.is_c_family_c(), ClangSpelling::Driver) {
+                w.push_back(
+                    if (cl) => (FlagTranslator::cl_word(a)) else => a.copy(),
+                )
+            }
         }
 
         // Plugins that do not exist were reported when the backend's
@@ -415,12 +420,30 @@ extend CompilerInstance {
         if k.needs_headers() {
             var rt_root = self._runtime_root()
             if !rt_root.is_empty() {
-                w.push_back("-I")
-                w.push_back(rt_root)
+                self._native_arg(&w, "-I")
+                self._native_arg(&w, rt_root)
             }
         }
 
         return w
+    }
+
+    /// appends one of kairo's own words (the action, the input, the
+    /// output) to a native line: under clang-cl through /clang:, so it is
+    /// read with clang's options as the rest of kairo's words are
+    /// (FlagTranslator::cl_line).
+    prot fn _native_arg(self, @inout w: cxx::std::vector<string>, const a: string) {
+        if self.invocation()->codegen.clang_cl() {
+            w.push_back(FlagTranslator::cl_word(a))
+        } else {
+            w.push_back(a.copy())
+        }
+    }
+
+    /// the extension of an object a C/C++ input writes when -o does not
+    /// name it: clang-cl's .obj under clang-cl, else .o.
+    prot fn _native_obj_ext(self) -> string {
+        return if (self.invocation()->codegen.clang_cl()) => (".obj") else => ".o"
     }
 
     /// the driver words a C++ input of this invocation compiles with
@@ -580,7 +603,7 @@ extend CompilerInstance {
                 }
 
                 var w = self._native_words(*k)
-                w.push_back(if (pp) => ("-E") else => "-fsyntax-only")
+                self._native_arg(&w, if (pp) => ("-E") else => "-fsyntax-only")
                 if pp && !single.is_empty() {
                     if natives.size() != 1 {
                         self._diag->report(
@@ -590,13 +613,13 @@ extend CompilerInstance {
                         return false
                     }
 
-                    w.push_back("-o")
-                    w.push_back(single.copy())
+                    self._native_arg(&w, "-o")
+                    self._native_arg(&w, single)
                 }
 
-                w.push_back("-x")
-                w.push_back(k->type_name())
-                w.push_back(k->path.copy())
+                self._native_arg(&w, "-x")
+                self._native_arg(&w, k->type_name())
+                self._native_arg(&w, k->path)
                 ok = self._run_native(*k, &w) && ok
             }
 
@@ -609,7 +632,7 @@ extend CompilerInstance {
         var exts:  [string]
         if fe->emit_obj {
             kinds.push(EmitKind::Obj)
-            exts.push(".o")
+            exts.push(self._native_obj_ext())
         }
 
         if fe->emit_asm {
@@ -660,12 +683,12 @@ extend CompilerInstance {
 
                 Path::make_parent_dirs(pch)
                 var hw = self._native_words(*k)
-                hw.push_back("-c")
-                hw.push_back("-x")
-                hw.push_back(k->type_name())
-                hw.push_back(k->path.copy())
-                hw.push_back("-o")
-                hw.push_back(pch)
+                self._native_arg(&hw, "-c")
+                self._native_arg(&hw, "-x")
+                self._native_arg(&hw, k->type_name())
+                self._native_arg(&hw, k->path)
+                self._native_arg(&hw, "-o")
+                self._native_arg(&hw, pch)
                 ok = self._run_native(*k, &hw) && ok
                 continue
             }
@@ -680,22 +703,22 @@ extend CompilerInstance {
                 var w    = self._native_words(*k)
                 var kind = kinds[i]
                 if kind == EmitKind::Asm {
-                    w.push_back("-S")
+                    self._native_arg(&w, "-S")
                 } else if kind == EmitKind::LLVMIR {
-                    w.push_back("-S")
-                    w.push_back("-emit-llvm")
+                    self._native_arg(&w, "-S")
+                    self._native_arg(&w, "-emit-llvm")
                 } else if kind == EmitKind::LLVMBC {
-                    w.push_back("-c")
-                    w.push_back("-emit-llvm")
+                    self._native_arg(&w, "-c")
+                    self._native_arg(&w, "-emit-llvm")
                 } else {
-                    w.push_back("-c")
+                    self._native_arg(&w, "-c")
                 }
 
-                w.push_back("-x")
-                w.push_back(k->type_name())
-                w.push_back(k->path.copy())
-                w.push_back("-o")
-                w.push_back(out.copy())
+                self._native_arg(&w, "-x")
+                self._native_arg(&w, k->type_name())
+                self._native_arg(&w, k->path)
+                self._native_arg(&w, "-o")
+                self._native_arg(&w, out)
                 var one = self._run_native(*k, &w)
                 ok = one && ok
                 if one && kind == EmitKind::Obj {

@@ -23,6 +23,10 @@
 ///       (--emit-scope=inputs), and a link takes builtin, std and the
 ///       runtime from the toolchain's cached library (--kairo-lib), so
 ///       `kcc -c x.cc; kcc -c y.k; kcc x.o y.o` works as with clang.
+///   Under `--driver-mode=cl` (or a name ending in `-cl`) the line is
+///   clang-cl's: FlagTranslator::from_driver reads it with clang-cl's
+///   options, and the C/C++ inputs compile under clang-cl, kairo's own
+///   words reaching it through /clang: (FlagTranslator::cl_line).
 ///   kcc answers `--help` and `--version` itself; clang's own would describe
 ///   a different compiler. `-###` prints the jobs without running them:
 ///   each cc1 line, then the link (kairo's --print-jobs). The probes
@@ -93,6 +97,10 @@ pub fn _kcc_usage() {
     )
 
     io::println(
+        "  --driver-mode=cl clang-cl's options (/c, /Fo<obj>, /O2); also a name ending in -cl",
+    )
+
+    io::println(
         "  -heaplib=<lib>   heap behind malloc and operator new: kairo (mimalloc) or libc;",
     )
 
@@ -113,6 +121,13 @@ pub fn _kcc_words(argc:       i32,
                   error:      unsafe *string) -> bool {
     var clang            = cxx::std::vector<string>()
     var passed: [string]
+    var cl               = _kcc_cl_mode(argc, argv)
+    // A name ending in -cl (kcc-cl, kcc-cl.exe) is clang-cl's, as clang's
+    // driver reads its own name; the words below carry the mode on.
+    if cl && _kcc_driver_mode(argc, argv).is_empty() {
+        clang.push_back("--driver-mode=cl")
+    }
+
     for var i: i32 = 1; i < argc; ++i {
         var a = string::from_bytes_unchecked(
             unsafe ((argv[i] as unsafe *const u8) as *const u8),
@@ -156,7 +171,7 @@ pub fn _kcc_words(argc:       i32,
     // says otherwise, and so does kcc: kairo's host CPU default is turned
     // off first, where a translated -mcpu= still replaces it.
     kw.push_back("--mcpu=baseline")
-    if !FlagTranslator::from_driver(&clang, &kw, &cw, &*error) {
+    if !FlagTranslator::from_driver(&clang, &kw, &cw, &*error, cl) {
         return false
     }
 
@@ -284,6 +299,47 @@ pub fn _kcc_words(argc:       i32,
     }
 
     return true
+}
+
+/// the value of the last `--driver-mode=` on the line, or "" when none
+/// names one.
+fn _kcc_driver_mode(argc: i32, argv: unsafe *(unsafe *c_char)) -> string {
+    var mode = ""
+    for var i: i32 = 1; i < argc; ++i {
+        var a = string::from_bytes_unchecked(
+            unsafe ((argv[i] as unsafe *const u8) as *const u8),
+            cxx::std::strlen(argv[i]),
+        )
+
+        if a.starts_with("--driver-mode=") {
+            mode = a[14..]
+        }
+    }
+
+    return mode
+}
+
+/// whether this run is clang-cl's: `--driver-mode=cl` last, or no
+/// --driver-mode and a program name ending in `-cl` (an .exe suffix
+/// aside), as clang's driver decides it.
+fn _kcc_cl_mode(argc: i32, argv: unsafe *(unsafe *c_char)) -> bool {
+    var mode = _kcc_driver_mode(argc, argv)
+    if !mode.is_empty() {
+        return mode == "cl"
+    }
+
+    var name = Path::filename_of(
+        string::from_bytes_unchecked(
+            unsafe ((argv[0] as unsafe *const u8) as *const u8),
+            cxx::std::strlen(argv[0]),
+        ),
+    )
+
+    if name.ends_with(".exe") || name.ends_with(".EXE") {
+        name = name.subslice(0, name.size() - 4)
+    }
+
+    return name.ends_with("-cl") || name.ends_with("-CL")
 }
 
 /// whether `w` is a driver probe clang answers with no input (its

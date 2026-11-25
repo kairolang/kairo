@@ -390,6 +390,20 @@ pub class CodeGenOptions {
         return o
     }
 
+    /// whether the C/C++ inputs compile under clang-cl: the last
+    /// `--driver-mode=` among the --cxx-flags words is `cl`, as clang's
+    /// driver reads its mode.
+    pub fn clang_cl(self) -> bool {
+        var cl = false
+        for *w in self.cxx_flags {
+            if w->starts_with("--driver-mode=") {
+                cl = *w == "--driver-mode=cl"
+            }
+        }
+
+        return cl
+    }
+
     /// What an exhaustive match over an ADT's tag does with a tag no variant
     /// has. No value of the enum holds one -- only memory written around the
     /// type does -- so it is Unreachable, which lets the dispatch be a bare
