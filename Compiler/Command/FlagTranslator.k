@@ -1362,6 +1362,19 @@ pub class FlagTranslator {
                 _fx_push(&o, a)
             }
 
+            // A C/C++ input that includes Kairo (a `.k`, or a header
+            // --emit-headers wrote) declares i256 / u512 as _BitInt(256) /
+            // unsigned _BitInt(512), the types the Kairo objects were
+            // compiled with: no other spelling keeps their mangled names, the
+            // inline bodies' arithmetic, or 32-bit Arm's calling convention,
+            // which passes a 64-byte struct in registers and the _BitInt by
+            // reference. Where clang's default cap is below 512 (AArch64,
+            // 32-bit Arm, WebAssembly) it is raised to Kairo's; a wider
+            // default stays, so no C/C++ input loses a width clang accepts.
+            if tgt->bitint_max_width != 0 && tgt->bitint_max_width < 512 {
+                _fx_xclang(&o, "-fexperimental-max-bitint-width=512")
+            }
+
             var osz: i32 = 0
             if cgo->opt_size_z {
                 osz = 2
@@ -1428,7 +1441,8 @@ pub class FlagTranslator {
         }
 
         // Kairo's own lowered C++ needs _BitInt wider than clang's default
-        // cap; a C/C++ input keeps clang's.
+        // cap; a C/C++ input gets it only where that default is lower
+        // (to_driver).
         if sp == ClangSpelling::CC1 {
             out.push_back("-fexperimental-max-bitint-width=512")
         }

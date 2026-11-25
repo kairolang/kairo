@@ -808,6 +808,17 @@ if clang_bin:
                 sdk = ""
         if sdk:
             clangxx += " -isysroot " + sdk
+    # A TU that includes an emitted header declares i256 / u512 as _BitInt(256)
+    # / _BitInt(512). Where clang caps _BitInt below 512 by default (AArch64,
+    # 32-bit Arm, WebAssembly) it gets Kairo's cap, as kcc's driver line does.
+    try:
+        _bw = subprocess.run(_shlex.split(clangxx) + ["-x", "c++", "-E", "-P", "-"],
+                             input=b"__BITINT_MAXWIDTH__", stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL).stdout.decode().split()
+        if _bw and _bw[-1].isdigit() and int(_bw[-1]) < 512:
+            clangxx += " -Xclang -fexperimental-max-bitint-width=512"
+    except OSError:
+        pass
     config.substitutions.append(("%clangxx", clangxx))
     # The bare clang driver, for building native fixtures (a shared library
     # with a crafted version need) with no kairo roots in the way.

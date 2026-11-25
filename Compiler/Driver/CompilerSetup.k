@@ -2138,6 +2138,7 @@ extend CompilerInstance {
         t->long_double_align    = (ti->getLongDoubleAlign() as usize)
         t->has_float128         = ti->hasFloat128Type()
         t->wchar_bits           = (ti->getWCharWidth() as usize)
+        t->bitint_max_width     = (ti->getMaxBitIntWidth() as usize)
         _fill_builtin_align(t, ti.get())
     }
 }

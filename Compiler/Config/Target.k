@@ -241,6 +241,12 @@ pub class TargetOptions {
     /// never filled, and the store keeps 32.
     pub var wchar_bits: usize = 0
 
+    /// TargetInfo::getMaxBitIntWidth() without -fexperimental-max-bitint-width:
+    /// the widest `_BitInt` clang accepts for this target by default. 128 on
+    /// AArch64, 32-bit Arm and WebAssembly, below the 512 that i256 / u512
+    /// need (FlagTranslator::to_driver). 0 means never filled.
+    pub var bitint_max_width: usize = 0
+
     /// The alignment in bits of each builtin's C++ type as a record member,
     /// from clang::TargetInfo, one row per BuiltinKind (indexed by its u8
     /// value). Not the width: i386 System V aligns `long long` and `double`
