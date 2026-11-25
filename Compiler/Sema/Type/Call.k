@@ -68,6 +68,7 @@ import AST::DeclFacts::{
     decl_is_imported,
     decl_is_instance,
     decl_requires_clause,
+    is_global_storage,
     param_type_pack_param,
 }
 import AST::LangItems::{
@@ -151,9 +152,11 @@ import Diagnostic::NoteText::{
 }
 import Diagnostic::Registry::DiagID
 import Location::SourceRange::SourceRange
+import Sema::Check::CaptureAnalysis::script_top_var
 import Sema::Check::ClassLifecycle::moves_on_pass
 import Sema::Resolve::MemberLookup::MemberLookup
 import Sema::Resolve::NameLookup::NameLookup
+import Sema::Type::BindingWriteScan::BindingWriteScan
 import Sema::Type::Conversion::ImplicitRank
 import Sema::Type::GenericArrayCopy::GenericArrayCopyScan
 import Sema::Type::Member::{
@@ -2372,8 +2375,8 @@ pub class <T: type> CallTyping {
     /// the local was built from, and appended as fresh copies: each node has
     /// one parent. Only literal defaults are copied (FIXME(CLOSURE-DEFAULTS):
     /// any other expression needs a clone or a thunk); otherwise the call is
-    /// left short and the arity error stands. A local reassigned to another
-    /// closure keeps its initializer's defaults.
+    /// left short and the arity error stands, as it is when the variable can
+    /// hold another function (_holds_init).
     priv fn _closure_defaults(self, n: *CallExpr, want: usize) {
         var c  = self.dyn()->tu.strip_parens(n->callee)
         var id = dyn_cast<NamedIdentExpr>(c)
@@ -2387,7 +2390,7 @@ pub class <T: type> CallTyping {
         }
 
         var ce = dyn_cast<ClosureExpr>(self.dyn()->tu.strip_parens(vd->init))
-        if ce == &null || ce->params.size() != want {
+        if ce == &null || ce->params.size() != want || !self._holds_init(vd) {
             return
         }
 
@@ -2417,6 +2420,46 @@ pub class <T: type> CallTyping {
         }
 
         n->args.from_buf(all.data(), all.size(), self.dyn()->sc->ctx)
+    }
+
+    /// `vd` holds the value of its initializer wherever it is read: it is
+    /// const, or nothing in the region it is visible in writes it
+    /// (BindingWriteScan). That region is the enclosing function's body for
+    /// a local, and the whole file for a script's top-level variable and for
+    /// a local of the script's top-level code (a `static` local is visible
+    /// only in its function, like any local). Any other variable with static
+    /// storage may be written from another function or file, so it never
+    /// qualifies unless const.
+    priv fn _holds_init(self, vd: unsafe *VariableDecl) -> bool {
+        if vd->is_const() {
+            return true
+        }
+
+        var global = is_global_storage(vd) && vd->semantic_dc != &null
+        if global && !script_top_var(self.dyn()->sc->script_root, vd) {
+            return false
+        }
+
+        var scan                      = BindingWriteScan(vd)
+        var fd:  unsafe *FunctionDecl = &null
+        if !global {
+            for var k: usize = self.dyn()->frames.size(); k > 0; --k {
+                if self.dyn()->frames[k - 1].fn_decl != &null {
+                    fd = self.dyn()->frames[k - 1].fn_decl
+                    break
+                }
+            }
+        }
+
+        if fd == &null {
+            scan.run(self.dyn()->sc->tu)
+        } else if fd->body_block != &null {
+            scan.dispatch_stmt(fd->body_block)
+        } else if fd->body_expr != &null {
+            scan.dispatch_expr(fd->body_expr)
+        }
+
+        return !scan.written
     }
 
     /// A fresh, untyped copy of the literal `e` (its token and immediate
