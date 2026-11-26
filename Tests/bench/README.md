@@ -1,7 +1,8 @@
 # Tests/bench
 
 The same programs written idiomatically in Kairo, C++ and Rust, built at -O3
-for the host's baseline target, timed interleaved. Each program reads its
+for the host CPU (`-march=native`, `-C target-cpu=native`, and Kairo's own
+default), timed interleaved. Each program reads its
 size from `N` (and `DEPTH`/`MODE` for `scopes`) and prints a checksum that
 every implementation must agree on.
 

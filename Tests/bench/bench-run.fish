@@ -42,7 +42,7 @@ for b in $benches
         $KAIRO $b.k -I . -O3 -o bin/$b.kairo >/dev/null 2>&1; or echo "kairo build failed: $b"
     end
     if test -f $b.rs; and command -q $RUSTC
-        $RUSTC -C opt-level=3 -C codegen-units=1 -o bin/$b.rust $b.rs 2>/dev/null; or echo "rust build failed: $b"
+        $RUSTC -C opt-level=3 -C codegen-units=1 -C target-cpu=native -o bin/$b.rust $b.rs 2>/dev/null; or echo "rust build failed: $b"
     end
     if test -f $b.cc
         for cxx in clang:$CXX_CLANG gcc:$CXX_GCC kcc:$KCC
@@ -53,10 +53,10 @@ for b in $benches
             set -l heap
             test $tag = kcc; and set heap -heaplib=kairo
             if test $b = alloc
-                $exe -O3 -std=c++20 $heap $b.cc -o bin/$b.$tag-new >/dev/null 2>&1
-                $exe -O3 -std=c++20 $heap -DUSE_MALLOC $b.cc -o bin/$b.$tag-malloc >/dev/null 2>&1
+                $exe -O3 -march=native -std=c++20 $heap $b.cc -o bin/$b.$tag-new >/dev/null 2>&1
+                $exe -O3 -march=native -std=c++20 $heap -DUSE_MALLOC $b.cc -o bin/$b.$tag-malloc >/dev/null 2>&1
             else
-                $exe -O3 -std=c++20 $heap $b.cc -o bin/$b.$tag >/dev/null 2>&1; or echo "$tag build failed: $b"
+                $exe -O3 -march=native -std=c++20 $heap $b.cc -o bin/$b.$tag >/dev/null 2>&1; or echo "$tag build failed: $b"
             end
         end
     end

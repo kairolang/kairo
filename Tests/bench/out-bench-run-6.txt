@@ -1,0 +1,123 @@
+  ./bench-run.fish 6
+== nbody  N=30000000
+  rust          median   0.782s  best   0.778s
+  gcc           median   1.178s  best   1.171s
+  kairo         median   1.211s  best   1.203s
+  kcc           median   1.316s  best   1.311s
+  clang         median   1.361s  best   1.350s
+== btree  N=20
+  kairo         median   2.042s  best   1.547s
+  clang         median   6.152s  best   5.905s
+  rust          median   6.289s  best   6.078s
+  gcc           median   6.506s  best   5.395s
+  kcc           median   6.834s  best   6.173s
+== fannkuch  N=11
+  kairo         median   1.161s  best   1.149s
+  clang         median   1.602s  best   1.593s
+  kcc           median   1.625s  best   1.613s
+  rust          median   1.698s  best   1.674s
+  gcc           median   1.769s  best   1.751s
+== gsort  N=10000000
+  gcc           median   1.006s  best   1.000s
+  clang         median   1.039s  best   1.035s
+  kairo         median   1.042s  best   1.035s
+  rust          median   1.058s  best   1.027s
+  kcc           median   1.116s  best   1.027s
+== gsort-lib  N=10000000 LIBSORT=1
+  rust          median   0.342s  best   0.334s
+  kcc           median   0.971s  best   0.949s
+  gcc           median   0.986s  best   0.974s
+  clang         median   0.993s  best   0.983s
+== gen  N=1000000000
+  kcc           median   0.668s  best   0.657s
+  clang         median   0.839s  best   0.670s
+  kairo         median   0.937s  best   0.912s
+  rust          median   0.937s  best   0.914s
+  gcc           median   4.334s  best   3.705s
+== errpath  N=500000000
+  kairo         median   0.222s  best   0.220s
+  rust          median   0.558s  best   0.552s
+  clang         median   2.290s  best   2.246s
+  gcc           median   2.382s  best   2.344s
+  kcc           median   7.554s  best   7.393s
+== alloc  N=50000000
+  kairo         median   0.191s  best   0.116s
+  gcc-malloc    median   0.237s  best   0.202s
+  clang-malloc  median   0.239s  best   0.200s
+  kcc-malloc    median   0.263s  best   0.201s
+  clang-new     median   0.313s  best   0.271s
+  gcc-new       median   0.325s  best   0.274s
+  rust          median   0.331s  best   0.255s
+  kcc-new       median   0.347s  best   0.255s
+== interp  N=250000000
+  rust          median   1.102s  best   1.077s
+  gcc           median   1.470s  best   1.280s
+  kairo         median   1.482s  best   1.318s
+  clang         median   1.496s  best   1.484s
+  kcc           median   1.523s  best   1.518s
+== closures  N=1000000000
+  rust          median   0.747s  best   0.731s
+  kairo         median   0.808s  best   0.761s
+  kcc           median   2.716s  best   2.658s
+  clang         median   2.718s  best   2.655s
+  gcc           median   5.597s  best   5.359s
+== dispatch  N=1500000
+  gcc           median   0.808s  best   0.803s
+  clang         median   2.006s  best   2.002s
+  kcc           median   2.006s  best   2.003s
+  rust          median   2.015s  best   2.012s
+  kairo         median   2.125s  best   2.004s
+== wideint  N=10000000
+  gcc           median   0.897s  best   0.895s
+  rust          median   0.902s  best   0.900s
+  clang         median   0.943s  best   0.940s
+  kcc           median   0.944s  best   0.942s
+  kairo         median   0.963s  best   0.954s
+== fmt  N=10000000
+  kcc           median   0.244s  best   0.244s
+  clang         median   0.322s  best   0.321s
+  gcc           median   0.330s  best   0.330s
+  kairo         median   0.417s  best   0.414s
+  rust          median   0.581s  best   0.574s
+== spectral  N=5500
+  gcc           median   1.021s  best   1.018s
+  clang         median   1.092s  best   1.090s
+  kcc           median   1.093s  best   1.089s
+  kairo         median   1.095s  best   1.093s
+  rust          median   1.096s  best   1.092s
+== slices  N=1000
+  kairo         median   1.232s  best   1.228s
+  rust          median   1.236s  best   1.235s
+  kcc           median   1.238s  best   1.234s
+  clang         median   1.241s  best   1.236s
+  gcc           median   1.263s  best   1.260s
+== nullable  N=10000000
+  kairo         median   0.493s  best   0.490s
+  rust          median   0.769s  best   0.758s
+  gcc           median   0.774s  best   0.749s
+  clang         median   0.810s  best   0.772s
+  kcc           median   0.816s  best   0.803s
+== scopes d=1 top-free  N=50000000 DEPTH=1 MODE=0
+  kairo         median   0.236s  best   0.218s
+== scopes d=1 global-free  N=50000000 DEPTH=1 MODE=1
+  kairo         median   0.924s  best   0.915s
+== scopes d=1 bottom-free  N=50000000 DEPTH=1 MODE=2
+  kairo         median   0.149s  best   0.146s
+== scopes d=1 open-close  N=50000000 DEPTH=1 MODE=3
+  kairo         median   0.279s  best   0.277s
+== scopes d=16 top-free  N=50000000 DEPTH=16 MODE=0
+  kairo         median   0.225s  best   0.221s
+== scopes d=16 global-free  N=50000000 DEPTH=16 MODE=1
+  kairo         median   0.909s  best   0.880s
+== scopes d=16 bottom-free  N=50000000 DEPTH=16 MODE=2
+  kairo         median   0.496s  best   0.494s
+== scopes d=16 open-close  N=50000000 DEPTH=16 MODE=3
+  kairo         median   0.969s  best   0.953s
+== scopes d=64 top-free  N=50000000 DEPTH=64 MODE=0
+  kairo         median   0.901s  best   0.885s
+== scopes d=64 global-free  N=50000000 DEPTH=64 MODE=1
+  kairo         median   0.913s  best   0.893s
+== scopes d=64 bottom-free  N=50000000 DEPTH=64 MODE=2
+  kairo         median   2.216s  best   2.176s
+== scopes d=64 open-close  N=50000000 DEPTH=64 MODE=3
+  kairo         median   0.984s  best   0.976s
