@@ -1064,13 +1064,13 @@ extend InterfaceEmitter {
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "template <class T> struct " + nt + "<T*> { static constexpr " + w + " " + c + " = 1; static T* " + pt + "(" + w + ") noexcept { return nullptr; } static bool " + ts + "(T* const& v, " + w + ") noexcept { return v == nullptr; } };",
+            "template <class T> struct " + nt + "<T*> { static constexpr " + w + " " + c + " = 1; static constexpr T* " + pt + "(" + w + ") noexcept { return nullptr; } static constexpr bool " + ts + "(T* const& v, " + w + ") noexcept { return v == nullptr; } };",
         )
 
         self._cg->sink->brk()
         self._cg->sink->spell(
             at,
-            "template <class T> requires requires { T::" + LowerTargets::niche_count() + "; } struct " + nt + "<T> { static constexpr " + w + " " + c + " = T::" + LowerTargets::niche_count() + "; static T " + pt + "(" + w + " i) noexcept { return T(::" + np + "{}, i); } " + "static bool " + ts + "(const T& v, " + w + " i) noexcept { return T::" + LowerTargets::niche_test() + "(v, i); } };",
+            "template <class T> requires requires { T::" + LowerTargets::niche_count() + "; } struct " + nt + "<T> { static constexpr " + w + " " + c + " = T::" + LowerTargets::niche_count() + "; static constexpr T " + pt + "(" + w + " i) noexcept { return T(::" + np + "{}, i); } " + "static constexpr bool " + ts + "(const T& v, " + w + " i) noexcept { return T::" + LowerTargets::niche_test() + "(v, i); } };",
         )
 
         self._cg->sink->brk()

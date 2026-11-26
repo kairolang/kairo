@@ -525,7 +525,7 @@ extend InterfaceEmitter {
                         // and the lambda one a generic body's site calls.
                         self._cg->sink->spell(
                             mat,
-                            nm.copy() + "(" + vt + ", " + self._spell->decl(
+                            "constexpr " + nm + "(" + vt + ", " + self._spell->decl(
                                 fld->type_,
                                 fnm,
                                 &null,
@@ -535,12 +535,12 @@ extend InterfaceEmitter {
 
                         self._cg->sink->spell(
                             mat,
-                            "template <class F> " + nm + "(" + vt + ", F&& f)" + nx + " : " + mem + "(static_cast<F&&>(f)()) {}",
+                            "template <class F> constexpr " + nm + "(" + vt + ", F&& f)" + nx + " : " + mem + "(static_cast<F&&>(f)()) {}",
                         )
                     } else {
                         self._cg->sink->spell(
                             mat,
-                            nm.copy() + "(" + vt + ")" + nx + " : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{adt_niche_pattern_of(en, m->adt_variant)}" + ")} {}",
+                            "constexpr " + nm + "(" + vt + ")" + nx + " : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{adt_niche_pattern_of(en, m->adt_variant)}" + ")} {}",
                         )
                     }
                 } case Declarations::AdtRole::CopyCtor {
@@ -576,7 +576,7 @@ extend InterfaceEmitter {
                         self._cg->sink->spell(mat, "~" + nm + "() = default;")
                     }
                 } case Declarations::AdtRole::Which {
-                    var s = tt.copy() + " " + LowerTargets::adt_which() + "() const" + nx + " { return "
+                    var s = "constexpr " + tt + " " + LowerTargets::adt_which() + "() const" + nx + " { return "
                     for var k: usize = 0; k < en->variants.size(); ++k {
                         if (k as u32) == p {
                             continue
@@ -616,12 +616,12 @@ extend InterfaceEmitter {
 
         self._cg->sink->spell(
             at,
-            nm.copy() + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{dl}" + " + i)} {}",
+            "constexpr " + nm + "(::" + LowerTargets::niche_ctor_tag() + ", " + w + " i) noexcept : " + mem + "{" + nt + LowerTargets::niche_trait_pattern() + "(" + f"{dl}" + " + i)} {}",
         )
 
         self._cg->sink->spell(
             at,
-            "static bool " + LowerTargets::niche_test() + "(const " + nm + "& v, " + w + " i) noexcept { return " + nt + LowerTargets::niche_trait_test() + "(v." + mem + "." + fnm + ", " + f"{dl}" + " + i); }",
+            "static constexpr bool " + LowerTargets::niche_test() + "(const " + nm + "& v, " + w + " i) noexcept { return " + nt + LowerTargets::niche_trait_test() + "(v." + mem + "." + fnm + ", " + f"{dl}" + " + i); }",
         )
 
         self._friends(d)
@@ -675,7 +675,7 @@ extend InterfaceEmitter {
         var nul = mem.copy() + "{" + nt + LowerTargets::niche_trait_pattern() + "(0)} {}"
         match m->adt_role {
             case Declarations::AdtRole::NullDefault {
-                return nm.copy() + "()" + nx + " : " + nul
+                return "constexpr " + nm + "()" + nx + " : " + nul
             } case Declarations::AdtRole::NullFrom {
                 if m->params.size() != 1 {
                     self._ice(
@@ -686,24 +686,24 @@ extend InterfaceEmitter {
                     return ""
                 }
 
-                return nm.copy() + "(" + self._spell->decl(
+                return "constexpr " + nm + "(" + self._spell->decl(
                     m->params[0]->type_,
                     "",
                     &null,
                     d,
                 ) + ")" + nx + " : " + nul
             } case Declarations::AdtRole::ValueCopy {
-                return nm.copy() + "(const " + ft + "& v)" + nx + " : " + mem + "{v} {}"
+                return "constexpr " + nm + "(const " + ft + "& v)" + nx + " : " + mem + "{v} {}"
             } case Declarations::AdtRole::ValueMove {
-                return nm.copy() + "(" + ft + "&& v)" + nx + " : " + mem + "{static_cast<" + ft + "&&>(v)} {}"
+                return "constexpr " + nm + "(" + ft + "&& v)" + nx + " : " + mem + "{static_cast<" + ft + "&&>(v)} {}"
             } case Declarations::AdtRole::IsNull {
-                return "bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", 0); }"
+                return "constexpr bool " + LowerTargets::nullable_is_null() + "() const" + nx + " { return " + nt + LowerTargets::niche_trait_test() + "(" + mem + "." + fnm + ", 0); }"
             } case Declarations::AdtRole::ValueRef {
-                return ft.copy() + "& " + val + "()" + nx + " { return " + mem + "." + fnm + "; }"
+                return "constexpr " + ft + "& " + val + "()" + nx + " { return " + mem + "." + fnm + "; }"
             } case Declarations::AdtRole::ValueCref {
-                return "const " + ft + "& " + val + "() const" + nx + " { return " + mem + "." + fnm + "; }"
+                return "constexpr const " + ft + "& " + val + "() const" + nx + " { return " + mem + "." + fnm + "; }"
             } case Declarations::AdtRole::Equal {
-                return "bool operator==(const " + nm + "& o) const" + nx + " requires requires (const " + ft + "& a) { a == a; } { return " + mem + "." + fnm + " == o." + mem + "." + fnm + "; }"
+                return "constexpr bool operator==(const " + nm + "& o) const" + nx + " requires requires (const " + ft + "& a) { a == a; } { return " + mem + "." + fnm + " == o." + mem + "." + fnm + "; }"
             } default {
                 0
             }
@@ -724,7 +724,7 @@ extend InterfaceEmitter {
         var nv = f"{en->variants.size()}"
         self._cg->sink->spell(
             at,
-            "template <> struct " + LowerTargets::niche_trait() + "<" + e + "> { static constexpr " + w + " " + LowerTargets::niche_trait_count() + " = " + f"{enum_niche_count(en)}" + "; static " + e + " " + LowerTargets::niche_trait_pattern() + "(" + w + " i) noexcept { return static_cast<" + e + ">(" + nv + " + i); } static bool " + LowerTargets::niche_trait_test() + "(const " + e + "& v, " + w + " i) noexcept { return v == static_cast<" + e + ">(" + nv + " + i); } };",
+            "template <> struct " + LowerTargets::niche_trait() + "<" + e + "> { static constexpr " + w + " " + LowerTargets::niche_trait_count() + " = " + f"{enum_niche_count(en)}" + "; static constexpr " + e + " " + LowerTargets::niche_trait_pattern() + "(" + w + " i) noexcept { return static_cast<" + e + ">(" + nv + " + i); } static constexpr bool " + LowerTargets::niche_trait_test() + "(const " + e + "& v, " + w + " i) noexcept { return v == static_cast<" + e + ">(" + nv + " + i); } };",
         )
 
         self._cg->sink->brk()

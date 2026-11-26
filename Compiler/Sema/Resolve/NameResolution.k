@@ -91,9 +91,16 @@ import AST::Context::SymbolTable::{
 }
 import AST::Context::TranslationUnit::TranslationUnit
 import AST::DeclFacts::{
-    decl_ffi_tag_target, decl_generic_params,     decl_is_ffi,          decl_is_ffi_tag,
-    decl_name_imm,       decl_name_tok,           decl_requires_clause, decl_set_spec_kind,
-    decl_spec_args,      for_each_unwrapped_decl,
+    decl_ffi_tag_target,
+    decl_generic_params,
+    decl_is_ffi,
+    decl_is_ffi_tag,
+    decl_name_imm,
+    decl_name_tok,
+    decl_requires_clause,
+    decl_set_spec_kind,
+    decl_spec_args,
+    for_each_unwrapped_decl,
 }
 import AST::Kind::DeclKind::{
     DeclKind,
@@ -147,8 +154,15 @@ import AST::Node::PrimaryExpressions::{
     NamedIdentExpr,
 }
 import AST::Node::Statements::{
-    Binding,   CompoundStmt,  ContextBindingStmt, DeclStmt, DestructuringDeclStmt, IndexedForStmt,
-    MatchCase, RangedForStmt, TryCatchStmt,
+    Binding,
+    CompoundStmt,
+    ContextBindingStmt,
+    DeclStmt,
+    DestructuringDeclStmt,
+    IndexedForStmt,
+    MatchCase,
+    RangedForStmt,
+    TryCatchStmt,
 }
 import AST::Node::Types::ChainType
 import AST::OperatorFacts::OperatorFacts
@@ -918,14 +932,15 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
     }
 
     /// The string literal constructor, `string(data, len, cp_len)`, the
-    /// empty one, the copy constructor and the destructor are C++
+    /// empty one, the copy and move constructors and the destructor are C++
     /// `constexpr` and inline (Compiler/Spec/Eval.md#strings-at-compile-time): an eval context builds strings
     /// from `__kairo_estr` bytes with the first, an eval constructor
     /// default-initializes a string field with the second, passing or
-    /// returning a string copies it, and an eval binding of one must be
-    /// constant-destructible. So all four must run in a constant expression,
+    /// returning a string copies or moves it (an `eval fn` returning its
+    /// parameter moves it), and an eval binding of one must be
+    /// constant-destructible. So all of them must run in a constant expression,
     /// and so their bodies must be in every TU that does. Sound because a
-    /// compile-time string is always borrowed (`cap == 0`): the copy's
+    /// compile-time string is always a literal, never heap-owned: the copy's
     /// allocation and the destructor's free are on branches a constant
     /// expression never takes, which C++20 allows to call run-time code.
     /// Kairo has no spelling for "compile time and run time both" (`eval fn`
@@ -969,7 +984,7 @@ pub class NameResolution derives RecursiveASTVisitor<NameResolution> {
             }
 
             var lit = n == 0 || n == 3 // the empty string and the literal.
-            if !lit && m->transfer != Declarations::TransferKind::Copy {
+            if !lit && m->transfer == Declarations::TransferKind::NotTransfer {
                 continue
             }
 
