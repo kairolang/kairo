@@ -41,7 +41,9 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # The first run took 36-67 min for the Linux and Windows targets and over
+    # 90 for macOS on a standard runner.
+    timeout-minutes: 180
     outputs:
       shards: ${{ steps.shards.outputs.list }}
     env:
@@ -126,9 +128,9 @@ jobs:
     name: lit ${{ matrix.shard }}/${{ inputs.shards }}
     needs: build
     runs-on: ${{ inputs.runner }}
-    # A hung lit worker otherwise holds the runner for GitHub's 6 h limit; the
-    # shard then reports no results, which the gate counts as a failure.
-    timeout-minutes: 60
+    # lit's own limits (below) end a shard first and still write its results;
+    # this one only catches lit itself hanging.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -138,6 +140,11 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+
+      # The tests compile the runtime from the checkout's Lib/rt, which
+      # includes the mimalloc submodule.
+      - name: Check out the sources the tests compile
+        run: git submodule update --init --depth 1 -- Lib/rt/mimalloc
 
       - uses: actions/setup-python@v5
         with:
@@ -150,15 +157,32 @@ jobs:
       - name: Unpack the tree and install lit
         run: |
           tar -xzf compiler-tree.tar.gz
-          python3 -m pip install --quiet lit filecheck
+          python3 -m pip install --quiet lit filecheck psutil
 
+      # --timeout (needs psutil) turns a hung test into TIMEOUT; --max-time
+      # stops the shard before the job limit, so its results are written.
+      # A shard cut by --max-time lists only the tests it ran; lit's "Skipped: N"
+      # line is the only trace of the rest, so it becomes a TIMEOUT row the gate
+      # fails on.
       - name: Run shard
         run: |
           mkdir -p results
+          out="results/${{ inputs.target }}-${{ matrix.shard }}.json"
           export KAIRO_BIN="$PWD/rel/bin/kairo${{ inputs.exe }}"
           lit Tests -s -j "$(python3 -c 'import os;print(os.cpu_count())')" \
+            --timeout 600 --max-time 3900 \
             --num-shards=${{ inputs.shards }} --run-shard=${{ matrix.shard }} \
-            -o "results/${{ inputs.target }}-${{ matrix.shard }}.json" || true
+            -o "$out" 2>&1 | tee lit.log || true
+          skipped=$(sed -n 's/^ *Skipped *: *\([0-9][0-9]*\).*/\1/p' lit.log | head -1)
+          if [ -n "$skipped" ]; then
+            python3 - "$out" "$skipped" <<'PY'
+          import json, os, sys
+          path, n = sys.argv[1], sys.argv[2]
+          d = json.load(open(path)) if os.path.exists(path) else {"tests": []}
+          d["tests"].append({"name": f"shard cut by --max-time: {n} tests did not run", "code": "TIMEOUT"})
+          json.dump(d, open(path, "w"))
+          PY
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()

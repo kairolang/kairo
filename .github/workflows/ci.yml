@@ -94,7 +94,10 @@ jobs:
   selfhost:
     name: self-rebuild
     needs: [trigger, linux-x64]
-    if: needs.trigger.outputs.run == 'true'
+    # linux-x64 fails when any of its lit shards does; this check needs only
+    # its build, so it runs regardless and fails at the download when the
+    # build failed.
+    if: ${{ !cancelled() && needs.trigger.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
