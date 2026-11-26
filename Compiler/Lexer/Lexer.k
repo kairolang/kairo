@@ -1287,6 +1287,20 @@ pub class Lexer {
 
         ctx.number_end = self.get_source_location()
 
+        // A base prefix with no digit after it (`0x`, `0b1_` is fine, `0xu8` is not).
+        if ctx.has_prefix && ctx.last == Self::NumberCtx::LastWasState::Prefix {
+            var range = SourceRange::from_bounds(
+                ctx.prefix_start,
+                ctx.prefix_end,
+            )
+
+            self._diag->report(
+                DiagCode(DiagID::S001E),
+                range.start,
+                f"'{self._sm->get_text(range)}' must be followed by at least one base-{ctx.base} digit",
+            ).first(range)->emit()
+        }
+
         self.scan_number_suffix(&ctx)
         return self.finalize_number(ctx)
     }
@@ -1880,6 +1894,10 @@ pub class Lexer {
             self.check_byte_text(ctx)
         }
 
+        if ctx.delim == 0x27 && !ctx.is_triple && !ctx.has_error {
+            self.check_char_text(start, ctx)
+        }
+
         if !self.finalize_text(ctx) {
             return self.create_error_token(start, TokenKind::LitString)
         }
@@ -2454,6 +2472,54 @@ pub class Lexer {
 
             ctx.imm->suffix.set_range(suffix.range)
         }
+    }
+
+    /// reports a character literal whose body is not exactly one
+    /// character. An escape counts as one; the literal is one `char`.
+    /// A body free of quotes and escapes that holds several characters
+    /// is offered as a string.
+    priv fn check_char_text(self, start: SourceLocation, const ctx: Self::TextCtx) {
+        const base: kairo::std::ConstPtr<u8> = self.file_data()
+        var i     = ((ctx.body_start.raw() - self._loc_base) as usize)
+        var end   = ((ctx.body_end.raw() - self._loc_base) as usize)
+        var count = 0
+        var plain = true
+        while i < end {
+            var step: usize = 1
+            if base[i] == 0x5C {
+                plain = false
+                // the escape's own length excludes the backslash
+                var e = Immediate::Escape(base + i + 1, end - i - 1)
+                step = 1 + (e.len as usize)
+            } else {
+                step = Lexer::decode_at(base + i, end - i).len as usize
+                if base[i] == 0x22 {
+                    plain = false
+                }
+            }
+
+            i += step
+            count += 1
+        }
+
+        if count == 1 {
+            return
+        }
+
+        var range = SourceRange::from_bounds(start, self.get_source_location())
+        var msg = if count == 0 => ("empty character literal".copy())
+                  else => f"character literal holds {count} characters; it must hold exactly one"
+        var b = self._diag->report(DiagCode(DiagID::S001E), range.start, msg)
+        b.first(range)
+        if count > 1 && plain {
+            var body = self._sm->get_text(
+                SourceRange::from_bounds(ctx.body_start, ctx.body_end),
+            )
+
+            b.fix(range, f"\"{body}\"", "write it as a string")
+        }
+
+        b.emit()
     }
 
     /// reports each run of non-ASCII bytes in the body of the byte
