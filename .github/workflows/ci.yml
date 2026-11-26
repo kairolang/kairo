@@ -1,0 +1,126 @@
+# Builds the toolchain for five targets and runs the lit suite on each
+# (ci-target.yml does one target). Each target is gated only by its own
+# build; the gate job is the one required check.
+#
+# FAIL, UNRESOLVED and TIMEOUT fail the run. An XPASS is a warning: drop the
+# test's XFAIL line.
+#
+# Runs on every push except to main (main only ever fast-forwards to release
+# commits that already ran) and on pull requests. A pull request from a branch
+# of this repository is covered by that branch's push run, whose checks GitHub
+# shows on the pull request. A pull request from a fork cannot run: the build
+# reads the private ci-deps repo and a fork's pull request gets no secrets.
+
+name: ci
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.m.outputs.run }}
+      reason: ${{ steps.m.outputs.reason }}
+    steps:
+      - id: m
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=same-repo" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=fork" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Shard counts: keep `expect` in the gate equal to their sum.
+  linux-x64:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    uses: ./.github/workflows/ci-target.yml
+    with: {target: linux-x64, triple: x86_64-linux-musl, runner: ubuntu-24.04, shards: 13, seed: kairo-0.3.0-x86_64-linux-musl.tar.xz}
+    secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
+
+  linux-arm64:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    uses: ./.github/workflows/ci-target.yml
+    with: {target: linux-arm64, triple: aarch64-linux-musl, runner: ubuntu-24.04-arm, shards: 13, seed: kairo-0.3.0-aarch64-linux-musl.tar.xz}
+    secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
+
+  win-x64:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    uses: ./.github/workflows/ci-target.yml
+    with: {target: win-x64, triple: x86_64-windows-gnu, runner: windows-2025, shards: 13, seed: kairo-0.3.0-x86_64-windows-gnu.zip, exe: '.exe'}
+    secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
+
+  win-arm64:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    uses: ./.github/workflows/ci-target.yml
+    with: {target: win-arm64, triple: aarch64-windows-gnu, runner: windows-11-arm, shards: 13, seed: kairo-0.3.0-aarch64-windows-gnu.zip, exe: '.exe'}
+    secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
+
+  mac-arm64:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    uses: ./.github/workflows/ci-target.yml
+    with: {target: mac-arm64, triple: arm64-apple-macosx11.0, runner: macos-15, shards: 5, sysroot: arm64-apple-macosx}
+    secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
+
+  gate:
+    name: gate
+    needs: [plan, linux-x64, linux-arm64, win-x64, win-arm64, mac-arm64]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Pull request covered by the push run
+        if: needs.plan.outputs.reason == 'same-repo'
+        run: echo "::notice::this branch's push run tests the same commit; its checks are on this pull request"
+
+      - name: Fork pull requests cannot run
+        if: needs.plan.outputs.reason == 'fork'
+        run: |
+          echo "::error::the build reads the private ci-deps repo, and a fork's pull request gets no secrets: a maintainer pushes the branch to kairolang/kairo to run CI"
+          exit 1
+
+      - uses: actions/checkout@v4
+        if: needs.plan.outputs.run == 'true'
+
+      - uses: actions/download-artifact@v4
+        if: needs.plan.outputs.run == 'true'
+        with:
+          pattern: results-*
+          path: results
+          merge-multiple: true
+
+      # A target whose build failed has no results: the expected count makes
+      # that fail the gate instead of vanishing.
+      - name: Judge all shards
+        if: needs.plan.outputs.run == 'true'
+        env:
+          BUILDS: ${{ toJSON(needs) }}
+        run: |
+          python3 -c "
+          import json, os
+          for name, job in json.loads(os.environ['BUILDS']).items():
+              if name != 'plan' and job['result'] != 'success':
+                  print(f'::error title={name}::{name}: {job[\"result\"]}')
+          "
+          python3 Scripts/ci/gate.py results --expect 57 --summary "$GITHUB_STEP_SUMMARY"

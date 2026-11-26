@@ -1,0 +1,5 @@
+518f70c377e7ddda2110f2ef2a657cfd69ec38fc3ace5f72b8a0160e36e09ae3  kairo-cross-llvm-aarch64-linux-musl.tar.zst
+501263c424c7beb5f00ed90260c58eb317f2cc433e11af86d2397384c452329f  kairo-cross-llvm-aarch64-windows-gnu.tar.zst
+8df8f16d7d2aeb66977fd4b67110897b86f41514b25c45ee8759d3ef4866423a  kairo-cross-llvm-arm64-apple-macosx11.0.tar.zst
+1d27666120638b152fd11a36185c22221498ff5e2b1832fcf1a9ada3d7bfbaa0  kairo-cross-llvm-x86_64-linux-musl.tar.zst
+630e9f81bdfdcc819ad2015e1ff368606c164c41478adbb7042e3c822680898a  kairo-cross-llvm-x86_64-windows-gnu.tar.zst

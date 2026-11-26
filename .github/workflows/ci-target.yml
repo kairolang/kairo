@@ -1,0 +1,167 @@
+# One target of ci.yml: cross-build the toolchain on a Linux x86_64 runner,
+# then run the lit suite sharded on a native runner of that target. The shards
+# need only this target's build, so a failed build stops this target's lit
+# and no other; a failed shard stops nothing.
+#
+# The build reads three things from the private kairolang/ci-deps repo:
+#   - the 0.3.0 seed compiler (the 0.3 series is in lock step: every 0.3.N
+#     compiler is built by the packaged 0.3.0 release),
+#   - this target's prebuilt cross LLVM (built from the Lib/llvm-runtimes pin),
+#   - this target's own sysroot: inside the target's seed archive, except
+#     Darwin's, which holds Apple's SDK and is kept in its own release.
+
+name: ci-target
+
+on:
+  workflow_call:
+    inputs:
+      target: {type: string, required: true}       # artifact and job label, e.g. win-x64
+      triple: {type: string, required: true}       # build.py --target
+      runner: {type: string, required: true}       # native runner for the shards
+      shards: {type: number, required: true}
+      seed: {type: string, default: ''}            # seed archive that carries the sysroot
+      sysroot: {type: string, default: ''}         # else: the ci-deps sysroot release's root
+      exe: {type: string, default: ''}
+    secrets:
+      CI_DEPS_TOKEN: {required: true}
+
+permissions:
+  contents: read
+
+env:
+  DEPS_REPO: kairolang/ci-deps
+  SEED_TAG: seed-0.3.0
+  SEED_SUMS: .github/ci/seed-0.3.0.sha256
+  LLVM_TAG: llvm-23.1.6-f71528dff6e1
+  LLVM_SUMS: .github/ci/llvm-23.1.6.sha256
+  SYSROOTS_TAG: sysroots-llvm23-f71528dff6e1
+  SYSROOTS_SUMS: .github/ci/sysroots-llvm23.sha256
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    outputs:
+      shards: ${{ steps.shards.outputs.list }}
+    env:
+      GH_TOKEN: ${{ secrets.CI_DEPS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The build reads the LLVM fork's headers and a few of its sources, the
+      # runtime's mimalloc and the vendored zlib / zstd.
+      - name: Check out the sources the build reads
+        run: git submodule update --init --depth 1 -- Lib/llvm-runtimes Lib/rt/mimalloc Lib/third_party
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install zstd and unzip
+        run: sudo apt-get install -y --no-install-recommends zstd unzip
+
+      # The key covers everything the tree is built from. A change that
+      # touches only Tests/ restores the packed tree and skips the build.
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: compiler-tree.tar.gz
+          key: tree-${{ inputs.target }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-${{ hashFiles('Compiler/**', 'Linker/**', 'Analyzer/**', 'Extras/Formatter/**', 'Lib/builtin/**', 'Lib/std/**', 'Lib/rt/**', 'Scripts/**', 'build.py') }}
+
+      - name: Fetch the seed compilers, the cross LLVM and the sysroot
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          fetch() { python3 Scripts/ci/fetch_seed.py --repo "$DEPS_REPO" "$@"; }
+          host=$(fetch --tag "$SEED_TAG" --archive kairo-0.3.0-x86_64-linux-musl.tar.xz --sums "$SEED_SUMS" --out "$RUNNER_TEMP/seed-host")
+          echo "HOST_SEED=$host" >> "$GITHUB_ENV"
+          llvm=$(fetch --tag "$LLVM_TAG" --archive "kairo-cross-llvm-${{ inputs.triple }}.tar.zst" --sums "$LLVM_SUMS" --out "$RUNNER_TEMP/llvm" --raw)
+          python3 Scripts/ci_deps.py unpack "$llvm" --root "$PWD"
+
+          # The tree's sysroot is the target's own, put in place before the
+          # build: build.py leaves an existing one alone and otherwise links
+          # the build host's (the wrong target's).
+          mkdir -p build/rel
+          if [ -n "${{ inputs.seed }}" ]; then
+            target=$(fetch --tag "$SEED_TAG" --archive "${{ inputs.seed }}" --sums "$SEED_SUMS" --out "$RUNNER_TEMP/seed-target")
+            cp -a "$target/sysroot" build/rel/sysroot
+          else
+            # The compiler doing the build resolves the target's root in its
+            # own sysroot/, so the root goes there as well as into the tree.
+            sr=$(fetch --tag "$SYSROOTS_TAG" --archive "sysroot-${{ inputs.sysroot }}-llvm23.tar.zst" --sums "$SYSROOTS_SUMS" --out "$RUNNER_TEMP/sysroot" --raw)
+            mkdir -p build/rel/sysroot
+            tar --zstd -xf "$sr" -C build/rel/sysroot
+            cp -a "build/rel/sysroot/${{ inputs.sysroot }}" "$host/sysroot/"
+          fi
+
+      - name: Check the LLVM matches the pinned fork
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          want=$(git -C Lib/llvm-runtimes rev-parse HEAD)
+          have=$(awk '$1=="llvm"{print $2}' "build/cross-llvm/${{ inputs.triple }}/PREBUILT")
+          test "$want" = "$have" || { echo "::error::cross LLVM is $have, Lib/llvm-runtimes is $want: rebuild the ci-deps LLVM release"; exit 1; }
+
+      - name: Build the compiler with the seed
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          python3 build.py --release --target "${{ inputs.triple }}" kairo kcc kld kfmt ksys kals \
+            --single --no-prebuild --kairo "$HOST_SEED/bin/kairo" --out build/rel
+          # obj/ is build scratch the tests never read.
+          tar -czf compiler-tree.tar.gz --exclude=rel/obj -C build rel
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tree-${{ inputs.target }}
+          path: compiler-tree.tar.gz
+          compression-level: 0
+          retention-days: 3
+
+      - id: shards
+        run: echo "list=$(python3 -c 'import json;print(json.dumps(list(range(1, ${{ inputs.shards }} + 1))))')" >> "$GITHUB_OUTPUT"
+
+  lit:
+    name: lit ${{ matrix.shard }}/${{ inputs.shards }}
+    needs: build
+    runs-on: ${{ inputs.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.build.outputs.shards) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tree-${{ inputs.target }}
+
+      - name: Unpack the tree and install lit
+        run: |
+          tar -xzf compiler-tree.tar.gz
+          python3 -m pip install --quiet lit filecheck
+
+      - name: Run shard
+        run: |
+          mkdir -p results
+          export KAIRO_BIN="$PWD/rel/bin/kairo${{ inputs.exe }}"
+          lit Tests -s -j "$(python3 -c 'import os;print(os.cpu_count())')" \
+            --num-shards=${{ inputs.shards }} --run-shard=${{ matrix.shard }} \
+            -o "results/${{ inputs.target }}-${{ matrix.shard }}.json" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ inputs.target }}-${{ matrix.shard }}
+          path: results/*.json
+          retention-days: 7
+
+      - name: Judge shard
+        run: python3 Scripts/ci/gate.py results --expect 1 --summary "$GITHUB_STEP_SUMMARY"
