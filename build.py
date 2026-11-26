@@ -450,6 +450,16 @@ def bitcode_producer_major(archive: Path) -> int:
     return int(m.group(1)) if m else 0
 
 
+def fork_major(llvm_src: Path) -> int:
+    """The LLVM major the fork's sources are at (0 when the checkout has no version file)."""
+    try:
+        text = (llvm_src / "cmake" / "Modules" / "LLVMVersion.cmake").read_text()
+    except OSError:
+        return 0
+    m = re.search(r"set\(LLVM_VERSION_MAJOR (\d+)\)", text)
+    return int(m.group(1)) if m else 0
+
+
 def llvm_major(llvm_build: Path) -> int:
     m = re.search(r"^#define LLVM_VERSION_MAJOR (\d+)",
                   (llvm_build / "include" / "llvm" / "Config" / "llvm-config.h").read_text(), re.M)
@@ -460,7 +470,8 @@ def cross_llvm_args(llvm_src: Path, target: str) -> list:
     llvm_build = cross_dir(target) / "llvm"
     deps = cross_dir(target) / "deps" / "prefix"
     if not (llvm_build / "lib" / "libLLVMCore.a").exists():
-        die(f"no cross LLVM for {target} at {llvm_build}; run python3 Scripts/cross_llvm.py {target}")
+        die(f"no cross LLVM for {target} at {llvm_build}; run python3 Scripts/cross_llvm.py {target} "
+            "(in a worktree: link build/cross-llvm to the main checkout's)")
     tos, floor = CROSS[target]
     a = []
     for inc in (llvm_build / "include", llvm_src / "llvm" / "include", llvm_src / "lld" / "include",
@@ -1663,6 +1674,15 @@ def main() -> int:
     llvm_build = ROOT / "build" / "llvm"
     llvm_src = ROOT / "Lib" / "llvm-runtimes"
     kbld_dir = ROOT / "build" / ".kbld"
+    # The host LLVM (build/llvm) is older than the fork's sources once the fork moves on,
+    # and its generated headers then lack what the sources use (cc1as_main.cpp:
+    # OPT_reloc_section_sym). Only a cross LLVM is rebuilt at the pinned fork commit.
+    if not a.target and not (a.print_jobs or a.print_command or a.emit_compile_json):
+        src_major = fork_major(llvm_src)
+        if src_major and llvm_major(llvm_build) not in (0, src_major):
+            die(f"the host LLVM {llvm_build} is major {llvm_major(llvm_build)} but Lib/llvm-runtimes is "
+                f"major {src_major}; build against the bundled one: --target x86_64-linux-musl "
+                "--stale-llvm=use (needs build/cross-llvm; a worktree links it to the main checkout's)")
     # The generated meta lives under --out: builds that run at once (two targets, two
     # tools' trees) would otherwise race on one shared file and compile each other's
     # text, whose section syntax is per object format. Reproducible: the out prefix is
