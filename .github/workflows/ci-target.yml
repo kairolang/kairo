@@ -41,6 +41,7 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     outputs:
       shards: ${{ steps.shards.outputs.list }}
     env:
@@ -125,6 +126,9 @@ jobs:
     name: lit ${{ matrix.shard }}/${{ inputs.shards }}
     needs: build
     runs-on: ${{ inputs.runner }}
+    # A hung lit worker otherwise holds the runner for GitHub's 6 h limit; the
+    # shard then reports no results, which the gate counts as a failure.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
