@@ -84,9 +84,65 @@ jobs:
     with: {target: mac-arm64, triple: arm64-apple-macosx11.0, runner: macos-15, shards: 5, sysroot: arm64-apple-macosx}
     secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
 
+  # Compiler/Spec/SelfHosting.md, "Fixed point": the seed-built compiler (A,
+  # linux-x64's tree) builds B, B builds C, and B and C must be bit-identical.
+  # Only linux-x64 runs where it is built, so only it is checked.
+  selfhost:
+    name: self-rebuild
+    needs: [plan, linux-x64]
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ secrets.CI_DEPS_TOKEN }}
+      TRIPLE: x86_64-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out the sources the build reads
+        run: git submodule update --init --depth 1 -- Lib/llvm-runtimes Lib/rt/mimalloc Lib/third_party
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install zstd
+        run: sudo apt-get install -y --no-install-recommends zstd
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tree-linux-x64
+
+      - name: Fetch the cross LLVM
+        run: |
+          set -euo pipefail
+          llvm=$(python3 Scripts/ci/fetch_seed.py --repo kairolang/ci-deps --tag llvm-23.1.6-f71528dff6e1 \
+                   --archive "kairo-cross-llvm-$TRIPLE.tar.zst" --sums .github/ci/llvm-23.1.6.sha256 \
+                   --out "$RUNNER_TEMP/llvm" --raw)
+          python3 Scripts/ci_deps.py unpack "$llvm" --root "$PWD"
+          tar -xzf compiler-tree.tar.gz
+
+      - name: Build B with A, then C with B
+        run: |
+          set -euo pipefail
+          prev=rel
+          for s in B C; do
+            python3 build.py --release --reproducible --target "$TRIPLE" kairo \
+              --single --no-prebuild --kairo "$prev/bin/kairo" --out "build/$s"
+            prev="build/$s"
+          done
+
+      - name: B and C are bit-identical
+        run: |
+          sha256sum build/B/bin/kairo build/C/bin/kairo
+          cmp build/B/bin/kairo build/C/bin/kairo || {
+            echo "::error title=self-rebuild::the compiler is not a fixed point: B and C differ (Compiler/Spec/SelfHosting.md)"
+            exit 1
+          }
+
   gate:
     name: gate
-    needs: [plan, linux-x64, linux-arm64, win-x64, win-arm64, mac-arm64]
+    needs: [plan, linux-x64, linux-arm64, win-x64, win-arm64, mac-arm64, selfhost]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -111,16 +167,20 @@ jobs:
           merge-multiple: true
 
       # A target whose build failed has no results: the expected count makes
-      # that fail the gate instead of vanishing.
+      # that fail the gate instead of vanishing. A failed job with no results
+      # of its own (self-rebuild) fails it through the job check.
       - name: Judge all shards
         if: needs.plan.outputs.run == 'true'
         env:
-          BUILDS: ${{ toJSON(needs) }}
+          JOBS: ${{ toJSON(needs) }}
         run: |
+          jobs_ok=0
           python3 -c "
-          import json, os
-          for name, job in json.loads(os.environ['BUILDS']).items():
-              if name != 'plan' and job['result'] != 'success':
-                  print(f'::error title={name}::{name}: {job[\"result\"]}')
-          "
-          python3 Scripts/ci/gate.py results --expect 57 --summary "$GITHUB_STEP_SUMMARY"
+          import json, os, sys
+          bad = [n for n, j in json.loads(os.environ['JOBS']).items() if n != 'plan' and j['result'] != 'success']
+          for n in bad:
+              print(f'::error title={n}::{n} did not succeed')
+          sys.exit(1 if bad else 0)
+          " || jobs_ok=1
+          python3 Scripts/ci/gate.py results --expect 57 --summary "$GITHUB_STEP_SUMMARY" || exit 1
+          exit $jobs_ok
