@@ -182,12 +182,54 @@ jobs:
           JOBS: ${{ toJSON(needs) }}
         run: |
           jobs_ok=0
+          mkdir -p badges
           python3 -c "
           import json, os, sys
-          bad = [n for n, j in json.loads(os.environ['JOBS']).items() if n != 'trigger' and j['result'] != 'success']
+          jobs = json.loads(os.environ['JOBS'])
+          bad = [n for n, j in jobs.items() if n != 'trigger' and j['result'] != 'success']
           for n in bad:
               print(f'::error title={n}::{n} did not succeed')
+          r = jobs['selfhost']['result']
+          msg, color = {'success': ('fixed point', 'brightgreen'), 'failure': ('failed', 'red')}.get(r, (r, 'lightgrey'))
+          json.dump({'schemaVersion': 1, 'label': 'self-rebuild', 'message': msg, 'color': color}, open('badges/self-rebuild.json', 'w'))
           sys.exit(1 if bad else 0)
           " || jobs_ok=1
-          python3 Scripts/ci/gate.py results --expect 57 --summary "$GITHUB_STEP_SUMMARY" || exit 1
+          python3 Scripts/ci/gate.py results --expect 57 --summary "$GITHUB_STEP_SUMMARY" \
+            --badges badges --targets linux-x64:13,linux-arm64:13,win-x64:13,win-arm64:13,mac-arm64:5 || exit 1
           exit $jobs_ok
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && needs.trigger.outputs.run == 'true' }}
+        with:
+          name: badges
+          path: badges/*.json
+          retention-days: 7
+
+  # The README's badges read shields.io endpoint files from the badges branch,
+  # which holds only those files. Only a push to a release branch updates it,
+  # and a failure here never fails CI.
+  badges:
+    name: badges
+    needs: gate
+    if: ${{ !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/') }}
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: badges
+          path: badges
+
+      - name: Publish to the badges branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd badges
+          git init -q -b badges
+          git add ./*.json
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -qm "Badges for ${GITHUB_SHA::9}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
