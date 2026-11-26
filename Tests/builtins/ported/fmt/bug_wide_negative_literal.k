@@ -1,4 +1,3 @@
-// XFAIL: *
 // Defect (compiler): a negative decimal literal whose magnitude is wider than 64 bits (and narrower than 128), assigned
 // to an i256 or i512, is zero-extended instead of sign-extended: `var a: i256 = -18446744073709551616` holds
 // 340282366920938463444927863358058659840 (2^128 - 2^64), and `-170141183460469231731687303715884105728` holds

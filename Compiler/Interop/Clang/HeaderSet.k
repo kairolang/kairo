@@ -871,9 +871,11 @@ pub class HeaderSet {
             return unsafe &it->second
         }
 
-        // The root is the first direct include (an edge from the injected
-        // main) whose spelling matches. The walk is LIFO with children
-        // pushed in include order.
+        // The root is the direct include (an edge from the injected main)
+        // whose spelling matches. "time.h" also suffix-matches
+        // ".../sys/time.h", so among the matches the shortest path wins: it
+        // is the one with the fewest directories before the spelling. The
+        // walk is LIFO with children pushed in include order.
         self._build_path_index()
         var ks   = cxx::std::vector<u32>()
         var root = u32::MAX
@@ -881,12 +883,19 @@ pub class HeaderSet {
         if mit != self._node_of.end() {
             var *direct = &self._node_out[mit->second as usize]
             for var k: usize = 0; k < direct->size(); ++k {
-                if self._spelling_matches(
+                var cand  = (*direct)[k]
+                var cpath = self._node_path[cand as usize].size()
+                if !self._spelling_matches(
                     spelled,
-                    self._node_path[(*direct)[k] as usize],
+                    self._node_path[cand as usize],
                 ) {
-                    root = (*direct)[k]
-                    break
+                    continue
+                }
+
+                if root == u32::MAX {
+                    root = cand
+                } else if cpath < self._node_path[root as usize].size() {
+                    root = cand
                 }
             }
         }

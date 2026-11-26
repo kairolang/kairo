@@ -206,7 +206,13 @@ pub class TokenText {
         }
 
         // compiler-internal markers (todo!/include!/embed!...), not source tokens
-        if u.is_sentinel {
+        // embed_str! keeps kind LitString (it stands for a string literal), so
+        // unwrap_expansion does not flag it; its imm is a sentinel, not a
+        // table index.
+        var str_sentinel = (u.kind as u32) == (TokenKind::LitString as u32)
+            && u.imm >= (MacroSentinel::Threshold as u32)
+
+        if u.is_sentinel || str_sentinel {
             return TokenText(sentinel_text(u.imm), u.def_range, true, true)
         }
 

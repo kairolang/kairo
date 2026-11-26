@@ -57,6 +57,7 @@ import AST::Node::Expressions::{
     CastMode,
     ParenExpr,
     TypeCastExpr,
+    VariantInitExpr,
 }
 import AST::Node::PrimaryExpressions::{
     ChainExpr,
@@ -1089,7 +1090,12 @@ extend EmitIR {
         }
 
         var src_rec = self._record_operand(n->operand)
-        if src_rec && !self._type_is_pointer(n->operand->type_) {
+        // `null as T?`: OperatorLowering has turned the literal into the
+        // Null<T> variant, which is already the target's null, so the
+        // identity static_cast below is well-formed.
+        if src_rec
+            && !self._type_is_pointer(n->operand->type_)
+            && !isa<VariantInitExpr>(n->operand) {
             self._ice(
                 n->range,
                 "EmitIR: `as` on a record value; OperatorLowering owns op as / ctor casts",

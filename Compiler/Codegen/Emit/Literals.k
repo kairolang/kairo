@@ -323,6 +323,19 @@ extend EmitIR {
         var top      = one << 63
         var v        = ""
         var wide     = builtin_info(BuiltinKind::U128)->cxx.copy()
+        // A signed target wider than 128 bits: the unsigned 128-bit wrap below
+        // would zero-extend into it, so the magnitude is cast first and negated
+        // in the target, which cannot overflow (the magnitude is under 2^128).
+        if neg && ty != &null && (hi != 0 || lo >> 63 != 0) {
+            var unsafe *c = canon_unqual(ty)
+            if c != &null && isa<BuiltinType>(c) {
+                var *info = cast<BuiltinType>(c)->info()
+                if info->is_integer() && info->is_signed() && info->bits > 128 {
+                    return "(-" + self._int_text(ty, hi, lo, false) + ")"
+                }
+            }
+        }
+
         if hi != 0 {
             v = "static_cast<" + wide + f">({hi}ULL) * 4294967296ULL * 4294967296ULL + {lo}ULL"
             if neg {

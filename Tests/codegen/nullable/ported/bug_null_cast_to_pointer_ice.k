@@ -1,4 +1,3 @@
-// XFAIL: *
 // `null as *Animal?` ends in an internal compiler error in EmitIR ("`as` on a
 // record value; OperatorLowering owns op as / ctor casts") instead of either
 // compiling or a diagnostic. nullables.mdx (Nullable Types): a bare `null` is
