@@ -69,7 +69,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: compiler-tree.tar.gz
-          key: tree-${{ inputs.target }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-${{ hashFiles('Compiler/**', 'Linker/**', 'Analyzer/**', 'Extras/Formatter/**', 'Lib/builtin/**', 'Lib/std/**', 'Lib/rt/**', 'Scripts/**', 'build.py') }}
+          key: tree-v2-${{ inputs.target }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-${{ hashFiles('Compiler/**', 'Linker/**', 'Analyzer/**', 'Extras/Formatter/**', 'Lib/builtin/**', 'Lib/std/**', 'Lib/rt/**', 'Scripts/**', 'build.py') }}
 
       - name: Fetch the seed compilers, the cross LLVM and the sysroot
         if: steps.cache.outputs.cache-hit != 'true'
@@ -111,6 +111,12 @@ jobs:
           set -euo pipefail
           python3 build.py --release --target "${{ inputs.triple }}" kairo kcc kld kfmt ksys kals \
             --single --no-prebuild --kairo "$HOST_SEED/bin/kairo" --out build/rel
+          # The RUN lines need LLVM's FileCheck, not and count, built for the
+          # runner that tests the tree; this target's cross LLVM has them.
+          mkdir -p build/rel/test-tools
+          for t in FileCheck not count; do
+            cp "build/cross-llvm/${{ inputs.triple }}/llvm/bin/$t${{ inputs.exe }}" build/rel/test-tools/
+          done
           # obj/ is build scratch the tests never read.
           tar -czf compiler-tree.tar.gz --exclude=rel/obj -C build rel
 
@@ -157,7 +163,7 @@ jobs:
       - name: Unpack the tree and install lit
         run: |
           tar -xzf compiler-tree.tar.gz
-          python3 -m pip install --quiet lit filecheck psutil
+          python3 -m pip install --quiet lit psutil
 
       # --timeout (needs psutil) turns a hung test into TIMEOUT; --max-time
       # stops the shard before the job limit, so its results are written.
@@ -170,7 +176,7 @@ jobs:
           out="results/${{ inputs.target }}-${{ matrix.shard }}.json"
           export KAIRO_BIN="$PWD/rel/bin/kairo${{ inputs.exe }}"
           lit Tests -s -j "$(python3 -c 'import os;print(os.cpu_count())')" \
-            --timeout 600 --max-time 3900 \
+            --timeout 600 --max-time 3900 --param "filecheck=$PWD/rel/test-tools/FileCheck${{ inputs.exe }}" \
             --num-shards=${{ inputs.shards }} --run-shard=${{ matrix.shard }} \
             -o "$out" 2>&1 | tee lit.log || true
           skipped=$(sed -n 's/^ *Skipped *: *\([0-9][0-9]*\).*/\1/p' lit.log | head -1)
