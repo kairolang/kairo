@@ -27,7 +27,11 @@ permissions:
   contents: read
 
 jobs:
-  plan:
+  # Whether this event runs the suite: a push does; a pull request from a
+  # branch of this repository is covered by that branch's push run; a fork's
+  # cannot run.
+  trigger:
+    name: 'trigger: push, same-repo PR or fork'
     runs-on: ubuntu-24.04
     outputs:
       run: ${{ steps.m.outputs.run }}
@@ -50,36 +54,36 @@ jobs:
 
   # Shard counts: keep `expect` in the gate equal to their sum.
   linux-x64:
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
+    needs: trigger
+    if: needs.trigger.outputs.run == 'true'
     uses: ./.github/workflows/ci-target.yml
     with: {target: linux-x64, triple: x86_64-linux-musl, runner: ubuntu-24.04, shards: 13, seed: kairo-0.3.0-x86_64-linux-musl.tar.xz}
     secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
 
   linux-arm64:
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
+    needs: trigger
+    if: needs.trigger.outputs.run == 'true'
     uses: ./.github/workflows/ci-target.yml
     with: {target: linux-arm64, triple: aarch64-linux-musl, runner: ubuntu-24.04-arm, shards: 13, seed: kairo-0.3.0-aarch64-linux-musl.tar.xz}
     secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
 
   win-x64:
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
+    needs: trigger
+    if: needs.trigger.outputs.run == 'true'
     uses: ./.github/workflows/ci-target.yml
     with: {target: win-x64, triple: x86_64-windows-gnu, runner: windows-2025, shards: 13, seed: kairo-0.3.0-x86_64-windows-gnu.zip, exe: '.exe'}
     secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
 
   win-arm64:
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
+    needs: trigger
+    if: needs.trigger.outputs.run == 'true'
     uses: ./.github/workflows/ci-target.yml
     with: {target: win-arm64, triple: aarch64-windows-gnu, runner: windows-11-arm, shards: 13, seed: kairo-0.3.0-aarch64-windows-gnu.zip, exe: '.exe'}
     secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
 
   mac-arm64:
-    needs: plan
-    if: needs.plan.outputs.run == 'true'
+    needs: trigger
+    if: needs.trigger.outputs.run == 'true'
     uses: ./.github/workflows/ci-target.yml
     with: {target: mac-arm64, triple: arm64-apple-macosx11.0, runner: macos-15, shards: 5, sysroot: arm64-apple-macosx}
     secrets: {CI_DEPS_TOKEN: '${{ secrets.CI_DEPS_TOKEN }}'}
@@ -89,8 +93,8 @@ jobs:
   # Only linux-x64 runs where it is built, so only it is checked.
   selfhost:
     name: self-rebuild
-    needs: [plan, linux-x64]
-    if: needs.plan.outputs.run == 'true'
+    needs: [trigger, linux-x64]
+    if: needs.trigger.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -142,25 +146,25 @@ jobs:
 
   gate:
     name: gate
-    needs: [plan, linux-x64, linux-arm64, win-x64, win-arm64, mac-arm64, selfhost]
+    needs: [trigger, linux-x64, linux-arm64, win-x64, win-arm64, mac-arm64, selfhost]
     if: always()
     runs-on: ubuntu-24.04
     steps:
       - name: Pull request covered by the push run
-        if: needs.plan.outputs.reason == 'same-repo'
+        if: needs.trigger.outputs.reason == 'same-repo'
         run: echo "::notice::this branch's push run tests the same commit; its checks are on this pull request"
 
       - name: Fork pull requests cannot run
-        if: needs.plan.outputs.reason == 'fork'
+        if: needs.trigger.outputs.reason == 'fork'
         run: |
           echo "::error::the build reads the private ci-deps repo, and a fork's pull request gets no secrets: a maintainer pushes the branch to kairolang/kairo to run CI"
           exit 1
 
       - uses: actions/checkout@v4
-        if: needs.plan.outputs.run == 'true'
+        if: needs.trigger.outputs.run == 'true'
 
       - uses: actions/download-artifact@v4
-        if: needs.plan.outputs.run == 'true'
+        if: needs.trigger.outputs.run == 'true'
         with:
           pattern: results-*
           path: results
@@ -170,14 +174,14 @@ jobs:
       # that fail the gate instead of vanishing. A failed job with no results
       # of its own (self-rebuild) fails it through the job check.
       - name: Judge all shards
-        if: needs.plan.outputs.run == 'true'
+        if: needs.trigger.outputs.run == 'true'
         env:
           JOBS: ${{ toJSON(needs) }}
         run: |
           jobs_ok=0
           python3 -c "
           import json, os, sys
-          bad = [n for n, j in json.loads(os.environ['JOBS']).items() if n != 'plan' and j['result'] != 'success']
+          bad = [n for n, j in json.loads(os.environ['JOBS']).items() if n != 'trigger' and j['result'] != 'success']
           for n in bad:
               print(f'::error title={n}::{n} did not succeed')
           sys.exit(1 if bad else 0)
