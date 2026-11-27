@@ -57,14 +57,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The build reads the LLVM fork's headers and a few of its sources, the
-      # runtime's mimalloc and the vendored zlib / zstd.
-      - name: Check out the sources the build reads
-        run: git submodule update --init --depth 1 -- Lib/llvm-runtimes Lib/rt/mimalloc Lib/third_party
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      # The build reads the LLVM fork's headers and a few of its sources, the
+      # runtime's mimalloc and the vendored zlib / zstd.
+      - name: Check out the sources the build reads
+        run: python3 Scripts/ci/submodules.py Lib/llvm-runtimes Lib/rt/mimalloc Lib/third_party
 
       - name: Install zstd and unzip
         run: sudo apt-get install -y --no-install-recommends zstd unzip
@@ -156,14 +156,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The tests compile the runtime from the checkout's Lib/rt, which
-      # includes the mimalloc submodule.
-      - name: Check out the sources the tests compile
-        run: git submodule update --init --depth 1 -- Lib/rt/mimalloc
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      # The tests compile the runtime from the checkout's Lib/rt, which
+      # includes the mimalloc submodule.
+      - name: Check out the sources the tests compile
+        run: python3 Scripts/ci/submodules.py Lib/rt/mimalloc
 
       - uses: actions/download-artifact@v4
         with:

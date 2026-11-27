@@ -106,12 +106,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check out the sources the build reads
-        run: git submodule update --init --depth 1 -- Lib/llvm-runtimes Lib/rt/mimalloc Lib/third_party
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Check out the sources the build reads
+        run: python3 Scripts/ci/submodules.py Lib/llvm-runtimes Lib/rt/mimalloc Lib/third_party
 
       - name: Install zstd
         run: sudo apt-get install -y --no-install-recommends zstd
