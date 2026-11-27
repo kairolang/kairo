@@ -36,6 +36,8 @@ env:
   LLVM_SUMS: .github/ci/llvm-23.1.6.sha256
   SYSROOTS_TAG: sysroots-llvm23-f71528dff6e1
   SYSROOTS_SUMS: .github/ci/sysroots-llvm23.sha256
+  LIT_SYSROOTS_TAG: lit-sysroots-v2-llvm22
+  LIT_SYSROOTS_SUMS: .github/ci/lit-sysroots.sha256
 
 jobs:
   # One job per tool: the tools build independently, and on a 4-core runner
@@ -69,15 +71,19 @@ jobs:
       - name: Install zstd and unzip
         run: sudo apt-get install -y --no-install-recommends zstd unzip
 
-      # build.py's object cache carries over from this target and tool's last
+      # build.py's object caches carry over from this target and tool's last
       # run, so a change recompiles only what it touches: a rebuild with the
-      # cache kept took kairo 47 s instead of 164 s (4 threads, locally). The
-      # objects' own keys decide reuse; the cache key only picks the newest.
+      # caches kept took kairo 47 s instead of 164 s (4 threads, locally).
+      # build/objcache holds the Kairo TUs and the registry; .native-objs the
+      # one native object, clang's cc1as_main.cpp, which the TU cache does not hold.
+      # The objects' own keys decide reuse; the cache key only picks the newest.
       - uses: actions/cache@v4
         with:
-          path: build/objcache
-          key: objs-v1-${{ inputs.target }}-${{ matrix.tool }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-${{ github.sha }}
-          restore-keys: objs-v1-${{ inputs.target }}-${{ matrix.tool }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-
+          path: |
+            build/objcache
+            build/.native-objs
+          key: objs-v2-${{ inputs.target }}-${{ matrix.tool }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-${{ github.sha }}
+          restore-keys: objs-v2-${{ inputs.target }}-${{ matrix.tool }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-
 
       - name: Fetch the seed compilers, the cross LLVM and the sysroot
         run: |
@@ -180,6 +186,17 @@ jobs:
           done
           ls rel/bin
           python3 -m pip install --quiet lit psutil
+
+      # The tree holds only its own target's roots, but the suite also
+      # compiles for Linux, wasi, windows-gnu and Darwin targets everywhere;
+      # with no root the compiler builds one through ksys, which on Windows
+      # ran past lit's per-test limit.
+      - name: Add the cross-target sysroots
+        env:
+          GH_TOKEN: ${{ secrets.CI_DEPS_TOKEN }}
+        run: |
+          python3 Scripts/ci/lit_sysroots.py --repo "$DEPS_REPO" --tag "$LIT_SYSROOTS_TAG" \
+            --archive lit-sysroots-v2-llvm22.tar.zst --sums "$LIT_SYSROOTS_SUMS" --into rel/sysroot
 
       # --timeout (needs psutil) turns a hung test into TIMEOUT; --max-time
       # stops the shard before the job limit, so its results are written.
