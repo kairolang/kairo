@@ -116,9 +116,10 @@ jobs:
       - name: Install zstd
         run: sudo apt-get install -y --no-install-recommends zstd
 
+      # Only A's kairo is needed: the build job's kairo output is the tree.
       - uses: actions/download-artifact@v4
         with:
-          name: tree-linux-x64
+          name: build-linux-x64-kairo
 
       - name: Fetch the cross LLVM
         run: |
@@ -127,7 +128,7 @@ jobs:
                    --archive "kairo-cross-llvm-$TRIPLE.tar.zst" --sums .github/ci/llvm-23.1.6.sha256 \
                    --out "$RUNNER_TEMP/llvm" --raw)
           python3 Scripts/ci_deps.py unpack "$llvm" --root "$PWD"
-          tar -xzf compiler-tree.tar.gz
+          tar -xzf out-kairo.tar.gz
 
       - name: Build B with A, then C with B
         run: |

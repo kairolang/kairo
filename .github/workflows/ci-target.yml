@@ -38,12 +38,18 @@ env:
   SYSROOTS_SUMS: .github/ci/sysroots-llvm23.sha256
 
 jobs:
+  # One job per tool: the tools build independently, and on a 4-core runner
+  # the six one after another took 30-90 min. The kairo job's output is the
+  # staged tree (clang, lld, Lib, sysroot, the test tools); the others add
+  # their binary to it.
   build:
-    name: build
+    name: build ${{ matrix.tool }}
     runs-on: ubuntu-24.04
-    # The first run took 36-67 min for the Linux and Windows targets and over
-    # 90 for macOS on a standard runner.
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [kairo, kals, kld, kfmt, ksys, kcc]
     outputs:
       shards: ${{ steps.shards.outputs.list }}
     env:
@@ -63,16 +69,17 @@ jobs:
       - name: Install zstd and unzip
         run: sudo apt-get install -y --no-install-recommends zstd unzip
 
-      # The key covers everything the tree is built from. A change that
-      # touches only Tests/ restores the packed tree and skips the build.
-      - id: cache
-        uses: actions/cache@v4
+      # build.py's object cache carries over from this target and tool's last
+      # run, so a change recompiles only what it touches: a rebuild with the
+      # cache kept took kairo 47 s instead of 164 s (4 threads, locally). The
+      # objects' own keys decide reuse; the cache key only picks the newest.
+      - uses: actions/cache@v4
         with:
-          path: compiler-tree.tar.gz
-          key: tree-v2-${{ inputs.target }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-${{ hashFiles('Compiler/**', 'Linker/**', 'Analyzer/**', 'Extras/Formatter/**', 'Lib/builtin/**', 'Lib/std/**', 'Lib/rt/**', 'Scripts/**', 'build.py') }}
+          path: build/objcache
+          key: objs-v1-${{ inputs.target }}-${{ matrix.tool }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-${{ github.sha }}
+          restore-keys: objs-v1-${{ inputs.target }}-${{ matrix.tool }}-${{ env.SEED_TAG }}-${{ env.LLVM_TAG }}-${{ env.SYSROOTS_TAG }}-
 
       - name: Fetch the seed compilers, the cross LLVM and the sysroot
-        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           fetch() { python3 Scripts/ci/fetch_seed.py --repo "$DEPS_REPO" "$@"; }
@@ -98,32 +105,34 @@ jobs:
           fi
 
       - name: Check the LLVM matches the pinned fork
-        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           want=$(git -C Lib/llvm-runtimes rev-parse HEAD)
           have=$(awk '$1=="llvm"{print $2}' "build/cross-llvm/${{ inputs.triple }}/PREBUILT")
           test "$want" = "$have" || { echo "::error::cross LLVM is $have, Lib/llvm-runtimes is $want: rebuild the ci-deps LLVM release"; exit 1; }
 
-      - name: Build the compiler with the seed
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Build ${{ matrix.tool }} with the seed
         run: |
           set -euo pipefail
-          python3 build.py --release --target "${{ inputs.triple }}" kairo kcc kld kfmt ksys kals \
-            --single --no-prebuild --kairo "$HOST_SEED/bin/kairo" --out build/rel
-          # The RUN lines need LLVM's FileCheck, not and count, built for the
-          # runner that tests the tree; this target's cross LLVM has them.
-          mkdir -p build/rel/test-tools
-          for t in FileCheck not count; do
-            cp "build/cross-llvm/${{ inputs.triple }}/llvm/bin/$t${{ inputs.exe }}" build/rel/test-tools/
-          done
-          # obj/ is build scratch the tests never read.
-          tar -czf compiler-tree.tar.gz --exclude=rel/obj -C build rel
+          python3 build.py --release --target "${{ inputs.triple }}" ${{ matrix.tool }} \
+            --single --no-prebuild --kairo "$HOST_SEED/bin/kairo" --out build/rel --cache-dir build/objcache
+          if [ "${{ matrix.tool }}" = kairo ]; then
+            # The RUN lines need LLVM's FileCheck, not and count, built for the
+            # runner that tests the tree; this target's cross LLVM has them.
+            mkdir -p build/rel/test-tools
+            for t in FileCheck not count; do
+              cp "build/cross-llvm/${{ inputs.triple }}/llvm/bin/$t${{ inputs.exe }}" build/rel/test-tools/
+            done
+            # obj/ is build scratch the tests never read.
+            tar -czf out-kairo.tar.gz --exclude=rel/obj -C build rel
+          else
+            tar -czf "out-${{ matrix.tool }}.tar.gz" -C build "rel/bin/${{ matrix.tool }}${{ inputs.exe }}"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tree-${{ inputs.target }}
-          path: compiler-tree.tar.gz
+          name: build-${{ inputs.target }}-${{ matrix.tool }}
+          path: out-${{ matrix.tool }}.tar.gz
           compression-level: 0
           retention-days: 3
 
@@ -158,11 +167,18 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: tree-${{ inputs.target }}
+          pattern: build-${{ inputs.target }}-*
+          merge-multiple: true
 
-      - name: Unpack the tree and install lit
+      # kairo's output is the tree; each other tool's adds its binary.
+      - name: Assemble the tree and install lit
         run: |
-          tar -xzf compiler-tree.tar.gz
+          set -euo pipefail
+          tar -xzf out-kairo.tar.gz
+          for f in out-*.tar.gz; do
+            if [ "$f" != out-kairo.tar.gz ]; then tar -xzf "$f"; fi
+          done
+          ls rel/bin
           python3 -m pip install --quiet lit psutil
 
       # --timeout (needs psutil) turns a hung test into TIMEOUT; --max-time
